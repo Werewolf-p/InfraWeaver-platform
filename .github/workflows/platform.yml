@@ -157,9 +157,13 @@ jobs:
           command -v sops || (sudo curl -fsSL -o /usr/local/bin/sops \
             https://github.com/getsops/sops/releases/download/v3.10.2/sops-v3.10.2.linux.amd64 && \
             sudo chmod +x /usr/local/bin/sops)
-          command -v talosctl || (sudo curl -fsSL -o /usr/local/bin/talosctl \
-            https://github.com/siderolabs/talos/releases/download/v1.10.0/talosctl-linux-amd64 && \
-            sudo chmod +x /usr/local/bin/talosctl)
+          TALOS_VERSION=$(grep 'talos_version:' "envs/${{ env.ENV_NAME }}/cluster.yaml" | awk '{print $2}' | tr -d '"')
+          CURRENT_TC=$(talosctl version --client 2>/dev/null | awk '/Tag:/{print $2}' | head -1 || echo "none")
+          if [ "$CURRENT_TC" != "$TALOS_VERSION" ]; then
+            echo "Installing talosctl $TALOS_VERSION (current: $CURRENT_TC)..."
+            sudo curl -fsSL -o /usr/local/bin/talosctl               "https://github.com/siderolabs/talos/releases/download/${TALOS_VERSION}/talosctl-linux-amd64"
+            sudo chmod +x /usr/local/bin/talosctl
+          fi
           command -v age || (curl -fsSL -o /tmp/age.tar.gz \
             https://github.com/FiloSottile/age/releases/download/v1.1.1/age-v1.1.1-linux-amd64.tar.gz && \
             sudo tar -xzf /tmp/age.tar.gz -C /usr/local/bin/ --strip-components=1 age/age age/age-keygen)
@@ -210,15 +214,75 @@ jobs:
           # Stage 2: deploy platform bootstrap (ArgoCD + ApplicationSet)
           tofu apply $VARS -auto-approve 2>&1
 
-      - name: Save kubeconfig
-        if: success()
+      - name: Save kubeconfig & talosconfig
+        if: always()
         run: |
           ENV=${{ env.ENV_NAME }}
-          STATE_DIR=~/.tofu/state/platform-$ENV
+          mkdir -p ~/.kube
           cd terraform
-          # Export kubeconfig from state
           tofu output -raw kubeconfig > ~/.kube/config-platform-$ENV 2>/dev/null || true
           chmod 600 ~/.kube/config-platform-$ENV 2>/dev/null || true
-          echo "✅ Kubeconfig saved to ~/.kube/config-platform-$ENV"
-          # Test connectivity
-          KUBECONFIG=~/.kube/config-platform-$ENV kubectl get nodes 2>&1 || echo "Cluster not ready yet (expected for first deploy)"
+          tofu output -raw talosconfig > "../envs/$ENV/generated/talosconfig" 2>/dev/null || true
+          chmod 600 "../envs/$ENV/generated/talosconfig" 2>/dev/null || true
+          echo "✅ Kubeconfig/talosconfig saved"
+          KUBECONFIG=~/.kube/config-platform-$ENV kubectl get nodes 2>&1 || echo "  (cluster not yet reachable)"
+
+      - name: Deploy ArgoCD & Bootstrap
+        if: success()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ARGOCD_GITHUB_TOKEN: ${{ secrets.ARGOCD_GITHUB_TOKEN }}
+        run: |
+          ENV=${{ env.ENV_NAME }}
+          KB=~/.kube/config-platform-$ENV
+          ARGOCD_VERSION="v2.12.4"
+
+          # Ensure kubeconfig is present
+          if [ ! -s "$KB" ]; then
+            cd terraform
+            tofu output -raw kubeconfig > "$KB" 2>/dev/null || true
+            chmod 600 "$KB"
+            cd ..
+          fi
+
+          # Create argocd namespace (idempotent)
+          kubectl --kubeconfig "$KB" create namespace argocd --dry-run=client -o yaml             | kubectl --kubeconfig "$KB" apply -f -
+
+          # Download ArgoCD manifests
+          curl -sL "https://raw.githubusercontent.com/argoproj/argo-cd/${ARGOCD_VERSION}/manifests/install.yaml"             > /tmp/argocd-install.yaml
+
+          # Apply ApplicationSet CRD separately (too large for client-side apply)
+          curl -sL "https://raw.githubusercontent.com/argoproj/argo-cd/${ARGOCD_VERSION}/manifests/crds/applicationset-crd.yaml"             | kubectl --kubeconfig "$KB" apply --server-side -f -
+
+          # Apply ArgoCD in argocd namespace
+          kubectl --kubeconfig "$KB" apply -n argocd -f /tmp/argocd-install.yaml
+
+          # Create repo credentials (use ARGOCD_GITHUB_TOKEN if set, else GITHUB_TOKEN)
+          REPO_TOKEN="${ARGOCD_GITHUB_TOKEN:-$GITHUB_TOKEN}"
+          # Write repo credentials manifest (temp file to avoid indentation issues)
+          cat > /tmp/argocd-repo-creds.yaml << EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: repo-creds-github
+  namespace: argocd
+  labels:
+    argocd.argoproj.io/secret-type: repo-creds
+type: Opaque
+stringData:
+  url: https://github.com/Werewolf-p/
+  username: x-access-token
+  password: "${REPO_TOKEN}"
+EOF
+          kubectl --kubeconfig "$KB" apply -n argocd -f /tmp/argocd-repo-creds.yaml
+          rm -f /tmp/argocd-repo-creds.yaml
+
+          # Apply bootstrap manifests (AppProject + ApplicationSet)
+          kubectl --kubeconfig "$KB" apply --server-side -f kubernetes/bootstrap/
+
+          # Wait for ArgoCD server to be available (up to 3 min)
+          kubectl --kubeconfig "$KB" wait --for=condition=available             deployment/argocd-server -n argocd --timeout=180s || true
+
+          echo "✅ ArgoCD deployed & bootstrapped"
+          kubectl --kubeconfig "$KB" get pods -n argocd
+          kubectl --kubeconfig "$KB" get applicationsets,appprojects -n argocd

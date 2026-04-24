@@ -584,14 +584,14 @@ resource "null_resource" "bootstrap_etcd" {
         --nodes "$CP_IP" \
         2>&1 || echo "  (bootstrap returned non-zero — may already be bootstrapped, continuing)"
 
-      echo "==> Waiting for Kubernetes API to be healthy (up to 10 min)..."
-      DEADLINE=$(( $(date +%s) + 600 ))
+      echo "==> Waiting for Kubernetes API to be healthy (up to 25 min)..."
+      DEADLINE=$(( $(date +%s) + 1500 ))
       while [ "$(date +%s)" -lt "$DEADLINE" ]; do
         if talosctl health \
           --talosconfig "$TALOSCONFIG" \
           --endpoints "$CP_IP" \
           --nodes "$CP_IP" \
-          --wait-timeout 30s \
+          --wait-timeout 60s \
           2>/dev/null; then
           echo "==> Cluster healthy ✓"
           exit 0
@@ -599,7 +599,7 @@ resource "null_resource" "bootstrap_etcd" {
         echo "  Waiting for cluster health..."
         sleep 20
       done
-      echo "ERROR: Cluster not healthy after 10 minutes" >&2
+      echo "ERROR: Cluster not healthy after 25 minutes" >&2
       exit 1
     BASH
   }
