@@ -424,46 +424,57 @@ resource "null_resource" "start_and_configure_talos" {
         echo "==> [${each.key}] VM $VMID already running."
       fi
 
-      # ── Discover DHCP IP by MAC ────────────────────────────────────────────
+      # ── Discover DHCP IP by scanning subnet from runner ───────────────────
+      # Get VM MAC from PVE node (reliable — directly from VM config)
       MAC=$(ssh $SSH_OPTS root@"$PVE_IP" \
         "qm config $VMID 2>/dev/null | grep '^net0:' | grep -oiP '(?<=virtio=)[A-Fa-f0-9:]+'" \
-        2>/dev/null || echo "")
+        2>/dev/null | tr '[:upper:]' '[:lower:]' || echo "")
       echo "==> [${each.key}] VM MAC: $MAC"
 
+      # Derive subnet from gateway (e.g. 10.25.0.1 -> 10.25.0)
+      SUBNET=$(echo "${var.gateway}" | sed 's/\.[0-9]*$//')
+
       DHCP_IP=""
-      echo "==> [${each.key}] Waiting for DHCP lease (up to 5 min)..."
-      for i in $(seq 1 60); do
-        DHCP_IP=$(ssh $SSH_OPTS root@"$PVE_IP" \
-          "arp -n 2>/dev/null | grep -i '$MAC' | awk '{print \$1}' | head -1" \
-          2>/dev/null || echo "")
-        # Also try /proc/net/arp on the PVE host
-        if [ -z "$DHCP_IP" ]; then
-          DHCP_IP=$(ssh $SSH_OPTS root@"$PVE_IP" \
-            "grep -i '$MAC' /proc/net/arp 2>/dev/null | awk '{print \$1}' | head -1" \
-            2>/dev/null || echo "")
+      echo "==> [${each.key}] Scanning $SUBNET.0/24 for Talos API (port 50000)..."
+      for attempt in $(seq 1 20); do
+        TMPFILE=$(mktemp /tmp/talos_scan_XXXXXX)
+        # Parallel TCP probe for port 50000 across full subnet
+        for last in $(seq 1 254); do
+          ip="$SUBNET.$last"
+          (timeout 0.5 bash -c "echo >/dev/tcp/$ip/50000" 2>/dev/null && echo "$ip" >> "$TMPFILE") &
+        done
+        wait
+
+        if [ -s "$TMPFILE" ]; then
+          while IFS= read -r candidate; do
+            # Ping to ensure ARP entry is populated
+            ping -c 1 -W 1 "$candidate" >/dev/null 2>&1 || true
+            FOUND_MAC=$(ip neigh show "$candidate" 2>/dev/null \
+              | grep -oiP '[0-9a-f]{2}(:[0-9a-f]{2}){5}' | head -1 \
+              | tr '[:upper:]' '[:lower:]')
+            if [ "$FOUND_MAC" = "$MAC" ]; then
+              DHCP_IP="$candidate"
+              break
+            fi
+          done < "$TMPFILE"
         fi
-        if [ -n "$DHCP_IP" ] && [ "$DHCP_IP" != "0.0.0.0" ]; then
-          echo "  Found DHCP IP: $DHCP_IP (attempt $i)"
+        rm -f "$TMPFILE"
+
+        if [ -n "$DHCP_IP" ]; then
+          echo "  Found DHCP IP: $DHCP_IP (attempt $attempt)"
           break
         fi
-        echo "  No ARP entry yet (attempt $i/60)..."
-        sleep 5
+        echo "  [${each.key}] No match yet (attempt $attempt/20), waiting 15s..."
+        sleep 15
       done
 
-      if [ -z "$DHCP_IP" ] || [ "$DHCP_IP" = "0.0.0.0" ]; then
+      if [ -z "$DHCP_IP" ]; then
         echo "ERROR: Could not discover DHCP IP for ${each.key} (MAC: $MAC)" >&2
-        echo "  Tip: Check the VM console via Proxmox UI and verify DHCP is available." >&2
         exit 1
       fi
 
-      # ── Wait for Talos maintenance API on DHCP IP ─────────────────────────
-      echo "==> [${each.key}] Waiting for Talos API on $DHCP_IP:50000..."
-      for i in $(seq 1 30); do
-        timeout 3 bash -c "echo >/dev/tcp/$DHCP_IP/50000" 2>/dev/null && \
-          echo "  Talos API reachable on $DHCP_IP (attempt $i) ✓" && break
-        echo "  Attempt $i/30: waiting..."
-        sleep 10
-      done
+      # ── Talos API is already reachable (we found it via port 50000 scan) ───
+      echo "==> [${each.key}] Talos maintenance API reachable at $DHCP_IP:50000 ✓"
 
       # ── Apply machine config (sets static IP, triggers reboot) ────────────
       echo "==> [${each.key}] Applying machine config to $DHCP_IP..."
