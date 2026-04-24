@@ -424,27 +424,36 @@ resource "null_resource" "start_and_configure_talos" {
         echo "==> [${each.key}] VM $VMID already running."
       fi
 
-      # ── Discover DHCP IP via TCP scan from PVE node (same L2 bridge) ────────
-      # Get VM MAC from PVE node config (always reliable)
+      # ── Discover DHCP IP: port 50000 open IPs → MAC match ────────────────
+      # Get VM MAC from PVE config
       MAC=$(ssh $SSH_OPTS root@"$PVE_IP" \
         "qm config $VMID 2>/dev/null | grep '^net0:' | grep -oiP '(?<=virtio=)[A-Fa-f0-9:]+'" \
         2>/dev/null | tr '[:upper:]' '[:lower:]' || echo "")
       echo "==> [${each.key}] VM MAC: $MAC"
 
-      # Derive subnet from gateway (e.g. 10.25.0.1 -> 10.25.0)
-      SUBNET=$(echo "${var.gateway}" | sed 's/\.[0-9]*$//')
-
       DHCP_IP=""
-      echo "==> [${each.key}] Waiting for DHCP lease and Talos API (up to 6 min)..."
+      echo "==> [${each.key}] Discovering DHCP IP (up to 6 min)..."
       for attempt in $(seq 1 24); do
-        # Key insight: scan from the PVE node itself (same L2 bridge as VM).
-        # TCP connect attempts to port 50000 cause the PVE node to send ARP
-        # requests, which the Talos VM replies to, populating 'ip neigh show'.
+        # Scan from PVE node (same vmbr0 as VM). TCP connects trigger ARP
+        # replies from responding hosts, populating 'ip neigh show'.
+        # We then check: for each IP with port 50000 open, does its ARP MAC
+        # match our VM's MAC? This avoids false positives from stale entries.
         DHCP_IP=$(ssh $SSH_OPTS root@"$PVE_IP" \
-          "for last in \$(seq 1 254); do
-             (timeout 0.3 bash -c \"echo >/dev/tcp/$SUBNET.\$last/50000\" 2>/dev/null) &
-           done; wait 2>/dev/null; sleep 1
-           ip neigh show 2>/dev/null | grep -i '$MAC' | awk '{print \$1}' | head -1" \
+          "TMPF=\$(mktemp /tmp/talos_XXXXXX)
+           for last in \$(seq 1 254); do
+             ip_=10.25.0.\$last
+             (timeout 0.3 bash -c \"echo >/dev/tcp/\$ip_/50000\" 2>/dev/null && echo \$ip_ >> \$TMPF) &
+           done
+           wait 2>/dev/null; sleep 0.5
+           result=''
+           if [ -s \$TMPF ]; then
+             while IFS= read -r cip; do
+               cmac=\$(ip neigh show \$cip 2>/dev/null | awk '{print tolower(\$5)}' | head -1)
+               if [ \"\$cmac\" = '$MAC' ]; then result=\$cip; break; fi
+             done < \$TMPF
+           fi
+           rm -f \$TMPF
+           echo \$result" \
           2>/dev/null | tr -d '[:space:]' || echo "")
 
         if [ -n "$DHCP_IP" ] && [ "$DHCP_IP" != "0.0.0.0" ]; then
@@ -460,8 +469,7 @@ resource "null_resource" "start_and_configure_talos" {
         exit 1
       fi
 
-      # ── Talos API is already reachable (scan confirmed port 50000 open) ─────
-      echo "==> [${each.key}] Talos maintenance API reachable at $DHCP_IP:50000 ✓"
+      echo "==> [${each.key}] Talos API at $DHCP_IP:50000 ✓ (MAC verified)"
 
       # ── Apply machine config (sets static IP, triggers reboot) ────────────
       echo "==> [${each.key}] Applying machine config to $DHCP_IP..."
