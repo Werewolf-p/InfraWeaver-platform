@@ -263,7 +263,21 @@ jobs:
           curl -sL "https://raw.githubusercontent.com/argoproj/argo-cd/${ARGOCD_VERSION}/manifests/crds/applicationset-crd.yaml"             | kubectl --kubeconfig "$KB" apply --server-side --force-conflicts -f -
 
           # Apply ArgoCD in argocd namespace
-          kubectl --kubeconfig "$KB" apply -n argocd -f /tmp/argocd-install.yaml
+          kubectl --kubeconfig "$KB" apply -n argocd -f /tmp/argocd-install.yaml --server-side --force-conflicts
+
+          # The raw install.yaml pod templates lack app.kubernetes.io/instance=argocd label
+          # that the services (created by Helm or prior installs) require in their selectors.
+          # Patch all deployments/statefulsets to add the missing label so endpoints work.
+          INSTANCE_PATCH='{"spec":{"template":{"metadata":{"labels":{"app.kubernetes.io/instance":"argocd"}}}}}'
+          for resource in \
+            deploy/argocd-repo-server \
+            deploy/argocd-server \
+            deploy/argocd-applicationset-controller \
+            deploy/argocd-notifications-controller \
+            deploy/argocd-dex-server \
+            statefulset/argocd-application-controller; do
+            kubectl --kubeconfig "$KB" patch $resource -n argocd -p "$INSTANCE_PATCH" 2>/dev/null || true
+          done
 
           # Create repo credentials (use ARGOCD_GITHUB_TOKEN if set, else GITHUB_TOKEN)
           REPO_TOKEN="${ARGOCD_GITHUB_TOKEN:-$GITHUB_TOKEN}"
