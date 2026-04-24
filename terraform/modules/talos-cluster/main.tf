@@ -439,7 +439,7 @@ resource "null_resource" "start_and_configure_talos" {
         # Also try /proc/net/arp on the PVE host
         if [ -z "$DHCP_IP" ]; then
           DHCP_IP=$(ssh $SSH_OPTS root@"$PVE_IP" \
-            "grep -i '${MAC}' /proc/net/arp 2>/dev/null | awk '{print \$1}' | head -1" \
+            "grep -i '$MAC' /proc/net/arp 2>/dev/null | awk '{print \$1}' | head -1" \
             2>/dev/null || echo "")
         fi
         if [ -n "$DHCP_IP" ] && [ "$DHCP_IP" != "0.0.0.0" ]; then
