@@ -21,6 +21,11 @@ configs:
   params:
     server.insecure: "true"
 
+redis:
+  serviceAccount:
+    create: false
+    name: argocd-redis  # use pre-existing SA with secret create/get RBAC for secret-init
+
 redis-ha:
   enabled: false  # enable for productie HA
 
