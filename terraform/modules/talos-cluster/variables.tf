@@ -202,3 +202,8 @@ variable "talos_image_datastore" {
   type        = string
   default     = "local"
 }
+
+variable "environment" {
+  description = "Deployment environment name (e.g. 'productie', 'ontwikkel'). Used to locate the generated/ directory for machine configs."
+  type        = string
+}

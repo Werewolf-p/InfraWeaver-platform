@@ -84,6 +84,8 @@ module "talos_cluster" {
   subnet_prefix = local.cluster_config.subnet_prefix
 
   talos_image_datastore = local.cluster_config.talos_image_datastore
+
+  environment = var.environment
 }
 
 # ---------------------------------------------------------------------------
