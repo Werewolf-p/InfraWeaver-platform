@@ -42,7 +42,8 @@ spec:
           helm:
             releaseName: "{{ .releaseName }}"
             valueFiles:
-              - "$values/{{ .path.path | replace \"application.yaml\" \"values.yaml\" }}"
+              # .path.path is the directory (e.g. kubernetes/monitoring/kube-prometheus-stack)
+              - "$values/{{ .path.path }}/values.yaml"
       destination:
         server: https://kubernetes.default.svc
         namespace: "{{ .namespace }}"
