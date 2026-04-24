@@ -595,19 +595,31 @@ resource "null_resource" "bootstrap_etcd" {
 
       echo "==> Waiting for Kubernetes API to be healthy (up to 25 min)..."
       DEADLINE=$(( $(date +%s) + 1500 ))
+      KUBE_TMP=$(mktemp)
       while [ "$(date +%s)" -lt "$DEADLINE" ]; do
-        if talosctl health \
-          --talosconfig "$TALOSCONFIG" \
-          --endpoints "$CP_IP" \
-          --nodes "$CP_IP" \
-          --wait-timeout 60s \
-          2>/dev/null; then
-          echo "==> Cluster healthy ✓"
-          exit 0
+        # Get a fresh kubeconfig and check all nodes are Ready.
+        # talosctl health requires stage=running which can stay "booting" on
+        # already-configured nodes — kubectl get nodes is a reliable substitute.
+        if talosctl kubeconfig "$KUBE_TMP" --force \
+             --talosconfig "$TALOSCONFIG" \
+             --endpoints "$CP_IP" \
+             --nodes "$CP_IP" 2>/dev/null; then
+          READY=$(KUBECONFIG="$KUBE_TMP" kubectl get nodes --no-headers 2>/dev/null \
+                  | grep -c " Ready " || true)
+          TOTAL=$(KUBECONFIG="$KUBE_TMP" kubectl get nodes --no-headers 2>/dev/null \
+                  | wc -l || true)
+          if [ "$TOTAL" -gt 0 ] && [ "$READY" -eq "$TOTAL" ]; then
+            echo "==> Cluster healthy ✓ ($READY/$TOTAL nodes Ready)"
+            rm -f "$KUBE_TMP"
+            exit 0
+          fi
+          echo "  Nodes ready: $READY/$TOTAL — waiting..."
+        else
+          echo "  Kubernetes API not yet reachable — waiting..."
         fi
-        echo "  Waiting for cluster health..."
         sleep 20
       done
+      rm -f "$KUBE_TMP"
       echo "ERROR: Cluster not healthy after 25 minutes" >&2
       exit 1
     BASH
