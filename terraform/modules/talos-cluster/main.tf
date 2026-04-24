@@ -572,10 +572,19 @@ resource "null_resource" "bootstrap_etcd" {
 
   provisioner "local-exec" {
     interpreter = ["bash", "-c"]
+    environment = {
+      TALOS_CONFIG = data.talos_client_configuration.this.talos_config
+    }
     command     = <<-BASH
       set -euo pipefail
       TALOSCONFIG="${local.generated_dir}/talosconfig"
       CP_IP="${local.first_cp_ip}"
+
+      # Always write talosconfig from the provider output so it is never stale
+      # after a fresh git checkout (local_sensitive_file is skipped when unchanged).
+      mkdir -p "$(dirname "$TALOSCONFIG")"
+      printf '%s' "$TALOS_CONFIG" > "$TALOSCONFIG"
+      chmod 0600 "$TALOSCONFIG"
 
       echo "==> Bootstrapping etcd on $CP_IP..."
       talosctl bootstrap \
