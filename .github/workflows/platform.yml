@@ -272,3 +272,29 @@ jobs:
           echo "✅ ArgoCD deployed & bootstrapped"
           kubectl --kubeconfig "$KB" get pods -n argocd
           kubectl --kubeconfig "$KB" get applicationsets,appprojects -n argocd
+
+      - name: Bootstrap Storage (local-path-provisioner)
+        if: success()
+        run: |
+          KB=~/.kube/config-platform-${{ env.ENV_NAME }}
+          LOCAL_PATH_VERSION="v0.0.30"
+
+          # Install local-path-provisioner (idempotent)
+          curl -sL "https://raw.githubusercontent.com/rancher/local-path-provisioner/${LOCAL_PATH_VERSION}/deploy/local-path-storage.yaml" \
+            | kubectl --kubeconfig "$KB" apply -f -
+
+          # Allow hostPath volumes in local-path-storage namespace (required by provisioner helper pods)
+          kubectl --kubeconfig "$KB" label namespace local-path-storage \
+            pod-security.kubernetes.io/enforce=privileged \
+            pod-security.kubernetes.io/warn=privileged \
+            pod-security.kubernetes.io/audit=privileged \
+            --overwrite
+
+          # Set local-path as the default StorageClass
+          kubectl --kubeconfig "$KB" patch storageclass local-path \
+            -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}' \
+            2>/dev/null || true
+
+          echo "✅ local-path-provisioner bootstrapped"
+          kubectl --kubeconfig "$KB" get storageclass
+          kubectl --kubeconfig "$KB" get pods -n local-path-storage

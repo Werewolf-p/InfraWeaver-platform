@@ -12,7 +12,7 @@ secretKey: admin-password
 persistence:
   enabled: true
   size: 2Gi
-  storageClassName: ""  # use cluster default
+  storageClassName: local-path
 
 # ── Ingress ───────────────────────────────────────────────────────────────────
 ingress:
