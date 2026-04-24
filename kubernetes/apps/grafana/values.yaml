@@ -14,6 +14,11 @@ persistence:
   size: 2Gi
   storageClassName: local-path
 
+# Disable default init container (fails with overlayfs-style mounts on Talos/local-path)
+# Grafana user (472) will handle its own directory setup
+initChownData:
+  enabled: false
+
 # ── Ingress ───────────────────────────────────────────────────────────────────
 ingress:
   enabled: true
