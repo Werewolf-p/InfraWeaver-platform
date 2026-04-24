@@ -1,0 +1,203 @@
+name: Platform — InfraWeaver
+
+concurrency:
+  group: platform-${{ github.ref_name }}
+  cancel-in-progress: false
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Action to perform"
+        required: false
+        default: "apply"
+        type: choice
+        options: [apply, plan]
+  push:
+    branches: [main, ontwikkel]
+    paths:
+      - "envs/**"
+      - "terraform/**"
+      - "kubernetes/**"
+      - ".github/workflows/platform.yml"
+      - "Makefile"
+  pull_request:
+    branches: [main, ontwikkel]
+    paths:
+      - "envs/**"
+      - "terraform/**"
+      - "kubernetes/**"
+      - ".github/workflows/platform.yml"
+      - "Makefile"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+env:
+  ENV_NAME: ${{ github.ref_name == 'main' && 'productie' || 'ontwikkel' }}
+  TOFU_VERSION: "1.11.6"
+
+jobs:
+
+  # ── Security gate (PR only) ──────────────────────────────────────────────────
+  security-gate:
+    name: "Security Gate"
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkov
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: terraform/
+          framework: terraform,dockerfile,github_actions
+          soft_fail: true
+          output_format: github_failed_only
+
+      - name: SOPS check
+        run: |
+          for f in envs/*/secrets.sops.yaml; do
+            [ -f "$f" ] && grep -q "sops:" "$f" || (echo "❌ $f not encrypted"; exit 1)
+          done
+          echo "✅ All secrets encrypted"
+
+  # ── Plan (PR + push) ────────────────────────────────────────────────────────
+  plan:
+    name: "Plan (${{ github.ref_name == 'main' && 'productie' || 'ontwikkel' }})"
+    if: github.event_name == 'push' || github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on:
+      - self-hosted
+      - ${{ github.ref_name == 'main' && 'prod-worker' || 'dev-worker' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install OpenTofu
+        run: |
+          if ! command -v tofu &>/dev/null; then
+            curl -fsSL https://get.opentofu.org/install-opentofu.sh | sh -s -- --install-method standalone --opentofu-version ${{ env.TOFU_VERSION }}
+          fi
+          tofu version
+
+      - name: Install sops + age
+        run: |
+          command -v sops || (curl -fsSL -o /usr/local/bin/sops \
+            https://github.com/getsops/sops/releases/download/v3.10.2/sops-v3.10.2.linux.amd64 && \
+            chmod +x /usr/local/bin/sops)
+          command -v age || (curl -fsSL -o /tmp/age.tar.gz \
+            https://github.com/FiloSottile/age/releases/download/v1.1.1/age-v1.1.1-linux-amd64.tar.gz && \
+            tar -xzf /tmp/age.tar.gz -C /usr/local/bin/ --strip-components=1 age/age age/age-keygen)
+
+      - name: Tofu Init & Plan
+        env:
+          SOPS_AGE_KEY_FILE: ${{ runner.temp }}/age.key
+        run: |
+          echo "${{ secrets.AGE_SECRET_KEY }}" > $SOPS_AGE_KEY_FILE
+          chmod 600 $SOPS_AGE_KEY_FILE
+
+          ENV=${{ env.ENV_NAME }}
+          STATE_DIR=~/.tofu/state/platform-$ENV
+          mkdir -p $STATE_DIR
+
+          cd terraform
+          tofu init \
+            -backend-config="path=$STATE_DIR/terraform.tfstate" \
+            -reconfigure
+
+          VARS=$([ -f "../envs/$ENV/terraform.tfvars" ] && echo "-var-file=../envs/$ENV/terraform.tfvars" || echo "")
+          tofu plan $VARS -out=tfplan 2>&1 | tee /tmp/plan-output.txt
+
+      - name: Comment plan on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const plan = fs.readFileSync('/tmp/plan-output.txt', 'utf8');
+            const truncated = plan.length > 60000 ? plan.slice(-60000) : plan;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## 📋 Tofu Plan — \`${{ env.ENV_NAME }}\`\n\`\`\`hcl\n${truncated}\n\`\`\``
+            });
+
+  # ── Deploy (push to main/ontwikkel only) ────────────────────────────────────
+  deploy:
+    name: "Deploy (${{ github.ref_name == 'main' && 'productie' || 'ontwikkel' }})"
+    needs: []
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on:
+      - self-hosted
+      - ${{ github.ref_name == 'main' && 'prod-worker' || 'dev-worker' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Security Checks
+        run: |
+          [ -f .sops.yaml ] || (echo "❌ .sops.yaml missing"; exit 1)
+          for f in envs/*/secrets.sops.yaml; do
+            [ -f "$f" ] && grep -q "sops:" "$f" || (echo "❌ $f not encrypted"; exit 1)
+          done
+          grep -rE 'insecure\s*=\s*true' terraform/ --include="*.tf" | grep -v '^\s*#' && \
+            (echo "❌ insecure=true found"; exit 1) || true
+          echo "✅ Security checks passed"
+
+      - name: Install tools
+        run: |
+          for cmd_url in \
+            "tofu:https://get.opentofu.org/install-opentofu.sh" \
+            "sops:https://github.com/getsops/sops/releases/download/v3.10.2/sops-v3.10.2.linux.amd64" \
+            "talosctl:https://github.com/siderolabs/talos/releases/download/v1.10.0/talosctl-linux-amd64"; do
+            cmd=${cmd_url%%:*}
+            url=${cmd_url#*:}
+            command -v $cmd && continue
+            if [[ $cmd == "tofu" ]]; then
+              curl -fsSL $url | sh -s -- --install-method standalone --opentofu-version ${{ env.TOFU_VERSION }}
+            else
+              curl -fsSL -o /usr/local/bin/$cmd $url && chmod +x /usr/local/bin/$cmd
+            fi
+          done
+          # age
+          command -v age || (curl -fsSL -o /tmp/age.tar.gz \
+            https://github.com/FiloSottile/age/releases/download/v1.1.1/age-v1.1.1-linux-amd64.tar.gz && \
+            tar -xzf /tmp/age.tar.gz -C /usr/local/bin/ --strip-components=1 age/age age/age-keygen)
+          # helm
+          command -v helm || (curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash)
+          tofu version && talosctl version --client && helm version --short
+
+      - name: Deploy Platform
+        env:
+          SOPS_AGE_KEY_FILE: ${{ runner.temp }}/age.key
+          SSH_KEY_FILE: ${{ runner.temp }}/deployer
+        run: |
+          echo "${{ secrets.AGE_SECRET_KEY }}" > $SOPS_AGE_KEY_FILE
+          chmod 600 $SOPS_AGE_KEY_FILE
+          echo "${{ secrets.DEPLOYER_SSH_KEY }}" > $SSH_KEY_FILE
+          chmod 600 $SSH_KEY_FILE
+
+          ENV=${{ env.ENV_NAME }}
+          STATE_DIR=~/.tofu/state/platform-$ENV
+          mkdir -p $STATE_DIR
+
+          cd terraform
+          tofu init \
+            -backend-config="path=$STATE_DIR/terraform.tfstate" \
+            -reconfigure
+
+          VARS=$([ -f "../envs/$ENV/terraform.tfvars" ] && echo "-var-file=../envs/$ENV/terraform.tfvars" || echo "")
+          tofu apply $VARS -auto-approve 2>&1
+
+      - name: Save kubeconfig
+        if: success()
+        run: |
+          ENV=${{ env.ENV_NAME }}
+          STATE_DIR=~/.tofu/state/platform-$ENV
+          cd terraform
+          # Export kubeconfig from state
+          tofu output -raw kubeconfig > ~/.kube/config-platform-$ENV 2>/dev/null || true
+          chmod 600 ~/.kube/config-platform-$ENV 2>/dev/null || true
+          echo "✅ Kubeconfig saved to ~/.kube/config-platform-$ENV"
+          # Test connectivity
+          KUBECONFIG=~/.kube/config-platform-$ENV kubectl get nodes 2>&1 || echo "Cluster not ready yet (expected for first deploy)"

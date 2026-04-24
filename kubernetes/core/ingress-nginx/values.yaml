@@ -1,0 +1,24 @@
+controller:
+  replicaCount: 1  # set to 2 for HA
+  
+  service:
+    type: LoadBalancer  # or NodePort if no LoadBalancer available
+    annotations: {}
+
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+
+  config:
+    use-gzip: "true"
+    proxy-body-size: "100m"
+    ssl-redirect: "true"
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi

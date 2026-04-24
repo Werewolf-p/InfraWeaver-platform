@@ -1,0 +1,22 @@
+loki:
+  enabled: true
+  persistence:
+    enabled: true
+    size: 10Gi
+  config:
+    limits_config:
+      retention_period: 168h  # 7 days
+
+promtail:
+  enabled: true
+  config:
+    clients:
+      - url: http://loki:3100/loki/api/v1/push
+
+# Grafana integration — adds Loki as datasource to kube-prometheus-stack's Grafana
+grafana:
+  enabled: false  # managed by kube-prometheus-stack
+  sidecar:
+    datasources:
+      enabled: true
+      label: grafana_datasource

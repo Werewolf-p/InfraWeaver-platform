@@ -1,0 +1,12 @@
+installCRDs: true
+
+replicaCount: 1  # set to 2 for HA
+
+global:
+  leaderElection:
+    enabled: true
+
+prometheus:
+  enabled: true
+  servicemonitor:
+    enabled: true

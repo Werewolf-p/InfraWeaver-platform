@@ -1,0 +1,44 @@
+# ── How to configure your app ────────────────────────────────────────────────
+# This is a standard Grafana Helm values override.
+# All Helm chart values can be overridden here.
+# See: https://github.com/grafana/helm-charts/tree/main/charts/grafana
+
+adminUser: admin
+# Password is injected from OpenBao via ExternalSecret
+existingSecret: grafana-admin-secret
+secretKey: admin-password
+
+# ── Persistence ──────────────────────────────────────────────────────────────
+persistence:
+  enabled: true
+  size: 2Gi
+  storageClassName: ""  # use cluster default
+
+# ── Ingress ───────────────────────────────────────────────────────────────────
+ingress:
+  enabled: true
+  ingressClassName: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: selfsigned-issuer
+  hosts:
+    - grafana-apps.local
+  tls:
+    - secretName: grafana-tls
+      hosts:
+        - grafana-apps.local
+
+# ── Resources ─────────────────────────────────────────────────────────────────
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# ── Extra config ──────────────────────────────────────────────────────────────
+grafana.ini:
+  analytics:
+    check_for_updates: false
+  server:
+    root_url: "https://grafana-apps.local"

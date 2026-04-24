@@ -1,0 +1,28 @@
+global:
+  domain: argocd.local
+
+server:
+  replicas: 1  # override to 2 for productie via env patch
+  extraArgs:
+    - --insecure  # TLS terminated at ingress
+
+repoServer:
+  replicas: 1
+
+applicationSet:
+  replicas: 1
+
+configs:
+  cm:
+    # Allow apps to sync without manual approval for platform-managed apps
+    resource.customizations.ignoreDifferences.admissionregistration.k8s.io_MutatingWebhookConfiguration: |
+      jqPathExpressions:
+        - '.webhooks[]?.clientConfig.caBundle'
+  params:
+    server.insecure: "true"
+
+redis-ha:
+  enabled: false  # enable for productie HA
+
+notifications:
+  enabled: true

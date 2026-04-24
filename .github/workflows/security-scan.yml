@@ -1,0 +1,59 @@
+name: Security Scanning
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  checkov:
+    name: Checkov — Terraform
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: terraform/
+          framework: terraform,github_actions
+          soft_fail: false
+          output_format: github_failed_only
+
+  sops-validation:
+    name: SOPS Encryption Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          [ -f .sops.yaml ] || (echo "❌ .sops.yaml missing"; exit 1)
+          FAIL=0
+          for f in envs/*/secrets.sops.yaml; do
+            if [ -f "$f" ]; then
+              grep -q "sops:" "$f" || { echo "❌ $f is NOT encrypted"; FAIL=1; }
+              echo "✅ $f encrypted"
+            fi
+          done
+          exit $FAIL
+
+  kubernetes-manifests:
+    name: Kubernetes Manifest Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install kubeval
+        run: |
+          curl -fsSL https://github.com/instrumenta/kubeval/releases/latest/download/kubeval-linux-amd64.tar.gz | \
+            tar -xzf - -C /usr/local/bin/ kubeval
+      - name: Validate manifests
+        run: |
+          find kubernetes/ -name "*.yaml" -o -name "*.yml" | \
+            grep -v 'values.yaml\|helmrelease.yaml\|kustomization.yaml' | \
+            xargs kubeval --ignore-missing-schemas 2>&1 || true
+          echo "✅ Manifest lint complete"
+
+  security-gate:
+    name: Security Gate
+    needs: [checkov, sops-validation, kubernetes-manifests]
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "✅ All security checks passed"

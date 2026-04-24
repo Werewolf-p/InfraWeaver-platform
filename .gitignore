@@ -35,3 +35,27 @@ override.tf.json
 # Ignore CLI configuration files
 .terraformrc
 terraform.rc
+
+# Terraform / OpenTofu
+**/.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfstate.lock.info
+tfplan
+.terraform.lock.hcl
+
+# Kubeconfig
+kubeconfig
+talosconfig
+*.kubeconfig
+
+# Local secrets
+*.key
+*.pem
+*.crt
+age.key
+
+# IDE
+.idea/
+.vscode/
+*.swp
