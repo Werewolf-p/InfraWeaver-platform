@@ -243,7 +243,6 @@ jobs:
         run: |
           ENV=${{ env.ENV_NAME }}
           KB=~/.kube/config-platform-$ENV
-          ARGOCD_VERSION="v2.12.4"
 
           # Ensure kubeconfig is present
           if [ ! -s "$KB" ]; then
@@ -254,34 +253,58 @@ jobs:
           fi
 
           # Create argocd namespace (idempotent)
-          kubectl --kubeconfig "$KB" create namespace argocd --dry-run=client -o yaml             | kubectl --kubeconfig "$KB" apply -f -
+          kubectl --kubeconfig "$KB" create namespace argocd --dry-run=client -o yaml \
+            | kubectl --kubeconfig "$KB" apply -f -
 
-          # Download ArgoCD manifests
-          curl -sL "https://raw.githubusercontent.com/argoproj/argo-cd/${ARGOCD_VERSION}/manifests/install.yaml"             > /tmp/argocd-install.yaml
+          # ── Deploy ArgoCD via Helm (chart 9.x = ArgoCD v3.x) ──────────────────
+          helm repo add argo https://argoproj.github.io/argo-helm 2>/dev/null || true
+          helm repo update argo
 
-          # Apply ApplicationSet CRD separately (too large for client-side apply)
-          curl -sL "https://raw.githubusercontent.com/argoproj/argo-cd/${ARGOCD_VERSION}/manifests/crds/applicationset-crd.yaml"             | kubectl --kubeconfig "$KB" apply --server-side --force-conflicts -f -
-
-          # Apply ArgoCD in argocd namespace
-          kubectl --kubeconfig "$KB" apply -n argocd -f /tmp/argocd-install.yaml --server-side --force-conflicts
-
-          # The raw install.yaml pod templates lack app.kubernetes.io/instance=argocd label
-          # that the services (created by Helm or prior installs) require in their selectors.
-          # Patch all deployments/statefulsets to add the missing label so endpoints work.
-          INSTANCE_PATCH='{"spec":{"template":{"metadata":{"labels":{"app.kubernetes.io/instance":"argocd"}}}}}'
-          for resource in \
-            deploy/argocd-repo-server \
-            deploy/argocd-server \
-            deploy/argocd-applicationset-controller \
-            deploy/argocd-notifications-controller \
-            deploy/argocd-dex-server \
-            statefulset/argocd-application-controller; do
-            kubectl --kubeconfig "$KB" patch $resource -n argocd -p "$INSTANCE_PATCH" 2>/dev/null || true
+          # Add Helm ownership annotations to any pre-existing ArgoCD resources
+          # so Helm can manage them without "cannot be imported" errors
+          for rtype in serviceaccount role rolebinding clusterrole clusterrolebinding \
+              configmap secret service networkpolicy deployment statefulset; do
+            for item in $(kubectl --kubeconfig "$KB" get $rtype -n argocd \
+                --no-headers -o custom-columns=":metadata.name" 2>/dev/null | grep "^argocd" || true); do
+              kubectl --kubeconfig "$KB" annotate $rtype/$item -n argocd \
+                "meta.helm.sh/release-name=argocd" \
+                "meta.helm.sh/release-namespace=argocd" \
+                --overwrite 2>/dev/null || true
+              kubectl --kubeconfig "$KB" label $rtype/$item -n argocd \
+                "app.kubernetes.io/managed-by=Helm" --overwrite 2>/dev/null || true
+            done
+          done
+          # Cluster-scoped resources
+          for rtype in clusterrole clusterrolebinding; do
+            for item in $(kubectl --kubeconfig "$KB" get $rtype \
+                --no-headers -o custom-columns=":metadata.name" 2>/dev/null | grep "^argocd" || true); do
+              kubectl --kubeconfig "$KB" annotate $rtype/$item \
+                "meta.helm.sh/release-name=argocd" \
+                "meta.helm.sh/release-namespace=argocd" \
+                --overwrite 2>/dev/null || true
+              kubectl --kubeconfig "$KB" label $rtype/$item \
+                "app.kubernetes.io/managed-by=Helm" --overwrite 2>/dev/null || true
+            done
+          done
+          # ArgoCD CRDs
+          for crd in $(kubectl --kubeconfig "$KB" get crd \
+              --no-headers -o custom-columns=":metadata.name" 2>/dev/null | grep "argoproj.io" || true); do
+            kubectl --kubeconfig "$KB" annotate crd/$crd \
+              "meta.helm.sh/release-name=argocd" \
+              "meta.helm.sh/release-namespace=argocd" \
+              --overwrite 2>/dev/null || true
+            kubectl --kubeconfig "$KB" label crd/$crd \
+              "app.kubernetes.io/managed-by=Helm" --overwrite 2>/dev/null || true
           done
 
-          # Fix ArgoCD service targetPorts: raw install.yaml uses named ports ("repo-server",
-          # "webhook", etc.) but the deployment pods have no named ports defined.
-          # The EndpointSlice controller can't resolve named targetPorts → null ports → connection refused.
+          helm --kubeconfig "$KB" upgrade --install argocd argo/argo-cd \
+            --namespace argocd \
+            --skip-crds \
+            --timeout 5m \
+            -f kubernetes/core/argocd/values.yaml
+
+          # Fix ArgoCD service targetPorts: Helm-installed services may still use named ports.
+          # The EndpointSlice controller can't resolve named targetPorts → connection refused.
           # Patch all affected services to numeric targetPorts (idempotent).
           kubectl --kubeconfig "$KB" patch svc argocd-repo-server -n argocd \
             --type json -p '[{"op":"replace","path":"/spec/ports/0/targetPort","value":8081}]' 2>/dev/null || true
@@ -291,21 +314,27 @@ jobs:
             --type json -p '[{"op":"replace","path":"/spec/ports/0/targetPort","value":7000}]' 2>/dev/null || true
           kubectl --kubeconfig "$KB" patch svc argocd-redis -n argocd \
             --type json -p '[{"op":"replace","path":"/spec/ports/0/targetPort","value":6379}]' 2>/dev/null || true
-          # Delete stale EndpointSlices so they are recreated with correct numeric ports
-          kubectl --kubeconfig "$KB" delete endpointslices -n argocd \
-            -l kubernetes.io/service-name=argocd-repo-server 2>/dev/null || true
 
           # Create repo credentials (use ARGOCD_GITHUB_TOKEN if set, else GITHUB_TOKEN)
           REPO_TOKEN="${ARGOCD_GITHUB_TOKEN:-$GITHUB_TOKEN}"
-          # Create repo credentials (use kubectl dry-run + label to avoid heredoc YAML issues)
-          kubectl --kubeconfig "$KB" create secret generic repo-creds-github             --namespace argocd             --from-literal=url="https://github.com/Werewolf-p/"             --from-literal=username="x-access-token"             --from-literal=password="${REPO_TOKEN}"             --dry-run=client -o yaml             | kubectl --kubeconfig "$KB" apply -f -
-          kubectl --kubeconfig "$KB" label secret repo-creds-github             --namespace argocd             "argocd.argoproj.io/secret-type=repo-creds"             --overwrite
+          kubectl --kubeconfig "$KB" create secret generic repo-creds-github \
+            --namespace argocd \
+            --from-literal=url="https://github.com/Werewolf-p/" \
+            --from-literal=username="x-access-token" \
+            --from-literal=password="${REPO_TOKEN}" \
+            --dry-run=client -o yaml \
+            | kubectl --kubeconfig "$KB" apply -f -
+          kubectl --kubeconfig "$KB" label secret repo-creds-github \
+            --namespace argocd \
+            "argocd.argoproj.io/secret-type=repo-creds" \
+            --overwrite
 
           # Apply bootstrap manifests (AppProject + ApplicationSet)
           kubectl --kubeconfig "$KB" apply --server-side --force-conflicts -f kubernetes/bootstrap/
 
           # Wait for ArgoCD server to be available (up to 3 min)
-          kubectl --kubeconfig "$KB" wait --for=condition=available             deployment/argocd-server -n argocd --timeout=180s || true
+          kubectl --kubeconfig "$KB" wait --for=condition=available \
+            deployment/argocd-server -n argocd --timeout=180s || true
 
           echo "✅ ArgoCD deployed & bootstrapped"
           kubectl --kubeconfig "$KB" get pods -n argocd
