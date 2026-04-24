@@ -60,12 +60,18 @@ prometheus:
   enabled: true
   prometheusSpec:
     retention: 15d
-    # local-path provisioner creates root-owned dirs; fsGroup gives prometheus write access
-    securityContext:
-      fsGroup: 65534
-      runAsGroup: 65534
-      runAsNonRoot: true
-      runAsUser: 65534
+    # local-path provisioner creates root-owned dirs; init container chowns to prometheus user
+    initContainers:
+      - name: fix-prometheus-permissions
+        image: busybox:latest
+        command: ['sh', '-c', 'chown -R 65534:65534 /prometheus && chmod -R 755 /prometheus']
+        securityContext:
+          runAsUser: 0
+          runAsNonRoot: false
+          allowPrivilegeEscalation: true
+        volumeMounts:
+          - name: prometheus-kube-prometheus-stack-prometheus-db
+            mountPath: /prometheus
     storageSpec:
       volumeClaimTemplate:
         spec:
