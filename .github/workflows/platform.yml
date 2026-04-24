@@ -82,12 +82,16 @@ jobs:
           command -v age || (curl -fsSL -o /tmp/age.tar.gz \
             https://github.com/FiloSottile/age/releases/download/v1.1.1/age-v1.1.1-linux-amd64.tar.gz && \
             sudo tar -xzf /tmp/age.tar.gz -C /usr/local/bin/ --strip-components=1 age/age age/age-keygen)
+          # Enable persistent provider cache to avoid re-downloading on every run
+          mkdir -p ~/.terraform.d/plugin-cache
+          echo 'plugin_cache_dir = "$HOME/.terraform.d/plugin-cache"' > ~/.tofurc
           tofu version
 
       - name: Tofu Init & Plan
         env:
           SOPS_AGE_KEY_FILE: ${{ runner.temp }}/age.key
         run: |
+          export TF_PLUGIN_CACHE_DIR="$HOME/.terraform.d/plugin-cache"
           echo "${{ secrets.AGE_SECRET_KEY }}" > $SOPS_AGE_KEY_FILE
           chmod 600 $SOPS_AGE_KEY_FILE
 
@@ -168,6 +172,9 @@ jobs:
             https://github.com/FiloSottile/age/releases/download/v1.1.1/age-v1.1.1-linux-amd64.tar.gz && \
             sudo tar -xzf /tmp/age.tar.gz -C /usr/local/bin/ --strip-components=1 age/age age/age-keygen)
           command -v helm || (curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | sudo bash)
+          # Enable persistent provider cache to avoid re-downloading on every run
+          mkdir -p ~/.terraform.d/plugin-cache
+          echo 'plugin_cache_dir = "$HOME/.terraform.d/plugin-cache"' > ~/.tofurc
           tofu version && talosctl version --client && helm version --short
 
       - name: Deploy Platform
@@ -175,6 +182,7 @@ jobs:
           SOPS_AGE_KEY_FILE: ${{ runner.temp }}/age.key
           SSH_KEY_FILE: ${{ runner.temp }}/deployer
         run: |
+          export TF_PLUGIN_CACHE_DIR="$HOME/.terraform.d/plugin-cache"
           echo "${{ secrets.AGE_SECRET_KEY }}" > $SOPS_AGE_KEY_FILE
           chmod 600 $SOPS_AGE_KEY_FILE
           echo "${{ secrets.DEPLOYER_SSH_KEY }}" > $SSH_KEY_FILE
