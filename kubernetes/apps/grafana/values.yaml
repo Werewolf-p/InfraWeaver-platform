@@ -7,6 +7,8 @@ adminUser: admin
 # Password is injected from OpenBao via ExternalSecret
 existingSecret: grafana-admin-secret
 secretKey: admin-password
+# Don't generate a random admin password — use existingSecret instead
+generateAdminPassword: false
 
 # ── Persistence ──────────────────────────────────────────────────────────────
 persistence:
