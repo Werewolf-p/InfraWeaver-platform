@@ -335,6 +335,14 @@ jobs:
             pod-security.kubernetes.io/audit=privileged \
             --overwrite 2>/dev/null || true
 
+          # Allow apps-grafana namespace (initChownData requires CAP_CHOWN, needs baseline+)
+          kubectl --kubeconfig "$KB" create namespace apps-grafana 2>/dev/null || true
+          kubectl --kubeconfig "$KB" label namespace apps-grafana \
+            pod-security.kubernetes.io/enforce=privileged \
+            pod-security.kubernetes.io/warn=privileged \
+            pod-security.kubernetes.io/audit=privileged \
+            --overwrite 2>/dev/null || true
+
           # Set local-path as the default StorageClass
           kubectl --kubeconfig "$KB" patch storageclass local-path \
             -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}' \
