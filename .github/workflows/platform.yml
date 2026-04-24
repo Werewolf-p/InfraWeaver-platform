@@ -252,7 +252,7 @@ jobs:
           curl -sL "https://raw.githubusercontent.com/argoproj/argo-cd/${ARGOCD_VERSION}/manifests/install.yaml"             > /tmp/argocd-install.yaml
 
           # Apply ApplicationSet CRD separately (too large for client-side apply)
-          curl -sL "https://raw.githubusercontent.com/argoproj/argo-cd/${ARGOCD_VERSION}/manifests/crds/applicationset-crd.yaml"             | kubectl --kubeconfig "$KB" apply --server-side -f -
+          curl -sL "https://raw.githubusercontent.com/argoproj/argo-cd/${ARGOCD_VERSION}/manifests/crds/applicationset-crd.yaml"             | kubectl --kubeconfig "$KB" apply --server-side --force-conflicts -f -
 
           # Apply ArgoCD in argocd namespace
           kubectl --kubeconfig "$KB" apply -n argocd -f /tmp/argocd-install.yaml
@@ -264,7 +264,7 @@ jobs:
           kubectl --kubeconfig "$KB" label secret repo-creds-github             --namespace argocd             "argocd.argoproj.io/secret-type=repo-creds"             --overwrite
 
           # Apply bootstrap manifests (AppProject + ApplicationSet)
-          kubectl --kubeconfig "$KB" apply --server-side -f kubernetes/bootstrap/
+          kubectl --kubeconfig "$KB" apply --server-side --force-conflicts -f kubernetes/bootstrap/
 
           # Wait for ArgoCD server to be available (up to 3 min)
           kubectl --kubeconfig "$KB" wait --for=condition=available             deployment/argocd-server -n argocd --timeout=180s || true
