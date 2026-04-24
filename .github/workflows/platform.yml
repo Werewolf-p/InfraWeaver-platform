@@ -83,6 +83,8 @@ jobs:
             https://github.com/FiloSottile/age/releases/download/v1.1.1/age-v1.1.1-linux-amd64.tar.gz && \
             sudo tar -xzf /tmp/age.tar.gz -C /usr/local/bin/ --strip-components=1 age/age age/age-keygen)
           tofu version
+
+      - name: Tofu Init & Plan
         env:
           SOPS_AGE_KEY_FILE: ${{ runner.temp }}/age.key
         run: |

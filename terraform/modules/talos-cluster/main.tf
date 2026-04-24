@@ -68,10 +68,15 @@ locals {
 resource "null_resource" "download_talos_image" {
   for_each = local.unique_pve_nodes
 
+  # Store all values that destroy provisioners need — destroy provisioners may
+  # only reference self.triggers.*, self.id, count.index, or each.key/value.
   triggers = {
-    talos_version = var.talos_version
-    node_ip       = var.proxmox_nodes_ips[each.key]
-    image_url     = local.talos_image_url
+    talos_version  = var.talos_version
+    node_ip        = var.proxmox_nodes_ips[each.key]
+    image_url      = local.talos_image_url
+    talos_raw_path = local.talos_raw_path
+    ssh_key_file   = pathexpand(var.proxmox_ssh_private_key_file)
+    ssh_username   = var.proxmox_ssh_username
   }
 
   provisioner "local-exec" {
@@ -80,34 +85,32 @@ resource "null_resource" "download_talos_image" {
       set -euo pipefail
       SSH_OPTS="${local.ssh_opts}"
       NODE_IP="${var.proxmox_nodes_ips[each.key]}"
-      TALOS_RAW="${local.talos_raw_path}"
-      TALOS_URL="${local.talos_image_url}"
 
       echo "==> [${each.key}] Ensuring Talos ${var.talos_version} image is present on $NODE_IP..."
 
-      ssh $SSH_OPTS root@"$NODE_IP" bash << 'REMOTE'
+      # Check if already cached — exit early to avoid re-download
+      if ssh $SSH_OPTS root@"$NODE_IP" "test -f '${local.talos_raw_path}'" 2>/dev/null; then
+        echo "  [${each.key}] Image already cached: ${local.talos_raw_path}"
+        exit 0
+      fi
+
+      echo "  [${each.key}] Downloading Talos image to $NODE_IP..."
+      # Single SSH command — Terraform expands all dollar-brace references at plan time;
+      # bash-level variables use backslash-dollar to defer to the remote shell.
+      ssh $SSH_OPTS root@"$NODE_IP" "
         set -euo pipefail
-        TALOS_RAW="${TALOS_RAW}"
-        TALOS_URL="${TALOS_URL}"
-
-        if [ -f "$TALOS_RAW" ]; then
-          echo "  Image already cached: $TALOS_RAW"
-          exit 0
-        fi
-
-        # Ensure wget and xz are available
         which wget >/dev/null 2>&1 || apt-get install -y wget >/dev/null 2>&1
-        which xz >/dev/null 2>&1   || apt-get install -y xz-utils >/dev/null 2>&1
+        which xz   >/dev/null 2>&1 || apt-get install -y xz-utils >/dev/null 2>&1
 
-        echo "  Downloading Talos image from factory..."
-        wget -q --show-progress -O "${TALOS_RAW}.xz" "$TALOS_URL"
+        echo '  Downloading Talos factory image...'
+        wget -q --show-progress -O '${local.talos_raw_path}.xz' '${local.talos_image_url}'
 
-        echo "  Decompressing..."
-        xz --decompress --keep "${TALOS_RAW}.xz"
-        rm -f "${TALOS_RAW}.xz"
+        echo '  Decompressing...'
+        xz --decompress '${local.talos_raw_path}.xz'
 
-        echo "  Image ready: $TALOS_RAW ($(du -sh $TALOS_RAW | cut -f1))"
-REMOTE
+        echo \"  Image ready: ${local.talos_raw_path} (\$(du -sh '${local.talos_raw_path}' | cut -f1))\"
+      "
+
       echo "==> [${each.key}] Talos image ready on $NODE_IP."
     BASH
   }
@@ -115,13 +118,14 @@ REMOTE
   provisioner "local-exec" {
     when        = destroy
     interpreter = ["bash", "-c"]
-    command     = <<-BASH
-      set -euo pipefail
-      SSH_OPTS="${local.ssh_opts}"
-      NODE_IP="${var.proxmox_nodes_ips[self.triggers.node_ip]}"
-      TALOS_RAW="${local.talos_raw_path}"
-      # Best-effort cleanup — safe to fail if already removed
-      ssh $SSH_OPTS root@"$NODE_IP" "rm -f '$TALOS_RAW'" 2>/dev/null || true
+    # Destroy provisioners may ONLY reference self.triggers.*, each.key, self.id.
+    # All dynamic values are stored in triggers above.
+    command = <<-BASH
+      SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=15 -i ${self.triggers.ssh_key_file}"
+      NODE_IP="${self.triggers.node_ip}"
+      TALOS_RAW="${self.triggers.talos_raw_path}"
+      # Best-effort cleanup — acceptable to fail if already removed
+      ssh $SSH_OPTS ${self.triggers.ssh_username}@"$NODE_IP" "rm -f '$TALOS_RAW'" 2>/dev/null || true
       echo "  [${each.key}] Cleaned up Talos image on $NODE_IP."
     BASH
   }
@@ -239,55 +243,51 @@ resource "null_resource" "import_talos_disk" {
       set -euo pipefail
       SSH_OPTS="${local.ssh_opts}"
       NODE_IP="${var.proxmox_nodes_ips[each.value.proxmox_node]}"
-      VMID="${each.value.vm_id}"
-      STORAGE="${each.value.datastore}"
-      DISK_GB="${each.value.disk_gb}"
-      TALOS_RAW="${local.talos_raw_path}"
 
-      echo "==> [${each.key}] Configuring disk for VM $VMID on $NODE_IP..."
+      echo "==> [${each.key}] Configuring disk for VM ${each.value.vm_id} on $NODE_IP..."
 
-      # Check whether virtio0 is already configured — skip import if so
+      # All values below are Terraform-expanded at template time (no SSH heredoc needed).
+      # Bash-level variables use \$ to defer expansion to the remote shell.
+
+      # Check whether virtio0 is already configured — skip import if so (idempotent)
       EXISTING=$(ssh $SSH_OPTS root@"$NODE_IP" \
-        "qm config $VMID 2>/dev/null | grep '^virtio0:' | head -1" || true)
+        "qm config ${each.value.vm_id} 2>/dev/null | grep '^virtio0:' | head -1" || true)
 
       if [ -n "$EXISTING" ]; then
         echo "  [${each.key}] virtio0 already configured: $EXISTING"
         echo "  [${each.key}] Skipping import (idempotent)."
       else
         # Remove any leftover unused disk from a previous failed run
-        ssh $SSH_OPTS root@"$NODE_IP" bash << 'REMOTE_CLEANUP'
-          VMID="${VMID}"
-          UNUSED_KEY=$(qm config "$VMID" 2>/dev/null | grep '^unused' | awk -F: '{print $1}' | head -1)
-          if [ -n "$UNUSED_KEY" ]; then
-            echo "  Removing stale unused disk: $UNUSED_KEY"
-            qm set "$VMID" --delete "$UNUSED_KEY" 2>/dev/null || true
+        ssh $SSH_OPTS root@"$NODE_IP" "
+          UNUSED_KEY=\$(qm config ${each.value.vm_id} 2>/dev/null | grep '^unused' | awk -F: '{print \$1}' | head -1)
+          if [ -n \"\$UNUSED_KEY\" ]; then
+            echo '  Removing stale unused disk: '\"\$UNUSED_KEY\"
+            qm set ${each.value.vm_id} --delete \"\$UNUSED_KEY\" 2>/dev/null || true
           fi
-REMOTE_CLEANUP
+        "
 
-        echo "  [${each.key}] Importing Talos raw image into VM $VMID (storage: $STORAGE)..."
+        echo "  [${each.key}] Importing Talos raw image into VM ${each.value.vm_id} (storage: ${each.value.datastore})..."
         ssh $SSH_OPTS root@"$NODE_IP" \
-          "qm importdisk $VMID $TALOS_RAW $STORAGE --format raw" 2>&1
+          "qm importdisk ${each.value.vm_id} '${local.talos_raw_path}' ${each.value.datastore} --format raw" 2>&1
 
         echo "  [${each.key}] Attaching imported disk as virtio0..."
-        ssh $SSH_OPTS root@"$NODE_IP" bash << 'REMOTE_ATTACH'
-          VMID="${VMID}"
-          STORAGE="${STORAGE}"
-          # qm importdisk always creates unused0 as the next available unused slot
-          DISK_ID=$(qm config "$VMID" 2>/dev/null | grep '^unused0:' | awk '{print $2}' | tr -d ' ')
-          if [ -z "$DISK_ID" ]; then
-            echo "ERROR: Could not find unused0 disk after importdisk" >&2
+        ssh $SSH_OPTS root@"$NODE_IP" "
+          set -euo pipefail
+          DISK_ID=\$(qm config ${each.value.vm_id} 2>/dev/null | grep '^unused0:' | awk '{print \$2}' | tr -d ' ')
+          if [ -z \"\$DISK_ID\" ]; then
+            echo 'ERROR: Could not find unused0 disk after importdisk' >&2
             exit 1
           fi
-          echo "  Attaching disk: $DISK_ID"
-          qm set "$VMID" --virtio0 "${DISK_ID},cache=writeback,discard=on"
-          qm set "$VMID" --boot order=virtio0
-          echo "  Disk attached and boot order set."
-REMOTE_ATTACH
+          echo '  Attaching disk: '\"\$DISK_ID\"
+          qm set ${each.value.vm_id} --virtio0 \"\$DISK_ID,cache=writeback,discard=on\"
+          qm set ${each.value.vm_id} --boot order=virtio0
+          echo '  Disk attached and boot order set.'
+        "
 
-        echo "  [${each.key}] Resizing disk to $${DISK_GB}G..."
+        echo "  [${each.key}] Resizing disk to ${each.value.disk_gb}G..."
         # Resize is idempotent when the disk is already >= target size
         ssh $SSH_OPTS root@"$NODE_IP" \
-          "qm resize $VMID virtio0 $${DISK_GB}G 2>&1" \
+          "qm resize ${each.value.vm_id} virtio0 ${each.value.disk_gb}G 2>&1" \
           || echo "  [${each.key}] Note: resize returned non-zero (disk may already be correct size)"
       fi
 
@@ -460,11 +460,6 @@ resource "talos_machine_configuration_apply" "this" {
   apply_mode = "reboot"
 
   depends_on = [null_resource.start_talos_vms]
-
-  timeouts {
-    create = "10m"
-    update = "10m"
-  }
 }
 
 # ---------------------------------------------------------------------------
@@ -484,24 +479,20 @@ resource "talos_machine_bootstrap" "this" {
   # If a worker hasn't applied its config yet, that's fine — etcd only needs
   # controlplane nodes, but we wait for all to ensure consistent state.
   depends_on = [talos_machine_configuration_apply.this]
-
-  timeouts {
-    create = "15m"
-  }
 }
 
 # ---------------------------------------------------------------------------
 # Step 9 — Retrieve kubeconfig once the cluster is healthy
+#
+# In talos provider ≥ 0.7, talos_cluster_kubeconfig is a resource (not a
+# data source). This ensures the kubeconfig is fetched exactly once and
+# stored in state; subsequent plans use the cached value.
 # ---------------------------------------------------------------------------
 
-data "talos_cluster_kubeconfig" "this" {
+resource "talos_cluster_kubeconfig" "this" {
   client_configuration = talos_machine_secrets.this.client_configuration
   node                 = local.first_cp_ip
   endpoint             = local.first_cp_ip
 
   depends_on = [talos_machine_bootstrap.this]
-
-  timeouts {
-    read = "15m"
-  }
 }

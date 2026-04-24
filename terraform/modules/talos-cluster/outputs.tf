@@ -4,7 +4,7 @@
 
 output "kubeconfig" {
   description = "Raw kubeconfig YAML for the deployed cluster (admin credentials)."
-  value       = data.talos_cluster_kubeconfig.this.kubeconfig_raw
+  value       = talos_cluster_kubeconfig.this.kubeconfig_raw
   sensitive   = true
 }
 
