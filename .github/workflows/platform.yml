@@ -279,6 +279,22 @@ jobs:
             kubectl --kubeconfig "$KB" patch $resource -n argocd -p "$INSTANCE_PATCH" 2>/dev/null || true
           done
 
+          # Fix ArgoCD service targetPorts: raw install.yaml uses named ports ("repo-server",
+          # "webhook", etc.) but the deployment pods have no named ports defined.
+          # The EndpointSlice controller can't resolve named targetPorts → null ports → connection refused.
+          # Patch all affected services to numeric targetPorts (idempotent).
+          kubectl --kubeconfig "$KB" patch svc argocd-repo-server -n argocd \
+            --type json -p '[{"op":"replace","path":"/spec/ports/0/targetPort","value":8081}]' 2>/dev/null || true
+          kubectl --kubeconfig "$KB" patch svc argocd-dex-server -n argocd \
+            --type json -p '[{"op":"replace","path":"/spec/ports/0/targetPort","value":5556},{"op":"replace","path":"/spec/ports/1/targetPort","value":5557}]' 2>/dev/null || true
+          kubectl --kubeconfig "$KB" patch svc argocd-applicationset-controller -n argocd \
+            --type json -p '[{"op":"replace","path":"/spec/ports/0/targetPort","value":7000}]' 2>/dev/null || true
+          kubectl --kubeconfig "$KB" patch svc argocd-redis -n argocd \
+            --type json -p '[{"op":"replace","path":"/spec/ports/0/targetPort","value":6379}]' 2>/dev/null || true
+          # Delete stale EndpointSlices so they are recreated with correct numeric ports
+          kubectl --kubeconfig "$KB" delete endpointslices -n argocd \
+            -l kubernetes.io/service-name=argocd-repo-server 2>/dev/null || true
+
           # Create repo credentials (use ARGOCD_GITHUB_TOKEN if set, else GITHUB_TOKEN)
           REPO_TOKEN="${ARGOCD_GITHUB_TOKEN:-$GITHUB_TOKEN}"
           # Create repo credentials (use kubectl dry-run + label to avoid heredoc YAML issues)
@@ -311,6 +327,13 @@ jobs:
             pod-security.kubernetes.io/warn=privileged \
             pod-security.kubernetes.io/audit=privileged \
             --overwrite
+
+          # Allow monitoring namespace to run privileged initContainers (prometheus chown fix)
+          kubectl --kubeconfig "$KB" label namespace monitoring \
+            pod-security.kubernetes.io/enforce=privileged \
+            pod-security.kubernetes.io/warn=privileged \
+            pod-security.kubernetes.io/audit=privileged \
+            --overwrite 2>/dev/null || true
 
           # Set local-path as the default StorageClass
           kubectl --kubeconfig "$KB" patch storageclass local-path \
