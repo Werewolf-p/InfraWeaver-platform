@@ -487,15 +487,67 @@ resource "null_resource" "start_and_configure_talos" {
       while [ "$(date +%s)" -lt "$DEADLINE" ]; do
         if timeout 3 bash -c "echo >/dev/tcp/$TARGET_IP/50000" 2>/dev/null; then
           echo "==> [${each.key}] Static IP $TARGET_IP reachable ✓"
-          exit 0
+          break
         fi
         REMAINING=$(( DEADLINE - $(date +%s) ))
         echo "  Waiting for $TARGET_IP:50000 ($${REMAINING}s remaining)..."
         sleep 10
       done
 
-      echo "ERROR: [${each.key}] $TARGET_IP:50000 not reachable after reboot" >&2
-      exit 1
+      if ! timeout 3 bash -c "echo >/dev/tcp/$TARGET_IP/50000" 2>/dev/null; then
+        echo "ERROR: [${each.key}] $TARGET_IP:50000 not reachable after reboot" >&2
+        exit 1
+      fi
+
+      # ── Boot watchdog: detect & recover buffer-overrun stall ─────────────
+      # Talos v1.10 can hit a controller-runtime watch buffer overrun
+      # (VolumeMountRequests.block.talos.dev) on first boot when partitioning
+      # a fresh virtio disk inside nested virtualisation. The symptom is:
+      #   stage: booting, unmetCond: waiting on: etc-files
+      # The machined controller crashes mid-boot and never clears etc-files.
+      # Recovery: a hard reset via Proxmox 'qm reset' forces a clean reboot,
+      # after which the controller starts cleanly without the overrun.
+      TALOSCONFIG="${local.generated_dir}/talosconfig"
+      echo "==> [${each.key}] Boot watchdog: checking for stalled boot (up to 3 min)..."
+      STALL_DEADLINE=$(( $(date +%s) + 180 ))
+      while [ "$(date +%s)" -lt "$STALL_DEADLINE" ]; do
+        STAGE=$(talosctl get machinestatus \
+          --talosconfig "$TALOSCONFIG" \
+          --endpoints "$TARGET_IP" --nodes "$TARGET_IP" \
+          -o yaml 2>/dev/null \
+          | grep -oP '(?<=stage: )\S+' | head -1 || echo "unknown")
+        UNMET=$(talosctl get machinestatus \
+          --talosconfig "$TALOSCONFIG" \
+          --endpoints "$TARGET_IP" --nodes "$TARGET_IP" \
+          -o yaml 2>/dev/null \
+          | grep -oP '(?<=reason: ).*etc-files.*' | head -1 || echo "")
+
+        if [ "$STAGE" = "running" ]; then
+          echo "  [${each.key}] Stage: running ✓"
+          break
+        fi
+        if [ -n "$UNMET" ]; then
+          echo "  [${each.key}] Detected stalled boot (etc-files unmet). Triggering hard reset via Proxmox..."
+          ssh $SSH_OPTS root@"$PVE_IP" "qm reset $VMID" 2>/dev/null || true
+          # Wait for node to disappear and reappear
+          sleep 20
+          REBOOT_DEADLINE=$(( $(date +%s) + 300 ))
+          while [ "$(date +%s)" -lt "$REBOOT_DEADLINE" ]; do
+            if timeout 3 bash -c "echo >/dev/tcp/$TARGET_IP/50000" 2>/dev/null; then
+              echo "  [${each.key}] Back online after reset ✓"
+              break
+            fi
+            echo "  [${each.key}] Waiting for recovery..."
+            sleep 10
+          done
+          # Reset stall deadline to give it another 3 min to clear
+          STALL_DEADLINE=$(( $(date +%s) + 180 ))
+        else
+          echo "  [${each.key}] Stage: $${STAGE:-booting}, not yet stalled. Waiting..."
+        fi
+        sleep 15
+      done
+      exit 0
     BASH
   }
 }
