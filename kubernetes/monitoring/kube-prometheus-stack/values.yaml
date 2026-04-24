@@ -60,8 +60,19 @@ prometheus:
   enabled: true
   prometheusSpec:
     retention: 15d
-    # Prometheus-operator generates pods with runAsUser:1000, runAsGroup:2000, fsGroup:2000.
-    # local-path provisioner creates root-owned dirs; init container ensures correct ownership.
+    # Prevent Kubernetes from re-applying fsGroup between init containers and main container
+    # (which would reset our chown). With Never, our initContainer sets the correct ownership.
+    podMetadata:
+      annotations: {}
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 1000
+      runAsGroup: 2000
+      fsGroup: 2000
+      fsGroupChangePolicy: "Never"
+      seccompProfile:
+        type: RuntimeDefault
+    # init container ensures prometheus-db is owned by 1000:2000 (prometheus user:fsGroup)
     initContainers:
       - name: fix-prometheus-permissions
         image: busybox:latest
@@ -72,7 +83,7 @@ prometheus:
             mkdir -p /prometheus/prometheus-db
             chown -R 1000:2000 /prometheus/prometheus-db
             chmod -R 775 /prometheus/prometheus-db
-            echo "Permissions fixed: $(ls -la /prometheus/)"
+            echo "Permissions fixed: $(ls -lan /prometheus/)"
         securityContext:
           runAsUser: 0
           runAsNonRoot: false
