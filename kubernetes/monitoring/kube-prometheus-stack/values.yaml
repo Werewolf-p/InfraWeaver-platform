@@ -69,10 +69,11 @@ prometheus:
       runAsUser: 1000
       runAsGroup: 2000
       fsGroup: 2000
-      fsGroupChangePolicy: "Never"
+      fsGroupChangePolicy: "OnRootMismatch"
       seccompProfile:
         type: RuntimeDefault
-    # init container ensures prometheus-db is owned by 1000:2000 (prometheus user:fsGroup)
+    # Ensure prometheus-db is writable. fsGroup with OnRootMismatch may reset ownership,
+    # so we make it world-writable in addition to proper group ownership.
     initContainers:
       - name: fix-prometheus-permissions
         image: busybox:latest
@@ -81,8 +82,8 @@ prometheus:
           - -c
           - |
             mkdir -p /prometheus/prometheus-db
+            chmod -R a+rwx /prometheus/prometheus-db
             chown -R 1000:2000 /prometheus/prometheus-db
-            chmod -R 775 /prometheus/prometheus-db
             echo "Permissions fixed: $(ls -lan /prometheus/)"
         securityContext:
           runAsUser: 0
