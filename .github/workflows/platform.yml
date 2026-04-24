@@ -73,21 +73,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install OpenTofu
+      - name: Install tools (if missing)
         run: |
-          if ! command -v tofu &>/dev/null; then
-            curl -fsSL https://get.opentofu.org/install-opentofu.sh | sh -s -- --install-method standalone --opentofu-version ${{ env.TOFU_VERSION }}
-          fi
-          tofu version
-
-      - name: Install sops + age
-        run: |
+          command -v tofu || (curl -fsSL https://get.opentofu.org/install-opentofu.sh | sudo sh -s -- --install-method deb)
           command -v sops || (curl -fsSL -o /usr/local/bin/sops \
             https://github.com/getsops/sops/releases/download/v3.10.2/sops-v3.10.2.linux.amd64 && \
-            chmod +x /usr/local/bin/sops)
+            sudo chmod +x /usr/local/bin/sops)
           command -v age || (curl -fsSL -o /tmp/age.tar.gz \
             https://github.com/FiloSottile/age/releases/download/v1.1.1/age-v1.1.1-linux-amd64.tar.gz && \
-            tar -xzf /tmp/age.tar.gz -C /usr/local/bin/ --strip-components=1 age/age age/age-keygen)
+            sudo tar -xzf /tmp/age.tar.gz -C /usr/local/bin/ --strip-components=1 age/age age/age-keygen)
+          tofu version
 
       - name: Tofu Init & Plan
         env:
@@ -146,23 +141,18 @@ jobs:
 
       - name: Install tools
         run: |
-          for cmd_url in \
-            "tofu:https://get.opentofu.org/install-opentofu.sh" \
-            "sops:https://github.com/getsops/sops/releases/download/v3.10.2/sops-v3.10.2.linux.amd64" \
-            "talosctl:https://github.com/siderolabs/talos/releases/download/v1.10.0/talosctl-linux-amd64"; do
-            cmd=${cmd_url%%:*}
-            url=${cmd_url#*:}
-            command -v $cmd && continue
-            if [[ $cmd == "tofu" ]]; then
-              curl -fsSL $url | sh -s -- --install-method standalone --opentofu-version ${{ env.TOFU_VERSION }}
-            else
-              curl -fsSL -o /usr/local/bin/$cmd $url && chmod +x /usr/local/bin/$cmd
-            fi
-          done
-          # age
+          command -v tofu || (curl -fsSL https://get.opentofu.org/install-opentofu.sh | sudo sh -s -- --install-method deb)
+          command -v sops || (curl -fsSL -o /usr/local/bin/sops \
+            https://github.com/getsops/sops/releases/download/v3.10.2/sops-v3.10.2.linux.amd64 && \
+            sudo chmod +x /usr/local/bin/sops)
+          command -v talosctl || (sudo curl -fsSL -o /usr/local/bin/talosctl \
+            https://github.com/siderolabs/talos/releases/download/v1.10.0/talosctl-linux-amd64 && \
+            sudo chmod +x /usr/local/bin/talosctl)
           command -v age || (curl -fsSL -o /tmp/age.tar.gz \
             https://github.com/FiloSottile/age/releases/download/v1.1.1/age-v1.1.1-linux-amd64.tar.gz && \
-            tar -xzf /tmp/age.tar.gz -C /usr/local/bin/ --strip-components=1 age/age age/age-keygen)
+            sudo tar -xzf /tmp/age.tar.gz -C /usr/local/bin/ --strip-components=1 age/age age/age-keygen)
+          command -v helm || (curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | sudo bash)
+          tofu version && talosctl version --client && helm version --short
           # helm
           command -v helm || (curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash)
           tofu version && talosctl version --client && helm version --short
@@ -176,10 +166,17 @@ jobs:
           chmod 600 $SOPS_AGE_KEY_FILE
           echo "${{ secrets.DEPLOYER_SSH_KEY }}" > $SSH_KEY_FILE
           chmod 600 $SSH_KEY_FILE
+          # Set deployer key as default SSH identity
+          mkdir -p ~/.ssh && cp $SSH_KEY_FILE ~/.ssh/deployer_ed25519 && chmod 600 ~/.ssh/deployer_ed25519
 
           ENV=${{ env.ENV_NAME }}
           STATE_DIR=~/.tofu/state/platform-$ENV
           mkdir -p $STATE_DIR
+
+          # Decrypt SOPS secrets and export as TF_VAR_ env vars
+          eval "$(sops -d ../envs/$ENV/secrets.sops.yaml 2>/dev/null | \
+            grep -v '^#' | grep -v '^$' | \
+            sed 's/^\([^:]*\):\s*\(.*\)$/export TF_VAR_\1="\2"/')" || true
 
           cd terraform
           tofu init \
@@ -187,6 +184,14 @@ jobs:
             -reconfigure
 
           VARS=$([ -f "../envs/$ENV/terraform.tfvars" ] && echo "-var-file=../envs/$ENV/terraform.tfvars" || echo "")
+
+          # Stage 1: provision Talos cluster (may already be done)
+          tofu apply $VARS -target=module.talos_cluster \
+            -target=local_sensitive_file.kubeconfig \
+            -target=local_sensitive_file.talosconfig \
+            -auto-approve 2>&1
+
+          # Stage 2: deploy platform bootstrap (ArgoCD + ApplicationSet)
           tofu apply $VARS -auto-approve 2>&1
 
       - name: Save kubeconfig
