@@ -80,7 +80,7 @@ variable "cluster_name" {
 variable "talos_version" {
   description = "Talos Linux version to deploy (e.g. v1.10.0)."
   type        = string
-  default     = "v1.10.0"
+  default     = "v1.10.9"
 
   validation {
     condition     = can(regex("^v\\d+\\.\\d+\\.\\d+", var.talos_version))

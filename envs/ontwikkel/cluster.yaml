@@ -1,6 +1,6 @@
 cluster_name: "infraweaver-dev"
 environment: "ontwikkel"
-talos_version: "v1.10.0"
+talos_version: "v1.10.9"
 kubernetes_version: "v1.33.0"
 proxmox_host: "10.25.0.41"
 

@@ -354,6 +354,11 @@ data "talos_machine_configuration" "this" {
           }
         }
       }
+      # Allow pods to schedule on control-plane nodes.
+      # Required for all-control-plane HA clusters (no separate worker nodes).
+      cluster = {
+        allowSchedulingOnControlPlanes = true
+      }
     })
   ]
 }

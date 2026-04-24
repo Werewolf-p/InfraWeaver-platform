@@ -1,0 +1,55 @@
+---
+# Root ApplicationSet — discovers every app folder under kubernetes/ that
+# contains an application.yaml and generates an ArgoCD Application for it.
+#
+# Folder layout:
+#   kubernetes/<tier>/<app-name>/
+#     application.yaml   — chart source metadata (repoURL, chart, namespace…)
+#     values.yaml        — Helm values (optional, loaded via multi-source $values ref)
+#
+# Users add a new app by creating kubernetes/<tier>/<app>/application.yaml.
+# ArgoCD picks it up automatically on the next sync.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: platform-apps
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - git:
+        repoURL: https://github.com/Werewolf-p/InfraWeaver-platform.git
+        revision: HEAD
+        files:
+          - path: "kubernetes/*/*/application.yaml"
+  template:
+    metadata:
+      # Name: <tier>-<app>, e.g. monitoring-grafana, core-ingress-nginx
+      name: '{{ index (splitList "/" .path.path) 1 }}-{{ index (splitList "/" .path.path) 2 }}'
+      namespace: argocd
+    spec:
+      project: platform
+      # Multi-source: one ref for values from git, one for the Helm chart.
+      # $values resolves to the root of the git repo.
+      sources:
+        - repoURL: https://github.com/Werewolf-p/InfraWeaver-platform.git
+          targetRevision: HEAD
+          ref: values
+        - repoURL: "{{ .repoURL }}"
+          targetRevision: "{{ .targetRevision }}"
+          chart: "{{ .chart }}"
+          helm:
+            releaseName: "{{ .releaseName }}"
+            valueFiles:
+              - "$values/{{ .path.path | replace \"application.yaml\" \"values.yaml\" }}"
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: "{{ .namespace }}"
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
