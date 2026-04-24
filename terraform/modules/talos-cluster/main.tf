@@ -304,89 +304,19 @@ resource "null_resource" "import_talos_disk" {
 }
 
 # ---------------------------------------------------------------------------
-# Step 4 — Start VMs and wait for Talos maintenance API (port 50000)
+# Step 5 — Write machine configs and talosconfig to generated/ directory
 #
-# Talos boots into a maintenance mode and listens on port 50000 before any
-# machine config has been applied. We poll this port to know when the node
-# is ready to receive its configuration.
+# Machine configs are written here so the start_and_configure_talos step
+# can pass them directly to talosctl apply-config.
 # ---------------------------------------------------------------------------
 
-resource "null_resource" "start_talos_vms" {
-  for_each = var.nodes
-
-  triggers = {
-    vm_id         = each.value.vm_id
-    proxmox_node  = each.value.proxmox_node
-    node_ip       = each.value.ip
-    talos_version = var.talos_version
-  }
-
-  depends_on = [null_resource.import_talos_disk]
-
-  provisioner "local-exec" {
-    interpreter = ["bash", "-c"]
-    command     = <<-BASH
-      set -euo pipefail
-      SSH_OPTS="${local.ssh_opts}"
-      NODE_IP="${var.proxmox_nodes_ips[each.value.proxmox_node]}"
-      VMID="${each.value.vm_id}"
-      TALOS_IP="${each.value.ip}"
-
-      echo "==> [${each.key}] Starting VM $VMID..."
-      VM_STATUS=$(ssh $SSH_OPTS root@"$NODE_IP" \
-        "qm status $VMID 2>/dev/null | awk '{print \$2}'" || echo "unknown")
-
-      if [ "$VM_STATUS" = "running" ]; then
-        echo "  [${each.key}] VM already running."
-      else
-        ssh $SSH_OPTS root@"$NODE_IP" "qm start $VMID" 2>&1
-        echo "  [${each.key}] VM started."
-      fi
-
-      echo "==> [${each.key}] Waiting for Talos maintenance API on $TALOS_IP:50000..."
-      DEADLINE=$(( $(date +%s) + 600 ))  # 10 minute timeout
-      ATTEMPT=0
-      while [ "$(date +%s)" -lt "$DEADLINE" ]; do
-        ATTEMPT=$(( ATTEMPT + 1 ))
-        if timeout 3 bash -c "echo >/dev/tcp/$TALOS_IP/50000" 2>/dev/null; then
-          echo "==> [${each.key}] Talos API reachable (attempt $ATTEMPT) ✓"
-          exit 0
-        fi
-        REMAINING=$(( DEADLINE - $(date +%s) ))
-        echo "  [${each.key}] Waiting for Talos API on $TALOS_IP:50000 ($${REMAINING}s remaining)..."
-        sleep 10
-      done
-
-      echo "ERROR: [${each.key}] Talos API not reachable on $TALOS_IP:50000 after 600s" >&2
-      echo "  Check: VM console via Proxmox UI, DHCP reservation for MAC, network path." >&2
-      exit 1
-    BASH
-  }
+locals {
+  generated_dir = "${path.module}/../../../envs/${var.environment}/generated"
 }
-
-# ---------------------------------------------------------------------------
-# Step 5 — Generate Talos machine secrets
-#
-# Secrets are stored in Terraform state (sensitive). They are stable — once
-# created they do not change unless the resource is destroyed and recreated.
-# ---------------------------------------------------------------------------
 
 resource "talos_machine_secrets" "this" {
   talos_version = var.talos_version
 }
-
-# ---------------------------------------------------------------------------
-# Step 6 — Generate per-node Talos machine configurations
-#
-# Each node gets an individualised patch that sets:
-#   - Hostname
-#   - Static IP address on eth0
-#   - Default route via gateway
-#   - Nameservers
-#
-# Controlplane and worker nodes use separate machine_type values, which
-# controls which kubelet flags and API server config Talos generates.
-# ---------------------------------------------------------------------------
 
 data "talos_machine_configuration" "this" {
   for_each = var.nodes
@@ -398,8 +328,6 @@ data "talos_machine_configuration" "this" {
   kubernetes_version = var.kubernetes_version
   talos_version      = var.talos_version
 
-  # Per-node network configuration patch applied on top of the base config.
-  # We configure a static address on eth0 (VirtIO → eth0 in Talos naming).
   config_patches = [
     yamlencode({
       machine = {
@@ -419,7 +347,6 @@ data "talos_machine_configuration" "this" {
           ]
           nameservers = var.nameservers
         }
-        # Enable QEMU guest agent (bundled in the factory image)
         features = {
           hostDNS = {
             enabled              = true
@@ -431,7 +358,6 @@ data "talos_machine_configuration" "this" {
   ]
 }
 
-# talosconfig for talosctl — used by operators and by platform-bootstrap
 data "talos_client_configuration" "this" {
   cluster_name         = var.cluster_name
   client_configuration = talos_machine_secrets.this.client_configuration
@@ -439,54 +365,185 @@ data "talos_client_configuration" "this" {
   endpoints            = [for _, cfg in var.nodes : cfg.ip if cfg.controlplane]
 }
 
-# ---------------------------------------------------------------------------
-# Step 7 — Apply machine configurations to each node
-#
-# talos_machine_configuration_apply connects to the node's Talos maintenance
-# API on port 50000, pushes the configuration, and waits for the node to
-# reboot with the new config applied.
-# ---------------------------------------------------------------------------
+resource "local_sensitive_file" "node_machine_config" {
+  for_each        = var.nodes
+  content         = data.talos_machine_configuration.this[each.key].machine_configuration
+  filename        = "${local.generated_dir}/mc-${each.key}.yaml"
+  file_permission = "0600"
+}
 
-resource "talos_machine_configuration_apply" "this" {
-  for_each = var.nodes
-
-  client_configuration        = talos_machine_secrets.this.client_configuration
-  machine_configuration_input = data.talos_machine_configuration.this[each.key].machine_configuration
-  node                        = each.value.ip
-  endpoint                    = each.value.ip
-
-  # "reboot" ensures the node restarts into its final configured state;
-  # required the first time for static IP to take effect.
-  apply_mode = "reboot"
-
-  depends_on = [null_resource.start_talos_vms]
+resource "local_sensitive_file" "talosconfig_generated" {
+  content         = data.talos_client_configuration.this.talos_config
+  filename        = "${local.generated_dir}/talosconfig"
+  file_permission = "0600"
 }
 
 # ---------------------------------------------------------------------------
-# Step 8 — Bootstrap etcd on the first control-plane node
+# Step 4 (revised) — Start VMs, discover DHCP IP, apply machine config,
+# then wait for static IP.
 #
-# This is a one-time operation that initialises the etcd cluster. The
-# talos_machine_bootstrap resource is idempotent — subsequent applies are
-# no-ops if the cluster is already bootstrapped.
+# Talos boots in maintenance mode with a DHCP-assigned IP. We must:
+#   1. Discover the DHCP IP by querying ARP on the PVE node (by VM MAC).
+#   2. Apply the machine config (which sets the static IP) via talosctl.
+#   3. Wait for the node to reboot and become reachable on its static IP.
 # ---------------------------------------------------------------------------
 
-resource "talos_machine_bootstrap" "this" {
-  client_configuration = talos_machine_secrets.this.client_configuration
-  node                 = local.first_cp_ip
-  endpoint             = local.first_cp_ip
+resource "null_resource" "start_and_configure_talos" {
+  for_each = var.nodes
 
-  # Wait for ALL nodes to finish applying their config before bootstrapping.
-  # If a worker hasn't applied its config yet, that's fine — etcd only needs
-  # controlplane nodes, but we wait for all to ensure consistent state.
-  depends_on = [talos_machine_configuration_apply.this]
+  triggers = {
+    vm_id    = each.value.vm_id
+    node_ip  = each.value.ip
+    mc_hash  = sha256(data.talos_machine_configuration.this[each.key].machine_configuration)
+  }
+
+  depends_on = [
+    null_resource.import_talos_disk,
+    local_sensitive_file.node_machine_config,
+    local_sensitive_file.talosconfig_generated,
+  ]
+
+  provisioner "local-exec" {
+    interpreter = ["bash", "-c"]
+    command     = <<-BASH
+      set -euo pipefail
+      SSH_OPTS="${local.ssh_opts}"
+      PVE_IP="${var.proxmox_nodes_ips[each.value.proxmox_node]}"
+      VMID="${each.value.vm_id}"
+      TARGET_IP="${each.value.ip}"
+      MC_FILE="${local.generated_dir}/mc-${each.key}.yaml"
+
+      # ── Start VM ────────────────────────────────────────────────────────────
+      VM_STATUS=$(ssh $SSH_OPTS root@"$PVE_IP" \
+        "qm status $VMID 2>/dev/null | awk '{print \$2}'" || echo "unknown")
+      if [ "$VM_STATUS" != "running" ]; then
+        echo "==> [${each.key}] Starting VM $VMID on $PVE_IP..."
+        ssh $SSH_OPTS root@"$PVE_IP" "qm start $VMID"
+        echo "  VM started."
+      else
+        echo "==> [${each.key}] VM $VMID already running."
+      fi
+
+      # ── Discover DHCP IP by MAC ────────────────────────────────────────────
+      MAC=$(ssh $SSH_OPTS root@"$PVE_IP" \
+        "qm config $VMID 2>/dev/null | grep '^net0:' | grep -oiP '(?<=virtio=)[A-Fa-f0-9:]+'" \
+        2>/dev/null || echo "")
+      echo "==> [${each.key}] VM MAC: $MAC"
+
+      DHCP_IP=""
+      echo "==> [${each.key}] Waiting for DHCP lease (up to 5 min)..."
+      for i in $(seq 1 60); do
+        DHCP_IP=$(ssh $SSH_OPTS root@"$PVE_IP" \
+          "arp -n 2>/dev/null | grep -i '$MAC' | awk '{print \$1}' | head -1" \
+          2>/dev/null || echo "")
+        # Also try /proc/net/arp on the PVE host
+        if [ -z "$DHCP_IP" ]; then
+          DHCP_IP=$(ssh $SSH_OPTS root@"$PVE_IP" \
+            "grep -i '${MAC}' /proc/net/arp 2>/dev/null | awk '{print \$1}' | head -1" \
+            2>/dev/null || echo "")
+        fi
+        if [ -n "$DHCP_IP" ] && [ "$DHCP_IP" != "0.0.0.0" ]; then
+          echo "  Found DHCP IP: $DHCP_IP (attempt $i)"
+          break
+        fi
+        echo "  No ARP entry yet (attempt $i/60)..."
+        sleep 5
+      done
+
+      if [ -z "$DHCP_IP" ] || [ "$DHCP_IP" = "0.0.0.0" ]; then
+        echo "ERROR: Could not discover DHCP IP for ${each.key} (MAC: $MAC)" >&2
+        echo "  Tip: Check the VM console via Proxmox UI and verify DHCP is available." >&2
+        exit 1
+      fi
+
+      # ── Wait for Talos maintenance API on DHCP IP ─────────────────────────
+      echo "==> [${each.key}] Waiting for Talos API on $DHCP_IP:50000..."
+      for i in $(seq 1 30); do
+        timeout 3 bash -c "echo >/dev/tcp/$DHCP_IP/50000" 2>/dev/null && \
+          echo "  Talos API reachable on $DHCP_IP (attempt $i) ✓" && break
+        echo "  Attempt $i/30: waiting..."
+        sleep 10
+      done
+
+      # ── Apply machine config (sets static IP, triggers reboot) ────────────
+      echo "==> [${each.key}] Applying machine config to $DHCP_IP..."
+      talosctl apply-config \
+        --insecure \
+        --endpoints "$DHCP_IP" \
+        --nodes "$DHCP_IP" \
+        --file "$MC_FILE"
+      echo "  Config applied. Node will reboot to $TARGET_IP..."
+
+      # ── Wait for static IP ────────────────────────────────────────────────
+      sleep 30
+      echo "==> [${each.key}] Waiting for Talos API on static IP $TARGET_IP:50000 (up to 8 min)..."
+      DEADLINE=$(( $(date +%s) + 480 ))
+      while [ "$(date +%s)" -lt "$DEADLINE" ]; do
+        if timeout 3 bash -c "echo >/dev/tcp/$TARGET_IP/50000" 2>/dev/null; then
+          echo "==> [${each.key}] Static IP $TARGET_IP reachable ✓"
+          exit 0
+        fi
+        REMAINING=$(( DEADLINE - $(date +%s) ))
+        echo "  Waiting for $TARGET_IP:50000 ($${REMAINING}s remaining)..."
+        sleep 10
+      done
+
+      echo "ERROR: [${each.key}] $TARGET_IP:50000 not reachable after reboot" >&2
+      exit 1
+    BASH
+  }
+}
+
+# ---------------------------------------------------------------------------
+# Step 8 — Bootstrap etcd via talosctl
+# ---------------------------------------------------------------------------
+
+resource "null_resource" "bootstrap_etcd" {
+  triggers = {
+    cluster_name  = var.cluster_name
+    first_cp_ip   = local.first_cp_ip
+    secrets_hash  = sha256(jsonencode(talos_machine_secrets.this.machine_secrets))
+  }
+
+  depends_on = [null_resource.start_and_configure_talos]
+
+  provisioner "local-exec" {
+    interpreter = ["bash", "-c"]
+    command     = <<-BASH
+      set -euo pipefail
+      TALOSCONFIG="${local.generated_dir}/talosconfig"
+      CP_IP="${local.first_cp_ip}"
+
+      echo "==> Bootstrapping etcd on $CP_IP..."
+      talosctl bootstrap \
+        --talosconfig "$TALOSCONFIG" \
+        --endpoints "$CP_IP" \
+        --nodes "$CP_IP" \
+        2>&1 || echo "  (bootstrap returned non-zero — may already be bootstrapped, continuing)"
+
+      echo "==> Waiting for Kubernetes API to be healthy (up to 10 min)..."
+      DEADLINE=$(( $(date +%s) + 600 ))
+      while [ "$(date +%s)" -lt "$DEADLINE" ]; do
+        if talosctl health \
+          --talosconfig "$TALOSCONFIG" \
+          --endpoints "$CP_IP" \
+          --nodes "$CP_IP" \
+          --wait-timeout 30s \
+          2>/dev/null; then
+          echo "==> Cluster healthy ✓"
+          exit 0
+        fi
+        echo "  Waiting for cluster health..."
+        sleep 20
+      done
+      echo "ERROR: Cluster not healthy after 10 minutes" >&2
+      exit 1
+    BASH
+  }
 }
 
 # ---------------------------------------------------------------------------
 # Step 9 — Retrieve kubeconfig once the cluster is healthy
-#
-# In talos provider ≥ 0.7, talos_cluster_kubeconfig is a resource (not a
-# data source). This ensures the kubeconfig is fetched exactly once and
-# stored in state; subsequent plans use the cached value.
 # ---------------------------------------------------------------------------
 
 resource "talos_cluster_kubeconfig" "this" {
@@ -494,5 +551,5 @@ resource "talos_cluster_kubeconfig" "this" {
   node                 = local.first_cp_ip
   endpoint             = local.first_cp_ip
 
-  depends_on = [talos_machine_bootstrap.this]
+  depends_on = [null_resource.bootstrap_etcd]
 }
