@@ -259,23 +259,9 @@ jobs:
 
           # Create repo credentials (use ARGOCD_GITHUB_TOKEN if set, else GITHUB_TOKEN)
           REPO_TOKEN="${ARGOCD_GITHUB_TOKEN:-$GITHUB_TOKEN}"
-          # Write repo credentials manifest (temp file to avoid indentation issues)
-          cat > /tmp/argocd-repo-creds.yaml << EOF
-apiVersion: v1
-kind: Secret
-metadata:
-  name: repo-creds-github
-  namespace: argocd
-  labels:
-    argocd.argoproj.io/secret-type: repo-creds
-type: Opaque
-stringData:
-  url: https://github.com/Werewolf-p/
-  username: x-access-token
-  password: "${REPO_TOKEN}"
-EOF
-          kubectl --kubeconfig "$KB" apply -n argocd -f /tmp/argocd-repo-creds.yaml
-          rm -f /tmp/argocd-repo-creds.yaml
+          # Create repo credentials (use kubectl dry-run + label to avoid heredoc YAML issues)
+          kubectl --kubeconfig "$KB" create secret generic repo-creds-github             --namespace argocd             --from-literal=url="https://github.com/Werewolf-p/"             --from-literal=username="x-access-token"             --from-literal=password="${REPO_TOKEN}"             --dry-run=client -o yaml             | kubectl --kubeconfig "$KB" apply -f -
+          kubectl --kubeconfig "$KB" label secret repo-creds-github             --namespace argocd             "argocd.argoproj.io/secret-type=repo-creds"             --overwrite
 
           # Apply bootstrap manifests (AppProject + ApplicationSet)
           kubectl --kubeconfig "$KB" apply --server-side -f kubernetes/bootstrap/
