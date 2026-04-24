@@ -2,8 +2,17 @@ controller:
   replicaCount: 1  # set to 2 for HA
   
   service:
-    type: LoadBalancer  # or NodePort if no LoadBalancer available
+    type: NodePort  # bare-metal — no cloud LB; use NodePort (ports 80→30080, 443→30443)
+    nodePorts:
+      http: "30080"
+      https: "30443"
+    externalTrafficPolicy: Local
     annotations: {}
+
+  # Publish node IPs so ingresses get an address
+  publishService:
+    enabled: false
+  hostNetwork: false
 
   metrics:
     enabled: true
