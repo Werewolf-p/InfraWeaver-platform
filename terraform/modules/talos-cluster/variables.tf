@@ -121,15 +121,15 @@ variable "nodes" {
       vm_id         – required: Proxmox VM ID (must be unique in the cluster)
   EOT
   type = map(object({
-    proxmox_node  = string
-    ip            = string
-    mac_address   = optional(string)
-    controlplane  = bool
-    cpu           = optional(number, 4)
-    memory_mb     = optional(number, 4096)
-    disk_gb       = optional(number, 50)
-    datastore     = string
-    vm_id         = number
+    proxmox_node = string
+    ip           = string
+    mac_address  = optional(string)
+    controlplane = bool
+    cpu          = optional(number, 4)
+    memory_mb    = optional(number, 4096)
+    disk_gb      = optional(number, 50)
+    datastore    = string
+    vm_id        = number
   }))
 
   validation {
@@ -148,7 +148,7 @@ variable "nodes" {
   }
 
   validation {
-    condition = length([for name, cfg in var.nodes : name if cfg.controlplane]) >= 1
+    condition     = length([for name, cfg in var.nodes : name if cfg.controlplane]) >= 1
     error_message = "At least one node must have controlplane = true."
   }
 }

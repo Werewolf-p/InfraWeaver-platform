@@ -34,6 +34,13 @@ nodes:
     disk_gb: 100
     datastore: "lvm-proxmox"
 
+# SSH IPs for individual PVE nodes — used by qm importdisk operations
+# These are the management IPs of each Proxmox node in the cluster.
+pve_nodes:
+  pve-prod1: "10.25.0.80"
+  pve-prod2: "10.25.0.81"
+  pve-prod3: "10.25.0.82"
+
 gateway: "10.25.0.1"
 nameservers:
   - "8.8.8.8"

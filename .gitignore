@@ -1,61 +1,79 @@
-# Local .terraform directories
-.terraform/
+# =============================================================================
+# InfraWeaver Platform — .gitignore
+# =============================================================================
 
-# .tfstate files
+# ---------------------------------------------------------------------------
+# OpenTofu / Terraform
+# ---------------------------------------------------------------------------
+**/.terraform/
 *.tfstate
 *.tfstate.*
-
-# Crash log files
+*.tfstate.lock.info
+.terraform.lock.hcl
+tfplan
+plan.txt
 crash.log
 crash.*.log
+.terraformrc
+terraform.rc
 
-# Exclude all .tfvars files, which are likely to contain sensitive data, such as
-# password, private keys, and other secrets. These should not be part of version 
-# control as they are data points which are potentially sensitive and subject 
-# to change depending on the environment.
-*.tfvars
-*.tfvars.json
+# tfvars contain non-sensitive config but are env-specific — track them
+# EXCEPT .auto.tfvars which may be generated
+*.auto.tfvars
+*.auto.tfvars.json
 
-# Ignore override files as they are usually used to override resources locally and so
-# are not checked in
+# Override files are local-only
 override.tf
 override.tf.json
 *_override.tf
 *_override.tf.json
 
-# Ignore transient lock info files created by terraform apply
-.terraform.tfstate.lock.info
+# ---------------------------------------------------------------------------
+# Generated credentials (written by tofu apply — never commit)
+# ---------------------------------------------------------------------------
+envs/*/generated/kubeconfig
+envs/*/generated/talosconfig
+envs/*/generated/*.yaml
+envs/*/generated/*.conf
+# Keep the generated directories tracked via .gitkeep
+!envs/*/generated/.gitkeep
 
-# Include override files you do wish to add to version control using negated pattern
-# !example_override.tf
+# ---------------------------------------------------------------------------
+# SOPS secrets — encrypted files ARE committed; raw plaintext never is
+# ---------------------------------------------------------------------------
+# Unencrypted secrets must never be committed. The .sops.yaml rule ensures
+# sops encrypt is always required before commit.
+# If you have a plaintext copy locally, name it *.secrets.plain.yaml
+*.secrets.plain.yaml
 
-# Include tfplan files to ignore the plan output of command: terraform plan -out=tfplan
-# example: *tfplan*
-
-# Ignore CLI configuration files
-.terraformrc
-terraform.rc
-
-# Terraform / OpenTofu
-**/.terraform/
-*.tfstate
-*.tfstate.backup
-*.tfstate.lock.info
-tfplan
-.terraform.lock.hcl
-
-# Kubeconfig
+# ---------------------------------------------------------------------------
+# Kubeconfig / Talos credentials
+# ---------------------------------------------------------------------------
 kubeconfig
 talosconfig
 *.kubeconfig
+*-kubeconfig.yaml
+*-talosconfig.yaml
 
-# Local secrets
+# ---------------------------------------------------------------------------
+# Keys and certificates
+# ---------------------------------------------------------------------------
 *.key
 *.pem
 *.crt
+*.p12
 age.key
 
-# IDE
+# ---------------------------------------------------------------------------
+# IDE and OS noise
+# ---------------------------------------------------------------------------
 .idea/
 .vscode/
 *.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Generated credentials (kubeconfig, talosconfig)
+envs/*/generated/
+envs/*/generated/
