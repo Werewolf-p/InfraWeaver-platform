@@ -14,7 +14,7 @@ nodes:
     cpu: 4
     memory_mb: 4096
     disk_gb: 50
-    datastore: "lvm-microserver"
+    datastore: "local-lvm"
   talos-dev-worker1:
     proxmox_node: "pve-dev2"
     ip: "10.25.0.51"
@@ -23,7 +23,7 @@ nodes:
     cpu: 4
     memory_mb: 4096
     disk_gb: 50
-    datastore: "lvm-microserver"
+    datastore: "local-lvm"
 
 # SSH IPs for individual PVE nodes — used by qm importdisk operations
 # These are the management IPs of each Proxmox node in the cluster.
@@ -36,5 +36,5 @@ nameservers:
   - "8.8.8.8"
   - "1.1.1.1"
 subnet_prefix: 24
-talos_image_datastore: "lvm-microserver"
+talos_image_datastore: "local-lvm"
 openbao_address: "https://10.25.0.241:8200"
