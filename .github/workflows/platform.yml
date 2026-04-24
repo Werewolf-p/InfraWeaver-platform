@@ -95,6 +95,16 @@ jobs:
           STATE_DIR=~/.tofu/state/platform-$ENV
           mkdir -p $STATE_DIR
 
+          # Decrypt SOPS secrets for plan
+          while IFS= read -r line; do
+            if [[ "$line" =~ ^([a-zA-Z_][a-zA-Z0-9_]*):[[:space:]]*(.*) ]]; then
+              KEY="${BASH_REMATCH[1]}" ; VAL="${BASH_REMATCH[2]}"
+              [[ "$KEY" == "sops" ]] && break
+              VAL="${VAL#\"}" ; VAL="${VAL%\"}"
+              [[ -n "$VAL" ]] && export "TF_VAR_${KEY}=${VAL}"
+            fi
+          done < <(sops -d "envs/$ENV/secrets.sops.yaml" 2>/dev/null || echo "")
+
           cd terraform
           tofu init \
             -backend-config="path=$STATE_DIR/terraform.tfstate" \
@@ -165,17 +175,23 @@ jobs:
           chmod 600 $SOPS_AGE_KEY_FILE
           echo "${{ secrets.DEPLOYER_SSH_KEY }}" > $SSH_KEY_FILE
           chmod 600 $SSH_KEY_FILE
-          # Set deployer key as default SSH identity
           mkdir -p ~/.ssh && cp $SSH_KEY_FILE ~/.ssh/deployer_ed25519 && chmod 600 ~/.ssh/deployer_ed25519
 
           ENV=${{ env.ENV_NAME }}
           STATE_DIR=~/.tofu/state/platform-$ENV
           mkdir -p $STATE_DIR
 
-          # Decrypt SOPS secrets and export as TF_VAR_ env vars
-          eval "$(sops -d ../envs/$ENV/secrets.sops.yaml 2>/dev/null | \
-            grep -v '^#' | grep -v '^$' | \
-            sed 's/^\([^:]*\):\s*\(.*\)$/export TF_VAR_\1="\2"/')" || true
+          # Decrypt SOPS secrets and export as TF_VAR_ env vars (robust YAML parse)
+          while IFS= read -r line; do
+            if [[ "$line" =~ ^([a-zA-Z_][a-zA-Z0-9_]*):[[:space:]]*(.*) ]]; then
+              KEY="${BASH_REMATCH[1]}"
+              VAL="${BASH_REMATCH[2]}"
+              [[ "$KEY" == "sops" ]] && break   # stop at sops metadata
+              VAL="${VAL#\"}" ; VAL="${VAL%\"}"  # strip surrounding quotes
+              [[ -n "$VAL" ]] && export "TF_VAR_${KEY}=${VAL}"
+              echo "✅ TF_VAR_${KEY} set"
+            fi
+          done < <(sops -d "envs/$ENV/secrets.sops.yaml" 2>/dev/null || echo "")
 
           cd terraform
           tofu init \
@@ -184,8 +200,9 @@ jobs:
 
           VARS=$([ -f "../envs/$ENV/terraform.tfvars" ] && echo "-var-file=../envs/$ENV/terraform.tfvars" || echo "")
 
-          # Stage 1: provision Talos cluster (may already be done)
-          tofu apply $VARS -target=module.talos_cluster \
+          # Stage 1: provision Talos cluster
+          tofu apply $VARS \
+            -target=module.talos_cluster \
             -target=local_sensitive_file.kubeconfig \
             -target=local_sensitive_file.talosconfig \
             -auto-approve 2>&1
