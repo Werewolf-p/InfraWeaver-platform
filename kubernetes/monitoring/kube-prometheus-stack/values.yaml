@@ -72,8 +72,9 @@ prometheus:
       fsGroupChangePolicy: "OnRootMismatch"
       seccompProfile:
         type: RuntimeDefault
-    # Ensure prometheus-db is writable. fsGroup with OnRootMismatch may reset ownership,
-    # so we make it world-writable in addition to proper group ownership.
+    # subPath mounts in Kubernetes use overlayfs. The overlay's upper layer is a fresh
+    # root:root 755 directory created by kubelet, overriding changes to the lower layer.
+    # Fix: second init container mounts WITH subPath to chmod the overlayfs upper layer directly.
     initContainers:
       - name: fix-prometheus-permissions
         image: busybox:latest
@@ -84,7 +85,7 @@ prometheus:
             mkdir -p /prometheus/prometheus-db
             chmod -R a+rwx /prometheus/prometheus-db
             chown -R 1000:2000 /prometheus/prometheus-db
-            echo "Permissions fixed: $(ls -lan /prometheus/)"
+            echo "Lower layer fixed: $(ls -lan /prometheus/)"
         securityContext:
           runAsUser: 0
           runAsNonRoot: false
@@ -92,6 +93,23 @@ prometheus:
         volumeMounts:
           - name: prometheus-kube-prometheus-stack-prometheus-db
             mountPath: /prometheus
+      - name: fix-prometheus-overlay-permissions
+        image: busybox:latest
+        command:
+          - sh
+          - -c
+          - |
+            chmod 777 /prometheus
+            chown 1000:2000 /prometheus
+            echo "Overlay upper layer fixed: $(ls -lan /prometheus)"
+        securityContext:
+          runAsUser: 0
+          runAsNonRoot: false
+          allowPrivilegeEscalation: true
+        volumeMounts:
+          - name: prometheus-kube-prometheus-stack-prometheus-db
+            mountPath: /prometheus
+            subPath: prometheus-db
     storageSpec:
       volumeClaimTemplate:
         spec:
