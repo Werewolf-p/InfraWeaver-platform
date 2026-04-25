@@ -29,40 +29,32 @@ jobs:
     runs-on:
       - self-hosted
       - prod-worker
+    env:
+      ENV_NAME: ${{ inputs.environment }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Install tools
         run: |
           if [ "$(swapon --show --noheadings | wc -l)" -eq 0 ]; then
             sudo dd if=/dev/zero of=/swapfile bs=1M count=4096 status=none || true
             sudo chmod 600 /swapfile && sudo mkswap /swapfile >/dev/null 2>&1 || true
             sudo swapon /swapfile 2>/dev/null || true
           fi
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends curl unzip make git
-          if ! command -v tofu &>/dev/null || [[ "$(tofu version | head -1)" != *"v1.11"* ]]; then
-            curl -fsSL -o /tmp/tofu.zip https://github.com/opentofu/opentofu/releases/download/v1.11.6/tofu_1.11.6_linux_amd64.zip
-            unzip -oq /tmp/tofu.zip -d /tmp/tofu_bin && sudo mv /tmp/tofu_bin/tofu /usr/local/bin/tofu && rm -rf /tmp/tofu.zip /tmp/tofu_bin
-          fi
-          if ! command -v sops &>/dev/null; then
-            curl -fsSL -o /tmp/sops https://github.com/getsops/sops/releases/download/v3.9.1/sops-v3.9.1.linux.amd64
-            chmod +x /tmp/sops && sudo mv /tmp/sops /usr/local/bin/sops
-          fi
-          if ! command -v helm &>/dev/null; then
-            curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-          fi
-          if ! command -v kubectl &>/dev/null; then
-            curl -fsSL "https://dl.k8s.io/release/$(curl -fsSL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" -o /tmp/kubectl
-            chmod +x /tmp/kubectl && sudo mv /tmp/kubectl /usr/local/bin/kubectl
-          fi
-
-      - name: Backup terraform state
-        run: |
-          STATE_DIR="$HOME/.tofu/state/platform-${{ inputs.environment }}"
-          mkdir -p "$STATE_DIR"
-          [ -f "$STATE_DIR/terraform.tfstate" ] && cp "$STATE_DIR/terraform.tfstate" "$STATE_DIR/terraform.tfstate.pre-redeploy" && echo "✓ State backed up" || echo "No existing state"
+          command -v tofu || (curl -fsSL https://get.opentofu.org/install-opentofu.sh | sudo sh -s -- --install-method deb)
+          command -v sops || (sudo curl -fsSL -o /usr/local/bin/sops \
+            https://github.com/getsops/sops/releases/download/v3.10.2/sops-v3.10.2.linux.amd64 && \
+            sudo chmod +x /usr/local/bin/sops)
+          command -v age || (curl -fsSL -o /tmp/age.tar.gz \
+            https://github.com/FiloSottile/age/releases/download/v1.1.1/age-v1.1.1-linux-amd64.tar.gz && \
+            sudo tar -xzf /tmp/age.tar.gz -C /usr/local/bin/ --strip-components=1 age/age age/age-keygen)
+          command -v helm || (curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | sudo bash)
+          command -v talosctl || (curl -fsSL https://talos.dev/install | sh)
+          mkdir -p ~/.terraform.d/plugin-cache
+          echo 'plugin_cache_dir = "$HOME/.terraform.d/plugin-cache"' > ~/.tofurc
+          tofu version
 
       - name: Destroy existing platform
         env:
@@ -74,22 +66,161 @@ jobs:
           echo "${{ secrets.DEPLOYER_SSH_KEY }}" > $SSH_KEY_FILE
           chmod 600 $SSH_KEY_FILE
           mkdir -p ~/.ssh && cp $SSH_KEY_FILE ~/.ssh/deployer_ed25519 && chmod 600 ~/.ssh/deployer_ed25519
-          make destroy ENV=${{ inputs.environment }} || echo "⚠ Destroy failed or no prior state — continuing"
+
+          ENV=${{ env.ENV_NAME }}
+          STATE_DIR=~/.tofu/state/platform-$ENV
+          mkdir -p $STATE_DIR
+
+          while IFS= read -r line; do
+            if [[ "$line" =~ ^([a-zA-Z_][a-zA-Z0-9_]*):[[:space:]]*(.*) ]]; then
+              KEY="${BASH_REMATCH[1]}" ; VAL="${BASH_REMATCH[2]}"
+              [[ "$KEY" == "sops" ]] && break
+              VAL="${VAL#\"}" ; VAL="${VAL%\"}"
+              [[ -n "$VAL" ]] && export "TF_VAR_${KEY}=${VAL}"
+            fi
+          done < <(sops -d "envs/$ENV/secrets.sops.yaml" 2>/dev/null || echo "")
+
+          cd terraform
+          tofu init -backend-config="path=$STATE_DIR/terraform.tfstate" -reconfigure 2>&1 || true
+          VARS=$([ -f "../envs/$ENV/terraform.tfvars" ] && echo "-var-file=../envs/$ENV/terraform.tfvars" || echo "")
+          tofu destroy $VARS -auto-approve 2>&1 || echo "⚠ Destroy failed or no prior state — continuing"
 
       - name: Clear state
         run: |
-          rm -f "$HOME/.tofu/state/platform-${{ inputs.environment }}/terraform.tfstate"
+          rm -f "$HOME/.tofu/state/platform-${{ env.ENV_NAME }}/terraform.tfstate"
           echo "✓ State cleared"
 
-      - name: Deploy platform from scratch
+      - name: Deploy Platform
         env:
           SOPS_AGE_KEY_FILE: ${{ runner.temp }}/age.key
           SSH_KEY_FILE: ${{ runner.temp }}/deployer
-          ARGOCD_GITHUB_TOKEN: ${{ secrets.ARGOCD_GITHUB_TOKEN }}
         run: |
+          export TF_PLUGIN_CACHE_DIR="$HOME/.terraform.d/plugin-cache"
           echo "${{ secrets.AGE_SECRET_KEY }}" > $SOPS_AGE_KEY_FILE
           chmod 600 $SOPS_AGE_KEY_FILE
           echo "${{ secrets.DEPLOYER_SSH_KEY }}" > $SSH_KEY_FILE
           chmod 600 $SSH_KEY_FILE
           mkdir -p ~/.ssh && cp $SSH_KEY_FILE ~/.ssh/deployer_ed25519 && chmod 600 ~/.ssh/deployer_ed25519
-          make apply ENV=${{ inputs.environment }}
+
+          ENV=${{ env.ENV_NAME }}
+          STATE_DIR=~/.tofu/state/platform-$ENV
+          mkdir -p $STATE_DIR
+
+          while IFS= read -r line; do
+            if [[ "$line" =~ ^([a-zA-Z_][a-zA-Z0-9_]*):[[:space:]]*(.*) ]]; then
+              KEY="${BASH_REMATCH[1]}" ; VAL="${BASH_REMATCH[2]}"
+              [[ "$KEY" == "sops" ]] && break
+              VAL="${VAL#\"}" ; VAL="${VAL%\"}"
+              [[ -n "$VAL" ]] && export "TF_VAR_${KEY}=${VAL}"
+              echo "✅ TF_VAR_${KEY} set"
+            fi
+          done < <(sops -d "envs/$ENV/secrets.sops.yaml" 2>/dev/null || echo "")
+
+          cd terraform
+          tofu init \
+            -backend-config="path=$STATE_DIR/terraform.tfstate" \
+            -reconfigure
+
+          VARS=$([ -f "../envs/$ENV/terraform.tfvars" ] && echo "-var-file=../envs/$ENV/terraform.tfvars" || echo "")
+
+          # Stage 1: provision Talos cluster
+          tofu apply $VARS \
+            -target=module.talos_cluster \
+            -target=local_sensitive_file.kubeconfig \
+            -target=local_sensitive_file.talosconfig \
+            -auto-approve 2>&1
+
+          # Stage 2: deploy platform bootstrap (ArgoCD + ApplicationSet)
+          tofu apply $VARS -auto-approve 2>&1
+
+      - name: Save kubeconfig & talosconfig
+        if: always()
+        env:
+          SOPS_AGE_KEY_FILE: ${{ runner.temp }}/age.key
+        run: |
+          ENV=${{ env.ENV_NAME }}
+          mkdir -p ~/.kube envs/$ENV/generated
+          cd terraform
+          tofu output -raw kubeconfig > ~/.kube/config-platform-$ENV 2>/dev/null || true
+          chmod 600 ~/.kube/config-platform-$ENV 2>/dev/null || true
+          tofu output -raw talosconfig > "../envs/$ENV/generated/talosconfig" 2>/dev/null || true
+          chmod 600 "../envs/$ENV/generated/talosconfig" 2>/dev/null || true
+          echo "✅ Configs saved"
+          KUBECONFIG=~/.kube/config-platform-$ENV kubectl get nodes 2>&1 || echo "  (cluster not yet reachable)"
+
+      - name: Deploy ArgoCD & Bootstrap
+        if: success()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ARGOCD_GITHUB_TOKEN: ${{ secrets.ARGOCD_GITHUB_TOKEN }}
+        run: |
+          ENV=${{ env.ENV_NAME }}
+          KB=~/.kube/config-platform-$ENV
+
+          if [ ! -s "$KB" ]; then
+            cd terraform
+            tofu output -raw kubeconfig > "$KB" 2>/dev/null || true
+            chmod 600 "$KB"
+            cd ..
+          fi
+
+          kubectl --kubeconfig "$KB" create namespace argocd --dry-run=client -o yaml \
+            | kubectl --kubeconfig "$KB" apply -f -
+
+          helm repo add argo https://argoproj.github.io/argo-helm 2>/dev/null || true
+          helm repo update argo
+
+          # Patch any pre-existing ArgoCD resources for Helm ownership
+          for rtype in serviceaccount role rolebinding clusterrole clusterrolebinding \
+              configmap secret service networkpolicy deployment statefulset; do
+            for item in $(kubectl --kubeconfig "$KB" get $rtype -n argocd \
+                --no-headers -o custom-columns=":metadata.name" 2>/dev/null | grep "^argocd" || true); do
+              kubectl --kubeconfig "$KB" annotate $rtype/$item -n argocd \
+                "meta.helm.sh/release-name=argocd" \
+                "meta.helm.sh/release-namespace=argocd" --overwrite 2>/dev/null || true
+              kubectl --kubeconfig "$KB" label $rtype/$item -n argocd \
+                "app.kubernetes.io/managed-by=Helm" --overwrite 2>/dev/null || true
+            done
+          done
+          for rtype in clusterrole clusterrolebinding; do
+            for item in $(kubectl --kubeconfig "$KB" get $rtype \
+                --no-headers -o custom-columns=":metadata.name" 2>/dev/null | grep "^argocd" || true); do
+              kubectl --kubeconfig "$KB" annotate $rtype/$item \
+                "meta.helm.sh/release-name=argocd" \
+                "meta.helm.sh/release-namespace=argocd" --overwrite 2>/dev/null || true
+              kubectl --kubeconfig "$KB" label $rtype/$item \
+                "app.kubernetes.io/managed-by=Helm" --overwrite 2>/dev/null || true
+            done
+          done
+
+          helm --kubeconfig "$KB" upgrade --install argocd argo/argo-cd \
+            --namespace argocd --skip-crds --timeout 5m \
+            -f kubernetes/core/argocd/values.yaml
+
+          kubectl --kubeconfig "$KB" patch svc argocd-repo-server -n argocd \
+            --type json -p '[{"op":"replace","path":"/spec/ports/0/targetPort","value":8081}]' 2>/dev/null || true
+          kubectl --kubeconfig "$KB" patch svc argocd-dex-server -n argocd \
+            --type json -p '[{"op":"replace","path":"/spec/ports/0/targetPort","value":5556},{"op":"replace","path":"/spec/ports/1/targetPort","value":5557}]' 2>/dev/null || true
+          kubectl --kubeconfig "$KB" patch svc argocd-applicationset-controller -n argocd \
+            --type json -p '[{"op":"replace","path":"/spec/ports/0/targetPort","value":7000}]' 2>/dev/null || true
+          kubectl --kubeconfig "$KB" patch svc argocd-redis -n argocd \
+            --type json -p '[{"op":"replace","path":"/spec/ports/0/targetPort","value":6379}]' 2>/dev/null || true
+
+          REPO_TOKEN="${ARGOCD_GITHUB_TOKEN:-$GITHUB_TOKEN}"
+          kubectl --kubeconfig "$KB" create secret generic repo-creds-github \
+            --namespace argocd \
+            --from-literal=url="https://github.com/Werewolf-p/" \
+            --from-literal=username="x-access-token" \
+            --from-literal=password="${REPO_TOKEN}" \
+            --dry-run=client -o yaml | kubectl --kubeconfig "$KB" apply -f -
+          kubectl --kubeconfig "$KB" label secret repo-creds-github --namespace argocd \
+            "argocd.argoproj.io/secret-type=repo-creds" --overwrite
+
+          kubectl --kubeconfig "$KB" apply --server-side --force-conflicts -f kubernetes/bootstrap/
+
+          kubectl --kubeconfig "$KB" wait --for=condition=available \
+            deployment/argocd-server -n argocd --timeout=180s || true
+
+          echo "✅ ArgoCD deployed & bootstrapped"
+          kubectl --kubeconfig "$KB" get pods -n argocd
+          kubectl --kubeconfig "$KB" get applicationsets,appprojects -n argocd 2>/dev/null || true
