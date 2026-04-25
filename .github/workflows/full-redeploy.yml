@@ -1,0 +1,92 @@
+name: Full Redeploy — InfraWeaver Platform
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        type: choice
+        options:
+          - productie
+          - ontwikkel
+      confirm:
+        description: "Type DESTROY to confirm full redeploy"
+        required: true
+        type: string
+
+concurrency:
+  group: platform-${{ inputs.environment }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  redeploy:
+    name: "Full Redeploy Platform (${{ inputs.environment }})"
+    if: inputs.confirm == 'DESTROY'
+    runs-on:
+      - self-hosted
+      - prod-worker
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        env:
+          SOPS_AGE_PRIVATE_KEY: ${{ secrets.SOPS_AGE_PRIVATE_KEY }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          if [ "$(swapon --show --noheadings | wc -l)" -eq 0 ]; then
+            sudo dd if=/dev/zero of=/swapfile bs=1M count=4096 status=none || true
+            sudo chmod 600 /swapfile && sudo mkswap /swapfile >/dev/null 2>&1 || true
+            sudo swapon /swapfile 2>/dev/null || true
+          fi
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends curl unzip make git
+          mkdir -p "$HOME/.config/sops/age" "$HOME/.ssh"
+          [ -n "${SOPS_AGE_PRIVATE_KEY:-}" ] && echo "$SOPS_AGE_PRIVATE_KEY" > "$HOME/.config/sops/age/keys.txt" && chmod 600 "$HOME/.config/sops/age/keys.txt"
+          [ -n "${SSH_PRIVATE_KEY:-}" ] && echo "$SSH_PRIVATE_KEY" > "$HOME/.ssh/deployer_ed25519" && chmod 600 "$HOME/.ssh/deployer_ed25519"
+          if ! command -v tofu &>/dev/null || [[ "$(tofu version | head -1)" != *"v1.11"* ]]; then
+            curl -fsSL -o /tmp/tofu.zip https://github.com/opentofu/opentofu/releases/download/v1.11.6/tofu_1.11.6_linux_amd64.zip
+            unzip -oq /tmp/tofu.zip -d /tmp/tofu_bin && sudo mv /tmp/tofu_bin/tofu /usr/local/bin/tofu && rm -rf /tmp/tofu.zip /tmp/tofu_bin
+          fi
+          if ! command -v sops &>/dev/null; then
+            curl -fsSL -o /tmp/sops https://github.com/getsops/sops/releases/download/v3.9.1/sops-v3.9.1.linux.amd64
+            chmod +x /tmp/sops && sudo mv /tmp/sops /usr/local/bin/sops
+          fi
+          if ! command -v helm &>/dev/null; then
+            curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+          fi
+          if ! command -v kubectl &>/dev/null; then
+            curl -fsSL "https://dl.k8s.io/release/$(curl -fsSL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" -o /tmp/kubectl
+            chmod +x /tmp/kubectl && sudo mv /tmp/kubectl /usr/local/bin/kubectl
+          fi
+
+      - name: Backup terraform state
+        run: |
+          STATE_DIR="$HOME/.tofu/state/platform-${{ inputs.environment }}"
+          mkdir -p "$STATE_DIR"
+          [ -f "$STATE_DIR/terraform.tfstate" ] && cp "$STATE_DIR/terraform.tfstate" "$STATE_DIR/terraform.tfstate.pre-redeploy" && echo "✓ State backed up" || echo "No existing state"
+
+      - name: Destroy existing platform
+        env:
+          ENV: ${{ inputs.environment }}
+          SOPS_AGE_PRIVATE_KEY: ${{ secrets.SOPS_AGE_PRIVATE_KEY }}
+        run: |
+          make destroy ENV=${{ inputs.environment }} || echo "⚠ Destroy failed or no prior state — continuing to fresh deploy"
+
+      - name: Clear state
+        run: |
+          STATE_DIR="$HOME/.tofu/state/platform-${{ inputs.environment }}"
+          rm -f "$STATE_DIR/terraform.tfstate"
+          echo "✓ State cleared for fresh deploy"
+
+      - name: Deploy platform from scratch
+        env:
+          ENV: ${{ inputs.environment }}
+          SOPS_AGE_PRIVATE_KEY: ${{ secrets.SOPS_AGE_PRIVATE_KEY }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          ARGOCD_GITHUB_TOKEN: ${{ secrets.ARGOCD_GITHUB_TOKEN }}
+        run: make apply ENV=${{ inputs.environment }}
