@@ -29,7 +29,7 @@ configs:
 
 redis:
   serviceAccount:
-    create: false
+    create: true
     name: argocd-redis  # use pre-existing SA with secret create/get RBAC for secret-init
 
 redis-ha:
