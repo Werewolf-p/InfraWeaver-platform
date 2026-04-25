@@ -1,0 +1,17 @@
+{
+  "title": "CatalogEntry",
+  "type": "object",
+  "properties": {
+    "repo": {"type": "string"},
+    "path": {"type": "string"},
+    "description": {"type": "string"},
+    "language": {"type": "string"},
+    "tags": {"type": "array", "items": {"type": "string"}},
+    "sensitive": {"type": "boolean"},
+    "sha1": {"type": "string"},
+    "size": {"type": "integer"},
+    "excerpt": {"type": "string"},
+    "generated_at": {"type": "string", "format": "date-time"}
+  },
+  "required": ["repo","path","generated_at"]
+}
