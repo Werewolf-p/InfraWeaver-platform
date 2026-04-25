@@ -34,9 +34,6 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install dependencies
-        env:
-          SOPS_AGE_PRIVATE_KEY: ${{ secrets.SOPS_AGE_PRIVATE_KEY }}
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         run: |
           if [ "$(swapon --show --noheadings | wc -l)" -eq 0 ]; then
             sudo dd if=/dev/zero of=/swapfile bs=1M count=4096 status=none || true
@@ -45,9 +42,6 @@ jobs:
           fi
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends curl unzip make git
-          mkdir -p "$HOME/.config/sops/age" "$HOME/.ssh"
-          [ -n "${SOPS_AGE_PRIVATE_KEY:-}" ] && echo "$SOPS_AGE_PRIVATE_KEY" > "$HOME/.config/sops/age/keys.txt" && chmod 600 "$HOME/.config/sops/age/keys.txt"
-          [ -n "${SSH_PRIVATE_KEY:-}" ] && echo "$SSH_PRIVATE_KEY" > "$HOME/.ssh/deployer_ed25519" && chmod 600 "$HOME/.ssh/deployer_ed25519"
           if ! command -v tofu &>/dev/null || [[ "$(tofu version | head -1)" != *"v1.11"* ]]; then
             curl -fsSL -o /tmp/tofu.zip https://github.com/opentofu/opentofu/releases/download/v1.11.6/tofu_1.11.6_linux_amd64.zip
             unzip -oq /tmp/tofu.zip -d /tmp/tofu_bin && sudo mv /tmp/tofu_bin/tofu /usr/local/bin/tofu && rm -rf /tmp/tofu.zip /tmp/tofu_bin
@@ -72,21 +66,30 @@ jobs:
 
       - name: Destroy existing platform
         env:
-          ENV: ${{ inputs.environment }}
-          SOPS_AGE_PRIVATE_KEY: ${{ secrets.SOPS_AGE_PRIVATE_KEY }}
+          SOPS_AGE_KEY_FILE: ${{ runner.temp }}/age.key
+          SSH_KEY_FILE: ${{ runner.temp }}/deployer
         run: |
-          make destroy ENV=${{ inputs.environment }} || echo "⚠ Destroy failed or no prior state — continuing to fresh deploy"
+          echo "${{ secrets.AGE_SECRET_KEY }}" > $SOPS_AGE_KEY_FILE
+          chmod 600 $SOPS_AGE_KEY_FILE
+          echo "${{ secrets.DEPLOYER_SSH_KEY }}" > $SSH_KEY_FILE
+          chmod 600 $SSH_KEY_FILE
+          mkdir -p ~/.ssh && cp $SSH_KEY_FILE ~/.ssh/deployer_ed25519 && chmod 600 ~/.ssh/deployer_ed25519
+          make destroy ENV=${{ inputs.environment }} || echo "⚠ Destroy failed or no prior state — continuing"
 
       - name: Clear state
         run: |
-          STATE_DIR="$HOME/.tofu/state/platform-${{ inputs.environment }}"
-          rm -f "$STATE_DIR/terraform.tfstate"
-          echo "✓ State cleared for fresh deploy"
+          rm -f "$HOME/.tofu/state/platform-${{ inputs.environment }}/terraform.tfstate"
+          echo "✓ State cleared"
 
       - name: Deploy platform from scratch
         env:
-          ENV: ${{ inputs.environment }}
-          SOPS_AGE_PRIVATE_KEY: ${{ secrets.SOPS_AGE_PRIVATE_KEY }}
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SOPS_AGE_KEY_FILE: ${{ runner.temp }}/age.key
+          SSH_KEY_FILE: ${{ runner.temp }}/deployer
           ARGOCD_GITHUB_TOKEN: ${{ secrets.ARGOCD_GITHUB_TOKEN }}
-        run: make apply ENV=${{ inputs.environment }}
+        run: |
+          echo "${{ secrets.AGE_SECRET_KEY }}" > $SOPS_AGE_KEY_FILE
+          chmod 600 $SOPS_AGE_KEY_FILE
+          echo "${{ secrets.DEPLOYER_SSH_KEY }}" > $SSH_KEY_FILE
+          chmod 600 $SSH_KEY_FILE
+          mkdir -p ~/.ssh && cp $SSH_KEY_FILE ~/.ssh/deployer_ed25519 && chmod 600 ~/.ssh/deployer_ed25519
+          make apply ENV=${{ inputs.environment }}
