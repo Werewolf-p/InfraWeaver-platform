@@ -1,0 +1,29 @@
+name: Catalog Validate
+on:
+  push:
+    paths:
+      - '.github/catalog.jsonl'
+      - '.github/catalog_schema.json'
+      - '.github/scripts/**'
+  pull_request:
+    paths:
+      - '.github/catalog.jsonl'
+      - '.github/catalog_schema.json'
+      - '.github/scripts/**'
+  schedule:
+    - cron: '0 2 * * *'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+      - name: Install jsonschema (optional)
+        run: python -m pip install --user jsonschema || true
+      - name: Run catalog validator
+        run: |
+          python ./.github/scripts/validate_catalog.py
