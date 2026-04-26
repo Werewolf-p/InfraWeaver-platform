@@ -96,6 +96,8 @@ spec:
             - --disable-anonymous-metrics=true
             - --single-account-mode-domain=infraweaver.local
             - --dns-domain=netbird.infraweaver.local
+            - --config=/var/lib/netbird/management.json
+            - --datadir=/var/lib/netbird/
           ports:
             - name: http
               containerPort: 80
