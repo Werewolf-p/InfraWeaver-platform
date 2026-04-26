@@ -101,6 +101,8 @@ metadata:
     app: netbird-management
 spec:
   replicas: 1
+  strategy:
+    type: Recreate  # PVC is ReadWriteOnce; must terminate old pod before new starts
   selector:
     matchLabels:
       app: netbird-management
