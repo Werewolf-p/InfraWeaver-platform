@@ -1,0 +1,49 @@
+name: Fix Etcd Corruption
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action to perform'
+        required: true
+        default: 'list-members'
+        type: choice
+        options:
+          - list-members
+          - remove-cp2
+          - reboot-cp2
+          - alarm-disarm
+jobs:
+  fix-etcd:
+    runs-on:
+      - self-hosted
+      - prod-worker
+    environment: productie
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup talosconfig
+        run: |
+          mkdir -p ~/.talos
+          python3 .github/scripts/extract_kubeconfig.py
+          cp /tmp/kubeconfig-extract/talosconfig ~/.talos/config
+          chmod 600 ~/.talos/config
+      - name: List etcd members
+        if: inputs.action == 'list-members' || inputs.action == 'remove-cp2'
+        run: |
+          talosctl --nodes 10.25.0.90 etcd members 2>&1
+      - name: Remove cp2 etcd member
+        if: inputs.action == 'remove-cp2'
+        run: |
+          # Get cp2's member ID and remove it
+          MEMBER_ID=$(talosctl --nodes 10.25.0.90 etcd members 2>&1 | grep "10.25.0.91" | awk '{print $1}')
+          echo "cp2 member ID: $MEMBER_ID"
+          if [ -n "$MEMBER_ID" ]; then
+            talosctl --nodes 10.25.0.90 etcd remove-member "$MEMBER_ID" 2>&1
+          fi
+      - name: Disarm etcd alarm
+        if: inputs.action == 'alarm-disarm'
+        run: |
+          talosctl --nodes 10.25.0.90 etcd alarm disarm 2>&1
+      - name: Reboot cp2
+        if: inputs.action == 'reboot-cp2'
+        run: |
+          talosctl --nodes 10.25.0.91 reboot 2>&1
