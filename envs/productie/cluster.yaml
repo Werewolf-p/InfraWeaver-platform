@@ -13,7 +13,7 @@ nodes:
     controlplane: true
     cpu: 4
     memory_mb: 8192
-    disk_gb: 100
+    disk_gb: 150
     datastore: "local-lvm"
   talos-prod-cp2:
     proxmox_node: "pve-prod2"
@@ -22,7 +22,7 @@ nodes:
     controlplane: true
     cpu: 4
     memory_mb: 8192
-    disk_gb: 100
+    disk_gb: 150
     datastore: "local-lvm"
   talos-prod-cp3:
     proxmox_node: "pve-prod3"
@@ -31,7 +31,7 @@ nodes:
     controlplane: true
     cpu: 4
     memory_mb: 8192
-    disk_gb: 100
+    disk_gb: 150
     datastore: "local-lvm"
 
 # SSH IPs for individual PVE nodes — used by qm importdisk operations

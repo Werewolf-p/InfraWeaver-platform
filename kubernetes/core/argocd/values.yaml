@@ -35,8 +35,18 @@ configs:
       hs.status = "Healthy"
       hs.message = "Ingress managed"
       return hs
+    # Local user accounts — login credentials managed below
+    accounts.remon: login
   params:
     server.insecure: "true"
+  rbac:
+    policy.csv: |
+      g, remon, role:admin
+  secret:
+    # Admin password: Unified*Presume8*Sudoku*Karate (bcrypt)
+    # Regenerate with: python3 -c "import bcrypt; print(bcrypt.hashpw(b'Unified*Presume8*Sudoku*Karate', bcrypt.gensalt(10)).decode())"
+    argocdServerAdminPassword: "$2b$10$r5uYY6K/ey9wjrobpRZfTeQ/P41PTOtFTbt9bCAgaDB8nXtlYgqrW"
+    argocdServerAdminPasswordMtime: "2026-04-26T21:00:00Z"
 
 redis:
   serviceAccount:
