@@ -30,20 +30,20 @@ jobs:
         if: inputs.action == 'list-members' || inputs.action == 'remove-cp2'
         run: |
           talosctl --nodes 10.25.0.90 etcd members 2>&1
-      - name: Remove cp2 etcd member
+      - name: Remove cp2 etcd member (ID 3accb43c5401c1cb)
         if: inputs.action == 'remove-cp2'
         run: |
-          # Get cp2's member ID and remove it
-          MEMBER_ID=$(talosctl --nodes 10.25.0.90 etcd members 2>&1 | grep "10.25.0.91" | awk '{print $1}')
-          echo "cp2 member ID: $MEMBER_ID"
-          if [ -n "$MEMBER_ID" ]; then
-            talosctl --nodes 10.25.0.90 etcd remove-member "$MEMBER_ID" 2>&1
-          fi
+          echo "Removing cp2 etcd member: 3accb43c5401c1cb"
+          talosctl --nodes 10.25.0.90 etcd remove-member "3accb43c5401c1cb" 2>&1
+          echo "Members after removal:"
+          talosctl --nodes 10.25.0.90 etcd members 2>&1
       - name: Disarm etcd alarm
         if: inputs.action == 'alarm-disarm'
         run: |
           talosctl --nodes 10.25.0.90 etcd alarm disarm 2>&1
-      - name: Reboot cp2
+          talosctl --nodes 10.25.0.90 etcd alarm list 2>&1
+      - name: Reboot cp2 (rejoins etcd after boot)
         if: inputs.action == 'reboot-cp2'
         run: |
           talosctl --nodes 10.25.0.91 reboot 2>&1
+          echo "cp2 is rebooting - it will rejoin etcd cluster automatically"
