@@ -15,9 +15,9 @@ grafana:
 
   ingress:
     enabled: true
-    ingressClassName: nginx
+    ingressClassName: traefik
     hosts:
-      - grafana.local
+      - grafana.prod.local
     paths:
       - /
 

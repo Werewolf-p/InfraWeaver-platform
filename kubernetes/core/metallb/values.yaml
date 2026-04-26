@@ -1,0 +1,14 @@
+# MetalLB configuration - native speaker mode (no FRR BGP)
+speaker:
+  frr:
+    enabled: false
+
+# Resources for controller
+controller:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi

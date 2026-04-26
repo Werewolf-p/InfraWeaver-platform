@@ -2,10 +2,8 @@ deployment:
   replicas: 1
 
 service:
-  type: NodePort
-  nodePorts:
-    web: 30080
-    websecure: 30443
+  type: LoadBalancer
+  loadBalancerIP: "10.25.0.200"
 
 ingressClass:
   enabled: true

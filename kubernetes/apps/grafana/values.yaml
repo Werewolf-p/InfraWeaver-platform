@@ -22,17 +22,20 @@ initChownData:
   enabled: false
 
 # ── Ingress ───────────────────────────────────────────────────────────────────
-ingress:
-  enabled: true
-  ingressClassName: nginx
-  annotations:
-    cert-manager.io/cluster-issuer: selfsigned-issuer
-  hosts:
-    - grafana-apps.local
-  tls:
-    - secretName: grafana-tls
-      hosts:
-        - grafana-apps.local
+  ingress:
+    enabled: true
+    ingressClassName: traefik
+    hosts:
+      - grafana.prod.local
+    paths:
+      - /
+    pathType: Prefix
+    annotations:
+      cert-manager.io/cluster-issuer: selfsigned-issuer
+    tls:
+      - secretName: grafana-tls
+        hosts:
+          - grafana.prod.local
 
 # ── Resources ─────────────────────────────────────────────────────────────────
 resources:

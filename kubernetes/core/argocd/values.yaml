@@ -1,5 +1,5 @@
 global:
-  domain: argocd.local
+  domain: argocd.prod.local
 
 server:
   replicas: 1  # override to 2 for productie via env patch
@@ -10,7 +10,7 @@ server:
     enabled: true
     ingressClassName: traefik
     hosts:
-      - argocd.local
+      - argocd.prod.local
     paths:
       - /
     pathType: Prefix

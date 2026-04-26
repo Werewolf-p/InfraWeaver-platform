@@ -1,0 +1,20 @@
+# MetalLB IP Address Pool and L2 Advertisement for productie
+# IP range: 10.25.0.200-210 (reserved for k8s LoadBalancer services)
+# 10.25.0.200 → Traefik ingress VIP
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: prod-pool
+  namespace: metallb-system
+spec:
+  addresses:
+    - 10.25.0.200-10.25.0.210
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: prod-l2
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+    - prod-pool
