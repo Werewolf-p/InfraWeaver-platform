@@ -155,7 +155,70 @@ spec:
       port: 33073
       targetPort: 33073
 ---
+# ── Dashboard Deployment ──────────────────────────────────────────────────────
+# NetBird web UI - serves the React app that connects to management API
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: netbird-dashboard
+  namespace: netbird
+  labels:
+    app: netbird-dashboard
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: netbird-dashboard
+  template:
+    metadata:
+      labels:
+        app: netbird-dashboard
+    spec:
+      containers:
+      - name: dashboard
+        image: netbirdio/dashboard:latest
+        ports:
+        - containerPort: 80
+          name: http
+        env:
+        - name: AUTH_SUPPORTED_SCOPES
+          value: "openid profile email offline_access api"
+        - name: NETBIRD_MGMT_API_ENDPOINT
+          value: "http://netbird-management.netbird.svc:80"
+        - name: NETBIRD_MGMT_GRPC_API_ENDPOINT
+          value: "http://netbird-management.netbird.svc:33073"
+        - name: AUTH_AUDIENCE
+          value: "netbird"
+        - name: USE_AUTH0
+          value: "false"
+        - name: AUTH_AUTHORITY
+          value: ""
+        - name: AUTH_CLIENT_ID
+          value: ""
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+---
+# ── Dashboard Service ──────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: netbird-dashboard
+  namespace: netbird
+spec:
+  selector:
+    app: netbird-dashboard
+  ports:
+  - port: 80
+    targetPort: 80
+    name: http
+---
 # ── Management Ingress (for web dashboard via Traefik) ────────────────────────
+# Routes: / → dashboard UI, /api → management API, /signalexchange → signal
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -170,10 +233,17 @@ spec:
     - host: netbird.prod.local
       http:
         paths:
-          - path: /
+          - path: /api
             pathType: Prefix
             backend:
               service:
                 name: netbird-management
+                port:
+                  number: 80
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: netbird-dashboard
                 port:
                   number: 80
