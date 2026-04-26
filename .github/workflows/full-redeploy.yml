@@ -52,6 +52,10 @@ jobs:
             sudo tar -xzf /tmp/age.tar.gz -C /usr/local/bin/ --strip-components=1 age/age age/age-keygen)
           command -v helm || (curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | sudo bash)
           command -v talosctl || (curl -fsSL https://talos.dev/install | sh)
+          command -v kubectl || (K8S_VER=$(curl -fsSL https://dl.k8s.io/release/stable.txt) && \
+            sudo curl -fsSL -o /usr/local/bin/kubectl \
+              "https://dl.k8s.io/release/${K8S_VER}/bin/linux/amd64/kubectl" && \
+            sudo chmod +x /usr/local/bin/kubectl)
           mkdir -p ~/.terraform.d/plugin-cache
           echo 'plugin_cache_dir = "$HOME/.terraform.d/plugin-cache"' > ~/.tofurc
           tofu version
