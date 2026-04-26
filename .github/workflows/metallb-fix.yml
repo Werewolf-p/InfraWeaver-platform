@@ -1,0 +1,88 @@
+name: Fix MetalLB L2 for Control-Plane-Only Cluster
+on:
+  workflow_dispatch:
+
+jobs:
+  metallb-fix:
+    runs-on:
+      - self-hosted
+      - prod-worker
+    environment: productie
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          python3 .github/scripts/extract_kubeconfig.py
+          cp /tmp/kubeconfig-extract/kubeconfig ~/.kube/config-productie
+          chmod 600 ~/.kube/config-productie
+
+      - name: Install kubectl
+        run: |
+          if ! command -v kubectl &>/dev/null; then
+            curl -sLo /usr/local/bin/kubectl \
+              "https://dl.k8s.io/release/$(curl -sL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+            chmod +x /usr/local/bin/kubectl
+          fi
+          kubectl version --client
+
+      - name: Check current node labels
+        env:
+          KUBECONFIG: /home/ubuntu/.kube/config-productie
+        run: |
+          kubectl get nodes -o=custom-columns=NAME:.metadata.name,LABELS:.metadata.labels 2>&1 | head -10
+          echo ""
+          echo "=== Checking exclude label ==="
+          kubectl get nodes -o json | python3 -c "
+          import sys, json
+          nodes = json.load(sys.stdin)['items']
+          for n in nodes:
+              labels = n['metadata']['labels']
+              has_exclude = 'node.kubernetes.io/exclude-from-external-load-balancers' in labels
+              print(f\"{n['metadata']['name']}: exclude-from-lb={has_exclude}\")
+          "
+
+      - name: Apply L2Advertisement with nodeSelectors (bypasses control-plane exclusion)
+        env:
+          KUBECONFIG: /home/ubuntu/.kube/config-productie
+        run: |
+          kubectl apply --server-side -f kubernetes/core/metallb/ip-pool.yaml
+          echo "Applied. Current L2Advertisement:"
+          kubectl get l2advertisement -n metallb-system -o yaml
+
+      - name: Restart MetalLB speakers to pick up new config
+        env:
+          KUBECONFIG: /home/ubuntu/.kube/config-productie
+        run: |
+          kubectl rollout restart daemonset speaker -n metallb-system
+          kubectl rollout status daemonset speaker -n metallb-system --timeout=120s
+
+      - name: Verify L2 election happens
+        env:
+          KUBECONFIG: /home/ubuntu/.kube/config-productie
+        run: |
+          sleep 15
+          echo "=== ServiceL2Status ==="
+          kubectl get servicel2status -A 2>&1
+          echo ""
+          echo "=== Speaker logs - L2 events ==="
+          for pod in $(kubectl get pods -n metallb-system -l component=speaker -o name); do
+            echo "--- $pod ---"
+            kubectl logs -n metallb-system $pod --tail=30 2>&1 | python3 -c "
+          import sys, json
+          for line in sys.stdin:
+              try:
+                  d = json.loads(line.strip())
+                  if 'l2' in d.get('caller','').lower() or 'announ' in d.get('event','').lower():
+                      print(line.strip())
+              except: pass
+            " | tail -5
+          done
+
+      - name: Test VIP connectivity
+        run: |
+          echo "=== Testing 10.25.0.200 ==="
+          curl -sv --connect-timeout 5 http://10.25.0.200/ 2>&1 | grep -E "Connected|HTTP/|error|failed"
+          echo ""
+          curl -sv --connect-timeout 5 https://10.25.0.200/ -k 2>&1 | grep -E "Connected|HTTP/|error|failed"

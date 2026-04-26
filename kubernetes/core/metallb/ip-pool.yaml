@@ -18,3 +18,10 @@ metadata:
 spec:
   ipAddressPools:
     - prod-pool
+  # Explicitly select all nodes (including control-plane).
+  # In MetalLB v0.14+, explicit nodeSelectors bypass the automatic
+  # node.kubernetes.io/exclude-from-external-load-balancers exclusion
+  # that Kubernetes adds to control-plane-only clusters.
+  nodeSelectors:
+    - matchLabels:
+        node-role.kubernetes.io/control-plane: ""
