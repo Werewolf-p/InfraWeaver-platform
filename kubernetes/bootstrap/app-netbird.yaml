@@ -1,0 +1,26 @@
+---
+# Standalone ArgoCD Application for NetBird VPN raw manifests
+# Split into separate files: management, signal, relay, client
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: apps-netbird
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  source:
+    repoURL: https://github.com/Werewolf-p/InfraWeaver-platform.git
+    targetRevision: HEAD
+    path: kubernetes/apps/netbird/manifests
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: netbird
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

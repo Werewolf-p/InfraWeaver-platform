@@ -1,0 +1,43 @@
+# Longhorn HA storage for Talos control-plane-only cluster
+defaultSettings:
+  # 3-node cluster: store 3 replicas for true HA
+  defaultReplicaCount: 3
+  # Allow scheduling on control-plane nodes (no workers in this cluster)
+  taintToleration: "node-role.kubernetes.io/control-plane:NoSchedule"
+  # Storage reserved per node (don't use all disk space)
+  storageMinimalAvailablePercentage: 10
+  storageOverProvisioningPercentage: 200
+  # Delete PVCs when PV is deleted
+  defaultDataLocality: best-effort
+  # Faster failover
+  nodeDownPodDeletionPolicy: delete-both-statefulset-and-deployment-pod
+
+longhornUI:
+  enabled: true
+
+ingress:
+  enabled: true
+  ingressClassName: traefik
+  host: longhorn.prod.local
+
+persistence:
+  defaultClass: false
+  defaultClassReplicaCount: 3
+
+# Allow pods on control-plane nodes
+tolerations:
+  - key: "node-role.kubernetes.io/control-plane"
+    operator: "Exists"
+    effect: "NoSchedule"
+
+longhornManager:
+  tolerations:
+    - key: "node-role.kubernetes.io/control-plane"
+      operator: "Exists"
+      effect: "NoSchedule"
+
+longhornDriver:
+  tolerations:
+    - key: "node-role.kubernetes.io/control-plane"
+      operator: "Exists"
+      effect: "NoSchedule"

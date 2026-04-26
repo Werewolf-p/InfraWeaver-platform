@@ -1,0 +1,56 @@
+---
+# ── NetBird Relay Server ──────────────────────────────────────────────────────
+# The relay handles NAT traversal for peers that can't connect directly.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: netbird-relay
+  namespace: netbird
+  labels:
+    app: netbird-relay
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: netbird-relay
+  template:
+    metadata:
+      labels:
+        app: netbird-relay
+    spec:
+      containers:
+      - name: relay
+        image: netbirdio/relay:latest
+        env:
+        - name: NB_LOG_LEVEL
+          value: info
+        - name: NB_LISTEN_ADDRESS
+          value: ":33080"
+        - name: NB_EXPOSED_ADDRESS
+          value: "rels://10.25.0.202:33080"
+        - name: NB_AUTH_SECRET
+          value: "netbird-relay-secret-change-in-prod"
+        ports:
+        - containerPort: 33080
+          name: relay
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+---
+# ── Relay Service ─────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: netbird-relay
+  namespace: netbird
+spec:
+  selector:
+    app: netbird-relay
+  ports:
+  - port: 33080
+    targetPort: 33080
+    name: relay

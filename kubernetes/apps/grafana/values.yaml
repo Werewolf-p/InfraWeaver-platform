@@ -32,6 +32,7 @@ initChownData:
     pathType: Prefix
     annotations:
       cert-manager.io/cluster-issuer: selfsigned-issuer
+      traefik.ingress.kubernetes.io/router.middlewares: traefik-netbird-only@kubernetescrd
     tls:
       - secretName: grafana-tls
         hosts:

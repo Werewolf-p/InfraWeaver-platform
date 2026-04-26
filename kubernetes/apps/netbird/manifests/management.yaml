@@ -1,0 +1,202 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: netbird
+---
+# ── Management ConfigMap ─────────────────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: netbird-management-config
+  namespace: netbird
+data:
+  management.json: |
+    {
+      "Stuns": [
+        {
+          "Proto": "udp",
+          "URI": "stun:stun.l.google.com:19302",
+          "Username": "",
+          "Password": null
+        }
+      ],
+      "TURNs": [
+        {
+          "Proto": "udp",
+          "URI": "turn:netbird-relay.netbird.svc:3478",
+          "Username": "netbird",
+          "Password": "netbird-relay-password"
+        }
+      ],
+      "Signal": {
+        "Proto": "http",
+        "URI": "netbird-signal.netbird.svc:10000",
+        "Username": "",
+        "Password": null
+      },
+      "Datadir": "/var/lib/netbird/",
+      "DataStoreEncryptionKey": "",
+      "HttpConfig": {
+        "LetsEncryptDomain": "",
+        "AuthAudience": "",
+        "AuthIssuer": "",
+        "AuthUserIDClaim": "",
+        "AuthKeysLocation": "",
+        "OIDCConfigEndpoint": "",
+        "IdpSignKeyRefreshEnabled": false,
+        "Address": "0.0.0.0:80"
+      },
+      "IdpManagerConfig": {
+        "Manager": "none",
+        "ExtraConfig": {},
+        "ClientConfig": {}
+      },
+      "DeviceAuthorizationFlow": {
+        "Provider": "none",
+        "ProviderConfig": {}
+      },
+      "PKCEAuthorizationFlow": {
+        "ProviderConfig": {
+          "ClientID": "",
+          "ClientSecret": "",
+          "Domain": "",
+          "Audience": "",
+          "TokenEndpoint": "",
+          "AuthorizationEndpoint": "",
+          "Scope": "",
+          "RedirectURLs": null
+        }
+      },
+      "ReverseProxy": {
+        "TrustedHTTPProxies": null,
+        "TrustedHTTPProxiesCount": 0,
+        "TrustedPeers": null
+      }
+    }
+---
+# ── Management PVC ────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: netbird-management-data
+  namespace: netbird
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: local-path
+---
+# ── Management Deployment ─────────────────────────────────────────────────────
+# Uses an initContainer to copy the config from ConfigMap (read-only) to the
+# PVC (writable) so the management app can update DataStoreEncryptionKey.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: netbird-management
+  namespace: netbird
+  labels:
+    app: netbird-management
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: netbird-management
+  template:
+    metadata:
+      labels:
+        app: netbird-management
+    spec:
+      initContainers:
+      - name: copy-config
+        image: busybox:1.36
+        command:
+          - sh
+          - -c
+          - |
+            # Only copy if config doesn't already exist (preserves encryption key on restart)
+            if [ ! -f /var/lib/netbird/management.json ]; then
+              cp /etc/netbird-init/management.json /var/lib/netbird/management.json
+              echo "Config copied to writable volume"
+            else
+              echo "Config already exists, skipping copy"
+            fi
+        volumeMounts:
+        - name: config-init
+          mountPath: /etc/netbird-init
+        - name: data
+          mountPath: /var/lib/netbird
+      containers:
+      - name: management
+        image: netbirdio/management:latest
+        args:
+          - --port=80
+          - --log-file=console
+          - --log-level=info
+          - --disable-anonymous-metrics=true
+          - --single-account-mode-domain=infraweaver.local
+          - --dns-domain=netbird.infraweaver.local
+          - --config=/var/lib/netbird/management.json
+        env:
+        - name: NETBIRD_STORE_ENGINE
+          value: sqlite
+        ports:
+        - containerPort: 80
+          name: http
+        - containerPort: 443
+          name: https
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/netbird
+      volumes:
+      - name: config-init
+        configMap:
+          name: netbird-management-config
+      - name: data
+        persistentVolumeClaim:
+          claimName: netbird-management-data
+---
+# ── Management Service ────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: netbird-management
+  namespace: netbird
+spec:
+  selector:
+    app: netbird-management
+  ports:
+  - port: 80
+    targetPort: 80
+    name: http
+---
+# ── Management Ingress ────────────────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: netbird-management
+  namespace: netbird
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  ingressClassName: traefik
+  rules:
+  - host: netbird.prod.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: netbird-management
+            port:
+              number: 80

@@ -1,0 +1,16 @@
+---
+# Traefik IPAllowList Middleware — restricts access to NetBird VPN clients only
+# Apply this middleware to private services (ArgoCD, Grafana, Longhorn)
+# The test-website does NOT use this middleware (it's public)
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: netbird-only
+  namespace: traefik
+spec:
+  ipAllowList:
+    sourceRange:
+      - 100.64.0.0/10    # NetBird default CGNAT CIDR
+      - 10.64.0.0/10     # Alternative NetBird CIDR
+      - 10.25.0.0/24     # LAN access (homelab)
+      - 127.0.0.1/32     # Localhost
