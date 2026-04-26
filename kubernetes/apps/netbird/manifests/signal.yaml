@@ -1,5 +1,7 @@
 ---
 # ── NetBird Signal Server ─────────────────────────────────────────────────────
+# Handles WebRTC signaling for peer-to-peer connection establishment.
+# External: 10.25.0.204:10000
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -18,24 +20,25 @@ spec:
         app: netbird-signal
     spec:
       containers:
-      - name: signal
-        image: netbirdio/signal:latest
-        args:
-          - --port=10000
-          - --log-file=console
-          - --log-level=info
-        ports:
-        - containerPort: 10000
-          name: grpc
-        resources:
-          requests:
-            cpu: 50m
-            memory: 64Mi
-          limits:
-            cpu: 250m
-            memory: 128Mi
+        - name: signal
+          image: netbirdio/signal:latest
+          imagePullPolicy: Always
+          args:
+            - --port=10000
+            - --log-file=console
+            - --log-level=info
+          ports:
+            - name: grpc
+              containerPort: 10000
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
 ---
-# ── Signal Service (ClusterIP for internal + LoadBalancer for external access) ─
+# ── Signal ClusterIP Service ──────────────────────────────────────────────────
 apiVersion: v1
 kind: Service
 metadata:
@@ -45,11 +48,11 @@ spec:
   selector:
     app: netbird-signal
   ports:
-  - port: 10000
-    targetPort: 10000
-    name: grpc
+    - name: grpc
+      port: 10000
+      targetPort: 10000
 ---
-# ── Signal LoadBalancer Service (external access on 10.25.0.202) ─────────────
+# ── Signal LoadBalancer (external access at 10.25.0.204) ─────────────────────
 apiVersion: v1
 kind: Service
 metadata:
@@ -57,10 +60,10 @@ metadata:
   namespace: netbird
 spec:
   type: LoadBalancer
-  loadBalancerIP: "10.25.0.202"
+  loadBalancerIP: "10.25.0.204"
   selector:
     app: netbird-signal
   ports:
-  - port: 10000
-    targetPort: 10000
-    name: grpc
+    - name: grpc
+      port: 10000
+      targetPort: 10000

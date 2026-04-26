@@ -1,6 +1,7 @@
 ---
 # ── NetBird Relay Server ──────────────────────────────────────────────────────
-# The relay handles NAT traversal for peers that can't connect directly.
+# Handles NAT traversal (TURN/relay) for peers that can't connect directly.
+# External: 10.25.0.202:33080 (relay WebSocket), 10.25.0.202:3478 (TURN)
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -19,29 +20,28 @@ spec:
         app: netbird-relay
     spec:
       containers:
-      - name: relay
-        image: netbirdio/relay:latest
-        env:
-        - name: NB_LOG_LEVEL
-          value: info
-        - name: NB_LISTEN_ADDRESS
-          value: ":33080"
-        - name: NB_EXPOSED_ADDRESS
-          value: "rels://10.25.0.202:33080"
-        - name: NB_AUTH_SECRET
-          value: "netbird-relay-secret-change-in-prod"
-        ports:
-        - containerPort: 33080
-          name: relay
-        resources:
-          requests:
-            cpu: 50m
-            memory: 64Mi
-          limits:
-            cpu: 500m
-            memory: 256Mi
+        - name: relay
+          image: netbirdio/relay:latest
+          imagePullPolicy: Always
+          env:
+            - name: NB_EXPOSED_ADDRESS
+              value: "rels://10.25.0.202:33080"
+            - name: NB_AUTH_SECRET
+              value: "netbird-relay-password"
+          ports:
+            - name: relay
+              containerPort: 33080
+            - name: turn
+              containerPort: 3478
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
 ---
-# ── Relay Service ─────────────────────────────────────────────────────────────
+# ── Relay ClusterIP Service ───────────────────────────────────────────────────
 apiVersion: v1
 kind: Service
 metadata:
@@ -51,6 +51,28 @@ spec:
   selector:
     app: netbird-relay
   ports:
-  - port: 33080
-    targetPort: 33080
-    name: relay
+    - name: relay
+      port: 33080
+      targetPort: 33080
+    - name: turn
+      port: 3478
+      targetPort: 3478
+---
+# ── Relay LoadBalancer (external access at 10.25.0.202) ──────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: netbird-relay-lb
+  namespace: netbird
+spec:
+  type: LoadBalancer
+  loadBalancerIP: "10.25.0.202"
+  selector:
+    app: netbird-relay
+  ports:
+    - name: relay
+      port: 33080
+      targetPort: 33080
+    - name: turn
+      port: 3478
+      targetPort: 3478

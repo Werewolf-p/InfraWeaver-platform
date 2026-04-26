@@ -20,6 +20,8 @@ grafana:
       - grafana.prod.local
     paths:
       - /
+    annotations:
+      traefik.ingress.kubernetes.io/router.middlewares: traefik-netbird-only@kubernetescrd
 
   dashboardProviders:
     dashboardproviders.yaml:

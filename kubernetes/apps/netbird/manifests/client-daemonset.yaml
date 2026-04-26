@@ -1,12 +1,8 @@
 ---
 # ── NetBird Client DaemonSet ──────────────────────────────────────────────────
-# Runs on every cluster node. Creates a WireGuard tunnel back to the management
-# server so cluster CIDRs are routable over NetBird VPN.
-#
-# Routes advertised:
-#   10.244.0.0/16  — Flannel pod CIDR
-#   10.96.0.0/12   — Kubernetes service CIDR
-#   10.25.0.0/24   — Node LAN
+# Runs a NetBird client on every K8s node, registering each as a peer.
+# Peer name = node hostname (spec.nodeName).
+# Requires: netbird-secrets Secret with key SETUP_KEY
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -18,53 +14,60 @@ spec:
   selector:
     matchLabels:
       app: netbird-client
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
   template:
     metadata:
       labels:
         app: netbird-client
     spec:
-      hostNetwork: false
+      hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet
-      containers:
-      - name: netbird-client
-        image: netbirdio/netbird:latest
-        env:
-        - name: NB_MANAGEMENT_URL
-          value: "http://netbird-management.netbird.svc:80"
-        - name: NB_SETUP_KEY
-          valueFrom:
-            secretKeyRef:
-              name: netbird-setup-key
-              key: setup-key
-              optional: true
-        - name: NB_LOG_LEVEL
-          value: info
-        securityContext:
-          privileged: true
-          capabilities:
-            add:
-              - NET_ADMIN
-              - SYS_MODULE
-        volumeMounts:
-        - name: tun
-          mountPath: /dev/net/tun
-        - name: wireguard-dir
-          mountPath: /etc/wireguard
-        resources:
-          requests:
-            cpu: 50m
-            memory: 64Mi
-          limits:
-            cpu: 250m
-            memory: 128Mi
-      volumes:
-      - name: tun
-        hostPath:
-          path: /dev/net/tun
-          type: CharDevice
-      - name: wireguard-dir
-        hostPath:
-          path: /var/lib/wireguard
-          type: DirectoryOrCreate
       tolerations:
-      - operator: "Exists"
+        - operator: Exists
+      containers:
+        - name: client
+          image: netbirdio/netbird:latest
+          imagePullPolicy: Always
+          env:
+            - name: NB_SETUP_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: netbird-secrets
+                  key: SETUP_KEY
+            - name: NB_MANAGEMENT_URL
+              value: "http://netbird-management.netbird.svc:80"
+            - name: NB_HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          securityContext:
+            privileged: true
+            capabilities:
+              add:
+                - NET_ADMIN
+                - SYS_ADMIN
+                - NET_RAW
+          volumeMounts:
+            - name: tun
+              mountPath: /dev/net/tun
+      volumes:
+        - name: tun
+          hostPath:
+            path: /dev/net/tun
+            type: CharDevice
+---
+# ── NetBird Secrets ───────────────────────────────────────────────────────────
+# Setup key used by DaemonSet clients to auto-register as peers.
+# Rotate by changing SETUP_KEY and restarting the DaemonSet.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: netbird-secrets
+  namespace: netbird
+type: Opaque
+stringData:
+  SETUP_KEY: "A1B2C3D4-E5F6-7890-ABCD-EF1234567890"

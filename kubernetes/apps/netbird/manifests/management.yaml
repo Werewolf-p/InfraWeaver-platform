@@ -5,6 +5,10 @@ metadata:
   name: netbird
 ---
 # ── Management ConfigMap ─────────────────────────────────────────────────────
+# NOTE: The init container copies this to the PVC ONLY if management.json does
+# not already exist on the PVC. After first boot, the PVC copy is authoritative.
+# If you change this ConfigMap you must delete the PVC file and restart the pod
+# for changes to take effect.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -13,66 +17,19 @@ metadata:
 data:
   management.json: |
     {
-      "Stuns": [
-        {
-          "Proto": "udp",
-          "URI": "stun:stun.l.google.com:19302",
-          "Username": "",
-          "Password": null
-        }
-      ],
-      "TURNs": [
-        {
-          "Proto": "udp",
-          "URI": "turn:netbird-relay.netbird.svc:3478",
-          "Username": "netbird",
-          "Password": "netbird-relay-password"
-        }
-      ],
-      "Signal": {
-        "Proto": "http",
-        "URI": "netbird-signal.netbird.svc:10000",
-        "Username": "",
-        "Password": null
-      },
+      "Stuns": [{"Proto":"udp","URI":"stun:stun.l.google.com:19302","Username":"","Password":null}],
+      "TURNs": [{"Proto":"udp","URI":"turn:10.25.0.202:3478","Username":"netbird","Password":"netbird-relay-password"}],
+      "Signal": {"Proto":"http","URI":"10.25.0.204:10000","Username":"","Password":null},
       "Datadir": "/var/lib/netbird/",
-      "DataStoreEncryptionKey": "",
+      "DataStoreEncryptionKey": "HDIJDPnaIDhYyAWLiIRRDrgU8c0mt0HbDvuPTAEgJTU=",
       "HttpConfig": {
-        "LetsEncryptDomain": "",
-        "AuthAudience": "",
-        "AuthIssuer": "",
-        "AuthUserIDClaim": "",
-        "AuthKeysLocation": "",
-        "OIDCConfigEndpoint": "",
-        "IdpSignKeyRefreshEnabled": false,
-        "Address": "0.0.0.0:80"
+        "LetsEncryptDomain":"","CertFile":"","CertKey":"",
+        "AuthAudience":"","AuthIssuer":"","AuthKeysLocation":"","AuthUserIDClaim":"",
+        "IdpSignKeyRefreshEnabled":false,"OIDCConfigEndpoint":""
       },
-      "IdpManagerConfig": {
-        "Manager": "none",
-        "ExtraConfig": {},
-        "ClientConfig": {}
-      },
-      "DeviceAuthorizationFlow": {
-        "Provider": "none",
-        "ProviderConfig": {}
-      },
-      "PKCEAuthorizationFlow": {
-        "ProviderConfig": {
-          "ClientID": "",
-          "ClientSecret": "",
-          "Domain": "",
-          "Audience": "",
-          "TokenEndpoint": "",
-          "AuthorizationEndpoint": "",
-          "Scope": "",
-          "RedirectURLs": null
-        }
-      },
-      "ReverseProxy": {
-        "TrustedHTTPProxies": null,
-        "TrustedHTTPProxiesCount": 0,
-        "TrustedPeers": null
-      }
+      "IdpManagerConfig": {"Manager":"none","ExtraConfig":{},"ClientConfig":null},
+      "DeviceAuthorizationFlow": null,
+      "PKCEAuthorizationFlow": null
     }
 ---
 # ── Management PVC ────────────────────────────────────────────────────────────
@@ -90,8 +47,6 @@ spec:
   storageClassName: local-path
 ---
 # ── Management Deployment ─────────────────────────────────────────────────────
-# Uses an initContainer to copy the config from ConfigMap (read-only) to the
-# PVC (writable) so the management app can update DataStoreEncryptionKey.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -112,62 +67,59 @@ spec:
         app: netbird-management
     spec:
       initContainers:
-      - name: copy-config
-        image: busybox:1.36
-        command:
-          - sh
-          - -c
-          - |
-            # Only copy if config doesn't already exist (preserves encryption key on restart)
-            if [ ! -f /var/lib/netbird/management.json ]; then
-              cp /etc/netbird-init/management.json /var/lib/netbird/management.json
-              echo "Config copied to writable volume"
-            else
-              echo "Config already exists, skipping copy"
-            fi
-        volumeMounts:
-        - name: config-init
-          mountPath: /etc/netbird-init
-        - name: data
-          mountPath: /var/lib/netbird
+        # Only copies management.json if it doesn't already exist on the PVC
+        - name: copy-config
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              if [ ! -f /var/lib/netbird/management.json ]; then
+                echo "Copying initial management.json to PVC"
+                cp /config-source/management.json /var/lib/netbird/management.json
+              else
+                echo "management.json already exists, skipping"
+              fi
+          volumeMounts:
+            - name: config-source
+              mountPath: /config-source
+            - name: data
+              mountPath: /var/lib/netbird
       containers:
-      - name: management
-        image: netbirdio/management:latest
-        args:
-          - --port=80
-          - --log-file=console
-          - --log-level=info
-          - --disable-anonymous-metrics=true
-          - --single-account-mode-domain=infraweaver.local
-          - --dns-domain=netbird.infraweaver.local
-          - --config=/var/lib/netbird/management.json
-        env:
-        - name: NETBIRD_STORE_ENGINE
-          value: sqlite
-        ports:
-        - containerPort: 80
-          name: http
-        - containerPort: 443
-          name: https
-        resources:
-          requests:
-            cpu: 100m
-            memory: 128Mi
-          limits:
-            cpu: 500m
-            memory: 512Mi
-        volumeMounts:
-        - name: data
-          mountPath: /var/lib/netbird
+        - name: management
+          image: netbirdio/management:latest
+          imagePullPolicy: Always
+          args:
+            - --port=80
+            - --log-file=console
+            - --log-level=info
+            - --disable-anonymous-metrics=true
+            - --single-account-mode-domain=infraweaver.local
+            - --dns-domain=netbird.infraweaver.local
+          ports:
+            - name: http
+              containerPort: 80
+            - name: grpc-compat
+              containerPort: 33073
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/netbird
       volumes:
-      - name: config-init
-        configMap:
-          name: netbird-management-config
-      - name: data
-        persistentVolumeClaim:
-          claimName: netbird-management-data
+        - name: config-source
+          configMap:
+            name: netbird-management-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: netbird-management-data
 ---
-# ── Management Service ────────────────────────────────────────────────────────
+# ── Management ClusterIP Service ──────────────────────────────────────────────
 apiVersion: v1
 kind: Service
 metadata:
@@ -177,11 +129,33 @@ spec:
   selector:
     app: netbird-management
   ports:
-  - port: 80
-    targetPort: 80
-    name: http
+    - name: http
+      port: 80
+      targetPort: 80
+    - name: grpc-compat
+      port: 33073
+      targetPort: 33073
 ---
-# ── Management Ingress ────────────────────────────────────────────────────────
+# ── Management LoadBalancer (external access at 10.25.0.203) ─────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: netbird-management-lb
+  namespace: netbird
+spec:
+  type: LoadBalancer
+  loadBalancerIP: "10.25.0.203"
+  selector:
+    app: netbird-management
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+    - name: grpc-compat
+      port: 33073
+      targetPort: 33073
+---
+# ── Management Ingress (for web dashboard via Traefik) ────────────────────────
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -189,16 +163,17 @@ metadata:
   namespace: netbird
   annotations:
     traefik.ingress.kubernetes.io/router.entrypoints: web
+    traefik.ingress.kubernetes.io/router.middlewares: traefik-netbird-only@kubernetescrd
 spec:
   ingressClassName: traefik
   rules:
-  - host: netbird.prod.local
-    http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: netbird-management
-            port:
-              number: 80
+    - host: netbird.prod.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: netbird-management
+                port:
+                  number: 80

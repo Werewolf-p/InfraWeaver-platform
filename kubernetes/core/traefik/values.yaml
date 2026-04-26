@@ -4,6 +4,8 @@ deployment:
 service:
   type: LoadBalancer
   loadBalancerIP: "10.25.0.200"
+  spec:
+    externalTrafficPolicy: Local  # Preserve real client IPs for IP allowlist middleware
 
 ingressClass:
   enabled: true
