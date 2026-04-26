@@ -9,11 +9,11 @@ server:
   ingress:
     enabled: true
     ingressClassName: traefik
-    hostname: argocd.local
-    annotations:
-      traefik.ingress.kubernetes.io/router.entrypoints: web
+    hosts:
+      - argocd.local
+    paths:
+      - /
     pathType: Prefix
-    path: /
 
 repoServer:
   replicas: 1

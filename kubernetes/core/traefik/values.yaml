@@ -1,68 +1,29 @@
-# Traefik ingress controller — bare-metal homelab (NodePort mode)
-# Access: http://<node-ip>:30090  https://<node-ip>:30453
-# IngressClass: traefik (not default — apps must specify ingressClassName: traefik)
-
 deployment:
   replicas: 1
 
-ingressClass:
-  enabled: true
-  isDefaultClass: false
-  name: traefik
-
-providers:
-  kubernetesIngress:
-    enabled: true
-    ingressClass: traefik
-    publishedService:
-      enabled: false
-  kubernetesCRD:
-    enabled: true
-    allowCrossNamespace: true
-
-ports:
-  web:
-    port: 80
-    exposedPort: 80
-    nodePort: 30090
-    protocol: TCP
-  websecure:
-    port: 443
-    exposedPort: 443
-    nodePort: 30453
-    protocol: TCP
-    tls:
-      enabled: true
-
 service:
   type: NodePort
-  externalTrafficPolicy: Local
+  nodePorts:
+    web: 30080
+    websecure: 30443
 
-# Traefik dashboard (access via port-forward: kubectl port-forward -n traefik svc/traefik 9000:9000)
-api:
-  dashboard: true
-  insecure: false
+ingressClass:
+  enabled: true
+  isDefaultClass: true
 
-logs:
-  access:
+providers:
+  kubernetesCRD:
     enabled: true
+  kubernetesIngress:
+    enabled: true
+
+rbac:
+  enabled: true
 
 resources:
   requests:
     cpu: 100m
     memory: 128Mi
   limits:
-    cpu: 300m
+    cpu: 500m
     memory: 256Mi
-
-# Required for Talos: allow binding privileged ports
-securityContext:
-  capabilities:
-    drop:
-      - ALL
-    add:
-      - NET_BIND_SERVICE
-  readOnlyRootFilesystem: true
-  runAsNonRoot: false
-  runAsUser: 0
-  runAsGroup: 0
