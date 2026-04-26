@@ -1,0 +1,89 @@
+name: Cluster Recovery & MetalLB Fix
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action to perform'
+        required: true
+        default: 'check-status'
+        type: choice
+        options:
+          - check-status
+          - apply-metallb-fix
+
+jobs:
+  recover:
+    runs-on:
+      - self-hosted
+      - prod-worker
+    environment: productie
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup configs
+        run: |
+          mkdir -p ~/.kube ~/.talos
+          python3 .github/scripts/extract_kubeconfig.py
+          cp /tmp/kubeconfig-extract/talosconfig ~/.talos/config
+          chmod 600 ~/.talos/config
+          # Create kubeconfig variants for each node
+          for node_ip in 10.25.0.90 10.25.0.91 10.25.0.92; do
+            sed "s|https://10.25.0.90:6443|https://${node_ip}:6443|g" \
+              /tmp/kubeconfig-extract/kubeconfig > ~/.kube/config-${node_ip/./-}
+            chmod 600 ~/.kube/config-${node_ip/./-}
+          done
+
+      - name: Check Talos node status (via cp2/cp3)
+        run: |
+          echo "=== Node health via cp2 ==="
+          talosctl --nodes 10.25.0.91 get members 2>&1 || true
+          echo ""
+          echo "=== cp1 health ==="
+          talosctl --nodes 10.25.0.90 health --wait-timeout=10s 2>&1 || echo "cp1 not responding"
+          echo ""
+          echo "=== etcd members via cp2 ==="
+          talosctl --nodes 10.25.0.91 etcd members 2>&1 || true
+          echo ""
+          echo "=== Talos service status cp2 ==="
+          talosctl --nodes 10.25.0.91 services 2>&1 | grep -E "etcd|apiserver|kubelet|STATE" || true
+          echo ""
+          echo "=== Talos service status cp3 ==="
+          talosctl --nodes 10.25.0.92 services 2>&1 | grep -E "etcd|apiserver|kubelet|STATE" || true
+
+      - name: Find working API server
+        id: find-api
+        run: |
+          for node_ip in 10.25.0.90 10.25.0.91 10.25.0.92; do
+            if nc -z -w 5 $node_ip 6443 2>/dev/null; then
+              echo "API_NODE=$node_ip" >> $GITHUB_OUTPUT
+              echo "✓ API server reachable at $node_ip"
+              break
+            else
+              echo "✗ $node_ip:6443 not reachable"
+            fi
+          done
+
+      - name: Use working API node
+        if: steps.find-api.outputs.API_NODE != ''
+        env:
+          KUBECONFIG: /home/ubuntu/.kube/config-${{ steps.find-api.outputs.API_NODE != '' && format('{0}', steps.find-api.outputs.API_NODE) || '10.25.0.91' }}
+        run: |
+          kubectl get nodes 2>&1 || true
+          kubectl get pods -A | grep -v Running | head -20 || true
+
+      - name: Apply MetalLB fix (nodeSelectors for control-plane)
+        if: inputs.action == 'apply-metallb-fix' && steps.find-api.outputs.API_NODE != ''
+        env:
+          KUBECONFIG: /home/ubuntu/.kube/config-${{ steps.find-api.outputs.API_NODE != '' && format('{0}', steps.find-api.outputs.API_NODE) || '10.25.0.91' }}
+        run: |
+          # Apply with --validate=false since we can't download openapi if API is partially up
+          kubectl apply --server-side --validate=false -f kubernetes/core/metallb/ip-pool.yaml
+          echo "Applied. Restarting speakers..."
+          kubectl rollout restart daemonset speaker -n metallb-system
+          kubectl rollout status daemonset speaker -n metallb-system --timeout=120s
+          sleep 15
+          echo "=== ServiceL2Status ==="
+          kubectl get servicel2status -A 2>&1
+          echo ""
+          echo "=== Test VIP ==="
+          curl -sv --connect-timeout 5 http://10.25.0.200/ 2>&1 | grep -E "Connected|HTTP/|error|refused"
