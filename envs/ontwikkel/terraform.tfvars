@@ -22,7 +22,7 @@ environment  = "ontwikkel"
 # Git repo for ArgoCD ApplicationSet
 # ---------------------------------------------------------------------------
 git_repo_url = "https://github.com/Werewolf-p/InfraWeaver-platform"
-git_revision = "HEAD"
+git_revision = "ontwikkel"
 
 # ---------------------------------------------------------------------------
 # Two-stage apply control

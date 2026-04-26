@@ -47,4 +47,4 @@ nameservers:
   - "1.1.1.1"
 subnet_prefix: 24
 talos_image_datastore: "local-lvm"
-openbao_address: "https://10.25.0.241:8200"
+openbao_address: "http://10.25.0.86:8200"

@@ -1,0 +1,5 @@
+repoURL: https://traefik.github.io/charts
+targetRevision: "34.*"
+chart: traefik
+releaseName: traefik
+namespace: traefik

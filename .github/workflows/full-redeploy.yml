@@ -216,7 +216,12 @@ jobs:
           kubectl --kubeconfig "$KB" label secret repo-creds-github --namespace argocd \
             "argocd.argoproj.io/secret-type=repo-creds" --overwrite
 
-          kubectl --kubeconfig "$KB" apply --server-side --force-conflicts -f kubernetes/bootstrap/
+          # Apply bootstrap manifests with env-specific revision so ArgoCD tracks the correct branch
+          GIT_REVISION="${{ inputs.environment == 'productie' && 'main' || 'ontwikkel' }}"
+          for f in kubernetes/bootstrap/*.yaml; do
+            sed "s|revision: HEAD|revision: ${GIT_REVISION}|g; s|targetRevision: HEAD|targetRevision: ${GIT_REVISION}|g" "$f" \
+              | kubectl --kubeconfig "$KB" apply --server-side --force-conflicts -f -
+          done
 
           kubectl --kubeconfig "$KB" wait --for=condition=available \
             deployment/argocd-server -n argocd --timeout=180s || true
@@ -224,3 +229,186 @@ jobs:
           echo "✅ ArgoCD deployed & bootstrapped"
           kubectl --kubeconfig "$KB" get pods -n argocd
           kubectl --kubeconfig "$KB" get applicationsets,appprojects -n argocd 2>/dev/null || true
+
+      - name: Bootstrap Storage (local-path-provisioner)
+        if: success()
+        run: |
+          KB=~/.kube/config-platform-${{ env.ENV_NAME }}
+          LOCAL_PATH_VERSION="v0.0.30"
+
+          # Install local-path-provisioner (idempotent)
+          curl -sL "https://raw.githubusercontent.com/rancher/local-path-provisioner/${LOCAL_PATH_VERSION}/deploy/local-path-storage.yaml" \
+            | kubectl --kubeconfig "$KB" apply -f -
+
+          # Allow hostPath volumes in local-path-storage namespace (required by provisioner helper pods)
+          kubectl --kubeconfig "$KB" label namespace local-path-storage \
+            pod-security.kubernetes.io/enforce=privileged \
+            pod-security.kubernetes.io/warn=privileged \
+            pod-security.kubernetes.io/audit=privileged \
+            --overwrite
+
+          # Allow monitoring namespace to run privileged initContainers (prometheus chown fix)
+          kubectl --kubeconfig "$KB" label namespace monitoring \
+            pod-security.kubernetes.io/enforce=privileged \
+            pod-security.kubernetes.io/warn=privileged \
+            pod-security.kubernetes.io/audit=privileged \
+            --overwrite 2>/dev/null || true
+
+          # Allow apps-grafana namespace (initChownData requires CAP_CHOWN, needs baseline+)
+          kubectl --kubeconfig "$KB" create namespace apps-grafana 2>/dev/null || true
+          kubectl --kubeconfig "$KB" label namespace apps-grafana \
+            pod-security.kubernetes.io/enforce=privileged \
+            pod-security.kubernetes.io/warn=privileged \
+            pod-security.kubernetes.io/audit=privileged \
+            --overwrite 2>/dev/null || true
+
+          # Set local-path as the default StorageClass
+          kubectl --kubeconfig "$KB" patch storageclass local-path \
+            -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}' \
+            2>/dev/null || true
+
+          echo "✅ local-path-provisioner bootstrapped"
+          kubectl --kubeconfig "$KB" get storageclass
+          kubectl --kubeconfig "$KB" get pods -n local-path-storage
+
+      - name: Bootstrap OpenBao & Secrets
+        if: success()
+        run: |
+          ENV=${{ env.ENV_NAME }}
+          KB=~/.kube/config-platform-$ENV
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=15 -i ~/.ssh/deployer_ed25519"
+
+          # Parse OpenBao address from cluster.yaml (robust YAML read)
+          OPENBAO_ADDR=$(python3 -c "
+          import sys
+          with open('envs/$ENV/cluster.yaml') as f:
+              for line in f:
+                  line = line.strip()
+                  if line.startswith('openbao_address:'):
+                      print(line.split(':', 1)[1].strip().strip('\"'))
+                      break
+          ")
+
+          if [ -z "$OPENBAO_ADDR" ]; then
+            echo "⚠ No openbao_address in cluster.yaml — skipping"
+            exit 0
+          fi
+
+          # Extract IP from URL (supports http://IP:PORT)
+          OPENBAO_IP=$(echo "$OPENBAO_ADDR" | sed 's|https\?://\([^/:]*\).*|\1|')
+          echo "==> OpenBao: $OPENBAO_ADDR (IP: $OPENBAO_IP)"
+
+          # Get root token from OpenBao VM
+          OPENBAO_ROOT_TOKEN=$(ssh $SSH_OPTS root@"$OPENBAO_IP" \
+            "python3 -c \"import json; print(json.load(open('/opt/openbao/init-output.json'))['root_token'])\"" 2>/dev/null || echo "")
+
+          if [ -z "$OPENBAO_ROOT_TOKEN" ]; then
+            echo "⚠ Could not retrieve OpenBao root token — skipping secret bootstrap"
+            exit 0
+          fi
+
+          # Write policy file and SCP to OpenBao VM
+          cat > /tmp/platform-k8s-policy.hcl << 'HCLEOF'
+          path "secret/data/platform/*" { capabilities = ["read", "list"] }
+          path "secret/metadata/platform/*" { capabilities = ["read", "list"] }
+          HCLEOF
+          scp $SSH_OPTS /tmp/platform-k8s-policy.hcl root@"$OPENBAO_IP":/tmp/platform-k8s.hcl
+
+          # Configure OpenBao: enable KV v2, create policy and service token
+          OPENBAO_SERVICE_TOKEN=$(ssh $SSH_OPTS root@"$OPENBAO_IP" "
+            export VAULT_ADDR='http://localhost:8200'
+            export VAULT_TOKEN='$OPENBAO_ROOT_TOKEN'
+            BAO=/opt/openbao/bin/bao
+            # Enable KV v2 (idempotent)
+            \$BAO secrets list 2>/dev/null | grep -q 'secret/' || \$BAO secrets enable -path=secret kv-v2
+            # Write platform-k8s policy (least-privilege)
+            \$BAO policy write platform-k8s /tmp/platform-k8s.hcl
+            # Seed initial secrets if not present (idempotent)
+            \$BAO kv get secret/platform/grafana >/dev/null 2>&1 || \
+              \$BAO kv put secret/platform/grafana admin-password=\$(openssl rand -base64 32 | tr -d '/+=')
+            # Create service token (long-lived, least-privilege)
+            \$BAO token create -policy=platform-k8s -no-default-policy -ttl=87600h \
+              -display-name=kubernetes-eso-$ENV -orphan -field=client_token
+          " 2>/dev/null)
+
+          if [ -z "$OPENBAO_SERVICE_TOKEN" ]; then
+            echo "⚠ Could not create OpenBao service token — skipping"
+            exit 0
+          fi
+
+          # Wait for ESO to be installed by ArgoCD (up to 5 min)
+          echo "==> Waiting for ESO to be deployed..."
+          for i in $(seq 1 30); do
+            if kubectl --kubeconfig "$KB" get deployment external-secrets -n external-secrets >/dev/null 2>&1; then
+              break
+            fi
+            echo "  Waiting for ESO deployment ($i/30)..."
+            sleep 10
+          done
+
+          kubectl --kubeconfig "$KB" wait deployment/external-secrets \
+            -n external-secrets --for=condition=available --timeout=120s 2>/dev/null || \
+            echo "⚠ ESO not yet available — ClusterSecretStore may fail until ESO is ready"
+
+          # Create openbao-token secret for ESO
+          kubectl --kubeconfig "$KB" create namespace external-secrets --dry-run=client -o yaml \
+            | kubectl --kubeconfig "$KB" apply -f -
+          kubectl --kubeconfig "$KB" create secret generic openbao-token \
+            --namespace external-secrets \
+            --from-literal=token="$OPENBAO_SERVICE_TOKEN" \
+            --dry-run=client -o yaml \
+            | kubectl --kubeconfig "$KB" apply -f -
+
+          # Apply ClusterSecretStore with env-specific OpenBao address
+          kubectl --kubeconfig "$KB" apply -f - << CSSEOF
+          apiVersion: external-secrets.io/v1beta1
+          kind: ClusterSecretStore
+          metadata:
+            name: openbao
+            annotations:
+              platform.infraweaver.io/managed-by: workflow-bootstrap
+          spec:
+            provider:
+              vault:
+                server: "$OPENBAO_ADDR"
+                path: "secret"
+                version: "v2"
+                auth:
+                  tokenSecretRef:
+                    name: openbao-token
+                    namespace: external-secrets
+                    key: token
+          CSSEOF
+
+          # Apply ExternalSecrets for apps (creates k8s Secrets from OpenBao)
+          # grafana-admin-secret (apps-grafana namespace)
+          kubectl --kubeconfig "$KB" create namespace apps-grafana --dry-run=client -o yaml \
+            | kubectl --kubeconfig "$KB" apply -f -
+          kubectl --kubeconfig "$KB" apply -f - << ESEOF
+          apiVersion: external-secrets.io/v1beta1
+          kind: ExternalSecret
+          metadata:
+            name: grafana-admin-secret
+            namespace: apps-grafana
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: openbao
+              kind: ClusterSecretStore
+            target:
+              name: grafana-admin-secret
+              creationPolicy: Owner
+            data:
+              - secretKey: admin-password
+                remoteRef:
+                  key: secret/platform/grafana
+                  property: admin-password
+          ESEOF
+
+          # Apply ClusterIssuer for cert-manager (if cert-manager is ready)
+          if kubectl --kubeconfig "$KB" get crd clusterissuers.cert-manager.io >/dev/null 2>&1; then
+            kubectl --kubeconfig "$KB" apply -f kubernetes/core/cert-manager/manifests/cluster-issuer.yaml 2>/dev/null || true
+          fi
+
+          echo "✅ OpenBao secrets bootstrapped"
+          kubectl --kubeconfig "$KB" get clustersecretstore openbao 2>/dev/null || echo "  (ClusterSecretStore not yet synced)"

@@ -6,6 +6,15 @@ server:
   extraArgs:
     - --insecure  # TLS terminated at ingress
 
+  ingress:
+    enabled: true
+    ingressClassName: traefik
+    hostname: argocd.local
+    annotations:
+      traefik.ingress.kubernetes.io/router.entrypoints: web
+    pathType: Prefix
+    path: /
+
 repoServer:
   replicas: 1
 

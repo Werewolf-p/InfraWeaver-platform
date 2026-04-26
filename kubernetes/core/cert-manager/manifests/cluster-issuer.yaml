@@ -1,0 +1,9 @@
+---
+# Self-signed ClusterIssuer — used for internal TLS certificates in the homelab
+# Referenced by: grafana ingress (cert-manager.io/cluster-issuer: selfsigned-issuer)
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: selfsigned-issuer
+spec:
+  selfSigned: {}
