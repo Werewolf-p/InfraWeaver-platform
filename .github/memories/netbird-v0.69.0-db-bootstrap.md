@@ -37,12 +37,11 @@ description: How to bootstrap the NetBird management store.db from scratch on Ku
 
 ### `policy_rules.authorized_groups`
 ```json
-NULL
+{}
 ```
-- Go type is `map[string][]string` — store as **SQL `NULL`** (safest) or `{}` (empty JSON object)
+- Go type is `map[string][]string` — store as **`{}` (empty JSON object)** or SQL `NULL`
 - Storing `[]` causes: `json: cannot unmarshal array into Go value of type map[string][]string`
-- `NULL` → GORM sets nil map → no error; management serializes back as `null` → stays stable
-- **`{}` also works** but `NULL` is more robust across management restarts
+- **`{}` is verified working**; `NULL` also works but management may rewrite as `null`
 
 ### `policy_rules.destination_resource` / `policy_rules.source_resource`
 - Go type is `Resource` struct — store as **SQL `NULL`** NOT `''` (empty string)
@@ -175,5 +174,40 @@ kubectl run netbird-fix --restart=Never -n netbird --image=alpine \
 
 - `platform/kubernetes/apps/netbird/manifests/management.yaml`
 - `platform/kubernetes/apps/netbird/manifests/client-daemonset.yaml`
-- Secret `netbird-setup-key` in namespace `netbird` (key: `setup-key`) = `A1B2C3D4-E5F6-7890-ABCD-EF1234567890`
+- Secret `netbird-secrets` in namespace `netbird` (key: `SETUP_KEY`) = `A1B2C3D4-E5F6-7890-ABCD-EF1234567890`
 - PVC `netbird-management-data` → local-path on `talos-prod-cp2` — see `local-path-pvc-node-affinity.md`
+
+## MetalLB IP Assignments (netbird namespace)
+- `10.25.0.202` — netbird-relay-lb (ports 33080 relay, 3478 TURN)
+- `10.25.0.203` — netbird-management-lb (ports 80, 33073)
+- `10.25.0.204` — netbird-signal-lb (port 10000)
+
+## Traefik ExternalTrafficPolicy (CRITICAL)
+
+Traefik service MUST have `externalTrafficPolicy: Local` for the `netbird-only` IPAllowList middleware to work correctly. With the default `Cluster` policy, kube-proxy SNAT's traffic and Traefik sees the pod CIDR IPs instead of real client IPs → all requests get 403.
+
+```bash
+kubectl patch svc traefik -n traefik -p '{"spec":{"externalTrafficPolicy":"Local"}}'
+```
+
+Also set in `platform/kubernetes/core/traefik/values.yaml`:
+```yaml
+service:
+  spec:
+    externalTrafficPolicy: Local
+```
+
+## NetBird-only Access (ArgoCD + Grafana)
+
+The `netbird-only` Middleware in `traefik` namespace allows:
+- `100.64.0.0/10` — NetBird CGNAT VPN IPs
+- `10.25.0.0/24` — Local LAN (homelab management)
+- `127.0.0.1/32` — Localhost
+
+Apply to sensitive services via ingress annotation:
+```
+traefik.ingress.kubernetes.io/router.middlewares: traefik-netbird-only@kubernetescrd
+```
+
+Applied to: ArgoCD (`argocd/argocd-server`), Grafana (`monitoring/kube-prometheus-stack-grafana`)
+Public test website does NOT have this middleware (intentionally public).
