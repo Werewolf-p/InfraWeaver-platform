@@ -39,7 +39,7 @@ spec:
                   name: netbird-secrets
                   key: SETUP_KEY
             - name: NB_MANAGEMENT_URL
-              value: "http://netbird-management.netbird.svc:80"
+              value: "https://netbird.rlservers.com"
             - name: NB_HOSTNAME
               valueFrom:
                 fieldRef:
@@ -54,6 +54,10 @@ spec:
           volumeMounts:
             - name: tun
               mountPath: /dev/net/tun
+      hostAliases:
+        - ip: "10.25.0.5"
+          hostnames:
+            - "netbird.rlservers.com"
       volumes:
         - name: tun
           hostPath:
@@ -70,4 +74,4 @@ metadata:
   namespace: netbird
 type: Opaque
 stringData:
-  SETUP_KEY: "A1B2C3D4-E5F6-7890-ABCD-EF1234567890"
+  SETUP_KEY: "B9FE5C85-74E7-4013-806C-C48EE62DD2DF"
