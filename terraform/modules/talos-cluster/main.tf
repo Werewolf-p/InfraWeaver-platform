@@ -364,8 +364,10 @@ data "talos_machine_configuration" "this" {
     }),
     # Talos v1.12+ uses a separate HostnameConfig document instead of
     # machine.network.hostname. This overrides the provider-default "auto: stable"
-    # with an explicit static hostname.
-    "---\napiVersion: v1alpha1\nkind: HostnameConfig\nhostname: ${each.key}\n",
+    # with an explicit static hostname. Setting auto to null clears the auto field
+    # so it doesn't conflict with the explicit hostname (Talos validates that
+    # 'auto' and 'hostname' cannot both be set).
+    "---\napiVersion: v1alpha1\nkind: HostnameConfig\nhostname: ${each.key}\nauto: null\n",
   ]
 }
 
