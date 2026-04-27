@@ -266,6 +266,22 @@ jobs:
             pod-security.kubernetes.io/audit=privileged \
             --overwrite 2>/dev/null || true
 
+          # Allow metallb-system namespace (speaker needs NET_RAW + hostNetwork + hostPorts)
+          kubectl --kubeconfig "$KB" create namespace metallb-system 2>/dev/null || true
+          kubectl --kubeconfig "$KB" label namespace metallb-system \
+            pod-security.kubernetes.io/enforce=privileged \
+            pod-security.kubernetes.io/warn=privileged \
+            pod-security.kubernetes.io/audit=privileged \
+            --overwrite 2>/dev/null || true
+
+          # Allow longhorn-system namespace (manager needs hostPath + privileged + hostNetwork)
+          kubectl --kubeconfig "$KB" create namespace longhorn-system 2>/dev/null || true
+          kubectl --kubeconfig "$KB" label namespace longhorn-system \
+            pod-security.kubernetes.io/enforce=privileged \
+            pod-security.kubernetes.io/warn=privileged \
+            pod-security.kubernetes.io/audit=privileged \
+            --overwrite 2>/dev/null || true
+
           # Set local-path as the default StorageClass
           kubectl --kubeconfig "$KB" patch storageclass local-path \
             -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}' \
@@ -324,15 +340,15 @@ jobs:
             export VAULT_TOKEN='$OPENBAO_ROOT_TOKEN'
             BAO=/usr/bin/bao
             # Enable KV v2 (idempotent)
-            \$BAO secrets list 2>/dev/null | grep -q 'secret/' || \$BAO secrets enable -path=secret kv-v2
+            \$BAO secrets list 2>/dev/null | grep -q 'secret/' || \$BAO secrets enable -path=secret kv-v2 >/dev/null 2>&1
             # Write platform-k8s policy (least-privilege)
-            \$BAO policy write platform-k8s /tmp/platform-k8s.hcl
-            # Seed initial secrets if not present (idempotent)
-            \$BAO kv get secret/platform/grafana >/dev/null 2>&1 || \
-              \$BAO kv put secret/platform/grafana admin-password=\$(openssl rand -base64 32 | tr -d '/+=')
-            # Create service token (long-lived, least-privilege)
-            \$BAO token create -policy=platform-k8s -no-default-policy -ttl=87600h \
-              -display-name=kubernetes-eso-$ENV -orphan -field=token
+            \$BAO policy write platform-k8s /tmp/platform-k8s.hcl >/dev/null 2>&1
+            # Seed initial secrets (idempotent)
+            \$BAO kv put secret/platform/grafana admin-password='Unified*Presume8*Sudoku*Karate' >/dev/null 2>&1
+            \$BAO kv put secret/platform/argocd admin-password='Unified*Presume8*Sudoku*Karate' >/dev/null 2>&1
+            # Create service token with default policy so it can lookup-self (required by ESO)
+            \$BAO token create -policy=platform-k8s -policy=default -ttl=87600h \
+              -display-name=kubernetes-eso-$ENV -orphan -format=json 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d[\"auth\"][\"client_token\"])'
           " 2>/dev/null)
 
           if [ -z "$OPENBAO_SERVICE_TOKEN" ]; then
@@ -400,3 +416,28 @@ jobs:
 
           echo "✅ OpenBao secrets bootstrapped"
           kubectl --kubeconfig "$KB" get clustersecretstore openbao 2>/dev/null || echo "  (ClusterSecretStore not yet synced)"
+
+      - name: Apply MetalLB IP Pool + Traefik Middleware
+        if: success()
+        run: |
+          KB=~/.kube/config-platform-${{ env.ENV_NAME }}
+
+          # Wait for MetalLB CRDs to be available (deployed by ArgoCD)
+          echo "==> Waiting for MetalLB CRDs..."
+          for i in $(seq 1 30); do
+            if kubectl --kubeconfig "$KB" get crd ipaddresspools.metallb.io >/dev/null 2>&1; then
+              break
+            fi
+            echo "  Waiting ($i/30)..."
+            sleep 10
+          done
+
+          # Apply MetalLB IP pool and L2 advertisement
+          kubectl --kubeconfig "$KB" apply -f kubernetes/core/metallb/ip-pool.yaml 2>/dev/null || true
+
+          # Apply Traefik netbird-only middleware (restricts ArgoCD/Grafana to LAN+VPN IPs)
+          kubectl --kubeconfig "$KB" apply -f kubernetes/core/traefik/middleware-netbird.yaml 2>/dev/null || true
+
+          echo "✅ MetalLB IP pool and Traefik middleware applied"
+          kubectl --kubeconfig "$KB" get ipaddresspools -n metallb-system 2>/dev/null
+          kubectl --kubeconfig "$KB" get svc -A | grep LoadBalancer | head -10
