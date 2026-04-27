@@ -129,7 +129,17 @@ curl -s -H "Authorization: Token $NB_TOKEN" $NB_URL/api/dns/nameservers | python
 - **Path (local, not in git):** `/home/runner/.netbird_status.json` — authoritative runtime NetBird status (management URL, API PAT, setup key, routes, last_verified).
 - **Important:** This file contains sensitive tokens and MUST be gitignored. The homelab-iac-agent and local operators should read/update this file when NetBird runtime state changes.
 
-Agent note: Configure homelab-iac-agent to read `/home/runner/.netbird_status.json` at startup and update it whenever routes, peers, or tokens change. Do NOT commit the status file to the repository.
+Agent note: The homelab-iac-agent should run the scripted synchronizer to reflect runtime NetBird state into repository memory without committing secrets.
+
+- **Sync script (in-repo):** `platform/.github/scripts/sync_netbird_status.py` — reads `/home/runner/.netbird_status.json` and updates this memory file with sanitized, non-secret fields (management URL, routes, last_verified). The script intentionally omits API PATs and other secrets.
+
+- **Recommended execution:** run the script via a cron or systemd timer on the runner host, or have homelab-iac-agent invoke it at startup and after any NetBird API changes. Example systemd timer/unit or cron:
+
+  *Cron:* `*/10 * * * * /usr/bin/python3 /home/runner/platform/.github/scripts/sync_netbird_status.py || true`
+
+  *Systemd (example):* create a oneshot unit that runs the script and a timer to trigger it.
+
+Do NOT store secrets in the memory file or commit them to git.
 
 ## Related Files
 - `platform/kubernetes/apps/netbird/manifests/client-daemonset.yaml` — K8s DaemonSet
