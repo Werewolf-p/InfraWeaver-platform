@@ -38,7 +38,7 @@ terraform {
 
 locals {
   # Canonical Talos factory image URL (includes siderolabs/qemu-guest-agent)
-  talos_image_url = "https://factory.talos.dev/image/53513e54bb39202f35694412577a6bc53d484744d35a126e5d42ef34785c0d83/${var.talos_version}/nocloud-amd64.raw.xz"
+  talos_image_url = "https://factory.talos.dev/image/e187c9b90f773cd8c84e5a3265c5554ee787b2fe67b508d9f955e90e7ae8c96c/${var.talos_version}/nocloud-amd64.raw.xz"
 
   # Stable remote path for the decompressed raw image on each PVE node
   talos_raw_path = "/tmp/talos-${var.talos_version}.raw"
