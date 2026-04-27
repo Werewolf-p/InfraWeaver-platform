@@ -372,43 +372,63 @@ jobs:
             -n external-secrets --for=condition=available --timeout=120s 2>/dev/null || \
             echo "⚠ ESO not yet available — ClusterSecretStore may fail until ESO is ready"
 
+          # Also wait for the ESO webhook (cert-controller must issue certs first)
+          echo "==> Waiting for ESO webhook to be ready..."
+          for i in $(seq 1 30); do
+            if kubectl --kubeconfig "$KB" get deployment external-secrets-webhook -n external-secrets >/dev/null 2>&1; then
+              break
+            fi
+            echo "  Waiting for webhook deployment ($i/30)..."
+            sleep 10
+          done
+          kubectl --kubeconfig "$KB" wait deployment/external-secrets-webhook \
+            -n external-secrets --for=condition=available --timeout=120s 2>/dev/null || \
+            echo "⚠ ESO webhook not yet available — ClusterSecretStore validation may fail"
+
           # Wait for etcd to stabilize after fresh bootstrap (avoids "leader changed" errors)
           echo "==> Waiting 30s for etcd to stabilize..."
           sleep 30
 
-          # Helper: retry a kubectl command up to 5 times with backoff
+          # Helper: retry a kubectl apply from a FILE up to 5 times with backoff
+          # NOTE: pipe-based retries don't work (stdin consumed on first attempt).
+          # Always save YAML to a temp file and pass -f <file> to this helper.
           kube_apply_retry() {
-            local KB="$1"; shift
+            local KB="$1"; local FILE="$2"
             for attempt in 1 2 3 4 5; do
-              if kubectl --kubeconfig "$KB" "$@"; then
+              if kubectl --kubeconfig "$KB" apply -f "$FILE"; then
                 return 0
               fi
-              echo "  kubectl attempt $attempt failed, retrying in 10s..."
-              sleep 10
+              echo "  kubectl apply attempt $attempt failed, retrying in 15s..."
+              sleep 15
             done
-            echo "⚠ kubectl command failed after 5 attempts, continuing..."
+            echo "⚠ kubectl apply failed after 5 attempts, continuing..."
             return 0
           }
 
           # Create openbao-token secret for ESO
-          kubectl --kubeconfig "$KB" create namespace external-secrets --dry-run=client -o yaml \
-            | kube_apply_retry "$KB" apply -f -
+          TMP1=$(mktemp); TMP2=$(mktemp); TMP3=$(mktemp); TMP4=$(mktemp)
+          kubectl --kubeconfig "$KB" create namespace external-secrets --dry-run=client -o yaml > "$TMP1"
+          kube_apply_retry "$KB" "$TMP1"
+
           kubectl --kubeconfig "$KB" create secret generic openbao-token \
             --namespace external-secrets \
             --from-literal=token="$OPENBAO_SERVICE_TOKEN" \
-            --dry-run=client -o yaml \
-            | kube_apply_retry "$KB" apply -f -
+            --dry-run=client -o yaml > "$TMP2"
+          kube_apply_retry "$KB" "$TMP2"
 
           # Apply ClusterSecretStore with env-specific OpenBao address (file from repo)
           sed "s|OPENBAO_ADDR_PLACEHOLDER|$OPENBAO_ADDR|g; s|PLACEHOLDER_REPLACED_BY_TOFU|$OPENBAO_SERVICE_TOKEN|g" \
-            kubernetes/core/external-secrets/manifests/cluster-secret-store.yaml \
-            | kube_apply_retry "$KB" apply -f -
+            kubernetes/core/external-secrets/manifests/cluster-secret-store.yaml > "$TMP3"
+          kube_apply_retry "$KB" "$TMP3"
 
           # Apply ExternalSecrets for apps (creates k8s Secrets from OpenBao)
           # grafana-admin-secret (apps-grafana namespace)
-          kubectl --kubeconfig "$KB" create namespace apps-grafana --dry-run=client -o yaml \
-            | kube_apply_retry "$KB" apply -f -
-          kubectl --kubeconfig "$KB" apply -f - << ESEOF
+          kubectl --kubeconfig "$KB" create namespace apps-grafana --dry-run=client -o yaml > "$TMP4"
+          kube_apply_retry "$KB" "$TMP4"
+          rm -f "$TMP1" "$TMP2" "$TMP3" "$TMP4"
+
+          TMP_ES=$(mktemp)
+          cat > "$TMP_ES" << ESEOF
           apiVersion: external-secrets.io/v1
           kind: ExternalSecret
           metadata:
@@ -428,6 +448,8 @@ jobs:
                   key: secret/platform/grafana
                   property: admin-password
           ESEOF
+          kube_apply_retry "$KB" "$TMP_ES"
+          rm -f "$TMP_ES"
 
           # grafana-admin-secret (monitoring namespace — kube-prometheus-stack)
           kubectl --kubeconfig "$KB" apply -f kubernetes/core/external-secrets/manifests/grafana-externalsecret.yaml 2>/dev/null || true
