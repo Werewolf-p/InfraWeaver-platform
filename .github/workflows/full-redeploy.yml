@@ -343,6 +343,8 @@ jobs:
             \$BAO secrets list 2>/dev/null | grep -q 'secret/' || \$BAO secrets enable -path=secret kv-v2 >/dev/null 2>&1
             # Write platform-k8s policy (least-privilege)
             \$BAO policy write platform-k8s /tmp/platform-k8s.hcl >/dev/null 2>&1
+            # Tune token auth mount to allow long-lived tokens (idempotent)
+            \$BAO write sys/auth/token/tune max_lease_ttl=87600h >/dev/null 2>&1
             # Seed initial secrets (idempotent)
             \$BAO kv put secret/platform/grafana admin-password='Unified*Presume8*Sudoku*Karate' >/dev/null 2>&1
             \$BAO kv put secret/platform/argocd admin-password='Unified*Presume8*Sudoku*Karate' >/dev/null 2>&1
@@ -408,6 +410,9 @@ jobs:
                   key: secret/platform/grafana
                   property: admin-password
           ESEOF
+
+          # grafana-admin-secret (monitoring namespace — kube-prometheus-stack)
+          kubectl --kubeconfig "$KB" apply -f kubernetes/core/external-secrets/manifests/grafana-externalsecret.yaml 2>/dev/null || true
 
           # Apply ClusterIssuer for cert-manager (if cert-manager is ready)
           if kubectl --kubeconfig "$KB" get crd clusterissuers.cert-manager.io >/dev/null 2>&1; then
