@@ -1,5 +1,12 @@
 fullnameOverride: kube-prometheus-stack
 
+# ── Prometheus Operator ───────────────────────────────────────────────────────
+# Disable admission webhook (its cert-patch Job has hook-delete-policy:
+# hook-succeeded which causes ArgoCD to wait forever after the Job self-deletes)
+prometheusOperator:
+  admissionWebhooks:
+    enabled: false
+
 # ── Grafana ───────────────────────────────────────────────────────────────────
 grafana:
   enabled: true
