@@ -372,24 +372,42 @@ jobs:
             -n external-secrets --for=condition=available --timeout=120s 2>/dev/null || \
             echo "⚠ ESO not yet available — ClusterSecretStore may fail until ESO is ready"
 
+          # Wait for etcd to stabilize after fresh bootstrap (avoids "leader changed" errors)
+          echo "==> Waiting 30s for etcd to stabilize..."
+          sleep 30
+
+          # Helper: retry a kubectl command up to 5 times with backoff
+          kube_apply_retry() {
+            local KB="$1"; shift
+            for attempt in 1 2 3 4 5; do
+              if kubectl --kubeconfig "$KB" "$@"; then
+                return 0
+              fi
+              echo "  kubectl attempt $attempt failed, retrying in 10s..."
+              sleep 10
+            done
+            echo "⚠ kubectl command failed after 5 attempts, continuing..."
+            return 0
+          }
+
           # Create openbao-token secret for ESO
           kubectl --kubeconfig "$KB" create namespace external-secrets --dry-run=client -o yaml \
-            | kubectl --kubeconfig "$KB" apply -f -
+            | kube_apply_retry "$KB" apply -f -
           kubectl --kubeconfig "$KB" create secret generic openbao-token \
             --namespace external-secrets \
             --from-literal=token="$OPENBAO_SERVICE_TOKEN" \
             --dry-run=client -o yaml \
-            | kubectl --kubeconfig "$KB" apply -f -
+            | kube_apply_retry "$KB" apply -f -
 
           # Apply ClusterSecretStore with env-specific OpenBao address (file from repo)
           sed "s|OPENBAO_ADDR_PLACEHOLDER|$OPENBAO_ADDR|g; s|PLACEHOLDER_REPLACED_BY_TOFU|$OPENBAO_SERVICE_TOKEN|g" \
             kubernetes/core/external-secrets/manifests/cluster-secret-store.yaml \
-            | kubectl --kubeconfig "$KB" apply -f -
+            | kube_apply_retry "$KB" apply -f -
 
           # Apply ExternalSecrets for apps (creates k8s Secrets from OpenBao)
           # grafana-admin-secret (apps-grafana namespace)
           kubectl --kubeconfig "$KB" create namespace apps-grafana --dry-run=client -o yaml \
-            | kubectl --kubeconfig "$KB" apply -f -
+            | kube_apply_retry "$KB" apply -f -
           kubectl --kubeconfig "$KB" apply -f - << ESEOF
           apiVersion: external-secrets.io/v1
           kind: ExternalSecret
