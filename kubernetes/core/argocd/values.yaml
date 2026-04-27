@@ -58,6 +58,10 @@ redis:
   serviceAccount:
     create: true
     name: argocd-redis  # use pre-existing SA with secret create/get RBAC for secret-init
+  # Use the existing secret to avoid the secret-init Job hook race condition.
+  # The Job has hook-delete-policy: hook-succeeded which causes ArgoCD to wait
+  # indefinitely after the Job self-deletes on success.
+  existingSecret: argocd-redis
 
 redis-ha:
   enabled: false  # enable for productie HA
