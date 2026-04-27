@@ -3,12 +3,12 @@
 # All Helm chart values can be overridden here.
 # See: https://github.com/grafana/helm-charts/tree/main/charts/grafana
 
-adminUser: admin
-# Password is injected from OpenBao via ExternalSecret
-existingSecret: grafana-admin-secret
-secretKey: admin-password
-# Don't generate a random admin password — use existingSecret instead
-generateAdminPassword: false
+# Admin credentials from OpenBao via ExternalSecret (grafana-admin-secret)
+# admin.existingSecret is the correct grafana chart key (top-level existingSecret = LDAP)
+admin:
+  existingSecret: grafana-admin-secret
+  userKey: admin-user
+  passwordKey: admin-password
 
 # ── Persistence ──────────────────────────────────────────────────────────────
 persistence:
