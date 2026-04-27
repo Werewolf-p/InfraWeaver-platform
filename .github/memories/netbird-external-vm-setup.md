@@ -124,3 +124,14 @@ curl -s -H "Authorization: Token $NB_TOKEN" $NB_URL/api/dns/nameservers | python
 - `platform/kubernetes/apps/netbird/manifests/client-daemonset.yaml` — K8s DaemonSet
 - `platform/kubernetes/core/traefik/middleware-netbird.yaml` — IPAllowList for sensitive services
 - `infrastructure/` — Proxmox VM provisioning for 10.25.0.100
+
+## Live status file (private)
+- **Path (local, not in git):** `/home/runner/.netbird_status.json` — authoritative runtime NetBird status (management URL, API PAT, setup key, routes, last_verified).
+- **Important:** This file contains sensitive tokens and MUST be gitignored. The homelab-iac-agent and local operators should read/update this file when NetBird runtime state changes.
+
+Agent note: Configure homelab-iac-agent to read `/home/runner/.netbird_status.json` at startup and update it whenever routes, peers, or tokens change. Do NOT commit the status file to the repository.
+
+## Related Files
+- `platform/kubernetes/apps/netbird/manifests/client-daemonset.yaml` — K8s DaemonSet
+- `platform/kubernetes/core/traefik/middleware-netbird.yaml` — IPAllowList for sensitive services
+- `infrastructure/` — Proxmox VM provisioning for 10.25.0.100
