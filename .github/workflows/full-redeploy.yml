@@ -303,8 +303,8 @@ jobs:
           echo "==> OpenBao: $OPENBAO_ADDR (IP: $OPENBAO_IP)"
 
           # Get root token from OpenBao VM
-          OPENBAO_ROOT_TOKEN=$(ssh $SSH_OPTS root@"$OPENBAO_IP" \
-            "python3 -c \"import json; print(json.load(open('/opt/openbao/init-output.json'))['root_token'])\"" 2>/dev/null || echo "")
+          OPENBAO_ROOT_TOKEN=$(ssh $SSH_OPTS ubuntu@"$OPENBAO_IP" \
+            "sudo python3 -c \"import json; print(json.load(open('/opt/openbao/init-output.json'))['root_token'])\"" 2>/dev/null || echo "")
 
           if [ -z "$OPENBAO_ROOT_TOKEN" ]; then
             echo "⚠ Could not retrieve OpenBao root token — skipping secret bootstrap"
@@ -316,13 +316,13 @@ jobs:
           path "secret/data/platform/*" { capabilities = ["read", "list"] }
           path "secret/metadata/platform/*" { capabilities = ["read", "list"] }
           HCLEOF
-          scp $SSH_OPTS /tmp/platform-k8s-policy.hcl root@"$OPENBAO_IP":/tmp/platform-k8s.hcl
+          scp $SSH_OPTS /tmp/platform-k8s-policy.hcl ubuntu@"$OPENBAO_IP":/tmp/platform-k8s.hcl
 
           # Configure OpenBao: enable KV v2, create policy and service token
-          OPENBAO_SERVICE_TOKEN=$(ssh $SSH_OPTS root@"$OPENBAO_IP" "
+          OPENBAO_SERVICE_TOKEN=$(ssh $SSH_OPTS ubuntu@"$OPENBAO_IP" "
             export VAULT_ADDR='http://localhost:8200'
             export VAULT_TOKEN='$OPENBAO_ROOT_TOKEN'
-            BAO=/opt/openbao/bin/bao
+            BAO=/usr/bin/bao
             # Enable KV v2 (idempotent)
             \$BAO secrets list 2>/dev/null | grep -q 'secret/' || \$BAO secrets enable -path=secret kv-v2
             # Write platform-k8s policy (least-privilege)
@@ -332,7 +332,7 @@ jobs:
               \$BAO kv put secret/platform/grafana admin-password=\$(openssl rand -base64 32 | tr -d '/+=')
             # Create service token (long-lived, least-privilege)
             \$BAO token create -policy=platform-k8s -no-default-policy -ttl=87600h \
-              -display-name=kubernetes-eso-$ENV -orphan -field=client_token
+              -display-name=kubernetes-eso-$ENV -orphan -field=token
           " 2>/dev/null)
 
           if [ -z "$OPENBAO_SERVICE_TOKEN" ]; then
@@ -373,7 +373,7 @@ jobs:
           kubectl --kubeconfig "$KB" create namespace apps-grafana --dry-run=client -o yaml \
             | kubectl --kubeconfig "$KB" apply -f -
           kubectl --kubeconfig "$KB" apply -f - << ESEOF
-          apiVersion: external-secrets.io/v1beta1
+          apiVersion: external-secrets.io/v1
           kind: ExternalSecret
           metadata:
             name: grafana-admin-secret
