@@ -332,9 +332,9 @@ data "talos_machine_configuration" "this" {
     yamlencode({
       machine = {
         network = {
-          # NOTE: hostname is set via HostnameConfig document below (Talos v1.12+).
-          # Setting machine.network.hostname alongside a HostnameConfig document
-          # causes a validation error in Talos v1.12.7+.
+          # NOTE: hostname is NOT set here (machine.network.hostname) because Talos v1.12+
+          # adds a HostnameConfig document automatically. Having both causes a validation error.
+          # The hostname is handled below by post-processing the generated machine config.
           interfaces = [
             {
               interface = "eth0"
@@ -362,12 +362,6 @@ data "talos_machine_configuration" "this" {
         allowSchedulingOnControlPlanes = true
       }
     }),
-    # Talos v1.12+ uses a separate HostnameConfig document instead of
-    # machine.network.hostname. This overrides the provider-default "auto: stable"
-    # with an explicit static hostname. Setting auto to null clears the auto field
-    # so it doesn't conflict with the explicit hostname (Talos validates that
-    # 'auto' and 'hostname' cannot both be set).
-    "---\napiVersion: v1alpha1\nkind: HostnameConfig\nhostname: ${each.key}\nauto: null\n",
   ]
 }
 
@@ -379,8 +373,21 @@ data "talos_client_configuration" "this" {
 }
 
 resource "local_sensitive_file" "node_machine_config" {
-  for_each        = var.nodes
-  content         = data.talos_machine_configuration.this[each.key].machine_configuration
+  for_each = var.nodes
+  # Talos provider 0.7.x automatically appends a HostnameConfig document with
+  # "auto: stable" for Talos v1.12+ clusters. We post-process the generated config
+  # to replace this with an explicit static hostname. Using a config_patch to set
+  # the hostname via JSON Merge Patch doesn't work because YAML null on a string
+  # enum field is treated as empty string and doesn't clear the auto field.
+  content = replace(
+    replace(
+      data.talos_machine_configuration.this[each.key].machine_configuration,
+      "auto: stable\n",
+      ""
+    ),
+    "kind: HostnameConfig\n",
+    "kind: HostnameConfig\nhostname: ${each.key}\n"
+  )
   filename        = "${local.generated_dir}/mc-${each.key}.yaml"
   file_permission = "0600"
 }
@@ -407,7 +414,7 @@ resource "null_resource" "start_and_configure_talos" {
   triggers = {
     vm_id    = each.value.vm_id
     node_ip  = each.value.ip
-    mc_hash  = sha256(data.talos_machine_configuration.this[each.key].machine_configuration)
+    mc_hash  = sha256(local_sensitive_file.node_machine_config[each.key].content)
   }
 
   depends_on = [
