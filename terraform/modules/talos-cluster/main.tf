@@ -332,7 +332,9 @@ data "talos_machine_configuration" "this" {
     yamlencode({
       machine = {
         network = {
-          hostname = each.key
+          # NOTE: hostname is set via HostnameConfig document below (Talos v1.12+).
+          # Setting machine.network.hostname alongside a HostnameConfig document
+          # causes a validation error in Talos v1.12.7+.
           interfaces = [
             {
               interface = "eth0"
@@ -359,7 +361,11 @@ data "talos_machine_configuration" "this" {
       cluster = {
         allowSchedulingOnControlPlanes = true
       }
-    })
+    }),
+    # Talos v1.12+ uses a separate HostnameConfig document instead of
+    # machine.network.hostname. This overrides the provider-default "auto: stable"
+    # with an explicit static hostname.
+    "---\napiVersion: v1alpha1\nkind: HostnameConfig\nhostname: ${each.key}\n",
   ]
 }
 
