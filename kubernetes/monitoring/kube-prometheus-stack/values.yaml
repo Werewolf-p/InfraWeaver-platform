@@ -3,11 +3,12 @@ fullnameOverride: kube-prometheus-stack
 # ── Grafana ───────────────────────────────────────────────────────────────────
 grafana:
   enabled: true
-  adminUser: admin
-  # adminPassword pulled from OpenBao via ExternalSecret (see external-secrets/grafana-secret.yaml)
-  adminPassword: "" # overridden by ExternalSecret
-  existingSecret: grafana-admin-secret
-  secretKey: admin-password
+  # Admin credentials from OpenBao via ExternalSecret in monitoring namespace
+  # grafana-admin-secret provides both admin-user and admin-password keys
+  admin:
+    existingSecret: grafana-admin-secret
+    userKey: admin-user
+    passwordKey: admin-password
 
   persistence:
     enabled: true

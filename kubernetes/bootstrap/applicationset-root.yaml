@@ -54,3 +54,10 @@ spec:
         syncOptions:
           - CreateNamespace=true
           - ServerSideApply=true
+          - RespectIgnoreDifferences=true
+      # Ignore ESO-managed admin passwords (OpenBao keeps these in sync)
+      ignoreDifferences:
+        - kind: Secret
+          jqPathExpressions:
+            - '.data["admin-password"]'
+            - '.data["admin-user"]'

@@ -29,6 +29,12 @@ configs:
     resource.customizations.ignoreDifferences.admissionregistration.k8s.io_MutatingWebhookConfiguration: |
       jqPathExpressions:
         - '.webhooks[]?.clientConfig.caBundle'
+    # CRDs accumulate runtime-only fields (status.conditions, storedVersions, webhook caBundle)
+    resource.customizations.ignoreDifferences.apiextensions.k8s.io_CustomResourceDefinition: |
+      jqPathExpressions:
+        - '.spec.conversion.webhook.clientConfig.caBundle'
+        - '.spec.preserveUnknownFields'
+        - '.status'
     # On bare-metal (no cloud LB), ingresses never get an ADDRESS — mark them always healthy
     resource.customizations.health.networking.k8s.io_Ingress: |
       hs = {}
