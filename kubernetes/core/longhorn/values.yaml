@@ -1,4 +1,9 @@
 # Longhorn HA storage for Talos control-plane-only cluster
+# Disable pre-upgrade checker job (causes circular SA dependency on fresh installs)
+preUpgradeChecker:
+  jobEnabled: false
+  upgradeVersionCheck: false
+
 defaultSettings:
   # 3-node cluster: store 3 replicas for true HA
   defaultReplicaCount: 3
