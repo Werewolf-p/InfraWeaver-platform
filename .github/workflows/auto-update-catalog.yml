@@ -6,7 +6,7 @@ on:
       - '.github/**'
       - 'platform/**'
   schedule:
-    - cron: '0 */6 * * *' # every 6 hours
+    - cron: '0 */6 * * *'
 
 permissions:
   contents: write
@@ -23,32 +23,17 @@ jobs:
         with:
           python-version: '3.11'
       - name: Run NetBird sync (sanitized)
-        run: |
-          python3 platform/.github/scripts/sync_netbird_status.py || true
-      - name: Regenerate platform catalog (no secrets)
-        run: |
-          # regenerate using the included script or placeholder
-          python3 - <<'PY'
-import pathlib
-p=pathlib.Path('platform/.github/InfraWeaver-platform-catalog.md')
-if p.exists():
-    print('Catalog exists; touch')
-    p.write_text(p.read_text())
-PY
+        run: python3 platform/.github/scripts/sync_netbird_status.py || true
       - name: Run catalog validator
-        run: |
-          python3 ./.github/scripts/validate_catalog.py || true
+        run: python3 ./.github/scripts/validate_catalog.py || true
       - name: Commit and push changes
         run: |
           git config user.name "infraweaver-bot"
           git config user.email "infraweaver-bot@example.com"
-          git add platform/.github/memories/netbird-external-vm-setup.md || true
+          git add platform/.github/memories/ || true
           git add platform/.github/InfraWeaver-platform-catalog.md || true
-          if ! git diff --staged --quiet; then
-            git commit -m "chore: update platform catalog and sanitized memory
-
-Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>" || true
-            git push
-          else
+          if git diff --staged --quiet; then
             echo "No changes to commit"
+          else
+            git commit -m "chore: update platform catalog" && git push
           fi
