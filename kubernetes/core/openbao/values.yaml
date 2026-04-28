@@ -33,7 +33,7 @@ server:
 
   extraContainers:
     - name: autounseal
-      image: quay.io/openbao/openbao:v2.5.3
+      image: quay.io/openbao/openbao:2.5.3
       command:
         - /bin/sh
         - -c
