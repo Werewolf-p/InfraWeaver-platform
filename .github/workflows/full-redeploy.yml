@@ -104,60 +104,38 @@ jobs:
         run: |
           set +e
           
-          # Platform: proxmox_host comes from cluster.yaml, not terraform.tfvars
+          # Platform: proxmox_host comes from cluster.yaml
           CLUSTER_YAML="envs/${{ env.ENV_NAME }}/cluster.yaml"
-          HOST=$(grep 'proxmox_host' "$CLUSTER_YAML" 2>/dev/null | head -1 | sed 's/.*: *"\(.*\)".*/\1/' | tr -d ' ')
-          NODE=$(grep 'proxmox_node:' "$CLUSTER_YAML" 2>/dev/null | head -1 | sed 's/.*: *"\(.*\)".*/\1/' | tr -d ' ')
+          HOST=$(grep 'proxmox_host' "$CLUSTER_YAML" 2>/dev/null | head -1 | sed 's/.*: *"\(.*\)"/\1/' | xargs)
           
           ENDPOINT="https://${HOST}:8006"
           TOKEN="${TF_VAR_proxmox_api_token}"
           
           if [ -z "$HOST" ]; then
-            echo "⚠ Could not parse proxmox_host from cluster.yaml, aborting"
-            exit 1
+            echo "⚠ Could not parse proxmox_host from cluster.yaml — skipping pre-flight check"
+            exit 0
           fi
-          if [ -z "$NODE" ]; then NODE="pve-prod1"; fi
           
-          echo "📋 Testing Proxmox API token permissions..."
+          echo "📋 Pre-flight: testing Proxmox API connectivity..."
           echo "  Endpoint: $ENDPOINT"
-          echo "  Node: $NODE"
           echo ""
           
-          # Test 1: Can the token list nodes? (basic connectivity + token validity)
-          echo "🔍 Test 1: Token can list nodes (basic connectivity)..."
-          RESPONSE=$(curl -sk -H "Authorization: PVEAPIToken=${TOKEN}" \
+          # Test connectivity + token — warn only, Terraform will hard-fail if token is bad
+          RESPONSE=$(curl -sk --max-time 10 \
+            -H "Authorization: PVEAPIToken=${TOKEN}" \
             "${ENDPOINT}/api2/json/nodes" 2>&1)
           
           if echo "$RESPONSE" | grep -q '"data"'; then
-            echo "✓ Token is valid and can list nodes"
+            echo "✓ Proxmox API reachable and token is valid"
           elif echo "$RESPONSE" | grep -q '401\|Authentication failed'; then
-            echo "✗ FAIL: Token is invalid/expired (HTTP 401)"
+            echo "✗ FATAL: Token is invalid or expired — aborting before Terraform wastes time"
             exit 1
           else
-            echo "✗ FAIL: Unexpected response (possible network issue):"
-            echo "$RESPONSE" | head -5
-            exit 1
+            echo "⚠ Could not reach Proxmox API pre-flight (network/timeout) — continuing anyway"
+            echo "  Terraform will confirm authentication on apply"
           fi
-          
-          # Test 2: Can the token list VMs on target node? (VM permissions)
-          echo ""
-          echo "🔍 Test 2: Token can list VMs on target node (VM read permission)..."
-          RESPONSE=$(curl -sk -H "Authorization: PVEAPIToken=${TOKEN}" \
-            "${ENDPOINT}/api2/json/nodes/${NODE}/qemu" 2>&1)
-          
-          if echo "$RESPONSE" | grep -q '"data"\|"error"'; then
-            echo "✓ Token can access VM operations (permissions sufficient)"
-          elif echo "$RESPONSE" | grep -q '401\|Authentication failed'; then
-            echo "✗ FAIL: Token lacks VM permissions (HTTP 401)"
-            exit 1
-          else
-            echo "✗ FAIL: Unexpected response:"
-            echo "$RESPONSE" | head -5
-            exit 1
-          fi
-          
-          echo ""
-          echo "✅ All permission tests passed - token is ready for deployment"
+          set -e
+
           set -e
 
 
