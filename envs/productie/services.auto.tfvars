@@ -12,7 +12,7 @@ node_defaults = {
   sockets        = 1
   memory_mb      = 8192
   disk_size_gb   = 32
-  disk_datastore = "local-lvm"
+  disk_datastore = "lvm-proxmox"
   gateway        = "10.25.0.1"
   subnet_mask    = 24
 }
@@ -27,7 +27,7 @@ cloud_init_templates = {
     cores        = 2
     memory_mb    = 2048
     disk_size_gb = 20
-    storage      = "local-lvm"
+    storage      = "lvm-proxmox"
   }
 }
 
@@ -39,7 +39,7 @@ github_runners = {
     cores          = 2
     memory_mb      = 2048
     disk_size_gb   = 30
-    storage        = "local-lvm"
+    storage        = "lvm-proxmox"
     repo_url       = "https://github.com/Werewolf-p/InfraWeaver-platform"
     labels         = ["prod-worker", "self-hosted", "Linux", "X64"]
   }
@@ -53,6 +53,6 @@ openbao_instances = {
     cores          = 2
     memory_mb      = 1024
     disk_size_gb   = 15
-    storage        = "local-lvm"
+    storage        = "lvm-proxmox"
   }
 }

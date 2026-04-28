@@ -14,7 +14,7 @@ nodes:
     cpu: 4
     memory_mb: 4096
     disk_gb: 150
-    datastore: "local-lvm"
+    datastore: "lvm-proxmox"
   talos-prod-cp2:
     proxmox_node: "proxmox"
     ip: "10.25.0.91"
@@ -23,7 +23,7 @@ nodes:
     cpu: 4
     memory_mb: 4096
     disk_gb: 150
-    datastore: "local-lvm"
+    datastore: "lvm-proxmox"
   talos-prod-cp3:
     proxmox_node: "proxmox"
     ip: "10.25.0.92"
@@ -32,7 +32,7 @@ nodes:
     cpu: 4
     memory_mb: 4096
     disk_gb: 150
-    datastore: "local-lvm"
+    datastore: "lvm-proxmox"
 
 # SSH IPs for individual PVE nodes — used by qm importdisk operations
 # These are the management IPs of each Proxmox node in the cluster.
@@ -44,5 +44,5 @@ nameservers:
   - "8.8.8.8"
   - "1.1.1.1"
 subnet_prefix: 24
-talos_image_datastore: "local-lvm"
+talos_image_datastore: "lvm-proxmox"
 openbao_address: "http://10.25.0.86:8200"
