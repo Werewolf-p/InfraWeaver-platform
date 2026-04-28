@@ -401,6 +401,23 @@ jobs:
           OPENBAO_IP=$(echo "$OPENBAO_ADDR" | sed 's|https\?://\([^/:]*\).*|\1|')
           echo "==> OpenBao: $OPENBAO_ADDR (IP: $OPENBAO_IP)"
 
+          # Wait for OpenBao SSH to become available (VM may still be finishing cloud-init)
+          echo "==> Waiting for OpenBao SSH on $OPENBAO_IP..."
+          BAO_SSH_OK=0
+          for i in $(seq 1 12); do
+            if ssh $SSH_OPTS ubuntu@"$OPENBAO_IP" true 2>/dev/null; then
+              echo "  OpenBao SSH ready (attempt $i)"
+              BAO_SSH_OK=1
+              break
+            fi
+            echo "  Waiting for SSH ($i/12)..."
+            sleep 10
+          done
+          if [ "$BAO_SSH_OK" -eq 0 ]; then
+            echo "⚠ OpenBao SSH not available after 120s — skipping bootstrap"
+            exit 0
+          fi
+
           # Get root token from OpenBao VM
           OPENBAO_ROOT_TOKEN=$(ssh $SSH_OPTS ubuntu@"$OPENBAO_IP" \
             "sudo python3 -c \"import json; print(json.load(open('/opt/openbao/init-output.json'))['root_token'])\"" 2>/dev/null || echo "")

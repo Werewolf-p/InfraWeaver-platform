@@ -36,9 +36,9 @@ github_runners = {
     vm_id          = 9100
     ip             = "10.25.0.85"
     template_vm_id = 9000
-    cores          = 2
-    memory_mb      = 2048
-    disk_size_gb   = 30
+    cores          = 4
+    memory_mb      = 4096
+    disk_size_gb   = 60
     storage        = "lvm-proxmox"
     repo_url       = "https://github.com/Werewolf-p/InfraWeaver-platform"
     labels         = ["prod-worker", "self-hosted", "Linux", "X64"]
@@ -51,8 +51,8 @@ openbao_instances = {
     ip             = "10.25.0.86"
     template_vm_id = 9000
     cores          = 2
-    memory_mb      = 1024
-    disk_size_gb   = 15
+    memory_mb      = 2048
+    disk_size_gb   = 20
     storage        = "lvm-proxmox"
   }
 }
