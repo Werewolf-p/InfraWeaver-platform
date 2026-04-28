@@ -53,6 +53,10 @@ configs:
     # Regenerate with: python3 -c "import bcrypt; print(bcrypt.hashpw(b'Unified*Presume8*Sudoku*Karate', bcrypt.gensalt(10)).decode())"
     argocdServerAdminPassword: "$2b$10$r5uYY6K/ey9wjrobpRZfTeQ/P41PTOtFTbt9bCAgaDB8nXtlYgqrW"
     argocdServerAdminPasswordMtime: "2026-04-26T21:00:00Z"
+    # Local account: remon — same password as admin
+    extra:
+      "accounts.remon.password": "$2b$10$F.zkVFwXXQGHjA/AUSIQiOR7MCJesWbSneg2ZpKdPT.MHu1IKcoO2"
+      "accounts.remon.passwordMtime": "2026-04-28T00:00:00Z"
 
 redis:
   serviceAccount:

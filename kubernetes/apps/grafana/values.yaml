@@ -22,21 +22,21 @@ initChownData:
   enabled: false
 
 # ── Ingress ───────────────────────────────────────────────────────────────────
-  ingress:
-    enabled: true
-    ingressClassName: traefik
-    hosts:
-      - grafana.prod.local
-    paths:
-      - /
-    pathType: Prefix
-    annotations:
-      cert-manager.io/cluster-issuer: selfsigned-issuer
-      traefik.ingress.kubernetes.io/router.middlewares: traefik-netbird-only@kubernetescrd
-    tls:
-      - secretName: grafana-tls
-        hosts:
-          - grafana.prod.local
+ingress:
+  enabled: true
+  ingressClassName: traefik
+  hosts:
+    - grafana.prod.local
+  paths:
+    - /
+  pathType: Prefix
+  annotations:
+    cert-manager.io/cluster-issuer: selfsigned-issuer
+    traefik.ingress.kubernetes.io/router.middlewares: traefik-netbird-only@kubernetescrd
+  tls:
+    - secretName: grafana-tls
+      hosts:
+        - grafana.prod.local
 
 # ── Resources ─────────────────────────────────────────────────────────────────
 resources:
@@ -52,4 +52,4 @@ grafana.ini:
   analytics:
     check_for_updates: false
   server:
-    root_url: "https://grafana-apps.local"
+    root_url: "https://grafana.rlservers.com"

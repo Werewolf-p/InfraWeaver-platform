@@ -160,3 +160,50 @@ Requires: `NETBIRD_API_TOKEN` GitHub secret.
 | "DNS servers can't connect" on phone | K8s CoreDNS (10.96.0.10) not reachable | Disable k8s-internal-dns nameserver |
 | 40+ stale Talos peers | Multiple redeploys without cleanup | `NETBIRD_API_TOKEN=$TOKEN bash .github/scripts/netbird_cleanup_peers.sh talos-prod` |
 | PAT "token invalid" | Wrong hash format or missing `nbp_` prefix | See PAT generation section above |
+
+---
+
+## Admin Permissions & Domain Fix (2026-04-28)
+
+### Issue: Admin user had `role = 'user'` in NetBird DB
+**Fix:** Updated SQLite directly:
+```sql
+UPDATE users SET role='admin' WHERE id='370538366334140418';
+```
+- User ID `370538366334140418` = Zitadel `admin` user (remonhulst@gmail.com)
+- User ID `321996cb-3822-448c-a7d4-de8633b769cd` = original NetBird owner (service user)
+- Management service restarted after DB change
+
+### Issue: Domain showed "netbird.selfhosted" instead of "rlservers.com"
+**Fix:** Updated accounts table:
+```sql
+UPDATE accounts SET domain='rlservers.com' WHERE id='ff70dcdf-66bc-476e-9095-6c1b00ff63ce';
+```
+- The `domain` field in NetBird is for **internal peer DNS** (peers get DNS names like `peer.rlservers.com`)
+- This is SEPARATE from the HTTPS/API domain (netbird.rlservers.com)
+- The `netbird.selfhosted` was the default left over from initial setup
+
+### DB location on 10.25.0.100:
+`/var/lib/docker/volumes/netbird_netbird_management/_data/store.db`
+
+
+---
+
+## Runner Infrastructure (2026-04-28)
+
+### Platform runner registered on management-host VM
+- **VM:** github-runner-productie at 10.25.0.108
+- **Runner name:** `management-host-platform`
+- **Registered repo:** InfraWeaver-platform
+- **Labels:** `self-hosted, Linux, X64, prod-worker`
+- **Service:** `actions.runner.Werewolf-p-InfraWeaver-platform.management-host-platform`
+- **Runner dir:** `/opt/platform-runner/`
+
+This runner was added because the original "productie" runner (ID 23) was on pve-prod1 which went down. The management-host-platform runner ensures platform workflows can run even when pve-prod1 is offline.
+
+### pve-prod1 outage (2026-04-28)
+- pve-prod1 (10.25.0.80) went completely offline mid-workflow
+- Affected VMs: talos-prod-cp1 (9300), openbao-productie (9200), original productie runner
+- Remaining cluster VMs (9301/9302) were destroyed to clean state
+- **When pve-prod1 comes back:** destroy VM 9300, then run full-redeploy workflow
+
