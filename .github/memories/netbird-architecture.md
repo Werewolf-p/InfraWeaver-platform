@@ -133,24 +133,38 @@ When K8s is restored, the K8s route (10.96.0.0/12) should be updated to a Talos 
 
 | Name | ID | DNS Server | Domain | State |
 |------|-----|-----------|--------|-------|
-| rlservers-internal | d7o5p2rdeh7s73fcv43g | 10.25.0.108:53 | rlservers.com | ENABLED |
-| k8s-internal-dns | d7nn56jdeh7s7388jdc0 | 10.25.0.108:53 | prod.local | ENABLED |
+| rlservers-internal | d7o5p2rdeh7s73fcv43g | **10.25.0.201:53** | rlservers.com | ENABLED |
+| k8s-internal-dns | d7nn56jdeh7s7388jdc0 | **10.25.0.201:53** | prod.local | ENABLED |
 
-**IMPORTANT:** Both nameservers point to **dnsmasq at 10.25.0.108:53** — NOT to CoreDNS at 10.96.0.10.
+**IMPORTANT:** Both nameservers point to **in-cluster CoreDNS at 10.25.0.201** (MetalLB LoadBalancer).
 
-### Why NOT CoreDNS (10.96.0.10)?
+### In-Cluster CoreDNS (10.25.0.201)
+- **App:** `apps-dns` in ArgoCD
+- **Namespace:** `dns-system`
+- **Manifests:** `kubernetes/apps/dns/manifests/`
+- **MetalLB IP:** `10.25.0.201` (static, annotated on Service)
+- **Accessible from:** 10.25.0.0/24 LAN + NetBird VPN peers (via 10.25.0.0/24 route)
+- **Replicas:** 2 (spread across nodes for HA)
+
+### Why NOT kube-dns CoreDNS (10.96.0.10)?
 - `10.96.0.10` is a Kubernetes ClusterIP — **only reachable from within cluster nodes**
-- External NetBird peers (phones, laptops) cannot route to `10.96.0.10` even with the `10.96.0.0/12` NetBird route
-- Pushing `10.96.0.10` to peers causes: "Warning: DNS — Unable to reach one or more DNS servers"
-- Fix applied: changed `k8s-internal-dns` to use `10.25.0.108:53` instead
+- External NetBird peers (phones, laptops) cannot route to `10.96.0.10`
+- Causes: "Warning: DNS — Unable to reach one or more DNS servers"
 
-### dnsmasq handles both domains on 10.25.0.108
-Config: `/etc/dnsmasq.d/rlservers-split-dns.conf`
+### DNS Record Sources
+All DNS is now IaC in platform repo: `kubernetes/apps/dns/manifests/configmap.yaml`
 
 | Domain | Resolves to | Purpose |
 |--------|-------------|---------|
-| *.rlservers.com | 10.25.0.5 | Standalone Traefik (external routing) |
+| *.rlservers.com (most) | 10.25.0.5 | Standalone Traefik |
+| netbird.rlservers.com | 10.25.0.100 | NetBird VM |
+| dc1.rlservers.com | 10.25.0.43 | Windows domain controller |
 | *.prod.local | 10.25.0.200 | Cluster Traefik (in-cluster ingress) |
+
+### dnsmasq on 10.25.0.108 (forwarding only)
+Config: `/etc/dnsmasq.d/rlservers-split-dns.conf`
+- Now only **forwards** `rlservers.com` and `prod.local` to `10.25.0.201`
+- No longer contains direct A records (those are in CoreDNS configmap)
 
 ## Peer Cleanup Automation
 
