@@ -7,7 +7,7 @@ proxmox_host: "10.25.0.80"
 # Talos VMs — 3 stacked control planes for HA etcd
 nodes:
   talos-prod-cp1:
-    proxmox_node: "pve-prod1"
+    proxmox_node: "pve-prod2"
     ip: "10.25.0.90"
     vm_id: 9300
     controlplane: true
