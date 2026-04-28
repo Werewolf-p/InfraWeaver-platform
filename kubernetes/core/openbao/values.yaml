@@ -35,41 +35,42 @@ server:
     create: true
     name: openbao
 
+  # Autounseal sidecar using the chart's extraContainers (standard k8s container spec)
   extraContainers:
     - name: autounseal
       image: ghcr.io/openbao/openbao:2.5.3
-      command: ["/bin/sh", "-c"]
-      args:
-        - |
-          echo "Autounseal sidecar starting..."
+      command:
+        - /bin/sh
+        - -c
+        - >-
+          echo "Autounseal sidecar starting...";
           while true; do
-            EXIT_CODE=0
-            bao status -address=http://127.0.0.1:8200 >/dev/null 2>&1 || EXIT_CODE=$?
+            EXIT_CODE=0;
+            bao status -address=http://127.0.0.1:8200 >/dev/null 2>&1 || EXIT_CODE=$?;
             if [ "$EXIT_CODE" = "2" ]; then
-              UNSEAL_KEY=$(cat /etc/openbao-unseal/unseal_key 2>/dev/null || true)
+              UNSEAL_KEY=$(cat /etc/openbao-unseal/unseal_key 2>/dev/null || true);
               if [ -n "$UNSEAL_KEY" ]; then
-                echo "OpenBao sealed - unsealing..."
-                bao operator unseal -address=http://127.0.0.1:8200 "$UNSEAL_KEY" >/dev/null 2>&1 \
-                  && echo "Unseal OK" || echo "Unseal failed"
+                echo "OpenBao sealed - unsealing...";
+                bao operator unseal -address=http://127.0.0.1:8200 "$UNSEAL_KEY" >/dev/null 2>&1 && echo "Unseal OK" || echo "Unseal failed";
               else
-                echo "Sealed but no unseal key yet"
-              fi
-            fi
-            sleep 30
+                echo "Sealed but no unseal key yet";
+              fi;
+            fi;
+            sleep 30;
           done
       env:
         - name: BAO_ADDR
           value: "http://127.0.0.1:8200"
       volumeMounts:
-        - name: openbao-unseal
+        - name: userconfig-openbao-unseal
           mountPath: /etc/openbao-unseal
           readOnly: true
 
+  # Chart-specific extraVolumes format: type + name (not standard k8s volume spec)
   extraVolumes:
-    - name: openbao-unseal
-      secret:
-        secretName: openbao-unseal
-        optional: true
+    - type: secret
+      name: openbao-unseal
+      defaultMode: "0444"
 
 injector:
   enabled: false
