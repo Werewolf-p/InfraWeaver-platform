@@ -9,7 +9,7 @@ nodes:
   talos-prod-cp1:
     proxmox_node: "proxmox"
     ip: "10.25.0.90"
-    vm_id: 9300
+    vm_id: 9310
     controlplane: true
     cpu: 8
     memory_mb: 8192
@@ -18,7 +18,7 @@ nodes:
   talos-prod-cp2:
     proxmox_node: "proxmox"
     ip: "10.25.0.91"
-    vm_id: 9301
+    vm_id: 9311
     controlplane: true
     cpu: 8
     memory_mb: 8192
@@ -27,7 +27,7 @@ nodes:
   talos-prod-cp3:
     proxmox_node: "proxmox"
     ip: "10.25.0.92"
-    vm_id: 9302
+    vm_id: 9312
     controlplane: true
     cpu: 8
     memory_mb: 8192
