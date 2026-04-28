@@ -27,7 +27,10 @@ spec:
             - name: NB_EXPOSED_ADDRESS
               value: "rels://10.25.0.202:33080"
             - name: NB_AUTH_SECRET
-              value: "netbird-relay-password"
+              valueFrom:
+                secretKeyRef:
+                  name: netbird-secrets
+                  key: turn-password
           ports:
             - name: relay
               containerPort: 33080
@@ -38,31 +41,14 @@ spec:
               cpu: 50m
               memory: 64Mi
             limits:
-              cpu: 500m
-              memory: 256Mi
----
-# ── Relay ClusterIP Service ───────────────────────────────────────────────────
-apiVersion: v1
-kind: Service
-metadata:
-  name: netbird-relay
-  namespace: netbird
-spec:
-  selector:
-    app: netbird-relay
-  ports:
-    - name: relay
-      port: 33080
-      targetPort: 33080
-    - name: turn
-      port: 3478
-      targetPort: 3478
+              cpu: 200m
+              memory: 128Mi
 ---
 # ── Relay LoadBalancer (external access at 10.25.0.202) ──────────────────────
 apiVersion: v1
 kind: Service
 metadata:
-  name: netbird-relay-lb
+  name: netbird-relay
   namespace: netbird
 spec:
   type: LoadBalancer
