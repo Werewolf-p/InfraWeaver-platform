@@ -355,6 +355,23 @@ data "talos_machine_configuration" "this" {
             forwardKubeDNSToHost = true
           }
         }
+        # Docker Hub pull-through cache mirror to avoid 429 rate limits.
+        # Each unique Docker Hub image is pulled once from the origin and cached;
+        # subsequent node pulls are served locally without hitting Docker Hub.
+        registries = var.registry_mirror_url != "" ? {
+          mirrors = {
+            "docker.io" = {
+              endpoints = [var.registry_mirror_url]
+            }
+          }
+          config = {
+            (regex_replace(var.registry_mirror_url, "^https?://", "")) = {
+              tls = {
+                insecureSkipVerify = true
+              }
+            }
+          }
+        } : null
       }
       # Allow pods to schedule on control-plane nodes.
       # Required for all-control-plane HA clusters (no separate worker nodes).
@@ -652,3 +669,4 @@ resource "talos_cluster_kubeconfig" "this" {
 
   depends_on = [null_resource.bootstrap_etcd]
 }
+
