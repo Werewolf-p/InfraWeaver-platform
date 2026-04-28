@@ -131,11 +131,26 @@ When K8s is restored, the K8s route (10.96.0.0/12) should be updated to a Talos 
 
 ## DNS Nameservers
 
-| Name | DNS Server | Domain | State |
-|------|-----------|--------|-------|
-| k8s-internal-dns | 10.96.0.10 | prod.local | **DISABLED** — K8s down |
+| Name | ID | DNS Server | Domain | State |
+|------|-----|-----------|--------|-------|
+| rlservers-internal | d7o5p2rdeh7s73fcv43g | 10.25.0.108:53 | rlservers.com | ENABLED |
+| k8s-internal-dns | d7nn56jdeh7s7388jdc0 | 10.25.0.108:53 | prod.local | ENABLED |
 
-Re-enable once K8s API is working: `PATCH /api/dns/nameservers/d7nn56jdeh7s7388jdc0` with `enabled: true`.
+**IMPORTANT:** Both nameservers point to **dnsmasq at 10.25.0.108:53** — NOT to CoreDNS at 10.96.0.10.
+
+### Why NOT CoreDNS (10.96.0.10)?
+- `10.96.0.10` is a Kubernetes ClusterIP — **only reachable from within cluster nodes**
+- External NetBird peers (phones, laptops) cannot route to `10.96.0.10` even with the `10.96.0.0/12` NetBird route
+- Pushing `10.96.0.10` to peers causes: "Warning: DNS — Unable to reach one or more DNS servers"
+- Fix applied: changed `k8s-internal-dns` to use `10.25.0.108:53` instead
+
+### dnsmasq handles both domains on 10.25.0.108
+Config: `/etc/dnsmasq.d/rlservers-split-dns.conf`
+
+| Domain | Resolves to | Purpose |
+|--------|-------------|---------|
+| *.rlservers.com | 10.25.0.5 | Standalone Traefik (external routing) |
+| *.prod.local | 10.25.0.200 | Cluster Traefik (in-cluster ingress) |
 
 ## Peer Cleanup Automation
 
@@ -157,7 +172,7 @@ Requires: `NETBIRD_API_TOKEN` GitHub secret.
 | Issue | Root Cause | Fix |
 |-------|-----------|-----|
 | Dashboard inaccessible when on NetBird | Route 10.25.0.0/24 via offline K8s peer | Change route to always-running peer |
-| "DNS servers can't connect" on phone | K8s CoreDNS (10.96.0.10) not reachable | Disable k8s-internal-dns nameserver |
+| "DNS servers can't connect" on phone | K8s CoreDNS (10.96.0.10) not reachable externally | Change k8s-internal-dns nameserver to 10.25.0.108:53; add prod.local entries to dnsmasq |
 | 40+ stale Talos peers | Multiple redeploys without cleanup | `NETBIRD_API_TOKEN=$TOKEN bash .github/scripts/netbird_cleanup_peers.sh talos-prod` |
 | PAT "token invalid" | Wrong hash format or missing `nbp_` prefix | See PAT generation section above |
 
@@ -230,6 +245,11 @@ When connected to NetBird from outside the home network, DNS for `argocd.rlserve
 | longhorn.rlservers.com | 10.25.0.5 | dnsmasq |
 | netbird.rlservers.com | 10.25.0.5 | dnsmasq |
 | test.rlservers.com | 10.25.0.5 | dnsmasq |
+| argocd.prod.local | 10.25.0.200 | dnsmasq → cluster Traefik |
+| grafana.prod.local | 10.25.0.200 | dnsmasq → cluster Traefik |
+| longhorn.prod.local | 10.25.0.200 | dnsmasq → cluster Traefik |
+| test.prod.local | 10.25.0.200 | dnsmasq → cluster Traefik |
+| netbird.prod.local | 10.25.0.200 | dnsmasq → cluster Traefik |
 
 ### Peer DNS domain fix
 - `settings_dns_domain` in accounts table was EMPTY → peers showed `*.netbird.selfhosted`
