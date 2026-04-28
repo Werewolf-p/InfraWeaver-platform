@@ -1,0 +1,68 @@
+name: Check Proxmox Resources
+
+on:
+  workflow_dispatch:
+
+jobs:
+  check:
+    name: Check Live Resources on 10.25.0.3
+    runs-on: [self-hosted, prod-worker]
+    steps:
+      - name: Setup SSH key
+        env:
+          SSH_KEY_FILE: ${{ runner.temp }}/deployer
+        run: |
+          echo "${{ secrets.DEPLOYER_SSH_KEY }}" > $SSH_KEY_FILE
+          chmod 600 $SSH_KEY_FILE
+          mkdir -p ~/.ssh && cp $SSH_KEY_FILE ~/.ssh/deployer_ed25519 && chmod 600 ~/.ssh/deployer_ed25519
+
+      - name: Check live VMs and host resources
+        run: |
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=15 -i ~/.ssh/deployer_ed25519"
+
+          echo "===== HOST: CPU & RAM ====="
+          ssh $SSH_OPTS root@10.25.0.3 "
+            echo '-- CPU --'
+            nproc
+            lscpu | grep -E 'CPU\(s\)|Thread|Core|Socket|Model name'
+            echo '-- RAM --'
+            free -h
+            echo '-- Swap --'
+            swapon --show || echo '(none)'
+          "
+
+          echo ""
+          echo "===== ALL VMs (qm list) ====="
+          ssh $SSH_OPTS root@10.25.0.3 "qm list"
+
+          echo ""
+          echo "===== RUNNING VMs with RAM allocation ====="
+          ssh $SSH_OPTS root@10.25.0.3 "
+            echo 'VMID | NAME | STATUS | RAM_MB | CPUS | DISK'
+            echo '-----+------+--------+--------+------+----'
+            for vmid in \$(qm list | awk 'NR>1 && \$3==\"running\" {print \$1}'); do
+              name=\$(qm config \$vmid | awk -F': ' '/^name:/{print \$2}')
+              mem=\$(qm config \$vmid | awk -F': ' '/^memory:/{print \$2}')
+              cpus=\$(qm config \$vmid | awk -F': ' '/^cores:/{print \$2}')
+              disk=\$(qm config \$vmid | grep -E '^(scsi|virtio|ide)0:' | grep -o 'size=[^,]*' | head -1)
+              echo \"\$vmid | \$name | running | \${mem}MB | \$cpus | \$disk\"
+            done
+          "
+
+          echo ""
+          echo "===== STORAGE (pvesm status) ====="
+          ssh $SSH_OPTS root@10.25.0.3 "pvesm status"
+
+          echo ""
+          echo "===== TOTAL RAM ALLOCATED TO RUNNING VMs ====="
+          ssh $SSH_OPTS root@10.25.0.3 "
+            total=0
+            for vmid in \$(qm list | awk 'NR>1 && \$3==\"running\" {print \$1}'); do
+              mem=\$(qm config \$vmid | awk -F': ' '/^memory:/{print \$2}')
+              total=\$((total + mem))
+            done
+            echo \"Total allocated RAM (running VMs): \${total} MB = \$((total/1024)) GB\"
+            phys=\$(free -m | awk '/Mem:/{print \$2}')
+            echo \"Physical RAM: \${phys} MB = \$((phys/1024)) GB\"
+            echo \"Available for new/resized VMs: \$((phys - total)) MB = \$(( (phys - total)/1024 )) GB\"
+          "
