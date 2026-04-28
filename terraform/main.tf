@@ -91,6 +91,11 @@ module "talos_cluster" {
 
   talos_image_datastore = local.cluster_config.talos_image_datastore
 
+  # Docker Hub pull-through cache running on the Proxmox host.
+  # Reduces Docker Hub pulls from 3x per image (one per node) to 1x (cached),
+  # preventing 429 rate-limit failures during full cluster redeployments.
+  registry_mirror_url = "http://${local.proxmox_host}:5000"
+
   environment = var.environment
 }
 
@@ -189,3 +194,4 @@ module "openbao_vms" {
 
   depends_on = [module.cloud_init_templates]
 }
+
