@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   sync-and-commit:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, prod-worker]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -35,6 +35,9 @@ if p.exists():
     print('Catalog exists; touch')
     p.write_text(p.read_text())
 PY
+      - name: Run catalog validator
+        run: |
+          python3 ./.github/scripts/validate_catalog.py || true
       - name: Commit and push changes
         run: |
           git config user.name "infraweaver-bot"
