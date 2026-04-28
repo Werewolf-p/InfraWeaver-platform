@@ -437,16 +437,52 @@ jobs:
             sleep 10
           done
 
-          # Wait for OpenBao pod to be Ready (ArgoCD deploys it via Helm once Longhorn PVC is bound)
-          echo "==> Waiting for OpenBao pod to be Ready..."
-          for i in $(seq 1 60); do
+          # Wait for ArgoCD to discover and create the core-openbao Application
+          echo "==> Waiting for ArgoCD to discover core-openbao Application..."
+          BAO_APP=""
+          for i in $(seq 1 30); do
+            BAO_APP=$(kubectl --kubeconfig "$KB" get applications -n argocd \
+              --no-headers -o custom-columns=":metadata.name" 2>/dev/null | \
+              grep -i "openbao" | head -1 || echo "")
+            if [ -n "$BAO_APP" ]; then
+              echo "  ArgoCD Application '$BAO_APP' found"
+              break
+            fi
+            echo "  Waiting for ArgoCD to discover openbao ($i/30)..."
+            sleep 10
+          done
+
+          if [ -n "$BAO_APP" ]; then
+            echo "==> Waiting for ArgoCD Application '$BAO_APP' to sync..."
+            for i in $(seq 1 18); do
+              SYNC=$(kubectl --kubeconfig "$KB" get application "$BAO_APP" -n argocd \
+                -o jsonpath='{.status.sync.status}' 2>/dev/null || echo "Unknown")
+              echo "  [$i/18] sync=$SYNC"
+              if [ "$SYNC" = "Synced" ]; then break; fi
+              sleep 10
+            done
+          fi
+
+          # Wait for OpenBao pod to be Ready (ArgoCD deploys it via Helm; PVC needs Longhorn)
+          echo "==> Waiting for OpenBao pod to be Ready (up to 15 min)..."
+          for i in $(seq 1 90); do
             if kubectl --kubeconfig "$KB" wait pod -n openbao \
                 -l app.kubernetes.io/name=openbao \
                 --for=condition=Ready --timeout=10s 2>/dev/null; then
               echo "  OpenBao pod Ready"
               break
             fi
-            echo "  Waiting for OpenBao pod ($i/60)..."
+            echo "  Waiting for OpenBao pod ($i/90)..."
+            if [ $(( i % 15 )) -eq 0 ]; then
+              echo "  --- Diagnostics at iteration $i ---"
+              kubectl --kubeconfig "$KB" get pods -n openbao 2>/dev/null || echo "  (openbao namespace not found)"
+              BAO_APP_NOW=$(kubectl --kubeconfig "$KB" get applications -n argocd \
+                --no-headers -o custom-columns=":metadata.name" 2>/dev/null | grep -i "openbao" || echo "")
+              if [ -n "$BAO_APP_NOW" ]; then
+                kubectl --kubeconfig "$KB" get application "$BAO_APP_NOW" -n argocd \
+                  -o jsonpath='  sync={.status.sync.status} health={.status.health.status}\n' 2>/dev/null || true
+              fi
+            fi
             sleep 10
           done
 
