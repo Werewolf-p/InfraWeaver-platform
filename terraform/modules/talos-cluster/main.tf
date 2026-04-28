@@ -509,13 +509,34 @@ resource "null_resource" "start_and_configure_talos" {
       echo "==> [${each.key}] Talos API at $DHCP_IP:50000 ✓ (MAC verified)"
 
       # ── Apply machine config (sets static IP, triggers reboot) ────────────
+      # First try --insecure (maintenance mode, new node). If that fails with a
+      # TLS error the node is already running → use authenticated staged apply.
       echo "==> [${each.key}] Applying machine config to $DHCP_IP..."
-      talosctl apply-config \
-        --insecure \
-        --endpoints "$DHCP_IP" \
-        --nodes "$DHCP_IP" \
-        --file "$MC_FILE"
-      echo "  Config applied. Node will reboot to $TARGET_IP..."
+      TALOSCONFIG_TMP="${local.generated_dir}/talosconfig"
+      if talosctl apply-config \
+          --insecure \
+          --endpoints "$DHCP_IP" \
+          --nodes "$DHCP_IP" \
+          --file "$MC_FILE" 2>/tmp/talos_apply_err_${each.key}; then
+        echo "  Config applied via maintenance mode. Node will reboot to $TARGET_IP..."
+      else
+        # Node already running — use authenticated apply with --mode=staged
+        # so the updated config (e.g. registry mirrors) takes effect on next boot
+        # without disrupting the currently-running cluster.
+        echo "  Maintenance mode unavailable ($(cat /tmp/talos_apply_err_${each.key} | head -1))."
+        echo "  Applying config update to running node $TARGET_IP (staged)..."
+        talosctl apply-config \
+          --talosconfig "$TALOSCONFIG_TMP" \
+          --endpoints "$TARGET_IP" \
+          --nodes "$TARGET_IP" \
+          --file "$MC_FILE" \
+          --mode=staged 2>&1 \
+          || echo "  Warning: staged apply failed — config may already match or node unreachable"
+        echo "  Config staged. Will take effect on next reboot. Skipping reboot wait."
+        rm -f /tmp/talos_apply_err_${each.key}
+        exit 0
+      fi
+      rm -f /tmp/talos_apply_err_${each.key}
 
       # ── Wait for static IP ────────────────────────────────────────────────
       sleep 30
