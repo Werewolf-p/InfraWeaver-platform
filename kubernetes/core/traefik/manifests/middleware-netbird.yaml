@@ -2,6 +2,10 @@
 # Traefik IPAllowList Middleware — restricts access to NetBird VPN clients only
 # Apply this middleware to private services (ArgoCD, Grafana, Longhorn)
 # The test-website does NOT use this middleware (it's public)
+#
+# NetBird peers route to *.prod.local via the github-runner peer (10.25.0.108).
+# The source IP Traefik sees for NetBird traffic is therefore 10.25.0.108.
+# Using /32 here blocks all other direct LAN clients while keeping NetBird functional.
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
@@ -10,7 +14,7 @@ metadata:
 spec:
   ipAllowList:
     sourceRange:
-      - 100.64.0.0/10    # NetBird default CGNAT CIDR
+      - 100.64.0.0/10    # NetBird default CGNAT CIDR (direct WireGuard peers)
       - 10.64.0.0/10     # Alternative NetBird CIDR
-      - 10.25.0.0/24     # LAN access (homelab)
+      - 10.25.0.108/32   # github-runner routing peer — all NetBird LAN-route traffic appears as this IP
       - 127.0.0.1/32     # Localhost

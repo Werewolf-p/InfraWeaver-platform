@@ -42,8 +42,8 @@ data:
   rlservers.com.hosts: |
     # rlservers.com — internal A records
     # All services route through standalone Traefik at 10.25.0.5
-    # except netbird which is a dedicated VM at 10.25.0.100
-    # and dc1 which is the Windows domain controller at 10.25.0.43
+    # including netbird.rlservers.com (Traefik terminates TLS and proxies to 10.25.0.100)
+    # dc1 is the Windows domain controller at 10.25.0.43
 
     10.25.0.5   ansible.rlservers.com
     10.25.0.5   argocd.rlservers.com
@@ -63,7 +63,7 @@ data:
     10.25.0.5   longhorn.rlservers.com
     10.25.0.5   loverseer.rlservers.com
     10.25.0.5   nebula.rlservers.com
-    10.25.0.100 netbird.rlservers.com
+    10.25.0.5   netbird.rlservers.com
     10.25.0.5   portainer.rlservers.com
     10.25.0.5   proxmox.rlservers.com
     10.25.0.5   radarr.rlservers.com
