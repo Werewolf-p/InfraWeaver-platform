@@ -1,3 +1,4 @@
+name: Full Redeploy — InfraWeaver Platform
 
 on:
   workflow_dispatch:
@@ -171,7 +172,7 @@ jobs:
           # Terraform state (e.g., from a prior cancelled or partial deploy).
           PVE_IP="10.25.0.3"
           SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=15 -i ~/.ssh/deployer_ed25519"
-          PLATFORM_VMIDS="9300 9301 9302 9310 9311 9312 9100"  # 9200 removed: OpenBao now runs in-cluster
+          PLATFORM_VMIDS="9300 9301 9302 9310 9311 9312 9100"  # 9200 removed: OpenBao now in-cluster
           echo "==> Force-stopping and destroying platform VMs: $PLATFORM_VMIDS"
           for VMID in $PLATFORM_VMIDS; do
             # Kill any ghost QEMU process for this VMID before touching the config
@@ -426,7 +427,8 @@ jobs:
           # Wait for Longhorn to be ready (OpenBao PVC needs Longhorn storage)
           echo "==> Waiting for Longhorn manager to be Running..."
           for i in $(seq 1 30); do
-            LHCOUNT=$(kubectl --kubeconfig "$KB" get pods -n longhorn-system               --no-headers 2>/dev/null | grep "longhorn-manager" | grep -c "Running" || echo "0")
+            LHCOUNT=$(kubectl --kubeconfig "$KB" get pods -n longhorn-system \
+              --no-headers 2>/dev/null | grep "longhorn-manager" | grep -c "Running" || echo "0")
             if [ "$LHCOUNT" -gt "0" ]; then
               echo "  Longhorn manager running (${LHCOUNT} pod(s))"
               break
@@ -435,10 +437,12 @@ jobs:
             sleep 10
           done
 
-          # Wait for OpenBao pod to be Ready (ArgoCD deploys via Helm after Longhorn PVC is bound)
+          # Wait for OpenBao pod to be Ready (ArgoCD deploys it via Helm once Longhorn PVC is bound)
           echo "==> Waiting for OpenBao pod to be Ready..."
           for i in $(seq 1 60); do
-            if kubectl --kubeconfig "$KB" wait pod -n openbao                 -l app.kubernetes.io/name=openbao                 --for=condition=Ready --timeout=10s 2>/dev/null; then
+            if kubectl --kubeconfig "$KB" wait pod -n openbao \
+                -l app.kubernetes.io/name=openbao \
+                --for=condition=Ready --timeout=10s 2>/dev/null; then
               echo "  OpenBao pod Ready"
               break
             fi
@@ -460,7 +464,7 @@ jobs:
             echo "==> Initializing OpenBao (first deploy)..."
             INIT_OUTPUT=$(curl -s -X POST "${LOCAL_OPENBAO}/v1/sys/init" \
               -H "Content-Type: application/json" \
-              -d '"'"'{"secret_shares": 1, "secret_threshold": 1}'"'"')
+              -d '{"secret_shares": 1, "secret_threshold": 1}')
 
             UNSEAL_KEY=$(echo "$INIT_OUTPUT" | \
               python3 -c "import json,sys; d=json.load(sys.stdin); print(d['keys_base64'][0])")
@@ -468,15 +472,15 @@ jobs:
               python3 -c "import json,sys; d=json.load(sys.stdin); print(d['root_token'])")
 
             if [ -z "$UNSEAL_KEY" ] || [ -z "$ROOT_TOKEN" ]; then
-              echo "ERROR: Init output missing keys — check OpenBao logs"
+              echo "ERROR: Init output missing keys:"
               echo "$INIT_OUTPUT"
               kill $PF_PID 2>/dev/null || true
               exit 1
             fi
 
-            # Store unseal key + root token as k8s Secret (protected by RBAC)
-            kubectl --kubeconfig "$KB" create namespace openbao --dry-run=client -o yaml \
-              | kubectl --kubeconfig "$KB" apply -f -
+            # Store unseal key + root token as k8s Secret (RBAC-protected)
+            kubectl --kubeconfig "$KB" create namespace openbao \
+              --dry-run=client -o yaml | kubectl --kubeconfig "$KB" apply -f -
             kubectl --kubeconfig "$KB" create secret generic openbao-unseal \
               -n openbao \
               --from-literal=unseal_key="$UNSEAL_KEY" \
@@ -486,21 +490,21 @@ jobs:
             # Unseal via the API
             curl -s -X POST "${LOCAL_OPENBAO}/v1/sys/unseal" \
               -H "Content-Type: application/json" \
-              -d "{\"key\": \"$UNSEAL_KEY\"}" > /dev/null
+              -d "{"key": "$UNSEAL_KEY"}" > /dev/null
             echo "==> OpenBao initialized and unsealed"
           else
             echo "==> OpenBao already initialized — checking seal status..."
             UNSEAL_KEY=$(kubectl --kubeconfig "$KB" get secret openbao-unseal \
-              -n openbao -o jsonpath='"'"'{.data.unseal_key}'"'"' 2>/dev/null | base64 -d || echo "")
+              -n openbao -o jsonpath='{.data.unseal_key}' 2>/dev/null | base64 -d || echo "")
             ROOT_TOKEN=$(kubectl --kubeconfig "$KB" get secret openbao-unseal \
-              -n openbao -o jsonpath='"'"'{.data.root_token}'"'"' 2>/dev/null | base64 -d || echo "")
+              -n openbao -o jsonpath='{.data.root_token}' 2>/dev/null | base64 -d || echo "")
             SEALED=$(curl -s "${LOCAL_OPENBAO}/v1/sys/seal-status" | \
               python3 -c "import json,sys; print(json.load(sys.stdin).get('sealed', True))" \
               2>/dev/null || echo "True")
             if [ "$SEALED" != "False" ] && [ -n "$UNSEAL_KEY" ]; then
               curl -s -X POST "${LOCAL_OPENBAO}/v1/sys/unseal" \
                 -H "Content-Type: application/json" \
-                -d "{\"key\": \"$UNSEAL_KEY\"}" > /dev/null
+                -d "{"key": "$UNSEAL_KEY"}" > /dev/null
               echo "==> Unsealed"
             fi
           fi
@@ -511,26 +515,26 @@ jobs:
             exit 0
           fi
 
-          # Enable KV v2 at path "secret" (idempotent — 400 if already exists is fine)
+          # Enable KV v2 at path "secret" (idempotent — 400 if already mounted is OK)
           curl -s -X POST "${LOCAL_OPENBAO}/v1/sys/mounts/secret" \
             -H "X-Vault-Token: $ROOT_TOKEN" \
             -H "Content-Type: application/json" \
-            -d '"'"'{"type": "kv", "options": {"version": "2"}}'"'"' > /dev/null 2>&1 || true
+            -d '{"type": "kv", "options": {"version": "2"}}' > /dev/null 2>&1 || true
 
-          # Write Grafana secret — only on first deploy (do not overwrite existing)
+          # Write Grafana secret — only on first deploy (do not overwrite existing password)
           EXISTING_GRAFANA=$(curl -s -H "X-Vault-Token: $ROOT_TOKEN" \
             "${LOCAL_OPENBAO}/v1/secret/data/platform/grafana" | \
             python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('data',{}).get('admin-password',''))" \
             2>/dev/null || echo "")
           if [ -z "$EXISTING_GRAFANA" ]; then
-            GRAFANA_PASS=$(openssl rand -base64 20 | tr -d '"'"'=+/'"'"')
+            GRAFANA_PASS=$(openssl rand -base64 20 | tr -d '=+/')
             curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/platform/grafana" \
               -H "X-Vault-Token: $ROOT_TOKEN" \
               -H "Content-Type: application/json" \
-              -d "{\"data\": {\"admin-user\": \"admin\", \"admin-password\": \"$GRAFANA_PASS\"}}" > /dev/null
-            echo "==> Grafana secret written (randomly generated password)"
+              -d "{"data": {"admin-user": "admin", "admin-password": "$GRAFANA_PASS"}}" > /dev/null
+            echo "==> Grafana secret written (randomly generated)"
           else
-            echo "==> Grafana secret already exists — skipping"
+            echo "==> Grafana secret already exists — preserving existing password"
           fi
 
           # ArgoCD secret (idempotent)
@@ -539,31 +543,32 @@ jobs:
             python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('data',{}).get('admin-password',''))" \
             2>/dev/null || echo "")
           if [ -z "$EXISTING_ARGOCD" ]; then
-            ARGOCD_PASS=$(openssl rand -base64 20 | tr -d '"'"'=+/'"'"')
+            ARGOCD_PASS=$(openssl rand -base64 20 | tr -d '=+/')
             curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/platform/argocd" \
               -H "X-Vault-Token: $ROOT_TOKEN" \
               -H "Content-Type: application/json" \
-              -d "{\"data\": {\"admin-user\": \"admin\", \"admin-password\": \"$ARGOCD_PASS\"}}" > /dev/null
+              -d "{"data": {"admin-user": "admin", "admin-password": "$ARGOCD_PASS"}}" > /dev/null
+            echo "==> ArgoCD secret written"
           fi
 
           # Write least-privilege policy for ESO
-          POLICY_HCL='path "secret/data/platform/*" { capabilities = ["read", "list"] }\npath "secret/metadata/platform/*" { capabilities = ["read", "list"] }'
+          POLICY_JSON='{"policy": "path \"secret/data/platform/*\" { capabilities = [\"read\", \"list\"] }\npath \"secret/metadata/platform/*\" { capabilities = [\"read\", \"list\"] }"}'
           curl -s -X PUT "${LOCAL_OPENBAO}/v1/sys/policies/acl/platform-k8s" \
             -H "X-Vault-Token: $ROOT_TOKEN" \
             -H "Content-Type: application/json" \
-            -d "{\"policy\": \"$POLICY_HCL\"}" > /dev/null
+            -d "$POLICY_JSON" > /dev/null
 
-          # Tune token auth to allow long-lived tokens (needed for ESO service token)
+          # Tune token auth to allow long-lived tokens
           curl -s -X POST "${LOCAL_OPENBAO}/v1/sys/auth/token/tune" \
             -H "X-Vault-Token: $ROOT_TOKEN" \
             -H "Content-Type: application/json" \
-            -d '"'"'{"max_lease_ttl": "87600h"}'"'"' > /dev/null 2>&1 || true
+            -d '{"max_lease_ttl": "87600h"}' > /dev/null 2>&1 || true
 
           # Create ESO service token (orphan, long TTL, least-privilege)
           SERVICE_TOKEN=$(curl -s -X POST "${LOCAL_OPENBAO}/v1/auth/token/create" \
             -H "X-Vault-Token: $ROOT_TOKEN" \
             -H "Content-Type: application/json" \
-            -d "{\"policies\": [\"platform-k8s\", \"default\"], \"ttl\": \"87600h\", \"display_name\": \"eso-$ENV\", \"renewable\": true, \"orphan\": true}" | \
+            -d "{"policies": ["platform-k8s", "default"], "ttl": "87600h", "display_name": "eso-$ENV", "renewable": true, "orphan": true}" | \
             python3 -c "import json,sys; print(json.load(sys.stdin)['auth']['client_token'])")
 
           if [ -z "$SERVICE_TOKEN" ]; then
@@ -572,10 +577,11 @@ jobs:
             exit 0
           fi
 
+          # Close port-forward before kubectl operations
           kill $PF_PID 2>/dev/null || true
 
           # Wait for ESO to be ready (deployed by ArgoCD)
-          echo "==> Waiting for ESO deployments..."
+          echo "==> Waiting for ESO deployment..."
           for i in $(seq 1 30); do
             if kubectl --kubeconfig "$KB" get deployment external-secrets -n external-secrets >/dev/null 2>&1; then break; fi
             echo "  Waiting for ESO ($i/30)..."
@@ -593,7 +599,7 @@ jobs:
             -n external-secrets --for=condition=available --timeout=120s 2>/dev/null || \
             echo "⚠ ESO webhook not yet available"
 
-          # Wait for etcd to stabilize after fresh bootstrap
+          # Wait for etcd to stabilize
           echo "==> Waiting 30s for etcd to stabilize..."
           sleep 30
 
@@ -605,7 +611,7 @@ jobs:
               echo "  attempt $attempt failed, retrying in 15s..."
               sleep 15
             done
-            echo "⚠ kubectl apply failed after 5 attempts, continuing..."
+            echo "⚠ apply failed after 5 attempts, continuing..."
             return 0
           }
 
@@ -635,7 +641,7 @@ jobs:
 
           # Apply ExternalSecret for Grafana (apps-grafana namespace)
           TMP_ES=$(mktemp)
-          cat > "$TMP_ES" << '"'"'ESEOF'"'"'
+          cat > "$TMP_ES" << 'ESEOF'
           apiVersion: external-secrets.io/v1
           kind: ExternalSecret
           metadata:
@@ -662,12 +668,12 @@ jobs:
           kube_apply_retry "$KB" "$TMP_ES"
           rm -f "$TMP_ES"
 
-          # Apply ExternalSecret for Grafana (monitoring namespace — kube-prometheus-stack)
+          # ExternalSecret for monitoring namespace (kube-prometheus-stack grafana)
           kubectl --kubeconfig "$KB" apply \
             -f kubernetes/core/external-secrets/manifests/grafana-externalsecret.yaml \
             2>/dev/null || true
 
-          # Apply ClusterIssuer for cert-manager (if CRD is ready)
+          # ClusterIssuer for cert-manager (if CRD is ready)
           if kubectl --kubeconfig "$KB" get crd clusterissuers.cert-manager.io >/dev/null 2>&1; then
             kubectl --kubeconfig "$KB" apply \
               -f kubernetes/core/cert-manager/manifests/cluster-issuer.yaml 2>/dev/null || true
@@ -702,4 +708,3 @@ jobs:
           kubectl --kubeconfig "$KB" get ipaddresspools -n metallb-system 2>/dev/null
           kubectl --kubeconfig "$KB" get svc -A | grep LoadBalancer | head -10
 
-___BEGIN___COMMAND_DONE_MARKER___0
