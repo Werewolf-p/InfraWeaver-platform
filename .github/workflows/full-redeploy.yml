@@ -60,6 +60,18 @@ jobs:
           echo 'plugin_cache_dir = "$HOME/.terraform.d/plugin-cache"' > ~/.tofurc
           tofu version
 
+      - name: Cleanup NetBird peers for cluster
+        env:
+          NETBIRD_API_TOKEN: ${{ secrets.NETBIRD_API_TOKEN }}
+        run: |
+          ENV=${{ env.ENV_NAME }}
+          if [ -z "${NETBIRD_API_TOKEN:-}" ]; then
+            echo "⚠ NETBIRD_API_TOKEN not set — skipping NetBird peer cleanup"
+          else
+            echo "==> Removing stale NetBird peers for ${ENV} cluster..."
+            bash .github/scripts/netbird_cleanup_peers.sh "talos-${ENV}"
+          fi
+
       - name: Destroy existing platform
         env:
           SOPS_AGE_KEY_FILE: ${{ runner.temp }}/age.key
