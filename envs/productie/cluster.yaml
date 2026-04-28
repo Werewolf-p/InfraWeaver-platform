@@ -45,4 +45,3 @@ nameservers:
   - "1.1.1.1"
 subnet_prefix: 24
 talos_image_datastore: "lvm-proxmox"
-openbao_address: "http://10.25.0.86:8200"
