@@ -120,3 +120,112 @@ variable "deploy_platform_bootstrap" {
   type        = bool
   default     = true
 }
+
+# ---------------------------------------------------------------------------
+# Service VMs (cloud-init-template, github-runner, openbao)
+# ---------------------------------------------------------------------------
+
+variable "proxmox_nodes" {
+  description = "Map of Proxmox nodes (name → config with ip, cluster). Used by service VM modules."
+  type = map(object({
+    ip             = string
+    cluster        = optional(string)
+    vm_id          = optional(number)
+    cores          = optional(number)
+    sockets        = optional(number)
+    memory_mb      = optional(number)
+    disk_size_gb   = optional(number)
+    disk_datastore = optional(string)
+    gateway        = optional(string)
+    subnet_mask    = optional(number)
+  }))
+  default = {}
+}
+
+variable "node_defaults" {
+  description = "Default node settings for service VMs."
+  type = object({
+    cores          = optional(number, 4)
+    sockets        = optional(number, 1)
+    memory_mb      = optional(number, 8192)
+    disk_size_gb   = optional(number, 64)
+    disk_datastore = optional(string, "local-lvm")
+    gateway        = optional(string)
+    subnet_mask    = optional(number, 24)
+  })
+  default = {}
+}
+
+variable "proxmox_default_gateway" {
+  description = "Default gateway for service VMs."
+  type        = string
+  default     = "10.25.0.1"
+}
+
+variable "proxmox_dns_servers" {
+  description = "DNS servers for service VMs."
+  type        = list(string)
+  default     = ["8.8.8.8", "1.1.1.1"]
+}
+
+variable "cloud_init_templates" {
+  description = "Cloud-init VM templates to create on Proxmox."
+  type = map(object({
+    vm_id       = number
+    name        = string
+    image_url   = string
+    cores       = optional(number, 2)
+    memory_mb   = optional(number, 2048)
+    disk_size_gb = optional(number, 20)
+    storage     = optional(string, "local-lvm")
+  }))
+  default = {}
+}
+
+variable "github_runners" {
+  description = "GitHub Actions self-hosted runner VMs."
+  type = map(object({
+    vm_id          = number
+    ip             = string
+    template_vm_id = number
+    cores          = optional(number, 2)
+    memory_mb      = optional(number, 2048)
+    disk_size_gb   = optional(number, 30)
+    storage        = optional(string, "local-lvm")
+    repo_url       = string
+    labels         = optional(list(string), [])
+  }))
+  default = {}
+}
+
+variable "openbao_instances" {
+  description = "OpenBao (Vault) VM instances."
+  type = map(object({
+    vm_id          = number
+    ip             = string
+    template_vm_id = number
+    cores          = optional(number, 2)
+    memory_mb      = optional(number, 1024)
+    disk_size_gb   = optional(number, 15)
+    storage        = optional(string, "local-lvm")
+  }))
+  default = {}
+}
+
+variable "proxmox_runner_ssh_public_key" {
+  description = "SSH public key for runner VM access."
+  type        = string
+  default     = ""
+}
+
+variable "proxmox_host_ssh_public_key" {
+  description = "SSH public key of the Proxmox host (for template deployments)."
+  type        = string
+  default     = ""
+}
+
+variable "proxmox_extra_ssh_public_keys" {
+  description = "Additional SSH public keys to inject into service VMs."
+  type        = list(string)
+  default     = []
+}

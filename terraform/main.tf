@@ -53,6 +53,12 @@ locals {
 
   # HA mode: productie uses multiple control planes
   ha_mode = var.environment == "productie"
+
+  service_ssh_keys = compact(concat(
+    [var.proxmox_runner_ssh_public_key],
+    [var.proxmox_host_ssh_public_key],
+    var.proxmox_extra_ssh_public_keys,
+  ))
 }
 
 # ---------------------------------------------------------------------------
@@ -132,4 +138,54 @@ module "platform_bootstrap" {
     local_sensitive_file.kubeconfig,
     module.talos_cluster,
   ]
+}
+
+# ---------------------------------------------------------------------------
+# Service VMs — cloud-init template, GitHub runner, OpenBao
+#
+# These run on the same Proxmox node (10.25.0.3) as the Talos cluster VMs.
+# Ordering: templates first, then runner and openbao in parallel.
+# ---------------------------------------------------------------------------
+
+module "cloud_init_templates" {
+  count  = length(var.cloud_init_templates) > 0 ? 1 : 0
+  source = "./modules/cloud-init-template"
+
+  proxmox_ssh_private_key_file = local.proxmox_ssh_private_key_file
+  proxmox_nodes                = var.proxmox_nodes
+  proxmox_default_gateway      = var.proxmox_default_gateway
+  node_defaults                = var.node_defaults
+  cloud_init_templates         = var.cloud_init_templates
+  runner_ssh_keys              = local.service_ssh_keys
+}
+
+module "github_runners" {
+  count  = length(var.github_runners) > 0 ? 1 : 0
+  source = "./modules/github-runner"
+
+  proxmox_ssh_private_key_file = local.proxmox_ssh_private_key_file
+  proxmox_nodes                = var.proxmox_nodes
+  proxmox_default_gateway      = var.proxmox_default_gateway
+  node_defaults                = var.node_defaults
+  proxmox_dns_servers          = var.proxmox_dns_servers
+  github_runners               = var.github_runners
+  github_runner_token          = var.github_runner_token
+  runner_ssh_keys              = local.service_ssh_keys
+
+  depends_on = [module.cloud_init_templates]
+}
+
+module "openbao_vms" {
+  count  = length(var.openbao_instances) > 0 ? 1 : 0
+  source = "./modules/openbao"
+
+  proxmox_ssh_private_key_file = local.proxmox_ssh_private_key_file
+  proxmox_nodes                = var.proxmox_nodes
+  proxmox_default_gateway      = var.proxmox_default_gateway
+  node_defaults                = var.node_defaults
+  proxmox_dns_servers          = var.proxmox_dns_servers
+  openbao_instances            = var.openbao_instances
+  runner_ssh_keys              = local.service_ssh_keys
+
+  depends_on = [module.cloud_init_templates]
 }

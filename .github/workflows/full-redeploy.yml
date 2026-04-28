@@ -91,11 +91,15 @@ jobs:
           # These GitHub Secrets must be configured in the repository settings
           # They contain API tokens sourced from GitHub Secrets Manager
           PROXMOX_API_TOKEN: ${{ secrets.PROXMOX_API_TOKEN }}
+          RUNNER_REGISTRATION_TOKEN: ${{ secrets.RUNNER_REGISTRATION_TOKEN }}
         run: |
           # Export as TF_VAR_* for Terraform to consume
           # These take precedence over SOPS file values
           if [ -n "${PROXMOX_API_TOKEN:-}" ]; then
             echo "TF_VAR_proxmox_api_token=${PROXMOX_API_TOKEN}" >> $GITHUB_ENV
+          fi
+          if [ -n "${RUNNER_REGISTRATION_TOKEN:-}" ]; then
+            echo "TF_VAR_github_runner_token=${RUNNER_REGISTRATION_TOKEN}" >> $GITHUB_ENV
           fi
 
       - name: Validate Proxmox API token permissions

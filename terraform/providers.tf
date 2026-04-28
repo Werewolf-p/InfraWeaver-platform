@@ -34,6 +34,10 @@ terraform {
       source  = "hashicorp/time"
       version = "~> 0.13"
     }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.0"
+    }
   }
 }
 
@@ -106,3 +110,4 @@ provider "helm" {
 provider "null" {}
 provider "local" {}
 provider "time" {}
+provider "random" {}
