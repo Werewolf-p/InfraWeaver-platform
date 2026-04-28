@@ -51,7 +51,21 @@ jobs:
             https://github.com/FiloSottile/age/releases/download/v1.1.1/age-v1.1.1-linux-amd64.tar.gz && \
             sudo tar -xzf /tmp/age.tar.gz -C /usr/local/bin/ --strip-components=1 age/age age/age-keygen)
           command -v helm || (curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | sudo bash)
-          command -v talosctl || (curl -fsSL https://talos.dev/install | sh)
+          # talosctl: test first — runner VM may lack AMD64 v2 (SSE4.2) required by official binary.
+          # If the binary fails, rebuild from source with GOAMD64=v1 via Docker.
+          if ! talosctl version --client >/dev/null 2>&1; then
+            TALOS_VER=$(grep 'talos_version' envs/$ENV_NAME/cluster.yaml | awk '{print $2}' | tr -d '"')
+            echo "talosctl not functional (AMD64 v2 issue?). Building ${TALOS_VER} with GOAMD64=v1..."
+            docker run --rm \
+              -e GOAMD64=v1 -e GOWORK=off -e CGO_ENABLED=0 \
+              -v /usr/local/bin:/output \
+              golang:latest \
+              sh -c "git clone --depth=1 --branch ${TALOS_VER} https://github.com/siderolabs/talos.git /src 2>&1 | tail -3 \
+                && cd /src && GOAMD64=v1 go build -o /output/talosctl ./cmd/talosctl/ \
+                && chmod +x /output/talosctl && echo 'talosctl built OK'"
+            sudo chmod +x /usr/local/bin/talosctl
+          fi
+          talosctl version --client
           command -v kubectl || (K8S_VER=$(curl -fsSL https://dl.k8s.io/release/stable.txt) && \
             sudo curl -fsSL -o /usr/local/bin/kubectl \
               "https://dl.k8s.io/release/${K8S_VER}/bin/linux/amd64/kubectl" && \
