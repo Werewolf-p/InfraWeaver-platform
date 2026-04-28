@@ -1,0 +1,113 @@
+name: Setup Platform Tools
+description: Install OpenTofu, SOPS, age, talosctl, and helm for platform workflows.
+
+inputs:
+  age-secret-key:
+    description: "AGE secret key for SOPS decryption (written to runner.temp)"
+    required: false
+    default: ""
+  deployer-ssh-key:
+    description: "SSH private key for VM access"
+    required: false
+    default: ""
+  tofu-version:
+    description: "OpenTofu version to install"
+    required: false
+    default: "1.11.6"
+  sops-version:
+    description: "SOPS version to install"
+    required: false
+    default: "3.10.2"
+  age-version:
+    description: "age version to install"
+    required: false
+    default: "1.1.1"
+  with-talosctl:
+    description: "Install talosctl matching cluster.yaml talos_version"
+    required: false
+    default: "false"
+  with-helm:
+    description: "Install Helm"
+    required: false
+    default: "false"
+  environment:
+    description: "Environment name (productie/ontwikkel) — used to read cluster.yaml"
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Install OpenTofu
+      shell: bash
+      run: |
+        if ! command -v tofu &>/dev/null; then
+          curl -fsSL https://get.opentofu.org/install-opentofu.sh | sudo sh -s -- --install-method deb
+        fi
+        mkdir -p ~/.terraform.d/plugin-cache
+        echo 'plugin_cache_dir = "$HOME/.terraform.d/plugin-cache"' > ~/.tofurc
+        tofu version
+
+    - name: Install SOPS
+      shell: bash
+      run: |
+        if ! command -v sops &>/dev/null; then
+          sudo curl -fsSL -o /usr/local/bin/sops \
+            "https://github.com/getsops/sops/releases/download/v${{ inputs.sops-version }}/sops-v${{ inputs.sops-version }}.linux.amd64"
+          sudo chmod +x /usr/local/bin/sops
+        fi
+
+    - name: Install age
+      shell: bash
+      run: |
+        if ! command -v age &>/dev/null; then
+          curl -fsSL -o /tmp/age.tar.gz \
+            "https://github.com/FiloSottile/age/releases/download/v${{ inputs.age-version }}/age-v${{ inputs.age-version }}-linux-amd64.tar.gz"
+          sudo tar -xzf /tmp/age.tar.gz -C /usr/local/bin/ --strip-components=1 age/age age/age-keygen
+          rm -f /tmp/age.tar.gz
+        fi
+
+    - name: Install talosctl
+      if: inputs.with-talosctl == 'true' && inputs.environment != ''
+      shell: bash
+      run: |
+        TALOS_VERSION=$(grep 'talos_version:' "envs/${{ inputs.environment }}/cluster.yaml" | awk '{print $2}' | tr -d '"')
+        CURRENT_TC=$(talosctl version --client 2>/dev/null | awk '/Tag:/{print $2}' | head -1 || echo "none")
+        if [ "$CURRENT_TC" != "$TALOS_VERSION" ]; then
+          sudo curl -fsSL -o /usr/local/bin/talosctl \
+            "https://github.com/siderolabs/talos/releases/download/${TALOS_VERSION}/talosctl-linux-amd64"
+          sudo chmod +x /usr/local/bin/talosctl
+          echo "✅ talosctl ${TALOS_VERSION} installed"
+        fi
+
+    - name: Install Helm
+      if: inputs.with-helm == 'true'
+      shell: bash
+      run: |
+        if ! command -v helm &>/dev/null; then
+          curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | sudo bash
+        fi
+
+    - name: Configure AGE key
+      if: inputs.age-secret-key != ''
+      shell: bash
+      env:
+        SOPS_AGE_KEY_FILE: ${{ runner.temp }}/age.key
+      run: |
+        echo "${{ inputs.age-secret-key }}" > "$SOPS_AGE_KEY_FILE"
+        chmod 600 "$SOPS_AGE_KEY_FILE"
+        echo "SOPS_AGE_KEY_FILE=$SOPS_AGE_KEY_FILE" >> $GITHUB_ENV
+        echo "✅ AGE key configured"
+
+    - name: Configure SSH key
+      if: inputs.deployer-ssh-key != ''
+      shell: bash
+      env:
+        SSH_KEY_FILE: ${{ runner.temp }}/deployer
+      run: |
+        echo "${{ inputs.deployer-ssh-key }}" > "$SSH_KEY_FILE"
+        chmod 600 "$SSH_KEY_FILE"
+        mkdir -p ~/.ssh
+        cp "$SSH_KEY_FILE" ~/.ssh/deployer_ed25519
+        chmod 600 ~/.ssh/deployer_ed25519
+        echo "✅ SSH key configured"

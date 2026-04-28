@@ -73,27 +73,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install tools (if missing)
-        run: |
-          command -v tofu || (curl -fsSL https://get.opentofu.org/install-opentofu.sh | sudo sh -s -- --install-method deb)
-          command -v sops || (sudo curl -fsSL -o /usr/local/bin/sops \
-            https://github.com/getsops/sops/releases/download/v3.10.2/sops-v3.10.2.linux.amd64 && \
-            sudo chmod +x /usr/local/bin/sops)
-          command -v age || (curl -fsSL -o /tmp/age.tar.gz \
-            https://github.com/FiloSottile/age/releases/download/v1.1.1/age-v1.1.1-linux-amd64.tar.gz && \
-            sudo tar -xzf /tmp/age.tar.gz -C /usr/local/bin/ --strip-components=1 age/age age/age-keygen)
-          # Enable persistent provider cache to avoid re-downloading on every run
-          mkdir -p ~/.terraform.d/plugin-cache
-          echo 'plugin_cache_dir = "$HOME/.terraform.d/plugin-cache"' > ~/.tofurc
-          tofu version
+      - name: Setup tools
+        uses: ./.github/actions/setup-platform
+        with:
+          age-secret-key: ${{ secrets.AGE_SECRET_KEY }}
 
       - name: Tofu Init & Plan
-        env:
-          SOPS_AGE_KEY_FILE: ${{ runner.temp }}/age.key
         run: |
           export TF_PLUGIN_CACHE_DIR="$HOME/.terraform.d/plugin-cache"
-          echo "${{ secrets.AGE_SECRET_KEY }}" > $SOPS_AGE_KEY_FILE
-          chmod 600 $SOPS_AGE_KEY_FILE
 
           ENV=${{ env.ENV_NAME }}
           STATE_DIR=~/.tofu/state/platform-$ENV
@@ -155,39 +142,18 @@ jobs:
             (echo "❌ insecure=true found in non-provider code"; exit 1) || true
           echo "✅ Security checks passed"
 
-      - name: Install tools
-        run: |
-          command -v tofu || (curl -fsSL https://get.opentofu.org/install-opentofu.sh | sudo sh -s -- --install-method deb)
-          command -v sops || (sudo curl -fsSL -o /usr/local/bin/sops \
-            https://github.com/getsops/sops/releases/download/v3.10.2/sops-v3.10.2.linux.amd64 && \
-            sudo chmod +x /usr/local/bin/sops)
-          TALOS_VERSION=$(grep 'talos_version:' "envs/${{ env.ENV_NAME }}/cluster.yaml" | awk '{print $2}' | tr -d '"')
-          CURRENT_TC=$(talosctl version --client 2>/dev/null | awk '/Tag:/{print $2}' | head -1 || echo "none")
-          if [ "$CURRENT_TC" != "$TALOS_VERSION" ]; then
-            echo "Installing talosctl $TALOS_VERSION (current: $CURRENT_TC)..."
-            sudo curl -fsSL -o /usr/local/bin/talosctl               "https://github.com/siderolabs/talos/releases/download/${TALOS_VERSION}/talosctl-linux-amd64"
-            sudo chmod +x /usr/local/bin/talosctl
-          fi
-          command -v age || (curl -fsSL -o /tmp/age.tar.gz \
-            https://github.com/FiloSottile/age/releases/download/v1.1.1/age-v1.1.1-linux-amd64.tar.gz && \
-            sudo tar -xzf /tmp/age.tar.gz -C /usr/local/bin/ --strip-components=1 age/age age/age-keygen)
-          command -v helm || (curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | sudo bash)
-          # Enable persistent provider cache to avoid re-downloading on every run
-          mkdir -p ~/.terraform.d/plugin-cache
-          echo 'plugin_cache_dir = "$HOME/.terraform.d/plugin-cache"' > ~/.tofurc
-          tofu version && talosctl version --client && helm version --short
+      - name: Setup tools
+        uses: ./.github/actions/setup-platform
+        with:
+          age-secret-key: ${{ secrets.AGE_SECRET_KEY }}
+          deployer-ssh-key: ${{ secrets.DEPLOYER_SSH_KEY }}
+          with-talosctl: "true"
+          with-helm: "true"
+          environment: ${{ env.ENV_NAME }}
 
       - name: Deploy Platform
-        env:
-          SOPS_AGE_KEY_FILE: ${{ runner.temp }}/age.key
-          SSH_KEY_FILE: ${{ runner.temp }}/deployer
         run: |
           export TF_PLUGIN_CACHE_DIR="$HOME/.terraform.d/plugin-cache"
-          echo "${{ secrets.AGE_SECRET_KEY }}" > $SOPS_AGE_KEY_FILE
-          chmod 600 $SOPS_AGE_KEY_FILE
-          echo "${{ secrets.DEPLOYER_SSH_KEY }}" > $SSH_KEY_FILE
-          chmod 600 $SSH_KEY_FILE
-          mkdir -p ~/.ssh && cp $SSH_KEY_FILE ~/.ssh/deployer_ed25519 && chmod 600 ~/.ssh/deployer_ed25519
 
           ENV=${{ env.ENV_NAME }}
           STATE_DIR=~/.tofu/state/platform-$ENV

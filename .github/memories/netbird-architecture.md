@@ -307,3 +307,17 @@ ipWhiteList:
 ```
 
 **Why 10.25.0.108/32**: NetBird peers use split-DNS → `netbird.rlservers.com` resolves to `10.25.0.5` internally → traffic routes through github-runner (10.25.0.108) → Traefik sees 10.25.0.108. Same routing pattern as cluster Traefik.
+
+
+---
+
+## Cloudflare gRPC Support
+
+**REQUIRED:** Cloudflare must have gRPC support enabled for the NetBird mobile app and CLI to work.
+
+- `netbird.rlservers.com` is proxied through Cloudflare (IPs 188.114.96.0/20 CIDR)
+- Without gRPC enabled, the management public key endpoint returns `403 text/html`, causing:
+  `failed to check SSO support: failed getting Management Service public key: 403 (Forbidden)`
+- **Enable:** Cloudflare Dashboard → `netbird.rlservers.com` zone → **Network → gRPC → On**
+- SSL/TLS mode must be **Full** or **Full (Strict)** — NOT Flexible (Traefik only speaks HTTPS)
+- STUN/TURN (UDP 3478) still works because coturn is port-forwarded directly at the router level, bypassing Cloudflare

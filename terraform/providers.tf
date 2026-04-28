@@ -8,11 +8,11 @@ terraform {
   required_providers {
     proxmox = {
       source  = "bpg/proxmox"
-      version = "~> 0.78"
+      version = "~> 0.104"
     }
     talos = {
       source  = "siderolabs/talos"
-      version = "~> 0.7"
+      version = "~> 0.10"
     }
     helm = {
       source  = "hashicorp/helm"
@@ -32,7 +32,7 @@ terraform {
     }
     time = {
       source  = "hashicorp/time"
-      version = "~> 0.9"
+      version = "~> 0.13"
     }
   }
 }
