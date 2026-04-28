@@ -175,12 +175,28 @@ jobs:
           PLATFORM_VMIDS="9300 9301 9302 9100 9200"
           echo "==> Force-stopping and destroying platform VMs: $PLATFORM_VMIDS"
           for VMID in $PLATFORM_VMIDS; do
+            # Kill any ghost QEMU process for this VMID before touching the config
+            GHOST_PID=$(ssh $SSH_OPTS root@$PVE_IP "ps aux | grep 'kvm -id $VMID ' | grep -v grep | awk '{print \$2}' | head -1" 2>/dev/null || true)
+            if [ -n "$GHOST_PID" ]; then
+              echo "  Ghost QEMU PID $GHOST_PID found for VM $VMID — killing..."
+              ssh $SSH_OPTS root@$PVE_IP "kill -9 $GHOST_PID 2>/dev/null; sleep 3; kill -0 $GHOST_PID 2>/dev/null && echo 'still alive (D-state)' || echo 'process gone'" || true
+              # Remove stale socket files so new QEMU can bind them
+              ssh $SSH_OPTS root@$PVE_IP "rm -f /var/run/qemu-server/$VMID.qmp /var/run/qemu-server/$VMID.serial0 2>/dev/null; true" || true
+            fi
             if ssh $SSH_OPTS root@$PVE_IP "qm status $VMID" 2>/dev/null | grep -q "running\|stopped\|status"; then
               echo "  Stopping VM $VMID..."
               ssh $SSH_OPTS root@$PVE_IP "qm stop $VMID --skiplock 2>/dev/null; sleep 3; qm destroy $VMID --purge --skiplock 2>/dev/null" || true
               echo "  VM $VMID destroyed ✓"
             else
-              echo "  VM $VMID not found — skipping"
+              echo "  VM $VMID not found (no config) — removing orphan LVM volumes if any..."
+              ssh $SSH_OPTS root@$PVE_IP "
+                for DISK in \$(lvs Storage 2>/dev/null | grep 'vm-${VMID}-disk' | awk '{print \$1}'); do
+                  echo '    Removing orphan LV: '\$DISK
+                  lvremove -f Storage/\$DISK 2>/dev/null || true
+                done
+                # Also remove stale socket files
+                rm -f /var/run/qemu-server/${VMID}.qmp /var/run/qemu-server/${VMID}.serial0 2>/dev/null || true
+              " || true
             fi
           done
           echo "==> Pre-destroy VM cleanup complete"
