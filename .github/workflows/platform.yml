@@ -59,7 +59,9 @@ jobs:
       - name: SOPS check
         run: |
           for f in envs/*/secrets.sops.yaml; do
-            [ -f "$f" ] && grep -q "sops:" "$f" || (echo "❌ $f not encrypted"; exit 1)
+            if [ -f "$f" ] && ! grep -q "sops:" "$f"; then
+              echo "❌ $f not encrypted"; exit 1
+            fi
           done
           echo "✅ All secrets encrypted"
 
@@ -134,7 +136,9 @@ jobs:
         run: |
           [ -f .sops.yaml ] || (echo "❌ .sops.yaml missing"; exit 1)
           for f in envs/*/secrets.sops.yaml; do
-            [ -f "$f" ] && grep -q "sops:" "$f" || (echo "❌ $f not encrypted"; exit 1)
+            if [ -f "$f" ] && ! grep -q "sops:" "$f"; then
+              echo "❌ $f not encrypted"; exit 1
+            fi
           done
           # Allow insecure=true only for proxmox provider (self-signed certs in homelab)
           grep -rE 'insecure\s*=\s*true' terraform/ --include="*.tf" | grep -v '^\s*#' | \
@@ -192,8 +196,13 @@ jobs:
         if: always()
         run: |
           ENV=${{ env.ENV_NAME }}
-          mkdir -p ~/.kube
+          STATE_DIR=~/.tofu/state/platform-$ENV
+          mkdir -p ~/.kube "$STATE_DIR"
           cd terraform
+          # Init first so tofu output can read backend state
+          tofu init \
+            -backend-config="path=$STATE_DIR/terraform.tfstate" \
+            -reconfigure 2>/dev/null || true
           tofu output -raw kubeconfig > ~/.kube/config-platform-$ENV 2>/dev/null || true
           chmod 600 ~/.kube/config-platform-$ENV 2>/dev/null || true
           tofu output -raw talosconfig > "../envs/$ENV/generated/talosconfig" 2>/dev/null || true
@@ -476,3 +485,4 @@ jobs:
 
           echo "✅ OpenBao secrets bootstrapped"
           kubectl --kubeconfig "$KB" get clustersecretstore openbao 2>/dev/null || echo "  (ClusterSecretStore not yet synced)"
+
