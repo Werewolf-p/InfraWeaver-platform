@@ -187,7 +187,9 @@ jobs:
 
           cd terraform
           tofu init -backend-config="path=$STATE_DIR/terraform.tfstate" -reconfigure 2>&1 || true
-          VARS=$([ -f "../envs/$ENV/terraform.tfvars" ] && echo "-var-file=../envs/$ENV/terraform.tfvars" || echo "")
+          VARS=""
+          [ -f "../envs/$ENV/terraform.tfvars" ]     && VARS="$VARS -var-file=../envs/$ENV/terraform.tfvars"
+          [ -f "../envs/$ENV/services.auto.tfvars" ] && VARS="$VARS -var-file=../envs/$ENV/services.auto.tfvars"
           tofu destroy $VARS -auto-approve 2>&1 || echo "⚠ Destroy failed or no prior state — continuing"
 
       - name: Clear state
@@ -226,7 +228,9 @@ jobs:
             -backend-config="path=$STATE_DIR/terraform.tfstate" \
             -reconfigure
 
-          VARS=$([ -f "../envs/$ENV/terraform.tfvars" ] && echo "-var-file=../envs/$ENV/terraform.tfvars" || echo "")
+          VARS=""
+          [ -f "../envs/$ENV/terraform.tfvars" ]       && VARS="$VARS -var-file=../envs/$ENV/terraform.tfvars"
+          [ -f "../envs/$ENV/services.auto.tfvars" ]   && VARS="$VARS -var-file=../envs/$ENV/services.auto.tfvars"
 
           # Stage 1: provision Talos cluster
           tofu apply $VARS \
@@ -422,17 +426,17 @@ jobs:
           # Wait for OpenBao SSH to become available (VM may still be finishing cloud-init)
           echo "==> Waiting for OpenBao SSH on $OPENBAO_IP..."
           BAO_SSH_OK=0
-          for i in $(seq 1 12); do
+          for i in $(seq 1 30); do
             if ssh $SSH_OPTS ubuntu@"$OPENBAO_IP" true 2>/dev/null; then
               echo "  OpenBao SSH ready (attempt $i)"
               BAO_SSH_OK=1
               break
             fi
-            echo "  Waiting for SSH ($i/12)..."
+            echo "  Waiting for SSH ($i/30)..."
             sleep 10
           done
           if [ "$BAO_SSH_OK" -eq 0 ]; then
-            echo "⚠ OpenBao SSH not available after 120s — skipping bootstrap"
+            echo "⚠ OpenBao SSH not available after 300s — skipping bootstrap"
             exit 0
           fi
 
