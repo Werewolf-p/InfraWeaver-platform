@@ -365,7 +365,7 @@ data "talos_machine_configuration" "this" {
             }
           }
           config = {
-            (regex_replace(var.registry_mirror_url, "^https?://", "")) = {
+            (trimprefix(trimprefix(var.registry_mirror_url, "https://"), "http://")) = {
               tls = {
                 insecureSkipVerify = true
               }
@@ -669,4 +669,5 @@ resource "talos_cluster_kubeconfig" "this" {
 
   depends_on = [null_resource.bootstrap_etcd]
 }
+
 
