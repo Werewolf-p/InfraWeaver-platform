@@ -35,25 +35,24 @@ server:
     create: true
     name: openbao
 
-  # Autounseal sidecar: polls every 30s and unseals if sealed + key is available
   extraContainers:
     - name: autounseal
       image: ghcr.io/openbao/openbao:2.5.3
-      command:
-        - /bin/sh
-        - -c
+      command: ["/bin/sh", "-c"]
+      args:
         - |
           echo "Autounseal sidecar starting..."
           while true; do
-            STATUS=$(bao status -address=http://127.0.0.1:8200 -format=json 2>/dev/null || echo '"{"sealed":true}"')
-            SEALED=$(echo "$STATUS" | grep -o '"sealed":[^,}]*' | grep -o '[^: ]*$' | tr -d ' }')
-            if [ "$SEALED" = "true" ]; then
-              UNSEAL_KEY=$(cat /etc/openbao-unseal/unseal_key 2>/dev/null || echo "")
+            EXIT_CODE=0
+            bao status -address=http://127.0.0.1:8200 >/dev/null 2>&1 || EXIT_CODE=$?
+            if [ "$EXIT_CODE" = "2" ]; then
+              UNSEAL_KEY=$(cat /etc/openbao-unseal/unseal_key 2>/dev/null || true)
               if [ -n "$UNSEAL_KEY" ]; then
-                echo "$(date -Iseconds): OpenBao sealed — unsealing..."
-                bao operator unseal -address=http://127.0.0.1:8200 "$UNSEAL_KEY" >/dev/null 2>&1 && echo "Unseal OK" || echo "Unseal failed"
+                echo "OpenBao sealed - unsealing..."
+                bao operator unseal -address=http://127.0.0.1:8200 "$UNSEAL_KEY" >/dev/null 2>&1 \
+                  && echo "Unseal OK" || echo "Unseal failed"
               else
-                echo "$(date -Iseconds): Sealed but no unseal key yet (first deploy?)"
+                echo "Sealed but no unseal key yet"
               fi
             fi
             sleep 30
@@ -70,7 +69,7 @@ server:
     - name: openbao-unseal
       secret:
         secretName: openbao-unseal
-        optional: true  # pod starts even if secret not yet created (first deploy)
+        optional: true
 
 injector:
   enabled: false
