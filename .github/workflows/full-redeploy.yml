@@ -594,15 +594,15 @@ jobs:
           REMON_PASS_FILE=$(mktemp)
           REMON_PATCH_FILE=$(mktemp)
           printf '%s' "$REMON_PASS" > "$REMON_PASS_FILE"
-          python3 -c "
-import bcrypt, json, sys
-from datetime import datetime, timezone
-with open(sys.argv[1]) as f:
-    p = f.read().strip().encode()
-h = bcrypt.hashpw(p, bcrypt.gensalt(10)).decode()
-mtime = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
-json.dump({'stringData': {'accounts.remon.password': h, 'accounts.remon.passwordMtime': mtime}}, open(sys.argv[2], 'w'))
-" "$REMON_PASS_FILE" "$REMON_PATCH_FILE" 2>/dev/null || true
+          python3 - "$REMON_PASS_FILE" "$REMON_PATCH_FILE" 2>/dev/null || true << 'REMON_PYEOF'
+          import bcrypt, json, sys
+          from datetime import datetime, timezone
+          with open(sys.argv[1]) as f:
+              p = f.read().strip().encode()
+          h = bcrypt.hashpw(p, bcrypt.gensalt(10)).decode()
+          mtime = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+          json.dump({'stringData': {'accounts.remon.password': h, 'accounts.remon.passwordMtime': mtime}}, open(sys.argv[2], 'w'))
+          REMON_PYEOF
           if [ -s "$REMON_PATCH_FILE" ]; then
             kubectl --kubeconfig "$KB" patch secret argocd-secret -n argocd \
               --patch-file "$REMON_PATCH_FILE" 2>/dev/null || true
@@ -790,6 +790,7 @@ json.dump({'stringData': {'accounts.remon.password': h, 'accounts.remon.password
           echo "✅ MetalLB IP pool and Traefik middleware applied"
           kubectl --kubeconfig "$KB" get ipaddresspools -n metallb-system 2>/dev/null
           kubectl --kubeconfig "$KB" get svc -A | grep LoadBalancer | head -10
+
 
 
 
