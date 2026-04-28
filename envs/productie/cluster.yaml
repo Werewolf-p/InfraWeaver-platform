@@ -12,7 +12,7 @@ nodes:
     vm_id: 9300
     controlplane: true
     cpu: 8
-    memory_mb: 6144
+    memory_mb: 8192
     disk_gb: 200
     datastore: "lvm-proxmox"
   talos-prod-cp2:
@@ -21,7 +21,7 @@ nodes:
     vm_id: 9301
     controlplane: true
     cpu: 8
-    memory_mb: 6144
+    memory_mb: 8192
     disk_gb: 200
     datastore: "lvm-proxmox"
   talos-prod-cp3:
@@ -30,7 +30,7 @@ nodes:
     vm_id: 9302
     controlplane: true
     cpu: 8
-    memory_mb: 6144
+    memory_mb: 8192
     disk_gb: 200
     datastore: "lvm-proxmox"
 
