@@ -1,7 +1,7 @@
 server:
   image:
     repository: ghcr.io/openbao/openbao
-    tag: "2.2.0"
+    tag: "2.5.3"
 
   standalone:
     enabled: true
@@ -38,7 +38,7 @@ server:
   # Autounseal sidecar: polls every 30s and unseals if sealed + key is available
   extraContainers:
     - name: autounseal
-      image: ghcr.io/openbao/openbao:2.2.0
+      image: ghcr.io/openbao/openbao:2.5.3
       command:
         - /bin/sh
         - -c
