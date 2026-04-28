@@ -6,6 +6,8 @@ fullnameOverride: kube-prometheus-stack
 prometheusOperator:
   admissionWebhooks:
     enabled: false
+  tls:
+    enabled: false
 
 # ── Grafana ───────────────────────────────────────────────────────────────────
 grafana:
