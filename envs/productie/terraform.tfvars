@@ -1,14 +1,9 @@
 # =============================================================================
 # Productie — terraform.tfvars
 #
-# Non-sensitive values. Sensitive values (proxmox_api_token, openbao_token,
-# github_runner_token) MUST be supplied via the SOPS-decrypted
-# envs/productie/secrets.sops.yaml file:
+# Non-sensitive values. Sensitive values (proxmox_api_token, github_runner_token)
+# are supplied via GitHub Actions Secrets.
 #
-#   sops exec-env envs/productie/secrets.sops.yaml \
-#     'tofu -chdir=terraform apply -var-file="../envs/productie/terraform.tfvars"'
-#
-# Or export individually:
 #   export TF_VAR_proxmox_api_token="terraform@pve!platform=<uuid>"
 # =============================================================================
 
@@ -34,9 +29,9 @@ git_revision = "main"
 deploy_platform_bootstrap = false
 
 # ---------------------------------------------------------------------------
-# OpenBao address (non-sensitive)
+# OpenBao address (in-cluster via svc DNS — non-sensitive)
 # ---------------------------------------------------------------------------
-openbao_address = "https://10.25.0.86:8200"
+openbao_address = "http://openbao.openbao.svc.cluster.local:8200"
 
 # ---------------------------------------------------------------------------
 # SSH public keys for service VMs
