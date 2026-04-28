@@ -616,7 +616,24 @@ json.dump({'stringData': {'accounts.remon.password': h, 'accounts.remon.password
           fi
           rm -f "$REMON_PASS_FILE" "$REMON_PATCH_FILE"
 
-          # Write least-privilege policy for ESO
+          # NetBird: generate random TURN relay password + datastore encryption key
+          EXISTING_NETBIRD=$(curl -s -H "X-Vault-Token: $ROOT_TOKEN" \
+            "${LOCAL_OPENBAO}/v1/secret/data/platform/netbird" | \
+            python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('data',{}).get('turn-password',''))" \
+            2>/dev/null || echo "")
+          if [ -z "$EXISTING_NETBIRD" ]; then
+            TURN_PASS=$(openssl rand -base64 24 | tr -d '=+/')
+            DATASTORE_KEY=$(openssl rand -base64 32)
+            curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/platform/netbird" \
+              -H "X-Vault-Token: $ROOT_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "{\"data\": {\"turn-password\": \"$TURN_PASS\", \"datastore-enc-key\": \"$DATASTORE_KEY\"}}" > /dev/null
+            echo "==> NetBird secrets written (randomly generated)"
+          else
+            echo "==> NetBird secrets already exist — preserving existing values"
+          fi
+
+                    # Write least-privilege policy for ESO
           POLICY_JSON='{"policy": "path \"secret/data/platform/*\" { capabilities = [\"read\", \"list\"] }\npath \"secret/metadata/platform/*\" { capabilities = [\"read\", \"list\"] }"}'
           curl -s -X PUT "${LOCAL_OPENBAO}/v1/sys/policies/acl/platform-k8s" \
             -H "X-Vault-Token: $ROOT_TOKEN" \
@@ -773,6 +790,7 @@ json.dump({'stringData': {'accounts.remon.password': h, 'accounts.remon.password
           echo "✅ MetalLB IP pool and Traefik middleware applied"
           kubectl --kubeconfig "$KB" get ipaddresspools -n metallb-system 2>/dev/null
           kubectl --kubeconfig "$KB" get svc -A | grep LoadBalancer | head -10
+
 
 
 
