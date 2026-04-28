@@ -585,6 +585,10 @@ jobs:
                 remoteRef:
                   key: secret/platform/grafana
                   property: admin-password
+              - secretKey: admin-user
+                remoteRef:
+                  key: secret/platform/grafana
+                  property: admin-user
           ESEOF
           kube_apply_retry "$KB" "$TMP_ES"
           rm -f "$TMP_ES"
