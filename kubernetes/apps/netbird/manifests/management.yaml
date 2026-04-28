@@ -46,18 +46,20 @@ spec:
       storage: 1Gi
   storageClassName: local-path
 ---
-# ── Management Deployment ─────────────────────────────────────────────────────
+# ── Management StatefulSet ────────────────────────────────────────────────────
+# Using StatefulSet instead of Deployment because StatefulSets create pods
+# directly without an intermediary ReplicaSet, which avoids the RS admission
+# quota evaluator timeout issue seen with the local-path PVC in this cluster.
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: netbird-management
   namespace: netbird
   labels:
     app: netbird-management
 spec:
+  serviceName: netbird-management
   replicas: 1
-  strategy:
-    type: Recreate  # PVC is ReadWriteOnce; must terminate old pod before new starts
   selector:
     matchLabels:
       app: netbird-management

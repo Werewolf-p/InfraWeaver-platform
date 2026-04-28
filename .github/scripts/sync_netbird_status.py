@@ -43,9 +43,15 @@ if not MEMORY_PATH.exists():
     raise SystemExit(1)
 
 text = MEMORY_PATH.read_text()
-start_marker = '## Live status file (private)'
+start_marker_variants = ['## Live status file (private)', '## Live status file (sanitized)']
 end_marker = '## Related Files'
-if start_marker in text and end_marker in text:
+found = False
+for sm in start_marker_variants:
+    if sm in text and end_marker in text:
+        start_marker = sm
+        found = True
+        break
+if found:
     pre, rest = text.split(start_marker, 1)
     _, post = rest.split(end_marker, 1)
     new_text = pre + '\n'.join(['', *lines, end_marker]) + post

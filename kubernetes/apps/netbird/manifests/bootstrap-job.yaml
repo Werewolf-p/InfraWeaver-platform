@@ -1,15 +1,100 @@
 ---
+# ConfigMap holding the Python bootstrap script (avoids shell JSON escaping issues)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: netbird-bootstrap-script
+  namespace: netbird
+data:
+  bootstrap.py: |
+    import sqlite3, json, base64, os
+
+    DB = os.environ.get("DB", "/data/store.db")
+    ACC = "acc00000-0000-4000-a000-000000000001"
+    USR = "usr00000-0000-4000-a000-000000000001"
+    GRP = "grp00000-0000-4000-a000-000000000001"
+    POL = "pol00000-0000-4000-a000-000000000001"
+    RUL = "rul00000-0000-4000-a000-000000000001"
+    KEY_ID = "388f43a5-eb90-4ba0-a7cb-a892408886df"
+
+    # net.IPNet{IP:[100,64,0,0], Mask:[255,192,0,0]} for 100.64.0.0/10
+    # Go json.Marshal encodes []byte as base64
+    network_net_json = json.dumps({
+        "IP": base64.b64encode(bytes([100, 64, 0, 0])).decode(),    # ZEAAAA==
+        "Mask": base64.b64encode(bytes([255, 192, 0, 0])).decode()  # /8AAAA==
+    })
+
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+
+    existing = c.execute("SELECT COUNT(*) FROM accounts").fetchone()[0]
+    if existing > 0:
+        print(f"Account already exists ({existing}), skipping bootstrap")
+    else:
+        print(f"Bootstrapping account with network_net={network_net_json}")
+        c.execute("""INSERT OR IGNORE INTO accounts
+          (id, created_by, created_at, domain, domain_category, is_domain_primary_account,
+           network_identifier, network_net)
+          VALUES (?,?,datetime('now'),?,?,?,?,?)""",
+          (ACC, USR, "netbird.prod.local", "private", 1,
+           "12345678-abcd-4000-8000-000000000001", network_net_json))
+
+        c.execute("""INSERT OR IGNORE INTO users
+          (id, account_id, role, is_service_user, non_deletable, auto_groups, blocked, issued, email, name, created_at)
+          VALUES (?,?,?,?,?,?,?,?,?,?,datetime('now'))""",
+          (USR, ACC, "admin", 0, 1, "[]", 0, "api", "remonhulst@gmail.com", "Remon Hulst"))
+
+        c.execute("""INSERT OR IGNORE INTO groups
+          (id, account_id, name, issued, resources, integration_ref_id, integration_ref_integration_type)
+          VALUES (?,?,?,?,?,?,?)""",
+          (GRP, ACC, "All", "api", "[]", 0, ""))
+
+        # key = base64(sha256("A1B2C3D4-E5F6-7890-ABCD-EF1234567890"))
+        # key_secret non-empty → MigrateSetupKeyToHashedSetupKey skips it
+        c.execute("""INSERT OR IGNORE INTO setup_keys
+          (id, account_id, key, key_secret, name, type, used_times, last_used, expires_at,
+           auto_groups, revoked, ephemeral, updated_at, created_at, usage_limit, allow_extra_dns_labels)
+          VALUES (?,?,?,?,?,?,?,datetime('now'),?,?,?,?,datetime('now'),datetime('now'),?,?)""",
+          (KEY_ID, ACC, "mewqgKYulb4neyT85tvUyw1QzCAhxDjA9+5h7WeAysw=", "A1B2C****",
+           "Default Key", "reusable", 0, "2040-01-01 00:00:00", "[]", 0, 0, 0, 0))
+
+        grp_json = json.dumps([GRP])
+        c.execute("""INSERT OR IGNORE INTO policies
+          (id, account_id, name, description, enabled, source_posture_checks)
+          VALUES (?,?,?,?,?,?)""",
+          (POL, ACC, "Default", "Allow all cluster peers", 1, "[]"))
+
+        c.execute("""INSERT OR IGNORE INTO policy_rules
+          (id, policy_id, name, description, enabled, action,
+           destinations, destination_resource, sources, source_resource,
+           bidirectional, protocol, ports, port_ranges, authorized_groups, authorized_user)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+          (RUL, POL, "Default", "Allow all", 1, "accept",
+           grp_json, None, grp_json, None, 1, "all", "[]", "[]", "{}", ""))
+
+        conn.commit()
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+
+    print(f"Accounts: {c.execute('SELECT COUNT(*) FROM accounts').fetchone()[0]}")
+    print(f"network_net: {c.execute('SELECT network_net FROM accounts LIMIT 1').fetchone()[0]}")
+    print(f"Users: {c.execute('SELECT email,role FROM users').fetchall()}")
+    print(f"Setup keys: {c.execute('SELECT name,type,key_secret FROM setup_keys').fetchall()}")
+    print(f"Groups: {c.execute('SELECT name FROM groups').fetchall()}")
+    print(f"Policies: {c.execute('SELECT name FROM policies').fetchall()}")
+    print("Bootstrap complete")
+    conn.close()
+---
 # NetBird DB Bootstrap Job — runs as ArgoCD PostSync hook
 #
 # Creates the initial NetBird account, admin user, setup key, groups, and policy
-# directly in the SQLite DB. Also fixes JSON type mismatches in policy_rules.
+# directly in the SQLite DB using Python (avoids shell JSON escaping issues).
 #
 # Flow:
 #   1. Init: wait for management HTTP API to be reachable
-#   2. Main: scale management to 0, bootstrap DB, scale management back to 1
+#   2. Main: scale management to 0, run Python bootstrap, scale back to 1
 #
-# Safe to run multiple times (INSERT OR IGNORE). Setup key is always
-# "A1B2C3D4-E5F6-7890-ABCD-EF1234567890" — used by the client DaemonSet.
+# Safe to run multiple times (INSERT OR IGNORE skips existing data). Setup key is
+# "A1B2C3D4-E5F6-7890-ABCD-EF1234567890" (hashed) — used by the client DaemonSet.
 # See .github/memories/ for full documentation.
 apiVersion: batch/v1
 kind: Job
@@ -30,6 +115,9 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: netbird-management-data
+        - name: script
+          configMap:
+            name: netbird-bootstrap-script
       initContainers:
         # Wait for management HTTP API to respond (any HTTP code = it's up)
         - name: wait-for-api
@@ -54,122 +142,38 @@ spec:
               exit 1
       containers:
         - name: fix-db
-          image: bitnami/kubectl:latest
+          image: python:3.12-alpine
           command:
             - sh
             - -c
             - |
               set -e
 
-              echo "=== NetBird DB Bootstrap ==="
-              DB=/data/store.db
+              # Install kubectl
+              apk add -q curl
+              curl -sLo /usr/local/bin/kubectl \
+                "https://dl.k8s.io/release/$(curl -sL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+              chmod +x /usr/local/bin/kubectl
 
-              # Install sqlite3 (bitnami/kubectl is Debian-based)
-              apt-get install -y -q sqlite3 2>/dev/null || apk add -q sqlite 2>/dev/null || true
-              sqlite3 --version
-
-              echo ""
               echo "=== Scaling management to 0 ==="
-              kubectl scale deployment netbird-management -n netbird --replicas=0
-              echo "Waiting for management pod to terminate..."
+              kubectl scale statefulset netbird-management -n netbird --replicas=0
               kubectl wait --for=delete pod -l app=netbird-management -n netbird --timeout=60s 2>/dev/null || true
               sleep 3
 
-              echo ""
-              echo "=== Bootstrapping initial account ==="
-              sqlite3 $DB <<'SQLEOF'
-              -- Create default account if none exists
-              INSERT OR IGNORE INTO accounts (
-                id, created_by, created_at, domain, domain_category, is_domain_primary_account,
-                network_identifier, network_net, network_dns, network_serial,
-                dns_settings_disabled_management_groups,
-                settings_peer_login_expiration_enabled, settings_peer_login_expiration,
-                settings_peer_inactivity_expiration_enabled, settings_peer_inactivity_expiration,
-                settings_regular_users_view_blocked, settings_groups_propagation_enabled,
-                settings_jwt_groups_enabled, settings_routing_peer_dns_resolution_enabled,
-                settings_lazy_connection_enabled, settings_auto_update_version
-              ) VALUES (
-                'acc00000-0000-4000-a000-000000000001',
-                'usr00000-0000-4000-a000-000000000001',
-                datetime('now'),
-                'netbird.prod.local', 'private', 1,
-                '12345678-abcd-4000-8000-000000000001',
-                '100.64.0.0/10', '', 0, '[]',
-                0, 86400000000000, 0, 86400000000000,
-                0, 0, 0, 0, 0, 'disabled'
-              );
-              SQLEOF
+              echo "=== Running Python bootstrap ==="
+              python3 /script/bootstrap.py
 
-              echo ""
-              echo "=== Creating admin user ==="
-              sqlite3 $DB <<'SQLEOF'
-              INSERT OR IGNORE INTO users (
-                id, account_id, role, is_service_user, non_deletable,
-                service_user_name, auto_groups, blocked, pending_approval,
-                issued, email, name, created_at
-              ) VALUES (
-                'usr00000-0000-4000-a000-000000000001',
-                'acc00000-0000-4000-a000-000000000001',
-                'admin', 0, 1, '', '[]', 0, 0,
-                'api', 'remonhulst@gmail.com', 'Remon Hulst', datetime('now')
-              );
-              SQLEOF
-
-              echo ""
-              echo "=== Ensuring All group exists ==="
-              ACCOUNT_ID=$(sqlite3 $DB "SELECT id FROM accounts LIMIT 1;")
-              GRP=$(sqlite3 $DB "SELECT COUNT(*) FROM groups WHERE name='All' AND account_id='${ACCOUNT_ID}';")
-              if [ "$GRP" = "0" ]; then
-                sqlite3 $DB "INSERT OR IGNORE INTO groups (id, account_id, name, issued, resources, integration_ref_id, integration_ref_integration_type) VALUES ('grp00000-0000-4000-a000-000000000001', '${ACCOUNT_ID}', 'All', 'api', '[]', 0, '');"
-                echo "All group created"
-              else
-                echo "All group exists"
-              fi
-
-              echo ""
-              echo "=== Ensuring Default setup key exists ==="
-              # key = base64(sha256("A1B2C3D4-E5F6-7890-ABCD-EF1234567890"))
-              EXISTING=$(sqlite3 $DB "SELECT COUNT(*) FROM setup_keys WHERE id='388f43a5-eb90-4ba0-a7cb-a892408886df';")
-              if [ "$EXISTING" = "0" ]; then
-                sqlite3 $DB "INSERT OR IGNORE INTO setup_keys (id, account_id, key, key_secret, name, type, used_times, last_used, expires_at, auto_groups, revoked, ephemeral, updated_at, created_at, usage_limit, allow_extra_dns_labels) VALUES ('388f43a5-eb90-4ba0-a7cb-a892408886df', '${ACCOUNT_ID}', 'mewqgKYulb4neyT85tvUyw1QzCAhxDjA9+5h7WeAysw=', 'A1B2C****', 'Default Key', 'reusable', 0, datetime('now'), '2040-01-01 00:00:00', '[]', 0, 0, datetime('now'), datetime('now'), 0, 0);"
-                echo "Setup key created"
-              else
-                echo "Setup key already exists"
-              fi
-
-              echo ""
-              echo "=== Ensuring Default policy and rule exist ==="
-              POL=$(sqlite3 $DB "SELECT COUNT(*) FROM policies WHERE account_id='${ACCOUNT_ID}';")
-              if [ "$POL" = "0" ]; then
-                sqlite3 $DB "INSERT OR IGNORE INTO policies (id, account_id, name, description, enabled, source_posture_checks) VALUES ('pol00000-0000-4000-a000-000000000001', '${ACCOUNT_ID}', 'Default', 'Allow all cluster peers', 1, '[]');"
-                sqlite3 $DB "INSERT OR IGNORE INTO policy_rules (id, policy_id, name, description, enabled, action, destinations, destination_resource, sources, source_resource, bidirectional, protocol, ports, port_ranges, authorized_groups, authorized_user) VALUES ('rul00000-0000-4000-a000-000000000001', 'pol00000-0000-4000-a000-000000000001', 'Default', 'Allow all in All group', 1, 'accept', '[\"grp00000-0000-4000-a000-000000000001\"]', NULL, '[\"grp00000-0000-4000-a000-000000000001\"]', NULL, 1, 'all', '[]', '[]', '{}', '');"
-                echo "Policy and rule created"
-              else
-                echo "Policy exists — fixing JSON types only"
-              fi
-
-              echo ""
-              echo "=== Fixing policy_rules JSON types ==="
-              sqlite3 $DB "UPDATE policy_rules SET authorized_groups = '{}' WHERE authorized_groups = '[]' OR authorized_groups IS NULL OR authorized_groups = '';"
-              sqlite3 $DB "UPDATE policy_rules SET destination_resource = NULL WHERE destination_resource = '' OR destination_resource = 'null';"
-              sqlite3 $DB "UPDATE policy_rules SET source_resource = NULL WHERE source_resource = '' OR source_resource = 'null';"
-              echo "JSON types fixed"
-
-              echo ""
-              echo "=== Final state ==="
-              echo "Accounts: $(sqlite3 $DB 'SELECT COUNT(*) FROM accounts;')"
-              echo "Users: $(sqlite3 $DB 'SELECT id, email, role FROM users;')"
-              echo "Setup keys: $(sqlite3 $DB 'SELECT id, name, type FROM setup_keys;')"
-              echo "Groups: $(sqlite3 $DB 'SELECT name FROM groups;')"
-              echo "Policies: $(sqlite3 $DB 'SELECT name FROM policies;')"
-
-              echo ""
               echo "=== Scaling management back to 1 ==="
-              kubectl scale deployment netbird-management -n netbird --replicas=1
+              kubectl scale statefulset netbird-management -n netbird --replicas=1
               echo "=== Bootstrap complete ==="
+          env:
+            - name: DB
+              value: /data/store.db
           volumeMounts:
             - name: data
               mountPath: /data
+            - name: script
+              mountPath: /script
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -184,7 +188,7 @@ metadata:
   namespace: netbird
 rules:
   - apiGroups: ["apps"]
-    resources: ["deployments", "deployments/scale"]
+    resources: ["statefulsets", "statefulsets/scale"]
     verbs: ["get", "update", "patch"]
   - apiGroups: [""]
     resources: ["pods"]

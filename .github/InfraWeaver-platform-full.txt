@@ -1,0 +1,136 @@
+InfraWeaver-platform — Full per-file catalog (machine-friendly)
+repo: Werewolf-p/InfraWeaver-platform
+local_root: /home/runner/platform
+generated_at: 2026-04-25T16:40:00Z
+
+PURPOSE
+This file enumerates each important file in the Platform repo, explains what it does, how it is used, and includes short key excerpts to help automated parsers. Use this as the definitive single-file reference for agents and operators.
+
+---
+/terraform/main.tf
+Purpose: Root orchestration. Reads envs/<env>/cluster.yaml (locals.cluster_config) and wires module.talos_cluster then module.platform_bootstrap. Uses local_sensitive_file to write kubeconfig and talosconfig to envs/<env>/generated/.
+Key excerpt:
+  module "talos_cluster" {
+    source = "./modules/talos-cluster"
+    proxmox_endpoint = "https://${local.proxmox_host}:8006/"
+    proxmox_api_token = var.proxmox_api_token
+  }
+
+Notes: Two-stage apply supported: first target module.talos_cluster to produce kubeconfig, then run platform_bootstrap.
+
+---
+/terraform/providers.tf
+Purpose: pin required providers and configure proxmox, talos, kubernetes and helm providers. Reads envs/<env>/cluster.yaml into local.cluster_config.
+Key excerpt:
+  required_providers {
+    proxmox = { source = "bpg/proxmox" version = "~> 0.78" }
+    talos   = { source = "siderolabs/talos" version = "~> 0.7" }
+  }
+  provider "proxmox" { endpoint = "https://${local.proxmox_host}:8006/" api_token = var.proxmox_api_token insecure = true }
+
+Notes: kubeconfig provider config_path points to envs/${ENV}/generated/kubeconfig written by Terraform.
+
+---
+/terraform/backend.tf
+Purpose: Example local backend; shows how to init with env-specific backend.hcl. Guides safe init commands.
+Key excerpt:
+  terraform { backend "local" {} }
+  # Init command: tofu init -backend-config="../envs/ontwikkel/backend.hcl"
+
+---
+/terraform/variables.tf
+Purpose: Root-level variable declarations (secrets and cluster identity). Enforces validation for proxmox_api_token format and cluster_name DNS label.
+Key excerpt:
+  variable "proxmox_api_token" { description = "Proxmox API token..." type = string sensitive = true validation { condition = can(regex("^.+@.+!.+=.+$", var.proxmox_api_token)) } }
+
+---
+/terraform/outputs.tf
+Purpose: Expose important outputs: cluster_endpoint, node_ips, kubeconfig_path, and raw sensitive kubeconfig & talosconfig outputs.
+Key excerpt:
+  output "kubeconfig_path" { value = "${path.root}/../envs/${var.environment}/generated/kubeconfig" }
+  output "kubeconfig" { sensitive = true value = module.talos_cluster.kubeconfig }
+
+---
+/terraform/modules/talos-cluster/main.tf
+Purpose: Core VM provisioning: creates proxmox VMs, imports Talos images, applies Talos configs and returns kubeconfig & talosconfig. Important for node lifecycle and Talos bootstrap.
+Key excerpt:
+  # module creates proxmox_virtual_environment_vm resources per node
+  resource "local_sensitive_file" "kubeconfig" { content = module.talos_cluster.kubeconfig filename = "${path.root}/../envs/${var.environment}/generated/kubeconfig" }
+
+Notes: Extensible via nodes map; outputs include kubeconfig, machine secrets and node IP mapping.
+
+---
+/terraform/modules/talos-cluster/variables.tf
+Purpose: Node schema and provider params for talos-cluster module. Validates IPs and vm_id ranges.
+Key excerpt:
+  variable "nodes" { type = map(object({ proxmox_node=string ip=string controlplane=bool vm_id=number ... })) }
+
+---
+/terraform/modules/talos-cluster/outputs.tf
+Purpose: Exposes kubeconfig (raw), talosconfig (raw), cluster_endpoint and node IP lists for root module consumption.
+Key excerpt:
+  output "kubeconfig" { sensitive = true value = talos_cluster_kubeconfig.this.kubeconfig_raw }
+
+---
+/terraform/modules/platform-bootstrap/main.tf
+Purpose: Installs ArgoCD via Helm, creates AppProject and an ApplicationSet that scans the repo's kubernetes/ directory to generate Applications. Includes time_sleep to wait for CRDs.
+Key excerpt:
+  resource "helm_release" "argocd" { chart = "argo-cd" values = [yamlencode(local.argocd_ha_values)] wait = true }
+  resource "kubernetes_manifest" "platform_applicationset" { manifest = { kind = "ApplicationSet" spec = { generators = [{ git = { repoURL = var.git_repo_url directories = [{ path = "${var.kubernetes_apps_path}/*" }] } }] } } }
+
+---
+/.github/workflows/platform.yml
+Purpose: CI plan & deploy workflows (self-hosted runner usage). Installs tofu, sops, age; decrypts SOPS secrets and runs two-stage apply: module.talos_cluster then platform bootstrap.
+Key excerpt:
+  jobs.plan.steps: - name: Tofu Init & Plan ... tofu plan -out=tfplan  
+  jobs.deploy.steps: - name: Deploy Platform ... tofu apply -target=module.talos_cluster ... then tofu apply
+
+Notes: Uses SOPS_AGE_KEY for decryption. Runs on self-hosted runners labeled dev-worker/prod-worker.
+
+---
+/.github/workflows/full-redeploy.yml
+Purpose: Manual workflow to fully destroy and redeploy the platform (destructive) with explicit confirm input.
+Key excerpt:
+  on: workflow_dispatch inputs: confirm: Type string (must equal DESTROY)
+  jobs.redeploy: steps: tofu destroy ... then apply
+
+---
+/.sops.yaml
+Purpose: SOPS creation rules for envs/*/secrets.sops.yaml; references age key.
+Key excerpt:
+  creation_rules:
+    - path_regex: envs/.*/secrets\.sops\.yaml$ age: age1dpufl50auqlm4aq...
+
+---
+/scripts/get-kubeconfig.sh
+Purpose: Helper to extract kubeconfig from generated file or Terraform state and optionally merge it into local kubeconfig. Handles SOPS decryption for state access.
+Key excerpt:
+  if [[ -f "$GENERATED_KUBECONFIG" ]]; then echo "==> Using pre-written kubeconfig" else tofu output -raw kubeconfig
+
+---
+/README.md
+Purpose: High-level project README with architecture, quick start, apps list, and branch strategy. Useful for operators and initial context for agents.
+Key excerpt:
+  InfraWeaver Platform — Talos-on-Proxmox, ArgoCD GitOps, apps under kubernetes/; Quick Start: make apply ENV=ontwikkel
+
+---
+/kubernetes/bootstrap/applicationset-root.yaml
+Purpose: Root ApplicationSet that discovers application.yaml files under kubernetes/*/* and creates ArgoCD Applications. Template-based naming and multi-source values handling.
+Key excerpt:
+  generators: - git: files: - path: "kubernetes/*/*/application.yaml"
+  template.name: '{{ index (splitList "/" .path.path) 1 }}-{{ index (splitList "/" .path.path) 2 }}'
+
+---
+/kubernetes/apps/grafana/application.yaml & values.yaml
+Purpose: Example Grafana Helm-based application. values.yaml includes persistence and ingress config; application.yaml points to grafana chart.
+Key excerpt (application.yaml): repoURL: https://grafana.github.io/helm-charts chart: grafana namespace: apps-grafana
+Key excerpt (values.yaml): persistence.enabled: true storageClassName: local-path
+
+---
+/envs/ontwikkel/cluster.yaml & terraform.tfvars
+Purpose: Environment-specific topology (nodes, pve_nodes, gateway, talos_version) and tfvars for non-sensitive values. terraform.tfvars sets deploy_platform_bootstrap=false for initial two-stage apply.
+Key excerpt (cluster.yaml): nodes: talos-dev-cp1: proxmox_node: pve-dev1 ip: 10.25.0.50 vm_id: 9300
+Key excerpt (terraform.tfvars): deploy_platform_bootstrap = false
+
+---
+END OF PLATFORM PER-FILE CATALOG

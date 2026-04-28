@@ -20,17 +20,16 @@ Traefik at 10.25.0.5 exposes `netbird.rlservers.com` → 10.25.0.100.
 - **Zitadel (identity)**: `https://netbird.rlservers.com/zitadel`
 
 ## Critical Secrets — NEVER LOSE
-- **DataStoreEncryptionKey**: `mgTpcAULitplbjtjym9XArR0sOEbtEd9HTCXr/DgulI=`
+- **DataStoreEncryptionKey**: <REDACTED — stored on VM `/opt/netbird/management.json`>
   - Stored in `/opt/netbird/management.json`
-- **Setup Key** (reusable): `B9FE5C85-74E7-4013-806C-C48EE62DD2DF`
+- **Setup Key (reusable)**: <REDACTED — stored as K8s secret `netbird/netbird-secrets` key `SETUP_KEY`>
   - Used by K8s DaemonSet to register nodes as peers
-  - Stored in K8s secret `netbird/netbird-secrets` key `SETUP_KEY`
-- **Relay secret**: `e7XBKiBracTFhobfAmJinHrhlNpg3h3gZ/EDcwo+iQ0`
+- **Relay secret**: <REDACTED — stored on VM `/opt/netbird/relay.env` as `NB_AUTH_SECRET`>
   - Stored in `/opt/netbird/relay.env` as `NB_AUTH_SECRET`
-- **Admin Zitadel PAT** (expires 2030): `JOdoFJF6ZJ1yn6_lnkR0p6gWdGdNmQTvbVMrOzzkwWRrBjSezkwX9kSibHRT4GnZWewd_Dw`
-- **NetBird Management API PAT**: `nbp_pjAK2aQ9gRZDT430VxaO2QbE1ukG9O23tiZH`
-  - PAT hash in DB: `YSBgNNEQHJX+wm7jX1jVUQVFML0nQ4UDEL4r290z7jA=`
-  - Use with: `Authorization: Token nbp_pjAK2aQ9gRZDT430VxaO2QbE1ukG9O23tiZH`
+- **Admin Zitadel PAT**: <REDACTED — managed in Zitadel; do not store in repo>
+- **NetBird Management API PAT**: <REDACTED — stored in local runtime file `/home/runner/.netbird_status.json`>
+  - PAT hash in DB: <REDACTED>
+  - Use with: `Authorization: Token <REDACTED>`
 
 ## DB Identifiers
 - **Account ID**: `ff70dcdf-66bc-476e-9095-6c1b00ff63ce`
@@ -70,14 +69,14 @@ After restarts, routes may point to stale peer IDs.
 Fix: Use NetBird API to update routes to the new connected peer ID:
 ```bash
 # Find current connected peer for cp1
-curl -s -H "Authorization: Token nbp_pjAK2aQ9gRZDT430VxaO2QbE1ukG9O23tiZH" \
+curl -s -H "Authorization: Token $NB_TOKEN" \
   https://netbird.rlservers.com/api/peers | python3 -c "
 import json,sys
 for p in json.load(sys.stdin):
     print(p['id'], p['name'], p.get('connected'), p.get('ip'))
 "
 # Then update the route
-curl -X PUT -H "Authorization: Token nbp_pjAK2aQ9gRZDT430VxaO2QbE1ukG9O23tiZH" \
+curl -X PUT -H "Authorization: Token $NB_TOKEN" \
   -H "Content-Type: application/json" \
   https://netbird.rlservers.com/api/routes/<ROUTE_ID> \
   -d '{"peer": "<NEW_PEER_ID>", "network": "10.25.0.0/24", ...}'
@@ -107,7 +106,7 @@ Created directly in SQLite; allows K8s nodes + github-runner + any new peer to c
 
 ## API Examples
 ```bash
-NB_TOKEN="nbp_pjAK2aQ9gRZDT430VxaO2QbE1ukG9O23tiZH"
+NB_TOKEN="<REDACTED - set from /home/runner/.netbird_status.json or environment>"
 NB_URL="https://netbird.rlservers.com"
 
 # List peers
@@ -125,21 +124,16 @@ curl -s -H "Authorization: Token $NB_TOKEN" $NB_URL/api/dns/nameservers | python
 - `platform/kubernetes/core/traefik/middleware-netbird.yaml` — IPAllowList for sensitive services
 - `infrastructure/` — Proxmox VM provisioning for 10.25.0.100
 
-## Live status file (private)
-- **Path (local, not in git):** `/home/runner/.netbird_status.json` — authoritative runtime NetBird status (management URL, API PAT, setup key, routes, last_verified).
-- **Important:** This file contains sensitive tokens and MUST be gitignored. The homelab-iac-agent and local operators should read/update this file when NetBird runtime state changes.
 
-Agent note: The homelab-iac-agent should run the scripted synchronizer to reflect runtime NetBird state into repository memory without committing secrets.
 
-- **Sync script (in-repo):** `platform/.github/scripts/sync_netbird_status.py` — reads `/home/runner/.netbird_status.json` and updates this memory file with sanitized, non-secret fields (management URL, routes, last_verified). The script intentionally omits API PATs and other secrets.
+## Live status file (sanitized)
+- **Management URL:** https://netbird.rlservers.com
+- **Routes (sanitized, no secrets):**
+  - 10.25.0.0/24 -> peer=d7nn6jrdeh7s7388jdq0 enabled=True
+  - 10.96.0.0/12 -> peer=d7nn6jrdeh7s7388jdq0 enabled=True
+- **Last verified:** 2026-04-27T16:43:32Z
 
-- **Recommended execution:** run the script via a cron or systemd timer on the runner host, or have homelab-iac-agent invoke it at startup and after any NetBird API changes. Example systemd timer/unit or cron:
-
-  *Cron:* `*/10 * * * * /usr/bin/python3 /home/runner/platform/.github/scripts/sync_netbird_status.py || true`
-
-  *Systemd (example):* create a oneshot unit that runs the script and a timer to trigger it.
-
-Do NOT store secrets in the memory file or commit them to git.
+Note: secrets (API PAT, setup keys, DB encryption keys) are intentionally omitted from this memory.
 
 ## Related Files
 - `platform/kubernetes/apps/netbird/manifests/client-daemonset.yaml` — K8s DaemonSet

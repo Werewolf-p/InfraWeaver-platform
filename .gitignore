@@ -75,9 +75,5 @@ age.key
 Thumbs.db
 
 # Generated credentials (kubeconfig, talosconfig)
-envs/*/generated/
-envs/*/generated/
 # Catalog files for AI agents
-.github/catalog.jsonl
-.github/*-full.txt
-.github/memories/
+terraform/backend.hcl

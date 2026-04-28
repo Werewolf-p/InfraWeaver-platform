@@ -271,3 +271,39 @@ When connected to NetBird from outside the home network, DNS for `argocd.rlserve
 - The `domain` field is for SSO/Zitadel, NOT for peer DNS suffixes
 - After management restart, peers show `*.rlservers.com` DNS labels
 
+
+
+---
+
+## NetBird Dashboard Access Restriction (2026-04-28)
+
+### Dashboard now requires NetBird connection
+
+The NetBird dashboard at `https://netbird.rlservers.com` is now protected by the `netbird-vpn-only` middleware on the standalone Traefik (`10.25.0.5`).
+
+**Files modified on 10.25.0.5:**
+- `/home/remon/Traefik/dynamic/middleware.yml` — added `netbird-vpn-only` middleware
+- `/home/remon/Traefik/dynamic/netbird.yml` — applied middleware to `netbird-dashboard` router only
+
+### What is protected vs public
+
+| Route | Middleware | Reason |
+|-------|-----------|--------|
+| `/*` (dashboard) | `netbird-vpn-only` | Admin UI — restricted |
+| `/management.*` gRPC | none | Clients must connect |
+| `/signalexchange.*` gRPC | none | Peer signaling must work |
+| `/relay*` | none | Relay must be public |
+| `/api*` | none | Management REST API |
+| `/oauth*`, `/.well-known*`, `/ui*`, `/device*`, Zitadel paths | none | Login/auth must work |
+
+### Middleware allowlist (`netbird-vpn-only`)
+```yaml
+ipWhiteList:
+  sourceRange:
+    - "100.64.0.0/10"    # NetBird CGNAT CIDR (direct WireGuard peers)
+    - "10.64.0.0/10"     # Alternative NetBird CIDR
+    - "10.25.0.108/32"   # github-runner routing peer
+    - "127.0.0.1/32"     # localhost
+```
+
+**Why 10.25.0.108/32**: NetBird peers use split-DNS → `netbird.rlservers.com` resolves to `10.25.0.5` internally → traffic routes through github-runner (10.25.0.108) → Traefik sees 10.25.0.108. Same routing pattern as cluster Traefik.
