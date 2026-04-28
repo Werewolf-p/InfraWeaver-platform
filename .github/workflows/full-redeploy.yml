@@ -738,9 +738,10 @@ jobs:
           kubectl --kubeconfig "$KB" apply -f kubernetes/core/metallb/ip-pool.yaml 2>/dev/null || true
 
           # Apply Traefik netbird-only middleware (restricts ArgoCD/Grafana to LAN+VPN IPs)
-          kubectl --kubeconfig "$KB" apply -f kubernetes/core/traefik/middleware-netbird.yaml 2>/dev/null || true
+          kubectl --kubeconfig "$KB" apply -f kubernetes/core/traefik/manifests/middleware-netbird.yaml 2>/dev/null || true
 
           echo "✅ MetalLB IP pool and Traefik middleware applied"
           kubectl --kubeconfig "$KB" get ipaddresspools -n metallb-system 2>/dev/null
           kubectl --kubeconfig "$KB" get svc -A | grep LoadBalancer | head -10
+
 
