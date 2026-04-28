@@ -207,3 +207,9 @@ variable "environment" {
   description = "Deployment environment name (e.g. 'productie', 'ontwikkel'). Used to locate the generated/ directory for machine configs."
   type        = string
 }
+variable "registry_mirror_url" {
+  description = "Optional Docker Hub pull-through cache URL (e.g. http://10.25.0.3:5000). When set, Talos nodes use this mirror for docker.io images to avoid rate limits."
+  type        = string
+  default     = ""
+}
+
