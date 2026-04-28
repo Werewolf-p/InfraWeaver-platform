@@ -89,7 +89,7 @@ STORAGE="${each.value.storage}"
 RUNNER_IP="${each.value.ip}"
 GATEWAY="${coalesce(each.value.gateway, var.node_defaults.gateway)}"
 SUBNET_MASK="${coalesce(each.value.subnet_mask, var.node_defaults.subnet_mask)}"
-DNS="${join(",", var.proxmox_dns_servers)}"
+DNS="${join(" ", var.proxmox_dns_servers)}"
 KEYS_FILE="/tmp/runner-keys.pub"
 
 echo "  Checking if runner VM $VMID exists..."
