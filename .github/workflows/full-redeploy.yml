@@ -89,22 +89,13 @@ jobs:
       - name: Export Terraform secrets from GitHub Secrets
         env:
           # These GitHub Secrets must be configured in the repository settings
-          # They contain API tokens and bootstrap credentials sourced from GitHub Secrets Manager
-          # Note: GitHub doesn't allow secret names starting with 'GITHUB_', so we use 'RUNNER_TOKEN' instead
+          # They contain API tokens sourced from GitHub Secrets Manager
           PROXMOX_API_TOKEN: ${{ secrets.PROXMOX_API_TOKEN }}
-          OPENBAO_TOKEN: ${{ secrets.OPENBAO_TOKEN }}
-          RUNNER_TOKEN: ${{ secrets.RUNNER_TOKEN }}
         run: |
           # Export as TF_VAR_* for Terraform to consume
           # These take precedence over SOPS file values
           if [ -n "${PROXMOX_API_TOKEN:-}" ]; then
             echo "TF_VAR_proxmox_api_token=${PROXMOX_API_TOKEN}" >> $GITHUB_ENV
-          fi
-          if [ -n "${OPENBAO_TOKEN:-}" ]; then
-            echo "TF_VAR_openbao_token=${OPENBAO_TOKEN}" >> $GITHUB_ENV
-          fi
-          if [ -n "${RUNNER_TOKEN:-}" ]; then
-            echo "TF_VAR_github_runner_token=${RUNNER_TOKEN}" >> $GITHUB_ENV
           fi
 
 
