@@ -1,0 +1,26 @@
+# Standalone ArgoCD Application for internal CoreDNS
+# Deploys a custom DNS server accessible at 10.25.0.201:53 (MetalLB)
+# Serves rlservers.com and prod.local zones; forwards everything else upstream
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: apps-dns
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  source:
+    repoURL: https://github.com/Werewolf-p/InfraWeaver-platform.git
+    targetRevision: HEAD
+    path: kubernetes/apps/dns/manifests
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: dns-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

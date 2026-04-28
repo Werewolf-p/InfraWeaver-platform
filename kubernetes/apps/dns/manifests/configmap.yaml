@@ -1,0 +1,87 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coredns-custom-config
+  namespace: dns-system
+data:
+  Corefile: |
+    # rlservers.com zone — all internal services
+    rlservers.com:53 {
+        hosts /etc/coredns/zones/rlservers.com.hosts {
+            ttl 60
+            reload 30s
+            fallthrough
+        }
+        log
+        errors
+    }
+
+    # prod.local zone — Talos cluster in-cluster ingress (Traefik)
+    prod.local:53 {
+        hosts /etc/coredns/zones/prod.local.hosts {
+            ttl 60
+            reload 30s
+            fallthrough
+        }
+        log
+        errors
+    }
+
+    # Catch-all — forward everything else to upstream DNS
+    .:53 {
+        forward . 1.1.1.1 8.8.8.8 {
+            max_concurrent 1000
+        }
+        cache 300
+        log
+        errors
+        health :8080
+        ready :8181
+    }
+
+  rlservers.com.hosts: |
+    # rlservers.com — internal A records
+    # All services route through standalone Traefik at 10.25.0.5
+    # except netbird which is a dedicated VM at 10.25.0.100
+    # and dc1 which is the Windows domain controller at 10.25.0.43
+
+    10.25.0.5   ansible.rlservers.com
+    10.25.0.5   argocd.rlservers.com
+    10.25.0.5   auth.rlservers.com
+    10.25.0.5   awx.rlservers.com
+    10.25.0.5   bitwarden.rlservers.com
+    10.25.0.5   bookstack.rlservers.com
+    10.25.0.5   cloud.rlservers.com
+    10.25.0.5   dashboard.rlservers.com
+    10.25.0.5   database.rlservers.com
+    10.25.0.43  dc1.rlservers.com
+    10.25.0.5   degoudentijd.rlservers.com
+    10.25.0.5   feestinhetdonker.rlservers.com
+    10.25.0.5   gitlab.rlservers.com
+    10.25.0.5   grafana.rlservers.com
+    10.25.0.5   keycloak.rlservers.com
+    10.25.0.5   longhorn.rlservers.com
+    10.25.0.5   loverseer.rlservers.com
+    10.25.0.5   nebula.rlservers.com
+    10.25.0.100 netbird.rlservers.com
+    10.25.0.5   portainer.rlservers.com
+    10.25.0.5   proxmox.rlservers.com
+    10.25.0.5   radarr.rlservers.com
+    10.25.0.5   registry.rlservers.com
+    10.25.0.5   sonarr.rlservers.com
+    10.25.0.5   teleport.rlservers.com
+    10.25.0.5   test.rlservers.com
+    10.25.0.5   traefik.rlservers.com
+    10.25.0.5   truenas.rlservers.com
+    10.25.0.5   wazuh.rlservers.com
+    10.25.0.5   wiki.rlservers.com
+
+  prod.local.hosts: |
+    # prod.local — Talos Kubernetes cluster services
+    # All route through cluster Traefik at 10.25.0.200
+
+    10.25.0.200  argocd.prod.local
+    10.25.0.200  grafana.prod.local
+    10.25.0.200  longhorn.prod.local
+    10.25.0.200  netbird.prod.local
+    10.25.0.200  test.prod.local
