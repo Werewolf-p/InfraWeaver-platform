@@ -24,6 +24,8 @@ ingress:
   enabled: true
   ingressClassName: traefik
   host: longhorn.prod.local
+  annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: traefik-netbird-only@kubernetescrd
 
 persistence:
   defaultClass: false
