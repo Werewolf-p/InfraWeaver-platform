@@ -1,8 +1,4 @@
 server:
-  image:
-    repository: ghcr.io/openbao/openbao
-    tag: "2.5.3"
-
   standalone:
     enabled: true
     config: |
@@ -35,10 +31,9 @@ server:
     create: true
     name: openbao
 
-  # Autounseal sidecar using the chart's extraContainers (standard k8s container spec)
   extraContainers:
     - name: autounseal
-      image: ghcr.io/openbao/openbao:2.5.3
+      image: quay.io/openbao/openbao:v2.5.3
       command:
         - /bin/sh
         - -c
@@ -66,7 +61,6 @@ server:
           mountPath: /etc/openbao-unseal
           readOnly: true
 
-  # Chart-specific extraVolumes format: type + name (not standard k8s volume spec)
   extraVolumes:
     - type: secret
       name: openbao-unseal
