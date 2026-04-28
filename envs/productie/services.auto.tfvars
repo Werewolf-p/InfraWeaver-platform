@@ -44,15 +44,3 @@ github_runners = {
     labels         = ["prod-worker", "self-hosted", "Linux", "X64"]
   }
 }
-
-openbao_instances = {
-  productie = {
-    vm_id          = 9200
-    ip             = "10.25.0.86"
-    template_vm_id = 9000
-    cores          = 2
-    memory_mb      = 2048
-    disk_size_gb   = 20
-    storage        = "lvm-proxmox"
-  }
-}
