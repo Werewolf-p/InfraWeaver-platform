@@ -412,9 +412,9 @@ resource "null_resource" "start_and_configure_talos" {
   for_each = var.nodes
 
   triggers = {
-    vm_id    = each.value.vm_id
-    node_ip  = each.value.ip
-    mc_hash  = sha256(local_sensitive_file.node_machine_config[each.key].content)
+    vm_id   = each.value.vm_id
+    node_ip = each.value.ip
+    mc_hash = sha256(local_sensitive_file.node_machine_config[each.key].content)
   }
 
   depends_on = [
@@ -578,9 +578,9 @@ resource "null_resource" "start_and_configure_talos" {
 
 resource "null_resource" "bootstrap_etcd" {
   triggers = {
-    cluster_name  = var.cluster_name
-    first_cp_ip   = local.first_cp_ip
-    secrets_hash  = sha256(jsonencode(talos_machine_secrets.this.machine_secrets))
+    cluster_name = var.cluster_name
+    first_cp_ip  = local.first_cp_ip
+    secrets_hash = sha256(jsonencode(talos_machine_secrets.this.machine_secrets))
   }
 
   depends_on = [null_resource.start_and_configure_talos]
@@ -590,7 +590,7 @@ resource "null_resource" "bootstrap_etcd" {
     environment = {
       TALOS_CONFIG = data.talos_client_configuration.this.talos_config
     }
-    command     = <<-BASH
+    command = <<-BASH
       set -euo pipefail
       TALOSCONFIG="${local.generated_dir}/talosconfig"
       CP_IP="${local.first_cp_ip}"

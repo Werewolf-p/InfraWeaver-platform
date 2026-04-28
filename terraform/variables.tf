@@ -10,7 +10,12 @@ variable "proxmox_api_token" {
   description = <<-EOT
     Proxmox API token in format: <user>@<realm>!<token>=<uuid>.
     Example: terraform@pve!platform=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-    Supply via TF_VAR_proxmox_api_token or secrets.sops.yaml.
+    
+    **SECRET SOURCE**: GitHub Actions Secrets → TF_VAR_proxmox_api_token environment variable.
+    See .github/workflows/full-redeploy.yml for implementation.
+    In workflows, pass as: export TF_VAR_proxmox_api_token="$PROXMOX_API_TOKEN"
+    
+    Supply via TF_VAR_proxmox_api_token or GitHub Secrets.
   EOT
   type        = string
   sensitive   = true
@@ -22,7 +27,15 @@ variable "proxmox_api_token" {
 }
 
 variable "openbao_token" {
-  description = "OpenBao (Vault) root or platform service token. Supply via secrets.sops.yaml."
+  description = <<-EOT
+    OpenBao (Vault) root or platform service token.
+    
+    **SECRET SOURCE**: GitHub Actions Secrets → TF_VAR_openbao_token environment variable.
+    See .github/workflows/full-redeploy.yml for implementation.
+    In workflows, pass as: export TF_VAR_openbao_token="$OPENBAO_TOKEN"
+    
+    Supply via TF_VAR_openbao_token or GitHub Secrets.
+  EOT
   type        = string
   sensitive   = true
   default     = ""
@@ -40,7 +53,15 @@ variable "openbao_address" {
 }
 
 variable "github_runner_token" {
-  description = "GitHub Actions runner registration token. Supply via secrets.sops.yaml."
+  description = <<-EOT
+    GitHub Actions runner registration token.
+    
+    **SECRET SOURCE**: GitHub Actions Secrets → TF_VAR_github_runner_token environment variable.
+    See .github/workflows/full-redeploy.yml for implementation.
+    In workflows, pass as: export TF_VAR_github_runner_token="$GITHUB_RUNNER_TOKEN"
+    
+    Supply via TF_VAR_github_runner_token or GitHub Secrets.
+  EOT
   type        = string
   sensitive   = true
   default     = ""
