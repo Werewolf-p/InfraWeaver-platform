@@ -500,12 +500,14 @@ jobs:
             echo "==> Initializing OpenBao (first deploy)..."
             INIT_OUTPUT=$(curl -s -X POST "${LOCAL_OPENBAO}/v1/sys/init" \
               -H "Content-Type: application/json" \
-              -d '{"secret_shares": 1, "secret_threshold": 1}')
+              -d '{"secret_shares": 1, "secret_threshold": 1}' || echo "")
 
             UNSEAL_KEY=$(echo "$INIT_OUTPUT" | \
-              python3 -c "import json,sys; d=json.load(sys.stdin); print(d['keys_base64'][0])")
+              python3 -c "import json,sys; d=json.load(sys.stdin); print(d['keys_base64'][0])" \
+              2>/dev/null || echo "")
             ROOT_TOKEN=$(echo "$INIT_OUTPUT" | \
-              python3 -c "import json,sys; d=json.load(sys.stdin); print(d['root_token'])")
+              python3 -c "import json,sys; d=json.load(sys.stdin); print(d['root_token'])" \
+              2>/dev/null || echo "")
 
             if [ -z "$UNSEAL_KEY" ] || [ -z "$ROOT_TOKEN" ]; then
               echo "ERROR: Init output missing keys:"
@@ -526,7 +528,7 @@ jobs:
             # Unseal via the API
             curl -s -X POST "${LOCAL_OPENBAO}/v1/sys/unseal" \
               -H "Content-Type: application/json" \
-              -d "{"key": "$UNSEAL_KEY"}" > /dev/null
+              -d "{"key": "$UNSEAL_KEY"}" > /dev/null || true
             echo "==> OpenBao initialized and unsealed"
           else
             echo "==> OpenBao already initialized — checking seal status..."
@@ -540,7 +542,7 @@ jobs:
             if [ "$SEALED" != "False" ] && [ -n "$UNSEAL_KEY" ]; then
               curl -s -X POST "${LOCAL_OPENBAO}/v1/sys/unseal" \
                 -H "Content-Type: application/json" \
-                -d "{"key": "$UNSEAL_KEY"}" > /dev/null
+                -d "{"key": "$UNSEAL_KEY"}" > /dev/null || true
               echo "==> Unsealed"
             fi
           fi
@@ -605,7 +607,8 @@ jobs:
             -H "X-Vault-Token: $ROOT_TOKEN" \
             -H "Content-Type: application/json" \
             -d "{"policies": ["platform-k8s", "default"], "ttl": "87600h", "display_name": "eso-$ENV", "renewable": true, "orphan": true}" | \
-            python3 -c "import json,sys; print(json.load(sys.stdin)['auth']['client_token'])")
+            python3 -c "import json,sys; print(json.load(sys.stdin)['auth']['client_token'])" \
+            2>/dev/null || echo "")
 
           if [ -z "$SERVICE_TOKEN" ]; then
             echo "⚠ Could not create ESO service token — skipping"
@@ -743,5 +746,6 @@ jobs:
           echo "✅ MetalLB IP pool and Traefik middleware applied"
           kubectl --kubeconfig "$KB" get ipaddresspools -n metallb-system 2>/dev/null
           kubectl --kubeconfig "$KB" get svc -A | grep LoadBalancer | head -10
+
 
 
