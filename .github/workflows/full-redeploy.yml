@@ -98,6 +98,61 @@ jobs:
             echo "TF_VAR_proxmox_api_token=${PROXMOX_API_TOKEN}" >> $GITHUB_ENV
           fi
 
+      - name: Validate Proxmox API token permissions
+        env:
+          TF_VAR_proxmox_api_token: ${{ env.TF_VAR_proxmox_api_token }}
+        run: |
+          set +e
+          
+          # Load environment variables
+          source envs/${{ env.ENV_NAME }}/terraform.tfvars || true
+          
+          ENDPOINT="${TF_VAR_proxmox_endpoint:-https://192.168.1.10:8006}"
+          NODE="${TF_VAR_proxmox_target_node:-pve}"
+          TOKEN="${TF_VAR_proxmox_api_token}"
+          
+          echo "📋 Testing Proxmox API token permissions..."
+          echo "  Endpoint: $ENDPOINT"
+          echo "  Node: $NODE"
+          echo ""
+          
+          # Test 1: Can the token list nodes? (basic connectivity)
+          echo "🔍 Test 1: Token can list nodes (basic connectivity)..."
+          RESPONSE=$(curl -sk -H "Authorization: PVEAPIToken=${TOKEN}" \
+            "${ENDPOINT}/api2/json/nodes" 2>&1)
+          
+          if echo "$RESPONSE" | grep -q "data"; then
+            echo "✓ Token is valid and can list nodes"
+          elif echo "$RESPONSE" | grep -q "401\|Authentication failed"; then
+            echo "✗ FAIL: Token is invalid/expired (HTTP 401)"
+            exit 1
+          else
+            echo "✗ FAIL: Unexpected response: $RESPONSE"
+            exit 1
+          fi
+          
+          # Test 2: Can the token list VMs on target node? (VM read permission)
+          echo ""
+          echo "🔍 Test 2: Token can list VMs on target node (VM read permission)..."
+          RESPONSE=$(curl -sk -H "Authorization: PVEAPIToken=${TOKEN}" \
+            "${ENDPOINT}/api2/json/nodes/${NODE}/qemu" 2>&1)
+          
+          if echo "$RESPONSE" | grep -q "data\|error"; then
+            echo "✓ Token can access VM operations (permissions sufficient)"
+          elif echo "$RESPONSE" | grep -q "401\|Authentication failed"; then
+            echo "✗ FAIL: Token lacks VM permissions (HTTP 401)"
+            echo "   → Token likely has role: PVEStoreAdmin (storage only)"
+            echo "   → Need to create new token with PVEAdmin or VM-specific role"
+            exit 1
+          else
+            echo "✗ FAIL: Unexpected response: $RESPONSE"
+            exit 1
+          fi
+          
+          echo ""
+          echo "✅ All permission tests passed - token is ready for deployment"
+          set -e
+
 
       - name: Destroy existing platform
         env:
