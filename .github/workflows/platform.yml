@@ -81,6 +81,8 @@ jobs:
           age-secret-key: ${{ secrets.AGE_SECRET_KEY }}
 
       - name: Tofu Init & Plan
+        env:
+          PROXMOX_API_TOKEN: ${{ secrets.PROXMOX_API_TOKEN }}
         run: |
           export TF_PLUGIN_CACHE_DIR="$HOME/.terraform.d/plugin-cache"
 
@@ -88,7 +90,8 @@ jobs:
           STATE_DIR=~/.tofu/state/platform-$ENV
           mkdir -p $STATE_DIR
 
-          # Decrypt SOPS secrets for plan
+          # Load secrets from GitHub Secrets (primary) then SOPS fallback
+          export TF_VAR_proxmox_api_token="${PROXMOX_API_TOKEN}"
           while IFS= read -r line; do
             if [[ "$line" =~ ^([a-zA-Z_][a-zA-Z0-9_]*):[[:space:]]*(.*) ]]; then
               KEY="${BASH_REMATCH[1]}" ; VAL="${BASH_REMATCH[2]}"
@@ -156,6 +159,8 @@ jobs:
           environment: ${{ env.ENV_NAME }}
 
       - name: Deploy Platform
+        env:
+          PROXMOX_API_TOKEN: ${{ secrets.PROXMOX_API_TOKEN }}
         run: |
           export TF_PLUGIN_CACHE_DIR="$HOME/.terraform.d/plugin-cache"
 
@@ -163,7 +168,9 @@ jobs:
           STATE_DIR=~/.tofu/state/platform-$ENV
           mkdir -p $STATE_DIR
 
-          # Decrypt SOPS secrets and export as TF_VAR_ env vars (robust YAML parse)
+          # Load secrets from GitHub Secrets (primary) then SOPS fallback
+          export TF_VAR_proxmox_api_token="${PROXMOX_API_TOKEN}"
+          echo "✅ TF_VAR_proxmox_api_token set from GitHub Secret"
           while IFS= read -r line; do
             if [[ "$line" =~ ^([a-zA-Z_][a-zA-Z0-9_]*):[[:space:]]*(.*) ]]; then
               KEY="${BASH_REMATCH[1]}"
@@ -171,7 +178,7 @@ jobs:
               [[ "$KEY" == "sops" ]] && break   # stop at sops metadata
               VAL="${VAL#\"}" ; VAL="${VAL%\"}"  # strip surrounding quotes
               [[ -n "$VAL" ]] && export "TF_VAR_${KEY}=${VAL}"
-              echo "✅ TF_VAR_${KEY} set"
+              echo "✅ TF_VAR_${KEY} set from SOPS"
             fi
           done < <(sops -d "envs/$ENV/secrets.sops.yaml" 2>/dev/null || echo "")
 
@@ -485,4 +492,5 @@ jobs:
 
           echo "✅ OpenBao secrets bootstrapped"
           kubectl --kubeconfig "$KB" get clustersecretstore openbao 2>/dev/null || echo "  (ClusterSecretStore not yet synced)"
+
 
