@@ -207,3 +207,33 @@ This runner was added because the original "productie" runner (ID 23) was on pve
 - Remaining cluster VMs (9301/9302) were destroyed to clean state
 - **When pve-prod1 comes back:** destroy VM 9300, then run full-redeploy workflow
 
+
+---
+
+## Split-DNS for rlservers.com via NetBird (2026-04-28)
+
+### Problem
+When connected to NetBird from outside the home network, DNS for `argocd.rlservers.com` etc resolves to the public IP (84.82.69.110). Traefik's `internal-only` middleware blocks external source IPs — the service is unreachable.
+
+### Solution: dnsmasq split-DNS on management host + NetBird nameserver
+- **dnsmasq** runs on `10.25.0.108:53` (service: `dnsmasq`)
+- Config: `/etc/dnsmasq.d/rlservers-split-dns.conf`
+- Maps all rlservers.com service names → `10.25.0.5` (standalone Traefik)
+- NetBird nameserver group `rlservers-internal` (ID: `d7o5p2rdeh7s73fcv43g`) routes `rlservers.com` queries to `10.25.0.108`
+- Effect: when connected to NetBird, `argocd.rlservers.com` → `10.25.0.5` → Traefik sees source as NetBird IP (`100.x.x.x`) → allowed by `100.64.0.0/10` in `internal-only` middleware
+
+### Service name → IP mappings
+| Domain | Resolves to | Via |
+|---|---|---|
+| argocd.rlservers.com | 10.25.0.5 | dnsmasq |
+| grafana.rlservers.com | 10.25.0.5 | dnsmasq |
+| longhorn.rlservers.com | 10.25.0.5 | dnsmasq |
+| netbird.rlservers.com | 10.25.0.5 | dnsmasq |
+| test.rlservers.com | 10.25.0.5 | dnsmasq |
+
+### Peer DNS domain fix
+- `settings_dns_domain` in accounts table was EMPTY → peers showed `*.netbird.selfhosted`
+- Fixed: `UPDATE accounts SET settings_dns_domain='rlservers.com'`
+- The `domain` field is for SSO/Zitadel, NOT for peer DNS suffixes
+- After management restart, peers show `*.rlservers.com` DNS labels
+
