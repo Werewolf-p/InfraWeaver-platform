@@ -4,24 +4,24 @@ kind: Namespace
 metadata:
   name: netbird
 ---
-# ── Management ConfigMap ─────────────────────────────────────────────────────
-# NOTE: The init container copies this to the PVC ONLY if management.json does
-# not already exist on the PVC. After first boot, the PVC copy is authoritative.
-# If you change this ConfigMap you must delete the PVC file and restart the pod
-# for changes to take effect.
+# ── Management ConfigMap (template) ──────────────────────────────────────────
+# Sensitive values (TURN password, DataStoreEncryptionKey) use placeholders.
+# The init container substitutes them from the netbird-secrets Secret before
+# writing management.json to the PVC. After first boot, the PVC copy is
+# authoritative. To force config update: delete the PVC file and restart.
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: netbird-management-config
   namespace: netbird
 data:
-  management.json: |
+  management.json.template: |
     {
       "Stuns": [{"Proto":"udp","URI":"stun:stun.l.google.com:19302","Username":"","Password":null}],
-      "TURNs": [{"Proto":"udp","URI":"turn:10.25.0.202:3478","Username":"netbird","Password":"netbird-relay-password"}],
+      "TURNs": [{"Proto":"udp","URI":"turn:10.25.0.202:3478","Username":"netbird","Password":"TURN_PASSWORD_PLACEHOLDER"}],
       "Signal": {"Proto":"http","URI":"10.25.0.204:10000","Username":"","Password":null},
       "Datadir": "/var/lib/netbird/",
-      "DataStoreEncryptionKey": "HDIJDPnaIDhYyAWLiIRRDrgU8c0mt0HbDvuPTAEgJTU=",
+      "DataStoreEncryptionKey": "DATASTORE_KEY_PLACEHOLDER",
       "HttpConfig": {
         "LetsEncryptDomain":"","CertFile":"","CertKey":"",
         "AuthAudience":"","AuthIssuer":"","AuthKeysLocation":"","AuthUserIDClaim":"",
@@ -47,9 +47,6 @@ spec:
   storageClassName: local-path
 ---
 # ── Management StatefulSet ────────────────────────────────────────────────────
-# Using StatefulSet instead of Deployment because StatefulSets create pods
-# directly without an intermediary ReplicaSet, which avoids the RS admission
-# quota evaluator timeout issue seen with the local-path PVC in this cluster.
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -69,7 +66,7 @@ spec:
         app: netbird-management
     spec:
       initContainers:
-        # Only copies management.json if it doesn't already exist on the PVC
+        # Substitute sensitive placeholders and copy to PVC only if not already present
         - name: copy-config
           image: busybox:1.36
           command:
@@ -77,11 +74,25 @@ spec:
             - -c
             - |
               if [ ! -f /var/lib/netbird/management.json ]; then
-                echo "Copying initial management.json to PVC"
-                cp /config-source/management.json /var/lib/netbird/management.json
+                echo "Generating management.json from template (substituting secrets)"
+                sed -e "s|TURN_PASSWORD_PLACEHOLDER|${NB_TURN_PASSWORD}|g" \
+                    -e "s|DATASTORE_KEY_PLACEHOLDER|${NB_DATASTORE_ENC_KEY}|g" \
+                    /config-source/management.json.template > /var/lib/netbird/management.json
+                echo "management.json generated"
               else
                 echo "management.json already exists, skipping"
               fi
+          env:
+            - name: NB_TURN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: netbird-secrets
+                  key: turn-password
+            - name: NB_DATASTORE_ENC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: netbird-secrets
+                  key: datastore-enc-key
           volumeMounts:
             - name: config-source
               mountPath: /config-source
@@ -160,7 +171,6 @@ spec:
       targetPort: 33073
 ---
 # ── Dashboard Deployment ──────────────────────────────────────────────────────
-# NetBird web UI - serves the React app that connects to management API
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -222,7 +232,6 @@ spec:
     name: http
 ---
 # ── Management Ingress (for web dashboard via Traefik) ────────────────────────
-# Routes: / → dashboard UI, /api → management API, /signalexchange → signal
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
