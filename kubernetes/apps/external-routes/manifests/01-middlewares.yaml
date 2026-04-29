@@ -55,8 +55,12 @@ spec:
 # Traefik via the K8s netbird-client DaemonSet pods, which masquerade traffic through their
 # node's LAN IP. Traefik sees the K8s node IP, NOT the peer's CGNAT IP.
 #
+# Hairpin NAT edge case: when the VPN traffic arrives on the SAME node as Traefik,
+# kube-proxy applies MASQUERADE and the source IP becomes the node's CNI bridge IP (10.244.x.1).
+#
 # Allow list:
-#   - 10.25.0.90-92 : K8s nodes (masquerade exit points for VPN clients)
+#   - 10.25.0.90-92 : K8s nodes (masquerade exit points for VPN clients, cross-node traffic)
+#   - 10.244.0.1-2.1: K8s CNI bridge IPs (hairpin NAT on same node as Traefik)
 #   - 100.64.0.0/10 : Direct WireGuard peers (if masquerade is disabled or for direct access)
 #
 # Local LAN IPs (e.g. 10.25.0.50) are NOT in this list → 403 Forbidden.
@@ -72,6 +76,9 @@ spec:
       - 10.25.0.90/32     # K8s node talos-prod-cp1 (masquerade exit for VPN clients)
       - 10.25.0.91/32     # K8s node talos-prod-cp2 (masquerade exit for VPN clients)
       - 10.25.0.92/32     # K8s node talos-prod-cp3 (masquerade exit for VPN clients)
+      - 10.244.0.1/32     # CNI bridge talos-prod-cp3 (hairpin NAT same-node traffic)
+      - 10.244.1.1/32     # CNI bridge talos-prod-cp2 (hairpin NAT same-node traffic)
+      - 10.244.2.1/32     # CNI bridge talos-prod-cp1 (hairpin NAT same-node traffic)
 ---
 # Middleware: add-https-headers — sets X-Forwarded-Proto for backends
 apiVersion: traefik.io/v1alpha1
