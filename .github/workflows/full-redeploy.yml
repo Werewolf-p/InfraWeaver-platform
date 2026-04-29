@@ -749,9 +749,20 @@ jobs:
             -n external-secrets --for=condition=available --timeout=120s 2>/dev/null || \
             echo "⚠ ESO webhook not yet available"
 
-          # Wait for etcd to stabilize
-          echo "==> Waiting 30s for etcd to stabilize..."
-          sleep 30
+          # Wait until the webhook is actually accepting connections (cert provisioning delay)
+          echo "==> Waiting for ESO webhook to accept connections..."
+          for i in $(seq 1 30); do
+            WEBHOOK_EP=$(kubectl --kubeconfig "$KB" get endpoints external-secrets-webhook \
+              -n external-secrets -o jsonpath='{.subsets[0].addresses[0].ip}' 2>/dev/null || echo "")
+            if [ -n "$WEBHOOK_EP" ]; then
+              echo "  ESO webhook endpoint ready: $WEBHOOK_EP"
+              break
+            fi
+            echo "  Waiting for webhook endpoint ($i/30)..."
+            sleep 10
+          done
+          # Extra buffer for TLS cert to propagate to the webhook pod
+          sleep 15
 
           # Helper: retry kubectl apply from a file up to 5 times
           kube_apply_retry() {
