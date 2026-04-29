@@ -504,7 +504,7 @@ metadata:
   namespace: traefik
 subsets:
   - addresses:
-      - ip: 10.25.0.187
+      - ip: 10.25.0.191
     ports:
       - port: 80
 ---
@@ -608,7 +608,7 @@ metadata:
   namespace: traefik
 subsets:
   - addresses:
-      - ip: 10.25.0.19
+      - ip: 10.25.0.24
     ports:
       - port: 80
 ---
