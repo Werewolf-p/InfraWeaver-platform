@@ -851,6 +851,8 @@ jobs:
           if kubectl --kubeconfig "$KB" get crd clusterissuers.cert-manager.io >/dev/null 2>&1; then
             kubectl --kubeconfig "$KB" apply \
               -f kubernetes/core/cert-manager/manifests/cluster-issuer.yaml 2>/dev/null || true
+            kubectl --kubeconfig "$KB" apply \
+              -f kubernetes/core/cert-manager/manifests/external-secret-cloudflare.yaml 2>/dev/null || true
           fi
 
           echo "✅ OpenBao secrets bootstrapped"
