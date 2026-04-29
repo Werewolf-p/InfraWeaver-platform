@@ -44,12 +44,11 @@ spec:
     - "indexer.wazuh.rlservers.com"
     - "teleport.rlservers.com"
     - "degoudentijd.rlservers.com"
-    - "www.degoudentijd.rlservers.com"
     - "feestinhetdonker.rlservers.com"
     - "marcel.rlservers.com"
     - "wiki.rlservers.com"
 ---
-# Certificate for yonavaarwater.nl
+# Certificate for yonavaarwater.nl — Cloudflare-proxied, needs DNS-01
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -58,14 +57,14 @@ metadata:
 spec:
   secretName: yonavaarwater-nl-tls
   issuerRef:
-    name: letsencrypt-http
+    name: letsencrypt-cloudflare
     kind: ClusterIssuer
   dnsNames:
     - "yonavaarwater.nl"
     - "www.yonavaarwater.nl"
     - "ot.yonavaarwater.nl"
 ---
-# Certificate for zonnevaarwater.nl
+# Certificate for zonnevaarwater.nl — Cloudflare-proxied, needs DNS-01
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -74,7 +73,7 @@ metadata:
 spec:
   secretName: zonnevaarwater-nl-tls
   issuerRef:
-    name: letsencrypt-http
+    name: letsencrypt-cloudflare
     kind: ClusterIssuer
   dnsNames:
     - "zonnevaarwater.nl"
