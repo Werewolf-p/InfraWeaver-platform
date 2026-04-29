@@ -491,16 +491,17 @@ jobs:
             done
           fi
 
-          # Wait for OpenBao pod to be Ready (ArgoCD deploys it via Helm; PVC needs Longhorn)
-          echo "==> Waiting for OpenBao pod to be Ready (up to 15 min)..."
-          for i in $(seq 1 90); do
-            if kubectl --kubeconfig "$KB" wait pod -n openbao \
-                -l app.kubernetes.io/name=openbao \
-                --for=condition=Ready --timeout=10s 2>/dev/null; then
-              echo "  OpenBao pod Ready"
+          # Wait for OpenBao pod to be Running (not necessarily Ready — readiness requires unsealed)
+          echo "==> Waiting for OpenBao pod to be Running (up to 10 min)..."
+          for i in $(seq 1 60); do
+            RUNNING=$(kubectl --kubeconfig "$KB" get pods -n openbao \
+              -l app.kubernetes.io/name=openbao --no-headers 2>/dev/null | \
+              grep "Running" | wc -l || echo "0")
+            if [ "$RUNNING" -gt "0" ]; then
+              echo "  OpenBao pod Running"
               break
             fi
-            echo "  Waiting for OpenBao pod ($i/90)..."
+            echo "  Waiting for OpenBao pod ($i/60)..."
             if [ $(( i % 15 )) -eq 0 ]; then
               echo "  --- Diagnostics at iteration $i ---"
               kubectl --kubeconfig "$KB" get pods -n openbao 2>/dev/null || echo "  (openbao namespace not found)"
@@ -556,8 +557,15 @@ jobs:
             # Unseal via the API
             curl -s -X POST "${LOCAL_OPENBAO}/v1/sys/unseal" \
               -H "Content-Type: application/json" \
-              -d "{"key": "$UNSEAL_KEY"}" > /dev/null || true
+              -d "{\"key\": \"$UNSEAL_KEY\"}" > /dev/null || true
             echo "==> OpenBao initialized and unsealed"
+
+            # Wait for pod to become Ready after unseal (up to 3 min)
+            echo "==> Waiting for OpenBao pod to become Ready after unseal..."
+            kubectl --kubeconfig "$KB" wait pod -n openbao \
+              -l app.kubernetes.io/name=openbao \
+              --for=condition=Ready --timeout=180s 2>/dev/null && \
+              echo "  OpenBao pod Ready" || echo "  (pod not yet Ready — continuing anyway)"
           else
             echo "==> OpenBao already initialized — checking seal status..."
             UNSEAL_KEY=$(kubectl --kubeconfig "$KB" get secret openbao-unseal \
@@ -570,7 +578,7 @@ jobs:
             if [ "$SEALED" != "False" ] && [ -n "$UNSEAL_KEY" ]; then
               curl -s -X POST "${LOCAL_OPENBAO}/v1/sys/unseal" \
                 -H "Content-Type: application/json" \
-                -d "{"key": "$UNSEAL_KEY"}" > /dev/null || true
+                -d "{\"key\": \"$UNSEAL_KEY\"}" > /dev/null || true
               echo "==> Unsealed"
             fi
           fi
