@@ -27,8 +27,6 @@ rbac:
 # Redirect HTTP to HTTPS at the entrypoint level (v34+ syntax via args)
 additionalArguments:
   - "--serversTransport.insecureSkipVerify=true"
-  - "--accesslog=true"
-  - "--accesslog.fields.headers.defaultmode=keep"
 
 ports:
   web:
