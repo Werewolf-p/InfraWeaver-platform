@@ -597,7 +597,7 @@ jobs:
             curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/platform/grafana" \
               -H "X-Vault-Token: $ROOT_TOKEN" \
               -H "Content-Type: application/json" \
-              -d "{"data": {"admin-user": "admin", "admin-password": "$GRAFANA_PASS"}}" > /dev/null
+              -d "{\"data\": {\"admin-user\": \"admin\", \"admin-password\": \"$GRAFANA_PASS\"}}" > /dev/null
             echo "==> Grafana secret written (randomly generated)"
           else
             echo "==> Grafana secret already exists — preserving existing password"
@@ -617,7 +617,7 @@ jobs:
           fi
 
           # ArgoCD remon: generate random password, apply bcrypt hash to argocd-secret, store in OpenBao
-          pip3 install bcrypt -q 2>/dev/null || true
+          python3 -c "import bcrypt" 2>/dev/null || sudo apt-get install -y python3-bcrypt -q 2>/dev/null || true
           REMON_PASS=$(openssl rand -base64 20 | tr -d '=+/')
           REMON_PASS_FILE=$(mktemp)
           REMON_PATCH_FILE=$(mktemp)
@@ -678,7 +678,7 @@ jobs:
           SERVICE_TOKEN=$(curl -s -X POST "${LOCAL_OPENBAO}/v1/auth/token/create" \
             -H "X-Vault-Token: $ROOT_TOKEN" \
             -H "Content-Type: application/json" \
-            -d "{"policies": ["platform-k8s", "default"], "ttl": "87600h", "display_name": "eso-$ENV", "renewable": true, "orphan": true}" | \
+            -d "{\"policies\": [\"platform-k8s\", \"default\"], \"ttl\": \"87600h\", \"display_name\": \"eso-${ENV}\", \"renewable\": true, \"orphan\": true}" | \
             python3 -c "import json,sys; print(json.load(sys.stdin)['auth']['client_token'])" \
             2>/dev/null || echo "")
 
