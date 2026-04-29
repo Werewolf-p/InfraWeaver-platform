@@ -758,14 +758,10 @@ jobs:
 
                     # Write least-privilege policy for ESO (use bao CLI for reliable policy creation)
           kubectl --kubeconfig "$KB" exec -n openbao openbao-0 -- sh -c \
-            "VAULT_TOKEN=$ROOT_TOKEN VAULT_ADDR=http://127.0.0.1:8200 bao policy write platform-k8s - << 'POLICYEOF'
-path \"secret/data/platform/*\" {
-  capabilities = [\"read\", \"list\"]
-}
-path \"secret/metadata/platform/*\" {
-  capabilities = [\"read\", \"list\"]
-}
-POLICYEOF" 2>/dev/null || true
+            "VAULT_TOKEN=$ROOT_TOKEN VAULT_ADDR=http://127.0.0.1:8200
+             printf 'path \"%s\" {\n  capabilities = [\"read\", \"list\"]\n}\n' \
+               'secret/data/platform/*' 'secret/metadata/platform/*' | \
+             bao policy write platform-k8s -" 2>/dev/null || true
 
           # Tune token auth to allow long-lived tokens (use bao CLI)
           kubectl --kubeconfig "$KB" exec -n openbao openbao-0 -- sh -c \
