@@ -208,6 +208,32 @@ spec:
 
               echo "=== Scaling management back to 1 ==="
               kubectl scale statefulset netbird-management -n netbird --replicas=1
+
+              echo "=== Waiting for management API after restart ==="
+              for i in $(seq 1 30); do
+                CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 3 \
+                  http://netbird-management.netbird.svc:80/api/status 2>/dev/null || echo "000")
+                if [ "$CODE" != "000" ]; then echo "API ready (HTTP $CODE)"; break; fi
+                sleep 5
+              done
+
+              echo "=== Configuring DNS nameserver via API ==="
+              # Idempotent: only create if not already present
+              EXISTING_NS=$(curl -s --max-time 10 \
+                http://netbird-management.netbird.svc:80/api/dns/nameservers \
+                -H "Authorization: Token ${PAT_TOKEN}" | \
+                python3 -c "import sys,json; d=json.load(sys.stdin); print(any(g.get('name')=='prod-local' for g in (d if isinstance(d,list) else [])))")
+              if [ "$EXISTING_NS" = "False" ]; then
+                curl -s --max-time 10 -X POST \
+                  http://netbird-management.netbird.svc:80/api/dns/nameservers \
+                  -H "Authorization: Token ${PAT_TOKEN}" \
+                  -H "Content-Type: application/json" \
+                  -d '{"name":"prod-local","description":"prod.local via cluster CoreDNS","nameservers":[{"ip":"10.25.0.201","ns_type":"udp","port":53}],"enabled":true,"groups":["grp00000-0000-4000-a000-000000000001"],"primary":false,"domains":["prod.local"],"search_domains_enabled":true}' \
+                  -o /dev/null && echo "DNS nameserver group created: prod-local → 10.25.0.201"
+              else
+                echo "DNS nameserver group prod-local already exists — skipping"
+              fi
+
               echo "=== Bootstrap complete ==="
           env:
             - name: DB
