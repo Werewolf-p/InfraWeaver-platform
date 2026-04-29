@@ -53,17 +53,17 @@ spec:
 #
 # NetBird route 10.25.0.0/24 has masquerade=true. External VPN peers (100.64.x.x) reach
 # Traefik via the K8s netbird-client DaemonSet pods, which masquerade traffic through their
-# node's LAN IP. Traefik sees the K8s node IP, NOT the peer's CGNAT IP.
+# node's LAN IP. Due to kube-proxy SNAT in various scenarios, the source IP Traefik sees
+# depends on whether the traffic is same-node (hairpin) or cross-node (flannel VTEP):
 #
-# Hairpin NAT edge case: when the VPN traffic arrives on the SAME node as Traefik,
-# kube-proxy applies MASQUERADE and the source IP becomes the node's CNI bridge IP (10.244.x.1).
+#   Same node (hairpin NAT):  source = CNI bridge IP (10.244.x.1)
+#   Cross-node (via flannel): source = flannel VTEP IP (10.244.x.0)
+#   Direct peer:              source = NetBird CGNAT IP (100.64.x.x)
 #
-# Allow list:
-#   - 10.25.0.90-92 : K8s nodes (masquerade exit points for VPN clients, cross-node traffic)
-#   - 10.244.0.1-2.1: K8s CNI bridge IPs (hairpin NAT on same node as Traefik)
-#   - 100.64.0.0/10 : Direct WireGuard peers (if masquerade is disabled or for direct access)
+# All internal K8s cluster traffic originates from 10.244.0.0/16. Allowing this entire
+# pod CIDR covers all NetBird-masquerade paths while blocking local LAN users (10.25.0.x).
 #
-# Local LAN IPs (e.g. 10.25.0.50) are NOT in this list → 403 Forbidden.
+# Local LAN IPs (e.g. 10.25.0.50, 10.25.0.108) are NOT in any range → 403 Forbidden.
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
@@ -72,13 +72,9 @@ metadata:
 spec:
   ipAllowList:
     sourceRange:
-      - 100.64.0.0/10     # NetBird CGNAT CIDR (direct WireGuard peers)
-      - 10.25.0.90/32     # K8s node talos-prod-cp1 (masquerade exit for VPN clients)
-      - 10.25.0.91/32     # K8s node talos-prod-cp2 (masquerade exit for VPN clients)
-      - 10.25.0.92/32     # K8s node talos-prod-cp3 (masquerade exit for VPN clients)
-      - 10.244.0.1/32     # CNI bridge talos-prod-cp3 (hairpin NAT same-node traffic)
-      - 10.244.1.1/32     # CNI bridge talos-prod-cp2 (hairpin NAT same-node traffic)
-      - 10.244.2.1/32     # CNI bridge talos-prod-cp1 (hairpin NAT same-node traffic)
+      - 100.64.0.0/10     # NetBird CGNAT CIDR (direct WireGuard peers, no masquerade)
+      - 10.244.0.0/16     # K8s pod CIDR — all NetBird-masqueraded traffic arrives here
+                          # (hairpin via cni bridge 10.244.x.1, cross-node via flannel VTEP 10.244.x.0)
 ---
 # Middleware: add-https-headers — sets X-Forwarded-Proto for backends
 apiVersion: traefik.io/v1alpha1
