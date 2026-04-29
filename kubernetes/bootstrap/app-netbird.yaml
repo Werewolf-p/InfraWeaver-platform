@@ -24,3 +24,16 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
+  # Ignore ESO-managed Secret fields and ExternalSecret status conditions
+  ignoreDifferences:
+    - kind: Secret
+      name: netbird-secrets
+      jsonPointers:
+        - /metadata/annotations
+        - /metadata/labels
+        - /data
+    - group: external-secrets.io
+      kind: ExternalSecret
+      name: netbird-secrets
+      jqPathExpressions:
+        - '.status'
