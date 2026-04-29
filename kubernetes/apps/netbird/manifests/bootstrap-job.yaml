@@ -113,6 +113,15 @@ data:
       (ACC, json.dumps("10.25.0.0/24"), json.dumps([GRP]), json.dumps([GRP])))
     print("Route upserted: 10.25.0.0/24 via All group")
 
+    # Route for VLAN 3 subnet via "All" peer group
+    c.execute("""INSERT OR REPLACE INTO routes
+      (id, account_id, network, domains, keep_route, net_id, description, peer, peer_groups,
+       network_type, masquerade, metric, enabled, groups, access_control_groups, skip_auto_apply)
+      VALUES ('rte00000-0000-4000-a000-000000000002', ?, ?, '[]', 0,
+       'vlan3-net', 'VLAN 3 network route (10.10.0.0/24)', NULL, ?, 0, 1, 9998, 1, ?, '[]', 0)""",
+      (ACC, json.dumps("10.10.0.0/24"), json.dumps([GRP]), json.dumps([GRP])))
+    print("Route upserted: 10.10.0.0/24 via All group")
+
     conn.commit()
     conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
 
