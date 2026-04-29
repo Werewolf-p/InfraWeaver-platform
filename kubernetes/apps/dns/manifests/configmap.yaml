@@ -63,6 +63,7 @@ data:
     10.10.0.200  www.degoudentijd.rlservers.com
     10.10.0.200  feestinhetdonker.rlservers.com
     10.10.0.200  gitlab.rlservers.com
+    10.10.0.200  registry.gitlab.rlservers.com
     10.10.0.200  indexer.wazuh.rlservers.com
     10.10.0.200  keycloak.rlservers.com
     10.10.0.200  longhorn.rlservers.com
