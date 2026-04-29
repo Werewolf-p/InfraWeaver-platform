@@ -1,0 +1,48 @@
+---
+title: NetBird External Connectivity Fix
+description: How to diagnose and fix NetBird VPN when external peers cannot connect
+---
+
+# NetBird External Connectivity Fix
+
+## Memory
+
+- **File paths:**
+  - `kubernetes/apps/netbird/manifests/management.yaml` — Signal URI and TURNs config
+  - `kubernetes/apps/netbird/manifests/relay.yaml` — relay NB_EXPOSED_ADDRESS and ports
+  - `kubernetes/apps/dns/manifests/configmap.yaml` — prod.local DNS zone
+  - `/home/remon/Traefik/dynamic/netbird.yml` (Traefik VM 10.25.0.5) — relay backend port
+
+- **Decision:** Signal URI must use external public URL; relay listens on the port from NB_EXPOSED_ADDRESS
+
+- **Why it matters:**
+  - If `management.json` contains internal IPs for Signal/TURN, external peers get config they cannot route to
+  - ArgoCD is GitOps source of truth — direct `kubectl apply` is reverted immediately, changes MUST go through Git
+  - The init container originally had an `if [ ! -f management.json ]` guard — changed to always regenerate so config changes take effect on pod restart
+
+- **Relay Port Derivation:**
+  - NetBird relay v0.70+ derives its **listen port from `NB_EXPOSED_ADDRESS`**
+  - `NB_EXPOSED_ADDRESS=rels://netbird.rlservers.com:443/relay` → relay listens on `:443`
+  - K8s service targetPort and Traefik backend must BOTH match the relay's actual listen port
+  - Fix: service port `33080→443`, Traefik backend `10.25.0.202:33080→10.25.0.202:443`
+
+- **Signal Config:**
+  - Signal URI in management.json template: `https://netbird.rlservers.com:443`
+  - Proto must be `https` (not `http`) for TLS — Traefik terminates TLS and forwards via `h2c://`
+  - TURNs must be `[]` in v0.70+ — relay replaces TURN
+
+- **Validation:** Check `management.json` inside pod:
+  ```bash
+  kubectl exec -n netbird netbird-management-0 -- cat /var/lib/netbird/management.json
+  ```
+  Expected: Signal `https://netbird.rlservers.com:443`, TURNs `[]`
+
+- **Relay path routing:**
+  - Traefik: `PathPrefix('/relay')` → `http://10.25.0.202:443`
+  - relay must accept connections at `/relay` path (this is built-in, controlled by `NB_EXPOSED_ADDRESS`)
+  - Test: `curl https://netbird.rlservers.com/relay` should return `426 Upgrade Required` (WebSocket expected = relay is healthy)
+
+- **Lesson learned:**
+  - Relay `NB_EXPOSED_ADDRESS` port ≠ K8s service containerPort when original was 33080 but v0.70 uses the exposed address port
+  - Always restart management pod after config changes (init container regenerates management.json on start)
+  - CoreDNS prod.local hosts file must include every service that needs .prod.local resolution
