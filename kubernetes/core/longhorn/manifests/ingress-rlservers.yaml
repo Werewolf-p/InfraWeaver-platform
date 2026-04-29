@@ -5,6 +5,7 @@ metadata:
   name: longhorn-ingress-rlservers
   namespace: longhorn-system
   annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
     traefik.ingress.kubernetes.io/router.middlewares: traefik-netbird-only@kubernetescrd
 spec:
   ingressClassName: traefik

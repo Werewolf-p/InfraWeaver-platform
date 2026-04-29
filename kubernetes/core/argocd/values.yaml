@@ -16,6 +16,7 @@ server:
       - /
     pathType: Prefix
     annotations:
+      traefik.ingress.kubernetes.io/router.entrypoints: websecure
       traefik.ingress.kubernetes.io/router.middlewares: traefik-netbird-only@kubernetescrd
 
 repoServer:
