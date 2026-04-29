@@ -35,6 +35,7 @@ github_runners = {
   productie = {
     vm_id          = 9100
     ip             = "10.25.0.85"
+    vlan3_ip       = "10.10.0.85"
     template_vm_id = 9000
     cores          = 4
     memory_mb      = 4096

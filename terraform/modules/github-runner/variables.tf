@@ -41,6 +41,7 @@ variable "github_runners" {
   type = map(object({
     vm_id            = number
     ip               = string
+    vlan3_ip         = optional(string)    # VLAN 3 static IP for direct cluster access
     template_vm_id   = optional(number, 9000)
     cores            = optional(number, 2)
     memory_mb        = optional(number, 2048)

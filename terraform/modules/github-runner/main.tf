@@ -87,6 +87,7 @@ MEMORY="${each.value.memory_mb}"
 DISK_SIZE="${each.value.disk_size_gb}"
 STORAGE="${each.value.storage}"
 RUNNER_IP="${each.value.ip}"
+VLAN3_IP="${each.value.vlan3_ip != null ? each.value.vlan3_ip : ""}"
 GATEWAY="${coalesce(each.value.gateway, var.node_defaults.gateway)}"
 SUBNET_MASK="${coalesce(each.value.subnet_mask, var.node_defaults.subnet_mask)}"
 DNS="${join(" ", var.proxmox_dns_servers)}"
@@ -127,6 +128,13 @@ else
     --nameserver "$DNS" \
     --ciuser ubuntu \
     --ciupgrade 0
+
+  # Add VLAN 3 NIC for direct cluster access (bypasses NetBird requirement)
+  if [ -n "$VLAN3_IP" ]; then
+    echo "  Adding VLAN 3 NIC (eth1) at $VLAN3_IP/24..."
+    qm set "$VMID" --net1 "virtio,bridge=vmbr0,tag=3"
+    qm set "$VMID" --ipconfig1 "ip=$VLAN3_IP/24"
+  fi
 
   # Set SSH keys BEFORE first boot so cloud-init picks them up
   if [ -f "$KEYS_FILE" ]; then

@@ -471,25 +471,46 @@ resource "null_resource" "start_and_configure_talos" {
         echo "==> [${each.key}] VM $VMID already running."
       fi
 
-      # ── Wait for Talos maintenance API on static IP ───────────────────────
-      # The node uses the fixed MAC → DHCP reservation gives it TARGET_IP.
-      # Simply poll port 50000 directly — no ARP scanning needed.
-      echo "==> [${each.key}] Waiting for Talos maintenance API on $TARGET_IP:50000 (up to 6 min)..."
+      # ── Discover IP: scan VLAN3 from runner, match by MAC ────────────────
+      # The runner has a VLAN 3 NIC (eth1/10.10.0.85) so it can reach nodes
+      # directly. Scan 10.10.0.0/24 for port 50000, then ARP-match the MAC.
+      MAC=$(ssh $SSH_OPTS root@"$PVE_IP" \
+        "qm config $VMID 2>/dev/null | grep '^net0:' | grep -oiP '(?<=virtio=)[A-Fa-f0-9:]+'" \
+        2>/dev/null | tr '[:upper:]' '[:lower:]' || echo "")
+      echo "==> [${each.key}] VM MAC: $MAC"
+
       DHCP_IP=""
+      echo "==> [${each.key}] Scanning VLAN3 for Talos API (up to 6 min)..."
       for attempt in $(seq 1 24); do
-        if timeout 3 bash -c "echo >/dev/tcp/$TARGET_IP/50000" 2>/dev/null; then
-          DHCP_IP="$TARGET_IP"
-          echo "  [${each.key}] Talos API reachable at $TARGET_IP (attempt $attempt) ✓"
+        # Scan all 10.10.0.x IPs for open port 50000 (triggers ARP on runner)
+        TMPF=$(mktemp /tmp/talos_XXXXXX)
+        for last in $(seq 1 254); do
+          ip_="10.10.0.$last"
+          (timeout 0.3 bash -c "echo >/dev/tcp/$ip_/50000" 2>/dev/null && echo $ip_ >> "$TMPF") &
+        done
+        wait 2>/dev/null; sleep 0.5
+        if [ -s "$TMPF" ]; then
+          while IFS= read -r cip; do
+            cmac=$(arp -n "$cip" 2>/dev/null | awk '/'"$cip"'/{print tolower($3)}' | head -1)
+            if [ "$cmac" = "$MAC" ]; then DHCP_IP="$cip"; break; fi
+          done < "$TMPF"
+        fi
+        rm -f "$TMPF"
+
+        if [ -n "$DHCP_IP" ]; then
+          echo "  [${each.key}] Found at $DHCP_IP (attempt $attempt) ✓"
           break
         fi
-        echo "  [${each.key}] Not reachable yet (attempt $attempt/24), waiting 15s..."
+        echo "  [${each.key}] Not found yet (attempt $attempt/24), waiting 15s..."
         sleep 15
       done
 
       if [ -z "$DHCP_IP" ]; then
-        echo "ERROR: Talos API at $TARGET_IP:50000 not reachable after 6 min" >&2
+        echo "ERROR: Could not find Talos API for ${each.key} (MAC: $MAC) on 10.10.0.0/24" >&2
         exit 1
       fi
+
+      echo "==> [${each.key}] Talos API at $DHCP_IP:50000 ✓"
 
       # ── Apply machine config (sets static IP, triggers reboot) ────────────
       # First try --insecure (maintenance mode, new node). If that fails with a
