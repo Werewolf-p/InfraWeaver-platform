@@ -889,16 +889,21 @@ jobs:
         run: |
           KB=~/.kube/config-platform-${{ env.ENV_NAME }}
 
-          # Add forward rules for rlservers.com and prod.local to our custom CoreDNS (10.25.0.201).
-          # kube-system CoreDNS is managed by k3s/talos and must be patched post-install;
+          # Add forward rules for rlservers.com and prod.local to our custom CoreDNS.
+          # kube-system CoreDNS is managed by talos and must be patched post-install;
           # without this, cert-manager self-checks for rlservers.com domains fail (NXDOMAIN).
+          # We use the ClusterIP (not the MetalLB external IP) so pod-network traffic can reach it.
           echo "==> Patching kube-system CoreDNS to forward rlservers.com + prod.local..."
-          kubectl --kubeconfig "$KB" patch configmap coredns -n kube-system --type=merge -p '
-{
-  "data": {
-    "Corefile": ".:53 {\n    errors\n    health {\n        lameduck 5s\n    }\n    ready\n    log . {\n        class error\n    }\n    prometheus :9153\n\n    kubernetes cluster.local in-addr.arpa ip6.arpa {\n        pods insecure\n        fallthrough in-addr.arpa ip6.arpa\n        ttl 30\n    }\n    forward . /etc/resolv.conf {\n       max_concurrent 1000\n    }\n    cache 30 {\n       disable success cluster.local\n       disable denial cluster.local\n    }\n    loop\n    reload\n    loadbalance\n}\n\nrlservers.com:53 {\n    errors\n    forward . 10.25.0.201\n    cache 30\n}\n\nprod.local:53 {\n    errors\n    forward . 10.25.0.201\n    cache 30\n}\n"
+
+          # Dynamically resolve the dns-system ClusterIP (stable within cluster, but may change on redeploy)
+          DNS_CLUSTERIP=$(kubectl --kubeconfig "$KB" get svc coredns -n dns-system -o jsonpath='{.spec.clusterIP}')
+          echo "Using dns-system ClusterIP: $DNS_CLUSTERIP"
+
+          kubectl --kubeconfig "$KB" patch configmap coredns -n kube-system --type=merge -p "{
+  \"data\": {
+    \"Corefile\": \".:53 {\n    errors\n    health {\n        lameduck 5s\n    }\n    ready\n    log . {\n        class error\n    }\n    prometheus :9153\n\n    kubernetes cluster.local in-addr.arpa ip6.arpa {\n        pods insecure\n        fallthrough in-addr.arpa ip6.arpa\n        ttl 30\n    }\n    forward . /etc/resolv.conf {\n       max_concurrent 1000\n    }\n    cache 30 {\n       disable success cluster.local\n       disable denial cluster.local\n    }\n    loop\n    reload\n    loadbalance\n}\n\nrlservers.com:53 {\n    errors\n    forward . $DNS_CLUSTERIP\n    cache 30\n}\n\nprod.local:53 {\n    errors\n    forward . $DNS_CLUSTERIP\n    cache 30\n}\n\"
   }
-}'
+}"
           kubectl --kubeconfig "$KB" rollout restart deployment/coredns -n kube-system
           kubectl --kubeconfig "$KB" rollout status deployment/coredns -n kube-system --timeout=60s
           echo "✅ kube-system CoreDNS patched"

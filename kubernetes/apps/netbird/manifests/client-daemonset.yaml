@@ -54,10 +54,6 @@ spec:
           volumeMounts:
             - name: tun
               mountPath: /dev/net/tun
-      hostAliases:
-        - ip: "10.25.0.5"
-          hostnames:
-            - "netbird.rlservers.com"
       volumes:
         - name: tun
           hostPath:

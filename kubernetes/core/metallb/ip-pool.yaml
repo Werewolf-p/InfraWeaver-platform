@@ -1,10 +1,14 @@
-# MetalLB IP Address Pool and L2 Advertisement for productie
-# IP range: 10.25.0.200-210 (reserved for k8s LoadBalancer services)
-# 10.25.0.200 → Traefik ingress VIP
+# MetalLB IP Address Pools for productie
+#
+# Single pool on VLAN 3 (10.10.0.0/24):
+#   vlan3-pool (10.10.0.200-210) — VLAN 3 NIC (eth1)
+#
+# 10.10.0.200 → Traefik ingress VIP (NetBird-only protected services)
+# 10.10.0.201 → Custom CoreDNS (reachable by VLAN 2 via firewall rule on port 53)
 apiVersion: metallb.io/v1beta1
 kind: IPAddressPool
 metadata:
-  name: prod-pool
+  name: vlan3-pool
   namespace: metallb-system
 spec:
   addresses:
@@ -17,7 +21,7 @@ metadata:
   namespace: metallb-system
 spec:
   ipAddressPools:
-    - prod-pool
+    - vlan3-pool
   # Explicitly select all nodes (including control-plane).
   # In MetalLB v0.14+, explicit nodeSelectors bypass the automatic
   # node.kubernetes.io/exclude-from-external-load-balancers exclusion

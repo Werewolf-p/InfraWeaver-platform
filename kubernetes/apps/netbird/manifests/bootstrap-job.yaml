@@ -234,8 +234,8 @@ spec:
                   http://netbird-management.netbird.svc:80/api/dns/nameservers \
                   -H "Authorization: Token ${PAT_TOKEN}" \
                   -H "Content-Type: application/json" \
-                  -d '{"name":"prod-local","description":"prod.local via cluster CoreDNS","nameservers":[{"ip":"10.25.0.201","ns_type":"udp","port":53}],"enabled":true,"groups":["grp00000-0000-4000-a000-000000000001"],"primary":false,"domains":["prod.local"],"search_domains_enabled":true}' \
-                  -o /dev/null && echo "DNS nameserver group created: prod-local → 10.25.0.201"
+                  -d '{"name":"prod-local","description":"prod.local via cluster CoreDNS","nameservers":[{"ip":"10.10.0.201","ns_type":"udp","port":53}],"enabled":true,"groups":["grp00000-0000-4000-a000-000000000001"],"primary":false,"domains":["prod.local"],"search_domains_enabled":true}' \
+                  -o /dev/null && echo "DNS nameserver group created: prod-local → 10.10.0.201"
               else
                 echo "DNS nameserver group prod-local already exists — skipping"
               fi
