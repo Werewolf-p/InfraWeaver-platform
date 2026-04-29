@@ -7,23 +7,18 @@ metadata:
 spec:
   selfSigned: {}
 ---
-# Let's Encrypt ClusterIssuer using Cloudflare DNS-01 challenge
-# No port 80 required — works with only port 443 exposed externally.
-# Cloudflare API token is pulled from OpenBao via ExternalSecret.
+# Let's Encrypt ClusterIssuer using HTTP-01 challenge via Traefik
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata:
-  name: letsencrypt-cloudflare
+  name: letsencrypt-http
 spec:
   acme:
     server: https://acme-v02.api.letsencrypt.org/directory
     email: remonhulst@gmail.com
     privateKeySecretRef:
-      name: letsencrypt-cloudflare-account-key
+      name: letsencrypt-http-account-key
     solvers:
-      - dns01:
-          cloudflare:
-            email: remonhulst@gmail.com
-            apiTokenSecretRef:
-              name: cloudflare-api-token-secret
-              key: api-token
+      - http01:
+          ingress:
+            ingressClassName: traefik

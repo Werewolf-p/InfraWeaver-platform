@@ -1,6 +1,6 @@
 ---
-# Wildcard certificate for *.rlservers.com
-# Stored in traefik namespace, used as TLSStore default cert.
+# Certificate for rlservers.com — all explicit subdomains (HTTP-01, no wildcard)
+# Secret kept as rlservers-com-wildcard-tls so TLSStore default still works.
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -9,13 +9,44 @@ metadata:
 spec:
   secretName: rlservers-com-wildcard-tls
   issuerRef:
-    name: letsencrypt-cloudflare
+    name: letsencrypt-http
     kind: ClusterIssuer
-  commonName: "*.rlservers.com"
   dnsNames:
-    - "*.rlservers.com"
     - "rlservers.com"
-    - "*.gitlab.rlservers.com"
+    - "www.rlservers.com"
+    - "argocd.rlservers.com"
+    - "grafana.rlservers.com"
+    - "longhorn.rlservers.com"
+    - "openbao.rlservers.com"
+    - "netbird.rlservers.com"
+    - "test.rlservers.com"
+    - "traefik.rlservers.com"
+    - "gitlab.rlservers.com"
+    - "registry.gitlab.rlservers.com"
+    - "registry.rlservers.com"
+    - "bitwarden.rlservers.com"
+    - "bitwarden-admin.rlservers.com"
+    - "portainer.rlservers.com"
+    - "portainer2.rlservers.com"
+    - "proxmox.rlservers.com"
+    - "truenas.rlservers.com"
+    - "adguard.rlservers.com"
+    - "cloud.rlservers.com"
+    - "keycloak.rlservers.com"
+    - "auth.rlservers.com"
+    - "ansible.rlservers.com"
+    - "awx.rlservers.com"
+    - "vault1.rlservers.com"
+    - "overseer.rlservers.com"
+    - "radarr.rlservers.com"
+    - "sonarr.rlservers.com"
+    - "wazuh.rlservers.com"
+    - "indexer.wazuh.rlservers.com"
+    - "teleport.rlservers.com"
+    - "degoudentijd.rlservers.com"
+    - "www.degoudentijd.rlservers.com"
+    - "feestinhetdonker.rlservers.com"
+    - "marcel.rlservers.com"
 ---
 # Certificate for yonavaarwater.nl
 apiVersion: cert-manager.io/v1
@@ -26,7 +57,7 @@ metadata:
 spec:
   secretName: yonavaarwater-nl-tls
   issuerRef:
-    name: letsencrypt-cloudflare
+    name: letsencrypt-http
     kind: ClusterIssuer
   dnsNames:
     - "yonavaarwater.nl"
@@ -42,7 +73,7 @@ metadata:
 spec:
   secretName: zonnevaarwater-nl-tls
   issuerRef:
-    name: letsencrypt-cloudflare
+    name: letsencrypt-http
     kind: ClusterIssuer
   dnsNames:
     - "zonnevaarwater.nl"
@@ -57,7 +88,7 @@ metadata:
 spec:
   secretName: waterdance-nl-tls
   issuerRef:
-    name: letsencrypt-cloudflare
+    name: letsencrypt-http
     kind: ClusterIssuer
   dnsNames:
     - "waterdance.nl"
