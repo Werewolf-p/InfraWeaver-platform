@@ -9,6 +9,7 @@ nodes:
   talos-prod-cp1:
     proxmox_node: "proxmox"
     ip: "10.25.0.90"
+    vlan3_ip: "10.10.0.90"
     vm_id: 9310
     controlplane: true
     cpu: 8
@@ -18,6 +19,7 @@ nodes:
   talos-prod-cp2:
     proxmox_node: "proxmox"
     ip: "10.25.0.91"
+    vlan3_ip: "10.10.0.91"
     vm_id: 9311
     controlplane: true
     cpu: 8
@@ -27,6 +29,7 @@ nodes:
   talos-prod-cp3:
     proxmox_node: "proxmox"
     ip: "10.25.0.92"
+    vlan3_ip: "10.10.0.92"
     vm_id: 9312
     controlplane: true
     cpu: 8
@@ -40,6 +43,7 @@ pve_nodes:
   proxmox: "10.25.0.3"
 
 gateway: "10.25.0.1"
+vlan3_subnet_prefix: 24
 nameservers:
   - "8.8.8.8"
   - "1.1.1.1"

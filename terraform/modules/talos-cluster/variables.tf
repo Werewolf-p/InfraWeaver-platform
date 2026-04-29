@@ -123,6 +123,7 @@ variable "nodes" {
   type = map(object({
     proxmox_node = string
     ip           = string
+    vlan3_ip     = optional(string)   # Secondary VLAN 3 IP (10.10.0.x); null = no VLAN 3 NIC
     mac_address  = optional(string)
     controlplane = bool
     cpu          = optional(number, 4)
@@ -158,7 +159,7 @@ variable "nodes" {
 # ---------------------------------------------------------------------------
 
 variable "gateway" {
-  description = "Default gateway for all Talos nodes."
+  description = "Default gateway for all Talos nodes (eth0)."
   type        = string
 
   validation {
@@ -179,13 +180,34 @@ variable "nameservers" {
 }
 
 variable "subnet_prefix" {
-  description = "CIDR prefix length for node addresses (e.g. 24 → /24)."
+  description = "CIDR prefix length for node addresses on eth0 (e.g. 24 → /24)."
   type        = number
   default     = 24
 
   validation {
     condition     = var.subnet_prefix >= 8 && var.subnet_prefix <= 30
     error_message = "subnet_prefix must be between 8 and 30."
+  }
+}
+
+# ---------------------------------------------------------------------------
+# VLAN 3 (NetBird-only) secondary NIC
+# ---------------------------------------------------------------------------
+
+variable "vlan3_tag" {
+  description = "VLAN ID for the secondary NIC (NetBird-only network). Set to 0 to disable."
+  type        = number
+  default     = 3
+}
+
+variable "vlan3_subnet_prefix" {
+  description = "CIDR prefix length for node eth1 addresses on VLAN 3 (e.g. 24 → /24)."
+  type        = number
+  default     = 24
+
+  validation {
+    condition     = var.vlan3_subnet_prefix >= 8 && var.vlan3_subnet_prefix <= 30
+    error_message = "vlan3_subnet_prefix must be between 8 and 30."
   }
 }
 

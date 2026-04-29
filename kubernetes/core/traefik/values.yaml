@@ -3,7 +3,7 @@ deployment:
 
 service:
   type: LoadBalancer
-  loadBalancerIP: "10.25.0.200"
+  loadBalancerIP: "10.10.0.200"
   spec:
     externalTrafficPolicy: Local  # Preserve real client IPs for IP allowlist middleware
 

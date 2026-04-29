@@ -40,59 +40,59 @@ data:
     }
 
   rlservers.com.hosts: |
-    # rlservers.com — all services route through K8s Traefik at 10.25.0.200
+    # rlservers.com — all services route through K8s Traefik at 10.10.0.200
     # K8s Traefik proxies to the actual bare-metal or cluster backend.
 
     # ── Cluster apps ─────────────────────────────────────────────────────────
-    10.25.0.200  argocd.rlservers.com
-    10.25.0.200  grafana.rlservers.com
-    10.25.0.200  longhorn.rlservers.com
-    10.25.0.200  netbird.rlservers.com
-    10.25.0.200  openbao.rlservers.com
-    10.25.0.200  test.rlservers.com
+    10.10.0.200  argocd.rlservers.com
+    10.10.0.200  grafana.rlservers.com
+    10.10.0.200  longhorn.rlservers.com
+    10.10.0.200  netbird.rlservers.com
+    10.10.0.200  openbao.rlservers.com
+    10.10.0.200  test.rlservers.com
 
     # ── Bare-metal services (proxied through K8s Traefik → bare-metal) ───────
-    10.25.0.200  adguard.rlservers.com
-    10.25.0.200  ansible.rlservers.com
-    10.25.0.200  auth.rlservers.com
-    10.25.0.200  awx.rlservers.com
-    10.25.0.200  bitwarden.rlservers.com
-    10.25.0.200  bitwarden-admin.rlservers.com
-    10.25.0.200  cloud.rlservers.com
-    10.25.0.200  degoudentijd.rlservers.com
-    10.25.0.200  www.degoudentijd.rlservers.com
-    10.25.0.200  feestinhetdonker.rlservers.com
-    10.25.0.200  gitlab.rlservers.com
-    10.25.0.200  indexer.wazuh.rlservers.com
-    10.25.0.200  keycloak.rlservers.com
-    10.25.0.200  longhorn.rlservers.com
-    10.25.0.200  marcel.rlservers.com
-    10.25.0.200  overseer.rlservers.com
-    10.25.0.200  portainer.rlservers.com
-    10.25.0.200  portainer2.rlservers.com
-    10.25.0.200  proxmox.rlservers.com
-    10.25.0.200  radarr.rlservers.com
-    10.25.0.200  registry.rlservers.com
-    10.25.0.200  rlservers.com
-    10.25.0.200  www.rlservers.com
-    10.25.0.200  sonarr.rlservers.com
-    10.25.0.200  teleport.rlservers.com
-    10.25.0.200  traefik.rlservers.com
-    10.25.0.200  truenas.rlservers.com
-    10.25.0.200  vault1.rlservers.com
-    10.25.0.200  wazuh.rlservers.com
-    10.25.0.200  wiki.rlservers.com
+    10.10.0.200  adguard.rlservers.com
+    10.10.0.200  ansible.rlservers.com
+    10.10.0.200  auth.rlservers.com
+    10.10.0.200  awx.rlservers.com
+    10.10.0.200  bitwarden.rlservers.com
+    10.10.0.200  bitwarden-admin.rlservers.com
+    10.10.0.200  cloud.rlservers.com
+    10.10.0.200  degoudentijd.rlservers.com
+    10.10.0.200  www.degoudentijd.rlservers.com
+    10.10.0.200  feestinhetdonker.rlservers.com
+    10.10.0.200  gitlab.rlservers.com
+    10.10.0.200  indexer.wazuh.rlservers.com
+    10.10.0.200  keycloak.rlservers.com
+    10.10.0.200  longhorn.rlservers.com
+    10.10.0.200  marcel.rlservers.com
+    10.10.0.200  overseer.rlservers.com
+    10.10.0.200  portainer.rlservers.com
+    10.10.0.200  portainer2.rlservers.com
+    10.10.0.200  proxmox.rlservers.com
+    10.10.0.200  radarr.rlservers.com
+    10.10.0.200  registry.rlservers.com
+    10.10.0.200  rlservers.com
+    10.10.0.200  www.rlservers.com
+    10.10.0.200  sonarr.rlservers.com
+    10.10.0.200  teleport.rlservers.com
+    10.10.0.200  traefik.rlservers.com
+    10.10.0.200  truenas.rlservers.com
+    10.10.0.200  vault1.rlservers.com
+    10.10.0.200  wazuh.rlservers.com
+    10.10.0.200  wiki.rlservers.com
 
     # ── Static / non-Traefik ──────────────────────────────────────────────────
     10.25.0.43   dc1.rlservers.com
 
   prod.local.hosts: |
     # prod.local — Talos Kubernetes cluster services
-    # All route through cluster Traefik at 10.25.0.200
+    # All route through cluster Traefik at 10.10.0.200
 
-    10.25.0.200  argocd.prod.local
-    10.25.0.200  grafana.prod.local
-    10.25.0.200  longhorn.prod.local
-    10.25.0.200  netbird.prod.local
-    10.25.0.200  openbao.prod.local
-    10.25.0.200  test.prod.local
+    10.10.0.200  argocd.prod.local
+    10.10.0.200  grafana.prod.local
+    10.10.0.200  longhorn.prod.local
+    10.10.0.200  netbird.prod.local
+    10.10.0.200  openbao.prod.local
+    10.10.0.200  test.prod.local

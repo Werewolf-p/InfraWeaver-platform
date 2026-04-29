@@ -194,6 +194,18 @@ resource "proxmox_virtual_environment_vm" "talos" {
     mac_address = each.value.mac_address != null ? each.value.mac_address : null
   }
 
+  # Secondary VirtIO NIC on VLAN 3 (10.10.0.0/24) — used for NetBird-only access.
+  # This NIC is unreachable from the local LAN, providing network-level isolation.
+  # Only NetBird VPN clients with a route to 10.10.0.0/24 can reach services.
+  dynamic "network_device" {
+    for_each = each.value.vlan3_ip != null ? [1] : []
+    content {
+      bridge   = "vmbr0"
+      model    = "virtio"
+      vlan_id  = var.vlan3_tag
+    }
+  }
+
   # Serial console — essential for Talos API and console access
   serial_device {}
 
@@ -343,18 +355,26 @@ data "talos_machine_configuration" "this" {
           # NOTE: hostname is NOT set here (machine.network.hostname) because Talos v1.12+
           # adds a HostnameConfig document automatically. Having both causes a validation error.
           # The hostname is handled below by post-processing the generated machine config.
-          interfaces = [
-            {
-              interface = "eth0"
-              addresses = ["${each.value.ip}/${var.subnet_prefix}"]
-              routes = [
-                {
-                  network = "0.0.0.0/0"
-                  gateway = var.gateway
-                }
-              ]
-            }
-          ]
+          interfaces = concat(
+            [
+              {
+                interface = "eth0"
+                addresses = ["${each.value.ip}/${var.subnet_prefix}"]
+                routes = [
+                  {
+                    network = "0.0.0.0/0"
+                    gateway = var.gateway
+                  }
+                ]
+              }
+            ],
+            each.value.vlan3_ip != null ? [
+              {
+                interface = "eth1"
+                addresses = ["${each.value.vlan3_ip}/${var.vlan3_subnet_prefix}"]
+              }
+            ] : []
+          )
           nameservers = var.nameservers
         }
         features = {

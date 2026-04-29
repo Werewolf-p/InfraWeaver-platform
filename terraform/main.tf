@@ -34,6 +34,7 @@ locals {
     for name, cfg in local.nodes_raw : name => {
       proxmox_node = cfg.proxmox_node
       ip           = cfg.ip
+      vlan3_ip     = try(cfg.vlan3_ip, null)
       mac_address  = try(cfg.mac_address, null)
       controlplane = cfg.controlplane
       cpu          = try(cfg.cpu, 4)
@@ -85,9 +86,10 @@ module "talos_cluster" {
   nodes = local.nodes
 
   # Network
-  gateway       = local.cluster_config.gateway
-  nameservers   = local.cluster_config.nameservers
-  subnet_prefix = local.cluster_config.subnet_prefix
+  gateway             = local.cluster_config.gateway
+  nameservers         = local.cluster_config.nameservers
+  subnet_prefix       = local.cluster_config.subnet_prefix
+  vlan3_subnet_prefix = try(local.cluster_config.vlan3_subnet_prefix, 24)
 
   talos_image_datastore = local.cluster_config.talos_image_datastore
 

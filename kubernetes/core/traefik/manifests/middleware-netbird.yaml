@@ -3,10 +3,9 @@
 # Apply this middleware to private services (ArgoCD, Grafana, Longhorn)
 # The test-website does NOT use this middleware (it's public)
 #
-# NetBird route has masquerade=true. VPN clients (100.64.x.x) access 10.25.0.0/24 via
-# netbird-client daemonset pods running on K8s nodes (10.25.0.90-92).
-# Traefik sees the node LAN IP as source, NOT the client's VPN IP.
-# Allow the full 10.25.0.0/24 LAN so any node (current or future) can route VPN traffic.
+# With VLAN 3 migration: K8s nodes have eth1 on 10.10.0.0/24 (VLAN 3), unreachable
+# from local LAN. NetBird VPN clients reach services via masquerade through 10.10.0.x.
+# Keep 10.25.0.0/24 for internal cluster traffic (eth0) and pod CIDR.
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
@@ -16,5 +15,6 @@ spec:
   ipAllowList:
     sourceRange:
       - 100.64.0.0/10    # NetBird CGNAT CIDR (direct WireGuard peers, no masquerade)
-      - 10.25.0.0/24     # Homelab LAN — K8s nodes masquerade VPN traffic through their node IP
+      - 10.10.0.0/24     # VLAN 3: K8s nodes masquerade VPN traffic via eth1
+      - 10.244.0.0/16    # K8s pod CIDR (hairpin/cross-node masquerade paths)
       - 127.0.0.1/32     # Localhost
