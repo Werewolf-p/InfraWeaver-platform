@@ -47,6 +47,7 @@ spec:
     - "www.degoudentijd.rlservers.com"
     - "feestinhetdonker.rlservers.com"
     - "marcel.rlservers.com"
+    - "wiki.rlservers.com"
 ---
 # Certificate for yonavaarwater.nl
 apiVersion: cert-manager.io/v1

@@ -31,6 +31,9 @@ spec:
   routes:
     - match: Host(`degoudentijd.rlservers.com`) || Host(`www.degoudentijd.rlservers.com`)
       kind: Rule
+      middlewares:
+        - name: add-https-headers
+          namespace: traefik
       services:
         - name: bm-degoudentijd
           port: 80
@@ -48,6 +51,9 @@ spec:
   routes:
     - match: Host(`feestinhetdonker.rlservers.com`)
       kind: Rule
+      middlewares:
+        - name: add-https-headers
+          namespace: traefik
       services:
         - name: bm-feest
           port: 5000
@@ -65,6 +71,9 @@ spec:
   routes:
     - match: Host(`marcel.rlservers.com`)
       kind: Rule
+      middlewares:
+        - name: add-https-headers
+          namespace: traefik
       services:
         - name: bm-marcel
           port: 5000
@@ -240,6 +249,9 @@ spec:
   routes:
     - match: Host(`yonavaarwater.nl`) || Host(`www.yonavaarwater.nl`)
       kind: Rule
+      middlewares:
+        - name: add-https-headers
+          namespace: traefik
       services:
         - name: bm-wp-yonava
           port: 80
@@ -279,6 +291,9 @@ spec:
   routes:
     - match: Host(`zonnevaarwater.nl`) || Host(`www.zonnevaarwater.nl`)
       kind: Rule
+      middlewares:
+        - name: add-https-headers
+          namespace: traefik
       services:
         - name: bm-wp-zonneva
           port: 80
