@@ -103,12 +103,14 @@ data:
         print(f"PAT upserted (token prefix: {PAT_TOKEN[:12]}...)")
 
     # Route for cluster subnet via "All" peer group (peer_groups avoids hardcoded peer IDs)
+    # routes.network must be JSON-encoded string (e.g. '"10.25.0.0/24"') so migratePreAuto
+    # sees valid JSON and skips gob-decode (plain string triggers gob decode → crash)
     c.execute("""INSERT OR REPLACE INTO routes
       (id, account_id, network, domains, keep_route, net_id, description, peer, peer_groups,
        network_type, masquerade, metric, enabled, groups, access_control_groups, skip_auto_apply)
-      VALUES ('rte00000-0000-4000-a000-000000000001', ?, '10.25.0.0/24', '[]', 0,
+      VALUES ('rte00000-0000-4000-a000-000000000001', ?, ?, '[]', 0,
        'cluster-net', 'Cluster network route', NULL, ?, 0, 1, 9999, 1, ?, '[]', 0)""",
-      (ACC, json.dumps([GRP]), json.dumps([GRP])))
+      (ACC, json.dumps("10.25.0.0/24"), json.dumps([GRP]), json.dumps([GRP])))
     print("Route upserted: 10.25.0.0/24 via All group")
 
     conn.commit()
