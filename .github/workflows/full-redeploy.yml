@@ -515,8 +515,11 @@ jobs:
             sleep 10
           done
 
-          # Port-forward so the workflow runner can reach OpenBao
-          kubectl --kubeconfig "$KB" port-forward -n openbao svc/openbao 8200:8200 &
+          # Port-forward directly to the pod (avoids endpoint readiness gate)
+          BAO_POD=$(kubectl --kubeconfig "$KB" get pod -n openbao \
+            -l app.kubernetes.io/name=openbao --no-headers \
+            -o custom-columns=":metadata.name" | head -1)
+          kubectl --kubeconfig "$KB" port-forward -n openbao "pod/${BAO_POD}" 8200:8200 &
           PF_PID=$!
           sleep 5
 
@@ -602,11 +605,17 @@ jobs:
             2>/dev/null || echo "")
           if [ -z "$EXISTING_GRAFANA" ]; then
             GRAFANA_PASS=$(openssl rand -base64 20 | tr -d '=+/')
-            curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/platform/grafana" \
+            GRAFANA_WRITE=$(curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/platform/grafana" \
               -H "X-Vault-Token: $ROOT_TOKEN" \
               -H "Content-Type: application/json" \
-              -d "{\"data\": {\"admin-user\": \"admin\", \"admin-password\": \"$GRAFANA_PASS\"}}" > /dev/null
-            echo "==> Grafana secret written (randomly generated)"
+              -d "{\"data\": {\"admin-user\": \"admin\", \"admin-password\": \"$GRAFANA_PASS\"}}")
+            GRAFANA_VERSION=$(echo "$GRAFANA_WRITE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('data',{}).get('version',''))" 2>/dev/null || echo "")
+            if [ -n "$GRAFANA_VERSION" ]; then
+              echo "==> Grafana secret written (randomly generated, version=$GRAFANA_VERSION)"
+            else
+              echo "⚠ Grafana write may have failed: $GRAFANA_WRITE"
+              exit 1
+            fi
           else
             echo "==> Grafana secret already exists — preserving existing password"
           fi
@@ -625,7 +634,7 @@ jobs:
           fi
 
           # ArgoCD remon: generate random password, apply bcrypt hash to argocd-secret, store in OpenBao
-          python3 -c "import bcrypt" 2>/dev/null || sudo apt-get install -y python3-bcrypt -q 2>/dev/null || true
+          python3 -c "import bcrypt" 2>/dev/null || pip3 install --quiet bcrypt 2>/dev/null || sudo apt-get install -y python3-bcrypt -q 2>/dev/null || true
           REMON_PASS=$(openssl rand -base64 20 | tr -d '=+/')
           REMON_PASS_FILE=$(mktemp)
           REMON_PATCH_FILE=$(mktemp)
