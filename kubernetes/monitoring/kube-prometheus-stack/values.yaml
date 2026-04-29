@@ -23,14 +23,13 @@ grafana:
     enabled: true
     size: 5Gi
 
-  # Avoid cp1 (talos-prod-cp1) which has a persistent Docker Hub connectivity issue
+  # Exclude cp1 (talos-prod-cp1) which has a persistent Docker Hub connectivity issue
   # causing init container image pulls to hang/fail on that node.
   affinity:
     nodeAffinity:
-      preferredDuringSchedulingIgnoredDuringExecution:
-        - weight: 100
-          preference:
-            matchExpressions:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
               - key: kubernetes.io/hostname
                 operator: NotIn
                 values:
