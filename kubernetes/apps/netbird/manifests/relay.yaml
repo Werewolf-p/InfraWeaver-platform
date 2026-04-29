@@ -25,7 +25,7 @@ spec:
           imagePullPolicy: Always
           env:
             - name: NB_EXPOSED_ADDRESS
-              value: "rels://10.25.0.202:33080"
+              value: "rels://netbird.rlservers.com:443/relay"
             - name: NB_AUTH_SECRET
               valueFrom:
                 secretKeyRef:

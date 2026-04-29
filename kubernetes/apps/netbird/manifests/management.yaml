@@ -11,8 +11,8 @@ data:
   management.json.template: |
     {
       "Stuns": [{"Proto":"udp","URI":"stun:stun.l.google.com:19302","Username":"","Password":null}],
-      "TURNs": [{"Proto":"udp","URI":"turn:10.25.0.202:3478","Username":"netbird","Password":"TURN_PASSWORD_PLACEHOLDER"}],
-      "Signal": {"Proto":"http","URI":"10.25.0.204:10000","Username":"","Password":null},
+      "TURNs": [],
+      "Signal": {"Proto":"https","URI":"netbird.rlservers.com:443","Username":"","Password":null},
       "Datadir": "/var/lib/netbird/",
       "HttpConfig": {
         "LetsEncryptDomain":"","CertFile":"","CertKey":"",
@@ -66,21 +66,11 @@ spec:
             - sh
             - -c
             - |
-              if [ ! -f /var/lib/netbird/management.json ]; then
-                echo "Generating management.json from template (substituting secrets)"
-                sed -e "s|TURN_PASSWORD_PLACEHOLDER|${NB_TURN_PASSWORD}|g" \
-                    -e "s|DATASTORE_KEY_PLACEHOLDER|${NB_DATASTORE_ENC_KEY}|g" \
-                    /config-source/management.json.template > /var/lib/netbird/management.json
-                echo "management.json generated"
-              else
-                echo "management.json already exists, skipping"
-              fi
+              echo "Generating management.json from template (substituting secrets)"
+              sed -e "s|DATASTORE_KEY_PLACEHOLDER|${NB_DATASTORE_ENC_KEY}|g" \
+                  /config-source/management.json.template > /var/lib/netbird/management.json
+              echo "management.json generated"
           env:
-            - name: NB_TURN_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: netbird-secrets
-                  key: turn-password
             - name: NB_DATASTORE_ENC_KEY
               valueFrom:
                 secretKeyRef:
