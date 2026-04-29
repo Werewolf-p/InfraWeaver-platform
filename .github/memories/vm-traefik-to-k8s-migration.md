@@ -154,3 +154,30 @@ Quick check: `curl -sv --connect-timeout 3 http://<ip>/ 2>&1 | grep "< HTTP"`
 - `kubernetes/apps/external-routes/manifests/01-middlewares.yaml` (catch-all redirect IngressRoute)
 - `kubernetes/core/cert-manager/manifests/cluster-issuer.yaml`
 - `.github/workflows/full-redeploy.yml` (CoreDNS patch step)
+
+## NetBird-only Middleware: IP Routing Deep Dive
+
+### netbird-vpn-only Middleware Purpose
+Block local LAN users (10.25.0.x) from dashboard while allowing NetBird VPN clients.
+
+### Why node IPs (10.25.0.90-92) don't work alone
+NetBird masquerade=true transforms VPN peer IPs through multiple NAT layers:
+1. **Same node as Traefik (hairpin NAT)**: source = CNI bridge IP (10.244.x.1)
+2. **Cross-node via flannel VXLAN**: source = flannel VTEP IP (10.244.x.0)  
+   NOT the node LAN IP (10.25.0.90-92) as naively expected
+
+### Final allow list in netbird-vpn-only
+```
+100.64.0.0/10  # Direct WireGuard peers (no masquerade)
+10.244.0.0/16  # K8s pod CIDR — covers all masquerade paths (hairpin + flannel)
+```
+Local LAN IPs (10.25.0.x) → 403 Forbidden ✓
+
+### Ingress conflict pitfall
+netbird-management Ingress had `netbird.rlservers.com` with `netbird-only` (allows LAN).
+Fix: remove that host from Ingress — only IngressRoutes in `09-routes-netbird.yaml` handle it.
+
+### Key: externalTrafficPolicy: Local
+Traefik service has `externalTrafficPolicy: Local` — MetalLB announces 10.25.0.200 only
+from the node where Traefik is running. External traffic source IPs are preserved for 
+cross-node flows, but within-cluster traffic still gets kube-proxy SNAT.
