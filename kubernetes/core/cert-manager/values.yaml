@@ -6,6 +6,12 @@ global:
   leaderElection:
     enabled: true
 
+# Use public recursive DNS for DNS-01 propagation checks.
+# Without this, cert-manager uses CoreDNS which doesn't see external TXT records.
+extraArgs:
+  - --dns01-recursive-nameservers-only
+  - --dns01-recursive-nameservers=1.1.1.1:53,8.8.8.8:53
+
 prometheus:
   enabled: true
   servicemonitor:
