@@ -49,7 +49,17 @@ spec:
       - 100.64.0.0/10     # NetBird CGNAT (direct WireGuard peers)
       - 127.0.0.1/32      # Localhost
 ---
-# Middleware: netbird-vpn-only — only NetBird CGNAT peers and github-runner
+# Middleware: netbird-vpn-only — allows ONLY NetBird VPN clients, blocks local LAN access.
+#
+# NetBird route 10.25.0.0/24 has masquerade=true. External VPN peers (100.64.x.x) reach
+# Traefik via the K8s netbird-client DaemonSet pods, which masquerade traffic through their
+# node's LAN IP. Traefik sees the K8s node IP, NOT the peer's CGNAT IP.
+#
+# Allow list:
+#   - 10.25.0.90-92 : K8s nodes (masquerade exit points for VPN clients)
+#   - 100.64.0.0/10 : Direct WireGuard peers (if masquerade is disabled or for direct access)
+#
+# Local LAN IPs (e.g. 10.25.0.50) are NOT in this list → 403 Forbidden.
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
@@ -59,9 +69,9 @@ spec:
   ipAllowList:
     sourceRange:
       - 100.64.0.0/10     # NetBird CGNAT CIDR (direct WireGuard peers)
-      - 10.64.0.0/10      # Alternative NetBird CIDR
-      - 10.25.0.108/32    # GitHub runner routing peer
-      - 127.0.0.1/32      # Localhost
+      - 10.25.0.90/32     # K8s node talos-prod-cp1 (masquerade exit for VPN clients)
+      - 10.25.0.91/32     # K8s node talos-prod-cp2 (masquerade exit for VPN clients)
+      - 10.25.0.92/32     # K8s node talos-prod-cp3 (masquerade exit for VPN clients)
 ---
 # Middleware: add-https-headers — sets X-Forwarded-Proto for backends
 apiVersion: traefik.io/v1alpha1

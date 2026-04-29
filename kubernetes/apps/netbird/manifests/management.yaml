@@ -243,20 +243,5 @@ spec:
                 name: netbird-dashboard
                 port:
                   number: 80
-    - host: netbird.rlservers.com
-      http:
-        paths:
-          - path: /api
-            pathType: Prefix
-            backend:
-              service:
-                name: netbird-management
-                port:
-                  number: 80
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: netbird-dashboard
-                port:
-                  number: 80
+    # netbird.rlservers.com is handled exclusively by IngressRoutes in external-routes/09-routes-netbird.yaml
+    # which apply the stricter netbird-vpn-only middleware (no local LAN access).
