@@ -88,13 +88,16 @@ resource "null_resource" "download_talos_image" {
 
       echo "==> [${each.key}] Ensuring Talos ${var.talos_version} image is present on $NODE_IP..."
 
-      # Check if already cached — exit early to avoid re-download
-      if ssh $SSH_OPTS root@"$NODE_IP" "test -f '${local.talos_raw_path}'" 2>/dev/null; then
-        echo "  [${each.key}] Image already cached: ${local.talos_raw_path}"
+      # Check if already cached and complete (>= 4 GB) — exit early to avoid re-download.
+      # A size check guards against partial files left by a previous failed decompression.
+      CACHED_SIZE=$(ssh $SSH_OPTS root@"$NODE_IP" \
+        "stat -c %s '${local.talos_raw_path}' 2>/dev/null || echo 0" 2>/dev/null || echo 0)
+      if [ "$CACHED_SIZE" -ge 4000000000 ]; then
+        echo "  [${each.key}] Image already cached and complete ($(( CACHED_SIZE / 1024 / 1024 )) MiB): ${local.talos_raw_path}"
         exit 0
       fi
 
-      echo "  [${each.key}] Downloading Talos image to $NODE_IP..."
+      echo "  [${each.key}] Downloading Talos image to $NODE_IP (cached_size=$CACHED_SIZE)..."
       # Single SSH command — Terraform expands all dollar-brace references at plan time;
       # bash-level variables use backslash-dollar to defer to the remote shell.
       ssh $SSH_OPTS root@"$NODE_IP" "
@@ -102,11 +105,16 @@ resource "null_resource" "download_talos_image" {
         which wget >/dev/null 2>&1 || apt-get install -y wget >/dev/null 2>&1
         which xz   >/dev/null 2>&1 || apt-get install -y xz-utils >/dev/null 2>&1
 
+        # Remove any incomplete file from a previous failed run before downloading
+        rm -f '${local.talos_raw_path}' '${local.talos_raw_path}.xz'
+
         echo '  Downloading Talos factory image...'
         wget -q --show-progress -O '${local.talos_raw_path}.xz' '${local.talos_image_url}'
 
-        echo '  Decompressing...'
-        xz --decompress '${local.talos_raw_path}.xz'
+        echo '  Decompressing (atomic: write to .tmp then rename)...'
+        xz --decompress --stdout '${local.talos_raw_path}.xz' > '${local.talos_raw_path}.tmp'
+        mv '${local.talos_raw_path}.tmp' '${local.talos_raw_path}'
+        rm -f '${local.talos_raw_path}.xz'
 
         echo \"  Image ready: ${local.talos_raw_path} (\$(du -sh '${local.talos_raw_path}' | cut -f1))\"
       "
