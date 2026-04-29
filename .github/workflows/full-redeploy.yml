@@ -456,8 +456,9 @@ jobs:
           echo "==> Waiting for Longhorn manager to be Running..."
           for i in $(seq 1 30); do
             LHCOUNT=$(kubectl --kubeconfig "$KB" get pods -n longhorn-system \
-              --no-headers 2>/dev/null | grep "longhorn-manager" | grep -c "Running" || echo "0")
-            if [ "$LHCOUNT" -gt "0" ]; then
+              --no-headers 2>/dev/null | grep "longhorn-manager" | grep -c "Running" 2>/dev/null || true)
+            LHCOUNT="${LHCOUNT:-0}"
+            if [ "${LHCOUNT}" -gt "0" ] 2>/dev/null; then
               echo "  Longhorn manager running (${LHCOUNT} pod(s))"
               break
             fi
@@ -496,8 +497,9 @@ jobs:
           for i in $(seq 1 60); do
             RUNNING=$(kubectl --kubeconfig "$KB" get pods -n openbao \
               -l app.kubernetes.io/name=openbao --no-headers 2>/dev/null | \
-              grep "Running" | wc -l || echo "0")
-            if [ "$RUNNING" -gt "0" ]; then
+              grep -c "Running" 2>/dev/null || true)
+            RUNNING="${RUNNING:-0}"
+            if [ "${RUNNING}" -gt "0" ] 2>/dev/null; then
               echo "  OpenBao pod Running"
               break
             fi
@@ -518,7 +520,12 @@ jobs:
           # Port-forward directly to the pod (avoids endpoint readiness gate)
           BAO_POD=$(kubectl --kubeconfig "$KB" get pod -n openbao \
             -l app.kubernetes.io/name=openbao --no-headers \
-            -o custom-columns=":metadata.name" | head -1)
+            -o custom-columns=":metadata.name" 2>/dev/null | head -1)
+          if [ -z "$BAO_POD" ]; then
+            echo "ERROR: OpenBao pod not found after waiting — cannot proceed"
+            exit 1
+          fi
+          echo "Using OpenBao pod: $BAO_POD"
           kubectl --kubeconfig "$KB" port-forward -n openbao "pod/${BAO_POD}" 8200:8200 &
           PF_PID=$!
           sleep 5
