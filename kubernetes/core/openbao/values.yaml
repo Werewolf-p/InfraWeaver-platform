@@ -24,6 +24,17 @@ server:
     storageClass: local-path
     accessMode: ReadWriteOnce
 
+  ingress:
+    enabled: true
+    ingressClassName: traefik
+    annotations:
+      traefik.ingress.kubernetes.io/router.middlewares: traefik-netbird-only@kubernetescrd
+    hosts:
+      - host: openbao.prod.local
+        paths:
+          - /
+    pathType: Prefix
+
   service:
     type: ClusterIP
 
