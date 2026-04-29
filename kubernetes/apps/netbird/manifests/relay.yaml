@@ -2,7 +2,7 @@
 # ── NetBird Relay Server ──────────────────────────────────────────────────────
 # Handles NAT traversal (relay) for peers that can't connect directly.
 # Relay listens on port 443 (port is derived from NB_EXPOSED_ADDRESS).
-# External: 10.25.0.202:443 → proxied by Traefik at netbird.rlservers.com/relay
+# External: 10.10.0.204:443 → proxied by Traefik at netbird.rlservers.com/relay
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -43,7 +43,7 @@ spec:
               cpu: 200m
               memory: 128Mi
 ---
-# ── Relay LoadBalancer (external access at 10.25.0.202:443) ──────────────────
+# ── Relay LoadBalancer (external access at 10.10.0.204:443) ──────────────────
 apiVersion: v1
 kind: Service
 metadata:
@@ -51,7 +51,7 @@ metadata:
   namespace: netbird
 spec:
   type: LoadBalancer
-  loadBalancerIP: "10.25.0.202"
+  loadBalancerIP: "10.10.0.204"
   selector:
     app: netbird-relay
   ports:
