@@ -84,4 +84,5 @@ data:
     10.25.0.200  grafana.prod.local
     10.25.0.200  longhorn.prod.local
     10.25.0.200  netbird.prod.local
+    10.25.0.200  openbao.prod.local
     10.25.0.200  test.prod.local
