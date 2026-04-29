@@ -871,8 +871,28 @@ jobs:
           kubectl --kubeconfig "$KB" get ipaddresspools -n metallb-system 2>/dev/null
           kubectl --kubeconfig "$KB" get svc -A | grep LoadBalancer | head -10
 
+      - name: Send deployment summary email
+        if: success()
+        env:
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMTP_TO: ${{ secrets.SMTP_TO }}
+        run: |
+          KB=~/.kube/config-platform-${{ env.ENV_NAME }}
+          export DEPLOY_ENV="${{ env.ENV_NAME }}"
+          export DEPLOY_RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
+          export BAO_TOKEN=$(kubectl --kubeconfig "$KB" get secret openbao-unseal -n openbao \
+            -o jsonpath='{.data.root_token}' 2>/dev/null | base64 -d || echo "unavailable")
+          export BAO_UNSEAL=$(kubectl --kubeconfig "$KB" get secret openbao-unseal -n openbao \
+            -o jsonpath='{.data.unseal_key}' 2>/dev/null | base64 -d || echo "unavailable")
+          export NB_PAT=$(kubectl --kubeconfig "$KB" get secret netbird-secrets -n netbird \
+            -o jsonpath='{.data.netbird-pat-token}' 2>/dev/null | base64 -d || echo "unavailable")
+          export NB_SETUP=$(kubectl --kubeconfig "$KB" get secret netbird-secrets -n netbird \
+            -o jsonpath='{.data.SETUP_KEY}' 2>/dev/null | base64 -d || echo "unavailable")
+          export ARGO_PASS=$(kubectl --kubeconfig "$KB" get secret argocd-initial-admin-secret -n argocd \
+            -o jsonpath='{.data.password}' 2>/dev/null | base64 -d || echo "unavailable")
+          export GRAFANA_PASS=$(kubectl --kubeconfig "$KB" get secret grafana-admin-secret -n apps-grafana \
+            -o jsonpath='{.data.admin-password}' 2>/dev/null | base64 -d || echo "check-openbao")
 
-
-
-
+          python3 scripts/send-deploy-email.py
