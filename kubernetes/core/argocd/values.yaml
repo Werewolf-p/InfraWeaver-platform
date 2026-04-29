@@ -44,6 +44,20 @@ configs:
       return hs
     # Local user accounts — passwords set by full-redeploy bootstrap (stored in OpenBao)
     accounts.remon: login
+    # Override default exclusions: allow Endpoints/EndpointSlice so ArgoCD can manage
+    # bare-metal backend Endpoints in the traefik namespace (external-routes app).
+    resource.exclusions: |
+      - apiGroups:
+        - coordination.k8s.io
+        kinds:
+        - Lease
+      - apiGroups:
+        - authentication.k8s.io
+        - authorization.k8s.io
+        kinds:
+        - SelfSubjectReview
+        - TokenReview
+        - LocalSubjectAccessReview
   params:
     server.insecure: "true"
   rbac:
