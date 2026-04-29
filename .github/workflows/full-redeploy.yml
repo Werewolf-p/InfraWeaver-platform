@@ -756,27 +756,29 @@ jobs:
             echo "⚠ CLOUDFLARE_API_TOKEN secret not set — cert-manager DNS-01 will fail"
           fi
 
-                    # Write least-privilege policy for ESO (use bao CLI for reliable policy creation)
-          kubectl --kubeconfig "$KB" exec -n openbao openbao-0 -- sh -c \
-            "VAULT_TOKEN=$ROOT_TOKEN VAULT_ADDR=http://127.0.0.1:8200
-             printf 'path \"%s\" {\n  capabilities = [\"read\", \"list\"]\n}\n' \
+                    # Write least-privilege policy for ESO (use env to properly pass VAULT_TOKEN/VAULT_ADDR)
+          kubectl --kubeconfig "$KB" exec -n openbao openbao-0 -- \
+            env VAULT_TOKEN="$ROOT_TOKEN" VAULT_ADDR=http://127.0.0.1:8200 sh -c \
+            "printf 'path \"%s\" {\n  capabilities = [\"read\", \"list\"]\n}\n' \
                'secret/data/platform/*' 'secret/metadata/platform/*' | \
-             bao policy write platform-k8s -" 2>/dev/null || true
+             bao policy write platform-k8s -"
+          echo "==> ESO policy platform-k8s written"
 
           # Tune token auth to allow long-lived tokens (use bao CLI)
-          kubectl --kubeconfig "$KB" exec -n openbao openbao-0 -- sh -c \
-            "VAULT_TOKEN=$ROOT_TOKEN VAULT_ADDR=http://127.0.0.1:8200 bao auth tune -max-lease-ttl=87600h token/" 2>/dev/null || true
+          kubectl --kubeconfig "$KB" exec -n openbao openbao-0 -- \
+            env VAULT_TOKEN="$ROOT_TOKEN" VAULT_ADDR=http://127.0.0.1:8200 \
+            bao auth tune -max-lease-ttl=87600h token/ 2>/dev/null || true
 
           # Create ESO service token (orphan, long TTL, least-privilege) via bao CLI
-          SERVICE_TOKEN=$(kubectl --kubeconfig "$KB" exec -n openbao openbao-0 -- sh -c \
-            "VAULT_TOKEN=$ROOT_TOKEN VAULT_ADDR=http://127.0.0.1:8200 bao token create \
+          SERVICE_TOKEN=$(kubectl --kubeconfig "$KB" exec -n openbao openbao-0 -- \
+            env VAULT_TOKEN="$ROOT_TOKEN" VAULT_ADDR=http://127.0.0.1:8200 bao token create \
               -policy=platform-k8s \
               -policy=default \
               -ttl=87600h \
               -orphan \
-              -display-name=eso-${ENV} \
+              -display-name="eso-${ENV}" \
               -renewable=true \
-              -format=json" 2>/dev/null | \
+              -format=json 2>/dev/null | \
             python3 -c "import json,sys; print(json.load(sys.stdin)['auth']['client_token'])" \
             2>/dev/null || echo "")
 
