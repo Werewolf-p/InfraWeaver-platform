@@ -209,20 +209,26 @@ spec:
               echo "=== Scaling management back to 1 ==="
               kubectl scale statefulset netbird-management -n netbird --replicas=1
 
-              echo "=== Waiting for management API after restart ==="
-              for i in $(seq 1 30); do
-                CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 3 \
-                  http://netbird-management.netbird.svc:80/api/status 2>/dev/null || echo "000")
-                if [ "$CODE" != "000" ]; then echo "API ready (HTTP $CODE)"; break; fi
+              echo "=== Waiting for management API to be fully ready after restart ==="
+              for i in $(seq 1 60); do
+                RESP=$(curl -s --max-time 5 \
+                  http://netbird-management.netbird.svc:80/api/peers \
+                  -H "Authorization: Token ${PAT_TOKEN}" 2>/dev/null || echo "")
+                if echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); exit(0 if isinstance(d,list) else 1)" 2>/dev/null; then
+                  echo "Management API ready (attempt $i)"
+                  break
+                fi
+                echo "Attempt $i/60: management API not ready, waiting 5s..."
                 sleep 5
               done
 
               echo "=== Configuring DNS nameserver via API ==="
               # Idempotent: only create if not already present
-              EXISTING_NS=$(curl -s --max-time 10 \
+              NS_RESP=$(curl -s --max-time 10 \
                 http://netbird-management.netbird.svc:80/api/dns/nameservers \
-                -H "Authorization: Token ${PAT_TOKEN}" | \
-                python3 -c "import sys,json; d=json.load(sys.stdin); print(any(g.get('name')=='prod-local' for g in (d if isinstance(d,list) else [])))")
+                -H "Authorization: Token ${PAT_TOKEN}" 2>/dev/null || echo "[]")
+              EXISTING_NS=$(echo "$NS_RESP" | \
+                python3 -c "import sys,json; d=json.load(sys.stdin); print(any(g.get('name')=='prod-local' for g in (d if isinstance(d,list) else [])))" 2>/dev/null || echo "False")
               if [ "$EXISTING_NS" = "False" ]; then
                 curl -s --max-time 10 -X POST \
                   http://netbird-management.netbird.svc:80/api/dns/nameservers \
