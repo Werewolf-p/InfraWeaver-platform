@@ -1,0 +1,25 @@
+---
+# Standalone ArgoCD Application for extra ArgoCD ingress manifests.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: core-argocd-manifests
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  source:
+    repoURL: https://github.com/Werewolf-p/InfraWeaver-platform.git
+    targetRevision: HEAD
+    path: kubernetes/core/argocd/manifests
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
