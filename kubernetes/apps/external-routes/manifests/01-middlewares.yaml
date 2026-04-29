@@ -52,17 +52,13 @@ spec:
 ---
 # Middleware: netbird-vpn-only — allows ONLY NetBird VPN clients, blocks local LAN access.
 #
-# NetBird route 10.25.0.0/24 has masquerade=true. External VPN peers (100.64.x.x) reach
-# Traefik via the K8s netbird-client DaemonSet pods, which masquerade traffic through their
-# node's LAN IP. Due to kube-proxy SNAT in various scenarios, the source IP Traefik sees
-# depends on whether the traffic is same-node (hairpin) or cross-node (flannel VTEP):
+# NetBird routes have masquerade=true. External VPN peers reach Traefik via the K8s
+# netbird-client DaemonSet pods, which masquerade traffic through their VLAN 3 IPs.
+# The source IP Traefik sees depends on the routing path:
 #
-#   Same node (hairpin NAT):  source = CNI bridge IP (10.244.x.1)
-#   Cross-node (via flannel): source = flannel VTEP IP (10.244.x.0)
-#   Direct peer:              source = NetBird CGNAT IP (100.64.x.x)
-#
-# All internal K8s cluster traffic originates from 10.244.0.0/16. Allowing this entire
-# pod CIDR covers all NetBird-masquerade paths while blocking local LAN users (10.25.0.x).
+#   Via VLAN 3 (eth1, 10.10.0.90-92): source = node VLAN 3 IP (10.10.0.x)
+#   Direct peer (100.64.x.x):         source = NetBird CGNAT IP
+#   Via pod CNI:                       source = pod CIDR IP (10.244.x.x)
 #
 # Local LAN IPs (e.g. 10.25.0.50, 10.25.0.108) are NOT in any range → 403 Forbidden.
 apiVersion: traefik.io/v1alpha1
@@ -74,8 +70,8 @@ spec:
   ipAllowList:
     sourceRange:
       - 100.64.0.0/10     # NetBird CGNAT CIDR (direct WireGuard peers, no masquerade)
-      - 10.244.0.0/16     # K8s pod CIDR — all NetBird-masqueraded traffic arrives here
-                          # (hairpin via cni bridge 10.244.x.1, cross-node via flannel VTEP 10.244.x.0)
+      - 10.244.0.0/16     # K8s pod CIDR — NetBird-masqueraded traffic via pod network
+      - 10.10.0.0/24      # VLAN 3 — K8s nodes masquerade VPN traffic via VLAN 3 (eth1)
 ---
 # Middleware: add-https-headers — sets X-Forwarded-Proto for backends
 apiVersion: traefik.io/v1alpha1
