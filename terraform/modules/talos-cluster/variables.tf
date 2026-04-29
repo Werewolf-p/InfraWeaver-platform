@@ -109,21 +109,19 @@ variable "nodes" {
 
     Schema per node:
       proxmox_node  – required: name of the PVE cluster node to place the VM on
-      ip            – required: static IP address for the Talos node
-      mac_address   – optional: fixed MAC address; set a DHCP reservation so the
-                      node receives `ip` before machine-config is applied
+      ip            – required: static IP address for the Talos node (VLAN 3)
+      mac_address   – optional: fixed MAC address; configure a DHCP reservation on
+                      the VLAN 3 router so the node always receives this IP on first boot
       controlplane  – required: true for control-plane / etcd nodes, false for workers
       cpu           – optional: vCPU count (default 4)
       memory_mb     – optional: RAM in MB (default 4096)
-      disk_gb       – optional: root disk size in GB (default 50); Talos expands
-                      its partition to fill the disk automatically
+      disk_gb       – optional: root disk size in GB (default 50)
       datastore     – required: Proxmox storage ID where the disk is created
       vm_id         – required: Proxmox VM ID (must be unique in the cluster)
   EOT
   type = map(object({
     proxmox_node = string
     ip           = string
-    vlan3_ip     = optional(string)   # Secondary VLAN 3 IP (10.10.0.x); null = no VLAN 3 NIC
     mac_address  = optional(string)
     controlplane = bool
     cpu          = optional(number, 4)
@@ -191,24 +189,13 @@ variable "subnet_prefix" {
 }
 
 # ---------------------------------------------------------------------------
-# VLAN 3 (NetBird-only) secondary NIC
+# VLAN 3 tag for the single node NIC
 # ---------------------------------------------------------------------------
 
 variable "vlan3_tag" {
-  description = "VLAN ID for the secondary NIC (NetBird-only network). Set to 0 to disable."
+  description = "VLAN ID for the node NIC (NetBird-only network)."
   type        = number
   default     = 3
-}
-
-variable "vlan3_subnet_prefix" {
-  description = "CIDR prefix length for node eth1 addresses on VLAN 3 (e.g. 24 → /24)."
-  type        = number
-  default     = 24
-
-  validation {
-    condition     = var.vlan3_subnet_prefix >= 8 && var.vlan3_subnet_prefix <= 30
-    error_message = "vlan3_subnet_prefix must be between 8 and 30."
-  }
 }
 
 # ---------------------------------------------------------------------------

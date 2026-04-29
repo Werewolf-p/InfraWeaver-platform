@@ -187,23 +187,13 @@ resource "proxmox_virtual_environment_vm" "talos" {
     type = "l26"
   }
 
-  # VirtIO NIC — required by Talos; optional fixed MAC for DHCP reservations
+  # Single VirtIO NIC on VLAN 3 — the only network interface for the node.
+  # All cluster traffic (API, pod networking, MetalLB) runs on 10.10.0.0/24.
   network_device {
     bridge      = "vmbr0"
     model       = "virtio"
+    vlan_id     = var.vlan3_tag
     mac_address = each.value.mac_address != null ? each.value.mac_address : null
-  }
-
-  # Secondary VirtIO NIC on VLAN 3 (10.10.0.0/24) — used for NetBird-only access.
-  # This NIC is unreachable from the local LAN, providing network-level isolation.
-  # Only NetBird VPN clients with a route to 10.10.0.0/24 can reach services.
-  dynamic "network_device" {
-    for_each = each.value.vlan3_ip != null ? [1] : []
-    content {
-      bridge   = "vmbr0"
-      model    = "virtio"
-      vlan_id  = var.vlan3_tag
-    }
   }
 
   # Serial console — essential for Talos API and console access
@@ -355,8 +345,7 @@ data "talos_machine_configuration" "this" {
           # NOTE: hostname is NOT set here (machine.network.hostname) because Talos v1.12+
           # adds a HostnameConfig document automatically. Having both causes a validation error.
           # The hostname is handled below by post-processing the generated machine config.
-          interfaces = concat(
-            [
+          interfaces = [
               {
                 interface = "eth0"
                 addresses = ["${each.value.ip}/${var.subnet_prefix}"]
@@ -367,14 +356,7 @@ data "talos_machine_configuration" "this" {
                   }
                 ]
               }
-            ],
-            each.value.vlan3_ip != null ? [
-              {
-                interface = "eth1"
-                addresses = ["${each.value.vlan3_ip}/${var.vlan3_subnet_prefix}"]
-              }
-            ] : []
-          )
+            ]
           nameservers = var.nameservers
         }
         features = {
@@ -489,52 +471,25 @@ resource "null_resource" "start_and_configure_talos" {
         echo "==> [${each.key}] VM $VMID already running."
       fi
 
-      # ── Discover DHCP IP: port 50000 open IPs → MAC match ────────────────
-      # Get VM MAC from PVE config
-      MAC=$(ssh $SSH_OPTS root@"$PVE_IP" \
-        "qm config $VMID 2>/dev/null | grep '^net0:' | grep -oiP '(?<=virtio=)[A-Fa-f0-9:]+'" \
-        2>/dev/null | tr '[:upper:]' '[:lower:]' || echo "")
-      echo "==> [${each.key}] VM MAC: $MAC"
-
+      # ── Wait for Talos maintenance API on static IP ───────────────────────
+      # The node uses the fixed MAC → DHCP reservation gives it TARGET_IP.
+      # Simply poll port 50000 directly — no ARP scanning needed.
+      echo "==> [${each.key}] Waiting for Talos maintenance API on $TARGET_IP:50000 (up to 6 min)..."
       DHCP_IP=""
-      echo "==> [${each.key}] Discovering DHCP IP (up to 6 min)..."
       for attempt in $(seq 1 24); do
-        # Scan from PVE node (same vmbr0 as VM). TCP connects trigger ARP
-        # replies from responding hosts, populating 'ip neigh show'.
-        # We then check: for each IP with port 50000 open, does its ARP MAC
-        # match our VM's MAC? This avoids false positives from stale entries.
-        DHCP_IP=$(ssh $SSH_OPTS root@"$PVE_IP" \
-          "TMPF=\$(mktemp /tmp/talos_XXXXXX)
-           for last in \$(seq 1 254); do
-             ip_=10.25.0.\$last
-             (timeout 0.3 bash -c \"echo >/dev/tcp/\$ip_/50000\" 2>/dev/null && echo \$ip_ >> \$TMPF) &
-           done
-           wait 2>/dev/null; sleep 0.5
-           result=''
-           if [ -s \$TMPF ]; then
-             while IFS= read -r cip; do
-               cmac=\$(ip neigh show \$cip 2>/dev/null | awk '{print tolower(\$5)}' | head -1)
-               if [ \"\$cmac\" = '$MAC' ]; then result=\$cip; break; fi
-             done < \$TMPF
-           fi
-           rm -f \$TMPF
-           echo \$result" \
-          2>/dev/null | tr -d '[:space:]' || echo "")
-
-        if [ -n "$DHCP_IP" ] && [ "$DHCP_IP" != "0.0.0.0" ]; then
-          echo "  [${each.key}] Found DHCP IP: $DHCP_IP (attempt $attempt) ✓"
+        if timeout 3 bash -c "echo >/dev/tcp/$TARGET_IP/50000" 2>/dev/null; then
+          DHCP_IP="$TARGET_IP"
+          echo "  [${each.key}] Talos API reachable at $TARGET_IP (attempt $attempt) ✓"
           break
         fi
-        echo "  [${each.key}] Not found yet (attempt $attempt/24), waiting 15s..."
+        echo "  [${each.key}] Not reachable yet (attempt $attempt/24), waiting 15s..."
         sleep 15
       done
 
-      if [ -z "$DHCP_IP" ] || [ "$DHCP_IP" = "0.0.0.0" ]; then
-        echo "ERROR: Could not discover DHCP IP for ${each.key} (MAC: $MAC)" >&2
+      if [ -z "$DHCP_IP" ]; then
+        echo "ERROR: Talos API at $TARGET_IP:50000 not reachable after 6 min" >&2
         exit 1
       fi
-
-      echo "==> [${each.key}] Talos API at $DHCP_IP:50000 ✓ (MAC verified)"
 
       # ── Apply machine config (sets static IP, triggers reboot) ────────────
       # First try --insecure (maintenance mode, new node). If that fails with a
@@ -566,9 +521,10 @@ resource "null_resource" "start_and_configure_talos" {
       fi
       rm -f /tmp/talos_apply_err_${each.key}
 
-      # ── Wait for static IP ────────────────────────────────────────────────
+      # ── Wait for node to reboot and return on static IP ─────────────────
+      # Machine config was applied; node reboots and returns on the same IP.
       sleep 30
-      echo "==> [${each.key}] Waiting for Talos API on static IP $TARGET_IP:50000 (up to 8 min)..."
+      echo "==> [${each.key}] Waiting for Talos API after reboot on $TARGET_IP:50000 (up to 8 min)..."
       DEADLINE=$(( $(date +%s) + 480 ))
       while [ "$(date +%s)" -lt "$DEADLINE" ]; do
         if timeout 3 bash -c "echo >/dev/tcp/$TARGET_IP/50000" 2>/dev/null; then
