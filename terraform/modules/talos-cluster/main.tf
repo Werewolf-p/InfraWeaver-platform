@@ -480,8 +480,8 @@ resource "null_resource" "start_and_configure_talos" {
       echo "==> [${each.key}] VM MAC: $MAC"
 
       DHCP_IP=""
-      echo "==> [${each.key}] Scanning VLAN3 for Talos API (up to 6 min)..."
-      for attempt in $(seq 1 24); do
+      echo "==> [${each.key}] Scanning VLAN3 for Talos API (up to 10 min)..."
+      for attempt in $(seq 1 40); do
         TMPF=$(mktemp /tmp/talos_XXXXXX)
         for last in $(seq 1 254); do
           ip_="10.10.0.$last"
