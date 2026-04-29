@@ -21,7 +21,8 @@ data:
       },
       "IdpManagerConfig": {"Manager":"none","ExtraConfig":{},"ClientConfig":null},
       "DeviceAuthorizationFlow": null,
-      "PKCEAuthorizationFlow": null
+      "PKCEAuthorizationFlow": null,
+      "DataStoreEncryptionKey": "DATASTORE_KEY_PLACEHOLDER"
     }
 ---
 # ── Management PVC ────────────────────────────────────────────────────────────
@@ -68,6 +69,7 @@ spec:
               if [ ! -f /var/lib/netbird/management.json ]; then
                 echo "Generating management.json from template (substituting secrets)"
                 sed -e "s|TURN_PASSWORD_PLACEHOLDER|${NB_TURN_PASSWORD}|g" \
+                    -e "s|DATASTORE_KEY_PLACEHOLDER|${NB_DATASTORE_ENC_KEY}|g" \
                     /config-source/management.json.template > /var/lib/netbird/management.json
                 echo "management.json generated"
               else
@@ -79,6 +81,11 @@ spec:
                 secretKeyRef:
                   name: netbird-secrets
                   key: turn-password
+            - name: NB_DATASTORE_ENC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: netbird-secrets
+                  key: datastore-enc-key
           volumeMounts:
             - name: config-source
               mountPath: /config-source

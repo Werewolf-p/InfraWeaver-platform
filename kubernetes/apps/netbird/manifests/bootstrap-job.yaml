@@ -7,7 +7,8 @@ metadata:
   namespace: netbird
 data:
   bootstrap.py: |
-    import sqlite3, json, base64, hashlib, os
+    import sqlite3, json, base64, hashlib, os, secrets as _secrets
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
     DB = os.environ.get("DB", "/data/store.db")
     ACC = "acc00000-0000-4000-a000-000000000001"
@@ -16,6 +17,15 @@ data:
     POL = "pol00000-0000-4000-a000-000000000001"
     RUL = "rul00000-0000-4000-a000-000000000001"
     KEY_ID = "388f43a5-eb90-4ba0-a7cb-a892408886df"
+
+    # AES-256-GCM encryption matching NetBird v0.70 Go: gcm.Seal(nonce, nonce, msg, nil)
+    # Output format: base64(nonce[12] || ciphertext || tag[16])
+    ENC_KEY = base64.b64decode(os.environ["DATASTORE_ENC_KEY"])
+    aesgcm = AESGCM(ENC_KEY)
+    def encrypt_field(value: str) -> str:
+        nonce = _secrets.token_bytes(12)
+        ct = aesgcm.encrypt(nonce, value.encode(), None)
+        return base64.b64encode(nonce + ct).decode()
 
     # Read SETUP_KEY from env (from netbird-secrets ExternalSecret → OpenBao)
     # Hash it the same way NetBird v0.70 does: sha256 + base64 standard encoding
@@ -50,7 +60,7 @@ data:
         c.execute("""INSERT OR IGNORE INTO users
           (id, account_id, role, is_service_user, non_deletable, auto_groups, blocked, issued, email, name, created_at)
           VALUES (?,?,?,?,?,?,?,?,?,?,datetime('now'))""",
-          (USR, ACC, "admin", 0, 1, "[]", 0, "api", "", "admin"))
+          (USR, ACC, "admin", 0, 1, "[]", 0, "api", encrypt_field(""), encrypt_field("admin")))
 
         c.execute("""INSERT OR IGNORE INTO groups
           (id, account_id, name, issued, resources, integration_ref_id, integration_ref_integration_type)
@@ -169,6 +179,7 @@ spec:
               sleep 3
 
               echo "=== Running Python bootstrap ==="
+              pip install -q cryptography
               python3 /script/bootstrap.py
 
               echo "=== Scaling management back to 1 ==="
@@ -182,6 +193,11 @@ spec:
                 secretKeyRef:
                   name: netbird-secrets
                   key: SETUP_KEY
+            - name: DATASTORE_ENC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: netbird-secrets
+                  key: datastore-enc-key
           volumeMounts:
             - name: data
               mountPath: /data
