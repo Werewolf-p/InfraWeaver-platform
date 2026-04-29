@@ -27,7 +27,6 @@ ingress:
   ingressClassName: traefik
   hosts:
     - grafana.prod.local
-    - grafana.rlservers.com
   paths:
     - /
   pathType: Prefix
@@ -38,7 +37,6 @@ ingress:
     - secretName: grafana-tls
       hosts:
         - grafana.prod.local
-        - grafana.rlservers.com
 
 # ── Resources ─────────────────────────────────────────────────────────────────
 resources:

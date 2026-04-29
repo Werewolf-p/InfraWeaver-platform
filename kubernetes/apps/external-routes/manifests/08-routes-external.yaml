@@ -1,0 +1,305 @@
+---
+# IngressRoutes for public-facing services (no IP restriction)
+
+# ── WordPress: rlservers.com ──────────────────────────────────────────────────
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: wp-rlservers
+  namespace: traefik
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`rlservers.com`) || Host(`www.rlservers.com`)
+      kind: Rule
+      services:
+        - name: bm-wp-rlservers
+          port: 443
+          serversTransport: insecure-skip-verify
+  tls: {}
+---
+# ── degoudentijd.rlservers.com ────────────────────────────────────────────────
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: degoudentijd
+  namespace: traefik
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`degoudentijd.rlservers.com`) || Host(`www.degoudentijd.rlservers.com`)
+      kind: Rule
+      services:
+        - name: bm-degoudentijd
+          port: 80
+  tls: {}
+---
+# ── feestinhetdonker.rlservers.com ────────────────────────────────────────────
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: feest
+  namespace: traefik
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`feestinhetdonker.rlservers.com`)
+      kind: Rule
+      services:
+        - name: bm-feest
+          port: 5000
+  tls: {}
+---
+# ── marcel.rlservers.com ──────────────────────────────────────────────────────
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: marcel
+  namespace: traefik
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`marcel.rlservers.com`)
+      kind: Rule
+      services:
+        - name: bm-marcel
+          port: 5000
+  tls: {}
+---
+# ── Keycloak ──────────────────────────────────────────────────────────────────
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: keycloak
+  namespace: traefik
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`keycloak.rlservers.com`)
+      kind: Rule
+      services:
+        - name: bm-keycloak
+          port: 7080
+  tls: {}
+---
+# ── AWX ───────────────────────────────────────────────────────────────────────
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: awx
+  namespace: traefik
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`awx.rlservers.com`)
+      kind: Rule
+      services:
+        - name: bm-awx
+          port: 30750
+  tls: {}
+---
+# ── Bitwarden / Vaultwarden (public) ─────────────────────────────────────────
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: bitwarden
+  namespace: traefik
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`bitwarden.rlservers.com`)
+      kind: Rule
+      services:
+        - name: bm-bitwarden
+          port: 30032
+  tls: {}
+---
+# ── GitLab ────────────────────────────────────────────────────────────────────
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: gitlab
+  namespace: traefik
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`gitlab.rlservers.com`)
+      kind: Rule
+      services:
+        - name: bm-gitlab
+          port: 80
+  tls: {}
+---
+# ── GitLab Container Registry ─────────────────────────────────────────────────
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: gitlab-registry
+  namespace: traefik
+spec:
+  entryPoints:
+    - registry
+  routes:
+    - match: Host(`registry.gitlab.rlservers.com`)
+      kind: Rule
+      services:
+        - name: bm-gitlab-registry
+          port: 5005
+  tls:
+    secretName: rlservers-com-wildcard-tls
+---
+# ── Nextcloud ─────────────────────────────────────────────────────────────────
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: nextcloud
+  namespace: traefik
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`cloud.rlservers.com`)
+      kind: Rule
+      services:
+        - name: bm-cloud
+          port: 30027
+          serversTransport: insecure-skip-verify
+  tls: {}
+---
+# ── Teleport ──────────────────────────────────────────────────────────────────
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: teleport
+  namespace: traefik
+spec:
+  entryPoints:
+    - websecure
+    - teleport-proxy
+  routes:
+    - match: Host(`teleport.rlservers.com`)
+      kind: Rule
+      services:
+        - name: bm-teleport
+          port: 3080
+          serversTransport: insecure-skip-verify
+  tls: {}
+---
+# ── Container Registry ────────────────────────────────────────────────────────
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: registry
+  namespace: traefik
+spec:
+  entryPoints:
+    - registry
+  routes:
+    - match: Host(`registry.rlservers.com`)
+      kind: Rule
+      services:
+        - name: bm-registry
+          port: 80
+  tls:
+    secretName: rlservers-com-wildcard-tls
+---
+# ── OAuth2 Proxy (auth.rlservers.com) ─────────────────────────────────────────
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: oauth2-proxy
+  namespace: traefik
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`auth.rlservers.com`)
+      kind: Rule
+      services:
+        - name: bm-auth
+          port: 4180
+  tls: {}
+---
+# ── yonavaarwater.nl ──────────────────────────────────────────────────────────
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: yonavaarwater
+  namespace: traefik
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`yonavaarwater.nl`) || Host(`www.yonavaarwater.nl`)
+      kind: Rule
+      services:
+        - name: bm-wp-yonava
+          port: 80
+  tls:
+    secretName: yonavaarwater-nl-tls
+---
+# ── ot.yonavaarwater.nl (with forward-auth) ───────────────────────────────────
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: yonavaarwater-ot
+  namespace: traefik
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`ot.yonavaarwater.nl`)
+      kind: Rule
+      middlewares:
+        - name: forward-auth
+          namespace: traefik
+      services:
+        - name: bm-feest
+          port: 5000
+  tls:
+    secretName: yonavaarwater-nl-tls
+---
+# ── zonnevaarwater.nl ─────────────────────────────────────────────────────────
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: zonnevaarwater
+  namespace: traefik
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`zonnevaarwater.nl`) || Host(`www.zonnevaarwater.nl`)
+      kind: Rule
+      services:
+        - name: bm-wp-zonneva
+          port: 80
+  tls:
+    secretName: zonnevaarwater-nl-tls
+---
+# ── waterdance.nl ─────────────────────────────────────────────────────────────
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: waterdance
+  namespace: traefik
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`waterdance.nl`)
+      kind: Rule
+      services:
+        - name: bm-waterdance
+          port: 443
+          serversTransport: insecure-skip-verify
+  tls:
+    secretName: waterdance-nl-tls

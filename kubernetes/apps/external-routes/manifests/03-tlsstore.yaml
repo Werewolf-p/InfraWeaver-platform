@@ -1,0 +1,11 @@
+---
+# TLSStore default — sets *.rlservers.com wildcard as the default TLS certificate.
+# Any HTTPS IngressRoute without an explicit cert will use this wildcard.
+apiVersion: traefik.io/v1alpha1
+kind: TLSStore
+metadata:
+  name: default
+  namespace: traefik
+spec:
+  defaultCertificate:
+    secretName: rlservers-com-wildcard-tls

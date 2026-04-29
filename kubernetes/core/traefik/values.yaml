@@ -14,11 +14,70 @@ ingressClass:
 providers:
   kubernetesCRD:
     enabled: true
+    allowCrossNamespace: true      # Allow IngressRoutes to reference services in other namespaces
   kubernetesIngress:
     enabled: true
 
 rbac:
   enabled: true
+
+# Allow Traefik to connect to backends with self-signed TLS certs (Proxmox, TrueNAS, Portainer, etc.)
+additionalArguments:
+  - "--serversTransport.insecureSkipVerify=true"
+
+ports:
+  web:
+    port: 8000
+    expose:
+      default: true
+    exposedPort: 80
+    protocol: TCP
+    # Redirect all HTTP to HTTPS
+    redirectTo:
+      port: websecure
+  websecure:
+    port: 8443
+    expose:
+      default: true
+    exposedPort: 443
+    protocol: TCP
+    tls:
+      enabled: true
+  # GitLab container registry
+  registry:
+    port: 5005
+    expose:
+      default: true
+    exposedPort: 5005
+    protocol: TCP
+  # Bitwarden / extra NodePort
+  extra-port:
+    port: 30032
+    expose:
+      default: true
+    exposedPort: 30032
+    protocol: TCP
+  # Teleport Auth
+  teleport-auth:
+    port: 3025
+    expose:
+      default: true
+    exposedPort: 3025
+    protocol: TCP
+  # Teleport Node
+  teleport-node:
+    port: 3023
+    expose:
+      default: true
+    exposedPort: 3023
+    protocol: TCP
+  # Teleport Proxy SSH
+  teleport-proxy:
+    port: 3024
+    expose:
+      default: true
+    exposedPort: 3024
+    protocol: TCP
 
 resources:
   requests:

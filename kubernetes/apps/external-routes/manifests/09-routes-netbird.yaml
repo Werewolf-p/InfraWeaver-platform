@@ -1,0 +1,103 @@
+---
+# NetBird IngressRoute — complex path-based routing for gRPC, relay, signal, and dashboard.
+# All on websecure (port 443) at netbird.rlservers.com.
+#
+# Priority order (highest first):
+#   1. Management gRPC (PathPrefix /management.ManagementService) → h2c:33073
+#   2. Signal gRPC (PathPrefix /signalexchange.SignalExchange or /grpc.reflection) → h2c:10000
+#   3. Relay (PathPrefix /relay) → relay service:443
+#   4. Management API (PathPrefix /api) → management:80
+#   5. Dashboard (catch-all /) → dashboard:80
+
+# ── Management gRPC ───────────────────────────────────────────────────────────
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: netbird-management-grpc
+  namespace: traefik
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`netbird.rlservers.com`) && PathPrefix(`/management.ManagementService`)
+      kind: Rule
+      priority: 50
+      services:
+        - name: netbird-management
+          port: 33073
+          scheme: h2c
+  tls: {}
+---
+# ── Signal gRPC ───────────────────────────────────────────────────────────────
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: netbird-signal-grpc
+  namespace: traefik
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`netbird.rlservers.com`) && (PathPrefix(`/signalexchange.SignalExchange`) || PathPrefix(`/grpc.reflection`))
+      kind: Rule
+      priority: 50
+      services:
+        - name: netbird-signal
+          port: 10000
+          scheme: h2c
+  tls: {}
+---
+# ── Relay ─────────────────────────────────────────────────────────────────────
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: netbird-relay
+  namespace: traefik
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`netbird.rlservers.com`) && PathPrefix(`/relay`)
+      kind: Rule
+      priority: 40
+      services:
+        - name: netbird-relay
+          port: 443
+          serversTransport: insecure-skip-verify
+  tls: {}
+---
+# ── Management API ────────────────────────────────────────────────────────────
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: netbird-management-api
+  namespace: traefik
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`netbird.rlservers.com`) && PathPrefix(`/api`)
+      kind: Rule
+      priority: 30
+      services:
+        - name: netbird-management
+          port: 80
+  tls: {}
+---
+# ── Dashboard (catch-all) ─────────────────────────────────────────────────────
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: netbird-dashboard
+  namespace: traefik
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`netbird.rlservers.com`)
+      kind: Rule
+      priority: 10
+      services:
+        - name: netbird-dashboard
+          port: 80
+  tls: {}

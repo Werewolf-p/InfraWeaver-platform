@@ -1,0 +1,63 @@
+---
+# Wildcard certificate for *.rlservers.com
+# Stored in traefik namespace, used as TLSStore default cert.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: rlservers-com-wildcard
+  namespace: traefik
+spec:
+  secretName: rlservers-com-wildcard-tls
+  issuerRef:
+    name: letsencrypt-cloudflare
+    kind: ClusterIssuer
+  commonName: "*.rlservers.com"
+  dnsNames:
+    - "*.rlservers.com"
+    - "rlservers.com"
+    - "*.gitlab.rlservers.com"
+---
+# Certificate for yonavaarwater.nl
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: yonavaarwater-nl
+  namespace: traefik
+spec:
+  secretName: yonavaarwater-nl-tls
+  issuerRef:
+    name: letsencrypt-cloudflare
+    kind: ClusterIssuer
+  dnsNames:
+    - "yonavaarwater.nl"
+    - "www.yonavaarwater.nl"
+    - "ot.yonavaarwater.nl"
+---
+# Certificate for zonnevaarwater.nl
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: zonnevaarwater-nl
+  namespace: traefik
+spec:
+  secretName: zonnevaarwater-nl-tls
+  issuerRef:
+    name: letsencrypt-cloudflare
+    kind: ClusterIssuer
+  dnsNames:
+    - "zonnevaarwater.nl"
+    - "www.zonnevaarwater.nl"
+---
+# Certificate for waterdance.nl
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: waterdance-nl
+  namespace: traefik
+spec:
+  secretName: waterdance-nl-tls
+  issuerRef:
+    name: letsencrypt-cloudflare
+    kind: ClusterIssuer
+  dnsNames:
+    - "waterdance.nl"

@@ -1,0 +1,50 @@
+---
+# Middleware: redirect-to-https — HTTP → HTTPS permanent redirect
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: redirect-to-https
+  namespace: traefik
+spec:
+  redirectScheme:
+    scheme: https
+    permanent: true
+---
+# Middleware: internal-only — allows homelab LAN + VPN, blocks public internet
+# NetBird masquerade=true means VPN clients appear as node LAN IPs (10.25.0.0/24).
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: internal-only
+  namespace: traefik
+spec:
+  ipAllowList:
+    sourceRange:
+      - 10.25.0.0/24      # Homelab LAN + NetBird VPN masquerade (node IPs)
+      - 10.25.90.0/24     # Homelab subnet variant
+      - 192.168.1.0/24    # Home LAN
+      - 172.25.0.0/16     # Docker/internal
+      - 100.64.0.0/10     # NetBird CGNAT (direct WireGuard peers)
+      - 127.0.0.1/32      # Localhost
+---
+# Middleware: add-https-headers — sets X-Forwarded-Proto for backends
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: add-https-headers
+  namespace: traefik
+spec:
+  headers:
+    customRequestHeaders:
+      X-Forwarded-Proto: "https"
+---
+# Middleware: forward-auth — delegates authentication to auth.rlservers.com
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: forward-auth
+  namespace: traefik
+spec:
+  forwardAuth:
+    address: "https://auth.rlservers.com"
+    trustForwardHeader: true
