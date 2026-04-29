@@ -1,4 +1,26 @@
 ---
+# Catch-all HTTP → HTTPS redirect on the web (port 80) entrypoint.
+# Excludes /.well-known/acme-challenge/ so cert-manager HTTP-01 solver can respond.
+# This replaces the entrypoint-level redirect (which can't be bypassed by routes).
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: http-to-https-redirect
+  namespace: traefik
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: PathPrefix(`/`) && !PathPrefix(`/.well-known/acme-challenge/`)
+      kind: Rule
+      priority: 1
+      middlewares:
+        - name: redirect-to-https
+          namespace: traefik
+      services:
+        - name: noop@internal
+          kind: TraefikService
+---
 # Middleware: redirect-to-https — HTTP → HTTPS permanent redirect
 apiVersion: traefik.io/v1alpha1
 kind: Middleware

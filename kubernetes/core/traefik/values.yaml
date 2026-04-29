@@ -27,9 +27,6 @@ rbac:
 # Redirect HTTP to HTTPS at the entrypoint level (v34+ syntax via args)
 additionalArguments:
   - "--serversTransport.insecureSkipVerify=true"
-  - "--entryPoints.web.http.redirections.entryPoint.to=websecure"
-  - "--entryPoints.web.http.redirections.entryPoint.scheme=https"
-  - "--entryPoints.web.http.redirections.entryPoint.permanent=true"
 
 ports:
   web:
