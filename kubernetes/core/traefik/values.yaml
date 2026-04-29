@@ -15,8 +15,10 @@ providers:
   kubernetesCRD:
     enabled: true
     allowCrossNamespace: true      # Allow IngressRoutes to reference services in other namespaces
+    allowExternalNameServices: true # Allow routing to ExternalName services (cluster app proxying)
   kubernetesIngress:
     enabled: true
+    allowExternalNameServices: true
 
 rbac:
   enabled: true
