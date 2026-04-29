@@ -28,7 +28,7 @@ jobs:
     if: inputs.confirm == 'DESTROY'
     runs-on:
       - self-hosted
-      - prod-worker
+      - management-host
     env:
       ENV_NAME: ${{ inputs.environment }}
 
@@ -181,7 +181,7 @@ jobs:
           # Terraform state (e.g., from a prior cancelled or partial deploy).
           PVE_IP="10.25.0.3"
           SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=15 -i ~/.ssh/deployer_ed25519"
-          PLATFORM_VMIDS="9300 9301 9302 9310 9311 9312 9100"  # 9200 removed: OpenBao now in-cluster
+          PLATFORM_VMIDS="9300 9301 9302 9310 9311 9312"  # 9100 = runner VM, do NOT destroy (it runs this workflow)
           echo "==> Force-stopping and destroying platform VMs: $PLATFORM_VMIDS"
           for VMID in $PLATFORM_VMIDS; do
             # Kill any ghost QEMU process for this VMID before touching the config
@@ -215,12 +215,19 @@ jobs:
           VARS=""
           [ -f "../envs/$ENV/terraform.tfvars" ]     && VARS="$VARS -var-file=../envs/$ENV/terraform.tfvars"
           [ -f "../envs/$ENV/services.auto.tfvars" ] && VARS="$VARS -var-file=../envs/$ENV/services.auto.tfvars"
-          tofu destroy $VARS -auto-approve 2>&1 || echo "⚠ Destroy failed or no prior state — continuing"
+          # Destroy only cluster resources — exclude runner VM (it's running this workflow!)
+          CLUSTER_TARGETS="-target=module.talos_cluster -target=module.cloudinit_templates"
+          tofu destroy $VARS $CLUSTER_TARGETS -auto-approve 2>&1 || echo "⚠ Destroy failed or no prior state — continuing"
 
       - name: Clear state
         run: |
-          rm -f "$HOME/.tofu/state/platform-${{ env.ENV_NAME }}/terraform.tfstate"
-          echo "✓ State cleared"
+          STATE_DIR="$HOME/.tofu/state/platform-${{ env.ENV_NAME }}"
+          # Remove only cluster resources from state; preserve runner VM state so tofu apply won't try to recreate it
+          cd terraform
+          tofu init -backend-config="path=$STATE_DIR/terraform.tfstate" -reconfigure 2>&1 | tail -3 || true
+          tofu state rm module.talos_cluster 2>/dev/null || true
+          tofu state rm module.cloudinit_templates 2>/dev/null || true
+          echo "✓ Cluster state cleared (runner state preserved)"
 
       - name: Deploy Platform
         env:
