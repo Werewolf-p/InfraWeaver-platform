@@ -681,7 +681,7 @@ jobs:
           fi
           rm -f "$REMON_PASS_FILE" "$REMON_PATCH_FILE"
 
-          # NetBird: generate random TURN relay password + datastore encryption key + setup key
+          # NetBird: generate random TURN relay password + datastore encryption key + setup key + PAT token
           EXISTING_NETBIRD=$(curl -s -H "X-Vault-Token: $ROOT_TOKEN" \
             "${LOCAL_OPENBAO}/v1/secret/data/platform/netbird" | \
             python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('data',{}).get('turn-password',''))" \
@@ -689,13 +689,26 @@ jobs:
           if [ -z "$EXISTING_NETBIRD" ]; then
             TURN_PASS=$(openssl rand -base64 24 | tr -d '=+/')
             DATASTORE_KEY=$(openssl rand -base64 32)
+            # Generate valid 40-char NetBird PAT: nbp_ + 30 base62 chars + 6-char base62 CRC32 checksum
+            NB_PAT=$(python3 -c "
+import zlib, random, string
+alpha = string.digits + string.ascii_uppercase + string.ascii_lowercase
+def b62(n):
+    s = ''
+    while n: s = alpha[n%62] + s; n //= 62
+    return s or '0'
+while True:
+    sec = ''.join(random.choices(alpha, k=30))
+    enc = b62(zlib.crc32(sec.encode()) & 0xFFFFFFFF)
+    if len(enc) == 6: print('nbp_' + sec + enc); break
+")
             # SETUP_KEY matches the hardcoded key in kubernetes/apps/netbird/manifests/bootstrap-job.yaml
             # It is written here so client DaemonSet pods can register via OpenBao ExternalSecret
             curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/platform/netbird" \
               -H "X-Vault-Token: $ROOT_TOKEN" \
               -H "Content-Type: application/json" \
-              -d "{\"data\": {\"turn-password\": \"$TURN_PASS\", \"datastore-enc-key\": \"$DATASTORE_KEY\", \"SETUP_KEY\": \"A1B2C3D4-E5F6-7890-ABCD-EF1234567890\"}}" > /dev/null
-            echo "==> NetBird secrets written (randomly generated)"
+              -d "{\"data\": {\"turn-password\": \"$TURN_PASS\", \"datastore-enc-key\": \"$DATASTORE_KEY\", \"SETUP_KEY\": \"A1B2C3D4-E5F6-7890-ABCD-EF1234567890\", \"netbird-pat-token\": \"$NB_PAT\"}}" > /dev/null
+            echo "==> NetBird secrets written (randomly generated, including PAT token)"
           else
             echo "==> NetBird secrets already exist — preserving existing values"
           fi
