@@ -598,6 +598,26 @@ jobs:
             -H "Content-Type: application/json" \
             -d '{"type": "kv", "options": {"version": "2"}}' > /dev/null 2>&1 || true
 
+          # Wait for KV v2 upgrade to complete (OpenBao briefly enters "upgrading" state)
+          echo "==> Waiting for KV v2 backend to be ready..."
+          for i in $(seq 1 20); do
+            PROBE=$(curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/_ready_probe" \
+              -H "X-Vault-Token: $ROOT_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d '{"data":{"ok":"1"}}')
+            PROBE_ERR=$(echo "$PROBE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('errors',[''])[0])" 2>/dev/null || echo "parse_err")
+            if echo "$PROBE_ERR" | grep -qi "upgrading"; then
+              echo "  KV upgrading... ($i/20)"
+              sleep 2
+            else
+              echo "  KV backend ready"
+              # Clean up probe key (best-effort)
+              curl -s -X DELETE "${LOCAL_OPENBAO}/v1/secret/metadata/_ready_probe" \
+                -H "X-Vault-Token: $ROOT_TOKEN" > /dev/null 2>&1 || true
+              break
+            fi
+          done
+
           # Write Grafana secret — only on first deploy (do not overwrite existing password)
           EXISTING_GRAFANA=$(curl -s -H "X-Vault-Token: $ROOT_TOKEN" \
             "${LOCAL_OPENBAO}/v1/secret/data/platform/grafana" | \
@@ -613,7 +633,7 @@ jobs:
             if [ -n "$GRAFANA_VERSION" ]; then
               echo "==> Grafana secret written (randomly generated, version=$GRAFANA_VERSION)"
             else
-              echo "⚠ Grafana write may have failed: $GRAFANA_WRITE"
+              echo "⚠ Grafana write failed: $GRAFANA_WRITE"
               exit 1
             fi
           else
