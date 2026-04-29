@@ -690,18 +690,7 @@ jobs:
             TURN_PASS=$(openssl rand -base64 24 | tr -d '=+/')
             DATASTORE_KEY=$(openssl rand -base64 32)
             # Generate valid 40-char NetBird PAT: nbp_ + 30 base62 chars + 6-char base62 CRC32 checksum
-            NB_PAT=$(python3 -c "
-import zlib, random, string
-alpha = string.digits + string.ascii_uppercase + string.ascii_lowercase
-def b62(n):
-    s = ''
-    while n: s = alpha[n%62] + s; n //= 62
-    return s or '0'
-while True:
-    sec = ''.join(random.choices(alpha, k=30))
-    enc = b62(zlib.crc32(sec.encode()) & 0xFFFFFFFF)
-    if len(enc) == 6: print('nbp_' + sec + enc); break
-")
+            NB_PAT=$(python3 -c 'import zlib,random,string; a=string.digits+string.ascii_uppercase+string.ascii_lowercase; b62=lambda n,s="": s if not n else b62(n//62,a[n%62]+s); t=next(s for s in iter(lambda:"".join(random.choices(a,k=30)),None) if len(b62(zlib.crc32(s.encode())&4294967295))==6); print("nbp_"+t+b62(zlib.crc32(t.encode())&4294967295))')
             # SETUP_KEY matches the hardcoded key in kubernetes/apps/netbird/manifests/bootstrap-job.yaml
             # It is written here so client DaemonSet pods can register via OpenBao ExternalSecret
             curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/platform/netbird" \
