@@ -289,6 +289,38 @@ jobs:
           echo "✅ Configs saved"
           KUBECONFIG=~/.kube/config-platform-$ENV kubectl get nodes 2>&1 || echo "  (cluster not yet reachable)"
 
+      - name: Fix CoreDNS startup race condition
+        if: success()
+        run: |
+          ENV=${{ env.ENV_NAME }}
+          KB=~/.kube/config-platform-$ENV
+
+          # CoreDNS and argocd-repo-server can fail with "no users found" or "subnet.env missing"
+          # on fresh cluster startup due to a race with Flannel CNI initialization.
+          # Wait for Flannel to write subnet.env on all nodes, then restart any stuck pods.
+          echo "==> Waiting for Flannel DaemonSet to be ready..."
+          for i in $(seq 1 30); do
+            DESIRED=$(kubectl --kubeconfig "$KB" get ds kube-flannel -n kube-system \
+              -o jsonpath='{.status.desiredNumberScheduled}' 2>/dev/null || echo "0")
+            READY=$(kubectl --kubeconfig "$KB" get ds kube-flannel -n kube-system \
+              -o jsonpath='{.status.numberReady}' 2>/dev/null || echo "0")
+            if [ "$DESIRED" -gt 0 ] && [ "$READY" -eq "$DESIRED" ]; then
+              echo "  Flannel ready: $READY/$DESIRED"
+              break
+            fi
+            echo "  Waiting for Flannel ($i/30): $READY/$DESIRED ready..."
+            sleep 10
+          done
+
+          # Extra buffer for subnet.env to be written
+          sleep 10
+
+          # Restart CoreDNS to clear any startup failures
+          echo "==> Restarting CoreDNS to clear startup failures..."
+          kubectl --kubeconfig "$KB" rollout restart deployment/coredns -n kube-system 2>/dev/null || true
+          kubectl --kubeconfig "$KB" rollout status deployment/coredns -n kube-system --timeout=120s 2>/dev/null || true
+          echo "  CoreDNS restarted"
+
       - name: Deploy ArgoCD & Bootstrap
         if: success()
         env:
@@ -366,6 +398,10 @@ jobs:
 
           kubectl --kubeconfig "$KB" wait --for=condition=available \
             deployment/argocd-server -n argocd --timeout=180s || true
+
+          # Restart argocd-repo-server in case it started before CoreDNS was ready
+          kubectl --kubeconfig "$KB" rollout restart deployment/argocd-repo-server -n argocd 2>/dev/null || true
+          kubectl --kubeconfig "$KB" rollout status deployment/argocd-repo-server -n argocd --timeout=120s 2>/dev/null || true
 
           echo "✅ ArgoCD deployed & bootstrapped"
           kubectl --kubeconfig "$KB" get pods -n argocd
@@ -720,24 +756,31 @@ jobs:
             echo "⚠ CLOUDFLARE_API_TOKEN secret not set — cert-manager DNS-01 will fail"
           fi
 
-                    # Write least-privilege policy for ESO
-          POLICY_JSON='{"policy": "path \"secret/data/platform/*\" { capabilities = [\"read\", \"list\"] }\npath \"secret/metadata/platform/*\" { capabilities = [\"read\", \"list\"] }"}'
-          curl -s -X PUT "${LOCAL_OPENBAO}/v1/sys/policies/acl/platform-k8s" \
-            -H "X-Vault-Token: $ROOT_TOKEN" \
-            -H "Content-Type: application/json" \
-            -d "$POLICY_JSON" > /dev/null
+                    # Write least-privilege policy for ESO (use bao CLI for reliable policy creation)
+          kubectl --kubeconfig "$KB" exec -n openbao openbao-0 -- sh -c \
+            "VAULT_TOKEN=$ROOT_TOKEN VAULT_ADDR=http://127.0.0.1:8200 bao policy write platform-k8s - << 'POLICYEOF'
+path \"secret/data/platform/*\" {
+  capabilities = [\"read\", \"list\"]
+}
+path \"secret/metadata/platform/*\" {
+  capabilities = [\"read\", \"list\"]
+}
+POLICYEOF" 2>/dev/null || true
 
-          # Tune token auth to allow long-lived tokens
-          curl -s -X POST "${LOCAL_OPENBAO}/v1/sys/auth/token/tune" \
-            -H "X-Vault-Token: $ROOT_TOKEN" \
-            -H "Content-Type: application/json" \
-            -d '{"max_lease_ttl": "87600h"}' > /dev/null 2>&1 || true
+          # Tune token auth to allow long-lived tokens (use bao CLI)
+          kubectl --kubeconfig "$KB" exec -n openbao openbao-0 -- sh -c \
+            "VAULT_TOKEN=$ROOT_TOKEN VAULT_ADDR=http://127.0.0.1:8200 bao auth tune -max-lease-ttl=87600h token/" 2>/dev/null || true
 
-          # Create ESO service token (orphan, long TTL, least-privilege)
-          SERVICE_TOKEN=$(curl -s -X POST "${LOCAL_OPENBAO}/v1/auth/token/create" \
-            -H "X-Vault-Token: $ROOT_TOKEN" \
-            -H "Content-Type: application/json" \
-            -d "{\"policies\": [\"platform-k8s\", \"default\"], \"ttl\": \"87600h\", \"display_name\": \"eso-${ENV}\", \"renewable\": true, \"orphan\": true}" | \
+          # Create ESO service token (orphan, long TTL, least-privilege) via bao CLI
+          SERVICE_TOKEN=$(kubectl --kubeconfig "$KB" exec -n openbao openbao-0 -- sh -c \
+            "VAULT_TOKEN=$ROOT_TOKEN VAULT_ADDR=http://127.0.0.1:8200 bao token create \
+              -policy=platform-k8s \
+              -policy=default \
+              -ttl=87600h \
+              -orphan \
+              -display-name=eso-${ENV} \
+              -renewable=true \
+              -format=json" 2>/dev/null | \
             python3 -c "import json,sys; print(json.load(sys.stdin)['auth']['client_token'])" \
             2>/dev/null || echo "")
 
