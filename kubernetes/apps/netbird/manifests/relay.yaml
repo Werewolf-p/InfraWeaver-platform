@@ -1,7 +1,8 @@
 ---
 # ── NetBird Relay Server ──────────────────────────────────────────────────────
-# Handles NAT traversal (TURN/relay) for peers that can't connect directly.
-# External: 10.25.0.202:33080 (relay WebSocket), 10.25.0.202:3478 (TURN)
+# Handles NAT traversal (relay) for peers that can't connect directly.
+# Relay listens on port 443 (port is derived from NB_EXPOSED_ADDRESS).
+# External: 10.25.0.202:443 → proxied by Traefik at netbird.rlservers.com/relay
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -33,9 +34,7 @@ spec:
                   key: turn-password
           ports:
             - name: relay
-              containerPort: 33080
-            - name: turn
-              containerPort: 3478
+              containerPort: 443
           resources:
             requests:
               cpu: 50m
@@ -44,7 +43,7 @@ spec:
               cpu: 200m
               memory: 128Mi
 ---
-# ── Relay LoadBalancer (external access at 10.25.0.202) ──────────────────────
+# ── Relay LoadBalancer (external access at 10.25.0.202:443) ──────────────────
 apiVersion: v1
 kind: Service
 metadata:
@@ -57,8 +56,5 @@ spec:
     app: netbird-relay
   ports:
     - name: relay
-      port: 33080
-      targetPort: 33080
-    - name: turn
-      port: 3478
-      targetPort: 3478
+      port: 443
+      targetPort: 443
