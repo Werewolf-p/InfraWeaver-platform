@@ -98,3 +98,13 @@ spec:
             name: test-website
             port:
               number: 80
+  - host: test.rlservers.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: test-website
+            port:
+              number: 80

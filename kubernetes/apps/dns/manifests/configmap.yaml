@@ -41,12 +41,17 @@ data:
 
   rlservers.com.hosts: |
     # rlservers.com — internal A records
-    # All services route through standalone Traefik at 10.25.0.5
-    # including netbird.rlservers.com (Traefik terminates TLS and proxies to 10.25.0.100)
-    # dc1 is the Windows domain controller at 10.25.0.43
+    # Cluster services point directly to internal Traefik (10.25.0.200) — no double-hop via external VM
+    # Non-cluster services (Proxmox, TrueNAS, etc.) still route via external Traefik (10.25.0.5)
+
+    10.25.0.200  argocd.rlservers.com
+    10.25.0.200  grafana.rlservers.com
+    10.25.0.200  longhorn.rlservers.com
+    10.25.0.200  netbird.rlservers.com
+    10.25.0.200  openbao.rlservers.com
+    10.25.0.200  test.rlservers.com
 
     10.25.0.5   ansible.rlservers.com
-    10.25.0.5   argocd.rlservers.com
     10.25.0.5   auth.rlservers.com
     10.25.0.5   awx.rlservers.com
     10.25.0.5   bitwarden.rlservers.com
@@ -58,19 +63,15 @@ data:
     10.25.0.5   degoudentijd.rlservers.com
     10.25.0.5   feestinhetdonker.rlservers.com
     10.25.0.5   gitlab.rlservers.com
-    10.25.0.5   grafana.rlservers.com
     10.25.0.5   keycloak.rlservers.com
-    10.25.0.5   longhorn.rlservers.com
     10.25.0.5   loverseer.rlservers.com
     10.25.0.5   nebula.rlservers.com
-    10.25.0.5   netbird.rlservers.com
     10.25.0.5   portainer.rlservers.com
     10.25.0.5   proxmox.rlservers.com
     10.25.0.5   radarr.rlservers.com
     10.25.0.5   registry.rlservers.com
     10.25.0.5   sonarr.rlservers.com
     10.25.0.5   teleport.rlservers.com
-    10.25.0.5   test.rlservers.com
     10.25.0.5   traefik.rlservers.com
     10.25.0.5   truenas.rlservers.com
     10.25.0.5   wazuh.rlservers.com
@@ -86,3 +87,41 @@ data:
     10.25.0.200  netbird.prod.local
     10.25.0.200  openbao.prod.local
     10.25.0.200  test.prod.local
+
+  rlservers.com.hosts: |
+    # rlservers.com — internal A records
+    # Cluster services point directly to internal Traefik (10.25.0.200) — no double-hop via external VM
+    # Non-cluster services (Proxmox, TrueNAS, etc.) still route via external Traefik (10.25.0.5)
+
+    10.25.0.200  argocd.rlservers.com
+    10.25.0.200  grafana.rlservers.com
+    10.25.0.200  longhorn.rlservers.com
+    10.25.0.200  netbird.rlservers.com
+    10.25.0.200  openbao.rlservers.com
+    10.25.0.200  test.rlservers.com
+
+    10.25.0.5   ansible.rlservers.com
+    10.25.0.5   auth.rlservers.com
+    10.25.0.5   awx.rlservers.com
+    10.25.0.5   bitwarden.rlservers.com
+    10.25.0.5   bookstack.rlservers.com
+    10.25.0.5   cloud.rlservers.com
+    10.25.0.5   dashboard.rlservers.com
+    10.25.0.5   database.rlservers.com
+    10.25.0.43  dc1.rlservers.com
+    10.25.0.5   degoudentijd.rlservers.com
+    10.25.0.5   feestinhetdonker.rlservers.com
+    10.25.0.5   gitlab.rlservers.com
+    10.25.0.5   keycloak.rlservers.com
+    10.25.0.5   loverseer.rlservers.com
+    10.25.0.5   nebula.rlservers.com
+    10.25.0.5   portainer.rlservers.com
+    10.25.0.5   proxmox.rlservers.com
+    10.25.0.5   radarr.rlservers.com
+    10.25.0.5   registry.rlservers.com
+    10.25.0.5   sonarr.rlservers.com
+    10.25.0.5   teleport.rlservers.com
+    10.25.0.5   traefik.rlservers.com
+    10.25.0.5   truenas.rlservers.com
+    10.25.0.5   wazuh.rlservers.com
+    10.25.0.5   wiki.rlservers.com

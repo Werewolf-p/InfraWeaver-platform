@@ -243,3 +243,20 @@ spec:
                 name: netbird-dashboard
                 port:
                   number: 80
+    - host: netbird.rlservers.com
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: netbird-management
+                port:
+                  number: 80
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: netbird-dashboard
+                port:
+                  number: 80

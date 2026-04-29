@@ -11,6 +11,7 @@ server:
     ingressClassName: traefik
     hosts:
       - argocd.prod.local
+      - argocd.rlservers.com
     paths:
       - /
     pathType: Prefix
