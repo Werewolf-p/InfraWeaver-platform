@@ -21,7 +21,7 @@ server:
   dataStorage:
     enabled: true
     size: 5Gi
-    storageClass: longhorn
+    storageClass: local-path
     accessMode: ReadWriteOnce
 
   service:
