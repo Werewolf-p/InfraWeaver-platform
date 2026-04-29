@@ -91,7 +91,28 @@ data:
            grp_json, None, grp_json, None, 1, "all", "[]", "[]", "{}", ""))
 
         conn.commit()
-        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+
+    # Always upsert PAT and route (idempotent, safe to re-run)
+    PAT_TOKEN = os.environ.get("PAT_TOKEN", "")
+    if PAT_TOKEN:
+        pat_hash = base64.b64encode(hashlib.sha256(PAT_TOKEN.encode()).digest()).decode()
+        c.execute("""INSERT OR REPLACE INTO personal_access_tokens
+          (id, user_id, name, hashed_token, expiration_date, created_by, created_at, last_used)
+          VALUES ('pat00000-0000-4000-a000-000000000001', ?, ?, ?, '2040-01-01 00:00:00', ?, datetime('now'), NULL)""",
+          (USR, encrypt_field("bootstrap-admin"), pat_hash, USR))
+        print(f"PAT upserted (token prefix: {PAT_TOKEN[:12]}...)")
+
+    # Route for cluster subnet via "All" peer group (peer_groups avoids hardcoded peer IDs)
+    c.execute("""INSERT OR REPLACE INTO routes
+      (id, account_id, network, domains, keep_route, net_id, description, peer, peer_groups,
+       network_type, masquerade, metric, enabled, groups, access_control_groups, skip_auto_apply)
+      VALUES ('rte00000-0000-4000-a000-000000000001', ?, '10.25.0.0/24', '[]', 0,
+       'cluster-net', 'Cluster network route', NULL, ?, 0, 1, 9999, 1, ?, '[]', 0)""",
+      (ACC, json.dumps([GRP]), json.dumps([GRP])))
+    print("Route upserted: 10.25.0.0/24 via All group")
+
+    conn.commit()
+    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
 
     print(f"Accounts: {c.execute('SELECT COUNT(*) FROM accounts').fetchone()[0]}")
     print(f"network_net: {c.execute('SELECT network_net FROM accounts LIMIT 1').fetchone()[0]}")
@@ -99,6 +120,7 @@ data:
     print(f"Setup keys: {c.execute('SELECT name,type,key_secret FROM setup_keys').fetchall()}")
     print(f"Groups: {c.execute('SELECT name FROM groups').fetchall()}")
     print(f"Policies: {c.execute('SELECT name FROM policies').fetchall()}")
+    print(f"Routes: {c.execute('SELECT net_id,network,enabled FROM routes').fetchall()}")
     print("Bootstrap complete")
     conn.close()
 ---
@@ -198,6 +220,11 @@ spec:
                 secretKeyRef:
                   name: netbird-secrets
                   key: datastore-enc-key
+            - name: PAT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: netbird-secrets
+                  key: netbird-pat-token
           volumeMounts:
             - name: data
               mountPath: /data
