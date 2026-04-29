@@ -123,10 +123,11 @@
     - name: Pre-pull base image for CI ansible container
       shell: docker pull python:3.12-slim
       register: docker_pull
-      retries: 3
+      retries: 2
       delay: 10
       until: docker_pull is succeeded
       changed_when: "'Downloaded newer image' in docker_pull.stdout or 'Pull complete' in docker_pull.stdout"
+      ignore_errors: true  # Non-fatal: Docker Hub rate limit may block; build still retried on demand
       when: ansible_image_check.stdout == ""
 
     - name: Ensure build directory exists
@@ -161,7 +162,8 @@
       delay: 30
       until: docker_build is succeeded
       changed_when: true
-      when: ansible_image_check.stdout == ""
+      ignore_errors: true  # Non-fatal: will be built on demand when first needed
+      when: ansible_image_check.stdout == "" and (docker_pull is not failed or docker_pull is skipped)
 
     - name: Clean up build directory
       file:
@@ -437,3 +439,4 @@
     - name: Confirm key distribution
       debug:
         msg: "Runner SSH key authorized on {{ inventory_hostname }}"
+
