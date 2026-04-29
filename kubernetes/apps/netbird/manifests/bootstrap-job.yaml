@@ -17,10 +17,12 @@ data:
     RUL = "rul00000-0000-4000-a000-000000000001"
     KEY_ID = "388f43a5-eb90-4ba0-a7cb-a892408886df"
 
-    # net.IPNet{IP:[100,64,0,0], Mask:[255,192,0,0]} for 100.64.0.0/10
-    # Go json.Marshal encodes []byte as base64
+    # Correct format for net.IPNet in NetBird v0.70:
+    # net.IP implements TextMarshaler -> stored as string "100.64.0.0"
+    # net.IPMask is raw []byte -> stored as base64 "/8AAAA==" (255,192,0,0)
+    import base64
     network_net_json = json.dumps({
-        "IP": base64.b64encode(bytes([100, 64, 0, 0])).decode(),    # ZEAAAA==
+        "IP": "100.64.0.0",
         "Mask": base64.b64encode(bytes([255, 192, 0, 0])).decode()  # /8AAAA==
     })
 
@@ -42,7 +44,7 @@ data:
         c.execute("""INSERT OR IGNORE INTO users
           (id, account_id, role, is_service_user, non_deletable, auto_groups, blocked, issued, email, name, created_at)
           VALUES (?,?,?,?,?,?,?,?,?,?,datetime('now'))""",
-          (USR, ACC, "admin", 0, 1, "[]", 0, "api", "remonhulst@gmail.com", "Remon Hulst"))
+          (USR, ACC, "admin", 0, 1, "[]", 0, "api", "", "admin"))
 
         c.execute("""INSERT OR IGNORE INTO groups
           (id, account_id, name, issued, resources, integration_ref_id, integration_ref_integration_type)

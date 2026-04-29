@@ -1,7 +1,6 @@
 # ── Management ConfigMap (template) ──────────────────────────────────────────
-# Sensitive values (TURN password, DataStoreEncryptionKey) use placeholders.
-# The init container substitutes them from the netbird-secrets Secret before
-# writing management.json to the PVC. After first boot, the PVC copy is
+# The init container substitutes the TURN password from the netbird-secrets Secret
+# before writing management.json to the PVC. After first boot, the PVC copy is
 # authoritative. To force config update: delete the PVC file and restart.
 apiVersion: v1
 kind: ConfigMap
@@ -15,7 +14,6 @@ data:
       "TURNs": [{"Proto":"udp","URI":"turn:10.25.0.202:3478","Username":"netbird","Password":"TURN_PASSWORD_PLACEHOLDER"}],
       "Signal": {"Proto":"http","URI":"10.25.0.204:10000","Username":"","Password":null},
       "Datadir": "/var/lib/netbird/",
-      "DataStoreEncryptionKey": "DATASTORE_KEY_PLACEHOLDER",
       "HttpConfig": {
         "LetsEncryptDomain":"","CertFile":"","CertKey":"",
         "AuthAudience":"","AuthIssuer":"","AuthKeysLocation":"","AuthUserIDClaim":"",
@@ -70,7 +68,6 @@ spec:
               if [ ! -f /var/lib/netbird/management.json ]; then
                 echo "Generating management.json from template (substituting secrets)"
                 sed -e "s|TURN_PASSWORD_PLACEHOLDER|${NB_TURN_PASSWORD}|g" \
-                    -e "s|DATASTORE_KEY_PLACEHOLDER|${NB_DATASTORE_ENC_KEY}|g" \
                     /config-source/management.json.template > /var/lib/netbird/management.json
                 echo "management.json generated"
               else
@@ -82,11 +79,6 @@ spec:
                 secretKeyRef:
                   name: netbird-secrets
                   key: turn-password
-            - name: NB_DATASTORE_ENC_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: netbird-secrets
-                  key: datastore-enc-key
           volumeMounts:
             - name: config-source
               mountPath: /config-source
