@@ -63,15 +63,4 @@ spec:
           hostPath:
             path: /dev/net/tun
             type: CharDevice
----
-# ── NetBird Secrets ───────────────────────────────────────────────────────────
-# Setup key used by DaemonSet clients to auto-register as peers.
-# Rotate by changing SETUP_KEY and restarting the DaemonSet.
-apiVersion: v1
-kind: Secret
-metadata:
-  name: netbird-secrets
-  namespace: netbird
-type: Opaque
-stringData:
-  SETUP_KEY: "B9FE5C85-74E7-4013-806C-C48EE62DD2DF"
+

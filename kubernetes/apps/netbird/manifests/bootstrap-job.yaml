@@ -7,7 +7,7 @@ metadata:
   namespace: netbird
 data:
   bootstrap.py: |
-    import sqlite3, json, base64, os
+    import sqlite3, json, base64, hashlib, os
 
     DB = os.environ.get("DB", "/data/store.db")
     ACC = "acc00000-0000-4000-a000-000000000001"
@@ -17,10 +17,16 @@ data:
     RUL = "rul00000-0000-4000-a000-000000000001"
     KEY_ID = "388f43a5-eb90-4ba0-a7cb-a892408886df"
 
+    # Read SETUP_KEY from env (from netbird-secrets ExternalSecret → OpenBao)
+    # Hash it the same way NetBird v0.70 does: sha256 + base64 standard encoding
+    SETUP_KEY = os.environ["SETUP_KEY"]
+    key_hash = base64.b64encode(hashlib.sha256(SETUP_KEY.encode()).digest()).decode()
+    key_secret = SETUP_KEY[:4] + "****"
+    print(f"Using SETUP_KEY prefix: {SETUP_KEY[:8]}..., hash: {key_hash[:16]}...")
+
     # Correct format for net.IPNet in NetBird v0.70:
     # net.IP implements TextMarshaler -> stored as string "100.64.0.0"
     # net.IPMask is raw []byte -> stored as base64 "/8AAAA==" (255,192,0,0)
-    import base64
     network_net_json = json.dumps({
         "IP": "100.64.0.0",
         "Mask": base64.b64encode(bytes([255, 192, 0, 0])).decode()  # /8AAAA==
@@ -51,13 +57,13 @@ data:
           VALUES (?,?,?,?,?,?,?)""",
           (GRP, ACC, "All", "api", "[]", 0, ""))
 
-        # key = base64(sha256("A1B2C3D4-E5F6-7890-ABCD-EF1234567890"))
-        # key_secret non-empty → MigrateSetupKeyToHashedSetupKey skips it
+        # Store sha256 hash of setup key (same as NetBird v0.70 GetSetupKeyBySecret lookup)
+        # key_secret non-empty → MigrateSetupKeyToHashedSetupKey skips this row
         c.execute("""INSERT OR IGNORE INTO setup_keys
           (id, account_id, key, key_secret, name, type, used_times, last_used, expires_at,
            auto_groups, revoked, ephemeral, updated_at, created_at, usage_limit, allow_extra_dns_labels)
           VALUES (?,?,?,?,?,?,?,datetime('now'),?,?,?,?,datetime('now'),datetime('now'),?,?)""",
-          (KEY_ID, ACC, "mewqgKYulb4neyT85tvUyw1QzCAhxDjA9+5h7WeAysw=", "A1B2C****",
+          (KEY_ID, ACC, key_hash, key_secret,
            "Default Key", "reusable", 0, "2040-01-01 00:00:00", "[]", 0, 0, 0, 0))
 
         grp_json = json.dumps([GRP])
@@ -171,6 +177,11 @@ spec:
           env:
             - name: DB
               value: /data/store.db
+            - name: SETUP_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: netbird-secrets
+                  key: SETUP_KEY
           volumeMounts:
             - name: data
               mountPath: /data
