@@ -36,5 +36,5 @@ spec:
     - group: external-secrets.io
       kind: ExternalSecret
       name: netbird-secrets
-      jqPathExpressions:
-        - '.status'
+      jsonPointers:
+        - /status
