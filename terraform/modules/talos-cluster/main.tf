@@ -472,8 +472,8 @@ resource "null_resource" "start_and_configure_talos" {
       fi
 
       # ── Discover IP: scan VLAN3 from runner, match by MAC ────────────────
-      # The runner has a VLAN 3 NIC (eth1/10.10.0.85) so it can reach nodes
-      # directly. Scan 10.10.0.0/24 for port 50000, then ARP-match the MAC.
+      # The runner has a VLAN 3 NIC (eth1/10.10.0.x) so it can reach nodes
+      # directly. Scan 10.10.0.0/24 for port 50000, then ip-neigh-match MAC.
       MAC=$(ssh $SSH_OPTS root@"$PVE_IP" \
         "qm config $VMID 2>/dev/null | grep '^net0:' | grep -oiP '(?<=virtio=)[A-Fa-f0-9:]+'" \
         2>/dev/null | tr '[:upper:]' '[:lower:]' || echo "")
@@ -482,17 +482,21 @@ resource "null_resource" "start_and_configure_talos" {
       DHCP_IP=""
       echo "==> [${each.key}] Scanning VLAN3 for Talos API (up to 6 min)..."
       for attempt in $(seq 1 24); do
-        # Scan all 10.10.0.x IPs for open port 50000 (triggers ARP on runner)
         TMPF=$(mktemp /tmp/talos_XXXXXX)
         for last in $(seq 1 254); do
           ip_="10.10.0.$last"
-          (timeout 0.3 bash -c "echo >/dev/tcp/$ip_/50000" 2>/dev/null && echo $ip_ >> "$TMPF") &
+          (timeout 0.3 bash -c "echo >/dev/tcp/$ip_/50000" 2>/dev/null && echo "$ip_" >> "$TMPF") &
         done
         wait 2>/dev/null; sleep 0.5
         if [ -s "$TMPF" ]; then
           while IFS= read -r cip; do
-            cmac=$(arp -n "$cip" 2>/dev/null | awk '/'"$cip"'/{print tolower($3)}' | head -1)
-            if [ "$cmac" = "$MAC" ]; then DHCP_IP="$cip"; break; fi
+            # Ping to ensure ARP entry is populated, then check MAC
+            ping -c1 -W1 "$cip" >/dev/null 2>&1 || true
+            cmac=$(sudo ip neigh show "$cip" 2>/dev/null | awk '{print tolower($5)}' | head -1)
+            if [ -n "$cmac" ] && [ "$cmac" = "$MAC" ]; then
+              DHCP_IP="$cip"
+              break
+            fi
           done < "$TMPF"
         fi
         rm -f "$TMPF"
