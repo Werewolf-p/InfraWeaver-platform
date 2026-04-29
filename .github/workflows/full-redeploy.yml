@@ -440,6 +440,18 @@ jobs:
           # Apply RBAC so the autounseal sidecar can read the openbao-unseal secret
           kubectl --kubeconfig "$KB" apply -f kubernetes/core/openbao/manifests/rbac.yaml 2>/dev/null || true
 
+          # Pre-create openbao-unseal secret with placeholder values so the autounseal
+          # sidecar volume mount doesn't block the pod from starting. Real values are
+          # written below after OpenBao is initialised.
+          kubectl --kubeconfig "$KB" create namespace openbao --dry-run=client -o yaml \
+            | kubectl --kubeconfig "$KB" apply -f -
+          kubectl --kubeconfig "$KB" create secret generic openbao-unseal \
+            -n openbao \
+            --from-literal=unseal_key="placeholder" \
+            --from-literal=root_token="placeholder" \
+            --dry-run=client -o yaml | kubectl --kubeconfig "$KB" apply -f -
+          echo "==> openbao-unseal placeholder secret created"
+
           # Wait for Longhorn to be ready (OpenBao PVC needs Longhorn storage)
           echo "==> Waiting for Longhorn manager to be Running..."
           for i in $(seq 1 30); do
