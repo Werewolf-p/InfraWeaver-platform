@@ -1,0 +1,30 @@
+name: Test Email
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: [self-hosted, management-host]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Send test email
+        env:
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMTP_TO: ${{ secrets.SMTP_TO }}
+        run: |
+          KB=~/.kube/config-platform-productie
+          export DEPLOY_ENV="productie-test"
+          export DEPLOY_RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          export BAO_TOKEN=$(kubectl --kubeconfig "$KB" get secret openbao-unseal -n openbao \
+            -o jsonpath='{.data.root_token}' 2>/dev/null | base64 -d || echo "unavailable")
+          export BAO_UNSEAL=$(kubectl --kubeconfig "$KB" get secret openbao-unseal -n openbao \
+            -o jsonpath='{.data.unseal_key}' 2>/dev/null | base64 -d || echo "unavailable")
+          export NB_PAT=$(kubectl --kubeconfig "$KB" exec -n openbao openbao-0 -- \
+            sh -c "VAULT_TOKEN=$BAO_TOKEN VAULT_ADDR=http://127.0.0.1:8200 vault kv get -field=netbird-pat-token secret/platform/netbird" \
+            2>/dev/null || echo "unavailable")
+          export NB_SETUP=$(kubectl --kubeconfig "$KB" exec -n openbao openbao-0 -- \
+            sh -c "VAULT_TOKEN=$BAO_TOKEN VAULT_ADDR=http://127.0.0.1:8200 vault kv get -field=SETUP_KEY secret/platform/netbird" \
+            2>/dev/null || echo "unavailable")
+
+          python3 scripts/send-deploy-email.py

@@ -882,17 +882,18 @@ jobs:
           export DEPLOY_ENV="${{ env.ENV_NAME }}"
           export DEPLOY_RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
+          # OpenBao root token + unseal key from K8s openbao-unseal secret
           export BAO_TOKEN=$(kubectl --kubeconfig "$KB" get secret openbao-unseal -n openbao \
             -o jsonpath='{.data.root_token}' 2>/dev/null | base64 -d || echo "unavailable")
           export BAO_UNSEAL=$(kubectl --kubeconfig "$KB" get secret openbao-unseal -n openbao \
             -o jsonpath='{.data.unseal_key}' 2>/dev/null | base64 -d || echo "unavailable")
-          export NB_PAT=$(kubectl --kubeconfig "$KB" get secret netbird-secrets -n netbird \
-            -o jsonpath='{.data.netbird-pat-token}' 2>/dev/null | base64 -d || echo "unavailable")
-          export NB_SETUP=$(kubectl --kubeconfig "$KB" get secret netbird-secrets -n netbird \
-            -o jsonpath='{.data.SETUP_KEY}' 2>/dev/null | base64 -d || echo "unavailable")
-          export ARGO_PASS=$(kubectl --kubeconfig "$KB" get secret argocd-initial-admin-secret -n argocd \
-            -o jsonpath='{.data.password}' 2>/dev/null | base64 -d || echo "unavailable")
-          export GRAFANA_PASS=$(kubectl --kubeconfig "$KB" get secret grafana-admin-secret -n apps-grafana \
-            -o jsonpath='{.data.admin-password}' 2>/dev/null | base64 -d || echo "check-openbao")
+
+          # Read NetBird creds directly from OpenBao vault (avoids ExternalSecret sync timing issues)
+          export NB_PAT=$(kubectl --kubeconfig "$KB" exec -n openbao openbao-0 -- \
+            sh -c "VAULT_TOKEN=$BAO_TOKEN VAULT_ADDR=http://127.0.0.1:8200 vault kv get -field=netbird-pat-token secret/platform/netbird" \
+            2>/dev/null || echo "unavailable")
+          export NB_SETUP=$(kubectl --kubeconfig "$KB" exec -n openbao openbao-0 -- \
+            sh -c "VAULT_TOKEN=$BAO_TOKEN VAULT_ADDR=http://127.0.0.1:8200 vault kv get -field=SETUP_KEY secret/platform/netbird" \
+            2>/dev/null || echo "unavailable")
 
           python3 scripts/send-deploy-email.py
