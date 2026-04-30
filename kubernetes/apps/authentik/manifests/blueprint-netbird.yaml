@@ -25,6 +25,9 @@ data:
           name: NetBird Provider
           client_id: netbird
           client_type: public
+          # user_username: sub = username (e.g. "remon") — stable across Authentik redeployments
+          # hashed_user_id would change if the DB is wiped (install_id changes → new sub → new NetBird user)
+          sub_mode: user_username
           redirect_uris:
             - matching_mode: strict
               url: "https://netbird.rlservers.com/auth"
