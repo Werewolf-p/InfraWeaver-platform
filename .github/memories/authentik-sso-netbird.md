@@ -49,7 +49,49 @@
 - **Result**: On any redeploy, the bootstrap pre-creates user "remon" with role=admin.
   NetBird management finds the pre-created user on first OIDC login → admin access ✅.
 
-### NetBird DNS + VPN SSO Interaction
+### Authentik 2026.x Admin Access: Group-Based (Not User.is_superuser)
+
+- **CRITICAL change in Authentik 2026.x**: `User.is_superuser` field **no longer exists**.
+  Attempting to set it via `ak shell` gives: `FieldError: Cannot resolve keyword 'is_superuser' into field`.
+- **How admin access works in 2026.x**: Add the user to the **`authentik Admins`** group.
+  This group has `is_superuser: True`. Members get full admin access to the admin UI.
+- **Blueprint limitation**: The `is_superuser: true` attr in blueprints is silently ignored AND
+  the field doesn't exist on the model. Do NOT include it in blueprint attrs.
+- **Correct post-deploy approach** (in `full-redeploy.yml`):
+  ```python
+  from authentik.core.models import User, Group
+  remon = User.objects.get(username='remon')
+  admins = Group.objects.get(name='authentik Admins')
+  admins.users.add(remon)
+  ```
+- **Files**: 
+  - `kubernetes/apps/authentik/manifests/blueprint-users.yaml` — does NOT set `is_superuser`
+  - `.github/workflows/full-redeploy.yml` step "Set Authentik admin privileges" — uses group add
+
+### Busybox TLS Incompatibility with Modern Traefik (2026-04-30)
+
+- **Problem**: `busybox:1.36` `wget` fails TLS handshake with Traefik with "alert code 40: handshake failure".
+  The server (Traefik) sends the alert, meaning the client (busybox wget/uClibc TLS) cannot
+  negotiate cipher suites with Traefik's TLS 1.3-only configuration.
+- **Fix**: Replace `busybox:1.36` + `wget` with `curlimages/curl:8.10.1` + `curl -sf --max-time 5`.
+  `curlimages/curl` uses modern OpenSSL and handles TLS 1.3 correctly.
+- **File**: `kubernetes/apps/netbird/manifests/management.yaml` — `wait-for-oidc` init container.
+
+### Let's Encrypt Rate Limits — Main Cert Bundle (2026-04-30)
+
+- **Problem**: Main cert (`rlservers-com-wildcard`) had 34 SANs. After 5 full redeployments/week,
+  Let's Encrypt rate-limits with: `429 too many certificates (5) for this exact set of identifiers`.
+  This leaves `auth.rlservers.com` without a valid cert, blocking NetBird init container → pod stuck.
+- **Fix**: 
+  1. Reduced main cert to 12 active SANs only (removed unused subdomains).
+  2. Created individual certs `auth-rlservers-com` and `netbird-rlservers-com` with DNS-01 (Cloudflare).
+     These are never rate-limited because they have unique, small SAN sets.
+  3. Pinned IngressRoutes for auth and netbird to their individual `secretName`.
+- **Files**: 
+  - `kubernetes/apps/external-routes/manifests/02-certificates.yaml`
+  - `kubernetes/apps/external-routes/manifests/11-routes-authentik.yaml` — `tls.secretName: auth-rlservers-com-tls`
+  - `kubernetes/apps/external-routes/manifests/09-routes-netbird.yaml` — `tls.secretName: netbird-rlservers-com-tls`
+
 - When connected to NetBird VPN, DNS for `rlservers.com` is pushed to CoreDNS (`10.10.0.201`).
 - CoreDNS resolves ALL `*.rlservers.com` → `10.10.0.200` (Traefik internal MetalLB IP).
 - This is expected and correct — all services are accessible via VPN.
