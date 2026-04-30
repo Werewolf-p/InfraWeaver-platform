@@ -249,6 +249,24 @@ spec:
                 echo "DNS nameserver group prod-local already exists — skipping"
               fi
 
+              # rlservers.com DNS group — routes rlservers.com resolution to internal IP (10.10.0.200)
+              # so connected NetBird clients bypass Cloudflare CDN and hit Traefik directly
+              NS_RESP2=$(curl -s --max-time 10 \
+                http://netbird-management.netbird.svc:80/api/dns/nameservers \
+                -H "Authorization: Token ${PAT_TOKEN}" 2>/dev/null || echo "[]")
+              EXISTING_NS2=$(echo "$NS_RESP2" | \
+                python3 -c "import sys,json; d=json.load(sys.stdin); print(any(g.get('name')=='rlservers-com' for g in (d if isinstance(d,list) else [])))" 2>/dev/null || echo "False")
+              if [ "$EXISTING_NS2" = "False" ]; then
+                curl -s --max-time 10 -X POST \
+                  http://netbird-management.netbird.svc:80/api/dns/nameservers \
+                  -H "Authorization: Token ${PAT_TOKEN}" \
+                  -H "Content-Type: application/json" \
+                  -d '{"name":"rlservers-com","description":"rlservers.com via cluster DNS (bypasses Cloudflare CDN for VPN clients)","nameservers":[{"ip":"10.10.0.201","ns_type":"udp","port":53}],"enabled":true,"groups":["grp00000-0000-4000-a000-000000000001"],"primary":false,"domains":["rlservers.com"],"search_domains_enabled":false}' \
+                  -o /dev/null && echo "DNS nameserver group created: rlservers-com → 10.10.0.201"
+              else
+                echo "DNS nameserver group rlservers-com already exists — skipping"
+              fi
+
               echo "=== Bootstrap complete ==="
           env:
             - name: DB
