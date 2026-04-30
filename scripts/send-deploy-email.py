@@ -23,6 +23,9 @@ bao_token  = os.environ.get("BAO_TOKEN", "unavailable")
 bao_unseal = os.environ.get("BAO_UNSEAL", "unavailable")
 nb_pat     = os.environ.get("NB_PAT", "unavailable")
 nb_setup   = os.environ.get("NB_SETUP", "unavailable")
+auth_url   = os.environ.get("AUTHENTIK_URL", "https://auth.rlservers.com")
+auth_email = os.environ.get("AUTHENTIK_EMAIL", "remonhulst@gmail.com")
+auth_pass  = os.environ.get("AUTHENTIK_PASSWORD", "unavailable")
 timestamp  = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
 subject = f"🚀 InfraWeaver | {env} deployment complete"
@@ -183,6 +186,50 @@ html = f"""\
         </tr>
       </table>
 
+      <!-- Section: Authentik SSO -->
+      <table width="100%" cellpadding="0" cellspacing="0"
+             style="background:#0d1b2a;border:1px solid #1e3a5f;border-radius:12px;
+                    margin-bottom:24px;overflow:hidden;">
+        <tr>
+          <td style="background:linear-gradient(90deg,#0a2540,#0d1b2a);
+                     padding:14px 20px;border-bottom:1px solid #1e3a5f;">
+            <span style="font-size:18px;">🔑</span>
+            <span style="color:#7eb3ff;font-size:14px;font-weight:700;
+                         margin-left:8px;text-transform:uppercase;letter-spacing:1px;">
+              Authentik SSO
+            </span>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:20px;">
+            <p style="margin:0 0 4px;color:#4a5568;font-size:11px;text-transform:uppercase;
+                      letter-spacing:1px;">Login URL</p>
+            <p style="margin:0 0 16px;">
+              <a href="{auth_url}"
+                 style="color:#4f8ef7;font-size:13px;text-decoration:none;">
+                {auth_url} ↗
+              </a>
+            </p>
+
+            <p style="margin:0 0 4px;color:#4a5568;font-size:11px;text-transform:uppercase;
+                      letter-spacing:1px;">Username / Email</p>
+            <div style="background:#0a1628;border:1px solid #1e3a5f;border-radius:8px;
+                        padding:10px 14px;margin-bottom:16px;font-family:monospace;
+                        font-size:13px;color:#4f8ef7;word-break:break-all;">
+              {auth_email}
+            </div>
+
+            <p style="margin:0 0 4px;color:#4a5568;font-size:11px;text-transform:uppercase;
+                      letter-spacing:1px;">Password <span style="color:#22c55e;">(admin)</span></p>
+            <div style="background:#0a1628;border:1px solid #1e3a5f;border-radius:8px;
+                        padding:10px 14px;font-family:monospace;font-size:13px;
+                        color:#4f8ef7;word-break:break-all;">
+              {auth_pass}
+            </div>
+          </td>
+        </tr>
+      </table>
+
       <!-- Section: Services accessible via VPN -->
       <table width="100%" cellpadding="0" cellspacing="0"
              style="background:#0d1b2a;border:1px solid #1e3a5f;border-radius:12px;
@@ -283,6 +330,11 @@ NETBIRD VPN
   PAT Token  : {nb_pat}
   Setup Key  : {nb_setup}
   Connect    : netbird up --management-url https://netbird.rlservers.com --setup-key {nb_setup}
+
+AUTHENTIK SSO
+  Login URL  : {auth_url}
+  Email      : {auth_email}
+  Password   : {auth_pass}
 
 SERVICES (accessible after VPN connect)
   ArgoCD     : http://argocd.prod.local

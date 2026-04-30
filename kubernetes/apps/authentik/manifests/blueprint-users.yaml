@@ -1,0 +1,27 @@
+---
+# ── Authentik Platform Users Blueprint ───────────────────────────────────────
+# Creates the platform admin user (remon) on first boot.
+# Password is injected via AUTHENTIK_REMON_PASSWORD env var (from ExternalSecret).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: authentik-blueprint-users
+  namespace: authentik
+data:
+  users.yaml: |
+    version: 1
+    metadata:
+      name: Platform Users Setup
+    entries:
+      # Platform admin user — email matches remonhulst@gmail.com
+      # Username "remon" matches sub_mode=user_username → NetBird user ID = "remon"
+      - model: authentik_core.user
+        state: present
+        identifiers:
+          username: remon
+        attrs:
+          name: "Remon Hulst"
+          email: "remonhulst@gmail.com"
+          password: !Env [AUTHENTIK_REMON_PASSWORD]
+          is_active: true
+          is_superuser: true
