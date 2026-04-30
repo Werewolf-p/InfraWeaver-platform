@@ -2,6 +2,10 @@
 # ── Authentik Platform Users Blueprint ───────────────────────────────────────
 # Creates the platform admin user (remon) on first boot.
 # Password is injected via AUTHENTIK_REMON_PASSWORD env var (from ExternalSecret).
+# NOTE: Group membership for "authentik Admins" is set in the post-deploy workflow
+# step ("Set Authentik admin privileges") because blueprints cannot reliably set
+# group membership in Authentik 2026.x. The "is_superuser" attrs field is also
+# ignored by blueprints — admin access flows entirely through the group.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -24,4 +28,3 @@ data:
           email: "remonhulst@gmail.com"
           password: !Env AUTHENTIK_REMON_PASSWORD
           is_active: true
-          is_superuser: true
