@@ -138,3 +138,29 @@
   ```js
   localStorage.clear(); sessionStorage.clear(); location.href = 'https://netbird.rlservers.com';
   ```
+
+### Cloudflare gRPC Proxying for NetBird (2026-04-30)
+
+- **Problem**: NetBird mobile app got `502 Bad Gateway` with `content-type: text/plain` when calling
+  the management gRPC `GetServerPublicKey`. Desktop client got generic "connection failed".
+- **Root cause diagnosed**: The 502 occurred during a management pod restart window — Cloudflare
+  correctly proxied gRPC but the origin was temporarily unavailable.
+- **Confirmed working**: gRPC through Cloudflare proxy works on the **Free plan** when:
+  - `HTTP/2` is ON (zone setting) ✅
+  - `origin_max_http_version: 2` (allows CF→origin HTTP/2) ✅
+  - SSL mode: **Full** (not Flexible) ✅ — Flexible causes 308 redirect from Traefik → gRPC breaks
+  - Cloudflare proxies gRPC automatically when HTTP/2 is enabled — no special "gRPC" toggle needed
+- **Test command** (confirms gRPC works through CF):
+  ```bash
+  curl --http2 -H "Content-Type: application/grpc" -H "TE: trailers" -X POST \
+    "https://netbird.rlservers.com/management.ManagementService/GetServerPublicKey"
+  # Expect: HTTP/2 200 + content-type: application/grpc (grpc-status != 502)
+  ```
+- **Important**: SSL mode "Flexible" makes Cloudflare connect to origin on port 80 → Traefik
+  returns `308 HTTPS Redirect` → gRPC doesn't follow redirects → CF returns 502.
+  Always use **Full** or **Full (Strict)** for gRPC services.
+- **Cloudflare token scope**: The `grpc` zone setting returns `9109 Unauthorized` — this is a
+  plan/scope restriction. gRPC still works; the setting cannot be read/written via API on Free plan.
+- **Cloudflare token storage**: 
+  - OpenBao: `secret/platform/cloudflare.CF_API_TOKEN`
+  - GitHub Secret: `CLOUDFLARE_API_TOKEN` (used in `full-redeploy.yml`)
