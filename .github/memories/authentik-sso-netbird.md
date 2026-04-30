@@ -164,3 +164,27 @@
 - **Cloudflare token storage**: 
   - OpenBao: `secret/platform/cloudflare.CF_API_TOKEN`
   - GitHub Secret: `CLOUDFLARE_API_TOKEN` (used in `full-redeploy.yml`)
+
+### NetBird PKCE Scope Field — String Not Array (Critical Config Bug)
+
+- **Error**: `PKCE Auth Scopes value is empty. Contact your NetBird administrator`
+  (returned by the NetBird client after receiving the `GetPKCEAuthorizationFlow` response)
+- **Root cause**: NetBird's Go `ProviderConfig` struct has `Scope string` (singular, space-separated),
+  NOT `Scopes []string`. When management.json contains `"Scopes": [...]` (JSON array), Go's
+  `encoding/json` silently ignores the mismatch (can't unmarshal array into string), leaving
+  `Scope` empty. The management server sends empty scope in the gRPC response → client error.
+- **Fix**: Use `"Scope": "openid profile email offline_access"` (space-separated string) in
+  `management.json.template`, NOT `"Scopes": [...]`.
+- **Files**:
+  - `kubernetes/apps/netbird/manifests/management.yaml` — ConfigMap `management.json.template`
+  - Live PVC file at `/var/lib/netbird/management.json` — fix with sed or by deleting + restarting
+- **Source reference**: `management/internals/server/config/config.go`:
+  ```go
+  type ProviderConfig struct {
+      ...
+      Scope string  // space-separated, NOT []string
+      ...
+  }
+  ```
+- **After fix**: Delete the live PVC file OR patch it with sed, then restart the management pod.
+  The init container will NOT overwrite an existing PVC file — you must patch it manually.
