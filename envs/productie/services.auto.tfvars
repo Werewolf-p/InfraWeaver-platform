@@ -45,6 +45,7 @@ netbird_routers = {
   }
 }
 
+github_runners = {
   productie = {
     vm_id          = 9100
     ip             = "10.25.0.85"
