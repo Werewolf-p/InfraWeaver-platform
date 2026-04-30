@@ -16,12 +16,6 @@
 #   Client → WireGuard tunnel → routing peer (10.10.0.10)
 #   → masquerade → Traefik (10.10.0.200) → backend service
 #   Traefik sees source IP = 10.10.0.10 (the routing peer)
-#
-# Two-stage provisioning:
-#   Stage 1 (null_resource.create_vm): SSH to Proxmox, clone template, configure
-#            cloud-init, start VM, wait for SSH port
-#   Stage 2 (null_resource.configure): SSH directly to VM, enable IP forwarding,
-#            install NetBird, join management server
 # =============================================================================
 
 locals {
@@ -54,6 +48,7 @@ resource "null_resource" "create_vm" {
       DISK="${each.value.disk_size_gb}"
       STORAGE="${each.value.storage}"
       SUBNET_MASK="${each.value.subnet_mask}"
+      KEYFILE="/tmp/netbird-router-keys-${each.value.vm_id}.pub"
 
       echo "==> NetBird router VM $VMID — connecting to Proxmox $PVE_IP..."
       for attempt in $(seq 1 12); do
@@ -63,12 +58,12 @@ resource "null_resource" "create_vm" {
         sleep 10
       done
 
-      # Write VM creation script
-      cat > /tmp/create-netbird-router-${each.key}.sh << 'VM_SCRIPT'
+      # Inner script uses positional params ($1..$9) to avoid $${VAR} interpolation issues
+      cat > /tmp/create-nb-router-${each.key}.sh << 'VM_SCRIPT'
 #!/bin/bash
 set -euo pipefail
-VMID="$1"; TEMPLATE="$2"; ROUTER_IP="$3"; GATEWAY="$4"
-CORES="$5"; MEMORY="$6"; DISK_GB="$7"; STORAGE="$8"; SUBNET_MASK="$9"
+VMID=$1; TEMPLATE=$2; ROUTER_IP=$3; GATEWAY=$4
+CORES=$5; MEMORY=$6; DISK_GB=$7; STORAGE=$8; SUBNET_MASK=$9
 
 echo "  Checking VM $VMID..."
 VM_STATUS=$(qm status "$VMID" 2>/dev/null | awk '{print $2}' || echo "")
@@ -82,7 +77,7 @@ else
     --full 1 \
     --storage "$STORAGE"
 
-  echo "  Configuring VM hardware..."
+  echo "  Configuring VM hardware (VLAN3-only, no VLAN2)..."
   qm set "$VMID" \
     --cores "$CORES" \
     --memory "$MEMORY" \
@@ -90,20 +85,20 @@ else
     --onboot 1 \
     --net0 "virtio,bridge=vmbr0,tag=3"
 
-  echo "  Configuring cloud-init (VLAN3 only)..."
+  echo "  Configuring cloud-init..."
   qm set "$VMID" \
-    --ipconfig0 "ip=${ROUTER_IP}/${SUBNET_MASK},gw=${GATEWAY}" \
+    --ipconfig0 "ip=$ROUTER_IP/$SUBNET_MASK,gw=$GATEWAY" \
     --nameserver "8.8.8.8 1.1.1.1" \
     --ciuser ubuntu \
     --ciupgrade 0
 
-  if [ -f /tmp/netbird-router-keys-${VMID}.pub ]; then
+  if [ -f "/tmp/netbird-router-keys-$VMID.pub" ]; then
     echo "  Setting SSH keys..."
-    qm set "$VMID" --sshkeys "/tmp/netbird-router-keys-${VMID}.pub"
+    qm set "$VMID" --sshkeys "/tmp/netbird-router-keys-$VMID.pub"
   fi
 
-  echo "  Resizing disk to ${DISK_GB}G..."
-  qm resize "$VMID" scsi0 "${DISK_GB}G" 2>/dev/null || true
+  echo "  Resizing disk to $DISK_GB G..."
+  qm resize "$VMID" scsi0 "$DISK_GB"G 2>/dev/null || true
 
   echo "  Starting VM..."
   qm start "$VMID"
@@ -117,31 +112,30 @@ for i in $(seq 1 30); do
 done
 VM_SCRIPT
 
-      # SCP SSH keys for cloud-init
+      # SCP SSH public keys for cloud-init
       KEYS_FILE=$(mktemp)
 %{for key in var.router_ssh_keys~}
       echo "${key}" >> "$KEYS_FILE"
 %{endfor~}
-      scp $SSH_OPTS "$KEYS_FILE" root@"$PVE_IP":"/tmp/netbird-router-keys-${each.value.vm_id}.pub"
+      scp $SSH_OPTS "$KEYS_FILE" root@"$PVE_IP":"$KEYFILE"
       rm -f "$KEYS_FILE"
 
-      # SCP and execute creation script
-      scp $SSH_OPTS /tmp/create-netbird-router-${each.key}.sh root@"$PVE_IP":/tmp/create-netbird-router-${each.key}.sh
-      ssh $SSH_OPTS root@"$PVE_IP" "chmod +x /tmp/create-netbird-router-${each.key}.sh && \
-        /tmp/create-netbird-router-${each.key}.sh \
-          '${each.value.vm_id}' '${each.value.template_vm_id}' '${each.value.ip}' '${each.value.gateway}' \
-          '${each.value.cores}' '${each.value.memory_mb}' '${each.value.disk_size_gb}' \
-          '${each.value.storage}' '${each.value.subnet_mask}' && \
-        rm -f /tmp/create-netbird-router-${each.key}.sh /tmp/netbird-router-keys-${each.value.vm_id}.pub"
-      rm -f /tmp/create-netbird-router-${each.key}.sh
+      # SCP and execute creation script (values passed as positional args)
+      scp $SSH_OPTS /tmp/create-nb-router-${each.key}.sh root@"$PVE_IP":/tmp/create-nb-router-${each.key}.sh
+      ssh $SSH_OPTS root@"$PVE_IP" "chmod +x /tmp/create-nb-router-${each.key}.sh && \
+        /tmp/create-nb-router-${each.key}.sh \
+          '$VMID' '$TEMPLATE' '$ROUTER_IP' '$GATEWAY' \
+          '$CORES' '$MEMORY' '$DISK' '$STORAGE' '$SUBNET_MASK' && \
+        rm -f /tmp/create-nb-router-${each.key}.sh $KEYFILE"
+      rm -f /tmp/create-nb-router-${each.key}.sh
 
-      echo "==> VM ${each.value.vm_id} created, SSH port open on ${each.value.ip}"
+      echo "==> VM $VMID created, SSH port open on $ROUTER_IP"
     BASH
   }
 }
 
 # ---------------------------------------------------------------------------
-# Stage 2: Configure NetBird on the VM
+# Stage 2: Install and configure NetBird on the VM
 # ---------------------------------------------------------------------------
 resource "null_resource" "configure" {
   for_each = var.netbird_routers
@@ -160,13 +154,11 @@ resource "null_resource" "configure" {
       set -euo pipefail
       SSH_OPTS="${local.ssh_opts}"
       ROUTER_IP="${each.value.ip}"
-      SETUP_KEY="${var.netbird_setup_key}"
-      MGMT_URL="${var.netbird_management_url}"
 
       echo "==> Configuring NetBird router at $ROUTER_IP..."
 
-      # Wait for cloud-init to finish and SSH to be fully ready
-      echo "  Waiting for cloud-init to complete..."
+      # Wait for SSH to be ready
+      echo "  Waiting for SSH on $ROUTER_IP..."
       for attempt in $(seq 1 30); do
         if ssh $SSH_OPTS ubuntu@"$ROUTER_IP" "true" 2>/dev/null; then
           break
@@ -176,61 +168,57 @@ resource "null_resource" "configure" {
       done
       ssh $SSH_OPTS ubuntu@"$ROUTER_IP" "sudo cloud-init status --wait 2>/dev/null || true" 2>/dev/null || true
 
-      # Write setup script with values already substituted (no heredoc quoting issues)
-      cat > /tmp/netbird-router-setup-${each.key}.sh << SETUP_EOF
+      # Write setup script — SETUP_EOF is not single-quoted so Terraform expands $${var.*}
+      # Use \$() and \$VAR to prevent local shell from expanding (they run on the remote VM)
+      cat > /tmp/nb-router-setup-${each.key}.sh << SETUP_EOF
 #!/bin/bash
 set -euo pipefail
-SETUP_KEY='$SETUP_KEY'
-MGMT_URL='$MGMT_URL'
+SETUP_KEY='${var.netbird_setup_key}'
+MGMT_URL='${var.netbird_management_url}'
 
 echo "--- Enable IP forwarding ---"
 grep -q "net.ipv4.ip_forward=1" /etc/sysctl.conf 2>/dev/null || echo "net.ipv4.ip_forward=1" | sudo tee -a /etc/sysctl.conf
 sudo sysctl -w net.ipv4.ip_forward=1
-echo "IP forwarding enabled: \$(cat /proc/sys/net/ipv4/ip_forward)"
+echo "IP forwarding enabled"
 
 echo "--- Install NetBird ---"
 if ! command -v netbird &>/dev/null; then
   curl -fsSL https://pkgs.netbird.io/install.sh | sudo bash
-  echo "NetBird installed: \$(netbird version 2>/dev/null || echo unknown)"
 else
-  echo "NetBird already installed: \$(netbird version)"
+  echo "NetBird already installed"
 fi
 
 echo "--- Enable NetBird service ---"
 sudo systemctl enable netbird
 
 echo "--- Join NetBird management ---"
-# Use --foreground=false so it doesn't block; daemon handles the connection
 sudo netbird up \
   --management-url "\$MGMT_URL" \
   --setup-key "\$SETUP_KEY" \
   --interface-name wt0 \
-  --daemon-addr unix:///var/run/netbird.sock \
   2>&1 || true
 
 echo "--- Wait for NetBird connection ---"
 for i in \$(seq 1 12); do
-  STATUS=\$(sudo netbird status 2>/dev/null | grep -i "management.*connected\|status.*connected" || echo "")
+  STATUS=\$(sudo netbird status 2>/dev/null | grep -i "Management.*Connected\|Status:.*Connected" || echo "")
   if [ -n "\$STATUS" ]; then
     echo "NetBird connected: \$STATUS"
     break
   fi
-  echo "  Waiting for NetBird connection (attempt \$i/12)..."
+  echo "  Waiting (attempt \$i/12)..."
   sleep 10
 done
 
-# Show final status
 echo "--- NetBird status ---"
 sudo netbird status 2>/dev/null || true
-
 echo "--- Setup complete ---"
 SETUP_EOF
 
-      scp $SSH_OPTS /tmp/netbird-router-setup-${each.key}.sh ubuntu@"$ROUTER_IP":/tmp/netbird-router-setup.sh
-      ssh $SSH_OPTS ubuntu@"$ROUTER_IP" "chmod +x /tmp/netbird-router-setup.sh && sudo /tmp/netbird-router-setup.sh && rm -f /tmp/netbird-router-setup.sh"
-      rm -f /tmp/netbird-router-setup-${each.key}.sh
+      scp $SSH_OPTS /tmp/nb-router-setup-${each.key}.sh ubuntu@"$ROUTER_IP":/tmp/nb-router-setup.sh
+      ssh $SSH_OPTS ubuntu@"$ROUTER_IP" "chmod +x /tmp/nb-router-setup.sh && sudo /tmp/nb-router-setup.sh && rm -f /tmp/nb-router-setup.sh"
+      rm -f /tmp/nb-router-setup-${each.key}.sh
 
-      echo "==> NetBird router ${each.value.ip} configured and connected"
+      echo "==> NetBird router $ROUTER_IP configured"
     BASH
   }
 }
