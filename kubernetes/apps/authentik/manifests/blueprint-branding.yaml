@@ -1,0 +1,195 @@
+---
+# ── InfraWeaver Branding Blueprint ───────────────────────────────────────────
+# Applies the InfraWeaver Prime dark theme to the Authentik login page.
+# Custom CSS uses PatternFly variable overrides + card glow effect.
+# Loaded via blueprints.configMaps in values.yaml.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: authentik-blueprint-branding
+  namespace: authentik
+data:
+  branding.yaml: |
+    version: 1
+    metadata:
+      name: InfraWeaver Branding
+    entries:
+      # Update the default brand with InfraWeaver theme
+      - model: authentik_core.brand
+        state: present
+        identifiers:
+          domain: authentik-default
+        attrs:
+          branding_title: "InfraWeaver"
+          branding_logo: "/static/dist/assets/icons/icon_left_brand.svg"
+          branding_favicon: "/static/dist/assets/icons/icon.png"
+          ui_user_settings_enabled: true
+          default_application: null
+          branding_custom_css: |
+            /* ── InfraWeaver Prime Dark Theme ─────────────────────────────── */
+            /* Palette: bg=#0a0e17 surface=#111827 primary=#00d8ff green=#9fef00 */
+
+            /* Page background — dark navy with subtle grid */
+            body.pf-m-redhat-font,
+            .pf-c-background-image {
+              background-color: #0a0e17 !important;
+              background-image:
+                linear-gradient(rgba(0, 216, 255, 0.025) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 216, 255, 0.025) 1px, transparent 1px) !important;
+              background-size: 50px 50px !important;
+            }
+
+            /* Login container — transparent so grid shows through */
+            .pf-c-login {
+              background: transparent !important;
+            }
+
+            /* Login card — dark surface with cyan glow */
+            .pf-c-login__main {
+              background: #111827 !important;
+              border: 1px solid rgba(0, 216, 255, 0.25) !important;
+              border-top: 3px solid #00d8ff !important;
+              border-radius: 12px !important;
+              box-shadow:
+                0 0 40px rgba(0, 216, 255, 0.12),
+                0 0 80px rgba(0, 216, 255, 0.05),
+                0 20px 60px rgba(0, 0, 0, 0.6) !important;
+            }
+
+            /* Header above card */
+            .pf-c-login__header {
+              text-align: center;
+            }
+            .pf-c-login__main-header .pf-c-title {
+              color: #e2e8f0 !important;
+              font-weight: 800 !important;
+            }
+
+            /* Brand logo area */
+            .pf-c-login__main-header {
+              background: linear-gradient(135deg, #060c18 0%, #0a0e17 100%) !important;
+              border-bottom: 1px solid #1e2d45 !important;
+              padding: 24px !important;
+            }
+
+            /* Description text */
+            .pf-c-login__main-header-desc {
+              color: #475569 !important;
+              font-size: 12px !important;
+              text-transform: uppercase;
+              letter-spacing: 1.5px;
+            }
+
+            /* Form body */
+            .pf-c-login__main-body {
+              background: #111827 !important;
+            }
+
+            /* Form labels */
+            .pf-c-form__label-text {
+              color: #94a3b8 !important;
+              font-size: 11px !important;
+              text-transform: uppercase;
+              letter-spacing: 1px;
+            }
+
+            /* Text inputs */
+            .pf-c-form-control {
+              background: #060c18 !important;
+              border: 1px solid #1e2d45 !important;
+              color: #e2e8f0 !important;
+              border-radius: 6px !important;
+            }
+            .pf-c-form-control:focus,
+            .pf-c-form-control:focus-within {
+              border-color: #00d8ff !important;
+              box-shadow: 0 0 0 2px rgba(0, 216, 255, 0.2) !important;
+              outline: none !important;
+            }
+            .pf-c-form-control::placeholder {
+              color: #334155 !important;
+            }
+
+            /* Primary button — cyan with dark text */
+            .pf-c-button.pf-m-primary {
+              background: #00d8ff !important;
+              color: #060c18 !important;
+              font-weight: 800 !important;
+              border: none !important;
+              border-radius: 6px !important;
+              text-transform: uppercase !important;
+              letter-spacing: 1px !important;
+              font-size: 12px !important;
+            }
+            .pf-c-button.pf-m-primary:hover {
+              background: #33e4ff !important;
+              box-shadow: 0 0 20px rgba(0, 216, 255, 0.4) !important;
+            }
+
+            /* Secondary / link buttons */
+            .pf-c-button.pf-m-link,
+            .pf-c-button.pf-m-inline {
+              color: #00d8ff !important;
+            }
+
+            /* Links */
+            a {
+              color: #00d8ff !important;
+            }
+            a:hover {
+              color: #33e4ff !important;
+            }
+
+            /* Alert / error messages */
+            .pf-c-alert.pf-m-danger {
+              background: rgba(255, 71, 87, 0.1) !important;
+              border-color: #ff4757 !important;
+            }
+            .pf-c-alert.pf-m-warning {
+              background: rgba(245, 158, 11, 0.1) !important;
+              border-color: #f59e0b !important;
+            }
+
+            /* Footer */
+            .pf-c-login__footer {
+              background: #060c18 !important;
+              border-top: 1px solid #1e2d45 !important;
+            }
+            .pf-c-login__footer p,
+            .pf-c-login__footer a {
+              color: #334155 !important;
+              font-size: 11px !important;
+            }
+
+            /* Divider lines */
+            .pf-c-divider {
+              background: #1e2d45 !important;
+            }
+
+            /* Dropdown menus */
+            .pf-c-select__menu,
+            .pf-c-dropdown__menu {
+              background: #111827 !important;
+              border-color: #1e2d45 !important;
+            }
+            .pf-c-select__menu-item:hover,
+            .pf-c-dropdown__menu-item:hover {
+              background: #1a2035 !important;
+            }
+
+            /* Header brand text */
+            .ak-brand .pf-c-page__header-brand-link {
+              color: #00d8ff !important;
+              font-weight: 700 !important;
+              letter-spacing: 1px !important;
+            }
+
+            /* Tab navigation */
+            .pf-c-tabs__item.pf-m-current .pf-c-tabs__link {
+              color: #00d8ff !important;
+              border-bottom-color: #00d8ff !important;
+            }
+            .pf-c-tabs__link {
+              color: #64748b !important;
+              background: transparent !important;
+            }

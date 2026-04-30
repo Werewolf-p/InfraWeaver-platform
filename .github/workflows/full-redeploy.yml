@@ -1025,4 +1025,13 @@ jobs:
           export BAO_UNSEAL=$(kubectl --kubeconfig "$KB" get secret openbao-unseal -n openbao \
             -o jsonpath='{.data.unseal_key}' 2>/dev/null | base64 -d || echo "unavailable")
 
+          # Authentik credentials from OpenBao (needed to log in to SSO → NetBird VPN)
+          BAO_ADDR="https://openbao.int.rlservers.com"
+          export AUTHENTIK_ADMIN_PASS=$(kubectl --kubeconfig "$KB" exec -n openbao openbao-0 -- \
+            sh -c "VAULT_TOKEN='$BAO_TOKEN' vault kv get -field=bootstrap-password secret/platform/authentik" \
+            2>/dev/null || echo "unavailable")
+          export AUTHENTIK_REMON_PASS=$(kubectl --kubeconfig "$KB" exec -n openbao openbao-0 -- \
+            sh -c "VAULT_TOKEN='$BAO_TOKEN' vault kv get -field=remon-password secret/platform/authentik" \
+            2>/dev/null || echo "unavailable")
+
           python3 scripts/send-deploy-email.py

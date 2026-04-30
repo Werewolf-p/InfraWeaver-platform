@@ -46,6 +46,7 @@ authentik:
 
 blueprints:
   configMaps:
+    - authentik-blueprint-branding
     - authentik-blueprint-netbird
     - authentik-blueprint-users
 

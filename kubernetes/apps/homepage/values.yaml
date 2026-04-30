@@ -1,5 +1,5 @@
 # Homepage Helm values
-# Dashboard: https://home.rlservers.com
+# Dashboard: https://home.int.rlservers.com
 # Docs: https://gethomepage.dev/
 
 # ── Resources ─────────────────────────────────────────────────────────────────
@@ -28,9 +28,9 @@ config:
 
   # Global settings
   settings:
-    title: "RLServers Homelab"
+    title: "InfraWeaver"
     theme: dark
-    color: slate
+    color: cyan
     headerStyle: clean
     hideVersion: true
     disableCollapse: false
@@ -62,7 +62,7 @@ config:
   widgets:
     - greeting:
         text_size: xl
-        text: "RLServers Homelab"
+        text: "InfraWeaver"
     - datetime:
         text_size: l
         format:

@@ -1,7 +1,7 @@
 ---
-# Certificate for rlservers.com — only actively deployed subdomains (HTTP-01)
-# auth.rlservers.com and netbird.rlservers.com are excluded — they have individual certs.
-# Individual certs prevent cascading failures when rate limits hit this bundle.
+# Certificate for rlservers.com — only publicly-accessible subdomains (HTTP-01)
+# auth.rlservers.com, netbird.rlservers.com → individual certs (prevent rate-limit cascades)
+# Internal cluster apps (argocd, grafana, longhorn, openbao, homepage) → *.int.rlservers.com wildcard
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -15,13 +15,8 @@ spec:
   dnsNames:
     - "rlservers.com"
     - "www.rlservers.com"
-    - "argocd.rlservers.com"
-    - "grafana.rlservers.com"
-    - "longhorn.rlservers.com"
-    - "openbao.rlservers.com"
     - "traefik.rlservers.com"
     - "ansible.rlservers.com"
-    - "home.rlservers.com"
     - "test.rlservers.com"
     - "degoudentijd.rlservers.com"
     - "feestinhetdonker.rlservers.com"

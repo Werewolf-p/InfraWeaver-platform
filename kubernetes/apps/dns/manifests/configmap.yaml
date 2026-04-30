@@ -55,12 +55,6 @@ data:
     # K8s Traefik proxies to the actual bare-metal or cluster backend.
 
     # ── Cluster apps ─────────────────────────────────────────────────────────
-    10.10.0.200  argocd.rlservers.com
-    10.10.0.200  grafana.rlservers.com
-    10.10.0.200  home.rlservers.com
-    10.10.0.200  longhorn.rlservers.com
-    10.10.0.200  netbird.rlservers.com
-    10.10.0.200  openbao.rlservers.com
     10.10.0.200  test.rlservers.com
 
     # ── Bare-metal services (proxied through K8s Traefik → bare-metal) ───────
@@ -78,7 +72,6 @@ data:
     10.10.0.200  registry.gitlab.rlservers.com
     10.10.0.200  indexer.wazuh.rlservers.com
     10.10.0.200  keycloak.rlservers.com
-    10.10.0.200  longhorn.rlservers.com
     10.10.0.200  marcel.rlservers.com
     10.10.0.200  overseer.rlservers.com
     10.10.0.200  portainer.rlservers.com
@@ -118,5 +111,6 @@ data:
     10.10.0.200  netbird.int.rlservers.com
     10.10.0.200  argocd.int.rlservers.com
     10.10.0.200  grafana.int.rlservers.com
+    10.10.0.200  home.int.rlservers.com
     10.10.0.200  longhorn.int.rlservers.com
     10.10.0.200  openbao.int.rlservers.com
