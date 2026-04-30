@@ -180,6 +180,22 @@ module "github_runners" {
   depends_on = [module.cloud_init_templates]
 }
 
+module "netbird_routers" {
+  count  = length(var.netbird_routers) > 0 ? 1 : 0
+  source = "./modules/netbird-router"
+
+  proxmox_node_ip              = local.proxmox_host
+  proxmox_ssh_private_key_file = local.proxmox_ssh_private_key_file
+  netbird_routers              = var.netbird_routers
+  router_ssh_keys              = local.service_ssh_keys
+
+  # Management URL is reachable from VLAN3 (Traefik at 10.10.0.200 serves int.rlservers.com)
+  netbird_management_url = "https://netbird.int.rlservers.com"
+
+  depends_on = [module.cloud_init_templates]
+}
+
+
 module "openbao_vms" {
   count  = length(var.openbao_instances) > 0 ? 1 : 0
   source = "./modules/openbao"

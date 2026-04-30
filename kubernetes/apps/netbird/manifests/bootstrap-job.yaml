@@ -14,6 +14,7 @@ data:
     ACC = "acc00000-0000-4000-a000-000000000001"
     USR = "usr00000-0000-4000-a000-000000000001"
     GRP = "grp00000-0000-4000-a000-000000000001"
+    GRP_ROUTING = "grp00000-0000-4000-a000-000000000002"  # routing-peers-vlan3 group
     POL = "pol00000-0000-4000-a000-000000000001"
     RUL = "rul00000-0000-4000-a000-000000000001"
     KEY_ID = "388f43a5-eb90-4ba0-a7cb-a892408886df"
@@ -67,6 +68,14 @@ data:
           VALUES (?,?,?,?,?,?,?)""",
           (GRP, ACC, "All", "api", "[]", 0, ""))
 
+        # routing-peers-vlan3: peers that route 10.10.0.0/24 to VPN clients.
+        # Only the netbird-router-vlan3 VM (10.10.0.10) should be in this group.
+        # The vlan3-net route uses peer_groups=[GRP_ROUTING] so only this VM advertises the route.
+        c.execute("""INSERT OR IGNORE INTO groups
+          (id, account_id, name, issued, resources, integration_ref_id, integration_ref_integration_type)
+          VALUES (?,?,?,?,?,?,?)""",
+          (GRP_ROUTING, ACC, "routing-peers-vlan3", "api", "[]", 0, ""))
+
         # Store sha256 hash of setup key (same as NetBird v0.70 GetSetupKeyBySecret lookup)
         # key_secret non-empty → MigrateSetupKeyToHashedSetupKey skips this row
         c.execute("""INSERT OR IGNORE INTO setup_keys
@@ -113,14 +122,19 @@ data:
       (ACC, json.dumps("10.25.0.0/24"), json.dumps([GRP]), json.dumps([GRP])))
     print("Route upserted: 10.25.0.0/24 via All group")
 
-    # Route for VLAN 3 subnet via "All" peer group
+    # Route for VLAN 3 subnet via "routing-peers-vlan3" group (NOT "All").
+    # peer_groups=[GRP_ROUTING] means only peers in routing-peers-vlan3 advertise this route.
+    # groups=[GRP] means ALL peers can USE this route (to reach 10.10.0.0/24 via the router).
+    # The netbird-router-vlan3 VM (10.10.0.10) is added to routing-peers-vlan3 via the API
+    # after it connects (the bootstrap-job.yaml API section handles this via setup-key auto-groups,
+    # or the VM's startup script calls the management API to add itself).
     c.execute("""INSERT OR REPLACE INTO routes
       (id, account_id, network, domains, keep_route, net_id, description, peer, peer_groups,
        network_type, masquerade, metric, enabled, groups, access_control_groups, skip_auto_apply)
       VALUES ('rte00000-0000-4000-a000-000000000002', ?, ?, '[]', 0,
        'vlan3-net', 'VLAN 3 network route (10.10.0.0/24)', NULL, ?, 0, 1, 9998, 1, ?, '[]', 0)""",
-      (ACC, json.dumps("10.10.0.0/24"), json.dumps([GRP]), json.dumps([GRP])))
-    print("Route upserted: 10.10.0.0/24 via All group")
+      (ACC, json.dumps("10.10.0.0/24"), json.dumps([GRP_ROUTING]), json.dumps([GRP])))
+    print("Route upserted: 10.10.0.0/24 via routing-peers-vlan3 group")
 
     conn.commit()
     conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")

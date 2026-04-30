@@ -50,17 +50,18 @@ spec:
       - 100.64.0.0/10     # NetBird CGNAT (direct WireGuard peers)
       - 127.0.0.1/32      # Localhost
 ---
-# Middleware: netbird-vpn-only — allows ONLY NetBird VPN clients, blocks local LAN access.
+# Middleware: netbird-vpn-only — allows ONLY traffic that came through the NetBird routing peer.
 #
-# NetBird routes have masquerade=true. External VPN peers reach Traefik via the K8s
-# netbird-client DaemonSet pods, which masquerade traffic through their VLAN 3 IPs.
-# The source IP Traefik sees depends on the routing path:
+# Architecture:
+#   - netbird-router-vlan3 VM at 10.10.0.10 runs the NetBird client as a routing peer
+#   - VPN clients route 10.10.0.0/24 traffic through this VM
+#   - The routing VM masquerades traffic (SNAT) → Traefik sees source = 10.10.0.10
+#   - Pod CIDR (10.244.0.0/16) allowed for in-cluster health probes
+#   - 100.64.0.0/10 allowed for direct WireGuard peer connections (NetBird CGNAT)
 #
-#   Via VLAN 3 (eth1, 10.10.0.90-92): source = node VLAN 3 IP (10.10.0.x)
-#   Direct peer (100.64.x.x):         source = NetBird CGNAT IP
-#   Via pod CNI:                       source = pod CIDR IP (10.244.x.x)
-#
-# Local LAN IPs (e.g. 10.25.0.50, 10.25.0.108) are NOT in any range → 403 Forbidden.
+# This middleware is applied ONLY to *.int.rlservers.com routes.
+# The security model: 10.10.0.200 is a private IP (unreachable from internet) AND
+# only the routing peer's source IP passes this allowlist. Both layers are required.
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
@@ -70,8 +71,8 @@ spec:
   ipAllowList:
     sourceRange:
       - 100.64.0.0/10     # NetBird CGNAT CIDR (direct WireGuard peers, no masquerade)
-      - 10.244.0.0/16     # K8s pod CIDR — NetBird-masqueraded traffic via pod network
-      - 10.10.0.0/24      # VLAN 3 — K8s nodes masquerade VPN traffic via VLAN 3 (eth1)
+      - 10.244.0.0/16     # K8s pod CIDR — in-cluster health probes
+      - 10.10.0.10/32     # NetBird routing peer (netbird-router-vlan3) — VPN masquerade IP
 ---
 # Middleware: add-https-headers — sets X-Forwarded-Proto for backends
 apiVersion: traefik.io/v1alpha1

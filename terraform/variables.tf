@@ -212,6 +212,22 @@ variable "openbao_instances" {
   default = {}
 }
 
+variable "netbird_routers" {
+  description = "NetBird routing peer VMs — lightweight VLAN3 VMs running NetBird as a routing peer for 10.10.0.0/24."
+  type = map(object({
+    vm_id          = number
+    ip             = string
+    gateway        = string
+    template_vm_id = number
+    cores          = optional(number, 2)
+    memory_mb      = optional(number, 1024)
+    disk_size_gb   = optional(number, 20)
+    storage        = optional(string, "lvm-proxmox")
+    subnet_mask    = optional(number, 24)
+  }))
+  default = {}
+}
+
 variable "proxmox_runner_ssh_public_key" {
   description = "SSH public key for runner VM access."
   type        = string

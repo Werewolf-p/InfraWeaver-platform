@@ -31,7 +31,20 @@ cloud_init_templates = {
   }
 }
 
-github_runners = {
+netbird_routers = {
+  vlan3 = {
+    vm_id          = 9200
+    ip             = "10.10.0.10"
+    gateway        = "10.10.0.1"
+    template_vm_id = 9000
+    cores          = 2
+    memory_mb      = 1024
+    disk_size_gb   = 20
+    storage        = "lvm-proxmox"
+    subnet_mask    = 24
+  }
+}
+
   productie = {
     vm_id          = 9100
     ip             = "10.25.0.85"
