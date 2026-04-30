@@ -935,6 +935,27 @@ jobs:
           kubectl --kubeconfig "$KB" get ipaddresspools -n metallb-system 2>/dev/null
           kubectl --kubeconfig "$KB" get svc -A | grep LoadBalancer | head -10
 
+      - name: Fix ingress-nginx admission webhook CA bundle
+        if: success()
+        run: |
+          KB=~/.kube/config-platform-${{ env.ENV_NAME }}
+          echo "==> Patching ingress-nginx admission webhook with correct CA bundle..."
+          # On fresh deploys the ValidatingWebhookConfiguration caBundle is empty because
+          # the admission-create/patch jobs only run once (Helm hook) and Kubernetes doesn't
+          # re-run completed jobs. We patch it manually from the ingress-nginx-admission secret.
+          for attempt in $(seq 1 12); do
+            CA_BUNDLE=$(kubectl --kubeconfig "$KB" get secret ingress-nginx-admission \
+              -n ingress-nginx -o jsonpath='{.data.ca}' 2>/dev/null)
+            if [[ -n "$CA_BUNDLE" ]]; then
+              kubectl --kubeconfig "$KB" patch validatingwebhookconfiguration \
+                ingress-nginx-admission --type json \
+                -p "[{\"op\":\"replace\",\"path\":\"/webhooks/0/clientConfig/caBundle\",\"value\":\"$CA_BUNDLE\"}]" \
+                2>/dev/null && echo "✅ ingress-nginx webhook CA patched" && break
+            fi
+            echo "  Waiting for ingress-nginx-admission secret ($attempt/12)..."
+            sleep 10
+          done
+
       - name: Patch cluster CoreDNS for internal zones
         if: success()
         run: |
