@@ -77,6 +77,19 @@ spec:
         app: netbird-management
     spec:
       initContainers:
+        # Wait for Authentik OIDC endpoint before starting management
+        - name: wait-for-oidc
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for Authentik OIDC endpoint..."
+              until wget -q -O /dev/null "https://auth.rlservers.com/application/o/netbird/.well-known/openid-configuration" 2>/dev/null; do
+                echo "OIDC endpoint not ready, retrying in 5s..."
+                sleep 5
+              done
+              echo "OIDC endpoint ready!"
         # Substitute sensitive placeholders and copy to PVC only if not already present
         - name: copy-config
           image: busybox:1.36
