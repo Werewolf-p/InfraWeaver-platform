@@ -28,6 +28,18 @@ rbac:
 additionalArguments:
   - "--serversTransport.insecureSkipVerify=true"
 
+# Enable access logging so we can see source IPs for debugging IP allowlist issues
+logs:
+  access:
+    enabled: true
+    format: json
+    fields:
+      headers:
+        defaultMode: drop
+        names:
+          X-Forwarded-For: keep
+          X-Real-Ip: keep
+
 ports:
   web:
     port: 8000
