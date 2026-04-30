@@ -218,9 +218,9 @@ spec:
         - name: AUTH_SUPPORTED_SCOPES
           value: "openid profile email offline_access api"
         - name: NETBIRD_MGMT_API_ENDPOINT
-          value: "http://netbird-management.netbird.svc:80"
+          value: "https://netbird.rlservers.com"
         - name: NETBIRD_MGMT_GRPC_API_ENDPOINT
-          value: "http://netbird-management.netbird.svc:33073"
+          value: "https://netbird.rlservers.com"
         - name: AUTH_AUDIENCE
           value: "netbird"
         - name: USE_AUTH0
