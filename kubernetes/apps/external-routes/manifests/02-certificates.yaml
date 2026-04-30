@@ -1,6 +1,7 @@
 ---
-# Certificate for rlservers.com — all explicit subdomains (HTTP-01, no wildcard)
-# Secret kept as rlservers-com-wildcard-tls so TLSStore default still works.
+# Certificate for rlservers.com — only actively deployed subdomains (HTTP-01)
+# auth.rlservers.com and netbird.rlservers.com are excluded — they have individual certs.
+# Individual certs prevent cascading failures when rate limits hit this bundle.
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -18,35 +19,44 @@ spec:
     - "grafana.rlservers.com"
     - "longhorn.rlservers.com"
     - "openbao.rlservers.com"
-    - "netbird.rlservers.com"
-    - "test.rlservers.com"
     - "traefik.rlservers.com"
-    - "gitlab.rlservers.com"
-    - "registry.gitlab.rlservers.com"
-    - "registry.rlservers.com"
-    - "bitwarden.rlservers.com"
-    - "bitwarden-admin.rlservers.com"
-    - "portainer.rlservers.com"
-    - "portainer2.rlservers.com"
-    - "proxmox.rlservers.com"
-    - "truenas.rlservers.com"
-    - "adguard.rlservers.com"
-    - "cloud.rlservers.com"
-    - "keycloak.rlservers.com"
-    - "auth.rlservers.com"
     - "ansible.rlservers.com"
-    - "awx.rlservers.com"
-    - "vault1.rlservers.com"
-    - "overseer.rlservers.com"
-    - "radarr.rlservers.com"
-    - "sonarr.rlservers.com"
-    - "wazuh.rlservers.com"
-    - "indexer.wazuh.rlservers.com"
-    - "teleport.rlservers.com"
+    - "test.rlservers.com"
     - "degoudentijd.rlservers.com"
     - "feestinhetdonker.rlservers.com"
     - "marcel.rlservers.com"
-    - "wiki.rlservers.com"
+---
+# Individual cert for auth.rlservers.com — critical for SSO/Authentik
+# Separate cert ensures SSO keeps working even when the main bundle hits rate limits.
+# Uses DNS-01 (Cloudflare) to avoid HTTP-01 ordering dependency with other certs.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: auth-rlservers-com
+  namespace: traefik
+spec:
+  secretName: auth-rlservers-com-tls
+  issuerRef:
+    name: letsencrypt-cloudflare
+    kind: ClusterIssuer
+  dnsNames:
+    - "auth.rlservers.com"
+---
+# Individual cert for netbird.rlservers.com — critical for VPN management
+# Separate cert ensures NetBird keeps working even when the main bundle hits rate limits.
+# Uses DNS-01 (Cloudflare) to avoid HTTP-01 ordering dependency with other certs.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: netbird-rlservers-com
+  namespace: traefik
+spec:
+  secretName: netbird-rlservers-com-tls
+  issuerRef:
+    name: letsencrypt-cloudflare
+    kind: ClusterIssuer
+  dnsNames:
+    - "netbird.rlservers.com"
 ---
 # Certificate for *.int.rlservers.com — private/VPN-only domain, DNS-01 required
 # DNS-only Cloudflare record → 10.10.0.200 (private IP, unreachable without VPN)
@@ -108,3 +118,4 @@ spec:
     kind: ClusterIssuer
   dnsNames:
     - "waterdance.nl"
+
