@@ -106,7 +106,9 @@ jobs:
             -backend-config="path=$STATE_DIR/terraform.tfstate" \
             -reconfigure
 
-          VARS=$([ -f "../envs/$ENV/terraform.tfvars" ] && echo "-var-file=../envs/$ENV/terraform.tfvars" || echo "")
+          VARS=""
+          [ -f "../envs/$ENV/terraform.tfvars" ]     && VARS="$VARS -var-file=../envs/$ENV/terraform.tfvars"
+          [ -f "../envs/$ENV/services.auto.tfvars" ] && VARS="$VARS -var-file=../envs/$ENV/services.auto.tfvars"
           tofu plan $VARS -out=tfplan 2>&1 | tee /tmp/plan-output.txt
 
       - name: Comment plan on PR
@@ -187,7 +189,9 @@ jobs:
             -backend-config="path=$STATE_DIR/terraform.tfstate" \
             -reconfigure
 
-          VARS=$([ -f "../envs/$ENV/terraform.tfvars" ] && echo "-var-file=../envs/$ENV/terraform.tfvars" || echo "")
+          VARS=""
+          [ -f "../envs/$ENV/terraform.tfvars" ]     && VARS="$VARS -var-file=../envs/$ENV/terraform.tfvars"
+          [ -f "../envs/$ENV/services.auto.tfvars" ] && VARS="$VARS -var-file=../envs/$ENV/services.auto.tfvars"
 
           # Stage 1: provision Talos cluster
           tofu apply $VARS \
