@@ -34,3 +34,7 @@
 - Blueprint instances may not appear in `/api/v3/blueprints/instances/` if they complete too fast
 - **Startup race condition**: NetBird management fetches OIDC config on startup; if Authentik isn't ready yet it gets 502 and crash-loops. Fix: init container that polls OIDC endpoint before management starts
 - **Desktop client redirect**: NetBird desktop client uses `http://localhost:53000` for PKCE — must be in Authentik provider redirect_uris AND management.json `PKCEAuthorizationFlow.RedirectURLs`
+- **SPA hash-based callback**: NetBird dashboard SPA uses `/#callback` as redirect_uri (NOT `/auth`). Authentik must have `https://netbird.rlservers.com/#callback` in the provider's redirect_uris.
+- **OidcTrustedDomains — CRITICAL**: The NetBird dashboard generates `OidcTrustedDomains.js` from `$NETBIRD_MGMT_API_ENDPOINT` at startup. The OIDC client only sends the access token to domains in this list. `NETBIRD_MGMT_API_ENDPOINT` MUST be set to the **public URL** `https://netbird.rlservers.com` (NOT the internal K8s DNS `http://netbird-management.netbird.svc:80`), or the browser's OIDC client will silently drop the Authorization header → "Error: Unauthenticated".
+- **Conflicting IngressRoutes**: If two routes match the same host, Traefik picks the first-registered. Always remove old IngressRoutes for a hostname before deploying a new one.
+- **JWT aud claim**: Authentik's `aud` claim defaults to the `client_id`. With `client_id=netbird` and NetBird's `AuthAudience=netbird`, this works correctly without any extra scope expressions.
