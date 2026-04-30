@@ -21,6 +21,7 @@ spec:
     - "openbao.rlservers.com"
     - "traefik.rlservers.com"
     - "ansible.rlservers.com"
+    - "home.rlservers.com"
     - "test.rlservers.com"
     - "degoudentijd.rlservers.com"
     - "feestinhetdonker.rlservers.com"
@@ -28,7 +29,6 @@ spec:
 ---
 # Individual cert for auth.rlservers.com — critical for SSO/Authentik
 # Separate cert ensures SSO keeps working even when the main bundle hits rate limits.
-# Uses DNS-01 (Cloudflare) to avoid HTTP-01 ordering dependency with other certs.
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -37,14 +37,13 @@ metadata:
 spec:
   secretName: auth-rlservers-com-tls
   issuerRef:
-    name: letsencrypt-cloudflare
+    name: letsencrypt-http
     kind: ClusterIssuer
   dnsNames:
     - "auth.rlservers.com"
 ---
 # Individual cert for netbird.rlservers.com — critical for VPN management
 # Separate cert ensures NetBird keeps working even when the main bundle hits rate limits.
-# Uses DNS-01 (Cloudflare) to avoid HTTP-01 ordering dependency with other certs.
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -53,7 +52,7 @@ metadata:
 spec:
   secretName: netbird-rlservers-com-tls
   issuerRef:
-    name: letsencrypt-cloudflare
+    name: letsencrypt-http
     kind: ClusterIssuer
   dnsNames:
     - "netbird.rlservers.com"

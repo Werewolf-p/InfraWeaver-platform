@@ -15,6 +15,6 @@ spec:
       kind: Rule
       services:
         - name: homepage
-          namespace: apps-homepage
+          namespace: traefik
           port: 3000
   tls: {}
