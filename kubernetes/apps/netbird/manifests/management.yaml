@@ -34,7 +34,7 @@ data:
           "Audience": "netbird",
           "TokenEndpoint": "https://auth.rlservers.com/application/o/token/",
           "AuthorizationEndpoint": "https://auth.rlservers.com/application/o/authorize/",
-          "Scopes": ["openid", "profile", "email", "offline_access"],
+          "Scope": "openid profile email offline_access",
           "RedirectURLs": ["https://netbird.rlservers.com/auth", "https://netbird.rlservers.com/silent-auth", "https://netbird.rlservers.com/#callback", "http://localhost:53000"],
           "UseIDToken": true,
           "DisableRefreshToken": false
