@@ -425,7 +425,7 @@ jobs:
             \$BAO policy write platform-k8s /tmp/platform-k8s.hcl
             # Seed initial secrets if not present (idempotent)
             \$BAO kv get secret/platform/grafana >/dev/null 2>&1 || \
-              \$BAO kv put secret/platform/grafana admin-password=\$(openssl rand -base64 32 | tr -d '/+=')
+              \$BAO kv put secret/platform/grafana admin-user=admin admin-password=\$(openssl rand -base64 32 | tr -d '/+=')
             # Create service token (long-lived, least-privilege)
             \$BAO token create -policy=platform-k8s -no-default-policy -ttl=87600h \
               -display-name=kubernetes-eso-$ENV -orphan -field=client_token
@@ -483,6 +483,10 @@ jobs:
               name: grafana-admin-secret
               creationPolicy: Owner
             data:
+              - secretKey: admin-user
+                remoteRef:
+                  key: secret/platform/grafana
+                  property: admin-user
               - secretKey: admin-password
                 remoteRef:
                   key: secret/platform/grafana
