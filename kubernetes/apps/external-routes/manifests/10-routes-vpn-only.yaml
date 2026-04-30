@@ -14,6 +14,97 @@
 #
 # TLS: int-rlservers-com-tls (wildcard cert via letsencrypt-cloudflare DNS-01)
 
+# ── NetBird Management gRPC (int) ─────────────────────────────────────────────
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: netbird-management-grpc-int
+  namespace: traefik
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`netbird.int.rlservers.com`) && PathPrefix(`/management.ManagementService`)
+      kind: Rule
+      priority: 50
+      middlewares:
+        - name: netbird-vpn-only
+          namespace: traefik
+      services:
+        - name: netbird-management
+          port: 33073
+          scheme: h2c
+  tls:
+    secretName: int-rlservers-com-tls
+---
+# ── NetBird Signal gRPC (int) ─────────────────────────────────────────────────
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: netbird-signal-grpc-int
+  namespace: traefik
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`netbird.int.rlservers.com`) && (PathPrefix(`/signalexchange.SignalExchange`) || PathPrefix(`/grpc.reflection`))
+      kind: Rule
+      priority: 50
+      middlewares:
+        - name: netbird-vpn-only
+          namespace: traefik
+      services:
+        - name: netbird-signal
+          port: 10000
+          scheme: h2c
+  tls:
+    secretName: int-rlservers-com-tls
+---
+# ── NetBird Relay (int) ───────────────────────────────────────────────────────
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: netbird-relay-int
+  namespace: traefik
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`netbird.int.rlservers.com`) && PathPrefix(`/relay`)
+      kind: Rule
+      priority: 40
+      middlewares:
+        - name: netbird-vpn-only
+          namespace: traefik
+      services:
+        - name: netbird-relay
+          port: 443
+          serversTransport: insecure-skip-verify
+  tls:
+    secretName: int-rlservers-com-tls
+---
+# ── NetBird Management API + WS proxy (int) ───────────────────────────────────
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: netbird-management-api-int
+  namespace: traefik
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`netbird.int.rlservers.com`) && (PathPrefix(`/api`) || PathPrefix(`/ws-proxy/management`))
+      kind: Rule
+      priority: 30
+      middlewares:
+        - name: netbird-vpn-only
+          namespace: traefik
+      services:
+        - name: netbird-management
+          port: 80
+  tls:
+    secretName: int-rlservers-com-tls
+---
 # ── NetBird Dashboard ─────────────────────────────────────────────────────────
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
@@ -26,6 +117,7 @@ spec:
   routes:
     - match: Host(`netbird.int.rlservers.com`)
       kind: Rule
+      priority: 10
       middlewares:
         - name: netbird-vpn-only
           namespace: traefik
@@ -113,96 +205,6 @@ spec:
       middlewares:
         - name: netbird-vpn-only
           namespace: traefik
-      services:
-        - name: openbao
-          port: 8200
-  tls:
-    secretName: int-rlservers-com-tls
-
-# ── NetBird Dashboard ─────────────────────────────────────────────────────────
-apiVersion: traefik.io/v1alpha1
-kind: IngressRoute
-metadata:
-  name: netbird-dashboard-int
-  namespace: traefik
-spec:
-  entryPoints:
-    - websecure
-  routes:
-    - match: Host(`netbird.int.rlservers.com`)
-      kind: Rule
-      services:
-        - name: netbird-dashboard
-          port: 80
-  tls:
-    secretName: int-rlservers-com-tls
----
-# ── ArgoCD ────────────────────────────────────────────────────────────────────
-apiVersion: traefik.io/v1alpha1
-kind: IngressRoute
-metadata:
-  name: argocd-int
-  namespace: traefik
-spec:
-  entryPoints:
-    - websecure
-  routes:
-    - match: Host(`argocd.int.rlservers.com`)
-      kind: Rule
-      services:
-        - name: argocd-server
-          port: 80
-  tls:
-    secretName: int-rlservers-com-tls
----
-# ── Grafana ───────────────────────────────────────────────────────────────────
-apiVersion: traefik.io/v1alpha1
-kind: IngressRoute
-metadata:
-  name: grafana-int
-  namespace: traefik
-spec:
-  entryPoints:
-    - websecure
-  routes:
-    - match: Host(`grafana.int.rlservers.com`)
-      kind: Rule
-      services:
-        - name: grafana-apps
-          port: 80
-  tls:
-    secretName: int-rlservers-com-tls
----
-# ── Longhorn ──────────────────────────────────────────────────────────────────
-apiVersion: traefik.io/v1alpha1
-kind: IngressRoute
-metadata:
-  name: longhorn-int
-  namespace: traefik
-spec:
-  entryPoints:
-    - websecure
-  routes:
-    - match: Host(`longhorn.int.rlservers.com`)
-      kind: Rule
-      services:
-        - name: longhorn-frontend
-          port: 80
-  tls:
-    secretName: int-rlservers-com-tls
----
-# ── OpenBao (Vault) ───────────────────────────────────────────────────────────
-apiVersion: traefik.io/v1alpha1
-kind: IngressRoute
-metadata:
-  name: openbao-int
-  namespace: traefik
-spec:
-  entryPoints:
-    - websecure
-  routes:
-    - match: Host(`openbao.int.rlservers.com`)
-      kind: Rule
       services:
         - name: openbao
           port: 8200
