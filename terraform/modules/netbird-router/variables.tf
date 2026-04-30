@@ -34,7 +34,7 @@ variable "netbird_setup_key" {
 variable "netbird_management_url" {
   description = "NetBird management server URL (must be reachable from VLAN3)."
   type        = string
-  default     = "https://netbird.int.rlservers.com"
+  default     = "https://netbird.rlservers.com"
 }
 
 variable "router_ssh_keys" {

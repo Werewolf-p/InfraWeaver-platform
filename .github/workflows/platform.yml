@@ -497,4 +497,50 @@ jobs:
           echo "✅ OpenBao secrets bootstrapped"
           kubectl --kubeconfig "$KB" get clustersecretstore openbao 2>/dev/null || echo "  (ClusterSecretStore not yet synced)"
 
+      - name: Seed Cloudflare token & apply cert-manager ExternalSecrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          ENV="${{ github.ref_name == 'main' && 'productie' || 'ontwikkel' }}"
+          KB=~/.kube/config-platform-$ENV
+
+          if [ ! -f "$KB" ]; then
+            echo "⚠ Kubeconfig not found — skipping Cloudflare token seeding"
+            exit 0
+          fi
+
+          # Get root token from openbao-unseal secret
+          ROOT_TOKEN=$(kubectl --kubeconfig "$KB" get secret openbao-unseal -n openbao \
+            -o jsonpath='{.data.root_token}' 2>/dev/null | base64 -d || echo "")
+          if [ -z "$ROOT_TOKEN" ]; then
+            echo "⚠ No openbao-unseal secret — skipping Cloudflare token seeding"
+            exit 0
+          fi
+
+          # Port-forward to OpenBao
+          kubectl --kubeconfig "$KB" port-forward -n openbao svc/openbao 8200:8200 &
+          PF_PID=$!
+          sleep 4
+          LOCAL_OPENBAO="http://127.0.0.1:8200"
+
+          # Seed Cloudflare API token (always refresh from GitHub secret)
+          if [ -n "$CLOUDFLARE_API_TOKEN" ]; then
+            curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/platform/cloudflare" \
+              -H "X-Vault-Token: $ROOT_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "{\"data\": {\"CF_API_TOKEN\": \"$CLOUDFLARE_API_TOKEN\", \"CF_EMAIL\": \"remonhulst@gmail.com\"}}" > /dev/null
+            echo "==> Cloudflare token seeded to OpenBao"
+          else
+            echo "⚠ CLOUDFLARE_API_TOKEN not set — cert-manager DNS-01 challenges will fail"
+          fi
+
+          kill $PF_PID 2>/dev/null; wait $PF_PID 2>/dev/null || true
+
+          # Apply cert-manager ExternalSecret and trigger refresh
+          kubectl --kubeconfig "$KB" apply -f kubernetes/core/cert-manager/manifests/external-secret-cloudflare.yaml 2>/dev/null || true
+          kubectl --kubeconfig "$KB" annotate externalsecret cloudflare-api-token -n cert-manager \
+            force-sync="$(date +%s)" --overwrite 2>/dev/null || true
+
+          echo "✅ Cloudflare token seeded; cert-manager ExternalSecret refreshed"
+
 
