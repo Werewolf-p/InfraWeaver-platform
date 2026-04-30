@@ -956,6 +956,29 @@ jobs:
           kubectl --kubeconfig "$KB" rollout status deployment/coredns -n kube-system --timeout=60s
           echo "✅ kube-system CoreDNS patched"
 
+      - name: Set Authentik admin privileges
+        if: success()
+        run: |
+          KB=~/.kube/config-platform-${{ env.ENV_NAME }}
+
+          # Wait for Authentik worker to be ready
+          echo "==> Waiting for Authentik worker to be ready..."
+          kubectl --kubeconfig "$KB" rollout status deployment/authentik-worker -n authentik --timeout=120s
+
+          # Set remon user as superuser — blueprints cannot set is_superuser via attrs
+          WORKER_POD=$(kubectl --kubeconfig "$KB" get pod -n authentik \
+            -l app.kubernetes.io/component=worker \
+            -o jsonpath='{.items[0].metadata.name}')
+          echo "==> Setting is_superuser=True for remon (pod: $WORKER_POD)"
+          kubectl --kubeconfig "$KB" exec -n authentik "$WORKER_POD" -- ak shell -c "
+from authentik.core.models import User
+u = User.objects.get(username='remon')
+u.is_superuser = True
+u.save()
+print(f'OK: {u.username} superuser={u.is_superuser}')
+"
+          echo "✅ Authentik remon user set as superuser"
+
       - name: Send deployment summary email
         if: success()
         env:
