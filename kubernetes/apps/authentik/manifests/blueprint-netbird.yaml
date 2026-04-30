@@ -25,7 +25,11 @@ data:
           name: NetBird Provider
           client_id: netbird
           client_type: public
-          redirect_uris: "https://netbird.rlservers.com/auth\nhttps://netbird.rlservers.com/silent-auth"
+          redirect_uris:
+            - matching_mode: strict
+              url: "https://netbird.rlservers.com/auth"
+            - matching_mode: strict
+              url: "https://netbird.rlservers.com/silent-auth"
           authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
           invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
           signing_key: !Find [authentik_crypto.certificatekeypair, [name, authentik Self-signed Certificate]]
