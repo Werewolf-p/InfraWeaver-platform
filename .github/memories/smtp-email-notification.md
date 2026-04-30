@@ -17,19 +17,21 @@ description: Sends styled HTML deployment summary email with OpenBao root creden
 ## Credential Collection Strategy (as of 2026-04-30)
 
 - **OpenBao root token + unseal key:** from K8s `openbao-unseal` secret in `openbao` namespace (always available)
-- **All other credentials:** intentionally NOT in email — user retrieves them from OpenBao after connecting to VPN
+- **Authentik admin/remon passwords:** extracted via `kubectl exec -n openbao openbao-0 -- vault kv get -field=...`
+- **NetBird VPN info:** management URL `https://netbird.rlservers.com` (public, never `.int.`)
 
-## Email Content (minimised per user preference — 2026-04-30)
+## Email Content (InfraWeaver Prime design — 2026-04-30)
 
-Keep the email minimal. Only include:
-1. **Homepage dashboard link** (`https://home.rlservers.com`) — with note that NetBird VPN is required
-2. **OpenBao vault credentials** — root token + unseal key (these cannot be stored in the vault)
+Three-step layout with dark hacker aesthetic (navy #0a0e17, cyan #00d8ff, neon green #9fef00):
 
-**Do NOT include in email:**
-- NetBird PAT token (user has admin account via SSO, no PAT needed)
-- NetBird setup key (in OpenBao `secret/platform/netbird`)
-- Authentik password (in OpenBao `secret/platform/authentik`)
-- Any service passwords or setup keys — all in OpenBao
+1. **Step 1 — Authentik SSO:** `https://auth.rlservers.com` + admin + remon credentials
+2. **Step 2 — NetBird VPN:** `https://netbird.rlservers.com` with setup instructions
+3. **Step 3 — Homepage Dashboard:** `https://home.int.rlservers.com` (VPN required)
+4. **OpenBao vault credentials** — root token + unseal key (cannot be stored in vault)
+
+**Do NOT include:** any other service passwords — all in OpenBao vault.
+
+**CRITICAL — NetBird URL:** Always use `https://netbird.rlservers.com` (public). Never `.int.rlservers.com` for NetBird management — users need it BEFORE they have VPN access.
 
 ## Design
 - HTML multipart email with dark InfraWeaver theme (navy/blue gradient)

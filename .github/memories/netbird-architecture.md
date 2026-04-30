@@ -114,3 +114,9 @@ VM 9250 (`netbird-router-vlan3`) at 10.10.0.10 on VLAN3:
   NetBird clients reconnect automatically. The `context canceled` logs in management are expected.
 - **Pod restarts cause 502:** During management pod restart, clients get 502. They retry and reconnect.
 - **instance setup status: false:** Normal INFO log from HTTP API, does NOT block gRPC functionality.
+- **Cluster-internal DNS:** NetBird clients run inside the cluster and use cluster DNS (10.96.0.10).
+  `netbird.rlservers.com` MUST be in `kubernetes/apps/dns/manifests/configmap.yaml` → `rlservers.com.hosts`.
+  Missing entry causes `server misbehaving` → clients crash loop.
+- **wait-for-oidc init container:** Management will not start until `auth.rlservers.com` OIDC endpoint
+  is reachable with a valid TLS cert. If Authentik cert is rate-limited/missing, management stays in Init.
+  Fix: ensure `auth.rlservers.com` is in `rlservers-com-wildcard` cert SANs (not a separate cert).
