@@ -61,6 +61,7 @@ data:
     10.10.0.200  adguard.rlservers.com
     10.10.0.200  ansible.rlservers.com
     10.10.0.200  auth.rlservers.com
+    10.10.0.200  netbird.rlservers.com
     10.10.0.200  awx.rlservers.com
     10.10.0.200  bitwarden.rlservers.com
     10.10.0.200  bitwarden-admin.rlservers.com
