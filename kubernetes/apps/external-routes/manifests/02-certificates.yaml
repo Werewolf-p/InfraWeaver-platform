@@ -1,6 +1,7 @@
 ---
-# Certificate for rlservers.com — only publicly-accessible subdomains (HTTP-01)
-# auth.rlservers.com, netbird.rlservers.com → individual certs (prevent rate-limit cascades)
+# Certificate for rlservers.com — publicly-accessible subdomains (HTTP-01)
+# auth.rlservers.com is bundled here (not a separate cert) to share the rate-limit allowance.
+# netbird.rlservers.com → individual cert (separate to avoid cascading on VPN entry point).
 # Internal cluster apps (argocd, grafana, longhorn, openbao, homepage) → *.int.rlservers.com wildcard
 apiVersion: cert-manager.io/v1
 kind: Certificate
@@ -15,27 +16,13 @@ spec:
   dnsNames:
     - "rlservers.com"
     - "www.rlservers.com"
+    - "auth.rlservers.com"
     - "traefik.rlservers.com"
     - "ansible.rlservers.com"
     - "test.rlservers.com"
     - "degoudentijd.rlservers.com"
     - "feestinhetdonker.rlservers.com"
     - "marcel.rlservers.com"
----
-# Individual cert for auth.rlservers.com — critical for SSO/Authentik
-# Separate cert ensures SSO keeps working even when the main bundle hits rate limits.
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata:
-  name: auth-rlservers-com
-  namespace: traefik
-spec:
-  secretName: auth-rlservers-com-tls
-  issuerRef:
-    name: letsencrypt-http
-    kind: ClusterIssuer
-  dnsNames:
-    - "auth.rlservers.com"
 ---
 # Individual cert for netbird.rlservers.com — critical for VPN management
 # Separate cert ensures NetBird keeps working even when the main bundle hits rate limits.

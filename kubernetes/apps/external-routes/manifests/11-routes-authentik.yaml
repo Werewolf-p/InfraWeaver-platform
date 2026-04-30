@@ -41,5 +41,5 @@ spec:
           namespace: authentik
           port: 80
   tls:
-    secretName: auth-rlservers-com-tls
+    secretName: rlservers-com-wildcard-tls
 
