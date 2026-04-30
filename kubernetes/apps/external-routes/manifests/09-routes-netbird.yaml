@@ -1,6 +1,7 @@
 ---
 # NetBird IngressRoute — complex path-based routing for gRPC, relay, signal, and dashboard.
 # All on websecure (port 443) at netbird.rlservers.com.
+# Uses individual cert (netbird-rlservers-com-tls) to avoid rate limit dependency on main bundle.
 #
 # Priority order (highest first):
 #   1. Management gRPC (PathPrefix /management.ManagementService) → h2c:33073
@@ -26,7 +27,8 @@ spec:
         - name: netbird-management
           port: 33073
           scheme: h2c
-  tls: {}
+  tls:
+    secretName: netbird-rlservers-com-tls
 ---
 # ── Signal gRPC ───────────────────────────────────────────────────────────────
 apiVersion: traefik.io/v1alpha1
@@ -45,7 +47,8 @@ spec:
         - name: netbird-signal
           port: 10000
           scheme: h2c
-  tls: {}
+  tls:
+    secretName: netbird-rlservers-com-tls
 ---
 # ── Relay ─────────────────────────────────────────────────────────────────────
 apiVersion: traefik.io/v1alpha1
@@ -64,7 +67,8 @@ spec:
         - name: netbird-relay
           port: 443
           scheme: http
-  tls: {}
+  tls:
+    secretName: netbird-rlservers-com-tls
 ---
 # ── Management API + WS proxy ─────────────────────────────────────────────────
 apiVersion: traefik.io/v1alpha1
@@ -82,7 +86,8 @@ spec:
       services:
         - name: netbird-management
           port: 80
-  tls: {}
+  tls:
+    secretName: netbird-rlservers-com-tls
 ---
 # ── Dashboard (catch-all, publicly accessible — NetBird auth via PAT) ────────
 apiVersion: traefik.io/v1alpha1
@@ -100,4 +105,6 @@ spec:
       services:
         - name: netbird-dashboard
           port: 80
-  tls: {}
+  tls:
+    secretName: netbird-rlservers-com-tls
+
