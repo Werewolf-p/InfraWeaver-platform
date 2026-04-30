@@ -52,9 +52,7 @@ spec:
     name: letsencrypt-cloudflare
     kind: ClusterIssuer
   dnsNames:
-    - "int.rlservers.com"
     - "*.int.rlservers.com"
-    - "home.int.rlservers.com"
 ---
 # Certificate for yonavaarwater.nl — Cloudflare-proxied, needs DNS-01
 apiVersion: cert-manager.io/v1
