@@ -48,6 +48,22 @@ spec:
     - "marcel.rlservers.com"
     - "wiki.rlservers.com"
 ---
+# Certificate for *.int.rlservers.com — private/VPN-only domain, DNS-01 required
+# DNS-only Cloudflare record → 10.10.0.200 (private IP, unreachable without VPN)
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: int-rlservers-com-wildcard
+  namespace: traefik
+spec:
+  secretName: int-rlservers-com-tls
+  issuerRef:
+    name: letsencrypt-cloudflare
+    kind: ClusterIssuer
+  dnsNames:
+    - "int.rlservers.com"
+    - "*.int.rlservers.com"
+---
 # Certificate for yonavaarwater.nl — Cloudflare-proxied, needs DNS-01
 apiVersion: cert-manager.io/v1
 kind: Certificate

@@ -27,6 +27,17 @@ data:
         errors
     }
 
+    # int.rlservers.com zone — private/VPN-only services (DNS-only Cloudflare → 10.10.0.200)
+    int.rlservers.com:53 {
+        hosts /etc/coredns/zones/int.rlservers.com.hosts {
+            ttl 60
+            reload 30s
+            fallthrough
+        }
+        log
+        errors
+    }
+
     # Catch-all — forward everything else to upstream DNS
     .:53 {
         forward . 1.1.1.1 8.8.8.8 {
@@ -97,3 +108,14 @@ data:
     10.10.0.200  netbird.prod.local
     10.10.0.200  openbao.prod.local
     10.10.0.200  test.prod.local
+
+  int.rlservers.com.hosts: |
+    # int.rlservers.com — VPN-only private services
+    # Cloudflare DNS-only record *.int.rlservers.com → 10.10.0.200 (private IP)
+    # Only reachable via NetBird VPN or VLAN3 network.
+    10.10.0.200  int.rlservers.com
+    10.10.0.200  netbird.int.rlservers.com
+    10.10.0.200  argocd.int.rlservers.com
+    10.10.0.200  grafana.int.rlservers.com
+    10.10.0.200  longhorn.int.rlservers.com
+    10.10.0.200  openbao.int.rlservers.com
