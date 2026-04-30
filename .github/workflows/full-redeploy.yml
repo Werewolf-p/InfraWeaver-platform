@@ -972,14 +972,8 @@ jobs:
             -l app.kubernetes.io/component=worker \
             -o jsonpath='{.items[0].metadata.name}')
           echo "==> Adding remon to authentik Admins group (pod: $WORKER_POD)"
-          kubectl --kubeconfig "$KB" exec -n authentik "$WORKER_POD" -- ak shell -c "
-from authentik.core.models import User, Group
-remon = User.objects.get(username='remon')
-admins = Group.objects.get(name='authentik Admins')
-admins.users.add(remon)
-print(f'OK: {remon.username} is now in {admins.name}')
-print(f'Admins: {list(admins.users.values_list(\"username\", flat=True))}')
-"
+          kubectl --kubeconfig "$KB" exec -n authentik "$WORKER_POD" -- ak shell -c \
+            "from authentik.core.models import User, Group; remon = User.objects.get(username='remon'); admins = Group.objects.get(name='authentik Admins'); admins.users.add(remon); print('OK: ' + remon.username + ' is now in ' + admins.name)"
           echo "✅ Authentik remon user added to authentik Admins group"
 
       - name: Send deployment summary email
