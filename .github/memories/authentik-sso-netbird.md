@@ -63,3 +63,36 @@
 - Key: `DATASTORE_ENC_KEY` env var = base64-encoded 32-byte AES key.
 - Bootstrap decrypt: `base64.b64decode(env_var)` → 32 bytes → use with `AESGCM()`.
 - Do NOT use `.hex()` — the management expects base64, not hex.
+
+### Traefik CORS for Authentik Endpoints (2026-04-30)
+- **Problem**: NetBird dashboard Logout button fails with `TypeError: Failed to fetch` (CORS block).
+  The OIDC library (`oidc-client-ts`) on logout tries to call the token revocation endpoint
+  (`/application/o/revoke/`) and then the userinfo endpoint before redirecting.
+  These endpoints return no `Access-Control-Allow-Origin` header → browser blocks the fetch.
+- **Cause**: Authentik adds CORS headers to application-specific endpoints (token, authorize)
+  but NOT to global/utility endpoints (revoke, userinfo). These return `text/html` on OPTIONS.
+- **Fix**: Add a Traefik `Middleware` with `customResponseHeaders` to the Authentik IngressRoute.
+  File: `kubernetes/apps/external-routes/manifests/11-routes-authentik.yaml`
+  ```yaml
+  spec:
+    headers:
+      customResponseHeaders:
+        Access-Control-Allow-Origin: "https://netbird.rlservers.com"
+        Access-Control-Allow-Methods: "GET, POST, OPTIONS, HEAD"
+        Access-Control-Allow-Headers: "Authorization, Content-Type, Accept"
+        Access-Control-Allow-Credentials: "true"
+        Access-Control-Max-Age: "86400"
+  ```
+- **Why `customResponseHeaders` not `accessControlAllowOriginList`**:
+  `accessControlAllowOriginList` in Traefik's headers middleware did NOT inject headers
+  in practice (may require backend CORS support to be fully absent; unclear). 
+  `customResponseHeaders` unconditionally injects the headers, replacing any backend-set
+  headers of the same name (Traefik v3 behavior). No duplicate headers occur.
+- **Critical gotcha**: NEVER use `kubectl apply` directly for changes to ArgoCD-managed resources.
+  ArgoCD reconciles every ~3 minutes and REVERTS any direct kubectl edits back to the Git state.
+  Always commit to Git first, then trigger ArgoCD sync. Direct `kubectl apply` changes are silently
+  undone by ArgoCD within minutes.
+- **Stale token workaround**: If user is stuck on "Error: Unauthenticated" with broken Logout:
+  ```js
+  localStorage.clear(); sessionStorage.clear(); location.href = 'https://netbird.rlservers.com';
+  ```
