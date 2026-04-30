@@ -961,9 +961,20 @@ jobs:
         run: |
           KB=~/.kube/config-platform-${{ env.ENV_NAME }}
 
-          # Wait for Authentik worker to be ready
-          echo "==> Waiting for Authentik worker to be ready..."
-          kubectl --kubeconfig "$KB" rollout status deployment/authentik-worker -n authentik --timeout=120s
+          # Wait for ArgoCD to finish deploying Authentik (can take 3-5 min after bootstrap)
+          echo "==> Waiting for ArgoCD apps-authentik app to become Healthy..."
+          for i in $(seq 1 30); do
+            STATUS=$(kubectl --kubeconfig "$KB" get application apps-authentik -n argocd \
+              -o jsonpath='{.status.health.status}' 2>/dev/null || echo "NotFound")
+            echo "  [${i}/30] apps-authentik health: $STATUS"
+            [ "$STATUS" = "Healthy" ] && break
+            sleep 20
+          done
+
+          # Wait for Authentik worker to be ready (up to 10 minutes)
+          echo "==> Waiting for Authentik worker rollout..."
+          kubectl --kubeconfig "$KB" rollout status deployment/authentik-worker \
+            -n authentik --timeout=600s
 
           # Add remon to the 'authentik Admins' group.
           # Authentik 2026.x uses Group.is_superuser for admin access — not User.is_superuser.
@@ -977,7 +988,7 @@ jobs:
           echo "✅ Authentik remon user added to authentik Admins group"
 
       - name: Send deployment summary email
-        if: success()
+        if: always()
         env:
           SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
