@@ -183,7 +183,7 @@ html = f"""\
             <table width="100%" cellpadding="0" cellspacing="0">
               {field_row("NetBird Dashboard", f'<a href="{netbird_url}" style="color:#9fef00;text-decoration:none;">{netbird_url}</a>')}
               {field_row("Login Method", "Click &quot;Log in with SSO&quot; → Authentik")}
-              {field_row("NetBird Management URL (for client setup)", "https://netbird.int.rlservers.com")}
+              {field_row("NetBird Management URL (for client setup)", "https://netbird.rlservers.com")}
             </table>
             <p style="margin:12px 0 0;color:#475569;font-size:11px;">
               &#128230; Download NetBird client: <a href="https://netbird.io/docs/installation" style="color:#00d8ff;text-decoration:none;">netbird.io/docs/installation</a>
@@ -272,7 +272,7 @@ STEP 1: Log in to Authentik SSO
 STEP 2: Connect NetBird VPN
   Dashboard : {netbird_url}
   Login via : SSO (Authentik)
-  Mgmt URL  : https://netbird.int.rlservers.com (for client setup)
+  Mgmt URL  : https://netbird.rlservers.com (for client setup)
   Client    : https://netbird.io/docs/installation
 
 STEP 3: Open Homelab Dashboard (requires VPN)
