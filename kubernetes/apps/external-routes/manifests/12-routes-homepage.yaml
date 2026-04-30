@@ -1,0 +1,20 @@
+---
+# Homepage — homelab dashboard IngressRoute
+# Public access: no IP restriction so users can reach it before connecting to VPN.
+# The links it displays may require VPN; the dashboard itself is always reachable.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: homepage
+  namespace: traefik
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`home.rlservers.com`)
+      kind: Rule
+      services:
+        - name: homepage
+          namespace: apps-homepage
+          port: 3000
+  tls: {}

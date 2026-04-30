@@ -1,0 +1,232 @@
+# Homepage Helm values
+# Dashboard: https://home.rlservers.com
+# Docs: https://gethomepage.dev/
+
+# ── Resources ─────────────────────────────────────────────────────────────────
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    cpu: 200m
+    memory: 256Mi
+
+# ── Service Account ───────────────────────────────────────────────────────────
+# Kubernetes service discovery is disabled — services are configured manually.
+enableRbac: false
+serviceAccount:
+  create: true
+  name: homepage
+
+# ── Ingress (disabled — using Traefik IngressRoute via external-routes) ───────
+ingress:
+  main:
+    enabled: false
+
+# ── Homepage configuration ────────────────────────────────────────────────────
+config:
+
+  # Global settings
+  settings:
+    title: "RLServers Homelab"
+    theme: dark
+    color: slate
+    headerStyle: clean
+    hideVersion: true
+    disableCollapse: false
+    target: _blank                   # open links in new tab
+    language: nl
+    layout:
+      Platform Infrastructure:
+        icon: mdi-server
+        style: row
+        columns: 4
+      Security & Identity:
+        icon: mdi-shield-lock
+        style: row
+        columns: 4
+      Infrastructure:
+        icon: mdi-server-network
+        style: row
+        columns: 4
+      Media:
+        icon: mdi-movie-play
+        style: row
+        columns: 3
+      Websites:
+        icon: mdi-web
+        style: row
+        columns: 4
+
+  # Top bar widgets
+  widgets:
+    - greeting:
+        text_size: xl
+        text: "RLServers Homelab"
+    - datetime:
+        text_size: l
+        format:
+          dateStyle: long
+          timeStyle: short
+          hour12: false
+    - search:
+        provider: google
+        target: _blank
+
+  # Kubernetes integration disabled (using manual service list)
+  kubernetes:
+    mode: disabled
+
+  docker: {}
+  bookmarks: []
+
+  # ── Services ────────────────────────────────────────────────────────────────
+  # Health checks (ping) use internal K8s service names so Homepage can reach
+  # them from inside the cluster regardless of VPN/middleware restrictions.
+  # Click URLs (href) use the public hostnames for browser navigation.
+  services:
+
+    - Platform Infrastructure:
+        - ArgoCD:
+            href: https://argocd.int.rlservers.com
+            description: GitOps — continuous delivery
+            icon: argocd.png
+            # ping via internal K8s service (bypasses netbird-vpn-only middleware)
+            ping: http://argocd-server.argocd.svc.cluster.local
+
+        - Grafana:
+            href: https://grafana.int.rlservers.com
+            description: Metrics & dashboards
+            icon: grafana.png
+            ping: http://grafana-apps.apps-grafana.svc.cluster.local
+
+        - Longhorn:
+            href: https://longhorn.int.rlservers.com
+            description: Distributed block storage
+            icon: longhorn.png
+            ping: http://longhorn-frontend.longhorn-system.svc.cluster.local
+
+        - OpenBao:
+            href: https://openbao.int.rlservers.com
+            description: Secrets & certificates
+            icon: vault.png
+            ping: http://openbao.openbao.svc.cluster.local:8200/v1/sys/health
+
+        - Traefik:
+            href: https://traefik.rlservers.com
+            description: Kubernetes ingress controller
+            icon: traefik.png
+            ping: http://traefik.traefik.svc.cluster.local/ping
+
+    - Security & Identity:
+        - Authentik:
+            href: https://auth.rlservers.com
+            description: Single sign-on (SSO)
+            icon: authentik.png
+            ping: http://authentik-server.authentik.svc.cluster.local/-/health/ready/
+
+        - NetBird VPN:
+            href: https://netbird.rlservers.com
+            description: WireGuard mesh VPN
+            icon: netbird.png
+            ping: http://netbird-management.netbird.svc.cluster.local/api/v1/health
+
+        - Wazuh:
+            href: https://wazuh.rlservers.com
+            description: Security monitoring & SIEM
+            icon: wazuh.png
+
+        - Bitwarden:
+            href: https://bitwarden-admin.rlservers.com
+            description: Password manager (admin)
+            icon: bitwarden.png
+
+    - Infrastructure:
+        - Proxmox:
+            href: https://proxmox.rlservers.com
+            description: Hypervisor — VM management
+            icon: proxmox.png
+
+        - TrueNAS:
+            href: https://truenas.rlservers.com
+            description: Network attached storage
+            icon: truenas.png
+
+        - Portainer:
+            href: https://portainer.rlservers.com
+            description: Container management
+            icon: portainer.png
+
+        - AdGuard Home:
+            href: https://adguard.rlservers.com
+            description: DNS & ad blocking
+            icon: adguard-home.png
+
+        - Ansible Semaphore:
+            href: https://ansible.rlservers.com
+            description: Ansible automation UI
+            icon: semaphore.png
+
+        - Wiki.js:
+            href: https://wiki.rlservers.com
+            description: Internal documentation
+            icon: wikijs.png
+
+    - Media:
+        - Overseerr:
+            href: https://overseer.rlservers.com
+            description: Media request management
+            icon: overseerr.png
+
+        - Sonarr:
+            href: https://sonarr.rlservers.com
+            description: TV show automation
+            icon: sonarr.png
+
+        - Radarr:
+            href: https://radarr.rlservers.com
+            description: Movie automation
+            icon: radarr.png
+
+    - Websites:
+        - rlservers.com:
+            href: https://rlservers.com
+            description: Main website
+            icon: wordpress.png
+            ping: https://rlservers.com
+
+        - De Goudentijd:
+            href: https://degoudentijd.rlservers.com
+            description: WordPress site
+            icon: wordpress.png
+            ping: https://degoudentijd.rlservers.com
+
+        - Feest in het Donker:
+            href: https://feestinhetdonker.rlservers.com
+            description: Event website
+            icon: html5.png
+            ping: https://feestinhetdonker.rlservers.com
+
+        - Marcel:
+            href: https://marcel.rlservers.com
+            description: Personal site
+            icon: html5.png
+            ping: https://marcel.rlservers.com
+
+        - yonavaarwater.nl:
+            href: https://yonavaarwater.nl
+            description: WordPress site
+            icon: wordpress.png
+            ping: https://yonavaarwater.nl
+
+        - zonnevaarwater.nl:
+            href: https://zonnevaarwater.nl
+            description: WordPress site
+            icon: wordpress.png
+            ping: https://zonnevaarwater.nl
+
+        - test.rlservers.com:
+            href: https://test.rlservers.com
+            description: Test / demo website
+            icon: html5.png
+            ping: https://test.rlservers.com
