@@ -1000,9 +1000,19 @@ jobs:
           # Add remon to the 'authentik Admins' group.
           # Authentik 2026.x uses Group.is_superuser for admin access — not User.is_superuser.
           # Blueprints cannot reliably set group membership, so we do it here post-deploy.
+          # Retry loop: blueprints create the user async; worker may be ready before user exists.
           WORKER_POD=$(kubectl --kubeconfig "$KB" get pod -n authentik \
             -l app.kubernetes.io/component=worker \
             -o jsonpath='{.items[0].metadata.name}')
+          echo "==> Waiting for remon user to be created by blueprint (pod: $WORKER_POD)..."
+          for i in $(seq 1 30); do
+            USER_EXISTS=$(kubectl --kubeconfig "$KB" exec -n authentik "$WORKER_POD" -- ak shell -c \
+              "from authentik.core.models import User; print('yes' if User.objects.filter(username='remon').exists() else 'no')" \
+              2>/dev/null || echo "no")
+            echo "  [${i}/30] remon user exists: $USER_EXISTS"
+            [ "$USER_EXISTS" = "yes" ] && break
+            sleep 20
+          done
           echo "==> Adding remon to authentik Admins group (pod: $WORKER_POD)"
           kubectl --kubeconfig "$KB" exec -n authentik "$WORKER_POD" -- ak shell -c \
             "from authentik.core.models import User, Group; remon = User.objects.get(username='remon'); admins = Group.objects.get(name='authentik Admins'); admins.users.add(remon); print('OK: ' + remon.username + ' is now in ' + admins.name)"
