@@ -1,6 +1,6 @@
 ---
 title: NetBird In-Cluster Architecture — VLAN3 (10.10.0.x)
-description: Current active NetBird deployment is in-cluster on VLAN3; critical DNS fix needed for VPN clients to resolve rlservers.com internally.
+description: Current active NetBird deployment is in-cluster on VLAN3; private domain int.rlservers.com used for VPN-only services to solve browser DoH bypass.
 ---
 
 # NetBird In-Cluster Architecture — VLAN3
@@ -38,14 +38,51 @@ The old standalone VM at 10.25.0.100 (VLAN2) is no longer the primary deployment
 
 ---
 
+## Private Domain: int.rlservers.com (added 2026-04-30)
+
+### Problem: Browser DoH Bypasses NetBird Split-DNS
+
+**Root cause of 403 despite being connected to NetBird:**
+- Chrome/Edge have built-in DoH resolvers (Cloudflare 1.1.1.1, Google 8.8.8.8)
+- These **bypass Windows NRPT rules** that NetBird installs for `rlservers.com` domain routing
+- `netbird.rlservers.com` resolves via DoH to Cloudflare CDN IPs (188.114.96.x) — NOT to 10.10.0.200
+- Traffic flows: Browser → Cloudflare CDN → origin → Traefik sees Cloudflare IP → blocked → **403**
+
+### Solution: *.int.rlservers.com Private Subdomain
+
+**Architecture:**
+- Cloudflare DNS-only (grey cloud) wildcard: `*.int.rlservers.com → 10.10.0.200`
+- `10.10.0.200` is a **private IP** — unreachable from the public internet without VPN
+- Even if DoH resolves `netbird.int.rlservers.com → 10.10.0.200`, the TCP connection fails without VPN route
+- VPN-connected users have `10.10.0.0/24 via wt0` → can reach 10.10.0.200
+
+**VPN-only service URLs (use these instead of rlservers.com for private services):**
+
+| Service | URL | Notes |
+|---------|-----|-------|
+| NetBird | `https://netbird.int.rlservers.com` | VPN or VLAN3 only |
+| ArgoCD | `https://argocd.int.rlservers.com` | VPN or VLAN3 only |
+| Grafana | `https://grafana.int.rlservers.com` | VPN or VLAN3 only |
+| Longhorn | `https://longhorn.int.rlservers.com` | VPN or VLAN3 only |
+| OpenBao | `https://openbao.int.rlservers.com` | VPN or VLAN3 only |
+
+**TLS:** `int-rlservers-com-tls` secret — wildcard cert via `letsencrypt-cloudflare` (DNS-01), valid to Jul 29 2026.
+
+### IngressRoutes (10-routes-vpn-only.yaml)
+All routes use `netbird-vpn-only` middleware as defense-in-depth.
+Explicitly reference `int-rlservers-com-tls` secret for TLS.
+
+---
+
 ## Critical: NetBird DNS Nameserver Groups
 
-The bootstrap job creates TWO nameserver groups. Both are required:
+The bootstrap job creates THREE nameserver groups. All are required:
 
 | Name | DNS Server | Domain | Purpose |
 |------|-----------|--------|---------|
 | `prod-local` | 10.10.0.201 | `prod.local` | Internal K8s services |
 | `rlservers-com` | 10.10.0.201 | `rlservers.com` | **Bypass Cloudflare CDN** |
+| `int-rlservers-com` | 10.10.0.201 | `int.rlservers.com` | VPN-only private subdomain |
 
 ### Why `rlservers-com` Group is CRITICAL
 
@@ -91,12 +128,12 @@ sourceRange:
 - Traefik sees `10.10.0.9x` → in `10.10.0.0/24` allowlist → allowed
 
 ### What is Protected vs Public
-| Service | Accessible from VPN? | Accessible from LAN (10.25.x)? | Accessible from internet? |
+| Service | Accessible from VPN? | Accessible from VLAN3 (10.10.x)? | Accessible from internet? |
 |---------|---------------------|-------------------------------|--------------------------|
 | test.rlservers.com | ✅ | ✅ | ✅ |
-| netbird.rlservers.com | ✅ | ❌ 403 | ❌ 403 |
-| argocd.rlservers.com | ✅ | ❌ 403 | ❌ 403 |
-| grafana.rlservers.com | ✅ | ❌ 403 | ❌ 403 |
+| netbird.rlservers.com | ✅ (with DNS group) | ❌ 403 from non-VLAN3 | ❌ 403 |
+| netbird.int.rlservers.com | ✅ (private IP) | ✅ | ❌ (IP unreachable) |
+| argocd.int.rlservers.com | ✅ (private IP) | ✅ | ❌ (IP unreachable) |
 | NetBird management gRPC | ✅ | ✅ | ✅ (needed for initial connect) |
 
 ---
@@ -113,9 +150,10 @@ Key operations:
 3. Creates PAT token via SQLite  
 4. Inserts routes (10.10.0.0/24, 10.25.0.0/24) with masquerade via SQLite
 5. Creates `prod-local` DNS nameserver group via REST API
-6. Creates `rlservers-com` DNS nameserver group via REST API (added 2026-04-30)
+6. Creates `rlservers-com` DNS nameserver group via REST API
+7. Creates `int-rlservers-com` DNS nameserver group via REST API (added 2026-04-30)
 
-**Important:** Steps 5-6 use the NetBird REST API (not SQLite directly) because nameserver groups have complex JSON that is hard to maintain in raw SQL.
+**Important:** Steps 5-7 use the NetBird REST API (not SQLite directly) because nameserver groups have complex JSON that is hard to maintain in raw SQL.
 
 ---
 
@@ -135,10 +173,12 @@ Runner eth1: 10.10.0.108 (management VM on VLAN3)
 
 ## Lesson Learned
 
-**If a user says "I'm connected to NetBird but still get 403 on netbird.rlservers.com":**
-1. First check: does the bootstrap job's `rlservers-com` DNS group exist?
-   ```bash
-   curl -s http://10.10.0.202/api/dns/nameservers -H "Authorization: Token $PAT"
-   ```
-2. Check what IP their DNS resolves to: should be 10.10.0.200, not 188.114.x.x
-3. If missing, add via API (bootstrap script handles this idempotently on redeploy)
+**If a user says "I'm connected to NetBird but still get 403":**
+1. For `*.rlservers.com` URLs: check if the `rlservers-com` DNS group exists and the user doesn't have browser DoH enabled (which bypasses NRPT rules). Suggest using `*.int.rlservers.com` URLs instead.
+2. For `*.int.rlservers.com` URLs: should work if VPN is connected (private IP is the access control).
+3. Check Traefik access logs: `kubectl logs -n traefik deploy/traefik | grep -i "403\|forbidden"`
+4. If source IP in logs is `172.70.x.x` or `188.114.x.x` → Cloudflare CDN → DoH bypass issue
+
+**Immediate user fix for browser DoH bypass:**
+- Chrome: `chrome://settings/security` → "Use secure DNS" → Off
+- Or: just use `*.int.rlservers.com` URLs which work regardless of DoH
