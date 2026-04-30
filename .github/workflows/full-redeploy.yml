@@ -1004,19 +1004,4 @@ jobs:
           export BAO_UNSEAL=$(kubectl --kubeconfig "$KB" get secret openbao-unseal -n openbao \
             -o jsonpath='{.data.unseal_key}' 2>/dev/null | base64 -d || echo "unavailable")
 
-          # Read NetBird creds directly from OpenBao vault (avoids ExternalSecret sync timing issues)
-          export NB_PAT=$(kubectl --kubeconfig "$KB" exec -n openbao openbao-0 -- \
-            sh -c "VAULT_TOKEN=$BAO_TOKEN VAULT_ADDR=http://127.0.0.1:8200 vault kv get -field=netbird-pat-token secret/platform/netbird" \
-            2>/dev/null || echo "unavailable")
-          export NB_SETUP=$(kubectl --kubeconfig "$KB" exec -n openbao openbao-0 -- \
-            sh -c "VAULT_TOKEN=$BAO_TOKEN VAULT_ADDR=http://127.0.0.1:8200 vault kv get -field=SETUP_KEY secret/platform/netbird" \
-            2>/dev/null || echo "unavailable")
-
-          # Read Authentik remon password from OpenBao
-          export AUTHENTIK_URL="https://auth.rlservers.com"
-          export AUTHENTIK_EMAIL="remonhulst@gmail.com"
-          export AUTHENTIK_PASSWORD=$(kubectl --kubeconfig "$KB" exec -n openbao openbao-0 -- \
-            sh -c "VAULT_TOKEN=$BAO_TOKEN VAULT_ADDR=http://127.0.0.1:8200 vault kv get -field=remon-password secret/platform/authentik" \
-            2>/dev/null || echo "unavailable")
-
           python3 scripts/send-deploy-email.py
