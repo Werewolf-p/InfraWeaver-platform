@@ -57,6 +57,7 @@ data:
     # ── Cluster apps ─────────────────────────────────────────────────────────
     10.10.0.200  argocd.rlservers.com
     10.10.0.200  grafana.rlservers.com
+    10.10.0.200  home.rlservers.com
     10.10.0.200  longhorn.rlservers.com
     10.10.0.200  netbird.rlservers.com
     10.10.0.200  openbao.rlservers.com
