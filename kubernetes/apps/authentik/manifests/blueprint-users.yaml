@@ -22,6 +22,6 @@ data:
         attrs:
           name: "Remon Hulst"
           email: "remonhulst@gmail.com"
-          password: !Env [AUTHENTIK_REMON_PASSWORD]
+          password: !Env AUTHENTIK_REMON_PASSWORD
           is_active: true
           is_superuser: true
