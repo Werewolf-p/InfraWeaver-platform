@@ -17,27 +17,13 @@ spec:
     - "rlservers.com"
     - "www.rlservers.com"
     - "auth.rlservers.com"
+    - "netbird.rlservers.com"
     - "traefik.rlservers.com"
     - "ansible.rlservers.com"
     - "test.rlservers.com"
     - "degoudentijd.rlservers.com"
     - "feestinhetdonker.rlservers.com"
     - "marcel.rlservers.com"
----
-# Individual cert for netbird.rlservers.com — critical for VPN management
-# Separate cert ensures NetBird keeps working even when the main bundle hits rate limits.
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata:
-  name: netbird-rlservers-com
-  namespace: traefik
-spec:
-  secretName: netbird-rlservers-com-tls
-  issuerRef:
-    name: letsencrypt-http
-    kind: ClusterIssuer
-  dnsNames:
-    - "netbird.rlservers.com"
 ---
 # Certificate for *.int.rlservers.com — private/VPN-only domain, DNS-01 required
 # DNS-only Cloudflare record → 10.10.0.200 (private IP, unreachable without VPN)

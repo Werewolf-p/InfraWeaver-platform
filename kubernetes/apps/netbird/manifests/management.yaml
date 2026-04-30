@@ -212,7 +212,7 @@ spec:
     spec:
       containers:
       - name: dashboard
-        image: netbirdio/dashboard:latest
+        image: netbirdio/dashboard:v2.37.1
         ports:
         - containerPort: 80
           name: http
