@@ -21,12 +21,25 @@ data:
       "Datadir": "/var/lib/netbird/",
       "HttpConfig": {
         "LetsEncryptDomain":"","CertFile":"","CertKey":"",
-        "AuthAudience":"","AuthIssuer":"","AuthKeysLocation":"","AuthUserIDClaim":"",
-        "IdpSignKeyRefreshEnabled":false,"OIDCConfigEndpoint":""
+        "AuthAudience":"netbird","AuthIssuer":"","AuthKeysLocation":"","AuthUserIDClaim":"",
+        "IdpSignKeyRefreshEnabled":true,"OIDCConfigEndpoint":"https://auth.rlservers.com/application/o/netbird/.well-known/openid-configuration"
       },
       "IdpManagerConfig": {"Manager":"none","ExtraConfig":{},"ClientConfig":null},
       "DeviceAuthorizationFlow": null,
-      "PKCEAuthorizationFlow": null,
+      "PKCEAuthorizationFlow": {
+        "ProviderConfig": {
+          "ClientID": "netbird",
+          "ClientSecret": "",
+          "Domain": "auth.rlservers.com",
+          "Audience": ["netbird"],
+          "TokenEndpoint": "https://auth.rlservers.com/application/o/token/",
+          "AuthorizationEndpoint": "https://auth.rlservers.com/application/o/authorize/",
+          "Scopes": ["openid", "profile", "email", "offline_access"],
+          "RedirectURLs": ["https://netbird.rlservers.com/auth", "https://netbird.rlservers.com/silent-auth"],
+          "UseIDToken": true,
+          "DisableRefreshToken": false
+        }
+      },
       "DataStoreEncryptionKey": "DATASTORE_KEY_PLACEHOLDER"
     }
 ---
@@ -200,9 +213,9 @@ spec:
         - name: USE_AUTH0
           value: "false"
         - name: AUTH_AUTHORITY
-          value: ""
+          value: "https://auth.rlservers.com/application/o/netbird/"
         - name: AUTH_CLIENT_ID
-          value: ""
+          value: "netbird"
         resources:
           requests:
             cpu: 50m

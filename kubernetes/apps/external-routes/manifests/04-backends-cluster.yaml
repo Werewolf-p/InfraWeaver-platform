@@ -120,3 +120,16 @@ spec:
   ports:
     - port: 80
       name: http
+---
+# Authentik (SSO/OIDC identity provider)
+apiVersion: v1
+kind: Service
+metadata:
+  name: authentik-server
+  namespace: traefik
+spec:
+  type: ExternalName
+  externalName: authentik-server.authentik.svc.cluster.local
+  ports:
+    - port: 80
+      name: http

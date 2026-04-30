@@ -1,0 +1,20 @@
+---
+# Authentik — IngressRoute at auth.rlservers.com
+# No VPN restriction: users need to reach Authentik to log in via SSO
+# before connecting to services behind the VPN middleware.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: authentik
+  namespace: traefik
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`auth.rlservers.com`)
+      kind: Rule
+      services:
+        - name: authentik-server
+          namespace: authentik
+          port: 80
+  tls: {}

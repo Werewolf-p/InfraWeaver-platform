@@ -1,0 +1,100 @@
+global:
+  # Inject secrets from ExternalSecret-managed K8s secret (authentik-secrets)
+  env:
+    - name: AUTHENTIK_SECRET_KEY
+      valueFrom:
+        secretKeyRef:
+          name: authentik-secrets
+          key: secret-key
+    - name: AUTHENTIK_BOOTSTRAP_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: authentik-secrets
+          key: bootstrap-password
+    - name: AUTHENTIK_BOOTSTRAP_TOKEN
+      valueFrom:
+        secretKeyRef:
+          name: authentik-secrets
+          key: bootstrap-token
+    - name: AUTHENTIK_BOOTSTRAP_EMAIL
+      value: "admin@rlservers.com"
+    - name: AUTHENTIK_POSTGRESQL__PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: authentik-secrets
+          key: postgresql-password
+
+authentik:
+  # secret_key must be non-empty for chart templating; actual value from env var above
+  secret_key: "placeholder-overridden-by-env"
+  log_level: info
+  error_reporting:
+    enabled: false
+  postgresql:
+    host: "authentik-postgresql"
+    name: "authentik"
+    user: "authentik"
+    password: ""  # supplied via AUTHENTIK_POSTGRESQL__PASSWORD env var
+    port: 5432
+  redis:
+    host: "authentik-redis-master"
+
+blueprints:
+  configMaps:
+    - authentik-blueprint-netbird
+
+postgresql:
+  enabled: true
+  auth:
+    username: authentik
+    database: authentik
+    existingSecret: authentik-secrets
+    secretKeys:
+      userPasswordKey: postgresql-password
+  primary:
+    persistence:
+      storageClass: local-path
+      size: 2Gi
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+redis:
+  enabled: true
+  auth:
+    enabled: false
+  master:
+    persistence:
+      storageClass: local-path
+      size: 256Mi
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 128Mi
+
+server:
+  ingress:
+    enabled: false
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+worker:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
