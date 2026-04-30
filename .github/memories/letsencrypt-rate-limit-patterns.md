@@ -14,10 +14,14 @@ Multiple full redeployments on the same day hit this limit quickly for any cert 
 
 | Certificate | SANs | Issuer | Rate Limit Risk |
 |-------------|------|--------|-----------------|
-| `rlservers-com-wildcard` | 9 public domains | HTTP-01 | Medium (infrequent change) |
-| `netbird-rlservers-com` | `netbird.rlservers.com` only | HTTP-01 | Low (separate) |
+| `rlservers-com-wildcard` | 10 public domains (incl. auth + netbird) | HTTP-01 | Low (big bundle, infrequent change) |
 | `int-rlservers-com-wildcard` | `*.int.rlservers.com` | DNS-01 (Cloudflare) | **HIGH** (fresh deploy = new issue) |
 | `.nl` certs | per-domain | DNS-01 / HTTP-01 | Medium |
+
+> **Design principle:** Bundle all public domains into `rlservers-com-wildcard`. No individual certs.
+> Individual certs (previously `auth-rlservers-com`, `netbird-rlservers-com`) hit 5/168h rate limits
+> during multiple same-day redeployments. The bundle is one large SAN set — each new domain added
+> creates a new exact set with a fresh 5-cert allowance.
 
 ## Rate Limit Bypass: Change the SAN Set
 
