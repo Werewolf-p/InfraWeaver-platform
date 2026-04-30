@@ -745,49 +745,8 @@ jobs:
             echo "==> NetBird secrets already exist — preserving existing values"
           fi
 
-          # Authentik: seed secret (only on first deploy — do not overwrite existing passwords)
-          EXISTING_AUTH=$(curl -s -H "X-Vault-Token: $ROOT_TOKEN" \
-            "${LOCAL_OPENBAO}/v1/secret/data/platform/authentik" | \
-            python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('data',{}).get('bootstrap-password',''))" \
-            2>/dev/null || echo "")
-          if [ -z "$EXISTING_AUTH" ]; then
-            curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/platform/authentik" \
-              -H "X-Vault-Token: $ROOT_TOKEN" \
-              -H "Content-Type: application/json" \
-              -d "{\"data\": {
-                \"secret-key\": \"$(openssl rand -base64 40 | tr -d '/+=')\",
-                \"postgresql-password\": \"$(openssl rand -base64 18 | tr -d '/+=')\",
-                \"bootstrap-password\": \"$(openssl rand -base64 18 | tr -d '/+=')\",
-                \"bootstrap-token\": \"$(openssl rand -base64 30 | tr -d '/+=')\",
-                \"remon-password\": \"$(openssl rand -base64 18 | tr -d '/+=')\"
-              }}" > /dev/null
-            echo "==> Authentik secrets written (randomly generated)"
-          else
-            # Add remon-password if missing from existing secret
-            EXISTING_REMON=$(curl -s -H "X-Vault-Token: $ROOT_TOKEN" \
-              "${LOCAL_OPENBAO}/v1/secret/data/platform/authentik" | \
-              python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('data',{}).get('remon-password',''))" \
-              2>/dev/null || echo "")
-            if [ -z "$EXISTING_REMON" ]; then
-              # Read existing fields and patch in remon-password (KV v2 patch)
-              EXISTING_DATA=$(curl -s -H "X-Vault-Token: $ROOT_TOKEN" \
-                "${LOCAL_OPENBAO}/v1/secret/data/platform/authentik" | \
-                python3 -c "import json,sys; d=json.load(sys.stdin); print(json.dumps(d.get('data',{}).get('data',{})))" \
-                2>/dev/null || echo "{}")
-              REMON_PASS="$(openssl rand -base64 18 | tr -d '/+=')"
-              PATCHED=$(python3 -c "import json,sys; d=json.loads(sys.argv[1]); d['remon-password']=sys.argv[2]; print(json.dumps({'data': d}))" \
-                "$EXISTING_DATA" "$REMON_PASS" 2>/dev/null || echo "")
-              if [ -n "$PATCHED" ]; then
-                curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/platform/authentik" \
-                  -H "X-Vault-Token: $ROOT_TOKEN" \
-                  -H "Content-Type: application/json" \
-                  -d "$PATCHED" > /dev/null
-                echo "==> Authentik remon-password added to existing secret"
-              fi
-            else
-              echo "==> Authentik secrets already exist (including remon-password) — preserving"
-            fi
-          fi
+          # Authentik: seed secret (script handles first-deploy and remon-password patch)
+          bash .github/scripts/seed-openbao-authentik.sh "$LOCAL_OPENBAO" "$ROOT_TOKEN"
 
           # Cloudflare: store API token from GitHub secret (idempotent, always refresh)
           if [ -n "${{ secrets.CLOUDFLARE_API_TOKEN }}" ]; then
