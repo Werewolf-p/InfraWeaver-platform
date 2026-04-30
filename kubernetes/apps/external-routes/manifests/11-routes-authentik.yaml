@@ -1,4 +1,23 @@
 ---
+# CORS middleware for auth.rlservers.com
+# Authentik handles CORS for application-specific OAuth2 endpoints (token, authorize)
+# but NOT for the global revocation endpoint (/application/o/revoke/) or userinfo.
+# This middleware adds CORS headers for those missing endpoints.
+# Traefik replaces any existing Access-Control-Allow-Origin (no duplicates).
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: cors-authentik
+  namespace: traefik
+spec:
+  headers:
+    customResponseHeaders:
+      Access-Control-Allow-Origin: "https://netbird.rlservers.com"
+      Access-Control-Allow-Methods: "GET, POST, OPTIONS, HEAD"
+      Access-Control-Allow-Headers: "Authorization, Content-Type, Accept"
+      Access-Control-Allow-Credentials: "true"
+      Access-Control-Max-Age: "86400"
+---
 # Authentik — IngressRoute at auth.rlservers.com
 # No VPN restriction: users need to reach Authentik to log in via SSO
 # before connecting to services behind the VPN middleware.
@@ -13,6 +32,9 @@ spec:
   routes:
     - match: Host(`auth.rlservers.com`)
       kind: Rule
+      middlewares:
+        - name: cors-authentik
+          namespace: traefik
       services:
         - name: authentik-server
           namespace: authentik
