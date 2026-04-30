@@ -965,19 +965,22 @@ jobs:
           echo "==> Waiting for Authentik worker to be ready..."
           kubectl --kubeconfig "$KB" rollout status deployment/authentik-worker -n authentik --timeout=120s
 
-          # Set remon user as superuser — blueprints cannot set is_superuser via attrs
+          # Add remon to the 'authentik Admins' group.
+          # Authentik 2026.x uses Group.is_superuser for admin access — not User.is_superuser.
+          # Blueprints cannot reliably set group membership, so we do it here post-deploy.
           WORKER_POD=$(kubectl --kubeconfig "$KB" get pod -n authentik \
             -l app.kubernetes.io/component=worker \
             -o jsonpath='{.items[0].metadata.name}')
-          echo "==> Setting is_superuser=True for remon (pod: $WORKER_POD)"
+          echo "==> Adding remon to authentik Admins group (pod: $WORKER_POD)"
           kubectl --kubeconfig "$KB" exec -n authentik "$WORKER_POD" -- ak shell -c "
-from authentik.core.models import User
-u = User.objects.get(username='remon')
-u.is_superuser = True
-u.save()
-print(f'OK: {u.username} superuser={u.is_superuser}')
+from authentik.core.models import User, Group
+remon = User.objects.get(username='remon')
+admins = Group.objects.get(name='authentik Admins')
+admins.users.add(remon)
+print(f'OK: {remon.username} is now in {admins.name}')
+print(f'Admins: {list(admins.users.values_list(\"username\", flat=True))}')
 "
-          echo "✅ Authentik remon user set as superuser"
+          echo "✅ Authentik remon user added to authentik Admins group"
 
       - name: Send deployment summary email
         if: success()
