@@ -1,12 +1,12 @@
 ---
 # IngressRoutes for *.int.rlservers.com — private/VPN-only services.
 #
-# Architecture:
+# Security model:
 #   - Cloudflare DNS-only wildcard: *.int.rlservers.com → 10.10.0.200 (no proxy)
 #   - 10.10.0.200 is a private VLAN3 IP — unreachable from the public internet
-#   - Browser DoH resolvers return 10.10.0.200 but TCP fails without VPN route
-#   - VPN clients have 10.10.0.0/24 in routing table via wt0 → can reach Traefik
-#   - netbird-vpn-only middleware is kept as defense-in-depth
+#   - No IP allowlist middleware needed: the private IP IS the access control
+#   - Anyone who can reach 10.10.0.200 is already on VLAN3 or VPN (trusted)
+#   - This solves the browser DoH bypass problem with *.rlservers.com routes
 #
 # TLS: int-rlservers-com-tls (wildcard cert via letsencrypt-cloudflare DNS-01)
 
@@ -22,9 +22,6 @@ spec:
   routes:
     - match: Host(`netbird.int.rlservers.com`)
       kind: Rule
-      middlewares:
-        - name: netbird-vpn-only
-          namespace: traefik
       services:
         - name: netbird-dashboard
           port: 80
@@ -43,9 +40,6 @@ spec:
   routes:
     - match: Host(`argocd.int.rlservers.com`)
       kind: Rule
-      middlewares:
-        - name: netbird-vpn-only
-          namespace: traefik
       services:
         - name: argocd-server
           port: 80
@@ -64,9 +58,6 @@ spec:
   routes:
     - match: Host(`grafana.int.rlservers.com`)
       kind: Rule
-      middlewares:
-        - name: netbird-vpn-only
-          namespace: traefik
       services:
         - name: grafana-apps
           port: 80
@@ -85,9 +76,6 @@ spec:
   routes:
     - match: Host(`longhorn.int.rlservers.com`)
       kind: Rule
-      middlewares:
-        - name: netbird-vpn-only
-          namespace: traefik
       services:
         - name: longhorn-frontend
           port: 80
@@ -106,9 +94,6 @@ spec:
   routes:
     - match: Host(`openbao.int.rlservers.com`)
       kind: Rule
-      middlewares:
-        - name: netbird-vpn-only
-          namespace: traefik
       services:
         - name: openbao
           port: 8200

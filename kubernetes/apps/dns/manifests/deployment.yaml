@@ -92,3 +92,5 @@ spec:
                 path: rlservers.com.hosts
               - key: prod.local.hosts
                 path: prod.local.hosts
+              - key: int.rlservers.com.hosts
+                path: int.rlservers.com.hosts
