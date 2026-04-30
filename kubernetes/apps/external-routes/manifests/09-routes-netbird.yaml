@@ -63,7 +63,7 @@ spec:
       services:
         - name: netbird-relay
           port: 443
-          serversTransport: insecure-skip-verify
+          scheme: http
   tls: {}
 ---
 # ── Management API + WS proxy ─────────────────────────────────────────────────
