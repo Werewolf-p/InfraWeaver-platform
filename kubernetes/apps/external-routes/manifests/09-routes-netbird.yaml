@@ -84,7 +84,7 @@ spec:
           port: 80
   tls: {}
 ---
-# ── Dashboard (catch-all, NetBird VPN only) ───────────────────────────────────
+# ── Dashboard (catch-all, publicly accessible — NetBird auth via PAT) ────────
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
@@ -97,9 +97,6 @@ spec:
     - match: Host(`netbird.rlservers.com`)
       kind: Rule
       priority: 10
-      middlewares:
-        - name: netbird-vpn-only
-          namespace: traefik
       services:
         - name: netbird-dashboard
           port: 80

@@ -12,6 +12,11 @@ data:
     {
       "Stuns": [{"Proto":"udp","URI":"stun:stun.l.google.com:19302","Username":"","Password":null}],
       "TURNs": [],
+      "Relay": {
+        "Addresses": ["rels://netbird.rlservers.com:443/relay"],
+        "CredentialsTTL": "12h",
+        "Secret": "RELAY_SECRET_PLACEHOLDER"
+      },
       "Signal": {"Proto":"https","URI":"netbird.rlservers.com:443","Username":"","Password":null},
       "Datadir": "/var/lib/netbird/",
       "HttpConfig": {
@@ -68,6 +73,7 @@ spec:
             - |
               echo "Generating management.json from template (substituting secrets)"
               sed -e "s|DATASTORE_KEY_PLACEHOLDER|${NB_DATASTORE_ENC_KEY}|g" \
+                  -e "s|RELAY_SECRET_PLACEHOLDER|${NB_RELAY_SECRET}|g" \
                   /config-source/management.json.template > /var/lib/netbird/management.json
               echo "management.json generated"
           env:
@@ -76,6 +82,11 @@ spec:
                 secretKeyRef:
                   name: netbird-secrets
                   key: datastore-enc-key
+            - name: NB_RELAY_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: netbird-secrets
+                  key: turn-password
           volumeMounts:
             - name: config-source
               mountPath: /config-source
