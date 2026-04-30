@@ -50,7 +50,7 @@ Everything runs on a single Proxmox node (`proxmox`, `10.25.0.3`).
    - `PROXMOX_API_TOKEN` — Terraform Proxmox access
    - `CLOUDFLARE_API_TOKEN` — cert-manager DNS-01 challenges + Cloudflare config
    - `SMTP_USERNAME` / `SMTP_PASSWORD` — deployment notification emails
-   - `NETBIRD_PAT_TOKEN` — NetBird API for setup key creation
+   - **Note:** `NETBIRD_PAT_TOKEN` was removed (user has SSO admin account; PAT no longer used)
 
 2. OpenBao holds **all application runtime secrets**:
    - `secret/platform/authentik` — bootstrap-password, secret-key, postgresql-password, etc.

@@ -34,40 +34,29 @@ NetBird VPN (for internal access)
 
 | Service | URL | Notes |
 |---------|-----|-------|
-| ArgoCD | `https://argocd.rlservers.com` | GitOps UI |
 | Authentik SSO | `https://auth.rlservers.com` | Identity provider |
 | NetBird Dashboard | `https://netbird.rlservers.com` | VPN management |
-| Grafana | `https://grafana.rlservers.com` | Metrics & logs |
-| Bitwarden | `https://bitwarden.rlservers.com` | Password manager |
-| GitLab | `https://gitlab.rlservers.com` | Git server |
 
-## Internal Services (VPN required)
+## Internal Services (NetBird VPN required)
 
-| Service | URL |
-|---------|-----|
-| ArgoCD (internal) | `https://argocd.int.rlservers.com` |
-| Grafana (internal) | `https://grafana.int.rlservers.com` |
-| Longhorn | `https://longhorn.int.rlservers.com` |
-| AdGuard DNS | `https://adguard.int.rlservers.com` |
-| AWX (Ansible) | `https://awx.int.rlservers.com` |
+| Service | URL | Notes |
+|---------|-----|-------|
+| 🏠 Homepage Dashboard | `https://home.rlservers.com` | All services + health status |
+| ArgoCD | `https://argocd.int.rlservers.com` | GitOps UI |
+| Grafana | `https://grafana.int.rlservers.com` | Metrics & logs |
+| Longhorn | `https://longhorn.int.rlservers.com` | Distributed storage UI |
+| OpenBao | `https://openbao.int.rlservers.com` | Secrets vault |
+| AdGuard DNS | `https://adguard.int.rlservers.com` | Internal DNS |
+| AWX (Ansible) | `https://awx.int.rlservers.com` | Automation |
 
 ## Access
 
-### Admin Credentials
+### First Steps After Deployment
 
-All credentials are in OpenBao. Access requires VPN:
-
-```bash
-# Access OpenBao (requires VPN: 10.25.0.86)
-export VAULT_ADDR=http://10.25.0.86:8200
-vault login  # token from deployment email
-
-# Get Authentik admin password
-vault kv get secret/platform/authentik
-
-# Get ArgoCD admin password
-vault kv get secret/platform/argocd
-```
+1. **Connect to NetBird VPN** — opens browser → Authentik SSO login → VPN connects
+2. **Open Homepage Dashboard** — `https://home.rlservers.com` (all services + health status)
+3. **Open OpenBao** — `https://openbao.int.rlservers.com` — use root token from deployment email
+4. All other credentials are in OpenBao under `secret/platform/<service>`
 
 ### Authentik SSO (admin)
 - **URL:** `https://auth.rlservers.com/if/admin/`
@@ -75,9 +64,8 @@ vault kv get secret/platform/argocd
 - **Password:** `vault kv get -field=bootstrap-password secret/platform/authentik`
 
 ### NetBird VPN
-- **Management URL:** `https://netbird.rlservers.com`
-- **SSO Login:** Uses Authentik PKCE flow (browser opens automatically)
-- **Setup Key:** In OpenBao `secret/platform/netbird.setup-key` (for headless enrollment)
+- **SSO Login:** `netbird up --management-url https://netbird.rlservers.com` → browser opens automatically
+- **Setup Key (headless):** In OpenBao `secret/platform/netbird` field `SETUP_KEY`
 
 ## GitOps Workflow
 
@@ -122,6 +110,7 @@ Trigger via GitHub Actions → **Full Redeploy — InfraWeaver Platform**:
 │   │   └── traefik/              # Ingress + gRPC proxy
 │   ├── apps/                     # Application workloads
 │   │   ├── authentik/            # SSO identity provider
+│   │   ├── homepage/             # Homelab dashboard (home.rlservers.com, VPN-only)
 │   │   ├── netbird/              # VPN server (management/signal/relay/dashboard)
 │   │   ├── grafana/              # Dashboards
 │   │   ├── bitwarden/            # Password manager
