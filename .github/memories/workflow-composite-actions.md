@@ -56,3 +56,29 @@ Both repos use composite actions to DRY out repeated tool installation blocks ac
 - `SOPS_AGE_KEY_FILE` is written to `$GITHUB_ENV` by the platform action — subsequent steps automatically pick it up
 - Provider cache is enabled in `.tofurc` by the platform action (`~/.terraform.d/plugin-cache`)
 - Docker image `homelab-ansible:latest` is built from `ansible/` by the infra action when `with-docker: true`
+
+### GitHub Actions YAML — Multi-line Python in run: | blocks (2026-04-30)
+
+**Problem**: Embedding Python code in `kubectl exec ... -- ak shell -c "..."` with the opening
+`"` at end of a line and Python code at column 0 (unindented) breaks YAML block scalar parsing.
+GitHub Actions shows the workflow name as the file path and refuses `workflow_dispatch` with 422.
+
+**Example of BROKEN pattern:**
+```yaml
+run: |
+  kubectl exec "$POD" -- ak shell -c "
+from authentik.core.models import User   # ← column 0 = YAML parse error!
+user.save()
+"
+```
+
+**Fix:** Inline the Python as a semicolon-separated one-liner with proper YAML indentation:
+```yaml
+run: |
+  kubectl exec "$POD" -- ak shell -c \
+    "from authentik.core.models import User; user = User.objects.get(username='x'); user.save()"
+```
+
+**How to detect:** `python3 -c "import yaml; yaml.safe_load(open('workflow.yml'))"` — will show
+exact line number of the YAML parse error. If GitHub shows the workflow's `name:` as the file
+path (e.g. `.github/workflows/foo.yml` instead of the human name), the YAML is broken.
