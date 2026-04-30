@@ -13,6 +13,9 @@ data:
     DB = os.environ.get("DB", "/data/store.db")
     ACC = "acc00000-0000-4000-a000-000000000001"
     USR = "usr00000-0000-4000-a000-000000000001"
+    # remon's ID = sha256(authentik_provider_uuid_int + ":" + user_pk) via hashed_user_id sub_mode.
+    # Recompute if Authentik provider is recreated (new UUID → new hash).
+    USR_REMON = "c4d39ed6055abbfacb2676788891b6690bbf3f245ed3b94768f16de67278f7b9"
     GRP = "grp00000-0000-4000-a000-000000000001"
     GRP_ROUTING = "grp00000-0000-4000-a000-000000000002"  # routing-peers-vlan3 group
     POL = "pol00000-0000-4000-a000-000000000001"
@@ -62,6 +65,14 @@ data:
           (id, account_id, role, is_service_user, non_deletable, auto_groups, blocked, issued, email, name, created_at)
           VALUES (?,?,?,?,?,?,?,?,?,?,datetime('now'))""",
           (USR, ACC, "admin", 0, 1, "[]", 0, "api", encrypt_field(""), encrypt_field("admin")))
+
+        # Pre-create remon as admin so they have admin rights on first login.
+        # The ID is derived from Authentik's hashed_user_id sub_mode for user pk=5.
+        c.execute("""INSERT OR IGNORE INTO users
+          (id, account_id, role, is_service_user, non_deletable, auto_groups, blocked, issued, email, name, created_at)
+          VALUES (?,?,?,?,?,?,?,?,?,?,datetime('now'))""",
+          (USR_REMON, ACC, "admin", 0, 0, "[]", 0, "oidc",
+           encrypt_field("remonhulst@gmail.com"), encrypt_field("remon")))
 
         c.execute("""INSERT OR IGNORE INTO groups
           (id, account_id, name, issued, resources, integration_ref_id, integration_ref_integration_type)
