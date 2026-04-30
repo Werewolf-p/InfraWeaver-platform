@@ -445,27 +445,6 @@ subsets:
     ports:
       - port: 80
 ---
-# ── OAuth2 Proxy (auth.rlservers.com) ─────────────────────────────────────────
-apiVersion: v1
-kind: Service
-metadata:
-  name: bm-auth
-  namespace: traefik
-spec:
-  ports:
-    - port: 4180
----
-apiVersion: v1
-kind: Endpoints
-metadata:
-  name: bm-auth
-  namespace: traefik
-subsets:
-  - addresses:
-      - ip: 10.25.0.5
-    ports:
-      - port: 4180
----
 # ── WordPress: rlservers.com ──────────────────────────────────────────────────
 apiVersion: v1
 kind: Service

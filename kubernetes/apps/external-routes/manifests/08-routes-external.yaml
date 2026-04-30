@@ -220,23 +220,6 @@ spec:
   tls:
     secretName: rlservers-com-wildcard-tls
 ---
-# ── OAuth2 Proxy (auth.rlservers.com) ─────────────────────────────────────────
-apiVersion: traefik.io/v1alpha1
-kind: IngressRoute
-metadata:
-  name: oauth2-proxy
-  namespace: traefik
-spec:
-  entryPoints:
-    - websecure
-  routes:
-    - match: Host(`auth.rlservers.com`)
-      kind: Rule
-      services:
-        - name: bm-auth
-          port: 4180
-  tls: {}
----
 # ── yonavaarwater.nl ──────────────────────────────────────────────────────────
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
