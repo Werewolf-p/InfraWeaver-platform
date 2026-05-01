@@ -44,6 +44,20 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - sh
+                  - -c
+                  - |
+                    # Ensure iptables masquerade for VPN traffic routed to physical network.
+                    # NetBird v0.70 sets FORWARD rules but not POSTROUTING masquerade.
+                    # Without this, packets from VPN peers (100.64.0.0/10) forwarded to
+                    # VLAN3 (eth0) keep the VPN source IP, breaking return routing.
+                    sleep 5
+                    iptables -t nat -C POSTROUTING -s 100.64.0.0/10 ! -d 100.64.0.0/10 -j MASQUERADE 2>/dev/null || \
+                      iptables -t nat -A POSTROUTING -s 100.64.0.0/10 ! -d 100.64.0.0/10 -j MASQUERADE || true
           securityContext:
             privileged: true
             capabilities:
