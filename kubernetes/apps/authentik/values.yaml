@@ -1,13 +1,23 @@
 global:
-  # Mount custom branding images from ConfigMap at /media/public/
-  # Files accessible at https://auth.rlservers.com/media/public/<filename>
+  # Mount custom branding images as static files so they are served
+  # permanently at /static/dist/assets/icons/<filename> (no JWT expiry).
+  # subPath mounts add individual files without replacing the whole directory.
   volumes:
     - name: authentik-media
       configMap:
         name: authentik-media
   volumeMounts:
     - name: authentik-media
-      mountPath: /media/public
+      mountPath: /web/dist/assets/icons/logo.png
+      subPath: logo.png
+      readOnly: true
+    - name: authentik-media
+      mountPath: /web/dist/assets/icons/favicon.png
+      subPath: favicon.png
+      readOnly: true
+    - name: authentik-media
+      mountPath: /web/dist/assets/icons/banner.jpg
+      subPath: banner.jpg
       readOnly: true
 
   # Inject secrets from ExternalSecret-managed K8s secret (authentik-secrets)

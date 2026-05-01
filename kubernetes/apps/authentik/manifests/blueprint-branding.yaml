@@ -21,8 +21,8 @@ data:
           domain: authentik-default
         attrs:
           branding_title: "InfraWeaver"
-          branding_logo: "/media/public/logo.png"
-          branding_favicon: "/media/public/favicon.png"
+          branding_logo: "/static/dist/assets/icons/logo.png"
+          branding_favicon: "/static/dist/assets/icons/favicon.png"
           ui_user_settings_enabled: true
           default: true
           default_application: null
@@ -68,7 +68,7 @@ data:
               background-color: #0a0e17 !important;
               background-image:
                 linear-gradient(rgba(10, 14, 23, 0.82) 0%, rgba(10, 14, 23, 0.82) 100%),
-                url("/media/public/banner.jpg") !important;
+                url("/static/dist/assets/icons/banner.jpg") !important;
               background-size: cover !important;
               background-position: center !important;
               background-repeat: no-repeat !important;
