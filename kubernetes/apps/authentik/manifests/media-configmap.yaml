@@ -2,11 +2,14 @@
 # Authentik media ConfigMap — custom branding images
 # Mounted at /media/public/ in server and worker pods via values.yaml global.volumes
 # Accessible at https://auth.rlservers.com/media/public/<filename>
+# ServerSideApply=true: avoids 256KB annotation limit on binaryData ConfigMaps
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: authentik-media
   namespace: authentik
+  annotations:
+    argocd.argoproj.io/sync-options: ServerSideApply=true
 binaryData:
   banner.jpg: |
     /9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBAUEBAYFBQUGBgYHCQ4JCQgICRIN
