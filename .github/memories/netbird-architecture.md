@@ -1,6 +1,6 @@
 ---
 title: NetBird Architecture — Kubernetes deployment on VLAN3
-description: NetBird runs entirely in Kubernetes (VLAN3). Dashboard at netbird.rlservers.com, API/gRPC at api.netbird.rlservers.com.
+description: NetBird runs entirely in Kubernetes (VLAN3). Dashboard at netbird.rlservers.com, API/gRPC at api-netbird.rlservers.com.
 ---
 
 # NetBird Architecture (Current — May 2026)
@@ -15,7 +15,7 @@ NetBird runs fully in Kubernetes (`netbird` namespace) on the VLAN3 cluster (10.
 | Domain | Purpose |
 |--------|---------|
 | `netbird.rlservers.com` | Web dashboard ONLY |
-| `api.netbird.rlservers.com` | Management gRPC, Signal gRPC, Relay, REST API |
+| `api-netbird.rlservers.com` | Management gRPC, Signal gRPC, Relay, REST API |
 
 Both point to Traefik at `10.10.0.200`. The split ensures NetBird desktop/mobile clients pick
 the correct redirect URI for PKCE auth (see SSO PKCE flow below).
@@ -37,7 +37,7 @@ the correct redirect URI for PKCE auth (see SSO PKCE flow below).
 
 **IngressRoute:** `kubernetes/apps/external-routes/manifests/09-routes-netbird.yaml`
 
-### api.netbird.rlservers.com (API/gRPC)
+### api-netbird.rlservers.com (API/gRPC)
 | Path | Backend | Port | Scheme |
 |------|---------|------|--------|
 | `/management.ManagementService/*` | netbird-management | 33073 | h2c |
@@ -47,12 +47,12 @@ the correct redirect URI for PKCE auth (see SSO PKCE flow below).
 | `/api/*`, `/ws-proxy/*` | netbird-management | 80 | http |
 
 **IngressRoute:** `kubernetes/apps/external-routes/manifests/10-routes-netbird-api.yaml`  
-**TLS cert:** `rlservers-com-wildcard-tls` (includes `api.netbird.rlservers.com` SAN)  
-**Cloudflare DNS:** `api.netbird.rlservers.com` A → `84.82.69.110` (**DNS-only, NOT proxied — CRITICAL**)
+**TLS cert:** `rlservers-com-wildcard-tls` (includes `api-netbird.rlservers.com` SAN)  
+**Cloudflare DNS:** `api-netbird.rlservers.com` A → `84.82.69.110` (**DNS-only, proxied=false**)
 
 ## Cloudflare Requirements
 
-- **`api.netbird.rlservers.com` MUST be DNS-only (proxied=false)** — see Known Issues below
+- **`api-netbird.rlservers.com` should be DNS-only (proxied=false)** — see Known Issues below
 - **`netbird.rlservers.com` can be proxied** (one level under apex, covered by `*.rlservers.com` edge cert)
 - **SSL mode: Full** (NOT Flexible — Flexible causes 308 redirect → gRPC breaks)
 - **HTTP/2: ON** (required for gRPC)
@@ -67,9 +67,9 @@ Template: `kubernetes/apps/netbird/manifests/management.yaml` (ConfigMap)
 
 ```json
 {
-  "Signal": {"Proto":"https","URI":"api.netbird.rlservers.com:443"},
+  "Signal": {"Proto":"https","URI":"api-netbird.rlservers.com:443"},
   "Relay": {
-    "Addresses": ["rels://api.netbird.rlservers.com:443/relay"]
+    "Addresses": ["rels://api-netbird.rlservers.com:443/relay"]
   },
   "HttpConfig": {
     "AuthAudience": "netbird",
@@ -144,7 +144,7 @@ VM 9250 (`netbird-router-vlan3`) at 10.10.0.10 on VLAN3:
 
 ```json
 "Relay": {
-  "Addresses": ["rels://api.netbird.rlservers.com:443/relay"],
+  "Addresses": ["rels://api-netbird.rlservers.com:443/relay"],
   "CredentialsTTL": "12h",
   "Secret": "<random, from OpenBao>"
 }
@@ -152,24 +152,18 @@ VM 9250 (`netbird-router-vlan3`) at 10.10.0.10 on VLAN3:
 
 ## Known Issues
 
-- **CRITICAL — Cloudflare edge cert doesn't cover 2nd-level subdomains:**
-  Cloudflare's Universal SSL (free plan) issues certs for `rlservers.com` and `*.rlservers.com`
-  only (one wildcard level). `api.netbird.rlservers.com` is TWO levels deep (`api.netbird.rlservers.com`)
-  and is NOT covered by the `*.rlservers.com` edge cert.
-  - If `api.netbird.rlservers.com` is proxied through Cloudflare → TLS handshake fails →
-    NetBird clients get "context deadline exceeded" or cert mismatch errors.
-  - **Fix:** `api.netbird.rlservers.com` MUST always be DNS-only (`proxied=false`) in Cloudflare.
-    Our Let's Encrypt cert (in `rlservers-com-wildcard-tls`) covers this SAN and Traefik presents it.
-  - `netbird.rlservers.com` IS covered by `*.rlservers.com` and can safely be proxied.
-  - Enforced in: `full-redeploy.yml` "Ensure Cloudflare DNS records" step (always PATCHes to proxied=false)
-  - Quick fix workflow: `.github/workflows/fix-cloudflare-dns.yml` (workflow_dispatch)
+- **`api-netbird.rlservers.com` is DNS-only (`proxied=false`) for gRPC reliability** — single-level
+  subdomain covered by the `*.rlservers.com` edge cert, but DNS-only avoids the Cloudflare 100s
+  stream timeout and relay interference. Enforced in: `full-redeploy.yml`
+  "Ensure Cloudflare DNS records for api-netbird.rlservers.com" step.
+  Quick fix: `.github/workflows/fix-cloudflare-dns.yml` (workflow_dispatch).
 
 - **Cloudflare 100s timeout:** Long-lived gRPC `Sync` streams are killed every ~100s by Cloudflare.
   NetBird clients reconnect automatically. The `context canceled` logs in management are expected.
 - **Pod restarts cause 502:** During management pod restart, clients get 502. They retry and reconnect.
 - **instance setup status: false:** Normal INFO log from HTTP API, does NOT block gRPC functionality.
 - **Cluster-internal DNS:** NetBird clients run inside the cluster and use cluster DNS (10.96.0.10).
-  `netbird.rlservers.com` AND `api.netbird.rlservers.com` MUST be in
+  `netbird.rlservers.com` AND `api-netbird.rlservers.com` MUST be in
   `kubernetes/apps/dns/manifests/configmap.yaml` → `rlservers.com.hosts`.
   Missing entry causes `server misbehaving` → clients crash loop.
 - **wait-for-oidc init container:** Management will not start until `auth.rlservers.com` OIDC endpoint

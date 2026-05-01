@@ -1,6 +1,6 @@
 ---
 # NetBird API IngressRoute — management gRPC, signal gRPC, relay, REST API
-# at api.netbird.rlservers.com (public, used by NetBird clients/peers)
+# at api-netbird.rlservers.com (public, used by NetBird clients/peers)
 # Dashboard → netbird.rlservers.com (see 09-routes-netbird.yaml)
 #
 # Priority order (highest first):
@@ -19,7 +19,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`api.netbird.rlservers.com`) && PathPrefix(`/management.ManagementService`)
+    - match: Host(`api-netbird.rlservers.com`) && PathPrefix(`/management.ManagementService`)
       kind: Rule
       priority: 50
       services:
@@ -39,7 +39,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`api.netbird.rlservers.com`) && (PathPrefix(`/signalexchange.SignalExchange`) || PathPrefix(`/grpc.reflection`))
+    - match: Host(`api-netbird.rlservers.com`) && (PathPrefix(`/signalexchange.SignalExchange`) || PathPrefix(`/grpc.reflection`))
       kind: Rule
       priority: 50
       services:
@@ -59,7 +59,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`api.netbird.rlservers.com`) && PathPrefix(`/relay`)
+    - match: Host(`api-netbird.rlservers.com`) && PathPrefix(`/relay`)
       kind: Rule
       priority: 40
       services:
@@ -79,7 +79,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`api.netbird.rlservers.com`) && (PathPrefix(`/api`) || PathPrefix(`/ws-proxy`))
+    - match: Host(`api-netbird.rlservers.com`) && (PathPrefix(`/api`) || PathPrefix(`/ws-proxy`))
       kind: Rule
       priority: 30
       services:
