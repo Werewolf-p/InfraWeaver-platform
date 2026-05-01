@@ -203,4 +203,18 @@
   }
   ```
 - **After fix**: Delete the live PVC file OR patch it with sed, then restart the management pod.
-  The init container will NOT overwrite an existing PVC file — you must patch it manually.
+  The init container ALWAYS overwrites the PVC file on every pod restart (writes management.json from template). No manual patching needed — just restart the pod.
+### Cloudflare Universal SSL Does NOT Cover 2nd-Level Subdomains (Critical — 2026-05)
+
+- **Problem**: NetBird clients (PC + phone) get `failed to create auth client: create connection: dial context: context deadline exceeded` when connecting to `api.netbird.rlservers.com`.
+- **Root cause**: Cloudflare Universal SSL (free plan) covers `rlservers.com` and `*.rlservers.com` (ONE level of wildcard). It does NOT cover `api.netbird.rlservers.com` which is `*.netbird.rlservers.com` (TWO levels deep). When `proxied=true`, Cloudflare presents an invalid edge cert → TLS handshake fails → client sees "context deadline exceeded".
+- **Fix**: Set Cloudflare DNS record for `api.netbird.rlservers.com` to **DNS-only** (`proxied=false`):
+  - The Let's Encrypt cert from cert-manager (`rlservers-com-wildcard-tls`) covers `api.netbird.rlservers.com` as a SAN
+  - Clients connect directly to origin IP `84.82.69.110` → cert-manager handles TLS ✅
+  - gRPC over HTTP/2 works natively on the origin (Traefik with `scheme: h2c`)
+- **DNS record state**: `api.netbird.rlservers.com` A → `84.82.69.110`, `proxied=false` (DNS-only)
+- **Why DNS-only is better for VPN anyway**: gRPC is latency-sensitive; routing through Cloudflare adds ~20-50ms. Direct connection is faster for VPN peers.
+- **Enforcement in full-redeploy.yml**: Step "Ensure Cloudflare DNS records for api.netbird.rlservers.com" always PATCHes existing record with `proxied=false` to prevent accidental re-proxying.
+- **Standalone fix workflow**: `.github/workflows/fix-cloudflare-dns.yml` — run `workflow_dispatch` to immediately fix DNS without a full redeploy.
+- **Rule**: Any hostname more than one level under the root domain (e.g. `sub.sub.domain.com`) MUST be DNS-only on Cloudflare Free plan, or upgrade to Advanced Certificate Manager ($10/mo).
+
