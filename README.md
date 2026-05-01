@@ -35,7 +35,8 @@ NetBird VPN (for internal access)
 | Service | URL | Notes |
 |---------|-----|-------|
 | Authentik SSO | `https://auth.rlservers.com` | Identity provider |
-| NetBird Dashboard | `https://netbird.rlservers.com` | VPN management |
+| NetBird Dashboard | `https://netbird.rlservers.com` | VPN web dashboard |
+| NetBird API/gRPC | `https://api.netbird.rlservers.com` | Client connections (management, signal, relay) |
 
 ## Internal Services (NetBird VPN required)
 
@@ -64,7 +65,7 @@ NetBird VPN (for internal access)
 - **Password:** `vault kv get -field=bootstrap-password secret/platform/authentik`
 
 ### NetBird VPN
-- **SSO Login:** `netbird up --management-url https://netbird.rlservers.com` → browser opens automatically
+- **SSO Login:** `netbird up --management-url https://api.netbird.rlservers.com` → browser opens automatically
 - **Setup Key (headless):** In OpenBao `secret/platform/netbird` field `SETUP_KEY`
 
 ## GitOps Workflow
