@@ -68,9 +68,15 @@ spec:
           volumeMounts:
             - name: tun
               mountPath: /dev/net/tun
+            - name: netbird-state
+              mountPath: /etc/netbird
       volumes:
         - name: tun
           hostPath:
             path: /dev/net/tun
             type: CharDevice
+        - name: netbird-state
+          hostPath:
+            path: /var/lib/netbird-state
+            type: DirectoryOrCreate
 

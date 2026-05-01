@@ -144,8 +144,8 @@ data:
        network_type, masquerade, metric, enabled, groups, access_control_groups, skip_auto_apply)
       VALUES ('rte00000-0000-4000-a000-000000000001', ?, ?, '[]', 0,
        'cluster-net', 'Cluster network route', NULL, ?, 0, 1, 9999, 1, ?, '[]', 0)""",
-      (ACC, json.dumps("10.25.0.0/24"), json.dumps([GRP]), json.dumps([GRP])))
-    print("Route upserted: 10.25.0.0/24 via All group")
+      (ACC, json.dumps("10.25.0.0/24"), json.dumps([GRP_ROUTING]), json.dumps([GRP])))
+    print("Route upserted: 10.25.0.0/24 via routing-peers-vlan3 group")
 
     # Route for VLAN 3 subnet via "routing-peers-vlan3" group (NOT "All").
     # peer_groups=[GRP_ROUTING] means only peers in routing-peers-vlan3 advertise this route.
@@ -270,8 +270,45 @@ spec:
                 sleep 5
               done
 
+              echo "=== Cleaning up stale routing peers ==="
+              # After redeploys, DaemonSet pods without persistent storage create new WireGuard
+              # keys → duplicate peers per node name. Keep newest per name, delete the rest.
+              python3 - <<'PYEOF'
+import json, subprocess, os
+from collections import defaultdict
+
+base = "http://netbird-management.netbird.svc:80"
+pat  = os.environ["PAT_TOKEN"]
+
+def api(method, path, data=None):
+    cmd = ["curl", "-s", "-X", method, f"{base}{path}", "-H", f"Authorization: Token {pat}"]
+    if data is not None:
+        cmd += ["-H", "Content-Type: application/json", "-d", json.dumps(data)]
+    return subprocess.check_output(cmd).decode()
+
+peers = json.loads(api("GET", "/api/peers"))
+if not isinstance(peers, list):
+    print(f"Skipping peer cleanup: unexpected response")
+    exit(0)
+
+by_name = defaultdict(list)
+for p in peers:
+    by_name[p["name"]].append(p)
+
+deleted = 0
+for name, group in by_name.items():
+    if len(group) <= 1:
+        continue
+    group.sort(key=lambda x: x["last_seen"], reverse=True)
+    for stale in group[1:]:
+        api("DELETE", f"/api/peers/{stale['id']}")
+        print(f"Deleted stale peer {stale['id']} ({name}, last_seen={stale['last_seen'][:19]})")
+        deleted += 1
+
+print(f"Peer cleanup complete: {deleted} stale peer(s) removed")
+PYEOF
+
               echo "=== Configuring DNS nameserver via API ==="
-              # Idempotent: only create if not already present
               NS_RESP=$(curl -s --max-time 10 \
                 http://netbird-management.netbird.svc:80/api/dns/nameservers \
                 -H "Authorization: Token ${PAT_TOKEN}" 2>/dev/null || echo "[]")

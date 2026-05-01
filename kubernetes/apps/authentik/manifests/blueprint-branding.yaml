@@ -21,126 +21,183 @@ data:
           domain: authentik-default
         attrs:
           branding_title: "InfraWeaver"
-          branding_logo: "/static/dist/assets/icons/logo.png"
+          branding_logo: "/static/dist/assets/icons/banner.jpg"
           branding_favicon: "/static/dist/assets/icons/favicon.png"
           ui_user_settings_enabled: true
           default: true
           default_application: null
           branding_custom_css: |
-            /* ── InfraWeaver Prime Dark Theme ─────────────────────────────── */
-            /* Palette: bg=#0a0e17 surface=#111827 primary=#00d8ff green=#9fef00 */
-            /* Authentik 2026.x: inner form stages use Lit web components with   */
-            /* Shadow DOM. Use CSS custom properties (--pf-global--*) which      */
-            /* pierce Shadow DOM boundaries. Light-DOM selectors cover the outer */
-            /* container and page background.                                    */
+            /* ── InfraWeaver Prime — HackTheBox-style Cyber Theme ─────────── */
+            /* Palette: bg=#141d2b (HTB dark), green=#9fef00, text=#a4b1cd     */
+            /* Animated dot grid + scan line + pulsing card glow               */
 
             /* ── Global PatternFly variable overrides (pierce Shadow DOM) ──── */
             :root {
-              --pf-global--BackgroundColor--100: #111827;
-              --pf-global--BackgroundColor--200: #0a0e17;
-              --pf-global--BackgroundColor--light-100: #111827;
-              --pf-global--BackgroundColor--light-200: #0d1526;
-              --pf-global--BackgroundColor--light-300: #060c18;
-              --pf-global--primary-color--100: #00d8ff;
-              --pf-global--primary-color--200: #00aece;
-              --pf-global--active-color--100: #00d8ff;
-              --pf-global--Color--100: #e2e8f0;
-              --pf-global--Color--200: #94a3b8;
-              --pf-global--Color--300: #64748b;
-              --pf-global--BorderColor--100: #1e2d45;
-              --pf-global--BorderColor--200: #1e2d45;
-              --pf-global--link--Color: #00d8ff;
-              --pf-global--link--Color--hover: #33e4ff;
-              --pf-global--link--Color--visited: #00b8d9;
-              --pf-global--BoxShadow--sm: 0 0 10px rgba(0, 216, 255, 0.15);
-              --pf-global--BoxShadow--md: 0 0 25px rgba(0, 216, 255, 0.12), 0 20px 60px rgba(0,0,0,0.6);
-              --pf-global--BorderRadius--lg: 12px;
+              --pf-global--BackgroundColor--100: #1a2332;
+              --pf-global--BackgroundColor--200: #141d2b;
+              --pf-global--BackgroundColor--light-100: #1a2332;
+              --pf-global--BackgroundColor--light-200: #0f1923;
+              --pf-global--BackgroundColor--light-300: #0a1018;
+              --pf-global--primary-color--100: #9fef00;
+              --pf-global--primary-color--200: #7bc900;
+              --pf-global--active-color--100: #9fef00;
+              --pf-global--Color--100: #a4b1cd;
+              --pf-global--Color--200: #8b949e;
+              --pf-global--Color--300: #6e7681;
+              --pf-global--BorderColor--100: #2b3a52;
+              --pf-global--BorderColor--200: #2b3a52;
+              --pf-global--link--Color: #9fef00;
+              --pf-global--link--Color--hover: #b8f530;
+              --pf-global--link--Color--visited: #7bc900;
+              --pf-global--BoxShadow--sm: 0 0 10px rgba(159, 239, 0, 0.15);
+              --pf-global--BoxShadow--md: 0 0 25px rgba(159, 239, 0, 0.10), 0 20px 60px rgba(0,0,0,0.6);
+              --pf-global--BorderRadius--lg: 8px;
               --pf-global--success-color--100: #9fef00;
               --pf-global--danger-color--100: #ff4757;
               --pf-global--warning-color--100: #f59e0b;
             }
 
-            /* ── Page background — banner image with dark overlay ────────── */
+            /* ── Base background (HTB dark blue) ─────────────────────────── */
+            html {
+              background-color: #141d2b !important;
+            }
             body,
-            html,
             .pf-c-page__drawer,
             .pf-c-background-image {
-              background-color: #0a0e17 !important;
-              background-image:
-                linear-gradient(rgba(10, 14, 23, 0.82) 0%, rgba(10, 14, 23, 0.82) 100%),
-                url("/static/dist/assets/icons/banner.jpg") !important;
-              background-size: cover !important;
-              background-position: center !important;
-              background-repeat: no-repeat !important;
-              background-attachment: fixed !important;
+              background-color: transparent !important;
+              background-image: none !important;
             }
 
-            /* ── Login outer wrapper — transparent so banner shows through ─ */
+            /* ── Animated HTB dot grid (moves diagonally — very subtle) ─── */
+            html::before {
+              content: '';
+              position: fixed;
+              top: 0; left: 0;
+              width: 100%; height: 100%;
+              background-image: radial-gradient(rgba(159, 239, 0, 0.10) 1px, transparent 1px);
+              background-size: 28px 28px;
+              animation: grid-drift 30s linear infinite;
+              pointer-events: none;
+              z-index: 0;
+            }
+            @keyframes grid-drift {
+              from { background-position: 0 0; }
+              to   { background-position: 28px 28px; }
+            }
+
+            /* ── Green scan line sweeping top → bottom ────────────────────── */
+            html::after {
+              content: '';
+              position: fixed;
+              left: 0;
+              top: -4px;
+              width: 100%;
+              height: 4px;
+              background: linear-gradient(
+                to right,
+                transparent 0%,
+                rgba(159, 239, 0, 0.25) 20%,
+                rgba(159, 239, 0, 0.60) 50%,
+                rgba(159, 239, 0, 0.25) 80%,
+                transparent 100%
+              );
+              box-shadow: 0 0 10px rgba(159, 239, 0, 0.4), 0 0 30px rgba(159, 239, 0, 0.15);
+              animation: scan-sweep 7s linear infinite;
+              pointer-events: none;
+              z-index: 1;
+            }
+            @keyframes scan-sweep {
+              from { top: -4px; }
+              to   { top: 100vh; }
+            }
+
+            /* ── Login outer wrapper ──────────────────────────────────────── */
             .pf-c-login {
               background: transparent !important;
+              position: relative;
+              z-index: 2;
             }
 
-            /* ── Login card (light DOM in 2026.x — direct child of .pf-c-login) */
+            /* ── Login card with pulsing green glow ───────────────────────── */
             .pf-c-login__main {
-              background: rgba(17, 24, 39, 0.92) !important;
-              border: 1px solid rgba(0, 216, 255, 0.25) !important;
-              border-top: 3px solid #00d8ff !important;
-              border-radius: 12px !important;
-              backdrop-filter: blur(12px) !important;
-              box-shadow:
-                0 0 40px rgba(0, 216, 255, 0.12),
-                0 0 80px rgba(0, 216, 255, 0.05),
-                0 20px 60px rgba(0, 0, 0, 0.6) !important;
+              background: rgba(26, 35, 50, 0.97) !important;
+              border: 1px solid rgba(159, 239, 0, 0.22) !important;
+              border-top: 2px solid #9fef00 !important;
+              border-radius: 8px !important;
+              backdrop-filter: blur(20px) !important;
+              animation: card-pulse 4s ease-in-out infinite alternate !important;
+              position: relative;
+              z-index: 2;
+            }
+            @keyframes card-pulse {
+              from {
+                box-shadow:
+                  0 0 30px rgba(159, 239, 0, 0.06),
+                  0 0 80px rgba(0, 0, 0, 0.7),
+                  inset 0 1px 0 rgba(159, 239, 0, 0.06);
+              }
+              to {
+                box-shadow:
+                  0 0 50px rgba(159, 239, 0, 0.14),
+                  0 0 100px rgba(0, 0, 0, 0.8),
+                  inset 0 1px 0 rgba(159, 239, 0, 0.12);
+              }
             }
 
-            /* ── Login card header — uses logo.png via branding_logo ─────── */
+            /* ── Login card header — banner.jpg as wide logo ─────────────── */
             .pf-c-login__main-header {
-              background: linear-gradient(135deg, #060c18 0%, #0a0e17 100%) !important;
-              border-bottom: 1px solid #1e2d45 !important;
-              padding: 24px !important;
+              background: rgba(13, 17, 23, 0.85) !important;
+              border-bottom: 1px solid rgba(159, 239, 0, 0.12) !important;
+              padding: 20px 24px !important;
+              text-align: center !important;
             }
-            /* Ensure the logo img looks good */
-            .pf-c-login__main-header img.branding-logo,
+            .pf-c-login__main-header img,
             .pf-c-login__main-header .pf-c-brand img {
-              max-height: 56px !important;
+              max-width: 90% !important;
+              max-height: 90px !important;
               width: auto !important;
               object-fit: contain !important;
+              filter: drop-shadow(0 0 8px rgba(159, 239, 0, 0.35)) !important;
             }
             .pf-c-login__main-header .pf-c-title,
             .pf-c-login__main-header h1,
             .pf-c-login__main-header h2 {
-              color: #e2e8f0 !important;
+              color: #9fef00 !important;
               font-weight: 800 !important;
+              font-family: 'Courier New', monospace !important;
+              letter-spacing: 2px !important;
             }
             .pf-c-login__main-header-desc {
-              color: #475569 !important;
-              font-size: 12px !important;
+              color: #6e7681 !important;
+              font-size: 11px !important;
               text-transform: uppercase;
-              letter-spacing: 1.5px;
+              letter-spacing: 2px;
+              font-family: 'Courier New', monospace !important;
             }
 
             /* ── Form body and footer ─────────────────────────────────────── */
             .pf-c-login__main-body,
             .pf-c-login__main-footer {
-              background: #111827 !important;
+              background: rgba(26, 35, 50, 0.6) !important;
             }
             .pf-c-login__footer {
-              background: #060c18 !important;
-              border-top: 1px solid #1e2d45 !important;
+              background: rgba(13, 17, 23, 0.85) !important;
+              border-top: 1px solid rgba(159, 239, 0, 0.08) !important;
             }
             .pf-c-login__footer p,
             .pf-c-login__footer a {
-              color: #334155 !important;
+              color: #484f58 !important;
               font-size: 11px !important;
             }
 
             /* ── Form labels ──────────────────────────────────────────────── */
             .pf-c-form__label-text,
             label {
-              color: #94a3b8 !important;
+              color: #8b949e !important;
               font-size: 11px !important;
               text-transform: uppercase;
               letter-spacing: 1px;
+              font-family: 'Courier New', monospace !important;
             }
 
             /* ── Text inputs ──────────────────────────────────────────────── */
@@ -148,84 +205,90 @@ data:
             input[type="text"],
             input[type="password"],
             input[type="email"] {
-              background: #060c18 !important;
-              border: 1px solid #1e2d45 !important;
-              color: #e2e8f0 !important;
-              border-radius: 6px !important;
+              background: #0a1018 !important;
+              border: 1px solid #2b3a52 !important;
+              color: #a4b1cd !important;
+              border-radius: 4px !important;
+              font-family: 'Courier New', monospace !important;
+              caret-color: #9fef00 !important;
             }
             .pf-c-form-control:focus,
             .pf-c-form-control:focus-within,
             input:focus {
-              border-color: #00d8ff !important;
-              box-shadow: 0 0 0 2px rgba(0, 216, 255, 0.2) !important;
+              border-color: #9fef00 !important;
+              box-shadow: 0 0 0 2px rgba(159, 239, 0, 0.15) !important;
               outline: none !important;
             }
             .pf-c-form-control::placeholder,
             input::placeholder {
-              color: #334155 !important;
+              color: #3d4d62 !important;
             }
 
             /* ── Primary button ───────────────────────────────────────────── */
             .pf-c-button.pf-m-primary,
             button[type="submit"] {
-              background: #00d8ff !important;
-              color: #060c18 !important;
+              background: #9fef00 !important;
+              color: #141d2b !important;
               font-weight: 800 !important;
               border: none !important;
-              border-radius: 6px !important;
+              border-radius: 4px !important;
               text-transform: uppercase !important;
-              letter-spacing: 1px !important;
-              font-size: 12px !important;
+              letter-spacing: 2px !important;
+              font-size: 11px !important;
+              font-family: 'Courier New', monospace !important;
+              transition: all 0.2s ease !important;
             }
             .pf-c-button.pf-m-primary:hover,
             button[type="submit"]:hover {
-              background: #33e4ff !important;
-              box-shadow: 0 0 20px rgba(0, 216, 255, 0.4) !important;
+              background: #b8f530 !important;
+              box-shadow: 0 0 24px rgba(159, 239, 0, 0.45) !important;
+              letter-spacing: 3px !important;
             }
 
             /* ── Secondary/link buttons ───────────────────────────────────── */
             .pf-c-button.pf-m-link,
             .pf-c-button.pf-m-inline {
-              color: #00d8ff !important;
+              color: #9fef00 !important;
             }
 
             /* ── Links ────────────────────────────────────────────────────── */
-            a { color: #00d8ff !important; }
-            a:hover { color: #33e4ff !important; }
+            a { color: #9fef00 !important; }
+            a:hover { color: #b8f530 !important; }
 
             /* ── Alert messages ───────────────────────────────────────────── */
             .pf-c-alert.pf-m-danger {
-              background: rgba(255, 71, 87, 0.1) !important;
+              background: rgba(255, 71, 87, 0.10) !important;
               border-color: #ff4757 !important;
             }
             .pf-c-alert.pf-m-warning {
-              background: rgba(245, 158, 11, 0.1) !important;
+              background: rgba(245, 158, 11, 0.10) !important;
               border-color: #f59e0b !important;
             }
 
             /* ── Dividers / dropdowns ─────────────────────────────────────── */
-            .pf-c-divider { background: #1e2d45 !important; }
+            .pf-c-divider { background: #2b3a52 !important; }
             .pf-c-select__menu,
             .pf-c-dropdown__menu {
-              background: #111827 !important;
-              border-color: #1e2d45 !important;
+              background: #1a2332 !important;
+              border-color: #2b3a52 !important;
             }
             .pf-c-select__menu-item:hover,
-            .pf-c-dropdown__menu-item:hover { background: #1a2035 !important; }
+            .pf-c-dropdown__menu-item:hover { background: #1e2b3e !important; }
 
             /* ── Tab navigation ───────────────────────────────────────────── */
             .pf-c-tabs__item.pf-m-current .pf-c-tabs__link {
-              color: #00d8ff !important;
-              border-bottom-color: #00d8ff !important;
+              color: #9fef00 !important;
+              border-bottom-color: #9fef00 !important;
             }
             .pf-c-tabs__link {
-              color: #64748b !important;
+              color: #6e7681 !important;
               background: transparent !important;
             }
 
             /* ── Authentik header brand ───────────────────────────────────── */
             .ak-brand .pf-c-page__header-brand-link {
-              color: #00d8ff !important;
+              color: #9fef00 !important;
               font-weight: 700 !important;
               letter-spacing: 1px !important;
+              font-family: 'Courier New', monospace !important;
             }
