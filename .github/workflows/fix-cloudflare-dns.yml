@@ -1,0 +1,47 @@
+name: Fix Cloudflare DNS — api.netbird.rlservers.com (DNS-only)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  fix-dns:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set api.netbird.rlservers.com to DNS-only (proxied=false)
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          if [ -z "$CF_TOKEN" ]; then
+            echo "❌ CLOUDFLARE_API_TOKEN not set"
+            exit 1
+          fi
+
+          CF_ZONE_ID=$(curl -sf "https://api.cloudflare.com/client/v4/zones?name=rlservers.com" \
+            -H "Authorization: Bearer $CF_TOKEN" \
+            | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['result'][0]['id'])")
+
+          echo "Zone ID: $CF_ZONE_ID"
+
+          EXISTING=$(curl -sf "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records?type=A&name=api.netbird.rlservers.com" \
+            -H "Authorization: Bearer $CF_TOKEN" \
+            | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['result'][0]['id'] if d.get('result') else '')")
+
+          if [ -z "$EXISTING" ]; then
+            echo "Record doesn't exist — creating DNS-only record..."
+            curl -sf -X POST "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records" \
+              -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" \
+              -d '{"type":"A","name":"api.netbird.rlservers.com","content":"84.82.69.110","ttl":1,"proxied":false}' \
+              | python3 -c "import sys,json; d=json.load(sys.stdin); print('✅ Created DNS-only' if d.get('success') else '❌ ' + str(d.get('errors')))"
+          else
+            echo "Record exists (ID: $EXISTING) — patching to proxied=false..."
+            curl -sf -X PATCH "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records/${EXISTING}" \
+              -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" \
+              -d '{"type":"A","name":"api.netbird.rlservers.com","content":"84.82.69.110","ttl":1,"proxied":false}' \
+              | python3 -c "import sys,json; d=json.load(sys.stdin); print('✅ Updated to DNS-only (proxied=false)' if d.get('success') else '❌ ' + str(d.get('errors')))"
+          fi
+
+          echo ""
+          echo "Verifying final state:"
+          curl -sf "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records?type=A&name=api.netbird.rlservers.com" \
+            -H "Authorization: Bearer $CF_TOKEN" \
+            | python3 -c "import sys,json; d=json.load(sys.stdin); r=d['result'][0] if d.get('result') else {}; print(f\"  {r.get('name')} -> {r.get('content')} proxied={r.get('proxied')}\")"

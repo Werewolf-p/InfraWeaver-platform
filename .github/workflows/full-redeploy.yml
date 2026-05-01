@@ -932,10 +932,16 @@ jobs:
           if [ -z "$EXISTING" ]; then
             curl -s -X POST "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records" \
               -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" \
-              -d '{"type":"A","name":"api.netbird.rlservers.com","content":"84.82.69.110","ttl":1,"proxied":true}' | \
-              python3 -c "import sys,json; d=json.load(sys.stdin); print('Created: api.netbird.rlservers.com -> 84.82.69.110 (proxied)' if d.get('success') else 'Error: ' + str(d.get('errors','')))"
+              -d '{"type":"A","name":"api.netbird.rlservers.com","content":"84.82.69.110","ttl":1,"proxied":false}' | \
+              python3 -c "import sys,json; d=json.load(sys.stdin); print('Created: api.netbird.rlservers.com -> 84.82.69.110 (DNS-only, not proxied)' if d.get('success') else 'Error: ' + str(d.get('errors','')))"
           else
-            echo "==> api.netbird.rlservers.com DNS record already exists"
+            # Always ensure proxied=false — Cloudflare Universal SSL only covers *.rlservers.com
+            # (one level). api.netbird.rlservers.com is 2 levels deep and has no Cloudflare edge
+            # cert. Proxying it causes TLS handshake failures on all NetBird clients.
+            curl -s -X PATCH "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records/${EXISTING}" \
+              -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" \
+              -d '{"type":"A","name":"api.netbird.rlservers.com","content":"84.82.69.110","ttl":1,"proxied":false}' | \
+              python3 -c "import sys,json; d=json.load(sys.stdin); print('Updated: api.netbird.rlservers.com -> proxied=false (DNS-only)' if d.get('success') else 'Error: ' + str(d.get('errors','')))"
           fi
 
       - name: Apply MetalLB IP Pool + Traefik Middleware
