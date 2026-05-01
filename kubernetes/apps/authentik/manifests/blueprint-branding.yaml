@@ -24,6 +24,7 @@ data:
           branding_logo: "/static/dist/assets/icons/icon_left_brand.svg"
           branding_favicon: "/static/dist/assets/icons/icon.png"
           ui_user_settings_enabled: true
+          default: true
           default_application: null
           branding_custom_css: |
             /* ── InfraWeaver Prime Dark Theme ─────────────────────────────── */
