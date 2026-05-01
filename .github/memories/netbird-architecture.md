@@ -224,10 +224,16 @@ Static URLs (permanent, no JWT expiry):
 - `https://auth.rlservers.com/static/dist/assets/icons/favicon.png`
 
 Blueprint `InfraWeaver Branding` (`kubernetes/apps/authentik/manifests/blueprint-branding.yaml`) sets:
-- `branding_logo: /static/dist/assets/icons/banner.jpg` (wide banner in login card header)
+- `branding_title: "rlservers.com"`
+- `branding_logo: /static/dist/assets/icons/banner.jpg` (full-width banner strip at card top, 155px height)
 - `branding_favicon: /static/dist/assets/icons/favicon.png`
-- HTB-style animated CSS: moving dot grid background, green scan line sweep, pulsing card glow
-- HTB color palette: bg=`#141d2b`, green=`#9fef00`, text=`#a4b1cd`, borders=`#2b3a52`
+- **Aurora / glassmorphism theme** (no constant animations):
+  - Deep space base: bg `#070b14`
+  - Static indigo/violet radial gradient aurora overlay (`html::before`)
+  - Glassmorphism card: `backdrop-filter: blur(28px)`, `rgba(10,14,30,0.78)` fill, indigo border
+  - Full-width banner: padding:0, `object-fit: cover`, 155px height strip touching card edges
+  - "Welcome to rlservers.com" title via CSS `::after` on `.pf-c-login__main-header .pf-c-title`
+  - Primary button: indigo→violet gradient with hover lift (translateY -1px) — only on hover
 
 **⚠️ Why NOT `/media/public/`?**
 Authentik's `FileBackend` serves files at `/files/media/public/<name>?token=JWT` with 15-minute
