@@ -48,10 +48,12 @@ the correct redirect URI for PKCE auth (see SSO PKCE flow below).
 
 **IngressRoute:** `kubernetes/apps/external-routes/manifests/10-routes-netbird-api.yaml`  
 **TLS cert:** `rlservers-com-wildcard-tls` (includes `api.netbird.rlservers.com` SAN)  
-**Cloudflare DNS:** `api.netbird.rlservers.com` A → `10.10.0.200` (DNS-only, not proxied)
+**Cloudflare DNS:** `api.netbird.rlservers.com` A → `84.82.69.110` (**DNS-only, NOT proxied — CRITICAL**)
 
 ## Cloudflare Requirements
 
+- **`api.netbird.rlservers.com` MUST be DNS-only (proxied=false)** — see Known Issues below
+- **`netbird.rlservers.com` can be proxied** (one level under apex, covered by `*.rlservers.com` edge cert)
 - **SSL mode: Full** (NOT Flexible — Flexible causes 308 redirect → gRPC breaks)
 - **HTTP/2: ON** (required for gRPC)
 - `origin_max_http_version: 2` — CF connects to origin over HTTP/2
@@ -94,6 +96,12 @@ Using `"Scopes": [...]` causes silent JSON unmarshal failure → empty scope →
 **CRITICAL: `RedirectURLs` must ONLY contain `http://localhost:53000`.**  
 Including web dashboard URLs (`/auth`, `/#callback`) as redirect URIs causes the NetBird client
 to pick the wrong redirect URI (see SSO PKCE flow below).
+
+## Setup Key
+
+The default setup key is stored in OpenBao `secret/platform/netbird.SETUP_KEY`.
+Value set during redeploy: `A1B2C3D4-E5F6-7890-ABCD-EF1234567890`  
+This is a **reusable** key — use it to enroll any new device without SSO.
 
 ## SSO PKCE Flow
 
@@ -144,6 +152,18 @@ VM 9250 (`netbird-router-vlan3`) at 10.10.0.10 on VLAN3:
 
 ## Known Issues
 
+- **CRITICAL — Cloudflare edge cert doesn't cover 2nd-level subdomains:**
+  Cloudflare's Universal SSL (free plan) issues certs for `rlservers.com` and `*.rlservers.com`
+  only (one wildcard level). `api.netbird.rlservers.com` is TWO levels deep (`api.netbird.rlservers.com`)
+  and is NOT covered by the `*.rlservers.com` edge cert.
+  - If `api.netbird.rlservers.com` is proxied through Cloudflare → TLS handshake fails →
+    NetBird clients get "context deadline exceeded" or cert mismatch errors.
+  - **Fix:** `api.netbird.rlservers.com` MUST always be DNS-only (`proxied=false`) in Cloudflare.
+    Our Let's Encrypt cert (in `rlservers-com-wildcard-tls`) covers this SAN and Traefik presents it.
+  - `netbird.rlservers.com` IS covered by `*.rlservers.com` and can safely be proxied.
+  - Enforced in: `full-redeploy.yml` "Ensure Cloudflare DNS records" step (always PATCHes to proxied=false)
+  - Quick fix workflow: `.github/workflows/fix-cloudflare-dns.yml` (workflow_dispatch)
+
 - **Cloudflare 100s timeout:** Long-lived gRPC `Sync` streams are killed every ~100s by Cloudflare.
   NetBird clients reconnect automatically. The `context canceled` logs in management are expected.
 - **Pod restarts cause 502:** During management pod restart, clients get 502. They retry and reconnect.
@@ -155,4 +175,3 @@ VM 9250 (`netbird-router-vlan3`) at 10.10.0.10 on VLAN3:
 - **wait-for-oidc init container:** Management will not start until `auth.rlservers.com` OIDC endpoint
   is reachable with a valid TLS cert. If Authentik cert is rate-limited/missing, management stays in Init.
   Fix: ensure `auth.rlservers.com` is in `rlservers-com-wildcard` cert SANs (not a separate cert).
-
