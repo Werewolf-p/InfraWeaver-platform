@@ -18,6 +18,7 @@ spec:
     - "www.rlservers.com"
     - "auth.rlservers.com"
     - "netbird.rlservers.com"
+    - "api.netbird.rlservers.com"
     - "traefik.rlservers.com"
     - "ansible.rlservers.com"
     - "test.rlservers.com"
