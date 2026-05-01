@@ -1,6 +1,6 @@
 ---
 title: NetBird Architecture — Kubernetes deployment on VLAN3
-description: NetBird runs entirely in Kubernetes (VLAN3). Dashboard at netbird.rlservers.com, API/gRPC at api-netbird.rlservers.com.
+description: NetBird runs entirely in Kubernetes (VLAN3). Dashboard at netbird.rlservers.com (public), API/gRPC at api-netbird.rlservers.com.
 ---
 
 # NetBird Architecture (Current — May 2026)
@@ -14,11 +14,23 @@ NetBird runs fully in Kubernetes (`netbird` namespace) on the VLAN3 cluster (10.
 
 | Domain | Purpose |
 |--------|---------|
-| `netbird.int.rlservers.com` | Web dashboard (VPN-only) |
+| `netbird.rlservers.com` | Web dashboard (**public** — must NOT be VPN-only, see lesson below) |
 | `api-netbird.rlservers.com` | Management gRPC, Signal gRPC, Relay, REST API |
 
 Both point to Traefik at `10.10.0.200`. The split ensures NetBird desktop/mobile clients pick
 the correct redirect URI for PKCE auth (see SSO PKCE flow below).
+
+## ⚠️ Dashboard Must Stay Public (Chicken-and-Egg Lesson)
+
+**NEVER restrict `netbird.rlservers.com` to VPN-only (`netbird-vpn-only` middleware).**
+
+Reason: You need the dashboard to manage VPN peers and onboard new devices.
+If the dashboard is VPN-only and a device loses its VPN key or is being set up fresh,
+you are completely locked out — can't connect to VPN (need dashboard for setup keys)
+and can't reach dashboard (not on VPN yet).
+
+- Dashboard at `netbird.rlservers.com` → **always public, no middleware**
+- Internal services at `*.int.rlservers.com` → VPN-only (`netbird-vpn-only` middleware) ✅
 
 ## MetalLB VIPs (Internal)
 
