@@ -10,7 +10,7 @@ description: All cluster-internal VPN-only apps use *.int.rlservers.com. Externa
 | Domain Pattern | Access | Middleware | Cert |
 |---------------|--------|------------|------|
 | `*.rlservers.com` | Public internet | None / `auth-forward` | `rlservers-com-wildcard-tls` (HTTP-01) |
-| `netbird.rlservers.com` | Public internet | None | `netbird-rlservers-com-tls` (HTTP-01) |
+| `netbird.rlservers.com` | **Removed** (dashboard is now VPN-only at `netbird.int.rlservers.com`) | — | — |
 | `auth.rlservers.com` | Public internet | None | `rlservers-com-wildcard-tls` (bundled) |
 | `*.int.rlservers.com` | NetBird VPN only | `netbird-vpn-only` | `int-rlservers-com-tls` (DNS-01) |
 
@@ -48,8 +48,9 @@ CoreDNS custom zone for in-cluster resolution:
 
 ## Middleware: netbird-vpn-only
 
-Allows only `10.10.0.10/32` — the NetBird routing peer VM.  
-All VPN clients reach internal services through the routing peer (masquerade=True).  
+Allows `10.10.0.0/24` — the entire VLAN3 subnet where K8s nodes (10.10.0.90-92) run.  
+NetBird DaemonSet pods on these nodes masquerade VPN client traffic (SNAT) → Traefik sees source = K8s node VLAN3 IP.  
+Also allows `100.64.0.0/10` (NetBird CGNAT, direct WireGuard peers) and `10.244.0.0/16` (pod CIDR).  
 **Never use `internal-only` for `.int.` routes** — those are exclusively VPN.
 
 Defined in: `kubernetes/apps/external-routes/manifests/01-middlewares.yaml`

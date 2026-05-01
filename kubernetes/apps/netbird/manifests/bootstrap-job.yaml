@@ -95,12 +95,20 @@ data:
 
         # Store sha256 hash of setup key (same as NetBird v0.70 GetSetupKeyBySecret lookup)
         # key_secret non-empty → MigrateSetupKeyToHashedSetupKey skips this row
+        # auto_groups=[GRP_ROUTING]: DaemonSet pods auto-join routing-peers-vlan3 group
+        # → they advertise the VLAN3 route (10.10.0.0/24) to VPN clients on connect.
+        # All peers also auto-join "All" group (NetBird built-in behaviour for policy matching).
+        routing_groups_json = json.dumps([GRP, GRP_ROUTING])
         c.execute("""INSERT OR IGNORE INTO setup_keys
           (id, account_id, key, key_secret, name, type, used_times, last_used, expires_at,
            auto_groups, revoked, ephemeral, updated_at, created_at, usage_limit, allow_extra_dns_labels)
           VALUES (?,?,?,?,?,?,?,datetime('now'),?,?,?,?,datetime('now'),datetime('now'),?,?)""",
           (KEY_ID, ACC, key_hash, key_secret,
-           "Default Key", "reusable", 0, "2040-01-01 00:00:00", "[]", 0, 0, 0, 0))
+           "Default Key", "reusable", 0, "2040-01-01 00:00:00",
+           routing_groups_json, 0, 0, 0, 0))
+        # Also UPDATE in case the key already existed with empty auto_groups (idempotent fix)
+        c.execute("UPDATE setup_keys SET auto_groups=?, updated_at=datetime('now') WHERE id=? AND auto_groups NOT LIKE ?",
+                  (routing_groups_json, KEY_ID, f'%{GRP_ROUTING}%'))
 
         grp_json = json.dumps([GRP])
         c.execute("""INSERT OR IGNORE INTO policies

@@ -1,25 +1,10 @@
 ---
-# NetBird IngressRoute — dashboard only at netbird.rlservers.com
-# API/gRPC/Signal/Relay → api-netbird.rlservers.com (see 10-routes-netbird-api.yaml)
+# NetBird dashboard is VPN-only at netbird.int.rlservers.com
+# (see kubernetes/apps/external-routes/manifests/10-routes-vpn-only.yaml)
 #
-# Dashboard (catch-all /) → dashboard:80
-
-# ── Dashboard (publicly accessible for web login) ────────────────────────────
-apiVersion: traefik.io/v1alpha1
-kind: IngressRoute
-metadata:
-  name: netbird-dashboard
-  namespace: traefik
-spec:
-  entryPoints:
-    - websecure
-  routes:
-    - match: Host(`netbird.rlservers.com`)
-      kind: Rule
-      priority: 10
-      services:
-        - name: netbird-dashboard
-          port: 80
-  tls:
-    secretName: rlservers-com-wildcard-tls
+# API/gRPC/Signal/Relay stay public at api-netbird.rlservers.com
+# (see kubernetes/apps/external-routes/manifests/10-routes-netbird-api.yaml)
+#
+# This file is intentionally empty — public dashboard was removed.
+# netbird.rlservers.com no longer exposes the dashboard to the internet.
 

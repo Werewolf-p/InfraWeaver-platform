@@ -50,18 +50,18 @@ spec:
       - 100.64.0.0/10     # NetBird CGNAT (direct WireGuard peers)
       - 127.0.0.1/32      # Localhost
 ---
-# Middleware: netbird-vpn-only — allows ONLY traffic that came through the NetBird routing peer.
+# Middleware: netbird-vpn-only — allows ONLY traffic that came through the NetBird VPN.
 #
 # Architecture:
-#   - netbird-router-vlan3 VM at 10.10.0.10 runs the NetBird client as a routing peer
-#   - VPN clients route 10.10.0.0/24 traffic through this VM
-#   - The routing VM masquerades traffic (SNAT) → Traefik sees source = 10.10.0.10
+#   - netbird-client DaemonSet pods run with hostNetwork: true on K8s nodes (10.10.0.90-92)
+#   - VPN clients route 10.10.0.0/24 traffic through these DaemonSet peers (masquerade=true)
+#   - DaemonSet pods masquerade traffic (SNAT) → Traefik sees source = 10.10.0.9x (node VLAN3 IP)
 #   - Pod CIDR (10.244.0.0/16) allowed for in-cluster health probes
 #   - 100.64.0.0/10 allowed for direct WireGuard peer connections (NetBird CGNAT)
 #
 # This middleware is applied ONLY to *.int.rlservers.com routes.
 # The security model: 10.10.0.200 is a private IP (unreachable from internet) AND
-# only the routing peer's source IP passes this allowlist. Both layers are required.
+# only VLAN3 node IPs and NetBird CGNAT pass this allowlist. Both layers are required.
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
@@ -72,7 +72,7 @@ spec:
     sourceRange:
       - 100.64.0.0/10     # NetBird CGNAT CIDR (direct WireGuard peers, no masquerade)
       - 10.244.0.0/16     # K8s pod CIDR — in-cluster health probes
-      - 10.10.0.10/32     # NetBird routing peer (netbird-router-vlan3) — VPN masquerade IP
+      - 10.10.0.0/24      # VLAN3 K8s nodes (DaemonSet hostNetwork pods) — VPN masquerade IPs
 ---
 # Middleware: add-https-headers — sets X-Forwarded-Proto for backends
 apiVersion: traefik.io/v1alpha1

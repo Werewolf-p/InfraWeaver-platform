@@ -14,7 +14,7 @@ NetBird runs fully in Kubernetes (`netbird` namespace) on the VLAN3 cluster (10.
 
 | Domain | Purpose |
 |--------|---------|
-| `netbird.rlservers.com` | Web dashboard ONLY |
+| `netbird.int.rlservers.com` | Web dashboard (VPN-only) |
 | `api-netbird.rlservers.com` | Management gRPC, Signal gRPC, Relay, REST API |
 
 Both point to Traefik at `10.10.0.200`. The split ensures NetBird desktop/mobile clients pick
@@ -132,13 +132,21 @@ Fix: Only `http://localhost:53000` in `RedirectURLs`. Client always picks port 5
 `kubernetes/apps/netbird/manifests/bootstrap-job.yaml` — ArgoCD PostSync hook  
 Seeds SQLite DB: account, user `remon` (role=admin, issued=oidc), setup key, groups, routes
 
-## Router Peer
+## Router Peer (DaemonSet, current — May 2026)
 
-VM 9250 (`netbird-router-vlan3`) at 10.10.0.10 on VLAN3:
-- Enrolled in NetBird with setup key
-- Advertises `10.10.0.0/24` + `10.25.0.0/24` with masquerade=True
-- Allows internal services to be reached via VPN from anywhere
-- `*.int.rlservers.com` routes only allow traffic from 10.10.0.10/32 (netbird-vpn-only middleware)
+NetBird client runs as a **DaemonSet** (`netbird-client`) on all K8s nodes (VLAN3: 10.10.0.90-92).  
+Each pod has `hostNetwork: true` and connects to management at `https://api-netbird.rlservers.com`.  
+All pods advertise `10.10.0.0/24` with `masquerade=True` via route group `routing-peers-vlan3` (`GRP_ROUTING`).  
+VPN clients reach internal services through these DaemonSet routing peers.
+
+**Key requirements:**
+- `NB_MANAGEMENT_URL` MUST be `https://api-netbird.rlservers.com` (not dashboard URL!)
+- Setup key `auto_groups` MUST include `GRP_ROUTING` so pods auto-join `routing-peers-vlan3` group
+- `netbird-vpn-only` middleware allows `10.10.0.0/24` (K8s node VLAN3 IPs — masquerade source)
+
+Files:
+- DaemonSet: `kubernetes/apps/netbird/manifests/client-daemonset.yaml`
+- Bootstrap: `kubernetes/apps/netbird/manifests/bootstrap-job.yaml` (sets up key auto_groups, route with peer_groups)
 
 ## Relay Config
 

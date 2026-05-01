@@ -39,7 +39,7 @@ spec:
                   name: netbird-secrets
                   key: SETUP_KEY
             - name: NB_MANAGEMENT_URL
-              value: "https://netbird.rlservers.com"
+              value: "https://api-netbird.rlservers.com"
             - name: NB_HOSTNAME
               valueFrom:
                 fieldRef:

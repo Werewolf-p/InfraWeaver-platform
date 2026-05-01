@@ -4,6 +4,7 @@
 # but NOT for the global revocation endpoint (/application/o/revoke/) or userinfo.
 # This middleware adds CORS headers for those missing endpoints.
 # Traefik replaces any existing Access-Control-Allow-Origin (no duplicates).
+# Primary dashboard at netbird.int.rlservers.com (VPN-only).
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
@@ -12,7 +13,7 @@ metadata:
 spec:
   headers:
     customResponseHeaders:
-      Access-Control-Allow-Origin: "https://netbird.rlservers.com"
+      Access-Control-Allow-Origin: "https://netbird.int.rlservers.com"
       Access-Control-Allow-Methods: "GET, POST, OPTIONS, HEAD"
       Access-Control-Allow-Headers: "Authorization, Content-Type, Accept"
       Access-Control-Allow-Credentials: "true"
