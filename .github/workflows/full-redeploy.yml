@@ -932,8 +932,8 @@ jobs:
           if [ -z "$EXISTING" ]; then
             curl -s -X POST "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records" \
               -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" \
-              -d '{"type":"A","name":"api.netbird.rlservers.com","content":"10.10.0.200","ttl":1,"proxied":false}' | \
-              python3 -c "import sys,json; d=json.load(sys.stdin); print('Created: api.netbird.rlservers.com -> 10.10.0.200' if d.get('success') else 'Error: ' + str(d.get('errors','')))"
+              -d '{"type":"A","name":"api.netbird.rlservers.com","content":"84.82.69.110","ttl":1,"proxied":true}' | \
+              python3 -c "import sys,json; d=json.load(sys.stdin); print('Created: api.netbird.rlservers.com -> 84.82.69.110 (proxied)' if d.get('success') else 'Error: ' + str(d.get('errors','')))"
           else
             echo "==> api.netbird.rlservers.com DNS record already exists"
           fi
