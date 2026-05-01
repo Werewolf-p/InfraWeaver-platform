@@ -11,8 +11,9 @@
 - **OAuth2 provider**: `client_id=netbird`, `client_type=public` (PKCE, no secret)
 - **Application slug**: `netbird`
 - **OIDC discovery**: `https://auth.rlservers.com/application/o/netbird/.well-known/openid-configuration`
-- **Redirect URIs**: `https://netbird.rlservers.com/auth`, `https://netbird.rlservers.com/silent-auth`, `http://localhost:53000`
-- `http://localhost:53000` is required for the **NetBird desktop client** PKCE callback — missing this causes "Redirect URI Error" on client login
+- **Redirect URIs**: `http://localhost:53000` (desktop client), `https://netbird.rlservers.com/auth` (dashboard web login), `https://netbird.rlservers.com/silent-auth` (dashboard silent refresh)
+- `http://localhost:53000` is required for the **NetBird desktop client** PKCE callback
+- **management.json `RedirectURLs` must ONLY contain `["http://localhost:53000"]`** — web dashboard URLs MUST NOT be in `RedirectURLs` (causes client to pick wrong redirect → infinite auth loop)
 - **NetBird dashboard**: `AUTH_AUTHORITY=https://auth.rlservers.com/application/o/netbird/`, `AUTH_CLIENT_ID=netbird`
 - **NetBird management.json**: `HttpConfig.OIDCConfigEndpoint` set, `PKCEAuthorizationFlow` configured
 
@@ -49,7 +50,22 @@
 - **Result**: On any redeploy, the bootstrap pre-creates user "remon" with role=admin.
   NetBird management finds the pre-created user on first OIDC login → admin access ✅.
 
-### Authentik 2026.x Admin Access: Group-Based (Not User.is_superuser)
+### NetBird PKCE Client Redirect URI Bug (Root Cause — 2026-05)
+
+- **Symptom**: NetBird desktop/mobile client double-login → infinite `/auth` loop after login
+- **Root cause**: NetBird `pkce_flow.go` iterates `RedirectURLs` from management.json and picks
+  the **FIRST URL whose port is NOT in use locally** (`net.DialTimeout("tcp", ":PORT", 3s)`):
+  - `https://netbird.rlservers.com/auth` → port 443 → never in use locally → **SELECTED** ❌
+  - `http://localhost:53000` → port 53000 → selected ONLY if :443 is in use (never happens)
+  - Client sends `redirect_uri=https://netbird.rlservers.com/auth` → auth code goes to web dashboard
+  - Client can't capture auth code → timeout → retry → double-login → endless `/auth` loop
+- **Fix**:
+  - `management.json` `PKCEAuthorizationFlow.RedirectURLs`: ONLY `["http://localhost:53000"]`
+  - Remove all web dashboard URLs (`/auth`, `/silent-auth`, `/#callback`) from `RedirectURLs`
+  - Web dashboard has its own PKCE flow via `AUTH_REDIRECT_URI=/auth` env var (separate)
+- **Source**: `client/internal/auth/pkce_flow.go` → `isRedirectURLPortUsed()` function
+- **Architecture fix**: Created `api.netbird.rlservers.com` (API/gRPC) separate from
+  `netbird.rlservers.com` (dashboard only). Signal URI and Relay address updated to `api.*`.
 
 - **CRITICAL change in Authentik 2026.x**: `User.is_superuser` field **no longer exists**.
   Attempting to set it via `ak shell` gives: `FieldError: Cannot resolve keyword 'is_superuser' into field`.
