@@ -155,10 +155,20 @@ VPN clients reach internal services through these DaemonSet routing peers.
 - `NB_MANAGEMENT_URL` MUST be `https://api-netbird.rlservers.com` (not dashboard URL!)
 - Setup key `auto_groups` MUST include `GRP_ROUTING` so pods auto-join `routing-peers-vlan3` group
 - `netbird-vpn-only` middleware allows `10.10.0.0/24` (K8s node VLAN3 IPs — masquerade source)
+- **`/var/lib/netbird-state` hostPath volume mounted at `/etc/netbird`** — persists WireGuard private
+  key across pod restarts so the same peer ID is reused (prevents stale peer accumulation)
+
+**⚠️ Stale Peer Accumulation (fixed May 2026)**  
+Without persistent storage, every pod restart generates a new WireGuard private key → new peer registered
+in NetBird management. Old peers are never removed → `routing-peers-vlan3` fills with disconnected peers.
+VPN clients route to stale peers → traffic is dropped → `*.rlservers.com` unreachable from VPN.  
+**Fix:** `hostPath` volume at `/var/lib/netbird-state` (per-node) persists `/etc/netbird` across restarts.  
+**Cleanup:** Bootstrap job runs `python3` peer deduplication after management restarts — keeps newest peer
+per node name, deletes the rest.
 
 Files:
 - DaemonSet: `kubernetes/apps/netbird/manifests/client-daemonset.yaml`
-- Bootstrap: `kubernetes/apps/netbird/manifests/bootstrap-job.yaml` (sets up key auto_groups, route with peer_groups)
+- Bootstrap: `kubernetes/apps/netbird/manifests/bootstrap-job.yaml` (sets up key auto_groups, route with peer_groups, peer cleanup)
 
 ## Relay Config
 
@@ -202,24 +212,34 @@ Files:
 
 Custom branding images stored in the repo at `images/`:
 - `images/banner.png` — original (1.3MB, not used in runtime)
-- `images/banner.jpg` — 800×533 JPEG, 18KB (login page background)
-- `images/logo.png` — 200×200 PNG, 22KB (brand logo)
+- `images/banner.jpg` — 800×533 JPEG, 18KB (**login page logo/hero image** in card header)
+- `images/logo.png` — 200×200 PNG, 22KB (archived; banner.jpg now used as branding_logo)
 - `images/favicon.png` — 64×64 PNG, 3KB (browser favicon)
 
 These are bundled into ConfigMap `authentik-media` (`kubernetes/apps/authentik/manifests/media-configmap.yaml`)
 and mounted with `subPath` into `/web/dist/assets/icons/` in Authentik server+worker pods.
 
 Static URLs (permanent, no JWT expiry):
-- `https://auth.rlservers.com/static/dist/assets/icons/logo.png`
-- `https://auth.rlservers.com/static/dist/assets/icons/favicon.png`
 - `https://auth.rlservers.com/static/dist/assets/icons/banner.jpg`
+- `https://auth.rlservers.com/static/dist/assets/icons/favicon.png`
 
-Blueprint `InfraWeaver Branding` (`kubernetes/apps/authentik/manifests/blueprint-branding.yaml`)
-sets `branding_logo: /static/dist/assets/icons/logo.png` and
-`branding_favicon: /static/dist/assets/icons/favicon.png`.
-CSS uses `url("/static/dist/assets/icons/banner.jpg")` as login page background.
+Blueprint `InfraWeaver Branding` (`kubernetes/apps/authentik/manifests/blueprint-branding.yaml`) sets:
+- `branding_logo: /static/dist/assets/icons/banner.jpg` (wide banner in login card header)
+- `branding_favicon: /static/dist/assets/icons/favicon.png`
+- HTB-style animated CSS: moving dot grid background, green scan line sweep, pulsing card glow
+- HTB color palette: bg=`#141d2b`, green=`#9fef00`, text=`#a4b1cd`, borders=`#2b3a52`
 
 **⚠️ Why NOT `/media/public/`?**
 Authentik's `FileBackend` serves files at `/files/media/public/<name>?token=JWT` with 15-minute
 JWT expiry. These URLs cannot be hardcoded in blueprints or CSS (they expire). Static files
 (`/web/dist/assets/icons/`) are served without auth at `/static/dist/...` — permanent URLs.
+
+## Routes (May 2026)
+
+Both routes use `routing-peers-vlan3` as `peer_groups` (NOT "All"):
+- `10.10.0.0/24` (VLAN3) — routed by DaemonSet pods on cp1/cp2/cp3
+- `10.25.0.0/24` (cluster pods) — routed by DaemonSet pods on cp1/cp2/cp3
+
+Access group (`groups`) = All — all VPN peers can use these routes.
+Using "All" as peer_groups for 10.25.0.0/24 was a bug — caused user's phone/PC to advertise
+cluster routes, breaking routing when those devices are offline.
