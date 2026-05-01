@@ -544,22 +544,22 @@ jobs:
             echo "⚠ CLOUDFLARE_API_TOKEN not set — cert-manager DNS-01 challenges will fail"
           fi
 
-          # Cloudflare DNS: ensure api.netbird.rlservers.com A record exists → 84.82.69.110 (proxied)
+          # Cloudflare DNS: ensure api-netbird.rlservers.com A record exists → 84.82.69.110 (DNS-only, proxied=false)
           if [ -n "$CLOUDFLARE_API_TOKEN" ]; then
             CF_ZONE_ID=$(curl -s "https://api.cloudflare.com/client/v4/zones?name=rlservers.com" \
               -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
               | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['result'][0]['id'] if d.get('result') else '')" 2>/dev/null)
             if [ -n "$CF_ZONE_ID" ]; then
-              EXISTING=$(curl -s "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records?type=A&name=api.netbird.rlservers.com" \
+              EXISTING=$(curl -s "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records?type=A&name=api-netbird.rlservers.com" \
                 -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" | \
                 python3 -c "import sys,json; d=json.load(sys.stdin); print(d['result'][0]['id'] if d.get('result') else '')" 2>/dev/null)
               if [ -z "$EXISTING" ]; then
                 curl -s -X POST "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records" \
                   -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -H "Content-Type: application/json" \
-                  -d '{"type":"A","name":"api.netbird.rlservers.com","content":"84.82.69.110","ttl":1,"proxied":true}' | \
-                  python3 -c "import sys,json; d=json.load(sys.stdin); print('Created: api.netbird.rlservers.com' if d.get('success') else 'Error: ' + str(d.get('errors','')))"
+                  -d '{"type":"A","name":"api-netbird.rlservers.com","content":"84.82.69.110","ttl":1,"proxied":false}' | \
+                  python3 -c "import sys,json; d=json.load(sys.stdin); print('Created: api-netbird.rlservers.com' if d.get('success') else 'Error: ' + str(d.get('errors','')))"
               else
-                echo "==> Cloudflare DNS: api.netbird.rlservers.com already exists"
+                echo "==> Cloudflare DNS: api-netbird.rlservers.com already exists"
               fi
             fi
           fi
