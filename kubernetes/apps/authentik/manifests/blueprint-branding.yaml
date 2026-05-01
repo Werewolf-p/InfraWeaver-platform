@@ -21,8 +21,8 @@ data:
           domain: authentik-default
         attrs:
           branding_title: "InfraWeaver"
-          branding_logo: "/static/dist/assets/icons/icon_left_brand.svg"
-          branding_favicon: "/static/dist/assets/icons/icon.png"
+          branding_logo: "/media/public/logo.png"
+          branding_favicon: "/media/public/favicon.png"
           ui_user_settings_enabled: true
           default: true
           default_application: null
@@ -60,40 +60,51 @@ data:
               --pf-global--warning-color--100: #f59e0b;
             }
 
-            /* ── Page background (light DOM outer container) ─────────────── */
+            /* ── Page background — banner image with dark overlay ────────── */
             body,
             html,
             .pf-c-page__drawer,
             .pf-c-background-image {
               background-color: #0a0e17 !important;
               background-image:
-                linear-gradient(rgba(0, 216, 255, 0.025) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(0, 216, 255, 0.025) 1px, transparent 1px) !important;
-              background-size: 50px 50px !important;
+                linear-gradient(rgba(10, 14, 23, 0.82) 0%, rgba(10, 14, 23, 0.82) 100%),
+                url("/media/public/banner.jpg") !important;
+              background-size: cover !important;
+              background-position: center !important;
+              background-repeat: no-repeat !important;
+              background-attachment: fixed !important;
             }
 
-            /* ── Login outer wrapper — transparent so grid shows through ─── */
+            /* ── Login outer wrapper — transparent so banner shows through ─ */
             .pf-c-login {
               background: transparent !important;
             }
 
             /* ── Login card (light DOM in 2026.x — direct child of .pf-c-login) */
             .pf-c-login__main {
-              background: #111827 !important;
+              background: rgba(17, 24, 39, 0.92) !important;
               border: 1px solid rgba(0, 216, 255, 0.25) !important;
               border-top: 3px solid #00d8ff !important;
               border-radius: 12px !important;
+              backdrop-filter: blur(12px) !important;
               box-shadow:
                 0 0 40px rgba(0, 216, 255, 0.12),
                 0 0 80px rgba(0, 216, 255, 0.05),
                 0 20px 60px rgba(0, 0, 0, 0.6) !important;
             }
 
-            /* ── Login card header ────────────────────────────────────────── */
+            /* ── Login card header — uses logo.png via branding_logo ─────── */
             .pf-c-login__main-header {
               background: linear-gradient(135deg, #060c18 0%, #0a0e17 100%) !important;
               border-bottom: 1px solid #1e2d45 !important;
               padding: 24px !important;
+            }
+            /* Ensure the logo img looks good */
+            .pf-c-login__main-header img.branding-logo,
+            .pf-c-login__main-header .pf-c-brand img {
+              max-height: 56px !important;
+              width: auto !important;
+              object-fit: contain !important;
             }
             .pf-c-login__main-header .pf-c-title,
             .pf-c-login__main-header h1,

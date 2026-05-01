@@ -1,4 +1,15 @@
 global:
+  # Mount custom branding images from ConfigMap at /media/public/
+  # Files accessible at https://auth.rlservers.com/media/public/<filename>
+  volumes:
+    - name: authentik-media
+      configMap:
+        name: authentik-media
+  volumeMounts:
+    - name: authentik-media
+      mountPath: /media/public
+      readOnly: true
+
   # Inject secrets from ExternalSecret-managed K8s secret (authentik-secrets)
   env:
     - name: AUTHENTIK_SECRET_KEY
