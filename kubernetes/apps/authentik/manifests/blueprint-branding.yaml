@@ -15,7 +15,7 @@ data:
       name: InfraWeaver Branding
     entries:
       # Update the default brand with InfraWeaver theme
-      - model: authentik_core.brand
+      - model: authentik_brands.brand
         state: present
         identifiers:
           domain: authentik-default

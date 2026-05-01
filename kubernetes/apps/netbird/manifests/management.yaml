@@ -212,13 +212,17 @@ spec:
     spec:
       containers:
       - name: dashboard
-        image: netbirdio/dashboard:v2.36.0
+        image: netbirdio/dashboard:v2.37.1
         ports:
         - containerPort: 80
           name: http
         env:
         - name: AUTH_SUPPORTED_SCOPES
-          value: "openid profile email offline_access api"
+          value: "openid profile email offline_access"
+        - name: AUTH_REDIRECT_URI
+          value: "/auth"
+        - name: AUTH_SILENT_REDIRECT_URI
+          value: "/silent-auth"
         - name: NETBIRD_MGMT_API_ENDPOINT
           value: "https://netbird.rlservers.com"
         - name: NETBIRD_MGMT_GRPC_API_ENDPOINT
