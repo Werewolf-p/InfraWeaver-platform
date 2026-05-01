@@ -197,3 +197,29 @@ Files:
 - **wait-for-oidc init container:** Management will not start until `auth.rlservers.com` OIDC endpoint
   is reachable with a valid TLS cert. If Authentik cert is rate-limited/missing, management stays in Init.
   Fix: ensure `auth.rlservers.com` is in `rlservers-com-wildcard` cert SANs (not a separate cert).
+
+## Authentik Branding (May 2026)
+
+Custom branding images stored in the repo at `images/`:
+- `images/banner.png` — original (1.3MB, not used in runtime)
+- `images/banner.jpg` — 800×533 JPEG, 18KB (login page background)
+- `images/logo.png` — 200×200 PNG, 22KB (brand logo)
+- `images/favicon.png` — 64×64 PNG, 3KB (browser favicon)
+
+These are bundled into ConfigMap `authentik-media` (`kubernetes/apps/authentik/manifests/media-configmap.yaml`)
+and mounted with `subPath` into `/web/dist/assets/icons/` in Authentik server+worker pods.
+
+Static URLs (permanent, no JWT expiry):
+- `https://auth.rlservers.com/static/dist/assets/icons/logo.png`
+- `https://auth.rlservers.com/static/dist/assets/icons/favicon.png`
+- `https://auth.rlservers.com/static/dist/assets/icons/banner.jpg`
+
+Blueprint `InfraWeaver Branding` (`kubernetes/apps/authentik/manifests/blueprint-branding.yaml`)
+sets `branding_logo: /static/dist/assets/icons/logo.png` and
+`branding_favicon: /static/dist/assets/icons/favicon.png`.
+CSS uses `url("/static/dist/assets/icons/banner.jpg")` as login page background.
+
+**⚠️ Why NOT `/media/public/`?**
+Authentik's `FileBackend` serves files at `/files/media/public/<name>?token=JWT` with 15-minute
+JWT expiry. These URLs cannot be hardcoded in blueprints or CSS (they expire). Static files
+(`/web/dist/assets/icons/`) are served without auth at `/static/dist/...` — permanent URLs.
