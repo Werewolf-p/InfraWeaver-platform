@@ -1,6 +1,6 @@
 ---
 # NetBird IngressRoute — dashboard only at netbird.rlservers.com
-# API/gRPC/Signal/Relay → api.netbird.rlservers.com (see 10-routes-netbird-api.yaml)
+# API/gRPC/Signal/Relay → api-netbird.rlservers.com (see 10-routes-netbird-api.yaml)
 #
 # Dashboard (catch-all /) → dashboard:80
 
