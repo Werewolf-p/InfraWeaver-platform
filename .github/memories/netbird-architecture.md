@@ -170,6 +170,14 @@ Files:
   NetBird clients reconnect automatically. The `context canceled` logs in management are expected.
 - **Pod restarts cause 502:** During management pod restart, clients get 502. They retry and reconnect.
 - **instance setup status: false:** Normal INFO log from HTTP API, does NOT block gRPC functionality.
+- **NetBird v0.70 missing MASQUERADE rule (CRITICAL):** NetBird v0.70.x sets FORWARD iptables rules
+  but does NOT add a POSTROUTING MASQUERADE rule for the VPN subnet (`100.64.0.0/10`). Without this,
+  traffic from external VPN peers (e.g., RemonPC at `100.78.x.x`) forwarded to VLAN3 retains the
+  VPN source IP. VLAN3 can't route back to VPN IPs → DNS (to 10.10.0.201) fails → DNS_PROBE_POSSIBLE.
+  **Fix:** `postStart` lifecycle hook in `client-daemonset.yaml` adds:
+  `iptables -t nat -A POSTROUTING -s 100.64.0.0/10 ! -d 100.64.0.0/10 -j MASQUERADE`
+  Verify: `kubectl exec -n netbird netbird-client-XXXX -- iptables -t nat -S POSTROUTING | grep 100.64`
+
 - **Cluster-internal DNS:** NetBird clients run inside the cluster and use cluster DNS (10.96.0.10).
   `netbird.rlservers.com` AND `api-netbird.rlservers.com` MUST be in
   `kubernetes/apps/dns/manifests/configmap.yaml` → `rlservers.com.hosts`.
