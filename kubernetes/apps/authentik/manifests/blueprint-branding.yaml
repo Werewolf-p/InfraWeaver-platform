@@ -24,6 +24,24 @@ data:
           title: Account Recovery
           designation: recovery
 
+      # Bind password-change-prompt stage (order 0) — shows new-password form
+      - model: authentik_flows.flowstagebinding
+        state: present
+        identifiers:
+          target: !Find [authentik_flows.flow, [slug, default-recovery-flow]]
+          stage: !Find [authentik_stages_prompt.promptstage, [name, default-password-change-prompt]]
+        attrs:
+          order: 0
+
+      # Bind user-write stage (order 10) — persists new password
+      - model: authentik_flows.flowstagebinding
+        state: present
+        identifiers:
+          target: !Find [authentik_flows.flow, [slug, default-recovery-flow]]
+          stage: !Find [authentik_stages_user_write.userwritestage, [name, default-password-change-write]]
+        attrs:
+          order: 10
+
       # Update the default brand with InfraWeaver theme + recovery flow
       - model: authentik_brands.brand
         state: present

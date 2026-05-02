@@ -45,6 +45,16 @@ configs:
       return hs
     # Local user accounts — passwords set by full-redeploy bootstrap (stored in OpenBao)
     accounts.remon: login
+    # OIDC via Authentik — client secret read from argocd-secret by ArgoCD
+    oidc.config: |
+      name: Authentik
+      issuer: https://auth.rlservers.com/application/o/argocd/
+      clientID: argocd
+      clientSecret: $oidc.authentik.clientSecret
+      requestedScopes:
+        - openid
+        - profile
+        - email
     # Override default exclusions: allow Endpoints/EndpointSlice so ArgoCD can manage
     # bare-metal backend Endpoints in the traefik namespace (external-routes app).
     resource.exclusions: |

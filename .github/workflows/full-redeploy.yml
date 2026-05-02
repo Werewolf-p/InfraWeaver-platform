@@ -1079,6 +1079,8 @@ jobs:
           AUTHENTIK_ADMIN_TOKEN=$(echo "$_AK_PY" | base64 -d | \
             kubectl --kubeconfig "$KB" exec -i -n authentik "$WORKER_POD" -- ak shell \
             2>&1 | grep "^TOKEN:" | sed 's/TOKEN://' || echo "")
+          # Persist token so the next step (OIDC bootstrap) can reuse it
+          echo "AUTHENTIK_ADMIN_TOKEN=${AUTHENTIK_ADMIN_TOKEN}" >> $GITHUB_ENV
           if [ -n "$AUTHENTIK_ADMIN_TOKEN" ]; then
             REMON_ID=$(curl -sf \
               -H "Authorization: Bearer $AUTHENTIK_ADMIN_TOKEN" \
@@ -1103,6 +1105,126 @@ jobs:
             fi
           else
             echo "⚠️ Could not get Authentik admin token for recovery email (non-critical)"
+          fi
+
+      - name: Configure OIDC for ArgoCD and OpenBao
+        if: success()
+        env:
+          AUTHENTIK_ADMIN_TOKEN: ${{ env.AUTHENTIK_ADMIN_TOKEN }}
+        run: |
+          KB=~/.kube/config-platform-${{ env.ENV_NAME }}
+          AUTHENTIK_URL="https://auth.rlservers.com"
+          TOKEN="$AUTHENTIK_ADMIN_TOKEN"
+
+          if [ -z "$TOKEN" ]; then
+            echo "⚠️ No Authentik token available — skipping OIDC bootstrap (non-critical)"
+            exit 0
+          fi
+
+          # ── Helper: wait for Authentik provider to exist ─────────────────
+          wait_for_provider() {
+            local name="$1"
+            for i in $(seq 1 20); do
+              COUNT=$(curl -sf \
+                -H "Authorization: Bearer $TOKEN" \
+                "${AUTHENTIK_URL}/api/v3/providers/oauth2/?name=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$name'))")" \
+                2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['pagination']['count'])" 2>/dev/null || echo 0)
+              if [ "$COUNT" -gt 0 ]; then return 0; fi
+              echo "  Waiting for Authentik provider '$name' ($i/20)..."
+              sleep 15
+            done
+            return 1
+          }
+
+          # ── Read ArgoCD client_secret ─────────────────────────────────────
+          echo "==> Fetching ArgoCD OAuth2 client_secret from Authentik..."
+          wait_for_provider "ArgoCD Provider"
+          ARGOCD_SECRET=$(curl -sf \
+            -H "Authorization: Bearer $TOKEN" \
+            "${AUTHENTIK_URL}/api/v3/providers/oauth2/?name=ArgoCD%20Provider" \
+            2>/dev/null | python3 -c "import sys,json; results=json.load(sys.stdin)['results']; print(results[0]['client_secret']) if results else print('')" 2>/dev/null || echo "")
+          if [ -z "$ARGOCD_SECRET" ]; then
+            echo "⚠️ Could not fetch ArgoCD client_secret — OIDC login will not work until fixed"
+          else
+            echo "✅ ArgoCD client_secret retrieved"
+            # Patch argocd-secret so ArgoCD picks it up for OIDC
+            ARGOCD_SECRET_B64=$(printf '%s' "$ARGOCD_SECRET" | base64 -w0)
+            kubectl --kubeconfig "$KB" patch secret argocd-secret -n argocd \
+              --type=merge \
+              -p "{\"data\": {\"oidc.authentik.clientSecret\": \"${ARGOCD_SECRET_B64}\"}}"
+            echo "✅ argocd-secret patched with OIDC client_secret"
+
+            # Store in OpenBao for reference
+            ROOT_TOKEN=$(kubectl --kubeconfig "$KB" get secret openbao-unseal -n openbao \
+              -o jsonpath='{.data.root_token}' 2>/dev/null | base64 -d || echo "")
+            if [ -n "$ROOT_TOKEN" ]; then
+              kubectl --kubeconfig "$KB" exec -n openbao openbao-0 -- \
+                env VAULT_TOKEN="$ROOT_TOKEN" VAULT_ADDR=http://127.0.0.1:8200 \
+                bao kv put secret/platform/argocd-oidc client_secret="$ARGOCD_SECRET" > /dev/null 2>&1 || true
+            fi
+          fi
+
+          # ── Read OpenBao client_secret ────────────────────────────────────
+          echo "==> Fetching OpenBao OAuth2 client_secret from Authentik..."
+          wait_for_provider "OpenBao Provider"
+          OPENBAO_SECRET=$(curl -sf \
+            -H "Authorization: Bearer $TOKEN" \
+            "${AUTHENTIK_URL}/api/v3/providers/oauth2/?name=OpenBao%20Provider" \
+            2>/dev/null | python3 -c "import sys,json; results=json.load(sys.stdin)['results']; print(results[0]['client_secret']) if results else print('')" 2>/dev/null || echo "")
+
+          # ── Configure OpenBao OIDC auth ───────────────────────────────────
+          if [ -z "$OPENBAO_SECRET" ]; then
+            echo "⚠️ Could not fetch OpenBao client_secret — OIDC auth will not work"
+          else
+            echo "✅ OpenBao client_secret retrieved"
+            ROOT_TOKEN=$(kubectl --kubeconfig "$KB" get secret openbao-unseal -n openbao \
+              -o jsonpath='{.data.root_token}' 2>/dev/null | base64 -d || echo "")
+            if [ -n "$ROOT_TOKEN" ]; then
+              BAO_POD=$(kubectl --kubeconfig "$KB" get pod -n openbao \
+                -l app.kubernetes.io/name=openbao --no-headers \
+                -o custom-columns=":metadata.name" 2>/dev/null | head -1 || echo "")
+              if [ -n "$BAO_POD" ]; then
+                echo "==> Enabling + configuring OpenBao OIDC auth method..."
+
+                # Enable oidc auth (idempotent)
+                kubectl --kubeconfig "$KB" exec -n openbao "$BAO_POD" -- \
+                  env VAULT_TOKEN="$ROOT_TOKEN" VAULT_ADDR=http://127.0.0.1:8200 \
+                  bao auth enable oidc 2>/dev/null || true
+
+                # Configure OIDC
+                kubectl --kubeconfig "$KB" exec -n openbao "$BAO_POD" -- \
+                  env VAULT_TOKEN="$ROOT_TOKEN" VAULT_ADDR=http://127.0.0.1:8200 \
+                  bao write auth/oidc/config \
+                    oidc_discovery_url="https://auth.rlservers.com/application/o/openbao/" \
+                    oidc_client_id="openbao" \
+                    oidc_client_secret="$OPENBAO_SECRET" \
+                    default_role="default"
+                echo "✅ OpenBao OIDC config written"
+
+                # Create admin policy if not exists
+                kubectl --kubeconfig "$KB" exec -n openbao "$BAO_POD" -- \
+                  env VAULT_TOKEN="$ROOT_TOKEN" VAULT_ADDR=http://127.0.0.1:8200 \
+                  sh -c 'bao policy read admin > /dev/null 2>&1 || bao policy write admin - <<EOF
+path "*" {
+  capabilities = ["create", "read", "update", "delete", "list", "sudo"]
+}
+EOF' 2>/dev/null || true
+
+                # Create default OIDC role for remon
+                kubectl --kubeconfig "$KB" exec -n openbao "$BAO_POD" -- \
+                  env VAULT_TOKEN="$ROOT_TOKEN" VAULT_ADDR=http://127.0.0.1:8200 \
+                  bao write auth/oidc/role/default \
+                    bound_audiences="openbao" \
+                    allowed_redirect_uris="https://openbao.int.rlservers.com/ui/vault/auth/oidc/oidc/callback" \
+                    allowed_redirect_uris="http://localhost:8250/oidc/callback" \
+                    user_claim="preferred_username" \
+                    policies="admin" \
+                    ttl=8h
+                echo "✅ OpenBao OIDC role 'default' created"
+              else
+                echo "⚠️ OpenBao pod not found — skipping OIDC auth setup"
+              fi
+            fi
           fi
 
       - name: Send deployment summary email

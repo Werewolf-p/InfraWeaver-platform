@@ -87,6 +87,7 @@ blueprints:
     - authentik-blueprint-branding
     - authentik-blueprint-netbird
     - authentik-blueprint-users
+    - authentik-blueprint-apps
 
 postgresql:
   enabled: true
