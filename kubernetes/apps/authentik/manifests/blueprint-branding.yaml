@@ -14,7 +14,17 @@ data:
     metadata:
       name: InfraWeaver Branding
     entries:
-      # Update the default brand with InfraWeaver theme
+      # Create a recovery flow so password reset emails can be sent
+      - model: authentik_flows.flow
+        state: present
+        identifiers:
+          slug: default-recovery-flow
+        attrs:
+          name: Default Recovery Flow
+          title: Account Recovery
+          designation: recovery
+
+      # Update the default brand with InfraWeaver theme + recovery flow
       - model: authentik_brands.brand
         state: present
         identifiers:
@@ -26,6 +36,7 @@ data:
           ui_user_settings_enabled: true
           default: true
           default_application: null
+          flow_recovery: !Find [authentik_flows.flow, [slug, default-recovery-flow]]
           branding_custom_css: |
             /* ── InfraWeaver — Space Aurora Theme ──────────────────────────── */
             /* Static aurora gradient background + glassmorphism card           */

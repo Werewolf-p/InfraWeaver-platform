@@ -210,6 +210,7 @@ echo "--- Enable NetBird service ---"
 sudo systemctl enable netbird
 
 echo "--- Join NetBird management ---"
+sudo netbird down 2>/dev/null || true
 sudo netbird up \
   --management-url "\$MGMT_URL" \
   --setup-key "\$SETUP_KEY" \
@@ -226,6 +227,51 @@ for i in \$(seq 1 12); do
   echo "  Waiting (attempt \$i/12)..."
   sleep 10
 done
+
+echo "--- Install NetBird reconnect watchdog ---"
+# Watchdog: if management disconnects (e.g. after cluster redeploy wipes DB),
+# automatically re-enroll using the setup key so routing resumes without manual intervention.
+sudo tee /usr/local/bin/netbird-reconnect.sh > /dev/null << 'WATCHDOG_EOF'
+#!/bin/bash
+# Re-enroll NetBird if management is disconnected
+MGMT_URL="MGMT_URL_PLACEHOLDER"
+SETUP_KEY="SETUP_KEY_PLACEHOLDER"
+CHECK_INTERVAL=60
+
+while true; do
+  sleep $CHECK_INTERVAL
+  STATUS=$(netbird status 2>/dev/null | grep -i "Management.*Connected" || echo "")
+  if [ -z "$STATUS" ]; then
+    logger -t netbird-watchdog "Management disconnected, attempting re-enroll..."
+    netbird down 2>/dev/null || true
+    sleep 3
+    netbird up --management-url "$MGMT_URL" --setup-key "$SETUP_KEY" --interface-name wt0 2>&1 | logger -t netbird-watchdog || true
+    sleep 30
+  fi
+done
+WATCHDOG_EOF
+sudo chmod +x /usr/local/bin/netbird-reconnect.sh
+sudo sed -i "s|MGMT_URL_PLACEHOLDER|\$MGMT_URL|g" /usr/local/bin/netbird-reconnect.sh
+sudo sed -i "s|SETUP_KEY_PLACEHOLDER|\$SETUP_KEY|g" /usr/local/bin/netbird-reconnect.sh
+
+sudo tee /etc/systemd/system/netbird-watchdog.service > /dev/null << 'SVC_EOF'
+[Unit]
+Description=NetBird management reconnect watchdog
+After=netbird.service
+Requires=netbird.service
+
+[Service]
+ExecStart=/usr/local/bin/netbird-reconnect.sh
+Restart=always
+RestartSec=10
+User=root
+
+[Install]
+WantedBy=multi-user.target
+SVC_EOF
+sudo systemctl daemon-reload
+sudo systemctl enable --now netbird-watchdog.service
+echo "NetBird watchdog service enabled"
 
 echo "--- NetBird status ---"
 sudo netbird status 2>/dev/null || true
