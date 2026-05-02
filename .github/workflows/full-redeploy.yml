@@ -1106,8 +1106,9 @@ print('TOKEN:' + t.key)
                 "https://auth.rlservers.com/api/v3/core/users/$REMON_ID/recovery/" \
                 2>/dev/null || echo "")
               if [ -n "$RECOVERY" ]; then
-                echo "✅ Recovery link generated for remon (link sent via deployment email)"
-                export AUTHENTIK_RECOVERY_LINK=$(echo "$RECOVERY" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('link',''))" 2>/dev/null || echo "")
+                echo "✅ Recovery link generated for remon (included in deployment email)"
+                AUTHENTIK_RECOVERY_LINK=$(echo "$RECOVERY" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('link',''))" 2>/dev/null || echo "")
+                echo "AUTHENTIK_RECOVERY_LINK=${AUTHENTIK_RECOVERY_LINK}" >> $GITHUB_ENV
               else
                 echo "⚠️ Recovery email request failed (non-critical)"
               fi
@@ -1124,6 +1125,7 @@ print('TOKEN:' + t.key)
           SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           SMTP_TO: ${{ secrets.SMTP_TO }}
+          AUTHENTIK_RECOVERY_LINK: ${{ env.AUTHENTIK_RECOVERY_LINK }}
         run: |
           KB=~/.kube/config-platform-${{ env.ENV_NAME }}
           export DEPLOY_ENV="${{ env.ENV_NAME }}"
@@ -1139,9 +1141,6 @@ print('TOKEN:' + t.key)
           BAO_ADDR="https://openbao.int.rlservers.com"
           export AUTHENTIK_ADMIN_PASS=$(kubectl --kubeconfig "$KB" exec -n openbao openbao-0 -- \
             sh -c "VAULT_TOKEN='$BAO_TOKEN' vault kv get -field=bootstrap-password secret/platform/authentik" \
-            2>/dev/null || echo "unavailable")
-          export AUTHENTIK_REMON_PASS=$(kubectl --kubeconfig "$KB" exec -n openbao openbao-0 -- \
-            sh -c "VAULT_TOKEN='$BAO_TOKEN' vault kv get -field=remon-password secret/platform/authentik" \
             2>/dev/null || echo "unavailable")
 
           python3 scripts/send-deploy-email.py

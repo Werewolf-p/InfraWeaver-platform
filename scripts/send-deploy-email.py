@@ -7,7 +7,7 @@ Environment variables:
   SMTP_USERNAME, SMTP_PASSWORD, SMTP_TO
   DEPLOY_ENV, DEPLOY_RUN_URL
   BAO_TOKEN, BAO_UNSEAL
-  AUTHENTIK_ADMIN_PASS, AUTHENTIK_REMON_PASS
+  AUTHENTIK_ADMIN_PASS, AUTHENTIK_RECOVERY_LINK
 """
 import smtplib, ssl, os, sys
 from datetime import datetime, timezone
@@ -25,7 +25,7 @@ run_url          = os.environ.get("DEPLOY_RUN_URL", "#")
 bao_token        = os.environ.get("BAO_TOKEN", "unavailable")
 bao_unseal       = os.environ.get("BAO_UNSEAL", "unavailable")
 auth_admin_pass  = os.environ.get("AUTHENTIK_ADMIN_PASS", "unavailable")
-auth_remon_pass  = os.environ.get("AUTHENTIK_REMON_PASS", "unavailable")
+auth_recovery    = os.environ.get("AUTHENTIK_RECOVERY_LINK", "")
 timestamp        = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
 homepage_url = "https://home.int.rlservers.com"
@@ -161,7 +161,7 @@ html = f"""\
               {field_row("Admin Email", "admin@rlservers.com")}
               {field_row("Admin Password", auth_admin_pass)}
               {field_row("Personal Login — Username", "remon")}
-              {field_row("Personal Login — Password", "A password reset link has been emailed to remonhulst@gmail.com — use it to set your own password.")}
+              {field_row("Personal Login — Set Password", f'<a href="{auth_recovery}" style="color:#9fef00;text-decoration:none;word-break:break-all;">{auth_recovery}</a>' if auth_recovery else "⚠️ Recovery link unavailable — use admin to reset manually")}
             </table>
           </td>
         </tr>
@@ -267,7 +267,7 @@ Run         : {run_url}
 STEP 1: Log in to Authentik SSO
   URL       : {auth_url}
   Admin     : admin@rlservers.com / {auth_admin_pass}
-  Personal  : remon / (password reset link sent to remonhulst@gmail.com)
+  Personal  : remon / set your password: {auth_recovery if auth_recovery else "(recovery link unavailable — reset via admin)"}
 
 STEP 2: Connect NetBird VPN
   Dashboard : {netbird_url}
