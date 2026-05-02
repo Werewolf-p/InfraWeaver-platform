@@ -1072,27 +1072,13 @@ jobs:
           # Send password reset link to remon (so they can set their own password securely)
           echo "==> Configuring recovery flow and sending password recovery link to remon..."
           # Create API token with INTENT_API (required for REST API auth with Bearer scheme)
-          # Also ensures recovery flow is configured on the default brand
-          AUTHENTIK_ADMIN_TOKEN=$(kubectl --kubeconfig "$KB" exec -n authentik "$WORKER_POD" -- ak shell -c "
-from authentik.core.models import Token, TokenIntents, User
-from authentik.brands.models import Brand
-from authentik.flows.models import Flow, FlowDesignation
-
-# Ensure recovery flow exists and is set on the brand
-flow, _ = Flow.objects.get_or_create(
-    slug='default-recovery-flow',
-    defaults={'name': 'Default Recovery Flow', 'title': 'Account Recovery', 'designation': FlowDesignation.RECOVERY}
-)
-for brand in Brand.objects.all():
-    brand.flow_recovery = flow
-    brand.save()
-
-# Delete any stale verification-intent tokens and create a fresh API-intent token
-Token.objects.filter(identifier='gh-actions-api-token').delete()
-admin = User.objects.get(username='akadmin')
-t = Token.objects.create(identifier='gh-actions-api-token', user=admin, description='GitHub Actions API token', intent=TokenIntents.INTENT_API, expiring=False)
-print('TOKEN:' + t.key)
-" 2>&1 | grep "^TOKEN:" | sed 's/TOKEN://' || echo "")
+          # Also ensures recovery flow is configured on the default brand.
+          # Base64-encoded Python avoids YAML column-0 parsing issues (multiline strings
+          # at indent-0 inside a YAML block scalar terminate the scalar prematurely).
+          _AK_PY="ZnJvbSBhdXRoZW50aWsuY29yZS5tb2RlbHMgaW1wb3J0IFRva2VuLCBUb2tlbkludGVudHMsIFVzZXIKZnJvbSBhdXRoZW50aWsuYnJhbmRzLm1vZGVscyBpbXBvcnQgQnJhbmQKZnJvbSBhdXRoZW50aWsuZmxvd3MubW9kZWxzIGltcG9ydCBGbG93LCBGbG93RGVzaWduYXRpb24KCmZsb3csIF8gPSBGbG93Lm9iamVjdHMuZ2V0X29yX2NyZWF0ZShzbHVnPSJkZWZhdWx0LXJlY292ZXJ5LWZsb3ciLCBkZWZhdWx0cz17Im5hbWUiOiAiRGVmYXVsdCBSZWNvdmVyeSBGbG93IiwgInRpdGxlIjogIkFjY291bnQgUmVjb3ZlcnkiLCAiZGVzaWduYXRpb24iOiBGbG93RGVzaWduYXRpb24uUkVDT1ZFUll9KQpmb3IgYnJhbmQgaW4gQnJhbmQub2JqZWN0cy5hbGwoKToKICAgIGJyYW5kLmZsb3dfcmVjb3ZlcnkgPSBmbG93CiAgICBicmFuZC5zYXZlKCkKClRva2VuLm9iamVjdHMuZmlsdGVyKGlkZW50aWZpZXI9ImdoLWFjdGlvbnMtYXBpLXRva2VuIikuZGVsZXRlKCkKYWRtaW4gPSBVc2VyLm9iamVjdHMuZ2V0KHVzZXJuYW1lPSJha2FkbWluIikKdCA9IFRva2VuLm9iamVjdHMuY3JlYXRlKGlkZW50aWZpZXI9ImdoLWFjdGlvbnMtYXBpLXRva2VuIiwgdXNlcj1hZG1pbiwgZGVzY3JpcHRpb249IkdpdEh1YiBBY3Rpb25zIEFQSSB0b2tlbiIsIGludGVudD1Ub2tlbkludGVudHMuSU5URU5UX0FQSSwgZXhwaXJpbmc9RmFsc2UpCnByaW50KCJUT0tFTjoiICsgdC5rZXkpCg=="
+          AUTHENTIK_ADMIN_TOKEN=$(echo "$_AK_PY" | base64 -d | \
+            kubectl --kubeconfig "$KB" exec -i -n authentik "$WORKER_POD" -- ak shell \
+            2>&1 | grep "^TOKEN:" | sed 's/TOKEN://' || echo "")
           if [ -n "$AUTHENTIK_ADMIN_TOKEN" ]; then
             REMON_ID=$(curl -sf \
               -H "Authorization: Bearer $AUTHENTIK_ADMIN_TOKEN" \
