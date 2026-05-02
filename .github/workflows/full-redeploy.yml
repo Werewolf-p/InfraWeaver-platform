@@ -1059,6 +1059,30 @@ jobs:
             "from authentik.core.models import User, Group; remon = User.objects.get(username='remon'); admins = Group.objects.get(name='authentik Admins'); admins.users.add(remon); print('OK: ' + remon.username + ' is now in ' + admins.name)"
           echo "✅ Authentik remon user added to authentik Admins group"
 
+          # Send password reset link to remon (so they can set their own password securely)
+          echo "==> Sending Authentik password recovery link to remon..."
+          AUTHENTIK_ADMIN_TOKEN=$(kubectl --kubeconfig "$KB" exec -n authentik "$WORKER_POD" -- ak shell -c \
+            "from authentik.core.models import Token, User; admin=User.objects.get(username='akadmin'); t,_=Token.objects.get_or_create(identifier='gh-actions-api-token',defaults={'user':admin,'description':'GitHub Actions API token','expiring':False}); print(t.key)" \
+            2>/dev/null || echo "")
+          if [ -n "$AUTHENTIK_ADMIN_TOKEN" ]; then
+            REMON_ID=$(curl -sf \
+              -H "Authorization: Bearer $AUTHENTIK_ADMIN_TOKEN" \
+              -H "Content-Type: application/json" \
+              "https://auth.rlservers.com/api/v3/core/users/?username=remon" \
+              2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['results'][0]['pk'])" 2>/dev/null || echo "")
+            if [ -n "$REMON_ID" ]; then
+              curl -sf -X POST \
+                -H "Authorization: Bearer $AUTHENTIK_ADMIN_TOKEN" \
+                -H "Content-Type: application/json" \
+                "https://auth.rlservers.com/api/v3/core/users/$REMON_ID/recovery/" \
+                2>/dev/null && echo "✅ Recovery email sent to remon" || echo "⚠️ Recovery email request failed (non-critical)"
+            else
+              echo "⚠️ Could not find remon user ID for recovery email (non-critical)"
+            fi
+          else
+            echo "⚠️ Could not get Authentik admin token for recovery email (non-critical)"
+          fi
+
       - name: Send deployment summary email
         if: always()
         env:

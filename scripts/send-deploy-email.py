@@ -161,7 +161,7 @@ html = f"""\
               {field_row("Admin Email", "admin@rlservers.com")}
               {field_row("Admin Password", auth_admin_pass)}
               {field_row("Personal Login — Username", "remon")}
-              {field_row("Personal Login — Password", auth_remon_pass)}
+              {field_row("Personal Login — Password", "A password reset link has been emailed to remonhulst@gmail.com — use it to set your own password.")}
             </table>
           </td>
         </tr>
@@ -267,7 +267,7 @@ Run         : {run_url}
 STEP 1: Log in to Authentik SSO
   URL       : {auth_url}
   Admin     : admin@rlservers.com / {auth_admin_pass}
-  Personal  : remon / {auth_remon_pass}
+  Personal  : remon / (password reset link sent to remonhulst@gmail.com)
 
 STEP 2: Connect NetBird VPN
   Dashboard : {netbird_url}

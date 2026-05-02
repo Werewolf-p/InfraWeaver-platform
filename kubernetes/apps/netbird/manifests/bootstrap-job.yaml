@@ -143,7 +143,7 @@ data:
       (id, account_id, network, domains, keep_route, net_id, description, peer, peer_groups,
        network_type, masquerade, metric, enabled, groups, access_control_groups, skip_auto_apply)
       VALUES ('rte00000-0000-4000-a000-000000000001', ?, ?, '[]', 0,
-       'cluster-net', 'Cluster network route', NULL, ?, 0, 1, 9999, 1, ?, '[]', 0)""",
+       'homelab-net', 'Homelab management network route (10.25.0.0/24)', NULL, ?, 0, 1, 9999, 1, ?, '[]', 0)""",
       (ACC, json.dumps("10.25.0.0/24"), json.dumps([GRP_ROUTING]), json.dumps([GRP])))
     print("Route upserted: 10.25.0.0/24 via routing-peers-vlan3 group")
 

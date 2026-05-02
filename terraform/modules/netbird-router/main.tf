@@ -181,6 +181,24 @@ grep -q "net.ipv4.ip_forward=1" /etc/sysctl.conf 2>/dev/null || echo "net.ipv4.i
 sudo sysctl -w net.ipv4.ip_forward=1
 echo "IP forwarding enabled"
 
+echo "--- Persistent MASQUERADE for VPN routing ---"
+sudo tee /etc/systemd/system/netbird-masq.service > /dev/null << 'MASQ_EOF'
+[Unit]
+Description=NetBird MASQUERADE rules for VPN routing
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'iptables -t nat -C POSTROUTING -s 100.64.0.0/10 ! -d 100.64.0.0/10 -j MASQUERADE 2>/dev/null || iptables -t nat -A POSTROUTING -s 100.64.0.0/10 ! -d 100.64.0.0/10 -j MASQUERADE'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+MASQ_EOF
+sudo systemctl daemon-reload
+sudo systemctl enable --now netbird-masq.service
+echo "MASQUERADE service enabled"
+
 echo "--- Install NetBird ---"
 if ! command -v netbird &>/dev/null; then
   curl -fsSL https://pkgs.netbird.io/install.sh | sudo bash

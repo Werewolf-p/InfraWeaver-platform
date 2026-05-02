@@ -190,7 +190,7 @@ module "netbird_routers" {
   router_ssh_keys              = local.service_ssh_keys
 
   # Management URL is reachable from VLAN3 (Traefik at 10.10.0.200 serves int.rlservers.com)
-  netbird_management_url = "https://netbird.int.rlservers.com"
+  netbird_management_url = "http://10.10.0.202"
 
   depends_on = [module.cloud_init_templates]
 }
