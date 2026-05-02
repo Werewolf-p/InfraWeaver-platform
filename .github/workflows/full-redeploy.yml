@@ -1098,13 +1098,14 @@ jobs:
         if: success()
         run: |
           KB=~/.kube/config-platform-${{ env.ENV_NAME }}
+          KT="kubectl --kubeconfig $KB --insecure-skip-tls-verify"
 
           # Wait for Authentik worker to be ready — replaces separate ArgoCD health check + rollout
           # Directly polls the deployment readyReplicas (10s intervals, up to 12 minutes).
           # Faster than waiting for ArgoCD app health first (saves the ArgoCD health loop overhead).
           echo "==> Waiting for Authentik worker deployment to be ready..."
           for i in $(seq 1 120); do
-            READY=$(kubectl --kubeconfig "$KB" get deployment/authentik-worker \
+            READY=$($KT get deployment/authentik-worker \
               -n authentik -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
             if [ "${READY:-0}" -ge 1 ]; then
               echo "  [${i}/120] Authentik worker ready ($READY replicas)"
@@ -1118,12 +1119,12 @@ jobs:
           # Authentik 2026.x uses Group.is_superuser for admin access — not User.is_superuser.
           # Blueprints cannot reliably set group membership, so we do it here post-deploy.
           # Retry loop: blueprints create the user async; worker may be ready before user exists.
-          WORKER_POD=$(kubectl --kubeconfig "$KB" get pod -n authentik \
+          WORKER_POD=$($KT get pod -n authentik \
             -l app.kubernetes.io/component=worker \
             -o jsonpath='{.items[0].metadata.name}')
           echo "==> Waiting for remon user to be created by blueprint (pod: $WORKER_POD)..."
           for i in $(seq 1 60); do
-            USER_EXISTS=$(kubectl --kubeconfig "$KB" exec -n authentik "$WORKER_POD" -- ak shell -c \
+            USER_EXISTS=$($KT exec -n authentik "$WORKER_POD" -- ak shell -c \
               "from authentik.core.models import User; print('yes' if User.objects.filter(username='remon').exists() else 'no')" \
               2>/dev/null || echo "no")
             echo "  [${i}/60] remon user exists: $USER_EXISTS"
@@ -1131,33 +1132,39 @@ jobs:
             sleep 10
           done
           echo "==> Adding remon to authentik Admins group (pod: $WORKER_POD)"
-          kubectl --kubeconfig "$KB" exec -n authentik "$WORKER_POD" -- ak shell -c \
+          $KT exec -n authentik "$WORKER_POD" -- ak shell -c \
             "from authentik.core.models import User, Group; remon = User.objects.get(username='remon'); admins = Group.objects.get(name='authentik Admins'); admins.users.add(remon); print('OK: ' + remon.username + ' is now in ' + admins.name)"
           echo "✅ Authentik remon user added to authentik Admins group"
 
           # Send password reset link to remon (so they can set their own password securely)
-          echo "==> Configuring recovery flow and sending password recovery link to remon..."
+          echo "==> Configuring recovery flow and getting password recovery link for remon..."
           # Create API token with INTENT_API (required for REST API auth with Bearer scheme)
           # Also ensures recovery flow is configured on the default brand.
           # Base64-encoded Python avoids YAML column-0 parsing issues (multiline strings
           # at indent-0 inside a YAML block scalar terminate the scalar prematurely).
           _AK_PY="ZnJvbSBhdXRoZW50aWsuY29yZS5tb2RlbHMgaW1wb3J0IFRva2VuLCBUb2tlbkludGVudHMsIFVzZXIKZnJvbSBhdXRoZW50aWsuYnJhbmRzLm1vZGVscyBpbXBvcnQgQnJhbmQKZnJvbSBhdXRoZW50aWsuZmxvd3MubW9kZWxzIGltcG9ydCBGbG93LCBGbG93RGVzaWduYXRpb24KCmZsb3csIF8gPSBGbG93Lm9iamVjdHMuZ2V0X29yX2NyZWF0ZShzbHVnPSJkZWZhdWx0LXJlY292ZXJ5LWZsb3ciLCBkZWZhdWx0cz17Im5hbWUiOiAiRGVmYXVsdCBSZWNvdmVyeSBGbG93IiwgInRpdGxlIjogIkFjY291bnQgUmVjb3ZlcnkiLCAiZGVzaWduYXRpb24iOiBGbG93RGVzaWduYXRpb24uUkVDT1ZFUll9KQpmb3IgYnJhbmQgaW4gQnJhbmQub2JqZWN0cy5hbGwoKToKICAgIGJyYW5kLmZsb3dfcmVjb3ZlcnkgPSBmbG93CiAgICBicmFuZC5zYXZlKCkKClRva2VuLm9iamVjdHMuZmlsdGVyKGlkZW50aWZpZXI9ImdoLWFjdGlvbnMtYXBpLXRva2VuIikuZGVsZXRlKCkKYWRtaW4gPSBVc2VyLm9iamVjdHMuZ2V0KHVzZXJuYW1lPSJha2FkbWluIikKdCA9IFRva2VuLm9iamVjdHMuY3JlYXRlKGlkZW50aWZpZXI9ImdoLWFjdGlvbnMtYXBpLXRva2VuIiwgdXNlcj1hZG1pbiwgZGVzY3JpcHRpb249IkdpdEh1YiBBY3Rpb25zIEFQSSB0b2tlbiIsIGludGVudD1Ub2tlbkludGVudHMuSU5URU5UX0FQSSwgZXhwaXJpbmc9RmFsc2UpCnByaW50KCJUT0tFTjoiICsgdC5rZXkpCg=="
           AUTHENTIK_ADMIN_TOKEN=$(echo "$_AK_PY" | base64 -d | \
-            kubectl --kubeconfig "$KB" exec -i -n authentik "$WORKER_POD" -- ak shell \
+            $KT exec -i -n authentik "$WORKER_POD" -- ak shell \
             2>&1 | grep "^TOKEN:" | sed 's/TOKEN://' || echo "")
           # Persist token so the next step (OIDC bootstrap) can reuse it
           echo "AUTHENTIK_ADMIN_TOKEN=${AUTHENTIK_ADMIN_TOKEN}" >> $GITHUB_ENV
+
+          # Start port-forward for Authentik API access (avoids TLS cert validation issues)
+          $KT port-forward svc/authentik-server -n authentik 8089:80 > /tmp/authentik-pf-setup.log 2>&1 &
+          SETUP_PF_PID=$!
+          sleep 4
+
           if [ -n "$AUTHENTIK_ADMIN_TOKEN" ]; then
             REMON_ID=$(curl -sf \
               -H "Authorization: Bearer $AUTHENTIK_ADMIN_TOKEN" \
               -H "Content-Type: application/json" \
-              "https://auth.rlservers.com/api/v3/core/users/?username=remon" \
+              "http://localhost:8089/api/v3/core/users/?username=remon" \
               2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['results'][0]['pk'])" 2>/dev/null || echo "")
             if [ -n "$REMON_ID" ]; then
               RECOVERY=$(curl -sf -X POST \
                 -H "Authorization: Bearer $AUTHENTIK_ADMIN_TOKEN" \
                 -H "Content-Type: application/json" \
-                "https://auth.rlservers.com/api/v3/core/users/$REMON_ID/recovery/" \
+                "http://localhost:8089/api/v3/core/users/$REMON_ID/recovery/" \
                 2>/dev/null || echo "")
               if [ -n "$RECOVERY" ]; then
                 echo "✅ Recovery link generated for remon (included in deployment email)"
@@ -1172,6 +1179,7 @@ jobs:
           else
             echo "⚠️ Could not get Authentik admin token for recovery email (non-critical)"
           fi
+          kill $SETUP_PF_PID 2>/dev/null || true
 
       - name: Configure OIDC for ArgoCD and OpenBao
         if: success()
@@ -1179,13 +1187,20 @@ jobs:
           AUTHENTIK_ADMIN_TOKEN: ${{ env.AUTHENTIK_ADMIN_TOKEN }}
         run: |
           KB=~/.kube/config-platform-${{ env.ENV_NAME }}
-          AUTHENTIK_URL="https://auth.rlservers.com"
           TOKEN="$AUTHENTIK_ADMIN_TOKEN"
+          KT="kubectl --kubeconfig $KB --insecure-skip-tls-verify"
 
           if [ -z "$TOKEN" ]; then
             echo "⚠️ No Authentik token available — skipping OIDC bootstrap (non-critical)"
             exit 0
           fi
+
+          # ── Port-forward Authentik server for TLS-free API access ────────
+          $KT port-forward svc/authentik-server -n authentik 8088:80 > /tmp/authentik-pf.log 2>&1 &
+          AUTHENTIK_PF_PID=$!
+          sleep 5
+          AUTHENTIK_URL="http://localhost:8088"
+          echo "Authentik API available at $AUTHENTIK_URL (port-forward PID=$AUTHENTIK_PF_PID)"
 
           # ── Helper: wait for Authentik provider to exist ─────────────────
           wait_for_provider() {
@@ -1215,16 +1230,16 @@ jobs:
             echo "✅ ArgoCD client_secret retrieved"
             # Patch argocd-secret so ArgoCD picks it up for OIDC
             ARGOCD_SECRET_B64=$(printf '%s' "$ARGOCD_SECRET" | base64 -w0)
-            kubectl --kubeconfig "$KB" patch secret argocd-secret -n argocd \
+            $KT patch secret argocd-secret -n argocd \
               --type=merge \
               -p "{\"data\": {\"oidc.authentik.clientSecret\": \"${ARGOCD_SECRET_B64}\"}}"
             echo "✅ argocd-secret patched with OIDC client_secret"
 
             # Store in OpenBao for reference
-            ROOT_TOKEN=$(kubectl --kubeconfig "$KB" get secret openbao-unseal -n openbao \
+            ROOT_TOKEN=$($KT get secret openbao-unseal -n openbao \
               -o jsonpath='{.data.root_token}' 2>/dev/null | base64 -d || echo "")
             if [ -n "$ROOT_TOKEN" ]; then
-              kubectl --kubeconfig "$KB" exec -n openbao openbao-0 -- \
+              $KT exec -n openbao openbao-0 -- \
                 env VAULT_TOKEN="$ROOT_TOKEN" VAULT_ADDR=http://127.0.0.1:8200 \
                 bao kv put secret/platform/argocd-oidc client_secret="$ARGOCD_SECRET" > /dev/null 2>&1 || true
             fi
@@ -1243,22 +1258,35 @@ jobs:
             echo "⚠️ Could not fetch OpenBao client_secret — OIDC auth will not work"
           else
             echo "✅ OpenBao client_secret retrieved"
-            ROOT_TOKEN=$(kubectl --kubeconfig "$KB" get secret openbao-unseal -n openbao \
+            ROOT_TOKEN=$($KT get secret openbao-unseal -n openbao \
               -o jsonpath='{.data.root_token}' 2>/dev/null | base64 -d || echo "")
             if [ -n "$ROOT_TOKEN" ]; then
-              BAO_POD=$(kubectl --kubeconfig "$KB" get pod -n openbao \
+              BAO_POD=$($KT get pod -n openbao \
                 -l app.kubernetes.io/name=openbao --no-headers \
                 -o custom-columns=":metadata.name" 2>/dev/null | head -1 || echo "")
               if [ -n "$BAO_POD" ]; then
+                # Wait for TLS cert to be ready so OpenBao can validate the discovery URL
+                echo "==> Waiting for auth.rlservers.com TLS cert (up to 10 min)..."
+                for i in $(seq 1 60); do
+                  CERT_READY=$($KT get certificate rlservers-com-wildcard -n traefik \
+                    -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "")
+                  if [ "$CERT_READY" = "True" ]; then
+                    echo "  ✅ TLS cert ready — proceeding with OpenBao OIDC config"
+                    break
+                  fi
+                  echo "  Waiting for TLS cert ($i/60)..."
+                  sleep 10
+                done
+
                 echo "==> Enabling + configuring OpenBao OIDC auth method..."
 
                 # Enable oidc auth (idempotent)
-                kubectl --kubeconfig "$KB" exec -n openbao "$BAO_POD" -- \
+                $KT exec -n openbao "$BAO_POD" -- \
                   env VAULT_TOKEN="$ROOT_TOKEN" VAULT_ADDR=http://127.0.0.1:8200 \
                   bao auth enable oidc 2>/dev/null || true
 
                 # Configure OIDC
-                kubectl --kubeconfig "$KB" exec -n openbao "$BAO_POD" -- \
+                $KT exec -n openbao "$BAO_POD" -- \
                   env VAULT_TOKEN="$ROOT_TOKEN" VAULT_ADDR=http://127.0.0.1:8200 \
                   bao write auth/oidc/config \
                     oidc_discovery_url="https://auth.rlservers.com/application/o/openbao/" \
@@ -1269,12 +1297,12 @@ jobs:
 
                 # Create admin policy if not exists (policy passed via base64 to avoid column-0 YAML issue)
                 ADMIN_POLICY_B64=$(printf 'path "*" {\n  capabilities = ["create", "read", "update", "delete", "list", "sudo"]\n}' | base64 -w0)
-                kubectl --kubeconfig "$KB" exec -n openbao "$BAO_POD" -- \
+                $KT exec -n openbao "$BAO_POD" -- \
                   env VAULT_TOKEN="$ROOT_TOKEN" VAULT_ADDR=http://127.0.0.1:8200 \
                   sh -c "bao policy read admin > /dev/null 2>&1 || echo $ADMIN_POLICY_B64 | base64 -d | bao policy write admin -" 2>/dev/null || true
 
                 # Create default OIDC role for remon
-                kubectl --kubeconfig "$KB" exec -n openbao "$BAO_POD" -- \
+                $KT exec -n openbao "$BAO_POD" -- \
                   env VAULT_TOKEN="$ROOT_TOKEN" VAULT_ADDR=http://127.0.0.1:8200 \
                   bao write auth/oidc/role/default \
                     bound_audiences="openbao" \
@@ -1289,6 +1317,9 @@ jobs:
               fi
             fi
           fi
+
+          # ── Cleanup port-forward ──────────────────────────────────────────
+          kill $AUTHENTIK_PF_PID 2>/dev/null || true
 
       - name: Run post-deploy tests
         run: |
