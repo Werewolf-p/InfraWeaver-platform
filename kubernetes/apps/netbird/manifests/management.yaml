@@ -87,7 +87,7 @@ spec:
             - -c
             - |
               echo "Waiting for Authentik OIDC endpoint..."
-              until curl -sf --max-time 5 "https://auth.rlservers.com/application/o/netbird/.well-known/openid-configuration" > /dev/null 2>&1; do
+              until curl -sfk --max-time 5 "https://auth.rlservers.com/application/o/netbird/.well-known/openid-configuration" > /dev/null 2>&1; do
                 echo "OIDC endpoint not ready, retrying in 5s..."
                 sleep 5
               done
