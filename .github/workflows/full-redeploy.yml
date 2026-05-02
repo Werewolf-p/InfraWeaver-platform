@@ -820,7 +820,11 @@ jobs:
           # Close port-forward before kubectl operations
           kill $PF_PID 2>/dev/null || true
 
-          # Wait for ESO to be ready (deployed by ArgoCD)
+      - name: Bootstrap ExternalSecrets + TLS Restore
+        if: success()
+        run: |
+          ENV=${{ env.ENV_NAME }}
+          KB=~/.kube/config-platform-$ENV
           echo "==> Waiting for ESO deployment..."
           for i in $(seq 1 30); do
             if kubectl --kubeconfig "$KB" get deployment external-secrets -n external-secrets >/dev/null 2>&1; then break; fi
