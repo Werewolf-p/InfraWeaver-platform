@@ -1201,14 +1201,11 @@ jobs:
                     default_role="default"
                 echo "✅ OpenBao OIDC config written"
 
-                # Create admin policy if not exists
+                # Create admin policy if not exists (policy passed via base64 to avoid column-0 YAML issue)
+                ADMIN_POLICY_B64=$(printf 'path "*" {\n  capabilities = ["create", "read", "update", "delete", "list", "sudo"]\n}' | base64 -w0)
                 kubectl --kubeconfig "$KB" exec -n openbao "$BAO_POD" -- \
                   env VAULT_TOKEN="$ROOT_TOKEN" VAULT_ADDR=http://127.0.0.1:8200 \
-                  sh -c 'bao policy read admin > /dev/null 2>&1 || bao policy write admin - <<EOF
-path "*" {
-  capabilities = ["create", "read", "update", "delete", "list", "sudo"]
-}
-EOF' 2>/dev/null || true
+                  sh -c "bao policy read admin > /dev/null 2>&1 || echo $ADMIN_POLICY_B64 | base64 -d | bao policy write admin -" 2>/dev/null || true
 
                 # Create default OIDC role for remon
                 kubectl --kubeconfig "$KB" exec -n openbao "$BAO_POD" -- \
