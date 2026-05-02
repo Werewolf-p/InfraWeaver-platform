@@ -956,17 +956,9 @@ jobs:
             [ -f "$secret_file" ] || continue
             SECRET_NAME=$(basename "$secret_file" .yaml)
             # Strip resource version and uid so kubectl apply doesn't conflict
-            python3 -c "
-import sys, yaml, copy
-with open('$secret_file') as f:
-    doc = yaml.safe_load(f)
-if doc and doc.get('metadata'):
-    for field in ['resourceVersion', 'uid', 'creationTimestamp', 'managedFields', 'annotations']:
-        doc['metadata'].pop(field, None)
-    if doc['metadata'].get('annotations'):
-        doc['metadata']['annotations'].pop('kubectl.kubernetes.io/last-applied-configuration', None)
-print(yaml.dump(doc))
-" | kubectl --kubeconfig "$KB" apply -f - 2>/dev/null && \
+            cat "$secret_file" | \
+              jq 'del(.metadata.resourceVersion,.metadata.uid,.metadata.creationTimestamp,.metadata.managedFields,.metadata.annotations["kubectl.kubernetes.io/last-applied-configuration"])' \
+              | kubectl --kubeconfig "$KB" apply -f - 2>/dev/null && \
               echo "  ✅ Restored: $SECRET_NAME" || \
               echo "  ⚠ Could not restore $SECRET_NAME (cert-manager will issue fresh cert)"
           done
