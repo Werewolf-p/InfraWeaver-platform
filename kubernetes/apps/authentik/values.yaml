@@ -52,12 +52,12 @@ global:
     - name: AUTHENTIK_EMAIL__USERNAME
       valueFrom:
         secretKeyRef:
-          name: authentik-secrets
+          name: authentik-smtp-secret
           key: smtp-username
     - name: AUTHENTIK_EMAIL__PASSWORD
       valueFrom:
         secretKeyRef:
-          name: authentik-secrets
+          name: authentik-smtp-secret
           key: smtp-password
 
 authentik:

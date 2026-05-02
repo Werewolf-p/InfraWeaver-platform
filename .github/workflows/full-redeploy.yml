@@ -759,17 +759,6 @@ jobs:
             echo "⚠ CLOUDFLARE_API_TOKEN secret not set — cert-manager DNS-01 will fail"
           fi
 
-          # SMTP: store credentials from GitHub secrets into OpenBao (idempotent, always refresh)
-          if [ -n "${{ secrets.SMTP_USERNAME }}" ] && [ -n "${{ secrets.SMTP_PASSWORD }}" ]; then
-            curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/platform/smtp" \
-              -H "X-Vault-Token: $ROOT_TOKEN" \
-              -H "Content-Type: application/json" \
-              -d "{\"data\": {\"smtp-username\": \"${{ secrets.SMTP_USERNAME }}\", \"smtp-password\": \"${{ secrets.SMTP_PASSWORD }}\"}}" > /dev/null
-            echo "==> SMTP credentials stored in OpenBao (platform/smtp)"
-          else
-            echo "⚠ SMTP_USERNAME or SMTP_PASSWORD secret not set — Authentik email will not work"
-          fi
-
                     # Write least-privilege policy for ESO (use env to properly pass VAULT_TOKEN/VAULT_ADDR)
           kubectl --kubeconfig "$KB" exec -n openbao openbao-0 -- \
             env VAULT_TOKEN="$ROOT_TOKEN" VAULT_ADDR=http://127.0.0.1:8200 sh -c \
@@ -874,6 +863,16 @@ jobs:
             --dry-run=client -o yaml > "$TMP4"
           kube_apply_retry "$KB" "$TMP4"
           rm -f "$TMP1" "$TMP2" "$TMP3" "$TMP4"
+
+          # Create authentik namespace + SMTP secret directly from GitHub secrets (no OpenBao round-trip)
+          kubectl --kubeconfig "$KB" create namespace authentik \
+            --dry-run=client -o yaml | kubectl --kubeconfig "$KB" apply -f - 2>/dev/null || true
+          kubectl --kubeconfig "$KB" create secret generic authentik-smtp-secret \
+            --namespace authentik \
+            --from-literal=smtp-username="${{ secrets.SMTP_USERNAME }}" \
+            --from-literal=smtp-password="${{ secrets.SMTP_PASSWORD }}" \
+            --dry-run=client -o yaml | kubectl --kubeconfig "$KB" apply -f -
+          echo "==> Authentik SMTP secret created in namespace authentik"
 
           # Apply ExternalSecret for Grafana (apps-grafana namespace)
           TMP_ES=$(mktemp)
