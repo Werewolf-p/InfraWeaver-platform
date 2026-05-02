@@ -128,6 +128,17 @@ redis:
 server:
   ingress:
     enabled: false
+  # Give enough time for Django migrations on a fresh DB (292+ migrations)
+  livenessProbe:
+    enabled: true
+    initialDelaySeconds: 120
+    periodSeconds: 10
+    failureThreshold: 30
+  readinessProbe:
+    enabled: true
+    initialDelaySeconds: 120
+    periodSeconds: 10
+    failureThreshold: 30
   resources:
     requests:
       cpu: 200m
@@ -137,6 +148,17 @@ server:
       memory: 1Gi
 
 worker:
+  # Give enough time for Django migrations on a fresh DB (292+ migrations)
+  livenessProbe:
+    enabled: true
+    initialDelaySeconds: 120
+    periodSeconds: 10
+    failureThreshold: 30
+  readinessProbe:
+    enabled: true
+    initialDelaySeconds: 120
+    periodSeconds: 10
+    failureThreshold: 30
   resources:
     requests:
       cpu: 100m

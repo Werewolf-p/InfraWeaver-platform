@@ -159,16 +159,13 @@ jobs:
           mkdir -p "$BACKUP_DIR"
           echo "==> Backing up TLS secrets to $BACKUP_DIR..."
           for secret in rlservers-com-wildcard-tls int-rlservers-com-tls; do
-            if kubectl --kubeconfig "$KB" get secret "$secret" -n traefik -o yaml 2>/dev/null > "$BACKUP_DIR/${secret}.yaml"; then
-              SIZE=$(wc -c < "$BACKUP_DIR/${secret}.yaml")
-              if [ "$SIZE" -gt 100 ]; then
-                echo "  ✅ Backed up: $secret (${SIZE} bytes)"
-              else
-                rm -f "$BACKUP_DIR/${secret}.yaml"
-                echo "  ⚠ Skipped (empty): $secret"
-              fi
+            YAML=$(kubectl --kubeconfig "$KB" --insecure-skip-tls-verify get secret "$secret" -n traefik -o yaml 2>/dev/null || echo "")
+            SIZE=${#YAML}
+            if [ "$SIZE" -gt 100 ]; then
+              echo "$YAML" > "$BACKUP_DIR/${secret}.yaml"
+              echo "  ✅ Backed up: $secret (${SIZE} bytes)"
             else
-              echo "  ⚠ $secret not found in cluster (will be created fresh)"
+              echo "  ⚠ $secret not found or empty in cluster (will be created fresh)"
             fi
           done
           ls -la "$BACKUP_DIR/" 2>/dev/null || true
@@ -1296,6 +1293,33 @@ jobs:
       - name: Run post-deploy tests
         run: |
           bash scripts/test-post-deploy.sh ~/.kube/config-platform-${{ env.ENV_NAME }} ${{ env.ENV_NAME }} || true
+
+      - name: Refresh TLS secret backup
+        if: success()
+        run: |
+          KB=~/.kube/config-platform-${{ env.ENV_NAME }}
+          BACKUP_DIR=/opt/platform-tls-backup
+          mkdir -p "$BACKUP_DIR"
+          echo "==> Waiting for TLS certs to be issued (up to 15 min)..."
+          for i in $(seq 1 90); do
+            READY=$(kubectl --kubeconfig "$KB" --insecure-skip-tls-verify get certificate \
+              rlservers-com-wildcard -n traefik -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "")
+            if [ "$READY" = "True" ]; then
+              echo "  ✅ TLS cert is ready — saving backup"
+              break
+            fi
+            echo "  Waiting for TLS cert ($i/90)..."
+            sleep 10
+          done
+          for secret in rlservers-com-wildcard-tls int-rlservers-com-tls; do
+            YAML=$(kubectl --kubeconfig "$KB" --insecure-skip-tls-verify get secret "$secret" -n traefik -o yaml 2>/dev/null || echo "")
+            if [ "${#YAML}" -gt 100 ]; then
+              echo "$YAML" > "$BACKUP_DIR/${secret}.yaml"
+              echo "  ✅ Backup updated: $secret (${#YAML} bytes)"
+            else
+              echo "  ⚠ $secret not available for backup"
+            fi
+          done
 
       - name: Send deployment summary email
         if: always()
