@@ -281,3 +281,64 @@ Both routes use `routing-peers-vlan3` as `peer_groups` (NOT "All"):
 Access group (`groups`) = All — all VPN peers can use these routes.
 Using "All" as peer_groups for 10.25.0.0/24 was a bug — caused user's phone/PC to advertise
 cluster routes, breaking routing when those devices are offline.
+# Post-Redeploy Reliability Fixes (May 2026)
+
+## Issues Fixed
+
+### 1. Authentik API Token Intent (CRITICAL)
+- `Token.objects.get_or_create()` with no `intent` field creates `INTENT_VERIFICATION` tokens
+- These DO NOT work with `Authorization: Bearer <token>` REST API calls
+- Must use `TokenIntents.INTENT_API` for API tokens:
+  ```python
+  from authentik.core.models import Token, TokenIntents, User
+  Token.objects.filter(identifier='gh-actions-api-token').delete()
+  t = Token.objects.create(identifier='...', user=admin, intent=TokenIntents.INTENT_API, expiring=False)
+  ```
+- **Fixed in**: `full-redeploy.yml` recovery email step
+
+### 2. Authentik Recovery Flow Missing
+- Password recovery API (`POST /api/v3/core/users/{id}/recovery/`) requires a recovery flow
+- A flow with `designation=FlowDesignation.RECOVERY` must exist AND be set on the brand
+- **Fixed in**: `blueprint-branding.yaml` now creates `default-recovery-flow` and sets it on the brand
+- Without this: `{"non_field_errors":"No recovery flow set."}` 400 error
+
+### 3. cert-manager ClusterIssuers Not Persisted
+- `letsencrypt-http`, `letsencrypt-cloudflare`, `selfsigned-issuer` were in `kubernetes/core/cert-manager/manifests/`
+- But there was NO ArgoCD app pointing to that path!
+- After redeploy, they were missing → wildcard cert couldn't be issued → Authentik broken → NetBird stuck in init
+- **Fixed**: Created `kubernetes/bootstrap/core-cert-manager-manifests.yaml` ArgoCD app
+- App: `core-cert-manager-manifests`, path: `kubernetes/core/cert-manager/manifests/`
+
+### 4. NetBird Router VM Disconnects After Redeploy
+- Full redeploy wipes local-path PVC data (SQLite DB) → old peer key rejected
+- **Fixed**: Added `netbird-watchdog.service` to router VM
+  - Polls every 60s, detects disconnect, auto re-enrolls with setup key
+  - Service: `/usr/local/bin/netbird-reconnect.sh` → `/etc/systemd/system/netbird-watchdog.service`
+  - Also added `netbird down` before `netbird up` in Terraform configure script
+
+### 5. NetBird API Path (Not /api/v1)
+- NetBird management REST API is at `/api/` prefix, NOT `/api/v1/`
+- Correct: `GET /api/peers`, `GET /api/routes`, `GET /api/dns/nameservers`
+- Wrong: `GET /api/v1/peers` (returns 404 page not found)
+
+## Current State (Post-Fix)
+
+### Platform Status
+- ✅ OIDC endpoint: `https://auth.rlservers.com/application/o/netbird/.well-known/openid-configuration`
+- ✅ NetBird API: `https://api-netbird.rlservers.com/api/peers` (1 peer: router VM online)
+- ✅ Routes: `homelab-net` (10.25.0.0/24) + `vlan3-net` (10.10.0.0/24)
+- ✅ DNS groups: prod-local, rlservers-com, int-rlservers-com all → 10.10.0.201
+- ✅ Recovery flow: `default-recovery-flow` set on brand `authentik-default`
+- ✅ Branding: title="rlservers.com", logo/favicon set
+- ✅ ClusterIssuers: all 3 Ready and managed by ArgoCD `core-cert-manager-manifests`
+- ✅ Watchdog service running on router VM (10.10.0.10)
+
+### PAT Token Location
+- K8s secret: `kubectl get secret netbird-secrets -n netbird -o jsonpath='{.data.netbird-pat-token}' | base64 -d`
+- Current: `nbp_lPRAdJBQ...` (use `Token` header for NetBird API)
+
+### Router VM
+- IP: 10.10.0.10 (VLAN3 static)
+- NetBird IP: 100.119.13.113 (changes on re-enroll but that's fine)
+- Groups: All, routing-peers-vlan3
+- Services: netbird, netbird-masq (MASQUERADE), netbird-watchdog (auto re-enroll)
