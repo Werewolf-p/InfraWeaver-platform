@@ -1,5 +1,5 @@
 global:
-  domain: argocd.prod.local
+  domain: argocd.int.rlservers.com
 
 server:
   replicas: 1  # override to 2 for productie via env patch
@@ -7,17 +7,10 @@ server:
     - --insecure  # TLS terminated at ingress
 
   ingress:
-    enabled: true
-    ingressClassName: traefik
-    hosts:
-      - argocd.prod.local
-      - argocd.rlservers.com
-    paths:
-      - /
-    pathType: Prefix
-    annotations:
-      traefik.ingress.kubernetes.io/router.entrypoints: websecure
-      traefik.ingress.kubernetes.io/router.middlewares: traefik-netbird-only@kubernetescrd
+    # Ingress disabled — routing handled by Traefik IngressRoute in external-routes
+    # (kubernetes/apps/external-routes/manifests/10-routes-vpn-only.yaml → argocd-int)
+    # which uses argocd.int.rlservers.com with netbird-vpn-only middleware.
+    enabled: false
 
 repoServer:
   replicas: 1

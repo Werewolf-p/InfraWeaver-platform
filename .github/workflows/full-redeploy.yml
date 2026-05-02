@@ -152,6 +152,27 @@ jobs:
           set -e
 
 
+      - name: Backup TLS secrets before destroy
+        run: |
+          KB=~/.kube/config-platform-${{ env.ENV_NAME }}
+          BACKUP_DIR=/opt/platform-tls-backup
+          mkdir -p "$BACKUP_DIR"
+          echo "==> Backing up TLS secrets to $BACKUP_DIR..."
+          for secret in rlservers-com-wildcard-tls int-rlservers-com-tls; do
+            if kubectl --kubeconfig "$KB" get secret "$secret" -n traefik -o yaml 2>/dev/null > "$BACKUP_DIR/${secret}.yaml"; then
+              SIZE=$(wc -c < "$BACKUP_DIR/${secret}.yaml")
+              if [ "$SIZE" -gt 100 ]; then
+                echo "  ✅ Backed up: $secret (${SIZE} bytes)"
+              else
+                rm -f "$BACKUP_DIR/${secret}.yaml"
+                echo "  ⚠ Skipped (empty): $secret"
+              fi
+            else
+              echo "  ⚠ $secret not found in cluster (will be created fresh)"
+            fi
+          done
+          ls -la "$BACKUP_DIR/" 2>/dev/null || true
+
       - name: Destroy existing platform
         env:
           SOPS_AGE_KEY_FILE: ${{ runner.temp }}/age.key
@@ -916,6 +937,35 @@ jobs:
               -f kubernetes/core/cert-manager/manifests/external-secret-cloudflare.yaml 2>/dev/null || true
           fi
 
+          # Restore backed-up TLS secrets so cert-manager doesn't need to re-issue certs
+          # (avoids Let's Encrypt rate limits on full redeployments).
+          # The traefik namespace is created by ArgoCD deploying core-traefik; wait briefly.
+          BACKUP_DIR=/opt/platform-tls-backup
+          echo "==> Restoring TLS secrets from $BACKUP_DIR (if available)..."
+          for i in $(seq 1 12); do
+            if kubectl --kubeconfig "$KB" get namespace traefik >/dev/null 2>&1; then break; fi
+            echo "  Waiting for traefik namespace... ($i/12)"
+            sleep 10
+          done
+          for secret_file in "$BACKUP_DIR"/*.yaml; do
+            [ -f "$secret_file" ] || continue
+            SECRET_NAME=$(basename "$secret_file" .yaml)
+            # Strip resource version and uid so kubectl apply doesn't conflict
+            python3 -c "
+import sys, yaml, copy
+with open('$secret_file') as f:
+    doc = yaml.safe_load(f)
+if doc and doc.get('metadata'):
+    for field in ['resourceVersion', 'uid', 'creationTimestamp', 'managedFields', 'annotations']:
+        doc['metadata'].pop(field, None)
+    if doc['metadata'].get('annotations'):
+        doc['metadata']['annotations'].pop('kubectl.kubernetes.io/last-applied-configuration', None)
+print(yaml.dump(doc))
+" | kubectl --kubeconfig "$KB" apply -f - 2>/dev/null && \
+              echo "  ✅ Restored: $SECRET_NAME" || \
+              echo "  ⚠ Could not restore $SECRET_NAME (cert-manager will issue fresh cert)"
+          done
+
           echo "✅ OpenBao secrets bootstrapped"
           kubectl --kubeconfig "$KB" get clustersecretstore openbao 2>/dev/null || \
             echo "  (ClusterSecretStore not yet synced)"
@@ -944,6 +994,17 @@ jobs:
             curl -s -X DELETE "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records/${OLD_ID}" \
               -H "Authorization: Bearer $CF_TOKEN" | \
               python3 -c "import sys,json; d=json.load(sys.stdin); print('Deleted: api.netbird.rlservers.com' if d.get('success') else 'Delete error: ' + str(d.get('errors','')))"
+          fi
+          # Delete argocd.rlservers.com public DNS record (ArgoCD is now VPN-only at argocd.int.rlservers.com)
+          ARGOCD_PUB_ID=$(curl -s "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records?name=argocd.rlservers.com" \
+            -H "Authorization: Bearer $CF_TOKEN" | \
+            python3 -c "import sys,json; d=json.load(sys.stdin); print(d['result'][0]['id'] if d.get('result') else '')" 2>/dev/null)
+          if [ -n "$ARGOCD_PUB_ID" ]; then
+            curl -s -X DELETE "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records/${ARGOCD_PUB_ID}" \
+              -H "Authorization: Bearer $CF_TOKEN" | \
+              python3 -c "import sys,json; d=json.load(sys.stdin); print('Deleted: argocd.rlservers.com (moved to argocd.int.rlservers.com)' if d.get('success') else 'Delete argocd: ' + str(d.get('errors','')))"
+          else
+            echo "  argocd.rlservers.com not in Cloudflare (already removed or never existed)"
           fi
           # Create or update api-netbird.rlservers.com (DNS-only for gRPC reliability)
           EXISTING=$(curl -s "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records?type=A&name=api-netbird.rlservers.com" \
@@ -1033,20 +1094,20 @@ jobs:
         run: |
           KB=~/.kube/config-platform-${{ env.ENV_NAME }}
 
-          # Wait for ArgoCD to finish deploying Authentik (can take 3-5 min after bootstrap)
-          echo "==> Waiting for ArgoCD apps-authentik app to become Healthy..."
-          for i in $(seq 1 30); do
-            STATUS=$(kubectl --kubeconfig "$KB" get application apps-authentik -n argocd \
-              -o jsonpath='{.status.health.status}' 2>/dev/null || echo "NotFound")
-            echo "  [${i}/30] apps-authentik health: $STATUS"
-            [ "$STATUS" = "Healthy" ] && break
-            sleep 20
+          # Wait for Authentik worker to be ready — replaces separate ArgoCD health check + rollout
+          # Directly polls the deployment readyReplicas (10s intervals, up to 12 minutes).
+          # Faster than waiting for ArgoCD app health first (saves the ArgoCD health loop overhead).
+          echo "==> Waiting for Authentik worker deployment to be ready..."
+          for i in $(seq 1 72); do
+            READY=$(kubectl --kubeconfig "$KB" get deployment/authentik-worker \
+              -n authentik -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+            if [ "${READY:-0}" -ge 1 ]; then
+              echo "  [${i}/72] Authentik worker ready ($READY replicas)"
+              break
+            fi
+            echo "  [${i}/72] Waiting for authentik-worker (readyReplicas=${READY:-0})..."
+            sleep 10
           done
-
-          # Wait for Authentik worker to be ready (up to 10 minutes)
-          echo "==> Waiting for Authentik worker rollout..."
-          kubectl --kubeconfig "$KB" rollout status deployment/authentik-worker \
-            -n authentik --timeout=600s
 
           # Add remon to the 'authentik Admins' group.
           # Authentik 2026.x uses Group.is_superuser for admin access — not User.is_superuser.
@@ -1056,13 +1117,13 @@ jobs:
             -l app.kubernetes.io/component=worker \
             -o jsonpath='{.items[0].metadata.name}')
           echo "==> Waiting for remon user to be created by blueprint (pod: $WORKER_POD)..."
-          for i in $(seq 1 30); do
+          for i in $(seq 1 60); do
             USER_EXISTS=$(kubectl --kubeconfig "$KB" exec -n authentik "$WORKER_POD" -- ak shell -c \
               "from authentik.core.models import User; print('yes' if User.objects.filter(username='remon').exists() else 'no')" \
               2>/dev/null || echo "no")
-            echo "  [${i}/30] remon user exists: $USER_EXISTS"
+            echo "  [${i}/60] remon user exists: $USER_EXISTS"
             [ "$USER_EXISTS" = "yes" ] && break
-            sleep 20
+            sleep 10
           done
           echo "==> Adding remon to authentik Admins group (pod: $WORKER_POD)"
           kubectl --kubeconfig "$KB" exec -n authentik "$WORKER_POD" -- ak shell -c \
@@ -1124,14 +1185,14 @@ jobs:
           # ── Helper: wait for Authentik provider to exist ─────────────────
           wait_for_provider() {
             local name="$1"
-            for i in $(seq 1 20); do
+            for i in $(seq 1 30); do
               COUNT=$(curl -sf \
                 -H "Authorization: Bearer $TOKEN" \
                 "${AUTHENTIK_URL}/api/v3/providers/oauth2/?name=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$name'))")" \
                 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['pagination']['count'])" 2>/dev/null || echo 0)
               if [ "$COUNT" -gt 0 ]; then return 0; fi
-              echo "  Waiting for Authentik provider '$name' ($i/20)..."
-              sleep 15
+              echo "  Waiting for Authentik provider '$name' ($i/30)..."
+              sleep 10
             done
             return 1
           }
