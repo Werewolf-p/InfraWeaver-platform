@@ -49,6 +49,16 @@ global:
         secretKeyRef:
           name: authentik-secrets
           key: postgresql-password
+    - name: AUTHENTIK_EMAIL__USERNAME
+      valueFrom:
+        secretKeyRef:
+          name: authentik-smtp-secret
+          key: smtp-username
+    - name: AUTHENTIK_EMAIL__PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: authentik-smtp-secret
+          key: smtp-password
 
 authentik:
   # secret_key must be non-empty for chart templating; actual value from env var above
@@ -56,6 +66,13 @@ authentik:
   log_level: info
   error_reporting:
     enabled: false
+  email:
+    host: "smtp-mail.outlook.com"
+    port: 587
+    use_tls: true
+    use_ssl: false
+    timeout: 30
+    from: "admin@rlservers.com"
   postgresql:
     host: "authentik-postgresql"
     name: "authentik"

@@ -864,6 +864,16 @@ jobs:
           kube_apply_retry "$KB" "$TMP4"
           rm -f "$TMP1" "$TMP2" "$TMP3" "$TMP4"
 
+          # Create authentik namespace + SMTP secret directly from GitHub secrets (no OpenBao round-trip)
+          kubectl --kubeconfig "$KB" create namespace authentik \
+            --dry-run=client -o yaml | kubectl --kubeconfig "$KB" apply -f - 2>/dev/null || true
+          kubectl --kubeconfig "$KB" create secret generic authentik-smtp-secret \
+            --namespace authentik \
+            --from-literal=smtp-username="${{ secrets.SMTP_USERNAME }}" \
+            --from-literal=smtp-password="${{ secrets.SMTP_PASSWORD }}" \
+            --dry-run=client -o yaml | kubectl --kubeconfig "$KB" apply -f -
+          echo "==> Authentik SMTP secret created in namespace authentik"
+
           # Apply ExternalSecret for Grafana (apps-grafana namespace)
           TMP_ES=$(mktemp)
           cat > "$TMP_ES" << 'ESEOF'
