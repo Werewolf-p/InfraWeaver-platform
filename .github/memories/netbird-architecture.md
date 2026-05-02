@@ -144,31 +144,63 @@ Fix: Only `http://localhost:53000` in `RedirectURLs`. Client always picks port 5
 `kubernetes/apps/netbird/manifests/bootstrap-job.yaml` — ArgoCD PostSync hook  
 Seeds SQLite DB: account, user `remon` (role=admin, issued=oidc), setup key, groups, routes
 
-## Router Peer (DaemonSet, current — May 2026)
+## Router Peer (Dedicated VM — May 2026)
 
-NetBird client runs as a **DaemonSet** (`netbird-client`) on all K8s nodes (VLAN3: 10.10.0.90-92).  
-Each pod has `hostNetwork: true` and connects to management at `https://api-netbird.rlservers.com`.  
-All pods advertise `10.10.0.0/24` with `masquerade=True` via route group `routing-peers-vlan3` (`GRP_ROUTING`).  
-VPN clients reach internal services through these DaemonSet routing peers.
+**IMPORTANT: The DaemonSet approach was REMOVED. Use a dedicated VM instead.**
 
-**Key requirements:**
-- `NB_MANAGEMENT_URL` MUST be `https://api-netbird.rlservers.com` (not dashboard URL!)
-- Setup key `auto_groups` MUST include `GRP_ROUTING` so pods auto-join `routing-peers-vlan3` group
-- `netbird-vpn-only` middleware allows `10.10.0.0/24` (K8s node VLAN3 IPs — masquerade source)
-- **`/var/lib/netbird-state` hostPath volume mounted at `/etc/netbird`** — persists WireGuard private
-  key across pod restarts so the same peer ID is reused (prevents stale peer accumulation)
+NetBird routing is handled by a dedicated VM `netbird-router-vlan3` (Proxmox VM ID 9200).
 
-**⚠️ Stale Peer Accumulation (fixed May 2026)**  
-Without persistent storage, every pod restart generates a new WireGuard private key → new peer registered
-in NetBird management. Old peers are never removed → `routing-peers-vlan3` fills with disconnected peers.
-VPN clients route to stale peers → traffic is dropped → `*.rlservers.com` unreachable from VPN.  
-**Fix:** `hostPath` volume at `/var/lib/netbird-state` (per-node) persists `/etc/netbird` across restarts.  
-**Cleanup:** Bootstrap job runs `python3` peer deduplication after management restarts — keeps newest peer
-per node name, deletes the rest.
+| Property | Value |
+|----------|-------|
+| VM name | `netbird-router-vlan3` |
+| VLAN3 IP | `10.10.0.10` |
+| NetBird VPN IP | `100.72.214.95` (dynamic, reassigned on re-enrollment) |
+| NetBird group | `routing-peers-vlan3` |
+| Routes advertised | `10.10.0.0/24` + `10.25.0.0/24` |
+| Management URL | `http://10.10.0.202` (internal MetalLB VIP, no TLS) |
+
+**Why dedicated VM (not DaemonSet):**
+- DaemonSet pods restart frequently → new WireGuard keys each restart → stale peer accumulation
+- Even with hostPath persistence, 3 nodes × N restarts = many peers
+- Dedicated VM: static WireGuard key persists in `/etc/netbird/config.json` at `/var/lib/netbird`
+- Only ONE routing peer in `routing-peers-vlan3` group → clean state always
+
+**Enrollment:**
+```bash
+# VM MUST use internal MetalLB management VIP (api-netbird.rlservers.com via Traefik has gRPC issues)
+sudo netbird up --management-url http://10.10.0.202 --setup-key A1B2C3D4-E5F6-7890-ABCD-EF1234567890
+```
+The Terraform module (`terraform/modules/netbird-router/main.tf`) uses `netbird_management_url = "http://10.10.0.202"`.
+
+**MASQUERADE rule (critical):**
+The VM has a systemd service `netbird-masq.service` that adds:
+```
+iptables -t nat -A POSTROUTING -s 100.64.0.0/10 ! -d 100.64.0.0/10 -j MASQUERADE
+```
+Without this, VPN clients can route to VLAN3 but responses don't masquerade back.
+This is added by Terraform setup script and persisted via systemd.
+
+**`netbird-vpn-only` middleware allows `10.10.0.10`** (the VM's masquerade source IP) because
+it's in `10.10.0.0/24` range (already in the allowlist).
+
+**Stale peer cleanup:**
+- Bootstrap job (PostSync hook) runs `python3 /script/cleanup.py` after management restarts
+- Keeps newest peer per name, deletes duplicates
+- YAML-SAFE: cleanup code is in the ConfigMap's `cleanup.py` entry (NOT as a heredoc)
 
 Files:
-- DaemonSet: `kubernetes/apps/netbird/manifests/client-daemonset.yaml`
-- Bootstrap: `kubernetes/apps/netbird/manifests/bootstrap-job.yaml` (sets up key auto_groups, route with peer_groups, peer cleanup)
+- ~~DaemonSet~~: **DELETED** `kubernetes/apps/netbird/manifests/client-daemonset.yaml`
+- Router Terraform: `terraform/modules/netbird-router/main.tf` + `terraform/main.tf`
+- Bootstrap: `kubernetes/apps/netbird/manifests/bootstrap-job.yaml`
+
+## Routes
+
+| net_id | Network | Description |
+|--------|---------|-------------|
+| `vlan3-net` | `10.10.0.0/24` | VLAN 3 network route |
+| `homelab-net` | `10.25.0.0/24` | Homelab management network route |
+
+Both routes use `peer_groups = [GRP_ROUTING]` (only router VM advertises) and `groups = [GRP]` (all peers use).
 
 ## Relay Config
 
@@ -196,9 +228,9 @@ Files:
   but does NOT add a POSTROUTING MASQUERADE rule for the VPN subnet (`100.64.0.0/10`). Without this,
   traffic from external VPN peers (e.g., RemonPC at `100.78.x.x`) forwarded to VLAN3 retains the
   VPN source IP. VLAN3 can't route back to VPN IPs → DNS (to 10.10.0.201) fails → DNS_PROBE_POSSIBLE.
-  **Fix:** `postStart` lifecycle hook in `client-daemonset.yaml` adds:
-  `iptables -t nat -A POSTROUTING -s 100.64.0.0/10 ! -d 100.64.0.0/10 -j MASQUERADE`
-  Verify: `kubectl exec -n netbird netbird-client-XXXX -- iptables -t nat -S POSTROUTING | grep 100.64`
+  **Fix (dedicated VM):** Terraform setup script creates `/etc/systemd/system/netbird-masq.service`
+  which adds the MASQUERADE rule persistently on boot.
+  Verify: `ssh ubuntu@10.10.0.10 "sudo iptables -t nat -S POSTROUTING | grep 100.64"`
 
 - **Cluster-internal DNS:** NetBird clients run inside the cluster and use cluster DNS (10.96.0.10).
   `netbird.rlservers.com` AND `api-netbird.rlservers.com` MUST be in
@@ -243,8 +275,8 @@ JWT expiry. These URLs cannot be hardcoded in blueprints or CSS (they expire). S
 ## Routes (May 2026)
 
 Both routes use `routing-peers-vlan3` as `peer_groups` (NOT "All"):
-- `10.10.0.0/24` (VLAN3) — routed by DaemonSet pods on cp1/cp2/cp3
-- `10.25.0.0/24` (cluster pods) — routed by DaemonSet pods on cp1/cp2/cp3
+- `10.10.0.0/24` (VLAN3) — routed by `netbird-router-vlan3` VM (10.10.0.10)
+- `10.25.0.0/24` (homelab management LAN) — also routed by `netbird-router-vlan3` VM
 
 Access group (`groups`) = All — all VPN peers can use these routes.
 Using "All" as peer_groups for 10.25.0.0/24 was a bug — caused user's phone/PC to advertise
