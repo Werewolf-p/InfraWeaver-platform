@@ -820,11 +820,18 @@ jobs:
           # Close port-forward before kubectl operations
           kill $PF_PID 2>/dev/null || true
 
+          # Export for next step (Bootstrap ExternalSecrets + TLS Restore)
+          echo "ESO_SERVICE_TOKEN=${SERVICE_TOKEN}" >> $GITHUB_ENV
+          echo "OPENBAO_CLUSTER_ADDR=http://openbao.openbao.svc.cluster.local:8200" >> $GITHUB_ENV
+
       - name: Bootstrap ExternalSecrets + TLS Restore
         if: success()
         run: |
           ENV=${{ env.ENV_NAME }}
           KB=~/.kube/config-platform-$ENV
+          # Variables exported from previous step
+          SERVICE_TOKEN="${{ env.ESO_SERVICE_TOKEN }}"
+          OPENBAO_ADDR="${{ env.OPENBAO_CLUSTER_ADDR }}"
           echo "==> Waiting for ESO deployment..."
           for i in $(seq 1 30); do
             if kubectl --kubeconfig "$KB" get deployment external-secrets -n external-secrets >/dev/null 2>&1; then break; fi
@@ -1099,14 +1106,14 @@ jobs:
           # Directly polls the deployment readyReplicas (10s intervals, up to 12 minutes).
           # Faster than waiting for ArgoCD app health first (saves the ArgoCD health loop overhead).
           echo "==> Waiting for Authentik worker deployment to be ready..."
-          for i in $(seq 1 72); do
+          for i in $(seq 1 120); do
             READY=$(kubectl --kubeconfig "$KB" get deployment/authentik-worker \
               -n authentik -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
             if [ "${READY:-0}" -ge 1 ]; then
-              echo "  [${i}/72] Authentik worker ready ($READY replicas)"
+              echo "  [${i}/120] Authentik worker ready ($READY replicas)"
               break
             fi
-            echo "  [${i}/72] Waiting for authentik-worker (readyReplicas=${READY:-0})..."
+            echo "  [${i}/120] Waiting for authentik-worker (readyReplicas=${READY:-0})..."
             sleep 10
           done
 
