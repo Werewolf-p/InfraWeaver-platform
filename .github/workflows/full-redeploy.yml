@@ -428,6 +428,11 @@ jobs:
           kubectl --kubeconfig "$KB" get pods -n argocd
           kubectl --kubeconfig "$KB" get applicationsets,appprojects -n argocd 2>/dev/null || true
 
+          # Clean up any stale public ArgoCD ingress (not tracked by ArgoCD, may survive redeploy)
+          kubectl --kubeconfig "$KB" delete ingress argocd-server-rlservers -n argocd 2>/dev/null \
+            && echo "🧹 Removed stale argocd-server-rlservers ingress" \
+            || echo "  argocd-server-rlservers ingress not present (expected)"
+
       - name: Bootstrap Storage (local-path-provisioner)
         if: success()
         run: |
@@ -1284,6 +1289,10 @@ print(yaml.dump(doc))
               fi
             fi
           fi
+
+      - name: Run post-deploy tests
+        run: |
+          bash scripts/test-post-deploy.sh ~/.kube/config-platform-${{ env.ENV_NAME }} ${{ env.ENV_NAME }} || true
 
       - name: Send deployment summary email
         if: always()
