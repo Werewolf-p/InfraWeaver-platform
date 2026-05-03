@@ -248,12 +248,20 @@ jobs:
       - name: Clear state
         run: |
           STATE_DIR="$HOME/.tofu/state/platform-${{ env.ENV_NAME }}"
-          # Remove only cluster resources from state; preserve runner VM state so tofu apply won't try to recreate it
+          # Remove cluster resources from state; preserve runner VM state so tofu apply won't recreate it.
+          # Also clear platform_bootstrap state: kubernetes_manifest resources referencing ArgoCD CRDs
+          # (AppProject, ApplicationSet) fail with UpgradeResourceState on a fresh cluster because
+          # ArgoCD CRDs are not installed yet. Clearing them lets tofu plan start clean.
           cd terraform
           tofu init -backend-config="path=$STATE_DIR/terraform.tfstate" -reconfigure 2>&1 | tail -3 || true
           tofu state rm module.talos_cluster 2>/dev/null || true
           tofu state rm module.cloudinit_templates 2>/dev/null || true
-          echo "✓ Cluster state cleared (runner state preserved)"
+          # Clear platform_bootstrap resources (ArgoCD namespace, Helm release, AppProject, ApplicationSet)
+          tofu state list 2>/dev/null | grep 'module\.platform_bootstrap' | while read -r res; do
+            tofu state rm "$res" 2>/dev/null || true
+            echo "  cleared: $res"
+          done || true
+          echo "✓ Cluster + platform-bootstrap state cleared (runner state preserved)"
 
       - name: Deploy Platform
         env:
