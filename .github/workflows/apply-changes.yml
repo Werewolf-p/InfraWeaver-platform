@@ -34,18 +34,13 @@ on:
   push:
     branches: [main]
     paths:
-      # User access control
       - "users.yaml"
       - "kubernetes/apps/authentik/manifests/blueprint-users.yaml"
       - "kubernetes/apps/authentik/manifests/blueprint-access-control.yaml"
-      # OpenBao seeding (new secrets)
       - ".github/scripts/seed-openbao-authentik.sh"
-      # Authentik Helm values (env vars, blueprint list, storage classes)
       - "kubernetes/apps/authentik/values.yaml"
-      # Authentik email / branding / flow blueprints
       - "kubernetes/apps/authentik/manifests/blueprint-*.yaml"
 
-  # Allow manual trigger for any user
   workflow_dispatch:
     inputs:
       force_user_sync:
@@ -70,8 +65,8 @@ jobs:
     name: "Detect Changes"
     runs-on: ubuntu-latest
     outputs:
-      user_config: ${{ steps.changes.outputs.user_config }}
-      blueprints:  ${{ steps.changes.outputs.blueprints }}
+      user_config:  ${{ steps.changes.outputs.user_config }}
+      blueprints:   ${{ steps.changes.outputs.blueprints }}
       openbao_seed: ${{ steps.changes.outputs.openbao_seed }}
     steps:
       - uses: actions/checkout@v4
@@ -81,40 +76,36 @@ jobs:
       - name: Detect changed paths
         id: changes
         run: |
-          # Get list of files changed in this push
           CHANGED=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || git diff --name-only HEAD^ HEAD 2>/dev/null || echo "")
           echo "Changed files:"
           echo "$CHANGED"
 
-          # User config: users.yaml or authentik user/access blueprints
           if echo "$CHANGED" | grep -qE "^users\.yaml$|^kubernetes/apps/authentik/manifests/blueprint-(users|access-control)\.yaml$"; then
-            echo "user_config=true" >> $GITHUB_OUTPUT
+            echo "user_config=true"  >> $GITHUB_OUTPUT
           else
             echo "user_config=false" >> $GITHUB_OUTPUT
           fi
 
-          # Any Authentik blueprint (ConfigMap) changed
           if echo "$CHANGED" | grep -qE "^kubernetes/apps/authentik/manifests/blueprint-"; then
-            echo "blueprints=true" >> $GITHUB_OUTPUT
+            echo "blueprints=true"  >> $GITHUB_OUTPUT
           else
             echo "blueprints=false" >> $GITHUB_OUTPUT
           fi
 
-          # OpenBao seeding script changed (new users/secrets added)
           if echo "$CHANGED" | grep -qE "^\.github/scripts/seed-openbao-authentik\.sh$|^kubernetes/apps/authentik/values\.yaml$|^kubernetes/apps/authentik/manifests/externalsecret\.yaml$"; then
-            echo "openbao_seed=true" >> $GITHUB_OUTPUT
+            echo "openbao_seed=true"  >> $GITHUB_OUTPUT
           else
             echo "openbao_seed=false" >> $GITHUB_OUTPUT
           fi
 
       - name: Summary
         run: |
-          echo "### 🔍 Change Detection" >> $GITHUB_STEP_SUMMARY
-          echo "| Category       | Changed |" >> $GITHUB_STEP_SUMMARY
-          echo "|----------------|---------|" >> $GITHUB_STEP_SUMMARY
-          echo "| User config    | ${{ steps.changes.outputs.user_config }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Blueprints     | ${{ steps.changes.outputs.blueprints }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| OpenBao seed   | ${{ steps.changes.outputs.openbao_seed }} |" >> $GITHUB_STEP_SUMMARY
+          echo "### Change Detection" >> $GITHUB_STEP_SUMMARY
+          echo "| Category      | Changed |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------------|---------|" >> $GITHUB_STEP_SUMMARY
+          echo "| User config   | ${{ steps.changes.outputs.user_config }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Blueprints    | ${{ steps.changes.outputs.blueprints }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| OpenBao seed  | ${{ steps.changes.outputs.openbao_seed }} |" >> $GITHUB_STEP_SUMMARY
 
   # ── Sync Authentik blueprints via ArgoCD ──────────────────────────────────
   sync-blueprints:
@@ -125,35 +116,25 @@ jobs:
       - self-hosted
       - prod-worker
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Trigger ArgoCD sync for authentik app
+      - name: Trigger ArgoCD hard-refresh for authentik
         run: |
           KB=~/.kube/config-platform-${{ env.ENV_NAME }}
           KT="kubectl --kubeconfig $KB --insecure-skip-tls-verify"
 
-          echo "==> Triggering ArgoCD hard-refresh + sync for authentik..."
-          $KT annotate application authentik -n argocd \
-            argocd.argoproj.io/refresh=hard --overwrite 2>/dev/null || true
+          echo "==> Triggering ArgoCD hard-refresh for authentik..."
+          $KT annotate application authentik -n argocd argocd.argoproj.io/refresh=hard --overwrite 2>/dev/null || true
           sleep 5
 
-          # Wait for ArgoCD to sync the app
           for i in $(seq 1 30); do
-            STATUS=$($KT get application authentik -n argocd \
-              -o jsonpath='{.status.sync.status}' 2>/dev/null || echo "Unknown")
-            HEALTH=$($KT get application authentik -n argocd \
-              -o jsonpath='{.status.health.status}' 2>/dev/null || echo "Unknown")
+            STATUS=$($KT get application authentik -n argocd -o jsonpath='{.status.sync.status}' 2>/dev/null || echo "Unknown")
+            HEALTH=$($KT get application authentik -n argocd -o jsonpath='{.status.health.status}' 2>/dev/null || echo "Unknown")
             echo "  [${i}/30] authentik: sync=$STATUS health=$HEALTH"
             if [ "$STATUS" = "Synced" ] && [ "$HEALTH" = "Healthy" ]; then
-              echo "✅ Authentik ArgoCD app synced and healthy"
+              echo "Authentik ArgoCD app synced and healthy" >> $GITHUB_STEP_SUMMARY
               break
             fi
             sleep 10
           done
-
-          echo "==> Blueprints synced — Authentik will auto-reload them within 60s"
-          echo "### ✅ Blueprints Synced" >> $GITHUB_STEP_SUMMARY
-          echo "Authentik app synced. Blueprint ConfigMaps reloaded." >> $GITHUB_STEP_SUMMARY
 
   # ── Seed new OpenBao secrets (for new users) ──────────────────────────────
   seed-openbao:
@@ -163,13 +144,10 @@ jobs:
     runs-on:
       - self-hosted
       - prod-worker
-    outputs:
-      root_token_available: ${{ steps.openbao.outputs.root_token_available }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Seed OpenBao with new user secrets
-        id: openbao
+      - name: Seed new user secrets into OpenBao
         env:
           SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
@@ -177,22 +155,15 @@ jobs:
           KB=~/.kube/config-platform-${{ env.ENV_NAME }}
           KT="kubectl --kubeconfig $KB --insecure-skip-tls-verify"
 
-          # Get OpenBao root token from cluster secret
-          ROOT_TOKEN=$($KT get secret openbao-unseal -n openbao \
-            -o jsonpath='{.data.root_token}' 2>/dev/null | base64 -d || echo "")
-
+          ROOT_TOKEN=$($KT get secret openbao-unseal -n openbao -o jsonpath='{.data.root_token}' 2>/dev/null | base64 -d || echo "")
           if [ -z "$ROOT_TOKEN" ]; then
-            echo "⚠️ Could not get OpenBao root token — skipping seed (non-critical)"
-            echo "root_token_available=false" >> $GITHUB_OUTPUT
+            echo "Could not get OpenBao root token — skipping seed"
             exit 0
           fi
-          echo "root_token_available=true" >> $GITHUB_OUTPUT
 
-          # Port-forward OpenBao
-          BAO_POD=$($KT get pod -n openbao -l app.kubernetes.io/name=openbao \
-            -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+          BAO_POD=$($KT get pod -n openbao -l app.kubernetes.io/name=openbao -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
           if [ -z "$BAO_POD" ]; then
-            echo "⚠️ No OpenBao pod found — skipping seed"
+            echo "No OpenBao pod found — skipping seed"
             exit 0
           fi
 
@@ -202,38 +173,25 @@ jobs:
 
           LOCAL_OPENBAO="http://localhost:8200"
 
-          # Run the seeding script — it's idempotent, only adds missing fields
           bash .github/scripts/seed-openbao-authentik.sh "$LOCAL_OPENBAO" "$ROOT_TOKEN"
 
-          # Update SMTP credentials if provided
           if [ -n "$SMTP_PASSWORD" ]; then
             EXISTING_DATA=$(curl -s -H "X-Vault-Token: $ROOT_TOKEN" \
               "${LOCAL_OPENBAO}/v1/secret/data/platform/authentik" | \
               python3 -c "import json,sys; d=json.load(sys.stdin); print(json.dumps(d.get('data',{}).get('data',{})))" \
               2>/dev/null || echo "{}")
-
-            SMTP_PATCHED=$(python3 -c "
-import json, sys
-d = json.loads(sys.argv[1])
-d['smtp-username'] = sys.argv[2]
-d['smtp-password'] = sys.argv[3]
-d['smtp-from']     = sys.argv[2]
-d['smtp-host']     = 'smtp-mail.outlook.com'
-d['smtp-port']     = '587'
-print(json.dumps({'data': d}))
-" "$EXISTING_DATA" "$SMTP_USERNAME" "$SMTP_PASSWORD" 2>/dev/null || echo "")
-
+            SMTP_PATCHED=$(python3 -c "import json,sys; d=json.loads(sys.argv[1]); d['smtp-username']=sys.argv[2]; d['smtp-password']=sys.argv[3]; d['smtp-from']=sys.argv[2]; d['smtp-host']='smtp-mail.outlook.com'; d['smtp-port']='587'; print(json.dumps({'data': d}))" \
+              "$EXISTING_DATA" "$SMTP_USERNAME" "$SMTP_PASSWORD" 2>/dev/null || echo "")
             if [ -n "$SMTP_PATCHED" ]; then
               curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/platform/authentik" \
-                -H "X-Vault-Token: $ROOT_TOKEN" \
-                -H "Content-Type: application/json" \
+                -H "X-Vault-Token: $ROOT_TOKEN" -H "Content-Type: application/json" \
                 -d "$SMTP_PATCHED" > /dev/null
               echo "==> SMTP credentials updated in OpenBao"
             fi
           fi
 
           kill $BAO_PF_PID 2>/dev/null || true
-          echo "### ✅ OpenBao Seeded" >> $GITHUB_STEP_SUMMARY
+          echo "OpenBao secrets seeded/patched successfully" >> $GITHUB_STEP_SUMMARY
 
   # ── Apply user/group changes ──────────────────────────────────────────────
   apply-users:
@@ -256,16 +214,10 @@ print(json.dumps({'data': d}))
         run: |
           KB=~/.kube/config-platform-${{ env.ENV_NAME }}
           KT="kubectl --kubeconfig $KB --insecure-skip-tls-verify"
-
-          echo "==> Waiting for Authentik worker to be ready..."
           for i in $(seq 1 60); do
-            READY=$($KT get deployment/authentik-worker -n authentik \
-              -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
-            if [ "${READY:-0}" -ge 1 ]; then
-              echo "✅ Authentik worker ready"
-              break
-            fi
-            echo "  [${i}/60] Waiting for authentik-worker (readyReplicas=${READY:-0})..."
+            READY=$($KT get deployment/authentik-worker -n authentik -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+            if [ "${READY:-0}" -ge 1 ]; then echo "Authentik worker ready"; break; fi
+            echo "  [${i}/60] Waiting for authentik-worker (ready=${READY:-0})..."
             sleep 5
           done
 
@@ -273,128 +225,48 @@ print(json.dumps({'data': d}))
         run: |
           KB=~/.kube/config-platform-${{ env.ENV_NAME }}
           KT="kubectl --kubeconfig $KB --insecure-skip-tls-verify"
-
-          WORKER_POD=$($KT get pod -n authentik \
-            -l app.kubernetes.io/component=worker \
-            -o jsonpath='{.items[0].metadata.name}')
-          echo "==> Using worker pod: $WORKER_POD"
-
-          # Parse users.yaml to extract username → groups mapping (pure Python, no extra deps)
-          python3 - <<'PYEOF'
-import yaml, os, subprocess, sys
-
-with open("users.yaml") as f:
-    config = yaml.safe_load(f)
-
-users = config.get("users", {})
-print(f"Users in users.yaml: {list(users.keys())}")
-
-lines = []
-for username, udata in users.items():
-    groups = udata.get("authentik_groups", [])
-    groups_repr = repr(groups)
-    lines.append(f"""
-try:
-    u = User.objects.get(username='{username}')
-    # Clear current group memberships and re-apply from users.yaml
-    current_groups = list(u.ak_groups.values_list('name', flat=True))
-    desired_groups = {groups_repr}
-    for grp_name in desired_groups:
-        grp, _ = Group.objects.get_or_create(name=grp_name)
-        grp.users.add(u)
-    print(f'OK: {username} → {{desired_groups}}')
-except User.DoesNotExist:
-    print(f'WARN: {username} not found — blueprint may not have synced yet')
-""")
-
-script = """
-from authentik.core.models import User, Group
-""" + "\n".join(lines)
-
-print("==> Generated Django shell script:")
-print(script)
-
-# Write script to a temp file
-with open("/tmp/ak-group-sync.py", "w") as f:
-    f.write(script)
-PYEOF
-
-          # Execute the generated script in the Authentik worker
+          WORKER_POD=$($KT get pod -n authentik -l app.kubernetes.io/component=worker -o jsonpath='{.items[0].metadata.name}')
+          echo "==> Worker pod: $WORKER_POD"
+          python3 .github/scripts/sync-authentik-users.py > /tmp/ak-group-sync.py
+          echo "==> Generated sync script:"
+          cat /tmp/ak-group-sync.py
           $KT exec -n authentik "$WORKER_POD" -- ak shell < /tmp/ak-group-sync.py
-          echo "✅ Group memberships synced from users.yaml"
-          echo "### ✅ Users Synced" >> $GITHUB_STEP_SUMMARY
-          echo "Group memberships applied from users.yaml:" >> $GITHUB_STEP_SUMMARY
-          python3 -c "
-import yaml
-with open('users.yaml') as f:
-    c = yaml.safe_load(f)
-for u, d in c.get('users', {}).items():
-    print(f'- **{u}**: {d.get(\"authentik_groups\", [])}')
-" >> $GITHUB_STEP_SUMMARY
+          echo "Group memberships synced from users.yaml" >> $GITHUB_STEP_SUMMARY
 
       - name: Generate recovery links
         id: recovery
         run: |
           KB=~/.kube/config-platform-${{ env.ENV_NAME }}
           KT="kubectl --kubeconfig $KB --insecure-skip-tls-verify"
+          WORKER_POD=$($KT get pod -n authentik -l app.kubernetes.io/component=worker -o jsonpath='{.items[0].metadata.name}')
 
-          WORKER_POD=$($KT get pod -n authentik \
-            -l app.kubernetes.io/component=worker \
-            -o jsonpath='{.items[0].metadata.name}')
-
-          # Create/refresh API token
           _AK_PY="ZnJvbSBhdXRoZW50aWsuY29yZS5tb2RlbHMgaW1wb3J0IFRva2VuLCBUb2tlbkludGVudHMsIFVzZXIKZnJvbSBhdXRoZW50aWsuYnJhbmRzLm1vZGVscyBpbXBvcnQgQnJhbmQKZnJvbSBhdXRoZW50aWsuZmxvd3MubW9kZWxzIGltcG9ydCBGbG93LCBGbG93RGVzaWduYXRpb24KCmZsb3csIF8gPSBGbG93Lm9iamVjdHMuZ2V0X29yX2NyZWF0ZShzbHVnPSJkZWZhdWx0LXJlY292ZXJ5LWZsb3ciLCBkZWZhdWx0cz17Im5hbWUiOiAiRGVmYXVsdCBSZWNvdmVyeSBGbG93IiwgInRpdGxlIjogIkFjY291bnQgUmVjb3ZlcnkiLCAiZGVzaWduYXRpb24iOiBGbG93RGVzaWduYXRpb24uUkVDT1ZFUll9KQpmb3IgYnJhbmQgaW4gQnJhbmQub2JqZWN0cy5hbGwoKToKICAgIGJyYW5kLmZsb3dfcmVjb3ZlcnkgPSBmbG93CiAgICBicmFuZC5zYXZlKCkKClRva2VuLm9iamVjdHMuZmlsdGVyKGlkZW50aWZpZXI9ImdoLWFjdGlvbnMtYXBpLXRva2VuIikuZGVsZXRlKCkKYWRtaW4gPSBVc2VyLm9iamVjdHMuZ2V0KHVzZXJuYW1lPSJha2FkbWluIikKdCA9IFRva2VuLm9iamVjdHMuY3JlYXRlKGlkZW50aWZpZXI9ImdoLWFjdGlvbnMtYXBpLXRva2VuIiwgdXNlcj1hZG1pbiwgZGVzY3JpcHRpb249IkdpdEh1YiBBY3Rpb25zIEFQSSB0b2tlbiIsIGludGVudD1Ub2tlbkludGVudHMuSU5URU5UX0FQSSwgZXhwaXJpbmc9RmFsc2UpCnByaW50KCJUT0tFTjoiICsgdC5rZXkpCg=="
-          AK_TOKEN=$(echo "$_AK_PY" | base64 -d | \
-            $KT exec -i -n authentik "$WORKER_POD" -- ak shell \
-            2>&1 | grep "^TOKEN:" | sed 's/TOKEN://' || echo "")
+          AK_TOKEN=$(echo "$_AK_PY" | base64 -d | $KT exec -i -n authentik "$WORKER_POD" -- ak shell 2>&1 | grep "^TOKEN:" | sed 's/TOKEN://' || echo "")
 
           if [ -z "$AK_TOKEN" ]; then
-            echo "⚠️ Could not get Authentik API token — skipping recovery links"
+            echo "Could not get Authentik API token — skipping recovery links"
             exit 0
           fi
 
-          # Port-forward Authentik server
           $KT port-forward svc/authentik-server -n authentik 8089:80 > /tmp/ak-pf.log 2>&1 &
           AK_PF_PID=$!
           sleep 4
 
-          # Parse users.yaml for users with send_recovery_email: true
-          USERS_WITH_RECOVERY=$(python3 -c "
-import yaml
-with open('users.yaml') as f:
-    c = yaml.safe_load(f)
-for u, d in c.get('users', {}).items():
-    if d.get('send_recovery_email', False):
-        print(u)
-")
-
-          echo "==> Generating recovery links for: $(echo $USERS_WITH_RECOVERY | tr '\n' ' ')"
+          USERS_WITH_RECOVERY=$(python3 .github/scripts/list-recovery-users.py)
+          echo "==> Generating recovery links for: $USERS_WITH_RECOVERY"
 
           for USERNAME in $USERS_WITH_RECOVERY; do
-            USER_ID=$(curl -sf \
-              -H "Authorization: Bearer $AK_TOKEN" \
-              "http://localhost:8089/api/v3/core/users/?username=${USERNAME}" \
-              2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); r=d.get('results',[]); print(r[0]['pk'] if r else '')" || echo "")
-
+            USER_ID=$(curl -sf -H "Authorization: Bearer $AK_TOKEN" \
+              "http://localhost:8089/api/v3/core/users/?username=${USERNAME}" 2>/dev/null | \
+              python3 -c "import sys,json; d=json.load(sys.stdin); r=d.get('results',[]); print(r[0]['pk'] if r else '')" || echo "")
             if [ -n "$USER_ID" ]; then
-              LINK=$(curl -sf -X POST \
-                -H "Authorization: Bearer $AK_TOKEN" \
-                -H "Content-Type: application/json" \
-                "http://localhost:8089/api/v3/core/users/$USER_ID/recovery/" \
-                2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('link',''))" || echo "")
+              LINK=$(curl -sf -X POST -H "Authorization: Bearer $AK_TOKEN" -H "Content-Type: application/json" \
+                "http://localhost:8089/api/v3/core/users/$USER_ID/recovery/" 2>/dev/null | \
+                python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('link',''))" || echo "")
               LINK=$(echo "$LINK" | sed 's|http://localhost:8089|https://auth.rlservers.com|g')
-              echo "✅ Recovery link for ${USERNAME}: $LINK"
-              # Export as output (safe variable name)
-              SAFE_NAME=$(echo "$USERNAME" | tr '[:lower:]' '[:upper:]' | tr '-' '_')
-              echo "${SAFE_NAME}_recovery_link=${LINK}" >> $GITHUB_ENV
-              # Also set structured outputs
-              if [ "$USERNAME" = "remon" ]; then
-                echo "remon_link=${LINK}" >> $GITHUB_OUTPUT
-              elif [ "$USERNAME" = "ardaty" ]; then
-                echo "ardaty_link=${LINK}" >> $GITHUB_OUTPUT
-              fi
-            else
-              echo "⚠️ User ${USERNAME} not found in Authentik"
+              echo "Recovery link for ${USERNAME}: $LINK"
+              if [ "$USERNAME" = "remon" ];  then echo "remon_link=${LINK}"  >> $GITHUB_OUTPUT; fi
+              if [ "$USERNAME" = "ardaty" ]; then echo "ardaty_link=${LINK}" >> $GITHUB_OUTPUT; fi
             fi
           done
 
@@ -414,7 +286,7 @@ for u, d in c.get('users', {}).items():
     steps:
       - uses: actions/checkout@v4
 
-      - name: Send user change notification
+      - name: Send user change notification email
         env:
           SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
@@ -427,17 +299,12 @@ for u, d in c.get('users', {}).items():
 
           export DEPLOY_ENV="${{ env.ENV_NAME }}"
           export DEPLOY_RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          export DEPLOY_TYPE="user-config-update"
 
-          # OpenBao token for email script
-          export BAO_TOKEN=$($KT get secret openbao-unseal -n openbao \
-            -o jsonpath='{.data.root_token}' 2>/dev/null | base64 -d || echo "unavailable")
-          export BAO_UNSEAL=$($KT get secret openbao-unseal -n openbao \
-            -o jsonpath='{.data.unseal_key}' 2>/dev/null | base64 -d || echo "unavailable")
+          export BAO_TOKEN=$($KT get secret openbao-unseal -n openbao -o jsonpath='{.data.root_token}' 2>/dev/null | base64 -d || echo "unavailable")
+          export BAO_UNSEAL=$($KT get secret openbao-unseal -n openbao -o jsonpath='{.data.unseal_key}' 2>/dev/null | base64 -d || echo "unavailable")
           export AUTHENTIK_ADMIN_PASS=$($KT exec -n openbao openbao-0 -- \
             sh -c "VAULT_TOKEN='$BAO_TOKEN' vault kv get -field=bootstrap-password secret/platform/authentik" \
             2>/dev/null || echo "unavailable")
 
-          # Override subject for incremental apply (not a full redeploy)
-          export DEPLOY_TYPE="user-config-update"
           python3 scripts/send-deploy-email.py
-          echo "### ✅ Notification Sent" >> $GITHUB_STEP_SUMMARY
