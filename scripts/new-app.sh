@@ -3,53 +3,88 @@
 # new-app.sh — Scaffold a new Kubernetes app for ArgoCD auto-discovery
 #
 # USAGE:
-#   bash scripts/new-app.sh <app-name> <tier> [chart-repo] [chart-name]
+#   bash scripts/new-app.sh <app-name> [options]
+#
+# OPTIONS:
+#   --tier <tier>          Tier to place the app in (default: apps)
+#                          Valid: apps | core | monitoring | platform
+#   --helm <repo> <chart>  Helm chart mode: create application.yaml + values.yaml
+#   --manifest-only        Manifest-only mode: skip application.yaml (raw YAML only)
 #
 # EXAMPLES:
-#   bash scripts/new-app.sh my-service apps
-#   bash scripts/new-app.sh my-monitoring monitoring https://prometheus-community.github.io/helm-charts kube-prometheus-stack
-#   bash scripts/new-app.sh redis-cache core https://charts.bitnami.com/bitnami redis
+#   bash scripts/new-app.sh my-service
+#   bash scripts/new-app.sh my-service --helm https://charts.bitnami.com/bitnami redis
+#   bash scripts/new-app.sh my-service --tier platform
+#   bash scripts/new-app.sh my-service --manifest-only
 #
-# TIERS: apps | core | monitoring
-#
-# What this creates:
+# What this creates (manifest-only mode, the default):
 #   kubernetes/<tier>/<app-name>/
-#     application.yaml   — ArgoCD app descriptor (edit repoURL/chart/namespace)
-#     values.yaml        — Helm values skeleton
-#     manifests/.gitkeep — Placeholder for raw K8s manifests
+#     manifests/
+#       namespace.yaml         — Namespace with Pod Security Admission labels
+#       serviceaccount.yaml    — Dedicated ServiceAccount (no default SA)
+#       networkpolicy.yaml     — Default-deny + allow from Traefik only
+#       deployment.yaml        — Secure Deployment template (non-root, read-only fs)
+#       service.yaml           — ClusterIP Service
+#       resourcequota.yaml     — Namespace CPU/memory limits
+#       ingressroute-internal.yaml.example  — VPN-only route (rename to .yaml to activate)
+#       ingressroute-public.yaml.example    — Public route (rename + review before using)
 #
-# After running:
-#   1. Edit application.yaml to set your actual chart repo and version
-#   2. Edit values.yaml to configure the chart
-#   3. git add + commit + push
-#   4. ArgoCD auto-discovers and deploys within ~3 minutes
+# Adding a Helm chart (--helm flag adds):
+#   kubernetes/<tier>/<app-name>/
+#     application.yaml   — ArgoCD ApplicationSet descriptor
+#     values.yaml        — Helm chart values skeleton
+#
+# See: docs/templates/app/README.md for full documentation
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; BOLD='\033[1m'; NC='\033[0m'
 ok()   { echo -e "${GREEN}✅ $*${NC}"; }
 warn() { echo -e "${YELLOW}⚠️  $*${NC}"; }
 fail() { echo -e "${RED}❌ $*${NC}"; exit 1; }
 info() { echo -e "${BLUE}ℹ️  $*${NC}"; }
 
+# ── Argument parsing ─────────────────────────────────────────────────────────
 APP_NAME=${1:-}
-TIER=${2:-apps}
-CHART_REPO=${3:-https://charts.example.com}
-CHART_NAME=${4:-$APP_NAME}
+TIER="apps"
+MODE="manifest"   # manifest | helm | manifest-only
+CHART_REPO=""
+CHART_NAME=""
 
 if [ -z "$APP_NAME" ]; then
-  echo "USAGE: bash scripts/new-app.sh <app-name> [tier] [chart-repo] [chart-name]"
-  echo "  tier: apps | core | monitoring (default: apps)"
+  echo -e "${BOLD}USAGE:${NC} bash scripts/new-app.sh <app-name> [--tier <tier>] [--helm <repo> <chart>] [--manifest-only]"
   exit 1
 fi
 
+shift || true
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --tier)
+      TIER="${2:-apps}"; shift 2 ;;
+    --helm)
+      MODE="helm"
+      CHART_REPO="${2:-https://charts.example.com}"
+      CHART_NAME="${3:-$APP_NAME}"
+      shift 3 ;;
+    --manifest-only)
+      MODE="manifest-only"; shift ;;
+    *)
+      fail "Unknown option: $1" ;;
+  esac
+done
+
 # Validate tier
 case "$TIER" in
-  apps|core|monitoring) ;;
-  *) fail "Invalid tier '${TIER}'. Must be: apps | core | monitoring" ;;
+  apps|core|monitoring|platform) ;;
+  *) fail "Invalid tier '${TIER}'. Must be: apps | core | monitoring | platform" ;;
 esac
 
+TEMPLATE_DIR="docs/templates/app"
 TARGET_DIR="kubernetes/${TIER}/${APP_NAME}"
+
+if [ ! -d "$TEMPLATE_DIR" ]; then
+  fail "Template directory not found: ${TEMPLATE_DIR} — run this script from the repo root"
+fi
 
 if [ -d "$TARGET_DIR" ]; then
   fail "Directory ${TARGET_DIR} already exists — app '${APP_NAME}' already scaffolded"
@@ -62,78 +97,71 @@ echo "╚═══════════════════════�
 echo ""
 info "App name : ${APP_NAME}"
 info "Tier     : ${TIER}"
+info "Mode     : ${MODE}"
 info "Target   : ${TARGET_DIR}/"
 echo ""
 
-# Create directory structure
+# ── Copy manifests from template ─────────────────────────────────────────────
 mkdir -p "${TARGET_DIR}/manifests"
 
-# ── application.yaml ─────────────────────────────────────────────────────────
-cat > "${TARGET_DIR}/application.yaml" << APPEOF
-# ── ${APP_NAME} ──────────────────────────────────────────────────────────────
-# ArgoCD ApplicationSet auto-discovers this file.
-# Edit repoURL, chart, targetRevision and namespace for your app.
-#
-# After pushing, ArgoCD creates an Application named: ${TIER}-${APP_NAME}
-# Check status in ArgoCD UI: https://argocd.int.rlservers.com
-# ─────────────────────────────────────────────────────────────────────────────
-repoURL: ${CHART_REPO}
-targetRevision: "*"      # TODO: pin to a specific version e.g. "1.2.3"
-chart: ${CHART_NAME}
-releaseName: ${APP_NAME}
-namespace: ${TIER}-${APP_NAME}
-APPEOF
+for tmpl_file in "${TEMPLATE_DIR}/manifests/"*; do
+  filename=$(basename "$tmpl_file")
+  dest="${TARGET_DIR}/manifests/${filename}"
+  sed "s/APP_NAME/${APP_NAME}/g" "$tmpl_file" > "$dest"
+  ok "Created ${dest}"
+done
 
-ok "Created ${TARGET_DIR}/application.yaml"
+# ── Helm chart files ──────────────────────────────────────────────────────────
+if [[ "$MODE" == "helm" ]]; then
+  # application.yaml from template, substituting APP_NAME, chart, repo
+  sed \
+    -e "s|APP_NAME|${APP_NAME}|g" \
+    -e "s|https://charts.example.com|${CHART_REPO}|g" \
+    -e "s|chart: APP_NAME|chart: ${CHART_NAME}|g" \
+    "${TEMPLATE_DIR}/application.yaml.tmpl" > "${TARGET_DIR}/application.yaml"
+  ok "Created ${TARGET_DIR}/application.yaml"
 
-# ── values.yaml ──────────────────────────────────────────────────────────────
-cat > "${TARGET_DIR}/values.yaml" << VALEOF
-# ── ${APP_NAME} Helm Values ───────────────────────────────────────────────────
-# Configure your chart here. Refer to the chart's own values.yaml for all options.
-# These values override the chart defaults.
-# ─────────────────────────────────────────────────────────────────────────────
-
-# Example: resource limits (always set these to prevent resource exhaustion)
-resources:
-  requests:
-    cpu: 100m
-    memory: 128Mi
-  limits:
-    cpu: 500m
-    memory: 256Mi
-
-# Example: replicas
-replicaCount: 1
-
-# TODO: add chart-specific values here
-VALEOF
-
-ok "Created ${TARGET_DIR}/values.yaml"
-
-# ── manifests/.gitkeep ───────────────────────────────────────────────────────
-touch "${TARGET_DIR}/manifests/.gitkeep"
-ok "Created ${TARGET_DIR}/manifests/ (for raw K8s manifests)"
+  sed "s/APP_NAME/${APP_NAME}/g" "${TEMPLATE_DIR}/values.yaml.tmpl" > "${TARGET_DIR}/values.yaml"
+  ok "Created ${TARGET_DIR}/values.yaml"
+fi
 
 echo ""
 echo "═══════════════════════════════════════════════════════"
 echo -e "${GREEN}✅ App '${APP_NAME}' scaffolded at ${TARGET_DIR}/${NC}"
 echo ""
-echo "  Next steps:"
-echo "    1. Edit ${TARGET_DIR}/application.yaml"
-echo "       - Set repoURL to your Helm chart repo"
-echo "       - Set targetRevision to a specific version (not '*')"
-echo "       - Set namespace appropriately"
+echo -e "  ${BOLD}Security defaults already baked in:${NC}"
+echo "    ✅ NetworkPolicy: default-deny + allow only from Traefik"
+echo "    ✅ Dedicated ServiceAccount (no auto-mount)"
+echo "    ✅ Pod Security Admission: restricted"
+echo "    ✅ Secure pod template (non-root, read-only fs, drop ALL caps)"
+echo "    ✅ ResourceQuota on namespace"
 echo ""
-echo "    2. Edit ${TARGET_DIR}/values.yaml"
-echo "       - Configure chart-specific settings"
-echo "       - Always set resource requests/limits"
+echo -e "  ${BOLD}Next steps:${NC}"
 echo ""
+echo "    1. Update the image in ${TARGET_DIR}/manifests/deployment.yaml"
+echo "       - Set 'image' to your actual container image"
+echo "       - Set 'containerPort' to match your app's listening port"
+echo ""
+echo "    2. Choose your access mode:"
+echo "       Internal (VPN only):"
+echo "         mv ${TARGET_DIR}/manifests/ingressroute-internal.yaml.example \\"
+echo "            ${TARGET_DIR}/manifests/ingressroute-internal.yaml"
+echo "       Public internet:"
+echo "         mv ${TARGET_DIR}/manifests/ingressroute-public.yaml.example \\"
+echo "            ${TARGET_DIR}/manifests/ingressroute-public.yaml"
+echo ""
+if [[ "$MODE" == "helm" ]]; then
+  echo "    3. Pin the chart version in ${TARGET_DIR}/application.yaml"
+  echo "       (targetRevision: \"1.0.0\" — never use \"*\" in production)"
+  echo ""
+fi
 echo "    3. Push to git:"
 echo "       git add ${TARGET_DIR}/"
 echo "       git commit -m 'feat: add ${APP_NAME} app'"
 echo "       git push"
 echo ""
-echo "    4. ArgoCD auto-discovers it within ~3 minutes"
-echo "       App name in ArgoCD: ${TIER}-${APP_NAME}"
+echo "    4. ArgoCD auto-deploys within ~60 seconds"
+echo "       https://argocd.int.rlservers.com"
 echo ""
-warn "Don't forget to pin targetRevision to a specific version before production use!"
+warn "Replace all APP_NAME placeholders before pushing!"
+warn "Review resource limits in deployment.yaml and resourcequota.yaml for your app's actual needs"

@@ -1,0 +1,65 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: APP_NAME
+  namespace: apps-APP_NAME
+  labels:
+    app: APP_NAME
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: APP_NAME
+  template:
+    metadata:
+      labels:
+        app: APP_NAME
+    spec:
+      serviceAccountName: APP_NAME
+      automountServiceAccountToken: false
+      # Run as non-root (UID 1000 is a safe default; adjust if your image requires a different UID)
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: APP_NAME
+          image: nginx:1.27-alpine    # TODO: replace with your image
+          ports:
+            - containerPort: 8080     # TODO: match your app's listening port
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          readinessProbe:
+            httpGet:
+              path: /        # TODO: replace with a real health-check endpoint
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          # If your app writes to disk (logs, tmp), add an emptyDir volume:
+          # volumeMounts:
+          #   - name: tmp
+          #     mountPath: /tmp
+      # volumes:
+      #   - name: tmp
+      #     emptyDir: {}

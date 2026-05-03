@@ -20,15 +20,32 @@ All changes follow a GitOps model — push to `main` triggers automatic deployme
 
 ## Adding a New Application
 
-1. Copy the example app: `cp -r kubernetes/apps/example-app kubernetes/apps/my-app`
-2. Edit `kubernetes/apps/my-app/application.yaml`:
-   - `repoURL` — Helm chart repository URL
-   - `chart` — chart name
-   - `targetRevision` — **pin to an exact version** (e.g. `"2.4.1"`, NOT `"2.*"`)
-   - `namespace` — Kubernetes namespace
-   - `releaseName` — Helm release name
-3. Edit `kubernetes/apps/my-app/values.yaml` — configure the chart
+Use the scaffold script — it copies a security-hardened template with all defaults baked in:
+
+```bash
+# Raw-manifest app (custom image, no Helm chart):
+bash scripts/new-app.sh my-app
+
+# Helm chart app:
+bash scripts/new-app.sh my-app --helm https://charts.example.com chart-name
+```
+
+**What you get automatically:**
+- NetworkPolicy: default-deny + allow only from Traefik
+- Dedicated ServiceAccount (no default SA token auto-mount)
+- Pod Security Admission: restricted profile
+- Secure pod template (non-root, read-only root filesystem, drop ALL capabilities)
+- ResourceQuota on the namespace
+
+**After scaffolding:**
+1. Edit `kubernetes/apps/my-app/manifests/deployment.yaml` — set your image + port
+2. Choose access mode:
+   - Internal (VPN only): `mv manifests/ingressroute-internal.yaml.example manifests/ingressroute-internal.yaml`
+   - Public: `mv manifests/ingressroute-public.yaml.example manifests/ingressroute-public.yaml`
+3. For Helm apps: edit `application.yaml` (set `repoURL`, `chart`, `targetRevision`)
 4. Push to `main` — ArgoCD auto-deploys within ~60 seconds
+
+See `docs/templates/app/README.md` and `kubernetes/apps/README.md` for full details.
 
 ### For apps needing extra Kubernetes resources (ExternalSecrets, etc.)
 
