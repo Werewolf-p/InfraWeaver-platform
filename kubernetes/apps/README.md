@@ -2,7 +2,7 @@
 
 This is where **you add new apps**. Each subdirectory is one application.
 
-ArgoCD auto-discovers apps here and deploys them. No pipeline changes needed — just push a folder.
+ArgoCD auto-deploys apps when you push to `main` — no manual pipeline changes needed.
 
 ---
 
@@ -16,7 +16,14 @@ bash scripts/new-app.sh <app-name>
 bash scripts/new-app.sh <app-name> --helm https://charts.example.com chart-name
 ```
 
-This copies `docs/templates/app/` into `kubernetes/apps/<app-name>/` with all placeholders replaced.
+This copies security-hardened templates into `kubernetes/apps/<app-name>/manifests/` and creates
+a `kubernetes/bootstrap/app-<app-name>.yaml` ArgoCD Application file.
+
+**What happens when you push:**
+- `apply-changes.yml` detects the new `kubernetes/bootstrap/app-<app-name>.yaml` file
+- It applies the ArgoCD Application to the cluster
+- ArgoCD syncs the manifests within ~60 seconds
+- Your app is live!
 
 **Security defaults included out of the box:**
 - NetworkPolicy: default-deny + allow only from Traefik

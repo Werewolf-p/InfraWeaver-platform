@@ -39,6 +39,7 @@ on:
       - ".github/scripts/seed-openbao-authentik.sh"
       - "kubernetes/platform/authentik/values.yaml"
       - "kubernetes/platform/authentik/manifests/blueprint-*.yaml"
+      - "kubernetes/bootstrap/*.yaml"  # new app bootstrap Applications
 
   workflow_dispatch:
     inputs:
@@ -67,10 +68,11 @@ jobs:
     name: "Detect Changes"
     runs-on: ubuntu-latest
     outputs:
-      user_config:  ${{ steps.changes.outputs.user_config }}
-      blueprints:   ${{ steps.changes.outputs.blueprints }}
-      openbao_seed: ${{ steps.changes.outputs.openbao_seed }}
-      new_users:    ${{ steps.changes.outputs.new_users }}
+      user_config:    ${{ steps.changes.outputs.user_config }}
+      blueprints:     ${{ steps.changes.outputs.blueprints }}
+      openbao_seed:   ${{ steps.changes.outputs.openbao_seed }}
+      new_users:      ${{ steps.changes.outputs.new_users }}
+      new_bootstrap:  ${{ steps.changes.outputs.new_bootstrap }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -109,6 +111,15 @@ jobs:
           echo "new_users=${NEW_USERS}" >> $GITHUB_OUTPUT
           echo "==> Newly added users: ${NEW_USERS}"
 
+          # Detect new/changed bootstrap Application files (created by new-app.sh)
+          if echo "$CHANGED" | grep -qE "^kubernetes/bootstrap/app-"; then
+            echo "new_bootstrap=true" >> $GITHUB_OUTPUT
+            echo "==> Changed bootstrap files:"
+            echo "$CHANGED" | grep -E "^kubernetes/bootstrap/app-"
+          else
+            echo "new_bootstrap=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Summary
         run: |
           echo "### Change Detection" >> $GITHUB_STEP_SUMMARY
@@ -118,6 +129,7 @@ jobs:
           echo "| Blueprints    | ${{ steps.changes.outputs.blueprints }} |" >> $GITHUB_STEP_SUMMARY
           echo "| OpenBao seed  | ${{ steps.changes.outputs.openbao_seed }} |" >> $GITHUB_STEP_SUMMARY
           echo "| New users     | ${{ steps.changes.outputs.new_users }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| New apps      | ${{ steps.changes.outputs.new_bootstrap }} |" >> $GITHUB_STEP_SUMMARY
 
   # ── 2. Sync Authentik blueprints via ArgoCD ────────────────────────────────
   sync-blueprints:
@@ -338,13 +350,57 @@ jobs:
           done
           echo "✅ Welcome emails sent" >> $GITHUB_STEP_SUMMARY
 
+  # ── 5. Apply new bootstrap Applications (new apps added via new-app.sh) ─────
+  apply-new-apps:
+    name: "Apply New App Bootstraps"
+    needs: [detect]
+    if: needs.detect.outputs.new_bootstrap == 'true' || github.event.inputs.force_user_sync == 'true'
+    runs-on:
+      - self-hosted
+      - prod-worker
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Apply changed bootstrap Application files
+        run: |
+          KB=~/.kube/config-platform-${{ env.ENV_NAME }}
+          KT="kubectl --kubeconfig $KB --insecure-skip-tls-verify"
+          CHANGED=$(git diff --name-only HEAD~1 HEAD 2>/dev/null | grep "^kubernetes/bootstrap/app-" || echo "")
+
+          if [ -z "$CHANGED" ]; then
+            echo "==> No changed bootstrap files detected — applying all bootstrap apps"
+            $KT apply -f kubernetes/bootstrap/ --dry-run=client 2>&1 | head -5
+            $KT apply -f kubernetes/bootstrap/
+          else
+            echo "==> Applying changed bootstrap files:"
+            for f in $CHANGED; do
+              if [ -f "$f" ]; then
+                echo "  kubectl apply -f $f"
+                $KT apply -f "$f"
+                APP_NAME=$(grep "^  name:" "$f" | head -1 | awk '{print $2}')
+                if [ -n "$APP_NAME" ]; then
+                  echo "  Waiting for ArgoCD to pick up ${APP_NAME}..."
+                  $KT wait application/"$APP_NAME" -n argocd \
+                    --for=jsonpath='{.status.sync.status}'=Synced \
+                    --timeout=120s 2>/dev/null || echo "  ⚠️ Not yet Synced — ArgoCD will continue in background"
+                fi
+              else
+                echo "  ⚠️ File deleted: $f (app will be pruned by ArgoCD)"
+              fi
+            done
+          fi
+          echo "✅ Bootstrap Application files applied" >> $GITHUB_STEP_SUMMARY
+
   # ── 6. Post-apply health check ────────────────────────────────────────────
   post-health-check:
     name: "Post-Apply Health Check"
-    needs: [detect, apply-users]
+    needs: [detect, apply-users, apply-new-apps]
     if: |
       always() &&
       (needs.detect.outputs.user_config == 'true' ||
+       needs.detect.outputs.new_bootstrap == 'true' ||
        github.event.inputs.force_user_sync == 'true')
     runs-on:
       - self-hosted
