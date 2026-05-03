@@ -214,8 +214,18 @@ jobs:
               fi
             }
             export KUBECONFIG="$KB"
-            echo "==> Pre-flight: importing existing K8s resources into Tofu state..."
-            import_if_missing "module.platform_bootstrap[0].kubernetes_namespace.argocd" "argocd"
+            # Read cluster_name from tfvars (needed for AppProject name)
+            CLUSTER_NAME=$(grep 'cluster_name' "../envs/$ENV/terraform.tfvars" 2>/dev/null | sed 's/.*= *"\(.*\)"/\1/')
+            ARGOCD_NS="argocd"
+            echo "==> Pre-flight: importing existing K8s resources into Tofu state (cluster=$CLUSTER_NAME)..."
+            import_if_missing "module.platform_bootstrap[0].kubernetes_namespace.argocd" "$ARGOCD_NS"
+            import_if_missing "module.platform_bootstrap[0].helm_release.argocd" "${ARGOCD_NS}/argocd"
+            if [ -n "$CLUSTER_NAME" ]; then
+              import_if_missing "module.platform_bootstrap[0].kubernetes_manifest.app_project" \
+                "argoproj.io/v1alpha1/AppProject/${ARGOCD_NS}/${CLUSTER_NAME}"
+            fi
+            import_if_missing "module.platform_bootstrap[0].kubernetes_manifest.platform_applicationset" \
+              "argoproj.io/v1alpha1/ApplicationSet/${ARGOCD_NS}/platform"
           fi
 
           # Stage 2: deploy platform bootstrap (ArgoCD + ApplicationSet)
