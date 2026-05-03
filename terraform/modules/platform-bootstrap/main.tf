@@ -160,6 +160,16 @@ resource "time_sleep" "wait_for_argocd_crds" {
 # ---------------------------------------------------------------------------
 
 resource "kubernetes_manifest" "app_project" {
+  # ArgoCD controller adds computed fields (syncWindows, roles, etc.) after creation.
+  # Marking them as computed prevents the provider from producing inconsistent plan errors.
+  computed_fields = [
+    "metadata.annotations",
+    "metadata.labels",
+    "spec.syncWindows",
+    "spec.roles",
+    "spec.orphanedResources",
+  ]
+
   manifest = {
     apiVersion = "argoproj.io/v1alpha1"
     kind       = "AppProject"
@@ -210,6 +220,13 @@ resource "kubernetes_manifest" "app_project" {
 # ---------------------------------------------------------------------------
 
 resource "kubernetes_manifest" "platform_applicationset" {
+  # ArgoCD controller mutates ApplicationSet status and template fields after creation.
+  computed_fields = [
+    "metadata.annotations",
+    "metadata.labels",
+    "status",
+  ]
+
   manifest = {
     apiVersion = "argoproj.io/v1alpha1"
     kind       = "ApplicationSet"
