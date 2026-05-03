@@ -46,16 +46,3 @@ data:
           password: !Env AUTHENTIK_ARDATY_PASSWORD
           is_active: true
 
-      # ── testuser1 (platform-user, test) ────────────────────────────────────
-      # IAC test user — validates dynamic user provisioning end-to-end.
-      # Remove this entry (and from users.yaml/seed/externalsecret/values.yaml) when done.
-      - model: authentik_core.user
-        state: present
-        identifiers:
-          username: testuser1
-        attrs:
-          name: "Test User One"
-          email: "testuser1@rlservers.com"
-          password: !Env AUTHENTIK_TESTUSER1_PASSWORD
-          is_active: true
-
