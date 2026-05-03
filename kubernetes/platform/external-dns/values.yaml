@@ -21,7 +21,6 @@ env:
     valueFrom:
       secretKeyRef:
         name: cloudflare-api-token
-        namespace: external-dns
         key: CF_API_TOKEN
 
 # Only manage records under int.rlservers.com — never touch public records
