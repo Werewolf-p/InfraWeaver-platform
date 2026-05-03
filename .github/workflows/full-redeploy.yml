@@ -1047,6 +1047,21 @@ jobs:
           # Apply MetalLB IP pool and L2 advertisement
           kubectl --kubeconfig "$KB" apply -f kubernetes/core/metallb/ip-pool.yaml 2>/dev/null || true
 
+          # Re-apply the privileged PodSecurity label on metallb-system.
+          # The Helm chart creates the namespace WITHOUT the label, so the speaker DaemonSet
+          # fails to start on first deploy.  Applying the label here (after the chart deploys)
+          # and restarting the DaemonSet ensures L2 announcements work immediately.
+          kubectl --kubeconfig "$KB" label namespace metallb-system \
+            pod-security.kubernetes.io/enforce=privileged \
+            pod-security.kubernetes.io/warn=privileged \
+            pod-security.kubernetes.io/audit=privileged \
+            pod-security.kubernetes.io/enforce-version=latest \
+            --overwrite 2>/dev/null || true
+          # Restart the speaker DaemonSet so all pods pick up the new label
+          kubectl --kubeconfig "$KB" rollout restart daemonset/metallb-speaker \
+            -n metallb-system 2>/dev/null || true
+          echo "  MetalLB speaker restarted after namespace label update"
+
           # Apply Traefik netbird-only middleware (restricts ArgoCD/Grafana to LAN+VPN IPs)
           kubectl --kubeconfig "$KB" apply -f kubernetes/core/traefik/manifests/middleware-netbird.yaml 2>/dev/null || true
 
