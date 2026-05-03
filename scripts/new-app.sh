@@ -9,23 +9,35 @@
 #   --tier <tier>          Tier to place the app in (default: apps)
 #                          Valid: apps | core | monitoring | platform
 #   --helm <repo> <chart>  Helm chart mode: create application.yaml + values.yaml
-#   --manifest-only        Manifest-only mode: skip bootstrap file creation
+#   --manifest-only        Skip bootstrap file creation
+#   --auth                 Protect with Authentik (any logged-in user)
+#   --auth-admin           Protect with Authentik (platform-admins group only)
+#   --auth-sso             App uses native OIDC/SSO (generates config skeleton)
+#   --public               No auth — world-accessible ⚠️
+#
+# AUTH MODES:
+#   (default)    → VPN-only internal access (netbird-vpn-only middleware)
+#                  Label: infraweaver.io/auth=vpn
+#   --auth       → Authentik proxy (any logged-in Authentik user)
+#                  Label: infraweaver.io/auth=proxy
+#   --auth-admin → Authentik proxy + platform-admins group required
+#                  Label: infraweaver.io/auth=admin
+#   --auth-sso   → App speaks OIDC natively, generates oidc-config.yaml.example
+#                  Label: infraweaver.io/auth=sso
+#   --public     → No auth, world-accessible
+#                  Label: infraweaver.io/auth=public
+#
+# View auth status for all apps:  kubectl get deploy -A -L infraweaver.io/auth
 #
 # EXAMPLES:
 #   bash scripts/new-app.sh my-service
+#   bash scripts/new-app.sh my-service --auth
+#   bash scripts/new-app.sh my-service --auth-admin
+#   bash scripts/new-app.sh my-service --public
 #   bash scripts/new-app.sh my-service --helm https://charts.bitnami.com/bitnami redis
 #   bash scripts/new-app.sh my-service --tier platform
 #
-# What this creates (manifest-only mode, the default):
-#   kubernetes/<tier>/<app-name>/manifests/   — security-hardened manifest templates
-#   kubernetes/bootstrap/app-<app-name>.yaml  — ArgoCD Application (auto-applied on push)
-#
-# Adding a Helm chart (--helm flag):
-#   kubernetes/<tier>/<app-name>/application.yaml  — ApplicationSet auto-discovers this
-#   kubernetes/<tier>/<app-name>/values.yaml       — Helm values
-#   (No bootstrap file needed — ApplicationSet discovers Helm apps automatically)
-#
-# See: docs/templates/app/README.md for full documentation
+# See: docs/MIDDLEWARES.md for all available Traefik middlewares
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -35,15 +47,97 @@ warn() { echo -e "${YELLOW}⚠️  $*${NC}"; }
 fail() { echo -e "${RED}❌ $*${NC}"; exit 1; }
 info() { echo -e "${BLUE}ℹ️  $*${NC}"; }
 
+# ── Helper: generate auth-protected IngressRoute ──────────────────────────────
+_generate_auth_ingressroute() {
+  local app="$1"
+  local dir="$2"
+  local middleware="$3"
+  local auth_label="$4"
+
+  cat > "${dir}/manifests/ingressroute-auth.yaml" << EOF
+---
+# Auth-protected IngressRoute for ${app}
+# Middleware: ${middleware}
+# Auth label: infraweaver.io/auth=${auth_label}
+# View all auth labels: kubectl get deploy -A -L infraweaver.io/auth
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: ${app}-auth
+  namespace: apps-${app}
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(\`${app}.rlservers.com\`)
+      kind: Rule
+      middlewares:
+        - name: ${middleware}
+          namespace: traefik
+      services:
+        - name: ${app}
+          port: 80
+  tls:
+    secretName: ${app}-tls
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: ${app}-tls
+  namespace: apps-${app}
+spec:
+  secretName: ${app}-tls
+  issuerRef:
+    name: letsencrypt-dns
+    kind: ClusterIssuer
+  dnsNames:
+    - ${app}.rlservers.com
+EOF
+}
+
+# ── Helper: generate OIDC config skeleton for SSO apps ───────────────────────
+_generate_sso_config() {
+  local app="$1"
+  local dir="$2"
+
+  cat > "${dir}/manifests/oidc-config.yaml.example" << EOF
+# OIDC / SSO Configuration for ${app}
+#
+# This app uses infraweaver.io/auth=sso — it speaks OIDC natively.
+# Configure your app with the following Authentik OIDC provider settings:
+#
+# Authentik setup:
+#   1. Applications → Providers → Create → OAuth2/OpenID Connect Provider
+#   2. Set:
+#        Name:          ${app}
+#        Client type:   Confidential
+#        Redirect URIs: https://${app}.rlservers.com/callback
+#        Signing Key:   authentik Self-signed Certificate
+#   3. Create an Application linked to this Provider
+#   4. Copy Client ID + Client Secret into your app's config/secret
+#
+# Authentik OIDC endpoints:
+#   Discovery:  https://auth.rlservers.com/application/o/${app}/.well-known/openid-configuration
+#   Auth:       https://auth.rlservers.com/application/o/authorize/
+#   Token:      https://auth.rlservers.com/application/o/token/
+#   UserInfo:   https://auth.rlservers.com/application/o/userinfo/
+#
+# Store credentials in OpenBao:
+#   secret/platform/apps/${app}  →  oidc-client-id, oidc-client-secret
+# Then reference via ExternalSecret (see docs/templates/app/externalsecret.yaml.example)
+EOF
+}
+
 # ── Argument parsing ─────────────────────────────────────────────────────────
 APP_NAME=${1:-}
 TIER="apps"
 MODE="manifest"   # manifest | helm | manifest-only
+AUTH_MODE="vpn"   # vpn | proxy | admin | sso | public
 CHART_REPO=""
 CHART_NAME=""
 
 if [ -z "$APP_NAME" ]; then
-  echo -e "${BOLD}USAGE:${NC} bash scripts/new-app.sh <app-name> [--tier <tier>] [--helm <repo> <chart>] [--manifest-only]"
+  echo -e "${BOLD}USAGE:${NC} bash scripts/new-app.sh <app-name> [--tier <tier>] [--auth|--auth-admin|--auth-sso|--public] [--helm <repo> <chart>] [--manifest-only]"
   exit 1
 fi
 
@@ -59,6 +153,14 @@ while [[ $# -gt 0 ]]; do
       shift 3 ;;
     --manifest-only)
       MODE="manifest-only"; shift ;;
+    --auth)
+      AUTH_MODE="proxy"; shift ;;
+    --auth-admin)
+      AUTH_MODE="admin"; shift ;;
+    --auth-sso)
+      AUTH_MODE="sso"; shift ;;
+    --public)
+      AUTH_MODE="public"; shift ;;
     *)
       fail "Unknown option: $1" ;;
   esac
@@ -68,6 +170,15 @@ done
 case "$TIER" in
   apps|core|monitoring|platform) ;;
   *) fail "Invalid tier '${TIER}'. Must be: apps | core | monitoring | platform" ;;
+esac
+
+# Resolve auth label and description
+case "$AUTH_MODE" in
+  proxy)  AUTH_LABEL="proxy";  AUTH_DESC="Authentik proxy (any logged-in user)" ;;
+  admin)  AUTH_LABEL="admin";  AUTH_DESC="Authentik proxy (platform-admins group only)" ;;
+  sso)    AUTH_LABEL="sso";    AUTH_DESC="Native OIDC/SSO (app handles auth natively)" ;;
+  public) AUTH_LABEL="public"; AUTH_DESC="No auth — world-accessible ⚠️" ;;
+  vpn)    AUTH_LABEL="vpn";    AUTH_DESC="VPN-only (NetBird, internal access)" ;;
 esac
 
 TEMPLATE_DIR="docs/templates/app"
@@ -90,6 +201,7 @@ echo ""
 info "App name : ${APP_NAME}"
 info "Tier     : ${TIER}"
 info "Mode     : ${MODE}"
+info "Auth     : ${AUTH_DESC}"
 info "Target   : ${TARGET_DIR}/"
 echo ""
 
@@ -102,6 +214,48 @@ for tmpl_file in "${TEMPLATE_DIR}/manifests/"*; do
   sed "s/APP_NAME/${APP_NAME}/g" "$tmpl_file" > "$dest"
   ok "Created ${dest}"
 done
+
+# ── Patch deployment.yaml with auth label ────────────────────────────────────
+DEPLOY_FILE="${TARGET_DIR}/manifests/deployment.yaml"
+if [ -f "$DEPLOY_FILE" ]; then
+  # Add infraweaver.io/auth label alongside the existing app label (both locations)
+  sed -i "s/^    app: ${APP_NAME}$/    app: ${APP_NAME}\n    infraweaver.io\/auth: ${AUTH_LABEL}/" "$DEPLOY_FILE"
+  ok "Patched deployment.yaml — added label infraweaver.io/auth=${AUTH_LABEL}"
+fi
+
+# ── Generate IngressRoute based on auth mode ─────────────────────────────────
+case "$AUTH_MODE" in
+  vpn)
+    if [ -f "${TARGET_DIR}/manifests/ingressroute-internal.yaml.example" ]; then
+      mv "${TARGET_DIR}/manifests/ingressroute-internal.yaml.example" \
+         "${TARGET_DIR}/manifests/ingressroute-internal.yaml"
+      ok "Activated ingressroute-internal.yaml (VPN-only, netbird-vpn-only middleware)"
+    fi
+    ;;
+  proxy)
+    _generate_auth_ingressroute "$APP_NAME" "$TARGET_DIR" "forward-auth" "proxy"
+    ok "Generated ingressroute-auth.yaml (Authentik proxy: any logged-in user)"
+    ;;
+  admin)
+    _generate_auth_ingressroute "$APP_NAME" "$TARGET_DIR" "forward-auth-admin" "admin"
+    ok "Generated ingressroute-auth.yaml (Authentik proxy: platform-admins only)"
+    ;;
+  sso)
+    if [ -f "${TARGET_DIR}/manifests/ingressroute-internal.yaml.example" ]; then
+      mv "${TARGET_DIR}/manifests/ingressroute-internal.yaml.example" \
+         "${TARGET_DIR}/manifests/ingressroute-internal.yaml"
+    fi
+    _generate_sso_config "$APP_NAME" "$TARGET_DIR"
+    ok "Activated ingressroute-internal.yaml + generated oidc-config.yaml.example"
+    ;;
+  public)
+    if [ -f "${TARGET_DIR}/manifests/ingressroute-public.yaml.example" ]; then
+      mv "${TARGET_DIR}/manifests/ingressroute-public.yaml.example" \
+         "${TARGET_DIR}/manifests/ingressroute-public.yaml"
+      ok "Activated ingressroute-public.yaml (⚠️  no auth — world-accessible)"
+    fi
+    ;;
+esac
 
 # ── Helm chart files ──────────────────────────────────────────────────────────
 if [[ "$MODE" == "helm" ]]; then
@@ -128,7 +282,8 @@ else
     APP_NS="${APP_NAME}"
   fi
 
-  cat > "${BOOTSTRAP_FILE}" << EOF
+  if [[ "$MODE" != "manifest-only" ]]; then
+    cat > "${BOOTSTRAP_FILE}" << EOF
 ---
 # ArgoCD Application for ${APP_NAME} — auto-generated by scripts/new-app.sh
 # Applied automatically by apply-changes.yml when pushed to main.
@@ -157,10 +312,12 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
 EOF
-  ok "Created ${BOOTSTRAP_FILE}"
-  info "Bootstrap Application created — applied automatically on push to main"
+    ok "Created ${BOOTSTRAP_FILE}"
+    info "Bootstrap Application created — applied automatically on push to main"
+  fi
 fi
 
+# ── Print summary ─────────────────────────────────────────────────────────────
 echo ""
 echo "═══════════════════════════════════════════════════════"
 echo -e "${GREEN}✅ App '${APP_NAME}' scaffolded at ${TARGET_DIR}/${NC}"
@@ -171,6 +328,7 @@ echo "    ✅ Dedicated ServiceAccount (no auto-mount)"
 echo "    ✅ Pod Security Admission: restricted"
 echo "    ✅ Secure pod template (non-root, read-only fs, drop ALL caps)"
 echo "    ✅ ResourceQuota on namespace"
+echo "    ✅ Auth label: infraweaver.io/auth=${AUTH_LABEL} (${AUTH_DESC})"
 echo ""
 echo -e "  ${BOLD}Next steps:${NC}"
 echo ""
@@ -178,23 +336,44 @@ echo "    1. Update the image in ${TARGET_DIR}/manifests/deployment.yaml"
 echo "       - Set 'image' to your actual container image"
 echo "       - Set 'containerPort' to match your app's listening port"
 echo ""
-echo "    2. Choose access mode:"
-echo "       Internal (VPN only):"
-echo "         mv ${TARGET_DIR}/manifests/ingressroute-internal.yaml.example \\"
-echo "            ${TARGET_DIR}/manifests/ingressroute-internal.yaml"
-echo "       Public internet:"
-echo "         mv ${TARGET_DIR}/manifests/ingressroute-public.yaml.example \\"
-echo "            ${TARGET_DIR}/manifests/ingressroute-public.yaml"
+
+case "$AUTH_MODE" in
+  vpn)
+    echo "    2. Access mode: VPN-only"
+    echo "       URL: https://${APP_NAME}.int.rlservers.com (connect via NetBird first)"
+    ;;
+  proxy|admin)
+    echo "    2. Access mode: ${AUTH_DESC}"
+    echo "       URL: https://${APP_NAME}.rlservers.com (Authentik login required)"
+    if [[ "$AUTH_MODE" == "admin" ]]; then
+      echo ""
+      echo "       ⚙️  To enforce admin-only in Authentik:"
+      echo "       - Create an Authentik Application + Proxy Provider for ${APP_NAME}.rlservers.com"
+      echo "       - Add Policy Binding: ak_is_group_member(request.user, name=\"platform-admins\")"
+      echo "       See: docs/MIDDLEWARES.md#admin-auth"
+    fi
+    ;;
+  sso)
+    echo "    2. Access mode: Native OIDC/SSO"
+    echo "       See ${TARGET_DIR}/manifests/oidc-config.yaml.example for Authentik setup"
+    ;;
+  public)
+    echo "    2. Access mode: ⚠️  PUBLIC — no authentication"
+    echo "       URL: https://${APP_NAME}.rlservers.com"
+    echo "       Consider --auth flag if this needs protecting"
+    ;;
+esac
+
 echo ""
 if [[ "$MODE" == "helm" ]]; then
   echo "    3. Pin the chart version in ${TARGET_DIR}/application.yaml"
-  echo "       (targetRevision: \"1.0.0\" — never use \"*\" in production)"
   echo ""
 fi
-echo "    3. Push to git:"
 if [[ "$MODE" != "helm" ]]; then
+  echo "    3. Push to git:"
   echo "       git add ${TARGET_DIR}/ ${BOOTSTRAP_FILE}"
 else
+  echo "    3. Push to git:"
   echo "       git add ${TARGET_DIR}/"
 fi
 echo "       git commit -m 'feat: add ${APP_NAME} app'"
@@ -203,5 +382,8 @@ echo ""
 echo "    4. ArgoCD auto-deploys within ~60 seconds"
 echo "       https://argocd.int.rlservers.com"
 echo ""
+echo "    5. View auth status across all apps:"
+echo "       kubectl get deploy -A -L infraweaver.io/auth"
+echo ""
 warn "Replace all APP_NAME placeholders before pushing!"
-warn "Review resource limits in deployment.yaml and resourcequota.yaml for your app's actual needs"
+warn "Review resource limits in deployment.yaml and resourcequota.yaml"

@@ -85,7 +85,22 @@ spec:
     customRequestHeaders:
       X-Forwarded-Proto: "https"
 ---
-# Middleware: forward-auth — delegates authentication to auth.rlservers.com
+# Middleware: forward-auth — Authentik proxy auth for any logged-in user.
+#
+# Uses Authentik's embedded outpost forward-auth endpoint.
+# Any user with a valid Authentik session passes; unauthenticated users are
+# redirected to auth.rlservers.com to log in, then returned here.
+#
+# authResponseHeaders: passes Authentik user info to the backend so apps can
+# read who is logged in without doing their own auth.
+#
+# Usage in IngressRoute:
+#   middlewares:
+#     - name: forward-auth
+#       namespace: traefik
+#
+# Label convention: add label infraweaver.io/auth: proxy to your Deployment
+# to document that this app is protected (visible in: kubectl get deploy -A -L infraweaver.io/auth)
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
@@ -93,5 +108,58 @@ metadata:
   namespace: traefik
 spec:
   forwardAuth:
-    address: "https://auth.rlservers.com"
+    address: "https://auth.rlservers.com/outpost.goauthentik.io/auth/traefik"
     trustForwardHeader: true
+    authResponseHeaders:
+      - X-authentik-username
+      - X-authentik-groups
+      - X-authentik-email
+      - X-authentik-name
+      - X-authentik-uid
+      - X-authentik-jwt
+      - X-authentik-meta-jwks
+      - X-authentik-meta-outpost
+      - X-authentik-meta-provider
+      - X-authentik-meta-app
+      - X-authentik-meta-version
+      - authorization
+---
+# Middleware: forward-auth-admin — Authentik proxy auth for platform-admins only.
+#
+# Same as forward-auth but the Authentik Application for admin-protected services
+# should have a Policy Binding requiring the `platform-admins` group.
+# Authentik returns 403 for users not in the group; Traefik passes that through.
+#
+# To apply admin-only access to a new app in Authentik:
+#   1. Create an Authentik Application + Proxy Provider pointing to your app URL
+#   2. Add a Policy Binding: Expression Policy that checks ak_is_group_member(request.user, name="platform-admins")
+#   3. Apply this middleware in the IngressRoute
+#
+# Usage in IngressRoute:
+#   middlewares:
+#     - name: forward-auth-admin
+#       namespace: traefik
+#
+# Label convention: add label infraweaver.io/auth: admin to your Deployment
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: forward-auth-admin
+  namespace: traefik
+spec:
+  forwardAuth:
+    address: "https://auth.rlservers.com/outpost.goauthentik.io/auth/traefik"
+    trustForwardHeader: true
+    authResponseHeaders:
+      - X-authentik-username
+      - X-authentik-groups
+      - X-authentik-email
+      - X-authentik-name
+      - X-authentik-uid
+      - X-authentik-jwt
+      - X-authentik-meta-jwks
+      - X-authentik-meta-outpost
+      - X-authentik-meta-provider
+      - X-authentik-meta-app
+      - X-authentik-meta-version
+      - authorization

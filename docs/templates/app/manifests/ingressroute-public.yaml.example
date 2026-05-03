@@ -1,15 +1,14 @@
 ---
-# PUBLIC IngressRoute — accessible from the internet
+# PUBLIC IngressRoute — accessible from the internet WITHOUT authentication
 #
 # Rename this file from .yaml.example → .yaml to activate it.
-# URL: https://APP_NAME.rlservers.com  (⚠️ world-reachable!)
+# URL: https://APP_NAME.rlservers.com  (⚠️ world-reachable! No login required.)
 #
 # ⚠️  Think twice before enabling this.
-#    Only enable for apps that are explicitly designed to be public.
-#    Consider adding `forward-auth` middleware for Authentik SSO protection:
-#      middlewares:
-#        - name: forward-auth
-#          namespace: traefik
+#    Only use for apps explicitly designed to be fully public (e.g., a portfolio, API).
+#
+# Want Authentik SSO protection instead? Use ingressroute-auth.yaml.example.
+# It adds forward-auth middleware so only logged-in users can reach the app.
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
@@ -21,10 +20,6 @@ spec:
   routes:
     - match: Host(`APP_NAME.rlservers.com`)
       kind: Rule
-      # Optional: add Authentik SSO protection:
-      # middlewares:
-      #   - name: forward-auth
-      #     namespace: traefik
       services:
         - name: APP_NAME
           port: 80
