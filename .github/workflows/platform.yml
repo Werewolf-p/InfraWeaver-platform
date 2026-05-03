@@ -19,14 +19,14 @@ on:
       - "envs/**"
       - "terraform/**"
       - ".github/workflows/platform.yml"
-      - "Makefile"
+      # Note: Makefile removed from trigger — Makefile changes are DX tooling,
+      # not infrastructure changes. Only envs/** and terraform/** should trigger tofu apply.
   pull_request:
     branches: [main, ontwikkel]
     paths:
       - "envs/**"
       - "terraform/**"
       - ".github/workflows/platform.yml"
-      - "Makefile"
 
 permissions:
   contents: read
