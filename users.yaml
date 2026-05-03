@@ -12,12 +12,14 @@
 #   platform-user → homepage, netbird (VPN access), argocd (read-only)
 #
 # To add a new user:
-#   1. Add an entry to this file (documentation)
+#   1. Add an entry to this file (documentation + sync driver)
 #   2. Add a user entry to blueprint-users.yaml
 #   3. Add their password field to seed-openbao-authentik.sh
-#   4. Add their group assignment to the workflow step "Set user group memberships"
-#   5. Set policy_default for ArgoCD RBAC if needed (kubernetes/core/argocd/values.yaml)
-#   6. Commit + push → full-redeploy generates a recovery email link
+#   4. Add their password to externalsecret.yaml + authentik/values.yaml env vars
+#   5. Commit + push → apply-changes.yml auto-syncs groups + generates recovery email
+#
+# Group sync is fully dynamic — no hardcoded user lists in workflow scripts.
+# Recovery links are generated for all users with send_recovery_email: true.
 #
 # =============================================================================
 

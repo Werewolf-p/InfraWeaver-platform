@@ -1,16 +1,39 @@
 installCRDs: true
 
-replicaCount: 1  # set to 2 for HA
+# HA: 2 replicas — controller, webhook, and cainjector all run on 2 nodes.
+# Leader election ensures only one acts at a time; the second is hot standby.
+# Cluster has no worker nodes, so all components need control-plane tolerations.
+replicaCount: 2
 
 global:
   leaderElection:
     enabled: true
+
+# Control-plane taint toleration — required since no worker nodes exist
+tolerations:
+  - key: "node-role.kubernetes.io/control-plane"
+    operator: "Exists"
+    effect: "NoSchedule"
 
 # Use public recursive DNS for DNS-01 propagation checks.
 # Without this, cert-manager uses CoreDNS which doesn't see external TXT records.
 extraArgs:
   - --dns01-recursive-nameservers-only
   - --dns01-recursive-nameservers=1.1.1.1:53,8.8.8.8:53
+
+webhook:
+  replicaCount: 2
+  tolerations:
+    - key: "node-role.kubernetes.io/control-plane"
+      operator: "Exists"
+      effect: "NoSchedule"
+
+cainjector:
+  replicaCount: 2
+  tolerations:
+    - key: "node-role.kubernetes.io/control-plane"
+      operator: "Exists"
+      effect: "NoSchedule"
 
 prometheus:
   enabled: true
