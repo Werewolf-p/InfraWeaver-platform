@@ -1,0 +1,24 @@
+# .yamllint.yaml — YAML lint configuration for InfraWeaver Platform
+---
+extends: default
+rules:
+  # Allow long lines in YAML values (Helm charts and configs often have long lines)
+  line-length:
+    max: 150
+    level: warning
+  # Allow duplicate keys in some contexts
+  key-duplicates: enable
+  # Relaxed truthy for Kubernetes YAML
+  truthy:
+    allowed-values: ["true", "false", "yes", "no"]
+    check-keys: false
+  # Allow both inline and expanded comments
+  comments:
+    min-spaces-from-content: 1
+  # Allow braces in flow style
+  braces:
+    max-spaces-inside: 1
+  # Ignore .sops.yaml (encrypted, non-standard YAML)
+ignore: |
+  envs/*/secrets.sops.yaml
+  .sops.yaml

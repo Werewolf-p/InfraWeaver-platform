@@ -407,3 +407,10 @@ jobs:
             sleep 10
           done
           echo "⚠️  Authentik app ($APP_NAME) not Synced+Healthy after 2 min — check ArgoCD UI" >> $GITHUB_STEP_SUMMARY
+
+      - name: Run post-deploy test suite
+        if: always()
+        run: |
+          KB=~/.kube/config-platform-${{ env.ENV_NAME }}
+          bash scripts/test-post-deploy.sh "$KB" "${{ env.ENV_NAME }}" 2>&1 || true
+          echo "✅ Post-deploy test suite complete (non-blocking)" >> $GITHUB_STEP_SUMMARY
