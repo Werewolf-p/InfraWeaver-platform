@@ -23,17 +23,18 @@ grafana:
     enabled: true
     size: 5Gi
 
-  # Exclude cp1 (talos-prod-cp1) which has a persistent Docker Hub connectivity issue
-  # causing init container image pulls to hang/fail on that node.
+  # Schedule Grafana only on nodes with the 'grafana-eligible' label.
+  # Label nodes with: kubectl label node <node> grafana-eligible=true
+  # Nodes with Docker Hub connectivity issues can be excluded by omitting the label.
   affinity:
     nodeAffinity:
       requiredDuringSchedulingIgnoredDuringExecution:
         nodeSelectorTerms:
           - matchExpressions:
-              - key: kubernetes.io/hostname
-                operator: NotIn
+              - key: grafana-eligible
+                operator: In
                 values:
-                  - talos-prod-cp1
+                  - "true"
 
   ingress:
     enabled: true
@@ -102,7 +103,7 @@ prometheus:
     # Fix: second init container mounts WITH subPath to chmod the overlayfs upper layer directly.
     initContainers:
       - name: fix-prometheus-permissions
-        image: busybox:latest
+        image: busybox:1.36
         command:
           - sh
           - -c
@@ -119,7 +120,7 @@ prometheus:
           - name: prometheus-kube-prometheus-stack-prometheus-db
             mountPath: /prometheus
       - name: fix-prometheus-overlay-permissions
-        image: busybox:latest
+        image: busybox:1.36
         command:
           - sh
           - -c

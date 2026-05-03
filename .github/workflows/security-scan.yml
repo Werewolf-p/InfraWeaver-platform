@@ -58,20 +58,68 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install kubeval
+      - name: Install kubeconform
         run: |
-          curl -fsSL https://github.com/instrumenta/kubeval/releases/latest/download/kubeval-linux-amd64.tar.gz | \
-            tar -xzf - -C /usr/local/bin/ kubeval
+          curl -fsSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz \
+            | tar -xzf - -C /usr/local/bin/ kubeconform
       - name: Validate manifests
         run: |
           find kubernetes/ -name "*.yaml" -o -name "*.yml" | \
-            grep -v 'values.yaml\|helmrelease.yaml\|kustomization.yaml' | \
-            xargs kubeval --ignore-missing-schemas 2>&1 || true
+            grep -v 'values.yaml\|helmrelease.yaml\|kustomization.yaml\|application.yaml' | \
+            xargs kubeconform \
+              -summary \
+              -ignore-missing-schemas \
+              -kubernetes-version 1.32.0 \
+              2>&1 || true
           echo "✅ Manifest lint complete"
+
+  actionlint:
+    name: GitHub Actions Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install actionlint
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash \
+            | bash -s -- latest /usr/local/bin
+      - name: Lint workflows
+        run: |
+          actionlint .github/workflows/*.yml 2>&1 || true
+          echo "✅ Workflow lint complete"
+
+  trivy-scan:
+    name: Trivy — Image Vulnerability Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install trivy
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+            | sh -s -- -b /usr/local/bin v0.60.0
+      - name: Scan critical images
+        run: |
+          IMAGES=(
+            "quay.io/openbao/openbao:2.5.3"
+            "netbirdio/management:v0.70.4"
+            "netbirdio/signal:v0.70.4"
+            "netbirdio/relay:v0.70.4"
+          )
+          FAIL=0
+          for img in "${IMAGES[@]}"; do
+            echo "Scanning ${img}..."
+            trivy image \
+              --severity CRITICAL \
+              --exit-code 0 \
+              --quiet \
+              --no-progress \
+              "${img}" 2>&1 | tail -5 || FAIL=1
+          done
+          [ $FAIL -eq 0 ] && echo "✅ Image scan complete" || echo "⚠ Some images have CRITICAL CVEs — review above"
+          exit 0  # soft-fail: report but don't block
 
   security-gate:
     name: Security Gate
-    needs: [secret-scan, checkov, sops-validation, kubernetes-manifests]
+    needs: [secret-scan, checkov, sops-validation, kubernetes-manifests, actionlint, trivy-scan]
     runs-on: ubuntu-latest
     steps:
       - run: echo "✅ All security checks passed"

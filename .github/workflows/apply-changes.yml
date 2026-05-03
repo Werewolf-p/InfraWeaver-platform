@@ -350,6 +350,18 @@ jobs:
       - self-hosted
       - prod-worker
     steps:
+      - name: Ensure node labels (grafana-eligible)
+        run: |
+          KB=~/.kube/config-platform-${{ env.ENV_NAME }}
+          KT="kubectl --kubeconfig $KB --insecure-skip-tls-verify"
+          # Label nodes that can run Grafana (all except cp1 which has Docker Hub issues)
+          for node in talos-prod-cp2 talos-prod-cp3; do
+            if $KT get node "$node" >/dev/null 2>&1; then
+              $KT label node "$node" grafana-eligible=true --overwrite
+              echo "✅ Labelled ${node} grafana-eligible=true"
+            fi
+          done
+
       - name: Check public endpoint reachability
         run: |
           FAIL=0

@@ -22,8 +22,8 @@ spec:
     spec:
       containers:
         - name: relay
-          image: netbirdio/relay:latest
-          imagePullPolicy: Always
+          image: netbirdio/relay:v0.70.4
+          imagePullPolicy: IfNotPresent
           env:
             - name: NB_EXPOSED_ADDRESS
               value: "rels://netbird.rlservers.com:443/relay"

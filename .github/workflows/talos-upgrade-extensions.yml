@@ -28,25 +28,37 @@ jobs:
       - name: Setup talosconfig
         run: |
           mkdir -p ~/.talos
-          python3 - <<'EOF'
+          # Prefer the generated talosconfig from the repo workspace (written by full-redeploy.yml).
+          # Falls back to the legacy local state file path for self-hosted runners that still have it.
+          TALOS_CFG="envs/productie/generated/talosconfig"
+          LEGACY_PATH="${HOME}/.tofu/state/platform-productie/terraform.tfstate"
+
+          if [ -f "$TALOS_CFG" ]; then
+            cp "$TALOS_CFG" ~/.talos/config
+            echo "Talosconfig loaded from ${TALOS_CFG}"
+          elif [ -f "$LEGACY_PATH" ]; then
+            python3 - <<'PYEOF'
           import json, os, sys
-          state_path = '/home/ubuntu/.tofu/state/platform-productie/terraform.tfstate'
+          state_path = os.path.expanduser('~/.tofu/state/platform-productie/terraform.tfstate')
           with open(state_path) as f:
               state = json.load(f)
           for res in state.get('resources', []):
               for inst in res.get('instances', []):
                   attrs = inst.get('attributes', {})
-                  filename = attrs.get('filename', '')
-                  if res.get('type') == 'local_sensitive_file' and 'talosconfig' in filename:
-                      content = attrs['content']
+                  if res.get('type') == 'local_sensitive_file' and 'talosconfig' in attrs.get('filename', ''):
                       out_path = os.path.expanduser('~/.talos/config')
                       with open(out_path, 'w') as out:
-                          out.write(content)
-                      print(f"Talosconfig written to {out_path}")
+                          out.write(attrs['content'])
+                      print(f"Talosconfig extracted from legacy state path → {out_path}")
                       sys.exit(0)
           print("ERROR: talosconfig not found in state", file=sys.stderr)
           sys.exit(1)
-          EOF
+          PYEOF
+          else
+            echo "❌ ERROR: talosconfig not found at ${TALOS_CFG} or legacy path." >&2
+            echo "   Run full-redeploy.yml first, or copy talosconfig to envs/productie/generated/talosconfig on the runner." >&2
+            exit 1
+          fi
 
       - name: Verify cluster health before upgrade
         run: |

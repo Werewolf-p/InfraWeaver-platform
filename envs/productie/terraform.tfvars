@@ -26,7 +26,7 @@ git_revision = "main"
 # Set to true after `tofu apply -target=module.talos_cluster` completes and
 # envs/productie/generated/kubeconfig has been written.
 # ---------------------------------------------------------------------------
-deploy_platform_bootstrap = false
+deploy_platform_bootstrap = true
 
 # ---------------------------------------------------------------------------
 # OpenBao address (in-cluster via svc DNS — non-sensitive)

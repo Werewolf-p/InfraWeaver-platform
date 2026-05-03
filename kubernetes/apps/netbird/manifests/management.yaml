@@ -122,8 +122,8 @@ spec:
               mountPath: /var/lib/netbird
       containers:
         - name: management
-          image: netbirdio/management:latest
-          imagePullPolicy: Always
+          image: netbirdio/management:v0.70.4
+          imagePullPolicy: IfNotPresent
           args:
             - --port=80
             - --log-file=console

@@ -34,7 +34,7 @@ server:
       - host: openbao.prod.local
         paths:
           - /
-      - host: openbao.rlservers.com
+      - host: openbao.int.rlservers.com
         paths:
           - /
     pathType: Prefix
