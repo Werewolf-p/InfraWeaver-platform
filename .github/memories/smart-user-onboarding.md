@@ -13,9 +13,14 @@ workflow handles all incremental user changes with zero admin email noise.
 ## Email Logic
 | Event | Email Sent | To |
 |-------|-----------|-----|
-| New user added | Welcome email with recovery link | User's `email` from users.yaml |
+| New user added (apply-changes.yml) | Welcome email with recovery link | User's `email` from users.yaml |
 | Existing user changed | NOTHING | — |
-| Full redeploy | Admin summary email | SMTP_TO secret |
+| Full redeploy | Admin summary email (OpenBao creds + admin recovery link) | SMTP_TO secret |
+| Full redeploy (non-admin users) | Welcome email with recovery link | Each user's own `email` from users.yaml |
+
+**Admin deploy email only includes recovery links for users with `access_level: admin`.**
+Non-admin users with `send_recovery_email: true` and a valid `email` get their own welcome email
+via the "Send welcome emails to non-admin users" step in full-redeploy.yml.
 
 ## apply-changes.yml Jobs
 1. `detect` — detects `user_config` changed + emits `new_users` JSON list

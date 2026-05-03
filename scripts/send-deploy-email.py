@@ -108,19 +108,21 @@ def build_user_rows():
     rows.append(field_row("Admin Password", auth_admin_pass))
 
     for username, udata in all_users.items():
+        # Admin deploy email only shows recovery links for admin users.
+        # Non-admin users receive their own welcome email via send-welcome-email.py.
+        if udata.get("access_level") != "admin":
+            continue
         if not udata.get("send_recovery_email", False):
             continue
         env_var = f"AUTHENTIK_{username.upper()}_RECOVERY_LINK"
         recovery_link = os.environ.get(env_var, "")
-        access = udata.get("access_level", "platform-user")
         link_html = (
             f'<a href="{recovery_link}" style="color:#9fef00;text-decoration:none;'
             f'word-break:break-all;">{recovery_link}</a>'
             if recovery_link
             else "⚠️ Recovery link unavailable — use admin to reset manually"
         )
-        rows.append(field_row(f"User: {username} — Access Level", access))
-        rows.append(field_row(f"User: {username} — Set Password", link_html))
+        rows.append(field_row(f"Admin: {username} — Set Password", link_html))
 
     return "\n".join(rows)
 
@@ -131,12 +133,13 @@ def build_user_plain():
         f"  Admin    : admin@rlservers.com / {auth_admin_pass}",
     ]
     for username, udata in all_users.items():
+        if udata.get("access_level") != "admin":
+            continue
         if not udata.get("send_recovery_email", False):
             continue
         env_var = f"AUTHENTIK_{username.upper()}_RECOVERY_LINK"
         recovery_link = os.environ.get(env_var, "(unavailable)")
-        access = udata.get("access_level", "platform-user")
-        lines.append(f"  {username} ({access}): set password: {recovery_link}")
+        lines.append(f"  {username} (admin): set password: {recovery_link}")
     return "\n".join(lines)
 
 

@@ -25,7 +25,8 @@ description: Sends styled HTML deployment summary email with OpenBao root creden
 
 - **OpenBao root token + unseal key:** from K8s `openbao-unseal` secret in `openbao` namespace (always available)
 - **Authentik admin password:** extracted via `kubectl exec -n openbao openbao-0 -- vault kv get -field=bootstrap-password secret/platform/authentik`
-- **Remon password reset link:** generated via Authentik REST API `POST /api/v3/core/users/{id}/recovery/` → stored in `$GITHUB_ENV` as `AUTHENTIK_RECOVERY_LINK` → passed to email step via `env: AUTHENTIK_RECOVERY_LINK: ${{ env.AUTHENTIK_RECOVERY_LINK }}`
+- **Admin user recovery link:** generated via Authentik REST API `POST /api/v3/core/users/{id}/recovery/` — ONLY for users with `access_level: admin` → stored in `$GITHUB_ENV` as `AUTHENTIK_{USERNAME_UPPER}_RECOVERY_LINK`
+- **Non-admin welcome emails:** generated + sent in the "Send welcome emails to non-admin users" step; uses the same API but sends directly to user's email via `scripts/send-welcome-email.py`
 - **NetBird VPN info:** management URL `https://netbird.rlservers.com` (public, never `.int.`)
 
 ## Passing Values Between Steps (CRITICAL)
