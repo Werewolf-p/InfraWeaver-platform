@@ -104,7 +104,7 @@ variable "git_repo_url" {
 variable "git_revision" {
   description = "Git branch/tag/commit ArgoCD tracks for platform manifests."
   type        = string
-  default     = "HEAD"
+  default     = "main"
 }
 
 # ---------------------------------------------------------------------------

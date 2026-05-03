@@ -11,6 +11,7 @@ metadata:
     app: netbird-signal
 spec:
   replicas: 1
+  revisionHistoryLimit: 3
   selector:
     matchLabels:
       app: netbird-signal

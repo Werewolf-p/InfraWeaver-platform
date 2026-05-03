@@ -55,7 +55,7 @@ variable "git_repo_url" {
 variable "git_revision" {
   description = "Git branch, tag, or commit SHA that ArgoCD tracks."
   type        = string
-  default     = "HEAD"
+  default     = "main"
 }
 
 variable "argocd_namespace" {

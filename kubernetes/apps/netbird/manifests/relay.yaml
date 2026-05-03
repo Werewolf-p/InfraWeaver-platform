@@ -12,6 +12,7 @@ metadata:
     app: netbird-relay
 spec:
   replicas: 1
+  revisionHistoryLimit: 3
   selector:
     matchLabels:
       app: netbird-relay

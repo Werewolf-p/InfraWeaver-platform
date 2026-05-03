@@ -104,6 +104,9 @@ jobs:
             -backend-config="path=$STATE_DIR/terraform.tfstate" \
             -reconfigure
 
+          # Validate configuration before planning (catches syntax/type errors early)
+          tofu validate 2>&1
+
           VARS=""
           [ -f "../envs/$ENV/terraform.tfvars" ]     && VARS="$VARS -var-file=../envs/$ENV/terraform.tfvars"
           [ -f "../envs/$ENV/services.auto.tfvars" ] && VARS="$VARS -var-file=../envs/$ENV/services.auto.tfvars"
