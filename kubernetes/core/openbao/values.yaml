@@ -15,6 +15,18 @@ server:
         node_id = "openbao-0"
       }
 
+      # Audit log: write all requests/responses to a file inside the data volume.
+      # Log is rotated at 100MB. Required for compliance and incident investigation.
+      audit {
+        type = "file"
+        path = "/openbao/data/audit.log"
+        options = {
+          file_path = "/openbao/data/audit.log"
+          log_raw    = "false"
+          hmac_accessor = "true"
+        }
+      }
+
       api_addr = "http://openbao.openbao.svc.cluster.local:8200"
       cluster_addr = "http://openbao.openbao.svc.cluster.local:8201"
 
