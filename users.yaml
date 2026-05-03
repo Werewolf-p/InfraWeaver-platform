@@ -49,6 +49,17 @@ users:
     send_recovery_email: true
     notes: "Platform user — homepage, VPN, ArgoCD (read-only)"
 
+  testuser2:
+    name: "Test User Two"
+    email: "testuser2@rlservers.com"
+    access_level: platform-user
+    authentik_groups:
+      - platform-users
+    argocd_role: readonly
+    openbao_policy: null
+    send_recovery_email: false
+    notes: "IAC test user #2 — validates dynamic user provisioning without full redeploy"
+
 
 # =============================================================================
 # Access Matrix
