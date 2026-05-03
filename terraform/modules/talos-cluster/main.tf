@@ -660,6 +660,8 @@ resource "null_resource" "bootstrap_etcd" {
     interpreter = ["bash", "-c"]
     environment = {
       TALOS_CONFIG = data.talos_client_configuration.this.talos_config
+      # All node IPs (space-separated) for auto-recovery EPHEMERAL reset
+      TF_NODE_IPS  = join(" ", [for _, cfg in var.nodes : cfg.ip])
     }
     command = <<-BASH
       set -euo pipefail
@@ -679,8 +681,13 @@ resource "null_resource" "bootstrap_etcd" {
         --nodes "$CP_IP" \
         2>&1 || echo "  (bootstrap returned non-zero — may already be bootstrapped, continuing)"
 
-      echo "==> Waiting for Kubernetes API to be healthy (up to 25 min)..."
-      DEADLINE=$(( $(date +%s) + 1500 ))
+      echo "==> Waiting for Kubernetes API to be healthy (up to 35 min)..."
+      # Total deadline: 35 minutes. After 10 minutes, if nodes are still NotReady,
+      # attempt to fix stale EPHEMERAL partition (causes 'exec format error' for
+      # kube-proxy/flannel on freshly deployed nodes that reused Proxmox storage blocks).
+      DEADLINE=$(( $(date +%s) + 2100 ))
+      RECOVERY_AFTER=$(( $(date +%s) + 600 ))
+      RECOVERY_DONE=""
       KUBE_TMP=$(mktemp)
       while [ "$(date +%s)" -lt "$DEADLINE" ]; do
         # Get a fresh kubeconfig and check all nodes are Ready.
@@ -700,13 +707,38 @@ resource "null_resource" "bootstrap_etcd" {
             exit 0
           fi
           echo "  Nodes ready: $READY/$TOTAL — waiting..."
+          # After 10 minutes with NotReady nodes, try resetting EPHEMERAL partition.
+          # This fixes 'exec format error' caused by stale containerd image layers
+          # that can persist when Proxmox reuses underlying storage blocks for new VMs.
+          if [ -z "$RECOVERY_DONE" ] && [ "$(date +%s)" -gt "$RECOVERY_AFTER" ] && [ "$TOTAL" -gt 0 ] && [ "$READY" -lt "$TOTAL" ]; then
+            echo "==> Auto-recovery: resetting EPHEMERAL on NotReady nodes..."
+            RECOVERY_DONE=1
+            # Get all node IPs from talosconfig context
+            for NODE_IP in ${TF_NODE_IPS:-}; do
+              NODE_STATUS=$(KUBECONFIG="$KUBE_TMP" kubectl get node -o wide --no-headers 2>/dev/null \
+                | awk -v ip="$NODE_IP" '$6==ip {print $2}')
+              if echo "$NODE_STATUS" | grep -q "NotReady"; then
+                echo "  Resetting EPHEMERAL on $NODE_IP (NotReady)..."
+                talosctl reset \
+                  --talosconfig "$TALOSCONFIG" \
+                  --endpoints "$CP_IP" \
+                  --nodes "$NODE_IP" \
+                  --system-labels-to-wipe EPHEMERAL \
+                  --reboot \
+                  --wait=false 2>&1 || echo "  reset trigger failed for $NODE_IP (may already be resetting)"
+                sleep 5
+              fi
+            done
+            echo "  Recovery triggered — waiting 90s for nodes to reboot..."
+            sleep 90
+          fi
         else
           echo "  Kubernetes API not yet reachable — waiting..."
         fi
         sleep 20
       done
       rm -f "$KUBE_TMP"
-      echo "ERROR: Cluster not healthy after 25 minutes" >&2
+      echo "ERROR: Cluster not healthy after 35 minutes" >&2
       exit 1
     BASH
   }
