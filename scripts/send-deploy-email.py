@@ -7,7 +7,7 @@ Environment variables:
   SMTP_USERNAME, SMTP_PASSWORD, SMTP_TO
   DEPLOY_ENV, DEPLOY_RUN_URL
   BAO_TOKEN, BAO_UNSEAL
-  AUTHENTIK_ADMIN_PASS, AUTHENTIK_RECOVERY_LINK
+  AUTHENTIK_ADMIN_PASS, AUTHENTIK_RECOVERY_LINK, AUTHENTIK_ARDATY_RECOVERY_LINK
 """
 import smtplib, ssl, os, sys
 from datetime import datetime, timezone
@@ -25,7 +25,8 @@ run_url          = os.environ.get("DEPLOY_RUN_URL", "#")
 bao_token        = os.environ.get("BAO_TOKEN", "unavailable")
 bao_unseal       = os.environ.get("BAO_UNSEAL", "unavailable")
 auth_admin_pass  = os.environ.get("AUTHENTIK_ADMIN_PASS", "unavailable")
-auth_recovery    = os.environ.get("AUTHENTIK_RECOVERY_LINK", "")
+auth_recovery       = os.environ.get("AUTHENTIK_RECOVERY_LINK", "")
+ardaty_recovery     = os.environ.get("AUTHENTIK_ARDATY_RECOVERY_LINK", "")
 timestamp        = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
 homepage_url = "https://home.int.rlservers.com"
@@ -33,7 +34,11 @@ auth_url     = "https://auth.rlservers.com"
 netbird_url  = "https://netbird.rlservers.com"
 openbao_url  = "https://openbao.int.rlservers.com"
 
-subject = f"\u26a1 InfraWeaver | {env} deployment complete"
+deploy_type = os.environ.get("DEPLOY_TYPE", "full-redeploy")
+if deploy_type == "user-config-update":
+    subject = f"\U0001f465 InfraWeaver | {env} — user config updated"
+else:
+    subject = f"\u26a1 InfraWeaver | {env} deployment complete"
 
 # ── InfraWeaver Prime palette (inline for email compatibility) ────────────────
 # bg=#0a0e17  surface=#111827  surface2=#1a2035  border=#1e2d45
@@ -162,6 +167,8 @@ html = f"""\
               {field_row("Admin Password", auth_admin_pass)}
               {field_row("Personal Login — Username", "remon")}
               {field_row("Personal Login — Set Password", f'<a href="{auth_recovery}" style="color:#9fef00;text-decoration:none;word-break:break-all;">{auth_recovery}</a>' if auth_recovery else "⚠️ Recovery link unavailable — use admin to reset manually")}
+              {field_row("User: ardaty — Access Level", "platform-users (homepage, netbird, argocd read-only)")}
+              {field_row("User: ardaty — Set Password", f'<a href="{ardaty_recovery}" style="color:#9fef00;text-decoration:none;word-break:break-all;">{ardaty_recovery}</a>' if ardaty_recovery else "⚠️ ardaty recovery link unavailable")}
             </table>
           </td>
         </tr>
@@ -268,6 +275,8 @@ STEP 1: Log in to Authentik SSO
   URL       : {auth_url}
   Admin     : admin@rlservers.com / {auth_admin_pass}
   Personal  : remon / set your password: {auth_recovery if auth_recovery else "(recovery link unavailable — reset via admin)"}
+  User ardaty: access: homepage, netbird, argocd (read-only)
+              set password: {ardaty_recovery if ardaty_recovery else "(recovery link unavailable)"}
 
 STEP 2: Connect NetBird VPN
   Dashboard : {netbird_url}

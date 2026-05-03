@@ -1181,10 +1181,35 @@ if m:
             [ "$USER_EXISTS" = "yes" ] && break
             sleep 10
           done
-          echo "==> Adding remon to authentik Admins group (pod: $WORKER_POD)"
-          $KT exec -n authentik "$WORKER_POD" -- ak shell -c \
-            "from authentik.core.models import User, Group; remon = User.objects.get(username='remon'); admins = Group.objects.get(name='authentik Admins'); admins.users.add(remon); print('OK: ' + remon.username + ' is now in ' + admins.name)"
-          echo "✅ Authentik remon user added to authentik Admins group"
+          echo "==> Also waiting for ardaty user to be created by blueprint..."
+          for i in $(seq 1 30); do
+            ARDATY_EXISTS=$($KT exec -n authentik "$WORKER_POD" -- ak shell -c \
+              "from authentik.core.models import User; print('yes' if User.objects.filter(username='ardaty').exists() else 'no')" \
+              2>/dev/null || echo "no")
+            echo "  [${i}/30] ardaty user exists: $ARDATY_EXISTS"
+            [ "$ARDATY_EXISTS" = "yes" ] && break
+            sleep 10
+          done
+          echo "==> Setting user group memberships..."
+          $KT exec -n authentik "$WORKER_POD" -- ak shell -c "
+from authentik.core.models import User, Group
+# Ensure both platform groups exist (blueprint-access-control creates them, but may not be loaded yet)
+admins_grp, _ = Group.objects.get_or_create(name='platform-admins')
+users_grp, _ = Group.objects.get_or_create(name='platform-users')
+ak_admins_grp, _ = Group.objects.get_or_create(name='authentik Admins')
+# remon → platform-admins + authentik Admins (superuser access)
+remon = User.objects.get(username='remon')
+admins_grp.users.add(remon); ak_admins_grp.users.add(remon); users_grp.users.add(remon)
+print('OK: remon → platform-admins + authentik Admins + platform-users')
+# ardaty → platform-users only
+try:
+    ardaty = User.objects.get(username='ardaty')
+    users_grp.users.add(ardaty)
+    print('OK: ardaty → platform-users')
+except User.DoesNotExist:
+    print('WARN: ardaty user not found — blueprint may not have run yet')
+"
+          echo "✅ User group memberships set"
 
           # Send password reset link to remon (so they can set their own password securely)
           echo "==> Configuring recovery flow and getting password recovery link for remon..."
@@ -1219,12 +1244,34 @@ if m:
               if [ -n "$RECOVERY" ]; then
                 echo "✅ Recovery link generated for remon (included in deployment email)"
                 AUTHENTIK_RECOVERY_LINK=$(echo "$RECOVERY" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('link',''))" 2>/dev/null || echo "")
+                # The API is reached via port-forward (localhost:8089), so the link contains
+                # the port-forward address. Replace it with the real public Authentik URL.
+                AUTHENTIK_RECOVERY_LINK=$(echo "$AUTHENTIK_RECOVERY_LINK" | sed 's|http://localhost:8089|https://auth.rlservers.com|g')
                 echo "AUTHENTIK_RECOVERY_LINK=${AUTHENTIK_RECOVERY_LINK}" >> $GITHUB_ENV
               else
                 echo "⚠️ Recovery email request failed (non-critical)"
               fi
             else
               echo "⚠️ Could not find remon user ID for recovery email (non-critical)"
+            fi
+            # Also generate recovery link for ardaty
+            ARDATY_ID=$(curl -sf \
+              -H "Authorization: Bearer $AUTHENTIK_ADMIN_TOKEN" \
+              -H "Content-Type: application/json" \
+              "http://localhost:8089/api/v3/core/users/?username=ardaty" \
+              2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); r=d.get('results',[]); print(r[0]['pk'] if r else '')" 2>/dev/null || echo "")
+            if [ -n "$ARDATY_ID" ]; then
+              ARDATY_RECOVERY=$(curl -sf -X POST \
+                -H "Authorization: Bearer $AUTHENTIK_ADMIN_TOKEN" \
+                -H "Content-Type: application/json" \
+                "http://localhost:8089/api/v3/core/users/$ARDATY_ID/recovery/" \
+                2>/dev/null || echo "")
+              if [ -n "$ARDATY_RECOVERY" ]; then
+                echo "✅ Recovery link generated for ardaty (included in deployment email)"
+                AUTHENTIK_ARDATY_RECOVERY_LINK=$(echo "$ARDATY_RECOVERY" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('link',''))" 2>/dev/null || echo "")
+                AUTHENTIK_ARDATY_RECOVERY_LINK=$(echo "$AUTHENTIK_ARDATY_RECOVERY_LINK" | sed 's|http://localhost:8089|https://auth.rlservers.com|g')
+                echo "AUTHENTIK_ARDATY_RECOVERY_LINK=${AUTHENTIK_ARDATY_RECOVERY_LINK}" >> $GITHUB_ENV
+              fi
             fi
           else
             echo "⚠️ Could not get Authentik admin token for recovery email (non-critical)"
@@ -1436,6 +1483,7 @@ if m:
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           SMTP_TO: ${{ secrets.SMTP_TO }}
           AUTHENTIK_RECOVERY_LINK: ${{ env.AUTHENTIK_RECOVERY_LINK }}
+          AUTHENTIK_ARDATY_RECOVERY_LINK: ${{ env.AUTHENTIK_ARDATY_RECOVERY_LINK }}
         run: |
           KB=~/.kube/config-platform-${{ env.ENV_NAME }}
           export DEPLOY_ENV="${{ env.ENV_NAME }}"

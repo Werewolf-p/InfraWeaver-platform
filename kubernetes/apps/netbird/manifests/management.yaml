@@ -55,7 +55,7 @@ spec:
   resources:
     requests:
       storage: 1Gi
-  storageClassName: local-path
+  storageClassName: longhorn-retain   # HA: 3 replicas across nodes via Longhorn
 ---
 # ── Management StatefulSet ────────────────────────────────────────────────────
 apiVersion: apps/v1

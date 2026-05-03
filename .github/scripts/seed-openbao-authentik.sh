@@ -22,6 +22,7 @@ if [ -z "$EXISTING_AUTH" ]; then
       \"bootstrap-password\": \"$(openssl rand -base64 18 | tr -d '/+=')\",
       \"bootstrap-token\": \"$(openssl rand -base64 30 | tr -d '/+=')\",
       \"remon-password\": \"$(openssl rand -base64 18 | tr -d '/+='),\",
+      \"ardaty-password\": \"$(openssl rand -base64 18 | tr -d '/+=')\",
       \"smtp-host\": \"smtp-mail.outlook.com\",
       \"smtp-port\": \"587\",
       \"smtp-username\": \"placeholder@rlservers.com\",
@@ -46,6 +47,9 @@ def rand_b64(n):
 
 if 'remon-password' not in d:
     d['remon-password'] = rand_b64(18)
+    changed = True
+if 'ardaty-password' not in d:
+    d['ardaty-password'] = rand_b64(18)
     changed = True
 if 'postgresql-password' not in d:
     d['postgresql-password'] = rand_b64(18)

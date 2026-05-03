@@ -1,0 +1,66 @@
+# =============================================================================
+# Platform Users Configuration
+# =============================================================================
+#
+# This file documents all platform users and their access levels.
+# It is the human-readable source of truth — the actual users are created
+# via Authentik blueprints (kubernetes/apps/authentik/manifests/blueprint-users.yaml)
+# and passwords are stored in OpenBao (secret/platform/authentik).
+#
+# Access levels:
+#   admin        → all services (openbao, argocd, grafana, longhorn, netbird, homepage)
+#   platform-user → homepage, netbird (VPN access), argocd (read-only)
+#
+# To add a new user:
+#   1. Add an entry to this file (documentation)
+#   2. Add a user entry to blueprint-users.yaml
+#   3. Add their password field to seed-openbao-authentik.sh
+#   4. Add their group assignment to the workflow step "Set user group memberships"
+#   5. Set policy_default for ArgoCD RBAC if needed (kubernetes/core/argocd/values.yaml)
+#   6. Commit + push → full-redeploy generates a recovery email link
+#
+# =============================================================================
+
+users:
+
+  remon:
+    name: "Remon Hulst"
+    email: "remonhulst@gmail.com"
+    access_level: admin
+    authentik_groups:
+      - platform-admins
+      - authentik Admins       # Authentik superuser (admin UI access)
+      - platform-users
+    argocd_role: admin         # Full ArgoCD access
+    openbao_policy: default    # OpenBao OIDC role maps to default policy
+    send_recovery_email: true
+    notes: "Platform owner — full access to everything"
+
+  ardaty:
+    name: "Ardaty"
+    email: "ardaty@rlservers.com"   # ← update with real email if needed
+    access_level: platform-user
+    authentik_groups:
+      - platform-users
+    argocd_role: readonly           # Can view ArgoCD apps but cannot sync/delete
+    openbao_policy: null            # No direct OpenBao access
+    send_recovery_email: true
+    notes: "Platform user — homepage, VPN, ArgoCD (read-only)"
+
+# =============================================================================
+# Access Matrix
+# =============================================================================
+#
+#  Service          │ remon (admin) │ ardaty (user)
+#  ─────────────────┼───────────────┼──────────────
+#  auth.rlservers.com│ ✅ admin      │ ✅ login only
+#  home.int.*       │ ✅            │ ✅ (via VPN)
+#  argocd.int.*     │ ✅ admin      │ ✅ read-only
+#  openbao.int.*    │ ✅ admin      │ ❌ blocked
+#  grafana.int.*    │ ✅            │ ❌ blocked
+#  longhorn.prod.*  │ ✅            │ ❌ blocked
+#  netbird.*        │ ✅ admin      │ ✅ user
+#
+# NetBird (VPN): both users can connect — access to internal networks
+# is determined by the routes they can use (currently: all peers get all routes).
+# =============================================================================

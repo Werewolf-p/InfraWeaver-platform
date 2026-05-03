@@ -44,6 +44,11 @@ global:
         secretKeyRef:
           name: authentik-secrets
           key: remon-password
+    - name: AUTHENTIK_ARDATY_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: authentik-secrets
+          key: ardaty-password
     - name: AUTHENTIK_POSTGRESQL__PASSWORD
       valueFrom:
         secretKeyRef:
@@ -88,6 +93,7 @@ blueprints:
     - authentik-blueprint-netbird
     - authentik-blueprint-users
     - authentik-blueprint-apps
+    - authentik-blueprint-access-control
 
 postgresql:
   enabled: true
@@ -99,7 +105,7 @@ postgresql:
       userPasswordKey: postgresql-password
   primary:
     persistence:
-      storageClass: local-path
+      storageClass: longhorn-retain   # HA: 3 replicas across nodes (critical user data)
       size: 2Gi
     resources:
       requests:
@@ -115,7 +121,7 @@ redis:
     enabled: false
   master:
     persistence:
-      storageClass: local-path
+      storageClass: longhorn   # HA: 3 replicas (rebuild-able cache)
       size: 256Mi
     resources:
       requests:

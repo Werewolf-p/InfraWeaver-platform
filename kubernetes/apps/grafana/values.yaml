@@ -14,7 +14,7 @@ admin:
 persistence:
   enabled: true
   size: 2Gi
-  storageClassName: local-path
+  storageClassName: longhorn   # HA: 3 replicas (dashboards from ConfigMaps, rebuild-able)
 
 # Disable default init container (fails with overlayfs-style mounts on Talos/local-path)
 # Grafana user (472) will handle its own directory setup
