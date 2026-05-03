@@ -214,10 +214,16 @@ jobs:
         run: |
           KB=~/.kube/config-platform-${{ env.ENV_NAME }}
           KT="kubectl --kubeconfig $KB --insecure-skip-tls-verify"
-          for i in $(seq 1 60); do
+          # Use rollout status to wait for a COMPLETE rollout (not just readyReplicas >= 1).
+          # This handles the case where ArgoCD sync triggered a pod restart — rollout status
+          # waits for the OLD pods to terminate and NEW pods to be fully ready.
+          echo "==> Waiting for authentik-worker rollout to complete..."
+          $KT rollout status deployment/authentik-worker -n authentik --timeout=5m || true
+          # Double-check: ensure at least 1 ready replica after rollout
+          for i in $(seq 1 30); do
             READY=$($KT get deployment/authentik-worker -n authentik -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
-            if [ "${READY:-0}" -ge 1 ]; then echo "Authentik worker ready"; break; fi
-            echo "  [${i}/60] Waiting for authentik-worker (ready=${READY:-0})..."
+            if [ "${READY:-0}" -ge 1 ]; then echo "Authentik worker ready ($READY replicas)"; break; fi
+            echo "  [${i}/30] Waiting for authentik-worker (ready=${READY:-0})..."
             sleep 5
           done
 
@@ -227,10 +233,12 @@ jobs:
           KT="kubectl --kubeconfig $KB --insecure-skip-tls-verify"
           WORKER_POD=$($KT get pod -n authentik -l app.kubernetes.io/component=worker -o jsonpath='{.items[0].metadata.name}')
           echo "==> Worker pod: $WORKER_POD"
-          python3 .github/scripts/sync-authentik-users.py > /tmp/ak-group-sync.py
           echo "==> Generated sync script:"
-          cat /tmp/ak-group-sync.py
-          $KT exec -n authentik "$WORKER_POD" -- ak shell < /tmp/ak-group-sync.py
+          python3 .github/scripts/sync-authentik-users.py | tee /tmp/ak-group-sync.py
+          # Use -i flag (interactive stdin via pipe) — stdin redirect `<` without -i causes
+          # kubectl to resolve the default container from pod annotations, which fails when
+          # the annotation names a container that doesn't match (e.g. "worker" vs "authentik").
+          cat /tmp/ak-group-sync.py | $KT exec -i -n authentik "$WORKER_POD" -- ak shell
           echo "Group memberships synced from users.yaml" >> $GITHUB_STEP_SUMMARY
 
       - name: Generate recovery links
