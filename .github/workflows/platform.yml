@@ -100,9 +100,15 @@ jobs:
           done < <(sops -d "envs/$ENV/secrets.sops.yaml" 2>/dev/null || echo "")
 
           cd terraform
-          tofu init \
-            -backend-config="path=$STATE_DIR/terraform.tfstate" \
-            -reconfigure
+
+          # tofu init with retry — guards against transient 502s from provider registries
+          for attempt in 1 2 3; do
+            tofu init \
+              -backend-config="path=$STATE_DIR/terraform.tfstate" \
+              -reconfigure && break
+            echo "  tofu init attempt ${attempt} failed — retrying in 15s..."
+            sleep 15
+          done
 
           # Validate configuration before planning (catches syntax/type errors early)
           tofu validate 2>&1
@@ -186,9 +192,15 @@ jobs:
           done < <(sops -d "envs/$ENV/secrets.sops.yaml" 2>/dev/null || echo "")
 
           cd terraform
-          tofu init \
-            -backend-config="path=$STATE_DIR/terraform.tfstate" \
-            -reconfigure
+
+          # tofu init with retry — guards against transient 502s from provider registries
+          for attempt in 1 2 3; do
+            tofu init \
+              -backend-config="path=$STATE_DIR/terraform.tfstate" \
+              -reconfigure && break
+            echo "  tofu init attempt ${attempt} failed — retrying in 15s..."
+            sleep 15
+          done
 
           VARS=""
           [ -f "../envs/$ENV/terraform.tfvars" ]     && VARS="$VARS -var-file=../envs/$ENV/terraform.tfvars"
