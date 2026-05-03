@@ -236,6 +236,14 @@ spec:
     spec:
       serviceAccountName: netbird-bootstrap-sa
       restartPolicy: OnFailure
+      # Must run on the same node as management to avoid RWO multi-attach error
+      affinity:
+        podAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: netbird-management
+              topologyKey: kubernetes.io/hostname
       volumes:
         - name: data
           persistentVolumeClaim:
