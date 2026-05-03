@@ -1158,99 +1158,79 @@ jobs:
             sleep 10
           done
 
-          # Set group memberships for all users defined in users.yaml.
-          # Authentik 2026.x: group membership cannot be set via blueprints — done here post-deploy.
-          # Retry loop: blueprints create users async; worker may be ready before users exist.
+          # Add remon to the 'authentik Admins' group.
+          # Authentik 2026.x uses Group.is_superuser for admin access — not User.is_superuser.
+          # Blueprints cannot reliably set group membership, so we do it here post-deploy.
+          # Retry loop: blueprints create the user async; worker may be ready before user exists.
           WORKER_POD=$($KT get pod -n authentik \
             -l app.kubernetes.io/component=worker \
-            --field-selector=status.phase=Running \
-            -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || \
-            $KT get pod -n authentik \
-            -l app.kubernetes.io/component=worker \
             -o jsonpath='{.items[0].metadata.name}')
-          echo "==> Worker pod: $WORKER_POD"
-
-          # Wait for all users defined in users.yaml to be created by blueprint.
-          # Reads usernames dynamically — no hardcoded list.
-          ALL_USERS=$(python3 -c "import yaml; d=yaml.safe_load(open('users.yaml')); print(' '.join(d.get('users',{}).keys()))")
-          echo "==> Waiting for users from users.yaml: $ALL_USERS"
-          for USERNAME in $ALL_USERS; do
-            WAIT_RETRIES=60
-            for i in $(seq 1 $WAIT_RETRIES); do
-              EXISTS=$($KT exec -n authentik "$WORKER_POD" -- ak shell -c \
-                "from authentik.core.models import User; print('yes' if User.objects.filter(username='$USERNAME').exists() else 'no')" \
-                2>/dev/null || echo "no")
-              echo "  [${i}/${WAIT_RETRIES}] $USERNAME exists: $EXISTS"
-              [ "$EXISTS" = "yes" ] && break
-              sleep 10
-            done
+          echo "==> Waiting for remon user to be created by blueprint (pod: $WORKER_POD)..."
+          for i in $(seq 1 60); do
+            USER_EXISTS=$($KT exec -n authentik "$WORKER_POD" -- ak shell -c \
+              "from authentik.core.models import User; print('yes' if User.objects.filter(username='remon').exists() else 'no')" \
+              2>/dev/null || echo "no")
+            echo "  [${i}/60] remon user exists: $USER_EXISTS"
+            [ "$USER_EXISTS" = "yes" ] && break
+            sleep 10
           done
+          echo "==> Also waiting for ardaty user to be created by blueprint..."
+          for i in $(seq 1 30); do
+            ARDATY_EXISTS=$($KT exec -n authentik "$WORKER_POD" -- ak shell -c \
+              "from authentik.core.models import User; print('yes' if User.objects.filter(username='ardaty').exists() else 'no')" \
+              2>/dev/null || echo "no")
+            echo "  [${i}/30] ardaty user exists: $ARDATY_EXISTS"
+            [ "$ARDATY_EXISTS" = "yes" ] && break
+            sleep 10
+          done
+          echo "==> Setting user group memberships..."
+          # Base64-encoded Python avoids YAML column-0 parsing issues in block scalars.
+          _GROUPS_PY="ZnJvbSBhdXRoZW50aWsuY29yZS5tb2RlbHMgaW1wb3J0IFVzZXIsIEdyb3VwCmFkbWluc19ncnAsIF8gPSBHcm91cC5vYmplY3RzLmdldF9vcl9jcmVhdGUobmFtZT0ncGxhdGZvcm0tYWRtaW5zJykKdXNlcnNfZ3JwLCBfID0gR3JvdXAub2JqZWN0cy5nZXRfb3JfY3JlYXRlKG5hbWU9J3BsYXRmb3JtLXVzZXJzJykKYWtfYWRtaW5zX2dycCwgXyA9IEdyb3VwLm9iamVjdHMuZ2V0X29yX2NyZWF0ZShuYW1lPSdhdXRoZW50aWsgQWRtaW5zJykKcmVtb24gPSBVc2VyLm9iamVjdHMuZ2V0KHVzZXJuYW1lPSdyZW1vbicpCmFkbWluc19ncnAudXNlcnMuYWRkKHJlbW9uKTsgYWtfYWRtaW5zX2dycC51c2Vycy5hZGQocmVtb24pOyB1c2Vyc19ncnAudXNlcnMuYWRkKHJlbW9uKQpwcmludCgnT0s6IHJlbW9uIC0+IHBsYXRmb3JtLWFkbWlucyArIGF1dGhlbnRpayBBZG1pbnMgKyBwbGF0Zm9ybS11c2VycycpCnRyeToKICAgIGFyZGF0eSA9IFVzZXIub2JqZWN0cy5nZXQodXNlcm5hbWU9J2FyZGF0eScpCiAgICB1c2Vyc19ncnAudXNlcnMuYWRkKGFyZGF0eSkKICAgIHByaW50KCdPSzogYXJkYXR5IC0+IHBsYXRmb3JtLXVzZXJzJykKZXhjZXB0IFVzZXIuRG9lc05vdEV4aXN0OgogICAgcHJpbnQoJ1dBUk46IGFyZGF0eSB1c2VyIG5vdCBmb3VuZCAtLSBibHVlcHJpbnQgbWF5IG5vdCBoYXZlIHJ1biB5ZXQnKQo="
+          echo "$_GROUPS_PY" | base64 -d | $KT exec -i -n authentik "$WORKER_POD" -- ak shell
+          echo "✅ User group memberships set" 
 
-          echo "==> Setting user group memberships from users.yaml..."
-          # sync-authentik-users.py reads users.yaml and generates Django ORM script dynamically.
-          # Adding a new user to users.yaml automatically includes them here on next deploy.
-          python3 .github/scripts/sync-authentik-users.py | \
-            $KT exec -i -n authentik "$WORKER_POD" -- ak shell
-          echo "✅ User group memberships set"
-
-          # Generate password reset links for all users with send_recovery_email: true in users.yaml.
-          echo "==> Configuring recovery flow and generating recovery links..."
-          # Create API token with INTENT_API (required for REST API auth with Bearer scheme)
-          # Also ensures recovery flow is configured on the default brand.
-          # Base64-encoded Python avoids YAML column-0 parsing issues (multiline strings
-          # at indent-0 inside a YAML block scalar terminate the scalar prematurely).
+          # Generate recovery links for all users with send_recovery_email: true
+          # Stores AUTHENTIK_{USERNAME_UPPER}_RECOVERY_LINK in $GITHUB_ENV for email step
+          echo "==> Configuring recovery flow and generating password recovery links..."
           _AK_PY="ZnJvbSBhdXRoZW50aWsuY29yZS5tb2RlbHMgaW1wb3J0IFRva2VuLCBUb2tlbkludGVudHMsIFVzZXIKZnJvbSBhdXRoZW50aWsuYnJhbmRzLm1vZGVscyBpbXBvcnQgQnJhbmQKZnJvbSBhdXRoZW50aWsuZmxvd3MubW9kZWxzIGltcG9ydCBGbG93LCBGbG93RGVzaWduYXRpb24KCmZsb3csIF8gPSBGbG93Lm9iamVjdHMuZ2V0X29yX2NyZWF0ZShzbHVnPSJkZWZhdWx0LXJlY292ZXJ5LWZsb3ciLCBkZWZhdWx0cz17Im5hbWUiOiAiRGVmYXVsdCBSZWNvdmVyeSBGbG93IiwgInRpdGxlIjogIkFjY291bnQgUmVjb3ZlcnkiLCAiZGVzaWduYXRpb24iOiBGbG93RGVzaWduYXRpb24uUkVDT1ZFUll9KQpmb3IgYnJhbmQgaW4gQnJhbmQub2JqZWN0cy5hbGwoKToKICAgIGJyYW5kLmZsb3dfcmVjb3ZlcnkgPSBmbG93CiAgICBicmFuZC5zYXZlKCkKClRva2VuLm9iamVjdHMuZmlsdGVyKGlkZW50aWZpZXI9ImdoLWFjdGlvbnMtYXBpLXRva2VuIikuZGVsZXRlKCkKYWRtaW4gPSBVc2VyLm9iamVjdHMuZ2V0KHVzZXJuYW1lPSJha2FkbWluIikKdCA9IFRva2VuLm9iamVjdHMuY3JlYXRlKGlkZW50aWZpZXI9ImdoLWFjdGlvbnMtYXBpLXRva2VuIiwgdXNlcj1hZG1pbiwgZGVzY3JpcHRpb249IkdpdEh1YiBBY3Rpb25zIEFQSSB0b2tlbiIsIGludGVudD1Ub2tlbkludGVudHMuSU5URU5UX0FQSSwgZXhwaXJpbmc9RmFsc2UpCnByaW50KCJUT0tFTjoiICsgdC5rZXkpCg=="
           AUTHENTIK_ADMIN_TOKEN=$(echo "$_AK_PY" | base64 -d | \
             $KT exec -i -n authentik "$WORKER_POD" -- ak shell \
             2>&1 | grep "^TOKEN:" | sed 's/TOKEN://' || echo "")
-          # Persist token so the next step (OIDC bootstrap) can reuse it
           echo "AUTHENTIK_ADMIN_TOKEN=${AUTHENTIK_ADMIN_TOKEN}" >> $GITHUB_ENV
 
-          # Start port-forward for Authentik API access (avoids TLS cert validation issues)
           $KT port-forward svc/authentik-server -n authentik 8089:80 > /tmp/authentik-pf-setup.log 2>&1 &
           SETUP_PF_PID=$!
           sleep 4
 
           if [ -n "$AUTHENTIK_ADMIN_TOKEN" ]; then
-            # Generate recovery links for all users with send_recovery_email: true in users.yaml.
-            # list-recovery-users.py reads users.yaml dynamically — adding a user with
-            # send_recovery_email: true automatically includes them in this loop.
-            RECOVERY_USERS=$(python3 .github/scripts/list-recovery-users.py 2>/dev/null || echo "remon ardaty")
-            for REC_USER in $RECOVERY_USERS; do
-              REC_USER_ID=$(curl -sf \
+            # Loop over all users with send_recovery_email: true from users.yaml
+            for USERNAME in $(python3 .github/scripts/list-recovery-users.py); do
+              USER_ID=$(curl -sf \
                 -H "Authorization: Bearer $AUTHENTIK_ADMIN_TOKEN" \
                 -H "Content-Type: application/json" \
-                "http://localhost:8089/api/v3/core/users/?username=${REC_USER}" \
+                "http://localhost:8089/api/v3/core/users/?username=${USERNAME}" \
                 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); r=d.get('results',[]); print(r[0]['pk'] if r else '')" 2>/dev/null || echo "")
-              if [ -n "$REC_USER_ID" ]; then
-                REC_LINK=$(curl -sf -X POST \
+              if [ -n "$USER_ID" ]; then
+                RECOVERY=$(curl -sf -X POST \
                   -H "Authorization: Bearer $AUTHENTIK_ADMIN_TOKEN" \
                   -H "Content-Type: application/json" \
-                  "http://localhost:8089/api/v3/core/users/${REC_USER_ID}/recovery/" \
+                  "http://localhost:8089/api/v3/core/users/$USER_ID/recovery/" \
                   2>/dev/null || echo "")
-                if [ -n "$REC_LINK" ]; then
-                  echo "✅ Recovery link generated for $REC_USER"
-                  REC_LINK=$(echo "$REC_LINK" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('link',''))" 2>/dev/null || echo "")
-                  # Replace port-forward address with real public Authentik URL
-                  REC_LINK=$(echo "$REC_LINK" | sed 's|http://localhost:8089|https://auth.rlservers.com|g')
-                  # Store as AUTHENTIK_{USERNAME}_RECOVERY_LINK (generic pattern for new users)
-                  REC_USER_UPPER=$(echo "$REC_USER" | tr '[:lower:]' '[:upper:]')
-                  echo "AUTHENTIK_${REC_USER_UPPER}_RECOVERY_LINK=${REC_LINK}" >> $GITHUB_ENV
-                  # Also set legacy env var names used by email template for backward compat
-                  if [ "$REC_USER" = "remon" ]; then
-                    echo "AUTHENTIK_RECOVERY_LINK=${REC_LINK}" >> $GITHUB_ENV
-                  elif [ "$REC_USER" = "ardaty" ]; then
-                    echo "AUTHENTIK_ARDATY_RECOVERY_LINK=${REC_LINK}" >> $GITHUB_ENV
-                  fi
+                if [ -n "$RECOVERY" ]; then
+                  LINK=$(echo "$RECOVERY" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('link',''))" 2>/dev/null || echo "")
+                  LINK=$(echo "$LINK" | sed 's|http://localhost:8089|https://auth.rlservers.com|g')
+                  ENV_VAR="AUTHENTIK_$(echo "$USERNAME" | tr '[:lower:]' '[:upper:]')_RECOVERY_LINK"
+                  echo "${ENV_VAR}=${LINK}" >> $GITHUB_ENV
+                  echo "✅ Recovery link generated for ${USERNAME}"
                 else
-                  echo "⚠️ Recovery link request failed for $REC_USER (non-critical)"
+                  echo "⚠️ Recovery link request failed for ${USERNAME} (non-critical)"
                 fi
               else
-                echo "⚠️ Could not find user ID for $REC_USER (non-critical)"
+                echo "⚠️ Could not find user ${USERNAME} in Authentik (non-critical)"
               fi
             done
           else
-            echo "⚠️ Could not get Authentik admin token for recovery email (non-critical)"
+            echo "⚠️ Could not get Authentik admin token for recovery links (non-critical)"
           fi
           kill $SETUP_PF_PID 2>/dev/null || true
 
@@ -1451,8 +1431,6 @@ jobs:
           SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           SMTP_TO: ${{ secrets.SMTP_TO }}
-          AUTHENTIK_RECOVERY_LINK: ${{ env.AUTHENTIK_RECOVERY_LINK }}
-          AUTHENTIK_ARDATY_RECOVERY_LINK: ${{ env.AUTHENTIK_ARDATY_RECOVERY_LINK }}
         run: |
           KB=~/.kube/config-platform-${{ env.ENV_NAME }}
           export DEPLOY_ENV="${{ env.ENV_NAME }}"

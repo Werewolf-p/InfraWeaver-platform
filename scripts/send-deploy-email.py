@@ -1,33 +1,51 @@
 #!/usr/bin/env python3
 """
 InfraWeaver deployment summary email — styled with InfraWeaver Prime dark theme.
-Sections: NetBird VPN access → Homelab Dashboard → OpenBao Vault.
+Sections: Authentik SSO → NetBird VPN → Homelab Dashboard → OpenBao Vault.
+
+Reads user list from users.yaml dynamically — no hardcoded usernames.
+
+Recovery link env var convention: AUTHENTIK_{USERNAME.upper()}_RECOVERY_LINK
+  e.g. AUTHENTIK_REMON_RECOVERY_LINK, AUTHENTIK_ARDATY_RECOVERY_LINK
 
 Environment variables:
   SMTP_USERNAME, SMTP_PASSWORD, SMTP_TO
   DEPLOY_ENV, DEPLOY_RUN_URL
   BAO_TOKEN, BAO_UNSEAL
-  AUTHENTIK_ADMIN_PASS, AUTHENTIK_RECOVERY_LINK, AUTHENTIK_ARDATY_RECOVERY_LINK
+  AUTHENTIK_ADMIN_PASS
+  AUTHENTIK_{USERNAME.upper()}_RECOVERY_LINK  (one per user with send_recovery_email: true)
 """
-import smtplib, ssl, os, sys
+import os
+import smtplib
+import ssl
+import sys
 from datetime import datetime, timezone
-from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 
-smtp_host  = "smtp-mail.outlook.com"
-smtp_port  = 587
-smtp_user  = os.environ["SMTP_USERNAME"]
-smtp_pass  = os.environ["SMTP_PASSWORD"]
-smtp_to    = os.environ["SMTP_TO"]
+import yaml
 
-env              = os.environ.get("DEPLOY_ENV", "unknown")
-run_url          = os.environ.get("DEPLOY_RUN_URL", "#")
-bao_token        = os.environ.get("BAO_TOKEN", "unavailable")
-bao_unseal       = os.environ.get("BAO_UNSEAL", "unavailable")
-auth_admin_pass  = os.environ.get("AUTHENTIK_ADMIN_PASS", "unavailable")
-auth_recovery       = os.environ.get("AUTHENTIK_RECOVERY_LINK", "")
-ardaty_recovery     = os.environ.get("AUTHENTIK_ARDATY_RECOVERY_LINK", "")
-timestamp        = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+# ── Load users ────────────────────────────────────────────────────────────────
+try:
+    with open("users.yaml") as f:
+        users_config = yaml.safe_load(f)
+    all_users = users_config.get("users", {}) or {}
+except Exception as e:
+    print(f"WARN: could not load users.yaml: {e}", file=sys.stderr)
+    all_users = {}
+
+# ── SMTP / env ────────────────────────────────────────────────────────────────
+smtp_host       = "smtp-mail.outlook.com"
+smtp_port       = 587
+smtp_user       = os.environ["SMTP_USERNAME"]
+smtp_pass       = os.environ["SMTP_PASSWORD"]
+smtp_to         = os.environ["SMTP_TO"]
+env             = os.environ.get("DEPLOY_ENV", "unknown")
+run_url         = os.environ.get("DEPLOY_RUN_URL", "#")
+bao_token       = os.environ.get("BAO_TOKEN", "unavailable")
+bao_unseal      = os.environ.get("BAO_UNSEAL", "unavailable")
+auth_admin_pass = os.environ.get("AUTHENTIK_ADMIN_PASS", "unavailable")
+timestamp       = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
 homepage_url = "https://home.int.rlservers.com"
 auth_url     = "https://auth.rlservers.com"
@@ -40,44 +58,92 @@ if deploy_type == "user-config-update":
 else:
     subject = f"\u26a1 InfraWeaver | {env} deployment complete"
 
-# ── InfraWeaver Prime palette (inline for email compatibility) ────────────────
-# bg=#0a0e17  surface=#111827  surface2=#1a2035  border=#1e2d45
-# primary=#00d8ff (cyan)  success=#9fef00 (neon green)
-# warning=#f59e0b  error=#ff4757  text=#e2e8f0  muted=#64748b
-# mono: Courier New (email-safe monospace)
-# ─────────────────────────────────────────────────────────────────────────────
 
+# ── Helpers ───────────────────────────────────────────────────────────────────
 def mono_block(value):
-    """Render a monospace credential block."""
-    return f"""<div style="background:#060c18;border:1px solid #1e2d45;border-left:3px solid #00d8ff;
-                border-radius:6px;padding:10px 14px;font-family:'Courier New',Courier,monospace;
-                font-size:13px;color:#00d8ff;word-break:break-all;letter-spacing:0.5px;">
-        {value}
-      </div>"""
+    return (
+        f'<div style="background:#060c18;border:1px solid #1e2d45;border-left:3px solid #00d8ff;'
+        f'border-radius:6px;padding:10px 14px;font-family:\'Courier New\',Courier,monospace;'
+        f'font-size:13px;color:#00d8ff;word-break:break-all;letter-spacing:0.5px;">'
+        f"{value}</div>"
+    )
 
 def section_header(icon, title, subtitle=""):
-    sub = f'<p style="margin:2px 0 0;color:#475569;font-size:11px;text-transform:uppercase;letter-spacing:1.5px;">{subtitle}</p>' if subtitle else ""
-    return f"""<tr>
-        <td style="background:linear-gradient(90deg,#060c18,#0a0e17);padding:14px 20px;
-                   border-bottom:1px solid #1e2d45;">
-          <span style="font-size:20px;vertical-align:middle;">{icon}</span>
-          <span style="color:#00d8ff;font-size:13px;font-weight:700;margin-left:10px;
-                       text-transform:uppercase;letter-spacing:1.5px;vertical-align:middle;">{title}</span>
-          {sub}
-        </td>
-      </tr>"""
+    sub = (
+        f'<p style="margin:2px 0 0;color:#475569;font-size:11px;text-transform:uppercase;'
+        f'letter-spacing:1.5px;">{subtitle}</p>'
+        if subtitle else ""
+    )
+    return (
+        f'<tr><td style="background:linear-gradient(90deg,#060c18,#0a0e17);padding:14px 20px;'
+        f'border-bottom:1px solid #1e2d45;">'
+        f'<span style="font-size:20px;vertical-align:middle;">{icon}</span>'
+        f'<span style="color:#00d8ff;font-size:13px;font-weight:700;margin-left:10px;'
+        f'text-transform:uppercase;letter-spacing:1.5px;vertical-align:middle;">{title}</span>'
+        f"{sub}</td></tr>"
+    )
 
 def label(text):
-    return f'<p style="margin:0 0 4px;color:#475569;font-size:10px;text-transform:uppercase;letter-spacing:1.5px;">{text}</p>'
+    return (
+        f'<p style="margin:0 0 4px;color:#475569;font-size:10px;'
+        f'text-transform:uppercase;letter-spacing:1.5px;">{text}</p>'
+    )
 
 def field_row(lbl, value):
-    return f"""<tr>
-          <td style="padding:0 0 12px;">
-            {label(lbl)}
-            {mono_block(value)}
-          </td>
-        </tr>"""
+    return (
+        f'<tr><td style="padding:0 0 12px;">'
+        f"{label(lbl)}{mono_block(value)}"
+        f"</td></tr>"
+    )
 
+
+# ── Build dynamic user credential rows ───────────────────────────────────────
+def build_user_rows():
+    rows = []
+    rows.append(field_row(
+        "SSO Login URL",
+        f'<a href="{auth_url}" style="color:#00d8ff;text-decoration:none;">{auth_url}</a>',
+    ))
+    rows.append(field_row("Admin Email", "admin@rlservers.com"))
+    rows.append(field_row("Admin Password", auth_admin_pass))
+
+    for username, udata in all_users.items():
+        if not udata.get("send_recovery_email", False):
+            continue
+        env_var = f"AUTHENTIK_{username.upper()}_RECOVERY_LINK"
+        recovery_link = os.environ.get(env_var, "")
+        access = udata.get("access_level", "platform-user")
+        link_html = (
+            f'<a href="{recovery_link}" style="color:#9fef00;text-decoration:none;'
+            f'word-break:break-all;">{recovery_link}</a>'
+            if recovery_link
+            else "⚠️ Recovery link unavailable — use admin to reset manually"
+        )
+        rows.append(field_row(f"User: {username} — Access Level", access))
+        rows.append(field_row(f"User: {username} — Set Password", link_html))
+
+    return "\n".join(rows)
+
+
+def build_user_plain():
+    lines = [
+        f"  URL      : {auth_url}",
+        f"  Admin    : admin@rlservers.com / {auth_admin_pass}",
+    ]
+    for username, udata in all_users.items():
+        if not udata.get("send_recovery_email", False):
+            continue
+        env_var = f"AUTHENTIK_{username.upper()}_RECOVERY_LINK"
+        recovery_link = os.environ.get(env_var, "(unavailable)")
+        access = udata.get("access_level", "platform-user")
+        lines.append(f"  {username} ({access}): set password: {recovery_link}")
+    return "\n".join(lines)
+
+
+user_rows  = build_user_rows()
+user_plain = build_user_plain()
+
+# ── HTML ──────────────────────────────────────────────────────────────────────
 html = f"""\
 <!DOCTYPE html>
 <html lang="en">
@@ -92,12 +158,11 @@ html = f"""\
 <tr><td align="center">
 <table width="620" cellpadding="0" cellspacing="0" style="max-width:620px;width:100%;">
 
-  <!-- ══ HEADER ════════════════════════════════════════════════════════════ -->
+  <!-- HEADER -->
   <tr>
     <td style="background:linear-gradient(135deg,#0d1420 0%,#060c18 50%,#0a1628 100%);
                border-radius:14px 14px 0 0;padding:36px 40px 28px;text-align:center;
-               border-top:3px solid #00d8ff;position:relative;overflow:hidden;">
-      <!-- hex grid pattern via repeating background -->
+               border-top:3px solid #00d8ff;">
       <div style="font-size:11px;color:#00d8ff;font-family:'Courier New',monospace;
                   letter-spacing:3px;margin-bottom:12px;opacity:0.6;">
         &#9632;&#9632;&#9632; INFRAWEAVER &#9632;&#9632;&#9632;
@@ -111,7 +176,7 @@ html = f"""\
     </td>
   </tr>
 
-  <!-- ══ STATUS BAR ════════════════════════════════════════════════════════ -->
+  <!-- STATUS BAR -->
   <tr>
     <td style="background:#0d1420;padding:12px 40px;border-left:1px solid #1e2d45;
                border-right:1px solid #1e2d45;">
@@ -125,11 +190,13 @@ html = f"""\
             </span>
             &nbsp;
             <span style="background:#0a1628;color:#00d8ff;font-size:11px;padding:4px 10px;
-                         border-radius:20px;border:1px solid #1e2d45;font-family:'Courier New',monospace;">
+                         border-radius:20px;border:1px solid #1e2d45;
+                         font-family:'Courier New',monospace;">
               env: {env}
             </span>
           </td>
-          <td align="right" style="color:#475569;font-size:11px;font-family:'Courier New',monospace;">
+          <td align="right" style="color:#475569;font-size:11px;
+                                   font-family:'Courier New',monospace;">
             {timestamp}
           </td>
         </tr>
@@ -144,12 +211,12 @@ html = f"""\
     </td>
   </tr>
 
-  <!-- ══ BODY ══════════════════════════════════════════════════════════════ -->
+  <!-- BODY -->
   <tr>
     <td style="background:#0a0e17;padding:28px 40px;border-left:1px solid #1e2d45;
                border-right:1px solid #1e2d45;">
 
-      <!-- ── STEP 1: Authentik SSO ─────────────────────────────────────── -->
+      <!-- STEP 1: Authentik SSO -->
       <p style="margin:0 0 8px;color:#00d8ff;font-size:11px;font-family:'Courier New',monospace;
                 letter-spacing:2px;">STEP 1 OF 3</p>
       <table width="100%" cellpadding="0" cellspacing="0"
@@ -159,22 +226,17 @@ html = f"""\
         <tr>
           <td style="padding:20px;">
             <p style="margin:0 0 16px;color:#94a3b8;font-size:13px;line-height:1.6;">
-              All services authenticate via Authentik SSO. Log in here first to access NetBird VPN and the homelab dashboard.
+              All services authenticate via Authentik SSO.
+              Log in here first to access NetBird VPN and the homelab dashboard.
             </p>
             <table width="100%" cellpadding="0" cellspacing="0">
-              {field_row("SSO Login URL", f'<a href="{auth_url}" style="color:#00d8ff;text-decoration:none;">{auth_url}</a>')}
-              {field_row("Admin Email", "admin@rlservers.com")}
-              {field_row("Admin Password", auth_admin_pass)}
-              {field_row("Personal Login — Username", "remon")}
-              {field_row("Personal Login — Set Password", f'<a href="{auth_recovery}" style="color:#9fef00;text-decoration:none;word-break:break-all;">{auth_recovery}</a>' if auth_recovery else "⚠️ Recovery link unavailable — use admin to reset manually")}
-              {field_row("User: ardaty — Access Level", "platform-users (homepage, netbird, argocd read-only)")}
-              {field_row("User: ardaty — Set Password", f'<a href="{ardaty_recovery}" style="color:#9fef00;text-decoration:none;word-break:break-all;">{ardaty_recovery}</a>' if ardaty_recovery else "⚠️ ardaty recovery link unavailable")}
+              {user_rows}
             </table>
           </td>
         </tr>
       </table>
 
-      <!-- ── STEP 2: NetBird VPN ───────────────────────────────────────── -->
+      <!-- STEP 2: NetBird VPN -->
       <p style="margin:0 0 8px;color:#00d8ff;font-size:11px;font-family:'Courier New',monospace;
                 letter-spacing:2px;">STEP 2 OF 3</p>
       <table width="100%" cellpadding="0" cellspacing="0"
@@ -185,21 +247,27 @@ html = f"""\
           <td style="padding:20px;">
             <p style="margin:0 0 16px;color:#94a3b8;font-size:13px;line-height:1.6;">
               After logging in to Authentik, open the NetBird dashboard and connect the client.<br>
-              All <code style="background:#060c18;color:#00d8ff;padding:2px 5px;border-radius:3px;font-size:12px;">*.int.rlservers.com</code> services require NetBird VPN.
+              All <code style="background:#060c18;color:#00d8ff;padding:2px 5px;border-radius:3px;
+                               font-size:12px;">*.int.rlservers.com</code> services require NetBird VPN.
             </p>
             <table width="100%" cellpadding="0" cellspacing="0">
-              {field_row("NetBird Dashboard", f'<a href="{netbird_url}" style="color:#9fef00;text-decoration:none;">{netbird_url}</a>')}
-              {field_row("Login Method", "Click &quot;Log in with SSO&quot; → Authentik")}
-              {field_row("NetBird Management URL (for client setup)", "https://api.netbird.rlservers.com")}
+              {field_row("NetBird Dashboard",
+                         f'<a href="{netbird_url}" style="color:#9fef00;text-decoration:none;">'
+                         f'{netbird_url}</a>')}
+              {field_row("Login Method", 'Click &quot;Log in with SSO&quot; → Authentik')}
+              {field_row("NetBird Management URL (for client setup)",
+                         "https://api.netbird.rlservers.com")}
             </table>
             <p style="margin:12px 0 0;color:#475569;font-size:11px;">
-              &#128230; Download NetBird client: <a href="https://netbird.io/docs/installation" style="color:#00d8ff;text-decoration:none;">netbird.io/docs/installation</a>
+              &#128230; Download NetBird client:
+              <a href="https://netbird.io/docs/installation"
+                 style="color:#00d8ff;text-decoration:none;">netbird.io/docs/installation</a>
             </p>
           </td>
         </tr>
       </table>
 
-      <!-- ── STEP 3: Homelab Dashboard ─────────────────────────────────── -->
+      <!-- STEP 3: Homelab Dashboard -->
       <p style="margin:0 0 8px;color:#00d8ff;font-size:11px;font-family:'Courier New',monospace;
                 letter-spacing:2px;">STEP 3 OF 3</p>
       <table width="100%" cellpadding="0" cellspacing="0"
@@ -217,17 +285,18 @@ html = f"""\
                       letter-spacing:1px;font-family:'Courier New',monospace;">
               OPEN DASHBOARD &rarr;
             </a>
-            <p style="margin:12px 0 0;color:#475569;font-size:11px;font-family:'Courier New',monospace;">
+            <p style="margin:12px 0 0;color:#475569;font-size:11px;
+                      font-family:'Courier New',monospace;">
               {homepage_url}
             </p>
           </td>
         </tr>
       </table>
 
-      <!-- ── OpenBao ───────────────────────────────────────────────────── -->
+      <!-- OpenBao -->
       <table width="100%" cellpadding="0" cellspacing="0"
-             style="background:#111827;border:1px solid #1e2d45;border-radius:10px;overflow:hidden;
-                    border-top:2px solid #f59e0b;">
+             style="background:#111827;border:1px solid #1e2d45;border-radius:10px;
+                    overflow:hidden;border-top:2px solid #f59e0b;">
         {section_header("🔐", "OpenBao Vault", "All other credentials are stored here")}
         <tr>
           <td style="padding:20px;">
@@ -235,7 +304,9 @@ html = f"""\
               The vault stores all platform secrets. Access via VPN after unsealing.
             </p>
             <table width="100%" cellpadding="0" cellspacing="0">
-              {field_row("Vault URL", f'<a href="{openbao_url}" style="color:#00d8ff;text-decoration:none;">{openbao_url}</a>')}
+              {field_row("Vault URL",
+                         f'<a href="{openbao_url}" style="color:#00d8ff;text-decoration:none;">'
+                         f'{openbao_url}</a>')}
               {field_row("Root Token", bao_token)}
               {field_row("Unseal Key", bao_unseal)}
             </table>
@@ -246,13 +317,15 @@ html = f"""\
     </td>
   </tr>
 
-  <!-- ══ FOOTER ════════════════════════════════════════════════════════════ -->
+  <!-- FOOTER -->
   <tr>
     <td style="background:#060c18;padding:20px 40px;border-radius:0 0 14px 14px;
                border:1px solid #1e2d45;border-top:1px solid #1e2d45;text-align:center;">
       <p style="margin:0;color:#1e2d45;font-size:10px;font-family:'Courier New',monospace;
                 letter-spacing:1px;">
-        INFRAWEAVER PLATFORM &nbsp;·&nbsp; ALL CREDENTIALS RANDOMLY GENERATED PER DEPLOYMENT &nbsp;·&nbsp; KEEP THIS EMAIL SECURE
+        INFRAWEAVER PLATFORM &nbsp;·&nbsp;
+        ALL CREDENTIALS RANDOMLY GENERATED PER DEPLOYMENT &nbsp;·&nbsp;
+        KEEP THIS EMAIL SECURE
       </p>
     </td>
   </tr>
@@ -272,25 +345,21 @@ Timestamp   : {timestamp}
 Run         : {run_url}
 
 STEP 1: Log in to Authentik SSO
-  URL       : {auth_url}
-  Admin     : admin@rlservers.com / {auth_admin_pass}
-  Personal  : remon / set your password: {auth_recovery if auth_recovery else "(recovery link unavailable — reset via admin)"}
-  User ardaty: access: homepage, netbird, argocd (read-only)
-              set password: {ardaty_recovery if ardaty_recovery else "(recovery link unavailable)"}
+{user_plain}
 
 STEP 2: Connect NetBird VPN
   Dashboard : {netbird_url}
   Login via : SSO (Authentik)
-  Mgmt URL  : https://api.netbird.rlservers.com (for client setup)
+  Mgmt URL  : https://api.netbird.rlservers.com
   Client    : https://netbird.io/docs/installation
 
 STEP 3: Open Homelab Dashboard (requires VPN)
-  URL       : {homepage_url}
+  URL : {homepage_url}
 
 OPENBAO VAULT — all other credentials stored here
-  URL       : {openbao_url}  (requires VPN)
-  Token     : {bao_token}
-  Unseal    : {bao_unseal}
+  URL    : {openbao_url} (requires VPN)
+  Token  : {bao_token}
+  Unseal : {bao_unseal}
 """
 
 msg = MIMEMultipart("alternative")

@@ -1,4 +1,10 @@
 name: Fix Cloudflare DNS — api-netbird.rlservers.com (DNS-only)
+# ─────────────────────────────────────────────────────────────────────────────
+# Manual utility: updates api-netbird.rlservers.com DNS record in Cloudflare.
+# Use when the record drifts or after a server IP change.
+# The record is NOT yet managed by ExternalDNS/Terraform, so this stays as
+# a manual escape hatch. If it gets moved to IaC, this workflow can be deleted.
+# ─────────────────────────────────────────────────────────────────────────────
 
 permissions:
   contents: read

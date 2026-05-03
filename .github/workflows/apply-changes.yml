@@ -6,32 +6,28 @@ name: Platform — Apply Changes
 #
 # What this workflow handles (ArgoCD doesn't do these automatically):
 #   • User config changes  → seed new user passwords in OpenBao, set Authentik
-#                            group memberships from users.yaml, generate recovery
-#                            links, send notification email
+#                            group memberships from users.yaml, send welcome
+#                            emails ONLY to newly added users (not existing ones)
 #   • Authentik blueprints → force-sync the ArgoCD authentik app so Authentik
 #                            immediately reloads the new blueprint ConfigMaps
 #   • OpenBao seed script  → re-run seeding to add any new secret fields
 #
 # What ArgoCD handles automatically (no step needed here):
-#   • Any kubernetes/ manifest change → ArgoCD auto-syncs on push
+#   • Any kubernetes/ manifest change → ArgoCD auto-syncs on push (~3 min)
 #   • ArgoCD RBAC (argocd/values.yaml) → ArgoCD syncs its own Helm chart
 #   • Traefik / ingress / DNS changes  → ArgoCD syncs those apps
 #
-# To add a new user:
-#   1. Add entry to users.yaml
-#   2. Add user to kubernetes/apps/authentik/manifests/blueprint-users.yaml
-#   3. Add <username>-password to .github/scripts/seed-openbao-authentik.sh
-#   4. Add <username>-password to kubernetes/apps/authentik/manifests/externalsecret.yaml
-#   5. Add AUTHENTIK_<USERNAME>_PASSWORD env in kubernetes/apps/authentik/values.yaml
-#   6. Push to main → this workflow handles the rest
+# Email logic:
+#   • NEW user added → welcome email sent to that user's email from users.yaml
+#   • Existing user changed (group, name, etc.) → no email
+#   • Full redeploy → admin summary email (handled by full-redeploy.yml, not here)
+#
+# To add a new user: see users.yaml header for the 5-file checklist.
 # ─────────────────────────────────────────────────────────────────────────────
 
 concurrency:
   group: apply-changes-${{ github.ref_name }}
   cancel-in-progress: false
-
-permissions:
-  contents: read
 
 on:
   push:
@@ -52,18 +48,21 @@ on:
         default: "false"
         type: choice
         options: [false, true]
-      send_recovery_email:
-        description: "Send recovery links email"
+      send_welcome_emails:
+        description: "Send welcome emails to new users"
         required: false
         default: "true"
         type: choice
         options: [true, false]
 
+permissions:
+  contents: read
+
 env:
   ENV_NAME: productie
 
 jobs:
-  # ── Detect what changed ────────────────────────────────────────────────────
+  # ── 1. Detect what changed ─────────────────────────────────────────────────
   detect:
     name: "Detect Changes"
     runs-on: ubuntu-latest
@@ -71,12 +70,16 @@ jobs:
       user_config:  ${{ steps.changes.outputs.user_config }}
       blueprints:   ${{ steps.changes.outputs.blueprints }}
       openbao_seed: ${{ steps.changes.outputs.openbao_seed }}
+      new_users:    ${{ steps.changes.outputs.new_users }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 2
 
-      - name: Detect changed paths
+      - name: Install PyYAML
+        run: pip install pyyaml --quiet
+
+      - name: Detect changed paths and new users
         id: changes
         run: |
           CHANGED=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || git diff --name-only HEAD^ HEAD 2>/dev/null || echo "")
@@ -101,6 +104,11 @@ jobs:
             echo "openbao_seed=false" >> $GITHUB_OUTPUT
           fi
 
+          # Detect newly added users (in HEAD but not HEAD~1)
+          NEW_USERS=$(python3 .github/scripts/list-recovery-users.py --new-only | python3 -c "import sys,json; users=sys.stdin.read().split(); print(json.dumps(users))")
+          echo "new_users=${NEW_USERS}" >> $GITHUB_OUTPUT
+          echo "==> Newly added users: ${NEW_USERS}"
+
       - name: Summary
         run: |
           echo "### Change Detection" >> $GITHUB_STEP_SUMMARY
@@ -109,8 +117,9 @@ jobs:
           echo "| User config   | ${{ steps.changes.outputs.user_config }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Blueprints    | ${{ steps.changes.outputs.blueprints }} |" >> $GITHUB_STEP_SUMMARY
           echo "| OpenBao seed  | ${{ steps.changes.outputs.openbao_seed }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| New users     | ${{ steps.changes.outputs.new_users }} |" >> $GITHUB_STEP_SUMMARY
 
-  # ── Sync Authentik blueprints via ArgoCD ──────────────────────────────────
+  # ── 2. Sync Authentik blueprints via ArgoCD ────────────────────────────────
   sync-blueprints:
     name: "Sync Authentik Blueprints"
     needs: detect
@@ -133,13 +142,13 @@ jobs:
             HEALTH=$($KT get application authentik -n argocd -o jsonpath='{.status.health.status}' 2>/dev/null || echo "Unknown")
             echo "  [${i}/30] authentik: sync=$STATUS health=$HEALTH"
             if [ "$STATUS" = "Synced" ] && [ "$HEALTH" = "Healthy" ]; then
-              echo "Authentik ArgoCD app synced and healthy" >> $GITHUB_STEP_SUMMARY
+              echo "✅ Authentik ArgoCD app synced and healthy" >> $GITHUB_STEP_SUMMARY
               break
             fi
             sleep 10
           done
 
-  # ── Seed new OpenBao secrets (for new users) ──────────────────────────────
+  # ── 3. Seed OpenBao secrets (new users / SMTP) ────────────────────────────
   seed-openbao:
     name: "Seed OpenBao Secrets"
     needs: detect
@@ -164,9 +173,9 @@ jobs:
             exit 0
           fi
 
-          BAO_POD=$($KT get pod -n openbao -l app.kubernetes.io/name=openbao -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+          BAO_POD=$($KT get pod -n openbao -l app.kubernetes.io/name=openbao --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
           if [ -z "$BAO_POD" ]; then
-            echo "No OpenBao pod found — skipping seed"
+            echo "No running OpenBao pod found — skipping seed"
             exit 0
           fi
 
@@ -175,7 +184,6 @@ jobs:
           sleep 4
 
           LOCAL_OPENBAO="http://localhost:8200"
-
           bash .github/scripts/seed-openbao-authentik.sh "$LOCAL_OPENBAO" "$ROOT_TOKEN"
 
           if [ -n "$SMTP_PASSWORD" ]; then
@@ -194,9 +202,9 @@ jobs:
           fi
 
           kill $BAO_PF_PID 2>/dev/null || true
-          echo "OpenBao secrets seeded/patched successfully" >> $GITHUB_STEP_SUMMARY
+          echo "✅ OpenBao secrets seeded/patched" >> $GITHUB_STEP_SUMMARY
 
-  # ── Apply user/group changes ──────────────────────────────────────────────
+  # ── 4. Apply user/group changes ───────────────────────────────────────────
   apply-users:
     name: "Apply User Config"
     needs: [detect, seed-openbao]
@@ -208,8 +216,7 @@ jobs:
       - self-hosted
       - prod-worker
     outputs:
-      remon_recovery:  ${{ steps.recovery.outputs.remon_link }}
-      ardaty_recovery: ${{ steps.recovery.outputs.ardaty_link }}
+      recovery_links_json: ${{ steps.recovery.outputs.links_json }}
     steps:
       - uses: actions/checkout@v4
 
@@ -217,16 +224,10 @@ jobs:
         run: |
           KB=~/.kube/config-platform-${{ env.ENV_NAME }}
           KT="kubectl --kubeconfig $KB --insecure-skip-tls-verify"
-          # Use rollout status to wait for a COMPLETE rollout (not just readyReplicas >= 1).
-          # This handles the case where ArgoCD sync triggered a pod restart — rollout status
-          # waits for the OLD pods to terminate and NEW pods to be fully ready.
-          echo "==> Waiting for authentik-worker rollout to complete..."
-          $KT rollout status deployment/authentik-worker -n authentik --timeout=5m || true
-          # Double-check: ensure at least 1 ready replica after rollout
-          for i in $(seq 1 30); do
+          for i in $(seq 1 60); do
             READY=$($KT get deployment/authentik-worker -n authentik -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
-            if [ "${READY:-0}" -ge 1 ]; then echo "Authentik worker ready ($READY replicas)"; break; fi
-            echo "  [${i}/30] Waiting for authentik-worker (ready=${READY:-0})..."
+            if [ "${READY:-0}" -ge 1 ]; then echo "Authentik worker ready"; break; fi
+            echo "  [${i}/60] Waiting for authentik-worker (ready=${READY:-0})..."
             sleep 5
           done
 
@@ -234,35 +235,49 @@ jobs:
         run: |
           KB=~/.kube/config-platform-${{ env.ENV_NAME }}
           KT="kubectl --kubeconfig $KB --insecure-skip-tls-verify"
-          # Select a Running pod (not a crashing/pending new pod from rolling update)
+
+          # Select a Running worker pod to avoid "container not found" on rolling updates
           WORKER_POD=$($KT get pod -n authentik -l app.kubernetes.io/component=worker \
             --field-selector=status.phase=Running \
-            -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || \
-            $KT get pod -n authentik -l app.kubernetes.io/component=worker \
-            -o jsonpath='{.items[0].metadata.name}')
+            -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+          if [ -z "$WORKER_POD" ]; then
+            WORKER_POD=$($KT get pod -n authentik -l app.kubernetes.io/component=worker \
+              -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+          fi
           echo "==> Worker pod: $WORKER_POD"
-          echo "==> Generated sync script:"
-          python3 .github/scripts/sync-authentik-users.py | tee /tmp/ak-group-sync.py
-          cat /tmp/ak-group-sync.py | $KT exec -i -n authentik "$WORKER_POD" -- ak shell
-          echo "Group memberships synced from users.yaml" >> $GITHUB_STEP_SUMMARY
 
-      - name: Generate recovery links
+          python3 .github/scripts/sync-authentik-users.py > /tmp/ak-group-sync.py
+          $KT exec -n authentik "$WORKER_POD" -- ak shell < /tmp/ak-group-sync.py
+          echo "✅ Group memberships synced from users.yaml" >> $GITHUB_STEP_SUMMARY
+
+      - name: Generate recovery links for new users
         id: recovery
         run: |
           KB=~/.kube/config-platform-${{ env.ENV_NAME }}
           KT="kubectl --kubeconfig $KB --insecure-skip-tls-verify"
-          # Select a Running pod (not a crashing/pending new pod from rolling update)
+
+          NEW_USERS='${{ needs.detect.outputs.new_users }}'
+          if [ "$NEW_USERS" = "[]" ] || [ -z "$NEW_USERS" ]; then
+            echo "==> No new users — skipping recovery link generation"
+            echo 'links_json={}' >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
           WORKER_POD=$($KT get pod -n authentik -l app.kubernetes.io/component=worker \
             --field-selector=status.phase=Running \
-            -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || \
-            $KT get pod -n authentik -l app.kubernetes.io/component=worker \
-            -o jsonpath='{.items[0].metadata.name}')
+            -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+          if [ -z "$WORKER_POD" ]; then
+            WORKER_POD=$($KT get pod -n authentik -l app.kubernetes.io/component=worker \
+              -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+          fi
 
+          # Get a short-lived Authentik API token via ak shell
           _AK_PY="ZnJvbSBhdXRoZW50aWsuY29yZS5tb2RlbHMgaW1wb3J0IFRva2VuLCBUb2tlbkludGVudHMsIFVzZXIKZnJvbSBhdXRoZW50aWsuYnJhbmRzLm1vZGVscyBpbXBvcnQgQnJhbmQKZnJvbSBhdXRoZW50aWsuZmxvd3MubW9kZWxzIGltcG9ydCBGbG93LCBGbG93RGVzaWduYXRpb24KCmZsb3csIF8gPSBGbG93Lm9iamVjdHMuZ2V0X29yX2NyZWF0ZShzbHVnPSJkZWZhdWx0LXJlY292ZXJ5LWZsb3ciLCBkZWZhdWx0cz17Im5hbWUiOiAiRGVmYXVsdCBSZWNvdmVyeSBGbG93IiwgInRpdGxlIjogIkFjY291bnQgUmVjb3ZlcnkiLCAiZGVzaWduYXRpb24iOiBGbG93RGVzaWduYXRpb24uUkVDT1ZFUll9KQpmb3IgYnJhbmQgaW4gQnJhbmQub2JqZWN0cy5hbGwoKToKICAgIGJyYW5kLmZsb3dfcmVjb3ZlcnkgPSBmbG93CiAgICBicmFuZC5zYXZlKCkKClRva2VuLm9iamVjdHMuZmlsdGVyKGlkZW50aWZpZXI9ImdoLWFjdGlvbnMtYXBpLXRva2VuIikuZGVsZXRlKCkKYWRtaW4gPSBVc2VyLm9iamVjdHMuZ2V0KHVzZXJuYW1lPSJha2FkbWluIikKdCA9IFRva2VuLm9iamVjdHMuY3JlYXRlKGlkZW50aWZpZXI9ImdoLWFjdGlvbnMtYXBpLXRva2VuIiwgdXNlcj1hZG1pbiwgZGVzY3JpcHRpb249IkdpdEh1YiBBY3Rpb25zIEFQSSB0b2tlbiIsIGludGVudD1Ub2tlbkludGVudHMuSU5URU5UX0FQSSwgZXhwaXJpbmc9RmFsc2UpCnByaW50KCJUT0tFTjoiICsgdC5rZXkpCg=="
           AK_TOKEN=$(echo "$_AK_PY" | base64 -d | $KT exec -i -n authentik "$WORKER_POD" -- ak shell 2>&1 | grep "^TOKEN:" | sed 's/TOKEN://' || echo "")
 
           if [ -z "$AK_TOKEN" ]; then
             echo "Could not get Authentik API token — skipping recovery links"
+            echo 'links_json={}' >> $GITHUB_OUTPUT
             exit 0
           fi
 
@@ -270,59 +285,111 @@ jobs:
           AK_PF_PID=$!
           sleep 4
 
-          USERS_WITH_RECOVERY=$(python3 .github/scripts/list-recovery-users.py)
-          echo "==> Generating recovery links for: $USERS_WITH_RECOVERY"
-
-          for USERNAME in $USERS_WITH_RECOVERY; do
+          LINKS_JSON="{}"
+          for USERNAME in $(echo "$NEW_USERS" | python3 -c "import sys,json; print('\n'.join(json.loads(sys.stdin.read())))"); do
             USER_ID=$(curl -sf -H "Authorization: Bearer $AK_TOKEN" \
               "http://localhost:8089/api/v3/core/users/?username=${USERNAME}" 2>/dev/null | \
               python3 -c "import sys,json; d=json.load(sys.stdin); r=d.get('results',[]); print(r[0]['pk'] if r else '')" || echo "")
             if [ -n "$USER_ID" ]; then
-              LINK=$(curl -sf -X POST -H "Authorization: Bearer $AK_TOKEN" -H "Content-Type: application/json" \
+              RAW_LINK=$(curl -sf -X POST -H "Authorization: Bearer $AK_TOKEN" \
+                -H "Content-Type: application/json" \
                 "http://localhost:8089/api/v3/core/users/$USER_ID/recovery/" 2>/dev/null | \
                 python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('link',''))" || echo "")
-              LINK=$(echo "$LINK" | sed 's|http://localhost:8089|https://auth.rlservers.com|g')
-              echo "Recovery link for ${USERNAME}: $LINK"
-              if [ "$USERNAME" = "remon" ];  then echo "remon_link=${LINK}"  >> $GITHUB_OUTPUT; fi
-              if [ "$USERNAME" = "ardaty" ]; then echo "ardaty_link=${LINK}" >> $GITHUB_OUTPUT; fi
+              LINK=$(echo "$RAW_LINK" | sed 's|http://localhost:8089|https://auth.rlservers.com|g')
+              echo "==> Recovery link generated for ${USERNAME}"
+              LINKS_JSON=$(echo "$LINKS_JSON" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); d[\"${USERNAME}\"]=\"${LINK}\"; print(json.dumps(d))")
+            else
+              echo "==> WARN: user ${USERNAME} not yet in Authentik (blueprint may not have synced)"
             fi
           done
 
           kill $AK_PF_PID 2>/dev/null || true
+          echo "links_json=${LINKS_JSON}" >> $GITHUB_OUTPUT
+          echo "✅ Recovery links generated for: $(echo "$NEW_USERS" | python3 -c "import sys,json; print(', '.join(json.loads(sys.stdin.read())))")" >> $GITHUB_STEP_SUMMARY
 
-  # ── Send notification email ───────────────────────────────────────────────
-  notify:
-    name: "Send Notification Email"
+  # ── 5. Send welcome emails (only to NEW users, to their own email) ─────────
+  welcome-emails:
+    name: "Send Welcome Emails"
     needs: [detect, apply-users]
     if: |
       always() &&
-      needs.detect.outputs.user_config == 'true' &&
-      github.event.inputs.send_recovery_email != 'false'
+      needs.detect.outputs.new_users != '[]' &&
+      needs.detect.outputs.new_users != '' &&
+      github.event.inputs.send_welcome_emails != 'false'
     runs-on:
       - self-hosted
       - prod-worker
     steps:
       - uses: actions/checkout@v4
 
-      - name: Send user change notification email
+      - name: Send welcome email to each new user
         env:
           SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
-          SMTP_TO: ${{ secrets.SMTP_TO }}
-          AUTHENTIK_RECOVERY_LINK: ${{ needs.apply-users.outputs.remon_recovery }}
-          AUTHENTIK_ARDATY_RECOVERY_LINK: ${{ needs.apply-users.outputs.ardaty_recovery }}
+          NEW_USERS:      ${{ needs.detect.outputs.new_users }}
+          RECOVERY_LINKS: ${{ needs.apply-users.outputs.recovery_links_json }}
+        run: |
+          for USERNAME in $(echo "$NEW_USERS" | python3 -c "import sys,json; print('\n'.join(json.loads(sys.stdin.read())))"); do
+            LINK=$(echo "$RECOVERY_LINKS" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); print(d.get(\"${USERNAME}\",\"\"))")
+            echo "==> Sending welcome email to user: ${USERNAME}"
+            python3 scripts/send-welcome-email.py \
+              --username "$USERNAME" \
+              --recovery-link "$LINK" || echo "WARN: welcome email failed for ${USERNAME} (non-critical)"
+          done
+          echo "✅ Welcome emails sent" >> $GITHUB_STEP_SUMMARY
+
+  # ── 6. Post-apply health check ────────────────────────────────────────────
+  post-health-check:
+    name: "Post-Apply Health Check"
+    needs: [detect, apply-users]
+    if: |
+      always() &&
+      (needs.detect.outputs.user_config == 'true' ||
+       github.event.inputs.force_user_sync == 'true')
+    runs-on:
+      - self-hosted
+      - prod-worker
+    steps:
+      - name: Check public endpoint reachability
+        run: |
+          FAIL=0
+          check_url() {
+            local URL=$1 LABEL=$2
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$URL" || echo "000")
+            if [ "$CODE" = "000" ]; then
+              echo "❌ $LABEL ($URL) — unreachable"
+              FAIL=1
+            elif [ "$CODE" -ge 500 ]; then
+              echo "⚠️  $LABEL ($URL) — HTTP $CODE (server error)"
+              FAIL=1
+            else
+              echo "✅ $LABEL ($URL) — HTTP $CODE"
+            fi
+          }
+
+          check_url "https://auth.rlservers.com/if/flow/default-authentication-flow/" "Authentik login"
+          check_url "https://api-netbird.rlservers.com/" "NetBird API"
+          check_url "https://netbird.rlservers.com/" "NetBird Dashboard"
+
+          if [ $FAIL -eq 0 ]; then
+            echo "✅ All public endpoints reachable" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️  Some endpoints failed health check — check logs above" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Check Authentik ArgoCD app health
         run: |
           KB=~/.kube/config-platform-${{ env.ENV_NAME }}
           KT="kubectl --kubeconfig $KB --insecure-skip-tls-verify"
 
-          export DEPLOY_ENV="${{ env.ENV_NAME }}"
-          export DEPLOY_RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          export DEPLOY_TYPE="user-config-update"
-
-          export BAO_TOKEN=$($KT get secret openbao-unseal -n openbao -o jsonpath='{.data.root_token}' 2>/dev/null | base64 -d || echo "unavailable")
-          export BAO_UNSEAL=$($KT get secret openbao-unseal -n openbao -o jsonpath='{.data.unseal_key}' 2>/dev/null | base64 -d || echo "unavailable")
-          export AUTHENTIK_ADMIN_PASS=$($KT exec -n openbao openbao-0 -- \
-            sh -c "VAULT_TOKEN='$BAO_TOKEN' vault kv get -field=bootstrap-password secret/platform/authentik" \
-            2>/dev/null || echo "unavailable")
-
-          python3 scripts/send-deploy-email.py
+          for i in $(seq 1 12); do
+            SYNC=$($KT get application authentik -n argocd -o jsonpath='{.status.sync.status}' 2>/dev/null || echo "Unknown")
+            HEALTH=$($KT get application authentik -n argocd -o jsonpath='{.status.health.status}' 2>/dev/null || echo "Unknown")
+            echo "  [${i}/12] authentik: sync=$SYNC health=$HEALTH"
+            if [ "$SYNC" = "Synced" ] && [ "$HEALTH" = "Healthy" ]; then
+              echo "✅ Authentik app: Synced + Healthy" >> $GITHUB_STEP_SUMMARY
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "⚠️  Authentik app not Synced+Healthy after 2 min" >> $GITHUB_STEP_SUMMARY

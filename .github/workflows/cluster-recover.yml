@@ -18,6 +18,10 @@ on:
         options:
           - check-status
           - apply-metallb-fix
+          - apply-metallb-fix-verbose  # full diagnostics (node labels, speaker logs)
+
+permissions:
+  contents: read
 
 jobs:
   recover:
@@ -79,8 +83,26 @@ jobs:
           kubectl get nodes 2>&1 || true
           kubectl get pods -A | grep -v Running | head -20 || true
 
+      - name: Check node labels (metallb-fix-verbose only)
+        if: inputs.action == 'apply-metallb-fix-verbose' && steps.find-api.outputs.API_NODE != ''
+        env:
+          KUBECONFIG: /home/ubuntu/.kube/config-${{ steps.find-api.outputs.API_NODE != '' && format('{0}', steps.find-api.outputs.API_NODE) || '10.25.0.91' }}
+        run: |
+          echo "=== Node labels ==="
+          kubectl get nodes -o=custom-columns=NAME:.metadata.name,LABELS:.metadata.labels 2>&1 | head -10
+          echo ""
+          echo "=== Exclude-from-lb label check ==="
+          kubectl get nodes -o json | python3 -c "
+          import sys, json
+          nodes = json.load(sys.stdin)['items']
+          for n in nodes:
+              labels = n['metadata']['labels']
+              has_exclude = 'node.kubernetes.io/exclude-from-external-load-balancers' in labels
+              print(f\"{n['metadata']['name']}: exclude-from-lb={has_exclude}\")
+          "
+
       - name: Apply MetalLB fix (nodeSelectors for control-plane)
-        if: inputs.action == 'apply-metallb-fix' && steps.find-api.outputs.API_NODE != ''
+        if: (inputs.action == 'apply-metallb-fix' || inputs.action == 'apply-metallb-fix-verbose') && steps.find-api.outputs.API_NODE != ''
         env:
           KUBECONFIG: /home/ubuntu/.kube/config-${{ steps.find-api.outputs.API_NODE != '' && format('{0}', steps.find-api.outputs.API_NODE) || '10.25.0.91' }}
         run: |
@@ -95,3 +117,22 @@ jobs:
           echo ""
           echo "=== Test VIP ==="
           curl -sv --connect-timeout 5 http://10.25.0.200/ 2>&1 | grep -E "Connected|HTTP/|error|refused"
+
+      - name: Speaker log analysis (metallb-fix-verbose only)
+        if: inputs.action == 'apply-metallb-fix-verbose' && steps.find-api.outputs.API_NODE != ''
+        env:
+          KUBECONFIG: /home/ubuntu/.kube/config-${{ steps.find-api.outputs.API_NODE != '' && format('{0}', steps.find-api.outputs.API_NODE) || '10.25.0.91' }}
+        run: |
+          echo "=== Speaker logs — L2 events ==="
+          for pod in $(kubectl get pods -n metallb-system -l component=speaker -o name); do
+            echo "--- $pod ---"
+            kubectl logs -n metallb-system $pod --tail=30 2>&1 | python3 -c "
+          import sys, json
+          for line in sys.stdin:
+              try:
+                  d = json.loads(line.strip())
+                  if 'l2' in d.get('caller','').lower() or 'announ' in d.get('event','').lower():
+                      print(line.strip())
+              except: pass
+            " | tail -5
+          done
