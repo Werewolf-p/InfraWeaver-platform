@@ -49,6 +49,11 @@ global:
         secretKeyRef:
           name: authentik-secrets
           key: ardaty-password
+    - name: AUTHENTIK_TESTUSER1_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: authentik-secrets
+          key: testuser1-password
     - name: AUTHENTIK_POSTGRESQL__PASSWORD
       valueFrom:
         secretKeyRef:

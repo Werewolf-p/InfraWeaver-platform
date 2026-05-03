@@ -4,13 +4,11 @@
 # Passwords are injected via env vars (from ExternalSecret sourced from OpenBao).
 #
 # TO ADD A USER:
-#   1. Add entry to users.yaml (repo root) for documentation
+#   1. Add entry to users.yaml (repo root) for documentation + sync
 #   2. Add an entry below for the Authentik user
 #   3. Add their password to OpenBao via seed-openbao-authentik.sh
-#   4. Add them to the correct group in the workflow step "Set user group memberships"
-#
-# NOTE: Group membership is set in the post-deploy workflow because blueprints
-# cannot reliably set group membership in Authentik 2026.x.
+#   4. Add password mapping to externalsecret.yaml + env var to authentik/values.yaml
+#   (Group membership is set dynamically from users.yaml — no workflow changes needed)
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -37,7 +35,7 @@ data:
 
       # ── ardaty (platform-user) ───────────────────────────────────────────────
       # Access: homepage, netbird, argocd (read-only) — see users.yaml for details
-      # Group: platform-users (set by workflow)
+      # Group: platform-users (set dynamically from users.yaml)
       - model: authentik_core.user
         state: present
         identifiers:
@@ -46,5 +44,18 @@ data:
           name: "Ardaty"
           email: "ardaty@rlservers.com"
           password: !Env AUTHENTIK_ARDATY_PASSWORD
+          is_active: true
+
+      # ── testuser1 (platform-user, test) ────────────────────────────────────
+      # IAC test user — validates dynamic user provisioning end-to-end.
+      # Remove this entry (and from users.yaml/seed/externalsecret/values.yaml) when done.
+      - model: authentik_core.user
+        state: present
+        identifiers:
+          username: testuser1
+        attrs:
+          name: "Test User One"
+          email: "testuser1@rlservers.com"
+          password: !Env AUTHENTIK_TESTUSER1_PASSWORD
           is_active: true
 
