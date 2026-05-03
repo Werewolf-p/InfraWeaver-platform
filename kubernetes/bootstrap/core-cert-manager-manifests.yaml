@@ -31,3 +31,7 @@ spec:
       kind: ClusterIssuer
       jsonPointers:
         - /status
+    - group: external-secrets.io
+      kind: ExternalSecret
+      jsonPointers:
+        - /status

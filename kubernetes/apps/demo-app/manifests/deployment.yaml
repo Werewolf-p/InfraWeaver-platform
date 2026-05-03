@@ -29,7 +29,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: demo-app
-          image: nginx:1.27-alpine    # TODO: replace with your image
+          image: nginxinc/nginx-unprivileged:1.27-alpine    # unprivileged nginx (listens on 8080)
           ports:
             - containerPort: 8080     # TODO: match your app's listening port
           resources:
@@ -56,10 +56,17 @@ spec:
               port: 8080
             initialDelaySeconds: 15
             periodSeconds: 20
-          # If your app writes to disk (logs, tmp), add an emptyDir volume:
-          # volumeMounts:
-          #   - name: tmp
-          #     mountPath: /tmp
-      # volumes:
-      #   - name: tmp
-      #     emptyDir: {}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: nginx-cache
+              mountPath: /var/cache/nginx
+            - name: nginx-run
+              mountPath: /var/run
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: nginx-cache
+          emptyDir: {}
+        - name: nginx-run
+          emptyDir: {}
