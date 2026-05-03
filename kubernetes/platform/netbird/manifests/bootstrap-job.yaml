@@ -126,15 +126,23 @@ data:
 
         conn.commit()
 
-    # Always upsert PAT and route (idempotent, safe to re-run)
+    # Always ensure the system admin user exists (USR) — needed as PAT owner.
+    # Use INSERT OR IGNORE so we never overwrite an existing user's data.
+    c.execute("""INSERT OR IGNORE INTO users
+      (id, account_id, role, is_service_user, non_deletable, auto_groups, blocked, issued, email, name, created_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,datetime('now'))""",
+      (USR, ACC, "admin", 0, 1, "[]", 0, "api", encrypt_field(""), encrypt_field("admin")))
+
+    # Always upsert PAT linked to USR_REMON ("remon") — this is the stable human admin
+    # user. Using USR_REMON avoids failures when the system USR gets cleaned up by NetBird.
     PAT_TOKEN = os.environ.get("PAT_TOKEN", "")
     if PAT_TOKEN:
         pat_hash = base64.b64encode(hashlib.sha256(PAT_TOKEN.encode()).digest()).decode()
         c.execute("""INSERT OR REPLACE INTO personal_access_tokens
           (id, user_id, name, hashed_token, expiration_date, created_by, created_at, last_used)
           VALUES ('pat00000-0000-4000-a000-000000000001', ?, ?, ?, '2040-01-01 00:00:00', ?, datetime('now'), NULL)""",
-          (USR, encrypt_field("bootstrap-admin"), pat_hash, USR))
-        print(f"PAT upserted (token prefix: {PAT_TOKEN[:12]}...)")
+          (USR_REMON, encrypt_field("bootstrap-admin"), pat_hash, USR_REMON))
+        print(f"PAT upserted for user remon (token prefix: {PAT_TOKEN[:12]}...)")
 
     # Route for cluster subnet via "All" peer group (peer_groups avoids hardcoded peer IDs)
     # routes.network must be JSON-encoded string (e.g. '"10.25.0.0/24"') so migratePreAuto
@@ -370,6 +378,49 @@ spec:
                   -o /dev/null && echo "DNS nameserver group created: int-rlservers-com → 10.10.0.201"
               else
                 echo "DNS nameserver group int-rlservers-com already exists — skipping"
+              fi
+
+              echo "=== Ensuring routing-peers-vlan3 group has all connected peers ==="
+              # After every sync/redeploy, connected peers must be in routing-peers-vlan3 so
+              # that the 10.10.0.0/24 and 10.25.0.0/24 routes are advertised to VPN clients.
+              # The setup key auto_groups handles NEW peers on first connect, but existing peers
+              # (reconnecting after a redeploy) may lose group membership if the DB was wiped.
+              # This section idempotently adds ALL connected peers to routing-peers-vlan3.
+              ROUTING_GRP_ID="grp00000-0000-4000-a000-000000000002"
+              PEERS_RESP=$(curl -s --max-time 10 \
+                http://netbird-management.netbird.svc:80/api/peers \
+                -H "Authorization: Token ${PAT_TOKEN}" 2>/dev/null || echo "[]")
+              PEER_IDS=$(echo "$PEERS_RESP" | \
+                python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps([p['id'] for p in (d if isinstance(d,list) else [])]))" \
+                2>/dev/null || echo "[]")
+              PEER_COUNT=$(echo "$PEER_IDS" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0")
+              echo "Found ${PEER_COUNT} connected peer(s)"
+
+              if [ "$PEER_COUNT" -gt "0" ]; then
+                # Get current group membership
+                GRP_RESP=$(curl -s --max-time 10 \
+                  http://netbird-management.netbird.svc:80/api/groups/${ROUTING_GRP_ID} \
+                  -H "Authorization: Token ${PAT_TOKEN}" 2>/dev/null || echo "{}")
+                EXISTING_IDS=$(echo "$GRP_RESP" | \
+                  python3 -c "import sys,json; g=json.load(sys.stdin); print(json.dumps([p['id'] for p in g.get('peers',[])]))" \
+                  2>/dev/null || echo "[]")
+                # Merge: union of existing + all current peers
+                MERGED_IDS=$(python3 -c "
+import sys, json
+existing = json.loads('${EXISTING_IDS}')
+all_peers = json.loads('${PEER_IDS}')
+merged = list(set(existing + all_peers))
+print(json.dumps(merged))
+" 2>/dev/null || echo "$PEER_IDS")
+                # PUT updated group
+                curl -s --max-time 10 -X PUT \
+                  http://netbird-management.netbird.svc:80/api/groups/${ROUTING_GRP_ID} \
+                  -H "Authorization: Token ${PAT_TOKEN}" \
+                  -H "Content-Type: application/json" \
+                  -d "{\"name\":\"routing-peers-vlan3\",\"peers\":${MERGED_IDS}}" \
+                  -o /dev/null && echo "routing-peers-vlan3 group updated with ${PEER_COUNT} peer(s)"
+              else
+                echo "No peers connected yet — routing group will be populated when peers connect via setup key auto_groups"
               fi
 
               echo "=== Bootstrap complete ==="
