@@ -127,7 +127,7 @@ jobs:
   # ── Deploy (push to main/ontwikkel only) ────────────────────────────────────
   deploy:
     name: "Deploy (${{ github.ref_name == 'main' && 'productie' || 'ontwikkel' }})"
-    needs: []
+    needs: [plan]
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on:
       - self-hosted

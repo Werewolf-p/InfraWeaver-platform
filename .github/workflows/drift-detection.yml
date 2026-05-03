@@ -1,0 +1,104 @@
+name: IaC Drift Detection
+
+# ── Scheduled drift check ─────────────────────────────────────────────────────
+# Runs tofu plan weekly and alerts if there's drift between live infrastructure
+# and the declared state in this repository.
+#
+# Drift = Terraform wants to make changes (resource created/changed/destroyed outside IaC)
+# This is informational — it does NOT auto-apply changes.
+
+on:
+  schedule:
+    - cron: "0 7 * * 1"   # Every Monday at 07:00 UTC
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment to check"
+        required: false
+        default: "productie"
+        type: choice
+        options: [productie, ontwikkel]
+
+concurrency:
+  group: drift-detection-${{ github.event.inputs.environment || 'productie' }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  ENV_NAME: ${{ github.event.inputs.environment || 'productie' }}
+  TOFU_VERSION: "1.11.6"
+
+jobs:
+  detect-drift:
+    name: "Drift Detection — ${{ github.event.inputs.environment || 'productie' }}"
+    runs-on:
+      - self-hosted
+      - prod-worker
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup tools
+        uses: ./.github/actions/setup-platform
+        with:
+          age-secret-key: ${{ secrets.AGE_SECRET_KEY }}
+
+      - name: Run tofu plan (drift check)
+        id: plan
+        env:
+          PROXMOX_API_TOKEN: ${{ secrets.PROXMOX_API_TOKEN }}
+        run: |
+          export TF_PLUGIN_CACHE_DIR="$HOME/.terraform.d/plugin-cache"
+
+          ENV=${{ env.ENV_NAME }}
+          STATE_DIR=~/.tofu/state/platform-$ENV
+          mkdir -p $STATE_DIR
+
+          export TF_VAR_proxmox_api_token="${PROXMOX_API_TOKEN}"
+          while IFS= read -r line; do
+            if [[ "$line" =~ ^([a-zA-Z_][a-zA-Z0-9_]*):[[:space:]]*(.*) ]]; then
+              KEY="${BASH_REMATCH[1]}" ; VAL="${BASH_REMATCH[2]}"
+              [[ "$KEY" == "sops" ]] && break
+              VAL="${VAL#\"}" ; VAL="${VAL%\"}"
+              [[ -n "$VAL" ]] && export "TF_VAR_${KEY}=${VAL}"
+            fi
+          done < <(sops -d "envs/$ENV/secrets.sops.yaml" 2>/dev/null || echo "")
+
+          cd terraform
+          tofu init \
+            -backend-config="path=$STATE_DIR/terraform.tfstate" \
+            -reconfigure \
+            -no-color 2>&1 | tail -5
+
+          VARS=""
+          [ -f "../envs/$ENV/terraform.tfvars" ]     && VARS="$VARS -var-file=../envs/$ENV/terraform.tfvars"
+          [ -f "../envs/$ENV/services.auto.tfvars" ] && VARS="$VARS -var-file=../envs/$ENV/services.auto.tfvars"
+
+          # Capture plan output; exit 0 = no changes, exit 2 = changes detected, exit 1 = error
+          tofu plan $VARS -detailed-exitcode -no-color 2>&1 | tee /tmp/drift-plan.txt
+          PLAN_EXIT=${PIPESTATUS[0]}
+
+          if [ $PLAN_EXIT -eq 0 ]; then
+            echo "drift=false" >> "$GITHUB_OUTPUT"
+            echo "✅ No drift detected — infrastructure matches IaC state" >> "$GITHUB_STEP_SUMMARY"
+          elif [ $PLAN_EXIT -eq 2 ]; then
+            echo "drift=true" >> "$GITHUB_OUTPUT"
+            CHANGES=$(grep -cE "^  # |must be replaced|will be created|will be destroyed|will be updated" /tmp/drift-plan.txt || echo "unknown")
+            echo "⚠️ Drift detected: ${CHANGES} change(s) pending" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "Run \`platform.yml\` with \`action: apply\` to reconcile, or investigate if unexpected." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "drift=error" >> "$GITHUB_OUTPUT"
+            echo "❌ Drift check failed (tofu plan error)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          exit 0   # never fail the workflow itself — drift is informational
+
+      - name: Upload drift plan
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: drift-plan-${{ env.ENV_NAME }}-${{ github.run_id }}
+          path: /tmp/drift-plan.txt
+          retention-days: 14
