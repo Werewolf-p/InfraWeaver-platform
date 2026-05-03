@@ -60,7 +60,7 @@ data:
     <p>This test website is publicly accessible via Traefik.</p>
     <p>Other services (ArgoCD, Grafana) require NetBird VPN access.</p>
     <hr>
-    <p><strong>Cluster:</strong> infraweaver-prod (Talos v1.10 + Kubernetes 1.33)</p>
+    <p><strong>Cluster:</strong> infraweaver-prod (Talos v1.10 + Kubernetes 1.33) — repo restructured ✅</p>
     <p><strong>Load Balancer:</strong> MetalLB L2 → 10.25.0.200</p>
     <p><strong>Ingress:</strong> Traefik v3</p>
     </div>
