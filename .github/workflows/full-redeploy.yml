@@ -1163,6 +1163,10 @@ jobs:
           # Retry loop: blueprints create users async; worker may be ready before users exist.
           WORKER_POD=$($KT get pod -n authentik \
             -l app.kubernetes.io/component=worker \
+            --field-selector=status.phase=Running \
+            -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || \
+            $KT get pod -n authentik \
+            -l app.kubernetes.io/component=worker \
             -o jsonpath='{.items[0].metadata.name}')
           echo "==> Worker pod: $WORKER_POD"
 

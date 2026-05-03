@@ -44,16 +44,19 @@ global:
         secretKeyRef:
           name: authentik-secrets
           key: remon-password
+          optional: true   # user password — Authentik starts even if key is absent
     - name: AUTHENTIK_ARDATY_PASSWORD
       valueFrom:
         secretKeyRef:
           name: authentik-secrets
           key: ardaty-password
+          optional: true   # user password — Authentik starts even if key is absent
     - name: AUTHENTIK_TESTUSER1_PASSWORD
       valueFrom:
         secretKeyRef:
           name: authentik-secrets
           key: testuser1-password
+          optional: true   # user password — Authentik starts even if key is absent
     - name: AUTHENTIK_POSTGRESQL__PASSWORD
       valueFrom:
         secretKeyRef:
