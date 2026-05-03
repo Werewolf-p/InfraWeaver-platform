@@ -129,13 +129,12 @@ server:
   ingress:
     enabled: false
   # Give enough time for Django migrations on a fresh DB (292+ migrations)
+  # NOTE: Authentik chart does NOT support livenessProbe.enabled field — use raw k8s probe fields only
   livenessProbe:
-    enabled: true
     initialDelaySeconds: 120
     periodSeconds: 10
     failureThreshold: 30
   readinessProbe:
-    enabled: true
     initialDelaySeconds: 120
     periodSeconds: 10
     failureThreshold: 30
@@ -149,13 +148,12 @@ server:
 
 worker:
   # Give enough time for Django migrations on a fresh DB (292+ migrations)
+  # NOTE: Authentik chart does NOT support livenessProbe.enabled field — use raw k8s probe fields only
   livenessProbe:
-    enabled: true
     initialDelaySeconds: 120
     periodSeconds: 10
     failureThreshold: 30
   readinessProbe:
-    enabled: true
     initialDelaySeconds: 120
     periodSeconds: 10
     failureThreshold: 30
