@@ -1,0 +1,142 @@
+---
+# Platform alerting rules for InfraWeaver
+# These complement the default kube-prometheus-stack rules with platform-specific alerts.
+# Deployed via kubernetes/bootstrap/app-monitoring-alerts.yaml to the monitoring namespace.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: platform-alerts
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack   # must match prometheusRule selector label
+spec:
+  groups:
+
+    # ── Node health ─────────────────────────────────────────────────────────────
+    - name: node.health
+      rules:
+        - alert: NodeNotReady
+          expr: kube_node_status_condition{condition="Ready",status="true"} == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Node {{ $labels.node }} is NotReady"
+            description: "Node {{ $labels.node }} has been NotReady for more than 2 minutes."
+
+        - alert: NodeHighCPU
+          expr: (1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) by (instance)) * 100 > 85
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High CPU on {{ $labels.instance }}"
+            description: "CPU usage > 85% for 10 minutes on {{ $labels.instance }}."
+
+        - alert: NodeHighMemory
+          expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 85
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High memory on {{ $labels.instance }}"
+            description: "Memory usage > 85% for 5 minutes on {{ $labels.instance }}."
+
+        - alert: NodeDiskPressure
+          expr: kube_node_status_condition{condition="DiskPressure",status="true"} == 1
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Node {{ $labels.node }} has DiskPressure"
+            description: "Node {{ $labels.node }} is reporting DiskPressure."
+
+    # ── PVC / Storage ────────────────────────────────────────────────────────────
+    - name: storage.alerts
+      rules:
+        - alert: PVCHighUsage
+          expr: |
+            (kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes) * 100 > 80
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "PVC {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }} > 80% full"
+            description: "PVC usage is {{ printf \"%.0f\" $value }}% on {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }}."
+
+        - alert: PVCCriticalUsage
+          expr: |
+            (kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes) * 100 > 95
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "PVC {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }} > 95% full"
+            description: "PVC is critically full ({{ printf \"%.0f\" $value }}%). Immediate action needed."
+
+    # ── Pod / Workload health ────────────────────────────────────────────────────
+    - name: pod.health
+      rules:
+        - alert: PodCrashLooping
+          expr: increase(kube_pod_container_status_restarts_total[15m]) > 3
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} is crash-looping"
+            description: "Container {{ $labels.container }} has restarted {{ printf \"%.0f\" $value }} times in 15 minutes."
+
+        - alert: PodNotRunning
+          expr: |
+            kube_pod_status_phase{phase=~"Failed|Unknown",namespace!~"kube-system"} == 1
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} is in {{ $labels.phase }}"
+            description: "Pod has been in {{ $labels.phase }} state for more than 5 minutes."
+
+    # ── etcd health ──────────────────────────────────────────────────────────────
+    - name: etcd.health
+      rules:
+        - alert: EtcdHighCommitDuration
+          expr: |
+            histogram_quantile(0.99, rate(etcd_disk_backend_commit_duration_seconds_bucket[5m])) > 0.25
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "etcd commit latency high on {{ $labels.instance }}"
+            description: "etcd 99th percentile commit duration > 250ms for 5 minutes."
+
+        - alert: EtcdMemberDown
+          expr: up{job="kube-etcd"} == 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "etcd member {{ $labels.instance }} is down"
+            description: "etcd cluster member has been unreachable for more than 1 minute."
+
+    # ── TLS / Cert expiry ─────────────────────────────────────────────────────────
+    - name: tls.alerts
+      rules:
+        - alert: CertificateExpiringSoon
+          expr: |
+            certmanager_certificate_expiration_timestamp_seconds - time() < 7 * 24 * 3600
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "Certificate {{ $labels.namespace }}/{{ $labels.name }} expires in < 7 days"
+            description: "Certificate {{ $labels.name }} in namespace {{ $labels.namespace }} will expire soon."
+
+        - alert: CertificateExpiringCritical
+          expr: |
+            certmanager_certificate_expiration_timestamp_seconds - time() < 2 * 24 * 3600
+          for: 30m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Certificate {{ $labels.namespace }}/{{ $labels.name }} expires in < 2 days"
+            description: "URGENT: Certificate {{ $labels.name }} expires soon — check cert-manager."

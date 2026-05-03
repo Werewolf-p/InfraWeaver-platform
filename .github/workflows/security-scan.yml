@@ -29,8 +29,8 @@ jobs:
     name: Checkov — Terraform
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: bridgecrewio/checkov-action@v12
+      - uses: actions/checkout@v4  # pin to SHA when supply-chain risk increases
+      - uses: bridgecrewio/checkov-action@9201a8e6eaa919e3444d7c4ca691896efde4f033  # v12
         with:
           directory: terraform/
           framework: terraform,github_actions

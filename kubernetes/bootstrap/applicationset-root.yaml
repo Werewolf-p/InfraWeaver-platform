@@ -49,7 +49,7 @@ spec:
         namespace: "{{ .namespace }}"
       syncPolicy:
         automated:
-          prune: true
+          prune: false   # never auto-delete resources; require explicit removal
           selfHeal: true
         syncOptions:
           - CreateNamespace=true
