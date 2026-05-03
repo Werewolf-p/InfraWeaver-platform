@@ -142,5 +142,5 @@ Storage classes:
 - `envs/productie/cluster.yaml` — single source of truth (edit this for node changes)
 - `terraform/modules/talos-cluster/main.tf` — VM provisioning + Talos config generation
 - `terraform/providers.tf` — reads `cluster.yaml` via `yamldecode()`
-- `kubernetes/apps/netbird/manifests/daemonset.yaml` — auto-installs NetBird on new nodes
+- `kubernetes/platform/netbird/manifests/daemonset.yaml` — auto-installs NetBird on new nodes
 - `.github/workflows/full-redeploy.yml` — reads kubeconfig from Terraform output

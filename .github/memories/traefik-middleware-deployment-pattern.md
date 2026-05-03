@@ -60,7 +60,7 @@ Verify: `kubectl get svc traefik -n traefik -o jsonpath='{.spec.externalTrafficP
 Port 443 is NOT open on the NetBird VM — standalone Traefik at `10.25.0.5` is the TLS terminator with the Let's Encrypt cert.
 Internal clients (on LAN or NetBird split-DNS) were getting "Connection refused" on port 443 → NetBird client "failed to connect".
 
-**Fix:** CoreDNS configmap (`kubernetes/apps/dns/manifests/configmap.yaml`) must have:
+**Fix:** CoreDNS configmap (`kubernetes/platform/dns/manifests/configmap.yaml`) must have:
 ```
 10.25.0.5   netbird.rlservers.com
 ```

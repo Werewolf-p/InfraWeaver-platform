@@ -55,5 +55,5 @@ curl -X POST -H "Authorization: Token $API_PAT" "$BASE/api/setup-keys/$OLD_ID/re
 
 ## Related
 - platform/.github/scripts/sync_netbird_status.py
-- platform/kubernetes/apps/netbird/manifests/client-daemonset.yaml
+- platform/kubernetes/platform/netbird/manifests/client-daemonset.yaml
 

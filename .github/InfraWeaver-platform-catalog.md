@@ -55,7 +55,7 @@ Dependency map (high-level)
 - Monitoring depends on kube-prometheus-stack (Prometheus) and Loki; ArgoCD apps must be healthy for accurate alerting
 
 Where to look first for common tasks
-- Rotate NetBird setup key safely: platform/.github/memories/netbird-setup-key-rotation.md, /home/runner/.netbird_status.json (local), platform/kubernetes/apps/netbird/manifests/client-daemonset.yaml
+- Rotate NetBird setup key safely: platform/.github/memories/netbird-setup-key-rotation.md, /home/runner/.netbird_status.json (local), platform/kubernetes/platform/netbird/manifests/client-daemonset.yaml
 - Bootstrapping or re-provision Talos cluster: platform/terraform and platform/terraform/modules/talos-cluster
 - Fix ArgoCD sync diffs: platform/kubernetes/core/argocd/values.yaml and the ArgoCD app manifests
 

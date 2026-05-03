@@ -48,7 +48,7 @@ Hash stored in DB = base64(SHA256(full_40_char_token))  [standard base64 with pa
 See `netbird-v0.69.0-db-bootstrap.md` for full DB schema notes.
 
 ## K8s DaemonSet Configuration
-File: `platform/kubernetes/apps/netbird/manifests/client-daemonset.yaml`
+File: `platform/kubernetes/platform/netbird/manifests/client-daemonset.yaml`
 ```yaml
 env:
   - name: NB_MANAGEMENT_URL
@@ -120,7 +120,7 @@ curl -s -H "Authorization: Token $NB_TOKEN" $NB_URL/api/dns/nameservers | python
 ```
 
 ## Related Files
-- `platform/kubernetes/apps/netbird/manifests/client-daemonset.yaml` — K8s DaemonSet
+- `platform/kubernetes/platform/netbird/manifests/client-daemonset.yaml` — K8s DaemonSet
 - `platform/kubernetes/core/traefik/middleware-netbird.yaml` — IPAllowList for sensitive services
 - `infrastructure/` — Proxmox VM provisioning for 10.25.0.100
 
@@ -136,6 +136,6 @@ curl -s -H "Authorization: Token $NB_TOKEN" $NB_URL/api/dns/nameservers | python
 Note: secrets (API PAT, setup keys, DB encryption keys) are intentionally omitted from this memory.
 
 ## Related Files
-- `platform/kubernetes/apps/netbird/manifests/client-daemonset.yaml` — K8s DaemonSet
+- `platform/kubernetes/platform/netbird/manifests/client-daemonset.yaml` — K8s DaemonSet
 - `platform/kubernetes/core/traefik/middleware-netbird.yaml` — IPAllowList for sensitive services
 - `infrastructure/` — Proxmox VM provisioning for 10.25.0.100

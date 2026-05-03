@@ -18,7 +18,7 @@ description: Sends styled HTML deployment summary email with OpenBao root creden
 
 - **K8s secret:** `authentik-smtp-secret` in namespace `authentik` — created directly from GitHub secrets (`SMTP_USERNAME`, `SMTP_PASSWORD`) during "Bootstrap OpenBao + ExternalSecrets" step
 - **values.yaml env vars:** `AUTHENTIK_EMAIL__USERNAME` + `AUTHENTIK_EMAIL__PASSWORD` from `authentik-smtp-secret`
-- **Non-secret SMTP config:** in `kubernetes/apps/authentik/values.yaml` under `authentik.email` (`host`, `port`, `use_tls`, `from`)
+- **Non-secret SMTP config:** in `kubernetes/platform/authentik/values.yaml` under `authentik.email` (`host`, `port`, `use_tls`, `from`)
 - **Timing is safe:** SMTP secret is created before ArgoCD can make Authentik healthy (Authentik depends on `authentik-secrets` via ESO, which also requires the same bootstrap step)
 
 ## Credential Collection Strategy (as of 2026-05-02)

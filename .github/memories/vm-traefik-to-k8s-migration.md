@@ -8,10 +8,10 @@ description: Key gotchas and patterns from migrating all routing from an externa
 ## Memory
 
 - **File paths:**
-  - `kubernetes/apps/external-routes/manifests/` — all IngressRoutes, middlewares, backends, certs
+  - `kubernetes/platform/external-routes/manifests/` — all IngressRoutes, middlewares, backends, certs
   - `kubernetes/core/traefik/values.yaml` — Traefik Helm config
   - `kubernetes/core/cert-manager/manifests/cluster-issuer.yaml` — ClusterIssuers
-  - `kubernetes/apps/dns/manifests/configmap.yaml` — CoreDNS custom zone
+  - `kubernetes/platform/dns/manifests/configmap.yaml` — CoreDNS custom zone
 
 ---
 
@@ -151,7 +151,7 @@ Quick check: `curl -sv --connect-timeout 3 http://<ip>/ 2>&1 | grep "< HTTP"`
 
 ## Related
 - `kubernetes/core/traefik/values.yaml`
-- `kubernetes/apps/external-routes/manifests/01-middlewares.yaml` (catch-all redirect IngressRoute)
+- `kubernetes/platform/external-routes/manifests/01-middlewares.yaml` (catch-all redirect IngressRoute)
 - `kubernetes/core/cert-manager/manifests/cluster-issuer.yaml`
 - `.github/workflows/full-redeploy.yml` (CoreDNS patch step)
 

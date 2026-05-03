@@ -7,7 +7,7 @@ description: Critical format requirements for NetBird v0.70 SQLite data to avoid
 
 ## Memory
 
-- **File paths:** `kubernetes/apps/netbird/manifests/bootstrap-job.yaml`
+- **File paths:** `kubernetes/platform/netbird/manifests/bootstrap-job.yaml`
 
 - **routes.network must be JSON-encoded string:**
   - Store as `'"10.25.0.0/24"'` (with inner double quotes), NOT `'10.25.0.0/24'`

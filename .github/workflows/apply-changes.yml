@@ -34,11 +34,11 @@ on:
     branches: [main]
     paths:
       - "users.yaml"
-      - "kubernetes/apps/authentik/manifests/blueprint-users.yaml"
-      - "kubernetes/apps/authentik/manifests/blueprint-access-control.yaml"
+      - "kubernetes/platform/authentik/manifests/blueprint-users.yaml"
+      - "kubernetes/platform/authentik/manifests/blueprint-access-control.yaml"
       - ".github/scripts/seed-openbao-authentik.sh"
-      - "kubernetes/apps/authentik/values.yaml"
-      - "kubernetes/apps/authentik/manifests/blueprint-*.yaml"
+      - "kubernetes/platform/authentik/values.yaml"
+      - "kubernetes/platform/authentik/manifests/blueprint-*.yaml"
 
   workflow_dispatch:
     inputs:
@@ -86,19 +86,19 @@ jobs:
           echo "Changed files:"
           echo "$CHANGED"
 
-          if echo "$CHANGED" | grep -qE "^users\.yaml$|^kubernetes/apps/authentik/manifests/blueprint-(users|access-control)\.yaml$"; then
+          if echo "$CHANGED" | grep -qE "^users\.yaml$|^kubernetes/platform/authentik/manifests/blueprint-(users|access-control)\.yaml$"; then
             echo "user_config=true"  >> $GITHUB_OUTPUT
           else
             echo "user_config=false" >> $GITHUB_OUTPUT
           fi
 
-          if echo "$CHANGED" | grep -qE "^kubernetes/apps/authentik/manifests/blueprint-"; then
+          if echo "$CHANGED" | grep -qE "^kubernetes/platform/authentik/manifests/blueprint-"; then
             echo "blueprints=true"  >> $GITHUB_OUTPUT
           else
             echo "blueprints=false" >> $GITHUB_OUTPUT
           fi
 
-          if echo "$CHANGED" | grep -qE "^\.github/scripts/seed-openbao-authentik\.sh$|^kubernetes/apps/authentik/values\.yaml$|^kubernetes/apps/authentik/manifests/externalsecret\.yaml$"; then
+          if echo "$CHANGED" | grep -qE "^\.github/scripts/seed-openbao-authentik\.sh$|^kubernetes/platform/authentik/values\.yaml$|^kubernetes/platform/authentik/manifests/externalsecret\.yaml$"; then
             echo "openbao_seed=true"  >> $GITHUB_OUTPUT
           else
             echo "openbao_seed=false" >> $GITHUB_OUTPUT

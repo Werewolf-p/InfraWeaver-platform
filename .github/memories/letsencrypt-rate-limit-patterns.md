@@ -100,7 +100,7 @@ Fix: use ONLY `[*.int.rlservers.com]` — apex is not needed for routing, wildca
 **Update (May 2026):** `[*.int.rlservers.com]` alone hit 5/168h limit. Fix: add apex back → `[int.rlservers.com, *.int.rlservers.com]`. This is now the canonical SAN set (see `02-certificates.yaml`). The apex is intentionally kept — it creates a distinct identifier set from the wildcard-only set.
 
 ```yaml
-# kubernetes/apps/external-routes/manifests/02-certificates.yaml
+# kubernetes/platform/external-routes/manifests/02-certificates.yaml
 spec:
   dnsNames:
     - "int.rlservers.com"     # apex intentionally included — forms distinct SAN set
@@ -123,7 +123,7 @@ Fix: merge `auth.rlservers.com` into `rlservers-com-wildcard` bundle (new 9-SAN 
 Any domain in a cert that is also used from inside the cluster (e.g., by NetBird clients) **must** be in CoreDNS custom zones:
 
 ```
-# kubernetes/apps/dns/manifests/configmap.yaml → rlservers.com.hosts
+# kubernetes/platform/dns/manifests/configmap.yaml → rlservers.com.hosts
 10.10.0.200  netbird.rlservers.com  # ← NetBird clients resolve this from inside cluster
 10.10.0.200  auth.rlservers.com    # ← Authentik OIDC endpoint for NetBird management
 ```

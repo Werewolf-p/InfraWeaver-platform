@@ -5,8 +5,8 @@ Authentik acts as the IdP for ArgoCD and OpenBao via confidential OAuth2/OIDC.
 Both providers are created via `blueprint-apps.yaml`.
 
 ## Blueprint File
-`kubernetes/apps/authentik/manifests/blueprint-apps.yaml`
-- Registered in `kubernetes/apps/authentik/values.yaml` → `blueprints.configMaps`
+`kubernetes/platform/authentik/manifests/blueprint-apps.yaml`
+- Registered in `kubernetes/platform/authentik/values.yaml` → `blueprints.configMaps`
 - Deployed via `apps-authentik-manifests` ArgoCD Application (watches `manifests/` dir)
 - Creates:
   - `ArgoCD Provider` (client_id: `argocd`, confidential)
@@ -67,7 +67,7 @@ On a fresh PostgreSQL DB, Authentik runs 292+ Django migrations on first start.
 `authentik_core.0056_user_roles` queries `authentik_tenants_tenant.reputation_lower_limit`
 before that column's migration runs → `UndefinedColumn` crash.
 
-**Fix applied in `kubernetes/apps/authentik/values.yaml`:**
+**Fix applied in `kubernetes/platform/authentik/values.yaml`:**
 ```yaml
 server:
   livenessProbe:

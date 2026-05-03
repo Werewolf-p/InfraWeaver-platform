@@ -7,7 +7,7 @@ description: How to bootstrap the NetBird management store.db from scratch on Ku
 
 ## Memory
 
-- **File paths:** `platform/kubernetes/apps/netbird/manifests/management.yaml`, `store.db` on PVC `netbird-management-data` (local-path, bound to `talos-prod-cp2`)
+- **File paths:** `platform/kubernetes/platform/netbird/manifests/management.yaml`, `store.db` on PVC `netbird-management-data` (local-path, bound to `talos-prod-cp2`)
 - **Decision:** Bootstrap via direct SQLite manipulation while management is scaled to 0, using a pod that mounts the PVC
 - **Why it matters:** Management crashes with `invalid IP address: ZEAAAA==` if network_net uses base64 for the IP field; it crashes with JSON unmarshal errors if policy JSON types are wrong
 
@@ -172,8 +172,8 @@ kubectl run netbird-fix --restart=Never -n netbird --image=alpine \
 
 ## Related
 
-- `platform/kubernetes/apps/netbird/manifests/management.yaml`
-- `platform/kubernetes/apps/netbird/manifests/client-daemonset.yaml`
+- `platform/kubernetes/platform/netbird/manifests/management.yaml`
+- `platform/kubernetes/platform/netbird/manifests/client-daemonset.yaml`
 - Secret `netbird-secrets` in namespace `netbird` (key: `SETUP_KEY`) = `A1B2C3D4-E5F6-7890-ABCD-EF1234567890`
 - PVC `netbird-management-data` → local-path on `talos-prod-cp2` — see `local-path-pvc-node-affinity.md`
 

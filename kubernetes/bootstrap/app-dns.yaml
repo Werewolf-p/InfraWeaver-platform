@@ -13,7 +13,7 @@ spec:
   source:
     repoURL: https://github.com/Werewolf-p/InfraWeaver-platform.git
     targetRevision: HEAD
-    path: kubernetes/apps/dns/manifests
+    path: kubernetes/platform/dns/manifests
   destination:
     server: https://kubernetes.default.svc
     namespace: dns-system

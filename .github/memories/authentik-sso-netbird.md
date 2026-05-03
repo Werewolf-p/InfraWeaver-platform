@@ -81,7 +81,7 @@
   admins.users.add(remon)
   ```
 - **Files**: 
-  - `kubernetes/apps/authentik/manifests/blueprint-users.yaml` — does NOT set `is_superuser`
+  - `kubernetes/platform/authentik/manifests/blueprint-users.yaml` — does NOT set `is_superuser`
   - `.github/workflows/full-redeploy.yml` step "Set Authentik admin privileges" — uses group add
 
 ### Busybox TLS Incompatibility with Modern Traefik (2026-04-30)
@@ -91,7 +91,7 @@
   negotiate cipher suites with Traefik's TLS 1.3-only configuration.
 - **Fix**: Replace `busybox:1.36` + `wget` with `curlimages/curl:8.10.1` + `curl -sf --max-time 5`.
   `curlimages/curl` uses modern OpenSSL and handles TLS 1.3 correctly.
-- **File**: `kubernetes/apps/netbird/manifests/management.yaml` — `wait-for-oidc` init container.
+- **File**: `kubernetes/platform/netbird/manifests/management.yaml` — `wait-for-oidc` init container.
 
 ### Let's Encrypt Rate Limits — Main Cert Bundle (2026-04-30)
 
@@ -104,9 +104,9 @@
      These are never rate-limited because they have unique, small SAN sets.
   3. Pinned IngressRoutes for auth and netbird to their individual `secretName`.
 - **Files**: 
-  - `kubernetes/apps/external-routes/manifests/02-certificates.yaml`
-  - `kubernetes/apps/external-routes/manifests/11-routes-authentik.yaml` — `tls.secretName: auth-rlservers-com-tls`
-  - `kubernetes/apps/external-routes/manifests/09-routes-netbird.yaml` — `tls.secretName: netbird-rlservers-com-tls`
+  - `kubernetes/platform/external-routes/manifests/02-certificates.yaml`
+  - `kubernetes/platform/external-routes/manifests/11-routes-authentik.yaml` — `tls.secretName: auth-rlservers-com-tls`
+  - `kubernetes/platform/external-routes/manifests/09-routes-netbird.yaml` — `tls.secretName: netbird-rlservers-com-tls`
 
 - When connected to NetBird VPN, DNS for `rlservers.com` is pushed to CoreDNS (`10.10.0.201`).
 - CoreDNS resolves ALL `*.rlservers.com` → `10.10.0.200` (Traefik internal MetalLB IP).
@@ -130,7 +130,7 @@
 - **Cause**: Authentik adds CORS headers to application-specific endpoints (token, authorize)
   but NOT to global/utility endpoints (revoke, userinfo). These return `text/html` on OPTIONS.
 - **Fix**: Add a Traefik `Middleware` with `customResponseHeaders` to the Authentik IngressRoute.
-  File: `kubernetes/apps/external-routes/manifests/11-routes-authentik.yaml`
+  File: `kubernetes/platform/external-routes/manifests/11-routes-authentik.yaml`
   ```yaml
   spec:
     headers:
@@ -192,7 +192,7 @@
 - **Fix**: Use `"Scope": "openid profile email offline_access"` (space-separated string) in
   `management.json.template`, NOT `"Scopes": [...]`.
 - **Files**:
-  - `kubernetes/apps/netbird/manifests/management.yaml` — ConfigMap `management.json.template`
+  - `kubernetes/platform/netbird/manifests/management.yaml` — ConfigMap `management.json.template`
   - Live PVC file at `/var/lib/netbird/management.json` — fix with sed or by deleting + restarting
 - **Source reference**: `management/internals/server/config/config.go`:
   ```go

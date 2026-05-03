@@ -8,8 +8,8 @@ description: Valid 40-char PAT format, hash storage, and bootstrap automation fo
 ## Memory
 
 - **File paths:**
-  - `kubernetes/apps/netbird/manifests/bootstrap-job.yaml` — PostSync job
-  - `kubernetes/apps/netbird/manifests/externalsecret.yaml` — reads PAT from OpenBao
+  - `kubernetes/platform/netbird/manifests/bootstrap-job.yaml` — PostSync job
+  - `kubernetes/platform/netbird/manifests/externalsecret.yaml` — reads PAT from OpenBao
   - `.github/workflows/full-redeploy.yml` — generates PAT and stores in OpenBao
 
 - **PAT token format (40 chars total):**

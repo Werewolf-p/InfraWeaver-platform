@@ -35,5 +35,5 @@ During NetBird bootstrap, multiple sessions created bootstrap pods (`db-fix`, `b
 
 ## Related
 
-- `platform/kubernetes/apps/netbird/manifests/management.yaml` — uses `netbird-management-data` PVC with `Recreate` strategy (required for RWO)
+- `platform/kubernetes/platform/netbird/manifests/management.yaml` — uses `netbird-management-data` PVC with `Recreate` strategy (required for RWO)
 - `memories/netbird-v0.69.0-db-bootstrap.md`

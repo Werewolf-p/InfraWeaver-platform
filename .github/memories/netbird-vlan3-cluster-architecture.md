@@ -140,7 +140,7 @@ sourceRange:
 
 ## Bootstrap Job Notes
 
-**File:** `kubernetes/apps/netbird/manifests/bootstrap-job.yaml`
+**File:** `kubernetes/platform/netbird/manifests/bootstrap-job.yaml`
 
 The bootstrap job runs as a K8s Job and configures the NetBird SQLite DB directly + via API.
 

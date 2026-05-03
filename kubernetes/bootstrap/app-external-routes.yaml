@@ -12,7 +12,7 @@ spec:
   source:
     repoURL: https://github.com/Werewolf-p/InfraWeaver-platform.git
     targetRevision: main
-    path: kubernetes/apps/external-routes/manifests
+    path: kubernetes/platform/external-routes/manifests
   destination:
     server: https://kubernetes.default.svc
     namespace: traefik

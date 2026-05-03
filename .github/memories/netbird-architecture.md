@@ -47,7 +47,7 @@ and can't reach dashboard (not on VPN yet).
 |------|---------|------|
 | `/*` | netbird-dashboard | 80 |
 
-**IngressRoute:** `kubernetes/apps/external-routes/manifests/09-routes-netbird.yaml`
+**IngressRoute:** `kubernetes/platform/external-routes/manifests/09-routes-netbird.yaml`
 
 ### api-netbird.rlservers.com (API/gRPC)
 | Path | Backend | Port | Scheme |
@@ -58,7 +58,7 @@ and can't reach dashboard (not on VPN yet).
 | `/relay/*` | netbird-relay | 443 | http |
 | `/api/*`, `/ws-proxy/*` | netbird-management | 80 | http |
 
-**IngressRoute:** `kubernetes/apps/external-routes/manifests/10-routes-netbird-api.yaml`  
+**IngressRoute:** `kubernetes/platform/external-routes/manifests/10-routes-netbird-api.yaml`  
 **TLS cert:** `rlservers-com-wildcard-tls` (includes `api-netbird.rlservers.com` SAN)  
 **Cloudflare DNS:** `api-netbird.rlservers.com` A → `84.82.69.110` (**DNS-only, proxied=false**)
 
@@ -74,7 +74,7 @@ and can't reach dashboard (not on VPN yet).
 ## management.json Key Settings
 
 Location: `/var/lib/netbird/management.json` on PVC (`netbird-management-data`)  
-Template: `kubernetes/apps/netbird/manifests/management.yaml` (ConfigMap)  
+Template: `kubernetes/platform/netbird/manifests/management.yaml` (ConfigMap)  
 **The PVC copy is authoritative after first boot — template changes require PVC file deletion.**
 
 ```json
@@ -141,7 +141,7 @@ Fix: Only `http://localhost:53000` in `RedirectURLs`. Client always picks port 5
 
 ## Bootstrap Job
 
-`kubernetes/apps/netbird/manifests/bootstrap-job.yaml` — ArgoCD PostSync hook  
+`kubernetes/platform/netbird/manifests/bootstrap-job.yaml` — ArgoCD PostSync hook  
 Seeds SQLite DB: account, user `remon` (role=admin, issued=oidc), setup key, groups, routes
 
 ## Router Peer (Dedicated VM — May 2026)
@@ -189,9 +189,9 @@ it's in `10.10.0.0/24` range (already in the allowlist).
 - YAML-SAFE: cleanup code is in the ConfigMap's `cleanup.py` entry (NOT as a heredoc)
 
 Files:
-- ~~DaemonSet~~: **DELETED** `kubernetes/apps/netbird/manifests/client-daemonset.yaml`
+- ~~DaemonSet~~: **DELETED** `kubernetes/platform/netbird/manifests/client-daemonset.yaml`
 - Router Terraform: `terraform/modules/netbird-router/main.tf` + `terraform/main.tf`
-- Bootstrap: `kubernetes/apps/netbird/manifests/bootstrap-job.yaml`
+- Bootstrap: `kubernetes/platform/netbird/manifests/bootstrap-job.yaml`
 
 ## Routes
 
@@ -234,7 +234,7 @@ Both routes use `peer_groups = [GRP_ROUTING]` (only router VM advertises) and `g
 
 - **Cluster-internal DNS:** NetBird clients run inside the cluster and use cluster DNS (10.96.0.10).
   `netbird.rlservers.com` AND `api-netbird.rlservers.com` MUST be in
-  `kubernetes/apps/dns/manifests/configmap.yaml` → `rlservers.com.hosts`.
+  `kubernetes/platform/dns/manifests/configmap.yaml` → `rlservers.com.hosts`.
   Missing entry causes `server misbehaving` → clients crash loop.
 - **wait-for-oidc init container:** Management will not start until `auth.rlservers.com` OIDC endpoint
   is reachable with a valid TLS cert. If Authentik cert is rate-limited/missing, management stays in Init.
@@ -248,14 +248,14 @@ Custom branding images stored in the repo at `images/`:
 - `images/logo.png` — 200×200 PNG, 22KB (archived; banner.jpg now used as branding_logo)
 - `images/favicon.png` — 64×64 PNG, 3KB (browser favicon)
 
-These are bundled into ConfigMap `authentik-media` (`kubernetes/apps/authentik/manifests/media-configmap.yaml`)
+These are bundled into ConfigMap `authentik-media` (`kubernetes/platform/authentik/manifests/media-configmap.yaml`)
 and mounted with `subPath` into `/web/dist/assets/icons/` in Authentik server+worker pods.
 
 Static URLs (permanent, no JWT expiry):
 - `https://auth.rlservers.com/static/dist/assets/icons/banner.jpg`
 - `https://auth.rlservers.com/static/dist/assets/icons/favicon.png`
 
-Blueprint `InfraWeaver Branding` (`kubernetes/apps/authentik/manifests/blueprint-branding.yaml`) sets:
+Blueprint `InfraWeaver Branding` (`kubernetes/platform/authentik/manifests/blueprint-branding.yaml`) sets:
 - `branding_title: "rlservers.com"`
 - `branding_logo: /static/dist/assets/icons/banner.jpg` (full-width banner strip at card top, 155px height)
 - `branding_favicon: /static/dist/assets/icons/favicon.png`

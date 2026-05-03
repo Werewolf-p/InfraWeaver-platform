@@ -28,10 +28,10 @@ push to main
 
 ```
 users.yaml
-kubernetes/apps/authentik/manifests/blueprint-users.yaml
-kubernetes/apps/authentik/manifests/blueprint-access-control.yaml
-kubernetes/apps/authentik/manifests/blueprint-*.yaml
-kubernetes/apps/authentik/values.yaml
+kubernetes/platform/authentik/manifests/blueprint-users.yaml
+kubernetes/platform/authentik/manifests/blueprint-access-control.yaml
+kubernetes/platform/authentik/manifests/blueprint-*.yaml
+kubernetes/platform/authentik/values.yaml
 .github/scripts/seed-openbao-authentik.sh
 ```
 
@@ -44,9 +44,9 @@ ArgoCD auto-syncs ALL `kubernetes/**` changes automatically (every ~3 min) — n
 Edit 5 files — commit — done. No workflow changes needed.
 
 1. **`users.yaml`** — add user entry (name, email, access_level, authentik_groups, send_recovery_email)
-2. **`kubernetes/apps/authentik/manifests/blueprint-users.yaml`** — add `authentik_core.user` entry using `!Env AUTHENTIK_USERNAME_PASSWORD`
-3. **`kubernetes/apps/authentik/manifests/externalsecret.yaml`** — add `username-password` key mapping
-4. **`kubernetes/apps/authentik/values.yaml`** — add env var `AUTHENTIK_USERNAME_PASSWORD` with `optional: true`
+2. **`kubernetes/platform/authentik/manifests/blueprint-users.yaml`** — add `authentik_core.user` entry using `!Env AUTHENTIK_USERNAME_PASSWORD`
+3. **`kubernetes/platform/authentik/manifests/externalsecret.yaml`** — add `username-password` key mapping
+4. **`kubernetes/platform/authentik/values.yaml`** — add env var `AUTHENTIK_USERNAME_PASSWORD` with `optional: true`
 5. **`.github/scripts/seed-openbao-authentik.sh`** — add password in both the initial create block and the patch-if-missing block
 
 `apply-changes.yml` auto-triggers on the commit (values.yaml or blueprint change detected).

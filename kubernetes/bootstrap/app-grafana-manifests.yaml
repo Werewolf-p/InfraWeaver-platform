@@ -18,7 +18,7 @@ spec:
   source:
     repoURL: https://github.com/Werewolf-p/InfraWeaver-platform.git
     targetRevision: HEAD
-    path: kubernetes/apps/grafana/manifests
+    path: kubernetes/platform/grafana/manifests
   destination:
     server: https://kubernetes.default.svc
     namespace: apps-grafana

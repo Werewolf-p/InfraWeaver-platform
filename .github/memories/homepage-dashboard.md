@@ -16,10 +16,10 @@ description: jameswynn/homepage Helm chart showing all services with health stat
 
 | File | Purpose |
 |------|---------|
-| `kubernetes/apps/homepage/application.yaml` | ArgoCD ApplicationSet entry |
-| `kubernetes/apps/homepage/values.yaml` | All service config, health pings, theme |
-| `kubernetes/apps/external-routes/manifests/12-routes-homepage.yaml` | Traefik IngressRoute with `netbird-vpn-only` middleware |
-| `kubernetes/apps/external-routes/manifests/04-backends-cluster.yaml` | ExternalName Service for cross-namespace Traefik routing |
+| `kubernetes/platform/homepage/application.yaml` | ArgoCD ApplicationSet entry |
+| `kubernetes/platform/homepage/values.yaml` | All service config, health pings, theme |
+| `kubernetes/platform/external-routes/manifests/12-routes-homepage.yaml` | Traefik IngressRoute with `netbird-vpn-only` middleware |
+| `kubernetes/platform/external-routes/manifests/04-backends-cluster.yaml` | ExternalName Service for cross-namespace Traefik routing |
 
 ## Health Ping Design
 
@@ -29,7 +29,7 @@ Health checks use internal K8s DNS (`http://<service>.<namespace>.svc.cluster.lo
 
 ## Access Restriction
 
-The `internal-only` middleware (`kubernetes/apps/external-routes/manifests/01-middlewares.yaml`) allows:
+The `internal-only` middleware (`kubernetes/platform/external-routes/manifests/01-middlewares.yaml`) allows:
 - `10.25.0.0/24` — Proxmox management VLAN
 - `10.10.0.0/24` — Kubernetes VLAN3 (includes NetBird routing peer at 10.10.0.10)
 - `100.64.0.0/10` — NetBird direct CGNAT range (peer-to-peer VPN mode)
@@ -40,7 +40,7 @@ The `internal-only` middleware (`kubernetes/apps/external-routes/manifests/01-mi
 ## DNS
 
 `home.int.rlservers.com → 10.10.0.200` is configured in:
-- `kubernetes/apps/dns/manifests/configmap.yaml` → `int.rlservers.com.hosts` section
+- `kubernetes/platform/dns/manifests/configmap.yaml` → `int.rlservers.com.hosts` section
 - Cloudflare DNS-only record (no proxy) pointing to private IP 10.10.0.200
 
 ## TLS
@@ -54,6 +54,6 @@ Deployment email always includes a link to `https://home.int.rlservers.com` with
 
 ## Adding New Services
 
-1. Add an entry to `kubernetes/apps/homepage/values.yaml` under the appropriate group
+1. Add an entry to `kubernetes/platform/homepage/values.yaml` under the appropriate group
 2. Use internal K8s DNS for `href` ping (not the public URL) for reliable health checks
 3. Push to `main` — ArgoCD syncs automatically

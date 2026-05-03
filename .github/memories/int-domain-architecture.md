@@ -36,7 +36,7 @@ Cloudflare DNS-only record (no proxy):
 
 CoreDNS custom zone for in-cluster resolution:
 ```
-# kubernetes/apps/dns/manifests/configmap.yaml → int.rlservers.com.hosts
+# kubernetes/platform/dns/manifests/configmap.yaml → int.rlservers.com.hosts
 10.10.0.200  int.rlservers.com
 10.10.0.200  netbird.int.rlservers.com
 10.10.0.200  argocd.int.rlservers.com
@@ -53,7 +53,7 @@ NetBird DaemonSet pods on these nodes masquerade VPN client traffic (SNAT) → T
 Also allows `100.64.0.0/10` (NetBird CGNAT, direct WireGuard peers) and `10.244.0.0/16` (pod CIDR).  
 **Never use `internal-only` for `.int.` routes** — those are exclusively VPN.
 
-Defined in: `kubernetes/apps/external-routes/manifests/01-middlewares.yaml`
+Defined in: `kubernetes/platform/external-routes/manifests/01-middlewares.yaml`
 
 ## TLS Certificate
 

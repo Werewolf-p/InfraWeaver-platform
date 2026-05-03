@@ -8,8 +8,8 @@ description: How to configure the NetBird relay in management.json and route it 
 ## Memory
 
 - **File paths:**
-  - `kubernetes/apps/netbird/manifests/management.yaml` — management.json.template + init container
-  - `kubernetes/apps/external-routes/manifests/09-routes-netbird.yaml` — Traefik IngressRoutes
+  - `kubernetes/platform/netbird/manifests/management.yaml` — management.json.template + init container
+  - `kubernetes/platform/external-routes/manifests/09-routes-netbird.yaml` — Traefik IngressRoutes
 
 - **Decision:** NetBird relay must be configured in management.json under the `"Relay"` key, and the Traefik route to the relay must use `scheme: http` (NOT `serversTransport: insecure-skip-verify`).
 
@@ -47,7 +47,7 @@ description: How to configure the NetBird relay in management.json and route it 
   ```
 
 - **Related:**
-  - `kubernetes/apps/netbird/manifests/relay.yaml` — relay deployment with `NB_AUTH_SECRET` from `netbird-secrets.turn-password`
+  - `kubernetes/platform/netbird/manifests/relay.yaml` — relay deployment with `NB_AUTH_SECRET` from `netbird-secrets.turn-password`
   - The management pod must be restarted after changing management.json.template (init container regenerates the file on pod start)
 
 - **Lesson learned:** The relay was running and exposed correctly, but two independent bugs prevented it from being used: (1) management didn't know about it (missing Relay config in management.json), and (2) Traefik was connecting to it wrong (HTTPS vs HTTP). Both had to be fixed together.

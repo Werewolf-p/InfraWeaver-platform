@@ -11,7 +11,7 @@ ArgoCD was moved from `argocd.rlservers.com` (public) to `argocd.int.rlservers.c
 
 ### Changes Made
 - `kubernetes/core/argocd/values.yaml`: `global.domain: argocd.int.rlservers.com`, ingress `enabled: false`
-- `kubernetes/apps/authentik/manifests/blueprint-apps.yaml`: redirect URI → `argocd.int.rlservers.com/auth/callback`
+- `kubernetes/platform/authentik/manifests/blueprint-apps.yaml`: redirect URI → `argocd.int.rlservers.com/auth/callback`
 - `kubernetes/core/argocd/manifests/ingress-rlservers.yaml`: **DELETED** (was public Ingress)
 - `.github/workflows/full-redeploy.yml`: cleanup step deletes stale `argocd-server-rlservers` ingress
 

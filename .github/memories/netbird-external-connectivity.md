@@ -8,9 +8,9 @@ description: How to diagnose and fix NetBird VPN when external peers cannot conn
 ## Memory
 
 - **File paths:**
-  - `kubernetes/apps/netbird/manifests/management.yaml` — Signal URI and TURNs config
-  - `kubernetes/apps/netbird/manifests/relay.yaml` — relay NB_EXPOSED_ADDRESS and ports
-  - `kubernetes/apps/dns/manifests/configmap.yaml` — prod.local DNS zone
+  - `kubernetes/platform/netbird/manifests/management.yaml` — Signal URI and TURNs config
+  - `kubernetes/platform/netbird/manifests/relay.yaml` — relay NB_EXPOSED_ADDRESS and ports
+  - `kubernetes/platform/dns/manifests/configmap.yaml` — prod.local DNS zone
   - `kubernetes/core/traefik/manifests/middleware-netbird.yaml` — IPAllowList for VPN-only services
   - `/home/remon/Traefik/dynamic/netbird.yml` (Traefik VM 10.25.0.5) — relay backend port
 

@@ -7,7 +7,7 @@ description: netbirdio/dashboard:latest and v2.37.x are broken (supervisord cras
 
 ## Memory
 
-- **File path:** `kubernetes/apps/netbird/manifests/management.yaml`
+- **File path:** `kubernetes/platform/netbird/manifests/management.yaml`
 - **Current pinned version:** `netbirdio/dashboard:v2.36.0`
 
 ## Decision

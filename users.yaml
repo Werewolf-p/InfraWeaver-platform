@@ -4,7 +4,7 @@
 #
 # This file documents all platform users and their access levels.
 # It is the human-readable source of truth — the actual users are created
-# via Authentik blueprints (kubernetes/apps/authentik/manifests/blueprint-users.yaml)
+# via Authentik blueprints (kubernetes/platform/authentik/manifests/blueprint-users.yaml)
 # and passwords are stored in OpenBao (secret/platform/authentik).
 #
 # Access levels:
