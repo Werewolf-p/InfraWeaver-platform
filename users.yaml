@@ -67,10 +67,3 @@ users:
 # NetBird (VPN): both users can connect — access to internal networks
 # is determined by the routes they can use (currently: all peers get all routes).
 # =============================================================================
-
-  testuser-ci:
-    name: "CI Test User"
-    email: "remonhulst@gmail.com"
-    access_level: platform-user
-    send_recovery_email: false
-    notes: "Automated test user — will be removed after pipeline validation"
