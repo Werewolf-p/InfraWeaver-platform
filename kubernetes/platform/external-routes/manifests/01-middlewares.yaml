@@ -85,6 +85,38 @@ spec:
     customRequestHeaders:
       X-Forwarded-Proto: "https"
 ---
+# Middleware: secure-headers — browser security headers for all HTTPS responses.
+#
+# Applied automatically by new-app.sh to generated IngressRoutes.
+# Safe to apply to any app — does NOT include Content-Security-Policy
+# (that is highly app-specific and must be configured per-app if needed).
+#
+# Headers applied:
+#   HSTS          — forces HTTPS for 1 year, including subdomains
+#   X-Frame-Options — blocks your app from being embedded in iframes (clickjacking)
+#   X-Content-Type-Options — prevents MIME-type sniffing attacks
+#   Referrer-Policy — only send referrer to same-origin requests
+#   Permissions-Policy — disable sensitive browser APIs not needed by most apps
+#
+# Usage in IngressRoute:
+#   middlewares:
+#     - name: secure-headers
+#       namespace: traefik
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: secure-headers
+  namespace: traefik
+spec:
+  headers:
+    customResponseHeaders:
+      Strict-Transport-Security: "max-age=31536000; includeSubDomains"
+      X-Frame-Options: "SAMEORIGIN"
+      X-Content-Type-Options: "nosniff"
+      Referrer-Policy: "strict-origin-when-cross-origin"
+      Permissions-Policy: "geolocation=(), microphone=(), camera=(), payment=()"
+      X-XSS-Protection: "1; mode=block"
+---
 # Middleware: forward-auth — Authentik proxy auth for any logged-in user.
 #
 # Uses Authentik's embedded outpost forward-auth endpoint.

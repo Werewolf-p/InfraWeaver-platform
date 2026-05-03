@@ -118,6 +118,8 @@ spec:
     - match: Host(`argocd.int.rlservers.com`)
       kind: Rule
       middlewares:
+        - name: secure-headers
+          namespace: traefik
         - name: netbird-vpn-only
           namespace: traefik
       services:
@@ -139,6 +141,8 @@ spec:
     - match: Host(`grafana.int.rlservers.com`)
       kind: Rule
       middlewares:
+        - name: secure-headers
+          namespace: traefik
         - name: netbird-vpn-only
           namespace: traefik
       services:
@@ -160,6 +164,8 @@ spec:
     - match: Host(`longhorn.int.rlservers.com`)
       kind: Rule
       middlewares:
+        - name: secure-headers
+          namespace: traefik
         - name: netbird-vpn-only
           namespace: traefik
       services:
@@ -181,6 +187,8 @@ spec:
     - match: Host(`openbao.int.rlservers.com`)
       kind: Rule
       middlewares:
+        - name: secure-headers
+          namespace: traefik
         - name: netbird-vpn-only
           namespace: traefik
       services:

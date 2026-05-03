@@ -20,6 +20,65 @@ Nothing in `kubernetes/` or DNS manifests hardcodes node IPs (only service IPs l
 
 ---
 
+## Multi-Proxmox-Node Clusters
+
+The `pve_nodes` map in `cluster.yaml` supports clusters spanning **multiple physical Proxmox hosts**.
+
+### How it works
+- `proxmox_host` is the single Proxmox API endpoint (any node's IP works if all are in the same PVE cluster)
+- `pve_nodes` maps **PVE node names → SSH IPs** for `qm importdisk` and Talos ISO download (these are SSH operations, not API calls)
+- In `main.tf`, `local.unique_pve_nodes = toset([for _, cfg in var.nodes : cfg.proxmox_node])` iterates per unique PVE host
+- Each Kubernetes node has a `proxmox_node` field — Terraform SSH's to that specific host for disk operations
+
+### Adding a second PVE host
+
+**Step 1 — Prerequisites**
+```bash
+# The deployer SSH key must be on the new PVE host
+ssh-copy-id -i ~/.ssh/deployer_ed25519.pub root@<new-pve-ip>
+
+# Verify SSH works
+ssh -i ~/.ssh/deployer_ed25519 root@<new-pve-ip> echo "ok"
+```
+
+**Step 2 — Update `cluster.yaml`**
+```yaml
+# proxmox_host stays the same (shared API endpoint for the entire PVE cluster)
+proxmox_host: "10.25.0.3"
+
+pve_nodes:
+  proxmox:  "10.25.0.3"
+  proxmox2: "10.25.0.4"   # ← add this
+
+nodes:
+  talos-prod-worker1:
+    proxmox_node: "proxmox2"  # ← assign node to the new host
+    ip: "10.10.0.94"
+    # ... rest of node config
+    datastore: "lvm-proxmox2"  # datastore must exist on proxmox2
+```
+
+**Step 3 — Run pre-flight validation**
+```bash
+bash scripts/validate-cluster.sh --fix
+```
+
+**Step 4 — Apply**
+```bash
+cd terraform/
+tofu plan -var-file="../envs/productie/cluster.yaml"
+tofu apply
+```
+
+### Requirements
+| Requirement | Why |
+|---|---|
+| All PVE hosts in the same PVE cluster | Terraform uses a single API endpoint (`proxmox_host`) |
+| Deployer SSH key on each PVE host | `qm importdisk` is SSH, not API |
+| Datastore name exists on the assigned PVE host | Each node's `datastore:` must be present on its `proxmox_node` |
+
+---
+
 ## Adding a New Node
 
 ### Step 1 — Add to `cluster.yaml`

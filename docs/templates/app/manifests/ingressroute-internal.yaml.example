@@ -5,6 +5,7 @@
 # URL: https://APP_NAME.int.rlservers.com  (only reachable when connected to NetBird)
 #
 # The `netbird-vpn-only` middleware allows only VPN traffic through.
+# The `secure-headers` middleware adds browser security headers (HSTS, X-Frame-Options, etc.)
 # No Authentik login required — the VPN itself is the authentication layer.
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
@@ -18,6 +19,8 @@ spec:
     - match: Host(`APP_NAME.int.rlservers.com`)
       kind: Rule
       middlewares:
+        - name: secure-headers
+          namespace: traefik
         - name: netbird-vpn-only
           namespace: traefik
       services:

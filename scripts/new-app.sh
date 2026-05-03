@@ -72,6 +72,8 @@ spec:
     - match: Host(\`${app}.rlservers.com\`)
       kind: Rule
       middlewares:
+        - name: secure-headers
+          namespace: traefik
         - name: ${middleware}
           namespace: traefik
       services:

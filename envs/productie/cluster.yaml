@@ -37,10 +37,29 @@ nodes:
     disk_gb: 200
     datastore: "lvm-proxmox"
 
-# SSH IPs for individual PVE nodes — used by qm importdisk operations
+# SSH IPs for individual PVE nodes — used by qm importdisk and Talos ISO download operations.
 # These are the management IPs of each Proxmox node in the cluster.
+#
+# ── Multi-Proxmox-node support ─────────────────────────────────────────────
+# This map supports clusters spanning multiple physical Proxmox hosts.
+# Requirements for adding a second PVE host:
+#   1. All PVE hosts must be in the SAME Proxmox cluster (they share one API endpoint)
+#      — proxmox_host above points to any node's management IP (they share the API)
+#   2. The deployer SSH key (~/.ssh/deployer_ed25519.pub) must be in
+#      /root/.ssh/authorized_keys on EVERY PVE host listed here
+#   3. The datastore name used in each node's `datastore:` field must exist on
+#      the PVE host that node is assigned to (datastores are per-node, not shared)
+#
+# To add a second PVE host:
+#   1. Add it here:        pve_nodes:
+#                            proxmox:  "10.25.0.3"
+#                            proxmox2: "10.25.0.4"   ← add this
+#   2. Assign nodes to it: proxmox_node: "proxmox2"  in the nodes section above
+#   3. Verify pre-flight:  bash scripts/validate-cluster.sh --fix
+#   4. Run tofu plan to verify changes before applying
 pve_nodes:
   proxmox: "10.25.0.3"
+  # proxmox2: "10.25.0.X"  ← uncomment to add a second PVE host
 
 gateway: "10.10.0.1"
 nameservers:

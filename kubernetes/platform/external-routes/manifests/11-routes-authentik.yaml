@@ -35,6 +35,8 @@ spec:
     - match: Host(`auth.rlservers.com`)
       kind: Rule
       middlewares:
+        - name: secure-headers
+          namespace: traefik
         - name: cors-authentik
           namespace: traefik
         - name: rate-limit-auth      # brute-force protection on public auth endpoint

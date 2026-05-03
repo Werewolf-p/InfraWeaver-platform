@@ -13,6 +13,7 @@ All shared Traefik middlewares live in:
 | `internal-only` | traefik | Allow homelab LAN + VPN, block public internet |
 | `netbird-vpn-only` | traefik | Allow ONLY NetBird VPN traffic (used for all `*.int.rlservers.com` routes) |
 | `add-https-headers` | traefik | Sets `X-Forwarded-Proto: https` for backends |
+| `secure-headers` | traefik | Browser security headers (HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy) |
 | `forward-auth` | traefik | Authentik proxy auth — any logged-in Authentik user passes |
 | `forward-auth-admin` | traefik | Authentik proxy auth — `platform-admins` group required |
 | `rate-limit-auth` | traefik | Brute-force protection on auth endpoints |
@@ -66,6 +67,26 @@ middlewares:
 ```
 > Only use for apps explicitly designed to be public.
 > Add label `infraweaver.io/auth: public` to your Deployment.
+
+### Security Headers (applied automatically)
+```yaml
+middlewares:
+  - name: secure-headers
+    namespace: traefik
+  - name: netbird-vpn-only   # or forward-auth / cors-authentik etc
+    namespace: traefik
+```
+> `secure-headers` is applied to **all HTTP-serving routes** by default (via `new-app.sh` and platform routes).
+> It adds the following response headers:
+> - `Strict-Transport-Security: max-age=31536000; includeSubDomains` — HSTS, forces HTTPS for 1 year
+> - `X-Frame-Options: SAMEORIGIN` — prevents clickjacking
+> - `X-Content-Type-Options: nosniff` — prevents MIME sniffing
+> - `Referrer-Policy: strict-origin-when-cross-origin` — limits referrer leakage
+> - `Permissions-Policy: camera=(), microphone=(), geolocation=()` — disables browser APIs
+> - `X-XSS-Protection: 0` — disables legacy XSS filter (modern browsers use CSP instead)
+>
+> ⚠️ **NOT applied to gRPC routes** (NetBird management, signal, relay) — HTTP headers don't apply to gRPC.
+> ⚠️ **CSP is intentionally omitted** — Content-Security-Policy is highly app-specific and breaks most apps.
 
 ---
 
