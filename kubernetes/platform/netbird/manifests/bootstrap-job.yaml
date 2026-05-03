@@ -11,6 +11,9 @@ data:
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
     DB = os.environ.get("DB", "/data/store.db")
+    # Static fallback IDs — used only for fresh DB (no existing account).
+    # When management has already auto-created an account (random ID), these are
+    # overridden below by reading the real IDs from the DB.
     ACC = "acc00000-0000-4000-a000-000000000001"
     USR = "usr00000-0000-4000-a000-000000000001"
     # remon's ID = their Authentik username because sub_mode=user_username in the blueprint.
@@ -50,11 +53,16 @@ data:
     conn = sqlite3.connect(DB)
     c = conn.cursor()
 
-    existing = c.execute("SELECT COUNT(*) FROM accounts").fetchone()[0]
-    if existing > 0:
-        print(f"Account already exists ({existing}), skipping bootstrap")
+    # DYNAMIC ACCOUNT DETECTION:
+    # NetBird management auto-creates an account with a random ID on first startup
+    # BEFORE the bootstrap job runs. We must detect and use that existing ID.
+    # If the DB is truly fresh (no account), we create one with our static ID.
+    existing_acc_row = c.execute("SELECT id FROM accounts LIMIT 1").fetchone()
+    if existing_acc_row:
+        ACC = existing_acc_row[0]
+        print(f"Detected existing account (management auto-created): {ACC}")
     else:
-        print(f"Bootstrapping account with network_net={network_net_json}")
+        print(f"Fresh DB: creating account with static ID: {ACC}")
         c.execute("""INSERT OR IGNORE INTO accounts
           (id, created_by, created_at, domain, domain_category, is_domain_primary_account,
            network_identifier, network_net)
@@ -80,11 +88,28 @@ data:
         c.execute("""DELETE FROM users WHERE LENGTH(id) = 64 AND id NOT IN (?, ?)""",
           (USR, USR_REMON))
 
+        conn.commit()
+
+    # DYNAMIC GROUP ID DETECTION:
+    # Look up group IDs by name to handle management-auto-created groups (random IDs).
+    # Falls back to inserting with static IDs if the group doesn't exist yet.
+    row = c.execute("SELECT id FROM groups WHERE name='All' AND account_id=?", (ACC,)).fetchone()
+    if row:
+        GRP = row[0]
+        print(f"Detected existing All group: {GRP}")
+    else:
+        print(f"Creating All group with static ID: {GRP}")
         c.execute("""INSERT OR IGNORE INTO groups
           (id, account_id, name, issued, resources, integration_ref_id, integration_ref_integration_type)
           VALUES (?,?,?,?,?,?,?)""",
           (GRP, ACC, "All", "api", "[]", 0, ""))
 
+    row = c.execute("SELECT id FROM groups WHERE name='routing-peers-vlan3' AND account_id=?", (ACC,)).fetchone()
+    if row:
+        GRP_ROUTING = row[0]
+        print(f"Detected existing routing group: {GRP_ROUTING}")
+    else:
+        print(f"Creating routing-peers-vlan3 group with static ID: {GRP_ROUTING}")
         # routing-peers-vlan3: peers that route 10.10.0.0/24 to VPN clients.
         # Only the netbird-router-vlan3 VM (10.10.0.10) should be in this group.
         # The vlan3-net route uses peer_groups=[GRP_ROUTING] so only this VM advertises the route.
@@ -93,29 +118,22 @@ data:
           VALUES (?,?,?,?,?,?,?)""",
           (GRP_ROUTING, ACC, "routing-peers-vlan3", "api", "[]", 0, ""))
 
-        # Store sha256 hash of setup key (same as NetBird v0.70 GetSetupKeyBySecret lookup)
-        # key_secret non-empty → MigrateSetupKeyToHashedSetupKey skips this row
-        # auto_groups=[GRP_ROUTING]: DaemonSet pods auto-join routing-peers-vlan3 group
-        # → they advertise the VLAN3 route (10.10.0.0/24) to VPN clients on connect.
-        # All peers also auto-join "All" group (NetBird built-in behaviour for policy matching).
-        routing_groups_json = json.dumps([GRP, GRP_ROUTING])
-        c.execute("""INSERT OR IGNORE INTO setup_keys
-          (id, account_id, key, key_secret, name, type, used_times, last_used, expires_at,
-           auto_groups, revoked, ephemeral, updated_at, created_at, usage_limit, allow_extra_dns_labels)
-          VALUES (?,?,?,?,?,?,?,datetime('now'),?,?,?,?,datetime('now'),datetime('now'),?,?)""",
-          (KEY_ID, ACC, key_hash, key_secret,
-           "Default Key", "reusable", 0, "2040-01-01 00:00:00",
-           routing_groups_json, 0, 0, 0, 0))
-        # Also UPDATE in case the key already existed with empty auto_groups (idempotent fix)
-        c.execute("UPDATE setup_keys SET auto_groups=?, updated_at=datetime('now') WHERE id=? AND auto_groups NOT LIKE ?",
-                  (routing_groups_json, KEY_ID, f'%{GRP_ROUTING}%'))
+    # Write resolved IDs to /tmp/nb-ids.env for the shell script section to consume.
+    # This avoids hardcoding group IDs in the DNS nameserver and routing API calls.
+    with open("/tmp/nb-ids.env", "w") as f:
+        f.write(f"GRP={GRP}\n")
+        f.write(f"GRP_ROUTING={GRP_ROUTING}\n")
+        f.write(f"ACC={ACC}\n")
+    print(f"Wrote IDs to /tmp/nb-ids.env: ACC={ACC} GRP={GRP} GRP_ROUTING={GRP_ROUTING}")
 
+    # Ensure policy exists (idempotent — management may auto-create one too)
+    existing_pol = c.execute("SELECT id FROM policies WHERE account_id=? AND name='Default' LIMIT 1", (ACC,)).fetchone()
+    if not existing_pol:
         grp_json = json.dumps([GRP])
         c.execute("""INSERT OR IGNORE INTO policies
           (id, account_id, name, description, enabled, source_posture_checks)
           VALUES (?,?,?,?,?,?)""",
           (POL, ACC, "Default", "Allow all cluster peers", 1, "[]"))
-
         c.execute("""INSERT OR IGNORE INTO policy_rules
           (id, policy_id, name, description, enabled, action,
            destinations, destination_resource, sources, source_resource,
@@ -123,8 +141,30 @@ data:
           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
           (RUL, POL, "Default", "Allow all", 1, "accept",
            grp_json, None, grp_json, None, 1, "all", "[]", "[]", "{}", ""))
-
         conn.commit()
+        print(f"Created Default policy with rule referencing All group: {GRP}")
+    else:
+        print(f"Default policy already exists: {existing_pol[0]}")
+
+    # Upsert setup key — uses real group IDs (not static fallbacks)
+    # key_secret non-empty → MigrateSetupKeyToHashedSetupKey skips this row
+    # auto_groups=[GRP, GRP_ROUTING]: new peers auto-join All + routing-peers-vlan3
+    routing_groups_json = json.dumps([GRP, GRP_ROUTING])
+    existing_key = c.execute("SELECT id FROM setup_keys WHERE account_id=? LIMIT 1", (ACC,)).fetchone()
+    if not existing_key:
+        c.execute("""INSERT OR IGNORE INTO setup_keys
+          (id, account_id, key, key_secret, name, type, used_times, last_used, expires_at,
+           auto_groups, revoked, ephemeral, updated_at, created_at, usage_limit, allow_extra_dns_labels)
+          VALUES (?,?,?,?,?,?,?,datetime('now'),?,?,?,?,datetime('now'),datetime('now'),?,?)""",
+          (KEY_ID, ACC, key_hash, key_secret,
+           "Default Key", "reusable", 0, "2040-01-01 00:00:00",
+           routing_groups_json, 0, 0, 0, 0))
+        print(f"Setup key created: {KEY_ID}")
+    else:
+        # Update auto_groups in case IDs changed (e.g., management re-created All group)
+        c.execute("UPDATE setup_keys SET auto_groups=?, updated_at=datetime('now') WHERE id=?",
+                  (routing_groups_json, existing_key[0]))
+        print(f"Setup key auto_groups updated: {existing_key[0]}")
 
     # Always ensure the system admin user exists (USR) — needed as PAT owner.
     # Use INSERT OR IGNORE so we never overwrite an existing user's data.
@@ -144,39 +184,39 @@ data:
           (USR_REMON, encrypt_field("bootstrap-admin"), pat_hash, USR_REMON))
         print(f"PAT upserted for user remon (token prefix: {PAT_TOKEN[:12]}...)")
 
-    # Route for cluster subnet via "All" peer group (peer_groups avoids hardcoded peer IDs)
+    # Route for cluster subnet via routing-peers-vlan3 peer group.
     # routes.network must be JSON-encoded string (e.g. '"10.25.0.0/24"') so migratePreAuto
-    # sees valid JSON and skips gob-decode (plain string triggers gob decode → crash)
+    # sees valid JSON and skips gob-decode (plain string triggers gob decode → crash).
+    # Uses dynamically-resolved GRP and GRP_ROUTING — correct even for management-created accounts.
     c.execute("""INSERT OR REPLACE INTO routes
       (id, account_id, network, domains, keep_route, net_id, description, peer, peer_groups,
        network_type, masquerade, metric, enabled, groups, access_control_groups, skip_auto_apply)
       VALUES ('rte00000-0000-4000-a000-000000000001', ?, ?, '[]', 0,
        'homelab-net', 'Homelab management network route (10.25.0.0/24)', NULL, ?, 0, 1, 9999, 1, ?, '[]', 0)""",
       (ACC, json.dumps("10.25.0.0/24"), json.dumps([GRP_ROUTING]), json.dumps([GRP])))
-    print("Route upserted: 10.25.0.0/24 via routing-peers-vlan3 group")
+    print(f"Route upserted: 10.25.0.0/24 via {GRP_ROUTING} group, accessible to {GRP}")
 
     # Route for VLAN 3 subnet via "routing-peers-vlan3" group (NOT "All").
     # peer_groups=[GRP_ROUTING] means only peers in routing-peers-vlan3 advertise this route.
     # groups=[GRP] means ALL peers can USE this route (to reach 10.10.0.0/24 via the router).
     # The netbird-router-vlan3 VM (10.10.0.10) is added to routing-peers-vlan3 via the API
-    # after it connects (the bootstrap-job.yaml API section handles this via setup-key auto-groups,
-    # or the VM's startup script calls the management API to add itself).
+    # after it connects (setup-key auto_groups handles this automatically on enrollment).
     c.execute("""INSERT OR REPLACE INTO routes
       (id, account_id, network, domains, keep_route, net_id, description, peer, peer_groups,
        network_type, masquerade, metric, enabled, groups, access_control_groups, skip_auto_apply)
       VALUES ('rte00000-0000-4000-a000-000000000002', ?, ?, '[]', 0,
        'vlan3-net', 'VLAN 3 network route (10.10.0.0/24)', NULL, ?, 0, 1, 9998, 1, ?, '[]', 0)""",
       (ACC, json.dumps("10.10.0.0/24"), json.dumps([GRP_ROUTING]), json.dumps([GRP])))
-    print("Route upserted: 10.10.0.0/24 via routing-peers-vlan3 group")
+    print(f"Route upserted: 10.10.0.0/24 via {GRP_ROUTING} group, accessible to {GRP}")
 
     conn.commit()
     conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
 
     print(f"Accounts: {c.execute('SELECT COUNT(*) FROM accounts').fetchone()[0]}")
     print(f"network_net: {c.execute('SELECT network_net FROM accounts LIMIT 1').fetchone()[0]}")
-    print(f"Users: {c.execute('SELECT email,role FROM users').fetchall()}")
+    print(f"Users: {c.execute('SELECT id,role FROM users').fetchall()}")
     print(f"Setup keys: {c.execute('SELECT name,type,key_secret FROM setup_keys').fetchall()}")
-    print(f"Groups: {c.execute('SELECT name FROM groups').fetchall()}")
+    print(f"Groups: {c.execute('SELECT id,name FROM groups').fetchall()}")
     print(f"Policies: {c.execute('SELECT name FROM policies').fetchall()}")
     print(f"Routes: {c.execute('SELECT net_id,network,enabled FROM routes').fetchall()}")
     print("Bootstrap complete")
@@ -309,7 +349,7 @@ spec:
               kubectl scale statefulset netbird-management -n netbird --replicas=1
 
               echo "=== Waiting for management API to be fully ready after restart ==="
-              for i in $(seq 1 60); do
+              for i in $(seq 1 90); do
                 RESP=$(curl -s --max-time 5 \
                   http://netbird-management.netbird.svc:80/api/peers \
                   -H "Authorization: Token ${PAT_TOKEN}" 2>/dev/null || echo "")
@@ -317,7 +357,7 @@ spec:
                   echo "Management API ready (attempt $i)"
                   break
                 fi
-                echo "Attempt $i/60: management API not ready, waiting 5s..."
+                echo "Attempt $i/90: management API not ready, waiting 5s..."
                 sleep 5
               done
 
@@ -326,7 +366,27 @@ spec:
               # keys → duplicate peers per node name. Keep newest per name, delete the rest.
               python3 /script/cleanup.py
 
+              # Load dynamic group IDs written by bootstrap.py to /tmp/nb-ids.env.
+              # These are the REAL IDs (detected from DB) — avoids hardcoded static IDs
+              # that break when management auto-creates groups with random IDs.
+              if [ -f /tmp/nb-ids.env ]; then
+                . /tmp/nb-ids.env
+                echo "Loaded IDs from bootstrap: GRP=${GRP} GRP_ROUTING=${GRP_ROUTING}"
+              else
+                # Fallback: query the API for the All group ID
+                GRP=$(curl -s --max-time 10 \
+                  http://netbird-management.netbird.svc:80/api/groups \
+                  -H "Authorization: Token ${PAT_TOKEN}" 2>/dev/null | \
+                  python3 -c "import sys,json; d=json.load(sys.stdin); g=[x for x in (d if isinstance(d,list) else []) if x.get('name')=='All']; print(g[0]['id'] if g else '')" 2>/dev/null || echo "")
+                GRP_ROUTING=$(curl -s --max-time 10 \
+                  http://netbird-management.netbird.svc:80/api/groups \
+                  -H "Authorization: Token ${PAT_TOKEN}" 2>/dev/null | \
+                  python3 -c "import sys,json; d=json.load(sys.stdin); g=[x for x in (d if isinstance(d,list) else []) if x.get('name')=='routing-peers-vlan3']; print(g[0]['id'] if g else '')" 2>/dev/null || echo "")
+                echo "Queried IDs from API: GRP=${GRP} GRP_ROUTING=${GRP_ROUTING}"
+              fi
+
               echo "=== Configuring DNS nameserver via API ==="
+              # Uses dynamic GRP (All group) — correct even for management-auto-created accounts
               NS_RESP=$(curl -s --max-time 10 \
                 http://netbird-management.netbird.svc:80/api/dns/nameservers \
                 -H "Authorization: Token ${PAT_TOKEN}" 2>/dev/null || echo "[]")
@@ -337,7 +397,7 @@ spec:
                   http://netbird-management.netbird.svc:80/api/dns/nameservers \
                   -H "Authorization: Token ${PAT_TOKEN}" \
                   -H "Content-Type: application/json" \
-                  -d '{"name":"prod-local","description":"prod.local via cluster CoreDNS","nameservers":[{"ip":"10.10.0.201","ns_type":"udp","port":53}],"enabled":true,"groups":["grp00000-0000-4000-a000-000000000001"],"primary":false,"domains":["prod.local"],"search_domains_enabled":true}' \
+                  -d "{\"name\":\"prod-local\",\"description\":\"prod.local via cluster CoreDNS\",\"nameservers\":[{\"ip\":\"10.10.0.201\",\"ns_type\":\"udp\",\"port\":53}],\"enabled\":true,\"groups\":[\"${GRP}\"],\"primary\":false,\"domains\":[\"prod.local\"],\"search_domains_enabled\":true}" \
                   -o /dev/null && echo "DNS nameserver group created: prod-local → 10.10.0.201"
               else
                 echo "DNS nameserver group prod-local already exists — skipping"
@@ -355,7 +415,7 @@ spec:
                   http://netbird-management.netbird.svc:80/api/dns/nameservers \
                   -H "Authorization: Token ${PAT_TOKEN}" \
                   -H "Content-Type: application/json" \
-                  -d '{"name":"rlservers-com","description":"rlservers.com via cluster DNS (bypasses Cloudflare CDN for VPN clients)","nameservers":[{"ip":"10.10.0.201","ns_type":"udp","port":53}],"enabled":true,"groups":["grp00000-0000-4000-a000-000000000001"],"primary":false,"domains":["rlservers.com"],"search_domains_enabled":false}' \
+                  -d "{\"name\":\"rlservers-com\",\"description\":\"rlservers.com via cluster DNS (bypasses Cloudflare CDN for VPN clients)\",\"nameservers\":[{\"ip\":\"10.10.0.201\",\"ns_type\":\"udp\",\"port\":53}],\"enabled\":true,\"groups\":[\"${GRP}\"],\"primary\":false,\"domains\":[\"rlservers.com\"],\"search_domains_enabled\":false}" \
                   -o /dev/null && echo "DNS nameserver group created: rlservers-com → 10.10.0.201"
               else
                 echo "DNS nameserver group rlservers-com already exists — skipping"
@@ -374,53 +434,42 @@ spec:
                   http://netbird-management.netbird.svc:80/api/dns/nameservers \
                   -H "Authorization: Token ${PAT_TOKEN}" \
                   -H "Content-Type: application/json" \
-                  -d '{"name":"int-rlservers-com","description":"int.rlservers.com via cluster CoreDNS (VPN-only private subdomain)","nameservers":[{"ip":"10.10.0.201","ns_type":"udp","port":53}],"enabled":true,"groups":["grp00000-0000-4000-a000-000000000001"],"primary":false,"domains":["int.rlservers.com"],"search_domains_enabled":false}' \
+                  -d "{\"name\":\"int-rlservers-com\",\"description\":\"int.rlservers.com via cluster CoreDNS (VPN-only private subdomain)\",\"nameservers\":[{\"ip\":\"10.10.0.201\",\"ns_type\":\"udp\",\"port\":53}],\"enabled\":true,\"groups\":[\"${GRP}\"],\"primary\":false,\"domains\":[\"int.rlservers.com\"],\"search_domains_enabled\":false}" \
                   -o /dev/null && echo "DNS nameserver group created: int-rlservers-com → 10.10.0.201"
               else
                 echo "DNS nameserver group int-rlservers-com already exists — skipping"
               fi
 
-              echo "=== Ensuring routing-peers-vlan3 group has all connected peers ==="
-              # After every sync/redeploy, connected peers must be in routing-peers-vlan3 so
-              # that the 10.10.0.0/24 and 10.25.0.0/24 routes are advertised to VPN clients.
-              # The setup key auto_groups handles NEW peers on first connect, but existing peers
-              # (reconnecting after a redeploy) may lose group membership if the DB was wiped.
-              # This section idempotently adds ALL connected peers to routing-peers-vlan3.
-              ROUTING_GRP_ID="grp00000-0000-4000-a000-000000000002"
-              PEERS_RESP=$(curl -s --max-time 10 \
-                http://netbird-management.netbird.svc:80/api/peers \
-                -H "Authorization: Token ${PAT_TOKEN}" 2>/dev/null || echo "[]")
-              PEER_IDS=$(echo "$PEERS_RESP" | \
-                python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps([p['id'] for p in (d if isinstance(d,list) else [])]))" \
-                2>/dev/null || echo "[]")
-              PEER_COUNT=$(echo "$PEER_IDS" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0")
-              echo "Found ${PEER_COUNT} connected peer(s)"
-
-              if [ "$PEER_COUNT" -gt "0" ]; then
-                # Get current group membership
-                GRP_RESP=$(curl -s --max-time 10 \
-                  http://netbird-management.netbird.svc:80/api/groups/${ROUTING_GRP_ID} \
-                  -H "Authorization: Token ${PAT_TOKEN}" 2>/dev/null || echo "{}")
-                EXISTING_IDS=$(echo "$GRP_RESP" | \
-                  python3 -c "import sys,json; g=json.load(sys.stdin); print(json.dumps([p['id'] for p in g.get('peers',[])]))" \
-                  2>/dev/null || echo "[]")
-                # Merge: union of existing + all current peers
-                MERGED_IDS=$(python3 -c "
-import sys, json
-existing = json.loads('${EXISTING_IDS}')
-all_peers = json.loads('${PEER_IDS}')
-merged = list(set(existing + all_peers))
-print(json.dumps(merged))
-" 2>/dev/null || echo "$PEER_IDS")
-                # PUT updated group
-                curl -s --max-time 10 -X PUT \
-                  http://netbird-management.netbird.svc:80/api/groups/${ROUTING_GRP_ID} \
-                  -H "Authorization: Token ${PAT_TOKEN}" \
-                  -H "Content-Type: application/json" \
-                  -d "{\"name\":\"routing-peers-vlan3\",\"peers\":${MERGED_IDS}}" \
-                  -o /dev/null && echo "routing-peers-vlan3 group updated with ${PEER_COUNT} peer(s)"
+              echo "=== Ensuring routing-peers-vlan3 group has the router peer ==="
+              # After every sync/redeploy, the netbird-router-vlan3 VM must be in
+              # routing-peers-vlan3 so routes are advertised to VPN clients.
+              # The setup key auto_groups=[GRP, GRP_ROUTING] handles this on new enrollment
+              # via the watchdog re-enroll (netbird down; netbird up --setup-key ...).
+              # This section is a safety-net for already-connected peers.
+              # We use GRP_ROUTING from /tmp/nb-ids.env (written by bootstrap.py — real ID).
+              if [ -n "$GRP_ROUTING" ]; then
+                PEERS_RESP=$(curl -s --max-time 10 \
+                  http://netbird-management.netbird.svc:80/api/peers \
+                  -H "Authorization: Token ${PAT_TOKEN}" 2>/dev/null || echo "[]")
+                PEER_COUNT=$(echo "$PEERS_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d if isinstance(d,list) else []))" 2>/dev/null || echo "0")
+                echo "Found ${PEER_COUNT} connected peer(s)"
+                if [ "$PEER_COUNT" -gt "0" ]; then
+                  # Build peer-id list from API response (single-line Python — safe in YAML)
+                  ALL_PEER_IDS=$(echo "$PEERS_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps([p['id'] for p in (d if isinstance(d,list) else [])]))" 2>/dev/null || echo "[]")
+                  # GET current routing group to merge existing + new peers
+                  CUR_GRP=$(curl -s --max-time 10 http://netbird-management.netbird.svc:80/api/groups/${GRP_ROUTING} -H "Authorization: Token ${PAT_TOKEN}" 2>/dev/null || echo "{}")
+                  EXISTING_IDS=$(echo "$CUR_GRP" | python3 -c "import sys,json; g=json.load(sys.stdin); print(json.dumps([p['id'] for p in g.get('peers',[])]))" 2>/dev/null || echo "[]")
+                  # Merge: union of existing + all current peers (single-line — YAML safe)
+                  MERGED=$(python3 -c "import json; a=json.loads('${EXISTING_IDS}'); b=json.loads('${ALL_PEER_IDS}'); print(json.dumps(list(set(a+b))))" 2>/dev/null || echo "$ALL_PEER_IDS")
+                  curl -s --max-time 10 -X PUT \
+                    http://netbird-management.netbird.svc:80/api/groups/${GRP_ROUTING} \
+                    -H "Authorization: Token ${PAT_TOKEN}" \
+                    -H "Content-Type: application/json" \
+                    -d "{\"name\":\"routing-peers-vlan3\",\"peers\":${MERGED}}" \
+                    -o /dev/null && echo "routing-peers-vlan3 group updated with ${PEER_COUNT} peer(s)"
+                fi
               else
-                echo "No peers connected yet — routing group will be populated when peers connect via setup key auto_groups"
+                echo "GRP_ROUTING unknown — routing group will be populated when peers connect via setup key auto_groups"
               fi
 
               echo "=== Bootstrap complete ==="
