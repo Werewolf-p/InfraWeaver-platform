@@ -308,8 +308,26 @@ resource "null_resource" "import_talos_disk" {
   provisioner "local-exec" {
     when        = destroy
     interpreter = ["bash", "-c"]
-    # VM destruction (proxmox_virtual_environment_vm) handles disk removal.
-    command = "echo '[${each.key}] Disk cleanup delegated to VM destroy.'"
+    # Explicitly delete the LVM disk to prevent stale disk issues on redeploy.
+    # The bpg/proxmox provider with lifecycle.ignore_changes=[disk] does NOT
+    # delete the LVM thin volume when the VM is destroyed. If it survives,
+    # the next apply's EXISTING check will find virtio0 and skip re-import,
+    # causing nodes to boot with old Talos config and old cluster secrets.
+    command = <<-BASH
+      SSH_OPTS="${local.ssh_opts}"
+      NODE_IP="${var.proxmox_nodes_ips[each.value.proxmox_node]}"
+      VMID="${each.value.vm_id}"
+      echo "==> [${each.key}] Explicitly removing LVM disk for VM $VMID..."
+      ssh $SSH_OPTS root@"$NODE_IP" "
+        qm stop $VMID --timeout 10 2>/dev/null || qm stop $VMID --skiplock 2>/dev/null || true
+        sleep 2
+        # Detach virtio0 (makes it unused0)
+        qm disk unlink $VMID --idlist virtio0 2>/dev/null || true
+        # Delete unused0 (purges the LVM volume)
+        qm set $VMID --delete unused0 2>/dev/null || true
+        echo '  LVM disk cleanup complete for VM '$VMID
+      " 2>&1 || echo '[${each.key}] Note: disk cleanup failed (VM may already be destroyed)'
+    BASH
   }
 }
 
