@@ -72,11 +72,13 @@ Note: field is `unseal_keys_b64` NOT `keys` or `keys_base64`.
 
 ## Current ESO Service Token
 
-- Token: `s.B4oiKK5CGqeUdExGiVuxA0Yu`
+- Token: `s.D3BZmwxvy3r1LaiN2SPcSK1` (truncated — full value in K8s secret)
 - Policy: `platform-k8s` + `default`
-- TTL: 87600h (10 years, expires 2036-04-24)
+- **Type: periodic — 168h (7-day) period, auto-renewed by ESO**
 - K8s secret: `external-secrets/openbao-token` key `token`
-- When recreating: use `-orphan -ttl=87600h -policy=platform-k8s -policy=default`
+- If ESO is down >7 days the token expires and must be recreated
+- When recreating: use `-orphan -period=168h -policy=platform-k8s -policy=default -renewable=true`
+- Previous token was 10yr static TTL (replaced 2026-05-03 with periodic for C6)
 
 ## Lesson Learned
 

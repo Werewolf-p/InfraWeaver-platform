@@ -1,0 +1,26 @@
+# Bootstrap Application — deploys ExternalDNS raw manifests (ExternalSecret for CF token)
+# The ExternalDNS Helm chart itself is managed by the root ApplicationSet
+# via kubernetes/platform/external-dns/application.yaml.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-external-dns-manifests
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  source:
+    repoURL: https://github.com/Werewolf-p/InfraWeaver-platform.git
+    targetRevision: HEAD
+    path: kubernetes/platform/external-dns/manifests
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: external-dns
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
