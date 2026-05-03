@@ -1205,9 +1205,11 @@ jobs:
             local username="$1"
             echo "==> Waiting for ${username} user to be created by blueprint..."
             for i in $(seq 1 60); do
+              # Use | tail -1 to strip ak shell JSON boot logs from stdout,
+              # keeping only the final print() output ("yes" or "no")
               USER_EXISTS=$($KT exec -n authentik "$WORKER_POD" -- ak shell -c \
                 "from authentik.core.models import User; print('yes' if User.objects.filter(username='${username}').exists() else 'no')" \
-                2>/dev/null || echo "no")
+                2>/dev/null | tail -1 || echo "no")
               [ "$USER_EXISTS" = "yes" ] && echo "  ✅ ${username} user found" && return 0
               echo "  [${i}/60] ${username} exists: no"
               sleep 10
@@ -1230,15 +1232,19 @@ jobs:
           echo "==> Setting user group memberships..."
           # Base64-encoded Python avoids YAML column-0 parsing issues in block scalars.
           _GROUPS_PY="ZnJvbSBhdXRoZW50aWsuY29yZS5tb2RlbHMgaW1wb3J0IFVzZXIsIEdyb3VwCmFkbWluc19ncnAsIF8gPSBHcm91cC5vYmplY3RzLmdldF9vcl9jcmVhdGUobmFtZT0ncGxhdGZvcm0tYWRtaW5zJykKdXNlcnNfZ3JwLCBfID0gR3JvdXAub2JqZWN0cy5nZXRfb3JfY3JlYXRlKG5hbWU9J3BsYXRmb3JtLXVzZXJzJykKYWtfYWRtaW5zX2dycCwgXyA9IEdyb3VwLm9iamVjdHMuZ2V0X29yX2NyZWF0ZShuYW1lPSdhdXRoZW50aWsgQWRtaW5zJykKcmVtb24gPSBVc2VyLm9iamVjdHMuZ2V0KHVzZXJuYW1lPSdyZW1vbicpCmFkbWluc19ncnAudXNlcnMuYWRkKHJlbW9uKTsgYWtfYWRtaW5zX2dycC51c2Vycy5hZGQocmVtb24pOyB1c2Vyc19ncnAudXNlcnMuYWRkKHJlbW9uKQpwcmludCgnT0s6IHJlbW9uIC0+IHBsYXRmb3JtLWFkbWlucyArIGF1dGhlbnRpayBBZG1pbnMgKyBwbGF0Zm9ybS11c2VycycpCnRyeToKICAgIGFyZGF0eSA9IFVzZXIub2JqZWN0cy5nZXQodXNlcm5hbWU9J2FyZGF0eScpCiAgICB1c2Vyc19ncnAudXNlcnMuYWRkKGFyZGF0eSkKICAgIHByaW50KCdPSzogYXJkYXR5IC0+IHBsYXRmb3JtLXVzZXJzJykKZXhjZXB0IFVzZXIuRG9lc05vdEV4aXN0OgogICAgcHJpbnQoJ1dBUk46IGFyZGF0eSB1c2VyIG5vdCBmb3VuZCAtLSBibHVlcHJpbnQgbWF5IG5vdCBoYXZlIHJ1biB5ZXQnKQo="
-          echo "$_GROUPS_PY" | base64 -d | $KT exec -i -n authentik "$WORKER_POD" -- ak shell
-          echo "✅ User group memberships set" 
+          # Write the Python to a temp file inside the container (avoids kubectl exec -i stdin
+          # EOF not being forwarded to Django shell, which causes ak shell to hang indefinitely).
+          echo "$_GROUPS_PY" | base64 -d | $KT exec -i -n authentik "$WORKER_POD" -- sh -c 'cat > /tmp/ak_groups.py'
+          $KT exec -n authentik "$WORKER_POD" -- ak shell < /tmp/ak_groups.py 2>&1 | tail -5
+          echo "✅ User group memberships set"
 
           # Generate recovery links for all users with send_recovery_email: true
           # Stores AUTHENTIK_{USERNAME_UPPER}_RECOVERY_LINK in $GITHUB_ENV for email step
           echo "==> Configuring recovery flow and generating password recovery links..."
           _AK_PY="ZnJvbSBhdXRoZW50aWsuY29yZS5tb2RlbHMgaW1wb3J0IFRva2VuLCBUb2tlbkludGVudHMsIFVzZXIKZnJvbSBhdXRoZW50aWsuYnJhbmRzLm1vZGVscyBpbXBvcnQgQnJhbmQKZnJvbSBhdXRoZW50aWsuZmxvd3MubW9kZWxzIGltcG9ydCBGbG93LCBGbG93RGVzaWduYXRpb24KCmZsb3csIF8gPSBGbG93Lm9iamVjdHMuZ2V0X29yX2NyZWF0ZShzbHVnPSJkZWZhdWx0LXJlY292ZXJ5LWZsb3ciLCBkZWZhdWx0cz17Im5hbWUiOiAiRGVmYXVsdCBSZWNvdmVyeSBGbG93IiwgInRpdGxlIjogIkFjY291bnQgUmVjb3ZlcnkiLCAiZGVzaWduYXRpb24iOiBGbG93RGVzaWduYXRpb24uUkVDT1ZFUll9KQpmb3IgYnJhbmQgaW4gQnJhbmQub2JqZWN0cy5hbGwoKToKICAgIGJyYW5kLmZsb3dfcmVjb3ZlcnkgPSBmbG93CiAgICBicmFuZC5zYXZlKCkKClRva2VuLm9iamVjdHMuZmlsdGVyKGlkZW50aWZpZXI9ImdoLWFjdGlvbnMtYXBpLXRva2VuIikuZGVsZXRlKCkKYWRtaW4gPSBVc2VyLm9iamVjdHMuZ2V0KHVzZXJuYW1lPSJha2FkbWluIikKdCA9IFRva2VuLm9iamVjdHMuY3JlYXRlKGlkZW50aWZpZXI9ImdoLWFjdGlvbnMtYXBpLXRva2VuIiwgdXNlcj1hZG1pbiwgZGVzY3JpcHRpb249IkdpdEh1YiBBY3Rpb25zIEFQSSB0b2tlbiIsIGludGVudD1Ub2tlbkludGVudHMuSU5URU5UX0FQSSwgZXhwaXJpbmc9RmFsc2UpCnByaW50KCJUT0tFTjoiICsgdC5rZXkpCg=="
-          AUTHENTIK_ADMIN_TOKEN=$(echo "$_AK_PY" | base64 -d | \
-            $KT exec -i -n authentik "$WORKER_POD" -- ak shell \
+          # Write to temp file first to avoid kubectl exec -i stdin EOF hang
+          echo "$_AK_PY" | base64 -d | $KT exec -i -n authentik "$WORKER_POD" -- sh -c 'cat > /tmp/ak_token.py'
+          AUTHENTIK_ADMIN_TOKEN=$($KT exec -n authentik "$WORKER_POD" -- ak shell < /tmp/ak_token.py \
             2>&1 | grep "^TOKEN:" | sed 's/TOKEN://' || echo "")
           echo "AUTHENTIK_ADMIN_TOKEN=${AUTHENTIK_ADMIN_TOKEN}" >> $GITHUB_ENV
 
