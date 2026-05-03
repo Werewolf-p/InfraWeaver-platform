@@ -123,20 +123,22 @@ jobs:
               -o custom-columns=":metadata.name" 2>/dev/null | head -1 || echo "")
 
             if [ -n "$ROOT_TOKEN" ] && [ -n "$BAO_POD" ]; then
-              # Check discovery URL is reachable from inside the OpenBao pod
-              DISCOVERY_URL="https://auth.rlservers.com/application/o/openbao/.well-known/openid-configuration"
-              echo "==> Waiting for OIDC discovery URL to be reachable from OpenBao pod..."
+              # Use internal Authentik service URL — external auth.rlservers.com is not reachable
+              # from inside the cluster (hairpin NAT). OpenBao uses this URL server-side only
+              # to fetch JWKS keys; clients still redirect to the external Authentik URL.
+              INTERNAL_DISCOVERY_URL="http://authentik-server.authentik.svc.cluster.local/application/o/openbao/.well-known/openid-configuration"
+              echo "==> Waiting for internal Authentik OIDC endpoint to be ready..."
               OIDC_URL_READY=false
-              for i in $(seq 1 60); do
+              for i in $(seq 1 30); do
                 HTTP_CODE=$($KT exec -n openbao "$BAO_POD" -- \
-                  sh -c "wget -q -O /dev/null --server-response '$DISCOVERY_URL' 2>&1 | awk '/HTTP\//{print \$2}' | tail -1" \
+                  sh -c "curl -sk -o /dev/null -w '%{http_code}' '$INTERNAL_DISCOVERY_URL'" \
                   2>/dev/null || echo "0")
                 if [ "$HTTP_CODE" = "200" ]; then
-                  echo "  ✅ Discovery URL reachable (HTTP $HTTP_CODE)"
+                  echo "  ✅ Internal discovery URL ready (HTTP $HTTP_CODE)"
                   OIDC_URL_READY=true
                   break
                 fi
-                echo "  Waiting ($i/60) — HTTP: ${HTTP_CODE:-unreachable}..."
+                echo "  Waiting ($i/30) — HTTP: ${HTTP_CODE:-unreachable}..."
                 sleep 10
               done
 
@@ -148,7 +150,7 @@ jobs:
                 $KT exec -n openbao "$BAO_POD" -- \
                   env VAULT_TOKEN="$ROOT_TOKEN" VAULT_ADDR=http://127.0.0.1:8200 \
                   bao write auth/oidc/config \
-                    oidc_discovery_url="https://auth.rlservers.com/application/o/openbao/" \
+                    oidc_discovery_url="http://authentik-server.authentik.svc.cluster.local/application/o/openbao/" \
                     oidc_client_id="openbao" \
                     oidc_client_secret="$OPENBAO_SECRET" \
                     default_role="default" || echo "⚠️ bao write auth/oidc/config failed"

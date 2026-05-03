@@ -1359,27 +1359,29 @@ jobs:
                 -l app.kubernetes.io/name=openbao --no-headers \
                 -o custom-columns=":metadata.name" 2>/dev/null | head -1 || echo "")
               if [ -n "$BAO_POD" ]; then
-                # Wait for the Authentik OIDC discovery URL to be reachable FROM the OpenBao pod.
-                # This ensures blueprints have provisioned the OAuth app AND the TLS cert is valid.
-                DISCOVERY_URL="https://auth.rlservers.com/application/o/openbao/.well-known/openid-configuration"
-                echo "==> Waiting for Authentik OIDC discovery URL to be reachable (up to 10 min)..."
+                # Use the internal Authentik service URL for OIDC discovery.
+                # auth.rlservers.com is not reachable from inside the cluster (hairpin NAT).
+                # OpenBao only uses this URL server-side to fetch JWKS keys; end-users
+                # still redirect to the external auth.rlservers.com Authentik UI.
+                INTERNAL_DISCOVERY_URL="http://authentik-server.authentik.svc.cluster.local/application/o/openbao/.well-known/openid-configuration"
+                echo "==> Waiting for internal Authentik OIDC endpoint to be ready (up to 5 min)..."
                 OIDC_URL_READY=false
-                for i in $(seq 1 60); do
+                for i in $(seq 1 30); do
                   HTTP_CODE=$($KT exec -n openbao "$BAO_POD" -- \
-                    sh -c "wget -q -O /dev/null --server-response '$DISCOVERY_URL' 2>&1 | awk '/HTTP\//{print \$2}' | tail -1" \
+                    sh -c "curl -sk -o /dev/null -w '%{http_code}' '$INTERNAL_DISCOVERY_URL'" \
                     2>/dev/null || echo "0")
                   if [ "$HTTP_CODE" = "200" ]; then
-                    echo "  ✅ Discovery URL reachable (HTTP $HTTP_CODE) — proceeding with OIDC config"
+                    echo "  ✅ Internal discovery URL ready (HTTP $HTTP_CODE) — proceeding with OIDC config"
                     OIDC_URL_READY=true
                     break
                   fi
-                  echo "  Waiting for discovery URL ($i/60) — last HTTP: ${HTTP_CODE:-unreachable}..."
+                  echo "  Waiting for discovery URL ($i/30) — HTTP: ${HTTP_CODE:-unreachable}..."
                   sleep 10
                 done
 
                 if [ "$OIDC_URL_READY" != "true" ]; then
-                  echo "⚠️ Authentik OIDC discovery URL not reachable after 10 min — skipping OpenBao OIDC config"
-                  echo "   Run scripts/configure-oidc.sh manually once auth.rlservers.com is accessible"
+                  echo "⚠️ Internal Authentik OIDC endpoint not ready after 5 min — skipping OpenBao OIDC config"
+                  echo "   Run the configure-oidc workflow manually once auth.rlservers.com is accessible"
                 else
                   echo "==> Enabling + configuring OpenBao OIDC auth method..."
 
@@ -1388,11 +1390,11 @@ jobs:
                     env VAULT_TOKEN="$ROOT_TOKEN" VAULT_ADDR=http://127.0.0.1:8200 \
                     bao auth enable oidc 2>/dev/null || true
 
-                  # Configure OIDC
+                  # Configure OIDC using internal service URL (avoids hairpin NAT)
                   $KT exec -n openbao "$BAO_POD" -- \
                     env VAULT_TOKEN="$ROOT_TOKEN" VAULT_ADDR=http://127.0.0.1:8200 \
                     bao write auth/oidc/config \
-                      oidc_discovery_url="https://auth.rlservers.com/application/o/openbao/" \
+                      oidc_discovery_url="http://authentik-server.authentik.svc.cluster.local/application/o/openbao/" \
                       oidc_client_id="openbao" \
                       oidc_client_secret="$OPENBAO_SECRET" \
                       default_role="default" || { echo "⚠️ bao write auth/oidc/config failed — skipping (non-critical)"; }
