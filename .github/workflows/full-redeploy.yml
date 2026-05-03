@@ -1359,53 +1359,63 @@ jobs:
                 -l app.kubernetes.io/name=openbao --no-headers \
                 -o custom-columns=":metadata.name" 2>/dev/null | head -1 || echo "")
               if [ -n "$BAO_POD" ]; then
-                # Wait for TLS cert to be ready so OpenBao can validate the discovery URL
-                echo "==> Waiting for auth.rlservers.com TLS cert (up to 10 min)..."
+                # Wait for the Authentik OIDC discovery URL to be reachable FROM the OpenBao pod.
+                # This ensures blueprints have provisioned the OAuth app AND the TLS cert is valid.
+                DISCOVERY_URL="https://auth.rlservers.com/application/o/openbao/.well-known/openid-configuration"
+                echo "==> Waiting for Authentik OIDC discovery URL to be reachable (up to 10 min)..."
+                OIDC_URL_READY=false
                 for i in $(seq 1 60); do
-                  CERT_READY=$($KT get certificate rlservers-com-wildcard -n traefik \
-                    -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "")
-                  if [ "$CERT_READY" = "True" ]; then
-                    echo "  ✅ TLS cert ready — proceeding with OpenBao OIDC config"
+                  HTTP_CODE=$($KT exec -n openbao "$BAO_POD" -- \
+                    sh -c "wget -q -O /dev/null --server-response '$DISCOVERY_URL' 2>&1 | awk '/HTTP\//{print \$2}' | tail -1" \
+                    2>/dev/null || echo "0")
+                  if [ "$HTTP_CODE" = "200" ]; then
+                    echo "  ✅ Discovery URL reachable (HTTP $HTTP_CODE) — proceeding with OIDC config"
+                    OIDC_URL_READY=true
                     break
                   fi
-                  echo "  Waiting for TLS cert ($i/60)..."
+                  echo "  Waiting for discovery URL ($i/60) — last HTTP: ${HTTP_CODE:-unreachable}..."
                   sleep 10
                 done
 
-                echo "==> Enabling + configuring OpenBao OIDC auth method..."
+                if [ "$OIDC_URL_READY" != "true" ]; then
+                  echo "⚠️ Authentik OIDC discovery URL not reachable after 10 min — skipping OpenBao OIDC config"
+                  echo "   Run scripts/configure-oidc.sh manually once auth.rlservers.com is accessible"
+                else
+                  echo "==> Enabling + configuring OpenBao OIDC auth method..."
 
-                # Enable oidc auth (idempotent)
-                $KT exec -n openbao "$BAO_POD" -- \
-                  env VAULT_TOKEN="$ROOT_TOKEN" VAULT_ADDR=http://127.0.0.1:8200 \
-                  bao auth enable oidc 2>/dev/null || true
+                  # Enable oidc auth (idempotent)
+                  $KT exec -n openbao "$BAO_POD" -- \
+                    env VAULT_TOKEN="$ROOT_TOKEN" VAULT_ADDR=http://127.0.0.1:8200 \
+                    bao auth enable oidc 2>/dev/null || true
 
-                # Configure OIDC
-                $KT exec -n openbao "$BAO_POD" -- \
-                  env VAULT_TOKEN="$ROOT_TOKEN" VAULT_ADDR=http://127.0.0.1:8200 \
-                  bao write auth/oidc/config \
-                    oidc_discovery_url="https://auth.rlservers.com/application/o/openbao/" \
-                    oidc_client_id="openbao" \
-                    oidc_client_secret="$OPENBAO_SECRET" \
-                    default_role="default"
-                echo "✅ OpenBao OIDC config written"
+                  # Configure OIDC
+                  $KT exec -n openbao "$BAO_POD" -- \
+                    env VAULT_TOKEN="$ROOT_TOKEN" VAULT_ADDR=http://127.0.0.1:8200 \
+                    bao write auth/oidc/config \
+                      oidc_discovery_url="https://auth.rlservers.com/application/o/openbao/" \
+                      oidc_client_id="openbao" \
+                      oidc_client_secret="$OPENBAO_SECRET" \
+                      default_role="default" || { echo "⚠️ bao write auth/oidc/config failed — skipping (non-critical)"; }
+                  echo "✅ OpenBao OIDC config written"
 
-                # Create admin policy if not exists (policy passed via base64 to avoid column-0 YAML issue)
-                ADMIN_POLICY_B64=$(printf 'path "*" {\n  capabilities = ["create", "read", "update", "delete", "list", "sudo"]\n}' | base64 -w0)
-                $KT exec -n openbao "$BAO_POD" -- \
-                  env VAULT_TOKEN="$ROOT_TOKEN" VAULT_ADDR=http://127.0.0.1:8200 \
-                  sh -c "bao policy read admin > /dev/null 2>&1 || echo $ADMIN_POLICY_B64 | base64 -d | bao policy write admin -" 2>/dev/null || true
+                  # Create admin policy if not exists (policy passed via base64 to avoid column-0 YAML issue)
+                  ADMIN_POLICY_B64=$(printf 'path "*" {\n  capabilities = ["create", "read", "update", "delete", "list", "sudo"]\n}' | base64 -w0)
+                  $KT exec -n openbao "$BAO_POD" -- \
+                    env VAULT_TOKEN="$ROOT_TOKEN" VAULT_ADDR=http://127.0.0.1:8200 \
+                    sh -c "bao policy read admin > /dev/null 2>&1 || echo $ADMIN_POLICY_B64 | base64 -d | bao policy write admin -" 2>/dev/null || true
 
-                # Create default OIDC role for remon
-                $KT exec -n openbao "$BAO_POD" -- \
-                  env VAULT_TOKEN="$ROOT_TOKEN" VAULT_ADDR=http://127.0.0.1:8200 \
-                  bao write auth/oidc/role/default \
-                    bound_audiences="openbao" \
-                    allowed_redirect_uris="https://openbao.int.rlservers.com/ui/vault/auth/oidc/oidc/callback" \
-                    allowed_redirect_uris="http://localhost:8250/oidc/callback" \
-                    user_claim="preferred_username" \
-                    policies="admin" \
-                    ttl=8h
-                echo "✅ OpenBao OIDC role 'default' created"
+                  # Create default OIDC role for remon
+                  $KT exec -n openbao "$BAO_POD" -- \
+                    env VAULT_TOKEN="$ROOT_TOKEN" VAULT_ADDR=http://127.0.0.1:8200 \
+                    bao write auth/oidc/role/default \
+                      bound_audiences="openbao" \
+                      allowed_redirect_uris="https://openbao.int.rlservers.com/ui/vault/auth/oidc/oidc/callback" \
+                      allowed_redirect_uris="http://localhost:8250/oidc/callback" \
+                      user_claim="preferred_username" \
+                      policies="admin" \
+                      ttl=8h || true
+                  echo "✅ OpenBao OIDC role 'default' created"
+                fi
               else
                 echo "⚠️ OpenBao pod not found — skipping OIDC auth setup"
               fi
