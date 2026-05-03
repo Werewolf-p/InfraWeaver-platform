@@ -51,12 +51,6 @@ global:
           name: authentik-secrets
           key: ardaty-password
           optional: true   # user password — Authentik starts even if key is absent
-    - name: AUTHENTIK_TESTUSER2_PASSWORD
-      valueFrom:
-        secretKeyRef:
-          name: authentik-secrets
-          key: testuser2-password
-          optional: true   # user password — Authentik starts even if key is absent
 
     - name: AUTHENTIK_POSTGRESQL__PASSWORD
       valueFrom:

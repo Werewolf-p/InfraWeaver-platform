@@ -46,16 +46,3 @@ data:
           password: !Env AUTHENTIK_ARDATY_PASSWORD
           is_active: true
 
-      # ── testuser2 (platform-user, test) ────────────────────────────────────
-      # IAC test #2 — validates incremental deploy user provisioning.
-      # Remove when done.
-      - model: authentik_core.user
-        state: present
-        identifiers:
-          username: testuser2
-        attrs:
-          name: "Test User Two"
-          email: "testuser2@rlservers.com"
-          password: !Env AUTHENTIK_TESTUSER2_PASSWORD
-          is_active: true
-
