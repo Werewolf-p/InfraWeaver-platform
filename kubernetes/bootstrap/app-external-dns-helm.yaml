@@ -1,0 +1,40 @@
+# Standalone ArgoCD Application for ExternalDNS Helm chart.
+#
+# Uses a dedicated Application (not the root ApplicationSet) to avoid the
+# ServerSideApply=true setting in the ApplicationSet, which causes a typed-patch
+# error on the Deployment's env[].valueFrom.secretKeyRef field with this chart.
+#
+# Multi-source: git repo supplies values.yaml; Helm registry supplies the chart.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-external-dns
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  sources:
+    # values from git
+    - repoURL: https://github.com/Werewolf-p/InfraWeaver-platform.git
+      targetRevision: HEAD
+      ref: values
+    # chart from Helm registry
+    - repoURL: https://kubernetes-sigs.github.io/external-dns/
+      targetRevision: "1.*"
+      chart: external-dns
+      helm:
+        releaseName: external-dns
+        valueFiles:
+          - "$values/kubernetes/platform/external-dns/values.yaml"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: external-dns
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      # NO ServerSideApply=true — client-side apply avoids typed-patch error
+      # on Deployment env[].valueFrom.secretKeyRef with this chart version
