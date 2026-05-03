@@ -123,7 +123,7 @@ spec:
               mountPath: /var/lib/netbird
       containers:
         - name: management
-          image: netbirdio/management:v0.70.4
+          image: netbirdio/management:0.70.4
           imagePullPolicy: IfNotPresent
           args:
             - --port=80

@@ -22,7 +22,7 @@ spec:
     spec:
       containers:
         - name: signal
-          image: netbirdio/signal:v0.70.4
+          image: netbirdio/signal:0.70.4
           imagePullPolicy: IfNotPresent
           args:
             - --port=10000
