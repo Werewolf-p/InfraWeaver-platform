@@ -88,13 +88,29 @@ resource "null_resource" "download_talos_image" {
 
       echo "==> [${each.key}] Ensuring Talos ${var.talos_version} image is present on $NODE_IP..."
 
-      # Check if already cached and complete (>= 4 GB) — exit early to avoid re-download.
-      # A size check guards against partial files left by a previous failed decompression.
+      # Check if already cached and complete (>= 4 GB) — and verify SHA256 sidecar to
+      # guard against silent on-disk corruption that passes the size check but produces
+      # a corrupt initramfs (ZSTD checksum mismatch) causing VMs to boot-loop.
       CACHED_SIZE=$(ssh $SSH_OPTS root@"$NODE_IP" \
         "stat -c %s '${local.talos_raw_path}' 2>/dev/null || echo 0" 2>/dev/null || echo 0)
       if [ "$CACHED_SIZE" -ge 4000000000 ]; then
-        echo "  [${each.key}] Image already cached and complete ($(( CACHED_SIZE / 1024 / 1024 )) MiB): ${local.talos_raw_path}"
-        exit 0
+        SIDECAR="${local.talos_raw_path}.sha256"
+        INTEGRITY=$(ssh $SSH_OPTS root@"$NODE_IP" "
+          if [ -f '$SIDECAR' ]; then
+            expected=\$(cat '$SIDECAR')
+            actual=\$(sha256sum '${local.talos_raw_path}' | awk '{print \$1}')
+            if [ \"\$expected\" = \"\$actual\" ]; then echo valid; else echo invalid; fi
+          else
+            echo no_sidecar
+          fi
+        " 2>/dev/null || echo check_failed)
+        if [ "$INTEGRITY" = "valid" ]; then
+          echo "  [${each.key}] Image cached and SHA256 verified ($(( CACHED_SIZE / 1024 / 1024 )) MiB): ${local.talos_raw_path}"
+          exit 0
+        else
+          echo "  [${each.key}] Cached image integrity check failed ($INTEGRITY) — forcing re-download."
+          ssh $SSH_OPTS root@"$NODE_IP" "rm -f '${local.talos_raw_path}' '${local.talos_raw_path}.sha256'" 2>/dev/null || true
+        fi
       fi
 
       echo "  [${each.key}] Downloading Talos image to $NODE_IP (cached_size=$CACHED_SIZE)..."
@@ -106,7 +122,7 @@ resource "null_resource" "download_talos_image" {
         which xz   >/dev/null 2>&1 || apt-get install -y xz-utils >/dev/null 2>&1
 
         # Remove any incomplete file from a previous failed run before downloading
-        rm -f '${local.talos_raw_path}' '${local.talos_raw_path}.xz'
+        rm -f '${local.talos_raw_path}' '${local.talos_raw_path}.xz' '${local.talos_raw_path}.sha256'
 
         echo '  Downloading Talos factory image...'
         wget -q --show-progress -O '${local.talos_raw_path}.xz' '${local.talos_image_url}'
@@ -115,6 +131,9 @@ resource "null_resource" "download_talos_image" {
         xz --decompress --stdout '${local.talos_raw_path}.xz' > '${local.talos_raw_path}.tmp'
         mv '${local.talos_raw_path}.tmp' '${local.talos_raw_path}'
         rm -f '${local.talos_raw_path}.xz'
+
+        echo '  Computing SHA256 sidecar for future integrity checks...'
+        sha256sum '${local.talos_raw_path}' | awk '{print \$1}' > '${local.talos_raw_path}.sha256'
 
         echo \"  Image ready: ${local.talos_raw_path} (\$(du -sh '${local.talos_raw_path}' | cut -f1))\"
       "
@@ -133,7 +152,7 @@ resource "null_resource" "download_talos_image" {
       NODE_IP="${self.triggers.node_ip}"
       TALOS_RAW="${self.triggers.talos_raw_path}"
       # Best-effort cleanup — acceptable to fail if already removed
-      ssh $SSH_OPTS ${self.triggers.ssh_username}@"$NODE_IP" "rm -f '$TALOS_RAW'" 2>/dev/null || true
+      ssh $SSH_OPTS ${self.triggers.ssh_username}@"$NODE_IP" "rm -f '$TALOS_RAW' '$TALOS_RAW.sha256'" 2>/dev/null || true
       echo "  [${each.key}] Cleaned up Talos image on $NODE_IP."
     BASH
   }
