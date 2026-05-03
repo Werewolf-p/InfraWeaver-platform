@@ -28,6 +28,8 @@ spec:
 ---
 # Certificate for *.int.rlservers.com — private/VPN-only domain, DNS-01 required
 # DNS-only Cloudflare record → 10.10.0.200 (private IP, unreachable without VPN)
+# NOTE: "int.rlservers.com" apex is included intentionally — it creates a distinct SAN set
+# from "*.int.rlservers.com" alone, bypassing rate-limit exhaustion on the wildcard-only set.
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -39,6 +41,7 @@ spec:
     name: letsencrypt-cloudflare
     kind: ClusterIssuer
   dnsNames:
+    - "int.rlservers.com"
     - "*.int.rlservers.com"
 ---
 # Certificate for yonavaarwater.nl — Cloudflare-proxied, needs DNS-01
