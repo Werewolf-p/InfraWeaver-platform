@@ -714,7 +714,7 @@ resource "null_resource" "bootstrap_etcd" {
             echo "==> Auto-recovery: resetting EPHEMERAL on NotReady nodes..."
             RECOVERY_DONE=1
             # Get all node IPs from talosconfig context
-            for NODE_IP in ${TF_NODE_IPS:-}; do
+            for NODE_IP in $TF_NODE_IPS; do
               NODE_STATUS=$(KUBECONFIG="$KUBE_TMP" kubectl get node -o wide --no-headers 2>/dev/null \
                 | awk -v ip="$NODE_IP" '$6==ip {print $2}')
               if echo "$NODE_STATUS" | grep -q "NotReady"; then
