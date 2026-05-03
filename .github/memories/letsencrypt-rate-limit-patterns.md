@@ -60,6 +60,27 @@ YAML=$(kubectl get secret foo -o yaml 2>/dev/null || echo "")
 if [ ${#YAML} -gt 100 ]; then echo "$YAML" > /backup/foo.yaml; fi
 ```
 
+### Critical: Never Backup Self-Signed Certs
+
+When LE is rate-limited, a self-signed cert ends up in the TLS secret. The backup step must check the issuer
+before saving — otherwise the self-signed cert gets restored on the next redeploy, causing `ERR_CERT_AUTHORITY_INVALID`.
+
+```bash
+# Check issuer before backing up
+CERT_ISSUER=$(echo "$YAML" | python3 -c "
+import sys, base64, subprocess, re
+data = sys.stdin.read()
+m = re.search(r'tls\.crt: ([A-Za-z0-9+/=]+)', data)
+if m:
+    crt = base64.b64decode(m.group(1))
+    r = subprocess.run(['openssl','x509','-noout','-issuer'], input=crt, capture_output=True)
+    print(r.stdout.decode().strip())
+" 2>/dev/null || echo "unknown")
+if echo "$CERT_ISSUER" | grep -qi "Let's Encrypt\|letsencrypt\|ISRG"; then
+    echo "$YAML" > "$BACKUP_DIR/${secret}.yaml"
+fi
+```
+
 ## Rate Limit Bypass: Change the SAN Set
 
 When a cert hits rate limits for its exact identifier set, add/remove a domain to create a **new exact set**:
@@ -76,11 +97,14 @@ When a cert hits rate limits for its exact identifier set, add/remove a domain t
 Previous 5 certs used `[int.rlservers.com, *.int.rlservers.com]`.  
 Fix: use ONLY `[*.int.rlservers.com]` — apex is not needed for routing, wildcard covers all subdomains.
 
+**Update (May 2026):** `[*.int.rlservers.com]` alone hit 5/168h limit. Fix: add apex back → `[int.rlservers.com, *.int.rlservers.com]`. This is now the canonical SAN set (see `02-certificates.yaml`). The apex is intentionally kept — it creates a distinct identifier set from the wildcard-only set.
+
 ```yaml
 # kubernetes/apps/external-routes/manifests/02-certificates.yaml
 spec:
   dnsNames:
-    - "*.int.rlservers.com"   # just the wildcard — apex removed to create new SAN set
+    - "int.rlservers.com"     # apex intentionally included — forms distinct SAN set
+    - "*.int.rlservers.com"   # wildcard covers all *.int.rlservers.com subdomains
 ```
 
 ### `auth-rlservers-com` pattern (April 2026)
