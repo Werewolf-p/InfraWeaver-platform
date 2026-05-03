@@ -133,3 +133,16 @@ Those go through apply-changes.yml or ArgoCD auto-sync.
 - `.github/scripts/sync-authentik-users.py` — dynamic group sync
 - `.github/scripts/list-recovery-users.py` — dynamic recovery link list
 - `.github/scripts/seed-openbao-authentik.sh` — seeds user passwords into OpenBao
+
+## Auto-Deploy New Apps via Bootstrap Pattern (2026-05-03)
+
+When adding a new manifest-only app with `new-app.sh`:
+- Script creates `kubernetes/bootstrap/app-<name>.yaml` ArgoCD Application alongside the manifests
+- `apply-changes.yml` detects changes to `kubernetes/bootstrap/app-*.yaml` files (new trigger path)
+- The `apply-new-apps` job kubectl-applies the changed bootstrap files to the cluster
+- ArgoCD then syncs the app's manifests within ~60 seconds
+- Full end-to-end: `git push` → `apply-changes.yml` runs → ArgoCD deploys → app live
+
+**Helm apps**: still auto-discovered by the ApplicationSet (no bootstrap file needed — `application.yaml` presence is enough).
+
+**Key fix**: Before this, manifest-only apps from `new-app.sh` were never registered with ArgoCD (the ApplicationSet only discovers `application.yaml` Helm descriptors). The bootstrap file bridges this gap.
