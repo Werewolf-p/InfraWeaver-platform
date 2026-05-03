@@ -1331,24 +1331,37 @@ jobs:
           KB=~/.kube/config-platform-${{ env.ENV_NAME }}
           BACKUP_DIR=/opt/platform-tls-backup
           mkdir -p "$BACKUP_DIR"
-          echo "==> Waiting for TLS certs to be issued (up to 15 min)..."
-          for i in $(seq 1 90); do
-            READY=$(kubectl --kubeconfig "$KB" --insecure-skip-tls-verify get certificate \
-              rlservers-com-wildcard -n traefik -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "")
-            if [ "$READY" = "True" ]; then
-              echo "  ✅ TLS cert is ready — saving backup"
-              break
-            fi
-            echo "  Waiting for TLS cert ($i/90)..."
-            sleep 10
+          # Wait for both certs — each has its own loop
+          # rlservers-com-wildcard: HTTP-01, usually fast (~2-5 min)
+          # int-rlservers-com-wildcard: DNS-01 via Cloudflare, can take up to 10 min
+          # Both may be rate-limited on repeated deploys — warn but don't fail
+          for cert in rlservers-com-wildcard int-rlservers-com-wildcard; do
+            echo "==> Waiting for cert ${cert} to be ready (up to 15 min)..."
+            for i in $(seq 1 90); do
+              READY=$(kubectl --kubeconfig "$KB" --insecure-skip-tls-verify get certificate \
+                "$cert" -n traefik -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "")
+              if [ "$READY" = "True" ]; then
+                echo "  ✅ ${cert} is ready"
+                break
+              fi
+              REASON=$(kubectl --kubeconfig "$KB" --insecure-skip-tls-verify get certificate \
+                "$cert" -n traefik -o jsonpath='{.status.conditions[?(@.type=="Issuing")].reason}' 2>/dev/null || echo "")
+              if [ "$REASON" = "Failed" ]; then
+                echo "  ⚠ ${cert} issuance failed (likely LE rate limit) — skipping wait, backup will be skipped"
+                break
+              fi
+              echo "  Waiting for ${cert} ($i/90)..."
+              sleep 10
+            done
           done
+          echo "==> Saving available TLS secret backups..."
           for secret in rlservers-com-wildcard-tls int-rlservers-com-tls; do
             YAML=$(kubectl --kubeconfig "$KB" --insecure-skip-tls-verify get secret "$secret" -n traefik -o yaml 2>/dev/null || echo "")
             if [ "${#YAML}" -gt 100 ]; then
               echo "$YAML" > "$BACKUP_DIR/${secret}.yaml"
               echo "  ✅ Backup updated: $secret (${#YAML} bytes)"
             else
-              echo "  ⚠ $secret not available for backup"
+              echo "  ⚠ $secret not available for backup (rate-limited or not yet issued)"
             fi
           done
 

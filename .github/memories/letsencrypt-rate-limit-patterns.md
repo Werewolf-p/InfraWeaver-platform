@@ -23,6 +23,43 @@ Multiple full redeployments on the same day hit this limit quickly for any cert 
 > during multiple same-day redeployments. The bundle is one large SAN set — each new domain added
 > creates a new exact set with a fresh 5-cert allowance.
 
+## Primary Fix: Backup & Restore TLS Secrets Across Redeployments
+
+The real solution to avoid rate limits is to **backup TLS secrets before destroy** and **restore after deploy**.
+This way cert-manager never needs to re-issue certificates on redeployments.
+
+### Workflow Steps (full-redeploy.yml)
+
+1. **`Backup TLS secrets before destroy`** (before `Destroy existing platform`):
+   - Saves `rlservers-com-wildcard-tls` and `int-rlservers-com-tls` from `traefik` namespace
+   - Uses variable capture (`YAML=$(kubectl ...)`) then checks `${#YAML} -gt 100` before writing
+   - Uses `--insecure-skip-tls-verify` because old kubeconfig CA may be stale after full destroy
+   - Location: `/opt/platform-tls-backup/`
+
+2. **`Bootstrap ExternalSecrets + TLS Restore`** (after ArgoCD deploys Traefik):
+   - Waits for `traefik` namespace to exist
+   - Applies backup files via `kubectl apply`, stripping `resourceVersion/uid/creationTimestamp`
+   - If backup is empty/missing, cert-manager issues fresh certs (rate limit risk)
+
+3. **`Refresh TLS secret backup`** (after post-deploy tests succeed):
+   - Waits for both `rlservers-com-wildcard` AND `int-rlservers-com-wildcard` to be ready
+   - Skips certs with `reason=Failed` (rate-limited) to avoid overwriting good backup with empty
+   - Updates backup files for next redeploy
+
+### Critical: What Broke the Backup
+
+The backup shell redirect pattern `kubectl get secret ... > file` **creates an empty file even if kubectl fails**
+because the redirect truncates the file before kubectl runs. Fix: capture to variable first.
+
+```bash
+# WRONG — creates empty file on kubectl failure:
+kubectl get secret foo -o yaml > /backup/foo.yaml
+
+# CORRECT — only writes if kubectl succeeds and returns data:
+YAML=$(kubectl get secret foo -o yaml 2>/dev/null || echo "")
+if [ ${#YAML} -gt 100 ]; then echo "$YAML" > /backup/foo.yaml; fi
+```
+
 ## Rate Limit Bypass: Change the SAN Set
 
 When a cert hits rate limits for its exact identifier set, add/remove a domain to create a **new exact set**:
