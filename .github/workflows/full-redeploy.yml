@@ -966,16 +966,9 @@ jobs:
             SECRET_NAME=$(basename "$secret_file" .yaml)
             # Strip resource version and uid so kubectl apply doesn't conflict
             # Use python3+yaml (not jq) because backup files are YAML, not JSON
-            python3 -c "
-import sys, yaml
-with open('$secret_file') as f:
-    data = yaml.safe_load(f)
-for key in ['resourceVersion', 'uid', 'creationTimestamp', 'managedFields']:
-    data['metadata'].pop(key, None)
-if 'annotations' in data.get('metadata', {}):
-    data['metadata']['annotations'].pop('kubectl.kubernetes.io/last-applied-configuration', None)
-print(yaml.dump(data, default_flow_style=False))
-" | kubectl --kubeconfig "$KB" apply -f - 2>/dev/null && \
+            # Script is base64-encoded to avoid YAML block-scalar indentation issues
+            STRIP_PY=$(echo 'aW1wb3J0IHN5cywgeWFtbAp3aXRoIG9wZW4oc3lzLmFyZ3ZbMV0pIGFzIGY6CiAgICBkYXRhID0geWFtbC5zYWZlX2xvYWQoZikKZm9yIGtleSBpbiBbInJlc291cmNlVmVyc2lvbiIsICJ1aWQiLCAiY3JlYXRpb25UaW1lc3RhbXAiLCAibWFuYWdlZEZpZWxkcyJdOgogICAgZGF0YVsibWV0YWRhdGEiXS5wb3Aoa2V5LCBOb25lKQppZiAiYW5ub3RhdGlvbnMiIGluIGRhdGEuZ2V0KCJtZXRhZGF0YSIsIHt9KToKICAgIGRhdGFbIm1ldGFkYXRhIl1bImFubm90YXRpb25zIl0ucG9wKCJrdWJlY3RsLmt1YmVybmV0ZXMuaW8vbGFzdC1hcHBsaWVkLWNvbmZpZ3VyYXRpb24iLCBOb25lKQpwcmludCh5YW1sLmR1bXAoZGF0YSwgZGVmYXVsdF9mbG93X3N0eWxlPUZhbHNlKSkK' | base64 -d)
+            python3 - "$secret_file" <<< "$STRIP_PY" | kubectl --kubeconfig "$KB" apply -f - 2>/dev/null && \
               echo "  ✅ Restored: $SECRET_NAME" || \
               echo "  ⚠ Could not restore $SECRET_NAME (cert-manager will issue fresh cert)"
           done
