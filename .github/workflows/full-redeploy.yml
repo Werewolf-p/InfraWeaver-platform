@@ -163,16 +163,9 @@ jobs:
             SIZE=${#YAML}
             if [ "$SIZE" -gt 100 ]; then
               # Only backup if issued by Let's Encrypt (not self-signed) to avoid persisting bad certs
-              CERT_ISSUER=$(echo "$YAML" | python3 -c "
-import sys, base64, subprocess
-data = sys.stdin.read()
-import re
-m = re.search(r'tls\.crt: ([A-Za-z0-9+/=]+)', data)
-if m:
-    crt = base64.b64decode(m.group(1))
-    r = subprocess.run(['openssl','x509','-noout','-issuer'], input=crt, capture_output=True)
-    print(r.stdout.decode().strip())
-" 2>/dev/null || echo "unknown")
+              # Base64-encoded Python avoids YAML column-0 parsing issues in block scalars.
+              _CERT_PY="aW1wb3J0IHN5cywgYmFzZTY0LCBzdWJwcm9jZXNzLCByZQpkYXRhID0gc3lzLnN0ZGluLnJlYWQoKQptID0gcmUuc2VhcmNoKHIidGxzXC5jcnQ6IChbQS1aYS16MC05Ky89XSspIiwgZGF0YSkKaWYgbToKICAgIGNydCA9IGJhc2U2NC5iNjRkZWNvZGUobS5ncm91cCgxKSkKICAgIHIgPSBzdWJwcm9jZXNzLnJ1bihbIm9wZW5zc2wiLCJ4NTA5IiwiLW5vb3V0IiwiLWlzc3VlciJdLCBpbnB1dD1jcnQsIGNhcHR1cmVfb3V0cHV0PVRydWUpCiAgICBwcmludChyLnN0ZG91dC5kZWNvZGUoKS5zdHJpcCgpKQo="
+              CERT_ISSUER=$(echo "$YAML" | python3 <(echo "$_CERT_PY" | base64 -d) 2>/dev/null || echo "unknown")
               if echo "$CERT_ISSUER" | grep -qi "Let's Encrypt\|letsencrypt\|ISRG"; then
                 echo "$YAML" > "$BACKUP_DIR/${secret}.yaml"
                 echo "  ✅ Backed up: $secret (${SIZE} bytes, issuer: $CERT_ISSUER)"
@@ -1191,25 +1184,10 @@ if m:
             sleep 10
           done
           echo "==> Setting user group memberships..."
-          $KT exec -n authentik "$WORKER_POD" -- ak shell -c "
-from authentik.core.models import User, Group
-# Ensure both platform groups exist (blueprint-access-control creates them, but may not be loaded yet)
-admins_grp, _ = Group.objects.get_or_create(name='platform-admins')
-users_grp, _ = Group.objects.get_or_create(name='platform-users')
-ak_admins_grp, _ = Group.objects.get_or_create(name='authentik Admins')
-# remon → platform-admins + authentik Admins (superuser access)
-remon = User.objects.get(username='remon')
-admins_grp.users.add(remon); ak_admins_grp.users.add(remon); users_grp.users.add(remon)
-print('OK: remon → platform-admins + authentik Admins + platform-users')
-# ardaty → platform-users only
-try:
-    ardaty = User.objects.get(username='ardaty')
-    users_grp.users.add(ardaty)
-    print('OK: ardaty → platform-users')
-except User.DoesNotExist:
-    print('WARN: ardaty user not found — blueprint may not have run yet')
-"
-          echo "✅ User group memberships set"
+          # Base64-encoded Python avoids YAML column-0 parsing issues in block scalars.
+          _GROUPS_PY="ZnJvbSBhdXRoZW50aWsuY29yZS5tb2RlbHMgaW1wb3J0IFVzZXIsIEdyb3VwCmFkbWluc19ncnAsIF8gPSBHcm91cC5vYmplY3RzLmdldF9vcl9jcmVhdGUobmFtZT0ncGxhdGZvcm0tYWRtaW5zJykKdXNlcnNfZ3JwLCBfID0gR3JvdXAub2JqZWN0cy5nZXRfb3JfY3JlYXRlKG5hbWU9J3BsYXRmb3JtLXVzZXJzJykKYWtfYWRtaW5zX2dycCwgXyA9IEdyb3VwLm9iamVjdHMuZ2V0X29yX2NyZWF0ZShuYW1lPSdhdXRoZW50aWsgQWRtaW5zJykKcmVtb24gPSBVc2VyLm9iamVjdHMuZ2V0KHVzZXJuYW1lPSdyZW1vbicpCmFkbWluc19ncnAudXNlcnMuYWRkKHJlbW9uKTsgYWtfYWRtaW5zX2dycC51c2Vycy5hZGQocmVtb24pOyB1c2Vyc19ncnAudXNlcnMuYWRkKHJlbW9uKQpwcmludCgnT0s6IHJlbW9uIC0+IHBsYXRmb3JtLWFkbWlucyArIGF1dGhlbnRpayBBZG1pbnMgKyBwbGF0Zm9ybS11c2VycycpCnRyeToKICAgIGFyZGF0eSA9IFVzZXIub2JqZWN0cy5nZXQodXNlcm5hbWU9J2FyZGF0eScpCiAgICB1c2Vyc19ncnAudXNlcnMuYWRkKGFyZGF0eSkKICAgIHByaW50KCdPSzogYXJkYXR5IC0+IHBsYXRmb3JtLXVzZXJzJykKZXhjZXB0IFVzZXIuRG9lc05vdEV4aXN0OgogICAgcHJpbnQoJ1dBUk46IGFyZGF0eSB1c2VyIG5vdCBmb3VuZCAtLSBibHVlcHJpbnQgbWF5IG5vdCBoYXZlIHJ1biB5ZXQnKQo="
+          echo "$_GROUPS_PY" | base64 -d | $KT exec -i -n authentik "$WORKER_POD" -- ak shell
+          echo "✅ User group memberships set" 
 
           # Send password reset link to remon (so they can set their own password securely)
           echo "==> Configuring recovery flow and getting password recovery link for remon..."
@@ -1455,16 +1433,9 @@ except User.DoesNotExist:
           for secret in rlservers-com-wildcard-tls int-rlservers-com-tls; do
             YAML=$(kubectl --kubeconfig "$KB" --insecure-skip-tls-verify get secret "$secret" -n traefik -o yaml 2>/dev/null || echo "")
             if [ "${#YAML}" -gt 100 ]; then
-              CERT_ISSUER=$(echo "$YAML" | python3 -c "
-import sys, base64, subprocess
-data = sys.stdin.read()
-import re
-m = re.search(r'tls\.crt: ([A-Za-z0-9+/=]+)', data)
-if m:
-    crt = base64.b64decode(m.group(1))
-    r = subprocess.run(['openssl','x509','-noout','-issuer'], input=crt, capture_output=True)
-    print(r.stdout.decode().strip())
-" 2>/dev/null || echo "unknown")
+              # Base64-encoded Python avoids YAML column-0 parsing issues in block scalars.
+              _CERT_PY="aW1wb3J0IHN5cywgYmFzZTY0LCBzdWJwcm9jZXNzLCByZQpkYXRhID0gc3lzLnN0ZGluLnJlYWQoKQptID0gcmUuc2VhcmNoKHIidGxzXC5jcnQ6IChbQS1aYS16MC05Ky89XSspIiwgZGF0YSkKaWYgbToKICAgIGNydCA9IGJhc2U2NC5iNjRkZWNvZGUobS5ncm91cCgxKSkKICAgIHIgPSBzdWJwcm9jZXNzLnJ1bihbIm9wZW5zc2wiLCJ4NTA5IiwiLW5vb3V0IiwiLWlzc3VlciJdLCBpbnB1dD1jcnQsIGNhcHR1cmVfb3V0cHV0PVRydWUpCiAgICBwcmludChyLnN0ZG91dC5kZWNvZGUoKS5zdHJpcCgpKQo="
+              CERT_ISSUER=$(echo "$YAML" | python3 <(echo "$_CERT_PY" | base64 -d) 2>/dev/null || echo "unknown")
               if echo "$CERT_ISSUER" | grep -qi "Let's Encrypt\|letsencrypt\|ISRG"; then
                 echo "$YAML" > "$BACKUP_DIR/${secret}.yaml"
                 echo "  ✅ Backup updated: $secret (${#YAML} bytes, issuer: $CERT_ISSUER)"
