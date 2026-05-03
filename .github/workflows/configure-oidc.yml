@@ -1,0 +1,181 @@
+name: Configure OIDC — Authentik → ArgoCD + OpenBao
+# Standalone OIDC bootstrap for an already-deployed cluster.
+# Use this when the full-redeploy's OIDC step timed out or was skipped,
+# or whenever the Authentik OAuth apps need to be re-wired.
+
+on:
+  workflow_dispatch:
+    inputs:
+      env_name:
+        description: "Environment (productie or ontwikkel)"
+        required: true
+        default: "productie"
+        type: choice
+        options: [productie, ontwikkel]
+
+jobs:
+  configure-oidc:
+    name: Configure OIDC (${{ inputs.env_name }})
+    runs-on: [self-hosted, "${{ inputs.env_name }}"]
+    timeout-minutes: 20
+    env:
+      ENV_NAME: ${{ inputs.env_name }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Export Terraform secrets
+        run: |
+          echo "ESO_SERVICE_TOKEN=${{ secrets.ESO_SERVICE_TOKEN }}" >> $GITHUB_ENV
+          echo "OPENBAO_CLUSTER_ADDR=${{ secrets.OPENBAO_CLUSTER_ADDR }}" >> $GITHUB_ENV
+
+      - name: Configure OIDC for ArgoCD and OpenBao
+        run: |
+          KB=~/.kube/config-platform-${{ env.ENV_NAME }}
+          KT="kubectl --kubeconfig $KB --insecure-skip-tls-verify"
+
+          if [ ! -f "$KB" ]; then
+            echo "❌ Kubeconfig not found at $KB — is the cluster deployed?"
+            exit 1
+          fi
+
+          # ── Regenerate Authentik admin token ──────────────────────────────
+          echo "==> Getting Authentik worker pod..."
+          WORKER_POD=$($KT get pod -n authentik \
+            -l app.kubernetes.io/component=worker \
+            -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+          if [ -z "$WORKER_POD" ]; then
+            echo "❌ Authentik worker pod not found — is Authentik deployed?"
+            exit 1
+          fi
+          echo "  Worker pod: $WORKER_POD"
+
+          # Regenerate API token (delete old, create new)
+          _AK_PY="ZnJvbSBhdXRoZW50aWsuY29yZS5tb2RlbHMgaW1wb3J0IFRva2VuLCBUb2tlbkludGVudHMsIFVzZXIKVG9rZW4ub2JqZWN0cy5maWx0ZXIoaWRlbnRpZmllcj0iZ2gtYWN0aW9ucy1hcGktdG9rZW4iKS5kZWxldGUoKQphZG1pbiA9IFVzZXIub2JqZWN0cy5nZXQodXNlcm5hbWU9ImFrYWRtaW4iKQp0ID0gVG9rZW4ub2JqZWN0cy5jcmVhdGUoaWRlbnRpZmllcj0iZ2gtYWN0aW9ucy1hcGktdG9rZW4iLCB1c2VyPWFkbWluLCBkZXNjcmlwdGlvbj0iR2l0SHViIEFjdGlvbnMgQVBJIHRva2VuIiwgaW50ZW50PVRva2VuSW50ZW50cy5JTlRFTlRfQVBJLCBleHBpcmluZz1GYWxzZSkKcHJpbnQoIlRPS0VOOiIgKyB0LmtleSkK"
+          TOKEN=$(echo "$_AK_PY" | base64 -d | \
+            $KT exec -i -n authentik "$WORKER_POD" -- ak shell \
+            2>&1 | grep "^TOKEN:" | sed 's/TOKEN://' || echo "")
+          if [ -z "$TOKEN" ]; then
+            echo "❌ Could not generate Authentik API token"
+            exit 1
+          fi
+          echo "✅ Authentik admin token generated"
+
+          # ── Port-forward Authentik server ─────────────────────────────────
+          $KT port-forward svc/authentik-server -n authentik 8088:80 > /tmp/authentik-pf.log 2>&1 &
+          AUTHENTIK_PF_PID=$!
+          sleep 5
+          AUTHENTIK_URL="http://localhost:8088"
+
+          wait_for_provider() {
+            local name="$1"
+            for i in $(seq 1 30); do
+              COUNT=$(curl -sf \
+                -H "Authorization: Bearer $TOKEN" \
+                "${AUTHENTIK_URL}/api/v3/providers/oauth2/?name=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$name'))")" \
+                2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['pagination']['count'])" 2>/dev/null || echo 0)
+              if [ "$COUNT" -gt 0 ]; then return 0; fi
+              echo "  Waiting for Authentik provider '$name' ($i/30)..."
+              sleep 10
+            done
+            return 1
+          }
+
+          # ── ArgoCD OIDC ───────────────────────────────────────────────────
+          echo "==> Fetching ArgoCD OAuth2 client_secret..."
+          wait_for_provider "ArgoCD Provider"
+          ARGOCD_SECRET=$(curl -sf \
+            -H "Authorization: Bearer $TOKEN" \
+            "${AUTHENTIK_URL}/api/v3/providers/oauth2/?name=ArgoCD%20Provider" \
+            2>/dev/null | python3 -c "import sys,json; r=json.load(sys.stdin)['results']; print(r[0]['client_secret']) if r else print('')" 2>/dev/null || echo "")
+          if [ -n "$ARGOCD_SECRET" ]; then
+            ARGOCD_SECRET_B64=$(printf '%s' "$ARGOCD_SECRET" | base64 -w0)
+            $KT patch secret argocd-secret -n argocd \
+              --type=merge \
+              -p "{\"data\": {\"oidc.authentik.clientSecret\": \"${ARGOCD_SECRET_B64}\"}}"
+            echo "✅ argocd-secret patched with OIDC client_secret"
+
+            ROOT_TOKEN=$($KT get secret openbao-unseal -n openbao \
+              -o jsonpath='{.data.root_token}' 2>/dev/null | base64 -d || echo "")
+            if [ -n "$ROOT_TOKEN" ]; then
+              $KT exec -n openbao openbao-0 -- \
+                env VAULT_TOKEN="$ROOT_TOKEN" VAULT_ADDR=http://127.0.0.1:8200 \
+                bao kv put secret/platform/argocd-oidc client_secret="$ARGOCD_SECRET" > /dev/null 2>&1 || true
+            fi
+          else
+            echo "⚠️ ArgoCD Provider not found in Authentik"
+          fi
+
+          # ── OpenBao OIDC ──────────────────────────────────────────────────
+          echo "==> Fetching OpenBao OAuth2 client_secret..."
+          wait_for_provider "OpenBao Provider"
+          OPENBAO_SECRET=$(curl -sf \
+            -H "Authorization: Bearer $TOKEN" \
+            "${AUTHENTIK_URL}/api/v3/providers/oauth2/?name=OpenBao%20Provider" \
+            2>/dev/null | python3 -c "import sys,json; r=json.load(sys.stdin)['results']; print(r[0]['client_secret']) if r else print('')" 2>/dev/null || echo "")
+
+          if [ -n "$OPENBAO_SECRET" ]; then
+            ROOT_TOKEN=$($KT get secret openbao-unseal -n openbao \
+              -o jsonpath='{.data.root_token}' 2>/dev/null | base64 -d || echo "")
+            BAO_POD=$($KT get pod -n openbao \
+              -l app.kubernetes.io/name=openbao --no-headers \
+              -o custom-columns=":metadata.name" 2>/dev/null | head -1 || echo "")
+
+            if [ -n "$ROOT_TOKEN" ] && [ -n "$BAO_POD" ]; then
+              # Check discovery URL is reachable from inside the OpenBao pod
+              DISCOVERY_URL="https://auth.rlservers.com/application/o/openbao/.well-known/openid-configuration"
+              echo "==> Waiting for OIDC discovery URL to be reachable from OpenBao pod..."
+              OIDC_URL_READY=false
+              for i in $(seq 1 60); do
+                HTTP_CODE=$($KT exec -n openbao "$BAO_POD" -- \
+                  sh -c "wget -q -O /dev/null --server-response '$DISCOVERY_URL' 2>&1 | awk '/HTTP\//{print \$2}' | tail -1" \
+                  2>/dev/null || echo "0")
+                if [ "$HTTP_CODE" = "200" ]; then
+                  echo "  ✅ Discovery URL reachable (HTTP $HTTP_CODE)"
+                  OIDC_URL_READY=true
+                  break
+                fi
+                echo "  Waiting ($i/60) — HTTP: ${HTTP_CODE:-unreachable}..."
+                sleep 10
+              done
+
+              if [ "$OIDC_URL_READY" = "true" ]; then
+                $KT exec -n openbao "$BAO_POD" -- \
+                  env VAULT_TOKEN="$ROOT_TOKEN" VAULT_ADDR=http://127.0.0.1:8200 \
+                  bao auth enable oidc 2>/dev/null || true
+
+                $KT exec -n openbao "$BAO_POD" -- \
+                  env VAULT_TOKEN="$ROOT_TOKEN" VAULT_ADDR=http://127.0.0.1:8200 \
+                  bao write auth/oidc/config \
+                    oidc_discovery_url="https://auth.rlservers.com/application/o/openbao/" \
+                    oidc_client_id="openbao" \
+                    oidc_client_secret="$OPENBAO_SECRET" \
+                    default_role="default" || echo "⚠️ bao write auth/oidc/config failed"
+                echo "✅ OpenBao OIDC config written"
+
+                ADMIN_POLICY_B64=$(printf 'path "*" {\n  capabilities = ["create", "read", "update", "delete", "list", "sudo"]\n}' | base64 -w0)
+                $KT exec -n openbao "$BAO_POD" -- \
+                  env VAULT_TOKEN="$ROOT_TOKEN" VAULT_ADDR=http://127.0.0.1:8200 \
+                  sh -c "bao policy read admin > /dev/null 2>&1 || echo $ADMIN_POLICY_B64 | base64 -d | bao policy write admin -" 2>/dev/null || true
+
+                $KT exec -n openbao "$BAO_POD" -- \
+                  env VAULT_TOKEN="$ROOT_TOKEN" VAULT_ADDR=http://127.0.0.1:8200 \
+                  bao write auth/oidc/role/default \
+                    bound_audiences="openbao" \
+                    allowed_redirect_uris="https://openbao.int.rlservers.com/ui/vault/auth/oidc/oidc/callback" \
+                    allowed_redirect_uris="http://localhost:8250/oidc/callback" \
+                    user_claim="preferred_username" \
+                    policies="admin" \
+                    ttl=8h || true
+                echo "✅ OpenBao OIDC role 'default' created"
+              else
+                echo "⚠️ Discovery URL not reachable after timeout — OIDC not configured"
+              fi
+            fi
+          else
+            echo "⚠️ OpenBao Provider not found in Authentik"
+          fi
+
+          kill $AUTHENTIK_PF_PID 2>/dev/null || true
+          echo "✅ OIDC configuration complete"
