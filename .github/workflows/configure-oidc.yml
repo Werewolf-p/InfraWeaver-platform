@@ -126,21 +126,24 @@ jobs:
               # Use internal Authentik service URL — external auth.rlservers.com is not reachable
               # from inside the cluster (hairpin NAT). OpenBao uses this URL server-side only
               # to fetch JWKS keys; clients still redirect to the external Authentik URL.
-              INTERNAL_DISCOVERY_URL="http://authentik-server.authentik.svc.cluster.local/application/o/openbao/.well-known/openid-configuration"
-              echo "==> Waiting for internal Authentik OIDC endpoint to be ready..."
+              # Pre-check via port-forward on the runner (avoids curl dependency inside openbao pod).
+              echo "==> Verifying internal Authentik OIDC endpoint via runner port-forward..."
+              $KT port-forward svc/authentik-server -n authentik 8087:80 > /tmp/authentik-pf2.log 2>&1 &
+              AK_PF2=$!
+              sleep 3
               OIDC_URL_READY=false
               for i in $(seq 1 30); do
-                HTTP_CODE=$($KT exec -n openbao "$BAO_POD" -- \
-                  sh -c "curl -sk -o /dev/null -w '%{http_code}' '$INTERNAL_DISCOVERY_URL'" \
-                  2>/dev/null || echo "0")
+                HTTP_CODE=$(curl -sf -o /dev/null -w '%{http_code}' \
+                  "http://localhost:8087/application/o/openbao/.well-known/openid-configuration" 2>/dev/null || echo "0")
                 if [ "$HTTP_CODE" = "200" ]; then
-                  echo "  ✅ Internal discovery URL ready (HTTP $HTTP_CODE)"
+                  echo "  ✅ Internal Authentik OIDC endpoint ready (HTTP $HTTP_CODE)"
                   OIDC_URL_READY=true
                   break
                 fi
                 echo "  Waiting ($i/30) — HTTP: ${HTTP_CODE:-unreachable}..."
                 sleep 10
               done
+              kill $AK_PF2 2>/dev/null || true
 
               if [ "$OIDC_URL_READY" = "true" ]; then
                 $KT exec -n openbao "$BAO_POD" -- \
@@ -153,8 +156,7 @@ jobs:
                     oidc_discovery_url="http://authentik-server.authentik.svc.cluster.local/application/o/openbao/" \
                     oidc_client_id="openbao" \
                     oidc_client_secret="$OPENBAO_SECRET" \
-                    default_role="default" || echo "⚠️ bao write auth/oidc/config failed"
-                echo "✅ OpenBao OIDC config written"
+                    default_role="default" && echo "✅ OpenBao OIDC config written" || echo "⚠️ bao write auth/oidc/config failed"
 
                 ADMIN_POLICY_B64=$(printf 'path "*" {\n  capabilities = ["create", "read", "update", "delete", "list", "sudo"]\n}' | base64 -w0)
                 $KT exec -n openbao "$BAO_POD" -- \
