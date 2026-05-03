@@ -771,6 +771,36 @@ jobs:
           # Authentik: seed secret (script handles first-deploy and remon-password patch)
           bash .github/scripts/seed-openbao-authentik.sh "$LOCAL_OPENBAO" "$ROOT_TOKEN"
 
+          # Authentik SMTP: always update OpenBao with real credentials from GitHub secrets
+          # (ESO ExternalSecret manages authentik-smtp-secret from these values)
+          if [ -n "${{ secrets.SMTP_PASSWORD }}" ]; then
+            EXISTING_SMTP=$(curl -s -H "X-Vault-Token: $ROOT_TOKEN" \
+              "${LOCAL_OPENBAO}/v1/secret/data/platform/authentik" | \
+              python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('data',{}).get('smtp-password',''))" \
+              2>/dev/null || echo "")
+            EXISTING_DATA=$(curl -s -H "X-Vault-Token: $ROOT_TOKEN" \
+              "${LOCAL_OPENBAO}/v1/secret/data/platform/authentik" | \
+              python3 -c "import json,sys; d=json.load(sys.stdin); print(__import__('json').dumps(d.get('data',{}).get('data',{})))" \
+              2>/dev/null || echo "{}")
+            SMTP_PATCHED=$(python3 -c "
+import json, sys
+d = json.loads(sys.argv[1])
+d['smtp-username'] = '${{ secrets.SMTP_USERNAME }}'
+d['smtp-password'] = '${{ secrets.SMTP_PASSWORD }}'
+d['smtp-from'] = '${{ secrets.SMTP_USERNAME }}'
+print(json.dumps({'data': d}))
+" "$EXISTING_DATA" 2>/dev/null || echo "")
+            if [ -n "$SMTP_PATCHED" ]; then
+              curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/platform/authentik" \
+                -H "X-Vault-Token: $ROOT_TOKEN" \
+                -H "Content-Type: application/json" \
+                -d "$SMTP_PATCHED" > /dev/null
+              echo "==> Authentik SMTP credentials updated in OpenBao"
+            fi
+          else
+            echo "⚠ SMTP_PASSWORD not set — authentik-smtp-secret will use placeholder"
+          fi
+
           # Cloudflare: store API token from GitHub secret (idempotent, always refresh)
           if [ -n "${{ secrets.CLOUDFLARE_API_TOKEN }}" ]; then
             curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/platform/cloudflare" \
@@ -898,15 +928,9 @@ jobs:
           kube_apply_retry "$KB" "$TMP4"
           rm -f "$TMP1" "$TMP2" "$TMP3" "$TMP4"
 
-          # Create authentik namespace + SMTP secret directly from GitHub secrets (no OpenBao round-trip)
+          # Create authentik namespace (smtp-secret is now managed by ESO from OpenBao)
           kubectl --kubeconfig "$KB" create namespace authentik \
             --dry-run=client -o yaml | kubectl --kubeconfig "$KB" apply -f - 2>/dev/null || true
-          kubectl --kubeconfig "$KB" create secret generic authentik-smtp-secret \
-            --namespace authentik \
-            --from-literal=smtp-username="${{ secrets.SMTP_USERNAME }}" \
-            --from-literal=smtp-password="${{ secrets.SMTP_PASSWORD }}" \
-            --dry-run=client -o yaml | kubectl --kubeconfig "$KB" apply -f -
-          echo "==> Authentik SMTP secret created in namespace authentik"
 
           # Apply ExternalSecret for Grafana (apps-grafana namespace)
           TMP_ES=$(mktemp)
