@@ -1,5 +1,8 @@
 name: Check Proxmox Resources
 
+permissions:
+  contents: read
+
 on:
   workflow_dispatch:
 

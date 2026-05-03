@@ -1,5 +1,8 @@
 name: Fix Cloudflare DNS — api-netbird.rlservers.com (DNS-only)
 
+permissions:
+  contents: read
+
 on:
   workflow_dispatch:
 

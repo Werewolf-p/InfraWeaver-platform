@@ -22,7 +22,7 @@ K8s Cluster (VLAN3 — 10.10.0.0/24)
   │   ├── 10.10.0.202 — NetBird Management
   │   ├── 10.10.0.203 — NetBird Signal
   │   └── 10.10.0.204 — NetBird Relay
-  └── Cloudflare → 84.82.69.110 → Traefik (10.10.0.200)
+  └── Cloudflare → <YOUR-PUBLIC-IP> → Traefik (10.10.0.200)
 
 NetBird VPN (for internal access)
   ├── Router peer advertises 10.10.0.0/24 + 10.25.0.0/24
@@ -192,6 +192,6 @@ All public traffic goes through Cloudflare (`rlservers.com`):
 | Proxmox host | 10.25.0.3 (`proxmox` node) |
 | K8s version | v1.35.4 (Talos 1.9.x) |
 | Management VLAN | VLAN3 (10.10.0.0/24) |
-| External IP | 84.82.69.110 |
+| External IP | `<YOUR-PUBLIC-IP>` (set in Cloudflare DNS) |
 | Domain | rlservers.com (Cloudflare) |
 | Backup domain | yonavaarwater.nl, zonnevaarwater.nl, waterdance.nl |

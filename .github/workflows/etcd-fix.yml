@@ -1,4 +1,12 @@
 name: Fix Etcd Corruption
+
+permissions:
+  contents: read
+
+concurrency:
+  group: etcd-fix-productie
+  cancel-in-progress: false
+
 on:
   workflow_dispatch:
     inputs:

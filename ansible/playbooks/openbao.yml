@@ -397,6 +397,7 @@
       no_log: true
 
     - name: Write dummy secret — database/config
+      # Demo placeholder — real credentials are managed by seed-openbao-authentik.sh
       uri:
         url: "http://127.0.0.1:8200/v1/secret/data/database/config"
         method: POST
@@ -407,7 +408,7 @@
         body:
           data:
             username: "db_admin"
-            password: "SuperSecretDBPass123!"
+            password: "DEMO-PLACEHOLDER-replace-before-use"
             host: "10.25.0.50"
             port: "5432"
             database: "infraweaver"
@@ -415,6 +416,7 @@
       no_log: true
 
     - name: Write dummy secret — api/keys
+      # Demo placeholder — real credentials are managed via OpenBao UI or seed scripts
       uri:
         url: "http://127.0.0.1:8200/v1/secret/data/api/keys"
         method: POST
@@ -424,8 +426,8 @@
         body_format: json
         body:
           data:
-            api_key: "sk-infraweaver-abc123def456"
-            api_secret: "whsec_infraweaver789xyz000"
+            api_key: "DEMO-PLACEHOLDER-replace-before-use"
+            api_secret: "DEMO-PLACEHOLDER-replace-before-use"
             webhook_url: "https://hooks.example.com/infraweaver"
         status_code: [200, 204]
       no_log: true

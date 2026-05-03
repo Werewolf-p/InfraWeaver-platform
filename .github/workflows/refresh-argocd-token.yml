@@ -1,4 +1,8 @@
 name: Refresh ArgoCD GitHub Token
+
+permissions:
+  contents: read
+
 on:
   workflow_dispatch:
 jobs:

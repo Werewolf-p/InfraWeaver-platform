@@ -1,4 +1,12 @@
 name: Fix MetalLB L2 for Control-Plane-Only Cluster
+
+permissions:
+  contents: read
+
+concurrency:
+  group: metallb-fix-productie
+  cancel-in-progress: false
+
 on:
   workflow_dispatch:
 

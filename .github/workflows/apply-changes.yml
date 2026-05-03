@@ -30,6 +30,9 @@ concurrency:
   group: apply-changes-${{ github.ref_name }}
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 on:
   push:
     branches: [main]

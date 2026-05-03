@@ -1,5 +1,12 @@
 name: Talos Rolling Upgrade - Add Longhorn Extensions
 
+permissions:
+  contents: read
+
+concurrency:
+  group: talos-upgrade-productie
+  cancel-in-progress: false
+
 on:
   workflow_dispatch:
     inputs:
