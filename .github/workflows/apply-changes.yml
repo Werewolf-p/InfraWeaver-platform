@@ -382,14 +382,16 @@ jobs:
           KB=~/.kube/config-platform-${{ env.ENV_NAME }}
           KT="kubectl --kubeconfig $KB --insecure-skip-tls-verify"
 
+          APP_NAME="apps-authentik-manifests"
+
           for i in $(seq 1 12); do
-            SYNC=$($KT get application authentik -n argocd -o jsonpath='{.status.sync.status}' 2>/dev/null || echo "Unknown")
-            HEALTH=$($KT get application authentik -n argocd -o jsonpath='{.status.health.status}' 2>/dev/null || echo "Unknown")
-            echo "  [${i}/12] authentik: sync=$SYNC health=$HEALTH"
+            SYNC=$($KT get application "$APP_NAME" -n argocd -o jsonpath='{.status.sync.status}' 2>/dev/null || echo "Unknown")
+            HEALTH=$($KT get application "$APP_NAME" -n argocd -o jsonpath='{.status.health.status}' 2>/dev/null || echo "Unknown")
+            echo "  [${i}/12] $APP_NAME: sync=$SYNC health=$HEALTH"
             if [ "$SYNC" = "Synced" ] && [ "$HEALTH" = "Healthy" ]; then
-              echo "✅ Authentik app: Synced + Healthy" >> $GITHUB_STEP_SUMMARY
+              echo "✅ Authentik app ($APP_NAME): Synced + Healthy" >> $GITHUB_STEP_SUMMARY
               exit 0
             fi
             sleep 10
           done
-          echo "⚠️  Authentik app not Synced+Healthy after 2 min" >> $GITHUB_STEP_SUMMARY
+          echo "⚠️  Authentik app ($APP_NAME) not Synced+Healthy after 2 min — check ArgoCD UI" >> $GITHUB_STEP_SUMMARY
