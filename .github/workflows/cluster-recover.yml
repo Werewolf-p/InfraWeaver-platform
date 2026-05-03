@@ -1,8 +1,5 @@
 name: Cluster Recovery & MetalLB Fix
 
-permissions:
-  contents: read
-
 concurrency:
   group: cluster-recover-productie
   cancel-in-progress: false

@@ -16,7 +16,7 @@ on:
 jobs:
   configure-oidc:
     name: Configure OIDC (${{ inputs.env_name }})
-    runs-on: [self-hosted, "${{ inputs.env_name }}"]
+    runs-on: [self-hosted, management-host]
     timeout-minutes: 20
     env:
       ENV_NAME: ${{ inputs.env_name }}
