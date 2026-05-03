@@ -44,6 +44,13 @@ resource "kubernetes_namespace" "argocd" {
       "app.kubernetes.io/part-of"    = "platform-bootstrap"
     }
   }
+
+  lifecycle {
+    # Ignore changes to labels/annotations added by ArgoCD or other controllers
+    # after initial creation. Also prevents re-creation if namespace already exists
+    # and was imported into state.
+    ignore_changes = [metadata[0].labels, metadata[0].annotations]
+  }
 }
 
 # ---------------------------------------------------------------------------

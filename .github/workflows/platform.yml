@@ -198,6 +198,26 @@ jobs:
             -target=local_sensitive_file.talosconfig \
             -auto-approve 2>&1
 
+          # ── Pre-flight: import existing K8s resources into state ───────────
+          # Prevents "already exists" errors when state is stale (e.g. runner
+          # was recreated or platform_bootstrap was first deployed manually).
+          # tofu import is idempotent: no-ops if resource is already in state.
+          KB="$HOME/.kube/config-platform-${ENV}"
+          if [ -f "$KB" ]; then
+            import_if_missing() {
+              local ADDR=$1 ID=$2
+              if ! tofu state show "$ADDR" > /dev/null 2>&1; then
+                echo "  Importing ${ADDR} (id=${ID})..."
+                tofu import $VARS "$ADDR" "$ID" 2>&1 || echo "  WARN: import failed for ${ADDR} — may not exist yet"
+              else
+                echo "  ✅ ${ADDR} already in state — skip import"
+              fi
+            }
+            export KUBECONFIG="$KB"
+            echo "==> Pre-flight: importing existing K8s resources into Tofu state..."
+            import_if_missing "module.platform_bootstrap[0].kubernetes_namespace.argocd" "argocd"
+          fi
+
           # Stage 2: deploy platform bootstrap (ArgoCD + ApplicationSet)
           tofu apply $VARS -auto-approve 2>&1
 
