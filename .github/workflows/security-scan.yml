@@ -121,7 +121,31 @@ jobs:
 
   security-gate:
     name: Security Gate
-    needs: [secret-scan, checkov, sops-validation, kubernetes-manifests, actionlint, trivy-scan]
+    needs: [secret-scan, checkov, sops-validation, kubernetes-manifests, actionlint, trivy-scan, helm-lint]
     runs-on: ubuntu-latest
     steps:
       - run: echo "✅ All security checks passed"
+
+  helm-lint:
+    name: Helm — Values Structure Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check Helm app structure and YAML validity
+        run: |
+          FAIL=0
+          for dir in kubernetes/core/*/ kubernetes/apps/*/ kubernetes/monitoring/*/; do
+            if [ -f "${dir}application.yaml" ] && [ ! -f "${dir}values.yaml" ]; then
+              echo "⚠️  ${dir} has application.yaml but no values.yaml"
+            fi
+            if [ -f "${dir}values.yaml" ]; then
+              if python3 -c "import yaml; yaml.safe_load(open('${dir}values.yaml'))" 2>/dev/null; then
+                echo "✅ ${dir}values.yaml — valid YAML"
+              else
+                echo "❌ ${dir}values.yaml — invalid YAML"
+                FAIL=1
+              fi
+            fi
+          done
+          [ $FAIL -eq 0 ] && echo "✅ Helm values structure check passed"
+          exit $FAIL

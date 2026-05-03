@@ -85,3 +85,6 @@ Thumbs.db
 # Generated credentials (kubeconfig, talosconfig)
 # Catalog files for AI agents
 terraform/backend.hcl
+
+# Local development environment (contains real secrets — never commit)
+.env

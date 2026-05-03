@@ -7,27 +7,58 @@ All secrets are randomly generated and stored in OpenBao — **zero hardcoded cr
 
 ## Architecture
 
+```mermaid
+flowchart TD
+    subgraph Proxmox["☁️ Proxmox VE (10.25.0.3)"]
+        PVE_RUNNER["VM 9100 — GitHub Actions Runner"]
+        PVE_OPENBAO["VM 9200 — OpenBao (Vault)"]
+        PVE_NB["VM 9250 — NetBird Router Peer"]
+        PVE_K8S["VMs 9300/9301/9302 — Talos K8s (3 CP nodes)"]
+    end
+
+    subgraph K8s["🐳 Kubernetes Cluster (VLAN3 10.10.0.0/24)"]
+        TRAEFIK["Traefik Ingress (MetalLB 10.10.0.200)"]
+        ARGOCD["ArgoCD (GitOps)"]
+        AUTHENTIK["Authentik (SSO/IdP)"]
+        NETBIRD["NetBird (VPN)"]
+        CERTMGR["cert-manager (TLS)"]
+        ESO["External Secrets Operator"]
+        LONGHORN["Longhorn (HA Storage)"]
+        PROMETHEUS["Prometheus + Grafana"]
+    end
+
+    subgraph Secrets["🔐 Secrets Flow"]
+        OPENBAO_SVC["OpenBao"] --> ESO
+        ESO --> K8S_SECRET["K8s Secrets"]
+        K8S_SECRET --> AUTHENTIK
+        K8S_SECRET --> NETBIRD
+    end
+
+    subgraph Access["🌐 Traffic Flow"]
+        USER["User / Browser"]
+        CF["Cloudflare DNS"]
+        NB_CLIENT["NetBird VPN Client"]
+    end
+
+    USER -->|"HTTPS (public)"| CF
+    CF -->|"→ YOUR_PUBLIC_IP"| TRAEFIK
+    NB_CLIENT -->|"NetBird VPN"| PVE_NB
+    PVE_NB -->|"routes 10.10.0.0/24"| TRAEFIK
+    TRAEFIK -->|"auth.rlservers.com"| AUTHENTIK
+    TRAEFIK -->|"*.int.rlservers.com (VPN only)"| ARGOCD
+    TRAEFIK -->|"netbird.rlservers.com"| NETBIRD
+    ARGOCD -->|"polls Git repo"| GIT[("GitHub Repo")]
+    GIT -->|"push triggers"| CI["GitHub Actions CI/CD"]
+    CI -->|"tofu apply"| Proxmox
+    CERTMGR -->|"DNS-01 challenge"| CF
+    LONGHORN -->|"replicated PVCs"| K8s
 ```
-Proxmox VE (10.25.0.3)
-  ├── VM 9000 — Ubuntu Cloud-Init Template
-  ├── VM 9100 — GitHub Actions Runner   (10.25.0.85)
-  ├── VM 9200 — OpenBao (Vault)         (10.25.0.86)
-  ├── VM 9250 — NetBird Router Peer     (10.10.0.10, VLAN3)
-  └── VMs 9300/9301/9302 — Talos K8s CP (10.10.0.90/91/92, VLAN3)
 
-K8s Cluster (VLAN3 — 10.10.0.0/24)
-  ├── MetalLB VIPs
-  │   ├── 10.10.0.200 — Traefik (main ingress)
-  │   ├── 10.10.0.201 — CoreDNS (pushed via NetBird)
-  │   ├── 10.10.0.202 — NetBird Management
-  │   ├── 10.10.0.203 — NetBird Signal
-  │   └── 10.10.0.204 — NetBird Relay
-  └── Cloudflare → <YOUR-PUBLIC-IP> → Traefik (10.10.0.200)
+> **Traffic:** User → Cloudflare → Traefik → App  
+> **Internal (VPN):** Device → NetBird → VLAN3 → Traefik → `*.int.rlservers.com`  
+> **Secrets:** OpenBao → ESO → K8s Secret → Pod env var  
+> **GitOps:** git push → ArgoCD auto-sync (~3 min) | Terraform changes → `platform.yml` workflow
 
-NetBird VPN (for internal access)
-  ├── Router peer advertises 10.10.0.0/24 + 10.25.0.0/24
-  ├── DNS pushed to 10.10.0.201 (CoreDNS in K8s)
-  └── *.int.rlservers.com — VPN-only (netbird-vpn-only middleware)
 ```
 
 ## Public Services

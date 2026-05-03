@@ -1,4 +1,6 @@
-.PHONY: help init plan apply destroy kubeconfig argocd-password bootstrap-cluster
+.PHONY: help init plan apply destroy kubeconfig argocd-password bootstrap-cluster \
+        bootstrap push-secrets validate fmt lint lint-yaml lint-helm lint-actions \
+        new-app new-user test docs
 
 ENV       ?= ontwikkel
 STATE_DIR := $(HOME)/.tofu/state/platform-$(ENV)
@@ -112,3 +114,98 @@ argocd-ui:
 	KUBECONFIG=~/.kube/config-platform-$(ENV) \
 		kubectl port-forward svc/argocd-server -n argocd 8080:80
 
+
+# ---------------------------------------------------------------------------
+# Developer Experience — Bootstrap & Local Setup
+# ---------------------------------------------------------------------------
+
+bootstrap: ## Validate local dev environment (tools, .env, SOPS, tofu)
+@bash scripts/bootstrap-local.sh
+
+push-secrets: ## Sync .env → GitHub Secrets using gh CLI
+@bash scripts/push-secrets-to-github.sh
+
+validate: ## Run tofu validate (no network/state needed)
+@echo "==> Running tofu validate..."
+@cd terraform && tofu init -backend=false -no-color -input=false >/dev/null 2>&1 && tofu validate
+
+fmt: ## Format all Terraform files in-place
+@echo "==> Formatting Terraform..."
+@tofu fmt -recursive terraform/
+
+# ---------------------------------------------------------------------------
+# Linting
+# ---------------------------------------------------------------------------
+
+lint: lint-yaml lint-helm lint-actions ## Run all linters
+
+lint-yaml: ## Lint all YAML files with yamllint
+@if command -v yamllint >/dev/null 2>&1; then \
+  echo "==> Running yamllint..."; \
+  yamllint -c .yamllint.yaml kubernetes/ || true; \
+else \
+  echo "WARN: yamllint not found — install: pip install yamllint"; \
+fi
+
+lint-helm: ## Check Helm chart values files exist alongside application.yaml
+@echo "==> Checking Helm app structure..."; \
+FAIL=0; \
+for dir in kubernetes/core/*/ kubernetes/apps/*/ kubernetes/monitoring/*/; do \
+  if [ -f "$${dir}application.yaml" ] && [ ! -f "$${dir}values.yaml" ]; then \
+    echo "  WARN: $${dir} has application.yaml but no values.yaml"; \
+  fi; \
+done; \
+echo "  Helm structure check complete"
+
+lint-actions: ## Lint GitHub Actions workflows with actionlint
+@if command -v actionlint >/dev/null 2>&1; then \
+  echo "==> Running actionlint..."; \
+  actionlint .github/workflows/*.yml; \
+else \
+  echo "WARN: actionlint not found — https://github.com/rhysd/actionlint/releases"; \
+fi
+
+# ---------------------------------------------------------------------------
+# Scaffolding — New App / New User
+# ---------------------------------------------------------------------------
+
+new-app: ## Scaffold a new K8s app: make new-app NAME=myapp TIER=apps
+@if [ -z "$(NAME)" ]; then \
+  echo "Usage: make new-app NAME=<app-name> [TIER=apps|core|monitoring]"; \
+  exit 1; \
+fi
+@bash scripts/new-app.sh "$(NAME)" "$(or $(TIER),apps)"
+
+new-user: ## Guide for adding a new platform user: make new-user USER=alice NAME="Alice" EMAIL=a@b.com LEVEL=platform-user
+@if [ -z "$(USER)" ]; then \
+  echo "Usage: make new-user USER=<username> NAME='<Full Name>' EMAIL=<email> [LEVEL=admin|platform-user]"; \
+  exit 1; \
+fi
+@bash scripts/new-user.sh "$(USER)" "$(or $(NAME),$(USER))" "$(EMAIL)" "$(or $(LEVEL),platform-user)"
+
+# ---------------------------------------------------------------------------
+# Testing
+# ---------------------------------------------------------------------------
+
+test: ## Run post-deploy test suite against live cluster
+@KB=~/.kube/config-platform-$(ENV); \
+if [ ! -f "$$KB" ]; then \
+  echo "Kubeconfig not found at $$KB"; \
+  echo "Run: bash scripts/get-kubeconfig.sh $(ENV)"; \
+  exit 1; \
+fi; \
+bash scripts/test-post-deploy.sh "$$KB" "$(ENV)"
+
+# ---------------------------------------------------------------------------
+# Documentation
+# ---------------------------------------------------------------------------
+
+docs: ## Generate Terraform module README.md files (requires terraform-docs)
+@if command -v terraform-docs >/dev/null 2>&1; then \
+  for mod in terraform/modules/*/; do \
+    echo "==> Generating docs for $${mod}..."; \
+    terraform-docs markdown table --output-file README.md "$${mod}" || true; \
+  done; \
+else \
+  echo "WARN: terraform-docs not found — https://terraform-docs.io"; \
+fi

@@ -414,3 +414,20 @@ jobs:
           KB=~/.kube/config-platform-${{ env.ENV_NAME }}
           bash scripts/test-post-deploy.sh "$KB" "${{ env.ENV_NAME }}" 2>&1 || true
           echo "✅ Post-deploy test suite complete (non-blocking)" >> $GITHUB_STEP_SUMMARY
+
+      - name: Write deploy summary
+        if: always()
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "## 🚀 Deploy Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Step | Result |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Trigger | push to \`${{ github.ref_name }}\` by \`${{ github.actor }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Commit | [\`${{ github.sha }}\`](${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | \`${{ env.ENV_NAME }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| User config changed | \`${{ needs.detect.outputs.user_config }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| New users added | \`${{ needs.detect.outputs.new_users }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "_Full logs: [Actions run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})_" >> $GITHUB_STEP_SUMMARY

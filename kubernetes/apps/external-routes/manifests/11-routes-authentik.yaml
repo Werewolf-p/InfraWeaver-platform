@@ -37,6 +37,8 @@ spec:
       middlewares:
         - name: cors-authentik
           namespace: traefik
+        - name: rate-limit-auth      # brute-force protection on public auth endpoint
+          namespace: traefik
       services:
         - name: authentik-server
           namespace: authentik
