@@ -240,6 +240,10 @@ resource "null_resource" "import_talos_disk" {
     datastore     = each.value.datastore
     disk_gb       = each.value.disk_gb
     talos_version = var.talos_version
+    # Store SSH info so destroy provisioner can reference self.triggers.* 
+    # (destroy provisioners may not reference vars/locals/other resources)
+    node_ip  = var.proxmox_nodes_ips[each.value.proxmox_node]
+    ssh_opts = local.ssh_opts
   }
 
   depends_on = [
@@ -313,10 +317,12 @@ resource "null_resource" "import_talos_disk" {
     # delete the LVM thin volume when the VM is destroyed. If it survives,
     # the next apply's EXISTING check will find virtio0 and skip re-import,
     # causing nodes to boot with old Talos config and old cluster secrets.
+    # NOTE: destroy provisioners may only reference self.* and each.* — not
+    # var.* or local.* — so SSH opts and node IP are stored in triggers.
     command = <<-BASH
-      SSH_OPTS="${local.ssh_opts}"
-      NODE_IP="${var.proxmox_nodes_ips[each.value.proxmox_node]}"
-      VMID="${each.value.vm_id}"
+      SSH_OPTS="${self.triggers.ssh_opts}"
+      NODE_IP="${self.triggers.node_ip}"
+      VMID="${self.triggers.vm_id}"
       echo "==> [${each.key}] Explicitly removing LVM disk for VM $VMID..."
       ssh $SSH_OPTS root@"$NODE_IP" "
         qm stop $VMID --timeout 10 2>/dev/null || qm stop $VMID --skiplock 2>/dev/null || true
