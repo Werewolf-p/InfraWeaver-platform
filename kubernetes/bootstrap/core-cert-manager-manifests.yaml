@@ -33,5 +33,6 @@ spec:
         - /status
     - group: external-secrets.io
       kind: ExternalSecret
-      jsonPointers:
-        - /status
+      jqPathExpressions:
+        - .status
+        - .metadata.annotations["argocd.argoproj.io/tracking-id"]
