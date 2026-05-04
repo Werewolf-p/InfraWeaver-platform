@@ -1356,16 +1356,8 @@ jobs:
             -l app.kubernetes.io/component=worker \
             -o jsonpath='{.items[0].metadata.name}')
 
-          # Build list of (username, password-b64) pairs from users.yaml
-          USER_PW_PAIRS=$(python3 -c "
-import yaml, subprocess, sys
-with open('users.yaml') as f:
-    data = yaml.safe_load(f)
-pairs = []
-for username in data.get('users', {}):
-    pairs.append(username)
-print(' '.join(pairs))
-")
+          # Build list of usernames from users.yaml (one-liner avoids YAML 0-indent issue)
+          USER_PW_PAIRS=$(python3 -c "import yaml; d=yaml.safe_load(open('users.yaml')); print(' '.join(d.get('users', {}).keys()))")
 
           # Build Python script dynamically: read each user's password from K8s secret
           PY_PAIRS="["
@@ -1387,22 +1379,23 @@ print(' '.join(pairs))
           if [ "$HAS_ANY" = "false" ]; then
             echo "⚠️ No user passwords found in authentik-secrets — skipping force-set"
           else
-            cat > /tmp/ak_setpw.py << PYEOF
-import base64
-from authentik.core.models import User
-pairs = ${PY_PAIRS}
-for u, pb64 in pairs:
-    if not pb64:
-        print("SKIP: no password for " + u)
-        continue
-    try:
-        obj = User.objects.get(username=u)
-        obj.set_password(base64.b64decode(pb64).decode())
-        obj.save()
-        print("OK: Password set for " + u)
-    except User.DoesNotExist:
-        print("WARN: User " + u + " not found, skipping")
-PYEOF
+            # Write ak_setpw.py via printf (heredoc at col-0 breaks YAML block scalars)
+            {
+              printf 'import base64\n'
+              printf 'from authentik.core.models import User\n'
+              printf 'pairs = %s\n' "${PY_PAIRS}"
+              printf 'for u, pb64 in pairs:\n'
+              printf '    if not pb64:\n'
+              printf '        print("SKIP: no password for " + u)\n'
+              printf '        continue\n'
+              printf '    try:\n'
+              printf '        obj = User.objects.get(username=u)\n'
+              printf '        obj.set_password(base64.b64decode(pb64).decode())\n'
+              printf '        obj.save()\n'
+              printf '        print("OK: Password set for " + u)\n'
+              printf '    except User.DoesNotExist:\n'
+              printf '        print("WARN: User " + u + " not found, skipping")\n'
+            } > /tmp/ak_setpw.py
             # Write to container (avoids kubectl exec -i stdin hang)
             cat /tmp/ak_setpw.py | $KT exec -i -n authentik "$WORKER_POD" -- sh -c 'cat > /tmp/ak_setpw.py'
             $KT exec -n authentik "$WORKER_POD" -- sh -c 'ak shell < /tmp/ak_setpw.py' 2>&1 | tail -10
