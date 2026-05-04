@@ -44,13 +44,14 @@ global:
         secretKeyRef:
           name: authentik-secrets
           key: remon-password
-          optional: true   # user password — Authentik starts even if key is absent
+          # No optional: true — pod must fail if password key is missing.
+          # Silently empty password → blueprint runs without setting it → user locked out.
     - name: AUTHENTIK_ARDATY_PASSWORD
       valueFrom:
         secretKeyRef:
           name: authentik-secrets
           key: ardaty-password
-          optional: true   # user password — Authentik starts even if key is absent
+          # No optional: true — pod must fail if password key is missing.
 
     - name: AUTHENTIK_POSTGRESQL__PASSWORD
       valueFrom:

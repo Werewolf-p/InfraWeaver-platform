@@ -17,11 +17,11 @@ if [ -z "$EXISTING_AUTH" ]; then
     -H "X-Vault-Token: $ROOT_TOKEN" \
     -H "Content-Type: application/json" \
     -d "{\"data\": {
-      \"secret-key\": \"$(openssl rand -base64 40 | tr -d '/+='),\",
+      \"secret-key\": \"$(openssl rand -base64 40 | tr -d '/+=')\",
       \"postgresql-password\": \"$(openssl rand -base64 18 | tr -d '/+=')\",
       \"bootstrap-password\": \"$(openssl rand -base64 18 | tr -d '/+=')\",
       \"bootstrap-token\": \"$(openssl rand -base64 30 | tr -d '/+=')\",
-      \"remon-password\": \"$(openssl rand -base64 18 | tr -d '/+='),\",
+      \"remon-password\": \"$(openssl rand -base64 18 | tr -d '/+=')\",
       \"ardaty-password\": \"$(openssl rand -base64 18 | tr -d '/+=')\",
       \"smtp-host\": \"smtp-mail.outlook.com\",
       \"smtp-port\": \"587\",
