@@ -23,9 +23,11 @@ All three share the same 47MB image digest — `latest` == `v2.37.1`.
 
 **Root cause:** supervisord Python marshal incompatibility in the v2.37.x build. The container exits immediately before any useful log output.
 
-## Fix Applied (April 2026)
+## Fix Applied (April 2026 + re-pinned May 2026)
 
 Pinned to `v2.36.0` (released March 25, 2026) — last known good version.
+
+**NOTE (May 2026):** The file was inadvertently updated to `v2.37.1` (probably during a dependency scan or image update PR). This caused the CSS 404 symptom: the container crashed, nginx never started, the main page HTML was served from Cloudflare cache (200) but CSS assets bypassed cache and hit the dead container (404). Re-pinned to `v2.36.0` in commit `a630bb4`.
 
 ## Why it Matters
 
