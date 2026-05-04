@@ -1230,8 +1230,14 @@ jobs:
             wait "$_pid" || true
           done
           echo "==> Setting user group memberships..."
+          # Dynamic: reads from users.yaml (authentik_groups per user) — no hardcoded usernames.
+          # Copy users.yaml into the container so the Python script can parse it.
+          $KT cp users.yaml \
+            authentik/$WORKER_POD:/tmp/users.yaml 2>/dev/null || \
+            cat users.yaml | $KT exec -i -n authentik "$WORKER_POD" -- sh -c 'cat > /tmp/users.yaml'
           # Base64-encoded Python avoids YAML column-0 parsing issues in block scalars.
-          _GROUPS_PY="ZnJvbSBhdXRoZW50aWsuY29yZS5tb2RlbHMgaW1wb3J0IFVzZXIsIEdyb3VwCmFkbWluc19ncnAsIF8gPSBHcm91cC5vYmplY3RzLmdldF9vcl9jcmVhdGUobmFtZT0ncGxhdGZvcm0tYWRtaW5zJykKdXNlcnNfZ3JwLCBfID0gR3JvdXAub2JqZWN0cy5nZXRfb3JfY3JlYXRlKG5hbWU9J3BsYXRmb3JtLXVzZXJzJykKYWtfYWRtaW5zX2dycCwgXyA9IEdyb3VwLm9iamVjdHMuZ2V0X29yX2NyZWF0ZShuYW1lPSdhdXRoZW50aWsgQWRtaW5zJykKcmVtb24gPSBVc2VyLm9iamVjdHMuZ2V0KHVzZXJuYW1lPSdyZW1vbicpCmFkbWluc19ncnAudXNlcnMuYWRkKHJlbW9uKTsgYWtfYWRtaW5zX2dycC51c2Vycy5hZGQocmVtb24pOyB1c2Vyc19ncnAudXNlcnMuYWRkKHJlbW9uKQpwcmludCgnT0s6IHJlbW9uIC0+IHBsYXRmb3JtLWFkbWlucyArIGF1dGhlbnRpayBBZG1pbnMgKyBwbGF0Zm9ybS11c2VycycpCnRyeToKICAgIGFyZGF0eSA9IFVzZXIub2JqZWN0cy5nZXQodXNlcm5hbWU9J2FyZGF0eScpCiAgICB1c2Vyc19ncnAudXNlcnMuYWRkKGFyZGF0eSkKICAgIHByaW50KCdPSzogYXJkYXR5IC0+IHBsYXRmb3JtLXVzZXJzJykKZXhjZXB0IFVzZXIuRG9lc05vdEV4aXN0OgogICAgcHJpbnQoJ1dBUk46IGFyZGF0eSB1c2VyIG5vdCBmb3VuZCAtLSBibHVlcHJpbnQgbWF5IG5vdCBoYXZlIHJ1biB5ZXQnKQo="
+          # Script reads authentik_groups from users.yaml; sets is_superuser for 'authentik Admins'.
+          _GROUPS_PY="aW1wb3J0IHlhbWwKZnJvbSBhdXRoZW50aWsuY29yZS5tb2RlbHMgaW1wb3J0IFVzZXIsIEdyb3VwCgp3aXRoIG9wZW4oJy90bXAvdXNlcnMueWFtbCcsICdyJykgYXMgZjoKICAgIHVzZXJzX2RhdGEgPSB5YW1sLnNhZmVfbG9hZChmKQoKZm9yIHVzZXJuYW1lLCB1c2VyX2NmZyBpbiB1c2Vyc19kYXRhLmdldCgndXNlcnMnLCB7fSkuaXRlbXMoKToKICAgIHRyeToKICAgICAgICB1c2VyID0gVXNlci5vYmplY3RzLmdldCh1c2VybmFtZT11c2VybmFtZSkKICAgIGV4Y2VwdCBVc2VyLkRvZXNOb3RFeGlzdDoKICAgICAgICBwcmludCgnV0FSTjogVXNlciAnICsgdXNlcm5hbWUgKyAnIG5vdCBmb3VuZCwgc2tpcHBpbmcnKQogICAgICAgIGNvbnRpbnVlCgogICAgZ3JvdXBzID0gdXNlcl9jZmcuZ2V0KCdhdXRoZW50aWtfZ3JvdXBzJywgW10pCiAgICBmb3IgZ3JvdXBfbmFtZSBpbiBncm91cHM6CiAgICAgICAgZ3JwLCBfID0gR3JvdXAub2JqZWN0cy5nZXRfb3JfY3JlYXRlKG5hbWU9Z3JvdXBfbmFtZSkKICAgICAgICBncnAudXNlcnMuYWRkKHVzZXIpCiAgICAgICAgcHJpbnQoJ09LOiBBZGRlZCAnICsgdXNlcm5hbWUgKyAnIHRvICcgKyBncm91cF9uYW1lKQoKICAgIGlmICdhdXRoZW50aWsgQWRtaW5zJyBpbiBncm91cHM6CiAgICAgICAgdXNlci5pc19zdXBlcnVzZXIgPSBUcnVlCiAgICAgICAgdXNlci5zYXZlKCkKICAgICAgICBwcmludCgnT0s6IFNldCAnICsgdXNlcm5hbWUgKyAnIGFzIHN1cGVydXNlcicpCg=="
           # Write the Python to a temp file inside the container (avoids kubectl exec -i stdin
           # EOF not being forwarded to Django shell, which causes ak shell to hang indefinitely).
           echo "$_GROUPS_PY" | base64 -d | $KT exec -i -n authentik "$WORKER_POD" -- sh -c 'cat > /tmp/ak_groups.py'
