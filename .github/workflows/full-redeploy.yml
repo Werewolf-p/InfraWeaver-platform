@@ -1289,7 +1289,7 @@ jobs:
           # Write the Python to a temp file inside the container (avoids kubectl exec -i stdin
           # EOF not being forwarded to Django shell, which causes ak shell to hang indefinitely).
           echo "$_GROUPS_PY" | base64 -d | $KT exec -i -n authentik "$WORKER_POD" -- sh -c 'cat > /tmp/ak_groups.py'
-          $KT exec -n authentik "$WORKER_POD" -- ak shell < /tmp/ak_groups.py 2>&1 | tail -5
+          $KT exec -n authentik "$WORKER_POD" -- sh -c 'ak shell < /tmp/ak_groups.py' 2>&1 | tail -5
           echo "✅ User group memberships set"
 
           # Generate recovery links for all users with send_recovery_email: true
@@ -1298,7 +1298,7 @@ jobs:
           _AK_PY="ZnJvbSBhdXRoZW50aWsuY29yZS5tb2RlbHMgaW1wb3J0IFRva2VuLCBUb2tlbkludGVudHMsIFVzZXIKZnJvbSBhdXRoZW50aWsuYnJhbmRzLm1vZGVscyBpbXBvcnQgQnJhbmQKZnJvbSBhdXRoZW50aWsuZmxvd3MubW9kZWxzIGltcG9ydCBGbG93LCBGbG93RGVzaWduYXRpb24KCmZsb3csIF8gPSBGbG93Lm9iamVjdHMuZ2V0X29yX2NyZWF0ZShzbHVnPSJkZWZhdWx0LXJlY292ZXJ5LWZsb3ciLCBkZWZhdWx0cz17Im5hbWUiOiAiRGVmYXVsdCBSZWNvdmVyeSBGbG93IiwgInRpdGxlIjogIkFjY291bnQgUmVjb3ZlcnkiLCAiZGVzaWduYXRpb24iOiBGbG93RGVzaWduYXRpb24uUkVDT1ZFUll9KQpmb3IgYnJhbmQgaW4gQnJhbmQub2JqZWN0cy5hbGwoKToKICAgIGJyYW5kLmZsb3dfcmVjb3ZlcnkgPSBmbG93CiAgICBicmFuZC5zYXZlKCkKClRva2VuLm9iamVjdHMuZmlsdGVyKGlkZW50aWZpZXI9ImdoLWFjdGlvbnMtYXBpLXRva2VuIikuZGVsZXRlKCkKYWRtaW4gPSBVc2VyLm9iamVjdHMuZ2V0KHVzZXJuYW1lPSJha2FkbWluIikKdCA9IFRva2VuLm9iamVjdHMuY3JlYXRlKGlkZW50aWZpZXI9ImdoLWFjdGlvbnMtYXBpLXRva2VuIiwgdXNlcj1hZG1pbiwgZGVzY3JpcHRpb249IkdpdEh1YiBBY3Rpb25zIEFQSSB0b2tlbiIsIGludGVudD1Ub2tlbkludGVudHMuSU5URU5UX0FQSSwgZXhwaXJpbmc9RmFsc2UpCnByaW50KCJUT0tFTjoiICsgdC5rZXkpCg=="
           # Write to temp file first to avoid kubectl exec -i stdin EOF hang
           echo "$_AK_PY" | base64 -d | $KT exec -i -n authentik "$WORKER_POD" -- sh -c 'cat > /tmp/ak_token.py'
-          AUTHENTIK_ADMIN_TOKEN=$($KT exec -n authentik "$WORKER_POD" -- ak shell < /tmp/ak_token.py \
+          AUTHENTIK_ADMIN_TOKEN=$($KT exec -n authentik "$WORKER_POD" -- sh -c 'ak shell < /tmp/ak_token.py' \
             2>&1 | grep "^TOKEN:" | sed 's/TOKEN://' || echo "")
           echo "AUTHENTIK_ADMIN_TOKEN=${AUTHENTIK_ADMIN_TOKEN}" >> $GITHUB_ENV
 
@@ -1405,7 +1405,7 @@ for u, pb64 in pairs:
 PYEOF
             # Write to container (avoids kubectl exec -i stdin hang)
             cat /tmp/ak_setpw.py | $KT exec -i -n authentik "$WORKER_POD" -- sh -c 'cat > /tmp/ak_setpw.py'
-            $KT exec -n authentik "$WORKER_POD" -- ak shell < /tmp/ak_setpw.py 2>&1 | tail -10
+            $KT exec -n authentik "$WORKER_POD" -- sh -c 'ak shell < /tmp/ak_setpw.py' 2>&1 | tail -10
             rm -f /tmp/ak_setpw.py
             echo "✅ User passwords force-set"
           fi

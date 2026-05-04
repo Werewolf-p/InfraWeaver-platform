@@ -259,7 +259,7 @@ jobs:
           echo "==> Worker pod: $WORKER_POD"
 
           python3 .github/scripts/sync-authentik-users.py > /tmp/ak-group-sync.py
-          $KT exec -n authentik "$WORKER_POD" -- ak shell < /tmp/ak-group-sync.py
+          cat /tmp/ak-group-sync.py | $KT exec -i -n authentik "$WORKER_POD" -- ak shell
           echo "✅ Group memberships synced from users.yaml" >> $GITHUB_STEP_SUMMARY
 
       - name: Force-create new users and set passwords from K8s secret
