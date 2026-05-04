@@ -262,6 +262,30 @@ jobs:
           $KT exec -n authentik "$WORKER_POD" -- ak shell < /tmp/ak-group-sync.py
           echo "✅ Group memberships synced from users.yaml" >> $GITHUB_STEP_SUMMARY
 
+      - name: Force-create new users and set passwords from K8s secret
+        if: needs.detect.outputs.new_users != '[]' && needs.detect.outputs.new_users != ''
+        env:
+          NEW_USERS_JSON: ${{ needs.detect.outputs.new_users }}
+        run: |
+          KB=~/.kube/config-platform-${{ env.ENV_NAME }}
+          KT="kubectl --kubeconfig $KB --insecure-skip-tls-verify"
+
+          echo "==> Force-creating/updating new users: $NEW_USERS_JSON"
+
+          WORKER_POD=$($KT get pod -n authentik -l app.kubernetes.io/component=worker \
+            --field-selector=status.phase=Running \
+            -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+          if [ -z "$WORKER_POD" ]; then
+            WORKER_POD=$($KT get pod -n authentik -l app.kubernetes.io/component=worker \
+              -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+          fi
+
+          # Generate ak shell script that creates/updates users with passwords from K8s secret
+          python3 .github/scripts/create-new-users.py \
+            "$WORKER_POD" "$KB" "$NEW_USERS_JSON" | \
+            $KT exec -i -n authentik "$WORKER_POD" -- ak shell 2>&1 | tail -10
+          echo "✅ New users created/updated with passwords" >> $GITHUB_STEP_SUMMARY
+
       - name: Generate recovery links for new users
         id: recovery
         run: |

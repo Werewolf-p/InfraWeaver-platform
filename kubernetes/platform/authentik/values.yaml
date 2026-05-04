@@ -53,6 +53,13 @@ global:
           key: ardaty-password
           # No optional: true — pod must fail if password key is missing.
 
+    - name: AUTHENTIK_TESTUSER_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: authentik-secrets
+          key: testuser-password
+          optional: true   # testuser is ephemeral — allow missing during cleanup
+
     - name: AUTHENTIK_POSTGRESQL__PASSWORD
       valueFrom:
         secretKeyRef:

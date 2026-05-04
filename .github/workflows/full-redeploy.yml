@@ -1347,35 +1347,65 @@ jobs:
           KB=~/.kube/config-platform-${{ env.ENV_NAME }}
           KT="kubectl --kubeconfig $KB --insecure-skip-tls-verify"
 
-          # Idempotent password force-set: even if the blueprint ran before the ESO secret
-          # synced (optional:true was the old culprit), this step guarantees passwords are set.
-          # Passwords are read from the authentik-secrets K8s secret (managed by ESO/OpenBao).
-          echo "==> Force-setting user passwords from authentik-secrets K8s secret..."
+          # Idempotent password force-set: reads ALL users from users.yaml dynamically.
+          # Derives the K8s secret key name as "<username>-password".
+          # Passwords are base64-encoded in the Python script — never appear in ps aux.
+          echo "==> Force-setting user passwords from authentik-secrets K8s secret (dynamic)..."
 
           WORKER_POD=$($KT get pod -n authentik \
             -l app.kubernetes.io/component=worker \
             -o jsonpath='{.items[0].metadata.name}')
 
-          REMON_PASS=$($KT get secret authentik-secrets -n authentik \
-            -o jsonpath='{.data.remon-password}' 2>/dev/null | base64 -d || echo "")
-          ARDATY_PASS=$($KT get secret authentik-secrets -n authentik \
-            -o jsonpath='{.data.ardaty-password}' 2>/dev/null | base64 -d || echo "")
+          # Build list of (username, password-b64) pairs from users.yaml
+          USER_PW_PAIRS=$(python3 -c "
+import yaml, subprocess, sys
+with open('users.yaml') as f:
+    data = yaml.safe_load(f)
+pairs = []
+for username in data.get('users', {}):
+    pairs.append(username)
+print(' '.join(pairs))
+")
 
-          if [ -z "$REMON_PASS" ] && [ -z "$ARDATY_PASS" ]; then
-            echo "⚠️ Both user passwords are empty in authentik-secrets — skipping force-set"
+          # Build Python script dynamically: read each user's password from K8s secret
+          PY_PAIRS="["
+          HAS_ANY=false
+          for USERNAME in $USER_PW_PAIRS; do
+            SECRET_KEY="${USERNAME}-password"
+            PW=$($KT get secret authentik-secrets -n authentik \
+              -o jsonpath="{.data.${SECRET_KEY}}" 2>/dev/null | base64 -d 2>/dev/null || echo "")
+            if [ -n "$PW" ]; then
+              PW_B64=$(printf '%s' "$PW" | base64 | tr -d '\n')
+              PY_PAIRS="${PY_PAIRS}(\"${USERNAME}\", \"${PW_B64}\"),"
+              HAS_ANY=true
+            else
+              echo "  SKIP: no password in authentik-secrets for ${USERNAME}"
+            fi
+          done
+          PY_PAIRS="${PY_PAIRS}]"
+
+          if [ "$HAS_ANY" = "false" ]; then
+            echo "⚠️ No user passwords found in authentik-secrets — skipping force-set"
           else
-            # Encode passwords as base64 to avoid quote/escape issues in the Python script.
-            # The Python script base64-decodes them — passwords never appear in ps aux.
-            REMON_PW_B64=$(printf '%s' "$REMON_PASS" | base64 | tr -d '\n')
-            ARDATY_PW_B64=$(printf '%s' "$ARDATY_PASS" | base64 | tr -d '\n')
-
-            # Write Python to local temp file, then copy into container
-            printf 'import base64\nfrom authentik.core.models import User\nfor u, pb64 in [("remon", "%s"), ("ardaty", "%s")]:\n    if not pb64:\n        print("SKIP: no password for " + u)\n        continue\n    try:\n        obj = User.objects.get(username=u)\n        obj.set_password(base64.b64decode(pb64).decode())\n        obj.save()\n        print("OK: Password set for " + u)\n    except User.DoesNotExist:\n        print("WARN: User " + u + " not found, skipping")\n' \
-              "$REMON_PW_B64" "$ARDATY_PW_B64" > /tmp/ak_setpw.py
-
+            cat > /tmp/ak_setpw.py << PYEOF
+import base64
+from authentik.core.models import User
+pairs = ${PY_PAIRS}
+for u, pb64 in pairs:
+    if not pb64:
+        print("SKIP: no password for " + u)
+        continue
+    try:
+        obj = User.objects.get(username=u)
+        obj.set_password(base64.b64decode(pb64).decode())
+        obj.save()
+        print("OK: Password set for " + u)
+    except User.DoesNotExist:
+        print("WARN: User " + u + " not found, skipping")
+PYEOF
             # Write to container (avoids kubectl exec -i stdin hang)
             cat /tmp/ak_setpw.py | $KT exec -i -n authentik "$WORKER_POD" -- sh -c 'cat > /tmp/ak_setpw.py'
-            $KT exec -n authentik "$WORKER_POD" -- ak shell < /tmp/ak_setpw.py 2>&1 | tail -5
+            $KT exec -n authentik "$WORKER_POD" -- ak shell < /tmp/ak_setpw.py 2>&1 | tail -10
             rm -f /tmp/ak_setpw.py
             echo "✅ User passwords force-set"
           fi
