@@ -1358,11 +1358,14 @@ jobs:
           echo "==> Waiting for Authentik worker deployment to be ready..."
           $KT wait deployment/authentik-worker -n authentik \
             --for=condition=Available --timeout=1200s
+          # Also wait for the pod itself to be Ready (Available != pod Ready)
+          $KT wait pod -n authentik -l app.kubernetes.io/component=worker \
+            --for=condition=Ready --timeout=120s 2>/dev/null || true
           echo "  ✅ Authentik worker ready"
 
-          WORKER_POD=$($KT get pod -n authentik \
-            -l app.kubernetes.io/component=worker \
-            -o jsonpath='{.items[0].metadata.name}')
+          # Use deploy/authentik-worker -c worker instead of pod name throughout this step.
+          # This always routes to a live pod even if the pod restarts during this step.
+          AK_EXEC="$KT exec -n authentik deploy/authentik-worker -c worker --"
 
           # Wait for all users defined in users.yaml to be created (parallel checks).
           # Blueprints create users async; worker may be ready before users exist.
@@ -1372,7 +1375,7 @@ jobs:
             for i in $(seq 1 60); do
               # Use | tail -1 to strip ak shell JSON boot logs from stdout,
               # keeping only the final print() output ("yes" or "no")
-              USER_EXISTS=$($KT exec -n authentik "$WORKER_POD" -- ak shell -c \
+              USER_EXISTS=$($KT exec -n authentik deploy/authentik-worker -c worker -- ak shell -c \
                 "from authentik.core.models import User; print('yes' if User.objects.filter(username='${username}').exists() else 'no')" \
                 2>/dev/null | tail -1 || echo "no")
               [ "$USER_EXISTS" = "yes" ] && echo "  ✅ ${username} user found" && return 0
@@ -1396,26 +1399,25 @@ jobs:
           done
           echo "==> Setting user group memberships..."
           # Dynamic: reads from users.yaml (authentik_groups per user) — no hardcoded usernames.
-          # Copy users.yaml into the container so the Python script can parse it.
-          $KT cp users.yaml \
-            authentik/$WORKER_POD:/tmp/users.yaml 2>/dev/null || \
-            cat users.yaml | $KT exec -i -n authentik "$WORKER_POD" -- sh -c 'cat > /tmp/users.yaml'
           # Base64-encoded Python avoids YAML column-0 parsing issues in block scalars.
           # Script reads authentik_groups from users.yaml; sets is_superuser for 'authentik Admins'.
           _GROUPS_PY="aW1wb3J0IHlhbWwKZnJvbSBhdXRoZW50aWsuY29yZS5tb2RlbHMgaW1wb3J0IFVzZXIsIEdyb3VwCgp3aXRoIG9wZW4oJy90bXAvdXNlcnMueWFtbCcsICdyJykgYXMgZjoKICAgIHVzZXJzX2RhdGEgPSB5YW1sLnNhZmVfbG9hZChmKQoKZm9yIHVzZXJuYW1lLCB1c2VyX2NmZyBpbiB1c2Vyc19kYXRhLmdldCgndXNlcnMnLCB7fSkuaXRlbXMoKToKICAgIHRyeToKICAgICAgICB1c2VyID0gVXNlci5vYmplY3RzLmdldCh1c2VybmFtZT11c2VybmFtZSkKICAgIGV4Y2VwdCBVc2VyLkRvZXNOb3RFeGlzdDoKICAgICAgICBwcmludCgnV0FSTjogVXNlciAnICsgdXNlcm5hbWUgKyAnIG5vdCBmb3VuZCwgc2tpcHBpbmcnKQogICAgICAgIGNvbnRpbnVlCgogICAgZ3JvdXBzID0gdXNlcl9jZmcuZ2V0KCdhdXRoZW50aWtfZ3JvdXBzJywgW10pCiAgICBmb3IgZ3JvdXBfbmFtZSBpbiBncm91cHM6CiAgICAgICAgZ3JwLCBfID0gR3JvdXAub2JqZWN0cy5nZXRfb3JfY3JlYXRlKG5hbWU9Z3JvdXBfbmFtZSkKICAgICAgICBncnAudXNlcnMuYWRkKHVzZXIpCiAgICAgICAgcHJpbnQoJ09LOiBBZGRlZCAnICsgdXNlcm5hbWUgKyAnIHRvICcgKyBncm91cF9uYW1lKQoKICAgIGlmICdhdXRoZW50aWsgQWRtaW5zJyBpbiBncm91cHM6CiAgICAgICAgdXNlci5pc19zdXBlcnVzZXIgPSBUcnVlCiAgICAgICAgdXNlci5zYXZlKCkKICAgICAgICBwcmludCgnT0s6IFNldCAnICsgdXNlcm5hbWUgKyAnIGFzIHN1cGVydXNlcicpCg=="
-          # Write the Python to a temp file inside the container (avoids kubectl exec -i stdin
-          # EOF not being forwarded to Django shell, which causes ak shell to hang indefinitely).
-          echo "$_GROUPS_PY" | base64 -d | $KT exec -i -n authentik "$WORKER_POD" -- sh -c 'cat > /tmp/ak_groups.py'
-          $KT exec -n authentik "$WORKER_POD" -- sh -c 'ak shell < /tmp/ak_groups.py' 2>&1 | tail -5
+          # Two fast atomic execs using deploy/ target — avoids stale pod name issue.
+          # deploy/authentik-worker resolves to the current live pod each time.
+          cat users.yaml | $KT exec -i -n authentik deploy/authentik-worker -c worker -- sh -c 'cat > /tmp/users.yaml'
+          echo "$_GROUPS_PY" | base64 -d | \
+            $KT exec -i -n authentik deploy/authentik-worker -c worker -- \
+            sh -c 'cat > /tmp/ak_groups.py && ak shell < /tmp/ak_groups.py' 2>&1 | tail -10
           echo "✅ User group memberships set"
 
           # Generate recovery links for all users with send_recovery_email: true
           # Stores AUTHENTIK_{USERNAME_UPPER}_RECOVERY_LINK in $GITHUB_ENV for email step
           echo "==> Configuring recovery flow and generating password recovery links..."
           _AK_PY="ZnJvbSBhdXRoZW50aWsuY29yZS5tb2RlbHMgaW1wb3J0IFRva2VuLCBUb2tlbkludGVudHMsIFVzZXIKZnJvbSBhdXRoZW50aWsuYnJhbmRzLm1vZGVscyBpbXBvcnQgQnJhbmQKZnJvbSBhdXRoZW50aWsuZmxvd3MubW9kZWxzIGltcG9ydCBGbG93LCBGbG93RGVzaWduYXRpb24KCmZsb3csIF8gPSBGbG93Lm9iamVjdHMuZ2V0X29yX2NyZWF0ZShzbHVnPSJkZWZhdWx0LXJlY292ZXJ5LWZsb3ciLCBkZWZhdWx0cz17Im5hbWUiOiAiRGVmYXVsdCBSZWNvdmVyeSBGbG93IiwgInRpdGxlIjogIkFjY291bnQgUmVjb3ZlcnkiLCAiZGVzaWduYXRpb24iOiBGbG93RGVzaWduYXRpb24uUkVDT1ZFUll9KQpmb3IgYnJhbmQgaW4gQnJhbmQub2JqZWN0cy5hbGwoKToKICAgIGJyYW5kLmZsb3dfcmVjb3ZlcnkgPSBmbG93CiAgICBicmFuZC5zYXZlKCkKClRva2VuLm9iamVjdHMuZmlsdGVyKGlkZW50aWZpZXI9ImdoLWFjdGlvbnMtYXBpLXRva2VuIikuZGVsZXRlKCkKYWRtaW4gPSBVc2VyLm9iamVjdHMuZ2V0KHVzZXJuYW1lPSJha2FkbWluIikKdCA9IFRva2VuLm9iamVjdHMuY3JlYXRlKGlkZW50aWZpZXI9ImdoLWFjdGlvbnMtYXBpLXRva2VuIiwgdXNlcj1hZG1pbiwgZGVzY3JpcHRpb249IkdpdEh1YiBBY3Rpb25zIEFQSSB0b2tlbiIsIGludGVudD1Ub2tlbkludGVudHMuSU5URU5UX0FQSSwgZXhwaXJpbmc9RmFsc2UpCnByaW50KCJUT0tFTjoiICsgdC5rZXkpCg=="
-          # Write to temp file first to avoid kubectl exec -i stdin EOF hang
-          echo "$_AK_PY" | base64 -d | $KT exec -i -n authentik "$WORKER_POD" -- sh -c 'cat > /tmp/ak_token.py'
-          AUTHENTIK_ADMIN_TOKEN=$($KT exec -n authentik "$WORKER_POD" -- sh -c 'ak shell < /tmp/ak_token.py' \
+          # Single atomic exec: write script and run it in one connection to avoid stale pod name.
+          AUTHENTIK_ADMIN_TOKEN=$(echo "$_AK_PY" | base64 -d | \
+            $KT exec -i -n authentik deploy/authentik-worker -c worker -- \
+            sh -c 'cat > /tmp/ak_token.py && ak shell < /tmp/ak_token.py' \
             2>&1 | grep "^TOKEN:" | sed 's/TOKEN://' || echo "")
           echo "AUTHENTIK_ADMIN_TOKEN=${AUTHENTIK_ADMIN_TOKEN}" >> $GITHUB_ENV
 
@@ -1469,10 +1471,6 @@ jobs:
           # Passwords are base64-encoded in the Python script — never appear in ps aux.
           echo "==> Force-setting user passwords from authentik-secrets K8s secret (dynamic)..."
 
-          WORKER_POD=$($KT get pod -n authentik \
-            -l app.kubernetes.io/component=worker \
-            -o jsonpath='{.items[0].metadata.name}')
-
           # Build list of usernames from users.yaml (one-liner avoids YAML 0-indent issue)
           USER_PW_PAIRS=$(python3 -c "import yaml; d=yaml.safe_load(open('users.yaml')); print(' '.join(d.get('users', {}).keys()))")
 
@@ -1513,9 +1511,10 @@ jobs:
               printf '    except User.DoesNotExist:\n'
               printf '        print("WARN: User " + u + " not found, skipping")\n'
             } > /tmp/ak_setpw.py
-            # Write to container (avoids kubectl exec -i stdin hang)
-            cat /tmp/ak_setpw.py | $KT exec -i -n authentik "$WORKER_POD" -- sh -c 'cat > /tmp/ak_setpw.py'
-            $KT exec -n authentik "$WORKER_POD" -- sh -c 'ak shell < /tmp/ak_setpw.py' 2>&1 | tail -10
+            # Single atomic exec: write script and run it — avoids stale pod name issue.
+            cat /tmp/ak_setpw.py | \
+              $KT exec -i -n authentik deploy/authentik-worker -c worker -- \
+              sh -c 'cat > /tmp/ak_setpw.py && ak shell < /tmp/ak_setpw.py' 2>&1 | tail -10
             rm -f /tmp/ak_setpw.py
             echo "✅ User passwords force-set"
           fi
@@ -1546,10 +1545,6 @@ jobs:
             echo "⚠️ No Authentik token available — skipping non-admin welcome emails"
             exit 0
           fi
-
-          WORKER_POD=$($KT get pod -n authentik \
-            -l app.kubernetes.io/component=worker \
-            -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
 
           $KT port-forward svc/authentik-server -n authentik 8086:80 > /tmp/ak-pf-welcome.log 2>&1 &
           WELCOME_PF_PID=$!
