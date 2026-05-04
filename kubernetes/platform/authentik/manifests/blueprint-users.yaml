@@ -46,11 +46,5 @@ data:
           password: !Env AUTHENTIK_ARDATY_PASSWORD
           is_active: true
 
-      # Will be removed after user-add workflow test
-      - model: authentik_core.user
-        state: present
-        identifiers:
-        attrs:
-          email: "remonhulst@gmail.com"
-          is_active: true
+
 
