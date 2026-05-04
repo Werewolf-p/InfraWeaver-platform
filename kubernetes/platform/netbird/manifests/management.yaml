@@ -2,6 +2,15 @@
 # The init container substitutes the TURN password from the netbird-secrets Secret
 # before writing management.json to the PVC. After first boot, the PVC copy is
 # authoritative. To force config update: delete the PVC file and restart.
+#
+# OIDC split: RedirectURLs (below) is the CLIENT-side list (desktop app only).
+# It MUST contain ONLY "http://localhost:53000" — the NetBird client iterates
+# this list and picks the first port not in use locally. Including HTTPS dashboard
+# URLs (port 443) causes the client to send redirect_uri to the web dashboard
+# instead of localhost, breaking the PKCE flow (infinite /auth redirect loop).
+# Authentik provider redirect_uris (blueprint-netbird.yaml) separately allows
+# the web dashboard URLs (https://netbird.rlservers.com/auth, /silent-auth, /#callback).
+# See netbird-architecture.md memory for full explanation.
 apiVersion: v1
 kind: ConfigMap
 metadata:
