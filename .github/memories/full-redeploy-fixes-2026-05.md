@@ -1,72 +1,73 @@
-# Full Redeploy Fixes — May 2026
+# Full Redeploy Root Causes & Fixes — 2026-05
 
-## Root Causes Found & Fixed
+## Session: Full testing + optimization (2026-05-04)
 
-### 1. YAML syntax error in full-redeploy.yml (CRITICAL)
-- **Bug**: Python code at column 0 inside `run: |` blocks terminates YAML block scalars
-- **Effect**: GitHub reported "Workflow does not have 'workflow_dispatch' trigger" — couldn't trigger at all
-- **Fix**: Replace `python3 -c "multiline..."` with one-liners; replace heredocs with `printf` statements
-- **Commit**: b3365a7
+### Critical bugs found and fixed
 
-### 2. Router reconnect step hung indefinitely
-- **Bug**: "Reconnect NetBird router VM" ran BEFORE "Apply MetalLB IP Pool", so `netbird up` blocked
-  waiting for management URL `10.10.0.202` which wasn't yet active
-- **Fix**: Moved router reconnect step to AFTER Apply MetalLB; added `timeout-minutes: 4`;
-  run `netbird up &` (background) so it doesn't block SSH session
-- **Commit**: dcfd3af
+#### 1. YAML structural bug in full-redeploy.yml (commit d942c8d)
+- **Root cause**: "Fix ingress-nginx admission webhook" had no `- name:` declaration
+- **Effect**: The step was embedded as a duplicate `run:` inside "Populate NetBird routing group"
+  step. In YAML, duplicate keys are technically invalid; Go's yaml.v3 kept the FIRST `run:`
+  (routing group code) and discarded the ingress-nginx patching code entirely.
+- **Fix**: Added proper `- name: Fix ingress-nginx admission webhook` step declaration
 
-### 3. Bootstrap job finds 0 peers (timing race)
-- **Bug**: ArgoCD PostSync bootstrap job runs at apps-netbird sync time — before MetalLB and before
-  router reconnects. Routing group (routing-peers-vlan3) stays empty.
-- **Fix**: Added "Populate NetBird routing group after reconnect" step that polls the NetBird API
-  after router reconnects and adds connected peers to routing-peers-vlan3 directly.
-- **Commit**: 5833d61
+#### 2. Python at column-0 in YAML block scalars (commit b3365a7, historical)
+- Python code at column 0 inside `run: |` terminates the YAML block scalar
+- GitHub parsed the file as invalid → silently ignored `workflow_dispatch` trigger → HTTP 422
+- **Fix**: Use one-liner python3 -c; use `printf` instead of heredocs at col 0
 
-### 4. Platform Users blueprint silently failed
-- **Bug**: Leftover broken entry in blueprint-users.yaml (empty `identifiers:` from testuser cleanup)
-  caused the entire "Platform Users Setup" blueprint to fail silently — remon/ardaty not created
-- **Fix**: Removed the broken entry; added `apply_blueprint` via `BlueprintImporter.from_string()`
-  as fallback in the workflow step
-- **Commit**: e6a9f6d
+#### 3. Router reconnect ordering (commit dcfd3af, historical)
+- Router reconnect ran BEFORE MetalLB — management VIP 10.10.0.202 not yet available
+- **Fix**: Move router reconnect AFTER Apply MetalLB
 
-### 5. kubectl exec stdin (pre-existing, already fixed)
-- `kubectl exec pod -- command < file` does NOT forward stdin without `-i`
-- Fix: use `cat file | kubectl exec -i pod -- ak shell`
-- Or: write file into container, then `kubectl exec pod -- sh -c 'ak shell < /tmp/file'`
+#### 4. Routing group populate timing race (commit 5833d61, historical)
+- ArgoCD PostSync bootstrap job runs at apps-netbird sync time (before MetalLB)
+- Bootstrap job configures groups/routes but finds 0 peers → group empty
+- **Fix**: Dedicated "Populate NetBird routing group after reconnect" step after router reconnect
 
-## Step Order in full-redeploy.yml (critical)
-1. Deploy Platform (Terraform)
-2. Save kubeconfig
-3. Fix CoreDNS startup race
-4. Deploy ArgoCD & Bootstrap (ArgoCD syncs apps → bootstrap job runs → finds 0 peers)
-5. Bootstrap Storage
-6. Bootstrap OpenBao + ExternalSecrets
-7. Bootstrap ExternalSecrets + TLS Restore
-8. Ensure Cloudflare DNS
-9. **Apply MetalLB IP Pool + Traefik Middleware** ← MetalLB now active (10.10.0.202)
-10. **Reconnect NetBird router VM** ← router reconnects (needs MetalLB active)
-11. **Populate NetBird routing group** ← adds router to routing-peers-vlan3
-12. Fix ingress-nginx
-13. Patch CoreDNS
-14. Set Authentik admin privileges (waits for Authentik worker + users)
-15. Force-set user passwords
-16. Send welcome emails
-17. Configure OIDC
-18. Run post-deploy tests
-19. Refresh TLS backups
-20. Send deployment summary
+#### 5. Blueprint broken empty identifiers (commit e6a9f6d, historical)
+- blueprint-users.yaml had a stray entry with empty `identifiers:` (null username)
+- Authentik blueprint failed silently → users not created after redeploy
+- **Fix**: Remove broken entry
 
-## Known Non-Issues (pre-existing)
-- `external-routes: Degraded` — pre-existing, needs investigation
-- `*-manifests apps: Unknown` sync status — SSA tracking annotation conflicts, harmless
-- `monitoring-loki: Unknown` — Loki CRD tracking issue, harmless
+#### 6. kubectl exec stdin (commit 773cfa4, historical)  
+- `kubectl exec pod -- command < /tmp/file` does NOT forward stdin without `-i`
+- **Fix**: Use `cat file | kubectl exec -i pod -- ak shell` for group sync
 
-## Verified Working After Full Redeploy (2026-05-04)
-- ✅ All 29 workflow steps: SUCCESS
-- ✅ remon: superuser=True, groups=[authentik Admins, platform-admins, platform-users]
-- ✅ ardaty: superuser=False, groups=[platform-users]
-- ✅ NetBird router peer: connected, in routing-peers-vlan3
-- ✅ Routes: 10.10.0.0/24 and 10.25.0.0/24 active
-- ✅ auth.rlservers.com: 200 OK
-- ✅ netbird.rlservers.com: 200 OK
-- ✅ All core pods: Running
+### New features added (2026-05-04)
+
+#### Staging Let's Encrypt support
+- Added `letsencrypt-http-staging` and `letsencrypt-cloudflare-staging` ClusterIssuers
+- Added `letsencrypt_env` workflow_dispatch input (staging/production, default=production)
+- Added "Configure certificate issuers" step to patch cert issuerRefs when staging selected
+- TLS backup step skipped when using staging (certs not LE-trusted, not worth backing up)
+
+### Test results (2026-05-04)
+
+| Test | Result | Notes |
+|------|--------|-------|
+| T01: Sync change | ✅ PASS | ArgoCD synced homepage, NetBird router stayed connected |
+| T02: NetBird re-sync | ✅ PASS | apps-netbird re-sync, bootstrap job ran, router stayed in group |
+| T03: User modify | ✅ PASS | apply-changes.yml success, group sync correct |
+| T04: User add | ✅ PASS | testuser2 created with correct password, groups, blueprint |
+| T07: Staging LE | ✅ in progress | Staging redeploy triggered |
+| T10: Prod LE | pending | After staging test |
+
+### Performance notes
+- Authentik worker wait is typically 10-15 min (already optimal: `kubectl wait --for=condition=Available`)
+- TLS cert wait (15 min max) is usually < 5 min because certs issued much earlier during redeploy
+- Routing group populate: polls every 5s for up to 90s after router reconnect
+- Total redeploy time: ~35-45 minutes
+
+### Static IDs (hardcoded in bootstrap-job.yaml)
+- Account: `acc00000-0000-4000-a000-000000000001`
+- All group: `grp00000-0000-4000-a000-000000000001`
+- Routing group: `grp00000-0000-4000-a000-000000000002`
+- Setup key: `A1B2C3D4-E5F6-7890-ABCD-EF1234567890`
+- Router VM: `10.10.0.10` (ubuntu user), management VIP: `10.10.0.202`
+- PAT token: `netbird-secrets` secret, key `netbird-pat-token` in namespace `netbird`
+
+### NetBird management API
+- Port 80: HTTP management REST API
+- Port 33073: gRPC (not usable for REST)
+- kubectl port-forward to pod (StatefulSet): `kubectl port-forward -n netbird netbird-management-0 8089:80`
