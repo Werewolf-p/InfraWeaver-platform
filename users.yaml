@@ -39,7 +39,7 @@ users:
     notes: "Platform owner — full access to everything"
 
   ardaty:
-    name: "Ardaty"
+    name: "Ardaty (Platform User)"
     email: "ardaty@rlservers.com"   # ← update with real email if needed
     access_level: platform-user
     authentik_groups:
