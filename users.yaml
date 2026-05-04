@@ -39,7 +39,7 @@ users:
     notes: "Platform owner — full access to everything"
 
   ardaty:
-    name: "Ardaty (Platform User)"
+    name: "Ardaty"
     email: "ardaty@rlservers.com"   # ← update with real email if needed
     access_level: platform-user
     authentik_groups:
@@ -66,14 +66,3 @@ users:
 # NetBird (VPN): both users can connect — access to internal networks
 # is determined by the routes they can use (currently: all peers get all routes).
 # =============================================================================
-
-  testuser2:
-    name: "Test User Two"
-    email: "testuser2@rlservers.com"
-    access_level: platform-user
-    authentik_groups:
-      - platform-users
-    argocd_role: readonly
-    openbao_policy: null
-    send_recovery_email: false
-    notes: "Temporary test user — DELETE after T04 test"

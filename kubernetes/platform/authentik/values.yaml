@@ -52,12 +52,6 @@ global:
           name: authentik-secrets
           key: ardaty-password
           # No optional: true — pod must fail if password key is missing.
-    - name: AUTHENTIK_TESTUSER2_PASSWORD
-      valueFrom:
-        secretKeyRef:
-          name: authentik-secrets
-          key: testuser2-password
-          # No optional: true — pod must fail if password key is missing.
 
     - name: AUTHENTIK_POSTGRESQL__PASSWORD
       valueFrom:
