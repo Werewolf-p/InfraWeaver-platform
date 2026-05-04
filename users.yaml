@@ -49,18 +49,6 @@ users:
     send_recovery_email: true
     notes: "Platform user — homepage, VPN, ArgoCD (read-only)"
 
-  testuser:
-    name: "Test User"
-    email: "remonhulst@gmail.com"   # test user — emails go to remon for verification
-    access_level: platform-user
-    authentik_groups:
-      - platform-users
-    argocd_role: readonly
-    openbao_policy: null
-    send_recovery_email: false      # skip welcome email for this test user
-    notes: "Ephemeral test user — will be removed after user-add workflow test"
-
-
 # =============================================================================
 # Access Matrix
 # =============================================================================

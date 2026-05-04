@@ -46,15 +46,11 @@ data:
           password: !Env AUTHENTIK_ARDATY_PASSWORD
           is_active: true
 
-      # ── testuser (platform-user, ephemeral test) ─────────────────────────────
       # Will be removed after user-add workflow test
       - model: authentik_core.user
         state: present
         identifiers:
-          username: testuser
         attrs:
-          name: "Test User"
           email: "remonhulst@gmail.com"
-          password: !Env AUTHENTIK_TESTUSER_PASSWORD
           is_active: true
 
