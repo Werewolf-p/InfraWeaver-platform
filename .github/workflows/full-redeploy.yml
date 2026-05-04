@@ -1099,54 +1099,6 @@ jobs:
               python3 -c "import sys,json; d=json.load(sys.stdin); print('Updated: api-netbird.rlservers.com -> proxied=false (DNS-only)' if d.get('success') else 'Error: ' + str(d.get('errors','')))"
           fi
 
-      - name: Reconnect NetBird router VM after redeploy
-        if: success()
-        continue-on-error: true   # watchdog auto-reconnects within 60s even if this step fails
-        run: |
-          # After full redeploy the NetBird SQLite DB is wiped — old peer keys are rejected.
-          # The router VM (10.10.0.10) has a systemd watchdog that auto-reconnects every 60s,
-          # but this step forces immediate reconnect to avoid the 60s delay.
-          #
-          # Router: netbird-router-vlan3, 10.10.0.10 (VLAN3), ubuntu user
-          # Setup key: static A1B2C3D4-E5F6-7890-ABCD-EF1234567890 (hardcoded in bootstrap-job.yaml)
-          # Management: http://10.10.0.202 (internal MetalLB VIP — avoids gRPC issues via Traefik)
-          # CI runner is also on VLAN3 (10.10.0.108) — no proxy jump needed.
-          ROUTER_IP="10.10.0.10"
-          ROUTER_USER="ubuntu"
-          SETUP_KEY="A1B2C3D4-E5F6-7890-ABCD-EF1234567890"
-          MGMT_URL="http://10.10.0.202"
-          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -i ~/.ssh/deployer_ed25519"
-
-          echo "==> Checking SSH connectivity to router VM at $ROUTER_IP..."
-          if ! ssh $SSH_OPTS "$ROUTER_USER@$ROUTER_IP" "echo OK" 2>/dev/null; then
-            echo "⚠️  Cannot reach router VM via SSH at $ROUTER_IP — watchdog will reconnect automatically within 60s"
-            exit 0
-          fi
-          echo "  ✅ Router VM reachable"
-
-          echo "==> Forcing NetBird reconnect on router VM..."
-          ssh $SSH_OPTS "$ROUTER_USER@$ROUTER_IP" "
-            set -e
-            sudo netbird down 2>/dev/null || true
-            sudo systemctl stop netbird 2>/dev/null || true
-            sudo rm -rf /var/lib/netbird/state.json /var/lib/netbird/management.json 2>/dev/null || true
-            sudo systemctl start netbird
-            sleep 3
-            sudo netbird up \
-              --management-url '$MGMT_URL' \
-              --setup-key '$SETUP_KEY' \
-              --interface-name wt0 2>&1 || true
-            echo '--- Waiting for Connected status (max 60s) ---'
-            for i in \$(seq 1 12); do
-              STATUS=\$(sudo netbird status 2>/dev/null | grep -i 'Management:' | head -1 || echo '')
-              echo \"  [\$i/12] \$STATUS\"
-              echo \"\$STATUS\" | grep -qi 'Connected' && echo '✅ Router connected to management!' && break
-              sleep 5
-            done
-            sudo netbird status 2>/dev/null | grep -E 'Management:|NetBird IP:|Peers' | head -5 || true
-          " 2>&1 || echo "⚠️  Router SSH command returned error — watchdog will handle reconnect"
-          echo "✅ Router reconnect step complete"
-
       - name: Apply MetalLB IP Pool + Traefik Middleware
         if: success()
         run: |
@@ -1186,6 +1138,59 @@ jobs:
           echo "✅ MetalLB IP pool and Traefik middleware applied"
           kubectl --kubeconfig "$KB" get ipaddresspools -n metallb-system 2>/dev/null
           kubectl --kubeconfig "$KB" get svc -A | grep LoadBalancer | head -10
+
+
+      - name: Reconnect NetBird router VM after redeploy
+        if: success()
+        continue-on-error: true   # watchdog auto-reconnects within 60s even if this step fails
+        timeout-minutes: 4        # hard cap — prevents hanging when management VIP isn't ready
+        run: |
+          # After full redeploy the NetBird SQLite DB is wiped — old peer keys are rejected.
+          # The router VM (10.10.0.10) has a systemd watchdog that auto-reconnects every 60s,
+          # but this step forces immediate reconnect to avoid the 60s delay.
+          #
+          # NOTE: This step runs AFTER Apply MetalLB so that 10.10.0.202 is reachable.
+          # Router: netbird-router-vlan3, 10.10.0.10 (VLAN3), ubuntu user
+          # Setup key: static A1B2C3D4-E5F6-7890-ABCD-EF1234567890 (hardcoded in bootstrap-job.yaml)
+          # Management: http://10.10.0.202 (internal MetalLB VIP — avoids gRPC issues via Traefik)
+          # CI runner is also on VLAN3 (10.10.0.108) — no proxy jump needed.
+          ROUTER_IP="10.10.0.10"
+          ROUTER_USER="ubuntu"
+          SETUP_KEY="A1B2C3D4-E5F6-7890-ABCD-EF1234567890"
+          MGMT_URL="http://10.10.0.202"
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -i ~/.ssh/deployer_ed25519"
+
+          echo "==> Checking SSH connectivity to router VM at $ROUTER_IP..."
+          if ! ssh $SSH_OPTS "$ROUTER_USER@$ROUTER_IP" "echo OK" 2>/dev/null; then
+            echo "⚠️  Cannot reach router VM via SSH at $ROUTER_IP — watchdog will reconnect automatically within 60s"
+            exit 0
+          fi
+          echo "  ✅ Router VM reachable"
+
+          echo "==> Forcing NetBird reconnect on router VM..."
+          # timeout 90 on the SSH session itself prevents hanging if netbird up blocks
+          timeout 90 ssh $SSH_OPTS "$ROUTER_USER@$ROUTER_IP" "
+            sudo netbird down 2>/dev/null || true
+            sudo systemctl stop netbird 2>/dev/null || true
+            sudo rm -rf /var/lib/netbird/state.json /var/lib/netbird/management.json 2>/dev/null || true
+            sudo systemctl start netbird
+            sleep 2
+            # Run netbird up in background (it may block waiting for management connection)
+            sudo netbird up \
+              --management-url '$MGMT_URL' \
+              --setup-key '$SETUP_KEY' \
+              --interface-name wt0 2>&1 &
+            sleep 5
+            echo '--- Waiting for Connected status (max 45s) ---'
+            for i in \$(seq 1 9); do
+              STATUS=\$(sudo netbird status 2>/dev/null | grep -i 'Management:' | head -1 || echo '')
+              echo \"  [\$i/9] \$STATUS\"
+              echo \"\$STATUS\" | grep -qi 'Connected' && echo '✅ Router connected to management!' && break
+              sleep 5
+            done
+            sudo netbird status 2>/dev/null | grep -E 'Management:|NetBird IP:|Peers' | head -5 || true
+          " 2>&1 || echo "⚠️  Router SSH command returned error — watchdog will handle reconnect"
+          echo "✅ Router reconnect step complete"
 
       - name: Fix ingress-nginx admission webhook CA bundle
         if: success()
