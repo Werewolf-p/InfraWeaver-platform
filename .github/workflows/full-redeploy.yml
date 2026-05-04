@@ -14,6 +14,14 @@ on:
         description: "Type DESTROY to confirm full redeploy"
         required: true
         type: string
+      letsencrypt_env:
+        description: "Let's Encrypt environment (staging = no rate limits, untrusted cert)"
+        required: false
+        type: choice
+        default: production
+        options:
+          - production
+          - staging
 
 concurrency:
   group: platform-${{ inputs.environment }}
@@ -31,6 +39,7 @@ jobs:
       - management-host
     env:
       ENV_NAME: ${{ inputs.environment }}
+      LETSENCRYPT_ENV: ${{ inputs.letsencrypt_env || 'production' }}
 
     steps:
       - name: Checkout
@@ -1140,6 +1149,48 @@ jobs:
           kubectl --kubeconfig "$KB" get svc -A | grep LoadBalancer | head -10
 
 
+      - name: Configure certificate issuers
+        if: success()
+        run: |
+          KB=~/.kube/config-platform-${{ env.ENV_NAME }}
+
+          # When running with staging LE, patch all Certificate resources to use staging issuers.
+          # Staging certificates are untrusted but bypass LE rate limits — useful for testing.
+          # Production (default): letsencrypt-http, letsencrypt-cloudflare
+          # Staging:              letsencrypt-http-staging, letsencrypt-cloudflare-staging
+
+          if [ "${{ env.LETSENCRYPT_ENV }}" = "staging" ]; then
+            echo "⚙️  Switching certificates to Let's Encrypt STAGING issuers..."
+            # Wait for Certificates CRD to exist
+            for i in $(seq 1 20); do
+              kubectl --kubeconfig "$KB" --insecure-skip-tls-verify get crd certificates.cert-manager.io >/dev/null 2>&1 && break
+              echo "  Waiting for cert-manager CRDs ($i/20)..."
+              sleep 10
+            done
+            # Patch all Certificates in traefik namespace
+            for cert in $(kubectl --kubeconfig "$KB" --insecure-skip-tls-verify get certificate -n traefik -o name 2>/dev/null); do
+              CURRENT=$(kubectl --kubeconfig "$KB" --insecure-skip-tls-verify get "$cert" -n traefik \
+                -o jsonpath='{.spec.issuerRef.name}' 2>/dev/null)
+              case "$CURRENT" in
+                letsencrypt-http)
+                  NEW="letsencrypt-http-staging" ;;
+                letsencrypt-cloudflare)
+                  NEW="letsencrypt-cloudflare-staging" ;;
+                *)
+                  echo "  Skipping $cert (issuer: $CURRENT)"
+                  continue ;;
+              esac
+              kubectl --kubeconfig "$KB" --insecure-skip-tls-verify patch "$cert" -n traefik \
+                --type=merge -p "{\"spec\":{\"issuerRef\":{\"name\":\"${NEW}\"}}}" 2>/dev/null && \
+                echo "  ✅ Patched $cert: $CURRENT → $NEW" || \
+                echo "  ⚠ Failed to patch $cert"
+            done
+            echo "✅ All certificates switched to staging issuers"
+            echo "⚠️  NOTE: Staging certs are NOT trusted by browsers. This is expected."
+          else
+            echo "✅ Using production Let's Encrypt issuers (default)"
+          fi
+
       - name: Reconnect NetBird router VM after redeploy
         if: success()
         continue-on-error: true   # watchdog auto-reconnects within 60s even if this step fails
@@ -1252,6 +1303,8 @@ jobs:
           echo "✅ routing-peers-vlan3 now contains: $PEER_NAMES"
 
           kill $PF_PID 2>/dev/null || true
+
+      - name: Fix ingress-nginx admission webhook
         if: success()
         run: |
           KB=~/.kube/config-platform-${{ env.ENV_NAME }}
@@ -1685,7 +1738,7 @@ jobs:
           bash scripts/test-post-deploy.sh ~/.kube/config-platform-${{ env.ENV_NAME }} ${{ env.ENV_NAME }} || true
 
       - name: Refresh TLS secret backup
-        if: success()
+        if: success() && env.LETSENCRYPT_ENV == 'production'
         run: |
           KB=~/.kube/config-platform-${{ env.ENV_NAME }}
           BACKUP_DIR=/opt/platform-tls-backup
