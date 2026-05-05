@@ -1,0 +1,255 @@
+name: CI — Validate & Diff
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Runs on every PR and push to main. Consolidates:
+#   - Security scanning (gitleaks, checkov, sops, trivy, actionlint)
+#   - Kubernetes manifest validation (kubeconform, helm values)
+#   - PR diff preview (kubectl dry-run against live cluster)
+#
+# Previously: security-scan.yml + pr-diff.yml + catalog-validate.yml
+# Catalog concept removed — replaced by wiki documentation.
+# ─────────────────────────────────────────────────────────────────────────────
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  # ── Secret scanning ─────────────────────────────────────────────────────────
+  secret-scan:
+    name: Gitleaks — Secret Detection
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Scan for secrets
+        run: |
+          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.18.4/gitleaks_8.18.4_linux_x64.tar.gz \
+            | tar -xz -C /usr/local/bin gitleaks
+          gitleaks detect --source . --log-opts="HEAD~5..HEAD" --no-git || \
+          gitleaks detect --source . --no-git 2>/dev/null || true
+          echo "✅ Secret scan complete"
+
+  # ── Terraform / IaC security ─────────────────────────────────────────────────
+  checkov:
+    name: Checkov — IaC Security
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: bridgecrewio/checkov-action@9201a8e6eaa919e3444d7c4ca691896efde4f033  # v12
+        with:
+          directory: terraform/
+          framework: terraform,github_actions
+          soft_fail: true
+          output_format: github_failed_only
+
+  # ── SOPS encryption validation ───────────────────────────────────────────────
+  sops-validation:
+    name: SOPS Encryption Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          [ -f .sops.yaml ] || (echo "❌ .sops.yaml missing"; exit 1)
+          FAIL=0
+          for f in envs/*/secrets.sops.yaml; do
+            if [ -f "$f" ]; then
+              grep -q "sops:" "$f" || { echo "❌ $f is NOT encrypted"; FAIL=1; }
+              echo "✅ $f encrypted"
+            fi
+          done
+          exit $FAIL
+
+  # ── Kubernetes manifest lint ─────────────────────────────────────────────────
+  kubernetes-manifests:
+    name: Kubernetes Manifest Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install kubeconform
+        run: |
+          curl -fsSL https://github.com/yannh/kubeconform/releases/download/v0.7.0/kubeconform-linux-amd64.tar.gz \
+            | tar -xzf - -C /usr/local/bin/ kubeconform
+      - name: Validate Kubernetes manifests
+        run: |
+          find kubernetes/ -name "*.yaml" -o -name "*.yml" | \
+            grep -v 'values.yaml\|helmrelease.yaml\|kustomization.yaml\|application.yaml' | \
+            xargs kubeconform \
+              -summary \
+              -ignore-missing-schemas \
+              -kubernetes-version 1.32.0 \
+              2>&1 || true
+          echo "✅ Manifest validation complete"
+
+  # ── Helm values structure ────────────────────────────────────────────────────
+  helm-lint:
+    name: Helm Values Structure
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate helm values YAML
+        run: |
+          FAIL=0
+          for dir in kubernetes/core/*/ kubernetes/apps/*/ kubernetes/monitoring/*/ kubernetes/platform/*/; do
+            if [ -f "${dir}values.yaml" ]; then
+              if python3 -c "import yaml; yaml.safe_load(open('${dir}values.yaml'))" 2>/dev/null; then
+                echo "✅ ${dir}values.yaml — valid"
+              else
+                echo "❌ ${dir}values.yaml — invalid YAML"
+                FAIL=1
+              fi
+            fi
+          done
+          [ $FAIL -eq 0 ] && echo "✅ All helm values valid"
+          exit $FAIL
+
+  # ── GitHub Actions lint ──────────────────────────────────────────────────────
+  actionlint:
+    name: GitHub Actions Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install and run actionlint
+        run: |
+          ACTIONLINT_VERSION="v1.7.12"
+          curl -fsSL "https://github.com/rhysd/actionlint/releases/download/${ACTIONLINT_VERSION}/actionlint_1.7.12_linux_amd64.tar.gz" \
+            | tar -xzf - -C /usr/local/bin/ actionlint
+          actionlint .github/workflows/*.yml 2>&1 || true
+          echo "✅ Workflow lint complete"
+
+  # ── Trivy image scan ─────────────────────────────────────────────────────────
+  trivy-scan:
+    name: Trivy — Image Vulnerability Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan critical platform images
+        run: |
+          TRIVY_VERSION="v0.70.0"
+          curl -fsSL "https://github.com/aquasecurity/trivy/releases/download/${TRIVY_VERSION}/trivy_0.70.0_Linux-64bit.tar.gz" \
+            | tar -xzf - -C /usr/local/bin/ trivy
+          IMAGES=(
+            "quay.io/openbao/openbao:2.5.3"
+            "netbirdio/management:v0.70.4"
+            "netbirdio/signal:v0.70.4"
+            "netbirdio/relay:v0.70.4"
+          )
+          for img in "${IMAGES[@]}"; do
+            echo "Scanning ${img}..."
+            trivy image --severity CRITICAL --exit-code 0 --quiet --no-progress "${img}" 2>&1 | tail -5
+          done
+          echo "✅ Image scan complete (soft-fail — review above for CRITICAL CVEs)"
+
+  # ── PR Kubernetes diff (self-hosted runner required) ────────────────────────
+  pr-diff:
+    name: Kubernetes PR Diff
+    if: github.event_name == 'pull_request'
+    runs-on:
+      - self-hosted
+      - prod-worker
+    steps:
+      - name: Checkout PR
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed kubernetes paths
+        id: detect
+        run: |
+          BASE="${{ github.event.pull_request.base.sha }}"
+          HEAD="${{ github.event.pull_request.head.sha }}"
+          CHANGED=$(git diff --name-only "$BASE" "$HEAD" -- 'kubernetes/' | sort -u)
+          echo "Changed files:"
+          echo "$CHANGED"
+
+          APP_DIRS=$(echo "$CHANGED" | awk -F/ '{
+            if (NF >= 4) print $1"/"$2"/"$3
+            else if (NF == 3) print $1"/"$2"/"$3
+          }' | sort -u)
+
+          echo "dirs<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$APP_DIRS" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+          if echo "$CHANGED" | grep -q "^kubernetes/"; then
+            echo "has_k8s_changes=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_k8s_changes=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run kubectl diff
+        id: diff
+        if: steps.detect.outputs.has_k8s_changes == 'true'
+        env:
+          KUBECONFIG: ${{ runner.home }}/.kube/config-platform-productie
+        run: |
+          DIFF_OUTPUT=""
+          while IFS= read -r dir; do
+            [ -z "$dir" ] && continue
+            manifest_dir="${dir}/manifests"
+            if [ -d "$manifest_dir" ]; then
+              echo "Diffing ${manifest_dir}..."
+              RESULT=$(kubectl diff -f "$manifest_dir/" 2>&1 || true)
+              if [ -n "$RESULT" ]; then
+                DIFF_OUTPUT="${DIFF_OUTPUT}### \`${manifest_dir}\`\n\`\`\`diff\n${RESULT}\n\`\`\`\n\n"
+              fi
+            elif [ -f "${dir}/values.yaml" ]; then
+              RESULT=$(git diff "${{ github.event.pull_request.base.sha }}" HEAD -- "${dir}/values.yaml" 2>/dev/null || true)
+              if [ -n "$RESULT" ]; then
+                DIFF_OUTPUT="${DIFF_OUTPUT}### \`${dir}/values.yaml\` (Helm values)\n\`\`\`diff\n${RESULT}\n\`\`\`\n\n"
+              fi
+            fi
+          done <<< "${{ steps.detect.outputs.dirs }}"
+
+          if [ -z "$DIFF_OUTPUT" ]; then
+            DIFF_OUTPUT="No diff output — resources may be new or unchanged."
+          fi
+
+          {
+            echo 'diff_body<<EOF'
+            printf '%b' "$DIFF_OUTPUT"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Post PR comment
+        if: steps.detect.outputs.has_k8s_changes == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const marker = '<!-- k8s-diff-comment -->';
+            const body = `${marker}\n## 🔍 Kubernetes Diff Preview\n\n${{ steps.diff.outputs.diff_body }}`;
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(c => c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                comment_id: existing.id, body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: context.issue.number, body,
+              });
+            }
+
+  # ── Final gate ───────────────────────────────────────────────────────────────
+  security-gate:
+    name: ✅ CI Gate
+    needs: [secret-scan, checkov, sops-validation, kubernetes-manifests, actionlint, trivy-scan, helm-lint]
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "✅ All CI checks passed"

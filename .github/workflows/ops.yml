@@ -1,0 +1,373 @@
+name: Ops — Manual Operations
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Manual operations dispatch workflow. Consolidates:
+#   - Cluster recovery & MetalLB fix
+#   - etcd corruption fix
+#   - Configure OIDC (Authentik → ArgoCD + OpenBao)
+#   - Fix Cloudflare DNS (api-netbird.rlservers.com)
+#   - Extract kubeconfig artifact
+#   - Talos rolling upgrade
+#   - Terraform plan / apply (moved from platform.yml)
+#
+# Previously: cluster-recover.yml + etcd-fix.yml + configure-oidc.yml
+#             + fix-cloudflare-dns.yml + kubeconfig-extract.yml
+#             + talos-upgrade-extensions.yml + platform.yml
+# ─────────────────────────────────────────────────────────────────────────────
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: "Operation to perform"
+        required: true
+        default: "cluster-status"
+        type: choice
+        options:
+          - cluster-status           # check cluster health
+          - metallb-fix              # apply MetalLB fix
+          - metallb-fix-verbose      # MetalLB fix with full diagnostics
+          - etcd-list-members        # list etcd members
+          - etcd-remove-cp2          # remove cp2 from etcd (corruption recovery)
+          - etcd-alarm-disarm        # disarm etcd alarm
+          - etcd-reboot-cp2          # reboot cp2 (rejoin etcd)
+          - configure-oidc           # wire Authentik → ArgoCD + OpenBao OIDC
+          - fix-cloudflare-dns       # update api-netbird.rlservers.com in Cloudflare
+          - extract-kubeconfig       # extract kubeconfig artifact from state
+          - talos-upgrade            # rolling Talos upgrade (requires confirm=yes)
+          - terraform-plan           # tofu plan (informational)
+          - terraform-apply          # tofu apply (destructive!)
+      environment:
+        description: "Environment"
+        required: false
+        default: "productie"
+        type: choice
+        options: [productie, ontwikkel]
+      confirm:
+        description: "Type 'yes' to confirm destructive operations (talos-upgrade, terraform-apply)"
+        required: false
+        default: "no"
+
+concurrency:
+  group: ops-${{ github.event.inputs.operation }}-${{ github.event.inputs.environment || 'productie' }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  ENV_NAME: ${{ github.event.inputs.environment || 'productie' }}
+  TOFU_VERSION: "1.11.6"
+
+jobs:
+  # ── Cluster Health & MetalLB ─────────────────────────────────────────────────
+  cluster-ops:
+    name: "Cluster Ops — ${{ inputs.operation }}"
+    if: >
+      contains(fromJSON('["cluster-status","metallb-fix","metallb-fix-verbose"]'), inputs.operation)
+    runs-on: [self-hosted, prod-worker]
+    environment: productie
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup configs
+        run: |
+          mkdir -p ~/.kube ~/.talos
+          python3 .github/scripts/extract_kubeconfig.py
+          cp /tmp/kubeconfig-extract/talosconfig ~/.talos/config && chmod 600 ~/.talos/config
+          for node_ip in 10.25.0.90 10.25.0.91 10.25.0.92; do
+            sed "s|https://10.25.0.90:6443|https://${node_ip}:6443|g" \
+              /tmp/kubeconfig-extract/kubeconfig > ~/.kube/config-${node_ip/./-} && \
+              chmod 600 ~/.kube/config-${node_ip/./-}
+          done
+
+      - name: Check Talos node status
+        run: |
+          echo "=== etcd members via cp2 ===" && talosctl --nodes 10.25.0.91 etcd members 2>&1 || true
+          echo "=== Services cp2 ===" && talosctl --nodes 10.25.0.91 services 2>&1 | grep -E "etcd|apiserver|kubelet|STATE" || true
+          echo "=== Services cp3 ===" && talosctl --nodes 10.25.0.92 services 2>&1 | grep -E "etcd|apiserver|kubelet|STATE" || true
+
+      - name: Find working API server
+        id: find-api
+        run: |
+          for node_ip in 10.25.0.90 10.25.0.91 10.25.0.92; do
+            if nc -z -w 5 $node_ip 6443 2>/dev/null; then
+              echo "API_NODE=$node_ip" >> $GITHUB_OUTPUT && echo "✓ API at $node_ip"; break
+            fi
+          done
+
+      - name: Cluster status
+        if: inputs.operation == 'cluster-status'
+        env:
+          KUBECONFIG: /home/ubuntu/.kube/config-${{ steps.find-api.outputs.API_NODE != '' && format('{0}', steps.find-api.outputs.API_NODE) || '10.25.0.91' }}
+        run: |
+          kubectl get nodes && kubectl get pods -A | grep -v Running | head -20 || true
+
+      - name: Apply MetalLB fix
+        if: contains(fromJSON('["metallb-fix","metallb-fix-verbose"]'), inputs.operation)
+        env:
+          KUBECONFIG: /home/ubuntu/.kube/config-${{ steps.find-api.outputs.API_NODE != '' && format('{0}', steps.find-api.outputs.API_NODE) || '10.25.0.91' }}
+        run: |
+          kubectl apply --server-side --validate=false -f kubernetes/core/metallb/ip-pool.yaml
+          kubectl rollout restart daemonset speaker -n metallb-system
+          kubectl rollout status daemonset speaker -n metallb-system --timeout=120s
+          sleep 15
+          kubectl get servicel2status -A 2>&1 || true
+          curl -sv --connect-timeout 5 http://10.25.0.200/ 2>&1 | grep -E "Connected|HTTP/|error|refused" || true
+
+      - name: Node label diagnostics (verbose only)
+        if: inputs.operation == 'metallb-fix-verbose'
+        env:
+          KUBECONFIG: /home/ubuntu/.kube/config-${{ steps.find-api.outputs.API_NODE != '' && format('{0}', steps.find-api.outputs.API_NODE) || '10.25.0.91' }}
+        run: |
+          kubectl get nodes -o json | python3 -c "
+          import sys, json
+          for n in json.load(sys.stdin)['items']:
+              l = n['metadata']['labels']
+              print(f\"{n['metadata']['name']}: exclude-from-lb={'node.kubernetes.io/exclude-from-external-load-balancers' in l}\")
+          "
+
+  # ── etcd Repair ───────────────────────────────────────────────────────────────
+  etcd-ops:
+    name: "etcd Ops — ${{ inputs.operation }}"
+    if: startsWith(inputs.operation, 'etcd-')
+    runs-on: [self-hosted, prod-worker]
+    environment: productie
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup talosconfig
+        run: |
+          mkdir -p ~/.talos
+          python3 .github/scripts/extract_kubeconfig.py
+          cp /tmp/kubeconfig-extract/talosconfig ~/.talos/config && chmod 600 ~/.talos/config
+
+      - name: List etcd members
+        if: contains(fromJSON('["etcd-list-members","etcd-remove-cp2"]'), inputs.operation)
+        run: talosctl --nodes 10.25.0.90 etcd members
+
+      - name: Remove cp2 etcd member
+        if: inputs.operation == 'etcd-remove-cp2'
+        run: |
+          talosctl --nodes 10.25.0.90 etcd remove-member "3accb43c5401c1cb"
+          echo "Members after removal:" && talosctl --nodes 10.25.0.90 etcd members
+
+      - name: Disarm etcd alarm
+        if: inputs.operation == 'etcd-alarm-disarm'
+        run: talosctl --nodes 10.25.0.90 etcd alarm disarm && talosctl --nodes 10.25.0.90 etcd alarm list
+
+      - name: Reboot cp2
+        if: inputs.operation == 'etcd-reboot-cp2'
+        run: talosctl --nodes 10.25.0.91 reboot && echo "cp2 rebooting — will rejoin etcd automatically"
+
+  # ── Configure OIDC ────────────────────────────────────────────────────────────
+  configure-oidc:
+    name: Configure OIDC
+    if: inputs.operation == 'configure-oidc'
+    runs-on: [self-hosted, management-host]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Export secrets
+        run: |
+          echo "ESO_SERVICE_TOKEN=${{ secrets.ESO_SERVICE_TOKEN }}" >> $GITHUB_ENV
+          echo "OPENBAO_CLUSTER_ADDR=${{ secrets.OPENBAO_CLUSTER_ADDR }}" >> $GITHUB_ENV
+
+      - name: Configure OIDC for ArgoCD and OpenBao
+        run: |
+          KB=~/.kube/config-platform-${{ env.ENV_NAME }}
+          KT="kubectl --kubeconfig $KB --insecure-skip-tls-verify"
+          [ -f "$KB" ] || { echo "❌ Kubeconfig not found at $KB"; exit 1; }
+
+          WORKER_POD=$($KT get pod -n authentik -l app.kubernetes.io/component=worker \
+            -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+          [ -z "$WORKER_POD" ] && { echo "❌ Authentik worker pod not found"; exit 1; }
+
+          _AK_PY="ZnJvbSBhdXRoZW50aWsuY29yZS5tb2RlbHMgaW1wb3J0IFRva2VuLCBUb2tlbkludGVudHMsIFVzZXIKVG9rZW4ub2JqZWN0cy5maWx0ZXIoaWRlbnRpZmllcj0iZ2gtYWN0aW9ucy1hcGktdG9rZW4iKS5kZWxldGUoKQphZG1pbiA9IFVzZXIub2JqZWN0cy5nZXQodXNlcm5hbWU9ImFrYWRtaW4iKQp0ID0gVG9rZW4ub2JqZWN0cy5jcmVhdGUoaWRlbnRpZmllcj0iZ2gtYWN0aW9ucy1hcGktdG9rZW4iLCB1c2VyPWFkbWluLCBkZXNjcmlwdGlvbj0iR2l0SHViIEFjdGlvbnMgQVBJIHRva2VuIiwgaW50ZW50PVRva2VuSW50ZW50cy5JTlRFTlRfQVBJLCBleHBpcmluZz1GYWxzZSkKcHJpbnQoIlRPS0VOOiIgKyB0LmtleSkK"
+          TOKEN=$(echo "$_AK_PY" | base64 -d | $KT exec -i -n authentik "$WORKER_POD" -- ak shell 2>&1 | grep "^TOKEN:" | sed 's/TOKEN://' || echo "")
+          [ -z "$TOKEN" ] && { echo "❌ Could not generate Authentik API token"; exit 1; }
+
+          $KT port-forward svc/authentik-server -n authentik 8088:80 > /tmp/authentik-pf.log 2>&1 &
+          AUTHENTIK_PF_PID=$!
+          sleep 5
+
+          wait_for_provider() {
+            local name="$1"
+            for i in $(seq 1 30); do
+              COUNT=$(curl -sf -H "Authorization: Bearer $TOKEN" \
+                "http://localhost:8088/api/v3/providers/oauth2/?name=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$name'))")" \
+                2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['pagination']['count'])" 2>/dev/null || echo 0)
+              [ "$COUNT" -gt 0 ] && return 0
+              echo "  Waiting for provider '$name' ($i/30)..." && sleep 10
+            done
+            return 1
+          }
+
+          # ArgoCD
+          wait_for_provider "ArgoCD Provider"
+          ARGOCD_SECRET=$(curl -sf -H "Authorization: Bearer $TOKEN" \
+            "http://localhost:8088/api/v3/providers/oauth2/?name=ArgoCD%20Provider" 2>/dev/null \
+            | python3 -c "import sys,json; r=json.load(sys.stdin)['results']; print(r[0]['client_secret']) if r else print('')" || echo "")
+          if [ -n "$ARGOCD_SECRET" ]; then
+            $KT patch secret argocd-secret -n argocd --type=merge \
+              -p "{\"data\": {\"oidc.authentik.clientSecret\": \"$(printf '%s' "$ARGOCD_SECRET" | base64 -w0)\"}}"
+            echo "✅ ArgoCD OIDC configured"
+          fi
+
+          # OpenBao
+          wait_for_provider "OpenBao Provider"
+          OPENBAO_SECRET=$(curl -sf -H "Authorization: Bearer $TOKEN" \
+            "http://localhost:8088/api/v3/providers/oauth2/?name=OpenBao%20Provider" 2>/dev/null \
+            | python3 -c "import sys,json; r=json.load(sys.stdin)['results']; print(r[0]['client_secret']) if r else print('')" || echo "")
+          if [ -n "$OPENBAO_SECRET" ]; then
+            ROOT_TOKEN=$($KT get secret openbao-unseal -n openbao -o jsonpath='{.data.root_token}' 2>/dev/null | base64 -d || echo "")
+            BAO_POD=$($KT get pod -n openbao -l app.kubernetes.io/name=openbao --no-headers \
+              -o custom-columns=":metadata.name" 2>/dev/null | head -1 || echo "")
+            if [ -n "$ROOT_TOKEN" ] && [ -n "$BAO_POD" ]; then
+              $KT exec -n openbao "$BAO_POD" -- env VAULT_TOKEN="$ROOT_TOKEN" VAULT_ADDR=http://127.0.0.1:8200 \
+                bao auth enable oidc 2>/dev/null || true
+              $KT exec -n openbao "$BAO_POD" -- env VAULT_TOKEN="$ROOT_TOKEN" VAULT_ADDR=http://127.0.0.1:8200 \
+                bao write auth/oidc/config \
+                  oidc_discovery_url="http://authentik-server.authentik.svc.cluster.local/application/o/openbao/" \
+                  oidc_client_id="openbao" oidc_client_secret="$OPENBAO_SECRET" default_role="default"
+              $KT exec -n openbao "$BAO_POD" -- env VAULT_TOKEN="$ROOT_TOKEN" VAULT_ADDR=http://127.0.0.1:8200 \
+                bao write auth/oidc/role/default \
+                  bound_audiences="openbao" \
+                  allowed_redirect_uris="https://openbao.int.rlservers.com/ui/vault/auth/oidc/oidc/callback" \
+                  allowed_redirect_uris="http://localhost:8250/oidc/callback" \
+                  user_claim="preferred_username" policies="admin" ttl=8h
+              echo "✅ OpenBao OIDC configured"
+            fi
+          fi
+          kill $AUTHENTIK_PF_PID 2>/dev/null || true
+          echo "✅ OIDC configuration complete"
+
+  # ── Fix Cloudflare DNS ────────────────────────────────────────────────────────
+  fix-dns:
+    name: Fix Cloudflare DNS
+    if: inputs.operation == 'fix-cloudflare-dns'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Update api-netbird.rlservers.com DNS record
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          [ -z "$CF_TOKEN" ] && { echo "❌ CLOUDFLARE_API_TOKEN not set"; exit 1; }
+          CF_ZONE_ID=$(curl -sf "https://api.cloudflare.com/client/v4/zones?name=rlservers.com" \
+            -H "Authorization: Bearer $CF_TOKEN" \
+            | python3 -c "import sys,json; print(json.load(sys.stdin)['result'][0]['id'])")
+
+          OLD_ID=$(curl -sf "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records?type=A&name=api.netbird.rlservers.com" \
+            -H "Authorization: Bearer $CF_TOKEN" \
+            | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['result'][0]['id'] if d.get('result') else '')")
+          [ -n "$OLD_ID" ] && curl -sf -X DELETE \
+            "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records/${OLD_ID}" \
+            -H "Authorization: Bearer $CF_TOKEN" > /dev/null && echo "✅ Deleted api.netbird.rlservers.com"
+
+          EXISTING=$(curl -sf "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records?type=A&name=api-netbird.rlservers.com" \
+            -H "Authorization: Bearer $CF_TOKEN" \
+            | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['result'][0]['id'] if d.get('result') else '')")
+          METHOD="${EXISTING:+PATCH}"; METHOD="${METHOD:-POST}"
+          URL="https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records${EXISTING:+/$EXISTING}"
+          curl -sf -X $METHOD "$URL" -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" \
+            -d '{"type":"A","name":"api-netbird.rlservers.com","content":"84.82.69.110","ttl":1,"proxied":false}' \
+            | python3 -c "import sys,json; d=json.load(sys.stdin); print('✅ api-netbird.rlservers.com updated' if d.get('success') else '❌ ' + str(d.get('errors')))"
+
+  # ── Extract Kubeconfig ────────────────────────────────────────────────────────
+  extract-kubeconfig:
+    name: Extract Kubeconfig
+    if: inputs.operation == 'extract-kubeconfig'
+    runs-on: [self-hosted, prod-worker]
+    environment: productie
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract kubeconfig from state
+        run: python3 .github/scripts/extract_kubeconfig.py && head -3 /tmp/kubeconfig-extract/kubeconfig
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kubeconfig-${{ env.ENV_NAME }}
+          path: /tmp/kubeconfig-extract/
+          retention-days: 1
+
+  # ── Talos Rolling Upgrade ─────────────────────────────────────────────────────
+  talos-upgrade:
+    name: Talos Rolling Upgrade
+    if: inputs.operation == 'talos-upgrade' && inputs.confirm == 'yes'
+    runs-on: [self-hosted, prod-worker]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup talosctl
+        run: curl -sL https://talos.dev/install | sh
+
+      - name: Setup talosconfig
+        run: |
+          mkdir -p ~/.talos
+          TALOS_CFG="envs/${{ env.ENV_NAME }}/generated/talosconfig"
+          [ -f "$TALOS_CFG" ] || { echo "❌ talosconfig not found — run full-redeploy.yml first"; exit 1; }
+          cp "$TALOS_CFG" ~/.talos/config
+
+      - name: Pre-upgrade health check
+        run: talosctl --nodes 10.25.0.90 health --wait-timeout 2m
+
+      - name: Rolling upgrade all nodes
+        run: |
+          IMAGE="factory.talos.dev/installer/53513e54bb39202f35694412577a6bc53d484744d35a126e5d42ef34785c0d83:v1.10.9"
+          for NODE in 10.25.0.90 10.25.0.91 10.25.0.92; do
+            echo "Upgrading $NODE..."
+            talosctl upgrade --nodes "$NODE" --image "$IMAGE" --wait --timeout 10m
+            echo "$NODE upgraded. Waiting for cluster to stabilize..."
+            sleep 30
+            NEXT_NODE=$([ "$NODE" = "10.25.0.90" ] && echo "10.25.0.91" || echo "10.25.0.92")
+            talosctl --nodes "$NEXT_NODE" health --wait-timeout 3m 2>/dev/null || true
+          done
+
+      - name: Post-upgrade health check
+        run: sleep 30 && talosctl --nodes 10.25.0.90 health --wait-timeout 5m && echo "✅ All nodes upgraded"
+
+  # ── Terraform Plan / Apply ───────────────────────────────────────────────────
+  terraform:
+    name: "Terraform ${{ inputs.operation == 'terraform-apply' && 'Apply' || 'Plan' }}"
+    if: contains(fromJSON('["terraform-plan","terraform-apply"]'), inputs.operation)
+    runs-on: [self-hosted, prod-worker]
+    environment: productie
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup tools
+        uses: ./.github/actions/setup-platform
+        with:
+          age-secret-key: ${{ secrets.AGE_SECRET_KEY }}
+
+      - name: Tofu plan / apply
+        env:
+          PROXMOX_API_TOKEN: ${{ secrets.PROXMOX_API_TOKEN }}
+        run: |
+          export TF_PLUGIN_CACHE_DIR="$HOME/.terraform.d/plugin-cache"
+          STATE_DIR=~/.tofu/state/platform-${{ env.ENV_NAME }}
+          mkdir -p $STATE_DIR
+
+          export TF_VAR_proxmox_api_token="${PROXMOX_API_TOKEN}"
+          while IFS= read -r line; do
+            if [[ "$line" =~ ^([a-zA-Z_][a-zA-Z0-9_]*):[[:space:]]*(.*) ]]; then
+              KEY="${BASH_REMATCH[1]}"; VAL="${BASH_REMATCH[2]}"
+              [[ "$KEY" == "sops" ]] && break
+              VAL="${VAL#\"}"; VAL="${VAL%\"}"; [[ -n "$VAL" ]] && export "TF_VAR_${KEY}=${VAL}"
+            fi
+          done < <(sops -d "envs/${{ env.ENV_NAME }}/secrets.sops.yaml" 2>/dev/null || echo "")
+
+          cd terraform
+          tofu init -backend-config="path=$STATE_DIR/terraform.tfstate" -reconfigure -no-color 2>&1 | tail -5
+
+          VARS=""
+          [ -f "../envs/${{ env.ENV_NAME }}/terraform.tfvars" ]     && VARS="$VARS -var-file=../envs/${{ env.ENV_NAME }}/terraform.tfvars"
+          [ -f "../envs/${{ env.ENV_NAME }}/services.auto.tfvars" ] && VARS="$VARS -var-file=../envs/${{ env.ENV_NAME }}/services.auto.tfvars"
+
+          if [ "${{ inputs.operation }}" = "terraform-apply" ]; then
+            [ "${{ inputs.confirm }}" != "yes" ] && { echo "❌ Set confirm=yes for terraform-apply"; exit 1; }
+            tofu apply $VARS -auto-approve -no-color 2>&1
+          else
+            tofu plan $VARS -no-color 2>&1
+          fi

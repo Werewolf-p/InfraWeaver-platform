@@ -1,0 +1,247 @@
+name: Maintenance — Scheduled Operations
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Scheduled and on-demand maintenance tasks. Consolidates:
+#   - IaC drift detection (weekly)
+#   - etcd snapshot backup (weekly)
+#   - OpenBao Raft snapshot (weekly)
+#   - Proxmox resource check (on-demand)
+#   - ArgoCD token refresh (on-demand)
+#
+# Previously: drift-detection.yml + etcd-snapshot.yml + openbao-snapshot.yml
+#             + check-resources.yml + refresh-argocd-token.yml
+# ─────────────────────────────────────────────────────────────────────────────
+
+on:
+  schedule:
+    - cron: "0 3 * * 0"   # Sunday 03:00 UTC — etcd snapshot
+    - cron: "0 4 * * 0"   # Sunday 04:00 UTC — OpenBao snapshot
+    - cron: "0 7 * * 1"   # Monday 07:00 UTC — drift detection
+  workflow_dispatch:
+    inputs:
+      task:
+        description: "Task to run"
+        required: true
+        default: "all-snapshots"
+        type: choice
+        options:
+          - all-snapshots      # etcd + openbao snapshot
+          - etcd-snapshot
+          - openbao-snapshot
+          - drift-detection
+          - check-resources
+          - refresh-argocd-token
+      environment:
+        description: "Environment (for drift detection)"
+        required: false
+        default: "productie"
+        type: choice
+        options: [productie, ontwikkel]
+
+concurrency:
+  group: maintenance-${{ github.event.inputs.task || 'scheduled' }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  ENV_NAME: ${{ github.event.inputs.environment || 'productie' }}
+  TOFU_VERSION: "1.11.6"
+
+jobs:
+  # ── etcd Snapshot ─────────────────────────────────────────────────────────────
+  etcd-snapshot:
+    name: etcd Snapshot
+    if: >
+      github.event_name == 'schedule' && github.event.schedule == '0 3 * * 0' ||
+      github.event_name == 'workflow_dispatch' && (inputs.task == 'etcd-snapshot' || inputs.task == 'all-snapshots')
+    runs-on:
+      - self-hosted
+      - prod-worker
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup talosctl
+        run: |
+          TALOS_VER=$(grep 'talos_version' envs/${{ env.ENV_NAME }}/cluster.yaml | awk '{print $2}' | tr -d '"')
+          curl -fsSL \
+            "https://github.com/siderolabs/talos/releases/download/${TALOS_VER}/talosctl-linux-amd64" \
+            -o /usr/local/bin/talosctl && chmod +x /usr/local/bin/talosctl
+
+      - name: Setup talosconfig
+        run: |
+          mkdir -p ~/.talos
+          TALOS_CFG="envs/${{ env.ENV_NAME }}/generated/talosconfig"
+          [ -f "$TALOS_CFG" ] || { echo "❌ talosconfig not found at $TALOS_CFG — run full-redeploy.yml first"; exit 1; }
+          cp "$TALOS_CFG" ~/.talos/config
+
+      - name: Create etcd snapshot
+        run: |
+          SNAPSHOT_FILE="/tmp/etcd-snapshot-$(date +%Y%m%d-%H%M%S).db"
+          for NODE in 10.25.0.90 10.25.0.91 10.25.0.92; do
+            if talosctl --nodes "$NODE" etcd snapshot "$SNAPSHOT_FILE" 2>/dev/null; then
+              echo "✅ etcd snapshot created from $NODE: $(du -sh "$SNAPSHOT_FILE" | cut -f1)"
+              break
+            fi
+            echo "⚠️  Node $NODE failed, trying next..."
+          done
+          [ -f "$SNAPSHOT_FILE" ] || { echo "❌ All nodes failed for etcd snapshot"; exit 1; }
+
+      - name: Upload snapshot artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: etcd-snapshot-${{ env.ENV_NAME }}-${{ github.run_id }}
+          path: /tmp/etcd-snapshot-*.db
+          retention-days: 28
+
+  # ── OpenBao Snapshot ──────────────────────────────────────────────────────────
+  openbao-snapshot:
+    name: OpenBao Raft Snapshot
+    if: >
+      github.event_name == 'schedule' && github.event.schedule == '0 4 * * 0' ||
+      github.event_name == 'workflow_dispatch' && (inputs.task == 'openbao-snapshot' || inputs.task == 'all-snapshots')
+    runs-on:
+      - self-hosted
+      - prod-worker
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create OpenBao Raft snapshot
+        run: |
+          SNAPSHOT_FILE="/tmp/openbao-snapshot-$(date +%Y%m%d-%H%M%S).snap"
+          KB=~/.kube/config-platform-${{ env.ENV_NAME }}
+          KT="kubectl --kubeconfig $KB --insecure-skip-tls-verify"
+
+          OPENBAO_POD=$($KT get pods -n openbao -l app.kubernetes.io/name=openbao \
+            --field-selector=status.phase=Running \
+            -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+          [ -z "$OPENBAO_POD" ] && { echo "❌ No running OpenBao pod"; exit 1; }
+
+          echo "Creating Raft snapshot from pod $OPENBAO_POD..."
+          $KT exec -n openbao "$OPENBAO_POD" -- \
+            sh -c "bao operator raft snapshot save - 2>/dev/null" > "$SNAPSHOT_FILE"
+
+          SNAP_SIZE=$(stat -c%s "$SNAPSHOT_FILE" 2>/dev/null || echo 0)
+          [ "$SNAP_SIZE" -lt 100 ] && { echo "❌ Snapshot too small ($SNAP_SIZE bytes)"; cat "$SNAPSHOT_FILE" >&2; exit 1; }
+          echo "✅ OpenBao snapshot: $(du -sh "$SNAPSHOT_FILE" | cut -f1)"
+
+      - name: Upload snapshot artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: openbao-snapshot-${{ env.ENV_NAME }}-${{ github.run_id }}
+          path: /tmp/openbao-snapshot-*.snap
+          retention-days: 28
+
+  # ── IaC Drift Detection ───────────────────────────────────────────────────────
+  drift-detection:
+    name: IaC Drift Detection
+    if: >
+      github.event_name == 'schedule' && github.event.schedule == '0 7 * * 1' ||
+      github.event_name == 'workflow_dispatch' && inputs.task == 'drift-detection'
+    runs-on:
+      - self-hosted
+      - prod-worker
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup tools
+        uses: ./.github/actions/setup-platform
+        with:
+          age-secret-key: ${{ secrets.AGE_SECRET_KEY }}
+
+      - name: Run tofu plan (drift check)
+        env:
+          PROXMOX_API_TOKEN: ${{ secrets.PROXMOX_API_TOKEN }}
+        run: |
+          export TF_PLUGIN_CACHE_DIR="$HOME/.terraform.d/plugin-cache"
+          STATE_DIR=~/.tofu/state/platform-${{ env.ENV_NAME }}
+          mkdir -p $STATE_DIR
+
+          export TF_VAR_proxmox_api_token="${PROXMOX_API_TOKEN}"
+          while IFS= read -r line; do
+            if [[ "$line" =~ ^([a-zA-Z_][a-zA-Z0-9_]*):[[:space:]]*(.*) ]]; then
+              KEY="${BASH_REMATCH[1]}"; VAL="${BASH_REMATCH[2]}"
+              [[ "$KEY" == "sops" ]] && break
+              VAL="${VAL#\"}"; VAL="${VAL%\"}"
+              [[ -n "$VAL" ]] && export "TF_VAR_${KEY}=${VAL}"
+            fi
+          done < <(sops -d "envs/${{ env.ENV_NAME }}/secrets.sops.yaml" 2>/dev/null || echo "")
+
+          cd terraform
+          tofu init -backend-config="path=$STATE_DIR/terraform.tfstate" -reconfigure -no-color 2>&1 | tail -5
+
+          VARS=""
+          [ -f "../envs/${{ env.ENV_NAME }}/terraform.tfvars" ]     && VARS="$VARS -var-file=../envs/${{ env.ENV_NAME }}/terraform.tfvars"
+          [ -f "../envs/${{ env.ENV_NAME }}/services.auto.tfvars" ] && VARS="$VARS -var-file=../envs/${{ env.ENV_NAME }}/services.auto.tfvars"
+
+          tofu plan $VARS -detailed-exitcode -no-color 2>&1 | tee /tmp/drift-plan.txt
+          PLAN_EXIT=${PIPESTATUS[0]}
+          if [ $PLAN_EXIT -eq 0 ]; then
+            echo "✅ No drift — infrastructure matches IaC state" >> "$GITHUB_STEP_SUMMARY"
+          elif [ $PLAN_EXIT -eq 2 ]; then
+            echo "⚠️ Drift detected — run ops.yml → apply-terraform to reconcile" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "❌ Drift check failed (tofu error)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit 0
+
+      - name: Upload drift plan
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: drift-plan-${{ env.ENV_NAME }}-${{ github.run_id }}
+          path: /tmp/drift-plan.txt
+          retention-days: 14
+
+  # ── Check Proxmox Resources ───────────────────────────────────────────────────
+  check-resources:
+    name: Check Proxmox Resources
+    if: github.event_name == 'workflow_dispatch' && inputs.task == 'check-resources'
+    runs-on: [self-hosted, prod-worker]
+    steps:
+      - name: Setup SSH key
+        env:
+          SSH_KEY_FILE: ${{ runner.temp }}/deployer
+        run: |
+          echo "${{ secrets.DEPLOYER_SSH_KEY }}" > $SSH_KEY_FILE
+          chmod 600 $SSH_KEY_FILE
+          mkdir -p ~/.ssh && cp $SSH_KEY_FILE ~/.ssh/deployer_ed25519 && chmod 600 ~/.ssh/deployer_ed25519
+
+      - name: Check live Proxmox resources
+        run: |
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=15 -i ~/.ssh/deployer_ed25519"
+          echo "===== HOST CPU & RAM =====" && ssh $SSH_OPTS root@10.25.0.3 "nproc; free -h; swapon --show || true"
+          echo "===== ALL VMs =====" && ssh $SSH_OPTS root@10.25.0.3 "qm list"
+          echo "===== STORAGE =====" && ssh $SSH_OPTS root@10.25.0.3 "pvesm status"
+          echo "===== RAM TOTALS =====" && ssh $SSH_OPTS root@10.25.0.3 "
+            total=0
+            for vmid in \$(qm list | awk 'NR>1 && \$3==\"running\" {print \$1}'); do
+              mem=\$(qm config \$vmid | awk -F': ' '/^memory:/{print \$2}')
+              total=\$((total + mem))
+            done
+            phys=\$(free -m | awk '/Mem:/{print \$2}')
+            echo \"Allocated: \${total}MB / Physical: \${phys}MB / Free: \$((phys - total))MB\"
+          "
+
+  # ── Refresh ArgoCD Token ──────────────────────────────────────────────────────
+  refresh-argocd-token:
+    name: Refresh ArgoCD GitHub Token
+    if: github.event_name == 'workflow_dispatch' && inputs.task == 'refresh-argocd-token'
+    runs-on:
+      - self-hosted
+      - prod-worker
+    environment: productie
+    steps:
+      - name: Patch ArgoCD repo credentials
+        run: |
+          KB=~/.kube/config-platform-${{ env.ENV_NAME }}
+          NEW_TOKEN=$(echo -n "${{ secrets.ARGOCD_GITHUB_TOKEN }}" | base64)
+          kubectl --kubeconfig $KB patch secret repo-creds-github -n argocd \
+            --type='json' \
+            -p="[{\"op\":\"replace\",\"path\":\"/data/password\",\"value\":\"${NEW_TOKEN}\"}]"
+          echo "✅ ArgoCD GitHub token refreshed"
+          for app in $(kubectl --kubeconfig $KB get applications -n argocd -o name); do
+            kubectl --kubeconfig $KB annotate $app -n argocd argocd.argoproj.io/refresh=hard --overwrite 2>/dev/null || true
+          done
+          echo "✅ All apps hard-refreshed"
