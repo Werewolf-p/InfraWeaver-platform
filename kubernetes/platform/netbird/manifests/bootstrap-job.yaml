@@ -357,6 +357,76 @@ data:
             deleted += 1
 
     print(f"Peer cleanup complete: {deleted} stale peer(s) removed")
+
+  ensure-keys.py: |
+    # Ensure setup keys exist via management API, store values in netbird-secrets.
+    # Keys are recreated only if deleted from NetBird (e.g. after a full DB wipe).
+    # API constraint: 'All' group cannot be in auto_groups — peers auto-join All.
+    import json, sys, os, urllib.request, urllib.error, base64, subprocess
+
+    PAT = os.environ.get('PAT_TOKEN', '')
+    BASE = 'http://netbird-management.netbird.svc:80'
+    NAMESPACE = 'netbird'
+
+    def api(method, path, data=None):
+        url = BASE + path
+        headers = {'Authorization': 'Token ' + PAT, 'Content-Type': 'application/json'}
+        body = json.dumps(data).encode() if data else None
+        req = urllib.request.Request(url, data=body, headers=headers, method=method)
+        try:
+            with urllib.request.urlopen(req, timeout=10) as r:
+                return json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            return json.loads(e.read())
+
+    def kubectl_patch_secret(key, value):
+        enc = base64.b64encode(value.encode()).decode()
+        r = subprocess.run(
+            ['kubectl', 'patch', 'secret', 'netbird-secrets', '-n', NAMESPACE,
+             '--type=json', '-p',
+             json.dumps([{'op': 'add', 'path': '/data/' + key, 'value': enc}])],
+            capture_output=True, text=True)
+        if r.returncode == 0:
+            print(f'  Secret updated: {key}={value[:8]}...')
+        else:
+            print(f'  Secret patch failed: {r.stderr}', file=sys.stderr)
+
+    groups = api('GET', '/api/groups')
+    grp_map = {g['name']: g['id'] for g in (groups if isinstance(groups, list) else [])}
+
+    keys_to_ensure = [
+        ('ci-runner-key',    'CI_RUNNER_KEY',    [grp_map.get('ci-runners', '')]),
+        ('admin-client-key', 'ADMIN_CLIENT_KEY',  [grp_map.get('platform-admins', '')]),
+        ('user-client-key',  'USER_CLIENT_KEY',   [grp_map.get('platform-users', '')]),
+    ]
+
+    nb_keys = api('GET', '/api/setup-keys')
+    nb_key_names = {k['name']: k for k in (nb_keys if isinstance(nb_keys, list) else [])}
+
+    for name, secret_key, auto_groups in keys_to_ensure:
+        existing_val = os.environ.get(secret_key, '')
+        nb_key = nb_key_names.get(name)
+        groups_filtered = [g for g in auto_groups if g]
+
+        if nb_key and nb_key.get('valid') and existing_val:
+            stored_prefix = existing_val[:4].upper()
+            api_prefix = nb_key.get('key', '????')[:4].upper()
+            if stored_prefix == api_prefix:
+                print(f'  {name}: valid (prefix {api_prefix}****), skipping')
+                continue
+            print(f'  {name}: prefix mismatch (stored={stored_prefix} api={api_prefix}), recreating')
+
+        payload = {'name': name, 'type': 'reusable', 'expires_in': 0,
+                   'auto_groups': groups_filtered, 'usage_limit': 0}
+        result = api('POST', '/api/setup-keys', payload)
+        new_key = result.get('key', '')
+        if new_key:
+            print(f'  {name}: created, key={new_key[:8]}...')
+            kubectl_patch_secret(secret_key, new_key)
+        else:
+            print(f'  {name}: creation failed: {result}', file=sys.stderr)
+
+    print('Setup keys verified.')
 ---
 # NetBird DB Bootstrap Job — runs as ArgoCD PostSync hook
 #
@@ -487,82 +557,8 @@ spec:
               fi
 
               echo "=== Ensuring setup keys exist (API-managed, values stored in secret) ==="
-              # Setup keys are managed via the management API so values are reliable.
-              # The key value is stored in netbird-secrets and only recreated if the key
-              # was deleted from NetBird (e.g. after a full DB wipe/redeploy).
-              #
-              # API constraint: 'All' group cannot be in auto_groups — peers auto-join All.
-              # Role groups (ci-runners, platform-admins, platform-users) are set here.
-              python3 -c "
-import subprocess, json, sys, os
-
-PAT = os.environ.get('PAT_TOKEN','')
-BASE = 'http://netbird-management.netbird.svc:80'
-NAMESPACE = 'netbird'
-
-def api(method, path, data=None):
-    import urllib.request, urllib.error
-    url = BASE + path
-    headers = {'Authorization': 'Token ' + PAT, 'Content-Type': 'application/json'}
-    body = json.dumps(data).encode() if data else None
-    req = urllib.request.Request(url, data=body, headers=headers, method=method)
-    try:
-        with urllib.request.urlopen(req, timeout=10) as r:
-            return json.loads(r.read())
-    except urllib.error.HTTPError as e:
-        return json.loads(e.read())
-
-def kubectl_patch_secret(key, value):
-    import base64, subprocess
-    enc = base64.b64encode(value.encode()).decode()
-    subprocess.run(['kubectl', 'patch', 'secret', 'netbird-secrets', '-n', NAMESPACE,
-                    '--type=json',
-                    '-p', json.dumps([{'op':'add','path':f'/data/{key}','value':enc}])],
-                   check=False, capture_output=True)
-    print(f'  Secret updated: {key}={value[:8]}...')
-
-# Load existing groups
-groups = api('GET', '/api/groups')
-grp_map = {g['name']:g['id'] for g in groups if isinstance(groups, list)}
-
-keys_to_ensure = [
-    ('ci-runner-key',   'CI_RUNNER_KEY',   [grp_map.get('ci-runners','')]),
-    ('admin-client-key','ADMIN_CLIENT_KEY', [grp_map.get('platform-admins','')]),
-    ('user-client-key', 'USER_CLIENT_KEY',  [grp_map.get('platform-users','')]),
-]
-
-# Read current keys from NetBird
-nb_keys = api('GET', '/api/setup-keys')
-nb_key_names = {k['name']:k for k in (nb_keys if isinstance(nb_keys, list) else [])}
-
-for name, secret_key, auto_groups in keys_to_ensure:
-    existing_val = os.environ.get(secret_key, '')
-    nb_key = nb_key_names.get(name)
-    groups_filtered = [g for g in auto_groups if g]
-
-    if nb_key and nb_key.get('valid') and existing_val:
-        # Key exists and we have the value stored — verify prefix matches
-        stored_prefix = existing_val[:4].upper()
-        api_prefix = nb_key.get('key','????')[:4].upper()
-        if stored_prefix == api_prefix:
-            print(f'  {name}: exists and valid (prefix {api_prefix}****), skipping')
-            continue
-        else:
-            print(f'  {name}: prefix mismatch (stored={stored_prefix} api={api_prefix}), recreating')
-
-    # Key missing or stale — create new key via API
-    payload = {'name': name, 'type': 'reusable', 'expires_in': 0,
-               'auto_groups': groups_filtered, 'usage_limit': 0}
-    result = api('POST', '/api/setup-keys', payload)
-    new_key = result.get('key', '')
-    if new_key:
-        print(f'  {name}: created, key={new_key[:8]}...')
-        kubectl_patch_secret(secret_key, new_key)
-    else:
-        print(f'  {name}: creation failed: {result}', file=sys.stderr)
-
-print('Setup keys verified.')
-"
+              # Keys managed via API; values stored in netbird-secrets. See ensure-keys.py in ConfigMap.
+              python3 /script/ensure-keys.py
 
               echo "=== Configuring DNS nameserver via API ==="
               # Uses dynamic GRP (All group) — correct even for management-auto-created accounts
