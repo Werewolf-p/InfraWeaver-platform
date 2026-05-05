@@ -248,8 +248,9 @@ data:
           VALUES (?,?,?,?,?,?,?,datetime('now'),?,?,?,?,datetime('now'),datetime('now'),?,?)""",
           (key_id, acc, kh, ks, name, "reusable", 0, "2040-01-01 00:00:00",
            json.dumps(auto_groups), 0, 0, 0, 0))
-        c.execute("UPDATE setup_keys SET name=?, auto_groups=?, updated_at=datetime('now') WHERE id=?",
-                  (name, json.dumps(auto_groups), key_id))
+        # Also update key hash on re-runs so key derivation changes always propagate.
+        c.execute("UPDATE setup_keys SET name=?, auto_groups=?, key=?, key_secret=?, updated_at=datetime('now') WHERE id=?",
+                  (name, json.dumps(auto_groups), kh, ks, key_id))
         print(f"Setup key upserted: {name}")
 
     # infrastructure-key = existing SETUP_KEY (router VM 10.10.0.10 uses this)
