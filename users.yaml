@@ -48,6 +48,10 @@ users:
     openbao_policy: null            # No direct OpenBao access
     send_recovery_email: true
     notes: "Platform user — homepage, VPN, ArgoCD (read-only)"
+    # NetBird access: enroll device with the key matching the desired group.
+    # For Proxmox access (10.25.0.3:8006), use proxmox-client-key.
+    # Multiple devices can use different keys for different access levels.
+    netbird_setup_key: proxmox-client-key   # grants proxmox-users group → TCP 8006 to Proxmox
 
 # =============================================================================
 # Access Matrix

@@ -1,0 +1,184 @@
+---
+# NetworkPolicies for the NetBird namespace.
+#
+# NetBird has several components:
+#   - management: API + gRPC server (port 80, 33073) — LB-exposed + in-cluster
+#   - signal: gRPC signalling for WireGuard (port 10000) — LB-exposed
+#   - relay: TURN-like relay (port 443) — LB-exposed
+#   - dashboard: Web UI (port 80) — Traefik-routed (VPN-only)
+#   - bootstrap-job: runs inside netbird namespace, calls management API
+#
+# External VPN clients (peers) reach signal/relay/management via MetalLB LB IPs.
+# The bootstrap job runs inside the netbird namespace.
+# Traefik routes dashboard traffic.
+
+# ── Default deny all ingress (internal cluster traffic) ──────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: netbird
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+
+---
+# ── Allow Traefik → dashboard (port 80) and management API (port 80) ─────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-traefik-ingress
+  namespace: netbird
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: traefik
+      ports:
+        - protocol: TCP
+          port: 80
+
+---
+# ── Allow in-namespace traffic (bootstrap-job → management) ──────────────────
+# The bootstrap-job pod runs in the netbird namespace and calls the management API.
+# Management pods also communicate internally (gRPC).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-intra-namespace
+  namespace: netbird
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 80
+        - protocol: TCP
+          port: 33073
+
+---
+# ── Allow VPN peers → management LoadBalancer (via node IP / MetalLB) ────────
+# External peers reach management-lb (10.10.0.202) on port 80 and 33073.
+# MetalLB traffic arrives from the cluster node IP or directly from peers
+# depending on externalTrafficPolicy. Allow from cluster node CIDR + VPN subnet.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-external-peer-management
+  namespace: netbird
+spec:
+  podSelector:
+    matchLabels:
+      app: netbird-management
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        # Cluster node CIDR (Proxmox VMs, bare metal — traffic via MetalLB proxy)
+        - ipBlock:
+            cidr: 10.25.0.0/24
+        # Homelab VLAN3 subnet (VPN peers on the homelab network)
+        - ipBlock:
+            cidr: 10.10.0.0/24
+        # NetBird WireGuard subnet (enrolled peers on the VPN itself)
+        - ipBlock:
+            cidr: 100.64.0.0/10
+      ports:
+        - protocol: TCP
+          port: 80
+        - protocol: TCP
+          port: 33073
+
+---
+# ── Allow VPN peers → signal server (gRPC port 10000) ───────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-external-peer-signal
+  namespace: netbird
+spec:
+  podSelector:
+    matchLabels:
+      app: netbird-signal
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - ipBlock:
+            cidr: 10.25.0.0/24
+        - ipBlock:
+            cidr: 10.10.0.0/24
+        - ipBlock:
+            cidr: 100.64.0.0/10
+        # Internet peers (STUN/TURN connections from outside)
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 10000
+
+---
+# ── Allow VPN peers → relay (TURN port 443) ──────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-external-peer-relay
+  namespace: netbird
+spec:
+  podSelector:
+    matchLabels:
+      app: netbird-relay
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+        - ipBlock:
+            cidr: 10.25.0.0/24
+        - ipBlock:
+            cidr: 10.10.0.0/24
+        - ipBlock:
+            cidr: 100.64.0.0/10
+      ports:
+        - protocol: TCP
+          port: 443
+
+---
+# ── Allow Prometheus scraping ─────────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-scrape
+  namespace: netbird
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 9090
+        - protocol: TCP
+          port: 8080
