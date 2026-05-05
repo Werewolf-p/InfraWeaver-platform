@@ -29,12 +29,6 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
-  # Suppress warning for ESO-created Secret (owned by ExternalSecret, not ArgoCD)
-  orphanedResources:
-    warn: true
-    ignore:
-      - kind: Secret
-        name: grafana-admin-secret
   ignoreDifferences:
     - group: external-secrets.io
       kind: ExternalSecret

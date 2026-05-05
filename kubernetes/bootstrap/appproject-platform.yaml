@@ -30,3 +30,15 @@ spec:
       kind: "*"
   orphanedResources:
     warn: true
+    ignore:
+      # openbao-token Secret is managed by the deploy workflow (not ArgoCD)
+      - kind: Secret
+        name: openbao-token
+        namespace: external-secrets
+      # grafana-admin-secret is created by ExternalSecret (ESO-managed, not ArgoCD-tracked)
+      - kind: Secret
+        name: grafana-admin-secret
+        namespace: apps-grafana
+      - kind: Secret
+        name: grafana-admin-secret
+        namespace: monitoring
