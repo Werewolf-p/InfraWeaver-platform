@@ -248,8 +248,8 @@ data:
           VALUES (?,?,?,?,?,?,?,datetime('now'),?,?,?,?,datetime('now'),datetime('now'),?,?)""",
           (key_id, acc, kh, ks, name, "reusable", 0, "2040-01-01 00:00:00",
            json.dumps(auto_groups), 0, 0, 0, 0))
-        c.execute("UPDATE setup_keys SET auto_groups=?, updated_at=datetime('now') WHERE id=?",
-                  (json.dumps(auto_groups), key_id))
+        c.execute("UPDATE setup_keys SET name=?, auto_groups=?, updated_at=datetime('now') WHERE id=?",
+                  (name, json.dumps(auto_groups), key_id))
         print(f"Setup key upserted: {name}")
 
     # infrastructure-key = existing SETUP_KEY (router VM 10.10.0.10 uses this)
@@ -554,7 +554,7 @@ spec:
                 echo "Found ${PEER_COUNT} connected peer(s)"
 
                 # Router peers: name starts with 'netbird-router'
-                ROUTER_IDS=$(echo "$PEERS_RESP" | python3 -c "import sys,json; peers=json.load(sys.stdin); print(json.dumps([{'id':p['id']} for p in (peers if isinstance(peers,list) else []) if 'netbird-router' in p.get('name','').lower()]))" 2>/dev/null || echo "[]")
+                ROUTER_IDS=$(echo "$PEERS_RESP" | python3 -c "import sys,json; peers=json.load(sys.stdin); print(json.dumps([p['id'] for p in (peers if isinstance(peers,list) else []) if 'netbird-router' in p.get('name','').lower()]))" 2>/dev/null || echo "[]")
                 echo "Router peer(s): $ROUTER_IDS"
 
                 # Update routing-peers-vlan3: ONLY router peers advertise subnet routes
@@ -566,7 +566,7 @@ spec:
                   -o /dev/null && echo "routing-peers-vlan3 updated (router-only)"
 
                 # CI runner peers: hostname contains 'runner' or 'github-actions'
-                RUNNER_IDS=$(echo "$PEERS_RESP" | python3 -c "import sys,json; peers=json.load(sys.stdin); print(json.dumps([{'id':p['id']} for p in (peers if isinstance(peers,list) else []) if any(x in p.get('name','').lower() for x in ['runner','github-actions'])]))" 2>/dev/null || echo "[]")
+                RUNNER_IDS=$(echo "$PEERS_RESP" | python3 -c "import sys,json; peers=json.load(sys.stdin); print(json.dumps([p['id'] for p in (peers if isinstance(peers,list) else []) if any(x in p.get('name','').lower() for x in ['runner','github-actions'])]))" 2>/dev/null || echo "[]")
                 echo "Runner peer(s): $RUNNER_IDS"
 
                 if [ -n "$GRP_CI" ] && [ "$RUNNER_IDS" != "[]" ]; then
@@ -580,7 +580,7 @@ spec:
 
                 if [ -n "$GRP_INFRA" ]; then
                   # Infrastructure = router + runner peers (merged, deduplicated by id)
-                  INFRA_IDS=$(python3 -c "import json; r=json.loads('${ROUTER_IDS}'); ru=json.loads('${RUNNER_IDS}'); seen=set(); m=[p for p in r+ru if p['id'] not in seen and not seen.add(p['id'])]; print(json.dumps(m))" 2>/dev/null || echo "${ROUTER_IDS}")
+                  INFRA_IDS=$(python3 -c "import json; r=json.loads('${ROUTER_IDS}'); ru=json.loads('${RUNNER_IDS}'); seen=set(); m=[p for p in r+ru if p not in seen and not seen.add(p)]; print(json.dumps(m))" 2>/dev/null || echo "${ROUTER_IDS}")
                   curl -s --max-time 10 -X PUT \
                     http://netbird-management.netbird.svc:80/api/groups/${GRP_INFRA} \
                     -H "Authorization: Token ${PAT_TOKEN}" \
