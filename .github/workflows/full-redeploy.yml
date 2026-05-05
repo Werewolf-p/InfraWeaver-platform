@@ -1755,24 +1755,10 @@ jobs:
               echo "  ⚠ SBOM failed for $img (skipping)"
           done < /tmp/sbom/image-list.txt
 
-          # Merge all SBOMs into a summary
-          python3 - << 'PYEOF'
-import json, os, glob
-packages = set()
-for f in glob.glob('/tmp/sbom/*.spdx.json'):
-    try:
-        d = json.load(open(f))
-        for pkg in d.get('packages', []):
-            name = pkg.get('name', '')
-            ver = pkg.get('versionInfo', '')
-            if name:
-                packages.add(f"{name}=={ver}")
-    except Exception:
-        pass
-summary = {'total_unique_packages': len(packages), 'packages': sorted(packages)}
-json.dump(summary, open('/tmp/sbom/summary.json', 'w'), indent=2)
-print(f"✅ SBOM summary: {len(packages)} unique packages across all images")
-PYEOF
+          # Merge all SBOMs into a summary count
+          TOTAL=$(find /tmp/sbom -name "*.spdx.json" | wc -l)
+          echo "✅ SBOM generation complete: ${TOTAL} image SBOMs generated"
+          ls -lh /tmp/sbom/*.spdx.json 2>/dev/null | awk '{print "  " $5 " " $9}' || true
         continue-on-error: true
 
       - name: Upload SBOM artifact
