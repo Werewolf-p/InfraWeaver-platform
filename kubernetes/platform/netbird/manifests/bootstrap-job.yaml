@@ -32,6 +32,7 @@ data:
     GRP_USERS     = "grp00000-0000-4000-a000-000000000006"  # platform-users
     GRP_SVC_ADMIN = "grp00000-0000-4000-a000-000000000007"  # internal-services-admin
     GRP_SVC_ALL   = "grp00000-0000-4000-a000-000000000008"  # internal-services-all
+    GRP_PROXMOX   = "grp00000-0000-4000-a000-000000000009"  # proxmox-users (port 8006 only)
 
     # AES-256-GCM encryption matching NetBird v0.70 Go: gcm.Seal(nonce, nonce, msg, nil)
     # Output format: base64(nonce[12] || ciphertext || tag[16])
@@ -148,6 +149,7 @@ data:
     GRP_USERS     = _ensure_group(c, ACC, "platform-users",          GRP_USERS)
     GRP_SVC_ADMIN = _ensure_group(c, ACC, "internal-services-admin", GRP_SVC_ADMIN)
     GRP_SVC_ALL   = _ensure_group(c, ACC, "internal-services-all",   GRP_SVC_ALL)
+    GRP_PROXMOX   = _ensure_group(c, ACC, "proxmox-users",           GRP_PROXMOX)
 
     # Write resolved IDs + derived keys to /tmp/nb-ids.env for the shell script section.
     with open("/tmp/nb-ids.env", "w") as f:
@@ -159,6 +161,7 @@ data:
         f.write(f"GRP_USERS={GRP_USERS}\n")
         f.write(f"GRP_SVC_ADMIN={GRP_SVC_ADMIN}\n")
         f.write(f"GRP_SVC_ALL={GRP_SVC_ALL}\n")
+        f.write(f"GRP_PROXMOX={GRP_PROXMOX}\n")
         f.write(f"ACC={ACC}\n")
     print(f"Wrote IDs to /tmp/nb-ids.env: ACC={ACC} GRP={GRP} (+ 7 role groups)")
 
@@ -220,6 +223,10 @@ data:
         "pol00000-0000-4000-a000-000000000005", "rul00000-0000-4000-a000-000000000005",
         "ci-runner-mgmt", "CI runners can reach infrastructure (SSH + HTTPS)",
         [GRP_CI], [GRP_INFRA], protocol="tcp", ports=["22", "443"])
+    _upsert_policy(c, ACC,
+        "pol00000-0000-4000-a000-000000000006", "rul00000-0000-4000-a000-000000000006",
+        "proxmox-port-access", "proxmox-users can reach Proxmox web UI on port 8006 only",
+        [GRP_PROXMOX], [GRP_ROUTING], protocol="tcp", ports=["8006"])
 
     # Upsert all setup keys — creates if not exists, always updates auto_groups.
     # Uses real group IDs (not static fallbacks) resolved above.
@@ -400,9 +407,10 @@ data:
     grp_map = {g['name']: g['id'] for g in (groups if isinstance(groups, list) else [])}
 
     keys_to_ensure = [
-        ('ci-runner-key',    'CI_RUNNER_KEY',    [grp_map.get('ci-runners', '')]),
-        ('admin-client-key', 'ADMIN_CLIENT_KEY',  [grp_map.get('platform-admins', '')]),
-        ('user-client-key',  'USER_CLIENT_KEY',   [grp_map.get('platform-users', '')]),
+        ('ci-runner-key',      'CI_RUNNER_KEY',      [grp_map.get('ci-runners', '')]),
+        ('admin-client-key',   'ADMIN_CLIENT_KEY',   [grp_map.get('platform-admins', '')]),
+        ('user-client-key',    'USER_CLIENT_KEY',    [grp_map.get('platform-users', '')]),
+        ('proxmox-client-key', 'PROXMOX_CLIENT_KEY', [grp_map.get('proxmox-users', '')]),
     ]
 
     nb_keys = api('GET', '/api/setup-keys')
