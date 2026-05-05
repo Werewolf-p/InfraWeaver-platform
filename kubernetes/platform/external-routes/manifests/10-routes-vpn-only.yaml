@@ -105,6 +105,28 @@ spec:
   tls:
     secretName: int-rlservers-com-tls
 ---
+# ── NetBird Dashboard (int — VPN only, catch-all) ────────────────────────────
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: netbird-dashboard-int
+  namespace: traefik
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`netbird.int.rlservers.com`)
+      kind: Rule
+      priority: 10
+      middlewares:
+        - name: netbird-vpn-only
+          namespace: traefik
+      services:
+        - name: netbird-dashboard
+          port: 80
+  tls:
+    secretName: int-rlservers-com-tls
+---
 # ── ArgoCD ────────────────────────────────────────────────────────────────────
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute

@@ -1,22 +1,12 @@
 ---
-# netbird.rlservers.com → 301 redirect to netbird.int.rlservers.com (VPN-only)
-# Dashboard is internal-only; clients must be on NetBird VPN to access it.
-# The NetBird management API remains public at api-netbird.rlservers.com (enrollment).
-apiVersion: traefik.io/v1alpha1
-kind: Middleware
-metadata:
-  name: netbird-public-to-internal-redirect
-  namespace: traefik
-spec:
-  redirectRegex:
-    regex: "^https://netbird\\.rlservers\\.com(.*)"
-    replacement: "https://netbird.int.rlservers.com${1}"
-    permanent: false
----
+# netbird.rlservers.com — public dashboard (Authentik SSO via forward-auth)
+# Accessible before VPN is connected — avoids chicken-and-egg enrollment problem.
+# Once on VPN, netbird.int.rlservers.com is also available (no auth required).
+# Management API stays public at api-netbird.rlservers.com (required for enrollment).
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
-  name: netbird-dashboard-public-redirect
+  name: netbird-dashboard
   namespace: traefik
 spec:
   entryPoints:
@@ -26,7 +16,7 @@ spec:
       kind: Rule
       priority: 10
       middlewares:
-        - name: netbird-public-to-internal-redirect
+        - name: forward-auth
       services:
         - name: netbird-dashboard
           port: 80
