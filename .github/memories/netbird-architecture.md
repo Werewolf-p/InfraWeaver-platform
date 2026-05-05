@@ -46,10 +46,17 @@ Legacy groups (pre-existing, kept for compatibility): `Admin`, `cluster-only`
 | `admin-client-key` | All, platform-admins | Admin devices (remon's PC/phone) |
 | `user-client-key` | All, platform-users | Regular devices |
 
-**Key derivation**: ci-runner-key, admin-client-key, user-client-key are derived deterministically
-from `SETUP_KEY` using HMAC-SHA256: `HMAC(SETUP_KEY, "role-name")`. No extra secrets needed.
+**Key management**: ci-runner-key, admin-client-key, user-client-key are created via the
+NetBird management API by `ensure-keys.py` in the bootstrap job. Key values are stored
+in the `netbird-setup-keys` Kubernetes secret (NOT managed by ESO — separate from `netbird-secrets`).
+This is idempotent: on re-runs, keys are kept if prefix still matches stored value.
 
-**infrastructure-key value** = `SETUP_KEY` from OpenBao (backward compatible with router VM).
+**infrastructure-key value** = `SETUP_KEY` from OpenBao (via SQLite direct write — backward compatible with router VM).
+
+**`netbird-setup-keys` secret** (namespace: netbird):
+- `CI_RUNNER_KEY`, `ADMIN_CLIENT_KEY`, `USER_CLIENT_KEY`
+- Created fresh on every full redeploy; bootstrap re-creates keys if secret is missing
+- NOT owned by ExternalSecretOperator (separate from `netbird-secrets` which ESO owns)
 
 ## Access Policies (5 policies)
 
@@ -78,3 +85,31 @@ Runs on every ArgoCD PostSync. Steps:
 - `datastore-enc-key` — AES-256-GCM key for SQLite field encryption
 - `netbird-pat-token` — PAT for admin API access (linked to 'remon' user)
 - `TURN_PASSWORD` — TURN relay credential
+
+## Post-Redeploy Checklist (automated)
+
+After any full redeploy, the bootstrap job handles:
+- Creates all 8 groups in NetBird SQLite (management scaled to 0)
+- Creates infrastructure-key in SQLite
+- Creates ci-runner-key, admin-client-key, user-client-key via API → saves to `netbird-setup-keys`
+- Classifies connected peers into correct groups (router → routing-peers-vlan3, runner → ci-runners)
+- Sets DNS nameservers for internal domains
+
+**Manual post-redeploy steps** (not yet automated):
+- Re-enroll runner: `netbird up --management-url https://api-netbird.rlservers.com:443 --setup-key <CI_RUNNER_KEY>`
+- PC/phone must re-enroll with admin-client-key or user-client-key from `netbird-setup-keys`
+
+## Known Issues / Gotchas
+
+- **bootstrap OutOfSync fix (2026-05)**: `kubernetes/platform/external-dns/application.yaml` was
+  causing platform-apps ApplicationSet to generate a duplicate `platform-external-dns` app
+  (with ServerSideApply=true), conflicting with bootstrap's standalone `app-external-dns-helm.yaml`.
+  Fixed by renaming to `application.yaml.standalone-managed`. Do NOT re-enable it.
+  
+- **ESO overwrites patches**: `netbird-secrets` is owned by ESO (creationPolicy: Owner).
+  Any `kubectl patch` to it will be reverted at next ESO reconciliation.
+  Use the separate `netbird-setup-keys` secret for API-generated key values.
+
+- **Bootstrap PostSync hook**: Only runs when ArgoCD triggers a sync and detects changes.
+  For manual testing: `kubectl apply -f kubernetes/platform/netbird/manifests/bootstrap-job.yaml`
+  (then delete old job first: `kubectl -n netbird delete job netbird-bootstrap`)
