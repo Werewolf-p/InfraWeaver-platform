@@ -293,6 +293,7 @@ resource "kubernetes_manifest" "platform_applicationset" {
               "CreateNamespace=true",
               "PrunePropagationPolicy=foreground",
               "PruneLast=true",
+              "ServerSideApply=true",
             ]
             retry = {
               limit = 5
