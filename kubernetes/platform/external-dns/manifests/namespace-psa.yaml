@@ -1,0 +1,11 @@
+---
+# Pod Security Admission labels for the external-dns namespace.
+# baseline: ExternalDNS runs as an unprivileged pod.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: external-dns
+  labels:
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: baseline
+    pod-security.kubernetes.io/warn: baseline

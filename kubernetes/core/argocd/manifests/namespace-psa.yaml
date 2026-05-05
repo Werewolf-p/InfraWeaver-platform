@@ -1,0 +1,11 @@
+---
+# Pod Security Admission labels for the argocd namespace.
+# baseline: blocks privileged containers but allows ArgoCD components to run normally.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: argocd
+  labels:
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: baseline
+    pod-security.kubernetes.io/warn: baseline

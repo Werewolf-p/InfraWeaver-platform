@@ -1,0 +1,10 @@
+---
+# Pod Security Admission labels for the traefik namespace.
+# privileged: Traefik requires NET_BIND_SERVICE and hostPort binding.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: traefik
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/warn: privileged

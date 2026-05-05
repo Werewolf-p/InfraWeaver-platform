@@ -82,3 +82,84 @@ spec:
       ports:
         - protocol: TCP
           port: 8201
+
+---
+# ── Allow intra-namespace communication (all openbao pods) ───────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-intra-namespace
+  namespace: openbao
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector: {}   # all pods within openbao namespace
+
+---
+# ── Allow Prometheus to scrape OpenBao metrics ────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-scrape
+  namespace: openbao
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: openbao
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8200
+
+---
+# ── Allow ArgoCD to reach OpenBao API (vault plugin / secret reads) ───────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-from-argocd
+  namespace: openbao
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: openbao
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: argocd
+      ports:
+        - protocol: TCP
+          port: 8200
+
+---
+# ── Allow Kubernetes API server / Vault k8s auth (kube-system → port 8200) ───
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-from-k8s-apiserver
+  namespace: openbao
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: openbao
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: TCP
+          port: 8200

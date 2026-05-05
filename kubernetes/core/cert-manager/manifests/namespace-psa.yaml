@@ -1,0 +1,11 @@
+---
+# Pod Security Admission labels for the cert-manager namespace.
+# baseline: sufficient for cert-manager controller, webhook, and cainjector.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cert-manager
+  labels:
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: baseline
+    pod-security.kubernetes.io/warn: baseline

@@ -38,6 +38,8 @@ configs:
       return hs
     # Local user accounts — passwords set by full-redeploy bootstrap (stored in OpenBao)
     accounts.remon: login
+    # Disable built-in admin account — OIDC (Authentik) is the sole login path
+    admin.enabled: "false"
     # OIDC via Authentik — client secret read from argocd-secret by ArgoCD
     oidc.config: |
       name: Authentik

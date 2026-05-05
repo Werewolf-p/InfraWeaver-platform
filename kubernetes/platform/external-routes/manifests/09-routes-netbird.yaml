@@ -15,6 +15,9 @@ spec:
     - match: Host(`netbird.rlservers.com`)
       kind: Rule
       priority: 10
+      middlewares:
+        - name: secure-headers
+          namespace: traefik
       services:
         - name: netbird-dashboard
           port: 80

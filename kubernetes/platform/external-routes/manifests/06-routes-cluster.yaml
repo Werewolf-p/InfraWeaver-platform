@@ -15,6 +15,9 @@ spec:
   routes:
     - match: Host(`test.rlservers.com`)
       kind: Rule
+      middlewares:
+        - name: secure-headers
+          namespace: traefik
       services:
         - name: test-website
           port: 80

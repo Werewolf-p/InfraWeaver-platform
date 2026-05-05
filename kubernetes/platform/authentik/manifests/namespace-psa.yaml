@@ -1,0 +1,11 @@
+---
+# Pod Security Admission labels for the authentik namespace.
+# baseline: Authentik server and worker pods run without elevated privileges.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: authentik
+  labels:
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: baseline
+    pod-security.kubernetes.io/warn: baseline
