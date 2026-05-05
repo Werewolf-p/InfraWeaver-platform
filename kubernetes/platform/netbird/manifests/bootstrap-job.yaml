@@ -7,7 +7,7 @@ metadata:
   namespace: netbird
 data:
   bootstrap.py: |
-    import sqlite3, json, base64, hashlib, os, secrets as _secrets
+    import sqlite3, json, base64, hashlib, hmac as _hmac, os, secrets as _secrets
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
     DB = os.environ.get("DB", "/data/store.db")
@@ -25,6 +25,17 @@ data:
     POL = "pol00000-0000-4000-a000-000000000001"
     RUL = "rul00000-0000-4000-a000-000000000001"
     KEY_ID = "388f43a5-eb90-4ba0-a7cb-a892408886df"
+    # Role-based setup key IDs (stable across reruns)
+    KEY_CI_ID    = "a1b2c3d4-e5f6-7890-abcd-ef1234000001"  # ci-runner-key
+    KEY_ADMIN_ID = "a1b2c3d4-e5f6-7890-abcd-ef1234000002"  # admin-client-key
+    KEY_USER_ID  = "a1b2c3d4-e5f6-7890-abcd-ef1234000003"  # user-client-key
+    # Role-based group IDs (static fallbacks — overridden by DB detection below)
+    GRP_INFRA     = "grp00000-0000-4000-a000-000000000003"  # infrastructure
+    GRP_CI        = "grp00000-0000-4000-a000-000000000004"  # ci-runners
+    GRP_ADMINS    = "grp00000-0000-4000-a000-000000000005"  # platform-admins
+    GRP_USERS     = "grp00000-0000-4000-a000-000000000006"  # platform-users
+    GRP_SVC_ADMIN = "grp00000-0000-4000-a000-000000000007"  # internal-services-admin
+    GRP_SVC_ALL   = "grp00000-0000-4000-a000-000000000008"  # internal-services-all
 
     # AES-256-GCM encryption matching NetBird v0.70 Go: gcm.Seal(nonce, nonce, msg, nil)
     # Output format: base64(nonce[12] || ciphertext || tag[16])
@@ -41,6 +52,20 @@ data:
     key_hash = base64.b64encode(hashlib.sha256(SETUP_KEY.encode()).digest()).decode()
     key_secret = SETUP_KEY[:4] + "****"
     print(f"Using SETUP_KEY prefix: {SETUP_KEY[:8]}..., hash: {key_hash[:16]}...")
+
+    # Derive role-specific setup keys deterministically from SETUP_KEY using HMAC-SHA256.
+    # These are stable: same SETUP_KEY always produces the same derived keys.
+    def _derive_key(base: str, role: str) -> str:
+        raw = _hmac.new(base.encode(), role.encode(), hashlib.sha256).hexdigest()
+        return f"{raw[:8]}-{raw[8:12]}-4{raw[13:16]}-a{raw[17:20]}-{raw[20:32]}"
+
+    CI_RUNNER_KEY    = _derive_key(SETUP_KEY, "ci-runner")
+    ADMIN_CLIENT_KEY = _derive_key(SETUP_KEY, "admin-client")
+    USER_CLIENT_KEY  = _derive_key(SETUP_KEY, "user-client")
+    ci_key_hash      = base64.b64encode(hashlib.sha256(CI_RUNNER_KEY.encode()).digest()).decode()
+    admin_key_hash   = base64.b64encode(hashlib.sha256(ADMIN_CLIENT_KEY.encode()).digest()).decode()
+    user_key_hash    = base64.b64encode(hashlib.sha256(USER_CLIENT_KEY.encode()).digest()).decode()
+    print(f"Derived CI_RUNNER_KEY prefix: {CI_RUNNER_KEY[:8]}...")
 
     # Correct format for net.IPNet in NetBird v0.70:
     # net.IP implements TextMarshaler -> stored as string "100.64.0.0"
@@ -118,13 +143,41 @@ data:
           VALUES (?,?,?,?,?,?,?)""",
           (GRP_ROUTING, ACC, "routing-peers-vlan3", "api", "[]", 0, ""))
 
-    # Write resolved IDs to /tmp/nb-ids.env for the shell script section to consume.
-    # This avoids hardcoding group IDs in the DNS nameserver and routing API calls.
+    # Helper: detect or create a group by name, return actual DB ID.
+    def _ensure_group(c, acc, name, static_id):
+        row = c.execute("SELECT id FROM groups WHERE name=? AND account_id=?", (name, acc)).fetchone()
+        if row:
+            print(f"Detected existing group '{name}': {row[0]}")
+            return row[0]
+        c.execute("""INSERT OR IGNORE INTO groups
+          (id, account_id, name, issued, resources, integration_ref_id, integration_ref_integration_type)
+          VALUES (?,?,?,?,?,?,?)""",
+          (static_id, acc, name, "api", "[]", 0, ""))
+        print(f"Created group '{name}' with static ID: {static_id}")
+        return static_id
+
+    GRP_INFRA     = _ensure_group(c, ACC, "infrastructure",          GRP_INFRA)
+    GRP_CI        = _ensure_group(c, ACC, "ci-runners",              GRP_CI)
+    GRP_ADMINS    = _ensure_group(c, ACC, "platform-admins",         GRP_ADMINS)
+    GRP_USERS     = _ensure_group(c, ACC, "platform-users",          GRP_USERS)
+    GRP_SVC_ADMIN = _ensure_group(c, ACC, "internal-services-admin", GRP_SVC_ADMIN)
+    GRP_SVC_ALL   = _ensure_group(c, ACC, "internal-services-all",   GRP_SVC_ALL)
+
+    # Write resolved IDs + derived keys to /tmp/nb-ids.env for the shell script section.
     with open("/tmp/nb-ids.env", "w") as f:
         f.write(f"GRP={GRP}\n")
         f.write(f"GRP_ROUTING={GRP_ROUTING}\n")
+        f.write(f"GRP_INFRA={GRP_INFRA}\n")
+        f.write(f"GRP_CI={GRP_CI}\n")
+        f.write(f"GRP_ADMINS={GRP_ADMINS}\n")
+        f.write(f"GRP_USERS={GRP_USERS}\n")
+        f.write(f"GRP_SVC_ADMIN={GRP_SVC_ADMIN}\n")
+        f.write(f"GRP_SVC_ALL={GRP_SVC_ALL}\n")
         f.write(f"ACC={ACC}\n")
-    print(f"Wrote IDs to /tmp/nb-ids.env: ACC={ACC} GRP={GRP} GRP_ROUTING={GRP_ROUTING}")
+        f.write(f"CI_RUNNER_KEY={CI_RUNNER_KEY}\n")
+        f.write(f"ADMIN_CLIENT_KEY={ADMIN_CLIENT_KEY}\n")
+        f.write(f"USER_CLIENT_KEY={USER_CLIENT_KEY}\n")
+    print(f"Wrote IDs to /tmp/nb-ids.env: ACC={ACC} GRP={GRP} (+ 7 role groups + 3 derived keys)")
 
     # Ensure policy exists (idempotent — management may auto-create one too)
     existing_pol = c.execute("SELECT id FROM policies WHERE account_id=? AND name='Default' LIMIT 1", (ACC,)).fetchone()
@@ -146,25 +199,72 @@ data:
     else:
         print(f"Default policy already exists: {existing_pol[0]}")
 
-    # Upsert setup key — uses real group IDs (not static fallbacks)
-    # key_secret non-empty → MigrateSetupKeyToHashedSetupKey skips this row
-    # auto_groups=[GRP, GRP_ROUTING]: new peers auto-join All + routing-peers-vlan3
-    routing_groups_json = json.dumps([GRP, GRP_ROUTING])
-    existing_key = c.execute("SELECT id FROM setup_keys WHERE account_id=? LIMIT 1", (ACC,)).fetchone()
-    if not existing_key:
+    # Additional role-based policies — supplement Default (All→All) during RBAC migration.
+    # Once all devices are enrolled with the correct role key, Default can be removed.
+    def _upsert_policy(c, acc, pol_id, rul_id, name, desc, src_grps, dst_grps,
+                       bidirectional=False, protocol="all", ports=None):
+        if c.execute("SELECT id FROM policies WHERE id=? AND account_id=?", (pol_id, acc)).fetchone():
+            print(f"Policy already exists: {name}")
+            return
+        c.execute("""INSERT OR IGNORE INTO policies
+          (id, account_id, name, description, enabled, source_posture_checks)
+          VALUES (?,?,?,?,?,?)""",
+          (pol_id, acc, name, desc, 1, "[]"))
+        c.execute("""INSERT OR IGNORE INTO policy_rules
+          (id, policy_id, name, description, enabled, action,
+           destinations, destination_resource, sources, source_resource,
+           bidirectional, protocol, ports, port_ranges, authorized_groups, authorized_user)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+          (rul_id, pol_id, name, desc, 1, "accept",
+           json.dumps(dst_grps), None, json.dumps(src_grps), None,
+           1 if bidirectional else 0, protocol, json.dumps(ports or []), "[]", "{}", ""))
+        conn.commit()
+        print(f"Created policy: {name}")
+
+    _upsert_policy(c, ACC,
+        "pol00000-0000-4000-a000-000000000002", "rul00000-0000-4000-a000-000000000002",
+        "admin-full-access", "Platform admins have full access to all peers",
+        [GRP_ADMINS], [GRP], bidirectional=True)
+    _upsert_policy(c, ACC,
+        "pol00000-0000-4000-a000-000000000003", "rul00000-0000-4000-a000-000000000003",
+        "user-subnet-access", "Regular users can use subnet routes",
+        [GRP_USERS], [GRP_ROUTING])
+    _upsert_policy(c, ACC,
+        "pol00000-0000-4000-a000-000000000004", "rul00000-0000-4000-a000-000000000004",
+        "infra-to-all", "Infrastructure peers can reach all peers",
+        [GRP_INFRA], [GRP], bidirectional=True)
+    _upsert_policy(c, ACC,
+        "pol00000-0000-4000-a000-000000000005", "rul00000-0000-4000-a000-000000000005",
+        "ci-runner-mgmt", "CI runners can reach infrastructure (SSH + HTTPS)",
+        [GRP_CI], [GRP_INFRA], protocol="tcp", ports=["22", "443"])
+
+    # Upsert all setup keys — creates if not exists, always updates auto_groups.
+    # Uses real group IDs (not static fallbacks) resolved above.
+    def _upsert_key(c, acc, key_id, key_val, kh, name, auto_groups):
+        ks = key_val[:4] + "****"
         c.execute("""INSERT OR IGNORE INTO setup_keys
           (id, account_id, key, key_secret, name, type, used_times, last_used, expires_at,
            auto_groups, revoked, ephemeral, updated_at, created_at, usage_limit, allow_extra_dns_labels)
           VALUES (?,?,?,?,?,?,?,datetime('now'),?,?,?,?,datetime('now'),datetime('now'),?,?)""",
-          (KEY_ID, ACC, key_hash, key_secret,
-           "Default Key", "reusable", 0, "2040-01-01 00:00:00",
-           routing_groups_json, 0, 0, 0, 0))
-        print(f"Setup key created: {KEY_ID}")
-    else:
-        # Update auto_groups in case IDs changed (e.g., management re-created All group)
+          (key_id, acc, kh, ks, name, "reusable", 0, "2040-01-01 00:00:00",
+           json.dumps(auto_groups), 0, 0, 0, 0))
         c.execute("UPDATE setup_keys SET auto_groups=?, updated_at=datetime('now') WHERE id=?",
-                  (routing_groups_json, existing_key[0]))
-        print(f"Setup key auto_groups updated: {existing_key[0]}")
+                  (json.dumps(auto_groups), key_id))
+        print(f"Setup key upserted: {name}")
+
+    # infrastructure-key = existing SETUP_KEY (router VM 10.10.0.10 uses this)
+    # auto_groups includes routing-peers-vlan3 so router auto-joins on enrollment
+    _upsert_key(c, ACC, KEY_ID, SETUP_KEY, key_hash,
+                "infrastructure-key", [GRP, GRP_ROUTING, GRP_INFRA])
+    # ci-runner-key: for runner VMs (10.10.0.118); derived from SETUP_KEY + "ci-runner"
+    _upsert_key(c, ACC, KEY_CI_ID, CI_RUNNER_KEY, ci_key_hash,
+                "ci-runner-key", [GRP, GRP_CI])
+    # admin-client-key: for admin devices (remon's PC + phone)
+    _upsert_key(c, ACC, KEY_ADMIN_ID, ADMIN_CLIENT_KEY, admin_key_hash,
+                "admin-client-key", [GRP, GRP_ADMINS])
+    # user-client-key: for regular user devices
+    _upsert_key(c, ACC, KEY_USER_ID, USER_CLIENT_KEY, user_key_hash,
+                "user-client-key", [GRP, GRP_USERS])
 
     # Always ensure the system admin user exists (USR) — needed as PAT owner.
     # Use INSERT OR IGNORE so we never overwrite an existing user's data.
@@ -371,7 +471,7 @@ spec:
               # that break when management auto-creates groups with random IDs.
               if [ -f /tmp/nb-ids.env ]; then
                 . /tmp/nb-ids.env
-                echo "Loaded IDs from bootstrap: GRP=${GRP} GRP_ROUTING=${GRP_ROUTING}"
+                echo "Loaded IDs from bootstrap: GRP=${GRP} GRP_ROUTING=${GRP_ROUTING} GRP_CI=${GRP_CI} GRP_INFRA=${GRP_INFRA}"
               else
                 # Fallback: query the API for the All group ID
                 GRP=$(curl -s --max-time 10 \
@@ -440,36 +540,56 @@ spec:
                 echo "DNS nameserver group int-rlservers-com already exists — skipping"
               fi
 
-              echo "=== Ensuring routing-peers-vlan3 group has the router peer ==="
-              # After every sync/redeploy, the netbird-router-vlan3 VM must be in
-              # routing-peers-vlan3 so routes are advertised to VPN clients.
-              # The setup key auto_groups=[GRP, GRP_ROUTING] handles this on new enrollment
-              # via the watchdog re-enroll (netbird down; netbird up --setup-key ...).
-              # This section is a safety-net for already-connected peers.
-              # We use GRP_ROUTING from /tmp/nb-ids.env (written by bootstrap.py — real ID).
+              echo "=== Updating peer groups from connected peers ==="
+              # After every sync/redeploy, classify connected peers into the correct groups:
+              #   routing-peers-vlan3 → only the router VM (netbird-router-vlan3)
+              #   ci-runners          → runner VMs (hostname contains 'runner' or 'github')
+              #   infrastructure      → router + runner peers combined
+              # This is a safety-net; setup key auto_groups handles new enrollments.
               if [ -n "$GRP_ROUTING" ]; then
                 PEERS_RESP=$(curl -s --max-time 10 \
                   http://netbird-management.netbird.svc:80/api/peers \
                   -H "Authorization: Token ${PAT_TOKEN}" 2>/dev/null || echo "[]")
                 PEER_COUNT=$(echo "$PEERS_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d if isinstance(d,list) else []))" 2>/dev/null || echo "0")
                 echo "Found ${PEER_COUNT} connected peer(s)"
-                if [ "$PEER_COUNT" -gt "0" ]; then
-                  # Build peer-id list from API response (single-line Python — safe in YAML)
-                  ALL_PEER_IDS=$(echo "$PEERS_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps([p['id'] for p in (d if isinstance(d,list) else [])]))" 2>/dev/null || echo "[]")
-                  # GET current routing group to merge existing + new peers
-                  CUR_GRP=$(curl -s --max-time 10 http://netbird-management.netbird.svc:80/api/groups/${GRP_ROUTING} -H "Authorization: Token ${PAT_TOKEN}" 2>/dev/null || echo "{}")
-                  EXISTING_IDS=$(echo "$CUR_GRP" | python3 -c "import sys,json; g=json.load(sys.stdin); print(json.dumps([p['id'] for p in g.get('peers',[])]))" 2>/dev/null || echo "[]")
-                  # Merge: union of existing + all current peers (single-line — YAML safe)
-                  MERGED=$(python3 -c "import json; a=json.loads('${EXISTING_IDS}'); b=json.loads('${ALL_PEER_IDS}'); print(json.dumps(list(set(a+b))))" 2>/dev/null || echo "$ALL_PEER_IDS")
+
+                # Router peers: name starts with 'netbird-router'
+                ROUTER_IDS=$(echo "$PEERS_RESP" | python3 -c "import sys,json; peers=json.load(sys.stdin); print(json.dumps([{'id':p['id']} for p in (peers if isinstance(peers,list) else []) if 'netbird-router' in p.get('name','').lower()]))" 2>/dev/null || echo "[]")
+                echo "Router peer(s): $ROUTER_IDS"
+
+                # Update routing-peers-vlan3: ONLY router peers advertise subnet routes
+                curl -s --max-time 10 -X PUT \
+                  http://netbird-management.netbird.svc:80/api/groups/${GRP_ROUTING} \
+                  -H "Authorization: Token ${PAT_TOKEN}" \
+                  -H "Content-Type: application/json" \
+                  -d "{\"name\":\"routing-peers-vlan3\",\"peers\":${ROUTER_IDS}}" \
+                  -o /dev/null && echo "routing-peers-vlan3 updated (router-only)"
+
+                # CI runner peers: hostname contains 'runner' or 'github-actions'
+                RUNNER_IDS=$(echo "$PEERS_RESP" | python3 -c "import sys,json; peers=json.load(sys.stdin); print(json.dumps([{'id':p['id']} for p in (peers if isinstance(peers,list) else []) if any(x in p.get('name','').lower() for x in ['runner','github-actions'])]))" 2>/dev/null || echo "[]")
+                echo "Runner peer(s): $RUNNER_IDS"
+
+                if [ -n "$GRP_CI" ] && [ "$RUNNER_IDS" != "[]" ]; then
                   curl -s --max-time 10 -X PUT \
-                    http://netbird-management.netbird.svc:80/api/groups/${GRP_ROUTING} \
+                    http://netbird-management.netbird.svc:80/api/groups/${GRP_CI} \
                     -H "Authorization: Token ${PAT_TOKEN}" \
                     -H "Content-Type: application/json" \
-                    -d "{\"name\":\"routing-peers-vlan3\",\"peers\":${MERGED}}" \
-                    -o /dev/null && echo "routing-peers-vlan3 group updated with ${PEER_COUNT} peer(s)"
+                    -d "{\"name\":\"ci-runners\",\"peers\":${RUNNER_IDS}}" \
+                    -o /dev/null && echo "ci-runners group updated"
+                fi
+
+                if [ -n "$GRP_INFRA" ]; then
+                  # Infrastructure = router + runner peers (merged, deduplicated by id)
+                  INFRA_IDS=$(python3 -c "import json; r=json.loads('${ROUTER_IDS}'); ru=json.loads('${RUNNER_IDS}'); seen=set(); m=[p for p in r+ru if p['id'] not in seen and not seen.add(p['id'])]; print(json.dumps(m))" 2>/dev/null || echo "${ROUTER_IDS}")
+                  curl -s --max-time 10 -X PUT \
+                    http://netbird-management.netbird.svc:80/api/groups/${GRP_INFRA} \
+                    -H "Authorization: Token ${PAT_TOKEN}" \
+                    -H "Content-Type: application/json" \
+                    -d "{\"name\":\"infrastructure\",\"peers\":${INFRA_IDS}}" \
+                    -o /dev/null && echo "infrastructure group updated"
                 fi
               else
-                echo "GRP_ROUTING unknown — routing group will be populated when peers connect via setup key auto_groups"
+                echo "GRP_ROUTING unknown — skipping peer group classification"
               fi
 
               echo "=== Bootstrap complete ==="
