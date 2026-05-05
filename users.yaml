@@ -8,8 +8,13 @@
 # and passwords are stored in OpenBao (secret/platform/authentik).
 #
 # Access levels:
-#   admin        → all services (openbao, argocd, grafana, longhorn, netbird, homepage)
+#   admin        → all services (openbao, argocd, grafana, longhorn, netbird, homepage, wiki)
 #   platform-user → homepage, netbird (VPN access), argocd (read-only)
+#
+# Wiki.js roles (wiki_role):
+#   admin   → full admin access (manage users, settings, all pages)
+#   editor  → create + edit all pages, cannot manage settings
+#   reader  → read-only access to wiki pages
 #
 # To add a new user:
 #   1. Add an entry to this file (documentation + sync driver)
@@ -33,8 +38,10 @@ users:
       - platform-admins
       - authentik Admins       # Authentik superuser (admin UI access)
       - platform-users
+      - wiki-admins            # Full Wiki.js admin access
     argocd_role: admin         # Full ArgoCD access
     openbao_policy: default    # OpenBao OIDC role maps to default policy
+    wiki_role: admin           # Full wiki administration (manage users, settings, all content)
     send_recovery_email: true
     notes: "Platform owner — full access to everything"
 
@@ -44,10 +51,12 @@ users:
     access_level: platform-user
     authentik_groups:
       - platform-users
+      - wiki-readers           # Read-only wiki access
     argocd_role: readonly           # Can view ArgoCD apps but cannot sync/delete
     openbao_policy: null            # No direct OpenBao access
+    wiki_role: reader          # Read-only wiki access
     send_recovery_email: true
-    notes: "Platform user — homepage, VPN, ArgoCD (read-only)"
+    notes: "Platform user — homepage, VPN, ArgoCD (read-only), wiki (read-only)"
     # NetBird access: enroll device with the key matching the desired group.
     # For Proxmox access (10.25.0.3:8006), use proxmox-client-key.
     # Multiple devices can use different keys for different access levels.
@@ -66,7 +75,13 @@ users:
 #  grafana.int.*    │ ✅            │ ❌ blocked
 #  longhorn.prod.*  │ ✅            │ ❌ blocked
 #  netbird.*        │ ✅ admin      │ ✅ user
+#  wiki.int.*       │ ✅ admin      │ ✅ read-only
 #
 # NetBird (VPN): both users can connect — access to internal networks
 # is determined by the routes they can use (currently: all peers get all routes).
+#
+# Wiki.js auth flow:
+#   - Users log in via Authentik SSO (OIDC/OAuth2)
+#   - Authentik group membership (wiki-admins/wiki-editors/wiki-readers) maps to Wiki.js roles
+#   - Local admin account kept in OpenBao as emergency fallback
 # =============================================================================
