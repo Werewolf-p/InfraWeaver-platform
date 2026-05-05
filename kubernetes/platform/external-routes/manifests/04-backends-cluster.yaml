@@ -146,3 +146,16 @@ spec:
   ports:
     - port: 3000
       name: http
+---
+# Wiki.js (documentation wiki)
+apiVersion: v1
+kind: Service
+metadata:
+  name: wiki
+  namespace: traefik
+spec:
+  type: ExternalName
+  externalName: wiki.wiki.svc.cluster.local
+  ports:
+    - port: 80
+      name: http
