@@ -367,18 +367,28 @@ data:
         return {k: base64.b64decode(v).decode() for k, v in d.items()}
 
     def write_secret(updates):
-        # Create secret if missing, then patch
+        # Build --from-literal args for create/update
+        from_literals = [f'--from-literal={k}={v}' for k, v in updates.items()]
+        # Check if secret exists
         r = subprocess.run(['kubectl', 'get', 'secret', SECRET, '-n', NAMESPACE],
                            capture_output=True)
         if r.returncode != 0:
-            subprocess.run(['kubectl', 'create', 'secret', 'generic', SECRET,
-                            '-n', NAMESPACE], check=True, capture_output=True)
-        patch = [{'op': 'add', 'path': '/data/' + k,
-                  'value': base64.b64encode(v.encode()).decode()}
-                 for k, v in updates.items()]
-        r = subprocess.run(['kubectl', 'patch', 'secret', SECRET, '-n', NAMESPACE,
-                            '--type=json', '-p', json.dumps(patch)],
-                           capture_output=True, text=True)
+            # Create fresh
+            cmd = ['kubectl', 'create', 'secret', 'generic', SECRET,
+                   '-n', NAMESPACE] + from_literals
+            r = subprocess.run(cmd, capture_output=True, text=True)
+        else:
+            # Patch existing secret using kubectl create --dry-run | apply
+            cmd = ['kubectl', 'create', 'secret', 'generic', SECRET,
+                   '-n', NAMESPACE, '--dry-run=client', '-o', 'json'] + from_literals
+            dry = subprocess.run(cmd, capture_output=True, text=True)
+            if dry.returncode != 0:
+                print(f'  Secret dry-run failed: {dry.stderr}', file=sys.stderr)
+                return
+            # Merge into existing using strategic merge patch
+            r = subprocess.run(['kubectl', 'patch', 'secret', SECRET, '-n', NAMESPACE,
+                                '--type=merge', '-p', dry.stdout],
+                               capture_output=True, text=True)
         if r.returncode == 0:
             for k, v in updates.items():
                 print(f'  Saved {k}={v[:8]}... to {SECRET}')
@@ -401,39 +411,29 @@ data:
     updates = {}
     for name, secret_key, auto_groups in keys_to_ensure:
         groups_filtered = [g for g in auto_groups if g]
-        keys_for_name = [k for k in nb_keys_list if k['name'] == name]
+        valid_keys = [k for k in nb_keys_list if k['name'] == name and k.get('valid')]
         stored_val = stored.get(secret_key, '')
 
         # Find the key matching our stored value (prefix check)
-        matching = None
+        kept = None
         if stored_val:
             sp = stored_val[:4].upper()
-            matching = next((k for k in keys_for_name
-                             if k.get('key','')[:4].upper() == sp and k.get('valid')), None)
+            kept = next((k for k in valid_keys if k.get('key','')[:4].upper() == sp), None)
 
-        # Delete stale duplicates (keys with wrong prefix)
-        for k in keys_for_name:
-            if matching and k['id'] == matching['id']:
-                continue
-            # Check if this is the good key too (if no matching yet and it's the only one)
-            if not matching and k.get('valid') and not stored_val:
-                continue
+        if kept:
+            # Delete other duplicates with different prefix
+            for k in valid_keys:
+                if k['id'] != kept['id']:
+                    print(f'  Deleting duplicate {name} ({k.get("key","?")[:8]}****)')
+                    api('DELETE', f'/api/setup-keys/{k["id"]}')
+            print(f'  {name}: valid and stored ({kept.get("key","?")[:8]}****), skipping')
+            continue
+
+        # No stored match — delete all existing keys for this name, create fresh
+        for k in valid_keys:
             print(f'  Deleting stale {name} ({k.get("key","?")[:8]}****)')
             api('DELETE', f'/api/setup-keys/{k["id"]}')
 
-        if matching:
-            print(f'  {name}: valid and stored ({matching.get("key","?")[:8]}****), skipping')
-            continue
-
-        # Check if any valid key remains (the one we didn't delete above)
-        if not stored_val and keys_for_name:
-            k = keys_for_name[0]
-            if k.get('valid'):
-                print(f'  {name}: valid in NetBird but no stored value, saving {k.get("key","?")[:8]}')
-                # We can't recover the full key — recreate
-                pass
-
-        # Create new key
         payload = {'name': name, 'type': 'reusable', 'expires_in': 0,
                    'auto_groups': groups_filtered, 'usage_limit': 0}
         result = api('POST', '/api/setup-keys', payload)
