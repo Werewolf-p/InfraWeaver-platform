@@ -1732,6 +1732,58 @@ jobs:
         run: |
           bash scripts/test-post-deploy.sh ~/.kube/config-platform-${{ env.ENV_NAME }} ${{ env.ENV_NAME }} || true
 
+      - name: Generate SBOM for deployed images
+        if: env.LETSENCRYPT_ENV == 'production'
+        run: |
+          KB=~/.kube/config-platform-${{ env.ENV_NAME }}
+          SYFT_VERSION="v1.26.1"
+          curl -fsSL "https://github.com/anchore/syft/releases/download/${SYFT_VERSION}/syft_1.26.1_linux_amd64.tar.gz" \
+            | tar -xzf - -C /usr/local/bin/ syft
+          mkdir -p /tmp/sbom
+
+          # Collect unique images from running pods
+          kubectl --kubeconfig "$KB" --insecure-skip-tls-verify \
+            get pods -A -o jsonpath='{range .items[*]}{range .spec.containers[*]}{.image}{"\n"}{end}{end}' \
+            2>/dev/null | sort -u > /tmp/sbom/image-list.txt
+
+          echo "==> Generating SBOM for $(wc -l < /tmp/sbom/image-list.txt) unique images..."
+          while IFS= read -r img; do
+            [ -z "$img" ] && continue
+            safename=$(echo "$img" | tr '/:' '--')
+            echo "  SBOM: $img"
+            syft "$img" -o spdx-json=/tmp/sbom/${safename}.spdx.json --quiet 2>/dev/null || \
+              echo "  ⚠ SBOM failed for $img (skipping)"
+          done < /tmp/sbom/image-list.txt
+
+          # Merge all SBOMs into a summary
+          python3 - << 'PYEOF'
+import json, os, glob
+packages = set()
+for f in glob.glob('/tmp/sbom/*.spdx.json'):
+    try:
+        d = json.load(open(f))
+        for pkg in d.get('packages', []):
+            name = pkg.get('name', '')
+            ver = pkg.get('versionInfo', '')
+            if name:
+                packages.add(f"{name}=={ver}")
+    except Exception:
+        pass
+summary = {'total_unique_packages': len(packages), 'packages': sorted(packages)}
+json.dump(summary, open('/tmp/sbom/summary.json', 'w'), indent=2)
+print(f"✅ SBOM summary: {len(packages)} unique packages across all images")
+PYEOF
+        continue-on-error: true
+
+      - name: Upload SBOM artifact
+        if: env.LETSENCRYPT_ENV == 'production'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ github.run_id }}
+          path: /tmp/sbom/
+          retention-days: 90
+          if-no-files-found: ignore
+
       - name: Refresh TLS secret backup
         if: success() && env.LETSENCRYPT_ENV == 'production'
         run: |

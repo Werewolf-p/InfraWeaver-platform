@@ -151,6 +151,56 @@ jobs:
           done
           echo "✅ Image scan complete (soft-fail — review above for CRITICAL CVEs)"
 
+  # ── Trivy config scan ────────────────────────────────────────────────────────
+  trivy-config:
+    name: Trivy — Kubernetes Manifest Misconfig Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan Kubernetes manifests for misconfigurations
+        run: |
+          TRIVY_VERSION="v0.70.0"
+          curl -fsSL "https://github.com/aquasecurity/trivy/releases/download/${TRIVY_VERSION}/trivy_0.70.0_Linux-64bit.tar.gz" \
+            | tar -xzf - -C /usr/local/bin/ trivy
+          echo "Scanning kubernetes/ for misconfigurations..."
+          trivy config \
+            --severity HIGH,CRITICAL \
+            --exit-code 0 \
+            --quiet \
+            --ignorefile .trivyignore 2>/dev/null \
+            kubernetes/ 2>&1 | tail -20 || true
+          echo "✅ Manifest misconfiguration scan complete (soft-fail)"
+
+  # ── kube-score manifest quality ──────────────────────────────────────────────
+  kube-score:
+    name: kube-score — Manifest Best Practices
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install and run kube-score
+        run: |
+          KUBE_SCORE_VERSION="v1.19.0"
+          curl -fsSL "https://github.com/zegl/kube-score/releases/download/${KUBE_SCORE_VERSION}/kube-score_1.19.0_linux_amd64.tar.gz" \
+            | tar -xzf - -C /usr/local/bin/ kube-score
+          echo "Running kube-score on all manifests..."
+          # Collect all raw Kubernetes manifests (skip Helm values, ArgoCD app defs, kustomize)
+          MANIFESTS=$(find kubernetes/ -name "*.yaml" \
+            ! -name "values.yaml" \
+            ! -name "application.yaml" \
+            ! -name "kustomization.yaml" \
+            ! -path "*/templates/*" \
+            -type f)
+          if [ -n "$MANIFESTS" ]; then
+            echo "$MANIFESTS" | xargs kube-score score \
+              --ignore-test pod-networkpolicy \
+              --ignore-test deployment-has-poddisruptionbudget \
+              --ignore-test deployment-has-host-podantiaffinity \
+              --exit-one-on-warning=false \
+              --output-format ci \
+              2>&1 | grep -E "CRITICAL|WARNING" | head -50 || true
+          fi
+          echo "✅ kube-score check complete (informational)"
+
   # ── PR Kubernetes diff (self-hosted runner required) ────────────────────────
   pr-diff:
     name: Kubernetes PR Diff
@@ -249,7 +299,7 @@ jobs:
   # ── Final gate ───────────────────────────────────────────────────────────────
   security-gate:
     name: ✅ CI Gate
-    needs: [secret-scan, checkov, sops-validation, kubernetes-manifests, actionlint, trivy-scan, helm-lint]
+    needs: [secret-scan, checkov, sops-validation, kubernetes-manifests, actionlint, trivy-scan, trivy-config, kube-score, helm-lint]
     runs-on: ubuntu-latest
     steps:
       - run: echo "✅ All CI checks passed"
