@@ -28,10 +28,18 @@ data:
     }
 
     # int.rlservers.com zone — private/VPN-only services (DNS-only Cloudflare → 10.10.0.200)
+    # hosts: explicit entries for known services (loaded from hosts file)
+    # template: wildcard fallback — any *.int.rlservers.com not in hosts → 10.10.0.200
+    # This means new catalog apps resolve automatically without a hosts-file update.
     int.rlservers.com:53 {
         hosts /etc/coredns/zones/int.rlservers.com.hosts {
             ttl 60
             reload 30s
+            fallthrough
+        }
+        template IN A int.rlservers.com {
+            match "^(.*)\\.int\\.rlservers\\.com\\.$"
+            answer "{{ .Name }} 60 IN A 10.10.0.200"
             fallthrough
         }
         log
@@ -109,10 +117,24 @@ data:
     # int.rlservers.com — VPN-only private services
     # Cloudflare DNS-only record *.int.rlservers.com → 10.10.0.200 (private IP)
     # Only reachable via NetBird VPN or VLAN3 network.
+    # NOTE: The CoreDNS template plugin also handles wildcard *.int.rlservers.com → 10.10.0.200
+    # so new apps do NOT require a manual entry here. This file is kept for documentation.
     10.10.0.200  int.rlservers.com
+    # ── Core platform ──────────────────────────────────────────────────────────
     10.10.0.200  netbird.int.rlservers.com
     10.10.0.200  argocd.int.rlservers.com
     10.10.0.200  grafana.int.rlservers.com
     10.10.0.200  home.int.rlservers.com
     10.10.0.200  longhorn.int.rlservers.com
     10.10.0.200  openbao.int.rlservers.com
+    # ── Catalog apps ──────────────────────────────────────────────────────────
+    10.10.0.200  wiki.int.rlservers.com
+    10.10.0.200  uptime-kuma.int.rlservers.com
+    10.10.0.200  gitea.int.rlservers.com
+    10.10.0.200  vaultwarden.int.rlservers.com
+    10.10.0.200  it-tools.int.rlservers.com
+    10.10.0.200  stirling-pdf.int.rlservers.com
+    10.10.0.200  excalidraw.int.rlservers.com
+    10.10.0.200  actual.int.rlservers.com
+    10.10.0.200  n8n.int.rlservers.com
+    10.10.0.200  forgejo.int.rlservers.com
