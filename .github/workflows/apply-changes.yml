@@ -97,6 +97,8 @@ jobs:
           python3 -c "import yaml" 2>/dev/null && echo "PyYAML already available" || \
           sudo apt-get install -y python3-yaml -qq 2>/dev/null || \
           true
+
+      - name: Detect changed paths and new users
         id: changes
         run: |
           CHANGED=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || git diff --name-only HEAD^ HEAD 2>/dev/null || echo "")
