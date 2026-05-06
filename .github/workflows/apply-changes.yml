@@ -93,9 +93,10 @@ jobs:
           fetch-depth: 2
 
       - name: Install PyYAML
-        run: pip3 install pyyaml --quiet 2>/dev/null || python3 -m pip install pyyaml --quiet
-
-      - name: Detect changed paths and new users
+        run: |
+          python3 -c "import yaml" 2>/dev/null && echo "PyYAML already available" || \
+          sudo apt-get install -y python3-yaml -qq 2>/dev/null || \
+          true
         id: changes
         run: |
           CHANGED=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || git diff --name-only HEAD^ HEAD 2>/dev/null || echo "")
@@ -438,7 +439,10 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install PyYAML
-        run: pip3 install pyyaml --quiet 2>/dev/null || python3 -m pip install pyyaml --quiet
+        run: |
+          python3 -c "import yaml" 2>/dev/null && echo "PyYAML already available" || \
+          sudo apt-get install -y python3-yaml -qq 2>/dev/null || \
+          true
 
       - name: Sync catalog bootstrap files from platform.yaml
         run: |
