@@ -42,13 +42,15 @@ spec:
               value: "false"
             - name: LANGS
               value: "en_GB"
+            - name: JAVA_TOOL_OPTIONS
+              value: "-XX:MaxMetaspaceSize=256m -XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0"
           resources:
             requests:
               cpu: 200m
-              memory: 256Mi
+              memory: 512Mi
             limits:
               cpu: 1000m
-              memory: 1Gi
+              memory: 2Gi
           readinessProbe:
             httpGet:
               path: /

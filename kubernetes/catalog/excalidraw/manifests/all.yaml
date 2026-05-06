@@ -37,6 +37,13 @@ spec:
           image: excalidraw/excalidraw:latest
           ports:
             - containerPort: 80
+          volumeMounts:
+            - name: nginx-cache
+              mountPath: /var/cache/nginx
+            - name: nginx-run
+              mountPath: /var/run
+            - name: tmp
+              mountPath: /tmp
           resources:
             requests:
               cpu: 50m
@@ -58,6 +65,13 @@ spec:
             periodSeconds: 30
           securityContext:
             allowPrivilegeEscalation: false
+      volumes:
+        - name: nginx-cache
+          emptyDir: {}
+        - name: nginx-run
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
 ---
 # Service
 apiVersion: v1

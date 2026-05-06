@@ -46,6 +46,7 @@ spec:
         runAsNonRoot: true
         runAsUser: 1000
         runAsGroup: 1000
+      enableServiceLinks: false
       containers:
         - name: actual
           image: actualbudget/actual-server:latest
