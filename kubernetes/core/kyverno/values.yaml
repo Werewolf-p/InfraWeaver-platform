@@ -34,6 +34,10 @@ cleanupController:
     requests:
       cpu: 50m
       memory: 64Mi
+  cleanupJobsImage:
+    registry: registry.k8s.io
+    repository: kubectl
+    tag: "v1.31.0"
 
 reportsController:
   replicas: 1
