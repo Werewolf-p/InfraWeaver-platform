@@ -106,6 +106,8 @@ metadata:
     app: gitea-postgresql
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: gitea-postgresql
