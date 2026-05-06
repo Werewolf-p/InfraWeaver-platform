@@ -35,9 +35,9 @@ cleanupController:
       cpu: 50m
       memory: 64Mi
   cleanupJobsImage:
-    registry: registry.k8s.io
-    repository: kubectl
-    tag: "v1.31.0"
+    registry: docker.io
+    repository: bitnami/kubectl
+    tag: "latest"
 
 reportsController:
   replicas: 1
@@ -82,40 +82,40 @@ webhooksCleanupEnabled: true
 # Use official registry.k8s.io/kubectl instead across all cleanup jobs.
 webhooksCleanup:
   image:
-    registry: registry.k8s.io
-    repository: kubectl
-    tag: "v1.31.0"
+    registry: docker.io
+    repository: bitnami/kubectl
+    tag: "latest"
 
 policyReportsCleanup:
   enabled: false  # Post-upgrade migration hook — not needed for fresh installs
   image:
-    registry: registry.k8s.io
-    repository: kubectl
-    tag: "v1.31.0"
+    registry: docker.io
+    repository: bitnami/kubectl
+    tag: "latest"
 
 cleanupJobs:
   admissionReports:
     image:
-      registry: registry.k8s.io
-      repository: kubectl
-      tag: "v1.31.0"
+      registry: docker.io
+      repository: bitnami/kubectl
+      tag: "latest"
   clusterAdmissionReports:
     image:
-      registry: registry.k8s.io
-      repository: kubectl
-      tag: "v1.31.0"
+      registry: docker.io
+      repository: bitnami/kubectl
+      tag: "latest"
   ephemeralReports:
     image:
-      registry: registry.k8s.io
-      repository: kubectl
-      tag: "v1.31.0"
+      registry: docker.io
+      repository: bitnami/kubectl
+      tag: "latest"
   clusterEphemeralReports:
     image:
-      registry: registry.k8s.io
-      repository: kubectl
-      tag: "v1.31.0"
+      registry: docker.io
+      repository: bitnami/kubectl
+      tag: "latest"
   updateRequests:
     image:
-      registry: registry.k8s.io
-      repository: kubectl
-      tag: "v1.31.0"
+      registry: docker.io
+      repository: bitnami/kubectl
+      tag: "latest"
