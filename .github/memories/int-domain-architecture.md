@@ -26,6 +26,10 @@ All cluster-hosted apps that should NOT be publicly accessible:
 | Longhorn | `longhorn.int.rlservers.com` | `10-routes-vpn-only.yaml` |
 | OpenBao | `openbao.int.rlservers.com` | `10-routes-vpn-only.yaml` |
 | NetBird (VPN alt) | `netbird.int.rlservers.com` | `10-routes-vpn-only.yaml` |
+| Wiki | `wiki.int.rlservers.com` | catalog |
+| Uptime Kuma | `uptime-kuma.int.rlservers.com` | catalog |
+| Gitea | `gitea.int.rlservers.com` | catalog |
+| Vaultwarden | `vaultwarden.int.rlservers.com` | catalog |
 
 ## DNS Configuration
 
@@ -39,12 +43,24 @@ CoreDNS custom zone for in-cluster resolution:
 # kubernetes/platform/dns/manifests/configmap.yaml → int.rlservers.com.hosts
 10.10.0.200  int.rlservers.com
 10.10.0.200  netbird.int.rlservers.com
-10.10.0.200  argocd.int.rlservers.com
-10.10.0.200  grafana.int.rlservers.com
-10.10.0.200  home.int.rlservers.com
-10.10.0.200  longhorn.int.rlservers.com
-10.10.0.200  openbao.int.rlservers.com
+... (explicit entries for known services)
 ```
+
+**IMPORTANT: CoreDNS Wildcard Template (added May 2026)**
+
+The `int.rlservers.com:53` zone also uses a `template` plugin for wildcard resolution:
+```
+template IN A int.rlservers.com {
+    match "^(.*)\\.int\\.rlservers\\.com\\.$"
+    answer "{{ .Name }} 60 IN A 10.10.0.200"
+    fallthrough
+}
+```
+
+This means ALL `*.int.rlservers.com` subdomains resolve to `10.10.0.200` via CoreDNS, even if not explicitly listed in the hosts file. **New catalog apps do NOT require adding a hosts-file entry.**
+
+**Why this matters:**  
+Without the template plugin, the `hosts` plugin's `fallthrough` passes unmatched queries to `log`/`errors` (no forwarder in zone), returning **NXDOMAIN**. NetBird DNS routing sends `int.rlservers.com` queries to CoreDNS — so phone/laptop clients get `ERR_NAME_NOT_RESOLVED` for any app not in the hosts file.
 
 ## Middleware: netbird-vpn-only
 
@@ -74,5 +90,12 @@ Defined in: `kubernetes/platform/external-routes/manifests/01-middlewares.yaml`
    - `host: <name>.int.rlservers.com`
    - `middlewares: netbird-vpn-only`
    - `tls.secretName: int-rlservers-com-tls`
-2. Add DNS entry to `configmap.yaml` → `int.rlservers.com.hosts`
+2. ~~Add DNS entry to `configmap.yaml`~~ → **NOT REQUIRED** (wildcard template handles it)
 3. No cert changes needed — wildcard covers all `*.int.rlservers.com`
+
+## Lesson Learned (May 2026)
+
+**Bug:** CoreDNS `int.rlservers.com:53` zone used `fallthrough` in `hosts` plugin but had no `forward` plugin after it. Unmatched subdomains returned NXDOMAIN via NetBird DNS routing.  
+**Symptom:** Phone (and all NetBird clients) got `ERR_NAME_NOT_RESOLVED` for `wiki.int.rlservers.com` and all catalog apps.  
+**Fix:** Added `template IN A int.rlservers.com` with regex `^(.*)\\.int\\.rlservers\\.com\\.$` → answers `10.10.0.200`.  
+**File:** `kubernetes/platform/dns/manifests/configmap.yaml`
