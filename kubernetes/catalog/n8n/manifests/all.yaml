@@ -33,6 +33,8 @@ metadata:
     infraweaver.io/auth: proxy
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: n8n
