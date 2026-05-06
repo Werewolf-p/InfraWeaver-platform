@@ -38,7 +38,6 @@ data:
             fallthrough
         }
         template IN A int.rlservers.com {
-            match "^(.*)\\.int\\.rlservers\\.com\\.$"
             answer "{{ .Name }} 60 IN A 10.10.0.200"
             fallthrough
         }
