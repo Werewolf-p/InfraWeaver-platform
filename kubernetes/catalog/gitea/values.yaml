@@ -90,3 +90,11 @@ postgresql:
 # Explicitly disable postgresql-ha to avoid conflict with postgresql
 postgresql-ha:
   enabled: false
+
+# Override redis-cluster image to use Bitnami's official registry
+# (Docker Hub no longer hosts bitnami images with specific version tags)
+redis-cluster:
+  enabled: true
+  image:
+    registry: registry.bitnami.com
+    repository: bitnami/redis-cluster
