@@ -40,18 +40,11 @@ spec:
       labels:
         app: uptime-kuma
     spec:
-      # Uptime Kuma startup script needs to chown the data directory.
-      # An initContainer runs as root to fix ownership, then the main container drops privileges.
-      initContainers:
-        - name: fix-permissions
-          image: busybox:1.35
-          command: ["sh", "-c", "chown -R 1000:1000 /data"]
-          securityContext:
-            runAsUser: 0
-            runAsNonRoot: false
-          volumeMounts:
-            - name: data
-              mountPath: /data
+      # Uptime Kuma runs as root on startup to chown /app/data, then drops to 'node' user.
+      # Running as root is required for proper initialization; the image handles this safely.
+      # Kyverno audit-only policies allow this; enforce mode would need a PSA exception.
+      securityContext:
+        runAsUser: 0
       containers:
         - name: uptime-kuma
           image: louislam/uptime-kuma:1
@@ -60,14 +53,9 @@ spec:
           env:
             - name: UPTIME_KUMA_DISABLE_FRAME_SAMEORIGIN
               value: "1"
-            - name: DATA_DIR
-              value: /data
-          securityContext:
-            runAsNonRoot: true
-            runAsUser: 1000
           volumeMounts:
             - name: data
-              mountPath: /data
+              mountPath: /app/data
           resources:
             requests:
               cpu: 100m
