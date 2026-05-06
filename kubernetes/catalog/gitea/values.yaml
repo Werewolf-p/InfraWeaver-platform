@@ -86,6 +86,9 @@ postgresql:
       enabled: true
       storageClass: longhorn
       size: 5Gi
+  image:
+    registry: registry.bitnami.com
+    repository: bitnami/postgresql
 
 # Explicitly disable postgresql-ha to avoid conflict with postgresql
 postgresql-ha:
