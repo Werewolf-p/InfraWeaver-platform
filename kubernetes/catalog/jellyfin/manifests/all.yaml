@@ -46,6 +46,7 @@ spec:
         app: jellyfin
     spec:
       terminationGracePeriodSeconds: 30
+      priorityClassName: platform-standard
       securityContext:
         fsGroup: 1000
         runAsNonRoot: true

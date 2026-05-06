@@ -49,3 +49,13 @@ longhornDriver:
     - key: "node-role.kubernetes.io/control-plane"
       operator: "Exists"
       effect: "NoSchedule"
+
+# Self-healing: ensure Longhorn manager (storage) is never evicted
+longhornManager:
+  priorityClass:
+    create: false
+    name: platform-critical
+longhornDriver:
+  priorityClass:
+    create: false
+    name: platform-critical

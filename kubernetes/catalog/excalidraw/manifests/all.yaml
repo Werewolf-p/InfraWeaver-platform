@@ -29,6 +29,7 @@ spec:
         app: excalidraw
     spec:
       terminationGracePeriodSeconds: 30
+      priorityClassName: platform-standard
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000

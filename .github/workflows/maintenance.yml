@@ -7,6 +7,7 @@ name: Maintenance — Scheduled Operations
 #   - OpenBao Raft snapshot (weekly)
 #   - Proxmox resource check (on-demand)
 #   - ArgoCD token refresh (on-demand)
+#   - Self-heal cluster (daily + on-demand) — auto-recovers stuck pods & apps
 #
 # Previously: drift-detection.yml + etcd-snapshot.yml + openbao-snapshot.yml
 #             + check-resources.yml + refresh-argocd-token.yml
@@ -17,6 +18,7 @@ on:
     - cron: "0 3 * * 0"   # Sunday 03:00 UTC — etcd snapshot
     - cron: "0 4 * * 0"   # Sunday 04:00 UTC — OpenBao snapshot
     - cron: "0 7 * * 1"   # Monday 07:00 UTC — drift detection
+    - cron: "0 6 * * *"   # Daily 06:00 UTC  — self-heal cluster
   workflow_dispatch:
     inputs:
       task:
@@ -31,6 +33,7 @@ on:
           - drift-detection
           - check-resources
           - refresh-argocd-token
+          - self-heal           # auto-recover stuck pods + OutOfSync apps
       environment:
         description: "Environment (for drift detection)"
         required: false
@@ -245,3 +248,151 @@ jobs:
             kubectl --kubeconfig $KB annotate $app -n argocd argocd.argoproj.io/refresh=hard --overwrite 2>/dev/null || true
           done
           echo "✅ All apps hard-refreshed"
+
+  # ── Self-Heal Cluster ─────────────────────────────────────────────────────────
+  # Automated recovery: detects and restarts stuck pods, re-syncs OutOfSync ArgoCD
+  # apps, and refreshes failed ExternalSecrets. Runs daily at 06:00 UTC.
+  # Source: OpenGitOps principles — continuous reconciliation.
+  self-heal:
+    name: Self-Heal Cluster
+    if: >
+      github.event_name == 'schedule' && github.event.schedule == '0 6 * * *' ||
+      github.event_name == 'workflow_dispatch' && inputs.task == 'self-heal'
+    runs-on:
+      - self-hosted
+      - prod-worker
+    steps:
+      - name: Recover stuck pods
+        run: |
+          KB=~/.kube/config-platform-${{ env.ENV_NAME }}
+          KT="kubectl --kubeconfig $KB --insecure-skip-tls-verify"
+          HEALED=0
+          ISSUES=""
+
+          echo "### 🔍 Checking for stuck pods..." | tee -a "$GITHUB_STEP_SUMMARY"
+
+          # CrashLoopBackOff — restart count ≥ 5
+          while IFS= read -r line; do
+            [[ -z "$line" ]] && continue
+            NS=$(echo "$line" | awk '{print $1}')
+            POD=$(echo "$line" | awk '{print $2}')
+            RESTARTS=$(echo "$line" | awk '{print $4}')
+            echo "  ⚠️  CrashLoopBackOff: $NS/$POD (restarts: $RESTARTS) — deleting to force restart"
+            $KT delete pod "$POD" -n "$NS" --grace-period=0 2>/dev/null && HEALED=$((HEALED+1)) || true
+            ISSUES="${ISSUES}\n- CrashLoopBackOff: \`$NS/$POD\` (restarts: $RESTARTS) → deleted"
+          done < <($KT get pods -A --field-selector='status.phase!=Succeeded' \
+            -o custom-columns='NS:.metadata.namespace,NAME:.metadata.name,STATUS:.status.containerStatuses[0].state.waiting.reason,RESTARTS:.status.containerStatuses[0].restartCount' \
+            --no-headers 2>/dev/null | awk '$3=="CrashLoopBackOff" && $4+0 >= 5 {print}' || true)
+
+          # ImagePullBackOff — image can't be pulled
+          while IFS= read -r line; do
+            [[ -z "$line" ]] && continue
+            NS=$(echo "$line" | awk '{print $1}')
+            POD=$(echo "$line" | awk '{print $2}')
+            echo "  ⚠️  ImagePullBackOff: $NS/$POD — deleting (ArgoCD will recreate)"
+            $KT delete pod "$POD" -n "$NS" --grace-period=0 2>/dev/null && HEALED=$((HEALED+1)) || true
+            ISSUES="${ISSUES}\n- ImagePullBackOff: \`$NS/$POD\` → deleted"
+          done < <($KT get pods -A \
+            -o custom-columns='NS:.metadata.namespace,NAME:.metadata.name,STATUS:.status.containerStatuses[0].state.waiting.reason' \
+            --no-headers 2>/dev/null | awk '$3=="ImagePullBackOff" || $3=="ErrImagePull" {print}' || true)
+
+          # OOMKilled pods that are NOT being restarted (stuck in Error state)
+          while IFS= read -r line; do
+            [[ -z "$line" ]] && continue
+            NS=$(echo "$line" | awk '{print $1}')
+            POD=$(echo "$line" | awk '{print $2}')
+            echo "  ⚠️  OOMKilled+Error: $NS/$POD — deleting for restart"
+            $KT delete pod "$POD" -n "$NS" --grace-period=0 2>/dev/null && HEALED=$((HEALED+1)) || true
+            ISSUES="${ISSUES}\n- OOMKilled/Error: \`$NS/$POD\` → deleted"
+          done < <($KT get pods -A --field-selector='status.phase=Failed' \
+            -o custom-columns='NS:.metadata.namespace,NAME:.metadata.name,REASON:.status.reason' \
+            --no-headers 2>/dev/null | awk '$3=="OOMKilled" || $3=="Error" {print}' || true)
+
+          # Pending pods stuck > 10 minutes (scheduling failures)
+          while IFS= read -r line; do
+            [[ -z "$line" ]] && continue
+            NS=$(echo "$line" | awk '{print $1}')
+            POD=$(echo "$line" | awk '{print $2}')
+            START=$(echo "$line" | awk '{print $3}')
+            # Only delete if stuck > 10m (rough check: creationTimestamp old)
+            echo "  ⚠️  Pending pod: $NS/$POD — deleting for rescheduling"
+            $KT delete pod "$POD" -n "$NS" --grace-period=0 2>/dev/null && HEALED=$((HEALED+1)) || true
+            ISSUES="${ISSUES}\n- Pending: \`$NS/$POD\` → deleted for rescheduling"
+          done < <($KT get pods -A --field-selector='status.phase=Pending' \
+            -o custom-columns='NS:.metadata.namespace,NAME:.metadata.name,AGE:.metadata.creationTimestamp' \
+            --no-headers 2>/dev/null | head -20 | grep -v "^$" | while read ns pod age; do
+              # Skip recently created pods (< 10 min old)
+              POD_AGE_S=$(( $(date +%s) - $(date -d "$age" +%s 2>/dev/null || echo $(date +%s)) ))
+              [[ $POD_AGE_S -gt 600 ]] && echo "$ns $pod $age"
+            done || true)
+
+          if [[ $HEALED -eq 0 ]]; then
+            echo "✅ No stuck pods found — cluster is healthy" | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "🔧 Recovered $HEALED pod(s):" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo -e "$ISSUES" | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Re-sync OutOfSync ArgoCD apps
+        run: |
+          KB=~/.kube/config-platform-${{ env.ENV_NAME }}
+          KT="kubectl --kubeconfig $KB --insecure-skip-tls-verify"
+          RESYNCED=0
+          ISSUES=""
+
+          echo "### 🔍 Checking ArgoCD application health..." | tee -a "$GITHUB_STEP_SUMMARY"
+
+          # Find apps that are OutOfSync or Degraded
+          while IFS= read -r line; do
+            [[ -z "$line" ]] && continue
+            APP=$(echo "$line" | awk '{print $1}')
+            SYNC=$(echo "$line" | awk '{print $2}')
+            HEALTH=$(echo "$line" | awk '{print $3}')
+            echo "  ⚠️  App $APP is $SYNC/$HEALTH — forcing sync"
+            $KT annotate application "$APP" -n argocd argocd.argoproj.io/refresh=hard --overwrite 2>/dev/null || true
+            RESYNCED=$((RESYNCED+1))
+            ISSUES="${ISSUES}\n- \`$APP\`: $SYNC / $HEALTH → hard-refreshed"
+          done < <($KT get applications -n argocd \
+            -o custom-columns='NAME:.metadata.name,SYNC:.status.sync.status,HEALTH:.status.health.status' \
+            --no-headers 2>/dev/null | awk '$2=="OutOfSync" || $3=="Degraded" || $3=="Missing" {print}' || true)
+
+          if [[ $RESYNCED -eq 0 ]]; then
+            echo "✅ All ArgoCD apps are Synced and Healthy" | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "🔧 Refreshed $RESYNCED ArgoCD app(s):" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo -e "$ISSUES" | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Refresh failed ExternalSecrets
+        run: |
+          KB=~/.kube/config-platform-${{ env.ENV_NAME }}
+          KT="kubectl --kubeconfig $KB --insecure-skip-tls-verify"
+          REFRESHED=0
+
+          echo "### 🔍 Checking ExternalSecrets..." | tee -a "$GITHUB_STEP_SUMMARY"
+
+          # Find ExternalSecrets in Error/NotReady state
+          while IFS= read -r line; do
+            [[ -z "$line" ]] && continue
+            NS=$(echo "$line" | awk '{print $1}')
+            ES=$(echo "$line" | awk '{print $2}')
+            STATUS=$(echo "$line" | awk '{print $3}')
+            echo "  ⚠️  ExternalSecret $NS/$ES status=$STATUS — forcing refresh"
+            $KT annotate externalsecret "$ES" -n "$NS" \
+              "force-sync=$(date +%s)" --overwrite 2>/dev/null || true
+            REFRESHED=$((REFRESHED+1))
+          done < <($KT get externalsecrets -A \
+            -o custom-columns='NS:.metadata.namespace,NAME:.metadata.name,STATUS:.status.conditions[0].reason' \
+            --no-headers 2>/dev/null | awk '$3!="SecretSynced" && $3!="" {print}' || true)
+
+          if [[ $REFRESHED -eq 0 ]]; then
+            echo "✅ All ExternalSecrets are synced" | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "🔧 Refreshed $REFRESHED ExternalSecret(s)" | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Summary
+        run: |
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "---" >> "$GITHUB_STEP_SUMMARY"
+          echo "🏥 Self-heal complete — $(date -u '+%Y-%m-%d %H:%M UTC')" >> "$GITHUB_STEP_SUMMARY"

@@ -34,6 +34,12 @@ spec:
     automated:
       prune: false
       selfHeal: true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
     syncOptions:
       - CreateNamespace=true
       # NO ServerSideApply=true — client-side apply avoids typed-patch error

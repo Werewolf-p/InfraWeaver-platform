@@ -28,6 +28,7 @@ spec:
         app: it-tools
     spec:
       terminationGracePeriodSeconds: 30
+      priorityClassName: platform-standard
       securityContext:
         runAsNonRoot: true
         runAsUser: 101

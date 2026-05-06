@@ -39,3 +39,7 @@ prometheus:
   enabled: true
   servicemonitor:
     enabled: true
+
+# Self-healing: ensure cert-manager is never evicted under resource pressure
+global:
+  priorityClassName: platform-critical

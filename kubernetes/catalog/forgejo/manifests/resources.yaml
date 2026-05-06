@@ -92,6 +92,7 @@ spec:
         app: forgejo-postgresql
     spec:
       terminationGracePeriodSeconds: 30
+      priorityClassName: platform-standard
       securityContext:
         fsGroup: 999
         runAsUser: 999

@@ -99,3 +99,6 @@ injector:
 ui:
   enabled: true
   serviceType: ClusterIP
+
+# Self-healing: ensure OpenBao (secrets engine) is never evicted
+priorityClassName: platform-critical

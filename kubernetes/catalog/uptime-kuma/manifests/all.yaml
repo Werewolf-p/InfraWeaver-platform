@@ -44,6 +44,7 @@ spec:
       # Running as root is required for proper initialization; the image handles this safely.
       # Kyverno audit-only policies allow this; enforce mode would need a PSA exception.
       terminationGracePeriodSeconds: 30
+      priorityClassName: platform-standard
       securityContext:
         runAsUser: 0
         seccompProfile:

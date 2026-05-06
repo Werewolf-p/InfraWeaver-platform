@@ -115,6 +115,7 @@ spec:
         app: gitea-postgresql
     spec:
       terminationGracePeriodSeconds: 30
+      priorityClassName: platform-standard
       initContainers:
         - name: fix-permissions
           image: busybox:1.35

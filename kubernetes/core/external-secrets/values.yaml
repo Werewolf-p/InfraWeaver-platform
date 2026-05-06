@@ -10,3 +10,6 @@ certController:
 
 serviceMonitor:
   enabled: true
+
+# Self-healing: ensure external-secrets operator is never evicted
+priorityClassName: platform-critical

@@ -93,3 +93,7 @@ redis-ha:
 
 notifications:
   enabled: true
+
+# Self-healing: ensure ArgoCD components are never evicted under resource pressure
+global:
+  priorityClassName: platform-critical

@@ -1,0 +1,36 @@
+---
+# PriorityClasses — Self-healing layer: ensures critical infra pods survive
+# resource pressure and are scheduled before catalog workloads.
+#
+# Source: kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/
+#
+# Hierarchy:
+#   platform-critical (1000000) — core infra that must never be evicted
+#     → traefik, argocd, cert-manager, openbao, external-secrets, metallb, coredns
+#   platform-standard (500) — catalog apps, evictable under pressure
+#   (default: 0) — everything else
+#
+# WARNING: values >= 1000000000 are reserved by Kubernetes for system pods.
+# platform-critical uses 1000000 which is safely below that limit.
+
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: platform-critical
+  labels:
+    infraweaver.io/managed: "true"
+value: 1000000
+globalDefault: false
+preemptionPolicy: PreemptLowerPriority
+description: "Core infrastructure components — traefik, argocd, cert-manager, openbao, external-secrets, metallb. Never evict these under resource pressure."
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: platform-standard
+  labels:
+    infraweaver.io/managed: "true"
+value: 500
+globalDefault: false
+preemptionPolicy: PreemptLowerPriority
+description: "Catalog and optional platform apps. Can be preempted by platform-critical components under resource pressure."

@@ -111,6 +111,7 @@ spec:
         app: outline
     spec:
       terminationGracePeriodSeconds: 30
+      priorityClassName: platform-standard
       securityContext:
         fsGroup: 1000
         runAsNonRoot: true
@@ -200,6 +201,7 @@ spec:
         app: outline-postgres
     spec:
       terminationGracePeriodSeconds: 30
+      priorityClassName: platform-standard
       securityContext:
         fsGroup: 999
         runAsNonRoot: true
@@ -271,6 +273,7 @@ spec:
         app: outline-redis
     spec:
       terminationGracePeriodSeconds: 30
+      priorityClassName: platform-standard
       securityContext:
         runAsNonRoot: true
         runAsUser: 999

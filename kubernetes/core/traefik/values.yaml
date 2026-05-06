@@ -98,3 +98,6 @@ resources:
   limits:
     cpu: 500m
     memory: 256Mi
+
+# Self-healing: ensure Traefik is never evicted under resource pressure
+priorityClassName: platform-critical

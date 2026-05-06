@@ -90,6 +90,7 @@ spec:
         app: immich-server
     spec:
       terminationGracePeriodSeconds: 30
+      priorityClassName: platform-standard
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
@@ -172,6 +173,7 @@ spec:
         app: immich-postgres
     spec:
       terminationGracePeriodSeconds: 30
+      priorityClassName: platform-standard
       securityContext:
         fsGroup: 999
         runAsNonRoot: true
@@ -243,6 +245,7 @@ spec:
         app: immich-redis
     spec:
       terminationGracePeriodSeconds: 30
+      priorityClassName: platform-standard
       securityContext:
         runAsNonRoot: true
         runAsUser: 999

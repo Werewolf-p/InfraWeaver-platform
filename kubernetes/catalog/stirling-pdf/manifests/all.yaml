@@ -28,6 +28,7 @@ spec:
         app: stirling-pdf
     spec:
       terminationGracePeriodSeconds: 30
+      priorityClassName: platform-standard
       securityContext:
         runAsNonRoot: false
         runAsUser: 0

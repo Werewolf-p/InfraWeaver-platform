@@ -1,11 +1,12 @@
-# Standalone ArgoCD Application for internal CoreDNS
-# Deploys a custom DNS server accessible at 10.25.0.201:53 (MetalLB)
-# Serves rlservers.com and prod.local zones; forwards everything else upstream
+---
+# ArgoCD Application for PriorityClasses core manifest
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: apps-dns
+  name: core-priority-classes
   namespace: argocd
+  labels:
+    infraweaver.io/type: core
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -13,10 +14,10 @@ spec:
   source:
     repoURL: https://github.com/Werewolf-p/InfraWeaver-platform.git
     targetRevision: HEAD
-    path: kubernetes/platform/dns/manifests
+    path: kubernetes/core/priority-classes/manifests
   destination:
     server: https://kubernetes.default.svc
-    namespace: dns-system
+    namespace: kube-system
   syncPolicy:
     automated:
       prune: true
@@ -28,5 +29,5 @@ spec:
         factor: 2
         maxDuration: 3m
     syncOptions:
-      - CreateNamespace=true
+      - CreateNamespace=false
       - ServerSideApply=true

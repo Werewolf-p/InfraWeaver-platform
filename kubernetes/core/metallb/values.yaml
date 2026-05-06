@@ -16,3 +16,9 @@ controller:
     limits:
       cpu: 200m
       memory: 128Mi
+
+# Self-healing: ensure MetalLB components are never evicted
+controller:
+  priorityClassName: platform-critical
+speaker:
+  priorityClassName: platform-critical
