@@ -15,6 +15,7 @@ metadata:
       or specify a non-zero runAsUser. Reduces blast radius of container escapes.
 spec:
   validationFailureAction: Audit
+  admission: true
   background: true
   rules:
     - name: check-run-as-non-root
@@ -50,6 +51,7 @@ metadata:
       exhaustion on the node.
 spec:
   validationFailureAction: Audit
+  admission: true
   background: true
   rules:
     - name: check-container-resources
@@ -85,6 +87,7 @@ metadata:
       access to host resources. This is a critical security risk.
 spec:
   validationFailureAction: Audit
+  admission: true
   background: true
   rules:
     - name: check-privileged
@@ -120,6 +123,7 @@ metadata:
       they strictly need. This follows the principle of least privilege.
 spec:
   validationFailureAction: Audit
+  admission: true
   background: true
   rules:
     - name: check-drop-all
@@ -154,6 +158,7 @@ metadata:
       direct access to host-level resources.
 spec:
   validationFailureAction: Audit
+  admission: true
   background: true
   rules:
     - name: check-host-namespaces

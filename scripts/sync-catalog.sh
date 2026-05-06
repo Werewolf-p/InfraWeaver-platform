@@ -194,8 +194,10 @@ spec:
       kind: ExternalSecret
       jsonPointers:
         - /status
+        - /metadata/finalizers
       jqPathExpressions:
         - '.metadata.resourceVersion'
+        - '.metadata.annotations["force-sync"]'
 EOF
   log "  Generated: $output"
 }
