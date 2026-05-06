@@ -1,3 +1,15 @@
 catalog:
+  # List of catalog apps to install.
+  # Core apps (argocd, traefik, external-secrets, authentik, etc.) are always installed.
+  # Add or remove entries here to control which optional apps are deployed.
+  #
+  # Available catalog apps:
+  #   wiki         — Wiki.js documentation wiki (https://wiki.int.rlservers.com)
+  #   uptime-kuma  — Status/uptime monitoring (https://uptime-kuma.int.rlservers.com)
+  #   gitea        — Self-hosted Git (https://gitea.int.rlservers.com)
+  #   vaultwarden  — Bitwarden-compatible password manager (https://vaultwarden.int.rlservers.com)
   enabled:
-  - wiki
+    - wiki
+    - uptime-kuma
+    - gitea
+    - vaultwarden

@@ -48,9 +48,33 @@ resources:
     cpu: 500m
     memory: 512Mi
 
+# Mount OIDC client secret as env var (pulled from grafana-oidc-secret ExternalSecret)
+envFromSecret: grafana-oidc-secret
+
 # ── Extra config ──────────────────────────────────────────────────────────────
 grafana.ini:
   analytics:
     check_for_updates: false
   server:
-    root_url: "https://grafana.rlservers.com"
+    root_url: "https://grafana.int.rlservers.com"
+  # ── Authentik OIDC login ────────────────────────────────────────────────────
+  auth.generic_oauth:
+    enabled: true
+    name: Authentik
+    icon: signin
+    client_id: grafana
+    # GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET injected from grafana-oidc-secret
+    client_secret: "${GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET}"
+    scopes: openid profile email
+    auth_url: "https://auth.rlservers.com/application/o/authorize/"
+    token_url: "https://auth.rlservers.com/application/o/token/"
+    api_url: "https://auth.rlservers.com/application/o/userinfo/"
+    # Map Authentik groups to Grafana roles
+    role_attribute_path: >-
+      contains(groups[*], 'platform-admins') && 'Admin'
+      || contains(groups[*], 'platform-viewers') && 'Viewer'
+      || 'Viewer'
+    allow_sign_up: true
+    # Allow local admin login as fallback
+    allow_assign_grafana_admin: true
+    skip_org_role_sync: false

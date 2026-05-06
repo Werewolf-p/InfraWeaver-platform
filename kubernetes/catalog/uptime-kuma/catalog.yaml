@@ -1,0 +1,18 @@
+---
+# catalog.yaml — source definition for catalog apps
+# This file is read by scripts/sync-catalog.sh to generate ArgoCD Applications.
+#
+# Catalog app: Uptime Kuma — self-hosted uptime/status monitoring
+# Access: uptime-kuma.int.rlservers.com (VPN-only, protected by Authentik forward-auth)
+# SSO: Traefik forward-auth (Uptime Kuma v1.x has no native OIDC)
+
+name: uptime-kuma
+description: "Uptime Kuma — self-hosted status monitoring, protected by Authentik forward-auth"
+namespace: uptime-kuma
+
+# Raw manifests only — no Helm chart for Uptime Kuma
+# manifests/ contains: namespace, deployment, service, ingressroute, networkpolicy
+
+ingressroute:
+  host: uptime-kuma.int.rlservers.com
+  entrypoint: websecure

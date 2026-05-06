@@ -192,6 +192,8 @@ spec:
           namespace: traefik
         - name: netbird-vpn-only
           namespace: traefik
+        - name: forward-auth
+          namespace: traefik
       services:
         - name: longhorn-frontend
           port: 80

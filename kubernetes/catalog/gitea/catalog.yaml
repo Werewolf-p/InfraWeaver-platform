@@ -1,0 +1,22 @@
+---
+# catalog.yaml — source definition for catalog apps
+# This file is read by scripts/sync-catalog.sh to generate ArgoCD Applications.
+#
+# Catalog app: Gitea — self-hosted Git service with full Authentik OIDC SSO
+# Access: gitea.int.rlservers.com (VPN-only)
+# SSO: Native OAuth2/OIDC via Gitea's built-in OAuth2 provider (Authentik)
+
+name: gitea
+description: "Gitea — self-hosted Git service with Authentik OIDC SSO"
+namespace: gitea
+
+# Helm chart source
+helm:
+  repoURL: https://dl.gitea.com/charts/
+  chart: gitea
+  targetRevision: "10.*"
+  releaseName: gitea
+
+ingressroute:
+  host: gitea.int.rlservers.com
+  entrypoint: websecure

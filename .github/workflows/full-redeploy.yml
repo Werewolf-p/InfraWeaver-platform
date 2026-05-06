@@ -764,7 +764,64 @@ jobs:
             echo "==> Grafana secret already exists — preserving existing password"
           fi
 
-          # ArgoCD: read auto-generated admin password → store in OpenBao (idempotent)
+          # ── Catalog app secrets — seed on first deploy only ───────────────
+          # Wiki.js — admin + PostgreSQL credentials
+          EXISTING_WIKI=$(curl -s -H "X-Vault-Token: $ROOT_TOKEN" \
+            "${LOCAL_OPENBAO}/v1/secret/data/platform/wiki" | \
+            python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('data',{}).get('admin-password',''))" \
+            2>/dev/null || echo "")
+          if [ -z "$EXISTING_WIKI" ]; then
+            curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/platform/wiki" \
+              -H "X-Vault-Token: $ROOT_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "{\"data\": {
+                \"admin-email\": \"admin@rlservers.com\",
+                \"admin-password\": \"$(openssl rand -base64 20 | tr -d '=+/')\",
+                \"postgresql-username\": \"wiki\",
+                \"postgresql-password\": \"$(openssl rand -base64 20 | tr -d '=+/')\",
+                \"oidc-client-id\": \"wikijs\",
+                \"oidc-client-secret\": \"placeholder-replaced-after-authentik-ready\"
+              }}" > /dev/null
+            echo "==> Wiki.js secrets written (admin + postgres, OIDC updated later)"
+          else
+            echo "==> Wiki.js secrets already exist — preserving"
+          fi
+
+          # Gitea — admin + PostgreSQL credentials
+          EXISTING_GITEA=$(curl -s -H "X-Vault-Token: $ROOT_TOKEN" \
+            "${LOCAL_OPENBAO}/v1/secret/data/platform/gitea" | \
+            python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('data',{}).get('admin-password',''))" \
+            2>/dev/null || echo "")
+          if [ -z "$EXISTING_GITEA" ]; then
+            curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/platform/gitea" \
+              -H "X-Vault-Token: $ROOT_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "{\"data\": {
+                \"admin-user\": \"gitea-admin\",
+                \"admin-password\": \"$(openssl rand -base64 20 | tr -d '=+/')\",
+                \"admin-email\": \"gitea@rlservers.com\",
+                \"postgresql-username\": \"gitea\",
+                \"postgresql-password\": \"$(openssl rand -base64 20 | tr -d '=+/')\"
+              }}" > /dev/null
+            echo "==> Gitea secrets written (admin + postgres)"
+          else
+            echo "==> Gitea secrets already exist — preserving"
+          fi
+
+          # Vaultwarden — admin token
+          EXISTING_VW=$(curl -s -H "X-Vault-Token: $ROOT_TOKEN" \
+            "${LOCAL_OPENBAO}/v1/secret/data/platform/vaultwarden" | \
+            python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('data',{}).get('admin-token',''))" \
+            2>/dev/null || echo "")
+          if [ -z "$EXISTING_VW" ]; then
+            curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/platform/vaultwarden" \
+              -H "X-Vault-Token: $ROOT_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "{\"data\": {\"admin-token\": \"$(openssl rand -base64 40 | tr -d '=+/')\"}}" > /dev/null
+            echo "==> Vaultwarden admin token written (randomly generated)"
+          else
+            echo "==> Vaultwarden secrets already exist — preserving"
+          fi
           ARGOCD_ADMIN_PASS=$(kubectl --kubeconfig "$KB" get secret argocd-initial-admin-secret \
             -n argocd -o jsonpath='{.data.password}' 2>/dev/null | base64 -d || echo "")
           if [ -n "$ARGOCD_ADMIN_PASS" ]; then
@@ -1722,6 +1779,82 @@ jobs:
               else
                 echo "⚠️ OpenBao pod not found — skipping OIDC auth setup"
               fi
+            fi
+          fi
+
+          # ── Read Grafana OIDC client_secret ───────────────────────────────
+          echo "==> Fetching Grafana OAuth2 client_secret from Authentik..."
+          wait_for_provider "Grafana Provider"
+          GRAFANA_SECRET=$(curl -sf \
+            -H "Authorization: Bearer $TOKEN" \
+            "${AUTHENTIK_URL}/api/v3/providers/oauth2/?name=Grafana%20Provider" \
+            2>/dev/null | python3 -c "import sys,json; results=json.load(sys.stdin)['results']; print(results[0]['client_secret']) if results else print('')" 2>/dev/null || echo "")
+
+          if [ -z "$GRAFANA_SECRET" ]; then
+            echo "⚠️ Could not fetch Grafana client_secret — OIDC login will not work"
+          else
+            echo "✅ Grafana client_secret retrieved"
+            ROOT_TOKEN=$($KT get secret openbao-unseal -n openbao \
+              -o jsonpath='{.data.root_token}' 2>/dev/null | base64 -d || echo "")
+            if [ -n "$ROOT_TOKEN" ]; then
+              $KT exec -n openbao openbao-0 -- \
+                env VAULT_TOKEN="$ROOT_TOKEN" VAULT_ADDR=http://127.0.0.1:8200 \
+                bao kv put secret/platform/grafana-oidc client_secret="$GRAFANA_SECRET" > /dev/null 2>&1 || true
+              echo "✅ Grafana OIDC client_secret stored in OpenBao"
+            fi
+          fi
+
+          # ── Read Proxmox OIDC client_secret ───────────────────────────────
+          echo "==> Fetching Proxmox OAuth2 client_secret from Authentik..."
+          wait_for_provider "Proxmox Provider"
+          PROXMOX_SECRET=$(curl -sf \
+            -H "Authorization: Bearer $TOKEN" \
+            "${AUTHENTIK_URL}/api/v3/providers/oauth2/?name=Proxmox%20Provider" \
+            2>/dev/null | python3 -c "import sys,json; results=json.load(sys.stdin)['results']; print(results[0]['client_secret']) if results else print('')" 2>/dev/null || echo "")
+
+          if [ -z "$PROXMOX_SECRET" ]; then
+            echo "⚠️ Could not fetch Proxmox client_secret — OIDC login for Proxmox will not work"
+          else
+            echo "✅ Proxmox client_secret retrieved"
+            ROOT_TOKEN=$($KT get secret openbao-unseal -n openbao \
+              -o jsonpath='{.data.root_token}' 2>/dev/null | base64 -d || echo "")
+            if [ -n "$ROOT_TOKEN" ]; then
+              $KT exec -n openbao openbao-0 -- \
+                env VAULT_TOKEN="$ROOT_TOKEN" VAULT_ADDR=http://127.0.0.1:8200 \
+                bao kv put secret/platform/proxmox-oidc \
+                  client_secret="$PROXMOX_SECRET" \
+                  client_id="proxmox" \
+                  issuer_url="https://auth.rlservers.com/application/o/proxmox/" > /dev/null 2>&1 || true
+              echo "✅ Proxmox OIDC client_secret stored in OpenBao at secret/platform/proxmox-oidc"
+              echo "ℹ️  To complete Proxmox OIDC setup, run on the PVE node:"
+              echo "   pveum realm add authentik --type openid \\"
+              echo "     --issuer-url https://auth.rlservers.com/application/o/proxmox/ \\"
+              echo "     --client-id proxmox \\"
+              echo "     --client-key <secret from OpenBao> \\"
+              echo "     --username-claim preferred_username \\"
+              echo "     --autocreate 1"
+            fi
+          fi
+
+          # ── Read Gitea OIDC client_secret ─────────────────────────────────
+          echo "==> Fetching Gitea OAuth2 client_secret from Authentik..."
+          wait_for_provider "Gitea Provider"
+          GITEA_SECRET=$(curl -sf \
+            -H "Authorization: Bearer $TOKEN" \
+            "${AUTHENTIK_URL}/api/v3/providers/oauth2/?name=Gitea%20Provider" \
+            2>/dev/null | python3 -c "import sys,json; results=json.load(sys.stdin)['results']; print(results[0]['client_secret']) if results else print('')" 2>/dev/null || echo "")
+
+          if [ -z "$GITEA_SECRET" ]; then
+            echo "⚠️ Could not fetch Gitea client_secret — OIDC login will not work"
+          else
+            echo "✅ Gitea client_secret retrieved"
+            ROOT_TOKEN=$($KT get secret openbao-unseal -n openbao \
+              -o jsonpath='{.data.root_token}' 2>/dev/null | base64 -d || echo "")
+            if [ -n "$ROOT_TOKEN" ]; then
+              $KT exec -n openbao openbao-0 -- \
+                env VAULT_TOKEN="$ROOT_TOKEN" VAULT_ADDR=http://127.0.0.1:8200 \
+                bao kv put secret/platform/gitea-oidc client_secret="$GITEA_SECRET" > /dev/null 2>&1 || true
+              echo "✅ Gitea OIDC client_secret stored in OpenBao"
             fi
           fi
 

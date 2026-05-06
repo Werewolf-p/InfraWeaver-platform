@@ -1,0 +1,18 @@
+---
+# catalog.yaml — source definition for catalog apps
+# This file is read by scripts/sync-catalog.sh to generate ArgoCD Applications.
+#
+# Catalog app: Vaultwarden — self-hosted Bitwarden-compatible password manager
+# Access: vaultwarden.int.rlservers.com (VPN-only, protected by Authentik forward-auth)
+# SSO: Traefik forward-auth (Vaultwarden free has no native OIDC)
+# Note: The /admin endpoint is separately protected by ADMIN_TOKEN env var.
+
+name: vaultwarden
+description: "Vaultwarden — self-hosted Bitwarden-compatible password manager with Authentik SSO"
+namespace: vaultwarden
+
+# Raw manifests only — no external Helm chart for Vaultwarden
+
+ingressroute:
+  host: vaultwarden.int.rlservers.com
+  entrypoint: websecure

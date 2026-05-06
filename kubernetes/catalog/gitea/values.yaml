@@ -1,0 +1,88 @@
+# ── Gitea Helm values ──────────────────────────────────────────────────────────
+# Chart: https://dl.gitea.com/charts/ gitea
+# Docs:  https://gitea.com/gitea/helm-gitea
+
+replicaCount: 1
+
+image:
+  registry: ""
+  repository: gitea/gitea
+  tag: "1.22"
+  pullPolicy: IfNotPresent
+
+service:
+  http:
+    type: ClusterIP
+    port: 3000
+  ssh:
+    type: ClusterIP
+    port: 22
+
+# No native Helm ingress — use Traefik IngressRoute (gitea.int.rlservers.com)
+ingress:
+  enabled: false
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+persistence:
+  enabled: true
+  size: 10Gi
+  storageClass: longhorn
+
+gitea:
+  admin:
+    existingSecret: gitea-admin-secret
+
+  config:
+    # Server base URL (external address)
+    server:
+      DOMAIN: gitea.int.rlservers.com
+      ROOT_URL: "https://gitea.int.rlservers.com"
+      HTTP_PORT: 3000
+
+    database:
+      DB_TYPE: postgres
+      HOST: gitea-postgresql:5432
+      NAME: gitea
+      USER: gitea
+
+    # Security settings
+    security:
+      INSTALL_LOCK: true
+      MIN_PASSWORD_LENGTH: 12
+
+    # Disable self-registration (use Authentik SSO only)
+    service:
+      DISABLE_REGISTRATION: false   # allow first OIDC auto-reg, then disable
+      ALLOW_ONLY_EXTERNAL_REGISTRATION: true
+      SHOW_REGISTRATION_BUTTON: false
+
+    # OAuth2 OIDC via Authentik (configured post-install via Gitea admin API)
+    oauth2_client:
+      ENABLE_AUTO_REGISTRATION: true
+      USERNAME: preferred_username
+
+    # Session / cookies
+    session:
+      COOKIE_SECURE: true
+
+postgresql:
+  enabled: true
+  auth:
+    existingSecret: gitea-postgres-secret
+    secretKeys:
+      adminPasswordKey: postgres-password
+      userPasswordKey: password
+    database: gitea
+    username: gitea
+  primary:
+    persistence:
+      enabled: true
+      storageClass: longhorn
+      size: 5Gi

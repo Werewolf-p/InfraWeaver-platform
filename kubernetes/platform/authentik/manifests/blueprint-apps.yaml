@@ -113,3 +113,169 @@ data:
           slug: wikijs
           provider: !Find [authentik_providers_oauth2.oauth2provider, [name, WikiJS Provider]]
           policy_engine_mode: any
+
+      # ── Grafana OAuth2 Provider ─────────────────────────────────────────────
+      - model: authentik_providers_oauth2.oauth2provider
+        state: present
+        identifiers:
+          name: Grafana Provider
+        attrs:
+          name: Grafana Provider
+          client_id: grafana
+          client_type: confidential
+          sub_mode: user_username
+          redirect_uris:
+            - matching_mode: strict
+              url: "https://grafana.int.rlservers.com/login/generic_oauth"
+          authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
+          invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
+          signing_key: !Find [authentik_crypto.certificatekeypair, [name, authentik Self-signed Certificate]]
+          property_mappings:
+            - !Find [authentik_providers_oauth2.scopemapping, [managed, goauthentik.io/providers/oauth2/scope-openid]]
+            - !Find [authentik_providers_oauth2.scopemapping, [managed, goauthentik.io/providers/oauth2/scope-email]]
+            - !Find [authentik_providers_oauth2.scopemapping, [managed, goauthentik.io/providers/oauth2/scope-profile]]
+
+      - model: authentik_core.application
+        state: present
+        identifiers:
+          slug: grafana
+        attrs:
+          name: Grafana
+          slug: grafana
+          provider: !Find [authentik_providers_oauth2.oauth2provider, [name, Grafana Provider]]
+          policy_engine_mode: any
+
+      # ── Proxmox OAuth2 Provider ─────────────────────────────────────────────
+      # PVE 7.4+ supports OIDC realms via pveum. The redirect URI is the PVE UI base URL.
+      - model: authentik_providers_oauth2.oauth2provider
+        state: present
+        identifiers:
+          name: Proxmox Provider
+        attrs:
+          name: Proxmox Provider
+          client_id: proxmox
+          client_type: confidential
+          sub_mode: user_username
+          redirect_uris:
+            # PVE sends a redirect to its own UI URL after successful OIDC auth
+            - matching_mode: regex
+              url: "https://proxmox\\.int\\.rlservers\\.com.*"
+            - matching_mode: regex
+              url: "https://proxmox\\.rlservers\\.com.*"
+            - matching_mode: regex
+              url: "https://10\\.25\\.0\\.3:8006.*"
+          authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
+          invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
+          signing_key: !Find [authentik_crypto.certificatekeypair, [name, authentik Self-signed Certificate]]
+          property_mappings:
+            - !Find [authentik_providers_oauth2.scopemapping, [managed, goauthentik.io/providers/oauth2/scope-openid]]
+            - !Find [authentik_providers_oauth2.scopemapping, [managed, goauthentik.io/providers/oauth2/scope-email]]
+            - !Find [authentik_providers_oauth2.scopemapping, [managed, goauthentik.io/providers/oauth2/scope-profile]]
+
+      - model: authentik_core.application
+        state: present
+        identifiers:
+          slug: proxmox
+        attrs:
+          name: Proxmox VE
+          slug: proxmox
+          provider: !Find [authentik_providers_oauth2.oauth2provider, [name, Proxmox Provider]]
+          policy_engine_mode: any
+
+      # ── Gitea OAuth2 Provider (catalog app) ────────────────────────────────
+      - model: authentik_providers_oauth2.oauth2provider
+        state: present
+        identifiers:
+          name: Gitea Provider
+        attrs:
+          name: Gitea Provider
+          client_id: gitea
+          client_type: confidential
+          sub_mode: user_username
+          redirect_uris:
+            - matching_mode: strict
+              url: "https://gitea.int.rlservers.com/user/oauth2/authentik/callback"
+          authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
+          invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
+          signing_key: !Find [authentik_crypto.certificatekeypair, [name, authentik Self-signed Certificate]]
+          property_mappings:
+            - !Find [authentik_providers_oauth2.scopemapping, [managed, goauthentik.io/providers/oauth2/scope-openid]]
+            - !Find [authentik_providers_oauth2.scopemapping, [managed, goauthentik.io/providers/oauth2/scope-email]]
+            - !Find [authentik_providers_oauth2.scopemapping, [managed, goauthentik.io/providers/oauth2/scope-profile]]
+
+      - model: authentik_core.application
+        state: present
+        identifiers:
+          slug: gitea
+        attrs:
+          name: Gitea
+          slug: gitea
+          provider: !Find [authentik_providers_oauth2.oauth2provider, [name, Gitea Provider]]
+          policy_engine_mode: any
+
+      # ── Uptime Kuma (catalog app — proxy auth via Traefik forward-auth) ────
+      # Uptime Kuma v1.x has no native OIDC; authentication is handled by Traefik.
+      - model: authentik_providers_proxy.proxyprovider
+        state: present
+        identifiers:
+          name: Uptime Kuma Provider
+        attrs:
+          name: Uptime Kuma Provider
+          mode: forward_single
+          external_host: "https://uptime-kuma.int.rlservers.com"
+          authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
+          invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
+
+      - model: authentik_core.application
+        state: present
+        identifiers:
+          slug: uptime-kuma
+        attrs:
+          name: Uptime Kuma
+          slug: uptime-kuma
+          provider: !Find [authentik_providers_proxy.proxyprovider, [name, Uptime Kuma Provider]]
+          policy_engine_mode: any
+
+      # ── Vaultwarden (catalog app — proxy auth via Traefik forward-auth) ────
+      # Vaultwarden free edition has no native OIDC; Traefik forward-auth protects the UI.
+      - model: authentik_providers_proxy.proxyprovider
+        state: present
+        identifiers:
+          name: Vaultwarden Provider
+        attrs:
+          name: Vaultwarden Provider
+          mode: forward_single
+          external_host: "https://vaultwarden.int.rlservers.com"
+          authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
+          invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
+
+      - model: authentik_core.application
+        state: present
+        identifiers:
+          slug: vaultwarden
+        attrs:
+          name: Vaultwarden
+          slug: vaultwarden
+          provider: !Find [authentik_providers_proxy.proxyprovider, [name, Vaultwarden Provider]]
+          policy_engine_mode: any
+
+      # ── Embedded Outpost — registers all proxy providers automatically ───────
+      # The embedded outpost handles Traefik forward-auth for all proxy providers.
+      # Authentik serves forward-auth at /outpost.goauthentik.io/auth/traefik
+      # Adding proxy providers to the outpost makes them visible to Traefik middleware.
+      - model: authentik_outposts.outpost
+        state: present
+        identifiers:
+          name: authentik Embedded Outpost
+        attrs:
+          name: authentik Embedded Outpost
+          type: proxy
+          providers:
+            - !Find [authentik_providers_proxy.proxyprovider, [name, Uptime Kuma Provider]]
+            - !Find [authentik_providers_proxy.proxyprovider, [name, Vaultwarden Provider]]
+          config:
+            authentik_host: "https://auth.rlservers.com"
+            authentik_host_insecure: false
+            log_level: info
+            object_naming_template: "ak-outpost-%(name)s"
+            kubernetes_replicas: 1
