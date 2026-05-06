@@ -808,6 +808,26 @@ jobs:
             echo "==> Gitea secrets already exist — preserving"
           fi
 
+          # Forgejo — admin + PostgreSQL credentials
+          EXISTING_FORGEJO=$(curl -s -H "X-Vault-Token: $ROOT_TOKEN" \
+            "${LOCAL_OPENBAO}/v1/secret/data/platform/forgejo" | \
+            python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('data',{}).get('admin-password',''))" \
+            2>/dev/null || echo "")
+          if [ -z "$EXISTING_FORGEJO" ]; then
+            curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/platform/forgejo" \
+              -H "X-Vault-Token: $ROOT_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "{\"data\": {
+                \"admin-user\": \"forgejo-admin\",
+                \"admin-password\": \"$(openssl rand -base64 20 | tr -d '=+/')\",
+                \"admin-email\": \"forgejo@rlservers.com\",
+                \"postgres-password\": \"$(openssl rand -base64 20 | tr -d '=+/')\"
+              }}" > /dev/null
+            echo "==> Forgejo secrets written (admin + postgres)"
+          else
+            echo "==> Forgejo secrets already exist — preserving"
+          fi
+
           # Vaultwarden — admin token
           EXISTING_VW=$(curl -s -H "X-Vault-Token: $ROOT_TOKEN" \
             "${LOCAL_OPENBAO}/v1/secret/data/platform/vaultwarden" | \
@@ -1855,6 +1875,28 @@ jobs:
                 env VAULT_TOKEN="$ROOT_TOKEN" VAULT_ADDR=http://127.0.0.1:8200 \
                 bao kv put secret/platform/gitea-oidc client_secret="$GITEA_SECRET" > /dev/null 2>&1 || true
               echo "✅ Gitea OIDC client_secret stored in OpenBao"
+            fi
+          fi
+
+          # ── Read Forgejo OIDC client_secret ───────────────────────────────
+          echo "==> Fetching Forgejo OAuth2 client_secret from Authentik..."
+          wait_for_provider "Forgejo Provider"
+          FORGEJO_SECRET=$(curl -sf \
+            -H "Authorization: Bearer $TOKEN" \
+            "${AUTHENTIK_URL}/api/v3/providers/oauth2/?name=Forgejo%20Provider" \
+            2>/dev/null | python3 -c "import sys,json; results=json.load(sys.stdin)['results']; print(results[0]['client_secret']) if results else print('')" 2>/dev/null || echo "")
+
+          if [ -z "$FORGEJO_SECRET" ]; then
+            echo "⚠️ Could not fetch Forgejo client_secret — OIDC login will not work"
+          else
+            echo "✅ Forgejo client_secret retrieved"
+            ROOT_TOKEN=$($KT get secret openbao-unseal -n openbao \
+              -o jsonpath='{.data.root_token}' 2>/dev/null | base64 -d || echo "")
+            if [ -n "$ROOT_TOKEN" ]; then
+              $KT exec -n openbao openbao-0 -- \
+                env VAULT_TOKEN="$ROOT_TOKEN" VAULT_ADDR=http://127.0.0.1:8200 \
+                bao kv put secret/platform/forgejo-oidc client_secret="$FORGEJO_SECRET" client_id="forgejo" > /dev/null 2>&1 || true
+              echo "✅ Forgejo OIDC client_secret stored in OpenBao"
             fi
           fi
 
