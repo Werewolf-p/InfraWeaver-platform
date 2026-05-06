@@ -302,8 +302,8 @@ fi
 
 cd "$REPO_ROOT"
 
-if git diff --quiet HEAD -- "$BOOTSTRAP_DIR/catalog-"*.yaml 2>/dev/null && \
-   ! git ls-files --others --exclude-standard "$BOOTSTRAP_DIR/catalog-"*.yaml 2>/dev/null | grep -q .; then
+if git diff --quiet HEAD -- "$BOOTSTRAP_DIR/" 2>/dev/null && \
+   ! git ls-files --others --exclude-standard "$BOOTSTRAP_DIR/" 2>/dev/null | grep -q "catalog-"; then
   log ""
   log "No bootstrap changes to commit."
   exit 0
