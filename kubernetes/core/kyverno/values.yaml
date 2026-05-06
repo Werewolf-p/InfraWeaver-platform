@@ -87,6 +87,7 @@ webhooksCleanup:
     tag: "v1.31.0"
 
 policyReportsCleanup:
+  enabled: false  # Post-upgrade migration hook — not needed for fresh installs
   image:
     registry: registry.k8s.io
     repository: kubectl
