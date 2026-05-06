@@ -259,6 +259,28 @@ data:
           provider: !Find [authentik_providers_proxy.proxyprovider, [name, Vaultwarden Provider]]
           policy_engine_mode: any
 
+      # ── Longhorn (internal storage UI — proxy auth via Traefik forward-auth) ──
+      - model: authentik_providers_proxy.proxyprovider
+        state: present
+        identifiers:
+          name: Longhorn Provider
+        attrs:
+          name: Longhorn Provider
+          mode: forward_single
+          external_host: "https://longhorn.int.rlservers.com"
+          authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
+          invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
+
+      - model: authentik_core.application
+        state: present
+        identifiers:
+          slug: longhorn
+        attrs:
+          name: Longhorn
+          slug: longhorn
+          provider: !Find [authentik_providers_proxy.proxyprovider, [name, Longhorn Provider]]
+          policy_engine_mode: any
+
       # ── Embedded Outpost — registers all proxy providers automatically ───────
       # The embedded outpost handles Traefik forward-auth for all proxy providers.
       # Authentik serves forward-auth at /outpost.goauthentik.io/auth/traefik
@@ -271,6 +293,7 @@ data:
           name: authentik Embedded Outpost
           type: proxy
           providers:
+            - !Find [authentik_providers_proxy.proxyprovider, [name, Longhorn Provider]]
             - !Find [authentik_providers_proxy.proxyprovider, [name, Uptime Kuma Provider]]
             - !Find [authentik_providers_proxy.proxyprovider, [name, Vaultwarden Provider]]
           config:
