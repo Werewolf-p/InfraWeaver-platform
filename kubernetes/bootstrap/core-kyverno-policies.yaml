@@ -32,3 +32,4 @@ spec:
       jqPathExpressions:
         - '.status'
         - '.spec.admission'
+        - '.spec.rules[].skipBackgroundRequests'

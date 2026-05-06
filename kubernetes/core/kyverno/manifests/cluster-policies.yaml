@@ -19,6 +19,7 @@ spec:
   background: true
   rules:
     - name: check-run-as-non-root
+      skipBackgroundRequests: true
       match:
         any:
           - resources:
@@ -55,6 +56,7 @@ spec:
   background: true
   rules:
     - name: check-container-resources
+      skipBackgroundRequests: true
       match:
         any:
           - resources:
@@ -91,6 +93,7 @@ spec:
   background: true
   rules:
     - name: check-privileged
+      skipBackgroundRequests: true
       match:
         any:
           - resources:
@@ -127,6 +130,7 @@ spec:
   background: true
   rules:
     - name: check-drop-all
+      skipBackgroundRequests: true
       match:
         any:
           - resources:
@@ -162,6 +166,7 @@ spec:
   background: true
   rules:
     - name: check-host-namespaces
+      skipBackgroundRequests: true
       match:
         any:
           - resources:
