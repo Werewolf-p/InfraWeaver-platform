@@ -114,6 +114,16 @@ spec:
       labels:
         app: gitea-postgresql
     spec:
+      initContainers:
+        - name: fix-permissions
+          image: busybox:1.35
+          command: ["sh", "-c", "chown -R 999:999 /var/lib/postgresql/data"]
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
       securityContext:
         fsGroup: 999
         runAsUser: 999
