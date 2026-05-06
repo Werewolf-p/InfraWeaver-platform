@@ -41,6 +41,7 @@ on:
       - "kubernetes/platform/authentik/values.yaml"
       - "kubernetes/platform/authentik/manifests/blueprint-*.yaml"
       - "kubernetes/bootstrap/*.yaml"  # new app bootstrap Applications
+      - "kubernetes/platform/dns/manifests/configmap.yaml"  # CoreDNS restart needed
 
   workflow_dispatch:
     inputs:
@@ -87,6 +88,7 @@ jobs:
       new_users:      ${{ steps.changes.outputs.new_users }}
       new_bootstrap:  ${{ steps.changes.outputs.new_bootstrap }}
       catalog_sync:   ${{ steps.changes.outputs.catalog_sync }}
+      dns_changed:    ${{ steps.changes.outputs.dns_changed }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -149,6 +151,14 @@ jobs:
             echo "catalog_sync=false" >> $GITHUB_OUTPUT
           fi
 
+          # Detect CoreDNS configmap changes (requires pod restart)
+          if echo "$CHANGED" | grep -qE "^kubernetes/platform/dns/manifests/configmap\.yaml$"; then
+            echo "dns_changed=true"  >> $GITHUB_OUTPUT
+            echo "==> CoreDNS configmap changed — will restart CoreDNS"
+          else
+            echo "dns_changed=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Summary
         run: |
           echo "### Change Detection" >> $GITHUB_STEP_SUMMARY
@@ -160,8 +170,34 @@ jobs:
           echo "| New users     | ${{ steps.changes.outputs.new_users }} |" >> $GITHUB_STEP_SUMMARY
           echo "| New apps      | ${{ steps.changes.outputs.new_bootstrap }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Catalog sync  | ${{ steps.changes.outputs.catalog_sync }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| DNS restart   | ${{ steps.changes.outputs.dns_changed }} |" >> $GITHUB_STEP_SUMMARY
 
-  # ── 2. Sync Authentik blueprints via ArgoCD ────────────────────────────────
+  # ── 2. Restart CoreDNS when configmap changes ─────────────────────────────
+  restart-coredns:
+    name: "Restart CoreDNS"
+    needs: detect
+    if: needs.detect.outputs.dns_changed == 'true'
+    runs-on:
+      - self-hosted
+      - prod-worker
+    steps:
+      - name: Rollout restart CoreDNS
+        run: |
+          KB=~/.kube/config-platform-${{ env.ENV_NAME }}
+          KT="kubectl --kubeconfig $KB --insecure-skip-tls-verify"
+
+          echo "==> CoreDNS configmap changed — rolling restart to apply new Corefile..."
+          $KT -n dns-system rollout restart deployment/coredns
+          $KT -n dns-system rollout status deployment/coredns --timeout=120s
+          echo "✅ CoreDNS restarted and healthy" >> $GITHUB_STEP_SUMMARY
+
+          echo "==> Verifying DNS resolution..."
+          sleep 5
+          nslookup wiki.int.rlservers.com 10.10.0.201 2>&1 | grep -E "Address|NXDOMAIN|SERVFAIL|error" || true
+          nslookup home.int.rlservers.com 10.10.0.201 2>&1 | grep -E "Address|NXDOMAIN|SERVFAIL|error" || true
+          echo "✅ DNS verification complete" >> $GITHUB_STEP_SUMMARY
+
+  # ── 3. Sync Authentik blueprints via ArgoCD ────────────────────────────────
   sync-blueprints:
     name: "Sync Authentik Blueprints"
     needs: detect
