@@ -1,0 +1,15 @@
+---
+# catalog.yaml — source definition for catalog apps
+# This file is read by scripts/sync-catalog.sh to generate ArgoCD Applications.
+#
+# Catalog app: Stirling-PDF — self-hosted PDF manipulation tools
+# Access: stirling-pdf.int.rlservers.com (VPN-only, protected by Authentik forward-auth)
+# SSO: Traefik forward-auth (no native OIDC in community edition)
+
+name: stirling-pdf
+description: "Stirling-PDF — self-hosted PDF tools (merge, split, convert, compress, rotate)"
+namespace: stirling-pdf
+
+ingressroute:
+  host: stirling-pdf.int.rlservers.com
+  entrypoint: websecure

@@ -1,0 +1,13 @@
+---
+# catalog.yaml — Mealie recipe manager
+# Defined but not enabled by default. Add 'mealie' to catalog.enabled in platform.yaml to deploy.
+# Access: mealie.int.rlservers.com (VPN-only, native OIDC via Authentik)
+# SSO: Native OIDC (Mealie supports OIDC from v1.0)
+
+name: mealie
+description: "Mealie — self-hosted recipe manager and meal planner with Authentik OIDC"
+namespace: mealie
+
+ingressroute:
+  host: mealie.int.rlservers.com
+  entrypoint: websecure

@@ -1,0 +1,12 @@
+---
+# catalog.yaml — changedetection.io website change monitor
+# Defined but not enabled by default. Add 'changedetection' to catalog.enabled to deploy.
+# Access: changedetection.int.rlservers.com (VPN-only, forward-auth)
+
+name: changedetection
+description: "changedetection.io — self-hosted website change monitoring and notification tool"
+namespace: changedetection
+
+ingressroute:
+  host: changedetection.int.rlservers.com
+  entrypoint: websecure

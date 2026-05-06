@@ -1,0 +1,5 @@
+# This catalog app is defined but not yet enabled.
+# See kubernetes/catalog/changedetection/catalog.yaml for details.
+# To enable: add 'changedetection' to catalog.enabled in platform.yaml,
+# then implement manifests here following the patterns in
+# kubernetes/catalog/uptime-kuma/manifests/all.yaml

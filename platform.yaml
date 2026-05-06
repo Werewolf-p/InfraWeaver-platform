@@ -4,12 +4,29 @@ catalog:
   # Add or remove entries here to control which optional apps are deployed.
   #
   # Available catalog apps:
-  #   wiki         — Wiki.js documentation wiki (https://wiki.int.rlservers.com)
-  #   uptime-kuma  — Status/uptime monitoring (https://uptime-kuma.int.rlservers.com)
-  #   gitea        — Self-hosted Git (https://gitea.int.rlservers.com)
-  #   vaultwarden  — Bitwarden-compatible password manager (https://vaultwarden.int.rlservers.com)
+  #   wiki             — Wiki.js documentation wiki            (wiki.int.rlservers.com)
+  #   uptime-kuma      — Uptime/status monitoring              (uptime-kuma.int.rlservers.com)
+  #   gitea            — Self-hosted Git forge                 (gitea.int.rlservers.com)
+  #   vaultwarden      — Bitwarden-compatible passwords        (vaultwarden.int.rlservers.com)
+  #   it-tools         — IT/Dev tool collection                (it-tools.int.rlservers.com)
+  #   stirling-pdf     — PDF manipulation tools                (stirling-pdf.int.rlservers.com)
+  #   excalidraw       — Collaborative whiteboard              (excalidraw.int.rlservers.com)
+  #   actual           — Personal finance / budgeting          (actual.int.rlservers.com)
+  #   n8n              — Workflow automation                   (n8n.int.rlservers.com)
+  #   forgejo          — Community Git forge (Gitea fork)      (forgejo.int.rlservers.com)
+  #
+  # Defined but not yet enabled (manifests still in development):
+  #   mealie           — Recipe manager with OIDC              (mealie.int.rlservers.com)
+  #   changedetection  — Website change monitoring             (changedetection.int.rlservers.com)
+  #   paperless-ngx    — Document management (complex)         (paperless.int.rlservers.com)
   enabled:
     - wiki
     - uptime-kuma
     - gitea
     - vaultwarden
+    - it-tools
+    - stirling-pdf
+    - excalidraw
+    - actual
+    - n8n
+    - forgejo

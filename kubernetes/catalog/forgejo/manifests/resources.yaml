@@ -1,0 +1,235 @@
+---
+# Namespace for Forgejo
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: forgejo
+  labels:
+    app.kubernetes.io/name: forgejo
+    infraweaver.io/type: catalog-app
+---
+# ExternalSecret — Forgejo admin credentials from OpenBao
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: forgejo-admin-secret
+  namespace: forgejo
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: openbao
+    kind: ClusterSecretStore
+  target:
+    name: forgejo-admin-secret
+    creationPolicy: Owner
+    deletionPolicy: Retain
+  data:
+    - secretKey: username
+      remoteRef:
+        key: secret/platform/forgejo
+        property: admin-user
+        conversionStrategy: Default
+        decodingStrategy: None
+        metadataPolicy: None
+    - secretKey: password
+      remoteRef:
+        key: secret/platform/forgejo
+        property: admin-password
+        conversionStrategy: Default
+        decodingStrategy: None
+        metadataPolicy: None
+---
+# ExternalSecret — Forgejo PostgreSQL credentials
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: forgejo-postgres-secret
+  namespace: forgejo
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: openbao
+    kind: ClusterSecretStore
+  target:
+    name: forgejo-postgres-secret
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    template:
+      engineVersion: v2
+      data:
+        password: "{{ .password }}"
+        POSTGRES_PASSWORD: "{{ .password }}"
+        POSTGRES_USER: forgejo
+        POSTGRES_DB: forgejo
+  data:
+    - secretKey: password
+      remoteRef:
+        key: secret/platform/forgejo
+        property: postgres-password
+        conversionStrategy: Default
+        decodingStrategy: None
+        metadataPolicy: None
+---
+# PostgreSQL Deployment — standalone postgres:16 for Forgejo
+# Bitnami registry (registry.bitnami.com) is unreachable from cluster nodes,
+# so we use the official postgres:16 image from Docker Hub instead.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: forgejo-postgresql
+  namespace: forgejo
+  labels:
+    app: forgejo-postgresql
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: forgejo-postgresql
+  template:
+    metadata:
+      labels:
+        app: forgejo-postgresql
+    spec:
+      initContainers:
+        - name: fix-permissions
+          image: busybox:1.35
+          command: ["chown", "-R", "999:999", "/var/lib/postgresql/data"]
+          securityContext:
+            runAsUser: 0
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      containers:
+        - name: postgres
+          image: postgres:16
+          ports:
+            - containerPort: 5432
+          envFrom:
+            - secretRef:
+                name: forgejo-postgres-secret
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "forgejo", "-d", "forgejo"]
+            initialDelaySeconds: 10
+            periodSeconds: 5
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: forgejo-postgresql-data
+---
+# PostgreSQL PVC
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: forgejo-postgresql-data
+  namespace: forgejo
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 5Gi
+---
+# PostgreSQL Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: forgejo-postgresql
+  namespace: forgejo
+spec:
+  selector:
+    app: forgejo-postgresql
+  ports:
+    - port: 5432
+      targetPort: 5432
+---
+# IngressRoute — VPN-only, no forward-auth (Forgejo uses native OIDC)
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: forgejo-int
+  namespace: traefik
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`forgejo.int.rlservers.com`)
+      kind: Rule
+      middlewares:
+        - name: secure-headers
+          namespace: traefik
+        - name: netbird-vpn-only
+          namespace: traefik
+      services:
+        - name: forgejo-http
+          namespace: forgejo
+          port: 3000
+  tls:
+    secretName: int-rlservers-com-tls
+---
+# NetworkPolicy — allow Traefik ingress + postgres egress
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-forgejo-traffic
+  namespace: forgejo
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: gitea
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: traefik
+      ports:
+        - port: 3000
+  egress:
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: forgejo-postgresql
+      ports:
+        - port: 5432
+    - ports:
+        - port: 443
+        - port: 80
+---
+# NetworkPolicy — allow postgres access within namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-forgejo-postgres
+  namespace: forgejo
+spec:
+  podSelector:
+    matchLabels:
+      app: forgejo-postgresql
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector: {}
+      ports:
+        - port: 5432

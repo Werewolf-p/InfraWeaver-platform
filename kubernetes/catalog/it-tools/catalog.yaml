@@ -1,0 +1,15 @@
+---
+# catalog.yaml — source definition for catalog apps
+# This file is read by scripts/sync-catalog.sh to generate ArgoCD Applications.
+#
+# Catalog app: IT-Tools — collection of handy IT/developer tools (hash, encode, crypto, network)
+# Access: it-tools.int.rlservers.com (VPN-only, protected by Authentik forward-auth)
+# SSO: Traefik forward-auth (static read-only tool, no native OIDC)
+
+name: it-tools
+description: "IT-Tools — handy online tools for developers and sysadmins (hash, encode, network, crypto)"
+namespace: it-tools
+
+ingressroute:
+  host: it-tools.int.rlservers.com
+  entrypoint: websecure
