@@ -39,6 +39,14 @@ gitea:
   admin:
     existingSecret: gitea-admin-secret
 
+  # Inject database password from the gitea-postgres-secret ExternalSecret
+  additionalConfigFromEnvs:
+    - name: GITEA__DATABASE__PASSWD
+      valueFrom:
+        secretKeyRef:
+          name: gitea-postgres-secret
+          key: password
+
   config:
     # Server base URL (external address)
     server:
