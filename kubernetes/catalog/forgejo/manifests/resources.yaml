@@ -174,7 +174,7 @@ spec:
         - name: netbird-vpn-only
           namespace: traefik
       services:
-        - name: forgejo-http
+        - name: forgejo-gitea-http
           namespace: forgejo
           port: 3000
   tls:
