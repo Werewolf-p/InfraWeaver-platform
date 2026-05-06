@@ -40,10 +40,18 @@ spec:
       labels:
         app: uptime-kuma
     spec:
-      securityContext:
-        fsGroup: 1000
-        runAsNonRoot: true
-        runAsUser: 1000
+      # Uptime Kuma startup script needs to chown the data directory.
+      # An initContainer runs as root to fix ownership, then the main container drops privileges.
+      initContainers:
+        - name: fix-permissions
+          image: busybox:1.35
+          command: ["sh", "-c", "chown -R 1000:1000 /data"]
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
+          volumeMounts:
+            - name: data
+              mountPath: /data
       containers:
         - name: uptime-kuma
           image: louislam/uptime-kuma:1
@@ -52,9 +60,14 @@ spec:
           env:
             - name: UPTIME_KUMA_DISABLE_FRAME_SAMEORIGIN
               value: "1"
+            - name: DATA_DIR
+              value: /data
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
           volumeMounts:
             - name: data
-              mountPath: /app/data
+              mountPath: /data
           resources:
             requests:
               cpu: 100m
@@ -66,13 +79,13 @@ spec:
             httpGet:
               path: /
               port: 3001
-            initialDelaySeconds: 15
+            initialDelaySeconds: 20
             periodSeconds: 10
           livenessProbe:
             httpGet:
               path: /
               port: 3001
-            initialDelaySeconds: 30
+            initialDelaySeconds: 40
             periodSeconds: 20
       volumes:
         - name: data

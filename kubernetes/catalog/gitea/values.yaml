@@ -86,3 +86,7 @@ postgresql:
       enabled: true
       storageClass: longhorn
       size: 5Gi
+
+# Explicitly disable postgresql-ha to avoid conflict with postgresql
+postgresql-ha:
+  enabled: false
