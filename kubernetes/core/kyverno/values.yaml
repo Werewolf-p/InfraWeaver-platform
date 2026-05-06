@@ -1,0 +1,76 @@
+# Kyverno — Kubernetes-native policy engine
+# Deployed in audit mode. Policies enforce in apps/ and catalog/ namespaces.
+# Single-node-friendly: all controllers set to 1 replica.
+
+# ── Controller replicas (1 for single-control-plane homelab) ─────────────────
+admissionController:
+  replicas: 1
+  serviceMonitor:
+    enabled: false  # enable once Prometheus is confirmed running
+  resources:
+    limits:
+      cpu: 500m
+      memory: 384Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+backgroundController:
+  replicas: 1
+  resources:
+    limits:
+      cpu: 200m
+      memory: 128Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+
+cleanupController:
+  replicas: 1
+  resources:
+    limits:
+      cpu: 200m
+      memory: 128Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+
+reportsController:
+  replicas: 1
+  resources:
+    limits:
+      cpu: 200m
+      memory: 128Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+
+# ── Namespace exclusions ──────────────────────────────────────────────────────
+# System and platform namespaces are excluded from policy enforcement.
+# These have legitimate reasons to run privileged/root workloads.
+config:
+  excludeNamespacesFromAdmission:
+    - kube-system
+    - kube-public
+    - kube-node-lease
+    - kyverno
+    - argocd
+    - authentik
+    - openbao
+    - longhorn-system
+    - external-secrets
+    - cert-manager
+    - metallb-system
+    - monitoring
+    - ingress-nginx
+    - traefik
+    - external-dns
+    - dns-system
+    - netbird
+    - local-path-storage
+    - bootstrap
+    - wiki
+
+# ── Webhook cleanup ───────────────────────────────────────────────────────────
+webhooksCleanupEnabled: true
+

@@ -34,6 +34,7 @@ on:
     branches: [main]
     paths:
       - "users.yaml"
+      - "platform.yaml"                # catalog app enable/disable config
       - "kubernetes/platform/authentik/manifests/blueprint-users.yaml"
       - "kubernetes/platform/authentik/manifests/blueprint-access-control.yaml"
       - ".github/scripts/seed-openbao-authentik.sh"
@@ -73,6 +74,7 @@ jobs:
       openbao_seed:   ${{ steps.changes.outputs.openbao_seed }}
       new_users:      ${{ steps.changes.outputs.new_users }}
       new_bootstrap:  ${{ steps.changes.outputs.new_bootstrap }}
+      catalog_sync:   ${{ steps.changes.outputs.catalog_sync }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -120,6 +122,14 @@ jobs:
             echo "new_bootstrap=false" >> $GITHUB_OUTPUT
           fi
 
+          # Detect platform.yaml catalog changes
+          if echo "$CHANGED" | grep -qE "^platform\.yaml$"; then
+            echo "catalog_sync=true" >> $GITHUB_OUTPUT
+            echo "==> platform.yaml changed — will sync catalog"
+          else
+            echo "catalog_sync=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Summary
         run: |
           echo "### Change Detection" >> $GITHUB_STEP_SUMMARY
@@ -130,6 +140,7 @@ jobs:
           echo "| OpenBao seed  | ${{ steps.changes.outputs.openbao_seed }} |" >> $GITHUB_STEP_SUMMARY
           echo "| New users     | ${{ steps.changes.outputs.new_users }} |" >> $GITHUB_STEP_SUMMARY
           echo "| New apps      | ${{ steps.changes.outputs.new_bootstrap }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Catalog sync  | ${{ steps.changes.outputs.catalog_sync }} |" >> $GITHUB_STEP_SUMMARY
 
   # ── 2. Sync Authentik blueprints via ArgoCD ────────────────────────────────
   sync-blueprints:
@@ -394,14 +405,51 @@ jobs:
           fi
           echo "✅ Bootstrap Application files applied" >> $GITHUB_STEP_SUMMARY
 
+  # ── 5b. Sync catalog apps (when platform.yaml changes) ───────────────────
+  sync-catalog:
+    name: "Sync Catalog Apps"
+    needs: [detect]
+    if: needs.detect.outputs.catalog_sync == 'true' || github.event.inputs.force_user_sync == 'true'
+    runs-on:
+      - self-hosted
+      - prod-worker
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install PyYAML
+        run: pip install pyyaml --quiet
+
+      - name: Sync catalog bootstrap files from platform.yaml
+        run: |
+          git config user.email "github-actions@github.com"
+          git config user.name "InfraWeaver Catalog Sync"
+          bash scripts/sync-catalog.sh
+          echo "✅ Catalog sync complete" >> $GITHUB_STEP_SUMMARY
+
+      - name: Apply catalog bootstrap files to ArgoCD
+        run: |
+          KB=~/.kube/config-platform-${{ env.ENV_NAME }}
+          KT="kubectl --kubeconfig $KB --insecure-skip-tls-verify"
+          # Apply any new/changed catalog bootstrap files
+          for f in kubernetes/bootstrap/catalog-*.yaml; do
+            [ -f "$f" ] && $KT apply -f "$f"
+          done
+          echo "✅ Catalog applications applied to ArgoCD" >> $GITHUB_STEP_SUMMARY
+
   # ── 6. Post-apply health check ────────────────────────────────────────────
   post-health-check:
     name: "Post-Apply Health Check"
-    needs: [detect, apply-users, apply-new-apps]
+    needs: [detect, apply-users, apply-new-apps, sync-catalog]
     if: |
       always() &&
       (needs.detect.outputs.user_config == 'true' ||
        needs.detect.outputs.new_bootstrap == 'true' ||
+       needs.detect.outputs.catalog_sync == 'true' ||
        github.event.inputs.force_user_sync == 'true')
     runs-on:
       - self-hosted

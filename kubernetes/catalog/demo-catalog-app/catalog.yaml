@@ -1,0 +1,11 @@
+---
+# catalog.yaml — source definition for demo-catalog-app
+# This is a test app used to demonstrate catalog add/remove functionality.
+# It is NOT named application.yaml so the root ApplicationSet ignores it.
+
+name: demo-catalog-app
+description: "Demo app to test catalog add/remove functionality (nginx hello world)"
+namespace: catalog-demo
+
+# No Helm chart — raw manifests only
+# (delete or leave this comment — manifests/ dir drives deployment)

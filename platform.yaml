@@ -1,0 +1,30 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# InfraWeaver Platform Configuration
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# This file controls which OPTIONAL apps are deployed on your platform.
+#
+# Core apps (always deployed, not listed here):
+#   ArgoCD, Traefik, cert-manager, MetalLB, External Secrets, Longhorn,
+#   Authentik, OpenBao, External DNS, Netbird, Homepage, Grafana/Monitoring
+#
+# Catalog apps (deploy on demand by listing them in `enabled`):
+#   Each catalog app lives in kubernetes/catalog/<name>/
+#   The CI system automatically creates/removes ArgoCD Applications based
+#   on this list. Adding an app = add to enabled list + push.
+#   Removing an app = remove from enabled list + push.
+#
+# To add a new catalog app:
+#   1. Add the app name to `enabled` below
+#   2. Create kubernetes/catalog/<name>/ with manifests/ dir + application-template.yaml
+#   3. Push — CI generates the bootstrap file and ArgoCD deploys it
+#
+# To remove a catalog app:
+#   1. Remove the app name from `enabled` below
+#   2. Push — CI removes the bootstrap file and ArgoCD deletes the app
+# ─────────────────────────────────────────────────────────────────────────────
+
+catalog:
+  enabled:
+    - wiki           # Wiki.js documentation wiki (wiki.int.rlservers.com)
+    # - another-app  # Add more apps here to enable them
