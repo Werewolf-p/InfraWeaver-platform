@@ -73,6 +73,7 @@ spec:
 # PostgreSQL Deployment — standalone postgres:16 for Forgejo
 # Bitnami registry (registry.bitnami.com) is unreachable from cluster nodes,
 # so we use the official postgres:16 image from Docker Hub instead.
+# PGDATA is set to a subdirectory to avoid Longhorn's lost+found at PVC root.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -90,20 +91,19 @@ spec:
       labels:
         app: forgejo-postgresql
     spec:
-      initContainers:
-        - name: fix-permissions
-          image: busybox:1.35
-          command: ["chown", "-R", "999:999", "/var/lib/postgresql/data"]
-          securityContext:
-            runAsUser: 0
-          volumeMounts:
-            - name: data
-              mountPath: /var/lib/postgresql/data
+      securityContext:
+        fsGroup: 999
+        runAsUser: 999
+        runAsGroup: 999
+        runAsNonRoot: true
       containers:
         - name: postgres
           image: postgres:16
           ports:
             - containerPort: 5432
+          env:
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
           envFrom:
             - secretRef:
                 name: forgejo-postgres-secret
