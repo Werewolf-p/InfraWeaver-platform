@@ -52,6 +52,11 @@ gitea:
       NAME: gitea
       USER: gitea
 
+    # Use database-backed cache to avoid Redis dependency
+    # Avoids needing redis-cluster sub-chart (Bitnami images not reachable)
+    cache:
+      ADAPTER: db
+
     # Security settings
     security:
       INSTALL_LOCK: true
@@ -72,32 +77,15 @@ gitea:
     session:
       COOKIE_SECURE: true
 
+# Use external postgres (manifests/resources.yaml) instead of bitnami sub-chart
+# Bitnami images require registry.bitnami.com which may not be reachable from nodes
 postgresql:
-  enabled: true
-  auth:
-    existingSecret: gitea-postgres-secret
-    secretKeys:
-      adminPasswordKey: postgres-password
-      userPasswordKey: password
-    database: gitea
-    username: gitea
-  primary:
-    persistence:
-      enabled: true
-      storageClass: longhorn
-      size: 5Gi
-  image:
-    registry: registry.bitnami.com
-    repository: bitnami/postgresql
+  enabled: false
 
-# Explicitly disable postgresql-ha to avoid conflict with postgresql
+# Explicitly disable postgresql-ha
 postgresql-ha:
   enabled: false
 
-# Override redis-cluster image to use Bitnami's official registry
-# (Docker Hub no longer hosts bitnami images with specific version tags)
+# Disable redis-cluster — using db-backed cache instead
 redis-cluster:
-  enabled: true
-  image:
-    registry: registry.bitnami.com
-    repository: bitnami/redis-cluster
+  enabled: false
