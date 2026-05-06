@@ -81,7 +81,7 @@ jobs:
           fetch-depth: 2
 
       - name: Install PyYAML
-        run: pip install pyyaml --quiet
+        run: pip3 install pyyaml --quiet 2>/dev/null || python3 -m pip install pyyaml --quiet
 
       - name: Detect changed paths and new users
         id: changes
@@ -422,7 +422,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install PyYAML
-        run: pip install pyyaml --quiet
+        run: pip3 install pyyaml --quiet 2>/dev/null || python3 -m pip install pyyaml --quiet
 
       - name: Sync catalog bootstrap files from platform.yaml
         run: |
