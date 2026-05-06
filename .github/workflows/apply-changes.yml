@@ -50,6 +50,18 @@ on:
         default: "false"
         type: choice
         options: [false, true]
+      force_catalog_sync:
+        description: "Force catalog sync even without platform.yaml changes"
+        required: false
+        default: "false"
+        type: choice
+        options: [false, true]
+      force_blueprints:
+        description: "Force Authentik blueprint sync even without blueprint changes"
+        required: false
+        default: "false"
+        type: choice
+        options: [false, true]
       send_welcome_emails:
         description: "Send welcome emails to new users"
         required: false
@@ -90,13 +102,17 @@ jobs:
           echo "Changed files:"
           echo "$CHANGED"
 
-          if echo "$CHANGED" | grep -qE "^users\.yaml$|^kubernetes/platform/authentik/manifests/blueprint-(users|access-control)\.yaml$"; then
+          FORCE_USER="${{ github.event.inputs.force_user_sync }}"
+          FORCE_CATALOG="${{ github.event.inputs.force_catalog_sync }}"
+          FORCE_BLUEPRINTS="${{ github.event.inputs.force_blueprints }}"
+
+          if [ "$FORCE_USER" = "true" ] || echo "$CHANGED" | grep -qE "^users\.yaml$|^kubernetes/platform/authentik/manifests/blueprint-(users|access-control)\.yaml$"; then
             echo "user_config=true"  >> $GITHUB_OUTPUT
           else
             echo "user_config=false" >> $GITHUB_OUTPUT
           fi
 
-          if echo "$CHANGED" | grep -qE "^kubernetes/platform/authentik/manifests/blueprint-"; then
+          if [ "$FORCE_BLUEPRINTS" = "true" ] || echo "$CHANGED" | grep -qE "^kubernetes/platform/authentik/manifests/blueprint-"; then
             echo "blueprints=true"  >> $GITHUB_OUTPUT
           else
             echo "blueprints=false" >> $GITHUB_OUTPUT
@@ -122,10 +138,10 @@ jobs:
             echo "new_bootstrap=false" >> $GITHUB_OUTPUT
           fi
 
-          # Detect platform.yaml catalog changes
-          if echo "$CHANGED" | grep -qE "^platform\.yaml$"; then
+          # Detect platform.yaml catalog changes (or force flag)
+          if [ "$FORCE_CATALOG" = "true" ] || echo "$CHANGED" | grep -qE "^platform\.yaml$"; then
             echo "catalog_sync=true" >> $GITHUB_OUTPUT
-            echo "==> platform.yaml changed — will sync catalog"
+            echo "==> platform.yaml changed (or forced) — will sync catalog"
           else
             echo "catalog_sync=false" >> $GITHUB_OUTPUT
           fi
