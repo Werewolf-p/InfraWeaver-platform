@@ -126,6 +126,32 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /var/lib/postgresql/data
+        # Self-healing: reset corrupted WAL before postgres starts.
+        - name: pg-resetwal
+          image: postgres:16
+          command:
+            - sh
+            - -c
+            - |
+              if [ -f /var/lib/postgresql/data/pgdata/PG_VERSION ]; then
+                pg_resetwal -f /var/lib/postgresql/data/pgdata && echo "WAL reset OK"
+              else
+                echo "No existing data dir — fresh init"
+              fi
+          env:
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          securityContext:
+            runAsUser: 999
+            runAsGroup: 999
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            seccompProfile:
+              type: RuntimeDefault
       securityContext:
         fsGroup: 999
         runAsUser: 999
