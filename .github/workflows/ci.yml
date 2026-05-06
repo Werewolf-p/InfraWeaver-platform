@@ -134,20 +134,36 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Scan critical platform images
+      - name: Scan platform and catalog images
         run: |
           TRIVY_VERSION="v0.70.0"
           curl -fsSL "https://github.com/aquasecurity/trivy/releases/download/${TRIVY_VERSION}/trivy_0.70.0_Linux-64bit.tar.gz" \
             | tar -xzf - -C /usr/local/bin/ trivy
-          IMAGES=(
+          
+          # Static platform images (always scan)
+          PLATFORM_IMAGES=(
             "quay.io/openbao/openbao:2.5.3"
             "netbirdio/management:v0.70.4"
             "netbirdio/signal:v0.70.4"
             "netbirdio/relay:v0.70.4"
           )
-          for img in "${IMAGES[@]}"; do
+          
+          # Dynamic: extract pinned images from catalog manifests (skip :latest — they drift anyway)
+          CATALOG_IMAGES=$(grep -rh "image:" kubernetes/catalog/ 2>/dev/null \
+            | grep -v "latest" \
+            | awk '{print $2}' \
+            | grep -E "^[a-z]" \
+            | sort -u)
+          
+          ALL_IMAGES=("${PLATFORM_IMAGES[@]}")
+          while IFS= read -r img; do
+            [ -n "$img" ] && ALL_IMAGES+=("$img")
+          done <<< "$CATALOG_IMAGES"
+          
+          FAIL=0
+          for img in "${ALL_IMAGES[@]}"; do
             echo "Scanning ${img}..."
-            trivy image --severity CRITICAL --exit-code 0 --quiet --no-progress "${img}" 2>&1 | tail -5
+            trivy image --severity CRITICAL --exit-code 0 --quiet --no-progress "${img}" 2>&1 | tail -3
           done
           echo "✅ Image scan complete (soft-fail — review above for CRITICAL CVEs)"
 

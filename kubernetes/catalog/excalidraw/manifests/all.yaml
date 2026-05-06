@@ -28,12 +28,16 @@ spec:
       labels:
         app: excalidraw
     spec:
+      terminationGracePeriodSeconds: 30
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
         runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: excalidraw
+          # excalidraw/excalidraw does not publish stable version tags — latest is the only option
           image: excalidraw/excalidraw:latest
           ports:
             - containerPort: 80
@@ -142,3 +146,23 @@ spec:
           protocol: TCP
     - ports:
         - port: 443
+---
+# LimitRange — default resource constraints for namespace
+# Prevents pods without explicit resources from starving the node
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-limits
+  namespace: excalidraw
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: 200m
+        memory: 256Mi
+      defaultRequest:
+        cpu: 50m
+        memory: 64Mi
+      max:
+        cpu: 4000m
+        memory: 4Gi

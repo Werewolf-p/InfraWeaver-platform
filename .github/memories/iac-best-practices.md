@@ -210,3 +210,50 @@ kubernetes/
 | No hardcoded users | Dynamic loops in workflows via `users.yaml` |
 | optional secretKeyRefs | Prevents pod crash on rolling update when new password not yet synced |
 | Running pod selector | `--field-selector=status.phase=Running` for `kubectl exec` during rolling updates |
+
+---
+
+## 11. Image Pinning (2026 Audit)
+
+**Source:** ArgoCD best practices + OWASP K8s security (May 2026 audit of 11 sources)
+
+- **Never use `:latest` tags** — they are not immutable. A manifest pinned to `:latest` can deploy a different image tomorrow without any Git change.
+- **Exception**: `excalidraw/excalidraw` publishes only `:latest` — document this exception in the manifest with a comment.
+- **Update cadence**: Review and bump image versions monthly or when a CVE is reported via Trivy scan.
+- **Catalog app versions** (pinned 2026-05-06):
+  - n8n: `1.91.3` | vaultwarden: `1.36.0` | it-tools: `2024.10.22`
+  - actual: `25.6.0` | stirling-pdf: `2.10.0`
+  - jellyfin: `10.11.8` | ntfy: `v2.22.0` | linkding: `1.45.0`
+  - navidrome: `0.61.2` | speedtest-tracker: `1.14.0-ls148`
+  - grocy: `4.6.0-ls324` | code-server: `4.117.0-ls335`
+  - searxng: `2025.5.4` | outline: `0.83.0`
+
+---
+
+## 12. Graceful Shutdown (2026 Audit)
+
+**Source:** learnk8s.io production best practices
+
+- Always set `terminationGracePeriodSeconds: 30` explicitly (K8s default is 30s, but explicit > implicit).
+- Placement: under `spec.template.spec` at the same indentation level as `containers:`.
+- For apps with long-running jobs (n8n, outline): consider 60s.
+
+---
+
+## 13. Seccomp Profiles (2026 Audit)
+
+**Source:** Kubernetes Security Checklist (kubernetes.io)
+
+- Add `seccompProfile: type: RuntimeDefault` to ALL pod securityContexts.
+- This restricts OS syscalls to a safe default set with zero performance cost.
+- Placement: inside pod-level `securityContext`, NOT the container-level securityContext.
+
+---
+
+## 14. LimitRange Defaults (2026 Audit)
+
+**Source:** Google Cloud Kubernetes best practices
+
+- Add `LimitRange` to every catalog namespace with sensible defaults.
+- Without LimitRange, a pod without explicit `resources:` has no limits → can consume entire node.
+- Default request: `cpu: 50m, memory: 64Mi`. Default limit: `cpu: 200m, memory: 256Mi`.

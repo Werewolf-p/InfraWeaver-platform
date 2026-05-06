@@ -43,15 +43,18 @@ spec:
       labels:
         app: actual
     spec:
+      terminationGracePeriodSeconds: 30
       securityContext:
         fsGroup: 1000
         runAsNonRoot: true
         runAsUser: 1000
         runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       enableServiceLinks: false
       containers:
         - name: actual
-          image: actualbudget/actual-server:latest
+          image: actualbudget/actual-server:25.6.0
           ports:
             - containerPort: 5006
           env:
@@ -153,3 +156,23 @@ spec:
           protocol: UDP
         - port: 53
           protocol: TCP
+---
+# LimitRange — default resource constraints for namespace
+# Prevents pods without explicit resources from starving the node
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-limits
+  namespace: actual
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: 200m
+        memory: 256Mi
+      defaultRequest:
+        cpu: 50m
+        memory: 64Mi
+      max:
+        cpu: 4000m
+        memory: 4Gi

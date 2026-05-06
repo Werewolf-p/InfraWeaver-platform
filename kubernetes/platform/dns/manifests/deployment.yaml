@@ -28,6 +28,7 @@ spec:
           labelSelector:
             matchLabels:
               app: coredns
+      terminationGracePeriodSeconds: 30
       containers:
         - name: coredns
           image: coredns/coredns:1.11.3

@@ -43,8 +43,11 @@ spec:
       # Uptime Kuma runs as root on startup to chown /app/data, then drops to 'node' user.
       # Running as root is required for proper initialization; the image handles this safely.
       # Kyverno audit-only policies allow this; enforce mode would need a PSA exception.
+      terminationGracePeriodSeconds: 30
       securityContext:
         runAsUser: 0
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: uptime-kuma
           image: louislam/uptime-kuma:1
@@ -141,3 +144,23 @@ spec:
         - port: 3001
   egress:
     - {}
+---
+# LimitRange — default resource constraints for namespace
+# Prevents pods without explicit resources from starving the node
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-limits
+  namespace: uptime-kuma
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: 200m
+        memory: 256Mi
+      defaultRequest:
+        cpu: 50m
+        memory: 64Mi
+      max:
+        cpu: 4000m
+        memory: 4Gi

@@ -86,6 +86,7 @@ spec:
       labels:
         app: netbird-management
     spec:
+      terminationGracePeriodSeconds: 30
       initContainers:
         # Wait for Authentik OIDC endpoint before starting management.
         # Uses curlimages/curl instead of busybox because busybox wget's TLS library
@@ -221,6 +222,7 @@ spec:
       labels:
         app: netbird-dashboard
     spec:
+      terminationGracePeriodSeconds: 30
       containers:
       - name: dashboard
         image: netbirdio/dashboard:v2.36.0

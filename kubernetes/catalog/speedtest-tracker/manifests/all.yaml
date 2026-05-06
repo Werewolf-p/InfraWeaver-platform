@@ -44,13 +44,16 @@ spec:
       labels:
         app: speedtest-tracker
     spec:
+      terminationGracePeriodSeconds: 30
       securityContext:
         fsGroup: 1000
         runAsNonRoot: true
         runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: speedtest-tracker
-          image: lscr.io/linuxserver/speedtest-tracker:latest
+          image: lscr.io/linuxserver/speedtest-tracker:1.14.0-ls148
           ports:
             - containerPort: 80
           env:

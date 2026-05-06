@@ -28,14 +28,17 @@ spec:
       labels:
         app: searxng
     spec:
+      terminationGracePeriodSeconds: 30
       securityContext:
         fsGroup: 977
         runAsNonRoot: true
         runAsUser: 977
         runAsGroup: 977
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: searxng
-          image: searxng/searxng:latest
+          image: searxng/searxng:2025.5.4
           ports:
             - containerPort: 8080
           env:

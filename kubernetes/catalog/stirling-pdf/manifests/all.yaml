@@ -27,12 +27,15 @@ spec:
       labels:
         app: stirling-pdf
     spec:
+      terminationGracePeriodSeconds: 30
       securityContext:
         runAsNonRoot: false
         runAsUser: 0
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: stirling-pdf
-          image: frooodle/s-pdf:latest
+          image: frooodle/s-pdf:2.10.0
           ports:
             - containerPort: 8080
           env:
@@ -63,6 +66,12 @@ spec:
               port: 8080
             initialDelaySeconds: 60
             periodSeconds: 30
+          startupProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            failureThreshold: 30
+            periodSeconds: 5
 ---
 # Service
 apiVersion: v1
@@ -131,3 +140,23 @@ spec:
           protocol: UDP
         - port: 53
           protocol: TCP
+---
+# LimitRange — default resource constraints for namespace
+# Prevents pods without explicit resources from starving the node
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-limits
+  namespace: stirling-pdf
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: 200m
+        memory: 256Mi
+      defaultRequest:
+        cpu: 50m
+        memory: 64Mi
+      max:
+        cpu: 4000m
+        memory: 4Gi

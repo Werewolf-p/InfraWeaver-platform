@@ -43,13 +43,16 @@ spec:
       labels:
         app: ntfy
     spec:
+      terminationGracePeriodSeconds: 30
       securityContext:
         fsGroup: 1000
         runAsNonRoot: true
         runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: ntfy
-          image: binwiederhier/ntfy:latest
+          image: binwiederhier/ntfy:v2.22.0
           args:
             - serve
           ports:

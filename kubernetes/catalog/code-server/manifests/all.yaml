@@ -43,13 +43,16 @@ spec:
       labels:
         app: code-server
     spec:
+      terminationGracePeriodSeconds: 30
       securityContext:
         fsGroup: 1000
         runAsNonRoot: true
         runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: code-server
-          image: lscr.io/linuxserver/code-server:latest
+          image: lscr.io/linuxserver/code-server:4.117.0-ls335
           ports:
             - containerPort: 8443
           env:
@@ -83,6 +86,12 @@ spec:
               port: 8443
             initialDelaySeconds: 40
             periodSeconds: 30
+          startupProbe:
+            httpGet:
+              path: /
+              port: 8443
+            failureThreshold: 24
+            periodSeconds: 5
           securityContext:
             allowPrivilegeEscalation: false
       volumes:

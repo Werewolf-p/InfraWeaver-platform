@@ -91,11 +91,14 @@ spec:
       labels:
         app: forgejo-postgresql
     spec:
+      terminationGracePeriodSeconds: 30
       securityContext:
         fsGroup: 999
         runAsUser: 999
         runAsGroup: 999
         runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: postgres
           image: postgres:16
@@ -233,3 +236,23 @@ spec:
         - podSelector: {}
       ports:
         - port: 5432
+---
+# LimitRange — default resource constraints for namespace
+# Prevents pods without explicit resources from starving the node
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-limits
+  namespace: forgejo
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: 200m
+        memory: 256Mi
+      defaultRequest:
+        cpu: 50m
+        memory: 64Mi
+      max:
+        cpu: 4000m
+        memory: 4Gi

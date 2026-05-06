@@ -20,6 +20,7 @@ spec:
       labels:
         app: netbird-signal
     spec:
+      terminationGracePeriodSeconds: 30
       containers:
         - name: signal
           image: netbirdio/signal:0.70.4

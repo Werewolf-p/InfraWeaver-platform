@@ -89,9 +89,12 @@ spec:
       labels:
         app: immich-server
     spec:
+      terminationGracePeriodSeconds: 30
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: immich-server
           image: ghcr.io/immich-app/immich-server:release
@@ -135,6 +138,12 @@ spec:
               port: 2283
             initialDelaySeconds: 60
             periodSeconds: 30
+          startupProbe:
+            httpGet:
+              path: /api/server-info/ping
+              port: 2283
+            failureThreshold: 30
+            periodSeconds: 5
           securityContext:
             allowPrivilegeEscalation: false
       volumes:
@@ -162,11 +171,14 @@ spec:
       labels:
         app: immich-postgres
     spec:
+      terminationGracePeriodSeconds: 30
       securityContext:
         fsGroup: 999
         runAsNonRoot: true
         runAsUser: 999
         runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: postgres
           image: docker.io/tensorchord/pgvecto-rs:pg14-v0.2.0
@@ -230,9 +242,12 @@ spec:
       labels:
         app: immich-redis
     spec:
+      terminationGracePeriodSeconds: 30
       securityContext:
         runAsNonRoot: true
         runAsUser: 999
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: redis
           image: docker.io/redis:7-alpine

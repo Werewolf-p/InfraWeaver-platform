@@ -114,6 +114,7 @@ spec:
       labels:
         app: gitea-postgresql
     spec:
+      terminationGracePeriodSeconds: 30
       initContainers:
         - name: fix-permissions
           image: busybox:1.35
@@ -128,6 +129,8 @@ spec:
         fsGroup: 999
         runAsUser: 999
         runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: postgresql
           image: postgres:16

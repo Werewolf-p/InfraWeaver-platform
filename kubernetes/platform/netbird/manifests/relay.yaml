@@ -21,6 +21,7 @@ spec:
       labels:
         app: netbird-relay
     spec:
+      terminationGracePeriodSeconds: 30
       containers:
         - name: relay
           image: netbirdio/relay:0.70.4
