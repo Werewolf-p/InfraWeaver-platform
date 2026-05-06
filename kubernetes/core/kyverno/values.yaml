@@ -78,3 +78,38 @@ config:
 # ── Webhook cleanup ───────────────────────────────────────────────────────────
 webhooksCleanupEnabled: true
 
+# ── Override bitnami/kubectl (1.28.5 no longer on DockerHub) ─────────────────
+# Use official registry.k8s.io/kubectl instead across all cleanup jobs.
+webhooksCleanup:
+  image:
+    registry: registry.k8s.io
+    repository: kubectl
+    tag: "v1.31.0"
+
+policyReportsCleanup:
+  image:
+    registry: registry.k8s.io
+    repository: kubectl
+    tag: "v1.31.0"
+
+cleanupJobs:
+  admissionReports:
+    image:
+      registry: registry.k8s.io
+      repository: kubectl
+      tag: "v1.31.0"
+  clusterAdmissionReports:
+    image:
+      registry: registry.k8s.io
+      repository: kubectl
+      tag: "v1.31.0"
+  ephemeralReports:
+    image:
+      registry: registry.k8s.io
+      repository: kubectl
+      tag: "v1.31.0"
+  clusterEphemeralReports:
+    image:
+      registry: registry.k8s.io
+      repository: kubectl
+      tag: "v1.31.0"
