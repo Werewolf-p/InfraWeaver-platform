@@ -1,9 +1,0 @@
-# Wiki.js — self-hosted documentation wiki
-# Chart: https://charts.js.wiki
-# Deploys: Wiki.js + PostgreSQL (built-in)
-# Access: wiki.int.rlservers.com (VPN-only via NetBird)
-repoURL: https://charts.js.wiki
-targetRevision: "3.0.0"
-chart: wiki
-releaseName: wiki
-namespace: wiki

@@ -27,4 +27,4 @@
 catalog:
   enabled:
     - wiki           # Wiki.js documentation wiki (wiki.int.rlservers.com)
-    # - another-app  # Add more apps here to enable them
+    - demo-catalog-app  # Test app — demonstrates catalog add/remove (remove to clean up)
