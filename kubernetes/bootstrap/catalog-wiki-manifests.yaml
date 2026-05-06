@@ -33,3 +33,5 @@ spec:
       kind: ExternalSecret
       jsonPointers:
         - /status
+      jqPathExpressions:
+        - '.metadata.resourceVersion'

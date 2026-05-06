@@ -194,6 +194,8 @@ spec:
       kind: ExternalSecret
       jsonPointers:
         - /status
+      jqPathExpressions:
+        - '.metadata.resourceVersion'
 EOF
   log "  Generated: $output"
 }
