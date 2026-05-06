@@ -19,6 +19,18 @@ catalog:
   #   mealie           — Recipe manager with OIDC              (mealie.int.rlservers.com)
   #   changedetection  — Website change monitoring             (changedetection.int.rlservers.com)
   #   paperless-ngx    — Document management (complex)         (paperless.int.rlservers.com)
+  #
+  # Optional apps (fully implemented, not enabled by default):
+  #   code-server      — VS Code in browser                   (code-server.int.rlservers.com)
+  #   jellyfin         — Media server                          (jellyfin.int.rlservers.com)
+  #   ntfy             — Push notifications                    (ntfy.int.rlservers.com)
+  #   linkding         — Bookmark manager                      (linkding.int.rlservers.com)
+  #   navidrome        — Music streaming server                (navidrome.int.rlservers.com)
+  #   speedtest-tracker— Internet speed tracking               (speedtest-tracker.int.rlservers.com)
+  #   searxng          — Private meta search engine            (searxng.int.rlservers.com)
+  #   grocy            — Household & grocery management        (grocy.int.rlservers.com)
+  #   immich           — Photo backup & management             (immich.int.rlservers.com)
+  #   outline          — Team knowledge base (OIDC)            (outline.int.rlservers.com)
   enabled:
     - wiki
     - uptime-kuma

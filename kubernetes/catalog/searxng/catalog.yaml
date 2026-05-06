@@ -1,0 +1,13 @@
+---
+# catalog.yaml — searxng
+# Defined but not enabled by default. Add 'searxng' to catalog.enabled in platform.yaml to deploy.
+# Access: searxng.int.rlservers.com (VPN-only, protected by Authentik forward-auth)
+# SSO: Traefik forward-auth (SearXNG is stateless; no native OIDC needed)
+
+name: searxng
+description: "SearXNG — privacy-respecting meta search engine aggregating results from multiple sources"
+namespace: searxng
+
+ingressroute:
+  host: searxng.int.rlservers.com
+  entrypoint: websecure

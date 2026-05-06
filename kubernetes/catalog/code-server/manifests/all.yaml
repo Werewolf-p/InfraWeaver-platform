@@ -1,0 +1,162 @@
+---
+# Namespace for code-server
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: code-server
+  labels:
+    app.kubernetes.io/name: code-server
+    infraweaver.io/type: catalog-app
+---
+# PersistentVolumeClaim — stores VS Code config, extensions, and workspace files
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: code-server-config
+  namespace: code-server
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 10Gi
+---
+# Deployment — code-server VS Code in the browser
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: code-server
+  namespace: code-server
+  labels:
+    app: code-server
+    infraweaver.io/auth: proxy
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: code-server
+  template:
+    metadata:
+      labels:
+        app: code-server
+    spec:
+      securityContext:
+        fsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: code-server
+          image: lscr.io/linuxserver/code-server:latest
+          ports:
+            - containerPort: 8443
+          env:
+            - name: PUID
+              value: "1000"
+            - name: PGID
+              value: "1000"
+            - name: TZ
+              value: "Europe/Amsterdam"
+            - name: DEFAULT_WORKSPACE
+              value: "/config/workspace"
+          volumeMounts:
+            - name: config
+              mountPath: /config
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: 2000m
+              memory: 2Gi
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8443
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8443
+            initialDelaySeconds: 40
+            periodSeconds: 30
+          securityContext:
+            allowPrivilegeEscalation: false
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: code-server-config
+---
+# Service — expose code-server internally
+apiVersion: v1
+kind: Service
+metadata:
+  name: code-server
+  namespace: code-server
+spec:
+  selector:
+    app: code-server
+  ports:
+    - name: http
+      port: 8443
+      targetPort: 8443
+---
+# IngressRoute — VPN-only + Authentik forward-auth
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: code-server-int
+  namespace: traefik
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`code-server.int.rlservers.com`)
+      kind: Rule
+      middlewares:
+        - name: secure-headers
+          namespace: traefik
+        - name: netbird-vpn-only
+          namespace: traefik
+        - name: forward-auth
+          namespace: traefik
+      services:
+        - name: code-server
+          namespace: code-server
+          port: 8443
+  tls:
+    secretName: int-rlservers-com-tls
+---
+# NetworkPolicy — allow Traefik ingress; egress to DNS and HTTPS
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: code-server-netpol
+  namespace: code-server
+spec:
+  podSelector:
+    matchLabels:
+      app: code-server
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: traefik
+      ports:
+        - port: 8443
+  egress:
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    - ports:
+        - port: 443

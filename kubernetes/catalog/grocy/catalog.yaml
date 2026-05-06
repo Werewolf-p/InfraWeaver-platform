@@ -1,0 +1,13 @@
+---
+# catalog.yaml — grocy
+# Defined but not enabled by default. Add 'grocy' to catalog.enabled in platform.yaml to deploy.
+# Access: grocy.int.rlservers.com (VPN-only, protected by Authentik forward-auth)
+# SSO: Traefik forward-auth (Grocy has no native OIDC in the base image)
+
+name: grocy
+description: "Grocy — self-hosted grocery and household management with ERP-style features"
+namespace: grocy
+
+ingressroute:
+  host: grocy.int.rlservers.com
+  entrypoint: websecure

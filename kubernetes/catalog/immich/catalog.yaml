@@ -1,0 +1,14 @@
+---
+# catalog.yaml — immich
+# Defined but not enabled by default. Add 'immich' to catalog.enabled in platform.yaml to deploy.
+# Access: immich.int.rlservers.com (VPN-only, protected by Authentik forward-auth)
+# SSO: Native OIDC configurable in Immich web UI under Administration > OAuth
+# Note: Seed secret/platform/immich in OpenBao with db-password before enabling.
+
+name: immich
+description: "Immich — self-hosted photo and video backup with AI-powered search and albums"
+namespace: immich
+
+ingressroute:
+  host: immich.int.rlservers.com
+  entrypoint: websecure

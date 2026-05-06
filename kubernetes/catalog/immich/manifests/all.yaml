@@ -1,0 +1,426 @@
+---
+# Namespace for Immich
+# OIDC: configurable in Immich web UI under Administration > OAuth
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: immich
+  labels:
+    app.kubernetes.io/name: immich
+    infraweaver.io/type: catalog-app
+---
+# ExternalSecret — Immich database password from OpenBao
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: immich-secret
+  namespace: immich
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: openbao
+    kind: ClusterSecretStore
+  target:
+    name: immich-secret
+    creationPolicy: Owner
+    deletionPolicy: Retain
+  data:
+    - secretKey: DB_PASSWORD
+      remoteRef:
+        key: secret/platform/immich
+        property: db-password
+        conversionStrategy: Default
+        decodingStrategy: None
+        metadataPolicy: None
+    - secretKey: POSTGRES_PASSWORD
+      remoteRef:
+        key: secret/platform/immich
+        property: db-password
+        conversionStrategy: Default
+        decodingStrategy: None
+        metadataPolicy: None
+---
+# PersistentVolumeClaim — stores Immich photo/video library uploads
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: immich-library
+  namespace: immich
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 50Gi
+---
+# PersistentVolumeClaim — stores Immich PostgreSQL database
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: immich-postgres-data
+  namespace: immich
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 10Gi
+---
+# Deployment — Immich server (API + web UI)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: immich-server
+  namespace: immich
+  labels:
+    app: immich-server
+    infraweaver.io/auth: proxy
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: immich-server
+  template:
+    metadata:
+      labels:
+        app: immich-server
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: immich-server
+          image: ghcr.io/immich-app/immich-server:release
+          ports:
+            - containerPort: 2283
+          env:
+            - name: DB_HOSTNAME
+              value: "immich-postgres"
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_DATABASE_NAME
+              value: "immich"
+            - name: DB_USERNAME
+              value: "immich"
+            - name: REDIS_HOSTNAME
+              value: "immich-redis"
+            - name: IMMICH_SERVER_URL
+              value: "https://immich.int.rlservers.com"
+          envFrom:
+            - secretRef:
+                name: immich-secret
+          volumeMounts:
+            - name: library
+              mountPath: /usr/src/app/upload
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: 2000m
+              memory: 2Gi
+          readinessProbe:
+            httpGet:
+              path: /api/server-info/ping
+              port: 2283
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          livenessProbe:
+            httpGet:
+              path: /api/server-info/ping
+              port: 2283
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          securityContext:
+            allowPrivilegeEscalation: false
+      volumes:
+        - name: library
+          persistentVolumeClaim:
+            claimName: immich-library
+---
+# Deployment — Immich PostgreSQL with pgvecto-rs extension
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: immich-postgres
+  namespace: immich
+  labels:
+    app: immich-postgres
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: immich-postgres
+  template:
+    metadata:
+      labels:
+        app: immich-postgres
+    spec:
+      securityContext:
+        fsGroup: 999
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+      containers:
+        - name: postgres
+          image: docker.io/tensorchord/pgvecto-rs:pg14-v0.2.0
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: "immich"
+            - name: POSTGRES_DB
+              value: "immich"
+            # PGDATA subdir avoids Longhorn lost+found directory conflicts
+            - name: PGDATA
+              value: "/var/lib/postgresql/data/pgdata"
+          envFrom:
+            - secretRef:
+                name: immich-secret
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          readinessProbe:
+            tcpSocket:
+              port: 5432
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 5432
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          securityContext:
+            allowPrivilegeEscalation: false
+      volumes:
+        - name: postgres-data
+          persistentVolumeClaim:
+            claimName: immich-postgres-data
+---
+# Deployment — Immich Redis cache
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: immich-redis
+  namespace: immich
+  labels:
+    app: immich-redis
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: immich-redis
+  template:
+    metadata:
+      labels:
+        app: immich-redis
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+      containers:
+        - name: redis
+          image: docker.io/redis:7-alpine
+          ports:
+            - containerPort: 6379
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          readinessProbe:
+            tcpSocket:
+              port: 6379
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 6379
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          securityContext:
+            allowPrivilegeEscalation: false
+---
+# Service — expose Immich server internally
+apiVersion: v1
+kind: Service
+metadata:
+  name: immich-server
+  namespace: immich
+spec:
+  selector:
+    app: immich-server
+  ports:
+    - name: http
+      port: 2283
+      targetPort: 2283
+---
+# Service — expose Immich PostgreSQL internally
+apiVersion: v1
+kind: Service
+metadata:
+  name: immich-postgres
+  namespace: immich
+spec:
+  selector:
+    app: immich-postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+---
+# Service — expose Immich Redis internally
+apiVersion: v1
+kind: Service
+metadata:
+  name: immich-redis
+  namespace: immich
+spec:
+  selector:
+    app: immich-redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379
+---
+# IngressRoute — VPN-only + Authentik forward-auth
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: immich-int
+  namespace: traefik
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`immich.int.rlservers.com`)
+      kind: Rule
+      middlewares:
+        - name: secure-headers
+          namespace: traefik
+        - name: netbird-vpn-only
+          namespace: traefik
+        - name: forward-auth
+          namespace: traefik
+      services:
+        - name: immich-server
+          namespace: immich
+          port: 2283
+  tls:
+    secretName: int-rlservers-com-tls
+---
+# NetworkPolicy — immich-server: allow Traefik ingress; egress to postgres, redis, DNS, HTTPS
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: immich-server-netpol
+  namespace: immich
+spec:
+  podSelector:
+    matchLabels:
+      app: immich-server
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: traefik
+      ports:
+        - port: 2283
+  egress:
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    - ports:
+        - port: 443
+    # Allow egress to immich-postgres
+    - to:
+        - podSelector:
+            matchLabels:
+              app: immich-postgres
+      ports:
+        - port: 5432
+    # Allow egress to immich-redis
+    - to:
+        - podSelector:
+            matchLabels:
+              app: immich-redis
+      ports:
+        - port: 6379
+---
+# NetworkPolicy — immich-postgres: allow ingress from immich-server only
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: immich-postgres-netpol
+  namespace: immich
+spec:
+  podSelector:
+    matchLabels:
+      app: immich-postgres
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: immich-server
+      ports:
+        - port: 5432
+  egress:
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+---
+# NetworkPolicy — immich-redis: allow ingress from immich-server only
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: immich-redis-netpol
+  namespace: immich
+spec:
+  podSelector:
+    matchLabels:
+      app: immich-redis
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: immich-server
+      ports:
+        - port: 6379
+  egress:
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP

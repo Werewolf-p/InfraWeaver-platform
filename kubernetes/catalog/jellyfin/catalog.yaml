@@ -1,0 +1,13 @@
+---
+# catalog.yaml — jellyfin
+# Defined but not enabled by default. Add 'jellyfin' to catalog.enabled in platform.yaml to deploy.
+# Access: jellyfin.int.rlservers.com (VPN-only, protected by Authentik forward-auth)
+# SSO: Traefik forward-auth (Jellyfin also supports native OIDC via plugin if desired)
+
+name: jellyfin
+description: "Jellyfin — self-hosted media server for movies, TV, music, and photos"
+namespace: jellyfin
+
+ingressroute:
+  host: jellyfin.int.rlservers.com
+  entrypoint: websecure

@@ -54,5 +54,24 @@ catalog/
 | App | Description | URL |
 |-----|-------------|-----|
 | wiki | Wiki.js documentation wiki | wiki.int.rlservers.com |
+| uptime-kuma | Uptime/status monitoring | uptime-kuma.int.rlservers.com |
+| gitea | Self-hosted Git forge | gitea.int.rlservers.com |
+| forgejo | Community Git forge (Gitea fork) | forgejo.int.rlservers.com |
+| vaultwarden | Bitwarden-compatible password manager | vaultwarden.int.rlservers.com |
+| it-tools | IT/Dev tool collection | it-tools.int.rlservers.com |
+| stirling-pdf | PDF manipulation tools | stirling-pdf.int.rlservers.com |
+| excalidraw | Collaborative whiteboard | excalidraw.int.rlservers.com |
+| actual | Personal finance / budgeting | actual.int.rlservers.com |
+| n8n | Workflow automation | n8n.int.rlservers.com |
+| code-server | VS Code in the browser | code-server.int.rlservers.com |
+| jellyfin | Media server | jellyfin.int.rlservers.com |
+| ntfy | Push notification server | ntfy.int.rlservers.com |
+| linkding | Bookmark manager | linkding.int.rlservers.com |
+| navidrome | Music streaming server | navidrome.int.rlservers.com |
+| speedtest-tracker | Internet speed monitoring | speedtest-tracker.int.rlservers.com |
+| searxng | Private meta search engine | searxng.int.rlservers.com |
+| grocy | Household & grocery management | grocy.int.rlservers.com |
+| immich | Photo backup & management (postgres + redis) | immich.int.rlservers.com |
+| outline | Team knowledge base with OIDC (postgres + redis) | outline.int.rlservers.com |
 
 See `platform.yaml` at repo root for the currently enabled apps.

@@ -1,0 +1,143 @@
+---
+# Namespace for SearXNG
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: searxng
+  labels:
+    app.kubernetes.io/name: searxng
+    infraweaver.io/type: catalog-app
+---
+# Deployment — SearXNG private meta search engine
+# Stateless — settings file written to /etc/searxng emptyDir at runtime
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: searxng
+  namespace: searxng
+  labels:
+    app: searxng
+    infraweaver.io/auth: proxy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: searxng
+  template:
+    metadata:
+      labels:
+        app: searxng
+    spec:
+      securityContext:
+        fsGroup: 977
+        runAsNonRoot: true
+        runAsUser: 977
+        runAsGroup: 977
+      containers:
+        - name: searxng
+          image: searxng/searxng:latest
+          ports:
+            - containerPort: 8080
+          env:
+            - name: SEARXNG_BASE_URL
+              value: "https://searxng.int.rlservers.com/"
+            - name: INSTANCE_NAME
+              value: "InfraWeaver Search"
+          volumeMounts:
+            - name: searxng-config
+              mountPath: /etc/searxng
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 30
+          securityContext:
+            allowPrivilegeEscalation: false
+      volumes:
+        - name: searxng-config
+          emptyDir: {}
+---
+# Service — expose SearXNG internally
+apiVersion: v1
+kind: Service
+metadata:
+  name: searxng
+  namespace: searxng
+spec:
+  selector:
+    app: searxng
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+# IngressRoute — VPN-only + Authentik forward-auth
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: searxng-int
+  namespace: traefik
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`searxng.int.rlservers.com`)
+      kind: Rule
+      middlewares:
+        - name: secure-headers
+          namespace: traefik
+        - name: netbird-vpn-only
+          namespace: traefik
+        - name: forward-auth
+          namespace: traefik
+      services:
+        - name: searxng
+          namespace: searxng
+          port: 8080
+  tls:
+    secretName: int-rlservers-com-tls
+---
+# NetworkPolicy — allow Traefik ingress; egress to DNS and HTTPS (fetches search results)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: searxng-netpol
+  namespace: searxng
+spec:
+  podSelector:
+    matchLabels:
+      app: searxng
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: traefik
+      ports:
+        - port: 8080
+  egress:
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    - ports:
+        - port: 443

@@ -1,0 +1,156 @@
+---
+# Namespace for Jellyfin
+# To mount media: add a NFS PVC or hostPath volume for /media
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: jellyfin
+  labels:
+    app.kubernetes.io/name: jellyfin
+    infraweaver.io/type: catalog-app
+---
+# PersistentVolumeClaim — stores Jellyfin config and media library metadata
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jellyfin-config
+  namespace: jellyfin
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 10Gi
+---
+# Deployment — Jellyfin media server
+# To mount media: add a NFS PVC or hostPath volume for /media
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jellyfin
+  namespace: jellyfin
+  labels:
+    app: jellyfin
+    infraweaver.io/auth: proxy
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: jellyfin
+  template:
+    metadata:
+      labels:
+        app: jellyfin
+    spec:
+      securityContext:
+        fsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+      containers:
+        - name: jellyfin
+          image: jellyfin/jellyfin:latest
+          ports:
+            - containerPort: 8096
+          volumeMounts:
+            - name: config
+              mountPath: /config
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: 4000m
+              memory: 4Gi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8096
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8096
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          securityContext:
+            allowPrivilegeEscalation: false
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: jellyfin-config
+---
+# Service — expose Jellyfin internally
+apiVersion: v1
+kind: Service
+metadata:
+  name: jellyfin
+  namespace: jellyfin
+spec:
+  selector:
+    app: jellyfin
+  ports:
+    - name: http
+      port: 8096
+      targetPort: 8096
+---
+# IngressRoute — VPN-only + Authentik forward-auth
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: jellyfin-int
+  namespace: traefik
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`jellyfin.int.rlservers.com`)
+      kind: Rule
+      middlewares:
+        - name: secure-headers
+          namespace: traefik
+        - name: netbird-vpn-only
+          namespace: traefik
+        - name: forward-auth
+          namespace: traefik
+      services:
+        - name: jellyfin
+          namespace: jellyfin
+          port: 8096
+  tls:
+    secretName: int-rlservers-com-tls
+---
+# NetworkPolicy — allow Traefik ingress; egress to DNS and HTTPS
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: jellyfin-netpol
+  namespace: jellyfin
+spec:
+  podSelector:
+    matchLabels:
+      app: jellyfin
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: traefik
+      ports:
+        - port: 8096
+  egress:
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    - ports:
+        - port: 443

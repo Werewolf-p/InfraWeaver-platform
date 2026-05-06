@@ -1,0 +1,13 @@
+---
+# catalog.yaml — speedtest-tracker
+# Defined but not enabled by default. Add 'speedtest-tracker' to catalog.enabled in platform.yaml to deploy.
+# Access: speedtest-tracker.int.rlservers.com (VPN-only, protected by Authentik forward-auth)
+# SSO: Traefik forward-auth (speedtest-tracker has built-in auth; forward-auth adds VPN gate)
+
+name: speedtest-tracker
+description: "Speedtest Tracker — automated internet speed monitoring with historical graphs"
+namespace: speedtest-tracker
+
+ingressroute:
+  host: speedtest-tracker.int.rlservers.com
+  entrypoint: websecure
