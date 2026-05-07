@@ -3,7 +3,7 @@
 # Source: learnk8s.io/production-best-practices — "Containers have readiness probes"
 # Source: kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
 #
-# Mode: Warn — alerts in admission but does not block deployment.
+# Mode: Audit — alerts in admission but does not block deployment.
 # This allows developers to iterate while maintaining visibility on missing probes.
 # Scope: catalog namespaces (label: infraweaver.io/type=catalog-app)
 apiVersion: kyverno.io/v1
@@ -19,7 +19,7 @@ metadata:
       Without a liveness probe, stuck/deadlocked containers are never restarted.
       Both are required for self-healing catalog apps.
 spec:
-  validationFailureAction: Warn
+  validationFailureAction: Audit
   background: true
   rules:
     - name: require-readiness-probe
