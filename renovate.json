@@ -1,6 +1,6 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "description": "Renovate bot config — auto-creates PRs to update container images and Helm chart versions",
+  "description": "Renovate bot config — auto-creates PRs to update container images, Helm chart versions, and GitHub Actions",
   "extends": [
     "config:base",
     ":dependencyDashboard",
@@ -15,42 +15,87 @@
   "assignees": ["Werewolf-p"],
   "reviewers": ["Werewolf-p"],
   "commitMessagePrefix": "chore(deps):",
+  "dependencyDashboardTitle": "🤖 Renovate Dependency Dashboard",
   "packageRules": [
     {
-      "description": "Group all patch-level updates together",
+      "description": "Group all patch-level updates together for safer auto-review",
       "matchUpdateTypes": ["patch"],
       "groupName": "patch updates",
       "automerge": false
     },
     {
-      "description": "Pin digest for all Docker images",
+      "description": "Group all minor Helm chart updates",
+      "matchManagers": ["helm-values", "helmv3"],
+      "matchUpdateTypes": ["minor"],
+      "groupName": "helm chart minor updates",
+      "automerge": false
+    },
+    {
+      "description": "Pin digest for all Docker images for reproducible builds",
       "matchDatasources": ["docker"],
       "pinDigests": true
     },
     {
-      "description": "Never auto-update NetBird — manual review required for VPN components",
+      "description": "Never auto-update NetBird — VPN changes require manual testing",
       "matchPackagePatterns": ["netbirdio/.*"],
       "enabled": true,
       "automerge": false,
       "labels": ["renovate", "netbird", "needs-manual-test"]
     },
     {
-      "description": "Never auto-update OpenBao — secrets manager requires manual upgrade",
+      "description": "Never auto-update OpenBao — secrets manager upgrades are breaking-change risk",
       "matchPackagePatterns": ["quay.io/openbao/.*"],
       "enabled": true,
       "automerge": false,
       "labels": ["renovate", "openbao", "needs-manual-test"]
     },
     {
-      "description": "Group Grafana stack updates",
+      "description": "Never auto-update Talos OS — requires coordinated cluster upgrade",
+      "matchPackagePatterns": ["ghcr.io/siderolabs/.*"],
+      "enabled": true,
+      "automerge": false,
+      "labels": ["renovate", "talos", "needs-manual-test"]
+    },
+    {
+      "description": "Group Grafana/Prometheus monitoring stack updates",
       "matchPackagePatterns": ["grafana/.*", "prom/.*", "quay.io/prometheus/.*"],
       "groupName": "monitoring stack",
       "automerge": false
     },
     {
-      "description": "GitHub Actions updates",
+      "description": "Group GitHub Actions updates",
       "matchManagers": ["github-actions"],
       "groupName": "github actions",
+      "automerge": false
+    },
+    {
+      "description": "Group ArgoCD updates (chart + image together)",
+      "matchPackagePatterns": ["argoproj/.*", "quay.io/argoproj/.*"],
+      "groupName": "argocd",
+      "automerge": false
+    },
+    {
+      "description": "Group Authentik updates",
+      "matchPackagePatterns": ["ghcr.io/goauthentik/.*"],
+      "groupName": "authentik",
+      "automerge": false
+    },
+    {
+      "description": "Group cert-manager updates",
+      "matchPackagePatterns": ["quay.io/jetstack/.*", "cert-manager/.*"],
+      "groupName": "cert-manager",
+      "automerge": false
+    },
+    {
+      "description": "Group Traefik updates",
+      "matchPackagePatterns": ["traefik/.*"],
+      "groupName": "traefik",
+      "automerge": false
+    },
+    {
+      "description": "Group Longhorn updates",
+      "matchPackagePatterns": ["longhornio/.*"],
+      "groupName": "longhorn",
       "automerge": false
     }
   ],
@@ -62,8 +107,19 @@
       "kubernetes/monitoring/.*\\.yaml$"
     ]
   },
+  "helm-values": {
+    "fileMatch": [
+      "kubernetes/.*values\\.yaml$",
+      "kubernetes/.*/application\\.yaml$"
+    ]
+  },
   "ignorePaths": [
     "**/templates/**",
-    "**/example*"
-  ]
+    "**/example*",
+    "**/__pycache__/**"
+  ],
+  "postUpgradeTasks": {
+    "commands": [],
+    "fileFilters": ["**/*.yaml"]
+  }
 }
