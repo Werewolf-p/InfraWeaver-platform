@@ -4,6 +4,16 @@
 
 replicaCount: 1
 
+# Pass GITEA_OIDC_SECRET to configure-gitea init container via deployment.env
+# (deployment.env is injected into all init containers including configure-gitea)
+deployment:
+  env:
+    - name: GITEA_OIDC_SECRET
+      valueFrom:
+        secretKeyRef:
+          name: gitea-oidc-secret
+          key: client_secret
+
 image:
   registry: ""
   repository: gitea/gitea
@@ -38,14 +48,6 @@ persistence:
 gitea:
   admin:
     existingSecret: gitea-admin-secret
-
-  # Pass OIDC secret to configure-gitea init container (needed for OAuth setup)
-  extraEnvs:
-    - name: GITEA_OIDC_SECRET
-      valueFrom:
-        secretKeyRef:
-          name: gitea-oidc-secret
-          key: client_secret
 
   # Inject database password and OIDC secret via environment variables
   additionalConfigFromEnvs:
