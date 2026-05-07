@@ -143,6 +143,8 @@ spec:
               mc anonymous set none minio/velero-backups
               echo "Bucket created"
           env:
+            - name: HOME
+              value: /tmp
             - name: ACCESS_KEY
               valueFrom:
                 secretKeyRef:
