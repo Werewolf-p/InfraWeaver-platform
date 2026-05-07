@@ -133,11 +133,8 @@ spec:
               memory: 1Gi
               cpu: 500m
           readinessProbe:
-            exec:
-              command:
-                - sh
-                - -c
-                - "test -f /var/ossec/var/run/wazuh-manager.pid"
+            tcpSocket:
+              port: 55000
             initialDelaySeconds: 60
             periodSeconds: 20
             failureThreshold: 10

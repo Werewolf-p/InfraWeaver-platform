@@ -82,7 +82,7 @@ data:
       <indexer>
         <enabled>yes</enabled>
         <hosts>
-          <host>https://wazuh-indexer:9200</host>
+          <host>https://wazuh-indexer-svc:9200</host>
         </hosts>
         <ssl>
           <certificate_authorities>
@@ -105,8 +105,10 @@ data:
   opensearch_dashboards.yml: |
     server.host: 0.0.0.0
     server.port: 5601
-    opensearch.hosts: https://wazuh-indexer:9200
+    opensearch.hosts: https://wazuh-indexer-svc:9200
     opensearch.ssl.verificationMode: certificate
+    opensearch.username: admin
+    opensearch.password: "${INDEXER_PASSWORD}"
     opensearch.requestHeadersAllowlist: ["securitytenant","Authorization"]
     opensearch.ssl.certificateAuthorities: ["/usr/share/wazuh-dashboard/certs/ca.crt"]
     opensearch.ssl.certificate: /usr/share/wazuh-dashboard/certs/tls.crt

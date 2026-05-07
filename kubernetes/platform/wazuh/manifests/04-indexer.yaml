@@ -99,30 +99,14 @@ spec:
               memory: 2Gi
               cpu: 1000m
           readinessProbe:
-            exec:
-              command:
-                - sh
-                - -c
-                - |
-                  curl -sk -o /dev/null -w '%{http_code}' \
-                    --cert /usr/share/wazuh-indexer/certs/tls.crt \
-                    --key /usr/share/wazuh-indexer/certs/tls.key \
-                    --cacert /usr/share/wazuh-indexer/certs/ca.crt \
-                    https://localhost:9200/_cluster/health | grep -qE '^(200)$'
-            initialDelaySeconds: 90
+            tcpSocket:
+              port: 9200
+            initialDelaySeconds: 60
             periodSeconds: 15
             failureThreshold: 10
           livenessProbe:
-            exec:
-              command:
-                - sh
-                - -c
-                - |
-                  curl -sk -o /dev/null -w '%{http_code}' \
-                    --cert /usr/share/wazuh-indexer/certs/tls.crt \
-                    --key /usr/share/wazuh-indexer/certs/tls.key \
-                    --cacert /usr/share/wazuh-indexer/certs/ca.crt \
-                    https://localhost:9200/ | grep -qE '^(200|401)$'
+            tcpSocket:
+              port: 9200
             initialDelaySeconds: 120
             periodSeconds: 30
             failureThreshold: 5

@@ -188,7 +188,6 @@ spec:
           namespace: traefik
       services:
         - name: wazuh-dashboard
-          namespace: wazuh
           port: 5601
           scheme: https
           serversTransport: insecure-skip-verify
@@ -211,7 +210,6 @@ spec:
           namespace: traefik
       services:
         - name: wazuh-indexer-svc
-          namespace: wazuh
           port: 9200
           scheme: https
           serversTransport: insecure-skip-verify

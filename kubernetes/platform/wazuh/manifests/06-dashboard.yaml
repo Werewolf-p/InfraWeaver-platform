@@ -83,18 +83,14 @@ spec:
               memory: 512Mi
               cpu: 300m
           readinessProbe:
-            httpGet:
-              path: /app/wazuh
+            tcpSocket:
               port: 5601
-              scheme: HTTPS
-            initialDelaySeconds: 90
-            periodSeconds: 20
+            initialDelaySeconds: 60
+            periodSeconds: 15
             failureThreshold: 10
           livenessProbe:
-            httpGet:
-              path: /
+            tcpSocket:
               port: 5601
-              scheme: HTTPS
             initialDelaySeconds: 120
             periodSeconds: 30
             failureThreshold: 5

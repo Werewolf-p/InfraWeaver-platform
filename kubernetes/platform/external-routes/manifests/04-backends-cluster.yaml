@@ -173,3 +173,29 @@ spec:
     - name: dashboard
       port: 8080
       targetPort: 8080
+---
+# Wazuh Dashboard (HTTPS — ExternalName to wazuh namespace)
+apiVersion: v1
+kind: Service
+metadata:
+  name: wazuh-dashboard
+  namespace: traefik
+spec:
+  type: ExternalName
+  externalName: wazuh-dashboard.wazuh.svc.cluster.local
+  ports:
+    - port: 5601
+      name: https
+---
+# Wazuh Indexer (HTTPS — ExternalName to wazuh namespace)
+apiVersion: v1
+kind: Service
+metadata:
+  name: wazuh-indexer-svc
+  namespace: traefik
+spec:
+  type: ExternalName
+  externalName: wazuh-indexer-svc.wazuh.svc.cluster.local
+  ports:
+    - port: 9200
+      name: https
