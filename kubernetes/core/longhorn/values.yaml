@@ -50,15 +50,11 @@ longhornManager:
     - key: "node-role.kubernetes.io/control-plane"
       operator: "Exists"
       effect: "NoSchedule"
-  priorityClass:
-    create: false
-    name: longhorn-critical
+  priorityClass: "longhorn-critical"
 
 longhornDriver:
   tolerations:
     - key: "node-role.kubernetes.io/control-plane"
       operator: "Exists"
       effect: "NoSchedule"
-  priorityClass:
-    create: false
-    name: longhorn-critical
+  priorityClass: "longhorn-critical"
