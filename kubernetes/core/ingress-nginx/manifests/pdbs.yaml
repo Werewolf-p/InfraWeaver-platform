@@ -1,0 +1,16 @@
+---
+# PodDisruptionBudget — ingress-nginx controller
+# Prevents voluntary eviction of the ingress controller during node drains.
+# With minAvailable: 1, at least 1 controller pod must remain available.
+# Note: Only protects against voluntary disruptions (node drain/upgrade).
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ingress-nginx-controller
+  namespace: ingress-nginx
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ingress-nginx
+      app.kubernetes.io/component: controller

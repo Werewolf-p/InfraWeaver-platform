@@ -80,6 +80,13 @@ spec:
                 allowPrivilegeEscalation: false
                 capabilities:
                   drop: ["ALL"]
+              env:
+                - name: DISCORD_WEBHOOK_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: argocd-discord-secret
+                      key: webhook-url
+                      optional: true   # don't fail if secret not yet created
               resources:
                 requests:
                   cpu: 50m
@@ -93,7 +100,18 @@ spec:
                   set -euo pipefail
 
                   NAMESPACE="argocd"
+                  DISCORD_WEBHOOK="${DISCORD_WEBHOOK_URL:-}"
                   echo "[self-healer] $(date -u) — scanning ArgoCD apps in namespace: $NAMESPACE"
+
+                  # Send Discord notification helper
+                  notify_discord() {
+                    local title="$1" color="$2" body="$3"
+                    [ -z "$DISCORD_WEBHOOK" ] && return 0
+                    curl -s -X POST "$DISCORD_WEBHOOK" \
+                      -H 'Content-Type: application/json' \
+                      -d "{\"embeds\":[{\"title\":\"$title\",\"color\":$color,\"description\":\"$body\"}]}" \
+                      > /dev/null 2>&1 || true
+                  }
 
                   # Collect all apps with their status
                   APPS=$(kubectl get applications -n "$NAMESPACE" \
@@ -102,6 +120,8 @@ spec:
                   REFRESHED=0
                   SYNCED=0
                   SKIPPED=0
+                  SYNCED_APPS=""
+                  DEGRADED_APPS=""
 
                   # Pass 1: hard-refresh OutOfSync and Unknown-sync apps (not Degraded, not running)
                   # Use process substitution to avoid subshell variable scoping issue
@@ -112,13 +132,19 @@ spec:
                       SKIPPED=$((SKIPPED+1))
                       continue
                     fi
-                    # Refresh both OutOfSync and Unknown (stale cache) apps
-                    if [ "$SYNC" != "OutOfSync" ] && [ "$SYNC" != "Unknown" ]; then
-                      continue
-                    fi
+                    # Track Degraded apps for Discord notification
                     if [ "$HEALTH" = "Degraded" ]; then
+                      DEGRADED_APPS="${DEGRADED_APPS}• \`${APP}\` (sync=${SYNC})\n"
+                      if [ "$SYNC" != "OutOfSync" ] && [ "$SYNC" != "Unknown" ]; then
+                        SKIPPED=$((SKIPPED+1))
+                        continue
+                      fi
                       echo "  SKIP  $APP — Degraded+${SYNC} (needs review)"
                       SKIPPED=$((SKIPPED+1))
+                      continue
+                    fi
+                    # Refresh both OutOfSync and Unknown (stale cache) apps
+                    if [ "$SYNC" != "OutOfSync" ] && [ "$SYNC" != "Unknown" ]; then
                       continue
                     fi
                     echo "  REFRESH  $APP [health=$HEALTH sync=$SYNC]"
@@ -149,7 +175,22 @@ spec:
                       --type=merge \
                       -p '{"operation":{"sync":{"revision":"HEAD","syncStrategy":{"hook":{"force":false}}}}}' \
                       > /dev/null 2>&1 || echo "  WARN  $APP — sync patch failed"
+                    SYNCED_APPS="${SYNCED_APPS}• \`${APP}\`\n"
                     SYNCED=$((SYNCED+1))
                   done < <(echo "$APPS2")
 
                   echo "[self-healer] Done. refreshed=$REFRESHED synced=$SYNCED skipped=$SKIPPED"
+
+                  # Send Discord notification only when action was taken
+                  if [ "$SYNCED" -gt 0 ]; then
+                    notify_discord \
+                      ":wrench: Self-Healer Auto-Synced $SYNCED App(s)" \
+                      "3066993" \
+                      "The ArgoCD self-healer triggered sync for:\n${SYNCED_APPS}\nThese apps were OutOfSync after a hard-refresh."
+                  fi
+                  if [ -n "$DEGRADED_APPS" ]; then
+                    notify_discord \
+                      ":warning: Degraded Apps Need Review" \
+                      "15105570" \
+                      "The self-healer skipped these Degraded apps (manual review required):\n${DEGRADED_APPS}"
+                  fi

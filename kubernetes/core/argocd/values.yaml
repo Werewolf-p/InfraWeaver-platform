@@ -94,5 +94,63 @@ redis-ha:
 
 notifications:
   enabled: true
+  # Discord notifications for important ArgoCD events
+  # Webhook URL is pulled from argocd-discord-secret (ExternalSecret in this namespace)
+  notifiers:
+    service.webhook.discord: |
+      url: $argocd-discord-secret:webhook-url
+      headers:
+        - name: Content-Type
+          value: application/json
+
+  templates:
+    template.app-sync-failed: |
+      webhook:
+        discord:
+          method: POST
+          body: |
+            {
+              "embeds": [{
+                "title": ":x: Sync Failed — {{ .app.metadata.name }}",
+                "color": 15158332,
+                "fields": [
+                  {"name": "Health", "value": "{{ .app.status.health.status }}", "inline": true},
+                  {"name": "Sync", "value": "{{ .app.status.sync.status }}", "inline": true},
+                  {"name": "Message", "value": "{{ trunc 200 (default \"(no message)\" .app.status.operationState.message) }}"}
+                ],
+                "url": "{{ .context.argocdUrl }}/applications/{{ .app.metadata.name }}"
+              }]
+            }
+    template.app-health-degraded: |
+      webhook:
+        discord:
+          method: POST
+          body: |
+            {
+              "embeds": [{
+                "title": ":warning: App Degraded — {{ .app.metadata.name }}",
+                "color": 15105570,
+                "fields": [
+                  {"name": "Health", "value": "{{ .app.status.health.status }}", "inline": true},
+                  {"name": "Sync", "value": "{{ .app.status.sync.status }}", "inline": true}
+                ],
+                "url": "{{ .context.argocdUrl }}/applications/{{ .app.metadata.name }}"
+              }]
+            }
+
+  triggers:
+    trigger.on-sync-failed: |
+      - when: app.status.operationState.phase in ['Error', 'Failed']
+        send: [app-sync-failed]
+    trigger.on-health-degraded: |
+      - when: app.status.health.status == 'Degraded'
+        send: [app-health-degraded]
+
+  subscriptions:
+    - recipients:
+        - webhook:discord
+      triggers:
+        - on-sync-failed
+        - on-health-degraded
 
 # Self-healing: priorityClassName moved to global block above

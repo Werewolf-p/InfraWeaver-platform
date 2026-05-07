@@ -173,23 +173,42 @@ alertmanager:
       smtp_auth_username: "remonhulst@gmail.com"   # overridden by secret below
       smtp_auth_password: "changeme"               # overridden by ExternalSecret-mounted env
       smtp_require_tls: true
+      resolve_timeout: 5m
     route:
-      group_by: ["alertname", "namespace"]
+      group_by: ["alertname", "namespace", "severity"]
       group_wait: 30s
       group_interval: 5m
-      repeat_interval: 4h
-      receiver: "all"
+      repeat_interval: 6h
+      receiver: "discord"
       routes:
+        # Silence watchdog/heartbeat — these are always firing and just noise
+        - matchers:
+            - name: alertname
+              value: Watchdog
+          receiver: "null"
+          continue: false
+        # Silence info-level inhibitors — internal Prometheus mechanism, not actionable
+        - matchers:
+            - name: alertname
+              value: InfoInhibitor
+          receiver: "null"
+          continue: false
+        # Critical alerts → email + Discord, repeat every 1h
         - matchers:
             - name: severity
               value: critical
           receiver: "all"
+          repeat_interval: 1h
           continue: false
+        # Warning alerts → Discord only, repeat every 6h
         - matchers:
             - name: severity
               value: warning
           receiver: "discord"
+          repeat_interval: 6h
+          continue: false
     receivers:
+      - name: "null"
       - name: "email-admin"
         email_configs:
           - to: "remonhulst@gmail.com"

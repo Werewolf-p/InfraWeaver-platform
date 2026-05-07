@@ -93,12 +93,70 @@ spec:
 
               sleep 5
 
-              echo "=== Checking if Authentik SSO provider already configured ==="
+              # =========================================================
+              # PHASE 1: Provision Server Administrators group + members
+              # =========================================================
+              echo "=== Phase 1: Provisioning Server Administrators group ==="
+
+              GROUPS=$(curl -sk -u "${ADMIN_LOGIN}:${ADMIN_PASSWORD}" \
+                "${ONEDEV_URL}/~api/groups?offset=0&count=100" 2>/dev/null)
+
+              # Find existing admin group (first group with administrator:true)
+              ADMIN_GROUP_ID=$(echo "$GROUPS" | \
+                awk 'BEGIN{id=""} /"id"/{gsub(/[^0-9]/,"",$NF); id=$NF} /"administrator" : true/{print id; exit}')
+
+              if [ -z "$ADMIN_GROUP_ID" ]; then
+                echo "Creating 'Server Administrators' group..."
+                ADMIN_GROUP_ID=$(curl -sk -u "${ADMIN_LOGIN}:${ADMIN_PASSWORD}" \
+                  -X POST "${ONEDEV_URL}/~api/groups" \
+                  -H 'Content-Type: application/json' \
+                  -d '{"name":"Server Administrators","administrator":true,"createRootProjects":true,"enforce2FA":false}' \
+                  2>/dev/null)
+                echo "Created group ID: $ADMIN_GROUP_ID"
+              else
+                echo "Found existing admin group ID: $ADMIN_GROUP_ID"
+              fi
+
+              # Add each user listed in /config/admin-users to the admin group
+              while IFS= read -r ADMIN_USER || [ -n "$ADMIN_USER" ]; do
+                [ -z "$ADMIN_USER" ] && continue
+                ADMIN_USER=$(echo "$ADMIN_USER" | tr -d ' \t\r')
+
+                USER_LIST=$(curl -sk -u "${ADMIN_LOGIN}:${ADMIN_PASSWORD}" \
+                  "${ONEDEV_URL}/~api/users?offset=0&count=100" 2>/dev/null)
+                USER_ID=$(echo "$USER_LIST" | \
+                  awk -v name="\"${ADMIN_USER}\"" \
+                  'BEGIN{id=""} /"id"/{gsub(/[^0-9]/,"",$NF); id=$NF} $0 ~ ("\"name\" : " name){print id; exit}')
+
+                if [ -z "$USER_ID" ]; then
+                  echo "INFO: User '${ADMIN_USER}' not found yet — will be added on first SSO login"
+                  continue
+                fi
+
+                MEMBERS=$(curl -sk -u "${ADMIN_LOGIN}:${ADMIN_PASSWORD}" \
+                  "${ONEDEV_URL}/~api/groups/${ADMIN_GROUP_ID}/memberships" 2>/dev/null)
+
+                if echo "$MEMBERS" | grep -q "\"userId\" : ${USER_ID}"; then
+                  echo "OK: User '${ADMIN_USER}' (ID: ${USER_ID}) already in admin group"
+                else
+                  echo "Adding '${ADMIN_USER}' (ID: ${USER_ID}) to admin group..."
+                  RESULT=$(curl -sk -u "${ADMIN_LOGIN}:${ADMIN_PASSWORD}" \
+                    -X POST "${ONEDEV_URL}/~api/memberships" \
+                    -H 'Content-Type: application/json' \
+                    -d "{\"userId\":${USER_ID},\"groupId\":${ADMIN_GROUP_ID}}" 2>/dev/null)
+                  echo "Added '${ADMIN_USER}' to Server Administrators (membership ID: $RESULT)"
+                fi
+              done < /config/admin-users
+
+              # =========================================================
+              # PHASE 2: Configure Authentik SSO provider (if not done)
+              # =========================================================
+              echo "=== Phase 2: Checking Authentik SSO provider ==="
               LIST_PAGE=$(curl -sk -u "${ADMIN_LOGIN}:${ADMIN_PASSWORD}" \
                 "${ONEDEV_URL}/~administration/settings/sso-providers" 2>/dev/null)
 
               if echo "$LIST_PAGE" | grep -q "Authentik"; then
-                echo "✅ Authentik SSO provider already configured — skipping"
+                echo "OK: Authentik SSO provider already configured — skipping SSO setup"
                 exit 0
               fi
 
@@ -169,6 +227,9 @@ spec:
             - name: secrets
               mountPath: /secrets
               readOnly: true
+            - name: config
+              mountPath: /config
+              readOnly: true
           resources:
             requests:
               cpu: 10m
@@ -180,3 +241,6 @@ spec:
         - name: secrets
           secret:
             secretName: onedev-oidc-secret
+        - name: config
+          configMap:
+            name: onedev-admin-config

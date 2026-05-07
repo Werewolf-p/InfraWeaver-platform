@@ -594,3 +594,27 @@ jobs:
           echo "| New users added | \`${{ needs.detect.outputs.new_users }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "_Full logs: [Actions run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})_" >> $GITHUB_STEP_SUMMARY
+
+      - name: Notify Discord on failure
+        if: failure()
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          [ -z "$DISCORD_WEBHOOK" ] && exit 0
+          COMMIT_URL="${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}"
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          curl -s -X POST "$DISCORD_WEBHOOK" \
+            -H 'Content-Type: application/json' \
+            -d "{
+              \"embeds\": [{
+                \"title\": \":x: Apply Changes FAILED\",
+                \"color\": 15158332,
+                \"description\": \"A pipeline failure occurred on \`${{ github.ref_name }}\`.\",
+                \"fields\": [
+                  {\"name\": \"Triggered by\", \"value\": \"\`${{ github.actor }}\`\", \"inline\": true},
+                  {\"name\": \"Environment\", \"value\": \"\`${{ env.ENV_NAME }}\`\", \"inline\": true},
+                  {\"name\": \"Commit\", \"value\": \"[${{ github.sha }}]($COMMIT_URL)\", \"inline\": false},
+                  {\"name\": \"Logs\", \"value\": \"[View run]($RUN_URL)\", \"inline\": false}
+                ]
+              }]
+            }" > /dev/null

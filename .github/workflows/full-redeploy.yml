@@ -2016,3 +2016,25 @@ jobs:
             2>/dev/null || echo "unavailable")
 
           python3 scripts/send-deploy-email.py
+
+      - name: Notify Discord on failure
+        if: failure()
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          [ -z "$DISCORD_WEBHOOK" ] && exit 0
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          curl -s -X POST "$DISCORD_WEBHOOK" \
+            -H 'Content-Type: application/json' \
+            -d "{
+              \"embeds\": [{
+                \"title\": \":x: Full Redeploy FAILED\",
+                \"color\": 15158332,
+                \"description\": \"A full redeploy pipeline failure occurred.\",
+                \"fields\": [
+                  {\"name\": \"Triggered by\", \"value\": \"\`${{ github.actor }}\`\", \"inline\": true},
+                  {\"name\": \"Environment\", \"value\": \"\`${{ inputs.environment }}\`\", \"inline\": true},
+                  {\"name\": \"Logs\", \"value\": \"[View run]($RUN_URL)\", \"inline\": false}
+                ]
+              }]
+            }" > /dev/null

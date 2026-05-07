@@ -1,0 +1,27 @@
+---
+# ExternalSecret — Discord webhook URL for ArgoCD notifications
+# The argocd-notifications-cm references $argocd-discord-secret:webhook-url
+# which reads from this Kubernetes secret.
+# Source: OpenBao at secret/platform/discord (property: webhook_url)
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: argocd-discord-secret
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: argocd-notifications-controller
+    app.kubernetes.io/component: notifications
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: openbao
+    kind: ClusterSecretStore
+  target:
+    name: argocd-discord-secret
+    creationPolicy: Owner
+    deletionPolicy: Retain
+  data:
+    - secretKey: webhook-url
+      remoteRef:
+        key: secret/platform/discord
+        property: webhook_url
