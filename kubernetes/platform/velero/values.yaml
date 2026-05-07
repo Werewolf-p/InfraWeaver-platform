@@ -100,7 +100,14 @@ nodeAgent:
       memory: 512Mi
 
 # Pin kubectl image tag — bitnami/kubectl only publishes the 'latest' tag on Docker Hub.
-# Version-specific tags (1.33, 1.35) don't exist. Using 'latest' ensures the job can run.
+# However, bitnami/kubectl:latest uses a dynamically-linked sh that is incompatible
+# with the velero scratch container. Disable upgradeCRDs job and manage CRDs via
+# ArgoCD directly — the CRDs are already installed.
 kubectl:
   image:
     tag: "latest"
+
+# Disable the upgrade-crds hook job — it uses bitnami/kubectl whose sh binary
+# requires libreadline.so.8 not available in the velero scratch container.
+# CRDs are managed by ArgoCD and are already up to date.
+upgradeCRDs: false
