@@ -12,6 +12,7 @@ data:
             reload 30s
             fallthrough
         }
+        forward . 1.1.1.1 8.8.8.8
         log
         errors
     }
@@ -82,6 +83,15 @@ data:
     10.10.0.200  www.rlservers.com
     10.10.0.200  teleport.rlservers.com
     10.10.0.200  truenas.rlservers.com
+    10.10.0.200  status.rlservers.com
+    10.10.0.200  keycloak.rlservers.com
+    10.10.0.200  awx.rlservers.com
+    10.10.0.200  bitwarden.rlservers.com
+    10.10.0.200  gitlab.rlservers.com
+    10.10.0.200  registry.gitlab.rlservers.com
+    10.10.0.200  cloud.rlservers.com
+    10.10.0.200  teleport.rlservers.com
+    10.10.0.200  registry.rlservers.com
     10.10.0.200  wiki.rlservers.com
 
     # ── Static / non-Traefik ──────────────────────────────────────────────────
