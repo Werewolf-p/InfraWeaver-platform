@@ -38,6 +38,8 @@ spec:
     - "degoudentijd.rlservers.com"
     - "feestinhetdonker.rlservers.com"
     - "marcel.rlservers.com"
+    # Catalog apps (public)
+    - "onedev.rlservers.com"
 ---
 # Certificate for *.int.rlservers.com — private/VPN-only domain, DNS-01 required
 # DNS-only Cloudflare record → 10.10.0.200 (private IP, unreachable without VPN)
