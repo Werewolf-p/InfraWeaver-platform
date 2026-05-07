@@ -28,7 +28,7 @@ jobs:
   # ── Secret scanning ─────────────────────────────────────────────────────────
   secret-scan:
     name: Gitleaks — Secret Detection
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, prod-worker]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -44,7 +44,7 @@ jobs:
   # ── Terraform / IaC security ─────────────────────────────────────────────────
   checkov:
     name: Checkov — IaC Security
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, prod-worker]
     steps:
       - uses: actions/checkout@v4
       - uses: bridgecrewio/checkov-action@9201a8e6eaa919e3444d7c4ca691896efde4f033  # v12
@@ -57,7 +57,7 @@ jobs:
   # ── Kubernetes manifest lint + YAML duplicate-key check ─────────────────────
   kubernetes-manifests:
     name: Kubernetes Manifest Validation
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, prod-worker]
     steps:
       - uses: actions/checkout@v4
       - name: Install kubeconform
@@ -78,7 +78,7 @@ jobs:
   # ── Helm values structure + duplicate YAML key detection ────────────────────
   helm-lint:
     name: Helm Values & YAML Duplicate Keys
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, prod-worker]
     steps:
       - uses: actions/checkout@v4
       - name: Validate helm values YAML
@@ -150,7 +150,7 @@ jobs:
   # ── GitHub Actions lint ──────────────────────────────────────────────────────
   actionlint:
     name: GitHub Actions Lint
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, prod-worker]
     steps:
       - uses: actions/checkout@v4
       - name: Install and run actionlint
@@ -164,7 +164,7 @@ jobs:
   # ── Trivy: image scan + manifest misconfig (combined to save install time) ───
   trivy:
     name: Trivy — Vulnerability & Misconfig Scan
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, prod-worker]
     steps:
       - uses: actions/checkout@v4
       - name: Install Trivy
@@ -209,7 +209,7 @@ jobs:
   # ── kube-score manifest quality ──────────────────────────────────────────────
   kube-score:
     name: kube-score — Manifest Best Practices
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, prod-worker]
     steps:
       - uses: actions/checkout@v4
       - name: Install and run kube-score
@@ -333,6 +333,6 @@ jobs:
   security-gate:
     name: ✅ CI Gate
     needs: [secret-scan, checkov, kubernetes-manifests, helm-lint, actionlint, trivy, kube-score]
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, prod-worker]
     steps:
       - run: echo "✅ All CI checks passed"

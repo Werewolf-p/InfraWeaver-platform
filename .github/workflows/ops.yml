@@ -247,7 +247,7 @@ jobs:
   fix-dns:
     name: Fix Cloudflare DNS
     if: inputs.operation == 'fix-cloudflare-dns'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, prod-worker]
     steps:
       - name: Update api-netbird.rlservers.com DNS record
         env:

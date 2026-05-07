@@ -80,7 +80,7 @@ jobs:
   # ── 1. Detect what changed ─────────────────────────────────────────────────
   detect:
     name: "Detect Changes"
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, prod-worker]
     outputs:
       user_config:    ${{ steps.changes.outputs.user_config }}
       blueprints:     ${{ steps.changes.outputs.blueprints }}
