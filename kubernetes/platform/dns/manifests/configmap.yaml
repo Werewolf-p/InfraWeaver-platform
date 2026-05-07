@@ -65,37 +65,23 @@ data:
     10.10.0.200  test.rlservers.com
 
     # ── Bare-metal services (proxied through K8s Traefik → bare-metal) ───────
-    10.10.0.200  adguard.rlservers.com
-    10.10.0.200  ansible.rlservers.com
     10.10.0.200  auth.rlservers.com
     10.10.0.200  netbird.rlservers.com
     10.10.0.200  api-netbird.rlservers.com
-    10.10.0.200  awx.rlservers.com
     10.10.0.200  bitwarden.rlservers.com
-    10.10.0.200  bitwarden-admin.rlservers.com
     10.10.0.200  cloud.rlservers.com
     10.10.0.200  degoudentijd.rlservers.com
     10.10.0.200  www.degoudentijd.rlservers.com
     10.10.0.200  feestinhetdonker.rlservers.com
     10.10.0.200  gitlab.rlservers.com
     10.10.0.200  registry.gitlab.rlservers.com
-    10.10.0.200  indexer.wazuh.rlservers.com
     10.10.0.200  keycloak.rlservers.com
     10.10.0.200  marcel.rlservers.com
-    10.10.0.200  overseer.rlservers.com
-    10.10.0.200  portainer.rlservers.com
-    10.10.0.200  portainer2.rlservers.com
-    10.10.0.200  proxmox.rlservers.com
-    10.10.0.200  radarr.rlservers.com
     10.10.0.200  registry.rlservers.com
     10.10.0.200  rlservers.com
     10.10.0.200  www.rlservers.com
-    10.10.0.200  sonarr.rlservers.com
     10.10.0.200  teleport.rlservers.com
-    10.10.0.200  traefik.rlservers.com
     10.10.0.200  truenas.rlservers.com
-    10.10.0.200  vault1.rlservers.com
-    10.10.0.200  wazuh.rlservers.com
     10.10.0.200  wiki.rlservers.com
 
     # ── Static / non-Traefik ──────────────────────────────────────────────────

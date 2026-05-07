@@ -12,7 +12,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`adguard.rlservers.com`)
+    - match: Host(`adguard.int.rlservers.com`)
       kind: Rule
       middlewares:
         - name: internal-only
@@ -32,7 +32,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`ansible.rlservers.com`)
+    - match: Host(`ansible.int.rlservers.com`)
       kind: Rule
       middlewares:
         - name: internal-only
@@ -52,7 +52,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`traefik.rlservers.com`)
+    - match: Host(`traefik.int.rlservers.com`)
       kind: Rule
       middlewares:
         - name: internal-only
@@ -72,7 +72,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`proxmox.rlservers.com`)
+    - match: Host(`proxmox.int.rlservers.com`)
       kind: Rule
       middlewares:
         - name: internal-only
@@ -93,7 +93,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`portainer.rlservers.com`)
+    - match: Host(`portainer.int.rlservers.com`)
       kind: Rule
       middlewares:
         - name: internal-only
@@ -114,7 +114,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`portainer2.rlservers.com`)
+    - match: Host(`portainer2.int.rlservers.com`)
       kind: Rule
       middlewares:
         - name: internal-only
@@ -156,7 +156,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`vault1.rlservers.com`)
+    - match: Host(`vault1.int.rlservers.com`)
       kind: Rule
       middlewares:
         - name: internal-only
@@ -177,7 +177,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`wazuh.rlservers.com`)
+    - match: Host(`wazuh.int.rlservers.com`)
       kind: Rule
       middlewares:
         - name: internal-only
@@ -198,7 +198,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`indexer.wazuh.rlservers.com`)
+    - match: Host(`wazuh-indexer.int.rlservers.com`)
       kind: Rule
       middlewares:
         - name: internal-only
@@ -219,7 +219,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`sonarr.rlservers.com`)
+    - match: Host(`sonarr.int.rlservers.com`)
       kind: Rule
       middlewares:
         - name: internal-only
@@ -239,7 +239,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`radarr.rlservers.com`)
+    - match: Host(`radarr.int.rlservers.com`)
       kind: Rule
       middlewares:
         - name: internal-only
@@ -259,7 +259,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`overseer.rlservers.com`)
+    - match: Host(`overseer.int.rlservers.com`)
       kind: Rule
       middlewares:
         - name: internal-only
@@ -279,7 +279,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`bitwarden-admin.rlservers.com`)
+    - match: Host(`bitwarden-admin.int.rlservers.com`)
       kind: Rule
       middlewares:
         - name: internal-only

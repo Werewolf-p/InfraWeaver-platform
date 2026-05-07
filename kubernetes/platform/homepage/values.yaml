@@ -114,7 +114,7 @@ config:
             ping: http://openbao.openbao.svc.cluster.local:8200/v1/sys/health
 
         - Traefik:
-            href: https://traefik.rlservers.com
+            href: https://traefik.int.rlservers.com
             description: Kubernetes ingress controller
             icon: traefik.png
             ping: http://traefik.traefik.svc.cluster.local/ping
@@ -133,18 +133,18 @@ config:
             ping: http://netbird-management.netbird.svc.cluster.local/api/v1/health
 
         - Wazuh:
-            href: https://wazuh.rlservers.com
+            href: https://wazuh.int.rlservers.com
             description: Security monitoring & SIEM
             icon: wazuh.png
 
         - Bitwarden:
-            href: https://bitwarden-admin.rlservers.com
+            href: https://bitwarden-admin.int.rlservers.com
             description: Password manager (admin)
             icon: bitwarden.png
 
     - Infrastructure:
         - Proxmox:
-            href: https://proxmox.rlservers.com
+            href: https://proxmox.int.rlservers.com
             description: Hypervisor — VM management
             icon: proxmox.png
 
@@ -154,38 +154,38 @@ config:
             icon: truenas.png
 
         - Portainer:
-            href: https://portainer.rlservers.com
+            href: https://portainer.int.rlservers.com
             description: Container management
             icon: portainer.png
 
         - AdGuard Home:
-            href: https://adguard.rlservers.com
+            href: https://adguard.int.rlservers.com
             description: DNS & ad blocking
             icon: adguard-home.png
 
         - Ansible Semaphore:
-            href: https://ansible.rlservers.com
+            href: https://ansible.int.rlservers.com
             description: Ansible automation UI
             icon: semaphore.png
 
         - Wiki.js:
-            href: https://wiki.rlservers.com
+            href: https://wiki.int.rlservers.com
             description: Internal documentation
             icon: wikijs.png
 
     - Media:
         - Overseerr:
-            href: https://overseer.rlservers.com
+            href: https://overseer.int.rlservers.com
             description: Media request management
             icon: overseerr.png
 
         - Sonarr:
-            href: https://sonarr.rlservers.com
+            href: https://sonarr.int.rlservers.com
             description: TV show automation
             icon: sonarr.png
 
         - Radarr:
-            href: https://radarr.rlservers.com
+            href: https://radarr.int.rlservers.com
             description: Movie automation
             icon: radarr.png
 

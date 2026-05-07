@@ -1,8 +1,8 @@
 ---
 # Certificate for rlservers.com — publicly-accessible subdomains (HTTP-01)
 # auth.rlservers.com is bundled here (not a separate cert) to share the rate-limit allowance.
-# netbird.rlservers.com → individual cert (separate to avoid cascading on VPN entry point).
-# Internal cluster apps (argocd, grafana, longhorn, openbao, homepage) → *.int.rlservers.com wildcard
+# netbird.rlservers.com → separate cert (avoid cascading on VPN entry point).
+# Internal services (proxmox, portainer, adguard, etc.) → moved to *.int.rlservers.com (DNS-01 wildcard)
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -14,16 +14,29 @@ spec:
     name: letsencrypt-http
     kind: ClusterIssuer
   dnsNames:
+    # Base domain
     - "rlservers.com"
     - "www.rlservers.com"
+    # Platform public endpoints
     - "auth.rlservers.com"
     - "netbird.rlservers.com"
     - "api-netbird.rlservers.com"
-    - "traefik.rlservers.com"
-    - "ansible.rlservers.com"
+    - "status.rlservers.com"
     - "test.rlservers.com"
+    # TrueNAS (public-facing via Cloudflare)
     - "truenas.rlservers.com"
+    # External/baremetal services
+    - "keycloak.rlservers.com"
+    - "awx.rlservers.com"
+    - "bitwarden.rlservers.com"
+    - "gitlab.rlservers.com"
+    - "registry.gitlab.rlservers.com"
+    - "cloud.rlservers.com"
+    - "teleport.rlservers.com"
+    - "registry.rlservers.com"
+    # Websites
     - "degoudentijd.rlservers.com"
+    - "www.degoudentijd.rlservers.com"
     - "feestinhetdonker.rlservers.com"
     - "marcel.rlservers.com"
 ---
