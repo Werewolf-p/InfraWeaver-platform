@@ -187,8 +187,9 @@ spec:
         - name: internal-only
           namespace: traefik
       services:
-        - name: bm-wazuh
-          port: 443
+        - name: wazuh-dashboard
+          namespace: wazuh
+          port: 5601
           scheme: https
           serversTransport: insecure-skip-verify
   tls: {}
@@ -209,8 +210,10 @@ spec:
         - name: internal-only
           namespace: traefik
       services:
-        - name: bm-wazuh-indexer
+        - name: wazuh-indexer-svc
+          namespace: wazuh
           port: 9200
+          scheme: https
           serversTransport: insecure-skip-verify
   tls: {}
 ---

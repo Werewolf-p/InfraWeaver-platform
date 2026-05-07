@@ -1,0 +1,44 @@
+---
+# ArgoCD Application — Wazuh SIEM
+# Manages: kubernetes/platform/wazuh/manifests/
+# Access: https://wazuh.int.rlservers.com (VPN-only via Traefik)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-wazuh
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: infraweaver-prod
+  destination:
+    namespace: wazuh
+    server: https://kubernetes.default.svc
+  source:
+    repoURL: https://github.com/Werewolf-p/InfraWeaver-platform.git
+    targetRevision: main
+    path: kubernetes/platform/wazuh/manifests
+  ignoreDifferences:
+    - group: external-secrets.io
+      kind: ExternalSecret
+      jsonPointers:
+        - /status
+        - /metadata/finalizers
+    - group: cert-manager.io
+      kind: Certificate
+      jsonPointers:
+        - /status
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+      limit: 5
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - PrunePropagationPolicy=foreground

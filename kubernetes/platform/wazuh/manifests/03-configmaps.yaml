@@ -1,0 +1,125 @@
+---
+# ConfigMap: OpenSearch configuration for wazuh-indexer
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: wazuh-indexer-conf
+  namespace: wazuh
+data:
+  opensearch.yml: |
+    cluster.name: "wazuh-cluster"
+    node.name: "wazuh-indexer-0"
+    network.host: "0.0.0.0"
+    # TLS transport
+    plugins.security.ssl.transport.pemcert_filepath: /usr/share/wazuh-indexer/certs/tls.crt
+    plugins.security.ssl.transport.pemkey_filepath: /usr/share/wazuh-indexer/certs/tls.key
+    plugins.security.ssl.transport.pemtrustedcas_filepath: /usr/share/wazuh-indexer/certs/ca.crt
+    plugins.security.ssl.transport.enforce_hostname_verification: false
+    # TLS HTTP
+    plugins.security.ssl.http.enabled: true
+    plugins.security.ssl.http.pemcert_filepath: /usr/share/wazuh-indexer/certs/tls.crt
+    plugins.security.ssl.http.pemkey_filepath: /usr/share/wazuh-indexer/certs/tls.key
+    plugins.security.ssl.http.pemtrustedcas_filepath: /usr/share/wazuh-indexer/certs/ca.crt
+    plugins.security.allow_default_init_securityindex: true
+    plugins.security.authcz.admin_dn:
+      - "CN=admin"
+    plugins.security.nodes_dn:
+      - "CN=wazuh-indexer"
+      - "CN=wazuh-manager"
+      - "CN=wazuh-dashboard"
+    plugins.security.audit.type: internal_opensearch
+    plugins.security.enable_snapshot_restore_privilege: true
+    plugins.security.check_snapshot_restore_write_privileges: true
+    plugins.security.restapi.roles_enabled: ["all_access", "security_rest_api_access"]
+---
+# ConfigMap: Wazuh manager configuration (ossec.conf)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: wazuh-manager-conf
+  namespace: wazuh
+data:
+  ossec.conf: |
+    <ossec_config>
+      <global>
+        <jsonout_output>yes</jsonout_output>
+        <alerts_log>yes</alerts_log>
+        <logall>no</logall>
+        <logall_json>no</logall_json>
+        <email_notification>no</email_notification>
+        <smtp_server>smtp.example.com</smtp_server>
+        <email_from>wazuh@example.com</email_from>
+        <email_to>recipient@example.com</email_to>
+        <email_maxperhour>12</email_maxperhour>
+        <email_log_source>alerts.log</email_log_source>
+        <agents_disconnection_time>1h</agents_disconnection_time>
+        <agents_disconnection_alert_time>0</agents_disconnection_alert_time>
+      </global>
+      <alerts>
+        <log_alert_level>3</log_alert_level>
+        <email_alert_level>12</email_alert_level>
+      </alerts>
+      <remote>
+        <connection>secure</connection>
+        <port>1514</port>
+        <protocol>tcp</protocol>
+        <queue_size>131072</queue_size>
+      </remote>
+      <cluster>
+        <name>wazuh</name>
+        <node_name>master</node_name>
+        <node_type>master</node_type>
+        <key>$(WAZUH_CLUSTER_KEY)</key>
+        <port>1516</port>
+        <bind_addr>0.0.0.0</bind_addr>
+        <nodes>
+          <node>wazuh-manager-master</node>
+        </nodes>
+        <hidden>no</hidden>
+        <disabled>no</disabled>
+      </cluster>
+      <indexer>
+        <enabled>yes</enabled>
+        <hosts>
+          <host>https://wazuh-indexer:9200</host>
+        </hosts>
+        <ssl>
+          <certificate_authorities>
+            <ca>/etc/ssl/wazuh/ca.crt</ca>
+          </certificate_authorities>
+          <certificate>/etc/ssl/wazuh/tls.crt</certificate>
+          <key>/etc/ssl/wazuh/tls.key</key>
+        </ssl>
+      </indexer>
+    </ossec_config>
+---
+# ConfigMap: Wazuh dashboard configuration (opensearch_dashboards.yml)
+# The ${WAZUH_API_PASSWORD} placeholder is substituted at runtime via env var
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: wazuh-dashboard-conf
+  namespace: wazuh
+data:
+  opensearch_dashboards.yml: |
+    server.host: 0.0.0.0
+    server.port: 5601
+    opensearch.hosts: https://wazuh-indexer:9200
+    opensearch.ssl.verificationMode: certificate
+    opensearch.requestHeadersAllowlist: ["securitytenant","Authorization"]
+    opensearch.ssl.certificateAuthorities: ["/usr/share/wazuh-dashboard/certs/ca.crt"]
+    opensearch.ssl.certificate: /usr/share/wazuh-dashboard/certs/tls.crt
+    opensearch.ssl.key: /usr/share/wazuh-dashboard/certs/tls.key
+    server.ssl.enabled: true
+    server.ssl.certificate: /usr/share/wazuh-dashboard/certs/tls.crt
+    server.ssl.key: /usr/share/wazuh-dashboard/certs/tls.key
+    uiSettings.overrides.defaultRoute: /app/wazuh
+    logging.dest: stdout
+    logging.silent: false
+    logging.quiet: false
+    logging.verbose: false
+    opensearch_security.multitenancy.enabled: false
+    wazuh.monitoring.enabled: true
+    wazuh.monitoring.frequency: 900
+    wazuh.monitoring.shards: 1
+    wazuh.monitoring.replicas: 0
