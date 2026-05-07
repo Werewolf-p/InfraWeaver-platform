@@ -25,10 +25,26 @@ spec:
     creationPolicy: Owner
     deletionPolicy: Retain
   data:
+    - secretKey: admin-login
+      remoteRef:
+        key: secret/platform/onedev
+        property: admin-login
     - secretKey: admin-password
       remoteRef:
         key: secret/platform/onedev
         property: admin-password
+    - secretKey: admin-email
+      remoteRef:
+        key: secret/platform/onedev
+        property: admin-email
+    - secretKey: oidc-client-id
+      remoteRef:
+        key: secret/platform/onedev
+        property: oidc-client-id
+    - secretKey: oidc-client-secret
+      remoteRef:
+        key: secret/platform/onedev
+        property: oidc-client-secret
 ---
 # PersistentVolumeClaim — OneDev data (repos, DB, CI artifacts, attachments)
 # Uses longhorn-retain so data survives app removal and can be restored from backup.
@@ -89,12 +105,24 @@ spec:
           env:
             - name: ONEDEV_URL
               value: "https://onedev.rlservers.com"
-            # Pre-seed admin password from OpenBao secret (only applies on first boot)
+            # Pre-seed admin account on first boot (only applies when data dir is empty)
+            - name: INITIAL_ADMIN_LOGIN
+              valueFrom:
+                secretKeyRef:
+                  name: onedev-admin-secret
+                  key: admin-login
+                  optional: true
             - name: INITIAL_ADMIN_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: onedev-admin-secret
                   key: admin-password
+                  optional: true
+            - name: INITIAL_ADMIN_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: onedev-admin-secret
+                  key: admin-email
                   optional: true
           volumeMounts:
             - name: data
