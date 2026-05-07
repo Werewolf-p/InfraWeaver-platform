@@ -103,7 +103,7 @@ spec:
                   SYNCED=0
                   SKIPPED=0
 
-                  # Pass 1: hard-refresh all OutOfSync apps (not Degraded, not running)
+                  # Pass 1: hard-refresh OutOfSync and Unknown-sync apps (not Degraded, not running)
                   # Use process substitution to avoid subshell variable scoping issue
                   while IFS=$'\t' read -r APP HEALTH SYNC OP_PHASE; do
                     [ -z "$APP" ] && continue
@@ -112,9 +112,12 @@ spec:
                       SKIPPED=$((SKIPPED+1))
                       continue
                     fi
-                    [ "$SYNC" != "OutOfSync" ] && continue
+                    # Refresh both OutOfSync and Unknown (stale cache) apps
+                    if [ "$SYNC" != "OutOfSync" ] && [ "$SYNC" != "Unknown" ]; then
+                      continue
+                    fi
                     if [ "$HEALTH" = "Degraded" ]; then
-                      echo "  SKIP  $APP — Degraded+OutOfSync (needs review)"
+                      echo "  SKIP  $APP — Degraded+${SYNC} (needs review)"
                       SKIPPED=$((SKIPPED+1))
                       continue
                     fi
