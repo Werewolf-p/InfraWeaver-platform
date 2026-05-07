@@ -32,6 +32,46 @@ data:
     plugins.security.enable_snapshot_restore_privilege: true
     plugins.security.check_snapshot_restore_write_privileges: true
     plugins.security.restapi.roles_enabled: ["all_access", "security_rest_api_access"]
+  internal_users.yml: |
+    ---
+    _meta:
+      type: "internalusers"
+      config_version: 2
+    admin:
+      hash: "$2b$12$s47kvEVvkCWYGayZh26WyuotghATKVM6rpszgWQaKrnbJX6nrpnpm"
+      reserved: true
+      backend_roles:
+      - "admin"
+      description: "Wazuh admin user"
+    kibanaserver:
+      hash: "$2a$12$4AcgAt3xwOWadA5s5blL6ev39OXDNhmOesEoo33eZtrq2N0YrU3H."
+      reserved: true
+      description: "OpenSearch Dashboards server user"
+    kibanaro:
+      hash: "$2a$12$JJSXNfTowz7Uu5ttXfeYpeYE0arACvcwlPBStB1F.MI7f0U9Z4DGC"
+      reserved: false
+      backend_roles:
+      - "kibanauser"
+      - "readall"
+      description: "Read only user"
+    logstash:
+      hash: "$2a$12$u1ShR4l4uBS3Uv59Pa2y5.1uQuZBrZtmNfqB3iM/.jL0XoV9sghS2"
+      reserved: false
+      backend_roles:
+      - "logstash"
+      description: "Logstash user"
+    readall:
+      hash: "$2a$12$ae4ycwzwvLtZxwZ82RmiEunBbIPiAmGZduBAjKN0TXdwQFtCwARz2"
+      reserved: false
+      backend_roles:
+      - "readall"
+      description: "Readall user"
+    snapshotrestore:
+      hash: "$2y$12$DpwmetHKwgYnorbgdvORCenv4NAK8cPUg8AI6pxLCuWf/ALc0.v7W"
+      reserved: false
+      backend_roles:
+      - "snapshotrestore"
+      description: "Snapshot restore user"
 ---
 # ConfigMap: Wazuh manager configuration (ossec.conf)
 apiVersion: v1
@@ -70,7 +110,7 @@ data:
         <name>wazuh</name>
         <node_name>master</node_name>
         <node_type>master</node_type>
-        <key>$(WAZUH_CLUSTER_KEY)</key>
+        <key>to_be_replaced_by_cluster_key</key>
         <port>1516</port>
         <bind_addr>0.0.0.0</bind_addr>
         <nodes>

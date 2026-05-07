@@ -86,6 +86,9 @@ spec:
             - name: opensearch-conf
               mountPath: /usr/share/wazuh-indexer/opensearch.yml
               subPath: opensearch.yml
+            - name: opensearch-conf
+              mountPath: /usr/share/wazuh-indexer/opensearch-security/internal_users.yml
+              subPath: internal_users.yml
             - name: indexer-certs
               mountPath: /usr/share/wazuh-indexer/certs
               readOnly: true
