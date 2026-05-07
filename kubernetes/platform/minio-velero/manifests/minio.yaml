@@ -124,6 +124,11 @@ spec:
   template:
     spec:
       restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: mc
           image: minio/mc:RELEASE.2024-11-17T19-35-25Z
@@ -131,9 +136,11 @@ spec:
             - sh
             - -c
             - |
-              mc alias set minio http://minio-velero.velero.svc.cluster.local:9000 $ACCESS_KEY $SECRET_KEY
+              until mc alias set minio http://minio-velero.velero.svc.cluster.local:9000 $ACCESS_KEY $SECRET_KEY; do
+                echo "Waiting for MinIO to be ready..."; sleep 5
+              done
               mc mb --ignore-existing minio/velero-backups
-              mc policy set private minio/velero-backups
+              mc anonymous set none minio/velero-backups
               echo "Bucket created"
           env:
             - name: ACCESS_KEY
@@ -146,6 +153,10 @@ spec:
                 secretKeyRef:
                   name: minio-velero-credentials
                   key: secret_key
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           resources:
             requests:
               cpu: 50m
