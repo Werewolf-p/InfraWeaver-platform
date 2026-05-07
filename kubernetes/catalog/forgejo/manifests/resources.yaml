@@ -104,7 +104,7 @@ spec:
           type: RuntimeDefault
       initContainers:
         # Self-healing: reset corrupted WAL before postgres starts.
-        # Safe to run on every pod startup — pg_resetwal is idempotent on healthy data.
+        # Self-healing: remove stale lock file and reset corrupted WAL before postgres starts.
         - name: pg-resetwal
           image: postgres:16
           command:
@@ -112,6 +112,7 @@ spec:
             - -c
             - |
               if [ -f /var/lib/postgresql/data/pgdata/PG_VERSION ]; then
+                rm -f /var/lib/postgresql/data/pgdata/postmaster.pid && echo "Removed stale lock file"
                 pg_resetwal -f /var/lib/postgresql/data/pgdata && echo "WAL reset OK"
               else
                 echo "No existing data dir — fresh init"

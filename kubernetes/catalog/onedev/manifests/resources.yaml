@@ -87,8 +87,6 @@ spec:
               containerPort: 6611
               protocol: TCP
           env:
-            - name: hibernate_dialect
-              value: io.onedev.server.persistence.dialect.H2Dialect
             - name: ONEDEV_URL
               value: "https://onedev.int.rlservers.com"
             # Pre-seed admin password from OpenBao secret (only applies on first boot)

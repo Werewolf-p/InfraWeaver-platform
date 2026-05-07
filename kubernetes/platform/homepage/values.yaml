@@ -50,10 +50,14 @@ config:
         icon: mdi-server-network
         style: row
         columns: 4
-      Media:
-        icon: mdi-movie-play
+      Catalog Apps:
+        icon: mdi-apps
         style: row
-        columns: 3
+        columns: 4
+      Media & Monitoring:
+        icon: mdi-chart-line
+        style: row
+        columns: 4
       Websites:
         icon: mdi-web
         style: row
@@ -92,7 +96,6 @@ config:
             href: https://argocd.int.rlservers.com
             description: GitOps — continuous delivery
             icon: argocd.png
-            # ping via internal K8s service (bypasses netbird-vpn-only middleware)
             ping: http://argocd-server.argocd.svc.cluster.local
 
         - Grafana:
@@ -117,7 +120,19 @@ config:
             href: https://traefik.int.rlservers.com
             description: Kubernetes ingress controller
             icon: traefik.png
-            ping: http://traefik.traefik.svc.cluster.local/ping
+            ping: http://traefik.traefik.svc.cluster.local:8080/ping
+
+        - Wiki.js:
+            href: https://wiki.int.rlservers.com
+            description: Internal documentation
+            icon: wikijs.png
+            ping: http://wiki.wiki.svc.cluster.local
+
+        - Uptime Kuma:
+            href: https://uptime-kuma.int.rlservers.com
+            description: Uptime monitoring
+            icon: uptime-kuma.png
+            ping: http://uptime-kuma.uptime-kuma.svc.cluster.local:3001
 
     - Security & Identity:
         - Authentik:
@@ -127,20 +142,21 @@ config:
             ping: http://authentik-server.authentik.svc.cluster.local/-/health/ready/
 
         - NetBird VPN:
-            href: https://netbird.rlservers.com
+            href: https://netbird.int.rlservers.com
             description: WireGuard mesh VPN
             icon: netbird.png
             ping: http://netbird-management.netbird.svc.cluster.local/api/v1/health
+
+        - Vaultwarden:
+            href: https://vaultwarden.int.rlservers.com
+            description: Self-hosted password manager
+            icon: bitwarden.png
+            ping: http://vaultwarden.vaultwarden.svc.cluster.local:80
 
         - Wazuh:
             href: https://wazuh.int.rlservers.com
             description: Security monitoring & SIEM
             icon: wazuh.png
-
-        - Bitwarden:
-            href: https://bitwarden-admin.int.rlservers.com
-            description: Password manager (admin)
-            icon: bitwarden.png
 
     - Infrastructure:
         - Proxmox:
@@ -152,11 +168,7 @@ config:
             href: https://truenas.rlservers.com
             description: Network attached storage
             icon: truenas.png
-
-        - Portainer:
-            href: https://portainer.int.rlservers.com
-            description: Container management
-            icon: portainer.png
+            ping: https://truenas.rlservers.com/api/v2.0/system/version
 
         - AdGuard Home:
             href: https://adguard.int.rlservers.com
@@ -168,12 +180,52 @@ config:
             description: Ansible automation UI
             icon: semaphore.png
 
-        - Wiki.js:
-            href: https://wiki.int.rlservers.com
-            description: Internal documentation
-            icon: wikijs.png
+        - Portainer:
+            href: https://portainer.int.rlservers.com
+            description: Container management
+            icon: portainer.png
 
-    - Media:
+    - Catalog Apps:
+        - OneDev:
+            href: https://onedev.int.rlservers.com
+            description: Self-hosted Git & CI/CD
+            icon: mdi-git
+            ping: http://onedev.onedev.svc.cluster.local
+
+        - Gitea:
+            href: https://gitea.int.rlservers.com
+            description: Lightweight Git hosting
+            icon: gitea.png
+            ping: http://gitea-http.gitea.svc.cluster.local:3000
+
+        - N8N:
+            href: https://n8n.int.rlservers.com
+            description: Workflow automation
+            icon: n8n.png
+            ping: http://n8n.n8n.svc.cluster.local:5678/healthz
+
+        - Excalidraw:
+            href: https://excalidraw.int.rlservers.com
+            description: Collaborative whiteboard
+            icon: excalidraw.png
+            ping: http://excalidraw.excalidraw.svc.cluster.local
+
+        - IT-Tools:
+            href: https://it-tools.int.rlservers.com
+            description: Developer utility tools
+            icon: mdi-tools
+
+        - Stirling PDF:
+            href: https://stirling-pdf.int.rlservers.com
+            description: PDF manipulation tool
+            icon: mdi-file-pdf-box
+
+        - Actual Budget:
+            href: https://actual.int.rlservers.com
+            description: Personal finance tracker
+            icon: mdi-cash-multiple
+
+    - Media & Monitoring:
         - Overseerr:
             href: https://overseer.int.rlservers.com
             description: Media request management
@@ -207,12 +259,6 @@ config:
             description: Event website
             icon: html5.png
             ping: https://feestinhetdonker.rlservers.com
-
-        - Marcel:
-            href: https://marcel.rlservers.com
-            description: Personal site
-            icon: html5.png
-            ping: https://marcel.rlservers.com
 
         - yonavaarwater.nl:
             href: https://yonavaarwater.nl

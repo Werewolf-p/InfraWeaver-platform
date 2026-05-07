@@ -159,3 +159,17 @@ spec:
   ports:
     - port: 80
       name: http
+---
+# Traefik dashboard (ClusterIP — selects the Traefik pod directly for dashboard access)
+apiVersion: v1
+kind: Service
+metadata:
+  name: traefik-dashboard
+  namespace: traefik
+spec:
+  selector:
+    app.kubernetes.io/name: traefik
+  ports:
+    - name: dashboard
+      port: 8080
+      targetPort: 8080
