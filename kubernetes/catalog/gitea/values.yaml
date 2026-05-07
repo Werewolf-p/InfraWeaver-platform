@@ -49,18 +49,13 @@ gitea:
   admin:
     existingSecret: gitea-admin-secret
 
-  # Inject database password and OIDC secret via environment variables
+  # Inject database password via app.ini env var substitution
   additionalConfigFromEnvs:
     - name: GITEA__DATABASE__PASSWD
       valueFrom:
         secretKeyRef:
           name: gitea-postgres-secret
           key: password
-    - name: GITEA_OIDC_SECRET
-      valueFrom:
-        secretKeyRef:
-          name: gitea-oidc-secret
-          key: client_secret
 
   oauth:
     - name: authentik
