@@ -108,7 +108,7 @@ metadata:
   name: authentik-ldap-outpost
   namespace: authentik
   annotations:
-    metallb.universe.tf/address-pool: default
+    metallb.universe.tf/address-pool: vlan3-pool
 spec:
   type: LoadBalancer
   loadBalancerIP: 10.10.0.205
