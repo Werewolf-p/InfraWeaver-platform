@@ -74,8 +74,8 @@ spec:
               type: RuntimeDefault
           containers:
             - name: healer
-              # Use the ArgoCD image — already in cluster, has bash + kubectl
-              image: quay.io/argoproj/argocd:v3.4.1
+              # bitnami/kubectl — has bash + kubectl, works with in-cluster SA token
+              image: bitnami/kubectl:latest
               securityContext:
                 allowPrivilegeEscalation: false
                 capabilities:
@@ -95,72 +95,58 @@ spec:
                   NAMESPACE="argocd"
                   echo "[self-healer] $(date -u) — scanning ArgoCD apps in namespace: $NAMESPACE"
 
-                  # Collect OutOfSync apps that are not Degraded / have no running operation
+                  # Collect all apps with their status
                   APPS=$(kubectl get applications -n "$NAMESPACE" \
-                    -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.health.status}{"\t"}{.status.sync.status}{"\t"}{.status.operationState.phase}{"\n"}{end}' 2>/dev/null)
+                    -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.health.status}{"\t"}{.status.sync.status}{"\t"}{.status.operationState.phase}{"\n"}{end}' 2>/dev/null || true)
 
                   REFRESHED=0
                   SYNCED=0
                   SKIPPED=0
 
-                  echo "$APPS" | while IFS=$'\t' read -r APP HEALTH SYNC OP_PHASE; do
+                  # Pass 1: hard-refresh all OutOfSync apps (not Degraded, not running)
+                  # Use process substitution to avoid subshell variable scoping issue
+                  while IFS=$'\t' read -r APP HEALTH SYNC OP_PHASE; do
                     [ -z "$APP" ] && continue
-
-                    # Skip if currently running an operation
                     if [ "$OP_PHASE" = "Running" ]; then
                       echo "  SKIP  $APP — operation in progress"
                       SKIPPED=$((SKIPPED+1))
                       continue
                     fi
-
-                    # Only act on OutOfSync apps
-                    if [ "$SYNC" != "OutOfSync" ]; then
-                      continue
-                    fi
-
-                    # Skip Degraded apps — needs human review
+                    [ "$SYNC" != "OutOfSync" ] && continue
                     if [ "$HEALTH" = "Degraded" ]; then
                       echo "  SKIP  $APP — Degraded+OutOfSync (needs review)"
                       SKIPPED=$((SKIPPED+1))
                       continue
                     fi
-
                     echo "  REFRESH  $APP [health=$HEALTH sync=$SYNC]"
-
-                    # Step 1: hard-refresh to let ArgoCD recompute diff
                     kubectl patch application "$APP" -n "$NAMESPACE" \
                       --type=merge \
-                      -p "{\"metadata\":{\"annotations\":{\"argocd.argoproj.io/refresh\":\"hard\"}}}" \
+                      -p '{"metadata":{"annotations":{"argocd.argoproj.io/refresh":"hard"}}}' \
                       > /dev/null 2>&1 || true
-
                     REFRESHED=$((REFRESHED+1))
-                  done
+                  done < <(echo "$APPS")
 
-                  # Wait for refreshes to propagate
+                  # Wait for refreshes to propagate before second pass
                   if [ "$REFRESHED" -gt 0 ]; then
-                    echo "[self-healer] Waiting 20s for refresh to propagate..."
+                    echo "[self-healer] Waiting 20s for $REFRESHED refresh(es) to propagate..."
                     sleep 20
                   fi
 
-                  # Second pass: sync apps still OutOfSync after refresh
+                  # Pass 2: sync apps still OutOfSync after refresh
                   APPS2=$(kubectl get applications -n "$NAMESPACE" \
-                    -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.health.status}{"\t"}{.status.sync.status}{"\t"}{.status.operationState.phase}{"\n"}{end}' 2>/dev/null)
+                    -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.health.status}{"\t"}{.status.sync.status}{"\t"}{.status.operationState.phase}{"\n"}{end}' 2>/dev/null || true)
 
-                  echo "$APPS2" | while IFS=$'\t' read -r APP HEALTH SYNC OP_PHASE; do
+                  while IFS=$'\t' read -r APP HEALTH SYNC OP_PHASE; do
                     [ -z "$APP" ] && continue
-
-                    if [ "$OP_PHASE" = "Running" ] || [ "$SYNC" != "OutOfSync" ] || [ "$HEALTH" = "Degraded" ]; then
-                      continue
-                    fi
-
+                    [ "$OP_PHASE" = "Running" ] && continue
+                    [ "$SYNC" != "OutOfSync" ] && continue
+                    [ "$HEALTH" = "Degraded" ] && continue
                     echo "  SYNC  $APP [health=$HEALTH] — still OutOfSync after refresh, triggering sync"
-
                     kubectl patch application "$APP" -n "$NAMESPACE" \
                       --type=merge \
                       -p '{"operation":{"sync":{"revision":"HEAD","syncStrategy":{"hook":{"force":false}}}}}' \
                       > /dev/null 2>&1 || echo "  WARN  $APP — sync patch failed"
-
                     SYNCED=$((SYNCED+1))
-                  done
+                  done < <(echo "$APPS2")
 
                   echo "[self-healer] Done. refreshed=$REFRESHED synced=$SYNCED skipped=$SKIPPED"
