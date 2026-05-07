@@ -39,6 +39,14 @@ gitea:
   admin:
     existingSecret: gitea-admin-secret
 
+  # Pass OIDC secret to configure-gitea init container (needed for OAuth setup)
+  extraEnvs:
+    - name: GITEA_OIDC_SECRET
+      valueFrom:
+        secretKeyRef:
+          name: gitea-oidc-secret
+          key: client_secret
+
   # Inject database password and OIDC secret via environment variables
   additionalConfigFromEnvs:
     - name: GITEA__DATABASE__PASSWD
