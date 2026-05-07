@@ -22,6 +22,7 @@ spec:
     - "traefik.rlservers.com"
     - "ansible.rlservers.com"
     - "test.rlservers.com"
+    - "truenas.rlservers.com"
     - "degoudentijd.rlservers.com"
     - "feestinhetdonker.rlservers.com"
     - "marcel.rlservers.com"
