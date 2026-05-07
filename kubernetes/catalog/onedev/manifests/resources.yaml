@@ -77,7 +77,7 @@ spec:
         runAsNonRoot: false  # OneDev requires root for Docker-in-Docker CI agents
       containers:
         - name: onedev
-          image: 1dev/server:11.3.6
+          image: 1dev/server:15.0
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

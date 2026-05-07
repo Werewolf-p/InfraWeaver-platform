@@ -21,7 +21,7 @@ metadata:
 spec:
   accessModes:
     - ReadWriteOnce
-  storageClassName: longhorn-retain
+  storageClassName: longhorn
   resources:
     requests:
       storage: 5Gi
@@ -63,6 +63,8 @@ spec:
   strategy:
     type: Recreate
   selector:
+    matchLabels:
+      app: vaultwarden
   template:
     metadata:
       labels:
