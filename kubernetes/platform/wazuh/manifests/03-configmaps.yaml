@@ -10,6 +10,7 @@ data:
     cluster.name: "wazuh-cluster"
     node.name: "wazuh-indexer-0"
     network.host: "0.0.0.0"
+    discovery.type: single-node
     # TLS transport
     plugins.security.ssl.transport.pemcert_filepath: /usr/share/wazuh-indexer/certs/tls.crt
     plugins.security.ssl.transport.pemkey_filepath: /usr/share/wazuh-indexer/certs/tls.key
@@ -119,7 +120,3 @@ data:
     logging.quiet: false
     logging.verbose: false
     opensearch_security.multitenancy.enabled: false
-    wazuh.monitoring.enabled: true
-    wazuh.monitoring.frequency: 900
-    wazuh.monitoring.shards: 1
-    wazuh.monitoring.replicas: 0

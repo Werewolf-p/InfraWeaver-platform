@@ -74,7 +74,7 @@ spec:
               name: transport
           env:
             - name: OPENSEARCH_JAVA_OPTS
-              value: "-Xms512m -Xmx512m"
+              value: "-Xms1g -Xmx1g"
             - name: OPENSEARCH_INITIAL_ADMIN_PASSWORD
               valueFrom:
                 secretKeyRef:
