@@ -1,0 +1,169 @@
+---
+# Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: onedev
+  labels:
+    app.kubernetes.io/name: onedev
+    infraweaver.io/type: catalog-app
+---
+# ExternalSecret — OneDev initial admin credentials from OpenBao
+# Only used to pre-seed the admin password via environment variable on first boot.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: onedev-admin-secret
+  namespace: onedev
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: openbao
+    kind: ClusterSecretStore
+  target:
+    name: onedev-admin-secret
+    creationPolicy: Owner
+    deletionPolicy: Retain
+  data:
+    - secretKey: admin-password
+      remoteRef:
+        key: secret/platform/onedev
+        property: admin-password
+---
+# PersistentVolumeClaim — OneDev data (repos, DB, CI artifacts, attachments)
+# Uses longhorn-retain so data survives app removal and can be restored from backup.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: onedev-data
+  namespace: onedev
+  annotations:
+    # If truenas backup is configured, Longhorn will restore from latest backup on PVC creation.
+    # Set to: nfs://10.25.0.135/mnt/tank/longhorn-backups when TrueNAS NFS is configured.
+    # k8s.io/volumeSnapshotName: latest  # uncomment after first backup exists
+spec:
+  storageClassName: longhorn-retain
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+---
+# Deployment — OneDev server (single container, embedded H2 + built-in CI agent)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: onedev
+  namespace: onedev
+  labels:
+    app.kubernetes.io/name: onedev
+    app.kubernetes.io/component: server
+spec:
+  replicas: 1
+  # OneDev uses file-based storage — only one replica is safe
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: onedev
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: onedev
+        app.kubernetes.io/component: server
+    spec:
+      securityContext:
+        runAsNonRoot: false  # OneDev requires root for Docker-in-Docker CI agents
+      containers:
+        - name: onedev
+          image: 1dev/server:11.3.6
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 6610
+              protocol: TCP
+            - name: ssh
+              containerPort: 6611
+              protocol: TCP
+          env:
+            - name: hibernate_dialect
+              value: io.onedev.server.persistence.dialect.H2Dialect
+            - name: ONEDEV_URL
+              value: "https://onedev.int.rlservers.com"
+            # Pre-seed admin password from OpenBao secret (only applies on first boot)
+            - name: INITIAL_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: onedev-admin-secret
+                  key: admin-password
+                  optional: true
+          volumeMounts:
+            - name: data
+              mountPath: /opt/onedev
+          resources:
+            requests:
+              cpu: 200m
+              memory: 768Mi
+            limits:
+              cpu: 2000m
+              memory: 2Gi
+          livenessProbe:
+            httpGet:
+              path: /~status
+              port: http
+            initialDelaySeconds: 90
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /~status
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: onedev-data
+---
+# Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: onedev
+  namespace: onedev
+  labels:
+    app.kubernetes.io/name: onedev
+spec:
+  selector:
+    app.kubernetes.io/name: onedev
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+    - name: ssh
+      port: 22
+      targetPort: ssh
+      protocol: TCP
+---
+# IngressRoute — VPN-only via Traefik (onedev.int.rlservers.com)
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: onedev
+  namespace: onedev
+  labels:
+    app.kubernetes.io/name: onedev
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`onedev.int.rlservers.com`)
+      kind: Rule
+      services:
+        - name: onedev
+          port: 80
+  tls: {}

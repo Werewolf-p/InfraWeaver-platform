@@ -1,0 +1,16 @@
+---
+# catalog.yaml — source definition for catalog apps
+# This file is read by scripts/sync-catalog.sh to generate ArgoCD Applications.
+#
+# Catalog app: OneDev — all-in-one DevOps platform (Git, CI/CD, Issue Tracker)
+# Access: onedev.int.rlservers.com (VPN-only)
+# SSO: Authentik OAuth2 (configured post-deploy via OneDev admin UI)
+# Storage: Single PVC on longhorn-retain (embedded H2 DB + repos in /opt/onedev)
+# Note: No Helm chart — pure manifests only.
+
+name: onedev
+description: "OneDev — all-in-one Git server with built-in CI/CD and issue tracker"
+namespace: onedev
+
+manifests:
+  path: kubernetes/catalog/onedev/manifests

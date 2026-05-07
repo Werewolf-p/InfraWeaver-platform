@@ -1,0 +1,35 @@
+---
+# Longhorn RecurringJob — Daily backup of OneDev data to configured backup target.
+# Requires Longhorn backupTarget to be set (e.g., nfs://10.25.0.135/mnt/tank/longhorn-backups).
+# This ensures the repo data, DB, and CI artifacts survive a full cluster redeployment.
+apiVersion: longhorn.io/v1beta2
+kind: RecurringJob
+metadata:
+  name: onedev-backup-daily
+  namespace: longhorn-system
+spec:
+  cron: "0 2 * * *"       # 02:00 every night
+  task: backup
+  groups:
+    - onedev
+  retain: 7                # keep 7 daily backups
+  concurrency: 1
+  labels:
+    app.kubernetes.io/name: onedev
+    infraweaver.io/backup: "true"
+---
+# Longhorn RecurringJob — Weekly snapshot for quick local rollback (no external target needed).
+apiVersion: longhorn.io/v1beta2
+kind: RecurringJob
+metadata:
+  name: onedev-snapshot-weekly
+  namespace: longhorn-system
+spec:
+  cron: "0 3 * * 0"       # 03:00 every Sunday
+  task: snapshot
+  groups:
+    - onedev
+  retain: 4                # keep 4 weekly snapshots
+  concurrency: 1
+  labels:
+    app.kubernetes.io/name: onedev

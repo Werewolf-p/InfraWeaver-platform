@@ -14,6 +14,7 @@ catalog:
   #   actual           — Personal finance / budgeting          (actual.int.rlservers.com)
   #   n8n              — Workflow automation                   (n8n.int.rlservers.com)
   #   forgejo          — Community Git forge (Gitea fork)      (forgejo.int.rlservers.com)
+  #   onedev           — All-in-one DevOps platform (Git+CI)   (onedev.int.rlservers.com)
   #
   # Defined but not yet enabled (manifests still in development):
   #   mealie           — Recipe manager with OIDC              (mealie.int.rlservers.com)
@@ -41,4 +42,4 @@ catalog:
     - excalidraw
     - actual
     - n8n
-    - forgejo
+    - onedev
