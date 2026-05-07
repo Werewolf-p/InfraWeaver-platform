@@ -130,11 +130,14 @@ spec:
           secret:
             secretName: wazuh-indexer-certs
   volumeClaimTemplates:
-    - metadata:
+    - apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
         name: wazuh-indexer-data
       spec:
         accessModes: ["ReadWriteOnce"]
         storageClassName: longhorn-retain
+        volumeMode: Filesystem
         resources:
           requests:
             storage: 20Gi
