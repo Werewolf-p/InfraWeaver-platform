@@ -74,7 +74,8 @@ spec:
               type: RuntimeDefault
           containers:
             - name: healer
-              image: registry.k8s.io/kubectl:v1.32.0
+              # Use the ArgoCD image — already in cluster, has bash + kubectl
+              image: quay.io/argoproj/argocd:v3.4.1
               securityContext:
                 allowPrivilegeEscalation: false
                 capabilities:
