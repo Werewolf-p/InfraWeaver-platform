@@ -81,6 +81,30 @@ spec:
         decodingStrategy: None
         metadataPolicy: None
 ---
+# ExternalSecret — Gitea OIDC (Authentik) client secret
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: gitea-oidc-secret
+  namespace: gitea
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: openbao
+    kind: ClusterSecretStore
+  target:
+    name: gitea-oidc-secret
+    creationPolicy: Owner
+    deletionPolicy: Retain
+  data:
+    - secretKey: client_secret
+      remoteRef:
+        key: secret/platform/gitea-oidc
+        property: client_secret
+        conversionStrategy: Default
+        decodingStrategy: None
+        metadataPolicy: None
+---
 # PersistentVolumeClaim — PostgreSQL data on Longhorn
 apiVersion: v1
 kind: PersistentVolumeClaim

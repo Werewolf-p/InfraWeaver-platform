@@ -39,13 +39,29 @@ gitea:
   admin:
     existingSecret: gitea-admin-secret
 
-  # Inject database password from the gitea-postgres-secret ExternalSecret
+  # Inject database password and OIDC secret via environment variables
   additionalConfigFromEnvs:
     - name: GITEA__DATABASE__PASSWD
       valueFrom:
         secretKeyRef:
           name: gitea-postgres-secret
           key: password
+    - name: GITEA_OIDC_SECRET
+      valueFrom:
+        secretKeyRef:
+          name: gitea-oidc-secret
+          key: client_secret
+
+  oauth:
+    - name: authentik
+      provider: openidConnect
+      key: gitea
+      secret: "${GITEA_OIDC_SECRET}"
+      autoDiscoverUrl: "https://auth.rlservers.com/application/o/gitea/.well-known/openid-configuration"
+      scopes: "openid profile email"
+      adminGroup: "platform-admins"
+      groupClaimName: groups
+      iconUrl: "https://auth.rlservers.com/static/dist/assets/icons/icon.png"
 
   config:
     # Server base URL (external address)
