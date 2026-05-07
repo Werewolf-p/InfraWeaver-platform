@@ -206,7 +206,7 @@ metadata:
 spec:
   refreshInterval: 1h
   secretStoreRef:
-    name: openbao-backend
+    name: openbao
     kind: ClusterSecretStore
   target:
     name: minio-velero-credentials
@@ -230,7 +230,7 @@ metadata:
 spec:
   refreshInterval: 1h
   secretStoreRef:
-    name: openbao-backend
+    name: openbao
     kind: ClusterSecretStore
   target:
     name: velero-s3-credentials
