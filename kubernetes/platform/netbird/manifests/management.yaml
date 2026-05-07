@@ -58,6 +58,10 @@ kind: PersistentVolumeClaim
 metadata:
   name: netbird-management-data
   namespace: netbird
+  annotations:
+    # Include in nightly TrueNAS NFS backup (RecurringJob: truenas-backup-daily).
+    # NetBird management DB contains all peers, groups, and setup keys — critical.
+    recurring-job-group.longhorn.io/truenas-backup: "enabled"
 spec:
   accessModes:
     - ReadWriteOnce

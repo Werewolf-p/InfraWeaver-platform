@@ -15,6 +15,11 @@ kind: PersistentVolumeClaim
 metadata:
   name: minio-velero-data
   namespace: velero
+  annotations:
+    # Include in nightly TrueNAS NFS backup (RecurringJob: truenas-backup-daily).
+    # MinIO stores Velero cluster backups — backing up the backup store ensures
+    # Velero restores survive a complete TrueNAS + cluster failure scenario.
+    recurring-job-group.longhorn.io/truenas-backup: "enabled"
 spec:
   accessModes:
     - ReadWriteOnce

@@ -43,3 +43,24 @@ catalog:
     - actual
     - n8n
     - onedev
+
+# ── Persistence (TrueNAS NFS backup for Longhorn volumes) ─────────────────────
+persistence:
+  truenas:
+    # Set to true if you have a TrueNAS instance with NFS available.
+    # When enabled, Longhorn backs up all PVCs annotated with
+    #   recurring-job-group.longhorn.io/truenas-backup: "enabled"
+    # to the NFS share at nfs_ip:/nfs_path nightly.
+    #
+    # TrueNAS prerequisites (one-time setup):
+    #   1. Create dataset: Storage → Pools → Add Dataset "longhorn-backups"
+    #   2. Sharing → NFS → Add Share: /mnt/tank/longhorn-backups
+    #   3. Set "All Dirs" and network access to 10.10.0.0/24
+    #   4. Set Mapall User: root (Longhorn requires root NFS access)
+    #
+    # Fresh redeploy restore:
+    #   Run scripts/restore-from-truenas.sh before deploying apps to
+    #   restore the latest backup of each volume from TrueNAS.
+    enabled: true
+    nfs_ip: "10.25.0.135"
+    nfs_path: "/mnt/Main/k8s-longhorn-backups"

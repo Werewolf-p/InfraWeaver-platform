@@ -14,10 +14,14 @@ kind: PersistentVolumeClaim
 metadata:
   name: n8n-data
   namespace: n8n
+  annotations:
+    # Include in nightly TrueNAS NFS backup (RecurringJob: truenas-backup-daily).
+    # n8n workflows and credentials are critical — retained across full redeployments.
+    recurring-job-group.longhorn.io/truenas-backup: "enabled"
 spec:
   accessModes:
     - ReadWriteOnce
-  storageClassName: longhorn
+  storageClassName: longhorn-retain
   resources:
     requests:
       storage: 5Gi

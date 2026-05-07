@@ -38,9 +38,10 @@ metadata:
   name: onedev-data
   namespace: onedev
   annotations:
-    # If truenas backup is configured, Longhorn will restore from latest backup on PVC creation.
-    # Set to: nfs://10.25.0.135/mnt/tank/longhorn-backups when TrueNAS NFS is configured.
-    # k8s.io/volumeSnapshotName: latest  # uncomment after first backup exists
+    # Include in nightly TrueNAS NFS backup via RecurringJob truenas-backup-daily.
+    # On fresh redeploy, scripts/restore-from-truenas.sh uses this backup to restore
+    # the volume before OneDev starts — preserving all repos, CI config, and issues.
+    recurring-job-group.longhorn.io/truenas-backup: "enabled"
 spec:
   storageClassName: longhorn-retain
   accessModes:

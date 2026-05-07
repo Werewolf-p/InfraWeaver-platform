@@ -14,10 +14,14 @@ kind: PersistentVolumeClaim
 metadata:
   name: vaultwarden-data
   namespace: vaultwarden
+  annotations:
+    # Include in nightly TrueNAS NFS backup (RecurringJob: truenas-backup-daily).
+    # Password vault data is critical — retained across full cluster redeployments.
+    recurring-job-group.longhorn.io/truenas-backup: "enabled"
 spec:
   accessModes:
     - ReadWriteOnce
-  storageClassName: longhorn
+  storageClassName: longhorn-retain
   resources:
     requests:
       storage: 5Gi
