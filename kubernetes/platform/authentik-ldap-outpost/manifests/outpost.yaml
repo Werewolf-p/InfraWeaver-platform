@@ -22,6 +22,7 @@ spec:
   target:
     name: authentik-ldap-token
     creationPolicy: Owner
+    deletionPolicy: Retain
   data:
     - secretKey: token
       remoteRef:

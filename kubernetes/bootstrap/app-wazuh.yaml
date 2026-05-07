@@ -28,6 +28,15 @@ spec:
       kind: Certificate
       jsonPointers:
         - /status
+    - group: apps
+      kind: StatefulSet
+      jsonPointers:
+        - /spec/volumeClaimTemplates/0/spec/volumeMode
+        - /spec/volumeClaimTemplates/0/status
+        - /spec/template/spec/initContainers/0/terminationMessagePath
+        - /spec/template/spec/initContainers/0/terminationMessagePolicy
+        - /spec/template/spec/containers/0/terminationMessagePath
+        - /spec/template/spec/containers/0/terminationMessagePolicy
   syncPolicy:
     automated:
       prune: true

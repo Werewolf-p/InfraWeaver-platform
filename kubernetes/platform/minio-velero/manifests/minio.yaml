@@ -222,6 +222,7 @@ spec:
   target:
     name: minio-velero-credentials
     creationPolicy: Owner
+    deletionPolicy: Retain
   data:
     - secretKey: access_key
       remoteRef:
@@ -246,6 +247,7 @@ spec:
   target:
     name: velero-s3-credentials
     creationPolicy: Owner
+    deletionPolicy: Retain
     template:
       data:
         cloud: |
