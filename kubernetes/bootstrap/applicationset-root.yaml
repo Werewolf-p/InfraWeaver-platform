@@ -67,3 +67,12 @@ spec:
           jqPathExpressions:
             - '.data["admin-password"]'
             - '.data["admin-user"]'
+        - group: external-secrets.io
+          kind: ExternalSecret
+          jsonPointers:
+            - /status
+            - /metadata/finalizers
+          jqPathExpressions:
+            - '.spec.data[].remoteRef.conversionStrategy'
+            - '.spec.data[].remoteRef.decodingStrategy'
+            - '.spec.data[].remoteRef.metadataPolicy'
