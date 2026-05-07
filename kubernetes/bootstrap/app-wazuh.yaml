@@ -34,13 +34,19 @@ spec:
         - /status
     - group: apps
       kind: StatefulSet
-      jsonPointers:
-        - /spec/volumeClaimTemplates/0/spec/volumeMode
-        - /spec/volumeClaimTemplates/0/status
-        - /spec/template/spec/initContainers/0/terminationMessagePath
-        - /spec/template/spec/initContainers/0/terminationMessagePolicy
-        - /spec/template/spec/containers/0/terminationMessagePath
-        - /spec/template/spec/containers/0/terminationMessagePolicy
+      jqPathExpressions:
+        - '.spec.volumeClaimTemplates[].spec.volumeMode'
+        - '.spec.volumeClaimTemplates[].status'
+        - '.spec.template.spec.containers[].terminationMessagePath'
+        - '.spec.template.spec.containers[].terminationMessagePolicy'
+        - '.spec.template.spec.containers[].imagePullPolicy'
+        - '.spec.template.spec.initContainers[].terminationMessagePath'
+        - '.spec.template.spec.initContainers[].terminationMessagePolicy'
+        - '.spec.template.spec.initContainers[].imagePullPolicy'
+        - '.spec.template.spec.dnsPolicy'
+        - '.spec.template.spec.restartPolicy'
+        - '.spec.template.spec.terminationGracePeriodSeconds'
+        - '.spec.template.spec.securityContext'
   syncPolicy:
     automated:
       prune: true
