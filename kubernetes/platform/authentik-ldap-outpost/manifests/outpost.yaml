@@ -2,13 +2,7 @@
 # Authentik LDAP Outpost — exposes Authentik as an LDAP server
 # TrueNAS (and other LDAP-only apps) authenticate against this outpost.
 # Outpost PK: 3558b634-115c-4065-895a-012dc3c25328
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: authentik
-  labels:
-    app.kubernetes.io/name: authentik
----
+# Note: Namespace is managed by apps-authentik-manifests, not here.
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
