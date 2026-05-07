@@ -1,5 +1,6 @@
 global:
   domain: argocd.int.rlservers.com
+  priorityClassName: platform-critical
 
 server:
   replicas: 1  # override to 2 for productie via env patch
@@ -94,6 +95,4 @@ redis-ha:
 notifications:
   enabled: true
 
-# Self-healing: ensure ArgoCD components are never evicted under resource pressure
-global:
-  priorityClassName: platform-critical
+# Self-healing: priorityClassName moved to global block above

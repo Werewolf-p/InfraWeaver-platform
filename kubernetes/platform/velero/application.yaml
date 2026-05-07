@@ -1,0 +1,5 @@
+repoURL: https://vmware-tanzu.github.io/helm-charts
+chart: velero
+targetRevision: 8.1.0
+releaseName: velero
+namespace: velero

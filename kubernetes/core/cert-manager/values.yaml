@@ -8,6 +8,7 @@ replicaCount: 2
 global:
   leaderElection:
     enabled: true
+  priorityClassName: platform-critical
 
 # Control-plane taint toleration — required since no worker nodes exist
 tolerations:
@@ -40,6 +41,4 @@ prometheus:
   servicemonitor:
     enabled: true
 
-# Self-healing: ensure cert-manager is never evicted under resource pressure
-global:
-  priorityClassName: platform-critical
+# Self-healing: priorityClassName moved to global block above

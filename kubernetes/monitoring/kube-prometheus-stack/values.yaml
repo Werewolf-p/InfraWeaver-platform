@@ -178,21 +178,32 @@ alertmanager:
       group_wait: 30s
       group_interval: 5m
       repeat_interval: 4h
-      receiver: "email-admin"
+      receiver: "all"
       routes:
         - matchers:
             - name: severity
               value: critical
-          receiver: "email-admin"
-          continue: true
+          receiver: "all"
+          continue: false
         - matchers:
             - name: severity
               value: warning
-          receiver: "email-admin"
+          receiver: "discord"
     receivers:
       - name: "email-admin"
         email_configs:
           - to: "remonhulst@gmail.com"
+            send_resolved: true
+      - name: "discord"
+        webhook_configs:
+          - url: "http://alertmanager-discord.monitoring.svc.cluster.local:9094"
+            send_resolved: true
+      - name: "all"
+        email_configs:
+          - to: "remonhulst@gmail.com"
+            send_resolved: true
+        webhook_configs:
+          - url: "http://alertmanager-discord.monitoring.svc.cluster.local:9094"
             send_resolved: true
     inhibit_rules:
       - source_matchers:

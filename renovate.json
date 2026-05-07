@@ -1,0 +1,69 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "Renovate bot config — auto-creates PRs to update container images and Helm chart versions",
+  "extends": [
+    "config:base",
+    ":dependencyDashboard",
+    ":semanticCommits",
+    ":separatePatchReleases"
+  ],
+  "timezone": "Europe/Amsterdam",
+  "schedule": ["after 2am and before 6am on monday"],
+  "prConcurrentLimit": 5,
+  "prHourlyLimit": 2,
+  "labels": ["renovate", "dependencies"],
+  "assignees": ["Werewolf-p"],
+  "reviewers": ["Werewolf-p"],
+  "commitMessagePrefix": "chore(deps):",
+  "packageRules": [
+    {
+      "description": "Group all patch-level updates together",
+      "matchUpdateTypes": ["patch"],
+      "groupName": "patch updates",
+      "automerge": false
+    },
+    {
+      "description": "Pin digest for all Docker images",
+      "matchDatasources": ["docker"],
+      "pinDigests": true
+    },
+    {
+      "description": "Never auto-update NetBird — manual review required for VPN components",
+      "matchPackagePatterns": ["netbirdio/.*"],
+      "enabled": true,
+      "automerge": false,
+      "labels": ["renovate", "netbird", "needs-manual-test"]
+    },
+    {
+      "description": "Never auto-update OpenBao — secrets manager requires manual upgrade",
+      "matchPackagePatterns": ["quay.io/openbao/.*"],
+      "enabled": true,
+      "automerge": false,
+      "labels": ["renovate", "openbao", "needs-manual-test"]
+    },
+    {
+      "description": "Group Grafana stack updates",
+      "matchPackagePatterns": ["grafana/.*", "prom/.*", "quay.io/prometheus/.*"],
+      "groupName": "monitoring stack",
+      "automerge": false
+    },
+    {
+      "description": "GitHub Actions updates",
+      "matchManagers": ["github-actions"],
+      "groupName": "github actions",
+      "automerge": false
+    }
+  ],
+  "kubernetes": {
+    "fileMatch": [
+      "kubernetes/catalog/.*\\.yaml$",
+      "kubernetes/platform/.*\\.yaml$",
+      "kubernetes/core/.*\\.yaml$",
+      "kubernetes/monitoring/.*\\.yaml$"
+    ]
+  },
+  "ignorePaths": [
+    "**/templates/**",
+    "**/example*"
+  ]
+}
