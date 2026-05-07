@@ -47,6 +47,11 @@ spec:
         - '.spec.template.spec.restartPolicy'
         - '.spec.template.spec.terminationGracePeriodSeconds'
         - '.spec.template.spec.securityContext'
+        - '.spec.template.spec.schedulerName'
+        - '.spec.persistentVolumeClaimRetentionPolicy'
+        - '.spec.podManagementPolicy'
+        - '.spec.revisionHistoryLimit'
+        - '.spec.updateStrategy.rollingUpdate'
   syncPolicy:
     automated:
       prune: true
