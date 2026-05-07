@@ -2,7 +2,8 @@
 # ── NetBird Relay Server ──────────────────────────────────────────────────────
 # Handles NAT traversal (relay) for peers that can't connect directly.
 # Relay listens on port 443 (port is derived from NB_EXPOSED_ADDRESS).
-# External: 10.10.0.204:443 → proxied by Traefik at netbird.rlservers.com/relay
+# External: api-netbird.rlservers.com/relay → Traefik → this pod
+# NB_EXPOSED_ADDRESS must match the relay address in management.json Relay.Addresses.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -28,7 +29,7 @@ spec:
           imagePullPolicy: IfNotPresent
           env:
             - name: NB_EXPOSED_ADDRESS
-              value: "rels://netbird.rlservers.com:443/relay"
+              value: "rels://api-netbird.rlservers.com:443/relay"
             - name: NB_AUTH_SECRET
               valueFrom:
                 secretKeyRef:
