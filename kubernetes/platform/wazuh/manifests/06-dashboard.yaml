@@ -62,12 +62,12 @@ spec:
                   name: wazuh-credentials
                   key: api_password
             - name: DASHBOARD_USERNAME
-              value: "kibanaserver"
+              value: "admin"
             - name: DASHBOARD_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: wazuh-credentials
-                  key: dashboard_password
+                  key: indexer_password
           volumeMounts:
             - name: dashboard-conf
               mountPath: /usr/share/wazuh-dashboard/config/opensearch_dashboards.yml

@@ -75,7 +75,7 @@ spec:
           env:
             - name: OPENSEARCH_JAVA_OPTS
               value: "-Xms1g -Xmx1g"
-            - name: OPENSEARCH_INITIAL_ADMIN_PASSWORD
+            - name: INDEXER_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: wazuh-credentials
