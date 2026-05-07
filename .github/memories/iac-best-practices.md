@@ -257,3 +257,67 @@ kubernetes/
 - Add `LimitRange` to every catalog namespace with sensible defaults.
 - Without LimitRange, a pod without explicit `resources:` has no limits → can consume entire node.
 - Default request: `cpu: 50m, memory: 64Mi`. Default limit: `cpu: 200m, memory: 256Mi`.
+
+---
+
+## Longhorn chart values: priorityClass must be a STRING
+
+Longhorn 1.7.x expects `longhornManager.priorityClass` and `longhornDriver.priorityClass` as **strings** (priority class name), NOT objects.
+
+**WRONG:**
+```yaml
+longhornManager:
+  priorityClass:
+    create: false
+    name: platform-critical
+```
+
+**CORRECT:**
+```yaml
+longhornManager:
+  priorityClass: "longhorn-critical"
+```
+
+The Helm template uses `{{ .Values.longhornManager.priorityClass | quote }}` — quoting a map object produces garbage output like `)?)*'` which fails validation.
+
+---
+
+## Kyverno ClusterPolicy gotchas
+
+1. **`validationFailureAction`** only accepts `Audit` or `Enforce` (case-sensitive). `Warn` is invalid.
+2. **`value: null`** in deny conditions causes ArgoCD OutOfSync — Kubernetes strips null values from stored objects, so ArgoCD always sees a diff. Remove null values from git manifests.
+3. Kyverno auto-adds `spec.admission: true` and `spec.rules[].skipBackgroundRequests: true` — must be in `ignoreDifferences` or added to git manifests.
+
+---
+
+## StatefulSet Kubernetes-defaulted fields
+
+When creating a StatefulSet, Kubernetes adds many fields that cause ArgoCD OutOfSync unless normalized in git manifests or ignored:
+
+**Pod spec defaults:**
+- `imagePullPolicy: IfNotPresent`
+- `terminationMessagePath: /dev/termination-log`
+- `terminationMessagePolicy: File`
+- `dnsPolicy: ClusterFirst`
+- `restartPolicy: Always`
+- `schedulerName: default-scheduler`
+- `terminationGracePeriodSeconds: 30`
+- `securityContext: {}`
+
+**StatefulSet spec defaults:**
+- `podManagementPolicy: OrderedReady`
+- `revisionHistoryLimit: 10`
+- `updateStrategy.rollingUpdate.partition: 0`
+- `persistentVolumeClaimRetentionPolicy.whenDeleted: Retain`
+- `persistentVolumeClaimRetentionPolicy.whenScaled: Retain`
+
+**VolumeClaimTemplates defaults:**
+- `apiVersion: v1`
+- `kind: PersistentVolumeClaim`
+- `spec.volumeMode: Filesystem`
+- `status.phase: Pending`
+
+Two strategies to handle:
+1. **Add all defaults to git manifests** (most reliable with ServerSideApply)
+2. **ignoreDifferences jqPathExpressions** (requires `RespectIgnoreDifferences: true` in syncOptions)
+
