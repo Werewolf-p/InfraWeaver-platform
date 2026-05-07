@@ -98,3 +98,9 @@ nodeAgent:
     limits:
       cpu: 500m
       memory: 512Mi
+
+# Pin kubectl image tag — bitnami/kubectl uses k8s version as tag, but
+# k8s 1.35 is not yet published by bitnami. Pin to latest available.
+kubectl:
+  image:
+    tag: "1.33"
