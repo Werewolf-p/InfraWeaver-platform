@@ -79,7 +79,7 @@ spec:
 ---
 # ExternalSecret — pull Discord webhook URL from OpenBao
 # Run: bao kv put secret/platform/discord webhook_url="https://discord.com/api/webhooks/..."
-apiVersion: external-secrets.io/v1beta1
+apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
   name: discord-webhook
