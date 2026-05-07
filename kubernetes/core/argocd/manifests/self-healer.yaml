@@ -1,0 +1,165 @@
+---
+# Self-Healer — automatic ArgoCD OutOfSync recovery
+#
+# Runs every 15 minutes and finds apps that are:
+#   Health=Healthy  + Sync=OutOfSync  (safe to re-sync, workloads are fine)
+#   Health=Unknown  + Sync=OutOfSync  (stale refresh — trigger hard-refresh)
+#
+# Strategy: patch argocd.argoproj.io/refresh=hard annotation first, then
+# wait 15 s for ArgoCD to re-compute the diff. If the app is still OutOfSync
+# AFTER the refresh, trigger a sync operation. This avoids syncing apps whose
+# "OutOfSync" was a stale cache entry that resolves on refresh alone.
+#
+# Apps that are Degraded, Progressing or have a running Operation are skipped —
+# they need human review, not an automated sync.
+#
+# RBAC: ServiceAccount + ClusterRole limited to argoproj.io/applications
+# (get, list, patch). No cluster-admin, no secrets access.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: argocd-self-healer
+  namespace: argocd
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: argocd-self-healer
+rules:
+  - apiGroups: ["argoproj.io"]
+    resources: ["applications"]
+    verbs: ["get", "list", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: argocd-self-healer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: argocd-self-healer
+subjects:
+  - kind: ServiceAccount
+    name: argocd-self-healer
+    namespace: argocd
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: argocd-self-healer
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: argocd-self-healer
+    infraweaver.io/auth: vpn
+spec:
+  schedule: "*/15 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 600
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: argocd-self-healer
+        spec:
+          serviceAccountName: argocd-self-healer
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: healer
+              image: bitnami/kubectl:1.32
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 200m
+                  memory: 128Mi
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -euo pipefail
+
+                  NAMESPACE="argocd"
+                  echo "[self-healer] $(date -u) — scanning ArgoCD apps in namespace: $NAMESPACE"
+
+                  # Collect OutOfSync apps that are not Degraded / have no running operation
+                  APPS=$(kubectl get applications -n "$NAMESPACE" \
+                    -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.health.status}{"\t"}{.status.sync.status}{"\t"}{.status.operationState.phase}{"\n"}{end}' 2>/dev/null)
+
+                  REFRESHED=0
+                  SYNCED=0
+                  SKIPPED=0
+
+                  echo "$APPS" | while IFS=$'\t' read -r APP HEALTH SYNC OP_PHASE; do
+                    [ -z "$APP" ] && continue
+
+                    # Skip if currently running an operation
+                    if [ "$OP_PHASE" = "Running" ]; then
+                      echo "  SKIP  $APP — operation in progress"
+                      SKIPPED=$((SKIPPED+1))
+                      continue
+                    fi
+
+                    # Only act on OutOfSync apps
+                    if [ "$SYNC" != "OutOfSync" ]; then
+                      continue
+                    fi
+
+                    # Skip Degraded apps — needs human review
+                    if [ "$HEALTH" = "Degraded" ]; then
+                      echo "  SKIP  $APP — Degraded+OutOfSync (needs review)"
+                      SKIPPED=$((SKIPPED+1))
+                      continue
+                    fi
+
+                    echo "  REFRESH  $APP [health=$HEALTH sync=$SYNC]"
+
+                    # Step 1: hard-refresh to let ArgoCD recompute diff
+                    kubectl patch application "$APP" -n "$NAMESPACE" \
+                      --type=merge \
+                      -p "{\"metadata\":{\"annotations\":{\"argocd.argoproj.io/refresh\":\"hard\"}}}" \
+                      > /dev/null 2>&1 || true
+
+                    REFRESHED=$((REFRESHED+1))
+                  done
+
+                  # Wait for refreshes to propagate
+                  if [ "$REFRESHED" -gt 0 ]; then
+                    echo "[self-healer] Waiting 20s for refresh to propagate..."
+                    sleep 20
+                  fi
+
+                  # Second pass: sync apps still OutOfSync after refresh
+                  APPS2=$(kubectl get applications -n "$NAMESPACE" \
+                    -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.health.status}{"\t"}{.status.sync.status}{"\t"}{.status.operationState.phase}{"\n"}{end}' 2>/dev/null)
+
+                  echo "$APPS2" | while IFS=$'\t' read -r APP HEALTH SYNC OP_PHASE; do
+                    [ -z "$APP" ] && continue
+
+                    if [ "$OP_PHASE" = "Running" ] || [ "$SYNC" != "OutOfSync" ] || [ "$HEALTH" = "Degraded" ]; then
+                      continue
+                    fi
+
+                    echo "  SYNC  $APP [health=$HEALTH] — still OutOfSync after refresh, triggering sync"
+
+                    kubectl patch application "$APP" -n "$NAMESPACE" \
+                      --type=merge \
+                      -p '{"operation":{"sync":{"revision":"HEAD","syncStrategy":{"hook":{"force":false}}}}}' \
+                      > /dev/null 2>&1 || echo "  WARN  $APP — sync patch failed"
+
+                    SYNCED=$((SYNCED+1))
+                  done
+
+                  echo "[self-healer] Done. refreshed=$REFRESHED synced=$SYNCED skipped=$SKIPPED"

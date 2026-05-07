@@ -52,7 +52,7 @@ longhornManager:
       effect: "NoSchedule"
   priorityClass:
     create: false
-    name: platform-critical
+    name: longhorn-critical
 
 longhornDriver:
   tolerations:
@@ -61,4 +61,4 @@ longhornDriver:
       effect: "NoSchedule"
   priorityClass:
     create: false
-    name: platform-critical
+    name: longhorn-critical
