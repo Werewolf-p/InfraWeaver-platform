@@ -40,7 +40,6 @@ spec:
                 any:
                   - key: "{{ element.readinessProbe }}"
                     operator: Equals
-                    value: null
 
     - name: require-liveness-probe
       match:
@@ -60,4 +59,3 @@ spec:
                 any:
                   - key: "{{ element.livenessProbe }}"
                     operator: Equals
-                    value: null
