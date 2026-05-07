@@ -2,12 +2,12 @@ name: CI — Validate & Diff
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Runs on every PR and push to main. Consolidates:
-#   - Security scanning (gitleaks, checkov, sops, trivy, actionlint)
-#   - Kubernetes manifest validation (kubeconform, helm values)
+#   - Security scanning (gitleaks, checkov, trivy image + config, actionlint)
+#   - Kubernetes manifest validation (kubeconform, helm values, kube-score)
+#   - YAML duplicate-key detection (prevents MetalLB-style silent overwrites)
 #   - PR diff preview (kubectl dry-run against live cluster)
 #
-# Previously: security-scan.yml + pr-diff.yml + catalog-validate.yml
-# Catalog concept removed — replaced by wiki documentation.
+# Note: SOPS validation removed — project secrets are in OpenBao, not SOPS files.
 # ─────────────────────────────────────────────────────────────────────────────
 
 on:
@@ -54,24 +54,7 @@ jobs:
           soft_fail: true
           output_format: github_failed_only
 
-  # ── SOPS encryption validation ───────────────────────────────────────────────
-  sops-validation:
-    name: SOPS Encryption Check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: |
-          [ -f .sops.yaml ] || (echo "❌ .sops.yaml missing"; exit 1)
-          FAIL=0
-          for f in envs/*/secrets.sops.yaml; do
-            if [ -f "$f" ]; then
-              grep -q "sops:" "$f" || { echo "❌ $f is NOT encrypted"; FAIL=1; }
-              echo "✅ $f encrypted"
-            fi
-          done
-          exit $FAIL
-
-  # ── Kubernetes manifest lint ─────────────────────────────────────────────────
+  # ── Kubernetes manifest lint + YAML duplicate-key check ─────────────────────
   kubernetes-manifests:
     name: Kubernetes Manifest Validation
     runs-on: ubuntu-latest
@@ -92,9 +75,9 @@ jobs:
               2>&1 || true
           echo "✅ Manifest validation complete"
 
-  # ── Helm values structure ────────────────────────────────────────────────────
+  # ── Helm values structure + duplicate YAML key detection ────────────────────
   helm-lint:
-    name: Helm Values Structure
+    name: Helm Values & YAML Duplicate Keys
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -114,6 +97,56 @@ jobs:
           [ $FAIL -eq 0 ] && echo "✅ All helm values valid"
           exit $FAIL
 
+      - name: Detect duplicate YAML keys in values.yaml files
+        run: |
+          # Duplicate keys silently overwrite prior values in Helm.
+          # Example: two 'speaker:' blocks in MetalLB values.yaml caused ignoreExcludeLB
+          # to be dropped, making all MetalLB IPs unreachable (see memory: metallb-duplicate-yaml-keys).
+          python3 << 'PYEOF'
+          import sys, re, glob
+
+          def find_duplicates(filepath):
+              """Detect duplicate top-level YAML keys in a file."""
+              seen = {}
+              duplicates = []
+              with open(filepath) as f:
+                  for lineno, line in enumerate(f, 1):
+                      # Match top-level keys (no leading spaces, key: pattern)
+                      m = re.match(r'^([a-zA-Z][a-zA-Z0-9_-]*):', line)
+                      if m:
+                          key = m.group(1)
+                          if key in ('---', 'apiVersion', 'kind', 'metadata', 'spec', 'data'):
+                              continue  # skip standard K8s manifest keys
+                          if key in seen:
+                              duplicates.append((key, seen[key], lineno))
+                          seen[key] = lineno
+              return duplicates
+
+          files = (
+              glob.glob('kubernetes/core/**/values.yaml', recursive=True) +
+              glob.glob('kubernetes/apps/**/values.yaml', recursive=True) +
+              glob.glob('kubernetes/platform/**/values.yaml', recursive=True) +
+              glob.glob('kubernetes/monitoring/**/values.yaml', recursive=True) +
+              glob.glob('kubernetes/catalog/**/values.yaml', recursive=True)
+          )
+
+          fail = False
+          for f in sorted(files):
+              dupes = find_duplicates(f)
+              if dupes:
+                  for key, first_line, dup_line in dupes:
+                      print(f"❌ {f}: duplicate key '{key}' (first at line {first_line}, duplicate at line {dup_line})")
+                  fail = True
+              else:
+                  print(f"✅ {f}")
+
+          if fail:
+              print("\n💡 Duplicate YAML keys cause silent overwrites in Helm. Merge into a single block.")
+              sys.exit(1)
+          else:
+              print("✅ No duplicate YAML keys detected")
+          PYEOF
+
   # ── GitHub Actions lint ──────────────────────────────────────────────────────
   actionlint:
     name: GitHub Actions Lint
@@ -128,57 +161,43 @@ jobs:
           actionlint .github/workflows/*.yml 2>&1 || true
           echo "✅ Workflow lint complete"
 
-  # ── Trivy image scan ─────────────────────────────────────────────────────────
-  trivy-scan:
-    name: Trivy — Image Vulnerability Scan
+  # ── Trivy: image scan + manifest misconfig (combined to save install time) ───
+  trivy:
+    name: Trivy — Vulnerability & Misconfig Scan
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Scan platform and catalog images
+      - name: Install Trivy
         run: |
           TRIVY_VERSION="v0.70.0"
           curl -fsSL "https://github.com/aquasecurity/trivy/releases/download/${TRIVY_VERSION}/trivy_0.70.0_Linux-64bit.tar.gz" \
             | tar -xzf - -C /usr/local/bin/ trivy
-          
-          # Static platform images (always scan)
+
+      - name: Scan container images for CRITICAL CVEs
+        run: |
           PLATFORM_IMAGES=(
             "quay.io/openbao/openbao:2.5.3"
             "netbirdio/management:v0.70.4"
             "netbirdio/signal:v0.70.4"
             "netbirdio/relay:v0.70.4"
           )
-          
-          # Dynamic: extract pinned images from catalog manifests (skip :latest — they drift anyway)
           CATALOG_IMAGES=$(grep -rh "image:" kubernetes/catalog/ 2>/dev/null \
             | grep -v "latest" \
             | awk '{print $2}' \
             | grep -E "^[a-z]" \
             | sort -u)
-          
           ALL_IMAGES=("${PLATFORM_IMAGES[@]}")
           while IFS= read -r img; do
             [ -n "$img" ] && ALL_IMAGES+=("$img")
           done <<< "$CATALOG_IMAGES"
-          
-          FAIL=0
           for img in "${ALL_IMAGES[@]}"; do
             echo "Scanning ${img}..."
             trivy image --severity CRITICAL --exit-code 0 --quiet --no-progress "${img}" 2>&1 | tail -3
           done
           echo "✅ Image scan complete (soft-fail — review above for CRITICAL CVEs)"
 
-  # ── Trivy config scan ────────────────────────────────────────────────────────
-  trivy-config:
-    name: Trivy — Kubernetes Manifest Misconfig Scan
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
       - name: Scan Kubernetes manifests for misconfigurations
         run: |
-          TRIVY_VERSION="v0.70.0"
-          curl -fsSL "https://github.com/aquasecurity/trivy/releases/download/${TRIVY_VERSION}/trivy_0.70.0_Linux-64bit.tar.gz" \
-            | tar -xzf - -C /usr/local/bin/ trivy
-          echo "Scanning kubernetes/ for misconfigurations..."
           trivy config \
             --severity HIGH,CRITICAL \
             --exit-code 0 \
@@ -198,8 +217,6 @@ jobs:
           KUBE_SCORE_VERSION="v1.19.0"
           curl -fsSL "https://github.com/zegl/kube-score/releases/download/${KUBE_SCORE_VERSION}/kube-score_1.19.0_linux_amd64.tar.gz" \
             | tar -xzf - -C /usr/local/bin/ kube-score
-          echo "Running kube-score on all manifests..."
-          # Collect all raw Kubernetes manifests (skip Helm values, ArgoCD app defs, kustomize)
           MANIFESTS=$(find kubernetes/ -name "*.yaml" \
             ! -name "values.yaml" \
             ! -name "application.yaml" \
@@ -217,7 +234,7 @@ jobs:
           fi
           echo "✅ kube-score check complete (informational)"
 
-  # ── PR Kubernetes diff (self-hosted runner required) ────────────────────────
+  # ── PR Kubernetes diff (self-hosted runner required for live cluster access) ──
   pr-diff:
     name: Kubernetes PR Diff
     if: github.event_name == 'pull_request'
@@ -315,7 +332,7 @@ jobs:
   # ── Final gate ───────────────────────────────────────────────────────────────
   security-gate:
     name: ✅ CI Gate
-    needs: [secret-scan, checkov, sops-validation, kubernetes-manifests, actionlint, trivy-scan, trivy-config, kube-score, helm-lint]
+    needs: [secret-scan, checkov, kubernetes-manifests, helm-lint, actionlint, trivy, kube-score]
     runs-on: ubuntu-latest
     steps:
       - run: echo "✅ All CI checks passed"
