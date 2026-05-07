@@ -99,8 +99,8 @@ nodeAgent:
       cpu: 500m
       memory: 512Mi
 
-# Pin kubectl image tag — bitnami/kubectl uses k8s version as tag, but
-# k8s 1.35 is not yet published by bitnami. Pin to latest available.
+# Pin kubectl image tag — bitnami/kubectl only publishes the 'latest' tag on Docker Hub.
+# Version-specific tags (1.33, 1.35) don't exist. Using 'latest' ensures the job can run.
 kubectl:
   image:
-    tag: "1.33"
+    tag: "latest"
