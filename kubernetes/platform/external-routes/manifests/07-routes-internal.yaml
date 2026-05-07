@@ -80,6 +80,7 @@ spec:
       services:
         - name: bm-proxmox
           port: 8006
+          scheme: https
           serversTransport: insecure-skip-verify
   tls: {}
 ---
@@ -101,6 +102,7 @@ spec:
       services:
         - name: bm-portainer
           port: 9443
+          scheme: https
           serversTransport: insecure-skip-verify
   tls: {}
 ---
@@ -122,6 +124,7 @@ spec:
       services:
         - name: bm-portainer2
           port: 9443
+          scheme: https
           serversTransport: insecure-skip-verify
   tls: {}
 ---
@@ -143,6 +146,7 @@ spec:
       services:
         - name: bm-truenas
           port: 443
+          scheme: https
           serversTransport: insecure-skip-verify
   tls: {}
 ---
@@ -185,6 +189,7 @@ spec:
       services:
         - name: bm-wazuh
           port: 443
+          scheme: https
           serversTransport: insecure-skip-verify
   tls: {}
 ---
