@@ -297,7 +297,7 @@ jobs:
         id: diff
         if: steps.detect.outputs.has_k8s_changes == 'true'
         env:
-          KUBECONFIG: ${{ runner.home }}/.kube/config-platform-productie
+          KUBECONFIG: ~/.kube/config-platform-productie
         run: |
           DIFF_OUTPUT=""
           while IFS= read -r dir; do

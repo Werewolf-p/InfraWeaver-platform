@@ -292,7 +292,7 @@ jobs:
           SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           NEW_USERS:      ${{ needs.detect.outputs.new_users }}
-          RECOVERY_LINKS: ${{ needs.apply-users.outputs.recovery_links_json }}
+          RECOVERY_LINKS: ${{ steps.recovery.outputs.links_json }}
         run: |
           for USERNAME in $(echo "$NEW_USERS" | python3 -c "import sys,json; print('\n'.join(json.loads(sys.stdin.read())))"); do
             LINK=$(echo "$RECOVERY_LINKS" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); print(d.get(\"${USERNAME}\",\"\"))")
@@ -388,7 +388,7 @@ jobs:
   # ── 6. Post-apply health check ────────────────────────────────────────────
   post-health-check:
     name: "Post-Apply Health Check"
-    needs: [detect, apply-users, apply-new-apps, sync-catalog]
+    needs: [detect, seed-openbao, apply-new-apps, sync-catalog]
     if: |
       always() &&
       (needs.detect.outputs.user_config == 'true' ||
