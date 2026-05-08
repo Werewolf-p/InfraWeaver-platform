@@ -8,8 +8,8 @@ on:
   workflow_dispatch:
 
 env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}/infraweaver-console
+  REGISTRY: onedev.rlservers.com
+  IMAGE_NAME: infraweaver/infraweaver-console
 
 jobs:
   build:
@@ -17,24 +17,24 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
-      packages: write
 
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
 
       - name: Build and push Docker image
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ONEDEV_USER: ${{ secrets.ONEDEV_REGISTRY_USER }}
+          ONEDEV_PASS: ${{ secrets.ONEDEV_REGISTRY_PASS }}
         run: |
           set -euo pipefail
 
           SHORT_SHA=$(echo "$GITHUB_SHA" | cut -c1-7)
           BRANCH_TAG="${GITHUB_REF_NAME}"
           SHA_TAG="${GITHUB_REF_NAME}-${SHORT_SHA}"
-          IMAGE_BASE=$(echo "${REGISTRY}/${IMAGE_NAME}" | tr '[:upper:]' '[:lower:]')
+          IMAGE_BASE="${REGISTRY}/${IMAGE_NAME}"
 
-          echo "==> Logging in to GHCR..."
-          echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          echo "==> Logging in to OneDev registry..."
+          echo "${ONEDEV_PASS}" | docker login "${REGISTRY}" -u "${ONEDEV_USER}" --password-stdin
 
           echo "==> Building image..."
           docker buildx build \
@@ -46,27 +46,10 @@ jobs:
             --push \
             apps/infraweaver-console
 
-          echo "✅ Built and pushed:" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Built and pushed to OneDev registry:" >> $GITHUB_STEP_SUMMARY
           echo "- ${IMAGE_BASE}:${BRANCH_TAG}" >> $GITHUB_STEP_SUMMARY
           echo "- ${IMAGE_BASE}:${SHA_TAG}" >> $GITHUB_STEP_SUMMARY
 
           # Move cache to prevent unlimited growth
           rm -rf /tmp/.buildx-cache
           mv /tmp/.buildx-cache-new /tmp/.buildx-cache 2>/dev/null || true
-
-      - name: Update cluster imagePullSecret
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          KB=~/.kube/config-platform-productie
-          KT="kubectl --kubeconfig $KB --insecure-skip-tls-verify"
-
-          # Create or update the GHCR pull secret in infraweaver-console namespace
-          $KT create secret docker-registry ghcr-pull-secret \
-            --docker-server=ghcr.io \
-            --docker-username="${GITHUB_ACTOR}" \
-            --docker-password="${GITHUB_TOKEN}" \
-            -n infraweaver-console \
-            --dry-run=client -o yaml | $KT apply -f -
-
-          echo "✅ Updated GHCR imagePullSecret in cluster" >> $GITHUB_STEP_SUMMARY

@@ -17,10 +17,10 @@ spec:
     spec:
       serviceAccountName: infraweaver-console
       imagePullSecrets:
-      - name: ghcr-pull-secret
+      - name: onedev-pull-secret
       containers:
       - name: console
-        image: ghcr.io/werewolf-p/infraweaver-platform/infraweaver-console:main
+        image: onedev.rlservers.com/infraweaver/infraweaver-console:main
         ports:
         - containerPort: 3000
           name: http
