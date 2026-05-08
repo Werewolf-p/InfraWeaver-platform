@@ -399,6 +399,8 @@ jobs:
       - self-hosted
       - prod-worker
     steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
       - name: Ensure node labels (grafana-eligible)
         run: |
           KB=~/.kube/config-platform-${{ env.ENV_NAME }}
@@ -438,24 +440,10 @@ jobs:
             echo "⚠️  Some endpoints failed health check — check logs above" >> $GITHUB_STEP_SUMMARY
           fi
 
-      - name: Check Authentik ArgoCD app health
+      - name: ArgoCD all-apps health gate
         run: |
-          KB=~/.kube/config-platform-${{ env.ENV_NAME }}
-          KT="kubectl --kubeconfig $KB --insecure-skip-tls-verify"
-
-          APP_NAME="apps-authentik-manifests"
-
-          for i in $(seq 1 12); do
-            SYNC=$($KT get application "$APP_NAME" -n argocd -o jsonpath='{.status.sync.status}' 2>/dev/null || echo "Unknown")
-            HEALTH=$($KT get application "$APP_NAME" -n argocd -o jsonpath='{.status.health.status}' 2>/dev/null || echo "Unknown")
-            echo "  [${i}/12] $APP_NAME: sync=$SYNC health=$HEALTH"
-            if [ "$SYNC" = "Synced" ] && [ "$HEALTH" = "Healthy" ]; then
-              echo "✅ Authentik app ($APP_NAME): Synced + Healthy" >> $GITHUB_STEP_SUMMARY
-              exit 0
-            fi
-            sleep 10
-          done
-          echo "⚠️  Authentik app ($APP_NAME) not Synced+Healthy after 2 min — check ArgoCD UI" >> $GITHUB_STEP_SUMMARY
+          ENV_NAME="${{ env.ENV_NAME }}" WAIT_MINUTES=5 \
+            bash scripts/deploy/check-argocd-health.sh
 
       - name: Run post-deploy test suite
         if: always()
