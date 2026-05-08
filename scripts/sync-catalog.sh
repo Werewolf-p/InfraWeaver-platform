@@ -210,6 +210,9 @@ spec:
       jqPathExpressions:
         - '.metadata.resourceVersion'
         - '.metadata.annotations["force-sync"]'
+        - '.spec.data[].remoteRef.conversionStrategy'
+        - '.spec.data[].remoteRef.decodingStrategy'
+        - '.spec.data[].remoteRef.metadataPolicy'
 EOF
   log "  Generated: $output"
 }

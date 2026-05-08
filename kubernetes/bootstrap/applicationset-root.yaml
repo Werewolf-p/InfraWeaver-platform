@@ -76,3 +76,9 @@ spec:
             - '.spec.data[].remoteRef.conversionStrategy'
             - '.spec.data[].remoteRef.decodingStrategy'
             - '.spec.data[].remoteRef.metadataPolicy'
+        # K8s 1.25+ adds persistentVolumeClaimRetentionPolicy to StatefulSets
+        # which Helm charts don't set — ignore to prevent constant OutOfSync
+        - group: apps
+          kind: StatefulSet
+          jqPathExpressions:
+            - '.spec.persistentVolumeClaimRetentionPolicy'
