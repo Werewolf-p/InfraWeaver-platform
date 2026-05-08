@@ -22,39 +22,51 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@b5730b234e7b4dc9e1a10c7efbbf40d31e42dbc4 # v3
-
-      - name: Log in to Container Registry
-        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@902fa8ec7d6ecbea8a7e18c6c63ab14cb09e2b8a # v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=ref,event=branch
-            type=sha,prefix={{branch}}-
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-
-      - name: Build and push
-        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v5
-        with:
-          context: apps/infraweaver-console
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=local,src=/tmp/.buildx-cache
-          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
-          platforms: linux/amd64
-
-      # Move cache to prevent unlimited growth
-      - name: Move cache
+      - name: Build and push Docker image
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
+
+          SHORT_SHA=$(echo "$GITHUB_SHA" | cut -c1-7)
+          BRANCH_TAG="${GITHUB_REF_NAME}"
+          SHA_TAG="${GITHUB_REF_NAME}-${SHORT_SHA}"
+          IMAGE_BASE="${REGISTRY}/${IMAGE_NAME}"
+
+          echo "==> Logging in to GHCR..."
+          echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+          echo "==> Building image..."
+          docker buildx build \
+            --platform linux/amd64 \
+            --cache-from "type=local,src=/tmp/.buildx-cache" \
+            --cache-to "type=local,dest=/tmp/.buildx-cache-new,mode=max" \
+            --tag "${IMAGE_BASE}:${BRANCH_TAG}" \
+            --tag "${IMAGE_BASE}:${SHA_TAG}" \
+            --push \
+            apps/infraweaver-console
+
+          echo "✅ Built and pushed:" >> $GITHUB_STEP_SUMMARY
+          echo "- ${IMAGE_BASE}:${BRANCH_TAG}" >> $GITHUB_STEP_SUMMARY
+          echo "- ${IMAGE_BASE}:${SHA_TAG}" >> $GITHUB_STEP_SUMMARY
+
+          # Move cache to prevent unlimited growth
           rm -rf /tmp/.buildx-cache
-          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache 2>/dev/null || true
+
+      - name: Update cluster imagePullSecret
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          KB=~/.kube/config-platform-productie
+          KT="kubectl --kubeconfig $KB --insecure-skip-tls-verify"
+
+          # Create or update the GHCR pull secret in infraweaver-console namespace
+          $KT create secret docker-registry ghcr-pull-secret \
+            --docker-server=ghcr.io \
+            --docker-username="${GITHUB_ACTOR}" \
+            --docker-password="${GITHUB_TOKEN}" \
+            -n infraweaver-console \
+            --dry-run=client -o yaml | $KT apply -f -
+
+          echo "✅ Updated GHCR imagePullSecret in cluster" >> $GITHUB_STEP_SUMMARY
