@@ -430,6 +430,26 @@ data "talos_machine_configuration" "this" {
       # Required for all-control-plane HA clusters (no separate worker nodes).
       cluster = {
         allowSchedulingOnControlPlanes = true
+        # etcd tuning for virtualized homelab (Proxmox VMs on HDD/SSD storage).
+        #
+        # Default heartbeat-interval=100ms and election-timeout=1000ms assume fast bare-metal I/O.
+        # On Proxmox with LVM/ZFS storage, fsync latency can exceed 100ms, causing etcd to miss
+        # heartbeats → frequent leader elections → all API server connections drop → all pods
+        # restart (exit 255, NodeNotReady). Increasing these values by 3x prevents spurious elections.
+        #
+        # Formula: election-timeout ≥ 5 × heartbeat-interval (etcd docs requirement).
+        # 300ms heartbeat × 5 = 1500ms min; we use 3000ms for extra margin on slow storage.
+        etcd = {
+          extraArgs = {
+            # How often the leader sends heartbeats to followers (ms). Increase on slow storage.
+            heartbeat-interval = "300"
+            # Time before a follower starts a new election on missing heartbeats (ms).
+            election-timeout = "3000"
+            # Prevent etcd WAL from exhausting disk space in long-running clusters.
+            # 2GB is sufficient for a homelab with <50 apps.
+            quota-backend-bytes = "2147483648"
+          }
+        }
       }
     }),
   ]

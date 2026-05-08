@@ -1,5 +1,5 @@
 repoURL: https://grafana.github.io/helm-charts
-targetRevision: "6.*"
+targetRevision: "2.*"
 chart: loki-stack
 releaseName: loki
 namespace: monitoring

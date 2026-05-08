@@ -7,7 +7,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/Remod-Dev/InfraWeaver-platform.git
+    repoURL: https://github.com/Werewolf-p/InfraWeaver-platform.git
     targetRevision: HEAD
     path: kubernetes/core/metallb/manifests
   destination:
