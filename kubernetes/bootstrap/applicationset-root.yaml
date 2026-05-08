@@ -16,7 +16,7 @@ metadata:
   namespace: argocd
 spec:
   goTemplate: true
-  goTemplateOptions: ["missingkey=error"]
+  goTemplateOptions: ["missingkey=zero"]
   generators:
     - git:
         repoURL: https://github.com/Werewolf-p/InfraWeaver-platform.git
@@ -59,7 +59,7 @@ spec:
             maxDuration: 3m
         syncOptions:
           - CreateNamespace=true
-          - ServerSideApply=true
+          - '{{ if eq (default "true" .serverSideApply) "false" }}ServerSideApply=false{{ else }}ServerSideApply=true{{ end }}'
           - RespectIgnoreDifferences=true
       # Ignore ESO-managed admin passwords (OpenBao keeps these in sync)
       ignoreDifferences:
