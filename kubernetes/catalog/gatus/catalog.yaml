@@ -1,0 +1,13 @@
+---
+# catalog.yaml — Gatus status page
+# GitOps-managed, config-driven endpoint health monitoring with Discord alerts
+# Access: status.int.rlservers.com (VPN-only)
+# SSO: Authentik forward-auth via Traefik middleware
+
+name: gatus
+description: "Gatus — GitOps-managed status page with endpoint health monitoring and Discord alerts"
+namespace: gatus
+
+ingressroute:
+  host: status.int.rlservers.com
+  entrypoint: websecure

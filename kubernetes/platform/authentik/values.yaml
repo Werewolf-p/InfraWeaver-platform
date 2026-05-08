@@ -136,6 +136,7 @@ redis:
         memory: 128Mi
 
 server:
+  replicas: 2  # HA: 2 replicas spread across nodes
   ingress:
     enabled: false
   # Give enough time for Django migrations on a fresh DB (292+ migrations)
@@ -148,6 +149,16 @@ server:
     initialDelaySeconds: 120
     periodSeconds: 10
     failureThreshold: 30
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: authentik
+                app.kubernetes.io/component: server
+            topologyKey: kubernetes.io/hostname
   resources:
     requests:
       cpu: 200m
@@ -157,6 +168,17 @@ server:
       memory: 1Gi
 
 worker:
+  replicas: 2  # HA: 2 replicas spread across nodes
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: authentik
+                app.kubernetes.io/component: worker
+            topologyKey: kubernetes.io/hostname
   # Give enough time for Django migrations on a fresh DB (292+ migrations)
   # NOTE: Authentik chart does NOT support livenessProbe.enabled field — use raw k8s probe fields only
   livenessProbe:

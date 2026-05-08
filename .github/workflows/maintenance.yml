@@ -63,7 +63,7 @@ jobs:
       - self-hosted
       - prod-worker
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Setup talosctl
         run: |
@@ -92,7 +92,7 @@ jobs:
           [ -f "$SNAPSHOT_FILE" ] || { echo "❌ All nodes failed for etcd snapshot"; exit 1; }
 
       - name: Upload snapshot artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: etcd-snapshot-${{ env.ENV_NAME }}-${{ github.run_id }}
           path: /tmp/etcd-snapshot-*.db
@@ -108,7 +108,7 @@ jobs:
       - self-hosted
       - prod-worker
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Create OpenBao Raft snapshot
         run: |
@@ -130,7 +130,7 @@ jobs:
           echo "✅ OpenBao snapshot: $(du -sh "$SNAPSHOT_FILE" | cut -f1)"
 
       - name: Upload snapshot artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: openbao-snapshot-${{ env.ENV_NAME }}-${{ github.run_id }}
           path: /tmp/openbao-snapshot-*.snap
@@ -146,7 +146,7 @@ jobs:
       - self-hosted
       - prod-worker
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Setup tools
         uses: ./.github/actions/setup-platform
@@ -191,7 +191,7 @@ jobs:
 
       - name: Upload drift plan
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: drift-plan-${{ env.ENV_NAME }}-${{ github.run_id }}
           path: /tmp/drift-plan.txt

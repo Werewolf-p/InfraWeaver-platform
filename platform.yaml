@@ -35,6 +35,7 @@ catalog:
   enabled:
     - wiki
     - uptime-kuma
+    - gatus
     - gitea
     - vaultwarden
     - it-tools

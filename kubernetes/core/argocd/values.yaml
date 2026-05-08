@@ -3,9 +3,19 @@ global:
   priorityClassName: platform-critical
 
 server:
-  replicas: 1  # override to 2 for productie via env patch
+  replicas: 2  # HA: 2 replicas spread across nodes
   extraArgs:
     - --insecure  # TLS terminated at ingress
+
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: argocd-server
+            topologyKey: kubernetes.io/hostname
 
   ingress:
     # Ingress disabled — routing handled by Traefik IngressRoute in external-routes
@@ -14,10 +24,28 @@ server:
     enabled: false
 
 repoServer:
-  replicas: 1
+  replicas: 2  # HA: 2 replicas spread across nodes
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: argocd-repo-server
+            topologyKey: kubernetes.io/hostname
 
 applicationSet:
-  replicas: 1
+  replicas: 2  # HA: 2 replicas spread across nodes
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: argocd-applicationset-controller
+            topologyKey: kubernetes.io/hostname
 
 configs:
   cm:
