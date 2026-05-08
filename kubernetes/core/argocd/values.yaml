@@ -2,6 +2,15 @@ global:
   domain: argocd.int.rlservers.com
   priorityClassName: platform-critical
 
+controller:
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 2000m
+      memory: 1536Mi
+
 server:
   replicas: 2  # HA: 2 replicas spread across nodes
   extraArgs:
