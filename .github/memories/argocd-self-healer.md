@@ -59,3 +59,33 @@ Expected output with Unknown apps:
 [self-healer] Waiting 20s for 1 refresh(es) to propagate...
 [self-healer] Done. refreshed=1 synced=0 skipped=0
 ```
+
+## Enhanced: Synced+Degraded Hard-Refresh (2026-05)
+
+### Problem
+`catalog-gatus-manifests` was Synced+Degraded because its ExternalSecret used wrong
+ClusterSecretStore name (`openbao-backend` instead of `openbao`). The old self-healer
+skipped all Degraded apps regardless of sync status.
+
+### Root cause of Gatus failure
+- ExternalSecret `secretStoreRef.name: openbao-backend` → should be `openbao`
+- ESO fails to create `gatus-discord-secret` → Pod can't get env var → CrashLoopBackOff
+- **All other ExternalSecrets in the platform use `name: openbao`** (not `openbao-backend`)
+
+### Self-healer enhancement
+For Synced+Degraded apps that have been degraded > grace period:
+1. **Hard-refresh** (patch `argocd.argoproj.io/refresh: hard` annotation)
+2. Wait 20s for ArgoCD to recompute diff
+3. **Pass 2 check**: if now OutOfSync → auto-sync (stale cache resolved itself!)
+4. If still Synced+Degraded → add to DEGRADED_APPS for Discord notification (human needed)
+
+### Why hard-refresh helps Synced+Degraded
+ArgoCD's sync cache can be stale: a git push that fixes a manifest may not be reflected
+immediately. The cache shows "Synced" but git actually has changes. Hard-refresh forces
+ArgoCD to recompute from git, which often reveals OutOfSync → self-healer can then sync.
+
+### When hard-refresh doesn't help (still needs human)
+- Wrong image version (pull fails)
+- CrashLoopBackOff from bad config (needs code fix)
+- ResourceQuota exceeded (needs infra change)
+- Missing persistent volume (needs storage fix)

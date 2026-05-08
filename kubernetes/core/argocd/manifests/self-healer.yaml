@@ -122,12 +122,16 @@ spec:
                   SKIPPED=0
                   SYNCED_APPS=""
                   DEGRADED_APPS=""
+                  DEGRADED_REFRESH_APPS=""
                   NOW_EPOCH=$(date -u +%s)
                   # Only alert on Degraded apps that have been Degraded for > 15 minutes (1 full healer cycle)
                   # This filters out transient degradations from hook runs, ESO provisioning, etc.
                   DEGRADED_GRACE_SECONDS=900
 
-                  # Pass 1: hard-refresh OutOfSync and Unknown-sync apps (not Degraded, not running)
+                  # Pass 1: hard-refresh OutOfSync, Unknown-sync, AND Synced+Degraded apps.
+                  # Synced+Degraded apps get a hard-refresh first — ArgoCD's sync cache can be
+                  # stale (showing Synced when git actually differs). A hard-refresh reveals the
+                  # true state. If still Synced+Degraded after refresh, notify Discord for review.
                   # Use process substitution to avoid subshell variable scoping issue
                   while IFS=$'\t' read -r APP HEALTH SYNC OP_PHASE TRANSITION_TIME; do
                     [ -z "$APP" ] && continue
@@ -149,14 +153,15 @@ spec:
                         SKIPPED=$((SKIPPED+1))
                         continue
                       fi
-                      DEGRADED_APPS="${DEGRADED_APPS}• \`${APP}\` (sync=${SYNC}, degraded ${DEGRADED_SECONDS}s)\n"
-                      if [ "$SYNC" != "OutOfSync" ] && [ "$SYNC" != "Unknown" ]; then
-                        echo "  SKIP  $APP — Degraded+${SYNC} (persistent ${DEGRADED_SECONDS}s, needs review)"
-                        SKIPPED=$((SKIPPED+1))
-                        continue
-                      fi
-                      echo "  SKIP  $APP — Degraded+${SYNC} (needs review)"
-                      SKIPPED=$((SKIPPED+1))
+                      # Persistent Degraded — hard-refresh to detect stale sync cache.
+                      # This catches cases where git changed but ArgoCD still shows Synced.
+                      echo "  REFRESH  $APP — Degraded+${SYNC} for ${DEGRADED_SECONDS}s (hard-refresh to check stale cache)"
+                      kubectl patch application "$APP" -n "$NAMESPACE" \
+                        --type=merge \
+                        -p '{"metadata":{"annotations":{"argocd.argoproj.io/refresh":"hard"}}}' \
+                        > /dev/null 2>&1 || true
+                      DEGRADED_REFRESH_APPS="${DEGRADED_REFRESH_APPS} $APP"
+                      REFRESHED=$((REFRESHED+1))
                       continue
                     fi
                     # Refresh both OutOfSync and Unknown (stale cache) apps
@@ -177,7 +182,8 @@ spec:
                     sleep 20
                   fi
 
-                  # Pass 2: sync apps still OutOfSync after refresh
+                  # Pass 2: sync apps still OutOfSync after refresh.
+                  # Also handle previously-Degraded apps that are now OutOfSync (stale cache confirmed).
                   APPS2=$(kubectl get applications -n "$NAMESPACE" \
                     -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.health.status}{"\t"}{.status.sync.status}{"\t"}{.status.operationState.phase}{"\n"}{end}' 2>/dev/null || true)
 
@@ -185,8 +191,9 @@ spec:
                     [ -z "$APP" ] && continue
                     [ "$OP_PHASE" = "Running" ] && continue
                     [ "$SYNC" != "OutOfSync" ] && continue
-                    [ "$HEALTH" = "Degraded" ] && continue
-                    echo "  SYNC  $APP [health=$HEALTH] — still OutOfSync after refresh, triggering sync"
+                    # If this was a Degraded app that hard-refresh revealed as OutOfSync → auto-sync it
+                    # Otherwise if still Healthy/Progressing+OutOfSync → auto-sync as normal
+                    echo "  SYNC  $APP [health=$HEALTH] — OutOfSync after refresh, triggering sync"
                     kubectl patch application "$APP" -n "$NAMESPACE" \
                       --type=merge \
                       -p '{"operation":{"sync":{"revision":"HEAD","syncStrategy":{"hook":{"force":false}}}}}' \
@@ -194,6 +201,21 @@ spec:
                     SYNCED_APPS="${SYNCED_APPS}• \`${APP}\`\n"
                     SYNCED=$((SYNCED+1))
                   done < <(echo "$APPS2")
+
+                  # Collect Degraded+Synced apps that remain Synced even after hard-refresh
+                  # (these need human attention — runtime issue, not a stale cache)
+                  if [ -n "$DEGRADED_REFRESH_APPS" ]; then
+                    for APP in $DEGRADED_REFRESH_APPS; do
+                      APP_STATUS=$(echo "$APPS2" | grep "^${APP}"$'\t' || echo "")
+                      APP_SYNC=$(echo "$APP_STATUS" | cut -f3)
+                      if [ "$APP_SYNC" != "OutOfSync" ]; then
+                        DEGRADED_APPS="${DEGRADED_APPS}• \`${APP}\` (sync=${APP_SYNC:-unknown})\n"
+                        echo "  ALERT $APP — still Degraded+${APP_SYNC:-?} after hard-refresh (needs review)"
+                      else
+                        echo "  FOUND $APP — hard-refresh revealed OutOfSync, will be synced by pass 2"
+                      fi
+                    done
+                  fi
 
                   echo "[self-healer] Done. refreshed=$REFRESHED synced=$SYNCED skipped=$SKIPPED"
 
