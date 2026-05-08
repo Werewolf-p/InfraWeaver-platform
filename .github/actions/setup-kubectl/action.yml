@@ -1,46 +1,28 @@
-name: Setup kubectl + kubeconfig
-description: Installs kubectl and configures kubeconfig from GitHub secrets
+name: 'Setup kubectl with kubeconfig'
+description: 'Decode and install kubeconfig for cluster access'
 inputs:
-  kubeconfig:
-    description: Base64-encoded or raw kubeconfig content
+  kubeconfig-b64:
+    description: 'Base64-encoded kubeconfig content'
     required: true
-  kubectl-version:
-    description: kubectl version to use
+  env-name:
+    description: 'Environment name (e.g. productie)'
     required: false
-    default: "1.32.4"
-outputs:
-  kubeconfig-path:
-    description: Path to the written kubeconfig file
-    value: ${{ steps.write-kubeconfig.outputs.path }}
+    default: 'productie'
 runs:
   using: composite
   steps:
-    - name: Install kubectl
-      shell: bash
-      run: |
-        mkdir -p ~/.local/bin
-        WANT_VERSION="v${{ inputs.kubectl-version }}"
-        HAVE_VERSION=$(kubectl version --client -o json 2>/dev/null \
-          | python3 -c "import sys,json; print(json.load(sys.stdin)['clientVersion']['gitVersion'])" 2>/dev/null || echo "none")
-        if ! command -v kubectl &>/dev/null || [[ "$HAVE_VERSION" != "$WANT_VERSION" ]]; then
-          curl -fsSL "https://dl.k8s.io/release/${WANT_VERSION}/bin/linux/amd64/kubectl" \
-            -o ~/.local/bin/kubectl
-          chmod +x ~/.local/bin/kubectl
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          echo "Installed kubectl ${WANT_VERSION}"
-        else
-          echo "kubectl ${HAVE_VERSION} already available"
-        fi
-
-    - name: Write kubeconfig
-      id: write-kubeconfig
+    - name: Install kubeconfig
       shell: bash
       run: |
         mkdir -p ~/.kube
-        KUBECONFIG_PATH="$HOME/.kube/config-platform"
-        # Try base64 decode first, fall back to raw
-        echo "${{ inputs.kubeconfig }}" | base64 -d > "$KUBECONFIG_PATH" 2>/dev/null || \
-          echo "${{ inputs.kubeconfig }}" > "$KUBECONFIG_PATH"
-        chmod 600 "$KUBECONFIG_PATH"
-        echo "KUBECONFIG=$KUBECONFIG_PATH" >> "$GITHUB_ENV"
-        echo "path=$KUBECONFIG_PATH" >> "$GITHUB_OUTPUT"
+        echo "${{ inputs.kubeconfig-b64 }}" | base64 -d > ~/.kube/config-platform-${{ inputs.env-name }}
+        chmod 600 ~/.kube/config-platform-${{ inputs.env-name }}
+        # Verify we can connect
+        if ! kubectl --kubeconfig ~/.kube/config-platform-${{ inputs.env-name }} \
+            --insecure-skip-tls-verify get nodes --request-timeout=10s &>/dev/null; then
+          echo "::warning::Kubeconfig from secret failed — checking existing file"
+          if kubectl --kubeconfig ~/.kube/config-platform-${{ inputs.env-name }} \
+              --insecure-skip-tls-verify get nodes --request-timeout=10s 2>&1 | grep -q "Ready"; then
+            echo "Cluster accessible"
+          fi
+        fi

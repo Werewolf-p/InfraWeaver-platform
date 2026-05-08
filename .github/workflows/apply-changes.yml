@@ -194,6 +194,18 @@ jobs:
       - self-hosted
       - prod-worker
     steps:
+
+      - name: Setup kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          if [ -n "$KUBECONFIG_B64" ]; then
+            echo "$KUBECONFIG_B64" | base64 -d > ~/.kube/config-platform-$ENV_NAME
+            chmod 600 ~/.kube/config-platform-$ENV_NAME
+          fi
+        env:
+          KUBECONFIG_B64: ${{ secrets.KUBECONFIG_PRODUCTIE }}
+          ENV_NAME: ${{ env.ENV_NAME }}
+      
       - name: Rollout restart CoreDNS
         run: |
           KB=~/.kube/config-platform-${{ env.ENV_NAME }}
@@ -220,6 +232,18 @@ jobs:
       - self-hosted
       - prod-worker
     steps:
+
+      - name: Setup kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          if [ -n "$KUBECONFIG_B64" ]; then
+            echo "$KUBECONFIG_B64" | base64 -d > ~/.kube/config-platform-$ENV_NAME
+            chmod 600 ~/.kube/config-platform-$ENV_NAME
+          fi
+        env:
+          KUBECONFIG_B64: ${{ secrets.KUBECONFIG_PRODUCTIE }}
+          ENV_NAME: ${{ env.ENV_NAME }}
+      
       - name: Trigger ArgoCD hard-refresh for authentik
         run: |
           KB=~/.kube/config-platform-${{ env.ENV_NAME }}
@@ -250,6 +274,18 @@ jobs:
       - self-hosted
       - prod-worker
     steps:
+
+      - name: Setup kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          if [ -n "$KUBECONFIG_B64" ]; then
+            echo "$KUBECONFIG_B64" | base64 -d > ~/.kube/config-platform-$ENV_NAME
+            chmod 600 ~/.kube/config-platform-$ENV_NAME
+          fi
+        env:
+          KUBECONFIG_B64: ${{ secrets.KUBECONFIG_PRODUCTIE }}
+          ENV_NAME: ${{ env.ENV_NAME }}
+      
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Seed new user secrets into OpenBao
@@ -328,6 +364,18 @@ jobs:
       - self-hosted
       - prod-worker
     steps:
+
+      - name: Setup kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          if [ -n "$KUBECONFIG_B64" ]; then
+            echo "$KUBECONFIG_B64" | base64 -d > ~/.kube/config-platform-$ENV_NAME
+            chmod 600 ~/.kube/config-platform-$ENV_NAME
+          fi
+        env:
+          KUBECONFIG_B64: ${{ secrets.KUBECONFIG_PRODUCTIE }}
+          ENV_NAME: ${{ env.ENV_NAME }}
+      
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 2
@@ -374,6 +422,18 @@ jobs:
     permissions:
       contents: write
     steps:
+
+      - name: Setup kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          if [ -n "$KUBECONFIG_B64" ]; then
+            echo "$KUBECONFIG_B64" | base64 -d > ~/.kube/config-platform-$ENV_NAME
+            chmod 600 ~/.kube/config-platform-$ENV_NAME
+          fi
+        env:
+          KUBECONFIG_B64: ${{ secrets.KUBECONFIG_PRODUCTIE }}
+          ENV_NAME: ${{ env.ENV_NAME }}
+      
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
@@ -414,6 +474,18 @@ jobs:
     permissions:
       contents: write
     steps:
+
+      - name: Setup kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          if [ -n "$KUBECONFIG_B64" ]; then
+            echo "$KUBECONFIG_B64" | base64 -d > ~/.kube/config-platform-$ENV_NAME
+            chmod 600 ~/.kube/config-platform-$ENV_NAME
+          fi
+        env:
+          KUBECONFIG_B64: ${{ secrets.KUBECONFIG_PRODUCTIE }}
+          ENV_NAME: ${{ env.ENV_NAME }}
+      
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
@@ -457,6 +529,18 @@ jobs:
       - self-hosted
       - prod-worker
     steps:
+
+      - name: Setup kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          if [ -n "$KUBECONFIG_B64" ]; then
+            echo "$KUBECONFIG_B64" | base64 -d > ~/.kube/config-platform-$ENV_NAME
+            chmod 600 ~/.kube/config-platform-$ENV_NAME
+          fi
+        env:
+          KUBECONFIG_B64: ${{ secrets.KUBECONFIG_PRODUCTIE }}
+          ENV_NAME: ${{ env.ENV_NAME }}
+      
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Ensure node labels (grafana-eligible)
