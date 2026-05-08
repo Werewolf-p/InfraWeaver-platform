@@ -102,7 +102,7 @@ talosconfig:
 	fi
 
 argocd-pass:
-	KUBECONFIG=~/.kube/config-platform-$(ENV) \
+	@KUBECONFIG=~/.kube/config-platform-$(ENV) \
 		kubectl -n argocd get secret argocd-initial-admin-secret \
 		-o jsonpath="{.data.password}" | base64 -d; echo
 

@@ -61,6 +61,7 @@ jobs:
     if: >
       github.event_name == 'schedule' && github.event.schedule == '0 3 * * 0' ||
       github.event_name == 'workflow_dispatch' && (inputs.task == 'etcd-snapshot' || inputs.task == 'all-snapshots')
+    timeout-minutes: 20
     runs-on:
       - self-hosted
       - prod-worker
@@ -106,6 +107,7 @@ jobs:
     if: >
       github.event_name == 'schedule' && github.event.schedule == '0 4 * * 0' ||
       github.event_name == 'workflow_dispatch' && (inputs.task == 'openbao-snapshot' || inputs.task == 'all-snapshots')
+    timeout-minutes: 20
     runs-on:
       - self-hosted
       - prod-worker
@@ -144,6 +146,7 @@ jobs:
     if: >
       github.event_name == 'schedule' && github.event.schedule == '0 7 * * 1' ||
       github.event_name == 'workflow_dispatch' && inputs.task == 'drift-detection'
+    timeout-minutes: 20
     runs-on:
       - self-hosted
       - prod-worker
@@ -203,6 +206,7 @@ jobs:
   check-resources:
     name: Check Proxmox Resources
     if: github.event_name == 'workflow_dispatch' && inputs.task == 'check-resources'
+    timeout-minutes: 20
     runs-on: [self-hosted, prod-worker]
     steps:
       - name: Setup SSH key
@@ -233,6 +237,7 @@ jobs:
   refresh-argocd-token:
     name: Refresh ArgoCD GitHub Token
     if: github.event_name == 'workflow_dispatch' && inputs.task == 'refresh-argocd-token'
+    timeout-minutes: 20
     runs-on:
       - self-hosted
       - prod-worker
@@ -260,6 +265,7 @@ jobs:
     if: >
       (github.event_name == 'schedule' && github.event.schedule == '0 5 1,15 * *') ||
       (github.event_name == 'workflow_dispatch' && inputs.task == 'renew-eso-token')
+    timeout-minutes: 20
     runs-on:
       - self-hosted
       - prod-worker
@@ -332,6 +338,7 @@ jobs:
     if: >
       github.event_name == 'schedule' && github.event.schedule == '0 6 * * *' ||
       github.event_name == 'workflow_dispatch' && inputs.task == 'self-heal'
+    timeout-minutes: 20
     runs-on:
       - self-hosted
       - prod-worker

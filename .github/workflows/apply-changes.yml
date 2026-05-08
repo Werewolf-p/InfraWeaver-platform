@@ -81,6 +81,7 @@ jobs:
   # ── 1. Detect what changed ─────────────────────────────────────────────────
   detect:
     name: "Detect Changes"
+    timeout-minutes: 15
     runs-on: [self-hosted, prod-worker]
     outputs:
       user_config:    ${{ steps.changes.outputs.user_config }}
@@ -188,6 +189,7 @@ jobs:
     name: "Restart CoreDNS"
     needs: detect
     if: needs.detect.outputs.dns_changed == 'true'
+    timeout-minutes: 15
     runs-on:
       - self-hosted
       - prod-worker
@@ -213,6 +215,7 @@ jobs:
     name: "Sync Authentik Blueprints"
     needs: detect
     if: needs.detect.outputs.blueprints == 'true'
+    timeout-minutes: 15
     runs-on:
       - self-hosted
       - prod-worker
@@ -242,6 +245,7 @@ jobs:
     name: "Seed OpenBao Secrets"
     needs: detect
     if: needs.detect.outputs.openbao_seed == 'true' || needs.detect.outputs.user_config == 'true'
+    timeout-minutes: 15
     runs-on:
       - self-hosted
       - prod-worker
@@ -319,6 +323,7 @@ jobs:
     name: "Apply New App Bootstraps"
     needs: [detect]
     if: needs.detect.outputs.new_bootstrap == 'true' || github.event.inputs.force_user_sync == 'true'
+    timeout-minutes: 15
     runs-on:
       - self-hosted
       - prod-worker
@@ -362,6 +367,7 @@ jobs:
     name: "Sync Catalog Apps"
     needs: [detect]
     if: needs.detect.outputs.catalog_sync == 'true' || github.event.inputs.force_user_sync == 'true'
+    timeout-minutes: 15
     runs-on:
       - self-hosted
       - prod-worker
@@ -401,6 +407,7 @@ jobs:
     name: "Sync Group ApplicationSets"
     needs: [detect]
     if: needs.detect.outputs.groups_sync == 'true' || github.event.inputs.force_catalog_sync == 'true'
+    timeout-minutes: 15
     runs-on:
       - self-hosted
       - prod-worker
@@ -445,6 +452,7 @@ jobs:
        needs.detect.outputs.catalog_sync == 'true' ||
        needs.detect.outputs.groups_sync == 'true' ||
        github.event.inputs.force_user_sync == 'true')
+    timeout-minutes: 15
     runs-on:
       - self-hosted
       - prod-worker

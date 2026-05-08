@@ -65,6 +65,7 @@ jobs:
     name: "Cluster Ops — ${{ inputs.operation }}"
     if: >
       contains(fromJSON('["cluster-status","metallb-fix","metallb-fix-verbose"]'), inputs.operation)
+    timeout-minutes: 20
     runs-on: [self-hosted, prod-worker]
     environment: productie
     steps:
@@ -131,6 +132,7 @@ jobs:
   etcd-ops:
     name: "etcd Ops — ${{ inputs.operation }}"
     if: startsWith(inputs.operation, 'etcd-')
+    timeout-minutes: 20
     runs-on: [self-hosted, prod-worker]
     environment: productie
     steps:
@@ -164,8 +166,8 @@ jobs:
   configure-oidc:
     name: Configure OIDC
     if: inputs.operation == 'configure-oidc'
-    runs-on: [self-hosted, management-host]
     timeout-minutes: 20
+    runs-on: [self-hosted, management-host]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -247,6 +249,7 @@ jobs:
   fix-dns:
     name: Fix Cloudflare DNS
     if: inputs.operation == 'fix-cloudflare-dns'
+    timeout-minutes: 20
     runs-on: [self-hosted, prod-worker]
     steps:
       - name: Update api-netbird.rlservers.com DNS record
@@ -278,6 +281,7 @@ jobs:
   extract-kubeconfig:
     name: Extract Kubeconfig
     if: inputs.operation == 'extract-kubeconfig'
+    timeout-minutes: 20
     runs-on: [self-hosted, prod-worker]
     environment: productie
     steps:
@@ -295,6 +299,7 @@ jobs:
   talos-upgrade:
     name: Talos Rolling Upgrade
     if: inputs.operation == 'talos-upgrade' && inputs.confirm == 'yes'
+    timeout-minutes: 30
     runs-on: [self-hosted, prod-worker]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -331,6 +336,7 @@ jobs:
   terraform:
     name: "Terraform ${{ inputs.operation == 'terraform-apply' && 'Apply' || 'Plan' }}"
     if: contains(fromJSON('["terraform-plan","terraform-apply"]'), inputs.operation)
+    timeout-minutes: 30
     runs-on: [self-hosted, prod-worker]
     environment: productie
     steps:
