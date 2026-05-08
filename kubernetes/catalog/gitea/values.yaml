@@ -1,9 +1,6 @@
 # ── Gitea Helm values ──────────────────────────────────────────────────────────
 # Chart: https://dl.gitea.com/charts/ gitea
 # Docs:  https://gitea.com/gitea/helm-gitea
-
-replicaCount: 1
-
 # Pass GITEA_OIDC_SECRET to configure-gitea init container via deployment.env
 # (deployment.env is injected into all init containers including configure-gitea)
 deployment:
