@@ -80,5 +80,5 @@ spec:
         # which Helm charts don't set — ignore to prevent constant OutOfSync
         - group: apps
           kind: StatefulSet
-          jqPathExpressions:
-            - '.spec.persistentVolumeClaimRetentionPolicy'
+          jsonPointers:
+            - /spec/persistentVolumeClaimRetentionPolicy
