@@ -76,10 +76,11 @@ spec:
               value: "sqlite"
             - name: DB_SQLITE_VACUUM_ON_STARTUP
               value: "true"
-            - name: N8N_BASIC_AUTH_ACTIVE
-              value: "false"
-            - name: N8N_USER_MANAGEMENT_DISABLED
-              value: "true"
+            - name: N8N_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: n8n-encryption-key
+                  key: encryption-key
             - name: EXECUTIONS_PROCESS
               value: "main"
           volumeMounts:
@@ -110,6 +111,26 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: n8n-data
+---
+# ExternalSecret — pull N8N_ENCRYPTION_KEY from OpenBao
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: n8n-encryption-key
+  namespace: n8n
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: openbao-backend
+    kind: ClusterSecretStore
+  target:
+    name: n8n-encryption-key
+    creationPolicy: Owner
+  data:
+    - secretKey: encryption-key
+      remoteRef:
+        key: secret/platform/n8n
+        property: encryption-key
 ---
 # Service
 apiVersion: v1
