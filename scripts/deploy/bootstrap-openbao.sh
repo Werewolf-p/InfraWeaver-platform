@@ -229,84 +229,31 @@ else
   echo "==> Grafana secret already exists — preserving existing password"
 fi
 
-# ── Catalog app secrets — seed on first deploy only ───────────────
-# Wiki.js — admin + PostgreSQL credentials
-EXISTING_WIKI=$(curl -s -H "X-Vault-Token: $ROOT_TOKEN" \
-  "${LOCAL_OPENBAO}/v1/secret/data/platform/wiki" | \
-  python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('data',{}).get('admin-password',''))" \
-  2>/dev/null || echo "")
-if [ -z "$EXISTING_WIKI" ]; then
-  curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/platform/wiki" \
-    -H "X-Vault-Token: $ROOT_TOKEN" \
-    -H "Content-Type: application/json" \
-    -d "{\"data\": {
-      \"admin-email\": \"admin@rlservers.com\",
-      \"admin-password\": \"$(openssl rand -base64 20 | tr -d '=+/')\",
-      \"postgresql-username\": \"wiki\",
-      \"postgresql-password\": \"$(openssl rand -base64 20 | tr -d '=+/')\",
-      \"oidc-client-id\": \"wikijs\",
-      \"oidc-client-secret\": \"placeholder-replaced-after-authentik-ready\"
-    }}" > /dev/null
-  echo "==> Wiki.js secrets written (admin + postgres, OIDC updated later)"
-else
-  echo "==> Wiki.js secrets already exist — preserving"
-fi
+# ── Catalog app secrets — dynamic seeding via seed-catalog-secrets.sh ────────
+#
+# OLD APPROACH (removed): each catalog app had its own hardcoded block here
+# (wiki, gitea, forgejo, vaultwarden). This was error-prone and required manual
+# updates when apps were added or removed.
+#
+# NEW APPROACH: each catalog app declares its secret requirements in catalog.yaml
+# under a `secrets:` section. seed-catalog-secrets.sh reads those declarations
+# and idempotently seeds the required secrets into OpenBao.
+#
+# To add secrets for a new catalog app:
+#   1. Add a `secrets:` section to kubernetes/catalog/<app>/catalog.yaml
+#   2. Enable the app in platform.yaml
+#   3. The next deploy will automatically seed the secrets
+#
+# The script is idempotent: existing values are NEVER overwritten.
+echo ""
+echo "==> Seeding catalog app secrets dynamically..."
+OPENBAO_ADDR="${LOCAL_OPENBAO}" \
+  VAULT_TOKEN="$ROOT_TOKEN" \
+  REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)" \
+  bash "$(dirname "${BASH_SOURCE[0]}")/../seed-catalog-secrets.sh"
+echo "==> Catalog secrets seeding complete"
+echo ""
 
-# Gitea — admin + PostgreSQL credentials
-EXISTING_GITEA=$(curl -s -H "X-Vault-Token: $ROOT_TOKEN" \
-  "${LOCAL_OPENBAO}/v1/secret/data/platform/gitea" | \
-  python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('data',{}).get('admin-password',''))" \
-  2>/dev/null || echo "")
-if [ -z "$EXISTING_GITEA" ]; then
-  curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/platform/gitea" \
-    -H "X-Vault-Token: $ROOT_TOKEN" \
-    -H "Content-Type: application/json" \
-    -d "{\"data\": {
-      \"admin-user\": \"gitea-admin\",
-      \"admin-password\": \"$(openssl rand -base64 20 | tr -d '=+/')\",
-      \"admin-email\": \"gitea@rlservers.com\",
-      \"postgresql-username\": \"gitea\",
-      \"postgresql-password\": \"$(openssl rand -base64 20 | tr -d '=+/')\"
-    }}" > /dev/null
-  echo "==> Gitea secrets written (admin + postgres)"
-else
-  echo "==> Gitea secrets already exist — preserving"
-fi
-
-# Forgejo — admin + PostgreSQL credentials
-EXISTING_FORGEJO=$(curl -s -H "X-Vault-Token: $ROOT_TOKEN" \
-  "${LOCAL_OPENBAO}/v1/secret/data/platform/forgejo" | \
-  python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('data',{}).get('admin-password',''))" \
-  2>/dev/null || echo "")
-if [ -z "$EXISTING_FORGEJO" ]; then
-  curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/platform/forgejo" \
-    -H "X-Vault-Token: $ROOT_TOKEN" \
-    -H "Content-Type: application/json" \
-    -d "{\"data\": {
-      \"admin-user\": \"forgejo-admin\",
-      \"admin-password\": \"$(openssl rand -base64 20 | tr -d '=+/')\",
-      \"admin-email\": \"forgejo@rlservers.com\",
-      \"postgres-password\": \"$(openssl rand -base64 20 | tr -d '=+/')\"
-    }}" > /dev/null
-  echo "==> Forgejo secrets written (admin + postgres)"
-else
-  echo "==> Forgejo secrets already exist — preserving"
-fi
-
-# Vaultwarden — admin token
-EXISTING_VW=$(curl -s -H "X-Vault-Token: $ROOT_TOKEN" \
-  "${LOCAL_OPENBAO}/v1/secret/data/platform/vaultwarden" | \
-  python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('data',{}).get('admin-token',''))" \
-  2>/dev/null || echo "")
-if [ -z "$EXISTING_VW" ]; then
-  curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/platform/vaultwarden" \
-    -H "X-Vault-Token: $ROOT_TOKEN" \
-    -H "Content-Type: application/json" \
-    -d "{\"data\": {\"admin-token\": \"$(openssl rand -base64 40 | tr -d '=+/')\"}}" > /dev/null
-  echo "==> Vaultwarden admin token written (randomly generated)"
-else
-  echo "==> Vaultwarden secrets already exist — preserving"
-fi
 ARGOCD_ADMIN_PASS=$(kubectl --kubeconfig "$KB" get secret argocd-initial-admin-secret \
   -n argocd -o jsonpath='{.data.password}' 2>/dev/null | base64 -d || echo "")
 if [ -n "$ARGOCD_ADMIN_PASS" ]; then

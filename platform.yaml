@@ -34,15 +34,8 @@ catalog:
   #   outline          — Team knowledge base (OIDC)            (outline.int.rlservers.com)
   enabled:
     - wiki
-    - uptime-kuma
     - gatus
-    - gitea
-    - vaultwarden
-    - it-tools
     - stirling-pdf
-    - excalidraw
-    - actual
-    - n8n
     - onedev
 
 # ── Persistence (TrueNAS NFS backup for Longhorn volumes) ─────────────────────

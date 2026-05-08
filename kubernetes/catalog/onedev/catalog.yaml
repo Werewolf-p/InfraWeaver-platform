@@ -14,3 +14,24 @@ namespace: onedev
 
 manifests:
   path: kubernetes/catalog/onedev/manifests
+
+# ── Secrets schema ────────────────────────────────────────────────────────────
+# Read by scripts/seed-catalog-secrets.sh — auto-seeds OpenBao if missing.
+# Path: secret/data/platform/onedev
+# Never overwrites existing values (idempotent). Safe to redeploy.
+secrets:
+  path: platform/onedev
+  keys:
+    admin-login:
+      type: static
+      value: "admin"
+    admin-password:
+      type: password         # openssl rand -base64 24, unique per deploy
+    admin-email:
+      type: static
+      value: "admin@infraweaver.local"
+    oidc-client-id:
+      type: static
+      value: "onedev"        # matches Authentik OAuth2 provider client_id
+    oidc-client-secret:
+      type: password         # 32-char token, set in both OneDev and Authentik

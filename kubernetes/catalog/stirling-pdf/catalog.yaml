@@ -13,3 +13,6 @@ namespace: stirling-pdf
 ingressroute:
   host: stirling-pdf.int.rlservers.com
   entrypoint: websecure
+
+# No secrets needed — authentication is handled by Traefik forward-auth middleware.
+# secrets: (intentionally omitted)

@@ -16,3 +16,11 @@ namespace: vaultwarden
 ingressroute:
   host: vaultwarden.int.rlservers.com
   entrypoint: websecure
+
+# ── Secrets schema ────────────────────────────────────────────────────────────
+secrets:
+  path: platform/vaultwarden
+  keys:
+    admin-token:
+      type: password
+      length: 40

@@ -20,3 +20,23 @@ helm:
 ingressroute:
   host: gitea.int.rlservers.com
   entrypoint: websecure
+
+# ── Secrets schema ────────────────────────────────────────────────────────────
+secrets:
+  path: platform/gitea
+  keys:
+    admin-user:
+      type: static
+      value: "gitea-admin"
+    admin-password:
+      type: password
+    admin-email:
+      type: static
+      value: "admin@infraweaver.local"
+    postgresql-password:
+      type: password
+    oidc-client-id:
+      type: static
+      value: "gitea"
+    oidc-client-secret:
+      type: password
