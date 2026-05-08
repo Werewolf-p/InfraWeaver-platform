@@ -120,18 +120,18 @@ argocd-ui:
 # ---------------------------------------------------------------------------
 
 bootstrap: ## Validate local dev environment (tools, .env, SOPS, tofu)
-@bash scripts/bootstrap-local.sh
+	@bash scripts/bootstrap-local.sh
 
 push-secrets: ## Sync .env → GitHub Secrets using gh CLI
-@bash scripts/push-secrets-to-github.sh
+	@bash scripts/push-secrets-to-github.sh
 
 validate: ## Run tofu validate (no network/state needed)
-@echo "==> Running tofu validate..."
-@cd terraform && tofu init -backend=false -no-color -input=false >/dev/null 2>&1 && tofu validate
+	@echo "==> Running tofu validate..."
+	@cd terraform && tofu init -backend=false -no-color -input=false >/dev/null 2>&1 && tofu validate
 
 fmt: ## Format all Terraform files in-place
-@echo "==> Formatting Terraform..."
-@tofu fmt -recursive terraform/
+	@echo "==> Formatting Terraform..."
+	@tofu fmt -recursive terraform/
 
 # ---------------------------------------------------------------------------
 # Linting
@@ -140,29 +140,29 @@ fmt: ## Format all Terraform files in-place
 lint: lint-yaml lint-helm lint-actions ## Run all linters
 
 lint-yaml: ## Lint all YAML files with yamllint
-@if command -v yamllint >/dev/null 2>&1; then \
-  echo "==> Running yamllint..."; \
-  yamllint -c .yamllint.yaml kubernetes/ || true; \
+	@if command -v yamllint >/dev/null 2>&1; then \
+	echo "==> Running yamllint..."; \
+	yamllint -c .yamllint.yaml kubernetes/ || true; \
 else \
-  echo "WARN: yamllint not found — install: pip install yamllint"; \
+	echo "WARN: yamllint not found — install: pip install yamllint"; \
 fi
 
 lint-helm: ## Check Helm chart values files exist alongside application.yaml
-@echo "==> Checking Helm app structure..."; \
+	@echo "==> Checking Helm app structure..."; \
 FAIL=0; \
 for dir in kubernetes/core/*/ kubernetes/apps/*/ kubernetes/monitoring/*/; do \
-  if [ -f "$${dir}application.yaml" ] && [ ! -f "$${dir}values.yaml" ]; then \
-    echo "  WARN: $${dir} has application.yaml but no values.yaml"; \
-  fi; \
+	if [ -f "$${dir}application.yaml" ] && [ ! -f "$${dir}values.yaml" ]; then \
+	echo "  WARN: $${dir} has application.yaml but no values.yaml"; \
+	fi; \
 done; \
 echo "  Helm structure check complete"
 
 lint-actions: ## Lint GitHub Actions workflows with actionlint
-@if command -v actionlint >/dev/null 2>&1; then \
-  echo "==> Running actionlint..."; \
-  actionlint .github/workflows/*.yml; \
+	@if command -v actionlint >/dev/null 2>&1; then \
+	echo "==> Running actionlint..."; \
+	actionlint .github/workflows/*.yml; \
 else \
-  echo "WARN: actionlint not found — https://github.com/rhysd/actionlint/releases"; \
+	echo "WARN: actionlint not found — https://github.com/rhysd/actionlint/releases"; \
 fi
 
 # ---------------------------------------------------------------------------
@@ -170,29 +170,29 @@ fi
 # ---------------------------------------------------------------------------
 
 new-app: ## Scaffold a new K8s app: make new-app NAME=myapp TIER=apps
-@if [ -z "$(NAME)" ]; then \
-  echo "Usage: make new-app NAME=<app-name> [TIER=apps|core|monitoring]"; \
-  exit 1; \
+	@if [ -z "$(NAME)" ]; then \
+	echo "Usage: make new-app NAME=<app-name> [TIER=apps|core|monitoring]"; \
+	exit 1; \
 fi
-@bash scripts/new-app.sh "$(NAME)" "$(or $(TIER),apps)"
+	@bash scripts/new-app.sh "$(NAME)" "$(or $(TIER),apps)"
 
 new-user: ## Guide for adding a new platform user: make new-user USER=alice NAME="Alice" EMAIL=a@b.com LEVEL=platform-user
-@if [ -z "$(USER)" ]; then \
-  echo "Usage: make new-user USER=<username> NAME='<Full Name>' EMAIL=<email> [LEVEL=admin|platform-user]"; \
-  exit 1; \
+	@if [ -z "$(USER)" ]; then \
+	echo "Usage: make new-user USER=<username> NAME='<Full Name>' EMAIL=<email> [LEVEL=admin|platform-user]"; \
+	exit 1; \
 fi
-@bash scripts/new-user.sh "$(USER)" "$(or $(NAME),$(USER))" "$(EMAIL)" "$(or $(LEVEL),platform-user)"
+	@bash scripts/new-user.sh "$(USER)" "$(or $(NAME),$(USER))" "$(EMAIL)" "$(or $(LEVEL),platform-user)"
 
 # ---------------------------------------------------------------------------
 # Testing
 # ---------------------------------------------------------------------------
 
 test: ## Run post-deploy test suite against live cluster
-@KB=~/.kube/config-platform-$(ENV); \
+	@KB=~/.kube/config-platform-$(ENV); \
 if [ ! -f "$$KB" ]; then \
-  echo "Kubeconfig not found at $$KB"; \
-  echo "Run: bash scripts/get-kubeconfig.sh $(ENV)"; \
-  exit 1; \
+	echo "Kubeconfig not found at $$KB"; \
+	echo "Run: bash scripts/get-kubeconfig.sh $(ENV)"; \
+	exit 1; \
 fi; \
 bash scripts/test-post-deploy.sh "$$KB" "$(ENV)"
 
@@ -201,11 +201,77 @@ bash scripts/test-post-deploy.sh "$$KB" "$(ENV)"
 # ---------------------------------------------------------------------------
 
 docs: ## Generate Terraform module README.md files (requires terraform-docs)
-@if command -v terraform-docs >/dev/null 2>&1; then \
-  for mod in terraform/modules/*/; do \
-    echo "==> Generating docs for $${mod}..."; \
-    terraform-docs markdown table --output-file README.md "$${mod}" || true; \
-  done; \
+	@if command -v terraform-docs >/dev/null 2>&1; then \
+	for mod in terraform/modules/*/; do \
+	echo "==> Generating docs for $${mod}..."; \
+	terraform-docs markdown table --output-file README.md "$${mod}" || true; \
+	done; \
 else \
-  echo "WARN: terraform-docs not found — https://terraform-docs.io"; \
+	echo "WARN: terraform-docs not found — https://terraform-docs.io"; \
 fi
+
+# ---------------------------------------------------------------------------
+# Schema Validation — platform.yaml + users.yaml
+# ---------------------------------------------------------------------------
+
+validate-platform: ## Validate platform.yaml (checks all enabled apps have catalog dirs)
+	@bash scripts/validate-platform-yaml.sh
+
+validate-users: ## Validate users.yaml (required fields, valid access_level values)
+	@bash scripts/validate-users-yaml.sh
+
+validate-all: validate validate-platform validate-users ## Run all validations
+
+# ---------------------------------------------------------------------------
+# Cluster Status
+# ---------------------------------------------------------------------------
+
+status: ## Show ArgoCD application health and sync status
+	@KUBECONFIG=~/.kube/config-platform-$(ENV) kubectl get applications -n argocd \
+		-o custom-columns="NAME:.metadata.name,HEALTH:.status.health.status,SYNC:.status.sync.status" \
+		--sort-by=.metadata.name 2>/dev/null || \
+		echo "Cannot reach cluster — run: make kubeconfig ENV=$(ENV)"
+
+apps: ## List all deployed ArgoCD applications with repo URL
+	@KUBECONFIG=~/.kube/config-platform-$(ENV) kubectl get applications -n argocd \
+		-o custom-columns="APP:.metadata.name,HEALTH:.status.health.status,SYNC:.status.sync.status" \
+		2>/dev/null | sort || echo "Cannot reach cluster"
+
+diff: ## Show kubernetes manifest diff vs live cluster
+	@echo "→ Diffing kubernetes/ against cluster $(ENV)..."
+	@find kubernetes/ -name "*.yaml" ! -name "values.yaml" ! -path "*/templates/*" -type f \
+		-exec KUBECONFIG=~/.kube/config-platform-$(ENV) kubectl diff -f {} \; 2>/dev/null || true
+
+users-list: ## List all users from users.yaml
+	@python3 -c "import yaml; \
+		users = yaml.safe_load(open('users.yaml'))['users']; \
+		print(f'  {\"USERNAME\":<20} {\"EMAIL\":<35} ROLE'); \
+		print('  ' + '-'*70); \
+		[print(f'  {u:<20} {d.get(\"email\",\"\")<35} {d.get(\"access_level\",\"\")}') for u,d in users.items()]"
+
+# ---------------------------------------------------------------------------
+# Developer Tools Install
+# ---------------------------------------------------------------------------
+
+install-dev-tools: ## Install local developer tools (yamllint, kubeconform, pre-commit)
+	@echo "→ Installing local dev tools..."
+	@pip install --quiet yamllint pre-commit 2>/dev/null && echo "  ✅ yamllint + pre-commit" || true
+	@if ! command -v kubeconform >/dev/null 2>&1; then \
+		KVER=v0.6.7; \
+		mkdir -p $$HOME/.local/bin; \
+		curl -fsSL "https://github.com/yannh/kubeconform/releases/download/$$KVER/kubeconform-linux-amd64.tar.gz" \
+			| tar -xzf - -C $$HOME/.local/bin/ kubeconform 2>/dev/null; \
+		echo "  ✅ kubeconform installed"; \
+	else \
+		echo "  ✅ kubeconform already installed"; \
+	fi
+	@if command -v pre-commit >/dev/null 2>&1 && [ -f .pre-commit-config.yaml ]; then \
+		pre-commit install --quiet && echo "  ✅ pre-commit hooks installed"; \
+	fi
+	@echo "✅ Dev tools ready — run: make validate-all"
+
+clean: ## Remove __pycache__ and temp files
+	@find . -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
+	@find . -name "*.pyc" -delete 2>/dev/null || true
+	@find . -name ".DS_Store" -delete 2>/dev/null || true
+	@echo "✅ Cleaned"

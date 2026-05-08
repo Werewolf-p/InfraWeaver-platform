@@ -245,6 +245,17 @@ jobs:
           fi
           echo "✅ kube-score check complete (informational)"
 
+  # ── Schema validation: platform.yaml + users.yaml ──
+  schema-validate:
+    name: Schema Validation
+    runs-on: [self-hosted, prod-worker]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate platform.yaml
+        run: bash scripts/validate-platform-yaml.sh
+      - name: Validate users.yaml
+        run: bash scripts/validate-users-yaml.sh
+
   # ── PR Kubernetes diff (self-hosted runner required for live cluster access) ──
   pr-diff:
     name: Kubernetes PR Diff
@@ -343,7 +354,7 @@ jobs:
   # ── Final gate ───────────────────────────────────────────────────────────────
   security-gate:
     name: ✅ CI Gate
-    needs: [secret-scan, checkov, kubernetes-manifests, helm-lint, actionlint, trivy, kube-score]
+    needs: [secret-scan, checkov, kubernetes-manifests, helm-lint, actionlint, trivy, kube-score, schema-validate]
     runs-on: [self-hosted, prod-worker]
     steps:
       - run: echo "✅ All CI checks passed"
