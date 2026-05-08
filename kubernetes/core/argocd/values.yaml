@@ -63,6 +63,11 @@ configs:
         - '.spec.conversion.webhook.clientConfig.caBundle'
         - '.spec.preserveUnknownFields'
         - '.status'
+    # PodDisruptionBudget status is filled in by the Kubernetes controller (disruptionsAllowed,
+    # disruptedPods, currentHealthy, etc.) — ArgoCD should not consider this as drift.
+    resource.customizations.ignoreDifferences.policy_PodDisruptionBudget: |
+      jqPathExpressions:
+        - '.status'
     # On bare-metal (no cloud LB), ingresses never get an ADDRESS — mark them always healthy
     resource.customizations.health.networking.k8s.io_Ingress: |
       hs = {}

@@ -289,3 +289,35 @@ spec:
           port: 8080
   tls:
     secretName: platform-wildcard-int-tls
+---
+# NetworkPolicy for Gatus — allow egress to K8s cluster DNS + all monitored endpoints.
+# Default-deny is NOT set here (Gatus needs broad access to monitor platform endpoints).
+# Ingress: allow Traefik forward-auth + status page access.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-gatus-ingress
+  namespace: gatus
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: gatus
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow Traefik to forward-auth + route status page traffic to Gatus
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: traefik
+      ports:
+        - protocol: TCP
+          port: 8080
+    # Allow Prometheus scraping
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8080
