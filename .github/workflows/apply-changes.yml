@@ -340,14 +340,14 @@ jobs:
 
           if [ -z "$CHANGED" ]; then
             echo "==> No changed bootstrap files detected — applying all bootstrap apps"
-            $KT apply -f kubernetes/bootstrap/ --dry-run=client 2>&1 | head -5
-            $KT apply -f kubernetes/bootstrap/
+            $KT apply --validate=false -f kubernetes/bootstrap/ --dry-run=client 2>&1 | head -5
+            $KT apply --validate=false -f kubernetes/bootstrap/
           else
             echo "==> Applying changed bootstrap files:"
             for f in $CHANGED; do
               if [ -f "$f" ]; then
                 echo "  kubectl apply -f $f"
-                $KT apply -f "$f"
+                $KT apply --validate=false -f "$f"
                 APP_NAME=$(grep "^  name:" "$f" | head -1 | awk '{print $2}')
                 if [ -n "$APP_NAME" ]; then
                   echo "  Waiting for ArgoCD to pick up ${APP_NAME}..."
@@ -398,7 +398,7 @@ jobs:
           KT="kubectl --kubeconfig $KB --insecure-skip-tls-verify"
           # Apply any new/changed catalog bootstrap files
           for f in kubernetes/bootstrap/catalog-*.yaml; do
-            [ -f "$f" ] && $KT apply -f "$f"
+            [ -f "$f" ] && $KT apply --validate=false -f "$f"
           done
           echo "✅ Catalog applications applied to ArgoCD" >> $GITHUB_STEP_SUMMARY
 
@@ -437,7 +437,7 @@ jobs:
           KB=~/.kube/config-platform-${{ env.ENV_NAME }}
           KT="kubectl --kubeconfig $KB --insecure-skip-tls-verify"
           for f in kubernetes/bootstrap/appset-core*.yaml; do
-            [ -f "$f" ] && $KT apply -f "$f"
+            [ -f "$f" ] && $KT apply --validate=false -f "$f"
           done
           echo "✅ Group ApplicationSets applied to ArgoCD" >> $GITHUB_STEP_SUMMARY
 

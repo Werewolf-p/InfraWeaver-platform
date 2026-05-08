@@ -157,10 +157,10 @@ if [ "$CRITICAL_FAIL" -eq 1 ]; then
   exit 1
 fi
 
-if [ "$FINAL_STATUS" = "degraded" ] && [ "${#DEGRADED[@]:-0}" -gt 0 ]; then
+if [ "$FINAL_STATUS" = "degraded" ] && [ "${#DEGRADED[@]}" -gt 0 ]; then
   echo ""
   echo "⚠️  Non-critical apps degraded (manual review recommended):"
-  for APP in "${DEGRADED[@]:-}"; do
+  for APP in "${DEGRADED[@]}"; do
     echo "   • $APP"
   done
 fi
