@@ -27,7 +27,7 @@ spec:
             - |
               echo "Waiting for wiki to become ready..."
               for i in $(seq 1 60); do
-                if curl -sf http://wiki.wiki.svc.cluster.local:3000/healthz >/dev/null 2>&1; then
+                if curl -sf http://wiki.wiki.svc.cluster.local/healthz >/dev/null 2>&1; then
                   echo "Wiki is ready"
                   exit 0
                 fi
@@ -38,7 +38,7 @@ spec:
               exit 1
         # Wait for PostgreSQL to be ready
         - name: wait-postgres
-          image: bitnami/postgresql:15
+          image: postgres:15
           env:
             - name: PGPASSWORD
               valueFrom:
@@ -61,7 +61,7 @@ spec:
               exit 1
       containers:
         - name: configure-oidc
-          image: bitnami/postgresql:15
+          image: postgres:15
           env:
             - name: PGPASSWORD
               valueFrom:

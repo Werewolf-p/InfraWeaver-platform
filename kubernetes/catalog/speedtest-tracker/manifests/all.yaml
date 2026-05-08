@@ -48,13 +48,11 @@ spec:
       priorityClassName: platform-standard
       securityContext:
         fsGroup: 1000
-        runAsNonRoot: true
-        runAsUser: 1000
         seccompProfile:
           type: RuntimeDefault
       containers:
         - name: speedtest-tracker
-          image: lscr.io/linuxserver/speedtest-tracker:1.14.0-ls148
+          image: lscr.io/linuxserver/speedtest-tracker:latest
           ports:
             - containerPort: 80
           env:
@@ -93,7 +91,7 @@ spec:
             periodSeconds: 30
             failureThreshold: 5
           securityContext:
-            allowPrivilegeEscalation: false
+            allowPrivilegeEscalation: true
       volumes:
         - name: config
           persistentVolumeClaim:

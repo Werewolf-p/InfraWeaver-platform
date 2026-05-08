@@ -30,6 +30,7 @@ spec:
     spec:
       terminationGracePeriodSeconds: 30
       priorityClassName: platform-standard
+      enableServiceLinks: false
       securityContext:
         fsGroup: 977
         runAsNonRoot: true
@@ -39,7 +40,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: searxng
-          image: searxng/searxng:2025.5.4
+          image: searxng/searxng:latest
           ports:
             - containerPort: 8080
           env:

@@ -47,8 +47,6 @@ spec:
       priorityClassName: platform-standard
       securityContext:
         fsGroup: 1000
-        runAsNonRoot: true
-        runAsUser: 1000
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -94,7 +92,7 @@ spec:
             failureThreshold: 24
             periodSeconds: 5
           securityContext:
-            allowPrivilegeEscalation: false
+            allowPrivilegeEscalation: true
       volumes:
         - name: config
           persistentVolumeClaim:

@@ -43,6 +43,13 @@ spec:
     - secretKey: DATABASE_URL
       remoteRef:
         key: secret/platform/outline
+        property: database-url
+        conversionStrategy: Default
+        decodingStrategy: None
+        metadataPolicy: None
+    - secretKey: dbpassword
+      remoteRef:
+        key: secret/platform/outline
         property: db-password
         conversionStrategy: Default
         decodingStrategy: None
