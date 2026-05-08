@@ -40,6 +40,8 @@ spec:
       jsonPointers:
         - /status
         - /metadata/finalizers
+        - /spec/target/creationPolicy
+        - /spec/target/deletionPolicy
       jqPathExpressions:
         - '.spec.data[].remoteRef.conversionStrategy'
         - '.spec.data[].remoteRef.decodingStrategy'
