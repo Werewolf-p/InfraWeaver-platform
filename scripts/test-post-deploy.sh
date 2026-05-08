@@ -10,6 +10,11 @@
 
 set -uo pipefail
 
+SCRIPT_NAME="test-post-deploy"
+# shellcheck source=scripts/lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+set -uo pipefail  # restore: test suite intentionally allows non-zero exits
+
 KB="${1:-$HOME/.kube/config-platform-productie}"
 ENV="${2:-productie}"
 

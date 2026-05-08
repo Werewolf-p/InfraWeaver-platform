@@ -8,6 +8,10 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
+SCRIPT_NAME="validate-platform-yaml"
+# shellcheck source=scripts/lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+
 ERRORS=0
 CATALOG_DIR="kubernetes/catalog"
 PLATFORM_FILE="platform.yaml"

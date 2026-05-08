@@ -12,6 +12,10 @@
 # Usage: scripts/sync-groups.sh [--dry-run] [--repo-root <path>]
 set -euo pipefail
 
+SCRIPT_NAME="sync-groups"
+# shellcheck source=scripts/lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+
 DRY_RUN=false
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 

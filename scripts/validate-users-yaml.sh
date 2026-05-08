@@ -7,6 +7,10 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
+SCRIPT_NAME="validate-users-yaml"
+# shellcheck source=scripts/lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+
 USERS_FILE="users.yaml"
 ERRORS=0
 

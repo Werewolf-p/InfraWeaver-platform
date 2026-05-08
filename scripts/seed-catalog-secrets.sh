@@ -46,6 +46,10 @@
 
 set -euo pipefail
 
+SCRIPT_NAME="seed-catalog-secrets"
+# shellcheck source=scripts/lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+
 REPO_ROOT="${REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 DRY_RUN=false
 STATS_SEEDED=0
@@ -63,8 +67,6 @@ PLATFORM_YAML="$REPO_ROOT/platform.yaml"
 CATALOG_DIR="$REPO_ROOT/kubernetes/catalog"
 
 log()    { echo "[seed-secrets] $*"; }
-ok()     { echo "[seed-secrets] ✅ $*"; }
-warn()   { echo "[seed-secrets] ⚠  $*" >&2; }
 dry()    { echo "[seed-secrets] [dry-run] $*"; }
 
 # ── Validate prerequisites ────────────────────────────────────────────────────

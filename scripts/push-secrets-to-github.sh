@@ -17,9 +17,11 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
-ok()   { echo -e "${GREEN}✅ $*${NC}"; }
-warn() { echo -e "${YELLOW}⚠️  $*${NC}"; }
+SCRIPT_NAME="push-secrets-to-github"
+# shellcheck source=scripts/lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+
+RED='\033[0;31m'; NC='\033[0m'
 fail() { echo -e "${RED}❌ $*${NC}"; exit 1; }
 
 if ! command -v gh &>/dev/null; then

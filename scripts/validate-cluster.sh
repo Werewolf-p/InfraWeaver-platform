@@ -26,6 +26,10 @@
 
 set -euo pipefail
 
+SCRIPT_NAME="validate-cluster"
+# shellcheck source=scripts/lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+
 # ── Defaults ─────────────────────────────────────────────────────────────────
 ENV="${ENV_NAME:-productie}"
 FIX=false

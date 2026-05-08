@@ -22,6 +22,10 @@
 
 set -euo pipefail
 
+SCRIPT_NAME="sync-catalog"
+# shellcheck source=scripts/lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DRY_RUN=false
 GITHUB_REPO="${GITHUB_REPO:-https://github.com/Werewolf-p/InfraWeaver-platform.git}"
@@ -39,9 +43,6 @@ PLATFORM_YAML="$REPO_ROOT/platform.yaml"
 BOOTSTRAP_DIR="$REPO_ROOT/kubernetes/bootstrap"
 CATALOG_DIR="$REPO_ROOT/kubernetes/catalog"
 
-log()  { echo "[sync-catalog] $*"; }
-warn() { echo "[sync-catalog] ⚠ $*" >&2; }
-die()  { echo "[sync-catalog] ✗ $*" >&2; exit 1; }
 
 # ── Validate prerequisites ────────────────────────────────────────────────────
 [[ -f "$PLATFORM_YAML" ]] || die "platform.yaml not found at $PLATFORM_YAML"
