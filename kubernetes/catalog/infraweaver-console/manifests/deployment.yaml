@@ -71,6 +71,8 @@ spec:
           value: http://netbird-management.netbird.svc.cluster.local:80
         - name: NODE_ENV
           value: production
+        - name: AUTH_TRUST_HOST
+          value: "true"
         resources:
           requests:
             memory: 256Mi
