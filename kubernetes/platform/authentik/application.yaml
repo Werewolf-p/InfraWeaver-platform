@@ -6,3 +6,4 @@ targetRevision: "2026.2.*"
 chart: authentik
 releaseName: authentik
 namespace: authentik
+replicas: "1"

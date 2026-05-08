@@ -1,3 +1,89 @@
+# ── True Core (mandatory, cannot be disabled) ─────────────────────────────────
+# These are ALWAYS deployed. Listed here for visibility only.
+# Editing this list does NOT enable/disable apps — they are hardcoded.
+core:
+  apps:
+    argocd:
+      description: "GitOps engine — powers all deployments"
+    cert-manager:
+      description: "TLS certificate automation (Let's Encrypt)"
+    traefik:
+      description: "Ingress controller — all HTTP(S) routing"
+    ingress-nginx:
+      description: "Internal ingress controller for cluster services"
+    external-secrets:
+      description: "Syncs secrets from OpenBao → Kubernetes Secrets"
+    longhorn:
+      description: "Distributed block storage for persistent volumes"
+    openbao:
+      description: "Secrets vault (open-source Vault fork)"
+    metallb:
+      description: "Load balancer IP assignment for bare-metal"
+    kyverno:
+      description: "Policy enforcement and resource validation"
+    priority-classes:
+      description: "Pod scheduling priority tiers"
+    local-path-provisioner:
+      description: "Local disk storage for lightweight workloads"
+
+# ── Optional Core Groups ───────────────────────────────────────────────────────
+# Each group maps to a kubernetes/<tier>/ directory.
+# Set enabled: false to remove the entire group from the cluster.
+# Set replicas: N per app to run N pod replicas (basic HA).
+# Stateless apps (Grafana, Homepage) support 2+ replicas.
+# Stateful apps with a DB (Authentik, Loki) typically use 1.
+groups:
+  core-monitoring:
+    description: "Prometheus, Loki, Alertmanager — cluster observability"
+    enabled: true
+    # kubernetes/monitoring/ apps
+    apps:
+      kube-prometheus-stack:
+        description: "Prometheus + kube-state-metrics + node-exporter"
+        replicas: 1       # Prometheus StatefulSet — 1 is standard
+      loki:
+        description: "Log aggregation"
+        replicas: 1
+      alertmanager-discord:
+        description: "Discord alert forwarder for Alertmanager"
+        replicas: 1
+      alerts:
+        description: "PrometheusRule alert definitions (no pods)"
+
+  core-platform:
+    description: "SSO, VPN, DNS, Homepage, Backups — core platform services"
+    enabled: true
+    # kubernetes/platform/ apps
+    apps:
+      authentik:
+        description: "Identity provider and SSO gateway"
+        replicas: 1       # Set 2 for HA (PostgreSQL handles state)
+      authentik-ldap-outpost:
+        description: "LDAP outpost for Authentik"
+        replicas: 1
+      netbird:
+        description: "Zero-trust VPN mesh"
+        replicas: 1
+      velero:
+        description: "Kubernetes backup controller"
+      minio-velero:
+        description: "S3-compatible storage for Velero backups"
+        replicas: 1
+      external-dns:
+        description: "Automatic DNS record management"
+        replicas: 1
+      homepage:
+        description: "Homelab dashboard"
+        replicas: 2       # Stateless — 2 replicas for HA
+      wazuh:
+        description: "Security information and event management (SIEM)"
+      argocd-image-updater:
+        description: "Automatic container image tag updates"
+        replicas: 1
+      grafana:
+        description: "Standalone Grafana for custom dashboards"
+        replicas: 2       # Stateless — 2 replicas for HA
+
 catalog:
   # List of catalog apps to install.
   # Core apps (argocd, traefik, external-secrets, authentik, etc.) are always installed.
@@ -37,6 +123,19 @@ catalog:
     - gatus
     - stirling-pdf
     - onedev
+
+  # ── Per-catalog-app HA settings ──────────────────────────────────────────────
+  # Set replicas: N to run N pods. Default is 1.
+  # Only effective for apps whose Helm chart supports replicaCount.
+  ha:
+    wiki:
+      replicas: 1
+    gatus:
+      replicas: 1
+    stirling-pdf:
+      replicas: 1
+    onedev:
+      replicas: 1
 
 # ── Persistence (TrueNAS NFS backup for Longhorn volumes) ─────────────────────
 persistence:

@@ -7,3 +7,4 @@ targetRevision: "1.*"
 chart: homepage
 releaseName: homepage
 namespace: apps-homepage
+replicas: "2"

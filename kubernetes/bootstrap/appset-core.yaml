@@ -1,19 +1,11 @@
 ---
-# applicationset-root.yaml — ApplicationSet for kubernetes/catalog/ and kubernetes/apps/ tiers.
-# Discovers every app folder under those tiers that contains an application.yaml
-# and generates an ArgoCD Application for it.
-#
-# Folder layout:
-#   kubernetes/<tier>/<app-name>/
-#     application.yaml   — chart source metadata (repoURL, chart, namespace…)
-#     values.yaml        — Helm values (optional, loaded via multi-source $values ref)
-#
-# Users add a new catalog/apps app by creating kubernetes/{catalog,apps}/<app>/application.yaml.
-# ArgoCD picks it up automatically on the next sync.
+# appset-core.yaml — Mandatory ApplicationSet for kubernetes/core/ tier.
+# This file is NEVER deleted by scripts — it is always present.
+# Discovers all kubernetes/core/*/application.yaml files.
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
-  name: platform-catalog-apps
+  name: platform-core
   namespace: argocd
 spec:
   goTemplate: true
@@ -23,7 +15,7 @@ spec:
         repoURL: https://github.com/Werewolf-p/InfraWeaver-platform.git
         revision: HEAD
         files:
-          - path: "kubernetes/{catalog,apps}/*/application.yaml"
+          - path: "kubernetes/core/*/application.yaml"
   template:
     metadata:
       name: '{{ index (splitList "/" .path.path) 1 }}-{{ index (splitList "/" .path.path) 2 }}'

@@ -61,3 +61,70 @@ if [[ $ERRORS -gt 0 ]]; then
 fi
 
 echo "✅ platform.yaml validation passed ($( echo "$ENABLED_APPS" | wc -w ) apps checked)"
+
+
+# ── Validate groups: section ──────────────────────────────────────────────────
+echo ""
+echo "==> Validating groups: section..."
+
+python3 - <<'PYEOF'
+import yaml, sys, os
+
+PLATFORM_FILE = 'platform.yaml'
+KUBERNETES_DIR = 'kubernetes'
+errors = 0
+
+with open(PLATFORM_FILE) as f:
+    data = yaml.safe_load(f)
+
+groups = data.get('groups', {})
+if not groups:
+    print("  ℹ  No groups: section found (skipping)")
+    sys.exit(0)
+
+for group_name, group_cfg in groups.items():
+    if group_cfg is None:
+        print(f"  ❌ Group '{group_name}' is null/empty")
+        errors += 1
+        continue
+
+    if 'enabled' not in group_cfg:
+        print(f"  ❌ Group '{group_name}' missing required 'enabled:' key")
+        errors += 1
+    elif not isinstance(group_cfg['enabled'], bool):
+        print(f"  ❌ Group '{group_name}' enabled: must be a boolean (true/false)")
+        errors += 1
+
+    tier = group_name[len('core-'):] if group_name.startswith('core-') else group_name
+    apps = group_cfg.get('apps', {}) or {}
+
+    for app_name, app_cfg in apps.items():
+        if app_cfg is None:
+            app_cfg = {}
+        replicas = app_cfg.get('replicas')
+        if replicas is not None:
+            try:
+                r = int(replicas)
+                if r < 1:
+                    raise ValueError
+            except (ValueError, TypeError):
+                print(f"  ❌ Group '{group_name}' app '{app_name}' replicas must be a positive integer, got: {replicas!r}")
+                errors += 1
+                continue
+        app_dir = os.path.join(KUBERNETES_DIR, tier, app_name)
+        if not os.path.isdir(app_dir):
+            print(f"  ⚠  Group '{group_name}' app '{app_name}' has no directory {app_dir}/ (may be bootstrap-only)")
+        else:
+            rep_str = f" (replicas: {replicas})" if replicas else ""
+            print(f"  ✅ {group_name}/{app_name}{rep_str}")
+
+if errors > 0:
+    print(f"\n❌ groups: validation failed: {errors} error(s)")
+    sys.exit(1)
+else:
+    print(f"✅ groups: validation passed")
+PYEOF
+GROUPS_EXIT=$?
+if [[ $GROUPS_EXIT -ne 0 ]]; then
+  ERRORS=$((ERRORS + 1))
+fi

@@ -3,3 +3,4 @@ targetRevision: "69.*"
 chart: kube-prometheus-stack
 releaseName: kube-prometheus-stack
 namespace: monitoring
+replicas: "1"

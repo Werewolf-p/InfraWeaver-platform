@@ -35,6 +35,7 @@ on:
     paths:
       - "users.yaml"
       - "platform.yaml"                # catalog app enable/disable config
+      - "scripts/sync-groups.sh"
       - "kubernetes/platform/authentik/manifests/blueprint-users.yaml"
       - "kubernetes/platform/authentik/manifests/blueprint-access-control.yaml"
       - ".github/scripts/seed-openbao-authentik.sh"
@@ -88,6 +89,7 @@ jobs:
       new_users:      ${{ steps.changes.outputs.new_users }}
       new_bootstrap:  ${{ steps.changes.outputs.new_bootstrap }}
       catalog_sync:   ${{ steps.changes.outputs.catalog_sync }}
+      groups_sync:    ${{ steps.changes.outputs.groups_sync }}
       dns_changed:    ${{ steps.changes.outputs.dns_changed }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -151,6 +153,14 @@ jobs:
             echo "catalog_sync=false" >> $GITHUB_OUTPUT
           fi
 
+          # Detect groups sync (platform.yaml change or sync-groups.sh change)
+          if [ "$FORCE_CATALOG" = "true" ] || echo "$CHANGED" | grep -qE "^platform\.yaml$|^scripts/sync-groups\.sh$"; then
+            echo "groups_sync=true" >> $GITHUB_OUTPUT
+            echo "==> platform.yaml or sync-groups.sh changed — will sync groups"
+          else
+            echo "groups_sync=false" >> $GITHUB_OUTPUT
+          fi
+
           # Detect CoreDNS configmap changes (requires pod restart)
           if echo "$CHANGED" | grep -qE "^kubernetes/platform/dns/manifests/configmap\.yaml$"; then
             echo "dns_changed=true"  >> $GITHUB_OUTPUT
@@ -170,6 +180,7 @@ jobs:
           echo "| New users     | ${{ steps.changes.outputs.new_users }} |" >> $GITHUB_STEP_SUMMARY
           echo "| New apps      | ${{ steps.changes.outputs.new_bootstrap }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Catalog sync  | ${{ steps.changes.outputs.catalog_sync }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Groups sync   | ${{ steps.changes.outputs.groups_sync }} |" >> $GITHUB_STEP_SUMMARY
           echo "| DNS restart   | ${{ steps.changes.outputs.dns_changed }} |" >> $GITHUB_STEP_SUMMARY
 
   # ── 2. Restart CoreDNS when configmap changes ─────────────────────────────
@@ -385,15 +396,54 @@ jobs:
           done
           echo "✅ Catalog applications applied to ArgoCD" >> $GITHUB_STEP_SUMMARY
 
+  # ── 5c. Sync groups (when platform.yaml or sync-groups.sh changes) ─────────
+  sync-groups:
+    name: "Sync Group ApplicationSets"
+    needs: [detect]
+    if: needs.detect.outputs.groups_sync == 'true' || github.event.inputs.force_catalog_sync == 'true'
+    runs-on:
+      - self-hosted
+      - prod-worker
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install PyYAML
+        run: |
+          python3 -c "import yaml" 2>/dev/null && echo "PyYAML already available" || \
+          sudo apt-get install -y python3-yaml -qq 2>/dev/null || \
+          true
+
+      - name: Sync group ApplicationSets from platform.yaml
+        run: |
+          git config user.email "github-actions@github.com"
+          git config user.name "InfraWeaver Groups Sync"
+          bash scripts/sync-groups.sh
+          echo "✅ Groups sync complete" >> $GITHUB_STEP_SUMMARY
+
+      - name: Apply group ApplicationSet files to ArgoCD
+        run: |
+          KB=~/.kube/config-platform-${{ env.ENV_NAME }}
+          KT="kubectl --kubeconfig $KB --insecure-skip-tls-verify"
+          for f in kubernetes/bootstrap/appset-core*.yaml; do
+            [ -f "$f" ] && $KT apply -f "$f"
+          done
+          echo "✅ Group ApplicationSets applied to ArgoCD" >> $GITHUB_STEP_SUMMARY
+
   # ── 6. Post-apply health check ────────────────────────────────────────────
   post-health-check:
     name: "Post-Apply Health Check"
-    needs: [detect, seed-openbao, apply-new-apps, sync-catalog]
+    needs: [detect, seed-openbao, apply-new-apps, sync-catalog, sync-groups]
     if: |
       always() &&
       (needs.detect.outputs.user_config == 'true' ||
        needs.detect.outputs.new_bootstrap == 'true' ||
        needs.detect.outputs.catalog_sync == 'true' ||
+       needs.detect.outputs.groups_sync == 'true' ||
        github.event.inputs.force_user_sync == 'true')
     runs-on:
       - self-hosted

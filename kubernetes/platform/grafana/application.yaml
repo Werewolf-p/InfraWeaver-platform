@@ -5,3 +5,4 @@ targetRevision: "8.*"
 chart: grafana
 releaseName: grafana
 namespace: apps-grafana
+replicas: "2"
