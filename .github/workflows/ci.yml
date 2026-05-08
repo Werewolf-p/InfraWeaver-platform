@@ -158,15 +158,54 @@ jobs:
     runs-on: [self-hosted, prod-worker]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - name: Install and run actionlint
+      - name: Install actionlint
         run: |
           ACTIONLINT_VERSION="v1.7.12"
           mkdir -p $HOME/bin
           curl -fsSL "https://github.com/rhysd/actionlint/releases/download/${ACTIONLINT_VERSION}/actionlint_1.7.12_linux_amd64.tar.gz" \
             | tar -xzf - -C $HOME/bin/ actionlint
           echo "$HOME/bin" >> $GITHUB_PATH
-          $HOME/bin/actionlint .github/workflows/*.yml 2>&1 || true
-          echo "✅ Workflow lint complete"
+      - name: Lint GitHub Actions workflows (BLOCKING)
+        # actionlint catches: invalid context expressions (runner.home), non-existent job
+        # references in needs:, wrong event names, missing permissions, type errors in
+        # expressions. These are HARD errors — not warnings. CI must fail if any are found.
+        # Historical bugs caught by this: runner.home (invalid), needs.apply-users (non-existent job)
+        run: |
+          $HOME/bin/actionlint .github/workflows/*.yml
+          echo "✅ All GitHub Actions workflows pass actionlint"
+
+  # ── Shell script lint (shellcheck) ──────────────────────────────────────────
+  shellcheck:
+    name: ShellCheck — Shell Script Lint
+    runs-on: [self-hosted, prod-worker]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Install shellcheck
+        run: |
+          mkdir -p $HOME/bin
+          # Use system shellcheck if available, otherwise download
+          if ! command -v shellcheck &>/dev/null; then
+            curl -fsSL https://github.com/koalaman/shellcheck/releases/download/v0.10.0/shellcheck-v0.10.0.linux.x86_64.tar.xz \
+              | tar -xJf - -C /tmp/
+            cp /tmp/shellcheck-v0.10.0/shellcheck $HOME/bin/shellcheck
+          fi
+          echo "$HOME/bin" >> $GITHUB_PATH
+      - name: Lint shell scripts (BLOCKING)
+        # shellcheck catches: wrong shebang (sh vs bash), pipe subshell scoping bugs,
+        # unquoted variables, errexit interactions, command substitution issues.
+        # Historical bugs caught: pipe | while creating subshell (lost counter increments),
+        # /bin/sh not supporting process substitution < <()
+        run: |
+          FAIL=0
+          while IFS= read -r script; do
+            echo "Checking $script..."
+            shellcheck --severity=error "$script" || FAIL=1
+          done < <(find scripts/ -name "*.sh" -type f | sort)
+          if [ "$FAIL" -eq 1 ]; then
+            echo "❌ ShellCheck found errors — fix before merging"
+            exit 1
+          fi
+          echo "✅ All shell scripts pass shellcheck"
 
   # ── Trivy: image scan + manifest misconfig (combined to save install time) ───
   trivy:
@@ -255,6 +294,43 @@ jobs:
         run: bash scripts/validate-platform-yaml.sh
       - name: Validate users.yaml
         run: bash scripts/validate-users-yaml.sh
+      - name: Validate ExternalSecret secretStoreRef names (BLOCKING)
+        # Catches copy-paste errors like secretStoreRef.name: openbao-backend (wrong)
+        # vs openbao (the actual ClusterSecretStore). Historical bug: Gatus CrashLoopBackOff.
+        run: bash scripts/validate-eso-refs.sh
+      - name: Validate Gatus in-cluster service monitors use K8s DNS (BLOCKING)
+        # In-cluster services (Traefik, ArgoCD, etc.) must be monitored via K8s internal
+        # DNS (svc.cluster.local), NOT via external hostnames. Using external URLs causes
+        # Gatus pods to hit IP-allowlist middleware and get 403. Historical bug: Traefik /ping.
+        run: |
+          python3 << 'PYEOF'
+          import sys, re, glob
+
+          # These in-cluster services must NOT be monitored via external URLs in Gatus.
+          # They have K8s services and should be reached via svc.cluster.local.
+          INFRA_SERVICES = ["traefik", "argocd-server", "grafana", "prometheus"]
+
+          gatus_files = glob.glob("kubernetes/**/gatus/**/*.yaml", recursive=True)
+          fail = False
+
+          for filepath in gatus_files:
+              with open(filepath) as f:
+                  content = f.read()
+
+              # Find url: lines that mention rlservers.com and check if they're for infra services
+              for lineno, line in enumerate(content.splitlines(), 1):
+                  if "url:" in line and "traefik.int.rlservers.com/ping" in line:
+                      print(f"❌ {filepath}:{lineno}: Traefik /ping should use internal K8s service URL")
+                      print(f"   Found: {line.strip()}")
+                      print(f"   Use: url: http://traefik-dashboard.traefik.svc.cluster.local:8080/ping")
+                      fail = True
+
+          if fail:
+              print("\n💡 In-cluster services should be monitored via K8s internal DNS to avoid middleware blocks.")
+              sys.exit(1)
+          else:
+              print("✅ Gatus in-cluster monitors are using K8s internal DNS")
+          PYEOF
 
   # ── PR Kubernetes diff (self-hosted runner required for live cluster access) ──
   pr-diff:
@@ -354,7 +430,7 @@ jobs:
   # ── Final gate ───────────────────────────────────────────────────────────────
   security-gate:
     name: ✅ CI Gate
-    needs: [secret-scan, checkov, kubernetes-manifests, helm-lint, actionlint, trivy, kube-score, schema-validate]
+    needs: [secret-scan, checkov, kubernetes-manifests, helm-lint, actionlint, shellcheck, trivy, kube-score, schema-validate]
     runs-on: [self-hosted, prod-worker]
     steps:
       - run: echo "✅ All CI checks passed"

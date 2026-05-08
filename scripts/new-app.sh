@@ -313,6 +313,19 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
+  # ignoreDifferences: suppress controller-managed fields that cause false OutOfSync.
+  # Include this block for apps that use webhooks (cert-manager injection) or PodDisruptionBudgets.
+  # See: kubernetes/core/argocd/values.yaml globalIgnoreDifferences for cluster-wide patterns.
+  ignoreDifferences:
+    # ExternalSecret: controller fills in these fields at runtime — ignore to prevent drift.
+    - group: external-secrets.io
+      kind: ExternalSecret
+      jsonPointers:
+        - /spec/data
+      jqPathExpressions:
+        - .spec.data[].remoteRef.conversionStrategy
+        - .spec.data[].remoteRef.decodingStrategy
+        - .spec.data[].remoteRef.metadataPolicy
 EOF
     ok "Created ${BOOTSTRAP_FILE}"
     info "Bootstrap Application created — applied automatically on push to main"
