@@ -19,6 +19,7 @@ on:
     - cron: "0 4 * * 0"   # Sunday 04:00 UTC — OpenBao snapshot
     - cron: "0 7 * * 1"   # Monday 07:00 UTC — drift detection
     - cron: "0 6 * * *"   # Daily 06:00 UTC  — self-heal cluster
+    - cron: "0 5 1,15 * *" # 1st and 15th of month — ESO token renewal
   workflow_dispatch:
     inputs:
       task:
@@ -33,6 +34,7 @@ on:
           - drift-detection
           - check-resources
           - refresh-argocd-token
+          - renew-eso-token         # renew ESO periodic token in OpenBao
           - self-heal           # auto-recover stuck pods + OutOfSync apps
       environment:
         description: "Environment (for drift detection)"
@@ -248,6 +250,78 @@ jobs:
             kubectl --kubeconfig $KB annotate $app -n argocd argocd.argoproj.io/refresh=hard --overwrite 2>/dev/null || true
           done
           echo "✅ All apps hard-refreshed"
+
+  # ── Renew ESO Periodic Token ──────────────────────────────────────────────────
+  # Proactively renews the ESO periodic token in OpenBao before it expires.
+  # The token has a 30-day period — this job runs every 15 days (1st and 15th of month).
+  # ESO auto-renews the token while running, but this is a safety net for restart windows.
+  renew-eso-token:
+    name: Renew ESO OpenBao Token
+    if: >
+      (github.event_name == 'schedule' && github.event.schedule == '0 5 1,15 * *') ||
+      (github.event_name == 'workflow_dispatch' && inputs.task == 'renew-eso-token')
+    runs-on:
+      - self-hosted
+      - prod-worker
+    environment: productie
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Renew ESO token in OpenBao
+        env:
+          ENV_NAME: ${{ env.ENV_NAME }}
+        run: |
+          KB=~/.kube/config-platform-$ENV_NAME
+
+          # Get the current root token to create a new ESO token
+          ROOT_TOKEN=$(kubectl --kubeconfig $KB get secret openbao-unseal-key \
+            -n openbao -o jsonpath='{.data.root_token}' 2>/dev/null | base64 -d || echo "")
+          if [ -z "$ROOT_TOKEN" ]; then
+            echo "❌ Could not get root token — cannot renew ESO token"
+            exit 1
+          fi
+
+          # Port-forward OpenBao for local API access
+          kubectl --kubeconfig $KB port-forward svc/openbao -n openbao 8200:8200 &
+          PF_PID=$!
+          sleep 5
+
+          # Create a new periodic ESO token (30-day period)
+          NEW_TOKEN=$(kubectl --kubeconfig $KB exec -n openbao openbao-0 -- \
+            env VAULT_TOKEN="$ROOT_TOKEN" VAULT_ADDR=http://127.0.0.1:8200 bao token create \
+              -policy=platform-k8s \
+              -policy=default \
+              -period=720h \
+              -orphan \
+              -display-name="eso-${ENV_NAME}-periodic-renewed" \
+              -renewable=true \
+              -format=json 2>/dev/null | \
+            python3 -c "import json,sys; print(json.load(sys.stdin)['auth']['client_token'])" \
+            2>/dev/null || echo "")
+
+          kill $PF_PID 2>/dev/null || true
+
+          if [ -z "$NEW_TOKEN" ]; then
+            echo "❌ Failed to create new ESO token in OpenBao"
+            exit 1
+          fi
+
+          # Update the openbao-token K8s secret with the new token
+          kubectl --kubeconfig $KB create secret generic openbao-token \
+            --namespace external-secrets \
+            --from-literal=token="$NEW_TOKEN" \
+            --dry-run=client -o yaml | \
+            kubectl --kubeconfig $KB apply -f -
+
+          # Restart ESO to pick up the new token immediately
+          kubectl --kubeconfig $KB rollout restart deployment/external-secrets \
+            -n external-secrets 2>/dev/null || true
+          kubectl --kubeconfig $KB rollout status deployment/external-secrets \
+            -n external-secrets --timeout=120s 2>/dev/null || true
+
+          echo "✅ ESO token renewed — new 30-day periodic token created and applied"
+          echo "✅ ESO deployment restarted to pick up new token"
 
   # ── Self-Heal Cluster ─────────────────────────────────────────────────────────
   # Automated recovery: detects and restarts stuck pods, re-syncs OutOfSync ArgoCD

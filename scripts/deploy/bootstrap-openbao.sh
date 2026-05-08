@@ -419,15 +419,17 @@ kubectl --kubeconfig "$KB" exec -n openbao openbao-0 -- \
   env VAULT_TOKEN="$ROOT_TOKEN" VAULT_ADDR=http://127.0.0.1:8200 \
   bao auth tune -max-lease-ttl=87600h token/ 2>/dev/null || true
 
-# Create ESO service token — periodic (7-day period), ESO auto-renews it.
+# Create ESO service token — periodic (30-day period), ESO auto-renews it.
 # Periodic tokens expire if not renewed within the period, which is the
-# correct security posture: a compromised token self-destructs within 7 days.
+# correct security posture: a compromised token self-destructs within 30 days.
 # ESO renews tokens automatically as long as it's running.
+# 30 days (720h) provides a larger safety buffer vs the 7-day original:
+# during planned maintenance/upgrades ESO may restart and need time to re-acquire the token.
 SERVICE_TOKEN=$(kubectl --kubeconfig "$KB" exec -n openbao openbao-0 -- \
   env VAULT_TOKEN="$ROOT_TOKEN" VAULT_ADDR=http://127.0.0.1:8200 bao token create \
     -policy=platform-k8s \
     -policy=default \
-    -period=168h \
+    -period=720h \
     -orphan \
     -display-name="eso-${ENV}-periodic" \
     -renewable=true \
