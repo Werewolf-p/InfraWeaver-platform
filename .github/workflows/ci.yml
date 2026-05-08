@@ -29,16 +29,26 @@ jobs:
   secret-scan:
     name: Gitleaks — Secret Detection
     runs-on: [self-hosted, prod-worker]
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
-      - name: Scan for secrets
+      - name: Cache gitleaks
+        id: cache-gitleaks
+        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c6158d # v4
+        with:
+          path: ~/.local/bin/gitleaks
+          key: gitleaks-v8.18.4-linux-amd64
+      - name: Install gitleaks
+        if: steps.cache-gitleaks.outputs.cache-hit != 'true'
         run: |
-          mkdir -p $HOME/bin
+          mkdir -p ~/.local/bin
           curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.18.4/gitleaks_8.18.4_linux_x64.tar.gz \
-            | tar -xz -C $HOME/bin gitleaks
-          export PATH="$HOME/bin:$PATH"
+            | tar -xz -C ~/.local/bin gitleaks
+      - name: Run gitleaks
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
           gitleaks detect --source . --log-opts="HEAD~5..HEAD" --no-git || \
           gitleaks detect --source . --no-git 2>/dev/null || true
           echo "✅ Secret scan complete"
@@ -47,6 +57,7 @@ jobs:
   checkov:
     name: Checkov — IaC Security
     runs-on: [self-hosted, prod-worker]
+    timeout-minutes: 10
     continue-on-error: true   # checkov Docker image may fail on runner — non-blocking
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -58,17 +69,27 @@ jobs:
           output_format: github_failed_only
 
   # ── Kubernetes manifest lint + YAML duplicate-key check ─────────────────────
+  # Note: kubernetes-manifests and secret-scan run in parallel (no needs: dependency)
   kubernetes-manifests:
     name: Kubernetes Manifest Validation
     runs-on: [self-hosted, prod-worker]
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Cache kubeconform
+        id: cache-kubeconform
+        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c6158d # v4
+        with:
+          path: ~/.local/bin/kubeconform
+          key: kubeconform-v0.7.0-linux-amd64
       - name: Install kubeconform
+        if: steps.cache-kubeconform.outputs.cache-hit != 'true'
         run: |
-          mkdir -p $HOME/bin
+          mkdir -p ~/.local/bin
           curl -fsSL https://github.com/yannh/kubeconform/releases/download/v0.7.0/kubeconform-linux-amd64.tar.gz \
-            | tar -xzf - -C $HOME/bin/ kubeconform
-          echo "$HOME/bin" >> $GITHUB_PATH
+            | tar -xzf - -C ~/.local/bin/ kubeconform
+      - name: Add tools to PATH
+        run: echo "$HOME/.local/bin" >> $GITHUB_PATH
       - name: Validate Kubernetes manifests
         run: |
           find kubernetes/ -name "*.yaml" -o -name "*.yml" | \
@@ -84,6 +105,7 @@ jobs:
   helm-lint:
     name: Helm Values & YAML Duplicate Keys
     runs-on: [self-hosted, prod-worker]
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Validate helm values YAML
@@ -156,6 +178,7 @@ jobs:
   actionlint:
     name: GitHub Actions Lint
     runs-on: [self-hosted, prod-worker]
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Install actionlint
@@ -183,6 +206,7 @@ jobs:
   shellcheck:
     name: ShellCheck — Shell Script Lint
     runs-on: [self-hosted, prod-worker]
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Install shellcheck
@@ -216,6 +240,7 @@ jobs:
   trivy:
     name: Trivy — Vulnerability & Misconfig Scan
     runs-on: [self-hosted, prod-worker]
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Install Trivy
@@ -263,6 +288,7 @@ jobs:
   kube-score:
     name: kube-score — Manifest Best Practices
     runs-on: [self-hosted, prod-worker]
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Install and run kube-score
@@ -293,6 +319,7 @@ jobs:
   schema-validate:
     name: Schema Validation
     runs-on: [self-hosted, prod-worker]
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Validate platform.yaml
@@ -341,6 +368,7 @@ jobs:
   pr-diff:
     name: Kubernetes PR Diff
     if: github.event_name == 'pull_request'
+    timeout-minutes: 10
     runs-on:
       - self-hosted
       - prod-worker
@@ -437,5 +465,6 @@ jobs:
     name: ✅ CI Gate
     needs: [secret-scan, checkov, kubernetes-manifests, helm-lint, actionlint, shellcheck, trivy, kube-score, schema-validate]
     runs-on: [self-hosted, prod-worker]
+    timeout-minutes: 5
     steps:
       - run: echo "✅ All CI checks passed"
