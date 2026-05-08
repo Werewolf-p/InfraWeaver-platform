@@ -25,6 +25,10 @@ export function timeAgo(date: string | Date): string {
   return `${Math.floor(diffHours / 24)}d ago`;
 }
 
+export async function copyToClipboard(text: string): Promise<void> {
+  await navigator.clipboard.writeText(text);
+}
+
 export function formatDate(date: string | Date, includeTime = true): string {
   const d = new Date(date);
   const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];

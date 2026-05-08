@@ -3,11 +3,14 @@ import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   LayoutDashboard, Box, Settings, Users, HardDrive,
-  Network, Activity, ChevronLeft, ChevronRight, Terminal, History, Cog
+  Network, Activity, ChevronLeft, ChevronRight, Terminal, History, Cog,
+  Package, FileText, Bell
 } from "lucide-react";
 import { useRBAC } from "@/hooks/use-rbac";
+import { useArgoApps } from "@/hooks/use-argocd";
 import { cn } from "@/lib/utils";
 import { useSession } from "next-auth/react";
 
@@ -17,17 +20,48 @@ const navItems = [
   { href: "/events", icon: History, label: "Activity Log" },
   { href: "/config", icon: Cog, label: "Config Editor" },
   { href: "/users", icon: Users, label: "Users" },
+  { href: "/registry", icon: Package, label: "Registry" },
+  { href: "/logs", icon: FileText, label: "Pod Logs" },
   { href: "/storage", icon: HardDrive, label: "Storage" },
   { href: "/network", icon: Network, label: "Network" },
   { href: "/health", icon: Activity, label: "Health" },
   { href: "/settings", icon: Settings, label: "Settings" },
 ];
 
+function ClusterHealthDot() {
+  const { data } = useQuery({
+    queryKey: ["health", "cluster"],
+    queryFn: async () => {
+      const res = await fetch("/api/health/cluster");
+      if (!res.ok) throw new Error("Health check failed");
+      return res.json() as Promise<{ status: string }>;
+    },
+    refetchInterval: 60000,
+    staleTime: 30000,
+  });
+
+  const colors: Record<string, string> = {
+    healthy: "bg-green-500",
+    degraded: "bg-red-500",
+    progressing: "bg-yellow-500 animate-pulse",
+    unknown: "bg-slate-500",
+  };
+
+  return (
+    <span className={cn("absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-slate-900", colors[data?.status ?? "unknown"])} />
+  );
+}
+
 export function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const pathname = usePathname();
   const { role } = useRBAC();
   const { data: session } = useSession();
+  const { data: apps } = useArgoApps();
+
+  const alertCount = (apps ?? []).filter(
+    a => a.status.health.status === "Degraded" || a.status.sync.status === "OutOfSync"
+  ).length;
 
   const roleColors: Record<string, string> = {
     admin: "text-red-400 bg-red-500/10 border-red-500/20",
@@ -40,23 +74,32 @@ export function Sidebar() {
     <motion.aside
       animate={{ width: collapsed ? 72 : 240 }}
       transition={{ duration: 0.3, ease: "easeInOut" }}
-      className="relative flex flex-col h-full bg-slate-900/80 backdrop-blur-sm border-r border-white/5 overflow-hidden"
+      className="relative flex flex-col h-full bg-slate-900/80 backdrop-blur-sm border-r border-white/5 overflow-hidden flex-shrink-0"
     >
       {/* Logo */}
       <div className="flex items-center gap-3 px-4 py-5 border-b border-white/5">
-        <div className="w-8 h-8 rounded-lg bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center flex-shrink-0">
+        <div className="w-8 h-8 rounded-lg bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center flex-shrink-0 relative">
           <Terminal className="w-4 h-4 text-indigo-400" />
+          <ClusterHealthDot />
         </div>
         <AnimatePresence>
           {!collapsed && (
-            <motion.span
+            <motion.div
               initial={{ opacity: 0, x: -10 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -10 }}
-              className="font-bold text-white text-sm whitespace-nowrap"
+              className="flex-1 flex items-center justify-between min-w-0"
             >
-              InfraWeaver
-            </motion.span>
+              <span className="font-bold text-white text-sm whitespace-nowrap">InfraWeaver</span>
+              {alertCount > 0 && (
+                <div className="relative">
+                  <Bell className="w-4 h-4 text-slate-400" />
+                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full text-[9px] font-bold text-white flex items-center justify-center">
+                    {alertCount > 9 ? "9+" : alertCount}
+                  </span>
+                </div>
+              )}
+            </motion.div>
           )}
         </AnimatePresence>
       </div>
