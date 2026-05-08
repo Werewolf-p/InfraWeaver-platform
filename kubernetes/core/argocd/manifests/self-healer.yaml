@@ -113,29 +113,45 @@ spec:
                       > /dev/null 2>&1 || true
                   }
 
-                  # Collect all apps with their status
+                  # Collect all apps with their status + health transition time
                   APPS=$(kubectl get applications -n "$NAMESPACE" \
-                    -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.health.status}{"\t"}{.status.sync.status}{"\t"}{.status.operationState.phase}{"\n"}{end}' 2>/dev/null || true)
+                    -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.health.status}{"\t"}{.status.sync.status}{"\t"}{.status.operationState.phase}{"\t"}{.status.health.lastTransitionTime}{"\n"}{end}' 2>/dev/null || true)
 
                   REFRESHED=0
                   SYNCED=0
                   SKIPPED=0
                   SYNCED_APPS=""
                   DEGRADED_APPS=""
+                  NOW_EPOCH=$(date -u +%s)
+                  # Only alert on Degraded apps that have been Degraded for > 15 minutes (1 full healer cycle)
+                  # This filters out transient degradations from hook runs, ESO provisioning, etc.
+                  DEGRADED_GRACE_SECONDS=900
 
                   # Pass 1: hard-refresh OutOfSync and Unknown-sync apps (not Degraded, not running)
                   # Use process substitution to avoid subshell variable scoping issue
-                  while IFS=$'\t' read -r APP HEALTH SYNC OP_PHASE; do
+                  while IFS=$'\t' read -r APP HEALTH SYNC OP_PHASE TRANSITION_TIME; do
                     [ -z "$APP" ] && continue
                     if [ "$OP_PHASE" = "Running" ]; then
                       echo "  SKIP  $APP — operation in progress"
                       SKIPPED=$((SKIPPED+1))
                       continue
                     fi
-                    # Track Degraded apps for Discord notification
+                    # Track PERSISTENT Degraded apps for Discord notification
+                    # Skip apps that JUST became Degraded (within grace period = transient)
                     if [ "$HEALTH" = "Degraded" ]; then
-                      DEGRADED_APPS="${DEGRADED_APPS}• \`${APP}\` (sync=${SYNC})\n"
+                      TRANSITION_EPOCH=0
+                      if [ -n "$TRANSITION_TIME" ]; then
+                        TRANSITION_EPOCH=$(date -u -d "$TRANSITION_TIME" +%s 2>/dev/null || echo 0)
+                      fi
+                      DEGRADED_SECONDS=$(( NOW_EPOCH - TRANSITION_EPOCH ))
+                      if [ "$DEGRADED_SECONDS" -lt "$DEGRADED_GRACE_SECONDS" ]; then
+                        echo "  SKIP  $APP — Degraded for ${DEGRADED_SECONDS}s (within ${DEGRADED_GRACE_SECONDS}s grace, likely transient)"
+                        SKIPPED=$((SKIPPED+1))
+                        continue
+                      fi
+                      DEGRADED_APPS="${DEGRADED_APPS}• \`${APP}\` (sync=${SYNC}, degraded ${DEGRADED_SECONDS}s)\n"
                       if [ "$SYNC" != "OutOfSync" ] && [ "$SYNC" != "Unknown" ]; then
+                        echo "  SKIP  $APP — Degraded+${SYNC} (persistent ${DEGRADED_SECONDS}s, needs review)"
                         SKIPPED=$((SKIPPED+1))
                         continue
                       fi

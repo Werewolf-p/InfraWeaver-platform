@@ -29,7 +29,7 @@ spec:
     - group: "*"
       kind: "*"
   orphanedResources:
-    warn: true
+    warn: false   # argocd namespace always has Helm-managed resources not tracked by manifests app
     ignore:
       # openbao-token is managed by workflow (not ArgoCD)
       - kind: Secret
