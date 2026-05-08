@@ -11,6 +11,17 @@ ingressClass:
   enabled: true
   isDefaultClass: true
 
+# Traefik API + Dashboard — enabled for internal access via traefik-dashboard ClusterIP service
+# The traefik entrypoint (port 9000) serves /api, /dashboard and /ping.
+# NOT exposed externally — only accessible via traefik.int.rlservers.com (internal-only middleware).
+api:
+  dashboard: true
+  insecure: false
+
+# Enable /ping endpoint on the traefik entrypoint (port 9000)
+ping:
+  entryPoint: "traefik"
+
 providers:
   kubernetesCRD:
     enabled: true

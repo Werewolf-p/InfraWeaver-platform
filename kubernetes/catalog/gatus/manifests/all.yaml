@@ -82,10 +82,13 @@ data:
             description: "Grafana is unreachable"
 
       - name: Traefik
-        url: https://traefik.int.rlservers.com/ping
+        # Use internal K8s service URL — bypasses the IP-allowlist IngressRoute middleware.
+        # The public URL (traefik.int.rlservers.com) uses `internal-only` middleware that
+        # blocks pod CIDR (10.244.x.x) traffic, returning 403. Gatus pods are in the cluster,
+        # so we test the Traefik API directly instead. Port 8080 is the Traefik API/dashboard
+        # entrypoint (ClusterIP, no TLS). /ping returns 200 when Traefik is healthy.
+        url: http://traefik-dashboard.traefik.svc.cluster.local:8080/ping
         interval: 30s
-        client:
-          insecure: true
         conditions:
           - "[STATUS] == 200"
         alerts:

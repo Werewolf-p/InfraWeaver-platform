@@ -55,8 +55,10 @@ metadata:
 spec:
   schedule: "*/15 * * * *"
   concurrencyPolicy: Forbid
-  successfulJobsHistoryLimit: 3
-  failedJobsHistoryLimit: 3
+  successfulJobsHistoryLimit: 2
+  # Keep 0 failed jobs — ArgoCD marks a CronJob Degraded when failed job pods exist in history.
+  # Setting to 0 prevents the self-healer from causing core-argocd-manifests to appear Degraded.
+  failedJobsHistoryLimit: 0
   jobTemplate:
     spec:
       activeDeadlineSeconds: 600
@@ -102,6 +104,21 @@ spec:
                   NAMESPACE="argocd"
                   DISCORD_WEBHOOK="${DISCORD_WEBHOOK_URL:-}"
                   echo "[self-healer] $(date -u) — scanning ArgoCD apps in namespace: $NAMESPACE"
+
+                  # Apps that are intentionally Degraded by design (app-of-apps inheriting child health,
+                  # or infra apps that self-manage). Skip alerting on these — they need structural fixes,
+                  # not automated sync. Still attempt hard-refresh if OutOfSync.
+                  # bootstrap:              app-of-apps for bootstrap/*.yaml — inherits worst-child health
+                  # core-argocd-manifests:  manages self-healer CronJob — self-referential health check
+                  SKIP_ALERT_APPS="bootstrap core-argocd-manifests core-external-secrets-manifests"
+
+                  is_skip_alert() {
+                    local app="$1"
+                    for skip in $SKIP_ALERT_APPS; do
+                      [ "$app" = "$skip" ] && return 0
+                    done
+                    return 1
+                  }
 
                   # Send Discord notification helper
                   notify_discord() {
@@ -150,6 +167,13 @@ spec:
                       DEGRADED_SECONDS=$(( NOW_EPOCH - TRANSITION_EPOCH ))
                       if [ "$DEGRADED_SECONDS" -lt "$DEGRADED_GRACE_SECONDS" ]; then
                         echo "  SKIP  $APP — Degraded for ${DEGRADED_SECONDS}s (within ${DEGRADED_GRACE_SECONDS}s grace, likely transient)"
+                        SKIPPED=$((SKIPPED+1))
+                        continue
+                      fi
+                      # Skip app-of-apps and self-referential apps from alert list
+                      # (still hard-refresh them so OutOfSync detection works)
+                      if is_skip_alert "$APP"; then
+                        echo "  SKIP-ALERT  $APP — Degraded but in skip-alert list (structural/inherited health)"
                         SKIPPED=$((SKIPPED+1))
                         continue
                       fi

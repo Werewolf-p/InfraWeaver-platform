@@ -161,6 +161,8 @@ spec:
       name: http
 ---
 # Traefik dashboard (ClusterIP — selects the Traefik pod directly for dashboard access)
+# In Traefik v3 (Helm chart v34+), the "traefik" entrypoint (API/dashboard/ping) runs on
+# container port 9000 by default. This service bridges the conventional port 8080 to 9000.
 apiVersion: v1
 kind: Service
 metadata:
@@ -172,7 +174,7 @@ spec:
   ports:
     - name: dashboard
       port: 8080
-      targetPort: 8080
+      targetPort: 9000
 ---
 # Wazuh Dashboard (HTTPS — ExternalName to wazuh namespace)
 apiVersion: v1

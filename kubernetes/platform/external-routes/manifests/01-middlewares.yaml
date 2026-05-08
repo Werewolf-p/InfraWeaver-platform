@@ -49,6 +49,7 @@ spec:
       - 172.25.0.0/16     # Docker/internal
       - 100.64.0.0/10     # NetBird CGNAT (direct WireGuard peers)
       - 127.0.0.1/32      # Localhost
+      - 10.244.0.0/16     # K8s pod CIDR — in-cluster health probes (Gatus, etc.)
 ---
 # Middleware: netbird-vpn-only — allows ONLY traffic that came through the NetBird VPN.
 #
