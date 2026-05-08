@@ -47,24 +47,33 @@ export async function GET() {
 
 export async function PUT(req: NextRequest) {
   try {
-    const { changes, commitMessage } = await req.json();
+    const body = await req.json() as { changes?: string[]; yamlContent?: string; commitMessage?: string };
     const file = await getFileFromGitHub();
-    const content = Buffer.from(file.content, "base64").toString("utf-8");
-    const yaml = await import("js-yaml");
-    const parsed = yaml.load(content) as Record<string, unknown>;
-    const catalog = parsed.catalog as { enabled: string[] };
-    for (const change of changes as string[]) {
-      if (change.startsWith("Enable ")) {
-        const appName = change.replace("Enable ", "");
-        if (!catalog.enabled.includes(appName)) {
-          catalog.enabled.push(appName);
+    let newContent: string;
+
+    if (body.yamlContent !== undefined) {
+      newContent = body.yamlContent;
+    } else {
+      const content = Buffer.from(file.content, "base64").toString("utf-8");
+      const yaml = await import("js-yaml");
+      const parsed = yaml.load(content) as Record<string, unknown>;
+      const catalog = parsed.catalog as { enabled: string[] };
+      for (const change of (body.changes ?? []) as string[]) {
+        if (change.startsWith("Enable ")) {
+          const appName = change.replace("Enable ", "");
+          if (!catalog.enabled.includes(appName)) {
+            catalog.enabled.push(appName);
+          }
+        } else if (change.startsWith("Disable ")) {
+          const appName = change.replace("Disable ", "");
+          catalog.enabled = catalog.enabled.filter((a: string) => a !== appName);
         }
-      } else if (change.startsWith("Disable ")) {
-        const appName = change.replace("Disable ", "");
-        catalog.enabled = catalog.enabled.filter((a: string) => a !== appName);
       }
+      const yamlLib = await import("js-yaml");
+      newContent = yamlLib.dump(parsed, { lineWidth: -1, indent: 2 });
     }
-    const newContent = yaml.dump(parsed, { lineWidth: -1, indent: 2 });
+
+    const commitMessage = body.commitMessage ?? "chore: update platform.yaml via InfraWeaver Console";
     const updateRes = await fetch(
       `https://api.github.com/repos/${GITHUB_REPO}/contents/${PLATFORM_FILE_PATH}`,
       {

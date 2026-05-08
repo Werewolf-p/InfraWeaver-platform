@@ -3,9 +3,10 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useState } from "react";
 import { useArgoApps, useSyncApp, type ArgoApp } from "@/hooks/use-argocd";
 import { useRBAC } from "@/hooks/use-rbac";
-import { RefreshCw, Search, X } from "lucide-react";
+import { useSettingsContext } from "@/contexts/settings-context";
+import { RefreshCw, Search, X, RotateCcw, Clock, GitCommit } from "lucide-react";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
+import { cn, timeAgo } from "@/lib/utils";
 
 function HealthDot({ status }: { status: string }) {
   const colors: Record<string, string> = {
@@ -26,7 +27,7 @@ function HealthDot({ status }: { status: string }) {
   );
 }
 
-function AppCard({ app, onClick }: { app: ArgoApp; onClick: () => void }) {
+function AppCard({ app, onClick, compact }: { app: ArgoApp; onClick: () => void; compact?: boolean }) {
   const borderColor = {
     Healthy: "border-green-500/20 hover:border-green-500/40",
     Degraded: "border-red-500/30 hover:border-red-500/50",
@@ -41,7 +42,8 @@ function AppCard({ app, onClick }: { app: ArgoApp; onClick: () => void }) {
       whileHover={{ scale: 1.01, y: -1 }}
       onClick={onClick}
       className={cn(
-        "bg-white/5 backdrop-blur-sm border rounded-xl p-4 cursor-pointer transition-colors",
+        "bg-white/5 backdrop-blur-sm border rounded-xl cursor-pointer transition-colors",
+        compact ? "p-3" : "p-4",
         borderColor
       )}
     >
@@ -81,7 +83,7 @@ function AppCard({ app, onClick }: { app: ArgoApp; onClick: () => void }) {
 }
 
 function AppSlideOver({ app, onClose }: { app: ArgoApp; onClose: () => void }) {
-  const { can } = useRBAC();
+  const { can, isAdmin } = useRBAC();
   const syncMutation = useSyncApp();
 
   const handleSync = async (hard = false) => {
@@ -92,6 +94,11 @@ function AppSlideOver({ app, onClose }: { app: ArgoApp; onClose: () => void }) {
       toast.error("Sync failed");
     }
   };
+
+  const revision = app.status.operationState?.syncResult?.revision ?? app.status.sync.revision;
+  const finishedAt = app.status.operationState?.finishedAt;
+  const conditions = app.status.conditions ?? [];
+  const errorMessage = app.status.operationState?.message;
 
   return (
     <motion.div
@@ -128,26 +135,76 @@ function AppSlideOver({ app, onClose }: { app: ArgoApp; onClose: () => void }) {
             <span className="text-xs text-slate-400">Namespace</span>
             <span className="text-sm text-white">{app.spec.destination.namespace}</span>
           </div>
+          {finishedAt && (
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-slate-400 flex items-center gap-1"><Clock className="w-3 h-3" /> Last Sync</span>
+              <span className="text-xs text-slate-300">{timeAgo(finishedAt)}</span>
+            </div>
+          )}
+          {revision && (
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-slate-400 flex items-center gap-1"><GitCommit className="w-3 h-3" /> Revision</span>
+              <span className="text-xs text-slate-300 font-mono">{revision.slice(0, 7)}</span>
+            </div>
+          )}
         </div>
 
-        {can("apps:sync") && (
+        {errorMessage && (
+          <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3">
+            <p className="text-xs font-semibold text-red-400 mb-1">Last Operation Message</p>
+            <p className="text-xs text-red-300">{errorMessage}</p>
+          </div>
+        )}
+
+        {conditions.length > 0 && (
+          <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-3">
+            <p className="text-xs font-semibold text-yellow-400 mb-2">Conditions</p>
+            <div className="space-y-1">
+              {conditions.map((c, i) => (
+                <div key={i} className="text-xs text-yellow-300">
+                  <span className="font-medium">{c.type}:</span> {c.message}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {(can("apps:sync") || isAdmin) && (
           <div className="space-y-2">
             <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Actions</h3>
             <div className="flex gap-2">
-              <button
-                onClick={() => handleSync(false)}
-                disabled={syncMutation.isPending}
-                className="flex-1 py-2 rounded-lg bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 text-sm font-medium hover:bg-indigo-500/30 transition-colors disabled:opacity-50"
-              >
-                Sync
-              </button>
-              <button
-                onClick={() => handleSync(true)}
-                disabled={syncMutation.isPending}
-                className="flex-1 py-2 rounded-lg bg-white/5 border border-white/10 text-slate-300 text-sm font-medium hover:bg-white/10 transition-colors disabled:opacity-50"
-              >
-                Hard Sync
-              </button>
+              {can("apps:sync") && (
+                <>
+                  <button
+                    onClick={() => handleSync(false)}
+                    disabled={syncMutation.isPending}
+                    className="flex-1 py-2 rounded-lg bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 text-sm font-medium hover:bg-indigo-500/30 transition-colors disabled:opacity-50"
+                  >
+                    Sync
+                  </button>
+                  <button
+                    onClick={() => handleSync(true)}
+                    disabled={syncMutation.isPending}
+                    className="flex-1 py-2 rounded-lg bg-white/5 border border-white/10 text-slate-300 text-sm font-medium hover:bg-white/10 transition-colors disabled:opacity-50"
+                  >
+                    Hard Sync
+                  </button>
+                </>
+              )}
+              <div className="relative group">
+                <button
+                  disabled={!isAdmin}
+                  className="flex items-center gap-1 py-2 px-3 rounded-lg bg-white/5 border border-white/10 text-slate-400 text-sm font-medium cursor-not-allowed opacity-50"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  Rollback
+                </button>
+                {!isAdmin && (
+                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 rounded text-xs bg-slate-800 text-slate-300 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                    Admin only
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -162,6 +219,17 @@ function AppSlideOver({ app, onClose }: { app: ArgoApp; onClose: () => void }) {
             </div>
           </div>
         )}
+
+        {app.status.summary?.externalURLs && app.status.summary.externalURLs.length > 0 && (
+          <div>
+            <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">External URLs</h3>
+            <div className="space-y-1">
+              {app.status.summary.externalURLs.map(url => (
+                <a key={url} href={url} target="_blank" rel="noopener noreferrer" className="text-xs text-indigo-400 hover:text-indigo-300 bg-white/5 rounded px-3 py-2 block truncate">{url}</a>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </motion.div>
   );
@@ -169,28 +237,46 @@ function AppSlideOver({ app, onClose }: { app: ArgoApp; onClose: () => void }) {
 
 export default function AppsPage() {
   const { data: apps, isLoading, refetch } = useArgoApps();
+  const { settings } = useSettingsContext();
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<string>("all");
   const [selectedApp, setSelectedApp] = useState<ArgoApp | null>(null);
 
-  const filtered = apps?.filter(app => {
+  const SYSTEM_PREFIXES = ["core-", "bootstrap", "platform-"];
+  const isSystemApp = (name: string) => SYSTEM_PREFIXES.some(p => name.startsWith(p));
+
+  const filtered = (apps ?? []).filter(app => {
+    if (!settings.showSystemApps && isSystemApp(app.metadata.name)) return false;
     const matchesSearch = app.metadata.name.toLowerCase().includes(search.toLowerCase());
     const matchesFilter = filter === "all" || app.status.health.status.toLowerCase() === filter;
     return matchesSearch && matchesFilter;
-  }) ?? [];
+  });
 
+  const visibleApps = settings.showSystemApps ? (apps ?? []) : (apps ?? []).filter(a => !isSystemApp(a.metadata.name));
   const counts = {
-    all: apps?.length ?? 0,
-    healthy: apps?.filter(a => a.status.health.status === "Healthy").length ?? 0,
-    degraded: apps?.filter(a => a.status.health.status === "Degraded").length ?? 0,
-    progressing: apps?.filter(a => a.status.health.status === "Progressing").length ?? 0,
+    all: visibleApps.length,
+    healthy: visibleApps.filter(a => a.status.health.status === "Healthy").length,
+    degraded: visibleApps.filter(a => a.status.health.status === "Degraded").length,
+    progressing: visibleApps.filter(a => a.status.health.status === "Progressing").length,
   };
+
+  const degradedCount = (apps ?? []).filter(a => a.status.health.status === "Degraded").length;
 
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h2 className="text-xl font-bold text-white">Applications</h2>
+          <h2 className="text-xl font-bold text-white flex items-center gap-2">
+            Applications
+            {degradedCount > 0 && (
+              <span className="relative flex h-5 w-5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-5 w-5 bg-red-500 items-center justify-center text-[10px] font-bold text-white">
+                  {degradedCount}
+                </span>
+              </span>
+            )}
+          </h2>
           <p className="text-sm text-slate-400 mt-0.5">ArgoCD managed applications</p>
         </div>
         <button onClick={() => refetch()} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 hover:text-white transition-colors">
@@ -199,7 +285,7 @@ export default function AppsPage() {
         </button>
       </div>
 
-      <div className="flex items-center gap-3 mb-5">
+      <div className="flex items-center gap-3 mb-5 flex-wrap">
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
           <input
@@ -223,6 +309,11 @@ export default function AppsPage() {
             {f} ({counts[f]})
           </button>
         ))}
+        {!settings.showSystemApps && (
+          <span className="text-xs text-slate-500 px-2 py-1 bg-white/5 rounded-lg border border-white/5">
+            System apps hidden
+          </span>
+        )}
       </div>
 
       {isLoading ? (
@@ -245,7 +336,7 @@ export default function AppsPage() {
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.95 }}
               >
-                <AppCard app={app} onClick={() => setSelectedApp(app)} />
+                <AppCard app={app} onClick={() => setSelectedApp(app)} compact={settings.compactMode} />
               </motion.div>
             ))}
           </AnimatePresence>

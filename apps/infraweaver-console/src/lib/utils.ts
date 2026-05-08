@@ -24,3 +24,13 @@ export function timeAgo(date: string | Date): string {
   if (diffHours < 24) return `${diffHours}h ago`;
   return `${Math.floor(diffHours / 24)}d ago`;
 }
+
+export function formatDate(date: string | Date, includeTime = true): string {
+  const d = new Date(date);
+  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const base = `${months[d.getMonth()]} ${d.getDate()}`;
+  if (!includeTime) return base;
+  const h = d.getHours().toString().padStart(2, "0");
+  const m = d.getMinutes().toString().padStart(2, "0");
+  return `${base}, ${h}:${m}`;
+}

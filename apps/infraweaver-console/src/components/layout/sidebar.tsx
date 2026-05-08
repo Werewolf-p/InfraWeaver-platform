@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import {
   LayoutDashboard, Box, Settings, Users, HardDrive,
-  Network, Activity, ChevronLeft, ChevronRight, Terminal
+  Network, Activity, ChevronLeft, ChevronRight, Terminal, History, Cog
 } from "lucide-react";
 import { useRBAC } from "@/hooks/use-rbac";
 import { cn } from "@/lib/utils";
@@ -14,7 +14,8 @@ import { useSession } from "next-auth/react";
 const navItems = [
   { href: "/", icon: LayoutDashboard, label: "Dashboard" },
   { href: "/apps", icon: Box, label: "Applications" },
-  { href: "/config", icon: Settings, label: "Config Editor" },
+  { href: "/events", icon: History, label: "Activity Log" },
+  { href: "/config", icon: Cog, label: "Config Editor" },
   { href: "/users", icon: Users, label: "Users" },
   { href: "/storage", icon: HardDrive, label: "Storage" },
   { href: "/network", icon: Network, label: "Network" },
