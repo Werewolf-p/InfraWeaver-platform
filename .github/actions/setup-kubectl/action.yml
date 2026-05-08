@@ -1,0 +1,46 @@
+name: Setup kubectl + kubeconfig
+description: Installs kubectl and configures kubeconfig from GitHub secrets
+inputs:
+  kubeconfig:
+    description: Base64-encoded or raw kubeconfig content
+    required: true
+  kubectl-version:
+    description: kubectl version to use
+    required: false
+    default: "1.32.4"
+outputs:
+  kubeconfig-path:
+    description: Path to the written kubeconfig file
+    value: ${{ steps.write-kubeconfig.outputs.path }}
+runs:
+  using: composite
+  steps:
+    - name: Install kubectl
+      shell: bash
+      run: |
+        mkdir -p ~/.local/bin
+        WANT_VERSION="v${{ inputs.kubectl-version }}"
+        HAVE_VERSION=$(kubectl version --client -o json 2>/dev/null \
+          | python3 -c "import sys,json; print(json.load(sys.stdin)['clientVersion']['gitVersion'])" 2>/dev/null || echo "none")
+        if ! command -v kubectl &>/dev/null || [[ "$HAVE_VERSION" != "$WANT_VERSION" ]]; then
+          curl -fsSL "https://dl.k8s.io/release/${WANT_VERSION}/bin/linux/amd64/kubectl" \
+            -o ~/.local/bin/kubectl
+          chmod +x ~/.local/bin/kubectl
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          echo "Installed kubectl ${WANT_VERSION}"
+        else
+          echo "kubectl ${HAVE_VERSION} already available"
+        fi
+
+    - name: Write kubeconfig
+      id: write-kubeconfig
+      shell: bash
+      run: |
+        mkdir -p ~/.kube
+        KUBECONFIG_PATH="$HOME/.kube/config-platform"
+        # Try base64 decode first, fall back to raw
+        echo "${{ inputs.kubeconfig }}" | base64 -d > "$KUBECONFIG_PATH" 2>/dev/null || \
+          echo "${{ inputs.kubeconfig }}" > "$KUBECONFIG_PATH"
+        chmod 600 "$KUBECONFIG_PATH"
+        echo "KUBECONFIG=$KUBECONFIG_PATH" >> "$GITHUB_ENV"
+        echo "path=$KUBECONFIG_PATH" >> "$GITHUB_OUTPUT"
