@@ -35,3 +35,4 @@ secrets:
       value: "onedev"        # matches Authentik OAuth2 provider client_id
     oidc-client-secret:
       type: password         # 32-char token, set in both OneDev and Authentik
+replicas: "1"

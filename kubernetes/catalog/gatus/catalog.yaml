@@ -11,3 +11,4 @@ namespace: gatus
 ingressroute:
   host: status.int.rlservers.com
   entrypoint: websecure
+replicas: "1"

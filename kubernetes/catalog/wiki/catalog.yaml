@@ -44,3 +44,4 @@ secrets:
       value: "wikijs"        # matches Authentik OAuth2 provider client_id
     oidc-client-secret:
       type: password         # 32-char token, set in both Wiki.js and Authentik
+replicas: "1"
