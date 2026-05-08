@@ -170,8 +170,13 @@ jobs:
         # references in needs:, wrong event names, missing permissions, type errors in
         # expressions. These are HARD errors — not warnings. CI must fail if any are found.
         # Historical bugs caught by this: runner.home (invalid), needs.apply-users (non-existent job)
+        #
+        # -shellcheck= (empty) disables actionlint's built-in shellcheck integration.
+        # We have a dedicated shellcheck job that handles shell script linting separately.
+        # This keeps the two checks independent and avoids false positives from shellcheck
+        # style/info messages (SC2086 etc.) causing actionlint to fail.
         run: |
-          $HOME/bin/actionlint .github/workflows/*.yml
+          $HOME/bin/actionlint -shellcheck= .github/workflows/*.yml
           echo "✅ All GitHub Actions workflows pass actionlint"
 
   # ── Shell script lint (shellcheck) ──────────────────────────────────────────

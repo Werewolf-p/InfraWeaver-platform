@@ -1,0 +1,10 @@
+# shellcheck configuration — applied when shellcheck is run without explicit --severity flag
+# (i.e., when actionlint runs shellcheck on inline workflow scripts)
+#
+# Our dedicated CI shellcheck job uses --severity=error (overrides this file)
+# to enforce hard errors only on scripts/ files.
+#
+# actionlint reads this when validating inline `run:` scripts in workflows.
+# severity=warning: ignores info/style issues like SC2086 (unquoted variables)
+# but still catches real bugs like SC2031 (variable lost due to subshell).
+severity=warning

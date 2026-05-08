@@ -1,0 +1,9 @@
+# actionlint configuration
+# https://github.com/rhysd/actionlint/blob/main/docs/config.md
+#
+# Define custom self-hosted runner labels used in this repository.
+# Without this file, actionlint reports "unknown label" for custom runners.
+self-hosted-runner:
+  labels:
+    - prod-worker       # Talos cluster worker node runner (primary CI runner)
+    - management-host   # Proxmox management host runner (used for infra ops)
