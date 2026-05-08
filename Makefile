@@ -1,6 +1,9 @@
-.PHONY: help init plan apply destroy kubeconfig argocd-password bootstrap-cluster \
+.PHONY: help init plan apply destroy cluster platform kubeconfig talosconfig \
+        argocd-pass nodes argocd-ui \
         bootstrap push-secrets validate fmt lint lint-yaml lint-helm lint-actions \
-        new-app new-user test docs
+        new-app new-user test docs \
+        validate-platform validate-users validate-all \
+        status apps diff users-list install-dev-tools clean
 
 ENV       ?= ontwikkel
 STATE_DIR := $(HOME)/.tofu/state/platform-$(ENV)
@@ -55,40 +58,40 @@ endef
 # Core targets
 # ---------------------------------------------------------------------------
 
-init:
+init: ## Initialize OpenTofu backend for the target environment
 	mkdir -p $(STATE_DIR)
 	cd terraform && tofu init \
 		-backend-config="path=$(STATE_DIR)/terraform.tfstate" \
 		-reconfigure
 
 # Stage 1: Deploy Talos cluster only (writes kubeconfig to envs/ENV/generated/)
-cluster: init
+cluster: init ## Deploy Talos cluster (stage 1 of 2)
 	$(call tofu-with-secrets,apply -target=module.talos_cluster -target=local_sensitive_file.kubeconfig -target=local_sensitive_file.talosconfig -auto-approve)
 
 # Stage 2: Deploy ArgoCD + ApplicationSet (requires cluster to be running)
-platform: init
+platform: init ## Deploy ArgoCD platform (stage 2 of 2; requires cluster)
 	$(call tofu-with-secrets,apply -var='deploy_platform_bootstrap=true' -auto-approve)
 
-plan: init
+plan: init ## Preview OpenTofu changes (writes tfplan)
 	$(call tofu-with-secrets,plan -out=tfplan)
 
-apply: init
+apply: init ## Apply OpenTofu changes to the target environment
 	$(call tofu-with-secrets,apply -auto-approve)
 
-destroy: init
+destroy: init ## Destroy all OpenTofu-managed resources (⚠ destructive)
 	$(call tofu-with-secrets,destroy -auto-approve)
 
 # ---------------------------------------------------------------------------
 # Operations
 # ---------------------------------------------------------------------------
 
-kubeconfig:
+kubeconfig: ## Fetch kubeconfig for ENV and write to ~/.kube/config-platform-ENV
 	mkdir -p ~/.kube
 	./scripts/get-kubeconfig.sh $(ENV) ~/.kube/config-platform-$(ENV)
 	@echo "✅ Kubeconfig: ~/.kube/config-platform-$(ENV)"
 	@echo "   export KUBECONFIG=~/.kube/config-platform-$(ENV)"
 
-talosconfig:
+talosconfig: ## Fetch talosconfig for ENV and write to ~/.talos/config-platform-ENV
 	mkdir -p ~/.talos
 	@if [ -f "envs/$(ENV)/generated/talosconfig" ]; then \
 		cp envs/$(ENV)/generated/talosconfig ~/.talos/config-platform-$(ENV); \
@@ -101,15 +104,15 @@ talosconfig:
 		exit 1; \
 	fi
 
-argocd-pass:
+argocd-pass: ## Print the ArgoCD initial admin password (base64-decoded)
 	@KUBECONFIG=~/.kube/config-platform-$(ENV) \
 		kubectl -n argocd get secret argocd-initial-admin-secret \
 		-o jsonpath="{.data.password}" | base64 -d; echo
 
-nodes:
+nodes: ## Show all Kubernetes nodes (wide output)
 	KUBECONFIG=~/.kube/config-platform-$(ENV) kubectl get nodes -o wide
 
-argocd-ui:
+argocd-ui: ## Port-forward ArgoCD UI to localhost:8080
 	@echo "ArgoCD UI: http://localhost:8080  (admin / see: make argocd-pass)"
 	KUBECONFIG=~/.kube/config-platform-$(ENV) \
 		kubectl port-forward svc/argocd-server -n argocd 8080:80
