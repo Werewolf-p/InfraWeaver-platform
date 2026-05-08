@@ -31,7 +31,7 @@ jobs:
           SHORT_SHA=$(echo "$GITHUB_SHA" | cut -c1-7)
           BRANCH_TAG="${GITHUB_REF_NAME}"
           SHA_TAG="${GITHUB_REF_NAME}-${SHORT_SHA}"
-          IMAGE_BASE="${REGISTRY}/${IMAGE_NAME}"
+          IMAGE_BASE=$(echo "${REGISTRY}/${IMAGE_NAME}" | tr '[:upper:]' '[:lower:]')
 
           echo "==> Logging in to GHCR..."
           echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
