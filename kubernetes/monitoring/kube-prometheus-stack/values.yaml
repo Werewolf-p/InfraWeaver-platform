@@ -19,6 +19,14 @@ grafana:
     userKey: admin-user
     passwordKey: admin-password
 
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
   persistence:
     enabled: true
     size: 5Gi
@@ -149,7 +157,8 @@ prometheus:
         memory: 512Mi
         cpu: 200m
       limits:
-        memory: 2Gi
+        memory: 3Gi
+        cpu: 1000m
 
     # Scrape all ServiceMonitors across all namespaces
     serviceMonitorSelectorNilUsesHelmValues: false
