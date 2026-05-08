@@ -125,6 +125,14 @@ spec:
         runAsUser: 1000
         seccompProfile:
           type: RuntimeDefault
+      initContainers:
+        - name: wait-for-postgres
+          image: busybox:1.36
+          command: ['sh', '-c', 'until nc -z outline-postgres 5432; do echo "waiting for postgres..."; sleep 3; done']
+          securityContext:
+            runAsNonRoot: false
+            runAsUser: 0
+            allowPrivilegeEscalation: false
       containers:
         - name: outline
           image: outlinewiki/outline:0.83.0
