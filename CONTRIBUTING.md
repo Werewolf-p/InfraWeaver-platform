@@ -115,9 +115,23 @@ pre-commit install
 This runs: Terraform fmt, YAML lint, secret scanning before each commit.
 
 ### Testing changes locally
-- Terraform: `cd terraform && tofu validate && tofu plan`
-- YAML: `pre-commit run --all-files`
-- Secrets: `gitleaks detect --source . --no-git`
+- **All validations at once:** `make validate-all`
+- **Schema validation:** `make validate-platform && make validate-users`
+- **Terraform:** `cd terraform && tofu validate && tofu plan`
+- **YAML:** `pre-commit run --all-files` or `make validate`
+- **Secrets:** `gitleaks detect --source . --no-git`
+- **Cluster status (requires VPN):** `make status` or `make apps`
+
+### Quick Makefile reference
+```bash
+make validate-all    # Run YAML + schema + platform + users validation
+make validate        # Run yamllint + helm lint + kubeconform
+make status          # Show all ArgoCD app health (requires VPN)
+make apps            # Show ArgoCD apps table
+make users-list      # Show all users from users.yaml
+make diff            # ArgoCD diff for all apps (requires VPN)
+make install-dev-tools  # Install yamllint, kubeconform, pre-commit
+```
 
 ---
 
