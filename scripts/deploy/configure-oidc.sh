@@ -201,13 +201,53 @@ else
         client_id="proxmox" \
         issuer_url="https://auth.rlservers.com/application/o/proxmox/" > /dev/null 2>&1 || true
     echo "✅ Proxmox OIDC client_secret stored in OpenBao at secret/platform/proxmox-oidc"
-    echo "ℹ️  To complete Proxmox OIDC setup, run on the PVE node:"
-    echo "   pveum realm add authentik --type openid \\"
+  fi
+
+  # ── Automatically configure Proxmox OIDC realm via PVE API ──────────────────
+  # Reads proxmox_host from cluster.yaml; requires PROXMOX_API_TOKEN env var.
+  CLUSTER_YAML="envs/${ENV_NAME}/cluster.yaml"
+  PVE_HOST=$(grep 'proxmox_host' "$CLUSTER_YAML" 2>/dev/null | head -1 | sed 's/.*: *"\(.*\)"/\1/' | xargs)
+  PVE_TOKEN="${PROXMOX_API_TOKEN:-}"
+
+  if [ -z "$PVE_HOST" ] || [ -z "$PVE_TOKEN" ]; then
+    echo "ℹ️  PROXMOX_API_TOKEN or proxmox_host not set — skipping automatic PVE realm config"
+    echo "   Manual: pveum realm add authentik --type openid \\"
     echo "     --issuer-url https://auth.rlservers.com/application/o/proxmox/ \\"
-    echo "     --client-id proxmox \\"
-    echo "     --client-key <secret from OpenBao> \\"
-    echo "     --username-claim preferred_username \\"
-    echo "     --autocreate 1"
+    echo "     --client-id proxmox --client-key '<secret>' --username-claim preferred_username --autocreate 1"
+  else
+    echo "==> Configuring Proxmox OIDC realm via API (host=${PVE_HOST})..."
+    ISSUER="https://auth.rlservers.com/application/o/proxmox/"
+    REALM_CHECK=$(curl -sk -o /dev/null -w "%{http_code}" \
+      -H "Authorization: PVEAPIToken=${PVE_TOKEN}" \
+      "https://${PVE_HOST}:8006/api2/json/access/realms/authentik" 2>/dev/null || echo "000")
+
+    if [ "$REALM_CHECK" = "200" ]; then
+      # Realm exists — update it
+      HTTP=$(curl -sk -o /dev/null -w "%{http_code}" -X PUT \
+        -H "Authorization: PVEAPIToken=${PVE_TOKEN}" \
+        "https://${PVE_HOST}:8006/api2/json/access/realms/authentik" \
+        --data-urlencode "issuer-url=${ISSUER}" \
+        --data-urlencode "client-id=proxmox" \
+        --data-urlencode "client-key=${PROXMOX_SECRET}" \
+        --data-urlencode "username-claim=preferred_username" \
+        --data-urlencode "autocreate=1" 2>/dev/null || echo "000")
+      [ "$HTTP" = "200" ] && echo "✅ Proxmox OIDC realm 'authentik' updated" \
+        || echo "⚠️  Proxmox realm update returned HTTP $HTTP (may need manual check)"
+    else
+      # Realm does not exist — create it
+      HTTP=$(curl -sk -o /dev/null -w "%{http_code}" -X POST \
+        -H "Authorization: PVEAPIToken=${PVE_TOKEN}" \
+        "https://${PVE_HOST}:8006/api2/json/access/realms" \
+        --data-urlencode "realm=authentik" \
+        --data-urlencode "type=openid" \
+        --data-urlencode "issuer-url=${ISSUER}" \
+        --data-urlencode "client-id=proxmox" \
+        --data-urlencode "client-key=${PROXMOX_SECRET}" \
+        --data-urlencode "username-claim=preferred_username" \
+        --data-urlencode "autocreate=1" 2>/dev/null || echo "000")
+      [ "$HTTP" = "200" ] && echo "✅ Proxmox OIDC realm 'authentik' created" \
+        || echo "⚠️  Proxmox realm creation returned HTTP $HTTP — check PVE API token permissions"
+    fi
   fi
 fi
 

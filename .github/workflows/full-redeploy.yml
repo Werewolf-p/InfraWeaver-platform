@@ -539,6 +539,7 @@ jobs:
         if: success()
         env:
           AUTHENTIK_ADMIN_TOKEN: ${{ env.AUTHENTIK_ADMIN_TOKEN }}
+          PROXMOX_API_TOKEN: ${{ secrets.PROXMOX_API_TOKEN }}
         run: |
           ENV_NAME="${{ env.ENV_NAME }}" \
             bash scripts/deploy/configure-oidc.sh
