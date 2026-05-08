@@ -7,11 +7,6 @@ output "argocd_namespace" {
   value       = kubernetes_namespace.argocd.metadata[0].name
 }
 
-output "argocd_server_service" {
-  description = "ArgoCD server service name for port-forwarding."
-  value       = "argocd-server"
-}
-
 output "app_project_name" {
   description = "ArgoCD AppProject name created for this cluster."
   value       = kubernetes_manifest.app_project.manifest.metadata.name
