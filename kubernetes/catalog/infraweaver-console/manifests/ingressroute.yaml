@@ -17,4 +17,5 @@ spec:
       services:
         - name: infraweaver-console
           port: 3000
-  tls: {}
+  tls:
+    secretName: platform-wildcard-int-tls

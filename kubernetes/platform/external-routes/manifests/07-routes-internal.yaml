@@ -20,7 +20,8 @@ spec:
       services:
         - name: bm-adguard
           port: 80
-  tls: {}
+  tls:
+    secretName: platform-wildcard-int-tls
 ---
 # ── Ansible / Semaphore ───────────────────────────────────────────────────────
 apiVersion: traefik.io/v1alpha1
@@ -40,7 +41,8 @@ spec:
       services:
         - name: bm-ansible
           port: 3000
-  tls: {}
+  tls:
+    secretName: platform-wildcard-int-tls
 ---
 # ── Traefik Dashboard ─────────────────────────────────────────────────────────
 apiVersion: traefik.io/v1alpha1
@@ -60,7 +62,8 @@ spec:
       services:
         - name: traefik-dashboard
           port: 8080
-  tls: {}
+  tls:
+    secretName: platform-wildcard-int-tls
 ---
 # ── Proxmox VE ───────────────────────────────────────────────────────────────
 apiVersion: traefik.io/v1alpha1
@@ -82,7 +85,8 @@ spec:
           port: 8006
           scheme: https
           serversTransport: insecure-skip-verify
-  tls: {}
+  tls:
+    secretName: platform-wildcard-int-tls
 ---
 # ── Portainer (primary) ───────────────────────────────────────────────────────
 apiVersion: traefik.io/v1alpha1
@@ -104,7 +108,8 @@ spec:
           port: 9443
           scheme: https
           serversTransport: insecure-skip-verify
-  tls: {}
+  tls:
+    secretName: platform-wildcard-int-tls
 ---
 # ── Portainer2 ────────────────────────────────────────────────────────────────
 apiVersion: traefik.io/v1alpha1
@@ -126,7 +131,8 @@ spec:
           port: 9443
           scheme: https
           serversTransport: insecure-skip-verify
-  tls: {}
+  tls:
+    secretName: platform-wildcard-int-tls
 ---
 # ── TrueNAS ───────────────────────────────────────────────────────────────────
 apiVersion: traefik.io/v1alpha1
@@ -148,7 +154,8 @@ spec:
           port: 443
           scheme: https
           serversTransport: insecure-skip-verify
-  tls: {}
+  tls:
+    secretName: platform-wildcard-int-tls
 ---
 # ── Vault1 (bare-metal OpenBao/Vault) ────────────────────────────────────────
 apiVersion: traefik.io/v1alpha1
@@ -169,7 +176,8 @@ spec:
         - name: bm-vault1
           port: 8200
           serversTransport: insecure-skip-verify
-  tls: {}
+  tls:
+    secretName: platform-wildcard-int-tls
 ---
 # ── Wazuh Dashboard ───────────────────────────────────────────────────────────
 apiVersion: traefik.io/v1alpha1
@@ -191,7 +199,8 @@ spec:
           port: 5601
           scheme: https
           serversTransport: insecure-skip-verify
-  tls: {}
+  tls:
+    secretName: platform-wildcard-int-tls
 ---
 # ── Wazuh Indexer ─────────────────────────────────────────────────────────────
 apiVersion: traefik.io/v1alpha1
@@ -213,7 +222,8 @@ spec:
           port: 9200
           scheme: https
           serversTransport: insecure-skip-verify
-  tls: {}
+  tls:
+    secretName: platform-wildcard-int-tls
 ---
 # ── Sonarr ────────────────────────────────────────────────────────────────────
 apiVersion: traefik.io/v1alpha1
@@ -233,7 +243,8 @@ spec:
       services:
         - name: bm-sonarr
           port: 8989
-  tls: {}
+  tls:
+    secretName: platform-wildcard-int-tls
 ---
 # ── Radarr ────────────────────────────────────────────────────────────────────
 apiVersion: traefik.io/v1alpha1
@@ -253,7 +264,8 @@ spec:
       services:
         - name: bm-radarr
           port: 7878
-  tls: {}
+  tls:
+    secretName: platform-wildcard-int-tls
 ---
 # ── Overseerr ─────────────────────────────────────────────────────────────────
 apiVersion: traefik.io/v1alpha1
@@ -273,7 +285,8 @@ spec:
       services:
         - name: bm-overseerr
           port: 5055
-  tls: {}
+  tls:
+    secretName: platform-wildcard-int-tls
 ---
 # ── Bitwarden admin (internal-only) ──────────────────────────────────────────
 apiVersion: traefik.io/v1alpha1
@@ -293,5 +306,6 @@ spec:
       services:
         - name: bm-bitwarden
           port: 30032
-  tls: {}
+  tls:
+    secretName: platform-wildcard-int-tls
 # ── Wiki moved to catalog/wiki — see kubernetes/platform/external-routes/manifests/13-routes-wiki.yaml

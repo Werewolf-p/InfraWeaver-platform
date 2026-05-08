@@ -287,7 +287,8 @@ spec:
       services:
         - name: gatus
           port: 8080
-  tls: {}
+  tls:
+    secretName: platform-wildcard-int-tls
 ---
 # NetworkPolicy for Gatus — allow egress to K8s cluster DNS + all monitored endpoints.
 # Default-deny is NOT set here (Gatus needs broad access to monitor platform endpoints).

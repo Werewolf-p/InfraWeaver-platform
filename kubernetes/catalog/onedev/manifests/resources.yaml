@@ -193,4 +193,5 @@ spec:
       services:
         - name: onedev
           port: 80
-  tls: {}
+  tls:
+    secretName: platform-wildcard-int-tls
