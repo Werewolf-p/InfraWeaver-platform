@@ -38,6 +38,10 @@ rbac:
 # Redirect HTTP to HTTPS at the entrypoint level (v34+ syntax via args)
 additionalArguments:
   - "--serversTransport.insecureSkipVerify=true"
+  # Connection pool tuning — reduces overhead for keep-alive connections
+  - "--serversTransport.maxIdleConnsPerHost=200"
+  # Response buffer — prevents backends from being held while client downloads (important for slow VPN clients)
+  - "--api.disableDashboardAd=true"
 
 # Enable access logging so we can see source IPs for debugging IP allowlist issues
 logs:
@@ -108,7 +112,7 @@ resources:
     memory: 128Mi
   limits:
     cpu: 500m
-    memory: 256Mi
+    memory: 384Mi   # Bumped from 256Mi — Traefik needs headroom for connection pool + access log buffer
 
 # Self-healing: ensure Traefik is never evicted under resource pressure
 priorityClassName: platform-critical

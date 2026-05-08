@@ -196,3 +196,39 @@ spec:
       - X-authentik-meta-app
       - X-authentik-meta-version
       - authorization
+---
+# Middleware: compress — gzip/zstd response compression for text-heavy apps.
+#
+# Add to IngressRoutes for apps that serve HTML, JSON, CSS, JS, SVG, etc.
+# Reduces response size by 60-80% for typical web apps, improving load times
+# especially over NetBird VPN where bandwidth may be limited.
+#
+# Traefik v3 supports zstd (faster, better ratio) and gzip automatically.
+# excludedContentTypes: skip compressing images/binary (already compressed)
+#
+# Usage in IngressRoute:
+#   middlewares:
+#     - name: compress
+#       namespace: traefik
+#     - name: secure-headers
+#       namespace: traefik
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: compress
+  namespace: traefik
+spec:
+  compress:
+    excludedContentTypes:
+      - image/jpeg
+      - image/png
+      - image/gif
+      - image/webp
+      - image/avif
+      - video/mp4
+      - video/webm
+      - audio/mpeg
+      - application/zip
+      - application/gzip
+      - application/pdf
+    minResponseBodyBytes: 1024   # Don't compress tiny responses (overhead not worth it)
