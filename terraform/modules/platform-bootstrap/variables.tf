@@ -5,11 +5,13 @@
 variable "cluster_name" {
   description = "Kubernetes cluster name — used as the ArgoCD AppProject name."
   type        = string
+  nullable    = false
 }
 
 variable "environment" {
   description = "Deployment environment (ontwikkel | productie)."
   type        = string
+  nullable    = false
 
   validation {
     condition     = contains(["ontwikkel", "productie"], var.environment)

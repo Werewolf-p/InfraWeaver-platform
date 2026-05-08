@@ -9,6 +9,7 @@
 variable "proxmox_endpoint" {
   description = "Proxmox API endpoint URL (e.g. https://10.25.0.3:8006/)."
   type        = string
+  nullable    = false
 
   validation {
     condition     = can(regex("^https?://", var.proxmox_endpoint))
@@ -20,6 +21,7 @@ variable "proxmox_api_token" {
   description = "Proxmox API token in format: <user>@<realm>!<token>=<uuid>."
   type        = string
   sensitive   = true
+  nullable    = false
 
   validation {
     condition     = can(regex("^.+@.+!.+=.+$", var.proxmox_api_token))
@@ -75,6 +77,7 @@ variable "proxmox_nodes_ips" {
 variable "cluster_name" {
   description = "Kubernetes cluster name (used in Talos config and kubeconfig context)."
   type        = string
+  nullable    = false
 }
 
 variable "talos_version" {
@@ -159,6 +162,7 @@ variable "nodes" {
 variable "gateway" {
   description = "Default gateway for all Talos nodes (eth0)."
   type        = string
+  nullable    = false
 
   validation {
     condition     = can(regex("^\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}$", var.gateway))
@@ -215,6 +219,7 @@ variable "talos_image_datastore" {
 variable "environment" {
   description = "Deployment environment name (e.g. 'productie', 'ontwikkel'). Used to locate the generated/ directory for machine configs."
   type        = string
+  nullable    = false
 }
 variable "registry_mirror_url" {
   description = "Optional Docker Hub pull-through cache URL (e.g. http://10.25.0.3:5000). When set, Talos nodes use this mirror for docker.io images to avoid rate limits."

@@ -95,11 +95,13 @@ locals {
     }
 
     redis = {
-      # Use Redis HA (Sentinel) in productie for genuine HA
+      # Single-instance Redis for ontwikkel (simple, no quorum needed)
       enabled = !var.ha_mode
     }
 
     redis-ha = {
+      # Redis HA (3-node Sentinel) for productie — requires ha_mode=true
+      # Topology: 3 Redis nodes with Sentinel for automatic failover
       enabled = var.ha_mode
     }
 
