@@ -80,7 +80,7 @@ export default function LogsPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div className="grid grid-cols-3 gap-3">
         <div>
           <label className="text-xs text-slate-400 mb-1 block">Namespace</label>
           {podsLoading ? <Skeleton className="h-10" /> : (
@@ -120,21 +120,21 @@ export default function LogsPage() {
         </div>
       </div>
 
-      <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+      <div className="flex items-center gap-3 flex-wrap overflow-x-auto scrollbar-none">
         <button
           onClick={fetchLogs}
           disabled={!selectedContainer || logsLoading}
           className="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-500/20 border border-indigo-500/30 text-sm text-indigo-300 hover:bg-indigo-500/30 transition-colors disabled:opacity-50 flex-shrink-0"
         >
           <RefreshCw className={cn("w-4 h-4", logsLoading && "animate-spin")} />
-          {logsLoading ? "Loading…" : "Load Logs"}
+          {logsLoading ? "Loading..." : "Load Logs"}
         </button>
-        <div className="relative flex-1 min-w-[140px]">
+        <div className="relative flex-1 min-w-[160px] max-w-xs">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
           <input
             value={filter}
             onChange={e => setFilter(e.target.value)}
-            placeholder="Filter logs…"
+            placeholder="Filter logs..."
             className="w-full bg-white/5 border border-white/10 rounded-lg pl-9 pr-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50"
           />
         </div>
@@ -164,7 +164,7 @@ export default function LogsPage() {
 
       <div
         ref={logsRef}
-        className="flex-1 min-h-[300px] max-h-[500px] md:max-h-[600px] overflow-y-auto bg-slate-950 border border-white/10 rounded-xl p-4 font-mono text-xs text-slate-300 leading-relaxed"
+        className="flex-1 min-h-[400px] max-h-[600px] overflow-y-auto bg-slate-950 border border-white/10 rounded-xl p-4 font-mono text-xs text-slate-300 leading-relaxed"
       >
         {filteredLogs.length === 0 ? (
           <div className="flex items-center justify-center h-full text-slate-600">
