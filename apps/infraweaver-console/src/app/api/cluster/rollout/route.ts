@@ -10,22 +10,21 @@ export async function POST() {
       try { kc.loadFromCluster(); } catch { kc.loadFromDefault(); }
     }
     const appsApi = kc.makeApiClient(k8s.AppsV1Api);
-    const restartAnnotation = new Date().toISOString();
-    await appsApi.patchNamespacedDeployment(
-      "infraweaver-console",
-      "infraweaver-console",
-      {
+    await appsApi.patchNamespacedDeployment({
+      name: "infraweaver-console",
+      namespace: "infraweaver-console",
+      body: {
         spec: {
           template: {
             metadata: {
               annotations: {
-                "kubectl.kubernetes.io/restartedAt": restartAnnotation,
+                "kubectl.kubernetes.io/restartedAt": new Date().toISOString(),
               },
             },
           },
         },
       },
-    );
+    });
     return NextResponse.json({ ok: true });
   } catch {
     return NextResponse.json({ ok: true, simulated: true });
