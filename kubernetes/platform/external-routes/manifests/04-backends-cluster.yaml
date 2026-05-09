@@ -201,3 +201,16 @@ spec:
   ports:
     - port: 9200
       name: https
+---
+# InfraWeaver Console (platform management UI)
+apiVersion: v1
+kind: Service
+metadata:
+  name: infraweaver-console
+  namespace: traefik
+spec:
+  type: ExternalName
+  externalName: infraweaver-console.infraweaver-console.svc.cluster.local
+  ports:
+    - port: 3000
+      name: http
