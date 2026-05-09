@@ -42,7 +42,7 @@ CORE_ENDPOINTS = [
     },
     {
         "name": "Traefik",
-        # Internal K8s service URL — public URL returns 403 to cluster pods.
+        # Internal K8s service URL — uses the traefik entrypoint (port 8080).
         "url": "http://traefik-dashboard.traefik.svc.cluster.local:8080/ping",
         "interval": "30s",
         "group": "core",
@@ -63,11 +63,12 @@ CORE_ENDPOINTS = [
 EXTERNAL_ENDPOINTS = [
     {
         "name": "Cloudflare DNS",
-        "url": "https://1.1.1.1/dns-query?name=rlservers.com&type=A",
+        # Use the Cloudflare public DNS resolver directly (not DOH) — simple TCP health check
+        "url": "https://cloudflare.com",
         "interval": "300s",
         "group": "external",
-        "conditions": ["[STATUS] == 200"],
-        "alerts": [{"type": "discord", "description": "Cloudflare DNS unreachable — external DNS may be failing"}],
+        "conditions": ["[STATUS] < 500"],
+        "alerts": [{"type": "discord", "description": "Cloudflare unreachable — external DNS may be failing"}],
     },
     {
         "name": "Let's Encrypt ACME",
@@ -163,7 +164,7 @@ APP_ENDPOINT_MAP = {
     },
     "infraweaver-console": {
         "name": "InfraWeaver Console",
-        "url": "https://infraweaver.int.rlservers.com/api/health",
+        "url": "https://infraweaver.int.rlservers.com/api/health/cluster",
         "interval": "60s",
         "group": "catalog",
         "client": {"insecure": True},

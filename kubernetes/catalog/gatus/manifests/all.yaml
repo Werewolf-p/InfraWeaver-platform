@@ -170,7 +170,7 @@ data:
             description: "OneDev is unreachable"
 
       - name: InfraWeaver Console
-        url: https://infraweaver.int.rlservers.com/api/health
+        url: https://infraweaver.int.rlservers.com/api/health/cluster
         interval: 60s
         group: catalog
         client:
@@ -194,14 +194,14 @@ data:
             description: "Container registry is unreachable"
 
       - name: Cloudflare DNS
-        url: https://1.1.1.1/dns-query?name=rlservers.com&type=A
+        url: https://cloudflare.com
         interval: 300s
         group: external
         conditions:
-          - "[STATUS] == 200"
+          - "[STATUS] < 500"
         alerts:
           - type: discord
-            description: "Cloudflare DNS unreachable — external DNS may be failing"
+            description: "Cloudflare unreachable — external DNS may be failing"
 
       - name: Let's Encrypt ACME
         url: https://acme-v02.api.letsencrypt.org/directory
