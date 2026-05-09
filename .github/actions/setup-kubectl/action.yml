@@ -1,9 +1,13 @@
 name: 'Setup kubectl with kubeconfig'
-description: 'Decode and install kubeconfig for cluster access'
+description: 'Decode and install kubeconfig for cluster access, with fallback to alternate CP nodes'
 inputs:
   kubeconfig-b64:
-    description: 'Base64-encoded kubeconfig content'
+    description: 'Base64-encoded kubeconfig content (primary)'
     required: true
+  kubeconfig-fallback-b64:
+    description: 'Base64-encoded kubeconfig content (fallback CP node)'
+    required: false
+    default: ''
   env-name:
     description: 'Environment name (e.g. productie)'
     required: false
@@ -15,14 +19,25 @@ runs:
       shell: bash
       run: |
         mkdir -p ~/.kube
-        echo "${{ inputs.kubeconfig-b64 }}" | base64 -d > ~/.kube/config-platform-${{ inputs.env-name }}
-        chmod 600 ~/.kube/config-platform-${{ inputs.env-name }}
-        # Verify we can connect
-        if ! kubectl --kubeconfig ~/.kube/config-platform-${{ inputs.env-name }} \
-            --insecure-skip-tls-verify get nodes --request-timeout=10s &>/dev/null; then
-          echo "::warning::Kubeconfig from secret failed — checking existing file"
-          if kubectl --kubeconfig ~/.kube/config-platform-${{ inputs.env-name }} \
-              --insecure-skip-tls-verify get nodes --request-timeout=10s 2>&1 | grep -q "Ready"; then
-            echo "Cluster accessible"
+        DEST=~/.kube/config-platform-${{ inputs.env-name }}
+        echo "${{ inputs.kubeconfig-b64 }}" | base64 -d > "$DEST"
+        chmod 600 "$DEST"
+
+        # Test primary connection
+        if kubectl --kubeconfig "$DEST" --insecure-skip-tls-verify \
+            get nodes --request-timeout=10s &>/dev/null; then
+          echo "✅ Primary kubeconfig connected"
+        else
+          echo "::warning::Primary kubeconfig unreachable — trying fallback"
+          FALLBACK="${{ inputs.kubeconfig-fallback-b64 }}"
+          if [[ -n "$FALLBACK" ]]; then
+            echo "$FALLBACK" | base64 -d > "$DEST"
+            chmod 600 "$DEST"
+            if kubectl --kubeconfig "$DEST" --insecure-skip-tls-verify \
+                get nodes --request-timeout=10s &>/dev/null; then
+              echo "✅ Fallback kubeconfig connected"
+            else
+              echo "::warning::Both primary and fallback kubeconfigs failed — cluster may be degraded"
+            fi
           fi
         fi

@@ -1,4 +1,22 @@
 server:
+  # Increased probe timeouts to prevent false restarts under cluster load.
+  # Default 3s timeouts caused cascading ExternalSecret failures during etcd elections.
+  readinessProbe:
+    enabled: true
+    failureThreshold: 3
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    successThreshold: 1
+    timeoutSeconds: 10
+
+  livenessProbe:
+    enabled: true
+    failureThreshold: 3
+    initialDelaySeconds: 60
+    periodSeconds: 30
+    successThreshold: 1
+    timeoutSeconds: 10
+
   standalone:
     enabled: true
     config: |

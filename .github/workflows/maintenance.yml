@@ -21,6 +21,7 @@ on:
     - cron: "0 6 * * *"   # Daily 06:00 UTC  — self-heal cluster
     - cron: "0 5 1,15 * *" # 1st and 15th of month — ESO token renewal
     - cron: "*/10 * * * *" # Every 10 min — etcd alarm check
+    - cron: "*/15 * * * *" # Every 15 min — OpenBao/ESO recovery
   workflow_dispatch:
     inputs:
       task:
@@ -38,6 +39,7 @@ on:
           - renew-eso-token         # renew ESO periodic token in OpenBao
           - self-heal           # auto-recover stuck pods + OutOfSync apps
           - etcd-alarm-check    # fix etcd CORRUPT alarm if detected
+          - openbao-eso-recovery # validate OpenBao store + refresh failed ExternalSecrets
       environment:
         description: "Environment (for drift detection)"
         required: false
@@ -589,3 +591,114 @@ for k in list(t.keys()):
             python3 /tmp/etcd-heal.py 2>&1)
           echo "$RESULT"
           echo "$RESULT" >> "$GITHUB_STEP_SUMMARY"
+
+  # ── OpenBao + ESO Recovery (every 15 min) ────────────────────────────────────
+  openbao-eso-recovery:
+    name: OpenBao / ESO Recovery
+    runs-on: [self-hosted, prod-worker]
+    if: >-
+      (github.event_name == 'schedule' && github.event.schedule == '*/15 * * * *') ||
+      (github.event_name == 'workflow_dispatch' && inputs.task == 'openbao-eso-recovery')
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG_PRODUCTIE }}" | base64 -d > ~/.kube/config-platform-productie
+          chmod 600 ~/.kube/config-platform-productie
+
+      - name: Validate OpenBao + refresh failed ExternalSecrets
+        run: |
+          KB=~/.kube/config-platform-productie
+          KT="kubectl --kubeconfig $KB --insecure-skip-tls-verify"
+          RECOVERED=0
+
+          # ── 1. Check if OpenBao pod is Ready ─────────────────────────────────
+          BAO_READY=$($KT get pod -n openbao openbao-0 \
+            -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "False")
+
+          if [[ "$BAO_READY" != "True" ]]; then
+            echo "OpenBao not ready yet (status=$BAO_READY) — skipping"
+            exit 0
+          fi
+
+          # ── 2. Fix stale Longhorn volume attachment for OpenBao if it was Unknown ──
+          # When cp3 goes NotReady, OpenBao pod becomes Unknown and a new pod is scheduled.
+          # Longhorn keeps the old attachment ticket — clear it if no running pod uses it.
+          BAO_PV=$($KT get pvc -n openbao openbao-data-openbao-0 \
+            -o jsonpath='{.spec.volumeName}' 2>/dev/null || echo "")
+          if [[ -n "$BAO_PV" ]]; then
+            LH_STATE=$($KT get volumeattachments.longhorn.io -n longhorn-system "$BAO_PV" \
+              -o jsonpath='{.status.currentNodeID}' 2>/dev/null || echo "")
+            LH_NODE=$($KT get pod -n openbao openbao-0 -o jsonpath='{.spec.nodeName}' 2>/dev/null || echo "")
+            TICKETS=$($KT get volumeattachments.longhorn.io -n longhorn-system "$BAO_PV" \
+              -o jsonpath='{.spec.attachmentTickets}' 2>/dev/null || echo '{}')
+            if echo "$TICKETS" | grep -q '"snapshot-controller'; then
+              echo "Clearing stale snapshot-controller ticket on OpenBao volume $BAO_PV"
+              TICKET_KEYS=$(echo "$TICKETS" | python3 -c "
+          import json,sys
+          t=json.load(sys.stdin)
+          for k in list(t.keys()):
+              if 'snapshot-controller' in k:
+                  print(k)
+          " 2>/dev/null || echo "")
+              while IFS= read -r tk; do
+                [[ -z "$tk" ]] && continue
+                $KT patch volumeattachments.longhorn.io -n longhorn-system "$BAO_PV" \
+                  --type='json' \
+                  -p="[{\"op\":\"remove\",\"path\":\"/spec/attachmentTickets/${tk}\"}]" 2>/dev/null || true
+              done <<< "$TICKET_KEYS"
+              RECOVERED=$((RECOVERED+1))
+            fi
+          fi
+
+          # ── 3. Re-validate ClusterSecretStore ────────────────────────────────
+          STORE_READY=$($KT get clustersecretstore openbao \
+            -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "False")
+          if [[ "$STORE_READY" != "True" ]]; then
+            echo "ClusterSecretStore not ready — annotating to force re-validation"
+            $KT annotate clustersecretstore openbao \
+              force-sync="$(date +%s)" --overwrite 2>/dev/null || true
+            sleep 5
+            RECOVERED=$((RECOVERED+1))
+          fi
+
+          # ── 4. Refresh all failed ExternalSecrets ────────────────────────────
+          REFRESHED=0
+          while IFS= read -r line; do
+            [[ -z "$line" ]] && continue
+            NS=$(echo "$line" | awk '{print $1}')
+            ES=$(echo "$line" | awk '{print $2}')
+            $KT annotate externalsecret "$ES" -n "$NS" \
+              force-sync="$(date +%s)" --overwrite 2>/dev/null || true
+            REFRESHED=$((REFRESHED+1))
+          done < <($KT get externalsecrets -A \
+            -o custom-columns='NS:.metadata.namespace,NAME:.metadata.name,STATUS:.status.conditions[0].reason' \
+            --no-headers 2>/dev/null | awk '$3=="SecretSyncedError" || $3=="NoSecretSynced" {print}' || true)
+
+          if [[ $REFRESHED -gt 0 ]]; then
+            RECOVERED=$((RECOVERED+1))
+            echo "Refreshed $REFRESHED failed ExternalSecret(s)"
+          fi
+
+          # ── 5. Report to Discord if any recovery happened ─────────────────────
+          if [[ $RECOVERED -gt 0 ]]; then
+            WEBHOOK=$(cat ~/.kube/config-platform-productie 2>/dev/null | grep -o '' || true)
+            # Get Discord webhook from already-synced secret if available
+            DISCORD_URL=$($KT get secret -n gatus gatus-discord-secret \
+              -o jsonpath='{.data.webhook_url}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
+            if [[ -z "$DISCORD_URL" ]]; then
+              DISCORD_URL=$($KT get secret -n argocd argocd-discord-secret \
+                -o jsonpath='{.data.webhook_url}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
+            fi
+            if [[ -n "$DISCORD_URL" ]]; then
+              curl -s -X POST "$DISCORD_URL" \
+                -H "Content-Type: application/json" \
+                -d "{\"content\": \"✅ **OpenBao/ESO Recovery**: refreshed $REFRESHED ExternalSecret(s) after OpenBao recovered.\"}" \
+                > /dev/null 2>&1 || true
+            fi
+          else
+            echo "✅ OpenBao healthy, all ExternalSecrets synced — nothing to recover"
+          fi
