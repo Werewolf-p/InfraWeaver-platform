@@ -194,4 +194,4 @@ spec:
         - name: onedev
           port: 80
   tls:
-    secretName: platform-wildcard-int-tls
+    secretName: int-rlservers-com-tls  # wildcard *.int.rlservers.com cert

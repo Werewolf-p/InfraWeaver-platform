@@ -18,4 +18,4 @@ spec:
         - name: infraweaver-console
           port: 3000
   tls:
-    secretName: platform-wildcard-int-tls
+    secretName: int-rlservers-com-tls  # wildcard *.int.rlservers.com cert, stored in traefik namespace

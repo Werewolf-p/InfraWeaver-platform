@@ -1,9 +1,6 @@
-# sync-test: 20260504T201742
-# Homepage Helm values
-# Dashboard: https://home.int.rlservers.com
-# Docs: https://gethomepage.dev/
+# AUTO-GENERATED from platform.yaml — run scripts/generate-homepage-config.py to update
+# Homepage Helm values — Dashboard: https://home.int.rlservers.com
 
-# ── Resources ─────────────────────────────────────────────────────────────────
 resources:
   requests:
     cpu: 50m
@@ -11,262 +8,154 @@ resources:
   limits:
     cpu: 200m
     memory: 256Mi
-
-# ── Service Account ───────────────────────────────────────────────────────────
-# Kubernetes service discovery is disabled — services are configured manually.
 enableRbac: false
 serviceAccount:
   create: true
   name: homepage
-
-# ── Ingress (disabled — using Traefik IngressRoute via external-routes) ───────
 ingress:
   main:
     enabled: false
-
-# ── Homepage configuration ────────────────────────────────────────────────────
 config:
-
-  # Global settings
   settings:
-    title: "InfraWeaver"
+    title: InfraWeaver
     theme: dark
     color: cyan
     headerStyle: clean
     hideVersion: true
     disableCollapse: false
-    target: _blank                   # open links in new tab
+    target: _blank
     language: nl
     layout:
       Platform Infrastructure:
-        icon: mdi-server
+        icon: mdi-server-network
         style: row
         columns: 4
       Security & Identity:
         icon: mdi-shield-lock
         style: row
         columns: 4
-      Infrastructure:
-        icon: mdi-server-network
-        style: row
-        columns: 4
       Catalog Apps:
         icon: mdi-apps
-        style: row
-        columns: 4
-      Media & Monitoring:
-        icon: mdi-chart-line
         style: row
         columns: 4
       Websites:
         icon: mdi-web
         style: row
         columns: 4
-
-  # Top bar widgets
   widgets:
-    - greeting:
-        text_size: xl
-        text: "InfraWeaver"
-    - datetime:
-        text_size: l
-        format:
-          dateStyle: long
-          timeStyle: short
-          hour12: false
-    - search:
-        provider: google
-        target: _blank
-
-  # Kubernetes integration disabled (using manual service list)
+  - greeting:
+      text_size: xl
+      text: InfraWeaver
+  - datetime:
+      text_size: l
+      format:
+        dateStyle: long
+        timeStyle: short
+        hour12: false
+  - search:
+      provider: google
+      target: _blank
   kubernetes:
     mode: disabled
-
   docker: {}
   bookmarks: []
-
-  # ── Services ────────────────────────────────────────────────────────────────
-  # Health checks (ping) use internal K8s service names so Homepage can reach
-  # them from inside the cluster regardless of VPN/middleware restrictions.
-  # Click URLs (href) use the public hostnames for browser navigation.
   services:
-
-    - Platform Infrastructure:
-        - ArgoCD:
-            href: https://argocd.int.rlservers.com
-            description: GitOps — continuous delivery
-            icon: argocd.png
-            ping: http://argocd-server.argocd.svc.cluster.local
-
-        - Grafana:
-            href: https://grafana.int.rlservers.com
-            description: Metrics & dashboards
-            icon: grafana.png
-            ping: http://grafana-apps.apps-grafana.svc.cluster.local
-
-        - Longhorn:
-            href: https://longhorn.int.rlservers.com
-            description: Distributed block storage
-            icon: longhorn.png
-            ping: http://longhorn-frontend.longhorn-system.svc.cluster.local
-
-        - OpenBao:
-            href: https://openbao.int.rlservers.com
-            description: Secrets & certificates
-            icon: vault.png
-            ping: http://openbao.openbao.svc.cluster.local:8200/v1/sys/health
-
-        - Traefik:
-            href: https://traefik.int.rlservers.com
-            description: Kubernetes ingress controller
-            icon: traefik.png
-            ping: http://traefik.traefik.svc.cluster.local:8080/ping
-
-        - Wiki.js:
-            href: https://wiki.int.rlservers.com
-            description: Internal documentation
-            icon: wikijs.png
-            ping: http://wiki.wiki.svc.cluster.local
-
-        - Uptime Kuma:
-            href: https://uptime-kuma.int.rlservers.com
-            description: Uptime monitoring
-            icon: uptime-kuma.png
-            ping: http://uptime-kuma.uptime-kuma.svc.cluster.local:3001
-
-    - Security & Identity:
-        - Authentik:
-            href: https://auth.rlservers.com
-            description: Single sign-on (SSO)
-            icon: authentik.png
-            ping: http://authentik-server.authentik.svc.cluster.local/-/health/ready/
-
-        - NetBird VPN:
-            href: https://netbird.int.rlservers.com
-            description: WireGuard mesh VPN
-            icon: netbird.png
-            ping: http://netbird-management.netbird.svc.cluster.local/api/v1/health
-
-        - Vaultwarden:
-            href: https://vaultwarden.int.rlservers.com
-            description: Self-hosted password manager
-            icon: bitwarden.png
-            ping: http://vaultwarden.vaultwarden.svc.cluster.local:80
-
-            description: Hypervisor — VM management
-            icon: proxmox.png
-
-        - TrueNAS:
-            href: https://truenas.rlservers.com
-            description: Network attached storage
-            icon: truenas.png
-            ping: https://truenas.rlservers.com/api/v2.0/system/version
-
-        - AdGuard Home:
-            href: https://adguard.int.rlservers.com
-            description: DNS & ad blocking
-            icon: adguard-home.png
-
-        - Ansible Semaphore:
-            href: https://ansible.int.rlservers.com
-            description: Ansible automation UI
-            icon: semaphore.png
-
-        - Portainer:
-            href: https://portainer.int.rlservers.com
-            description: Container management
-            icon: portainer.png
-
-    - Catalog Apps:
-        - OneDev:
-            href: https://onedev.int.rlservers.com
-            description: Self-hosted Git & CI/CD
-            icon: mdi-git
-            ping: http://onedev.onedev.svc.cluster.local
-
-        - Gitea:
-            href: https://gitea.int.rlservers.com
-            description: Lightweight Git hosting
-            icon: gitea.png
-            ping: http://gitea-http.gitea.svc.cluster.local:3000
-
-        - N8N:
-            href: https://n8n.int.rlservers.com
-            description: Workflow automation
-            icon: n8n.png
-            ping: http://n8n.n8n.svc.cluster.local:5678/healthz
-
-        - Excalidraw:
-            href: https://excalidraw.int.rlservers.com
-            description: Collaborative whiteboard
-            icon: excalidraw.png
-            ping: http://excalidraw.excalidraw.svc.cluster.local
-
-        - IT-Tools:
-            href: https://it-tools.int.rlservers.com
-            description: Developer utility tools
-            icon: mdi-tools
-
-        - Stirling PDF:
-            href: https://stirling-pdf.int.rlservers.com
-            description: PDF manipulation tool
-            icon: mdi-file-pdf-box
-
-        - Actual Budget:
-            href: https://actual.int.rlservers.com
-            description: Personal finance tracker
-            icon: mdi-cash-multiple
-
-    - Media & Monitoring:
-        - Overseerr:
-            href: https://overseer.int.rlservers.com
-            description: Media request management
-            icon: overseerr.png
-
-        - Sonarr:
-            href: https://sonarr.int.rlservers.com
-            description: TV show automation
-            icon: sonarr.png
-
-        - Radarr:
-            href: https://radarr.int.rlservers.com
-            description: Movie automation
-            icon: radarr.png
-
-    - Websites:
-        - rlservers.com:
-            href: https://rlservers.com
-            description: Main website
-            icon: wordpress.png
-            ping: https://rlservers.com
-
-        - De Goudentijd:
-            href: https://degoudentijd.rlservers.com
-            description: WordPress site
-            icon: wordpress.png
-            ping: https://degoudentijd.rlservers.com
-
-        - Feest in het Donker:
-            href: https://feestinhetdonker.rlservers.com
-            description: Event website
-            icon: html5.png
-            ping: https://feestinhetdonker.rlservers.com
-
-        - yonavaarwater.nl:
-            href: https://yonavaarwater.nl
-            description: WordPress site
-            icon: wordpress.png
-            ping: https://yonavaarwater.nl
-
-        - zonnevaarwater.nl:
-            href: https://zonnevaarwater.nl
-            description: WordPress site
-            icon: wordpress.png
-            ping: https://zonnevaarwater.nl
-
-        - test.rlservers.com:
-            href: https://test.rlservers.com
-            description: Test / demo website
-            icon: html5.png
-            ping: https://test.rlservers.com
-# sync-test: Mon May  4 22:15:29 UTC 2026
+  - Platform Infrastructure:
+    - ArgoCD:
+        href: https://argocd.int.rlservers.com
+        description: GitOps — continuous delivery
+        icon: argocd.png
+        ping: http://argocd-server.argocd.svc.cluster.local
+    - Traefik:
+        href: https://traefik.int.rlservers.com
+        description: Kubernetes ingress controller
+        icon: traefik.png
+        ping: http://traefik.traefik.svc.cluster.local:8080/ping
+    - Longhorn:
+        href: https://longhorn.int.rlservers.com
+        description: Distributed block storage
+        icon: longhorn.png
+        ping: http://longhorn-frontend.longhorn-system.svc.cluster.local
+    - OpenBao:
+        href: https://openbao.int.rlservers.com
+        description: Secrets & certificates vault
+        icon: vault.png
+        ping: http://openbao.openbao.svc.cluster.local:8200/v1/sys/health
+    - Grafana:
+        href: https://grafana.int.rlservers.com
+        description: Metrics & dashboards
+        icon: grafana.png
+        ping: http://grafana-apps.apps-grafana.svc.cluster.local
+    - Prometheus:
+        href: https://prometheus.int.rlservers.com
+        description: Metrics collection & alerting
+        icon: prometheus.png
+        ping: http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090/-/healthy
+  - Security & Identity:
+    - Authentik:
+        href: https://auth.rlservers.com
+        description: Single sign-on (SSO) gateway
+        icon: authentik.png
+        ping: http://authentik-server.authentik.svc.cluster.local/-/health/ready/
+    - NetBird VPN:
+        href: https://netbird.int.rlservers.com
+        description: Zero-trust WireGuard VPN mesh
+        icon: netbird.png
+        ping: http://netbird-management.netbird.svc.cluster.local/api/v1/health
+  - Catalog Apps:
+    - InfraWeaver:
+        href: https://infraweaver.int.rlservers.com
+        description: Platform management console
+        icon: mdi-console
+        ping: http://infraweaver-console.infraweaver-console.svc.cluster.local:3000/api/ping
+    - Wiki.js:
+        href: https://wiki.int.rlservers.com
+        description: Internal documentation & runbooks
+        icon: wikijs.png
+        ping: http://wiki.wiki.svc.cluster.local
+    - Gatus:
+        href: https://status.rlservers.com
+        description: Uptime & health monitoring
+        icon: mdi-heart-pulse
+        ping: http://gatus.gatus.svc.cluster.local:8080/health
+    - OneDev:
+        href: https://onedev.int.rlservers.com
+        description: Self-hosted Git & CI/CD platform
+        icon: mdi-git
+        ping: http://onedev.onedev.svc.cluster.local:6610
+    - Stirling PDF:
+        href: https://stirling-pdf.int.rlservers.com
+        description: PDF manipulation & conversion
+        icon: mdi-file-pdf-box
+        ping: http://stirling-pdf.stirling-pdf.svc.cluster.local:8080
+    - Container Registry:
+        href: https://registry.int.rlservers.com
+        description: Private OCI/Docker image registry
+        icon: mdi-package
+        ping: http://registry.registry.svc.cluster.local:5000/v2/
+  - Websites:
+    - rlservers.com:
+        href: https://rlservers.com
+        description: Main website
+        icon: wordpress.png
+        ping: https://rlservers.com
+    - De Goudentijd:
+        href: https://degoudentijd.rlservers.com
+        description: WordPress site
+        icon: wordpress.png
+        ping: https://degoudentijd.rlservers.com
+    - Feest in het Donker:
+        href: https://feestinhetdonker.rlservers.com
+        description: Event website
+        icon: html5.png
+        ping: https://feestinhetdonker.rlservers.com
+    - yonavaarwater.nl:
+        href: https://yonavaarwater.nl
+        description: WordPress site
+        icon: wordpress.png
+        ping: https://yonavaarwater.nl
+    - zonnevaarwater.nl:
+        href: https://zonnevaarwater.nl
+        description: WordPress site
+        icon: wordpress.png
+        ping: https://zonnevaarwater.nl
