@@ -18,6 +18,24 @@ spec:
       serviceAccountName: infraweaver-console
       imagePullSecrets:
       - name: onedev-pull-secret
+      # Spread replicas across nodes so a single Flannel disruption
+      # doesn't take down both console pods simultaneously
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            app: infraweaver-console
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: infraweaver-console
+              topologyKey: kubernetes.io/hostname
       containers:
       - name: console
         image: onedev.rlservers.com/infraweaver/infraweaver-console:main

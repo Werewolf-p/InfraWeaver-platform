@@ -1,5 +1,25 @@
 deployment:
-  replicas: 1
+  replicas: 2
+
+# Spread the 2 Traefik replicas across different nodes so a single node
+# Flannel restart doesn't take down the entire ingress layer.
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: DoNotSchedule
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: traefik
+
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+          topologyKey: kubernetes.io/hostname
 
 service:
   type: LoadBalancer
