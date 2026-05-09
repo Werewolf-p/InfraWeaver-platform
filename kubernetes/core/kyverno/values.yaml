@@ -74,6 +74,53 @@ config:
     - local-path-storage
     - bootstrap
     - wiki
+    - registry
+    - velero
+    - infraweaver-console
+    - apps-grafana
+    - apps-homepage
+    - apps-gatus
+    - apps-stirling-pdf
+    - apps-onedev
+    - apps-immich
+
+# ── Webhook interception — namespace-level bypass ─────────────────────────────
+# These namespaces bypass the Kyverno webhook entirely (no policy call made).
+# Critical: prevents Kyverno downtime from blocking Longhorn, Authentik, etc.
+# Without this, failurePolicy=Fail on webhook causes ALL system pods to crash
+# whenever Kyverno is restarting (e.g. during node OOM cascade recovery).
+features:
+  forceFailurePolicyIgnore:
+    # All Kyverno webhooks use Ignore instead of Fail.
+    # Prevents: Kyverno down → Longhorn manager crash → CSI deregistration → cascade.
+    enabled: true
+  webhooks:
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - kube-public
+            - kube-node-lease
+            - kyverno
+            - argocd
+            - authentik
+            - openbao
+            - longhorn-system
+            - external-secrets
+            - cert-manager
+            - metallb-system
+            - monitoring
+            - traefik
+            - dns-system
+            - netbird
+            - local-path-storage
+            - bootstrap
+            - wiki
+            - registry
+            - velero
+            - infraweaver-console
 
 # ── Webhook cleanup ───────────────────────────────────────────────────────────
 webhooksCleanupEnabled: true

@@ -93,8 +93,11 @@ grafana:
 prometheus:
   enabled: true
   prometheusSpec:
-    retention: 7d
-    retentionSize: 15GB
+    retention: 3d
+    retentionSize: 8GB
+    # Reduce scrape load to ease memory pressure on 8GB nodes
+    scrapeInterval: 60s
+    evaluationInterval: 60s
     # Prevent Kubernetes from re-applying fsGroup between init containers and main container
     # (which would reset our chown). With Never, our initContainer sets the correct ownership.
     podMetadata:
@@ -158,7 +161,7 @@ prometheus:
         memory: 512Mi
         cpu: 200m
       limits:
-        memory: 1536Mi
+        memory: 1024Mi
         cpu: 1000m
 
     # Scrape all ServiceMonitors across all namespaces
