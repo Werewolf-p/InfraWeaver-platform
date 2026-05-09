@@ -21,12 +21,13 @@ spec:
       containers:
       - name: console
         image: onedev.rlservers.com/infraweaver/infraweaver-console:main
+        imagePullPolicy: Always
         ports:
         - containerPort: 3000
           name: http
         env:
         - name: NEXTAUTH_URL
-          value: https://console.int.rlservers.com
+          value: https://infraweaver.int.rlservers.com
         - name: NEXTAUTH_SECRET
           valueFrom:
             secretKeyRef:

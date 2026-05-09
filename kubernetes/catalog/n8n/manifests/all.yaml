@@ -113,7 +113,7 @@ spec:
             claimName: n8n-data
 ---
 # ExternalSecret — pull N8N_ENCRYPTION_KEY from OpenBao
-apiVersion: external-secrets.io/v1beta1
+apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
   name: n8n-encryption-key
