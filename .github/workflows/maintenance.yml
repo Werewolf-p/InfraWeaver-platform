@@ -409,6 +409,77 @@ jobs:
               [[ $POD_AGE_S -gt 600 ]] && echo "$ns $pod $age"
             done || true)
 
+          # Multi-Attach Longhorn volume errors — stale VolumeAttachments block pod scheduling
+          # Caused by: pod rescheduled to different node while old CSI attachment wasn't cleaned up
+          echo "  🔍 Checking for stale Longhorn VolumeAttachments (Multi-Attach errors)..."
+          while IFS= read -r line; do
+            [[ -z "$line" ]] && continue
+            VA_NAME=$(echo "$line" | awk '{print $1}')
+            PV_NAME=$(echo "$line" | awk '{print $2}')
+            NODE=$(echo "$line" | awk '{print $3}')
+            ATTACHED=$(echo "$line" | awk '{print $4}')
+            # Only delete if NOT currently attached (status.attached=false means detach failed)
+            if [[ "$ATTACHED" == "false" ]]; then
+              echo "  ⚠️  Stale VolumeAttachment $VA_NAME (pv=$PV_NAME, node=$NODE, attached=$ATTACHED) — deleting"
+              $KT delete volumeattachment "$VA_NAME" --grace-period=0 2>/dev/null && HEALED=$((HEALED+1)) || true
+              ISSUES="${ISSUES}\n- Stale VolumeAttachment: \`$VA_NAME\` (pv=$PV_NAME) → deleted"
+            fi
+          done < <($KT get volumeattachments \
+            -o custom-columns='NAME:.metadata.name,PV:.spec.source.persistentVolumeName,NODE:.spec.nodeName,ATTACHED:.status.attached' \
+            --no-headers 2>/dev/null | awk '$1~/^csi-/' || true)
+
+          # Longhorn snapshot-controller stale attachment tickets
+          # Caused by: backup/snapshot controller holding a volume attachment after snapshot completes
+          # This prevents the CSI driver from attaching the volume to a different node
+          echo "  🔍 Checking for stale Longhorn snapshot-controller attachment tickets..."
+          while IFS= read -r lhva; do
+            [[ -z "$lhva" ]] && continue
+            # Get attachment tickets for this Longhorn volume
+            TICKETS=$($KT get volumeattachments.longhorn.io -n longhorn-system "$lhva" \
+              -o jsonpath='{.spec.attachmentTickets}' 2>/dev/null || echo '{}')
+            if echo "$TICKETS" | grep -q '"snapshot-controller'; then
+              LH_VOL_STATE=$($KT get volume -n longhorn-system "$lhva" \
+                -o jsonpath='{.status.state}' 2>/dev/null || echo "unknown")
+              # If volume is attached but no pod is using it, clear snapshot-controller tickets
+              PVC_BOUND=$($KT get pv "$lhva" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+              if [[ "$LH_VOL_STATE" == "attached" && -n "$PVC_BOUND" ]]; then
+                # Check if any pods are RUNNING and using this volume
+                PVC_NAME=$($KT get pv "$lhva" -o jsonpath='{.spec.claimRef.name}' 2>/dev/null || echo "")
+                PVC_NS=$($KT get pv "$lhva" -o jsonpath='{.spec.claimRef.namespace}' 2>/dev/null || echo "")
+                PODS_USING=$($KT get pods -n "$PVC_NS" --field-selector=status.phase=Running \
+                  -o json 2>/dev/null | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+pvc='${PVC_NAME}'
+for pod in d.get('items',[]):
+    for v in pod.get('spec',{}).get('volumes',[]):
+        if v.get('persistentVolumeClaim',{}).get('claimName','') == pvc:
+            print(pod['metadata']['name'])
+" 2>/dev/null || echo "")
+                if [[ -z "$PODS_USING" ]]; then
+                  echo "  ⚠️  Stale snapshot-controller ticket on volume $lhva — clearing"
+                  # Remove all snapshot-controller tickets
+                  TICKET_KEYS=$(echo "$TICKETS" | python3 -c "
+import json,sys
+t=json.load(sys.stdin)
+for k in list(t.keys()):
+    if 'snapshot-controller' in k:
+        print(k)
+" 2>/dev/null || echo "")
+                  while IFS= read -r tk; do
+                    [[ -z "$tk" ]] && continue
+                    $KT patch volumeattachments.longhorn.io -n longhorn-system "$lhva" \
+                      --type='json' \
+                      -p="[{\"op\":\"remove\",\"path\":\"/spec/attachmentTickets/${tk}\"}]" 2>/dev/null || true
+                  done <<< "$TICKET_KEYS"
+                  HEALED=$((HEALED+1))
+                  ISSUES="${ISSUES}\n- Stale Longhorn snapshot ticket: \`$lhva\` → cleared"
+                fi
+              fi
+            fi
+          done < <($KT get volumeattachments.longhorn.io -n longhorn-system \
+            -o custom-columns='NAME:.metadata.name' --no-headers 2>/dev/null || true)
+
           if [[ $HEALED -eq 0 ]]; then
             echo "✅ No stuck pods found — cluster is healthy" | tee -a "$GITHUB_STEP_SUMMARY"
           else
