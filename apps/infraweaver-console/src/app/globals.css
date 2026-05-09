@@ -36,4 +36,4 @@ body {
   50% { opacity: 0.5; transform: scale(0.85); }
 }
 @utility scrollbar-none { scrollbar-width: none; -ms-overflow-style: none; }
-@utility scrollbar-none::-webkit-scrollbar { display: none; }
+.scrollbar-none::-webkit-scrollbar { display: none; }
