@@ -66,6 +66,21 @@ spec:
       labels:
         app: wazuh-indexer
     spec:
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values: ["talos-prod-cp3"]
+            - weight: 50
+              preference:
+                matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values: ["talos-prod-cp1"]
       initContainers:
         # Fix vm.max_map_count required by OpenSearch
         - name: sysctl
@@ -83,7 +98,7 @@ spec:
               name: transport
           env:
             - name: OPENSEARCH_JAVA_OPTS
-              value: "-Xms1g -Xmx1g"
+              value: "-Xms512m -Xmx512m"
             - name: INDEXER_PASSWORD
               valueFrom:
                 secretKeyRef:
@@ -105,11 +120,11 @@ spec:
               mountPath: /var/lib/wazuh-indexer
           resources:
             requests:
+              memory: 512Mi
+              cpu: 250m
+            limits:
               memory: 1Gi
               cpu: 500m
-            limits:
-              memory: 2Gi
-              cpu: 1000m
           readinessProbe:
             tcpSocket:
               port: 9200
