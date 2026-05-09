@@ -10,9 +10,11 @@ spec:
     - match: Host(`infraweaver.int.rlservers.com`)
       kind: Rule
       middlewares:
-        - name: authentik-forward-auth
-          namespace: authentik
-        - name: security-headers
+        - name: netbird-vpn-only
+          namespace: traefik
+        - name: forward-auth
+          namespace: traefik
+        - name: secure-headers
           namespace: traefik
       services:
         - name: infraweaver-console

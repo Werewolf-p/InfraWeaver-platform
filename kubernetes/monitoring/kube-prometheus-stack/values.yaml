@@ -158,7 +158,7 @@ prometheus:
 
     resources:
       requests:
-        memory: 2Gi
+        memory: 512Mi
         cpu: 200m
       limits:
         memory: 3Gi  # Hard cap: prevents Prometheus TSDB growth from OOM-killing cp1
