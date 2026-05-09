@@ -130,24 +130,26 @@ export function Sidebar() {
                 <item.icon className="w-4 h-4 flex-shrink-0" />
                 <AnimatePresence>
                   {!collapsed && (
-                    <motion.span
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      className="text-sm font-medium whitespace-nowrap"
-                    >
-                      {item.label}
-                    </motion.span>
-                    {item.shortcut && (
+                    <>
                       <motion.span
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
-                        className="ml-auto text-[10px] text-slate-600 font-mono opacity-0 group-hover:opacity-100 transition-opacity"
+                        className="text-sm font-medium whitespace-nowrap"
                       >
-                        {item.shortcut}
+                        {item.label}
                       </motion.span>
-                    )}
+                      {item.shortcut && (
+                        <motion.span
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          exit={{ opacity: 0 }}
+                          className="ml-auto text-[10px] text-slate-600 font-mono opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          {item.shortcut}
+                        </motion.span>
+                      )}
+                    </>
                   )}
                 </AnimatePresence>
               </motion.div>
