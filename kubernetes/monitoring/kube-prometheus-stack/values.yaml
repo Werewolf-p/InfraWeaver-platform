@@ -158,8 +158,10 @@ prometheus:
 
     resources:
       requests:
-        memory: 512Mi
+        memory: 2Gi
         cpu: 200m
+      limits:
+        memory: 3Gi  # Hard cap: prevents Prometheus TSDB growth from OOM-killing cp1
 
     # Scrape all ServiceMonitors across all namespaces
     serviceMonitorSelectorNilUsesHelmValues: false
