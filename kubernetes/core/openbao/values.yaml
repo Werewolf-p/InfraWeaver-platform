@@ -1,21 +1,18 @@
 server:
-  # Increased probe timeouts to prevent false restarts under cluster load.
-  # Default 3s timeouts caused cascading ExternalSecret failures during etcd elections.
+  # Probe tuning: OpenBao takes 2-3 minutes to start and unseal.
+  # - readinessProbe: 10s timeout prevents false "stuck" detection under load
+  # - livenessProbe: disabled — autounseal sidecar handles recovery; HTTP liveness
+  #   was killing the pod before it could fully initialize (exit 137 after ~150s)
   readinessProbe:
     enabled: true
     failureThreshold: 3
-    initialDelaySeconds: 10
+    initialDelaySeconds: 30
     periodSeconds: 10
     successThreshold: 1
     timeoutSeconds: 10
 
   livenessProbe:
-    enabled: true
-    failureThreshold: 3
-    initialDelaySeconds: 60
-    periodSeconds: 30
-    successThreshold: 1
-    timeoutSeconds: 10
+    enabled: false
 
   standalone:
     enabled: true
