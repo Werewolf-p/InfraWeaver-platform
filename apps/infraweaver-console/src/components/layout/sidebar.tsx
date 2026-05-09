@@ -7,7 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   LayoutDashboard, Box, Settings, Users, HardDrive,
   Network, Activity, ChevronLeft, ChevronRight, Terminal, History, Cog,
-  Package, FileText, Bell
+  Package, FileText, Bell, ShieldCheck, Server
 } from "lucide-react";
 import { useRBAC } from "@/hooks/use-rbac";
 import { useArgoApps } from "@/hooks/use-argocd";
@@ -15,17 +15,19 @@ import { cn } from "@/lib/utils";
 import { useSession } from "next-auth/react";
 
 const navItems = [
-  { href: "/", icon: LayoutDashboard, label: "Dashboard" },
-  { href: "/apps", icon: Box, label: "Applications" },
-  { href: "/events", icon: History, label: "Activity Log" },
-  { href: "/config", icon: Cog, label: "Config Editor" },
-  { href: "/users", icon: Users, label: "Users" },
-  { href: "/registry", icon: Package, label: "Registry" },
-  { href: "/logs", icon: FileText, label: "Pod Logs" },
-  { href: "/storage", icon: HardDrive, label: "Storage" },
-  { href: "/network", icon: Network, label: "Network" },
-  { href: "/health", icon: Activity, label: "Health" },
-  { href: "/settings", icon: Settings, label: "Settings" },
+  { href: "/", icon: LayoutDashboard, label: "Dashboard", shortcut: "G D" },
+  { href: "/apps", icon: Box, label: "Applications", shortcut: "G A" },
+  { href: "/events", icon: History, label: "Activity Log", shortcut: "G E" },
+  { href: "/config", icon: Cog, label: "Config Editor", shortcut: "G C" },
+  { href: "/users", icon: Users, label: "Users", shortcut: "G U" },
+  { href: "/registry", icon: Package, label: "Registry", shortcut: "G R" },
+  { href: "/logs", icon: FileText, label: "Pod Logs", shortcut: "G L" },
+  { href: "/storage", icon: HardDrive, label: "Storage", shortcut: "G S" },
+  { href: "/network", icon: Network, label: "Network", shortcut: "G N" },
+  { href: "/health", icon: Activity, label: "Health", shortcut: "G H" },
+  { href: "/security", icon: ShieldCheck, label: "Security", shortcut: "G Y" },
+  { href: "/cluster", icon: Server, label: "Cluster", shortcut: "G K" },
+  { href: "/settings", icon: Settings, label: "Settings", shortcut: "" },
 ];
 
 function ClusterHealthDot() {
@@ -115,7 +117,7 @@ export function Sidebar() {
                 className={cn(
                   "relative flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors cursor-pointer group",
                   isActive
-                    ? "bg-indigo-500/20 text-indigo-300"
+                    ? "bg-indigo-500/20 text-indigo-300 shadow-[inset_0_0_12px_rgba(99,102,241,0.15)]"
                     : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
                 )}
               >
@@ -136,6 +138,16 @@ export function Sidebar() {
                     >
                       {item.label}
                     </motion.span>
+                    {item.shortcut && (
+                      <motion.span
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="ml-auto text-[10px] text-slate-600 font-mono opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        {item.shortcut}
+                      </motion.span>
+                    )}
                   )}
                 </AnimatePresence>
               </motion.div>

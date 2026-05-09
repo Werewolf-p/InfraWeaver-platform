@@ -4,9 +4,10 @@ import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRBAC } from "@/hooks/use-rbac";
 import { toast } from "sonner";
-import { Save, Code, ToggleLeft, ToggleRight, GitCommit, Loader2 } from "lucide-react";
+import { Save, Code, ToggleLeft, ToggleRight, GitCommit, Loader2, CheckCircle2, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import dynamic from "next/dynamic";
+import * as jsYaml from "js-yaml";
 
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
 
@@ -221,7 +222,13 @@ export default function ConfigPage() {
       {activeTab === "yaml" && isAdmin && (
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-white/5 border border-white/10 rounded-xl overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 border-b border-white/5">
-            <span className="text-sm font-medium text-white">platform.yaml</span>
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-medium text-white">platform.yaml</span>
+              {yamlContent && (() => {
+                try { jsYaml.load(yamlContent); return <span className="flex items-center gap-1 text-xs text-green-400"><CheckCircle2 className="w-3.5 h-3.5" />Valid YAML</span>; }
+                catch { return <span className="flex items-center gap-1 text-xs text-red-400"><XCircle className="w-3.5 h-3.5" />Invalid YAML</span>; }
+              })()}
+            </div>
             <button
               onClick={() => yamlCommitMutation.mutate()}
               disabled={yamlCommitMutation.isPending || !can("catalog:write")}

@@ -58,7 +58,7 @@ function AppCard({ app, onClick, compact }: { app: ArgoApp; onClick: () => void;
       whileTap={{ scale: 0.97 }}
       onClick={onClick}
       className={cn(
-        "bg-white/5 backdrop-blur-sm border rounded-xl cursor-pointer transition-colors",
+        "bg-white/5 backdrop-blur-sm border rounded-xl cursor-pointer transition-all hover:shadow-[0_0_20px_rgba(99,102,241,0.15)]",
         compact ? "p-3" : "p-4",
         borderColor
       )}
@@ -309,7 +309,8 @@ export default function AppsPage() {
   const filtered = (apps ?? []).filter(app => {
     if (!settings.showSystemApps && isSystemApp(app.metadata.name)) return false;
     const matchesSearch = app.metadata.name.toLowerCase().includes(search.toLowerCase());
-    const matchesFilter = filter === "all" || app.status.health.status.toLowerCase() === filter;
+    const matchesFilter = filter === "all"
+      || (filter === "outofsync" ? app.status.sync.status === "OutOfSync" : app.status.health.status.toLowerCase() === filter);
     return matchesSearch && matchesFilter;
   });
 
@@ -319,6 +320,7 @@ export default function AppsPage() {
     healthy: visibleApps.filter(a => a.status.health.status === "Healthy").length,
     degraded: visibleApps.filter(a => a.status.health.status === "Degraded").length,
     progressing: visibleApps.filter(a => a.status.health.status === "Progressing").length,
+    outofsync: visibleApps.filter(a => a.status.sync.status === "OutOfSync").length,
   };
 
   const degradedCount = (apps ?? []).filter(a => a.status.health.status === "Degraded").length;
@@ -356,7 +358,7 @@ export default function AppsPage() {
             className="w-full bg-white/5 border border-white/10 rounded-lg pl-9 pr-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50"
           />
         </div>
-        {(["all", "healthy", "degraded", "progressing"] as const).map(f => (
+        {(["all", "healthy", "degraded", "progressing", "outofsync"] as const).map(f => (
           <button
             key={f}
             onClick={() => setFilter(f)}
@@ -367,7 +369,7 @@ export default function AppsPage() {
                 : "bg-white/5 border border-white/10 text-slate-400 hover:text-white"
             )}
           >
-            {f} ({counts[f]})
+            {f === "outofsync" ? "Out of Sync" : f} ({counts[f]})
           </button>
         ))}
         {!settings.showSystemApps && (
@@ -400,6 +402,15 @@ export default function AppsPage() {
                 <AppCard app={app} onClick={() => setSelectedApp(app)} compact={settings.compactMode} />
               </motion.div>
             ))}
+            {filtered.length === 0 && !isLoading && (
+              <div className="col-span-full flex flex-col items-center justify-center py-20 text-center">
+                <svg className="w-16 h-16 text-slate-700 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                </svg>
+                <p className="text-slate-400 font-medium">No applications found</p>
+                <p className="text-slate-600 text-sm mt-1">Try adjusting your search or filter</p>
+              </div>
+            )}
           </AnimatePresence>
         </motion.div>
       )}

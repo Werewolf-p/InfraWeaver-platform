@@ -6,7 +6,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import Link from "next/link";
-import { LayoutDashboard, Box, Activity, Network, Cog, X } from "lucide-react";
+import { LayoutDashboard, Box, Activity, Network, Cog, X, ShieldCheck, Server } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const mobileNavItems = [
@@ -23,6 +23,8 @@ const drawerNavItems = [
   { href: "/health", icon: Activity, label: "Health" },
   { href: "/network", icon: Network, label: "Network" },
   { href: "/config", icon: Cog, label: "Config Editor" },
+  { href: "/security", icon: ShieldCheck, label: "Security" },
+  { href: "/cluster", icon: Server, label: "Cluster" },
 ];
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -114,8 +116,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           className="flex-1 overflow-y-auto p-4 md:p-6"
           style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px) + 72px, 80px)" }}
         >
-          {children}
-        </main>
+          <motion.div
+            key={pathname}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
+          >
+            {children}
+          </motion.div>        </main>
       </div>
 
       {/* Bottom mobile nav */}
@@ -127,7 +135,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               key={item.href}
               href={item.href}
               className={cn(
-                "flex-1 flex flex-col items-center gap-1 py-3 text-xs transition-colors",
+                "flex-1 flex flex-col items-center gap-1 py-3 text-xs transition-colors active:scale-95",
                 isActive ? "text-indigo-400" : "text-slate-500 hover:text-slate-300"
               )}
             >

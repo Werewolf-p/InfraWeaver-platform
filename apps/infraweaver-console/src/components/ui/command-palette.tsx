@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
 import {
   LayoutDashboard, Box, Activity, Network, Cog, HardDrive,
-  FileText, Users, KeyRound, Terminal, History, Search, X,
+  FileText, Users, KeyRound, Terminal, History, Search, X, ShieldCheck, Server,
 } from "lucide-react";
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
 import { cn } from "@/lib/utils";
@@ -21,6 +21,8 @@ const navItems = [
   { href: "/registry", icon: KeyRound, label: "Registry", shortcut: "G R" },
   { href: "/events", icon: History, label: "Activity Log", shortcut: "G E" },
   { href: "/exec", icon: Terminal, label: "Exec", shortcut: "G X" },
+  { href: "/security", icon: ShieldCheck, label: "Security", shortcut: "G Y" },
+  { href: "/cluster", icon: Server, label: "Cluster", shortcut: "G K" },
 ];
 
 export function CommandPalette() {
