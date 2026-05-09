@@ -170,14 +170,13 @@ data:
             description: "OneDev is unreachable"
 
       - name: InfraWeaver Console
-        url: https://infraweaver.int.rlservers.com/api/ping
+        url: https://infraweaver.int.rlservers.com/
         interval: 60s
         group: catalog
         client:
           insecure: true
         conditions:
           - "[STATUS] == 200"
-          - "[BODY].status == ok"
         alerts:
           - type: discord
             description: "InfraWeaver Console is unreachable"

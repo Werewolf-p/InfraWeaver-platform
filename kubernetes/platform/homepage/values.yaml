@@ -107,7 +107,7 @@ config:
         href: https://infraweaver.int.rlservers.com
         description: Platform management console
         icon: mdi-console
-        ping: http://infraweaver-console.infraweaver-console.svc.cluster.local:3000/api/ping
+        ping: http://infraweaver-console.infraweaver-console.svc.cluster.local:3000/
     - Wiki.js:
         href: https://wiki.int.rlservers.com
         description: Internal documentation & runbooks
