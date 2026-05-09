@@ -8,9 +8,6 @@ admissionController:
   serviceMonitor:
     enabled: false  # enable once Prometheus is confirmed running
   resources:
-    limits:
-      cpu: 500m
-      memory: 384Mi
     requests:
       cpu: 100m
       memory: 128Mi

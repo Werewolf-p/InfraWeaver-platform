@@ -160,9 +160,6 @@ prometheus:
       requests:
         memory: 512Mi
         cpu: 200m
-      limits:
-        memory: 1024Mi
-        cpu: 1000m
 
     # Scrape all ServiceMonitors across all namespaces
     serviceMonitorSelectorNilUsesHelmValues: false

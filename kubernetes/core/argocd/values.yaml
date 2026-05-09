@@ -7,9 +7,6 @@ controller:
     requests:
       cpu: 250m
       memory: 512Mi
-    limits:
-      cpu: 1000m
-      memory: 1024Mi
   # Prefer cp2/cp3 to keep cp1 free for prometheus (PV-pinned) + control-plane components
   affinity:
     nodeAffinity:
