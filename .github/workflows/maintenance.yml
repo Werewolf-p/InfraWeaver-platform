@@ -19,6 +19,7 @@ on:
     - cron: "0 4 * * 0"   # Sunday 04:00 UTC — OpenBao snapshot
     - cron: "0 7 * * 1"   # Monday 07:00 UTC — drift detection
     - cron: "0 6 * * *"   # Daily 06:00 UTC  — self-heal cluster
+    - cron: "0 */6 * * *" # Every 6 hours — self-heal cluster (more frequent)
     - cron: "0 5 1,15 * *" # 1st and 15th of month — ESO token renewal
     - cron: "*/10 * * * *" # Every 10 min — etcd alarm check
     - cron: "*/15 * * * *" # Every 15 min — OpenBao/ESO recovery
@@ -340,7 +341,7 @@ jobs:
   self-heal:
     name: Self-Heal Cluster
     if: >
-      github.event_name == 'schedule' && github.event.schedule == '0 6 * * *' ||
+      (github.event_name == 'schedule' && (github.event.schedule == '0 6 * * *' || github.event.schedule == '0 */6 * * *')) ||
       github.event_name == 'workflow_dispatch' && inputs.task == 'self-heal'
     timeout-minutes: 20
     runs-on:
@@ -624,7 +625,22 @@ for k in list(t.keys()):
             exit 0
           fi
 
-          # ── 2. Fix stale Longhorn volume attachment for OpenBao if it was Unknown ──
+          # ── 2. Fix ALL stale k8s VolumeAttachments cluster-wide ──────────────
+          # When a node goes NotReady, CSI VolumeAttachments may become stale.
+          # attached=false means the detach RPC failed — safe to delete.
+          while IFS= read -r line; do
+            [[ -z "$line" ]] && continue
+            VA_NAME=$(echo "$line" | awk '{print $1}')
+            PV_NAME=$(echo "$line" | awk '{print $2}')
+            NODE=$(echo "$line" | awk '{print $3}')
+            echo "Stale VolumeAttachment $VA_NAME (pv=$PV_NAME, node=$NODE) — deleting"
+            $KT delete volumeattachment "$VA_NAME" --grace-period=0 2>/dev/null || true
+            RECOVERED=$((RECOVERED+1))
+          done < <($KT get volumeattachments \
+            -o custom-columns='NAME:.metadata.name,PV:.spec.source.persistentVolumeName,NODE:.spec.nodeName,ATTACHED:.status.attached' \
+            --no-headers 2>/dev/null | awk '$1~/^csi-/ && $4=="false" {print}' || true)
+
+          # ── 4. Fix stale Longhorn volume attachment for OpenBao if it was Unknown ──
           # When cp3 goes NotReady, OpenBao pod becomes Unknown and a new pod is scheduled.
           # Longhorn keeps the old attachment ticket — clear it if no running pod uses it.
           BAO_PV=$($KT get pvc -n openbao openbao-data-openbao-0 \
@@ -654,7 +670,7 @@ for k in list(t.keys()):
             fi
           fi
 
-          # ── 3. Re-validate ClusterSecretStore ────────────────────────────────
+          # ── 5. Re-validate ClusterSecretStore ────────────────────────────────
           STORE_READY=$($KT get clustersecretstore openbao \
             -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "False")
           if [[ "$STORE_READY" != "True" ]]; then
@@ -665,7 +681,7 @@ for k in list(t.keys()):
             RECOVERED=$((RECOVERED+1))
           fi
 
-          # ── 4. Refresh all failed ExternalSecrets ────────────────────────────
+          # ── 6. Refresh all failed ExternalSecrets ────────────────────────────
           REFRESHED=0
           while IFS= read -r line; do
             [[ -z "$line" ]] && continue
@@ -683,7 +699,7 @@ for k in list(t.keys()):
             echo "Refreshed $REFRESHED failed ExternalSecret(s)"
           fi
 
-          # ── 5. Report to Discord if any recovery happened ─────────────────────
+          # ── 7. Report to Discord if any recovery happened ─────────────────────
           if [[ $RECOVERED -gt 0 ]]; then
             WEBHOOK=$(cat ~/.kube/config-platform-productie 2>/dev/null | grep -o '' || true)
             # Get Discord webhook from already-synced secret if available
