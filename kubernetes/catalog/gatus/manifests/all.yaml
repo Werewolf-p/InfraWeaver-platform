@@ -7,9 +7,10 @@ metadata:
     app.kubernetes.io/name: gatus
     infraweaver.io/type: catalog-app
 ---
-# Gatus config — defines all endpoints to monitor
-# This ConfigMap is the single source of truth for what gets monitored.
-# Edit endpoints here and ArgoCD will sync the new config automatically.
+# Gatus config — AUTO-GENERATED from platform.yaml
+# DO NOT edit this ConfigMap manually. Run:
+#   python3 scripts/generate-gatus-config.py
+# to regenerate after changing platform.yaml.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -20,11 +21,9 @@ data:
     web:
       port: 8080
 
-    # Store status history in memory (no DB needed for homelab)
     storage:
       type: memory
 
-    # Discord alert integration
     alerting:
       discord:
         webhook-url: "${DISCORD_WEBHOOK_URL}"
@@ -34,11 +33,11 @@ data:
           failure-threshold: 3
           success-threshold: 2
 
-    # ── Core Platform Endpoints ──────────────────────────────────────────────
     endpoints:
       - name: ArgoCD
         url: https://argocd.int.rlservers.com
         interval: 60s
+        group: core
         client:
           insecure: true
         conditions:
@@ -48,18 +47,20 @@ data:
           - type: discord
             description: "ArgoCD is unreachable via VPN"
 
-      - name: Authentik SSO
-        url: https://auth.rlservers.com/-/health/ready/
+      - name: Traefik
+        url: http://traefik-dashboard.traefik.svc.cluster.local:8080/ping
         interval: 30s
+        group: core
         conditions:
           - "[STATUS] == 200"
         alerts:
           - type: discord
-            description: "Authentik SSO is down — all platform logins affected"
+            description: "Traefik ingress is unreachable — all internal services affected"
 
       - name: OpenBao
         url: https://openbao.int.rlservers.com/v1/sys/health
         interval: 60s
+        group: core
         client:
           insecure: true
         conditions:
@@ -70,9 +71,42 @@ data:
           - type: discord
             description: "OpenBao is sealed or unreachable — secrets unavailable"
 
+      - name: Authentik SSO
+        url: https://auth.rlservers.com/-/health/ready/
+        interval: 30s
+        group: platform
+        conditions:
+          - "[STATUS] == 200"
+        alerts:
+          - type: discord
+            description: "Authentik SSO is down — all platform logins affected"
+
+      - name: NetBird VPN
+        url: https://api-netbird.rlservers.com/api/v1/accounts
+        interval: 120s
+        group: platform
+        conditions:
+          - "[STATUS] < 500"
+        alerts:
+          - type: discord
+            description: "NetBird VPN management API unreachable"
+
+      - name: Homepage Dashboard
+        url: https://home.int.rlservers.com
+        interval: 120s
+        group: platform
+        client:
+          insecure: true
+        conditions:
+          - "[STATUS] == 200"
+        alerts:
+          - type: discord
+            description: "Homepage dashboard is unreachable"
+
       - name: Grafana
         url: https://grafana.int.rlservers.com/api/health
         interval: 60s
+        group: platform
         client:
           insecure: true
         conditions:
@@ -81,77 +115,103 @@ data:
           - type: discord
             description: "Grafana is unreachable"
 
-      - name: Traefik
-        # Use internal K8s service URL — bypasses the IP-allowlist IngressRoute middleware.
-        # The public URL (traefik.int.rlservers.com) uses `internal-only` middleware that
-        # blocks pod CIDR (10.244.x.x) traffic, returning 403. Gatus pods are in the cluster,
-        # so we test the Traefik API directly instead. Port 8080 is the Traefik API/dashboard
-        # entrypoint (ClusterIP, no TLS). /ping returns 200 when Traefik is healthy.
-        url: http://traefik-dashboard.traefik.svc.cluster.local:8080/ping
-        interval: 30s
+      - name: Prometheus
+        url: http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090/-/healthy
+        interval: 60s
+        group: monitoring
         conditions:
           - "[STATUS] == 200"
         alerts:
           - type: discord
-            description: "Traefik ingress is unreachable — all internal services affected"
+            description: "Prometheus is unreachable — metrics collection stopped"
 
-      # ── Catalog Apps ──────────────────────────────────────────────────────
+      - name: Loki
+        url: http://loki.monitoring.svc.cluster.local:3100/ready
+        interval: 120s
+        group: monitoring
+        conditions:
+          - "[STATUS] == 200"
+        alerts:
+          - type: discord
+            description: "Loki is unreachable — log aggregation stopped"
+
+      - name: Wiki.js
+        url: https://wiki.int.rlservers.com
+        interval: 120s
+        group: catalog
+        client:
+          insecure: true
+        conditions:
+          - "[STATUS] == 200"
+        alerts:
+          - type: discord
+            description: "Wiki.js is unreachable"
+
+      - name: Stirling PDF
+        url: https://stirling-pdf.int.rlservers.com
+        interval: 120s
+        group: catalog
+        client:
+          insecure: true
+        conditions:
+          - "[STATUS] == 200"
+        alerts:
+          - type: discord
+            description: "Stirling PDF is unreachable"
+
       - name: OneDev (Git + CI)
         url: https://onedev.rlservers.com
         interval: 120s
+        group: catalog
         conditions:
           - "[STATUS] == 200"
         alerts:
           - type: discord
             description: "OneDev is unreachable"
 
-      - name: Gitea
-        url: https://gitea.int.rlservers.com
-        interval: 120s
-        client:
-          insecure: true
-        conditions:
-          - "[STATUS] < 400"
-        alerts:
-          - type: discord
-            description: "Gitea is unreachable"
-
-      - name: Uptime Kuma
-        url: https://uptime-kuma.int.rlservers.com
-        interval: 120s
+      - name: InfraWeaver Console
+        url: https://infraweaver.int.rlservers.com/api/health
+        interval: 60s
+        group: catalog
         client:
           insecure: true
         conditions:
           - "[STATUS] == 200"
+        alerts:
+          - type: discord
+            description: "InfraWeaver Console is unreachable"
 
-      - name: Wazuh Dashboard
-        url: https://wazuh.int.rlservers.com
+      - name: Container Registry
+        url: https://registry.int.rlservers.com/v2/
         interval: 120s
+        group: catalog
         client:
           insecure: true
         conditions:
           - "[STATUS] < 500"
+        alerts:
+          - type: discord
+            description: "Container registry is unreachable"
 
-      - name: n8n Automation
-        url: https://n8n.int.rlservers.com
-        interval: 120s
-        client:
-          insecure: true
-        conditions:
-          - "[STATUS] < 400"
-
-      # ── External Dependencies ─────────────────────────────────────────────
-      - name: Cloudflare DNS (external)
+      - name: Cloudflare DNS
         url: https://1.1.1.1/dns-query?name=rlservers.com&type=A
         interval: 300s
+        group: external
         conditions:
           - "[STATUS] == 200"
+        alerts:
+          - type: discord
+            description: "Cloudflare DNS unreachable — external DNS may be failing"
 
       - name: Let's Encrypt ACME
         url: https://acme-v02.api.letsencrypt.org/directory
         interval: 300s
+        group: external
         conditions:
           - "[STATUS] == 200"
+        alerts:
+          - type: discord
+            description: "Let's Encrypt ACME unreachable — cert renewal may fail"
 ---
 # ExternalSecret — pulls Discord webhook URL from OpenBao
 apiVersion: external-secrets.io/v1
@@ -198,7 +258,6 @@ spec:
       labels:
         app.kubernetes.io/name: gatus
       annotations:
-        # Forces pod restart when config ConfigMap changes (updated on each ArgoCD sync)
         config-version: "1"
     spec:
       priorityClassName: platform-standard
@@ -239,9 +298,6 @@ spec:
             requests:
               cpu: 50m
               memory: 64Mi
-            limits:
-              cpu: 200m
-              memory: 128Mi
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -290,9 +346,7 @@ spec:
   tls:
     secretName: platform-wildcard-int-tls
 ---
-# NetworkPolicy for Gatus — allow egress to K8s cluster DNS + all monitored endpoints.
-# Default-deny is NOT set here (Gatus needs broad access to monitor platform endpoints).
-# Ingress: allow Traefik forward-auth + status page access.
+# NetworkPolicy for Gatus
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -305,7 +359,6 @@ spec:
   policyTypes:
     - Ingress
   ingress:
-    # Allow Traefik to forward-auth + route status page traffic to Gatus
     - from:
         - namespaceSelector:
             matchLabels:
@@ -313,7 +366,6 @@ spec:
       ports:
         - protocol: TCP
           port: 8080
-    # Allow Prometheus scraping
     - from:
         - namespaceSelector:
             matchLabels:
