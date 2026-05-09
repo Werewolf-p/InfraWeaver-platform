@@ -83,7 +83,7 @@ export function TopBar({ title, onMenuOpen }: TopBarProps) {
         </button>
         <div>
           <h1 className="text-sm font-semibold text-white">{title ?? "InfraWeaver Console"}</h1>
-          <p className="text-xs text-slate-500 hidden sm:block">platform.int.rlservers.com</p>
+          <p className="text-xs text-slate-500 hidden sm:block">infraweaver.int.rlservers.com</p>
         </div>
       </div>
 

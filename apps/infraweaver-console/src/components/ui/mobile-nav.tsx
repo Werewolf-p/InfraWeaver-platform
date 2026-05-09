@@ -19,7 +19,8 @@ export function MobileNav() {
   return (
     <nav
       aria-label="Mobile navigation"
-      className="md:hidden fixed bottom-0 left-0 right-0 z-50 h-16 bg-slate-950/90 backdrop-blur-md border-t border-white/10 flex items-center justify-around px-2"
+      className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-slate-950/90 backdrop-blur-md border-t border-white/10 flex items-center justify-around px-2 pb-safe"
+      style={{ paddingBottom: "max(env(safe-area-inset-bottom), 8px)" }}
     >
       {mobileNavItems.map((item) => {
         const isActive = pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href));
@@ -28,7 +29,7 @@ export function MobileNav() {
             key={item.href}
             whileTap={{ scale: 0.88 }}
             onClick={() => router.push(item.href)}
-            className="relative flex flex-col items-center justify-center gap-0.5 px-3 py-2 rounded-xl transition-colors"
+            className="relative flex flex-col items-center justify-center gap-0.5 min-w-[56px] min-h-[48px] px-3 py-2 rounded-xl transition-colors"
           >
             {isActive && (
               <motion.div

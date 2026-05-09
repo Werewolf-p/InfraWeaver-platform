@@ -38,13 +38,13 @@ export default function StoragePage() {
                 whileTap={{ scale: 0.99 }}
                 className="bg-white/5 border border-white/10 rounded-xl p-4"
               >
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-3">
+                <div className="flex items-start sm:items-center justify-between mb-2 gap-2">
+                  <div className="flex items-center gap-3 min-w-0">
                     <HardDrive className="w-4 h-4 text-slate-400 flex-shrink-0" />
-                    <span className="text-sm font-medium text-white">{vol.name}</span>
+                    <span className="text-sm font-medium text-white truncate">{vol.name}</span>
                   </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs text-slate-400">{vol.numberOfReplicas} replicas</span>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <span className="text-xs text-slate-400">{vol.numberOfReplicas}x</span>
                     <div className="flex items-center gap-1.5">
                       {isHealthy ? (
                         <CheckCircle2 className="w-4 h-4 text-green-400" />
@@ -64,8 +64,8 @@ export default function StoragePage() {
                       style={{ width: `${usedPct}%` }}
                     />
                   </div>
-                  <span className="text-xs text-slate-400 whitespace-nowrap">
-                    {formatBytes(vol.actualSize ?? 0)} / {formatBytes(vol.size ?? 0)} ({usedPct}%)
+                  <span className="text-xs text-slate-400 whitespace-nowrap text-right min-w-[80px]">
+                    {formatBytes(vol.actualSize ?? 0)} / {formatBytes(vol.size ?? 0)}
                   </span>
                 </div>
               </motion.div>

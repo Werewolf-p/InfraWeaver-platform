@@ -120,35 +120,35 @@ export default function LogsPage() {
         </div>
       </div>
 
-      <div className="flex items-center gap-3 flex-wrap">
+      <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
         <button
           onClick={fetchLogs}
           disabled={!selectedContainer || logsLoading}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-500/20 border border-indigo-500/30 text-sm text-indigo-300 hover:bg-indigo-500/30 transition-colors disabled:opacity-50"
+          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-500/20 border border-indigo-500/30 text-sm text-indigo-300 hover:bg-indigo-500/30 transition-colors disabled:opacity-50 flex-shrink-0"
         >
           <RefreshCw className={cn("w-4 h-4", logsLoading && "animate-spin")} />
-          {logsLoading ? "Loading..." : "Load Logs"}
+          {logsLoading ? "Loading…" : "Load Logs"}
         </button>
-        <div className="relative flex-1 max-w-xs">
+        <div className="relative flex-1 min-w-[140px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
           <input
             value={filter}
             onChange={e => setFilter(e.target.value)}
-            placeholder="Filter logs..."
+            placeholder="Filter logs…"
             className="w-full bg-white/5 border border-white/10 rounded-lg pl-9 pr-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50"
           />
         </div>
-        <label className="flex items-center gap-2 text-sm text-slate-400 cursor-pointer">
+        <label className="flex items-center gap-2 text-sm text-slate-400 cursor-pointer flex-shrink-0">
           <input type="checkbox" checked={autoScroll} onChange={e => setAutoScroll(e.target.checked)} className="w-3.5 h-3.5 accent-indigo-500" />
           Auto-scroll
         </label>
-        <span className="text-xs text-slate-500">{filteredLogs.length} lines</span>
+        <span className="text-xs text-slate-500 flex-shrink-0">{filteredLogs.length} lines</span>
         {logs.length > 0 && (
           <>
-            <button onClick={handleDownload} className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg bg-white/5 border border-white/10 text-xs text-slate-400 hover:text-white transition-colors">
+            <button onClick={handleDownload} className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg bg-white/5 border border-white/10 text-xs text-slate-400 hover:text-white transition-colors flex-shrink-0">
               <Download className="w-3.5 h-3.5" /> Download
             </button>
-            <button onClick={() => setLogs([])} className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg bg-white/5 border border-white/10 text-xs text-slate-400 hover:text-white transition-colors">
+            <button onClick={() => setLogs([])} className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg bg-white/5 border border-white/10 text-xs text-slate-400 hover:text-white transition-colors flex-shrink-0">
               <Trash2 className="w-3.5 h-3.5" /> Clear
             </button>
           </>

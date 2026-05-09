@@ -46,8 +46,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
         <div className="flex-1 flex flex-col overflow-hidden min-w-0">
           <TopBar onMenuOpen={() => setMobileOpen(true)} />
-          <main className="flex-1 overflow-y-auto p-4 md:p-6 pb-20 md:pb-6">
-            {children}
+          <main className="flex-1 overflow-y-auto p-4 md:p-6" style={{ paddingBottom: "max(env(safe-area-inset-bottom) + 72px, 80px)" }}>
+            <div className="md:pb-0">
+              {children}
+            </div>
           </main>
         </div>
       </div>
