@@ -8,8 +8,17 @@ controller:
       cpu: 250m
       memory: 512Mi
     limits:
-      cpu: 2000m
-      memory: 1536Mi
+      cpu: 1000m
+      memory: 768Mi
+  affinity:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 80
+          preference:
+            matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: In
+                values: [talos-prod-cp2, talos-prod-cp3]
 
 server:
   replicas: 2  # HA: 2 replicas spread across nodes
@@ -17,6 +26,14 @@ server:
     - --insecure  # TLS terminated at ingress
 
   affinity:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 80
+          preference:
+            matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: In
+                values: [talos-prod-cp2, talos-prod-cp3]
     podAntiAffinity:
       preferredDuringSchedulingIgnoredDuringExecution:
         - weight: 100
@@ -35,6 +52,14 @@ server:
 repoServer:
   replicas: 2  # HA: 2 replicas spread across nodes
   affinity:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 80
+          preference:
+            matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: In
+                values: [talos-prod-cp2, talos-prod-cp3]
     podAntiAffinity:
       preferredDuringSchedulingIgnoredDuringExecution:
         - weight: 100
@@ -47,6 +72,14 @@ repoServer:
 applicationSet:
   replicas: 2  # HA: 2 replicas spread across nodes
   affinity:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 80
+          preference:
+            matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: In
+                values: [talos-prod-cp2, talos-prod-cp3]
     podAntiAffinity:
       preferredDuringSchedulingIgnoredDuringExecution:
         - weight: 100

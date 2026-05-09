@@ -157,7 +157,7 @@ prometheus:
         memory: 512Mi
         cpu: 200m
       limits:
-        memory: 3Gi
+        memory: 1536Mi
         cpu: 1000m
 
     # Scrape all ServiceMonitors across all namespaces
