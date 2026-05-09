@@ -83,36 +83,54 @@ spec:
             - -c
             - |
               set -e
-              echo "Configuring Wiki.js OIDC via direct PostgreSQL update..."
+              echo "Configuring Wiki.js OIDC via direct PostgreSQL upsert..."
 
-              # Build JSON config and update directly in DB (idempotent)
+              # Upsert OIDC provider using correct wiki.js DB schema
               psql -h wiki-postgresql.wiki.svc.cluster.local -U wiki -d wiki << SQL
-              UPDATE authentication
-              SET
-                "isEnabled" = true,
-                "displayName" = 'Authentik SSO',
-                config = json_build_object(
-                  'clientId',           '${OIDC_CLIENT_ID}',
-                  'clientSecret',       '${OIDC_CLIENT_SECRET}',
-                  'authorizationURL',   'https://auth.rlservers.com/application/o/authorize/',
-                  'tokenURL',           'https://auth.rlservers.com/application/o/token/',
-                  'userInfoURL',        'https://auth.rlservers.com/application/o/userinfo/',
-                  'issuer',             'https://auth.rlservers.com/application/o/wikijs/',
-                  'callbackURL',        'https://wiki.int.rlservers.com/login/oidc/callback',
-                  'scope',              'openid profile email',
-                  'emailClaim',         'email',
-                  'displayNameClaim',   'name',
+              INSERT INTO authentication (key, "isEnabled", "displayName", "selfRegistration", config, "domainWhitelist", "autoEnrollGroups", "strategyKey")
+              VALUES (
+                'oidc',
+                true,
+                'Authentik SSO',
+                false,
+                json_build_object(
+                  'clientId',            '${OIDC_CLIENT_ID}',
+                  'clientSecret',        '${OIDC_CLIENT_SECRET}',
+                  'authorizationURL',    'https://auth.rlservers.com/application/o/authorize/',
+                  'tokenURL',            'https://auth.rlservers.com/application/o/token/',
+                  'userInfoURL',         'https://auth.rlservers.com/application/o/userinfo/',
+                  'issuer',              'https://auth.rlservers.com/application/o/wikijs/',
+                  'callbackURL',         'https://wiki.int.rlservers.com/login/oidc/callback',
+                  'scope',               'openid profile email',
+                  'emailClaim',          'email',
+                  'displayNameClaim',    'name',
                   'mapGroupsFromClaims', false,
-                  'skipUserProfile',    false,
-                  'pictureClaim',       'picture',
-                  'mapGroups',          false,
-                  'groupsClaim',        'groups',
-                  'logoutURL',          '',
-                  'acrValues',          ''
-                )
-              WHERE key = 'oidc';
+                  'skipUserProfile',     false
+                ),
+                '[]',
+                '[]',
+                'oidc'
+              )
+              ON CONFLICT (key) DO UPDATE
+              SET
+                "isEnabled"   = true,
+                "displayName" = 'Authentik SSO',
+                config        = json_build_object(
+                  'clientId',            '${OIDC_CLIENT_ID}',
+                  'clientSecret',        '${OIDC_CLIENT_SECRET}',
+                  'authorizationURL',    'https://auth.rlservers.com/application/o/authorize/',
+                  'tokenURL',            'https://auth.rlservers.com/application/o/token/',
+                  'userInfoURL',         'https://auth.rlservers.com/application/o/userinfo/',
+                  'issuer',              'https://auth.rlservers.com/application/o/wikijs/',
+                  'callbackURL',         'https://wiki.int.rlservers.com/login/oidc/callback',
+                  'scope',               'openid profile email',
+                  'emailClaim',          'email',
+                  'displayNameClaim',    'name',
+                  'mapGroupsFromClaims', false,
+                  'skipUserProfile',     false
+                );
 
-              -- Verify
+              -- Verify result
               SELECT key, "isEnabled", config->>'issuer' as issuer, config->>'clientId' as client_id
               FROM authentication;
               SQL
