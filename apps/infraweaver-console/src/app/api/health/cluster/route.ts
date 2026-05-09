@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 
-const ARGOCD_URL = process.env.ARGOCD_URL ?? "https://argocd.int.rlservers.com";
+const ARGOCD_SERVER = process.env.ARGOCD_SERVER ?? "http://argocd-server.argocd.svc.cluster.local:80";
 const ARGOCD_TOKEN = process.env.ARGOCD_TOKEN ?? "";
 
 export async function GET() {
   try {
-    const res = await fetch(`${ARGOCD_URL}/api/v1/applications`, {
+    const res = await fetch(`${ARGOCD_SERVER}/api/v1/applications`, {
       headers: { Authorization: `Bearer ${ARGOCD_TOKEN}` },
       signal: AbortSignal.timeout(5000),
     });

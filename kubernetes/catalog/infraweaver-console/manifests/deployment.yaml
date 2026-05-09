@@ -70,6 +70,11 @@ spec:
           value: http://longhorn-frontend.longhorn-system.svc.cluster.local:80
         - name: NETBIRD_API
           value: http://netbird-management.netbird.svc.cluster.local:80
+        - name: NETBIRD_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: infraweaver-console-secret
+              key: netbird-token
         - name: NODE_ENV
           value: production
         - name: AUTH_TRUST_HOST

@@ -26,20 +26,6 @@ variable "proxmox_api_token" {
   }
 }
 
-variable "openbao_token" {
-  description = <<-EOT
-    OpenBao (Vault) root or platform service token.
-    
-    **SECRET SOURCE**: GitHub Actions Secrets → TF_VAR_openbao_token environment variable.
-    See .github/workflows/full-redeploy.yml for implementation.
-    In workflows, pass as: export TF_VAR_openbao_token="$OPENBAO_TOKEN"
-    
-    Supply via TF_VAR_openbao_token or GitHub Secrets.
-  EOT
-  type        = string
-  sensitive   = true
-  default     = ""
-}
 
 variable "openbao_address" {
   description = "OpenBao API address (e.g. https://10.25.0.241:8200). Read from cluster.yaml."
