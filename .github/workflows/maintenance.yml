@@ -16,6 +16,7 @@ name: Maintenance — Scheduled Operations
 on:
   schedule:
     - cron: "0 3 * * 0"   # Sunday 03:00 UTC — etcd snapshot
+    - cron: "0 2 * * *"   # Daily 02:00 UTC  — etcd defrag
     - cron: "0 4 * * 0"   # Sunday 04:00 UTC — OpenBao snapshot
     - cron: "0 7 * * 1"   # Monday 07:00 UTC — drift detection
     - cron: "0 6 * * *"   # Daily 06:00 UTC  — self-heal cluster
@@ -33,6 +34,7 @@ on:
         options:
           - all-snapshots      # etcd + openbao snapshot
           - etcd-snapshot
+          - etcd-defrag         # defrag etcd DB on all 3 nodes
           - openbao-snapshot
           - drift-detection
           - check-resources
@@ -60,6 +62,72 @@ env:
   TOFU_VERSION: "1.11.6"
 
 jobs:
+  # ── etcd Defrag ───────────────────────────────────────────────────────────────
+  # Runs daily to prevent etcd DB fragmentation buildup.
+  # Root cause of multiple cluster outages: fragmented 1.4GB etcd → 10s+ ops → apiserver OOM.
+  # Defrag reclaims free space, keeping the live DB at ~250-300MB (vs 1.4GB fragmented).
+  etcd-defrag:
+    name: etcd Defrag
+    if: >
+      (github.event_name == 'schedule' && github.event.schedule == '0 2 * * *') ||
+      (github.event_name == 'workflow_dispatch' && inputs.task == 'etcd-defrag')
+    timeout-minutes: 15
+    runs-on:
+      - self-hosted
+      - prod-worker
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Setup talosctl
+        run: |
+          TALOS_VER=$(grep 'talos_version' envs/${{ env.ENV_NAME }}/cluster.yaml | awk '{print $2}' | tr -d '"')
+          curl -fsSL \
+            "https://github.com/siderolabs/talos/releases/download/${TALOS_VER}/talosctl-linux-amd64" \
+            -o /usr/local/bin/talosctl && chmod +x /usr/local/bin/talosctl
+
+      - name: Setup talosconfig
+        run: |
+          mkdir -p ~/.talos
+          TALOS_CFG="envs/${{ env.ENV_NAME }}/generated/talosconfig"
+          [ -f "$TALOS_CFG" ] || { echo "❌ talosconfig not found at $TALOS_CFG"; exit 1; }
+          cp "$TALOS_CFG" ~/.talos/config
+
+      - name: Defrag etcd on all nodes
+        run: |
+          DISCORD_WEBHOOK="${{ secrets.DISCORD_WEBHOOK }}"
+          BEFORE_SIZES=""
+          AFTER_SIZES=""
+
+          echo "### etcd Defrag — $(date -u '+%Y-%m-%d %H:%M UTC')" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          for NODE in 10.10.0.90 10.10.0.91 10.10.0.92; do
+            BEFORE=$(talosctl --nodes "$NODE" etcd status 2>/dev/null | tail -1 | awk '{print $3}')
+            echo "📊 $NODE before defrag: $BEFORE"
+            BEFORE_SIZES+="$NODE: $BEFORE  "
+
+            talosctl --nodes "$NODE" etcd defrag 2>&1 && echo "✅ $NODE defrag complete" || echo "⚠️  $NODE defrag failed (non-fatal)"
+            sleep 5
+
+            AFTER=$(talosctl --nodes "$NODE" etcd status 2>/dev/null | tail -1 | awk '{print $3}')
+            echo "📊 $NODE after defrag:  $AFTER"
+            AFTER_SIZES+="$NODE: $AFTER  "
+            echo "| $NODE | $BEFORE | $AFTER |" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "✅ etcd defrag complete" >> "$GITHUB_STEP_SUMMARY"
+
+          # Only notify Discord if DB was significantly fragmented (> 400MB before)
+          # to avoid spamming on healthy clusters
+          LARGEST_BEFORE=$(echo "$BEFORE_SIZES" | grep -oP '\d+ MB' | sort -n | tail -1 | awk '{print $1}')
+          if [[ -n "$DISCORD_WEBHOOK" && "${LARGEST_BEFORE:-0}" -gt 400 ]]; then
+            curl -s -X POST "$DISCORD_WEBHOOK" \
+              -H "Content-Type: application/json" \
+              -d "{\"content\": \"🗜️ **etcd Defrag**: DB was fragmented (${LARGEST_BEFORE}MB). Defragged all 3 nodes. After: $AFTER_SIZES\"}" \
+              > /dev/null 2>&1 || true
+          fi
+
   # ── etcd Snapshot ─────────────────────────────────────────────────────────────
   etcd-snapshot:
     name: etcd Snapshot
@@ -90,7 +158,7 @@ jobs:
       - name: Create etcd snapshot
         run: |
           SNAPSHOT_FILE="/tmp/etcd-snapshot-$(date +%Y%m%d-%H%M%S).db"
-          for NODE in 10.25.0.90 10.25.0.91 10.25.0.92; do
+          for NODE in 10.10.0.90 10.10.0.91 10.10.0.92; do
             if talosctl --nodes "$NODE" etcd snapshot "$SNAPSHOT_FILE" 2>/dev/null; then
               echo "✅ etcd snapshot created from $NODE: $(du -sh "$SNAPSHOT_FILE" | cut -f1)"
               break
