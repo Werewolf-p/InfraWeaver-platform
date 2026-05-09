@@ -153,14 +153,6 @@ config:
             icon: bitwarden.png
             ping: http://vaultwarden.vaultwarden.svc.cluster.local:80
 
-        - Wazuh:
-            href: https://wazuh.int.rlservers.com
-            description: Security monitoring & SIEM
-            icon: wazuh.png
-
-    - Infrastructure:
-        - Proxmox:
-            href: https://proxmox.int.rlservers.com
             description: Hypervisor — VM management
             icon: proxmox.png
 
