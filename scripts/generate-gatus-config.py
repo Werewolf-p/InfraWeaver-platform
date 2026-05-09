@@ -164,11 +164,11 @@ APP_ENDPOINT_MAP = {
     },
     "infraweaver-console": {
         "name": "InfraWeaver Console",
-        "url": "https://infraweaver.int.rlservers.com/api/health/cluster",
+        "url": "https://infraweaver.int.rlservers.com/api/ping",
         "interval": "60s",
         "group": "catalog",
         "client": {"insecure": True},
-        "conditions": ["[STATUS] == 200"],
+        "conditions": ["[STATUS] == 200", "[BODY].status == ok"],
         "alerts": [{"type": "discord", "description": "InfraWeaver Console is unreachable"}],
     },
     "registry": {
