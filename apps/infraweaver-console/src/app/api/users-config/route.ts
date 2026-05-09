@@ -25,8 +25,20 @@ export async function GET() {
     const file = await getFileFromGitHub();
     const content = Buffer.from(file.content, "base64").toString("utf-8");
     const yaml = await import("js-yaml");
-    const parsed = yaml.load(content) as { users?: unknown[] };
-    return NextResponse.json({ users: parsed?.users ?? [], sha: file.sha, raw: content });
+    const parsed = yaml.load(content) as { users?: Record<string, Record<string, unknown>> | unknown[] };
+    // users.yaml stores users as a keyed object { remon: {...}, ardaty: {...} }
+    // Normalize to array with username injected
+    const rawUsers = parsed?.users ?? {};
+    let usersArray: Record<string, unknown>[];
+    if (Array.isArray(rawUsers)) {
+      usersArray = rawUsers as Record<string, unknown>[];
+    } else {
+      usersArray = Object.entries(rawUsers).map(([username, data]) => ({
+        username,
+        ...(data as Record<string, unknown>),
+      }));
+    }
+    return NextResponse.json({ users: usersArray, sha: file.sha, raw: content });
   } catch {
     return NextResponse.json({
       users: [
@@ -48,7 +60,13 @@ export async function POST(req: NextRequest) {
       sha = file.sha;
     }
     const yaml = await import("js-yaml");
-    const newContent = yaml.dump({ users: body.users }, { lineWidth: -1, indent: 2 });
+    // Convert array back to keyed object for YAML storage
+    const usersObj = (body.users as Array<Record<string, unknown>>).reduce<Record<string, Record<string, unknown>>>((acc, u) => {
+      const { username, ...rest } = u;
+      acc[username as string] = rest;
+      return acc;
+    }, {});
+    const newContent = yaml.dump({ users: usersObj }, { lineWidth: -1, indent: 2 });
     const commitMessage = body.commitMessage ?? "chore: update users.yaml via InfraWeaver Console";
     const updateRes = await fetch(
       `https://api.github.com/repos/${GITHUB_REPO}/contents/${USERS_FILE_PATH}`,
