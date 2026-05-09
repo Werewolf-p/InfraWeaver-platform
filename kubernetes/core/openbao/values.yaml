@@ -1,18 +1,33 @@
 server:
   # Probe tuning: OpenBao takes 2-3 minutes to start and unseal.
-  # - readinessProbe: 10s timeout prevents false "stuck" detection under load
+  # - readinessProbe: 10s timeout, 60s initial delay, 5 failures tolerated
   # - livenessProbe: disabled — autounseal sidecar handles recovery; HTTP liveness
   #   was killing the pod before it could fully initialize (exit 137 after ~150s)
   readinessProbe:
     enabled: true
-    failureThreshold: 3
-    initialDelaySeconds: 30
-    periodSeconds: 10
+    failureThreshold: 5
+    initialDelaySeconds: 60
+    periodSeconds: 15
     successThreshold: 1
     timeoutSeconds: 10
 
   livenessProbe:
     enabled: false
+
+  # Node affinity: prefer cp1/cp2 over cp3 which has known Longhorn mmap instability.
+  # SIGBUS crashes occur when cp3 briefly loses volume connectivity, causing mmap
+  # page faults in OpenBao's Raft/BBolt storage. Preferring stable nodes prevents this.
+  affinity: |
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        preference:
+          matchExpressions:
+          - key: kubernetes.io/hostname
+            operator: In
+            values:
+            - talos-prod-cp1
+            - talos-prod-cp2
 
   standalone:
     enabled: true
