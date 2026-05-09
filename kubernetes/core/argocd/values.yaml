@@ -119,6 +119,28 @@ configs:
       hs.status = "Healthy"
       hs.message = "Ingress managed"
       return hs
+    # Custom health check for ArgoCD Applications (App of Apps pattern).
+    # Without this, parent apps (e.g., bootstrap) report "Degraded" because
+    # ArgoCD has no built-in health aggregation for Application CRDs.
+    resource.customizations.health.argoproj.io_Application: |
+      hs = {}
+      if obj.status ~= nil then
+        if obj.status.health ~= nil then
+          hs.status = obj.status.health.status
+          if obj.status.health.message ~= nil then
+            hs.message = obj.status.health.message
+          end
+        end
+        if obj.status.sync ~= nil and obj.status.sync.status == "OutOfSync" then
+          hs.status = "Degraded"
+          hs.message = "Application is out of sync"
+        end
+      end
+      if hs.status == nil then
+        hs.status = "Progressing"
+        hs.message = "Waiting for application health"
+      end
+      return hs
     # Local user accounts — passwords set by full-redeploy bootstrap (stored in OpenBao)
     accounts.remon: login
     # Disable built-in admin account — OIDC (Authentik) is the sole login path
