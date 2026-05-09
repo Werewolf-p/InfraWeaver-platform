@@ -9,8 +9,6 @@ core:
       description: "TLS certificate automation (Let's Encrypt)"
     traefik:
       description: "Ingress controller — all HTTP(S) routing"
-    ingress-nginx:
-      description: "Internal ingress controller for cluster services"
     external-secrets:
       description: "Syncs secrets from OpenBao → Kubernetes Secrets"
     longhorn:

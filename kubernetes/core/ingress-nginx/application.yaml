@@ -1,5 +1,0 @@
-repoURL: https://kubernetes.github.io/ingress-nginx
-targetRevision: "4.*"
-chart: ingress-nginx
-releaseName: ingress-nginx
-namespace: ingress-nginx
