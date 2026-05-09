@@ -11,7 +11,11 @@ defaultSettings:
   taintToleration: "node-role.kubernetes.io/control-plane:NoSchedule"
   # Storage reserved per node (don't use all disk space)
   storageMinimalAvailablePercentage: 10
-  storageOverProvisioningPercentage: 200
+  storageOverProvisioningPercentage: 400
+  # Reserve 15% of disk for system use (reduced from 30% default to allow more scheduling headroom)
+  storageReservedPercentageForDefaultDisk: 15
+  # Auto-balance replicas when nodes have unequal replica counts
+  replicaAutoBalance: least-effort
   # Delete PVCs when PV is deleted
   defaultDataLocality: best-effort
   # Faster failover
