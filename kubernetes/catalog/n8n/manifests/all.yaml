@@ -121,7 +121,7 @@ metadata:
 spec:
   refreshInterval: 1h
   secretStoreRef:
-    name: openbao-backend
+    name: openbao
     kind: ClusterSecretStore
   target:
     name: n8n-encryption-key
