@@ -148,8 +148,7 @@ redis:
         memory: 128Mi
 
 server:
-  replicas: 2  # HA: 2 replicas spread across nodes
-  ingress:
+  replicas: 1  # Reduced from 2: 8GB nodes OOM with 2 servers (each uses ~700Mi actual)
     enabled: false
   # Give enough time for Django migrations on a fresh DB (292+ migrations)
   # NOTE: Authentik chart does NOT support livenessProbe.enabled field — use raw k8s probe fields only
@@ -180,8 +179,7 @@ server:
       memory: 1Gi
 
 worker:
-  replicas: 2  # HA: 2 replicas spread across nodes
-  affinity:
+  replicas: 1  # Reduced from 2: 8GB nodes OOM with 2 workers (each uses ~450Mi actual)
     podAntiAffinity:
       preferredDuringSchedulingIgnoredDuringExecution:
         - weight: 100
