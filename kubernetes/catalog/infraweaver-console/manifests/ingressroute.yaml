@@ -7,7 +7,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`console.int.rlservers.com`)
+    - match: Host(`infraweaver.int.rlservers.com`)
       kind: Rule
       middlewares:
         - name: authentik-forward-auth
@@ -17,4 +17,5 @@ spec:
       services:
         - name: infraweaver-console
           port: 3000
-  tls: {}
+  tls:
+    secretName: platform-wildcard-int-tls

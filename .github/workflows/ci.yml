@@ -36,7 +36,7 @@ jobs:
           fetch-depth: 0
       - name: Cache gitleaks
         id: cache-gitleaks
-        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c6158d # v4
+        uses: actions/cache@6849a6489940f00c2f30c0fb92c6274307ccb58a # v4
         with:
           path: ~/.local/bin/gitleaks
           key: gitleaks-v8.18.4-linux-amd64
@@ -78,7 +78,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Cache kubeconform
         id: cache-kubeconform
-        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c6158d # v4
+        uses: actions/cache@6849a6489940f00c2f30c0fb92c6274307ccb58a # v4
         with:
           path: ~/.local/bin/kubeconform
           key: kubeconform-v0.7.0-linux-amd64

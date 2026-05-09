@@ -101,6 +101,7 @@ catalog:
   #   n8n              — Workflow automation                   (n8n.int.rlservers.com)
   #   forgejo          — Community Git forge (Gitea fork)      (forgejo.int.rlservers.com)
   #   onedev           — All-in-one DevOps platform (Git+CI)   (onedev.int.rlservers.com)
+  #   registry         — Private OCI/Docker container registry  (registry.int.rlservers.com)
   #
   # Defined but not yet enabled (manifests still in development):
   #   mealie           — Recipe manager with OIDC              (mealie.int.rlservers.com)
@@ -124,6 +125,7 @@ catalog:
     - stirling-pdf
     - onedev
     - infraweaver-console
+    - registry
 
   # ── Per-catalog-app HA settings ──────────────────────────────────────────────
   # Set replicas: N to run N pods. Default is 1.
@@ -136,6 +138,8 @@ catalog:
     stirling-pdf:
       replicas: 1
     onedev:
+      replicas: 1
+    registry:
       replicas: 1
 
 # ── InfraWeaver Console RBAC ──────────────────────────────────────────────────

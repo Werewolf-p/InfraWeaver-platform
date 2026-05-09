@@ -53,3 +53,15 @@ jobs:
           # Move cache to prevent unlimited growth
           rm -rf /tmp/.buildx-cache
           mv /tmp/.buildx-cache-new /tmp/.buildx-cache 2>/dev/null || true
+
+      - name: Rollout restart console deployment
+        env:
+          KUBECONFIG_B64: ${{ secrets.KUBECONFIG_PRODUCTIE }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.kube
+          echo "${KUBECONFIG_B64}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+          kubectl rollout restart deployment/infraweaver-console -n infraweaver-console
+          kubectl rollout status deployment/infraweaver-console -n infraweaver-console --timeout=120s
+          echo "✅ Deployment rolled out successfully" >> $GITHUB_STEP_SUMMARY

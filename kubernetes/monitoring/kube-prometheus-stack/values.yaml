@@ -93,7 +93,8 @@ grafana:
 prometheus:
   enabled: true
   prometheusSpec:
-    retention: 15d
+    retention: 7d
+    retentionSize: 15GB
     # Prevent Kubernetes from re-applying fsGroup between init containers and main container
     # (which would reset our chown). With Never, our initContainer sets the correct ownership.
     podMetadata:

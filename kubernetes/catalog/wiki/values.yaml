@@ -3,6 +3,20 @@ image:
   repository: requarks/wiki
   imagePullPolicy: IfNotPresent
 
+# Wiki.js takes 30-60s to initialize; probes must not fire before app is ready.
+# Default chart probes have no initialDelaySeconds → immediate restarts on startup.
+livenessProbe:
+  initialDelaySeconds: 90
+  periodSeconds: 15
+  timeoutSeconds: 5
+  failureThreshold: 5
+
+readinessProbe:
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
 podSecurityContext:
   fsGroup: 1000
 

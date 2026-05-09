@@ -10,15 +10,18 @@ controller:
     limits:
       cpu: 1000m
       memory: 768Mi
+  # Prefer cp2/cp3 to keep cp1 free for prometheus (PV-pinned) + control-plane components
   affinity:
     nodeAffinity:
       preferredDuringSchedulingIgnoredDuringExecution:
-        - weight: 80
-          preference:
-            matchExpressions:
-              - key: kubernetes.io/hostname
-                operator: In
-                values: [talos-prod-cp2, talos-prod-cp3]
+      - weight: 100
+        preference:
+          matchExpressions:
+          - key: kubernetes.io/hostname
+            operator: In
+            values:
+            - talos-prod-cp2
+            - talos-prod-cp3
 
 server:
   replicas: 2  # HA: 2 replicas spread across nodes

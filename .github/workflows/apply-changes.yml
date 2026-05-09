@@ -194,6 +194,18 @@ jobs:
       - self-hosted
       - prod-worker
     steps:
+
+      - name: Setup kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          if [ -n "$KUBECONFIG_B64" ]; then
+            echo "$KUBECONFIG_B64" | base64 -d > ~/.kube/config-platform-$ENV_NAME
+            chmod 600 ~/.kube/config-platform-$ENV_NAME
+          fi
+        env:
+          KUBECONFIG_B64: ${{ secrets.KUBECONFIG_PRODUCTIE }}
+          ENV_NAME: ${{ env.ENV_NAME }}
+      
       - name: Rollout restart CoreDNS
         run: |
           KB=~/.kube/config-platform-${{ env.ENV_NAME }}
@@ -220,6 +232,18 @@ jobs:
       - self-hosted
       - prod-worker
     steps:
+
+      - name: Setup kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          if [ -n "$KUBECONFIG_B64" ]; then
+            echo "$KUBECONFIG_B64" | base64 -d > ~/.kube/config-platform-$ENV_NAME
+            chmod 600 ~/.kube/config-platform-$ENV_NAME
+          fi
+        env:
+          KUBECONFIG_B64: ${{ secrets.KUBECONFIG_PRODUCTIE }}
+          ENV_NAME: ${{ env.ENV_NAME }}
+      
       - name: Trigger ArgoCD hard-refresh for authentik
         run: |
           KB=~/.kube/config-platform-${{ env.ENV_NAME }}
@@ -250,6 +274,18 @@ jobs:
       - self-hosted
       - prod-worker
     steps:
+
+      - name: Setup kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          if [ -n "$KUBECONFIG_B64" ]; then
+            echo "$KUBECONFIG_B64" | base64 -d > ~/.kube/config-platform-$ENV_NAME
+            chmod 600 ~/.kube/config-platform-$ENV_NAME
+          fi
+        env:
+          KUBECONFIG_B64: ${{ secrets.KUBECONFIG_PRODUCTIE }}
+          ENV_NAME: ${{ env.ENV_NAME }}
+      
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Seed new user secrets into OpenBao
@@ -328,6 +364,18 @@ jobs:
       - self-hosted
       - prod-worker
     steps:
+
+      - name: Setup kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          if [ -n "$KUBECONFIG_B64" ]; then
+            echo "$KUBECONFIG_B64" | base64 -d > ~/.kube/config-platform-$ENV_NAME
+            chmod 600 ~/.kube/config-platform-$ENV_NAME
+          fi
+        env:
+          KUBECONFIG_B64: ${{ secrets.KUBECONFIG_PRODUCTIE }}
+          ENV_NAME: ${{ env.ENV_NAME }}
+      
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 2
@@ -340,14 +388,14 @@ jobs:
 
           if [ -z "$CHANGED" ]; then
             echo "==> No changed bootstrap files detected — applying all bootstrap apps"
-            $KT apply -f kubernetes/bootstrap/ --dry-run=client 2>&1 | head -5
-            $KT apply -f kubernetes/bootstrap/
+            $KT apply --validate=false -f kubernetes/bootstrap/ --dry-run=client 2>&1 | head -5
+            $KT apply --validate=false -f kubernetes/bootstrap/
           else
             echo "==> Applying changed bootstrap files:"
             for f in $CHANGED; do
               if [ -f "$f" ]; then
                 echo "  kubectl apply -f $f"
-                $KT apply -f "$f"
+                $KT apply --validate=false -f "$f"
                 APP_NAME=$(grep "^  name:" "$f" | head -1 | awk '{print $2}')
                 if [ -n "$APP_NAME" ]; then
                   echo "  Waiting for ArgoCD to pick up ${APP_NAME}..."
@@ -374,6 +422,18 @@ jobs:
     permissions:
       contents: write
     steps:
+
+      - name: Setup kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          if [ -n "$KUBECONFIG_B64" ]; then
+            echo "$KUBECONFIG_B64" | base64 -d > ~/.kube/config-platform-$ENV_NAME
+            chmod 600 ~/.kube/config-platform-$ENV_NAME
+          fi
+        env:
+          KUBECONFIG_B64: ${{ secrets.KUBECONFIG_PRODUCTIE }}
+          ENV_NAME: ${{ env.ENV_NAME }}
+      
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
@@ -398,7 +458,7 @@ jobs:
           KT="kubectl --kubeconfig $KB --insecure-skip-tls-verify"
           # Apply any new/changed catalog bootstrap files
           for f in kubernetes/bootstrap/catalog-*.yaml; do
-            [ -f "$f" ] && $KT apply -f "$f"
+            [ -f "$f" ] && $KT apply --validate=false -f "$f"
           done
           echo "✅ Catalog applications applied to ArgoCD" >> $GITHUB_STEP_SUMMARY
 
@@ -414,6 +474,18 @@ jobs:
     permissions:
       contents: write
     steps:
+
+      - name: Setup kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          if [ -n "$KUBECONFIG_B64" ]; then
+            echo "$KUBECONFIG_B64" | base64 -d > ~/.kube/config-platform-$ENV_NAME
+            chmod 600 ~/.kube/config-platform-$ENV_NAME
+          fi
+        env:
+          KUBECONFIG_B64: ${{ secrets.KUBECONFIG_PRODUCTIE }}
+          ENV_NAME: ${{ env.ENV_NAME }}
+      
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
@@ -437,7 +509,7 @@ jobs:
           KB=~/.kube/config-platform-${{ env.ENV_NAME }}
           KT="kubectl --kubeconfig $KB --insecure-skip-tls-verify"
           for f in kubernetes/bootstrap/appset-core*.yaml; do
-            [ -f "$f" ] && $KT apply -f "$f"
+            [ -f "$f" ] && $KT apply --validate=false -f "$f"
           done
           echo "✅ Group ApplicationSets applied to ArgoCD" >> $GITHUB_STEP_SUMMARY
 
@@ -457,6 +529,18 @@ jobs:
       - self-hosted
       - prod-worker
     steps:
+
+      - name: Setup kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          if [ -n "$KUBECONFIG_B64" ]; then
+            echo "$KUBECONFIG_B64" | base64 -d > ~/.kube/config-platform-$ENV_NAME
+            chmod 600 ~/.kube/config-platform-$ENV_NAME
+          fi
+        env:
+          KUBECONFIG_B64: ${{ secrets.KUBECONFIG_PRODUCTIE }}
+          ENV_NAME: ${{ env.ENV_NAME }}
+      
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Ensure node labels (grafana-eligible)

@@ -252,6 +252,43 @@ import json, sys
 print(json.loads(sys.argv[1]).get('value', ''))
 PYEOF
 )"
+    elif [[ "$KEY_TYPE" == "htpasswd" ]]; then
+      # htpasswd type: generate a bcrypt htpasswd entry
+      # username comes from the key spec; the password key in the same secret block provides the raw password
+      HTPASSWD_USERNAME="$(python3 - "$KEY_SPEC" <<'PYEOF'
+import json, sys
+print(json.loads(sys.argv[1]).get('username', 'admin'))
+PYEOF
+)"
+      # Generate a fresh random password for htpasswd (stored separately under 'password' key)
+      HTPASSWD_PASS="$(generate_password 32)"
+      # Use htpasswd binary if available, else python passlib, else openssl
+      if command -v htpasswd &>/dev/null; then
+        KEY_VALUE="$(htpasswd -nbB "$HTPASSWD_USERNAME" "$HTPASSWD_PASS")"
+      elif python3 -c "import passlib" &>/dev/null 2>&1; then
+        KEY_VALUE="$(python3 -c "
+from passlib.apache import HtpasswdFile
+import sys, io
+h = HtpasswdFile()
+h.set_password('$HTPASSWD_USERNAME', '$HTPASSWD_PASS')
+h.save()
+print(h.to_string().decode().strip())
+")"
+      else
+        # Fallback: use openssl for bcrypt hash
+        HASH="$(python3 -c "import crypt; print(crypt.crypt('$HTPASSWD_PASS', crypt.mksalt(crypt.METHOD_BLOWFISH)))")"
+        KEY_VALUE="${HTPASSWD_USERNAME}:${HASH}"
+      fi
+      # Also store the raw password so the console/CI can use it for docker login
+      NEW_DATA="$(python3 - "$NEW_DATA" "password" "$HTPASSWD_PASS" <<'PYEOF'
+import json, sys
+d = json.loads(sys.argv[1])
+if sys.argv[2] not in d:
+    d[sys.argv[2]] = sys.argv[3]
+print(json.dumps(d))
+PYEOF
+)"
+      log "  ✦ password — generated (from htpasswd)"
     else
       # password type: generate random value
       KEY_LENGTH="$(python3 - "$KEY_SPEC" <<'PYEOF'

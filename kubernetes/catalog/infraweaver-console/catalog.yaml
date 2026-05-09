@@ -3,7 +3,7 @@ description: "InfraWeaver Console — platform management UI with RBAC"
 namespace: infraweaver-console
 
 ingressroute:
-  host: console.int.rlservers.com
+  host: infraweaver.int.rlservers.com
   entrypoint: websecure
 
 secrets:

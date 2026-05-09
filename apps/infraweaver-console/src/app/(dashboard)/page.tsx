@@ -1,9 +1,13 @@
 "use client";
 import { motion } from "framer-motion";
 import { useArgoApps } from "@/hooks/use-argocd";
-import { Box, CheckCircle2, AlertTriangle, RefreshCw } from "lucide-react";
-import { useMemo } from "react";
+import { Box, CheckCircle2, AlertTriangle, RefreshCw, Zap, CheckCircle, XCircle, Loader2, Clock } from "lucide-react";
+import { useMemo, useState } from "react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { useRBAC } from "@/hooks/use-rbac";
+import { cn, timeAgo } from "@/lib/utils";
 
 const container = {
   hidden: { opacity: 0 },
@@ -32,8 +36,37 @@ function StatCard({ title, value, icon: Icon, color, subtitle }: {
   );
 }
 
+function ConnectionPill({ label, url }: { label: string; url: string }) {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["conn", label],
+    queryFn: async () => {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error("fail");
+      return true;
+    },
+    retry: 1,
+    refetchInterval: 60000,
+    staleTime: 30000,
+  });
+
+  return (
+    <div className={cn(
+      "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border",
+      isLoading ? "bg-slate-500/10 border-slate-500/20 text-slate-400"
+        : isError ? "bg-red-500/10 border-red-500/20 text-red-400"
+        : "bg-green-500/10 border-green-500/20 text-green-400"
+    )}>
+      {isLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : isError ? <XCircle className="w-3 h-3" /> : <CheckCircle className="w-3 h-3" />}
+      {label}
+    </div>
+  );
+}
+
 export default function DashboardPage() {
   const { data: apps, isLoading, refetch } = useArgoApps();
+  const { isAdmin } = useRBAC();
+  const qc = useQueryClient();
+  const [syncAllLoading, setSyncAllLoading] = useState(false);
 
   const stats = useMemo(() => {
     if (!apps) return { total: 0, healthy: 0, synced: 0, degraded: 0 };
@@ -45,26 +78,79 @@ export default function DashboardPage() {
     };
   }, [apps]);
 
+  const recentActivity = useMemo(() => {
+    if (!apps) return [];
+    const sorted = [...apps].sort((a, b) => {
+      const aTime = a.status.operationState?.finishedAt ? new Date(a.status.operationState.finishedAt).getTime() : 0;
+      const bTime = b.status.operationState?.finishedAt ? new Date(b.status.operationState.finishedAt).getTime() : 0;
+      if (bTime !== aTime) return bTime - aTime;
+      const priority = (s: string) => s === "Degraded" ? 2 : s === "Progressing" ? 1 : 0;
+      return priority(b.status.health.status) - priority(a.status.health.status);
+    });
+    return sorted.slice(0, 5);
+  }, [apps]);
+
   const chartData = [
     { name: "Healthy", value: stats.healthy, color: "#22c55e" },
     { name: "Degraded", value: stats.degraded, color: "#ef4444" },
     { name: "Other", value: stats.total - stats.healthy - stats.degraded, color: "#64748b" },
   ].filter(d => d.value > 0);
 
+  const handleSyncAll = async () => {
+    if (!isAdmin) {
+      toast.error("Admin permission required");
+      return;
+    }
+    setSyncAllLoading(true);
+    try {
+      const res = await fetch("/api/argocd/sync-all", { method: "POST" });
+      const data = await res.json() as { synced?: string[]; errors?: string[]; total?: number };
+      if (data.total === 0) {
+        toast.info("All apps already in sync");
+      } else {
+        toast.success(`Synced ${data.synced?.length ?? 0} app(s)${data.errors?.length ? `, ${data.errors.length} error(s)` : ""}`);
+      }
+      qc.invalidateQueries({ queryKey: ["argocd", "apps"] });
+    } catch {
+      toast.error("Sync all failed");
+    } finally {
+      setSyncAllLoading(false);
+    }
+  };
+
   return (
     <div>
+      {/* Connection status row */}
+      <div className="flex items-center gap-2 mb-5 flex-wrap">
+        <ConnectionPill label="ArgoCD" url="/api/argocd/apps" />
+        <ConnectionPill label="GitHub" url="/api/config/platform" />
+        <ConnectionPill label="Health API" url="/api/health" />
+      </div>
+
       <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="text-xl font-bold text-white">Platform Overview</h2>
           <p className="text-sm text-slate-400 mt-0.5">InfraWeaver homelab cluster status</p>
         </div>
-        <button
-          onClick={() => refetch()}
-          className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 hover:text-white hover:bg-white/10 transition-colors"
-        >
-          <RefreshCw className="w-3.5 h-3.5" />
-          Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          {isAdmin && (
+            <button
+              onClick={handleSyncAll}
+              disabled={syncAllLoading}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg bg-indigo-500/20 border border-indigo-500/30 text-sm text-indigo-300 hover:bg-indigo-500/30 transition-colors disabled:opacity-50"
+            >
+              {syncAllLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+              Sync All
+            </button>
+          )}
+          <button
+            onClick={() => refetch()}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 hover:text-white hover:bg-white/10 transition-colors"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            Refresh
+          </button>
+        </div>
       </div>
 
       {isLoading ? (
@@ -125,13 +211,16 @@ export default function DashboardPage() {
           transition={{ delay: 0.4 }}
           className="lg:col-span-2 bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-5"
         >
-          <h3 className="text-sm font-semibold text-white mb-4">Recent Applications</h3>
+          <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+            <Clock className="w-4 h-4 text-slate-400" />
+            Recent Activity
+          </h3>
           <div className="space-y-2">
             {isLoading ? (
               [...Array(5)].map((_, i) => (
                 <div key={i} className="h-10 rounded-lg bg-white/5 animate-pulse" />
               ))
-            ) : apps?.slice(0, 8).map(app => (
+            ) : recentActivity.map(app => (
               <div key={app.metadata.name} className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-white/5 transition-colors">
                 <span className="text-sm text-slate-200 font-medium">{app.metadata.name}</span>
                 <div className="flex items-center gap-2">
@@ -143,11 +232,11 @@ export default function DashboardPage() {
                   }`}>
                     {app.status.health.status}
                   </span>
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${
-                    app.status.sync.status === "Synced" ? "bg-blue-500/10 text-blue-400" : "bg-orange-500/10 text-orange-400"
-                  }`}>
-                    {app.status.sync.status}
-                  </span>
+                  {app.status.operationState?.finishedAt && (
+                    <span className="text-xs text-slate-500">
+                      {timeAgo(app.status.operationState.finishedAt)}
+                    </span>
+                  )}
                 </div>
               </div>
             ))}
