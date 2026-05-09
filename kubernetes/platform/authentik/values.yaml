@@ -118,6 +118,18 @@ postgresql:
       limits:
         cpu: 500m
         memory: 512Mi
+    # Avoid cp3: Longhorn manager on cp3 is unstable, causing volume I/O errors
+    affinity:
+      nodeAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          preference:
+            matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+              - talos-prod-cp1
+              - talos-prod-cp2
 
 redis:
   enabled: true

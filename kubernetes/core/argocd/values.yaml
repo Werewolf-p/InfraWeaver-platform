@@ -10,6 +10,18 @@ controller:
     limits:
       cpu: 2000m
       memory: 1536Mi
+  # Prefer cp1/cp2: ArgoCD controller has a StatefulSet with a PVC; avoid cp3 instability
+  affinity:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        preference:
+          matchExpressions:
+          - key: kubernetes.io/hostname
+            operator: In
+            values:
+            - talos-prod-cp1
+            - talos-prod-cp2
 
 server:
   replicas: 2  # HA: 2 replicas spread across nodes
