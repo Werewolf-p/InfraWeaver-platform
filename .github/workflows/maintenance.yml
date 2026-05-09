@@ -450,25 +450,14 @@ jobs:
                 PVC_NAME=$($KT get pv "$lhva" -o jsonpath='{.spec.claimRef.name}' 2>/dev/null || echo "")
                 PVC_NS=$($KT get pv "$lhva" -o jsonpath='{.spec.claimRef.namespace}' 2>/dev/null || echo "")
                 PODS_USING=$($KT get pods -n "$PVC_NS" --field-selector=status.phase=Running \
-                  -o json 2>/dev/null | python3 -c "
-import json,sys
-d=json.load(sys.stdin)
-pvc='${PVC_NAME}'
-for pod in d.get('items',[]):
-    for v in pod.get('spec',{}).get('volumes',[]):
-        if v.get('persistentVolumeClaim',{}).get('claimName','') == pvc:
-            print(pod['metadata']['name'])
-" 2>/dev/null || echo "")
-                if [[ -z "$PODS_USING" ]]; then
+                  -o jsonpath='{.items[*].spec.volumes[*].persistentVolumeClaim.claimName}' \
+                  2>/dev/null | tr ' ' '\n' | grep -c "^${PVC_NAME}$" 2>/dev/null || echo "0")
+                if [[ "${PODS_USING:-0}" -eq 0 ]]; then
                   echo "  ⚠️  Stale snapshot-controller ticket on volume $lhva — clearing"
                   # Remove all snapshot-controller tickets
-                  TICKET_KEYS=$(echo "$TICKETS" | python3 -c "
-import json,sys
-t=json.load(sys.stdin)
-for k in list(t.keys()):
-    if 'snapshot-controller' in k:
-        print(k)
-" 2>/dev/null || echo "")
+                  TICKET_KEYS=$(echo "$TICKETS" | python3 -c \
+                    "import json,sys; [print(k) for k in json.load(sys.stdin).keys() if 'snapshot-controller' in k]" \
+                    2>/dev/null || echo "")
                   while IFS= read -r tk; do
                     [[ -z "$tk" ]] && continue
                     $KT patch volumeattachments.longhorn.io -n longhorn-system "$lhva" \
@@ -653,13 +642,9 @@ for k in list(t.keys()):
               -o jsonpath='{.spec.attachmentTickets}' 2>/dev/null || echo '{}')
             if echo "$TICKETS" | grep -q '"snapshot-controller'; then
               echo "Clearing stale snapshot-controller ticket on OpenBao volume $BAO_PV"
-              TICKET_KEYS=$(echo "$TICKETS" | python3 -c "
-          import json,sys
-          t=json.load(sys.stdin)
-          for k in list(t.keys()):
-              if 'snapshot-controller' in k:
-                  print(k)
-          " 2>/dev/null || echo "")
+              TICKET_KEYS=$(echo "$TICKETS" | python3 -c \
+                "import json,sys; [print(k) for k in json.load(sys.stdin).keys() if 'snapshot-controller' in k]" \
+                2>/dev/null || echo "")
               while IFS= read -r tk; do
                 [[ -z "$tk" ]] && continue
                 $KT patch volumeattachments.longhorn.io -n longhorn-system "$BAO_PV" \
