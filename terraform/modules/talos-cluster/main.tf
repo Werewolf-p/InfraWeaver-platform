@@ -413,8 +413,10 @@ data "talos_machine_configuration" "this" {
         # subsequent node pulls are served locally without hitting Docker Hub.
         registries = var.registry_mirror_url != "" ? {
           mirrors = {
+            # Mirror docker.io pulls through the local cache first to avoid Hub rate limits.
+            # Falls back to registry-1.docker.io if the mirror is unavailable or returns errors.
             "docker.io" = {
-              endpoints = [var.registry_mirror_url]
+              endpoints = [var.registry_mirror_url, "https://registry-1.docker.io"]
             }
           }
           config = {
@@ -448,11 +450,6 @@ data "talos_machine_configuration" "this" {
             # Prevent etcd WAL from exhausting disk space in long-running clusters.
             # 2GB is sufficient for a homelab with <50 apps.
             quota-backend-bytes = "2147483648"
-            # Disable periodic compact KV hash checks — prevents false-positive CORRUPT alarms
-            # on Proxmox VMs where high fsync latency causes hash disagreements between members,
-            # triggering alarm:CORRUPT which blocks ALL Kubernetes write operations.
-            # The startup corrupt check (experimental-initial-corrupt-check) still runs for safety.
-            experimental-compact-hash-check-enabled = "false"
             # Auto-compact the etcd keyspace every hour to prevent fragmentation buildup.
             # Without compaction, revisions accumulate → large DB → slow fsync → leader elections.
             # Periodic mode compacts all revisions older than 1h (retains latest state).
