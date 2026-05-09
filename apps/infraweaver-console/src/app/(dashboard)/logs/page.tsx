@@ -80,7 +80,7 @@ export default function LogsPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div>
           <label className="text-xs text-slate-400 mb-1 block">Namespace</label>
           {podsLoading ? <Skeleton className="h-10" /> : (
@@ -164,7 +164,7 @@ export default function LogsPage() {
 
       <div
         ref={logsRef}
-        className="flex-1 min-h-[400px] max-h-[600px] overflow-y-auto bg-slate-950 border border-white/10 rounded-xl p-4 font-mono text-xs text-slate-300 leading-relaxed"
+        className="flex-1 min-h-[300px] max-h-[500px] md:max-h-[600px] overflow-y-auto bg-slate-950 border border-white/10 rounded-xl p-4 font-mono text-xs text-slate-300 leading-relaxed"
       >
         {filteredLogs.length === 0 ? (
           <div className="flex items-center justify-center h-full text-slate-600">

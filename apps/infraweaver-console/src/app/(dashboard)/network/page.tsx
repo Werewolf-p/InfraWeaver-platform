@@ -27,11 +27,12 @@ export default function NetworkPage() {
           {[...Array(5)].map((_, i) => <div key={i} className="h-20 rounded-xl bg-white/5 animate-pulse" />)}
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {peers?.map((peer: { id: string; name: string; ip: string; connected: boolean; lastSeen?: string; groups?: string[] }) => (
             <motion.div
               key={peer.id}
               whileHover={{ scale: 1.01 }}
+              whileTap={{ scale: 0.98 }}
               className="bg-white/5 border border-white/10 rounded-xl p-4"
             >
               <div className="flex items-center justify-between mb-2">

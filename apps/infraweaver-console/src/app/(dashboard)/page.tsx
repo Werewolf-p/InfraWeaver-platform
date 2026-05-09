@@ -1,8 +1,8 @@
 "use client";
-import { motion } from "framer-motion";
+import { motion, useMotionValue, animate } from "framer-motion";
 import { useArgoApps } from "@/hooks/use-argocd";
 import { Box, CheckCircle2, AlertTriangle, RefreshCw, Zap, CheckCircle, XCircle, Loader2, Clock } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -11,9 +11,25 @@ import { cn, timeAgo } from "@/lib/utils";
 
 const container = {
   hidden: { opacity: 0 },
-  show: { opacity: 1, transition: { staggerChildren: 0.1 } },
+  show: { opacity: 1, transition: { staggerChildren: 0.08 } },
 };
 const item = { hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0 } };
+
+function AnimatedNumber({ value }: { value: number }) {
+  const motionVal = useMotionValue(0);
+  const [display, setDisplay] = useState(0);
+
+  useEffect(() => {
+    const controls = animate(motionVal, value, {
+      duration: 0.8,
+      ease: "easeOut",
+      onUpdate: (v) => setDisplay(Math.round(v)),
+    });
+    return controls.stop;
+  }, [value, motionVal]);
+
+  return <>{display}</>;
+}
 
 function StatCard({ title, value, icon: Icon, color, subtitle }: {
   title: string; value: number | string; icon: React.ElementType; color: string; subtitle?: string;
@@ -21,8 +37,10 @@ function StatCard({ title, value, icon: Icon, color, subtitle }: {
   return (
     <motion.div
       variants={item}
-      whileHover={{ scale: 1.01, y: -2 }}
-      className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-5"
+      whileHover={{ scale: 1.02, y: -3 }}
+      whileTap={{ scale: 0.98 }}
+      transition={{ type: "spring", stiffness: 400, damping: 25 }}
+      className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-5 cursor-default"
     >
       <div className="flex items-center justify-between mb-3">
         <span className="text-xs text-slate-400 font-medium">{title}</span>
@@ -30,7 +48,9 @@ function StatCard({ title, value, icon: Icon, color, subtitle }: {
           <Icon className="w-4 h-4" />
         </div>
       </div>
-      <div className="text-2xl font-bold text-white">{value}</div>
+      <div className="text-2xl font-bold text-white">
+        {typeof value === "number" ? <AnimatedNumber value={value} /> : value}
+      </div>
       {subtitle && <p className="text-xs text-slate-500 mt-1">{subtitle}</p>}
     </motion.div>
   );
@@ -127,36 +147,45 @@ export default function DashboardPage() {
         <ConnectionPill label="Health API" url="/api/health" />
       </div>
 
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-start justify-between mb-6 gap-4 flex-wrap">
         <div>
-          <h2 className="text-xl font-bold text-white">Platform Overview</h2>
+          <h2 className="text-xl font-bold text-white flex items-center gap-3">
+            Platform Overview
+            {/* LIVE badge */}
+            <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-green-500/10 border border-green-500/20 text-[10px] font-semibold text-green-400 uppercase tracking-wider">
+              <span className="live-dot w-1.5 h-1.5" />
+              Live
+            </span>
+          </h2>
           <p className="text-sm text-slate-400 mt-0.5">InfraWeaver homelab cluster status</p>
         </div>
         <div className="flex items-center gap-2">
           {isAdmin && (
-            <button
+            <motion.button
+              whileTap={{ scale: 0.95 }}
               onClick={handleSyncAll}
               disabled={syncAllLoading}
               className="flex items-center gap-2 px-3 py-2 rounded-lg bg-indigo-500/20 border border-indigo-500/30 text-sm text-indigo-300 hover:bg-indigo-500/30 transition-colors disabled:opacity-50"
             >
               {syncAllLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
               Sync All
-            </button>
+            </motion.button>
           )}
-          <button
+          <motion.button
+            whileTap={{ scale: 0.95 }}
             onClick={() => refetch()}
             className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 hover:text-white hover:bg-white/10 transition-colors"
           >
             <RefreshCw className="w-3.5 h-3.5" />
             Refresh
-          </button>
+          </motion.button>
         </div>
       </div>
 
       {isLoading ? (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
           {[...Array(4)].map((_, i) => (
-            <div key={i} className="h-28 rounded-xl bg-white/5 animate-pulse" />
+            <div key={i} className="h-28 rounded-xl shimmer" />
           ))}
         </div>
       ) : (
@@ -182,27 +211,29 @@ export default function DashboardPage() {
         >
           <h3 className="text-sm font-semibold text-white mb-4">Health Distribution</h3>
           {chartData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={200}>
-              <PieChart>
-                <Pie data={chartData} cx="50%" cy="50%" innerRadius={55} outerRadius={80} paddingAngle={3} dataKey="value">
-                  {chartData.map((entry, index) => (
-                    <Cell key={index} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Tooltip contentStyle={{ background: "#1e293b", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, color: "#fff" }} />
-              </PieChart>
-            </ResponsiveContainer>
+            <>
+              <ResponsiveContainer width="100%" height={180}>
+                <PieChart>
+                  <Pie data={chartData} cx="50%" cy="50%" innerRadius={50} outerRadius={75} paddingAngle={3} dataKey="value">
+                    {chartData.map((entry, index) => (
+                      <Cell key={index} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip contentStyle={{ background: "#1e293b", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, color: "#fff", fontSize: 12 }} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="flex gap-4 justify-center mt-3 flex-wrap">
+                {chartData.map(d => (
+                  <div key={d.name} className="flex items-center gap-1.5">
+                    <div className="w-2 h-2 rounded-full" style={{ background: d.color }} />
+                    <span className="text-xs text-slate-400">{d.name}: <span className="text-slate-200 font-medium">{d.value}</span></span>
+                  </div>
+                ))}
+              </div>
+            </>
           ) : (
             <div className="h-48 flex items-center justify-center text-slate-500 text-sm">No data</div>
           )}
-          <div className="flex gap-4 justify-center mt-2">
-            {chartData.map(d => (
-              <div key={d.name} className="flex items-center gap-1.5">
-                <div className="w-2 h-2 rounded-full" style={{ background: d.color }} />
-                <span className="text-xs text-slate-400">{d.name}: {d.value}</span>
-              </div>
-            ))}
-          </div>
         </motion.div>
 
         <motion.div
@@ -215,15 +246,19 @@ export default function DashboardPage() {
             <Clock className="w-4 h-4 text-slate-400" />
             Recent Activity
           </h3>
-          <div className="space-y-2">
+          <div className="space-y-1">
             {isLoading ? (
               [...Array(5)].map((_, i) => (
-                <div key={i} className="h-10 rounded-lg bg-white/5 animate-pulse" />
+                <div key={i} className="h-10 rounded-lg shimmer" />
               ))
             ) : recentActivity.map(app => (
-              <div key={app.metadata.name} className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-white/5 transition-colors">
-                <span className="text-sm text-slate-200 font-medium">{app.metadata.name}</span>
-                <div className="flex items-center gap-2">
+              <motion.div
+                key={app.metadata.name}
+                whileHover={{ x: 2 }}
+                className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-white/5 transition-colors"
+              >
+                <span className="text-sm text-slate-200 font-medium truncate">{app.metadata.name}</span>
+                <div className="flex items-center gap-2 flex-shrink-0">
                   <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
                     app.status.health.status === "Healthy" ? "bg-green-500/15 text-green-400" :
                     app.status.health.status === "Degraded" ? "bg-red-500/15 text-red-400" :
@@ -233,12 +268,12 @@ export default function DashboardPage() {
                     {app.status.health.status}
                   </span>
                   {app.status.operationState?.finishedAt && (
-                    <span className="text-xs text-slate-500">
+                    <span className="text-xs text-slate-500 hidden sm:block">
                       {timeAgo(app.status.operationState.finishedAt)}
                     </span>
                   )}
                 </div>
-              </div>
+              </motion.div>
             ))}
           </div>
         </motion.div>

@@ -35,6 +35,7 @@ export default function StoragePage() {
               <motion.div
                 key={vol.name}
                 whileHover={{ x: 2 }}
+                whileTap={{ scale: 0.99 }}
                 className="bg-white/5 border border-white/10 rounded-xl p-4"
               >
                 <div className="flex items-center justify-between mb-2">

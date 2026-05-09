@@ -7,7 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   LayoutDashboard, Box, Settings, Users, HardDrive,
   Network, Activity, ChevronLeft, ChevronRight, Terminal, History, Cog,
-  Package, FileText, Bell
+  Package, FileText, Bell, X,
 } from "lucide-react";
 import { useRBAC } from "@/hooks/use-rbac";
 import { useArgoApps } from "@/hooks/use-argocd";
@@ -52,12 +52,21 @@ function ClusterHealthDot() {
   );
 }
 
-export function Sidebar() {
+interface SidebarProps {
+  variant?: "desktop" | "mobile";
+  onClose?: () => void;
+}
+
+export function Sidebar({ variant = "desktop", onClose }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
   const pathname = usePathname();
   const { role } = useRBAC();
   const { data: session } = useSession();
   const { data: apps } = useArgoApps();
+
+  const isMobile = variant === "mobile";
+  // Mobile always shows labels, never collapses
+  const showLabels = isMobile || !collapsed;
 
   const alertCount = (apps ?? []).filter(
     a => a.status.health.status === "Degraded" || a.status.sync.status === "OutOfSync"
@@ -70,12 +79,8 @@ export function Sidebar() {
     unknown: "text-slate-400 bg-slate-500/10 border-slate-500/20",
   };
 
-  return (
-    <motion.aside
-      animate={{ width: collapsed ? 72 : 240 }}
-      transition={{ duration: 0.3, ease: "easeInOut" }}
-      className="relative flex flex-col h-full bg-slate-900/80 backdrop-blur-sm border-r border-white/5 overflow-hidden flex-shrink-0"
-    >
+  const sidebarContent = (
+    <div className="relative flex flex-col h-full bg-slate-900/95 backdrop-blur-sm border-r border-white/5 overflow-hidden flex-shrink-0">
       {/* Logo */}
       <div className="flex items-center gap-3 px-4 py-5 border-b border-white/5">
         <div className="w-8 h-8 rounded-lg bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center flex-shrink-0 relative">
@@ -83,7 +88,7 @@ export function Sidebar() {
           <ClusterHealthDot />
         </div>
         <AnimatePresence>
-          {!collapsed && (
+          {showLabels && (
             <motion.div
               initial={{ opacity: 0, x: -10 }}
               animate={{ opacity: 1, x: 0 }}
@@ -91,14 +96,26 @@ export function Sidebar() {
               className="flex-1 flex items-center justify-between min-w-0"
             >
               <span className="font-bold text-white text-sm whitespace-nowrap">InfraWeaver</span>
-              {alertCount > 0 && (
-                <div className="relative">
-                  <Bell className="w-4 h-4 text-slate-400" />
-                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full text-[9px] font-bold text-white flex items-center justify-center">
-                    {alertCount > 9 ? "9+" : alertCount}
-                  </span>
-                </div>
-              )}
+              <div className="flex items-center gap-2">
+                {alertCount > 0 && (
+                  <div className="relative">
+                    <Bell className="w-4 h-4 text-slate-400" />
+                    <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full text-[9px] font-bold text-white flex items-center justify-center">
+                      {alertCount > 9 ? "9+" : alertCount}
+                    </span>
+                  </div>
+                )}
+                {/* Mobile close button */}
+                {isMobile && onClose && (
+                  <button
+                    onClick={onClose}
+                    className="w-7 h-7 rounded-lg bg-white/5 flex items-center justify-center text-slate-400 hover:text-white transition-colors"
+                    aria-label="Close menu"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
@@ -109,9 +126,10 @@ export function Sidebar() {
         {navItems.map((item) => {
           const isActive = pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href));
           return (
-            <Link key={item.href} href={item.href}>
+            <Link key={item.href} href={item.href} onClick={isMobile ? onClose : undefined}>
               <motion.div
                 whileHover={{ x: 2 }}
+                whileTap={{ scale: 0.97 }}
                 className={cn(
                   "relative flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors cursor-pointer group",
                   isActive
@@ -121,13 +139,13 @@ export function Sidebar() {
               >
                 {isActive && (
                   <motion.div
-                    layoutId="active-indicator"
+                    layoutId={`active-indicator-${variant}`}
                     className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-indigo-400 rounded-full"
                   />
                 )}
                 <item.icon className="w-4 h-4 flex-shrink-0" />
                 <AnimatePresence>
-                  {!collapsed && (
+                  {showLabels && (
                     <motion.span
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
@@ -146,12 +164,12 @@ export function Sidebar() {
 
       {/* User info + role */}
       <div className="px-3 py-4 border-t border-white/5">
-        <div className={cn("flex items-center gap-2", collapsed && "justify-center")}>
+        <div className={cn("flex items-center gap-2", !showLabels && "justify-center")}>
           <div className="w-7 h-7 rounded-full bg-indigo-500/30 flex items-center justify-center flex-shrink-0 text-xs font-bold text-indigo-300">
             {session?.user?.name?.[0]?.toUpperCase() ?? "?"}
           </div>
           <AnimatePresence>
-            {!collapsed && (
+            {showLabels && (
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
@@ -168,13 +186,52 @@ export function Sidebar() {
         </div>
       </div>
 
-      {/* Collapse button */}
-      <button
-        onClick={() => setCollapsed(!collapsed)}
-        className="absolute -right-3 top-8 w-6 h-6 rounded-full bg-slate-800 border border-white/10 flex items-center justify-center text-slate-400 hover:text-white transition-colors z-10"
-      >
-        {collapsed ? <ChevronRight className="w-3 h-3" /> : <ChevronLeft className="w-3 h-3" />}
-      </button>
+      {/* Collapse button — desktop only */}
+      {!isMobile && (
+        <button
+          onClick={() => setCollapsed(!collapsed)}
+          className="absolute -right-3 top-8 w-6 h-6 rounded-full bg-slate-800 border border-white/10 flex items-center justify-center text-slate-400 hover:text-white transition-colors z-10"
+        >
+          {collapsed ? <ChevronRight className="w-3 h-3" /> : <ChevronLeft className="w-3 h-3" />}
+        </button>
+      )}
+    </div>
+  );
+
+  if (isMobile) {
+    return (
+      <AnimatePresence>
+        {/* Backdrop */}
+        <motion.div
+          key="mobile-sidebar-backdrop"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          onClick={onClose}
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
+        />
+        {/* Drawer */}
+        <motion.aside
+          key="mobile-sidebar-drawer"
+          initial={{ x: "-100%" }}
+          animate={{ x: 0 }}
+          exit={{ x: "-100%" }}
+          transition={{ type: "spring", damping: 30, stiffness: 300 }}
+          className="fixed left-0 top-0 h-full w-72 z-50"
+        >
+          {sidebarContent}
+        </motion.aside>
+      </AnimatePresence>
+    );
+  }
+
+  return (
+    <motion.aside
+      animate={{ width: collapsed ? 72 : 240 }}
+      transition={{ duration: 0.3, ease: "easeInOut" }}
+      className="relative h-full flex-shrink-0 hidden md:block"
+    >
+      {sidebarContent}
     </motion.aside>
   );
 }

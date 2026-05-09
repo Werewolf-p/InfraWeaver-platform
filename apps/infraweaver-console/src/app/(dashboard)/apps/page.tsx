@@ -55,6 +55,7 @@ function AppCard({ app, onClick, compact }: { app: ArgoApp; onClick: () => void;
   return (
     <motion.div
       whileHover={{ scale: 1.01, y: -1 }}
+      whileTap={{ scale: 0.97 }}
       onClick={onClick}
       className={cn(
         "bg-white/5 backdrop-blur-sm border rounded-xl cursor-pointer transition-colors",
@@ -135,7 +136,7 @@ function AppSlideOver({ app, onClose }: { app: ArgoApp; onClose: () => void }) {
         animate={{ x: 0 }}
         exit={{ x: "100%" }}
         transition={{ type: "spring", damping: 30, stiffness: 300 }}
-        className="fixed right-0 top-0 h-full w-96 bg-slate-900 border-l border-white/10 z-50 overflow-y-auto shadow-2xl"
+        className="fixed right-0 top-0 h-full w-full md:w-96 bg-slate-900 border-l border-white/10 z-50 overflow-y-auto shadow-2xl"
       >
         <div className="flex items-center justify-between p-5 border-b border-white/5">
           <h2 className="font-semibold text-white">{app.metadata.name}</h2>
@@ -377,7 +378,7 @@ export default function AppsPage() {
       </div>
 
       {isLoading ? (
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
           {[...Array(12)].map((_, i) => (
             <div key={i} className="h-36 rounded-xl bg-white/5 animate-pulse" />
           ))}
@@ -385,7 +386,7 @@ export default function AppsPage() {
       ) : (
         <motion.div
           layout
-          className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4"
+          className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4"
         >
           <AnimatePresence mode="popLayout">
             {filtered.map(app => (

@@ -27,11 +27,12 @@ export default function HealthPage() {
           {[...Array(8)].map((_, i) => <div key={i} className="h-24 rounded-xl bg-white/5 animate-pulse" />)}
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {health?.endpoints?.map((endpoint: { name: string; results?: { success: boolean; duration: number; timestamp?: string }[] }) => (
             <motion.div
               key={endpoint.name}
               whileHover={{ scale: 1.01 }}
+              whileTap={{ scale: 0.98 }}
               className={cn(
                 "bg-white/5 border rounded-xl p-4",
                 endpoint.results?.[0]?.success ? "border-green-500/20" : "border-red-500/20"
