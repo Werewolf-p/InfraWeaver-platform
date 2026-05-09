@@ -1,23 +1,8 @@
-apiVersion: traefik.io/v1alpha1
-kind: IngressRoute
-metadata:
-  name: infraweaver-console
-  namespace: infraweaver-console
-spec:
-  entryPoints:
-    - websecure
-  routes:
-    - match: Host(`infraweaver.int.rlservers.com`)
-      kind: Rule
-      middlewares:
-        - name: netbird-vpn-only
-          namespace: traefik
-        - name: forward-auth
-          namespace: traefik
-        - name: secure-headers
-          namespace: traefik
-      services:
-        - name: infraweaver-console
-          port: 3000
-  tls:
-    secretName: int-rlservers-com-tls  # wildcard *.int.rlservers.com cert, stored in traefik namespace
+# IngressRoute for infraweaver.int.rlservers.com is managed in:
+#   kubernetes/platform/external-routes/manifests/10-routes-vpn-only.yaml
+#
+# It was moved there to follow the centralized routing pattern and to avoid
+# forward-auth middleware (InfraWeaver uses Authentik OAuth2 internally, not proxy auth).
+#
+# This file is intentionally empty to avoid ArgoCD recreating the old broken IngressRoute
+# that had forward-auth referencing a non-existent Proxy Provider.
