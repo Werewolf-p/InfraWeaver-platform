@@ -1,7 +1,7 @@
 "use client";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
-import { CheckCircle2, XCircle, RefreshCw, ChevronDown, ChevronUp } from "lucide-react";
+import { CheckCircle2, XCircle, RefreshCw, ChevronDown, ChevronUp, Shield } from "lucide-react";
 import { cn, timeAgo } from "@/lib/utils";
 import { useState, useCallback } from "react";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
@@ -152,6 +152,54 @@ function HealthCard({ endpoint }: { endpoint: Endpoint }) {
   );
 }
 
+interface SLAEntry {
+  name: string;
+  uptime24h: number;
+  uptime7d: number;
+  uptime30d: number;
+}
+
+interface SLAData {
+  sla: SLAEntry[];
+  overall: { uptime24h: number; uptime7d: number; uptime30d: number };
+}
+
+function UptimeBadge({ pct }: { pct: number }) {
+  const color = pct >= 99.9 ? "text-emerald-400 bg-emerald-500/10" : pct >= 99 ? "text-amber-400 bg-amber-500/10" : "text-red-400 bg-red-500/10";
+  return <span className={cn("px-2 py-0.5 rounded text-xs font-mono font-semibold tabular-nums", color)}>{pct.toFixed(2)}%</span>;
+}
+
+function SLASection({ data }: { data: SLAData }) {
+  return (
+    <CollapsibleSection title="SLA / Uptime" storageKey="health-sla" badge={<Shield className="w-4 h-4 text-emerald-400 flex-shrink-0" />}>
+      <div className="mb-4 grid grid-cols-3 gap-3">
+        {[
+          { label: "24h Overall", value: data.overall.uptime24h },
+          { label: "7d Overall", value: data.overall.uptime7d },
+          { label: "30d Overall", value: data.overall.uptime30d },
+        ].map(({ label, value }) => (
+          <div key={label} className="bg-white/5 border border-white/10 rounded-xl p-3 text-center">
+            <p className="text-xs text-slate-400 mb-1">{label}</p>
+            <UptimeBadge pct={value} />
+          </div>
+        ))}
+      </div>
+      <div className="space-y-2">
+        {data.sla.map(entry => (
+          <div key={entry.name} className="flex items-center gap-3 p-3 rounded-lg bg-white/5 border border-white/10 flex-wrap">
+            <span className="text-sm font-medium text-white flex-1 min-w-0 truncate">{entry.name}</span>
+            <div className="flex items-center gap-2 text-xs text-slate-400">
+              <span className="hidden sm:inline">24h</span><UptimeBadge pct={entry.uptime24h} />
+              <span className="hidden sm:inline">7d</span><UptimeBadge pct={entry.uptime7d} />
+              <span className="hidden sm:inline">30d</span><UptimeBadge pct={entry.uptime30d} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </CollapsibleSection>
+  );
+}
+
 export default function HealthPage() {
   const { data: health, isLoading, refetch, dataUpdatedAt } = useQuery({
     queryKey: ["health"],
@@ -165,6 +213,16 @@ export default function HealthPage() {
 
   const [pullRefreshing, setPullRefreshing] = useState(false);
   const [pullY, setPullY] = useState(0);
+
+  const { data: slaData } = useQuery<SLAData>({
+    queryKey: ["health", "sla"],
+    queryFn: async () => {
+      const res = await fetch("/api/health/sla");
+      return res.json();
+    },
+    staleTime: 60000,
+    refetchInterval: 120000,
+  });
 
   const handlePullRefresh = useCallback(async () => {
     if (pullRefreshing) return;
@@ -259,6 +317,7 @@ export default function HealthPage() {
         </div>
       ) : (
         <div className="space-y-4">
+          {slaData && <SLASection data={slaData} />}
           {Array.from(grouped.entries()).map(([category, endpoints]) => (
             <CollapsibleSection
               key={category}

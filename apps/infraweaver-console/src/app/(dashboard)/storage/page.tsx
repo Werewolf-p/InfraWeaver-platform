@@ -3,6 +3,15 @@ import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { HardDrive, AlertCircle, CheckCircle2 } from "lucide-react";
 import { formatBytes, cn } from "@/lib/utils";
+import { StoragePieChart } from "@/components/charts/PieChart";
+import { CollapsibleSection } from "@/components/ui/collapsible-section";
+
+interface BreakdownEntry {
+  name: string;
+  totalGi: number;
+  pvcCount: number;
+  color: string;
+}
 
 export default function StoragePage() {
   const { data: volumes, isLoading } = useQuery({
@@ -15,12 +24,31 @@ export default function StoragePage() {
     refetchInterval: 60000,
   });
 
+  const { data: breakdownData } = useQuery<{ breakdown: BreakdownEntry[] }>({
+    queryKey: ["storage", "breakdown"],
+    queryFn: async () => {
+      const res = await fetch("/api/storage/breakdown");
+      return res.json();
+    },
+    staleTime: 60000,
+    refetchInterval: 120000,
+  });
+
   return (
     <div>
       <div className="mb-6">
         <h2 className="text-xl font-bold text-white">Storage</h2>
         <p className="text-sm text-slate-400">Longhorn distributed storage volumes</p>
       </div>
+
+      {breakdownData && breakdownData.breakdown.length > 0 && (
+        <CollapsibleSection title="Storage by Class" storageKey="storage-breakdown">
+          <StoragePieChart
+            data={breakdownData.breakdown.map(b => ({ name: b.name, value: b.totalGi, color: b.color }))}
+            unit="Gi"
+          />
+        </CollapsibleSection>
+      )}
 
       {isLoading ? (
         <div className="space-y-3">

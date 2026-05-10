@@ -6,7 +6,7 @@ import { useArgoApps, useSyncApp, type ArgoApp } from "@/hooks/use-argocd";
 import { useRBAC } from "@/hooks/use-rbac";
 import { useSettingsContext } from "@/contexts/settings-context";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { RefreshCw, Search, X, RotateCcw, Clock, GitCommit, Trash2, ExternalLink, Play, ChevronDown } from "lucide-react";
+import { RefreshCw, Search, X, RotateCcw, Clock, GitCommit, Trash2, ExternalLink, Play, ChevronDown, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { cn, timeAgo } from "@/lib/utils";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -419,6 +419,9 @@ export default function AppsPage() {
   const [showAllApps, setShowAllApps] = useState(false);
   const [pullRefreshing, setPullRefreshing] = useState(false);
   const [pullY, setPullY] = useState(0);
+  const [selectedApps, setSelectedApps] = useState<Set<string>>(new Set());
+  const [showTimeline, setShowTimeline] = useState(false);
+  const [bulkSyncing, setBulkSyncing] = useState(false);
   const APPS_PAGE_SIZE = 8;
 
   const handlePullRefresh = useCallback(async () => {
@@ -444,6 +447,31 @@ export default function AppsPage() {
   useEffect(() => {
     setShowAllApps(false);
   }, [search, filter]);
+
+  const handleBulkSync = async () => {
+    setBulkSyncing(true);
+    try {
+      await Promise.all(Array.from(selectedApps).map(name =>
+        fetch(`/api/argocd/apps/${name}/sync`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) })
+      ));
+      toast.success(`Synced ${selectedApps.size} app${selectedApps.size !== 1 ? "s" : ""}`);
+      fireConfetti();
+      setSelectedApps(new Set());
+    } catch {
+      toast.error("Bulk sync failed");
+    } finally {
+      setBulkSyncing(false);
+    }
+  };
+
+  const toggleAppSelect = (name: string) => {
+    setSelectedApps(prev => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  };
 
   const displayedApps = showAllApps || filtered.length <= APPS_PAGE_SIZE ? filtered : filtered.slice(0, APPS_PAGE_SIZE);
   const hiddenCount = filtered.length - APPS_PAGE_SIZE;
@@ -508,6 +536,10 @@ export default function AppsPage() {
           <RefreshCw className="w-3.5 h-3.5" />
           Refresh
         </button>
+        <button onClick={() => setShowTimeline(v => !v)} className={cn("flex items-center gap-2 px-3 py-2 rounded-lg border text-sm transition-colors active:scale-95", showTimeline ? "bg-indigo-500/20 border-indigo-500/30 text-indigo-300" : "bg-white/5 border-white/10 text-slate-300 hover:text-white")}>
+          <Clock className="w-3.5 h-3.5" />
+          Timeline
+        </button>
         </div>
       </div>
 
@@ -544,6 +576,38 @@ export default function AppsPage() {
         </div>
       </div>
 
+      {showTimeline && (
+        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="mb-4 bg-white/5 border border-white/10 rounded-xl p-4 overflow-hidden">
+          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Last Sync Timeline</p>
+          <div className="space-y-2 max-h-64 overflow-y-auto">
+            {(apps ?? [])
+              .filter(a => a.status.operationState?.finishedAt)
+              .sort((a, b) => new Date(b.status.operationState!.finishedAt!).getTime() - new Date(a.status.operationState!.finishedAt!).getTime())
+              .map(a => (
+                <div key={a.metadata.name} className="flex items-center gap-3 text-xs">
+                  <span className={cn("w-1.5 h-1.5 rounded-full flex-shrink-0", a.status.health.status === "Healthy" ? "bg-green-400" : "bg-red-400")} />
+                  <span className="text-white font-medium truncate flex-1">{a.metadata.name}</span>
+                  <span className="text-slate-500 flex-shrink-0">{timeAgo(a.status.operationState!.finishedAt!)}</span>
+                </div>
+              ))}
+          </div>
+        </motion.div>
+      )}
+
+      {selectedApps.size > 0 && (
+        <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} className="mb-4 flex items-center gap-3 p-3 rounded-xl bg-indigo-500/10 border border-indigo-500/20">
+          <span className="text-sm text-indigo-300">{selectedApps.size} app{selectedApps.size !== 1 ? "s" : ""} selected</span>
+          <button
+            onClick={handleBulkSync}
+            disabled={bulkSyncing}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-indigo-500/30 border border-indigo-500/40 text-xs text-indigo-200 hover:bg-indigo-500/40 transition-colors disabled:opacity-50"
+          >
+            {bulkSyncing ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />}
+            Sync Selected ({selectedApps.size})
+          </button>
+          <button onClick={() => setSelectedApps(new Set())} className="ml-auto text-xs text-slate-500 hover:text-white transition-colors">Clear</button>
+        </motion.div>
+      )}
       {isLoading ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
           {[...Array(12)].map((_, i) => (
@@ -564,7 +628,23 @@ export default function AppsPage() {
                   initial={{ opacity: 0, scale: 0.95 }}
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.95 }}
+                  className="relative"
                 >
+                  <button
+                    onClick={e => { e.stopPropagation(); toggleAppSelect(app.metadata.name); }}
+                    className={cn(
+                      "absolute top-2 left-2 z-10 w-4 h-4 rounded border flex items-center justify-center transition-all",
+                      selectedApps.has(app.metadata.name)
+                        ? "bg-indigo-500 border-indigo-400"
+                        : "bg-white/10 border-white/20 hover:border-indigo-400"
+                    )}
+                  >
+                    {selectedApps.has(app.metadata.name) && (
+                      <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                    )}
+                  </button>
                   <AppCard app={app} onClick={() => setSelectedApp(app)} compact={settings.compactMode} />
                 </motion.div>
               ))}
