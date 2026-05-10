@@ -11,6 +11,8 @@ import {
 import { cn } from "@/lib/utils";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
+import { GlassCard } from "@/components/ui/glass-card";
+import { AnimatedNumber } from "@/components/ui/animated-number";
 
 // ─── Service definitions ────────────────────────────────────────────────────
 
@@ -149,41 +151,45 @@ function ServiceCard({
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3, delay: index * 0.04, ease: "easeOut" }}
-      whileHover={{ y: -2, scale: 1.01 }}
-      className="group flex flex-col gap-3 p-4 bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl hover:border-white/20 hover:bg-white/8 transition-all cursor-pointer"
+      className="group block"
     >
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex items-center gap-3">
-          <div className={cn("p-2 rounded-lg bg-white/5 border border-white/10 group-hover:border-white/20 transition-colors", service.color)}>
-            <service.icon className="w-4 h-4" />
+      <GlassCard
+        hover
+        className="flex flex-col gap-3 p-4 hover:border-white/20"
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex items-center gap-3">
+            <div className={cn("p-2 rounded-lg bg-white/5 border border-white/10 group-hover:border-white/20 transition-colors", service.color)}>
+              <service.icon className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-slate-100 truncate">{service.name}</p>
+              <p className="text-xs text-slate-500 truncate">{service.description}</p>
+            </div>
           </div>
-          <div className="min-w-0">
-            <p className="text-sm font-semibold text-slate-100 truncate">{service.name}</p>
-            <p className="text-xs text-slate-500 truncate">{service.description}</p>
-          </div>
+          <ExternalLink className="w-3.5 h-3.5 text-slate-600 group-hover:text-slate-400 flex-shrink-0 mt-0.5 transition-colors" />
         </div>
-        <ExternalLink className="w-3.5 h-3.5 text-slate-600 group-hover:text-slate-400 flex-shrink-0 mt-0.5 transition-colors" />
-      </div>
 
-      {service.pingUrl && (
-        <div className="flex items-center gap-2">
-          <StatusDot status={pingStatus} />
-          {pingStatus === "loading" ? (
-            <span className="text-xs text-slate-500">Checking…</span>
-          ) : pingStatus ? (
-            pingStatus.ok ? (
-              <>
-                <span className="text-xs text-green-400">Online</span>
-                <span className="ml-auto text-xs text-slate-500 font-mono">{pingStatus.latencyMs}ms</span>
-              </>
+        {service.pingUrl && (
+          <div className="flex items-center gap-2">
+            <StatusDot status={pingStatus} />
+            {pingStatus === "loading" ? (
+              <span className="text-xs text-slate-500">Checking…</span>
+            ) : pingStatus ? (
+              pingStatus.ok ? (
+                <>
+                  <span className="text-xs text-green-400">Online</span>
+                  <span className="ml-auto text-xs text-slate-500 font-mono">{pingStatus.latencyMs}ms</span>
+                </>
+              ) : (
+                <span className="text-xs text-red-400">Offline</span>
+              )
             ) : (
-              <span className="text-xs text-red-400">Offline</span>
-            )
-          ) : (
-            <span className="text-xs text-slate-500">—</span>
-          )}
-        </div>
-      )}
+              <span className="text-xs text-slate-500">—</span>
+            )}
+          </div>
+        )}
+      </GlassCard>
     </motion.a>
   );
 }
@@ -230,6 +236,9 @@ function GroupSection({
       >
         <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 group-hover:text-slate-400 transition-colors">
           {group.label}
+        </span>
+        <span className="text-[10px] font-mono text-slate-600 bg-white/5 px-1.5 py-0.5 rounded">
+          {group.services.length}
         </span>
         <div className="flex-1 h-px bg-white/5" />
         <ChevronDown className={cn(
@@ -340,8 +349,11 @@ function QuickActions() {
 
 // ─── Page ────────────────────────────────────────────────────────────────────
 
+const ALL_CATEGORIES = ["All", ...SERVICE_GROUPS.map(g => g.label)];
+
 export default function HomePortalPage() {
   const { data: session } = useSession();
+  const [activeCategory, setActiveCategory] = useState("All");
 
   const pingUrls = PINGABLE.map(s => s.pingUrl as string);
 
@@ -361,6 +373,7 @@ export default function HomePortalPage() {
     ? Object.values(pingData).filter(v => v.ok).length
     : 0;
   const totalPingable = PINGABLE.length;
+  const totalServices = SERVICE_GROUPS.flatMap(g => g.services).length;
 
   const lastUpdated = dataUpdatedAt
     ? new Date(dataUpdatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })
@@ -373,45 +386,87 @@ export default function HomePortalPage() {
     return "Good evening";
   }, []);
 
+  const filteredGroups = activeCategory === "All"
+    ? SERVICE_GROUPS
+    : SERVICE_GROUPS.filter(g => g.label === activeCategory);
+
   return (
     <div className="space-y-6 max-w-screen-2xl mx-auto">
-      {/* Aurora accent blobs (local, layered on top of layout's) */}
+      {/* Aurora accent blobs */}
       <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden">
         <div className="absolute top-0 left-1/4 w-96 h-96 rounded-full bg-violet-600/6 blur-3xl" />
         <div className="absolute bottom-0 right-1/4 w-80 h-80 rounded-full bg-cyan-600/6 blur-3xl" />
       </div>
 
-      {/* Top bar */}
+      {/* Hero section */}
       <motion.div
-        initial={{ opacity: 0, y: -8 }}
+        initial={{ opacity: 0, y: -12 }}
         animate={{ opacity: 1, y: 0 }}
-        className="relative z-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-5 bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl"
+        transition={{ duration: 0.5 }}
+        className="relative z-10"
       >
-        <div className="flex-1 space-y-0.5">
-          <h1 className="text-lg font-bold text-white">
-            {greeting()}, {session?.user?.name?.split(" ")[0] ?? "there"} 👋
-          </h1>
-          <p className="text-xs text-slate-400">
-            {onlineCount}/{totalPingable} monitored services online
-            {lastUpdated && (
-              <span className="ml-2 text-slate-600">· updated {lastUpdated}</span>
-            )}
-          </p>
-        </div>
+        <GlassCard className="p-6" glow>
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight gradient-text">
+                InfraWeaver Platform
+              </h1>
+              <p className="text-sm text-slate-400">
+                {greeting()}, <span className="text-slate-200 font-medium">{session?.user?.name?.split(" ")[0] ?? "there"}</span> 👋
+              </p>
+            </div>
 
-        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 w-full sm:w-auto">
-          <SearchBar />
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => refetch()}
-              className="p-2 rounded-lg bg-white/5 border border-white/10 text-slate-400 hover:text-white hover:bg-white/10 transition-all"
-              title="Refresh ping status"
-            >
-              <RefreshCw className={cn("w-4 h-4", pingLoading && "animate-spin")} />
-            </button>
-            <Clock />
+            {/* Animated stats */}
+            <div className="flex items-center gap-6">
+              <div className="text-center">
+                <div className="text-2xl font-bold text-white tabular-nums">
+                  <AnimatedNumber value={onlineCount} duration={800} />
+                  <span className="text-slate-500 text-lg">/{totalPingable}</span>
+                </div>
+                <p className="text-[10px] text-slate-500 uppercase tracking-wider mt-0.5">Online</p>
+              </div>
+              <div className="w-px h-10 bg-white/10" />
+              <div className="text-center">
+                <div className="text-2xl font-bold text-white tabular-nums">
+                  <AnimatedNumber value={totalServices} duration={600} />
+                </div>
+                <p className="text-[10px] text-slate-500 uppercase tracking-wider mt-0.5">Services</p>
+              </div>
+              <div className="w-px h-10 bg-white/10" />
+              <div className="text-center">
+                <div className="text-2xl font-bold tabular-nums">
+                  <AnimatedNumber
+                    value={totalPingable > 0 ? Math.round((onlineCount / totalPingable) * 100) : 0}
+                    duration={900}
+                    suffix="%"
+                    className={onlineCount === totalPingable && totalPingable > 0 ? "text-emerald-400" : "text-amber-400"}
+                  />
+                </div>
+                <p className="text-[10px] text-slate-500 uppercase tracking-wider mt-0.5">Uptime</p>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 w-full sm:w-auto">
+              <SearchBar />
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => refetch()}
+                  className="p-2 rounded-lg bg-white/5 border border-white/10 text-slate-400 hover:text-white hover:bg-white/10 transition-all"
+                  title="Refresh ping status"
+                >
+                  <RefreshCw className={cn("w-4 h-4", pingLoading && "animate-spin")} />
+                </button>
+                <Clock />
+              </div>
+            </div>
           </div>
-        </div>
+
+          {lastUpdated && (
+            <p className="text-[10px] text-slate-600 mt-3">
+              Last updated: {lastUpdated}
+            </p>
+          )}
+        </GlassCard>
       </motion.div>
 
       {/* Quick actions */}
@@ -424,21 +479,55 @@ export default function HomePortalPage() {
         <QuickActions />
       </motion.div>
 
+      {/* Category filter bar */}
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.15 }}
+        className="relative z-10 flex items-center gap-2 flex-wrap"
+      >
+        {ALL_CATEGORIES.map(cat => (
+          <button
+            key={cat}
+            onClick={() => setActiveCategory(cat)}
+            className={cn(
+              "px-3 py-1.5 rounded-lg text-xs font-medium transition-all",
+              activeCategory === cat
+                ? "bg-indigo-500/20 border border-indigo-500/30 text-indigo-300"
+                : "bg-white/5 border border-white/10 text-slate-400 hover:text-white hover:bg-white/10"
+            )}
+          >
+            {cat}
+          </button>
+        ))}
+      </motion.div>
+
       {/* Service groups */}
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
-        transition={{ delay: 0.15 }}
+        transition={{ delay: 0.2 }}
         className="relative z-10 space-y-6"
       >
-        {SERVICE_GROUPS.map(group => (
-          <GroupSection
-            key={group.label}
-            group={group}
-            pingData={pingData ?? {}}
-            isLoading={pingLoading && !pingData}
-          />
-        ))}
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={activeCategory}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.15 }}
+            className="space-y-6"
+          >
+            {filteredGroups.map(group => (
+              <GroupSection
+                key={group.label}
+                group={group}
+                pingData={pingData ?? {}}
+                isLoading={pingLoading && !pingData}
+              />
+            ))}
+          </motion.div>
+        </AnimatePresence>
       </motion.div>
     </div>
   );

@@ -12,6 +12,16 @@ body {
   overflow-x: hidden;
 }
 
+body.noise-bg::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  opacity: 0.03;
+  pointer-events: none;
+  z-index: 0;
+}
+
 /* Landscape phone: hide bottom nav via media query backup */
 @media (max-width: 768px) and (orientation: landscape) {
   .landscape-hide { display: none !important; }
@@ -135,3 +145,55 @@ html.light body {
 }
 html.light ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); }
 html.light ::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.25); }
+
+/* Noise texture overlay */
+.noise-bg::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  opacity: 0.03;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Live dot pulse animation */
+.live-dot { animation: pulse-dot 2s ease-in-out infinite; }
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(34,197,94,0.4); }
+  50% { box-shadow: 0 0 0 6px rgba(34,197,94,0); }
+}
+
+/* Hover lift effect */
+.hover-lift { transition: transform 0.15s ease, box-shadow 0.15s ease; }
+.hover-lift:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.3); }
+
+/* Rainbow border */
+@keyframes rainbow-border {
+  0% { border-color: #ef4444; }
+  16% { border-color: #f97316; }
+  33% { border-color: #eab308; }
+  50% { border-color: #22c55e; }
+  66% { border-color: #3b82f6; }
+  83% { border-color: #8b5cf6; }
+  100% { border-color: #ef4444; }
+}
+.rainbow-border { animation: rainbow-border 3s linear infinite; }
+
+/* Gradient text */
+.gradient-text {
+  background: linear-gradient(135deg, #10b981, #3b82f6);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Micro-animations */
+@media (prefers-reduced-motion: no-preference) {
+  button, a, [role="button"] {
+    transition: transform 0.1s ease, opacity 0.1s ease;
+  }
+  button:active, [role="button"]:active {
+    transform: scale(0.97);
+  }
+}

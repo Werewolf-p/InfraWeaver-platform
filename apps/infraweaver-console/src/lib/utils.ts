@@ -38,3 +38,19 @@ export function formatDate(date: string | Date, includeTime = true): string {
   const m = d.getMinutes().toString().padStart(2, "0");
   return `${base}, ${h}:${m}`;
 }
+
+export const STATUS_COLORS = {
+  healthy: { bg: "bg-emerald-500/10", border: "border-emerald-500/30", text: "text-emerald-400", dot: "bg-emerald-400" },
+  degraded: { bg: "bg-amber-500/10", border: "border-amber-500/30", text: "text-amber-400", dot: "bg-amber-400" },
+  failed: { bg: "bg-red-500/10", border: "border-red-500/30", text: "text-red-400", dot: "bg-red-400" },
+  pending: { bg: "bg-blue-500/10", border: "border-blue-500/30", text: "text-blue-400", dot: "bg-blue-400" },
+  unknown: { bg: "bg-slate-500/10", border: "border-slate-500/30", text: "text-slate-400", dot: "bg-slate-400" },
+};
+
+export function statusColor(status: string) {
+  const s = status.toLowerCase();
+  if (s.includes("healthy") || s.includes("running") || s.includes("synced")) return STATUS_COLORS.healthy;
+  if (s.includes("degraded") || s.includes("pending") || s.includes("warning")) return STATUS_COLORS.degraded;
+  if (s.includes("failed") || s.includes("error") || s.includes("not ready")) return STATUS_COLORS.failed;
+  return STATUS_COLORS.unknown;
+}

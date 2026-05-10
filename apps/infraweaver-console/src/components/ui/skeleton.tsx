@@ -42,3 +42,20 @@ export function SkeletonStat({ className }: { className?: string }) {
     </div>
   );
 }
+
+export function SkeletonTable({ rows = 5, cols = 4, className }: { rows?: number; cols?: number; className?: string }) {
+  return (
+    <div className={cn("bg-white/5 border border-white/10 rounded-xl overflow-hidden", className)}>
+      {/* Header */}
+      <div className="flex items-center gap-4 px-4 py-3 border-b border-white/10 bg-white/[0.02]">
+        {Array.from({ length: cols }).map((_, i) => (
+          <Skeleton key={i} className={cn("h-3", i === 0 ? "w-1/4" : "flex-1")} />
+        ))}
+      </div>
+      {/* Rows */}
+      {Array.from({ length: rows }).map((_, i) => (
+        <SkeletonTableRow key={i} cols={cols} />
+      ))}
+    </div>
+  );
+}
