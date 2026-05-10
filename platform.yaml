@@ -71,7 +71,8 @@ groups:
         description: "Automatic DNS record management"
         replicas: 1
       homepage:
-        description: "Homelab dashboard"
+        description: "Homelab dashboard (optional — console /home tab replaces it)"
+        enabled: true         # Set false to stop deploying homepage pod; console home tab serves the same content
         replicas: 2       # Stateless — 2 replicas for HA
       argocd-image-updater:
         description: "Automatic container image tag updates"

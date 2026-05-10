@@ -220,14 +220,39 @@ for group_name, group_cfg in groups.items():
         if write_if_changed(appset_f, content, f'appset-{group_name}.yaml'):
             changed_files.append(appset_f)
 
-        # Update replicas in application.yaml files
+        # Update replicas and enabled/disabled state in application.yaml files
         for app_name, app_cfg in (group_cfg.get('apps') or {}).items():
             if not app_cfg:
                 continue
+            app_enabled = app_cfg.get('enabled', True)
+            app_yaml         = os.path.join(repo_root, 'kubernetes', tier, app_name, 'application.yaml')
+            app_yaml_disabled = os.path.join(repo_root, 'kubernetes', tier, app_name, 'application.yaml.disabled')
+
+            if not app_enabled:
+                # Disable: rename application.yaml → application.yaml.disabled
+                if os.path.exists(app_yaml):
+                    if dry_run:
+                        print(f"[DRY-RUN] Would disable {tier}/{app_name} (rename application.yaml)")
+                    else:
+                        os.rename(app_yaml, app_yaml_disabled)
+                        print(f"  🚫 Disabled {tier}/{app_name} (renamed application.yaml → .disabled)")
+                        changed_files.append(app_yaml)
+                else:
+                    print(f"  ⏭  {tier}/{app_name} already disabled")
+                continue
+
+            # enabled=True: restore application.yaml.disabled if present
+            if os.path.exists(app_yaml_disabled) and not os.path.exists(app_yaml):
+                if dry_run:
+                    print(f"[DRY-RUN] Would re-enable {tier}/{app_name}")
+                else:
+                    os.rename(app_yaml_disabled, app_yaml)
+                    print(f"  ✅ Re-enabled {tier}/{app_name} (restored application.yaml)")
+                    changed_files.append(app_yaml)
+
             replicas = app_cfg.get('replicas')
             if replicas is None:
                 continue
-            app_yaml = os.path.join(repo_root, 'kubernetes', tier, app_name, 'application.yaml')
             if not os.path.exists(app_yaml):
                 print(f"  ⚠  No application.yaml for {tier}/{app_name} — skipping")
                 continue
