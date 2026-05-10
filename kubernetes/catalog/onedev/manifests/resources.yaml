@@ -89,6 +89,17 @@ spec:
         app.kubernetes.io/name: onedev
         app.kubernetes.io/component: server
     spec:
+      # Keep onedev away from registry — if they're on the same node and that node
+      # has a Flannel disruption, both go down simultaneously causing image pull failures
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 80
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: registry
+              topologyKey: kubernetes.io/hostname
       securityContext:
         runAsNonRoot: false  # OneDev requires root for Docker-in-Docker CI agents
       containers:
