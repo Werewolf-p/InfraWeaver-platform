@@ -1,19 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { createARecord } from "@/lib/cloudflare";
+import { createARecord, deleteARecord } from "@/lib/cloudflare";
 
-const GAME_TYPE_DEFAULTS: Record<string, { ports: Array<{ port: number; protocol: string; name: string }>; icon: string; color: string }> = {
-  minecraft:  { ports: [{ port: 25565, protocol: "TCP", name: "game" }], icon: "⛏", color: "green" },
-  valheim:    { ports: [{ port: 2456, protocol: "UDP", name: "game" }, { port: 2457, protocol: "UDP", name: "rcon" }], icon: "🪓", color: "blue" },
-  cs2:        { ports: [{ port: 27015, protocol: "TCP", name: "game" }, { port: 27015, protocol: "UDP", name: "game" }], icon: "🔫", color: "orange" },
-  terraria:   { ports: [{ port: 7777, protocol: "TCP", name: "game" }], icon: "🌍", color: "purple" },
-  factorio:   { ports: [{ port: 34197, protocol: "UDP", name: "game" }], icon: "⚙", color: "yellow" },
-  rust:       { ports: [{ port: 28015, protocol: "TCP", name: "game" }, { port: 28016, protocol: "TCP", name: "rcon" }], icon: "🏚", color: "red" },
-  custom:     { ports: [], icon: "🎮", color: "gray" },
-};
-
-// Suppress unused variable warning — kept for potential future use
-void GAME_TYPE_DEFAULTS;
+const IP_REGEX = /^(\d{1,3}\.){3}\d{1,3}$/;
+const SLUG_REGEX = /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/;
 
 export async function GET() {
   const session = await auth();
@@ -25,37 +15,46 @@ export async function GET() {
     kc.loadFromDefault();
     const coreApi = kc.makeApiClient(k8s.CoreV1Api);
 
-    const svcList = await coreApi.listNamespacedService({ namespace: "game-servers" });
-    const services = (svcList.items ?? []).filter((s: { metadata?: { labels?: Record<string, string> } }) =>
-      s.metadata?.labels?.["infraweaver.io/type"] === "gameserver"
+    const cmList = await coreApi.listNamespacedConfigMap({ namespace: "game-servers" });
+    const configMaps = (cmList.items ?? []).filter((cm: { metadata?: { labels?: Record<string, string> } }) =>
+      cm.metadata?.labels?.["infraweaver.io/type"] === "gameserver"
     );
 
-    const servers = services.map((svc: {
-      metadata?: { name?: string; annotations?: Record<string, string>; creationTimestamp?: Date };
-      spec?: { loadBalancerIP?: string; ports?: Array<{ port: number; protocol?: string; name?: string }> };
-      status?: { loadBalancer?: { ingress?: Array<{ ip?: string }> } };
+    const servers = await Promise.all(configMaps.map(async (cm: {
+      metadata?: { name?: string; creationTimestamp?: Date; labels?: Record<string, string> };
+      data?: Record<string, string>;
     }) => {
-      const meta = svc.metadata ?? {};
-      const spec = svc.spec ?? {};
-      const annotations = meta.annotations ?? {};
+      const name = cm.metadata?.name ?? "";
+      const data = cm.data ?? {};
+      const backendType = data["backend-type"] ?? "external";
+
+      let serviceStatus = "unknown";
+      if (backendType === "in-cluster") {
+        try {
+          const svc = await coreApi.readNamespacedService({ name, namespace: "game-servers" });
+          serviceStatus = svc.status?.loadBalancer?.ingress?.[0]?.ip ? "active" : "pending";
+        } catch {
+          serviceStatus = "missing";
+        }
+      } else {
+        serviceStatus = "external";
+      }
+
       return {
-        name: meta.name ?? "",
-        displayName: annotations["infraweaver.io/display-name"] ?? meta.name ?? "",
-        gameType: annotations["infraweaver.io/game-type"] ?? "custom",
-        allocatedIP: spec.loadBalancerIP ?? annotations["infraweaver.io/allocated-ip"] ?? null,
-        ports: (spec.ports ?? []).map((p: { port: number; protocol?: string; name?: string }) => ({
-          port: p.port,
-          protocol: p.protocol ?? "TCP",
-          name: p.name ?? "",
-        })),
-        backendType: annotations["infraweaver.io/backend-type"] ?? "external",
-        description: annotations["infraweaver.io/description"] ?? "",
-        publicDns: annotations["infraweaver.io/public-dns"] === "true",
-        internalDns: annotations["infraweaver.io/internal-dns"] === "true",
-        createdAt: meta.creationTimestamp?.toISOString() ?? null,
-        status: svc.status?.loadBalancer?.ingress?.[0]?.ip ? "active" : "pending",
+        name,
+        displayName: data["display-name"] ?? name,
+        gameType: data["game-type"] ?? "custom",
+        targetIP: data["target-ip"] ?? "",
+        internalIP: data["internal-ip"] ?? "",
+        ports: (() => { try { return JSON.parse(data["ports"] ?? "[]"); } catch { return []; } })(),
+        backendType,
+        publicDns: data["public-dns"] === "true",
+        internalDns: data["internal-dns"] === "true",
+        description: data["description"] ?? "",
+        createdAt: cm.metadata?.creationTimestamp?.toISOString() ?? null,
+        serviceStatus,
       };
-    });
+    }));
 
     return NextResponse.json(servers);
   } catch (e) {
@@ -71,17 +70,23 @@ export async function POST(req: NextRequest) {
     name: string;
     displayName: string;
     gameType: string;
+    targetIP: string;
+    internalIP?: string;
     ports: Array<{ port: number; protocol: "TCP" | "UDP"; name: string }>;
     backendType: "external" | "in-cluster";
-    backendIP?: string;
-    backendPort?: number;
     publicDns: boolean;
     internalDns: boolean;
-    allocatedIP?: string;
     description?: string;
   };
 
-  const { name, displayName, gameType, ports, backendType, backendIP, publicDns, internalDns, allocatedIP, description } = body;
+  const { name, displayName, gameType, targetIP, internalIP, ports, backendType, publicDns, internalDns, description } = body;
+
+  if (!name || !SLUG_REGEX.test(name)) {
+    return NextResponse.json({ error: "Invalid name: must be a DNS-safe slug" }, { status: 400 });
+  }
+  if (!targetIP || !IP_REGEX.test(targetIP)) {
+    return NextResponse.json({ error: "Invalid targetIP: must be a valid IP address" }, { status: 400 });
+  }
 
   try {
     const k8s = await import("@kubernetes/client-node");
@@ -89,85 +94,74 @@ export async function POST(req: NextRequest) {
     kc.loadFromDefault();
     const coreApi = kc.makeApiClient(k8s.CoreV1Api);
 
-    const svc = {
-      apiVersion: "v1",
-      kind: "Service",
-      metadata: {
-        name,
-        namespace: "game-servers",
-        labels: {
-          "app": name,
-          "infraweaver.io/type": "gameserver",
-          "infraweaver.io/game-type": gameType,
-        },
-        annotations: {
-          "metallb.universe.tf/address-pool": "vlan3-pool",
-          "infraweaver.io/display-name": displayName,
-          "infraweaver.io/game-type": gameType,
-          "infraweaver.io/backend-type": backendType,
-          "infraweaver.io/public-dns": String(publicDns),
-          "infraweaver.io/internal-dns": String(internalDns),
-          "infraweaver.io/description": description ?? "",
-          ...(allocatedIP ? { "metallb.universe.tf/loadBalancerIPs": allocatedIP, "infraweaver.io/allocated-ip": allocatedIP } : {}),
-        },
-      },
-      spec: {
-        type: "LoadBalancer",
-        ...(allocatedIP ? { loadBalancerIP: allocatedIP } : {}),
-        ports: ports.map(p => ({
-          name: p.name,
-          port: p.port,
-          targetPort: p.port,
-          protocol: p.protocol,
-        })),
-        selector: backendType === "in-cluster" ? { app: name } : undefined,
-      },
-    };
-
-    await coreApi.createNamespacedService({ namespace: "game-servers", body: svc });
-
-    if (backendType === "external" && backendIP && body.backendPort) {
-      const endpoints = {
-        apiVersion: "v1",
-        kind: "Endpoints",
-        metadata: { name, namespace: "game-servers" },
-        subsets: [{
-          addresses: [{ ip: backendIP }],
-          ports: ports.map(p => ({ name: p.name, port: body.backendPort ?? p.port, protocol: p.protocol })),
-        }],
-      };
-      await coreApi.createNamespacedEndpoints({ namespace: "game-servers", body: endpoints });
-    }
-
+    // Create ConfigMap (primary data store)
     const cm = {
       apiVersion: "v1",
       kind: "ConfigMap",
       metadata: {
-        name: `${name}-meta`,
+        name,
         namespace: "game-servers",
-        labels: { "infraweaver.io/type": "gameserver-meta", "infraweaver.io/server": name },
+        labels: {
+          "infraweaver.io/type": "gameserver",
+          "infraweaver.io/game-type": gameType,
+        },
       },
       data: {
-        gameType,
-        displayName,
-        description: description ?? "",
-        backendType,
-        backendIP: backendIP ?? "",
-        icon: GAME_TYPE_DEFAULTS[gameType]?.icon ?? "🎮",
-        color: GAME_TYPE_DEFAULTS[gameType]?.color ?? "gray",
-        createdAt: new Date().toISOString(),
+        "display-name": displayName,
+        "game-type": gameType,
+        "target-ip": targetIP,
+        "internal-ip": internalIP ?? "",
+        "ports": JSON.stringify(ports),
+        "backend-type": backendType,
+        "public-dns": String(publicDns),
+        "internal-dns": String(internalDns),
+        "description": description ?? "",
       },
     };
     await coreApi.createNamespacedConfigMap({ namespace: "game-servers", body: cm });
 
-    const ip = allocatedIP;
-    if (ip) {
-      if (publicDns) {
-        try { await createARecord(`${name}.rlservers.com`, ip, false); } catch {}
-      }
-      if (internalDns) {
-        try { await createARecord(`${name}.int.rlservers.com`, ip, false); } catch {}
-      }
+    // For in-cluster: also create a K8s Service with MetalLB
+    if (backendType === "in-cluster") {
+      const svc = {
+        apiVersion: "v1",
+        kind: "Service",
+        metadata: {
+          name,
+          namespace: "game-servers",
+          labels: {
+            "app": name,
+            "infraweaver.io/type": "gameserver-service",
+            "infraweaver.io/game-type": gameType,
+          },
+          annotations: {
+            "metallb.universe.tf/loadBalancerIPs": targetIP,
+          },
+        },
+        spec: {
+          type: "LoadBalancer",
+          loadBalancerIP: targetIP,
+          ports: ports.map(p => ({
+            name: p.name,
+            port: p.port,
+            targetPort: p.port,
+            protocol: p.protocol,
+          })),
+          selector: { app: name },
+        },
+      };
+      await coreApi.createNamespacedService({ namespace: "game-servers", body: svc });
+    }
+
+    // Create DNS records
+    const dnsIP = targetIP;
+    const intDnsIP = internalIP || targetIP;
+    if (publicDns) {
+      try { await deleteARecord(`${name}.rlservers.com`); } catch {}
+      try { await createARecord(`${name}.rlservers.com`, dnsIP, false); } catch {}
+    }
+    if (internalDns) {
+      try { await deleteARecord(`${name}.int.rlservers.com`); } catch {}
+      try { await createARecord(`${name}.int.rlservers.com`, intDnsIP, false); } catch {}
     }
 
     return NextResponse.json({ success: true, name });

@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 
-const POOL_IPS = ["10.10.0.206", "10.10.0.207", "10.10.0.208", "10.10.0.209", "10.10.0.210"];
-
 export async function GET() {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -13,28 +11,43 @@ export async function GET() {
     kc.loadFromDefault();
     const coreApi = kc.makeApiClient(k8s.CoreV1Api);
 
-    const svcList = await coreApi.listNamespacedService({ namespace: "game-servers" });
-    const services = (svcList.items ?? []).filter((s: { metadata?: { labels?: Record<string, string> } }) =>
-      s.metadata?.labels?.["infraweaver.io/type"] === "gameserver"
+    const cmList = await coreApi.listNamespacedConfigMap({ namespace: "game-servers" });
+    const configMaps = (cmList.items ?? []).filter((cm: { metadata?: { labels?: Record<string, string> } }) =>
+      cm.metadata?.labels?.["infraweaver.io/type"] === "gameserver"
     );
 
-    const usedIPs = services.map((s: { spec?: { loadBalancerIP?: string }; metadata?: { annotations?: Record<string, string> } }) =>
-      s.spec?.loadBalancerIP ?? s.metadata?.annotations?.["infraweaver.io/allocated-ip"]
-    ).filter(Boolean) as string[];
+    const servers = configMaps.map((cm: {
+      metadata?: { name?: string };
+      data?: Record<string, string>;
+    }) => {
+      const name = cm.metadata?.name ?? "";
+      const data = cm.data ?? {};
+      const targetIP = data["target-ip"] ?? "";
+      const ports: Array<{ port: number; protocol: string; name: string }> = (() => {
+        try { return JSON.parse(data["ports"] ?? "[]"); } catch { return []; }
+      })();
+      return { name, targetIP, ports };
+    });
 
-    const usedPorts: Array<{ ip: string; port: number; protocol: string; serverName: string }> = [];
-
-    for (const svc of services) {
-      const ip = (svc as { spec?: { loadBalancerIP?: string } }).spec?.loadBalancerIP ?? "";
-      const name = (svc as { metadata?: { name?: string } }).metadata?.name ?? "";
-      for (const p of (svc as { spec?: { ports?: Array<{ port: number; protocol?: string }> } }).spec?.ports ?? []) {
-        usedPorts.push({ ip, port: p.port, protocol: p.protocol ?? "TCP", serverName: name });
+    // Detect conflicts: same targetIP + port + protocol used by 2+ servers
+    const portMap = new Map<string, string[]>();
+    for (const server of servers) {
+      for (const p of server.ports) {
+        const key = `${server.targetIP}:${p.port}:${p.protocol}`;
+        if (!portMap.has(key)) portMap.set(key, []);
+        portMap.get(key)!.push(server.name);
       }
     }
 
-    const availableIPs = POOL_IPS.filter(ip => !usedIPs.includes(ip));
+    const conflicts: Array<{ ip: string; port: number; protocol: string; servers: string[] }> = [];
+    for (const [key, names] of portMap.entries()) {
+      if (names.length > 1) {
+        const [ip, portStr, protocol] = key.split(":");
+        conflicts.push({ ip, port: parseInt(portStr), protocol, servers: names });
+      }
+    }
 
-    return NextResponse.json({ availableIPs, usedIPs, usedPorts, poolIPs: POOL_IPS });
+    return NextResponse.json({ servers, conflicts });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });
   }

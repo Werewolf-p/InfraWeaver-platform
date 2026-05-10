@@ -13,30 +13,36 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ nam
     kc.loadFromDefault();
     const coreApi = kc.makeApiClient(k8s.CoreV1Api);
 
-    const svc = await coreApi.readNamespacedService({ name, namespace: "game-servers" });
-    const meta = svc.metadata ?? {};
-    const annotations = meta.annotations ?? {};
+    const cm = await coreApi.readNamespacedConfigMap({ name, namespace: "game-servers" });
+    const data = cm.data ?? {};
+    const backendType = data["backend-type"] ?? "external";
 
-    let cmData: Record<string, string> | undefined;
-    try {
-      const cm = await coreApi.readNamespacedConfigMap({ name: `${name}-meta`, namespace: "game-servers" });
-      cmData = cm.data ?? undefined;
-    } catch {}
+    let serviceInfo: { assignedIP?: string; serviceStatus: string } = { serviceStatus: "external" };
+    if (backendType === "in-cluster") {
+      try {
+        const svc = await coreApi.readNamespacedService({ name, namespace: "game-servers" });
+        serviceInfo = {
+          assignedIP: svc.status?.loadBalancer?.ingress?.[0]?.ip,
+          serviceStatus: svc.status?.loadBalancer?.ingress?.[0]?.ip ? "active" : "pending",
+        };
+      } catch {
+        serviceInfo = { serviceStatus: "missing" };
+      }
+    }
 
     return NextResponse.json({
-      name: meta.name,
-      displayName: annotations["infraweaver.io/display-name"] ?? meta.name,
-      gameType: annotations["infraweaver.io/game-type"] ?? "custom",
-      allocatedIP: svc.spec?.loadBalancerIP ?? annotations["infraweaver.io/allocated-ip"] ?? null,
-      assignedIP: svc.status?.loadBalancer?.ingress?.[0]?.ip ?? null,
-      ports: (svc.spec?.ports ?? []).map((p: { port: number; protocol?: string; name?: string }) => ({ port: p.port, protocol: p.protocol ?? "TCP", name: p.name ?? "" })),
-      backendType: annotations["infraweaver.io/backend-type"] ?? "external",
-      description: annotations["infraweaver.io/description"] ?? "",
-      publicDns: annotations["infraweaver.io/public-dns"] === "true",
-      internalDns: annotations["infraweaver.io/internal-dns"] === "true",
-      createdAt: meta.creationTimestamp?.toISOString() ?? null,
-      status: svc.status?.loadBalancer?.ingress?.[0]?.ip ? "active" : "pending",
-      metadata: cmData ?? {},
+      name,
+      displayName: data["display-name"] ?? name,
+      gameType: data["game-type"] ?? "custom",
+      targetIP: data["target-ip"] ?? "",
+      internalIP: data["internal-ip"] ?? "",
+      ports: (() => { try { return JSON.parse(data["ports"] ?? "[]"); } catch { return []; } })(),
+      backendType,
+      publicDns: data["public-dns"] === "true",
+      internalDns: data["internal-dns"] === "true",
+      description: data["description"] ?? "",
+      createdAt: cm.metadata?.creationTimestamp?.toISOString() ?? null,
+      ...serviceInfo,
     });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });
@@ -54,19 +60,26 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
     kc.loadFromDefault();
     const coreApi = kc.makeApiClient(k8s.CoreV1Api);
 
-    let publicDns = false, internalDns = false;
+    // Read ConfigMap to know what to clean up
+    let publicDns = false, internalDns = false, backendType = "external";
     try {
-      const svc = await coreApi.readNamespacedService({ name, namespace: "game-servers" });
-      publicDns = svc.metadata?.annotations?.["infraweaver.io/public-dns"] === "true";
-      internalDns = svc.metadata?.annotations?.["infraweaver.io/internal-dns"] === "true";
+      const cm = await coreApi.readNamespacedConfigMap({ name, namespace: "game-servers" });
+      publicDns = cm.data?.["public-dns"] === "true";
+      internalDns = cm.data?.["internal-dns"] === "true";
+      backendType = cm.data?.["backend-type"] ?? "external";
     } catch {}
 
+    // Delete DNS records
     if (publicDns) { try { await deleteARecord(`${name}.rlservers.com`); } catch {} }
     if (internalDns) { try { await deleteARecord(`${name}.int.rlservers.com`); } catch {} }
 
-    try { await coreApi.deleteNamespacedService({ name, namespace: "game-servers" }); } catch {}
-    try { await coreApi.deleteNamespacedEndpoints({ name, namespace: "game-servers" }); } catch {}
-    try { await coreApi.deleteNamespacedConfigMap({ name: `${name}-meta`, namespace: "game-servers" }); } catch {}
+    // Delete ConfigMap
+    try { await coreApi.deleteNamespacedConfigMap({ name, namespace: "game-servers" }); } catch {}
+
+    // Delete Service if in-cluster
+    if (backendType === "in-cluster") {
+      try { await coreApi.deleteNamespacedService({ name, namespace: "game-servers" }); } catch {}
+    }
 
     return NextResponse.json({ success: true });
   } catch (e) {
