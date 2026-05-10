@@ -39,7 +39,7 @@ spec:
       containers:
       - name: console
         image: onedev.rlservers.com/infraweaver/infraweaver-console:main
-        imagePullPolicy: Always
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3000
           name: http
