@@ -1,6 +1,16 @@
 "use client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
+export interface NasShareAssignment {
+  provider: "synology" | "truenas";
+  share: string;
+  subfolder?: string;
+  access: "readonly" | "readwrite";
+  pvc_namespace?: string;
+  pvc_name?: string;
+  created_at?: string;
+}
+
 export interface PlatformUser {
   username: string;
   name: string;
@@ -9,6 +19,7 @@ export interface PlatformUser {
   wiki_role?: string;
   authentik_groups?: string[];
   argocd_role?: string;
+  nas_shares?: NasShareAssignment[];
 }
 
 export function useUsersConfig() {

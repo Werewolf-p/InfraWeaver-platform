@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Users, Plus, Pencil, Trash2, Search, Save, X, ChevronDown,
   Shield, Eye, User, CheckCircle2, XCircle, AlertTriangle, ChevronRight,
-  Info, Lock,
+  Info, Lock, HardDrive,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useUsersConfig, useSaveUsersConfig, type PlatformUser } from "@/hooks/use-users-config";
@@ -12,6 +12,7 @@ import { useRBAC } from "@/hooks/use-rbac";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { useSession } from "next-auth/react";
+import { StorageTab } from "@/components/users/storage-tab";
 
 const ACCESS_LEVELS = ["admin", "platform-user", "viewer"] as const;
 const WIKI_ROLES = ["admin", "editor", "reader"];
@@ -591,6 +592,7 @@ export default function UsersPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editUser, setEditUser] = useState<PlatformUser | null>(null);
   const [deleteUser, setDeleteUser] = useState<PlatformUser | null>(null);
+  const [activeTab, setActiveTab] = useState<"users" | "storage">("users");
 
   const currentEmail = session?.user?.email ?? "";
   const users = data?.users ?? [];
@@ -665,7 +667,7 @@ export default function UsersPage() {
               {users.length} user{users.length !== 1 ? "s" : ""} · RBAC-managed platform access
             </p>
           </div>
-          {isAdmin && (
+          {isAdmin && activeTab === "users" && (
             <button
               onClick={() => { setEditUser(null); setModalOpen(true); }}
               className="flex items-center justify-center gap-2 w-full sm:w-auto px-3 py-2.5 rounded-lg bg-purple-500/20 border border-purple-500/30 text-sm text-purple-300 hover:bg-purple-500/30 transition-colors active:scale-95 touch-manipulation"
@@ -677,6 +679,40 @@ export default function UsersPage() {
         </div>
       </div>
 
+      {/* Tab bar */}
+      <div className="flex gap-1 bg-white/5 border border-white/10 rounded-lg p-1 w-fit">
+        <button
+          onClick={() => setActiveTab("users")}
+          className={cn(
+            "flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all",
+            activeTab === "users"
+              ? "bg-white/10 text-white"
+              : "text-slate-400 hover:text-white"
+          )}
+        >
+          <Users className="w-4 h-4" />
+          Users
+        </button>
+        <button
+          onClick={() => setActiveTab("storage")}
+          className={cn(
+            "flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all",
+            activeTab === "storage"
+              ? "bg-white/10 text-white"
+              : "text-slate-400 hover:text-white"
+          )}
+        >
+          <HardDrive className="w-4 h-4" />
+          Storage Access
+        </button>
+      </div>
+
+      {activeTab === "storage" && (
+        <StorageTab users={users} isAdmin={isAdmin} />
+      )}
+
+      {activeTab === "users" && (
+        <>
       {/* Search */}
       <div className="relative max-w-sm">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -798,6 +834,8 @@ export default function UsersPage() {
 
       {/* RBAC info card */}
       <RBACInfoCard />
+        </>
+      )}
 
       {/* Modals */}
       <AnimatePresence>
