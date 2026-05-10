@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { getRole } from "@/lib/rbac";
 import { auditLog } from "@/lib/audit-log";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
+import { z } from "zod";
 import * as k8s from "@kubernetes/client-node";
 
 export async function POST(req: NextRequest) {
@@ -13,7 +14,10 @@ export async function POST(req: NextRequest) {
   if (!checkRateLimit(rateLimitKey("namespace-cleanup", req), 10, 60_000)) {
     return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
   }
-  const { namespace } = await req.json() as { namespace: string };
+  const NamespaceCleanupBody = z.object({ namespace: z.string().min(1).max(63) });
+  const result = NamespaceCleanupBody.safeParse(await req.json());
+  if (!result.success) return NextResponse.json({ error: result.error.flatten() }, { status: 400 });
+  const { namespace } = result.data;
   const deleted: string[] = [];
   const errors: string[] = [];
   try {

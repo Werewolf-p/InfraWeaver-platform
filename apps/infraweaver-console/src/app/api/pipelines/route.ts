@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { hasPermission } from "@/lib/rbac";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
+import { z } from "zod";
 
 const GITHUB_REPO = process.env.GITHUB_REPO ?? "Werewolf-p/InfraWeaver-platform";
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN ?? "";
@@ -77,8 +78,15 @@ export async function POST(request: Request) {
   if (!checkRateLimit(rateLimitKey("pipelines-dispatch", request), 20, 60_000)) {
     return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
   }
+  const PipelineDispatchBody = z.object({
+    workflowId: z.number().int().min(1),
+    ref: z.string().min(1).max(255).optional().default("main"),
+    inputs: z.record(z.string()).optional().default({}),
+  });
+  const result = PipelineDispatchBody.safeParse(await request.json());
+  if (!result.success) return NextResponse.json({ error: result.error.flatten() }, { status: 400 });
+  const { workflowId, ref, inputs } = result.data;
   try {
-    const { workflowId, ref = "main", inputs = {} } = await request.json() as { workflowId: number; ref?: string; inputs?: Record<string, string> };
     const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/actions/workflows/${workflowId}/dispatches`, {
       method: "POST",
       headers: { ...githubHeaders(), "Content-Type": "application/json" },

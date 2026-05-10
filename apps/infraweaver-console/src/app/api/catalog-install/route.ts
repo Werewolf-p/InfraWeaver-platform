@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { hasPermission } from "@/lib/rbac";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
+import { z } from "zod";
 
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN ?? "";
 const GITHUB_REPO = process.env.GITHUB_REPO ?? "Werewolf-p/InfraWeaver-platform";
@@ -51,20 +52,22 @@ export async function POST(req: NextRequest) {
   if (!checkRateLimit(rateLimitKey("catalog-install", req), 10, 60_000)) {
     return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
   }
+  const CatalogInstallBody = z.object({
+    appName: z.string().min(1).max(64).regex(/^[a-z0-9-]+$/),
+    yaml: z.string().min(1).max(50000),
+    namespace: z.string().min(1).max(63).regex(/^[a-z0-9-]+$/),
+    commitMessage: z.string().max(200).optional(),
+  });
+  const result = CatalogInstallBody.safeParse(await req.json());
+  if (!result.success) return NextResponse.json({ error: result.error.flatten() }, { status: 400 });
+  const { appName, yaml, namespace: _namespace, commitMessage } = result.data;
   try {
-    const body = (await req.json()) as {
-      appName: string;
-      yaml: string;
-      namespace: string;
-      commitMessage?: string;
-    };
-    const { appName, yaml } = body;
 
     // 1. Create the application.yaml file
     await githubPut(
       `kubernetes/catalog/${appName}/application.yaml`,
       yaml,
-      body.commitMessage ?? `feat: add catalog app ${appName} via InfraWeaver Console`
+      commitMessage ?? `feat: add catalog app ${appName} via InfraWeaver Console`
     );
 
     // 2. Update platform.yaml to add app to catalog.enabled

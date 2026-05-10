@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getRole } from "@/lib/rbac";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
+import { z } from "zod";
 import * as k8s from "@kubernetes/client-node";
 
 export async function POST(req: NextRequest) {
@@ -14,8 +15,14 @@ export async function POST(req: NextRequest) {
   if (!checkRateLimit(rateLimitKey("certs-renew", req), 10, 60_000)) {
     return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
   }
-
-  const { namespace, name, issuerName } = await req.json() as { namespace: string; name: string; issuerName: string };
+  const CertsRenewBody = z.object({
+    namespace: z.string().min(1).max(63),
+    name: z.string().min(1).max(253),
+    issuerName: z.string().min(1).max(253),
+  });
+  const result = CertsRenewBody.safeParse(await req.json());
+  if (!result.success) return NextResponse.json({ error: result.error.flatten() }, { status: 400 });
+  const { namespace, name, issuerName } = result.data;
 
   try {
     const kc = new k8s.KubeConfig();

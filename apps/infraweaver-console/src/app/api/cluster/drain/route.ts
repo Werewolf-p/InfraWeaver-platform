@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { getRole } from "@/lib/rbac";
 import { auditLog } from "@/lib/audit-log";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
+import { z } from "zod";
 import * as k8s from "@kubernetes/client-node";
 
 export async function POST(req: NextRequest) {
@@ -13,7 +14,10 @@ export async function POST(req: NextRequest) {
   if (!checkRateLimit(rateLimitKey("cluster-drain", req), 5, 60_000)) {
     return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
   }
-  const { node } = await req.json() as { node: string };
+  const DrainBody = z.object({ node: z.string().min(1).max(253) });
+  const result = DrainBody.safeParse(await req.json());
+  if (!result.success) return NextResponse.json({ error: result.error.flatten() }, { status: 400 });
+  const { node } = result.data;
   const evicted: string[] = [];
   const errors: string[] = [];
   try {

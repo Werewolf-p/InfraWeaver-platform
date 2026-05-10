@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { getRole } from "@/lib/rbac";
 import { auditLog } from "@/lib/audit-log";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
+import { z } from "zod";
 import * as k8s from "@kubernetes/client-node";
 
 export async function POST(req: NextRequest) {
@@ -13,7 +14,13 @@ export async function POST(req: NextRequest) {
   if (!checkRateLimit(rateLimitKey("force-sync-secret", req), 20, 60_000)) {
     return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
   }
-  const { namespace, name } = await req.json() as { namespace: string; name: string };
+  const ForceSyncBody = z.object({
+    namespace: z.string().min(1).max(63),
+    name: z.string().min(1).max(253),
+  });
+  const result = ForceSyncBody.safeParse(await req.json());
+  if (!result.success) return NextResponse.json({ error: result.error.flatten() }, { status: 400 });
+  const { namespace, name } = result.data;
   try {
     const kc = new k8s.KubeConfig();
     if (process.env.KUBECONFIG) { kc.loadFromFile(process.env.KUBECONFIG); } else { try { kc.loadFromCluster(); } catch { kc.loadFromDefault(); } }

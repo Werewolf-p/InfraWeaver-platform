@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getRole } from "@/lib/rbac";
 import { auditLog } from "@/lib/audit-log";
+import { z } from "zod";
 import * as k8s from "@kubernetes/client-node";
 
 function makeKc() {
@@ -15,8 +16,14 @@ export async function PATCH(req: NextRequest) {
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
   if (getRole(groups) !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  const { namespace, deployment, replicas } = await req.json() as { namespace: string; deployment: string; replicas: number };
-  if (typeof replicas !== "number" || replicas < 0 || replicas > 20) return NextResponse.json({ error: "replicas must be 0-20" }, { status: 400 });
+  const ScaleBody = z.object({
+    namespace: z.string().min(1).max(63),
+    deployment: z.string().min(1).max(253),
+    replicas: z.number().int().min(0).max(20),
+  });
+  const result = ScaleBody.safeParse(await req.json());
+  if (!result.success) return NextResponse.json({ error: result.error.flatten() }, { status: 400 });
+  const { namespace, deployment, replicas } = result.data;
   try {
     const appsApi = makeKc().makeApiClient(k8s.AppsV1Api);
     await appsApi.patchNamespacedDeployment({ name: deployment, namespace, body: { spec: { replicas } } });

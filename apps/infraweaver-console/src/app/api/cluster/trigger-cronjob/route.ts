@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getRole } from "@/lib/rbac";
 import { auditLog } from "@/lib/audit-log";
+import { z } from "zod";
 import * as k8s from "@kubernetes/client-node";
 
 export async function POST(req: NextRequest) {
@@ -9,7 +10,13 @@ export async function POST(req: NextRequest) {
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
   if (getRole(groups) !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  const { namespace, name } = await req.json() as { namespace: string; name: string };
+  const TriggerCronJobBody = z.object({
+    namespace: z.string().min(1).max(63),
+    name: z.string().min(1).max(253),
+  });
+  const result = TriggerCronJobBody.safeParse(await req.json());
+  if (!result.success) return NextResponse.json({ error: result.error.flatten() }, { status: 400 });
+  const { namespace, name } = result.data;
   const jobName = `${name}-manual-${Date.now()}`;
   try {
     const kc = new k8s.KubeConfig();
