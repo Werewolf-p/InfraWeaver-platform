@@ -107,6 +107,7 @@ catalog:
   # Optional apps (fully implemented, not enabled by default):
   #   code-server      — VS Code in browser                   (code-server.int.rlservers.com)
   #   jellyfin         — Media server                          (jellyfin.int.rlservers.com)
+  #   plex             — Plex Media Server (ardaty folder only) (plex.int.rlservers.com)
   #   ntfy             — Push notifications                    (ntfy.int.rlservers.com)
   #   linkding         — Bookmark manager                      (linkding.int.rlservers.com)
   #   navidrome        — Music streaming server                (navidrome.int.rlservers.com)
@@ -122,6 +123,7 @@ catalog:
     - onedev
     - infraweaver-console
     - registry
+    - plex
 
   # ── Per-catalog-app HA settings ──────────────────────────────────────────────
   # Set replicas: N to run N pods. Default is 1.

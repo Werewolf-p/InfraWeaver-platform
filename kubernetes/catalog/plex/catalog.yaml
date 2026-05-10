@@ -1,0 +1,14 @@
+---
+# catalog.yaml — plex
+# Access: plex.int.rlservers.com (VPN-only via NetBird, protected by Authentik forward-auth)
+# Media: NFS mount of /volume1/Mediaserver/ardaty on Synology NAS (10.25.0.21)
+# Config: Longhorn PVC (separate from any existing Plex installation on the NAS)
+# User: ardaty has upload/download access to the media folder and Plex via NetBird
+
+name: plex
+description: "Plex Media Server — stream movies and media via NetBird VPN for user ardaty"
+namespace: plex
+
+ingressroute:
+  host: plex.int.rlservers.com
+  entrypoint: websecure

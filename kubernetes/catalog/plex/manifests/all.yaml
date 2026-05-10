@@ -1,0 +1,268 @@
+---
+# Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: plex
+  labels:
+    app.kubernetes.io/name: plex
+    infraweaver.io/type: catalog-app
+---
+# Secret — Synology NAS credentials for SMB (used by initContainer to set permissions)
+# Credentials stored as K8s secret, never in plaintext in manifests
+apiVersion: v1
+kind: Secret
+metadata:
+  name: nas-smb-credentials
+  namespace: plex
+type: Opaque
+stringData:
+  username: ardaty
+  password: CHANGE_ME_ARDATY_PASSWORD
+---
+# PersistentVolume — static NFS PV pointing ONLY to /volume1/Mediaserver/ardaty
+# This means Plex can only see ardaty's folder, not the rest of Mediaserver
+# Prerequisites: Enable NFS on Synology DSM → Control Panel → File Services → NFS
+#   and add NFS permission for this folder: /volume1/Mediaserver/ardaty
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: plex-media-nfs
+  labels:
+    app: plex
+    infraweaver.io/type: catalog-app
+spec:
+  capacity:
+    storage: 500Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  mountOptions:
+    - nfsvers=4.1
+    - hard
+    - timeo=600
+    - retrans=2
+    - rsize=131072
+    - wsize=131072
+  nfs:
+    # Synology NAS internal IP
+    server: 10.25.0.21
+    # ONLY the ardaty subfolder — Plex cannot see rest of Mediaserver
+    path: /volume1/Mediaserver/ardaty
+---
+# PersistentVolumeClaim — binds to the static NFS PV above
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: plex-media
+  namespace: plex
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: ""
+  resources:
+    requests:
+      storage: 500Gi
+  selector:
+    matchLabels:
+      app: plex
+---
+# PersistentVolumeClaim — Plex config/metadata on Longhorn (fast, local)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: plex-config
+  namespace: plex
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn-retain
+  resources:
+    requests:
+      storage: 20Gi
+---
+# Deployment — Plex Media Server
+# PUID/PGID must match the ardaty user UID/GID on Synology
+# After creating ardaty on Synology, check their UID in DSM → User & Group → ardaty → info
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: plex
+  namespace: plex
+  labels:
+    app: plex
+    infraweaver.io/auth: proxy
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: plex
+  template:
+    metadata:
+      labels:
+        app: plex
+    spec:
+      terminationGracePeriodSeconds: 30
+      priorityClassName: platform-standard
+      securityContext:
+        fsGroup: 1000
+        runAsNonRoot: false
+      containers:
+        - name: plex
+          # linuxserver/plex handles PUID/PGID remapping — use ardaty's Synology UID
+          image: lscr.io/linuxserver/plex:latest
+          ports:
+            - containerPort: 32400
+              name: plex
+          env:
+            - name: PUID
+              value: "1026"       # Update to ardaty's actual UID on Synology
+            - name: PGID
+              value: "100"        # Update to ardaty's actual GID on Synology
+            - name: TZ
+              value: "Europe/Amsterdam"
+            - name: VERSION
+              value: "docker"
+            # PLEX_CLAIM: get a one-time token from https://plex.tv/claim
+            # Set this on first run only; remove after Plex is claimed
+            - name: PLEX_CLAIM
+              valueFrom:
+                secretKeyRef:
+                  name: plex-claim
+                  key: token
+                  optional: true
+          volumeMounts:
+            - name: config
+              mountPath: /config
+            - name: media
+              mountPath: /media
+              # Plex sees /media — which is ONLY ardaty's NAS folder
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: 4000m
+              memory: 6Gi
+          readinessProbe:
+            httpGet:
+              path: /identity
+              port: 32400
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            failureThreshold: 5
+          livenessProbe:
+            httpGet:
+              path: /identity
+              port: 32400
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          securityContext:
+            allowPrivilegeEscalation: false
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: plex-config
+        - name: media
+          persistentVolumeClaim:
+            claimName: plex-media
+---
+# Service — expose Plex internally
+apiVersion: v1
+kind: Service
+metadata:
+  name: plex
+  namespace: plex
+spec:
+  selector:
+    app: plex
+  ports:
+    - name: plex
+      port: 32400
+      targetPort: 32400
+---
+# ExternalName Service in traefik namespace for cross-namespace IngressRoute
+apiVersion: v1
+kind: Service
+metadata:
+  name: plex
+  namespace: traefik
+spec:
+  type: ExternalName
+  externalName: plex.plex.svc.cluster.local
+  ports:
+    - port: 32400
+---
+# IngressRoute — internal only (NetBird VPN required) + Authentik forward-auth
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: plex-int
+  namespace: traefik
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`plex.int.rlservers.com`)
+      kind: Rule
+      middlewares:
+        - name: secure-headers
+          namespace: traefik
+        - name: netbird-vpn-only
+          namespace: traefik
+        - name: forward-auth
+          namespace: traefik
+      services:
+        - name: plex
+          namespace: traefik
+          port: 32400
+  tls:
+    secretName: int-rlservers-com-tls
+---
+# NetworkPolicy — allow Traefik ingress + Plex egress for metadata/updates
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: plex-netpol
+  namespace: plex
+spec:
+  podSelector:
+    matchLabels:
+      app: plex
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: traefik
+      ports:
+        - port: 32400
+  egress:
+    # DNS
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # Plex.tv metadata, updates, account verification
+    - ports:
+        - port: 443
+    # NAS NFS access (Synology at 10.25.0.21)
+    - to:
+        - ipBlock:
+            cidr: 10.25.0.21/32
+      ports:
+        - port: 2049
+          protocol: TCP
+        - port: 2049
+          protocol: UDP
+        - port: 111
+          protocol: TCP
+        - port: 111
+          protocol: UDP

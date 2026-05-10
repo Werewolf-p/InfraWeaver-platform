@@ -1,0 +1,37 @@
+---
+# catalog-plex-manifests.yaml — ArgoCD Application for Plex Media Server
+# Source: kubernetes/catalog/plex/manifests/
+# Media: NFS mount of /volume1/Mediaserver/ardaty on Synology (10.25.0.21)
+# Access: plex.int.rlservers.com (NetBird VPN + Authentik forward-auth)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: catalog-plex-manifests
+  namespace: argocd
+  labels:
+    infraweaver.io/type: catalog-app
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  source:
+    repoURL: https://github.com/Werewolf-p/InfraWeaver-platform.git
+    targetRevision: HEAD
+    path: kubernetes/catalog/plex/manifests
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: plex
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - RespectIgnoreDifferences=true
