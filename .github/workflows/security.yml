@@ -12,20 +12,18 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - name: npm audit
-        run: cd apps/infraweaver-console && pnpm audit --audit-level=high 2>&1 || true
+        run: |
+          cd apps/infraweaver-console
+          pnpm audit --audit-level=high 2>&1 || true
       - name: Check for known vulnerabilities
-        run: cd apps/infraweaver-console && pnpm audit --json 2>/dev/null | python3 -c "
-import sys, json
-try:
-    data = json.load(sys.stdin)
-    vulns = data.get('metadata', {}).get('vulnerabilities', {})
-    critical = vulns.get('critical', 0)
-    high = vulns.get('high', 0)
-    print(f'Critical: {critical}, High: {high}')
-    if critical > 0:
-        sys.exit(1)
-except: pass
-" || echo "Audit check skipped"
+        run: |
+          cd apps/infraweaver-console
+          AUDIT_OUT=$(pnpm audit --json 2>/dev/null || true)
+          CRITICAL=$(echo "$AUDIT_OUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('metadata',{}).get('vulnerabilities',{}).get('critical',0))" 2>/dev/null || echo "0")
+          HIGH=$(echo "$AUDIT_OUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('metadata',{}).get('vulnerabilities',{}).get('high',0))" 2>/dev/null || echo "0")
+          echo "Critical: $CRITICAL, High: $HIGH"
+          if [ "${CRITICAL:-0}" -gt 0 ] 2>/dev/null; then echo "ERROR: Critical vulnerabilities found"; exit 1; fi
+          echo "No critical vulnerabilities detected"
 
   secret-scan:
     runs-on: [self-hosted, prod-worker]
@@ -42,17 +40,13 @@ except: pass
           fi
       - name: Check for hardcoded secrets patterns
         run: |
-          # Scan for common secret patterns
           echo "==> Scanning for potential secrets..."
-          FOUND=0
           for pattern in 'password\s*=\s*"[^"]{8,}"' 'api_key\s*=\s*"[^"]{16,}"' 'secret\s*=\s*"[^"]{16,}"' 'token\s*=\s*"[^"]{16,}"'; do
             hits=$(grep -rEi "$pattern" apps/infraweaver-console/src/ --include="*.ts" --include="*.tsx" -l 2>/dev/null | grep -v ".test." | grep -v "mock" | grep -v "__tests__") || true
             if [ -n "$hits" ]; then
-              echo "⚠ Potential secret pattern '$pattern' found in: $hits"
-              FOUND=1
+              echo "WARNING: Potential secret pattern '$pattern' found in: $hits"
             fi
           done
-          # Check for process.env usage (good) vs hardcoded values
           echo "==> Environment variable usage check PASSED"
           exit 0
 
@@ -68,12 +62,11 @@ except: pass
             echo "Dockerfile linting complete"
           else
             echo "Hadolint not available, checking manually..."
-            # Basic Dockerfile checks
             if grep -q "^FROM.*:latest" apps/infraweaver-console/Dockerfile 2>/dev/null; then
-              echo "⚠ WARNING: Using :latest tag in Dockerfile"
+              echo "WARNING: Using :latest tag in Dockerfile"
             fi
             if ! grep -q "^USER " apps/infraweaver-console/Dockerfile 2>/dev/null; then
-              echo "⚠ WARNING: No USER instruction — runs as root"
+              echo "WARNING: No USER instruction - runs as root"
             fi
           fi
 
@@ -99,11 +92,10 @@ except: pass
             cyclonedx-npm --output-file sbom.json 2>/dev/null
             echo "SBOM generated"
           else
-            # Use pnpm list as basic SBOM
             pnpm list --json 2>/dev/null > sbom-basic.json || true
             echo "Basic dependency list generated"
           fi
-          echo "✅ SBOM generation complete" >> $GITHUB_STEP_SUMMARY
+          echo "SBOM generation complete" >> $GITHUB_STEP_SUMMARY
 
   security-summary:
     needs: [dependency-audit, secret-scan, dockerfile-lint, typescript-check]
@@ -112,10 +104,12 @@ except: pass
     steps:
       - name: Security Summary
         run: |
-          echo "## 🔒 Security Scan Summary" >> $GITHUB_STEP_SUMMARY
-          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
-          echo "| Dependency Audit | ${{ needs.dependency-audit.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Secret Scan | ${{ needs.secret-scan.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Dockerfile Lint | ${{ needs.dockerfile-lint.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| TypeScript Check | ${{ needs.typescript-check.result }} |" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## Security Scan Summary"
+            echo "| Check | Status |"
+            echo "|---|---|"
+            echo "| Dependency Audit | ${{ needs.dependency-audit.result }} |"
+            echo "| Secret Scan | ${{ needs.secret-scan.result }} |"
+            echo "| Dockerfile Lint | ${{ needs.dockerfile-lint.result }} |"
+            echo "| TypeScript Check | ${{ needs.typescript-check.result }} |"
+          } >> $GITHUB_STEP_SUMMARY
