@@ -97,6 +97,31 @@ spec:
           value: production
         - name: AUTH_TRUST_HOST
           value: "true"
+        # NAS provider configuration — for Synology/TrueNAS share management
+        - name: SYNOLOGY_HOST
+          value: "10.25.0.21"
+        - name: SYNOLOGY_PORT
+          value: "5001"
+        - name: SYNOLOGY_USER
+          valueFrom:
+            secretKeyRef:
+              name: infraweaver-console-secret
+              key: synology-user
+              optional: true
+        - name: SYNOLOGY_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: infraweaver-console-secret
+              key: synology-password
+              optional: true
+        - name: TRUENAS_HOST
+          value: "10.25.0.135"
+        - name: TRUENAS_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: infraweaver-console-secret
+              key: truenas-api-key
+              optional: true
         resources:
           requests:
             memory: 256Mi

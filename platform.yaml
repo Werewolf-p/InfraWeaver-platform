@@ -186,3 +186,39 @@ persistence:
     enabled: true
     nfs_ip: "10.25.0.135"
     nfs_path: "/mnt/Main/k8s-longhorn-backups"
+
+# ── NAS Providers (Synology, TrueNAS) ─────────────────────────────────────────
+# Configure NAS providers for user share assignment via the InfraWeaver console.
+# Shares are provisioned as K8s PVCs using csi-driver-smb and tracked in users.yaml.
+#
+# Service account setup:
+#   Synology: Create 'infraweaver-svc' user in DSM → Control Panel → User & Group
+#             Grant read/write to shares that need provisioning
+#             Store credentials in OpenBao at secret/platform/nas/synology
+#   TrueNAS:  System → API Keys → Generate key for 'infraweaver-svc'
+#             Store in OpenBao at secret/platform/nas/truenas
+#
+# All NAS operations are logged via the InfraWeaver console audit trail.
+nas_providers:
+  synology:
+    enabled: true
+    host: "10.25.0.21"
+    port: 5001
+    protocol: "https"
+    smb_enabled: true
+    nfs_enabled: false          # Enable in DSM → Control Panel → File Services → NFS
+    # K8s secret referenced by csi-driver-smb StorageClasses:
+    credentials_secret: "nas-synology-credentials"
+    # Shares available for user assignment (auto-discovered via DSM API):
+    managed_shares:
+      - Mediaserver               # Media files — subfolders per user for isolation
+  truenas:
+    enabled: true
+    host: "10.25.0.135"
+    port: 443
+    protocol: "https"
+    smb_enabled: true
+    nfs_enabled: true
+    credentials_secret: "nas-truenas-credentials"
+    managed_shares:
+      - Main                      # Primary dataset pool
