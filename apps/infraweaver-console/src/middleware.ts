@@ -24,6 +24,6 @@ export default auth((req) => {
 export const config = {
   // Exclude: NextAuth callbacks, public health/ping endpoints, static assets, sign-in page
   matcher: [
-    "/((?!api/auth|api/ping|api/health$|_next/static|_next/image|favicon.ico|auth/signin).*)",
+    "/((?!api/auth|api/ping|api/health$|api/homepage-ping|_next/static|_next/image|favicon.ico|auth/signin|login).*)",
   ],
 };
