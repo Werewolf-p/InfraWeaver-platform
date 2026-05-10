@@ -8,7 +8,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import Link from "next/link";
-import { LayoutDashboard, Box, Activity, Network, Cog, X, ShieldCheck, Server } from "lucide-react";
+import { LayoutDashboard, Box, Activity, Network, Cog, X, ShieldCheck, Server, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 
@@ -17,6 +17,7 @@ const mobileNavItems = [
   { href: "/apps", icon: Box, label: "Apps" },
   { href: "/health", icon: Activity, label: "Health" },
   { href: "/network", icon: Network, label: "Network" },
+  { href: "/users", icon: Users, label: "Users" },
   { href: "/config", icon: Cog, label: "Config" },
 ];
 
@@ -28,6 +29,7 @@ const drawerNavItems = [
   { href: "/config", icon: Cog, label: "Config Editor" },
   { href: "/security", icon: ShieldCheck, label: "Security" },
   { href: "/cluster", icon: Server, label: "Cluster" },
+  { href: "/users", icon: Users, label: "User Management" },
 ];
 
 function StatusBar() {
