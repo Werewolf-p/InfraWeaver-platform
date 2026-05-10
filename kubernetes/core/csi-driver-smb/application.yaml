@@ -1,0 +1,53 @@
+---
+# ArgoCD Application — CSI SMB Driver
+# Enables Kubernetes pods to mount SMB (CIFS) shares from Synology, TrueNAS, and Windows shares
+# Installed as DaemonSet pods — no node-level changes required (works on Talos)
+# Used by plex and nas-manager for user share provisioning
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: core-csi-driver-smb
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  source:
+    repoURL: https://raw.githubusercontent.com/kubernetes-csi/csi-driver-smb/master/charts
+    chart: csi-driver-smb
+    targetRevision: "v1.20.1"
+    helm:
+      values: |
+        kubeletDir: /var/lib/kubelet
+        controller:
+          resources:
+            limits:
+              cpu: 200m
+              memory: 200Mi
+            requests:
+              cpu: 10m
+              memory: 20Mi
+        node:
+          resources:
+            limits:
+              cpu: 200m
+              memory: 200Mi
+            requests:
+              cpu: 10m
+              memory: 20Mi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+    syncOptions:
+      - CreateNamespace=false
+      - ServerSideApply=true

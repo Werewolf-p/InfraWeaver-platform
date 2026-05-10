@@ -1,0 +1,53 @@
+---
+# Bootstrap: CSI SMB Driver
+# Applied during platform.yml bootstrap loop.
+# Installs csi-driver-smb as DaemonSet pods — works on Talos without node modifications.
+# Required for Plex and NAS Manager to mount Synology/TrueNAS SMB shares.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: core-csi-driver-smb
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  source:
+    repoURL: https://raw.githubusercontent.com/kubernetes-csi/csi-driver-smb/master/charts
+    chart: csi-driver-smb
+    targetRevision: "v1.20.1"
+    helm:
+      values: |
+        kubeletDir: /var/lib/kubelet
+        controller:
+          resources:
+            limits:
+              cpu: 200m
+              memory: 200Mi
+            requests:
+              cpu: 10m
+              memory: 20Mi
+        node:
+          resources:
+            limits:
+              cpu: 200m
+              memory: 200Mi
+            requests:
+              cpu: 10m
+              memory: 20Mi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+    syncOptions:
+      - CreateNamespace=false
+      - ServerSideApply=true

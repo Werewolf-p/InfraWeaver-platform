@@ -8,49 +8,27 @@ metadata:
     app.kubernetes.io/name: plex
     infraweaver.io/type: catalog-app
 ---
-# Secret — Synology NAS credentials for SMB (used by initContainer to set permissions)
-# Credentials stored as K8s secret, never in plaintext in manifests
-apiVersion: v1
-kind: Secret
+# StorageClass — SMB CSI driver pointing to ardaty's isolated folder on Synology
+# csi-driver-smb must be installed: helm install csi-driver-smb csi-driver-smb/csi-driver-smb
+# Credentials secret `synology-smb-credentials` must exist in plex namespace (created via CI/sealed-secret)
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
 metadata:
-  name: nas-smb-credentials
-  namespace: plex
-type: Opaque
-stringData:
-  username: ardaty
-  password: CHANGE_ME_ARDATY_PASSWORD
+  name: smb-ardaty
+provisioner: smb.csi.k8s.io
+reclaimPolicy: Retain
+volumeBindingMode: Immediate
+allowVolumeExpansion: false
+parameters:
+  # Top-level Mediaserver share — subdir restricts to ONLY ardaty's folder
+  source: "//10.25.0.21/Mediaserver"
+  subDir: "ardaty"
+  csi.storage.k8s.io/provisioner-secret-name: synology-smb-credentials
+  csi.storage.k8s.io/provisioner-secret-namespace: plex
+  csi.storage.k8s.io/node-stage-secret-name: synology-smb-credentials
+  csi.storage.k8s.io/node-stage-secret-namespace: plex
 ---
-# PersistentVolume — static NFS PV pointing ONLY to /volume1/Mediaserver/ardaty
-# This means Plex can only see ardaty's folder, not the rest of Mediaserver
-# Prerequisites: Enable NFS on Synology DSM → Control Panel → File Services → NFS
-#   and add NFS permission for this folder: /volume1/Mediaserver/ardaty
-apiVersion: v1
-kind: PersistentVolume
-metadata:
-  name: plex-media-nfs
-  labels:
-    app: plex
-    infraweaver.io/type: catalog-app
-spec:
-  capacity:
-    storage: 500Gi
-  accessModes:
-    - ReadWriteMany
-  persistentVolumeReclaimPolicy: Retain
-  mountOptions:
-    - nfsvers=4.1
-    - hard
-    - timeo=600
-    - retrans=2
-    - rsize=131072
-    - wsize=131072
-  nfs:
-    # Synology NAS internal IP
-    server: 10.25.0.21
-    # ONLY the ardaty subfolder — Plex cannot see rest of Mediaserver
-    path: /volume1/Mediaserver/ardaty
----
-# PersistentVolumeClaim — binds to the static NFS PV above
+# PersistentVolumeClaim — SMB mount to ardaty's NAS folder
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -59,13 +37,10 @@ metadata:
 spec:
   accessModes:
     - ReadWriteMany
-  storageClassName: ""
+  storageClassName: smb-ardaty
   resources:
     requests:
       storage: 500Gi
-  selector:
-    matchLabels:
-      app: plex
 ---
 # PersistentVolumeClaim — Plex config/metadata on Longhorn (fast, local)
 apiVersion: v1
@@ -112,7 +87,7 @@ spec:
       containers:
         - name: plex
           # linuxserver/plex handles PUID/PGID remapping — use ardaty's Synology UID
-          image: lscr.io/linuxserver/plex:latest
+          image: lscr.io/linuxserver/plex:1.43.1.10611-1e34174b1-ls304
           ports:
             - containerPort: 32400
               name: plex
@@ -160,7 +135,8 @@ spec:
             initialDelaySeconds: 60
             periodSeconds: 30
           securityContext:
-            allowPrivilegeEscalation: false
+            allowPrivilegeEscalation: true
+            runAsNonRoot: false
       volumes:
         - name: config
           persistentVolumeClaim:
@@ -253,16 +229,16 @@ spec:
     # Plex.tv metadata, updates, account verification
     - ports:
         - port: 443
-    # NAS NFS access (Synology at 10.25.0.21)
+    # NAS SMB access (Synology at 10.25.0.21, port 445)
     - to:
         - ipBlock:
             cidr: 10.25.0.21/32
       ports:
-        - port: 2049
+        - port: 445
           protocol: TCP
-        - port: 2049
+        - port: 137
           protocol: UDP
-        - port: 111
+        - port: 138
+          protocol: UDP
+        - port: 139
           protocol: TCP
-        - port: 111
-          protocol: UDP
