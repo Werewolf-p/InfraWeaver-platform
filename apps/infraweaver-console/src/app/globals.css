@@ -49,3 +49,41 @@ body {
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
 }
+
+/* Custom scrollbar utility */
+@utility custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.1) transparent;
+}
+.custom-scrollbar::-webkit-scrollbar { width: 4px; height: 4px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+
+/* Status dot animations */
+@keyframes status-pulse-slow { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.6; transform: scale(0.9); } }
+@keyframes status-pulse-fast { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+@keyframes status-blink { 0%, 100% { opacity: 1; } 49% { opacity: 1; } 50% { opacity: 0; } }
+@utility status-healthy { animation: status-pulse-slow 2s ease-in-out infinite; }
+@utility status-syncing { animation: status-pulse-fast 0.5s ease-in-out infinite; }
+@utility status-degraded { animation: status-blink 1s step-end infinite; }
+
+/* Sticky table header blur */
+@utility sticky-header {
+  position: sticky;
+  top: 0;
+  backdrop-filter: blur(12px);
+  background: rgba(2, 6, 23, 0.85);
+  z-index: 10;
+}
+
+/* Page gradient overlays */
+@utility page-gradient-security { background: linear-gradient(135deg, rgba(127,29,29,0.15) 0%, transparent 60%); }
+@utility page-gradient-cluster   { background: linear-gradient(135deg, rgba(30,58,138,0.15) 0%, transparent 60%); }
+@utility page-gradient-network   { background: linear-gradient(135deg, rgba(6,78,59,0.15) 0%, transparent 60%); }
+@utility page-gradient-users     { background: linear-gradient(135deg, rgba(88,28,135,0.15) 0%, transparent 60%); }
+@utility page-gradient-apps      { background: linear-gradient(135deg, rgba(124,45,18,0.15) 0%, transparent 60%); }
+
+/* Button active press effect */
+@utility btn-press { transition: transform 100ms ease; }
+.btn-press:active { transform: scale(0.95); }

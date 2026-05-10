@@ -2,33 +2,65 @@
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   LayoutDashboard, Box, Settings, Users, HardDrive,
   Network, Activity, ChevronLeft, ChevronRight, Terminal, History, Cog,
-  Package, FileText, Bell, ShieldCheck, Server, PlusCircle
+  Package, FileText, Bell, ShieldCheck, Server, PlusCircle, ChevronDown,
 } from "lucide-react";
 import { useRBAC } from "@/hooks/use-rbac";
 import { useArgoApps } from "@/hooks/use-argocd";
 import { cn } from "@/lib/utils";
 import { useSession } from "next-auth/react";
 
-const navItems = [
-  { href: "/", icon: LayoutDashboard, label: "Dashboard", shortcut: "G D" },
-  { href: "/apps", icon: Box, label: "Applications", shortcut: "G A" },
-  { href: "/catalog-install", icon: PlusCircle, label: "App Installer", shortcut: "G I" },
-  { href: "/events", icon: History, label: "Activity Log", shortcut: "G E" },
-  { href: "/config", icon: Cog, label: "Config Editor", shortcut: "G C" },
-  { href: "/users", icon: Users, label: "Users", shortcut: "G U" },
-  { href: "/registry", icon: Package, label: "Registry", shortcut: "G R" },
-  { href: "/logs", icon: FileText, label: "Pod Logs", shortcut: "G L" },
-  { href: "/storage", icon: HardDrive, label: "Storage", shortcut: "G S" },
-  { href: "/network", icon: Network, label: "Network", shortcut: "G N" },
-  { href: "/health", icon: Activity, label: "Health", shortcut: "G H" },
-  { href: "/security", icon: ShieldCheck, label: "Security", shortcut: "G Y" },
-  { href: "/cluster", icon: Server, label: "Cluster", shortcut: "G K" },
-  { href: "/settings", icon: Settings, label: "Settings", shortcut: "" },
+interface NavItem {
+  href: string;
+  icon: React.ElementType;
+  label: string;
+  shortcut: string;
+}
+
+interface NavGroup {
+  label: string;
+  items: NavItem[];
+}
+
+const navGroups: NavGroup[] = [
+  {
+    label: "Core",
+    items: [
+      { href: "/", icon: LayoutDashboard, label: "Dashboard", shortcut: "G D" },
+      { href: "/apps", icon: Box, label: "Applications", shortcut: "G A" },
+      { href: "/catalog-install", icon: PlusCircle, label: "App Installer", shortcut: "G I" },
+      { href: "/events", icon: History, label: "Activity Log", shortcut: "G E" },
+    ],
+  },
+  {
+    label: "Platform",
+    items: [
+      { href: "/config", icon: Cog, label: "Config Editor", shortcut: "G C" },
+      { href: "/users", icon: Users, label: "Users", shortcut: "G U" },
+      { href: "/registry", icon: Package, label: "Registry", shortcut: "G R" },
+      { href: "/logs", icon: FileText, label: "Pod Logs", shortcut: "G L" },
+    ],
+  },
+  {
+    label: "Infrastructure",
+    items: [
+      { href: "/storage", icon: HardDrive, label: "Storage", shortcut: "G S" },
+      { href: "/network", icon: Network, label: "Network", shortcut: "G N" },
+      { href: "/health", icon: Activity, label: "Health", shortcut: "G H" },
+      { href: "/security", icon: ShieldCheck, label: "Security", shortcut: "G Y" },
+      { href: "/cluster", icon: Server, label: "Cluster", shortcut: "G K" },
+    ],
+  },
+  {
+    label: "Settings",
+    items: [
+      { href: "/settings", icon: Settings, label: "Settings", shortcut: "" },
+    ],
+  },
 ];
 
 function ClusterHealthDot() {
@@ -73,6 +105,21 @@ export function Sidebar() {
     unknown: "text-slate-400 bg-slate-500/10 border-slate-500/20",
   };
 
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>(() => {
+    if (typeof window === "undefined") return {};
+    try {
+      return JSON.parse(localStorage.getItem("sidebar-collapsed-groups") ?? "{}");
+    } catch { return {}; }
+  });
+
+  const toggleGroup = (label: string) => {
+    setCollapsedGroups(prev => {
+      const next = { ...prev, [label]: !prev[label] };
+      localStorage.setItem("sidebar-collapsed-groups", JSON.stringify(next));
+      return next;
+    });
+  };
+
   return (
     <motion.aside
       animate={{ width: collapsed ? 72 : 240 }}
@@ -97,9 +144,14 @@ export function Sidebar() {
               {alertCount > 0 && (
                 <div className="relative">
                   <Bell className="w-4 h-4 text-slate-400" />
-                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full text-[9px] font-bold text-white flex items-center justify-center">
+                  <motion.span
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    transition={{ type: "spring", stiffness: 500, damping: 20 }}
+                    className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full text-[9px] font-bold text-white flex items-center justify-center"
+                  >
                     {alertCount > 9 ? "9+" : alertCount}
-                  </span>
+                  </motion.span>
                 </div>
               )}
             </motion.div>
@@ -107,54 +159,101 @@ export function Sidebar() {
         </AnimatePresence>
       </div>
 
-      {/* Nav */}
-      <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
-        {navItems.map((item) => {
-          const isActive = pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href));
+      {/* Nav with collapsible groups */}
+      <nav className="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto custom-scrollbar">
+        {navGroups.map(group => {
+          const isGroupCollapsed = collapsedGroups[group.label] ?? false;
+          const hasActiveItem = group.items.some(item =>
+            item.href === pathname || (item.href !== "/" && pathname.startsWith(item.href))
+          );
+
           return (
-            <Link key={item.href} href={item.href}>
-              <motion.div
-                whileHover={{ x: 2 }}
-                className={cn(
-                  "relative flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors cursor-pointer group",
-                  isActive
-                    ? "bg-indigo-500/20 text-indigo-300 shadow-[inset_0_0_12px_rgba(99,102,241,0.15)]"
-                    : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
+            <div key={group.label} className="mb-1">
+              {/* Group header */}
+              <AnimatePresence>
+                {!collapsed && (
+                  <motion.button
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    onClick={() => toggleGroup(group.label)}
+                    className={cn(
+                      "w-full flex items-center justify-between px-3 py-1.5 rounded-md text-[10px] font-semibold uppercase tracking-wider transition-colors",
+                      hasActiveItem ? "text-indigo-400" : "text-slate-600 hover:text-slate-400"
+                    )}
+                  >
+                    <span>{group.label}</span>
+                    <ChevronDown className={cn(
+                      "w-3 h-3 transition-transform duration-200",
+                      isGroupCollapsed ? "-rotate-90" : ""
+                    )} />
+                  </motion.button>
                 )}
-              >
-                {isActive && (
+              </AnimatePresence>
+
+              {/* Group items */}
+              <AnimatePresence initial={false}>
+                {(!isGroupCollapsed || collapsed) && (
                   <motion.div
-                    layoutId="active-indicator"
-                    className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-indigo-400 rounded-full"
-                  />
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.2, ease: "easeInOut" }}
+                    className="overflow-hidden space-y-0.5"
+                  >
+                    {group.items.map(item => {
+                      const isActive = pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href));
+                      return (
+                        <Link key={item.href} href={item.href}>
+                          <motion.div
+                            whileHover={{ x: collapsed ? 0 : 2 }}
+                            className={cn(
+                              "relative flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all cursor-pointer group",
+                              collapsed ? "justify-center" : "",
+                              isActive
+                                ? "bg-indigo-500/20 text-indigo-300 shadow-[inset_0_0_12px_rgba(99,102,241,0.15)]"
+                                : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
+                            )}
+                          >
+                            {isActive && (
+                              <motion.div
+                                layoutId="active-indicator"
+                                className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-indigo-400 rounded-full"
+                              />
+                            )}
+                            <item.icon className="w-4 h-4 flex-shrink-0" />
+                            <AnimatePresence>
+                              {!collapsed && (
+                                <>
+                                  <motion.span
+                                    initial={{ opacity: 0 }}
+                                    animate={{ opacity: 1 }}
+                                    exit={{ opacity: 0 }}
+                                    className="text-sm font-medium whitespace-nowrap"
+                                  >
+                                    {item.label}
+                                  </motion.span>
+                                  {item.shortcut && (
+                                    <motion.span
+                                      initial={{ opacity: 0 }}
+                                      animate={{ opacity: 1 }}
+                                      exit={{ opacity: 0 }}
+                                      className="ml-auto text-[10px] text-slate-600 font-mono opacity-0 group-hover:opacity-100 transition-opacity"
+                                    >
+                                      {item.shortcut}
+                                    </motion.span>
+                                  )}
+                                </>
+                              )}
+                            </AnimatePresence>
+                          </motion.div>
+                        </Link>
+                      );
+                    })}
+                  </motion.div>
                 )}
-                <item.icon className="w-4 h-4 flex-shrink-0" />
-                <AnimatePresence>
-                  {!collapsed && (
-                    <>
-                      <motion.span
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="text-sm font-medium whitespace-nowrap"
-                      >
-                        {item.label}
-                      </motion.span>
-                      {item.shortcut && (
-                        <motion.span
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          exit={{ opacity: 0 }}
-                          className="ml-auto text-[10px] text-slate-600 font-mono opacity-0 group-hover:opacity-100 transition-opacity"
-                        >
-                          {item.shortcut}
-                        </motion.span>
-                      )}
-                    </>
-                  )}
-                </AnimatePresence>
-              </motion.div>
-            </Link>
+              </AnimatePresence>
+            </div>
           );
         })}
       </nav>

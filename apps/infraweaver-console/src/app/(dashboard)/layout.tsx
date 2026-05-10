@@ -1,6 +1,7 @@
 "use client";
 import { Sidebar } from "@/components/layout/sidebar";
 import { TopBar } from "@/components/layout/topbar";
+import { FloatingActionButton } from "@/components/floating-action-button";
 import { useSession } from "next-auth/react";
 import { useRouter, usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -180,6 +181,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <StatusBar />
         </div>
       </div>
+
+      {/* Floating Action Button (mobile) */}
+      <FloatingActionButton />
 
       {/* Bottom mobile nav */}
       <nav className="fixed bottom-0 left-0 right-0 z-30 md:hidden bg-slate-900/95 backdrop-blur-sm border-t border-white/5 flex safe-bottom">
