@@ -126,6 +126,9 @@ spec:
           requests:
             memory: 256Mi
             cpu: 100m
+          limits:
+            memory: 512Mi
+            cpu: 500m
         readinessProbe:
           httpGet:
             path: /api/health
@@ -140,6 +143,7 @@ spec:
           periodSeconds: 30
         securityContext:
           allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
           capabilities:
             drop:
             - ALL
