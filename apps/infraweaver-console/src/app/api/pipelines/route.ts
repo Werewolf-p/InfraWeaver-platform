@@ -81,7 +81,7 @@ export async function POST(request: Request) {
   const PipelineDispatchBody = z.object({
     workflowId: z.number().int().min(1),
     ref: z.string().min(1).max(255).optional().default("main"),
-    inputs: z.record(z.string()).optional().default({}),
+    inputs: z.record(z.string(), z.string()).optional().default({}),
   });
   const result = PipelineDispatchBody.safeParse(await request.json());
   if (!result.success) return NextResponse.json({ error: result.error.flatten() }, { status: 400 });
