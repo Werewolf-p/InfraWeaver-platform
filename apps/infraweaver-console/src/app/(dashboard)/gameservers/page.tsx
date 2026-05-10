@@ -6,9 +6,11 @@ import {
   Plus, X, ChevronRight, ChevronLeft, Gamepad2,
   Trash2, RefreshCw, Check, AlertTriangle, Copy,
   Loader2, Globe, Network, ChevronDown, ChevronUp, Info,
+  Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { useSimpleMode } from "@/contexts/simple-mode-context";
 
 const GAME_TYPES = [
   { id: "minecraft", icon: "⛏", label: "Minecraft", color: "green", defaultPorts: [{ port: 25565, protocol: "TCP" as const, name: "game" }] },
@@ -264,6 +266,7 @@ function RouterConfigTable({ servers }: { servers: GameServer[] }) {
 }
 
 function AddServerDrawer({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: () => void }) {
+  const { simpleMode, toggle: toggleSimpleMode } = useSimpleMode();
   const [step, setStep] = useState(1);
   const [gameType, setGameType] = useState("");
   const [name, setName] = useState("");
@@ -314,11 +317,24 @@ function AddServerDrawer({ open, onClose, onCreated }: { open: boolean; onClose:
 
   const handleCreate = async () => {
     setCreating(true);
+    // In simple mode, apply defaults
+    const finalPorts = ports.length > 0 ? ports : (selectedType?.defaultPorts ?? []);
+    const finalBackendType = simpleMode ? "external" : backendType;
+    const finalPublicDns = simpleMode ? true : publicDns;
+    const finalInternalDns = simpleMode ? true : internalDns;
     try {
       const res = await fetch("/api/gameservers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, displayName, gameType, targetIP, internalIP: internalIP || undefined, ports, backendType, publicDns, internalDns, description }),
+        body: JSON.stringify({
+          name, displayName, gameType, targetIP,
+          internalIP: internalIP || undefined,
+          ports: finalPorts,
+          backendType: finalBackendType,
+          publicDns: finalPublicDns,
+          internalDns: finalInternalDns,
+          description,
+        }),
       });
       const data = await res.json() as { success: boolean; error?: string };
       if (!res.ok) throw new Error(data.error ?? "Failed");
@@ -339,7 +355,15 @@ function AddServerDrawer({ open, onClose, onCreated }: { open: boolean; onClose:
   };
 
   const stepLabels = ["Protocol", "Details", "Ports", "Backend", "Routing", "DNS", "Review"];
+  const simpleStepLabels = ["Protocol", "Quick Setup", "Create"];
+  const activeStepLabels = simpleMode ? simpleStepLabels : stepLabels;
+  const totalSteps = activeStepLabels.length;
   const effectiveIntIP = internalIP || targetIP;
+
+  const handleModeToggle = () => {
+    toggleSimpleMode();
+    setStep(1);
+  };
 
   return (
     <AnimatePresence>
@@ -359,20 +383,35 @@ function AddServerDrawer({ open, onClose, onCreated }: { open: boolean; onClose:
             <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
               <div>
                 <h2 className="text-lg font-bold text-white">Add Port Route</h2>
-                <p className="text-xs text-slate-500 mt-0.5">Step {step} of 7 — {stepLabels[step - 1]}</p>
+                <p className="text-xs text-slate-500 mt-0.5">Step {step} of {totalSteps} — {activeStepLabels[step - 1]}</p>
               </div>
-              <button onClick={() => { onClose(); resetForm(); }} className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors">
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleModeToggle}
+                  className={cn(
+                    "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors",
+                    simpleMode
+                      ? "bg-indigo-500/20 border-indigo-500/30 text-indigo-300"
+                      : "bg-white/5 border-white/10 text-slate-400 hover:text-white"
+                  )}
+                >
+                  <Zap className="w-3 h-3" />
+                  {simpleMode ? "Simple" : "Advanced"}
+                </button>
+                <button onClick={() => { onClose(); resetForm(); }} className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
 
             <div className="flex px-6 py-3 gap-1 border-b border-white/5">
-              {stepLabels.map((_, i) => (
+              {activeStepLabels.map((_, i) => (
                 <div key={i} className={cn("flex-1 h-1 rounded-full transition-all duration-300", i + 1 <= step ? "bg-indigo-500" : "bg-white/10")} />
               ))}
             </div>
 
             <div className="flex-1 overflow-y-auto p-6">
+              {/* Step 1 — same for both modes */}
               {step === 1 && (
                 <div>
                   <h3 className="text-sm font-semibold text-slate-300 mb-1">Select protocol / game type</h3>
@@ -398,7 +437,107 @@ function AddServerDrawer({ open, onClose, onCreated }: { open: boolean; onClose:
                 </div>
               )}
 
-              {step === 2 && (
+              {/* Simple mode — Step 2: Quick Setup */}
+              {simpleMode && step === 2 && (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3 p-3 rounded-lg bg-indigo-500/10 border border-indigo-500/20">
+                    <Zap className="w-4 h-4 text-indigo-400 flex-shrink-0" />
+                    <p className="text-xs text-indigo-300">Quick Setup — defaults will be applied for ports, backend, and DNS</p>
+                  </div>
+                  <div className="flex items-center gap-3 p-3 rounded-lg bg-white/5 border border-white/10">
+                    <span className="text-2xl">{selectedType?.icon}</span>
+                    <span className="text-sm font-medium text-white">{selectedType?.label}</span>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-400 mb-1.5">Server name <span className="text-slate-600">(subdomain)</span></label>
+                    <input
+                      value={name} onChange={e => setName(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
+                      placeholder="mc1"
+                      className="w-full bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-white text-sm font-mono placeholder:text-slate-600 focus:outline-none focus:border-indigo-500"
+                    />
+                    {name && <p className="text-xs text-slate-500 mt-1">→ {name}.rlservers.com</p>}
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-400 mb-1.5">Display name</label>
+                    <input
+                      value={displayName} onChange={e => setDisplayName(e.target.value)}
+                      placeholder="Minecraft — Survival"
+                      className="w-full bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-white text-sm placeholder:text-slate-600 focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-400 mb-1.5">
+                      Target IP <span className="text-red-400">*</span>
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        value={targetIP} onChange={e => setTargetIP(e.target.value)}
+                        placeholder="1.2.3.4"
+                        className="flex-1 bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-white text-sm font-mono placeholder:text-slate-600 focus:outline-none focus:border-indigo-500"
+                      />
+                      <button
+                        onClick={detectMyIP} disabled={detectingIP}
+                        className="px-3 py-2 rounded-lg border border-white/10 bg-white/5 text-xs text-slate-400 hover:text-white hover:bg-white/10 transition-colors whitespace-nowrap disabled:opacity-50"
+                      >
+                        {detectingIP ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Detect my IP"}
+                      </button>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-400 mb-1.5">Description <span className="text-slate-600">(optional)</span></label>
+                    <textarea
+                      value={description} onChange={e => setDescription(e.target.value)}
+                      placeholder="A survival Minecraft server..."
+                      rows={2}
+                      className="w-full bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-white text-sm placeholder:text-slate-600 focus:outline-none focus:border-indigo-500 resize-none"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Simple mode — Step 3: Review + Create */}
+              {simpleMode && step === 3 && (
+                <div className="space-y-4">
+                  <div className="p-4 rounded-xl border border-white/10 bg-white/5 space-y-3">
+                    <div className="flex items-center gap-3">
+                      <span className="text-2xl">{selectedType?.icon}</span>
+                      <div>
+                        <p className="text-sm font-bold text-white">{displayName}</p>
+                        <p className="text-xs text-slate-500 font-mono">{name}.rlservers.com</p>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="p-2 rounded-lg bg-slate-800/50">
+                        <p className="text-slate-500 mb-1">Target IP</p>
+                        <p className="font-mono text-white">{targetIP || "—"}</p>
+                      </div>
+                      <div className="p-2 rounded-lg bg-slate-800/50">
+                        <p className="text-slate-500 mb-1">Backend</p>
+                        <p className="text-white">External</p>
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-500 mb-1.5">Ports <span className="text-indigo-400">(game defaults)</span></p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {ports.map((p, i) => (
+                          <span key={i} className="flex items-center gap-1 text-xs bg-slate-800 rounded-md px-2 py-1 font-mono text-slate-300">
+                            <ProtocolBadge protocol={p.protocol} /> {p.port}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-500 mb-1.5">DNS Records <span className="text-indigo-400">(default: both enabled)</span></p>
+                      <div className="flex flex-col gap-1.5">
+                        <span className="text-xs font-mono text-green-400 bg-green-500/10 border border-green-500/20 rounded-md px-2 py-1">✓ {name}.rlservers.com → {targetIP}</span>
+                        <span className="text-xs font-mono text-blue-400 bg-blue-500/10 border border-blue-500/20 rounded-md px-2 py-1">✓ {name}.int.rlservers.com → {targetIP}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+              {/* Advanced mode — Step 2: Details */}
+              {!simpleMode && step === 2 && (
                 <div className="space-y-4">
                   <div className="flex items-center gap-3 p-3 rounded-lg bg-white/5 border border-white/10">
                     <span className="text-2xl">{selectedType?.icon}</span>
@@ -433,7 +572,7 @@ function AddServerDrawer({ open, onClose, onCreated }: { open: boolean; onClose:
                 </div>
               )}
 
-              {step === 3 && (
+              {!simpleMode && step === 3 && (
                 <div className="space-y-4">
                   <p className="text-xs text-slate-500">Configure ports for this game server.</p>
                   <div className="space-y-2">
@@ -478,7 +617,7 @@ function AddServerDrawer({ open, onClose, onCreated }: { open: boolean; onClose:
                 </div>
               )}
 
-              {step === 4 && (
+              {!simpleMode && step === 4 && (
                 <div className="space-y-4">
                   <div className="grid grid-cols-2 gap-3">
                     {(["external", "in-cluster"] as const).map(bt => (
@@ -508,7 +647,7 @@ function AddServerDrawer({ open, onClose, onCreated }: { open: boolean; onClose:
                 </div>
               )}
 
-              {step === 5 && (
+              {!simpleMode && step === 5 && (
                 <div className="space-y-5">
                   <div className="flex items-center gap-2 p-3 rounded-lg bg-blue-500/10 border border-blue-500/20">
                     <Globe className="w-4 h-4 text-blue-400 flex-shrink-0" />
@@ -584,7 +723,7 @@ function AddServerDrawer({ open, onClose, onCreated }: { open: boolean; onClose:
                 </div>
               )}
 
-              {step === 6 && (
+              {!simpleMode && step === 6 && (
                 <div className="space-y-4">
                   <p className="text-xs text-slate-500">Configure DNS records via Cloudflare API</p>
                   <div className="space-y-3">
@@ -619,7 +758,7 @@ function AddServerDrawer({ open, onClose, onCreated }: { open: boolean; onClose:
                 </div>
               )}
 
-              {step === 7 && (
+              {!simpleMode && step === 7 && (
                 <div className="space-y-4">
                   <div className="p-4 rounded-xl border border-white/10 bg-white/5 space-y-3">
                     <div className="flex items-center gap-3">
@@ -670,11 +809,12 @@ function AddServerDrawer({ open, onClose, onCreated }: { open: boolean; onClose:
 
             <div className="flex flex-col items-end gap-1 border-t border-white/10 px-6 pt-4 pb-4" style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px) + 16px, 16px)" }}>
               {/* Hint text for disabled Next */}
-              {((step === 1 && !gameType) || (step === 2 && (!name || !displayName)) || (step === 5 && !targetIP)) && (
+              {((step === 1 && !gameType) || (!simpleMode && step === 2 && (!name || !displayName)) || (simpleMode && step === 2 && (!name || !targetIP)) || (!simpleMode && step === 5 && !targetIP)) && (
                 <p className="text-[11px] text-amber-500/80 text-right">
                   {step === 1 && "Select a protocol type above to continue"}
-                  {step === 2 && (!name ? "Enter a server name to continue" : "Enter a display name to continue")}
-                  {step === 5 && "Enter a target IP address to continue"}
+                  {!simpleMode && step === 2 && (!name ? "Enter a server name to continue" : "Enter a display name to continue")}
+                  {simpleMode && step === 2 && (!name ? "Enter a server name to continue" : "Enter a target IP to continue")}
+                  {!simpleMode && step === 5 && "Enter a target IP address to continue"}
                 </p>
               )}
               <div className="flex items-center justify-between w-full">
@@ -685,13 +825,14 @@ function AddServerDrawer({ open, onClose, onCreated }: { open: boolean; onClose:
                 <ChevronLeft className="w-4 h-4" />
                 {step > 1 ? "Back" : "Cancel"}
               </button>
-              {step < 7 ? (
+              {step < totalSteps ? (
                 <button
                   onClick={() => setStep(step + 1)}
                   disabled={
                     (step === 1 && !gameType) ||
-                    (step === 2 && (!name || !displayName)) ||
-                    (step === 5 && !targetIP)
+                    (!simpleMode && step === 2 && (!name || !displayName)) ||
+                    (simpleMode && step === 2 && (!name || !targetIP)) ||
+                    (!simpleMode && step === 5 && !targetIP)
                   }
                   className="flex items-center gap-2 px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 >

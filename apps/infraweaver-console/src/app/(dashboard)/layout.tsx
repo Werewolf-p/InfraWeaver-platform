@@ -13,6 +13,8 @@ import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import { CommandPalette } from "@/components/command-palette";
 import { KeyboardShortcutsProvider } from "@/components/keyboard-shortcuts-modal";
+import { SimpleModeProvider } from "@/contexts/simple-mode-context";
+import { TrendingUp } from "lucide-react";
 
 const mobileNavItems = [
   { href: "/home", icon: Home, label: "Home" },
@@ -34,6 +36,8 @@ const drawerNavItems = [
   { href: "/cluster", icon: Server, label: "Cluster" },
   { href: "/users", icon: Users, label: "User Management" },
   { href: "/gameservers", icon: Gamepad2, label: "Port Routing" },
+  { href: "/uptime", icon: TrendingUp, label: "Uptime History" },
+  { href: "/certificates", icon: ShieldCheck, label: "Certificates" },
 ];
 
 function StatusBar() {
@@ -143,6 +147,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
 
   return (
+    <SimpleModeProvider>
     <div className="flex h-screen overflow-hidden overflow-x-hidden">
       {/* Aurora background */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none z-0">
@@ -343,5 +348,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         )}
       </AnimatePresence>
     </div>
+    </SimpleModeProvider>
   );
 }

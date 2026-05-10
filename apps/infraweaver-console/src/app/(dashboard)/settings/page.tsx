@@ -1,7 +1,8 @@
 "use client";
 import { motion } from "framer-motion";
-import { RefreshCw, Layout, Filter, CheckCircle2, XCircle, Loader2, Server, Copy, Check, Sun, AlignJustify } from "lucide-react";
+import { RefreshCw, Layout, Filter, CheckCircle2, XCircle, Loader2, Server, Copy, Check, Sun, AlignJustify, Zap } from "lucide-react";
 import { useSettingsContext, type RefreshInterval } from "@/contexts/settings-context";
+import { useSimpleMode } from "@/contexts/simple-mode-context";
 import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
@@ -41,6 +42,7 @@ function ConnectionStatus({ label, queryFn }: { label: string; queryFn: () => Pr
 
 export default function SettingsPage() {
   const { settings, updateSetting, mounted } = useSettingsContext();
+  const { simpleMode, setSimpleMode } = useSimpleMode();
   const [activeTab, setActiveTab] = useState<"general" | "cluster">("general");
 
   if (!mounted) {
@@ -213,6 +215,38 @@ export default function SettingsPage() {
             </div>
           </div>
           <DensityToggle />
+        </motion.div>
+
+        {/* Simple Mode */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.14 }}
+          className="bg-white/5 border border-white/10 rounded-xl p-5 flex items-center justify-between"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-indigo-500/20 flex items-center justify-center">
+              <Zap className="w-4 h-4 text-indigo-400" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-white">Simple Mode</p>
+              <p className="text-xs text-slate-400">Hide advanced fields in forms across the console</p>
+            </div>
+          </div>
+          <button
+            onClick={() => setSimpleMode(!simpleMode)}
+            className={cn(
+              "relative w-11 h-6 rounded-full transition-colors",
+              simpleMode ? "bg-indigo-500" : "bg-slate-700"
+            )}
+          >
+            <span
+              className={cn(
+                "absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform",
+                simpleMode ? "translate-x-5" : "translate-x-0"
+              )}
+            />
+          </button>
         </motion.div>
 
         {/* Connection Status */}

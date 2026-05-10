@@ -72,6 +72,8 @@ const navGroups: NavGroup[] = [
       { href: "/secret-expiry", icon: ShieldCheck, label: "Secret Expiry", shortcut: "" },
       { href: "/pv-browser", icon: HardDrive, label: "PV Browser", shortcut: "" },
       { href: "/pods", icon: Server, label: "Pods", shortcut: "" },
+      { href: "/uptime", icon: TrendingUp, label: "Uptime History", shortcut: "" },
+      { href: "/certificates", icon: ShieldCheck, label: "Certificates", shortcut: "" },
     ],
   },
   {
@@ -154,6 +156,9 @@ const hrefIconMap: Record<string, React.ElementType> = {
   "/health-tester": Activity,
   // Services
   "/gameservers": Gamepad2,
+  // New pages
+  "/uptime": TrendingUp,
+  "/certificates": ShieldCheck,
 };
 
 function ClusterHealthDot() {

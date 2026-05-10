@@ -351,6 +351,101 @@ function QuickActions() {
 
 const ALL_CATEGORIES = ["All", ...SERVICE_GROUPS.map(g => g.label)];
 
+function QuickStats() {
+  const { data: pods } = useQuery({
+    queryKey: ["pods", "home"],
+    queryFn: async () => {
+      const res = await fetch("/api/pods");
+      return res.json() as Promise<Array<{ status: string }>>;
+    },
+    refetchInterval: 60000,
+    staleTime: 50000,
+  });
+
+  const { data: argoApps } = useQuery({
+    queryKey: ["argocd", "apps", "home"],
+    queryFn: async () => {
+      const res = await fetch("/api/argocd/apps");
+      if (!res.ok) return null;
+      const apps = await res.json() as Array<{ status?: { health?: { status?: string } } }>;
+      const healthy = apps.filter(a => a.status?.health?.status === "Healthy").length;
+      return { healthy, total: apps.length };
+    },
+    refetchInterval: 60000,
+    staleTime: 50000,
+  });
+
+  const { data: cluster } = useQuery({
+    queryKey: ["health", "cluster", "home"],
+    queryFn: async () => {
+      const res = await fetch("/api/health/cluster");
+      return res.json() as Promise<{ status: string }>;
+    },
+    refetchInterval: 60000,
+    staleTime: 50000,
+  });
+
+  const runningPods = (pods ?? []).filter(p => p.status === "Running").length;
+  const totalPods = (pods ?? []).length;
+  const isHealthy = !cluster || cluster.status === "healthy";
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.08 }}
+      className="grid grid-cols-3 gap-3 relative z-10"
+    >
+      <div className="bg-white/5 border border-white/10 rounded-xl p-4 flex items-center gap-3">
+        <div className={cn(
+          "w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0",
+          isHealthy ? "bg-green-500/15" : "bg-red-500/15"
+        )}>
+          <Activity className={cn("w-4 h-4", isHealthy ? "text-green-400" : "text-red-400")} />
+        </div>
+        <div>
+          <p className="text-xs text-slate-500 uppercase tracking-wider">Cluster</p>
+          <p className={cn("text-sm font-semibold", isHealthy ? "text-green-400" : "text-red-400")}>
+            {isHealthy ? "Healthy" : "Degraded"}
+          </p>
+        </div>
+      </div>
+      <div className="bg-white/5 border border-white/10 rounded-xl p-4 flex items-center gap-3">
+        <div className="w-8 h-8 rounded-lg bg-indigo-500/15 flex items-center justify-center flex-shrink-0">
+          <Package className="w-4 h-4 text-indigo-400" />
+        </div>
+        <div>
+          <p className="text-xs text-slate-500 uppercase tracking-wider">Pods</p>
+          <p className="text-sm font-semibold text-white tabular-nums">
+            {totalPods > 0 ? (
+              <>
+                <AnimatedNumber value={runningPods} duration={600} className="text-white" />
+                <span className="text-slate-500">/{totalPods}</span>
+              </>
+            ) : <span className="text-slate-500">—</span>}
+          </p>
+        </div>
+      </div>
+      <div className="bg-white/5 border border-white/10 rounded-xl p-4 flex items-center gap-3">
+        <div className="w-8 h-8 rounded-lg bg-orange-500/15 flex items-center justify-center flex-shrink-0">
+          <GitBranch className="w-4 h-4 text-orange-400" />
+        </div>
+        <div>
+          <p className="text-xs text-slate-500 uppercase tracking-wider">ArgoCD Apps</p>
+          <p className="text-sm font-semibold text-white tabular-nums">
+            {argoApps ? (
+              <>
+                <AnimatedNumber value={argoApps.healthy} duration={600} className="text-green-400" />
+                <span className="text-slate-500">/{argoApps.total}</span>
+              </>
+            ) : <span className="text-slate-500">—</span>}
+          </p>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
 export default function HomePortalPage() {
   const { data: session } = useSession();
   const [activeCategory, setActiveCategory] = useState("All");
@@ -478,6 +573,9 @@ export default function HomePortalPage() {
       >
         <QuickActions />
       </motion.div>
+
+      {/* Quick stats — pods, ArgoCD, cluster health */}
+      <QuickStats />
 
       {/* Category filter bar */}
       <motion.div

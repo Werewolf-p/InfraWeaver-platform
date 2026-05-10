@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Users, Plus, Pencil, Trash2, Search, Save, X, ChevronDown,
   Shield, Eye, User, CheckCircle2, XCircle, AlertTriangle, ChevronRight,
-  Info, Lock, HardDrive, Mail,
+  Info, Lock, HardDrive, Mail, Zap,
 } from "lucide-react";
 import { UserActionsDropdown } from "@/components/users/user-actions-dropdown";
 import { InviteModal } from "@/components/users/invite-modal";
@@ -15,6 +15,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { useSession } from "next-auth/react";
 import { StorageTab } from "@/components/users/storage-tab";
+import { useSimpleMode } from "@/contexts/simple-mode-context";
 
 const ACCESS_LEVELS = ["admin", "platform-user", "viewer"] as const;
 const WIKI_ROLES = ["admin", "editor", "reader"];
@@ -135,6 +136,7 @@ function UserFormModal({
   initialUser,
   isNew,
   currentUsername,
+  simpleMode,
 }: {
   open: boolean;
   onClose: () => void;
@@ -142,6 +144,7 @@ function UserFormModal({
   initialUser: PlatformUser;
   isNew: boolean;
   currentUsername?: string;
+  simpleMode: boolean;
 }) {
   const [form, setForm] = useState<PlatformUser>(initialUser);
   const [loading, setLoading] = useState(false);
@@ -172,7 +175,18 @@ function UserFormModal({
     if (!isValid) return;
     setLoading(true);
     try {
-      await onSave(form);
+      let submitForm = form;
+      if (simpleMode) {
+        // Apply defaults based on access_level
+        const levelDefaults: Record<string, { wiki_role: string; argocd_role: string; authentik_groups: string[] }> = {
+          admin: { wiki_role: "admin", argocd_role: "role:admin", authentik_groups: ["platform-admins", "platform-users"] },
+          "platform-user": { wiki_role: "editor", argocd_role: "role:operator", authentik_groups: ["platform-users"] },
+          viewer: { wiki_role: "reader", argocd_role: "role:readonly", authentik_groups: ["platform-users"] },
+        };
+        const defaults = levelDefaults[form.access_level] ?? levelDefaults["viewer"];
+        submitForm = { ...form, ...defaults };
+      }
+      await onSave(submitForm);
     } finally {
       setLoading(false);
     }
@@ -269,7 +283,15 @@ function UserFormModal({
             )}
           </div>
 
+          {/* Additional fields — hidden in simple mode */}
+          {simpleMode && (
+            <div className="flex items-center gap-2 p-2.5 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-xs text-indigo-400">
+              <Zap className="w-3.5 h-3.5 flex-shrink-0" />
+              ⚡ Simple mode — advanced settings hidden (wiki role, ArgoCD role, groups are auto-set)
+            </div>
+          )}
           {/* Additional fields */}
+          {!simpleMode && (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="text-xs text-slate-400 mb-1 block">Wiki Role</label>
@@ -292,7 +314,9 @@ function UserFormModal({
               </select>
             </div>
           </div>
+          )}
 
+          {!simpleMode && (
           <div>
             <label className="text-xs text-slate-400 mb-2 block">Authentik Groups</label>
             <div className="flex flex-wrap gap-2">
@@ -313,6 +337,7 @@ function UserFormModal({
               ))}
             </div>
           </div>
+          )}
         </div>
 
         <div className="flex flex-col-reverse sm:flex-row gap-3 p-5 border-t border-white/5 sm:justify-end">
@@ -594,6 +619,7 @@ export default function UsersPage() {
   const saveMutation = useSaveUsersConfig();
   const { isAdmin } = useRBAC();
   const { data: session } = useSession();
+  const { simpleMode, toggle: toggleSimpleMode } = useSimpleMode();
 
   const [search, setSearch] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
@@ -677,6 +703,18 @@ export default function UsersPage() {
           </div>
           {isAdmin && activeTab === "users" && (
             <div className="flex items-center gap-2">
+              <button
+                onClick={toggleSimpleMode}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm border transition-colors",
+                  simpleMode
+                    ? "bg-indigo-500/20 border-indigo-500/30 text-indigo-300"
+                    : "bg-white/5 border-white/10 text-slate-400 hover:text-white"
+                )}
+              >
+                <Zap className="w-3.5 h-3.5" />
+                {simpleMode ? "Simple" : "Advanced"}
+              </button>
               <button
                 onClick={() => setInviteOpen(true)}
                 className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-indigo-500/20 border border-indigo-500/30 text-sm text-indigo-300 hover:bg-indigo-500/30 transition-colors active:scale-95 touch-manipulation"
@@ -868,6 +906,7 @@ export default function UsersPage() {
             initialUser={editUser ?? defaultUser}
             isNew={!editUser}
             currentUsername={currentUsername}
+            simpleMode={simpleMode}
           />
         )}
       </AnimatePresence>
