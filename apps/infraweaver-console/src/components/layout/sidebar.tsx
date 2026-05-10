@@ -94,7 +94,7 @@ const navGroups: NavGroup[] = [
   {
     label: "Services",
     items: [
-      { href: "/gameservers", icon: Gamepad2, label: "Game Servers", shortcut: "" },
+      { href: "/gameservers", icon: Gamepad2, label: "Port Routing", shortcut: "" },
     ],
   },
   {

@@ -33,7 +33,7 @@ const drawerNavItems = [
   { href: "/security", icon: ShieldCheck, label: "Security" },
   { href: "/cluster", icon: Server, label: "Cluster" },
   { href: "/users", icon: Users, label: "User Management" },
-  { href: "/gameservers", icon: Gamepad2, label: "Game Servers" },
+  { href: "/gameservers", icon: Gamepad2, label: "Port Routing" },
 ];
 
 function StatusBar() {

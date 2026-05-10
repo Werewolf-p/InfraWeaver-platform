@@ -338,7 +338,7 @@ function AddServerDrawer({ open, onClose, onCreated }: { open: boolean; onClose:
     setPublicDns(true); setInternalDns(true);
   };
 
-  const stepLabels = ["Game Type", "Details", "Ports", "Backend", "Routing", "DNS", "Review"];
+  const stepLabels = ["Protocol", "Details", "Ports", "Backend", "Routing", "DNS", "Review"];
   const effectiveIntIP = internalIP || targetIP;
 
   return (
@@ -347,17 +347,17 @@ function AddServerDrawer({ open, onClose, onCreated }: { open: boolean; onClose:
         <>
           <motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40"
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[100]"
             onClick={onClose}
           />
           <motion.div
             initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }}
             transition={{ type: "spring", damping: 30, stiffness: 300 }}
-            className="fixed right-0 top-0 h-full w-full max-w-xl bg-slate-900 border-l border-white/10 z-50 flex flex-col shadow-2xl"
+            className="fixed right-0 top-0 h-full w-full max-w-xl bg-slate-900 border-l border-white/10 z-[101] flex flex-col shadow-2xl"
           >
             <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
               <div>
-                <h2 className="text-lg font-bold text-white">Add Game Server</h2>
+                <h2 className="text-lg font-bold text-white">Add Port Route</h2>
                 <p className="text-xs text-slate-500 mt-0.5">Step {step} of 7 — {stepLabels[step - 1]}</p>
               </div>
               <button onClick={() => { onClose(); resetForm(); }} className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors">
@@ -374,7 +374,8 @@ function AddServerDrawer({ open, onClose, onCreated }: { open: boolean; onClose:
             <div className="flex-1 overflow-y-auto p-6">
               {step === 1 && (
                 <div>
-                  <h3 className="text-sm font-semibold text-slate-300 mb-4">Select game type</h3>
+                  <h3 className="text-sm font-semibold text-slate-300 mb-1">Select protocol / game type</h3>
+                  <p className="text-xs text-slate-500 mb-4">Pick one to auto-fill default ports, then press Next</p>
                   <div className="grid grid-cols-2 gap-3">
                     {GAME_TYPES.map(gt => (
                       <button
@@ -660,7 +661,7 @@ function AddServerDrawer({ open, onClose, onCreated }: { open: boolean; onClose:
               )}
             </div>
 
-            <div className="flex items-center justify-between px-6 py-4 border-t border-white/10">
+            <div className="flex items-center justify-between px-6 py-4 border-t border-white/10" style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px) + 16px, 16px)" }}>
               <button
                 onClick={() => step > 1 ? setStep(step - 1) : onClose()}
                 className="flex items-center gap-2 px-4 py-2 rounded-lg text-slate-400 hover:text-white transition-colors"
@@ -672,6 +673,7 @@ function AddServerDrawer({ open, onClose, onCreated }: { open: boolean; onClose:
                 <button
                   onClick={() => setStep(step + 1)}
                   disabled={
+                    (step === 1 && !gameType) ||
                     (step === 2 && (!name || !displayName)) ||
                     (step === 5 && !targetIP)
                   }
@@ -765,9 +767,9 @@ export default function GameServersPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
-            Game Servers
+            Port Routing
           </h1>
-          <p className="text-sm text-slate-500 mt-1">Manage dedicated game server networking via DNS routing</p>
+          <p className="text-sm text-slate-500 mt-1">Route traffic to any server via DNS — same port, different IPs</p>
         </div>
         <div className="flex items-center gap-3">
           <button onClick={() => refetch()} className="p-2 rounded-lg border border-white/10 text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
@@ -777,7 +779,7 @@ export default function GameServersPage() {
             onClick={() => setDrawerOpen(true)}
             className="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors"
           >
-            <Plus className="w-4 h-4" /> Add Game Server
+            <Plus className="w-4 h-4" /> Add Route
           </button>
         </div>
       </div>
@@ -798,10 +800,10 @@ export default function GameServersPage() {
         ) : !servers?.length ? (
           <div className="p-12 text-center">
             <Gamepad2 className="w-12 h-12 text-slate-700 mx-auto mb-4" />
-            <h3 className="text-sm font-medium text-slate-400 mb-2">No game servers</h3>
-            <p className="text-xs text-slate-600 mb-4">Create your first game server to get started with DNS-based routing</p>
+            <h3 className="text-sm font-medium text-slate-400 mb-2">No routes configured</h3>
+            <p className="text-xs text-slate-600 mb-4">Add your first port route to start DNS-based traffic routing</p>
             <button onClick={() => setDrawerOpen(true)} className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm transition-colors">
-              Add Game Server
+              Add Route
             </button>
           </div>
         ) : (
