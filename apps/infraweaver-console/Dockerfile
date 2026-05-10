@@ -2,6 +2,9 @@ FROM public.ecr.aws/docker/library/node:20-alpine AS builder
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci --legacy-peer-deps
+# CACHEBUST ensures COPY . . and npm run build never use stale cache
+# (BuildKit can fail to invalidate cache for dirs with special chars like '(dashboard)')
+ARG CACHEBUST=1
 COPY . .
 RUN npm run build
 
