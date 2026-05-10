@@ -1,6 +1,6 @@
 "use client";
 import { motion, AnimatePresence } from "framer-motion";
-import { useState } from "react";
+import { useState, useRef, useCallback } from "react";
 import Link from "next/link";
 import { useArgoApps, useSyncApp, type ArgoApp } from "@/hooks/use-argocd";
 import { useRBAC } from "@/hooks/use-rbac";
@@ -10,6 +10,23 @@ import { RefreshCw, Search, X, RotateCcw, Clock, GitCommit, Trash2, ExternalLink
 import { toast } from "sonner";
 import { cn, timeAgo } from "@/lib/utils";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let confettiLib: any = null;
+async function fireConfetti() {
+  if (!confettiLib) {
+    confettiLib = await import("canvas-confetti");
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const fire: (opts: object) => void = confettiLib.default ?? confettiLib;
+  fire({
+    particleCount: 40,
+    spread: 55,
+    origin: { y: 0.6 },
+    colors: ["#6366f1", "#8b5cf6", "#06b6d4", "#22c55e"],
+    disableForReducedMotion: true,
+  });
+}
 
 function useDeleteApp() {
   const qc = useQueryClient();
@@ -48,6 +65,8 @@ function HealthDot({ status }: { status: string }) {
 }
 
 function AppCard({ app, onClick, compact }: { app: ArgoApp; onClick: () => void; compact?: boolean }) {
+  const [showPreview, setShowPreview] = useState(false);
+  const previewTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const borderColor = {
     Healthy: "border-green-500/20 hover:border-green-500/40",
     Degraded: "border-red-500/30 hover:border-red-500/50",
@@ -57,49 +76,98 @@ function AppCard({ app, onClick, compact }: { app: ArgoApp; onClick: () => void;
     Unknown: "border-slate-500/10",
   }[app.status.health.status] ?? "border-white/10";
 
+  const handleMouseEnter = () => {
+    previewTimeout.current = setTimeout(() => setShowPreview(true), 200);
+  };
+  const handleMouseLeave = () => {
+    if (previewTimeout.current) clearTimeout(previewTimeout.current);
+    setShowPreview(false);
+  };
+
   return (
-    <motion.div
-      whileHover={{ scale: 1.01, y: -1 }}
-      whileTap={{ scale: 0.97 }}
-      onClick={onClick}
-      className={cn(
-        "bg-white/5 backdrop-blur-sm border rounded-xl cursor-pointer transition-all hover:shadow-[0_0_20px_rgba(99,102,241,0.15)]",
-        compact ? "p-3" : "p-4",
-        borderColor
-      )}
-    >
-      <div className="flex items-start justify-between mb-3">
-        <h3 className="font-medium text-white text-sm truncate pr-2">{app.metadata.name}</h3>
-        <HealthDot status={app.status.health.status} />
-      </div>
-      <div className="space-y-1.5">
-        <div className="flex items-center justify-between">
-          <span className="text-xs text-slate-500">Health</span>
-          <span className={cn("text-xs font-medium", {
-            "text-green-400": app.status.health.status === "Healthy",
-            "text-red-400": app.status.health.status === "Degraded",
-            "text-yellow-400": app.status.health.status === "Progressing",
-            "text-slate-400": ["Suspended","Missing","Unknown"].includes(app.status.health.status),
-          })}>
-            {getDisplayHealth(app)}
-          </span>
+    <div className="relative" onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
+      <motion.div
+        whileHover={{ scale: 1.01, y: -1 }}
+        whileTap={{ scale: 0.97 }}
+        onClick={onClick}
+        className={cn(
+          "bg-white/5 backdrop-blur-sm border rounded-xl cursor-pointer transition-all hover:shadow-[0_0_20px_rgba(99,102,241,0.15)]",
+          compact ? "p-3" : "p-4",
+          borderColor
+        )}
+      >
+        <div className="flex items-start justify-between mb-3">
+          <h3 className="font-medium text-white text-sm truncate pr-2">{app.metadata.name}</h3>
+          <HealthDot status={app.status.health.status} />
         </div>
-        <div className="flex items-center justify-between">
-          <span className="text-xs text-slate-500">Sync</span>
-          <span className={cn("text-xs font-medium", {
-            "text-blue-400": app.status.sync.status === "Synced",
-            "text-orange-400": app.status.sync.status === "OutOfSync",
-            "text-slate-400": app.status.sync.status === "Unknown",
-          })}>
-            {app.status.sync.status}
-          </span>
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-slate-500">Health</span>
+            <span className={cn("text-xs font-medium", {
+              "text-green-400": app.status.health.status === "Healthy",
+              "text-red-400": app.status.health.status === "Degraded",
+              "text-yellow-400": app.status.health.status === "Progressing",
+              "text-slate-400": ["Suspended","Missing","Unknown"].includes(app.status.health.status),
+            })}>
+              {getDisplayHealth(app)}
+            </span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-slate-500">Sync</span>
+            <span className={cn("text-xs font-medium", {
+              "text-blue-400": app.status.sync.status === "Synced",
+              "text-orange-400": app.status.sync.status === "OutOfSync",
+              "text-slate-400": app.status.sync.status === "Unknown",
+            })}>
+              {app.status.sync.status}
+            </span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-slate-500">Namespace</span>
+            <span className="text-xs text-slate-400 truncate max-w-[120px]">{app.spec.destination.namespace}</span>
+          </div>
         </div>
-        <div className="flex items-center justify-between">
-          <span className="text-xs text-slate-500">Namespace</span>
-          <span className="text-xs text-slate-400 truncate max-w-[120px]">{app.spec.destination.namespace}</span>
-        </div>
-      </div>
-    </motion.div>
+      </motion.div>
+
+      {/* Hover preview card */}
+      <AnimatePresence>
+        {showPreview && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: 4 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 4 }}
+            transition={{ duration: 0.15 }}
+            className="absolute bottom-full left-0 mb-2 w-56 bg-slate-900/95 border border-white/10 rounded-xl shadow-2xl p-3 z-20 pointer-events-none"
+          >
+            <p className="text-xs font-semibold text-white mb-2 truncate">{app.metadata.name}</p>
+            <div className="space-y-1.5 text-xs text-slate-400">
+              <div className="flex justify-between">
+                <span>Namespace</span>
+                <span className="text-slate-300">{app.spec.destination.namespace}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Repo</span>
+                <span className="text-slate-300 truncate ml-2 max-w-[100px]">
+                  {app.spec.source?.repoURL?.split("/").slice(-1)[0] ?? "—"}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span>Target</span>
+                <span className="text-slate-300">{app.spec.source?.targetRevision ?? "HEAD"}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Last sync</span>
+                <span className="text-slate-300">
+                  {app.status.operationState?.finishedAt
+                    ? timeAgo(app.status.operationState.finishedAt)
+                    : "—"}
+                </span>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
   );
 }
 
@@ -113,6 +181,7 @@ function AppSlideOver({ app, onClose }: { app: ArgoApp; onClose: () => void }) {
     try {
       await syncMutation.mutateAsync({ name: app.metadata.name, hard });
       toast.success(`${hard ? "Hard sync" : "Sync"} triggered for ${app.metadata.name}`);
+      fireConfetti();
     } catch {
       toast.error("Sync failed");
     }
@@ -343,7 +412,9 @@ export default function AppsPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="relative rounded-xl overflow-hidden mb-6">
+        <div className="absolute inset-0 page-gradient-apps pointer-events-none" />
+        <div className="relative flex items-center justify-between p-5">
         <div>
           <h2 className="text-xl font-bold text-white flex items-center gap-2">
             Applications
@@ -358,10 +429,11 @@ export default function AppsPage() {
           </h2>
           <p className="text-sm text-slate-400 mt-0.5">ArgoCD managed applications</p>
         </div>
-        <button onClick={() => refetch()} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 hover:text-white transition-colors">
+        <button onClick={() => refetch()} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 hover:text-white transition-colors active:scale-95">
           <RefreshCw className="w-3.5 h-3.5" />
           Refresh
         </button>
+        </div>
       </div>
 
       <div className="flex items-center gap-3 mb-5 flex-wrap">

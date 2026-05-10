@@ -100,7 +100,9 @@ export default function ClusterPage() {
 
   return (
     <div>
-      <div className="flex items-start justify-between mb-6 gap-4 flex-wrap">
+      <div className="relative rounded-xl overflow-hidden mb-6">
+        <div className="absolute inset-0 page-gradient-cluster pointer-events-none" />
+        <div className="relative flex items-start justify-between p-5 gap-4 flex-wrap">
         <div>
           <h2 className="text-xl font-bold bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent flex items-center gap-2">
             <Server className="w-5 h-5 text-indigo-400" />
@@ -108,10 +110,11 @@ export default function ClusterPage() {
           </h2>
           <p className="text-sm text-slate-400 mt-0.5">Node status and cluster operations</p>
         </div>
-        <button onClick={() => refetch()} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 hover:text-white hover:bg-white/10 transition-colors">
+        <button onClick={() => refetch()} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 hover:text-white hover:bg-white/10 transition-colors active:scale-95">
           <RefreshCw className="w-3.5 h-3.5" />
           Refresh
         </button>
+        </div>
       </div>
 
       <div className="space-y-6">

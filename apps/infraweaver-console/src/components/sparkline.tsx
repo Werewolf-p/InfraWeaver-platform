@@ -41,7 +41,8 @@ export function Sparkline({
                 color: "#cbd5e1",
               }}
               itemStyle={{ color: "#cbd5e1" }}
-              formatter={(v: number) => [v, "Value"]}
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              formatter={(v: any) => [v, "Value"] as [number, string]}
               labelFormatter={() => ""}
             />
           )}

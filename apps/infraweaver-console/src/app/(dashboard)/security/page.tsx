@@ -284,8 +284,10 @@ export default function SecurityPage() {
 
   return (
     <div>
-      {/* Header */}
-      <div className="flex items-start justify-between mb-6 gap-4 flex-wrap">
+      {/* Header with gradient */}
+      <div className="relative rounded-xl overflow-hidden mb-6">
+        <div className="absolute inset-0 page-gradient-security pointer-events-none" />
+        <div className="relative flex items-start justify-between p-5 gap-4 flex-wrap">
         <div>
           <h2 className="text-xl font-bold bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent flex items-center gap-2">
             <Shield className="w-5 h-5 text-red-400" />
@@ -301,6 +303,7 @@ export default function SecurityPage() {
           {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
           Re-scan
         </button>
+        </div>
       </div>
 
       {isLoading && (
