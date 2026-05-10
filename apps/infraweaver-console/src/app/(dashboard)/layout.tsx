@@ -8,6 +8,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import Link from "next/link";
 import { LayoutDashboard, Box, Activity, Network, Cog, X, ShieldCheck, Server } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useQuery } from "@tanstack/react-query";
 
 const mobileNavItems = [
   { href: "/", icon: LayoutDashboard, label: "Dashboard" },
@@ -26,6 +27,56 @@ const drawerNavItems = [
   { href: "/security", icon: ShieldCheck, label: "Security" },
   { href: "/cluster", icon: Server, label: "Cluster" },
 ];
+
+function StatusBar() {
+  const [time, setTime] = useState(new Date());
+
+  const { data: pods } = useQuery({
+    queryKey: ["pods", "status-bar"],
+    queryFn: async () => {
+      const res = await fetch("/api/pods");
+      return res.json() as Promise<Array<{ status: string }>>;
+    },
+    refetchInterval: 60000,
+    staleTime: 50000,
+  });
+
+  const { data: cluster } = useQuery({
+    queryKey: ["health", "cluster"],
+    queryFn: async () => {
+      const res = await fetch("/api/health/cluster");
+      return res.json() as Promise<{ status: string }>;
+    },
+    refetchInterval: 60000,
+    staleTime: 50000,
+  });
+
+  useEffect(() => {
+    const interval = setInterval(() => setTime(new Date()), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const runningPods = (pods ?? []).filter(p => p.status === "Running").length;
+  const totalPods = (pods ?? []).length;
+  const isHealthy = !cluster || cluster.status === "healthy";
+  const utcTime = time.toUTCString().split(" ")[4];
+
+  return (
+    <div className="flex items-center justify-between px-4 py-1.5 border-t border-white/5 bg-slate-950/60 text-xs text-slate-500 flex-shrink-0">
+      <div className="flex items-center gap-3">
+        <div className={cn(
+          "w-1.5 h-1.5 rounded-full",
+          isHealthy ? "bg-green-500 live-dot" : "bg-red-500"
+        )} />
+        <span>{isHealthy ? "All systems operational" : "Degraded"}</span>
+      </div>
+      <div className="flex items-center gap-4">
+        {totalPods > 0 && <span>{runningPods}/{totalPods} pods</span>}
+        <span>{utcTime} UTC</span>
+      </div>
+    </div>
+  );
+}
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { status } = useSession();
@@ -110,10 +161,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         )}
       </AnimatePresence>
 
-      <div className="flex-1 flex flex-col overflow-hidden relative z-10">
+      <div className="flex-1 flex flex-col overflow-hidden overflow-x-hidden relative z-10">
         <TopBar onMenuClick={() => setMobileOpen(true)} />
         <main
-          className="flex-1 overflow-y-auto p-4 md:p-6"
+          className="flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-6"
           style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px) + 72px, 80px)" }}
         >
           <motion.div
@@ -123,7 +174,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             transition={{ duration: 0.2, ease: "easeOut" }}
           >
             {children}
-          </motion.div>        </main>
+          </motion.div>
+        </main>
+        <div className="hidden md:block">
+          <StatusBar />
+        </div>
       </div>
 
       {/* Bottom mobile nav */}

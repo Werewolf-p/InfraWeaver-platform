@@ -151,7 +151,7 @@ function ServiceCard({ name, description, href, icon: Icon, enabled, status, ext
       </div>
       <h4 className="text-sm font-semibold text-white">{name}</h4>
       <p className="text-xs text-slate-500 mt-0.5 mb-3 flex-1">{description}</p>
-      {/* @ts-expect-error - polymorphic link/anchor */}
+      {/* @ts-ignore - polymorphic link/anchor props differ */}
       <Wrapper {...wrapperProps} className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 transition-colors w-fit">
         Open {external ? <ExternalLink className="w-3 h-3" /> : <ArrowRight className="w-3 h-3" />}
       </Wrapper>
