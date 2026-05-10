@@ -11,6 +11,10 @@ env:
   REGISTRY: onedev.rlservers.com
   IMAGE_NAME: infraweaver/infraweaver-console
 
+concurrency:
+  group: build-infraweaver-console
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: [self-hosted, prod-worker]
@@ -52,11 +56,14 @@ jobs:
             sleep 20
           done
 
+          CACHE_DIR="/tmp/.buildx-cache-console"
+          CACHE_NEW_DIR="/tmp/.buildx-cache-console-new"
+
           echo "==> Building image..."
           docker buildx build \
             --platform linux/amd64 \
-            --cache-from "type=local,src=/tmp/.buildx-cache" \
-            --cache-to "type=local,dest=/tmp/.buildx-cache-new,mode=max" \
+            --cache-from "type=local,src=${CACHE_DIR}" \
+            --cache-to "type=local,dest=${CACHE_NEW_DIR},mode=max" \
             --tag "${IMAGE_BASE}:${BRANCH_TAG}" \
             --tag "${IMAGE_BASE}:${SHA_TAG}" \
             --push \
@@ -66,9 +73,9 @@ jobs:
           echo "- ${IMAGE_BASE}:${BRANCH_TAG}" >> $GITHUB_STEP_SUMMARY
           echo "- ${IMAGE_BASE}:${SHA_TAG}" >> $GITHUB_STEP_SUMMARY
 
-          # Move cache to prevent unlimited growth
-          rm -rf /tmp/.buildx-cache
-          mv /tmp/.buildx-cache-new /tmp/.buildx-cache 2>/dev/null || true
+          # Rotate cache atomically to prevent unlimited growth
+          rm -rf "${CACHE_DIR}"
+          mv "${CACHE_NEW_DIR}" "${CACHE_DIR}" 2>/dev/null || true
 
       - name: Rollout restart console deployment
         env:
