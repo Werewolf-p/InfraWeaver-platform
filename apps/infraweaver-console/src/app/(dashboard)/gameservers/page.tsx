@@ -293,7 +293,7 @@ function AddServerDrawer({ open, onClose, onCreated }: { open: boolean; onClose:
     setGameType(id);
     const gt = GAME_TYPES.find(t => t.id === id);
     if (gt) setPorts(gt.defaultPorts.map(p => ({ ...p })));
-    setStep(2);
+    // Don't auto-advance — let the user press Next so they see the button
   };
 
   const isPortConflict = (port: number, protocol: string) =>
@@ -353,7 +353,8 @@ function AddServerDrawer({ open, onClose, onCreated }: { open: boolean; onClose:
           <motion.div
             initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }}
             transition={{ type: "spring", damping: 30, stiffness: 300 }}
-            className="fixed right-0 top-0 h-full w-full max-w-xl bg-slate-900 border-l border-white/10 z-[101] flex flex-col shadow-2xl"
+            className="fixed right-0 top-0 w-full max-w-xl bg-slate-900 border-l border-white/10 z-[101] flex flex-col shadow-2xl"
+            style={{ height: "100dvh" }}
           >
             <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
               <div>
@@ -381,10 +382,16 @@ function AddServerDrawer({ open, onClose, onCreated }: { open: boolean; onClose:
                       <button
                         key={gt.id}
                         onClick={() => handleGameTypeSelect(gt.id)}
-                        className="flex flex-col items-center gap-2 p-4 rounded-xl border border-white/10 bg-white/5 hover:border-indigo-500/50 hover:bg-indigo-500/10 transition-all group"
+                        className={cn(
+                          "flex flex-col items-center gap-2 p-4 rounded-xl border transition-all group",
+                          gameType === gt.id
+                            ? "border-indigo-500 bg-indigo-500/20 ring-1 ring-indigo-500/50"
+                            : "border-white/10 bg-white/5 hover:border-indigo-500/50 hover:bg-indigo-500/10"
+                        )}
                       >
                         <span className="text-3xl">{gt.icon}</span>
-                        <span className="text-sm font-medium text-slate-300 group-hover:text-white">{gt.label}</span>
+                        <span className={cn("text-sm font-medium", gameType === gt.id ? "text-indigo-300" : "text-slate-300 group-hover:text-white")}>{gt.label}</span>
+                        {gameType === gt.id && <span className="text-[10px] text-indigo-400 font-medium">Selected ✓</span>}
                       </button>
                     ))}
                   </div>
@@ -661,7 +668,16 @@ function AddServerDrawer({ open, onClose, onCreated }: { open: boolean; onClose:
               )}
             </div>
 
-            <div className="flex items-center justify-between px-6 py-4 border-t border-white/10" style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px) + 16px, 16px)" }}>
+            <div className="flex flex-col items-end gap-1 border-t border-white/10 px-6 pt-4 pb-4" style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px) + 16px, 16px)" }}>
+              {/* Hint text for disabled Next */}
+              {((step === 1 && !gameType) || (step === 2 && (!name || !displayName)) || (step === 5 && !targetIP)) && (
+                <p className="text-[11px] text-amber-500/80 text-right">
+                  {step === 1 && "Select a protocol type above to continue"}
+                  {step === 2 && (!name ? "Enter a server name to continue" : "Enter a display name to continue")}
+                  {step === 5 && "Enter a target IP address to continue"}
+                </p>
+              )}
+              <div className="flex items-center justify-between w-full">
               <button
                 onClick={() => step > 1 ? setStep(step - 1) : onClose()}
                 className="flex items-center gap-2 px-4 py-2 rounded-lg text-slate-400 hover:text-white transition-colors"
@@ -677,7 +693,7 @@ function AddServerDrawer({ open, onClose, onCreated }: { open: boolean; onClose:
                     (step === 2 && (!name || !displayName)) ||
                     (step === 5 && !targetIP)
                   }
-                  className="flex items-center gap-2 px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex items-center gap-2 px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   Next <ChevronRight className="w-4 h-4" />
                 </button>
@@ -686,9 +702,10 @@ function AddServerDrawer({ open, onClose, onCreated }: { open: boolean; onClose:
                   onClick={handleCreate} disabled={creating || !name || !targetIP}
                   className="flex items-center gap-2 px-5 py-2 rounded-lg bg-green-600 hover:bg-green-500 text-white text-sm font-medium transition-colors disabled:opacity-50"
                 >
-                  {creating ? <><Loader2 className="w-4 h-4 animate-spin" /> Creating...</> : <><Check className="w-4 h-4" /> Create Server</>}
+                  {creating ? <><Loader2 className="w-4 h-4 animate-spin" /> Creating...</> : <><Check className="w-4 h-4" /> Create Route</>}
                 </button>
               )}
+              </div>
             </div>
           </motion.div>
         </>
