@@ -3,14 +3,16 @@ import { Sidebar } from "@/components/layout/sidebar";
 import { TopBar } from "@/components/layout/topbar";
 import { FloatingActionButton } from "@/components/floating-action-button";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
-import { useSession } from "next-auth/react";
+import { useSession, signOut } from "next-auth/react";
 import { useRouter, usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import Link from "next/link";
-import { LayoutDashboard, Box, Activity, Network, Cog, X, ShieldCheck, Server, Users, Home } from "lucide-react";
+import { LayoutDashboard, Box, Activity, Network, Cog, X, ShieldCheck, Server, Users, Home, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
+import { CommandPalette } from "@/components/command-palette";
+import { KeyboardShortcutsProvider } from "@/components/keyboard-shortcuts-modal";
 
 const mobileNavItems = [
   { href: "/home", icon: Home, label: "Home" },
@@ -84,10 +86,42 @@ function StatusBar() {
 }
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const { status } = useSession();
+  const { data: session, status } = useSession();
   const router = useRouter();
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [sessionWarning, setSessionWarning] = useState(false);
+  const [countdown, setCountdown] = useState(300);
+
+  // Session timeout warning
+  useEffect(() => {
+    const check = () => {
+      if (!session?.expires) return;
+      const expiresAt = new Date(session.expires).getTime();
+      const remaining = Math.floor((expiresAt - Date.now()) / 1000);
+      if (remaining <= 300 && remaining > 0) {
+        setCountdown(remaining);
+        setSessionWarning(true);
+      }
+    };
+    check();
+    const interval = setInterval(check, 60000);
+    return () => clearInterval(interval);
+  }, [session]);
+
+  useEffect(() => {
+    if (!sessionWarning) return;
+    const tick = setInterval(() => {
+      setCountdown(prev => {
+        if (prev <= 1) {
+          clearInterval(tick);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(tick);
+  }, [sessionWarning]);
 
   useEffect(() => {
     if (status === "unauthenticated") {
@@ -194,14 +228,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           className="flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-6 pb-24 md:pb-6"
           style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px) + 80px, 88px)" }}
         >
-          <motion.div
-            key={pathname}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.2, ease: "easeOut" }}
-          >
-            {children}
-          </motion.div>
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={pathname}
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              transition={{ duration: 0.2, ease: "easeOut" }}
+            >
+              {children}
+            </motion.div>
+          </AnimatePresence>
         </main>
         <div className="hidden md:block">
           <StatusBar />
@@ -230,6 +267,80 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           );
         })}
       </nav>
+
+      {/* Command palette */}
+      <CommandPalette />
+
+      {/* Keyboard shortcuts */}
+      <KeyboardShortcutsProvider />
+
+      {/* Session timeout warning modal */}
+      <AnimatePresence>
+        {sessionWarning && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[9999] flex items-center justify-center px-4"
+          >
+            <div className="absolute inset-0 bg-black/60 backdrop-blur-md" />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 8 }}
+              transition={{ duration: 0.15 }}
+              className="relative w-full max-w-sm bg-slate-900 border border-white/10 rounded-xl shadow-2xl p-6 text-center"
+            >
+              <div className="w-12 h-12 rounded-full bg-yellow-500/10 border border-yellow-500/20 flex items-center justify-center mx-auto mb-4">
+                <AlertTriangle className="w-6 h-6 text-yellow-400" />
+              </div>
+              <h2 className="text-lg font-semibold text-white mb-1">Session expiring soon</h2>
+              <p className="text-sm text-slate-400 mb-4">
+                Your session will expire in{" "}
+                <span className="font-mono text-yellow-400">
+                  {Math.floor(countdown / 60)}:{String(countdown % 60).padStart(2, "0")}
+                </span>
+              </p>
+              {/* Countdown ring */}
+              <div className="flex justify-center mb-6">
+                <div className="relative w-16 h-16">
+                  <svg className="w-16 h-16 -rotate-90" viewBox="0 0 64 64">
+                    <circle cx="32" cy="32" r="28" stroke="currentColor" strokeWidth="4" fill="none" className="text-slate-800" />
+                    <circle
+                      cx="32" cy="32" r="28"
+                      stroke="currentColor" strokeWidth="4" fill="none"
+                      strokeDasharray={`${2 * Math.PI * 28}`}
+                      strokeDashoffset={`${2 * Math.PI * 28 * (1 - countdown / 300)}`}
+                      className="text-yellow-400 transition-all duration-1000"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                  <span className="absolute inset-0 flex items-center justify-center text-sm font-mono text-yellow-400">
+                    {countdown}s
+                  </span>
+                </div>
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={async () => {
+                    await fetch("/api/auth/session");
+                    setSessionWarning(false);
+                  }}
+                  className="flex-1 py-2 px-4 rounded-lg bg-indigo-500 hover:bg-indigo-600 text-white text-sm font-medium transition-colors"
+                >
+                  Extend Session
+                </button>
+                <button
+                  onClick={() => signOut({ callbackUrl: "/auth/signin" })}
+                  className="flex-1 py-2 px-4 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium transition-colors border border-white/10"
+                >
+                  Sign Out
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

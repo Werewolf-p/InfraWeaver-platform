@@ -8,12 +8,14 @@ import {
   LayoutDashboard, Box, Settings, Users, HardDrive,
   Network, Activity, ChevronLeft, ChevronRight, Terminal, History, Cog,
   Package, FileText, Bell, ShieldCheck, Server, PlusCircle, ChevronDown,
-  Sparkles, Home,
+  Sparkles, Home, Star, Clock,
 } from "lucide-react";
 import { useRBAC } from "@/hooks/use-rbac";
 import { useArgoApps } from "@/hooks/use-argocd";
 import { cn } from "@/lib/utils";
 import { useSession } from "next-auth/react";
+import { useFavorites } from "@/hooks/use-favorites";
+import { useRecentPages } from "@/hooks/use-recent-pages";
 
 interface NavItem {
   href: string;
@@ -66,6 +68,25 @@ const navGroups: NavGroup[] = [
   },
 ];
 
+const hrefIconMap: Record<string, React.ElementType> = {
+  "/home": Home,
+  "/": LayoutDashboard,
+  "/apps": Box,
+  "/catalog-install": PlusCircle,
+  "/events": History,
+  "/config": Cog,
+  "/users": Users,
+  "/registry": Package,
+  "/logs": FileText,
+  "/storage": HardDrive,
+  "/network": Network,
+  "/health": Activity,
+  "/security": ShieldCheck,
+  "/cluster": Server,
+  "/settings": Settings,
+  "/changelog": Sparkles,
+};
+
 function ClusterHealthDot() {
   const { data } = useQuery({
     queryKey: ["health", "cluster"],
@@ -96,6 +117,19 @@ export function Sidebar() {
   const { role } = useRBAC();
   const { data: session } = useSession();
   const { data: apps } = useArgoApps();
+  const { favorites, toggleFavorite, isFavorite } = useFavorites();
+  const { recentPages, addRecentPage } = useRecentPages();
+
+  // Track page visits
+  useEffect(() => {
+    const allItems = navGroups.flatMap(g => g.items);
+    const match = allItems.find(
+      item => item.href === pathname || (item.href !== "/" && pathname.startsWith(item.href))
+    );
+    if (match) {
+      addRecentPage(match.href, match.label);
+    }
+  }, [pathname, addRecentPage]);
 
   const alertCount = (apps ?? []).filter(
     a => a.status.health.status === "Degraded" || a.status.sync.status === "OutOfSync"
@@ -164,6 +198,101 @@ export function Sidebar() {
 
       {/* Nav with collapsible groups */}
       <nav className="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto custom-scrollbar">
+        {/* Favorites section */}
+        <AnimatePresence initial={false}>
+          {favorites.length > 0 && !collapsed && (
+            <motion.div
+              layout
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.2 }}
+              className="mb-2"
+            >
+              <div className="px-3 py-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-yellow-500/80">
+                <Star className="w-3 h-3 fill-yellow-500/80" />
+                Favorites
+              </div>
+              <div className="space-y-0.5">
+                {favorites.map(fav => {
+                  const Icon = hrefIconMap[fav.href] ?? Home;
+                  const isActive = pathname === fav.href || (fav.href !== "/" && pathname.startsWith(fav.href));
+                  return (
+                    <Link key={fav.href} href={fav.href}>
+                      <motion.div
+                        layout
+                        whileHover={{ x: 2 }}
+                        className={cn(
+                          "relative flex items-center gap-3 px-3 py-2 rounded-lg transition-all cursor-pointer group",
+                          isActive
+                            ? "bg-indigo-500/20 text-indigo-300"
+                            : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
+                        )}
+                      >
+                        <Icon className="w-4 h-4 flex-shrink-0" />
+                        <span className="text-sm font-medium whitespace-nowrap flex-1 min-w-0 truncate">{fav.label}</span>
+                        <button
+                          onClick={e => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            toggleFavorite({ id: fav.href, label: fav.label, href: fav.href, iconName: fav.iconName });
+                          }}
+                          className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-white/10"
+                          title="Remove from favorites"
+                        >
+                          <Star className="w-3 h-3 fill-yellow-400 text-yellow-400" />
+                        </button>
+                      </motion.div>
+                    </Link>
+                  );
+                })}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Recent pages section */}
+        <AnimatePresence initial={false}>
+          {recentPages.length > 0 && !collapsed && (
+            <motion.div
+              layout
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.2 }}
+              className="mb-2"
+            >
+              <div className="px-3 py-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-600">
+                <Clock className="w-3 h-3" />
+                Recent
+              </div>
+              <div className="space-y-0.5">
+                {recentPages.map(page => {
+                  const Icon = hrefIconMap[page.href] ?? Home;
+                  const isActive = pathname === page.href || (page.href !== "/" && pathname.startsWith(page.href));
+                  return (
+                    <Link key={page.href} href={page.href}>
+                      <motion.div
+                        layout
+                        whileHover={{ x: 2 }}
+                        className={cn(
+                          "flex items-center gap-3 px-3 py-2 rounded-lg transition-all cursor-pointer",
+                          isActive
+                            ? "bg-indigo-500/20 text-indigo-300"
+                            : "text-slate-500 hover:text-slate-300 hover:bg-white/5"
+                        )}
+                      >
+                        <Icon className="w-4 h-4 flex-shrink-0" />
+                        <span className="text-sm whitespace-nowrap truncate">{page.title}</span>
+                      </motion.div>
+                    </Link>
+                  );
+                })}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {navGroups.map(group => {
           const isGroupCollapsed = collapsedGroups[group.label] ?? false;
           const hasActiveItem = group.items.some(item =>
@@ -224,7 +353,7 @@ export function Sidebar() {
                                 className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-indigo-400 rounded-full"
                               />
                             )}
-                            <item.icon className="w-4 h-4 flex-shrink-0" />
+                        <item.icon className="w-4 h-4 flex-shrink-0" />
                             <AnimatePresence>
                               {!collapsed && (
                                 <>
@@ -232,20 +361,41 @@ export function Sidebar() {
                                     initial={{ opacity: 0 }}
                                     animate={{ opacity: 1 }}
                                     exit={{ opacity: 0 }}
-                                    className="text-sm font-medium whitespace-nowrap"
+                                    className="text-sm font-medium whitespace-nowrap flex-1 min-w-0"
                                   >
                                     {item.label}
                                   </motion.span>
-                                  {item.shortcut && (
-                                    <motion.span
-                                      initial={{ opacity: 0 }}
-                                      animate={{ opacity: 1 }}
-                                      exit={{ opacity: 0 }}
-                                      className="ml-auto text-[10px] text-slate-600 font-mono opacity-0 group-hover:opacity-100 transition-opacity"
+                                  <motion.div
+                                    initial={{ opacity: 0 }}
+                                    animate={{ opacity: 1 }}
+                                    exit={{ opacity: 0 }}
+                                    className="flex items-center gap-1 ml-auto"
+                                  >
+                                    {item.shortcut && (
+                                      <span className="text-[10px] text-slate-600 font-mono opacity-0 group-hover:opacity-100 transition-opacity">
+                                        {item.shortcut}
+                                      </span>
+                                    )}
+                                    <button
+                                      onClick={e => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        toggleFavorite({
+                                          id: item.href,
+                                          label: item.label,
+                                          href: item.href,
+                                          iconName: item.href.replace("/", "") || "dashboard",
+                                        });
+                                      }}
+                                      className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-white/10"
+                                      title={isFavorite(item.href) ? "Remove from favorites" : "Add to favorites"}
                                     >
-                                      {item.shortcut}
-                                    </motion.span>
-                                  )}
+                                      <Star className={cn(
+                                        "w-3 h-3 transition-colors",
+                                        isFavorite(item.href) ? "fill-yellow-400 text-yellow-400" : "text-slate-500 hover:text-yellow-400"
+                                      )} />
+                                    </button>
+                                  </motion.div>
                                 </>
                               )}
                             </AnimatePresence>
