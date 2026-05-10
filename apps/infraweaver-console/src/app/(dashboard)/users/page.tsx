@@ -207,19 +207,19 @@ function UserFormModal({
                   username: isNew ? autoUsername(name) : prev.username,
                 }));
               }}
-              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50"
+              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-base md:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50"
               placeholder="John Doe"
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="text-xs text-slate-400 mb-1 block">Username *</label>
               <input
                 value={form.username}
                 onChange={e => setForm(prev => ({ ...prev, username: e.target.value }))}
                 disabled={!isNew}
-                className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-base md:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50 disabled:opacity-50 disabled:cursor-not-allowed"
                 placeholder="jdoe"
               />
             </div>
@@ -229,7 +229,7 @@ function UserFormModal({
                 type="email"
                 value={form.email}
                 onChange={e => setForm(prev => ({ ...prev, email: e.target.value }))}
-                className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50"
+                className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-base md:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50"
                 placeholder="jdoe@example.com"
               />
             </div>
@@ -267,7 +267,7 @@ function UserFormModal({
           </div>
 
           {/* Additional fields */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="text-xs text-slate-400 mb-1 block">Wiki Role</label>
               <select
@@ -312,17 +312,17 @@ function UserFormModal({
           </div>
         </div>
 
-        <div className="flex gap-3 p-5 border-t border-white/5 justify-end">
+        <div className="flex flex-col-reverse sm:flex-row gap-3 p-5 border-t border-white/5 sm:justify-end">
           <button
             onClick={onClose}
-            className="px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 hover:text-white transition-colors active:scale-95"
+            className="w-full sm:w-auto px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 hover:text-white transition-colors active:scale-95 touch-manipulation"
           >
             Cancel
           </button>
           <button
             onClick={handleSubmit}
             disabled={!isValid || loading}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-500/20 border border-indigo-500/30 text-sm text-indigo-300 hover:bg-indigo-500/30 transition-colors disabled:opacity-50 active:scale-95"
+            className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-indigo-500/20 border border-indigo-500/30 text-sm text-indigo-300 hover:bg-indigo-500/30 transition-colors disabled:opacity-50 active:scale-95 touch-manipulation"
           >
             {loading ? (
               <motion.div
@@ -517,7 +517,7 @@ function UserMobileCard({ user, isAdmin, isSelf, onEdit, onDelete }: {
       className="bg-white/5 border border-white/10 rounded-xl overflow-hidden"
     >
       <button
-        className="w-full flex items-center gap-3 px-4 py-4 text-left"
+        className="w-full flex items-center gap-3 px-4 py-4 text-left min-h-[64px] touch-manipulation active:opacity-70 transition-opacity"
         onClick={() => setExpanded(e => !e)}
       >
         <div className="w-9 h-9 rounded-full bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-xs font-bold text-indigo-300 flex-shrink-0">
@@ -553,7 +553,7 @@ function UserMobileCard({ user, isAdmin, isSelf, onEdit, onDelete }: {
               </div>
               <div className="flex flex-wrap gap-1">
                 {(user.authentik_groups ?? []).map(g => (
-                  <span key={g} className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 border border-white/10 text-slate-400">{g}</span>
+                  <span key={g} className="text-xs px-1.5 py-0.5 rounded bg-white/5 border border-white/10 text-slate-400">{g}</span>
                 ))}
               </div>
               {isAdmin && (
@@ -668,7 +668,7 @@ export default function UsersPage() {
           {isAdmin && (
             <button
               onClick={() => { setEditUser(null); setModalOpen(true); }}
-              className="flex items-center gap-2 px-3 py-2 rounded-lg bg-purple-500/20 border border-purple-500/30 text-sm text-purple-300 hover:bg-purple-500/30 transition-colors active:scale-95"
+              className="flex items-center justify-center gap-2 w-full sm:w-auto px-3 py-2.5 rounded-lg bg-purple-500/20 border border-purple-500/30 text-sm text-purple-300 hover:bg-purple-500/30 transition-colors active:scale-95 touch-manipulation"
             >
               <Plus className="w-4 h-4" />
               Add User
@@ -684,7 +684,7 @@ export default function UsersPage() {
           value={search}
           onChange={e => setSearch(e.target.value)}
           placeholder="Search users..."
-          className="w-full bg-white/5 border border-white/10 rounded-lg pl-9 pr-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50"
+          className="w-full bg-white/5 border border-white/10 rounded-lg pl-9 pr-3 py-2.5 text-base md:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50"
         />
       </div>
 
@@ -714,7 +714,7 @@ export default function UsersPage() {
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, x: -20 }}
                     transition={{ delay: i * 0.03 }}
-                    className="grid grid-cols-[1fr_1fr_1fr_auto_auto_auto] gap-4 items-center px-4 py-3 border-b border-white/5 last:border-0 hover:bg-white/[0.03] transition-colors"
+                    className="grid grid-cols-[1fr_1fr_1fr_auto_auto_auto] gap-4 items-center px-4 py-3 border-b border-white/5 last:border-0 hover:bg-white/[0.03] transition-colors min-h-[56px]"
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       <div className="w-8 h-8 rounded-full bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-xs font-bold text-indigo-300 flex-shrink-0">
@@ -723,7 +723,7 @@ export default function UsersPage() {
                       <div className="min-w-0">
                         <p className="text-sm font-medium text-white truncate flex items-center gap-1.5">
                           {user.name || user.username}
-                          {isSelf && <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/20 text-indigo-400">you</span>}
+                          {isSelf && <span className="text-xs px-1.5 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/20 text-indigo-400">you</span>}
                         </p>
                         <p className="text-xs text-slate-500 truncate">@{user.username}</p>
                       </div>
@@ -733,10 +733,10 @@ export default function UsersPage() {
                     <span className="text-xs text-slate-400">{user.wiki_role ?? "—"}</span>
                     <div className="flex flex-wrap gap-1 max-w-[200px]">
                       {(user.authentik_groups ?? []).slice(0, 2).map(g => (
-                        <span key={g} className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 border border-white/10 text-slate-400">{g}</span>
+                        <span key={g} className="text-xs px-1.5 py-0.5 rounded bg-white/5 border border-white/10 text-slate-400">{g}</span>
                       ))}
                       {(user.authentik_groups ?? []).length > 2 && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 border border-white/10 text-slate-400">+{(user.authentik_groups ?? []).length - 2}</span>
+                        <span className="text-xs px-1.5 py-0.5 rounded bg-white/5 border border-white/10 text-slate-400">+{(user.authentik_groups ?? []).length - 2}</span>
                       )}
                     </div>
                     {isAdmin && (

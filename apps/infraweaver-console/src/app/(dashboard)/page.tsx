@@ -47,7 +47,7 @@ function StatCard({ title, value, icon: Icon, color, subtitle }: {
       whileHover={{ scale: 1.02, y: -3 }}
       whileTap={{ scale: 0.98 }}
       transition={{ type: "spring", stiffness: 400, damping: 25 }}
-      className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-5 cursor-default"
+      className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-3 md:p-5 cursor-default active:scale-95 touch-manipulation"
     >
       <div className="flex items-center justify-between mb-3">
         <span className="text-xs text-slate-400 font-medium">{title}</span>
@@ -142,7 +142,7 @@ function ServiceCard({ name, description, href, icon: Icon, enabled, status, ext
       variants={item}
       whileHover={{ scale: 1.02, y: -2 }}
       transition={{ type: "spring", stiffness: 400, damping: 25 }}
-      className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-4 flex flex-col"
+      className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-3 md:p-4 flex flex-col active:scale-95 touch-manipulation"
     >
       <div className="flex items-start justify-between mb-3">
         <div className="w-9 h-9 rounded-lg flex items-center justify-center bg-indigo-500/15 border border-indigo-500/20">
@@ -267,8 +267,8 @@ export default function DashboardPage() {
         <div>
           <h2 className="text-xl font-bold text-white flex items-center gap-3">
             Platform Overview
-            <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-green-500/10 border border-green-500/20 text-[10px] font-semibold text-green-400 uppercase tracking-wider">
-              <span className="live-dot w-1.5 h-1.5" />
+            <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-green-500/10 border border-green-500/20 text-xs font-semibold text-green-400 uppercase tracking-wider">
+              <span className="live-dot w-1.5 h-1.5 rounded-full bg-green-400" />
               Live
             </span>
           </h2>
@@ -372,7 +372,7 @@ export default function DashboardPage() {
               <motion.div
                 key={app.metadata.name}
                 whileHover={{ x: 2 }}
-                className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-white/5 transition-colors"
+                className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-white/5 transition-colors min-h-[44px] active:scale-95 touch-manipulation cursor-default"
               >
                 <span className="text-sm text-slate-200 font-medium truncate">{app.metadata.name}</span>
                 <div className="flex items-center gap-2 flex-shrink-0">

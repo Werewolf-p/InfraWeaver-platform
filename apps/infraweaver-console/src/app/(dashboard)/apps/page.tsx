@@ -1,12 +1,12 @@
 "use client";
 import { motion, AnimatePresence } from "framer-motion";
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import Link from "next/link";
 import { useArgoApps, useSyncApp, type ArgoApp } from "@/hooks/use-argocd";
 import { useRBAC } from "@/hooks/use-rbac";
 import { useSettingsContext } from "@/contexts/settings-context";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { RefreshCw, Search, X, RotateCcw, Clock, GitCommit, Trash2, ExternalLink, Play } from "lucide-react";
+import { RefreshCw, Search, X, RotateCcw, Clock, GitCommit, Trash2, ExternalLink, Play, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 import { cn, timeAgo } from "@/lib/utils";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -110,8 +110,8 @@ function AppCard({ app, onClick, compact }: { app: ArgoApp; onClick: () => void;
         whileTap={{ scale: 0.97 }}
         onClick={onClick}
         className={cn(
-          "bg-white/5 backdrop-blur-sm border rounded-xl cursor-pointer transition-all hover:shadow-[0_0_20px_rgba(99,102,241,0.15)]",
-          compact ? "p-3" : "p-4",
+          "bg-white/5 backdrop-blur-sm border rounded-xl cursor-pointer transition-all hover:shadow-[0_0_20px_rgba(99,102,241,0.15)] touch-manipulation",
+          compact ? "p-3" : "p-3 md:p-4",
           borderColor
         )}
       >
@@ -416,6 +416,18 @@ export default function AppsPage() {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<string>("all");
   const [selectedApp, setSelectedApp] = useState<ArgoApp | null>(null);
+  const [showAllApps, setShowAllApps] = useState(false);
+  const [pullRefreshing, setPullRefreshing] = useState(false);
+  const [pullY, setPullY] = useState(0);
+  const APPS_PAGE_SIZE = 8;
+
+  const handlePullRefresh = useCallback(async () => {
+    if (pullRefreshing) return;
+    setPullRefreshing(true);
+    await refetch();
+    setPullRefreshing(false);
+    setPullY(0);
+  }, [pullRefreshing, refetch]);
 
   const SYSTEM_PREFIXES = ["core-", "bootstrap", "platform-"];
   const isSystemApp = (name: string) => SYSTEM_PREFIXES.some(p => name.startsWith(p));
@@ -427,6 +439,14 @@ export default function AppsPage() {
       || (filter === "outofsync" ? app.status.sync.status === "OutOfSync" : app.status.health.status.toLowerCase() === filter);
     return matchesSearch && matchesFilter;
   });
+
+  // Reset show-all when filter or search changes
+  useEffect(() => {
+    setShowAllApps(false);
+  }, [search, filter]);
+
+  const displayedApps = showAllApps || filtered.length <= APPS_PAGE_SIZE ? filtered : filtered.slice(0, APPS_PAGE_SIZE);
+  const hiddenCount = filtered.length - APPS_PAGE_SIZE;
 
   const visibleApps = settings.showSystemApps ? (apps ?? []) : (apps ?? []).filter(a => !isSystemApp(a.metadata.name));
   const counts = {
@@ -441,6 +461,32 @@ export default function AppsPage() {
 
   return (
     <div>
+      {/* Pull-to-refresh indicator */}
+      <motion.div
+        drag="y"
+        dragConstraints={{ top: 0, bottom: 80 }}
+        dragElastic={0.3}
+        onDrag={(_, info) => setPullY(Math.max(0, info.offset.y))}
+        onDragEnd={(_, info) => {
+          if (info.offset.y > 60) handlePullRefresh();
+          else setPullY(0);
+        }}
+        style={{ y: 0 }}
+        className="absolute top-0 left-0 right-0 z-10 pointer-events-none"
+      >
+        <AnimatePresence>
+          {pullY > 20 && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="flex items-center justify-center py-2"
+            >
+              <RefreshCw className={cn("w-5 h-5 text-indigo-400", pullRefreshing && "animate-spin")} />
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </motion.div>
       <div className="relative rounded-xl overflow-hidden mb-6">
         <div className="absolute inset-0 page-gradient-apps pointer-events-none" />
         <div className="relative flex items-center justify-between p-5">
@@ -465,35 +511,37 @@ export default function AppsPage() {
         </div>
       </div>
 
-      <div className="flex items-center gap-3 mb-5 flex-wrap">
-        <div className="relative flex-1 max-w-sm">
+      <div className="flex flex-col gap-3 mb-5">
+        <div className="relative w-full">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Search apps..."
-            className="w-full bg-white/5 border border-white/10 rounded-lg pl-9 pr-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50"
+            className="w-full bg-white/5 border border-white/10 rounded-lg pl-9 pr-3 py-2.5 text-base md:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50"
           />
         </div>
-        {(["all", "healthy", "degraded", "progressing", "outofsync"] as const).map(f => (
-          <button
-            key={f}
-            onClick={() => setFilter(f)}
-            className={cn(
-              "px-3 py-2 rounded-lg text-xs font-medium capitalize transition-colors",
-              filter === f
-                ? "bg-indigo-500/20 border border-indigo-500/30 text-indigo-300"
-                : "bg-white/5 border border-white/10 text-slate-400 hover:text-white"
-            )}
-          >
-            {f === "outofsync" ? "Out of Sync" : f} ({counts[f]})
-          </button>
-        ))}
-        {!settings.showSystemApps && (
-          <span className="text-xs text-slate-500 px-2 py-1 bg-white/5 rounded-lg border border-white/5">
-            System apps hidden
-          </span>
-        )}
+        <div className="flex items-center gap-2 overflow-x-auto scrollbar-none -mx-4 px-4 pb-1">
+          {(["all", "healthy", "degraded", "progressing", "outofsync"] as const).map(f => (
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
+              className={cn(
+                "px-3 py-2 rounded-lg text-xs font-medium capitalize transition-colors whitespace-nowrap touch-manipulation active:scale-95 flex-shrink-0",
+                filter === f
+                  ? "bg-indigo-500/20 border border-indigo-500/30 text-indigo-300"
+                  : "bg-white/5 border border-white/10 text-slate-400 hover:text-white"
+              )}
+            >
+              {f === "outofsync" ? "Out of Sync" : f} ({counts[f]})
+            </button>
+          ))}
+          {!settings.showSystemApps && (
+            <span className="text-xs text-slate-500 px-2 py-1 bg-white/5 rounded-lg border border-white/5 whitespace-nowrap flex-shrink-0">
+              System apps hidden
+            </span>
+          )}
+        </div>
       </div>
 
       {isLoading ? (
@@ -503,33 +551,48 @@ export default function AppsPage() {
           ))}
         </div>
       ) : (
-        <motion.div
-          layout
-          className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4"
-        >
-          <AnimatePresence mode="popLayout">
-            {filtered.map(app => (
-              <motion.div
-                key={app.metadata.name}
-                layout
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-              >
-                <AppCard app={app} onClick={() => setSelectedApp(app)} compact={settings.compactMode} />
-              </motion.div>
-            ))}
-            {filtered.length === 0 && !isLoading && (
-              <div className="col-span-full flex flex-col items-center justify-center py-20 text-center">
-                <svg className="w-16 h-16 text-slate-700 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-                </svg>
-                <p className="text-slate-400 font-medium">No applications found</p>
-                <p className="text-slate-600 text-sm mt-1">Try adjusting your search or filter</p>
-              </div>
-            )}
-          </AnimatePresence>
-        </motion.div>
+        <>
+          <motion.div
+            layout
+            className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4"
+          >
+            <AnimatePresence mode="popLayout">
+              {displayedApps.map(app => (
+                <motion.div
+                  key={app.metadata.name}
+                  layout
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.95 }}
+                >
+                  <AppCard app={app} onClick={() => setSelectedApp(app)} compact={settings.compactMode} />
+                </motion.div>
+              ))}
+              {filtered.length === 0 && !isLoading && (
+                <div className="col-span-full flex flex-col items-center justify-center py-20 text-center">
+                  <svg className="w-16 h-16 text-slate-700 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                  </svg>
+                  <p className="text-slate-400 font-medium">No applications found</p>
+                  <p className="text-slate-600 text-sm mt-1">Try adjusting your search or filter</p>
+                </div>
+              )}
+            </AnimatePresence>
+          </motion.div>
+
+          {filtered.length > APPS_PAGE_SIZE && (
+            <motion.button
+              layout
+              onClick={() => setShowAllApps(v => !v)}
+              className="mt-4 w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-white/5 border border-white/10 text-sm text-slate-400 hover:text-white hover:bg-white/8 transition-colors"
+            >
+              <ChevronDown className={cn("w-4 h-4 transition-transform", showAllApps && "rotate-180")} />
+              {showAllApps
+                ? "Show fewer apps"
+                : `Show all ${filtered.length} apps (${hiddenCount} more)`}
+            </motion.button>
+          )}
+        </>
       )}
 
       <AnimatePresence>

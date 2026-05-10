@@ -9,6 +9,12 @@
 body {
   color: rgb(var(--foreground-rgb));
   background: rgb(var(--background-start-rgb));
+  overflow-x: hidden;
+}
+
+/* Landscape phone: hide bottom nav via media query backup */
+@media (max-width: 768px) and (orientation: landscape) {
+  .landscape-hide { display: none !important; }
 }
 
 ::-webkit-scrollbar { width: 4px; height: 4px; }
@@ -92,6 +98,30 @@ body {
 @utility density-compact { --spacing-base: 0.5rem; }
 @utility density-comfortable { --spacing-base: 0.75rem; }
 @utility density-spacious { --spacing-base: 1.25rem; }
+
+/* ── Mobile / Touch utilities ───────────────────────────────── */
+
+/* Safe-area inset padding for iPhone notch / home bar */
+@utility pb-safe { padding-bottom: env(safe-area-inset-bottom, 0px); }
+@utility pt-safe { padding-top: env(safe-area-inset-top, 0px); }
+@utility mb-safe { margin-bottom: env(safe-area-inset-bottom, 0px); }
+
+/* Prevents iOS auto-zoom on input focus (font-size must be >= 16px) */
+@utility mobile-input { font-size: 16px; }
+
+/* Prevents double-tap zoom on interactive elements */
+@utility touch-manipulation { touch-action: manipulation; }
+
+/* Bottom sheet slide-up on mobile */
+@utility bottom-sheet {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  border-radius: 1.25rem 1.25rem 0 0;
+  max-height: 90vh;
+  overflow-y: auto;
+}
 
 /* Light theme overrides */
 html.light {

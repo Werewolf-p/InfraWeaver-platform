@@ -3,7 +3,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { CheckCircle2, XCircle, RefreshCw, ChevronDown, ChevronUp } from "lucide-react";
 import { cn, timeAgo } from "@/lib/utils";
-import { useState } from "react";
+import { useState, useCallback } from "react";
+import { CollapsibleSection } from "@/components/ui/collapsible-section";
 
 interface EndpointResult {
   success: boolean;
@@ -55,16 +56,19 @@ function displayName(name: string): string {
 
 function HealthCard({ endpoint }: { endpoint: Endpoint }) {
   const [expanded, setExpanded] = useState(false);
+  const [showAllHistory, setShowAllHistory] = useState(false);
   const isUp = endpoint.results?.[0]?.success ?? false;
   const uptime = uptimePercent(endpoint.results ?? []);
   const last5 = (endpoint.results ?? []).slice(0, 5);
+  const HISTORY_PAGE_SIZE = 3;
+  const displayHistory = showAllHistory ? last5 : last5.slice(0, HISTORY_PAGE_SIZE);
 
   return (
     <motion.div
       layout
       whileHover={{ scale: expanded ? 1 : 1.01 }}
       className={cn(
-        "border rounded-xl p-4 transition-colors cursor-pointer",
+        "border rounded-xl p-3 md:p-4 transition-colors cursor-pointer touch-manipulation active:scale-95",
         isUp
           ? "bg-green-500/5 border-green-500/20 hover:bg-green-500/8"
           : "bg-red-500/5 border-red-500/20 hover:bg-red-500/8"
@@ -106,7 +110,7 @@ function HealthCard({ endpoint }: { endpoint: Endpoint }) {
             />
           </div>
 
-          {/* Expanded: last 5 results */}
+          {/* Expanded: history entries, collapsed after 3 */}
           <AnimatePresence>
             {expanded && (
               <motion.div
@@ -114,10 +118,11 @@ function HealthCard({ endpoint }: { endpoint: Endpoint }) {
                 animate={{ opacity: 1, height: "auto" }}
                 exit={{ opacity: 0, height: 0 }}
                 className="overflow-hidden"
+                onClick={e => e.stopPropagation()}
               >
                 <div className="mt-3 pt-3 border-t border-white/5 space-y-1.5">
-                  <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2">Last {last5.length} checks</p>
-                  {last5.map((r, i) => (
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Last {last5.length} checks</p>
+                  {displayHistory.map((r, i) => (
                     <div key={i} className="flex items-center justify-between text-xs">
                       <div className="flex items-center gap-2">
                         <div className={cn("w-1.5 h-1.5 rounded-full", r.success ? "bg-green-400" : "bg-red-400")} />
@@ -129,6 +134,14 @@ function HealthCard({ endpoint }: { endpoint: Endpoint }) {
                       </div>
                     </div>
                   ))}
+                  {last5.length > HISTORY_PAGE_SIZE && (
+                    <button
+                      onClick={e => { e.stopPropagation(); setShowAllHistory(v => !v); }}
+                      className="w-full text-xs text-slate-500 hover:text-slate-300 pt-1 transition-colors"
+                    >
+                      {showAllHistory ? "Show fewer" : `+${last5.length - HISTORY_PAGE_SIZE} more`}
+                    </button>
+                  )}
                 </div>
               </motion.div>
             )}
@@ -150,6 +163,17 @@ export default function HealthPage() {
     refetchInterval: 30000,
   });
 
+  const [pullRefreshing, setPullRefreshing] = useState(false);
+  const [pullY, setPullY] = useState(0);
+
+  const handlePullRefresh = useCallback(async () => {
+    if (pullRefreshing) return;
+    setPullRefreshing(true);
+    await refetch();
+    setPullRefreshing(false);
+    setPullY(0);
+  }, [pullRefreshing, refetch]);
+
   const grouped = health?.endpoints ? groupByCategory(health.endpoints) : new Map<string, Endpoint[]>();
   const allEndpoints = health?.endpoints ?? [];
   const upCount = allEndpoints.filter(ep => ep.results?.[0]?.success === true).length;
@@ -159,7 +183,33 @@ export default function HealthPage() {
   const lastChecked = dataUpdatedAt ? timeAgo(new Date(dataUpdatedAt).toISOString()) : "—";
 
   return (
-    <div>
+    <div className="relative">
+      {/* Pull-to-refresh indicator */}
+      <motion.div
+        drag="y"
+        dragConstraints={{ top: 0, bottom: 80 }}
+        dragElastic={0.3}
+        onDrag={(_, info) => setPullY(Math.max(0, info.offset.y))}
+        onDragEnd={(_, info) => {
+          if (info.offset.y > 60) handlePullRefresh();
+          else setPullY(0);
+        }}
+        style={{ y: 0 }}
+        className="absolute top-0 left-0 right-0 z-10 pointer-events-none"
+      >
+        <AnimatePresence>
+          {pullY > 20 && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="flex items-center justify-center py-2"
+            >
+              <RefreshCw className={cn("w-5 h-5 text-indigo-400", pullRefreshing && "animate-spin")} />
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </motion.div>
       <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="text-xl font-bold text-white">Platform Health</h2>
@@ -167,7 +217,7 @@ export default function HealthPage() {
         </div>
         <button
           onClick={() => refetch()}
-          className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 hover:text-white hover:bg-white/10 transition-colors"
+          className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 hover:text-white hover:bg-white/10 transition-colors touch-manipulation active:scale-95"
         >
           <RefreshCw className="w-3.5 h-3.5" />
           Refresh
@@ -208,16 +258,20 @@ export default function HealthPage() {
           {[...Array(8)].map((_, i) => <div key={i} className="h-28 rounded-xl bg-white/5 animate-pulse" />)}
         </div>
       ) : (
-        <div className="space-y-6">
+        <div className="space-y-4">
           {Array.from(grouped.entries()).map(([category, endpoints]) => (
-            <div key={category}>
-              <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">{category}</h3>
+            <CollapsibleSection
+              key={category}
+              title={category}
+              count={endpoints.length}
+              storageKey={`health-${category.toLowerCase().replace(/\s+/g, '-')}`}
+            >
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {endpoints.map((endpoint) => (
                   <HealthCard key={endpoint.name} endpoint={endpoint} />
                 ))}
               </div>
-            </div>
+            </CollapsibleSection>
           ))}
           {grouped.size === 0 && (
             <div className="py-16 text-center text-slate-500">

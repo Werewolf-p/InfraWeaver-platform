@@ -203,7 +203,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <FloatingActionButton />
 
       {/* Bottom mobile nav */}
-      <nav className="fixed bottom-0 left-0 right-0 z-50 md:hidden bg-black/80 backdrop-blur-xl border-t border-white/10 flex landscape:hidden" style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
+      <nav className="fixed bottom-0 left-0 right-0 z-50 md:hidden bg-black/80 backdrop-blur-xl border-t border-white/10 flex landscape-hide" style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
         {mobileNavItems.map(item => {
           const isActive = pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href));
           return (

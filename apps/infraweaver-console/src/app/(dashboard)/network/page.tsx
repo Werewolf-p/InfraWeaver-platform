@@ -65,7 +65,7 @@ export default function NetworkPage() {
           href="https://netbird.int.rlservers.com"
           target="_blank"
           rel="noopener noreferrer"
-          className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 hover:text-white hover:bg-white/10 transition-colors active:scale-95"
+          className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 hover:text-white hover:bg-white/10 transition-colors active:scale-95 touch-manipulation"
         >
           <ExternalLink className="w-3.5 h-3.5" />
           Open NetBird Dashboard
@@ -123,7 +123,7 @@ export default function NetworkPage() {
               key={peer.id}
               whileHover={{ scale: 1.01 }}
               whileTap={{ scale: 0.98 }}
-              className="bg-white/5 border border-white/10 rounded-xl p-4"
+              className="bg-white/5 border border-white/10 rounded-xl p-3 md:p-4 touch-manipulation"
             >
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">

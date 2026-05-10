@@ -5,12 +5,13 @@ import { useState, useEffect, useCallback } from "react";
 import {
   Shield, AlertTriangle, CheckCircle2, RefreshCw, Lock, Users, Loader2,
   KeyRound, Network, FileWarning, Server, Box, Activity, Database,
-  ChevronDown, ChevronRight, Clock, Eye, EyeOff, Cpu,
+  ChevronDown, ChevronRight, Clock, Cpu,
   AlertCircle, BookOpen, Layers, GitBranch, HardDrive,
 } from "lucide-react";
 import { useRBAC } from "@/hooks/use-rbac";
 import { useRouter } from "next/navigation";
 import { cn, timeAgo } from "@/lib/utils";
+import { CollapsibleSection } from "@/components/ui/collapsible-section";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -126,7 +127,7 @@ function SectionCard({ children, delay = 0 }: { children: React.ReactNode; delay
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay, duration: 0.35 }}
-      className="bg-white/5 border border-white/10 rounded-xl p-5"
+      className="bg-white/5 border border-white/10 rounded-xl p-3 md:p-5"
     >
       {children}
     </motion.div>
@@ -165,7 +166,7 @@ function OverviewCard({ card, delay }: { card: StatCard; delay: number }) {
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
       transition={{ delay, duration: 0.3 }}
-      className={cn("border rounded-xl p-4 flex flex-col gap-2", color)}
+      className={cn("border rounded-xl p-3 md:p-4 flex flex-col gap-2 touch-manipulation active:scale-95 transition-transform", color)}
     >
       <div className="flex items-center justify-between">
         <card.icon className={cn("w-4 h-4", iconColor)} />
@@ -188,7 +189,6 @@ export default function SecurityPage() {
   const { isAdmin } = useRBAC();
   const router = useRouter();
   const [expandedViolation, setExpandedViolation] = useState<number | null>(null);
-  const [showImages, setShowImages] = useState(false);
 
   useEffect(() => {
     if (!isAdmin) router.push("/apps");
@@ -374,43 +374,41 @@ export default function SecurityPage() {
         </SectionCard>
 
         {/* ── ExternalSecret Sync Status (item 2) ── */}
-        <SectionCard delay={0.08}>
-          <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
-            <KeyRound className="w-4 h-4 text-yellow-400" />
-            ExternalSecret Sync Status
-            {enhanced && (
-              <span className="ml-auto text-xs text-slate-500">
-                {enhanced.externalSecrets.filter(e => e.ready).length}/{enhanced.externalSecrets.length} synced
-              </span>
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08, duration: 0.35 }}>
+          <CollapsibleSection
+            title="ExternalSecret Sync Status"
+            count={enhanced?.externalSecrets?.length}
+            storageKey="sec-external-secrets"
+            badge={<KeyRound className="w-4 h-4 text-yellow-400 flex-shrink-0" />}
+          >
+            {enhancedLoading ? <Shimmer rows={3} /> : (
+              <div className="space-y-2">
+                {(enhanced?.externalSecrets ?? []).map((es, i) => (
+                  <motion.div key={i} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.04 }}
+                    className={cn("flex items-center gap-3 p-3 rounded-lg border", es.ready ? "bg-white/5 border-white/5" : "bg-red-500/5 border-red-500/20")}
+                  >
+                    <StatusDot ok={es.ready} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-white font-medium truncate">{es.name}</p>
+                      <p className="text-xs text-slate-500">{es.namespace} → {es.targetSecret}</p>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <span className={cn("text-xs font-semibold", es.ready ? "text-green-400" : "text-red-400")}>
+                        {es.ready ? "Ready" : "NotReady"}
+                      </span>
+                      {es.lastSyncTime && (
+                        <p className="text-xs text-slate-500">{timeAgo(es.lastSyncTime)}</p>
+                      )}
+                    </div>
+                  </motion.div>
+                ))}
+                {!enhanced?.externalSecrets?.length && !enhancedLoading && (
+                  <p className="text-sm text-slate-500 text-center py-4">No ExternalSecrets found</p>
+                )}
+              </div>
             )}
-          </h3>
-          {enhancedLoading ? <Shimmer rows={3} /> : (
-            <div className="space-y-2">
-              {(enhanced?.externalSecrets ?? []).map((es, i) => (
-                <motion.div key={i} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.04 }}
-                  className={cn("flex items-center gap-3 p-3 rounded-lg border", es.ready ? "bg-white/5 border-white/5" : "bg-red-500/5 border-red-500/20")}
-                >
-                  <StatusDot ok={es.ready} />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-white font-medium truncate">{es.name}</p>
-                    <p className="text-xs text-slate-500">{es.namespace} → {es.targetSecret}</p>
-                  </div>
-                  <div className="text-right flex-shrink-0">
-                    <span className={cn("text-xs font-semibold", es.ready ? "text-green-400" : "text-red-400")}>
-                      {es.ready ? "Ready" : "NotReady"}
-                    </span>
-                    {es.lastSyncTime && (
-                      <p className="text-xs text-slate-500">{timeAgo(es.lastSyncTime)}</p>
-                    )}
-                  </div>
-                </motion.div>
-              ))}
-              {!enhanced?.externalSecrets?.length && !enhancedLoading && (
-                <p className="text-sm text-slate-500 text-center py-4">No ExternalSecrets found</p>
-              )}
-            </div>
-          )}
-        </SectionCard>
+          </CollapsibleSection>
+        </motion.div>
 
         {/* ── Kyverno Policy Violations (item 3) ── */}
         <SectionCard delay={0.1}>
@@ -476,94 +474,92 @@ export default function SecurityPage() {
         </SectionCard>
 
         {/* ── Pod Security Audit (item 4, enhanced) ── */}
-        <SectionCard delay={0.12}>
-          <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4 text-orange-400" />
-            Pod Security Audit
-            <span className="ml-auto text-xs text-slate-500">
-              {(enhanced?.podSecurityIssues?.length ?? podIssues.length)} issues
-            </span>
-          </h3>
-          {(podsLoading || enhancedLoading) ? <Shimmer rows={4} /> : (() => {
-            const issues = enhanced?.podSecurityIssues ?? [];
-            return issues.length === 0 && podIssues.length === 0 ? (
-              <div className="text-center py-8">
-                <CheckCircle2 className="w-10 h-10 text-green-400 mx-auto mb-2" />
-                <p className="text-sm text-slate-400">No pod security issues detected</p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {issues.map((issue, i) => (
-                  <motion.div key={`enhanced-${i}`} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.04 }}
-                    className="flex items-start gap-3 p-3 rounded-lg bg-white/5 border border-white/5"
-                  >
-                    <SeverityBadge severity={issue.severity} />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-white font-medium truncate">{issue.pod}</p>
-                      <p className="text-xs text-slate-500">{issue.namespace}</p>
-                      <ul className="mt-1 space-y-0.5">
-                        {issue.issues.map((iss, j) => (
-                          <li key={j} className="text-xs text-slate-400 flex items-center gap-1">
-                            <span className="text-slate-600">·</span> {iss}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  </motion.div>
-                ))}
-                {issues.length === 0 && podIssues.map((issue, i) => (
-                  <motion.div key={`basic-${i}`} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.04 }}
-                    className="flex items-start gap-3 p-3 rounded-lg bg-white/5 border border-white/5"
-                  >
-                    <SeverityBadge severity={issue.severity} />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-white font-medium truncate">{issue.pod}</p>
-                      <p className="text-xs text-slate-500">{issue.namespace} · {issue.issue}</p>
-                    </div>
-                  </motion.div>
-                ))}
-              </div>
-            );
-          })()}
-        </SectionCard>
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.12, duration: 0.35 }}>
+          <CollapsibleSection
+            title="Pod Security Audit"
+            count={enhanced?.podSecurityIssues?.length ?? podIssues.length}
+            storageKey="sec-pod-security"
+            badge={<AlertTriangle className="w-4 h-4 text-orange-400 flex-shrink-0" />}
+          >
+            {(podsLoading || enhancedLoading) ? <Shimmer rows={4} /> : (() => {
+              const issues = enhanced?.podSecurityIssues ?? [];
+              return issues.length === 0 && podIssues.length === 0 ? (
+                <div className="text-center py-8">
+                  <CheckCircle2 className="w-10 h-10 text-green-400 mx-auto mb-2" />
+                  <p className="text-sm text-slate-400">No pod security issues detected</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {issues.map((issue, i) => (
+                    <motion.div key={`enhanced-${i}`} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.04 }}
+                      className="flex items-start gap-3 p-3 rounded-lg bg-white/5 border border-white/5"
+                    >
+                      <SeverityBadge severity={issue.severity} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-white font-medium truncate">{issue.pod}</p>
+                        <p className="text-xs text-slate-500">{issue.namespace}</p>
+                        <ul className="mt-1 space-y-0.5">
+                          {issue.issues.map((iss, j) => (
+                            <li key={j} className="text-xs text-slate-400 flex items-center gap-1">
+                              <span className="text-slate-600">·</span> {iss}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </motion.div>
+                  ))}
+                  {issues.length === 0 && podIssues.map((issue, i) => (
+                    <motion.div key={`basic-${i}`} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.04 }}
+                      className="flex items-start gap-3 p-3 rounded-lg bg-white/5 border border-white/5"
+                    >
+                      <SeverityBadge severity={issue.severity} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-white font-medium truncate">{issue.pod}</p>
+                        <p className="text-xs text-slate-500">{issue.namespace} · {issue.issue}</p>
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+              );
+            })()}
+          </CollapsibleSection>
+        </motion.div>
 
         {/* ── Auth Events / Failed Login Attempts (item 5) ── */}
-        <SectionCard delay={0.14}>
-          <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
-            <Clock className="w-4 h-4 text-rose-400" />
-            Recent Auth Events
-            {authEvents && (
-              <span className="ml-auto text-xs text-slate-500">
-                source: {authEvents.source} · {authEvents.events.filter(e => !e.success).length} failed
-              </span>
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.14, duration: 0.35 }}>
+          <CollapsibleSection
+            title="Recent Auth Events"
+            count={authEvents?.events?.length}
+            storageKey="sec-auth-events"
+            badge={<Clock className="w-4 h-4 text-rose-400 flex-shrink-0" />}
+          >
+            {authEventsLoading ? <Shimmer rows={4} /> : (
+              <div className="space-y-2">
+                {(authEvents?.events ?? []).map((evt, i) => (
+                  <motion.div key={evt.id} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.04 }}
+                    className={cn("flex items-center gap-3 p-3 rounded-lg border", evt.success ? "bg-white/5 border-white/5" : "bg-red-500/5 border-red-500/20")}
+                  >
+                    <StatusDot ok={evt.success} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-white font-medium truncate">{evt.user}</p>
+                      <p className="text-xs text-slate-500">{evt.action}{evt.details ? ` · ${evt.details}` : ""}</p>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <span className={cn("text-xs font-semibold", evt.success ? "text-green-400" : "text-red-400")}>
+                        {evt.success ? "OK" : "FAIL"}
+                      </span>
+                      <p className="text-xs text-slate-500">{evt.ip}</p>
+                      <p className="text-xs text-slate-600">{timeAgo(evt.timestamp)}</p>
+                    </div>
+                  </motion.div>
+                ))}
+                {!authEvents?.events?.length && (
+                  <p className="text-sm text-slate-500 text-center py-4">No auth events available</p>
+                )}
+              </div>
             )}
-          </h3>
-          {authEventsLoading ? <Shimmer rows={4} /> : (
-            <div className="space-y-2">
-              {(authEvents?.events ?? []).map((evt, i) => (
-                <motion.div key={evt.id} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.04 }}
-                  className={cn("flex items-center gap-3 p-3 rounded-lg border", evt.success ? "bg-white/5 border-white/5" : "bg-red-500/5 border-red-500/20")}
-                >
-                  <StatusDot ok={evt.success} />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-white font-medium truncate">{evt.user}</p>
-                    <p className="text-xs text-slate-500">{evt.action}{evt.details ? ` · ${evt.details}` : ""}</p>
-                  </div>
-                  <div className="text-right flex-shrink-0">
-                    <span className={cn("text-xs font-semibold", evt.success ? "text-green-400" : "text-red-400")}>
-                      {evt.success ? "OK" : "FAIL"}
-                    </span>
-                    <p className="text-xs text-slate-500">{evt.ip}</p>
-                    <p className="text-xs text-slate-600">{timeAgo(evt.timestamp)}</p>
-                  </div>
-                </motion.div>
-              ))}
-              {!authEvents?.events?.length && (
-                <p className="text-sm text-slate-500 text-center py-4">No auth events available</p>
-              )}
-            </div>
-          )}
-        </SectionCard>
+          </CollapsibleSection>
+        </motion.div>
 
         {/* ── ServiceAccount RBAC Audit (item 6) ── */}
         <SectionCard delay={0.16}>
@@ -577,7 +573,7 @@ export default function SecurityPage() {
             )}
           </h3>
           {rbacLoading ? <Shimmer rows={4} /> : (
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto -mx-3 px-3 md:-mx-5 md:px-5">
               <table className="w-full text-xs">
                 <thead>
                   <tr className="text-slate-500 border-b border-white/5">
@@ -620,7 +616,7 @@ export default function SecurityPage() {
           {enhancedLoading ? <Shimmer rows={3} /> : (enhanced?.pdbList ?? []).length === 0 ? (
             <p className="text-sm text-slate-500 text-center py-4">No PodDisruptionBudgets found</p>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto -mx-3 px-3 md:-mx-5 md:px-5">
               <table className="w-full text-xs">
                 <thead>
                   <tr className="text-slate-500 border-b border-white/5">
@@ -659,75 +655,68 @@ export default function SecurityPage() {
         </SectionCard>
 
         {/* ── Network Policy Coverage (item 8) ── */}
-        <SectionCard delay={0.2}>
-          <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
-            <Network className="w-4 h-4 text-teal-400" />
-            Network Policy Coverage
-            {enhanced && (
-              <span className={cn("ml-auto text-xs font-semibold", enhanced.unprotectedNamespaces.length > 0 ? "text-orange-400" : "text-green-400")}>
-                {enhanced.unprotectedNamespaces.length} unprotected
-              </span>
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2, duration: 0.35 }}>
+          <CollapsibleSection
+            title="Network Policy Coverage"
+            count={enhanced?.unprotectedNamespaces?.length}
+            storageKey="sec-network-policy"
+            badge={<Network className="w-4 h-4 text-teal-400 flex-shrink-0" />}
+          >
+            {enhancedLoading ? <Shimmer rows={3} /> : (
+              <div className="space-y-2">
+                {(enhanced?.unprotectedNamespaces ?? []).length === 0 ? (
+                  <div className="text-center py-8">
+                    <CheckCircle2 className="w-10 h-10 text-green-400 mx-auto mb-2" />
+                    <p className="text-sm text-slate-400">All namespaces have NetworkPolicies</p>
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-xs text-slate-500 mb-2">Namespaces with no NetworkPolicies (pods open to all traffic):</p>
+                    {(enhanced?.unprotectedNamespaces ?? []).map((ns, i) => (
+                      <motion.div key={i} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.04 }}
+                        className="flex items-center gap-3 p-3 rounded-lg bg-orange-500/5 border border-orange-500/20"
+                      >
+                        <AlertTriangle className="w-4 h-4 text-orange-400 flex-shrink-0" />
+                        <span className="text-sm text-white font-medium">{ns}</span>
+                        <span className="ml-auto text-xs text-orange-400 font-semibold">Unprotected</span>
+                      </motion.div>
+                    ))}
+                  </>
+                )}
+              </div>
             )}
-          </h3>
-          {enhancedLoading ? <Shimmer rows={3} /> : (
-            <div className="space-y-2">
-              {(enhanced?.unprotectedNamespaces ?? []).length === 0 ? (
-                <div className="text-center py-8">
-                  <CheckCircle2 className="w-10 h-10 text-green-400 mx-auto mb-2" />
-                  <p className="text-sm text-slate-400">All namespaces have NetworkPolicies</p>
-                </div>
-              ) : (
-                <>
-                  <p className="text-xs text-slate-500 mb-2">Namespaces with no NetworkPolicies (pods open to all traffic):</p>
-                  {(enhanced?.unprotectedNamespaces ?? []).map((ns, i) => (
-                    <motion.div key={i} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.04 }}
-                      className="flex items-center gap-3 p-3 rounded-lg bg-orange-500/5 border border-orange-500/20"
-                    >
-                      <AlertTriangle className="w-4 h-4 text-orange-400 flex-shrink-0" />
-                      <span className="text-sm text-white font-medium">{ns}</span>
-                      <span className="ml-auto text-xs text-orange-400 font-semibold">Unprotected</span>
-                    </motion.div>
-                  ))}
-                </>
-              )}
-            </div>
-          )}
-        </SectionCard>
+          </CollapsibleSection>
+        </motion.div>
 
         {/* ── Image Vulnerability Summary (item 9) ── */}
-        <SectionCard delay={0.22}>
-          <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
-            <Box className="w-4 h-4 text-indigo-400" />
-            Running Container Images
-            <button onClick={() => setShowImages(!showImages)} className="ml-auto flex items-center gap-1 text-xs text-slate-400 hover:text-white transition-colors">
-              {showImages ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-              {showImages ? "Hide" : "Show all"}
-            </button>
-          </h3>
-          {enhancedLoading ? <Shimmer rows={3} /> : (
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 p-3 rounded-lg bg-blue-500/5 border border-blue-500/20 text-xs text-blue-300">
-                <FileWarning className="w-4 h-4 flex-shrink-0" />
-                <span>Trivy not available on runner. Showing image inventory. Run <code className="font-mono bg-white/10 px-1 rounded">trivy image &lt;img&gt;</code> locally for CVE details.</span>
-              </div>
-              <AnimatePresence>
-                {showImages && (enhanced?.runningImages ?? []).map((img, i) => (
-                  <motion.div key={i} initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.22, duration: 0.35 }}>
+          <CollapsibleSection
+            title="Running Container Images"
+            count={enhanced?.runningImages?.length}
+            storageKey="sec-images"
+            badge={<Box className="w-4 h-4 text-indigo-400 flex-shrink-0" />}
+          >
+            {enhancedLoading ? <Shimmer rows={3} /> : (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 p-3 rounded-lg bg-blue-500/5 border border-blue-500/20 text-xs text-blue-300">
+                  <FileWarning className="w-4 h-4 flex-shrink-0" />
+                  <span>Trivy not available on runner. Showing image inventory. Run <code className="font-mono bg-white/10 px-1 rounded">trivy image &lt;img&gt;</code> locally for CVE details.</span>
+                </div>
+                {(enhanced?.runningImages ?? []).map((img, i) => (
+                  <motion.div key={i} initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }}
                     className="flex items-center gap-3 p-3 rounded-lg bg-white/5 border border-white/5"
                   >
                     <Box className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
                     <span className="text-xs text-slate-300 font-mono truncate">{img.image}</span>
                   </motion.div>
                 ))}
-              </AnimatePresence>
-              {!showImages && (
-                <p className="text-xs text-slate-500 text-center py-2">
-                  {enhanced?.runningImages?.length ?? 0} unique images — click Show all to inspect
-                </p>
-              )}
-            </div>
-          )}
-        </SectionCard>
+                {!(enhanced?.runningImages?.length) && (
+                  <p className="text-xs text-slate-500 text-center py-2">No image data available</p>
+                )}
+              </div>
+            )}
+          </CollapsibleSection>
+        </motion.div>
 
         {/* ── OpenBao Seal Status (item 10) ── */}
         <SectionCard delay={0.24}>

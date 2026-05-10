@@ -2,10 +2,11 @@
 import { motion } from "framer-motion";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Server, Plus, RefreshCw, Zap, Link2, Loader2, Copy, Check } from "lucide-react";
+import { Server, Plus, RefreshCw, Zap, Link2, Loader2, Copy, Check, ChevronDown } from "lucide-react";
 import { useRBAC } from "@/hooks/use-rbac";
 import { cn, timeAgo } from "@/lib/utils";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import { toast } from "sonner";
 import Link from "next/link";
 
@@ -65,6 +66,9 @@ export default function ClusterPage() {
   });
 
   const nodes = data?.nodes ?? [];
+  const NODE_PAGE_SIZE = 5;
+  const [showAllNodes, setShowAllNodes] = useState(false);
+  const displayNodes = showAllNodes ? nodes : nodes.slice(0, NODE_PAGE_SIZE);
 
   const handleSyncAll = async () => {
     setSyncing(true);
@@ -110,7 +114,7 @@ export default function ClusterPage() {
           </h2>
           <p className="text-sm text-slate-400 mt-0.5">Node status and cluster operations</p>
         </div>
-        <button onClick={() => refetch()} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 hover:text-white hover:bg-white/10 transition-colors active:scale-95">
+        <button onClick={() => refetch()} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 hover:text-white hover:bg-white/10 transition-colors active:scale-95 touch-manipulation">
           <RefreshCw className="w-3.5 h-3.5" />
           Refresh
         </button>
@@ -119,46 +123,61 @@ export default function ClusterPage() {
 
       <div className="space-y-6">
         {/* Nodes */}
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-white/5 border border-white/10 rounded-xl p-5">
-          <h3 className="text-sm font-semibold text-white mb-4">Cluster Nodes ({nodes.length})</h3>
+        <CollapsibleSection
+          title="Cluster Nodes"
+          count={nodes.length}
+          storageKey="cluster-nodes"
+          badge={<Server className="w-4 h-4 text-indigo-400 flex-shrink-0" />}
+        >
           {isLoading ? (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               {[...Array(3)].map((_, i) => <div key={i} className="h-36 rounded-xl shimmer-bg" />)}
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              {nodes.map((node, i) => (
-                <motion.div
-                  key={node.name}
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ delay: i * 0.08 }}
-                  className={cn(
-                    "p-4 rounded-xl border",
-                    node.status === "Ready"
-                      ? "bg-green-500/5 border-green-500/20"
-                      : "bg-red-500/5 border-red-500/20",
-                    node.unschedulable && "opacity-60"
-                  )}
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {displayNodes.map((node, i) => (
+                  <motion.div
+                    key={node.name}
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: i * 0.08 }}
+                    className={cn(
+                      "p-3 md:p-4 rounded-xl border touch-manipulation active:scale-95 transition-transform",
+                      node.status === "Ready"
+                        ? "bg-green-500/5 border-green-500/20"
+                        : "bg-red-500/5 border-red-500/20",
+                      node.unschedulable && "opacity-60"
+                    )}
+                  >
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className={cn("w-2 h-2 rounded-full flex-shrink-0", node.status === "Ready" ? "bg-green-500" : "bg-red-500")} />
+                      <span className="text-sm font-semibold text-white truncate">{node.name}</span>
+                      {node.unschedulable && <span className="text-xs text-orange-400 bg-orange-500/10 px-1.5 py-0.5 rounded">Cordoned</span>}
+                    </div>
+                    <div className="space-y-1 text-xs">
+                      <div className="flex justify-between"><span className="text-slate-500">IP</span><span className="text-slate-300 font-mono">{node.ip}</span></div>
+                      <div className="flex justify-between"><span className="text-slate-500">Role</span><span className="text-slate-300">{node.roles.join(", ") || "worker"}</span></div>
+                      <div className="flex justify-between"><span className="text-slate-500">Version</span><span className="text-slate-300 font-mono">{node.version}</span></div>
+                      <div className="flex justify-between"><span className="text-slate-500">CPU</span><span className="text-slate-300">{node.cpu} cores</span></div>
+                      <div className="flex justify-between"><span className="text-slate-500">Memory</span><span className="text-slate-300">{node.memory}</span></div>
+                      {node.age && <div className="flex justify-between"><span className="text-slate-500">Age</span><span className="text-slate-300">{timeAgo(node.age)}</span></div>}
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+              {nodes.length > NODE_PAGE_SIZE && (
+                <button
+                  onClick={() => setShowAllNodes(v => !v)}
+                  className="mt-3 w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-white/5 border border-white/10 text-xs text-slate-400 hover:text-white hover:bg-white/8 transition-colors"
                 >
-                  <div className="flex items-center gap-2 mb-3">
-                    <span className={cn("w-2 h-2 rounded-full flex-shrink-0", node.status === "Ready" ? "bg-green-500" : "bg-red-500")} />
-                    <span className="text-sm font-semibold text-white truncate">{node.name}</span>
-                    {node.unschedulable && <span className="text-xs text-orange-400 bg-orange-500/10 px-1.5 py-0.5 rounded">Cordoned</span>}
-                  </div>
-                  <div className="space-y-1 text-xs">
-                    <div className="flex justify-between"><span className="text-slate-500">IP</span><span className="text-slate-300 font-mono">{node.ip}</span></div>
-                    <div className="flex justify-between"><span className="text-slate-500">Role</span><span className="text-slate-300">{node.roles.join(", ") || "worker"}</span></div>
-                    <div className="flex justify-between"><span className="text-slate-500">Version</span><span className="text-slate-300 font-mono">{node.version}</span></div>
-                    <div className="flex justify-between"><span className="text-slate-500">CPU</span><span className="text-slate-300">{node.cpu} cores</span></div>
-                    <div className="flex justify-between"><span className="text-slate-500">Memory</span><span className="text-slate-300">{node.memory}</span></div>
-                    {node.age && <div className="flex justify-between"><span className="text-slate-500">Age</span><span className="text-slate-300">{timeAgo(node.age)}</span></div>}
-                  </div>
-                </motion.div>
-              ))}
-            </div>
+                  <ChevronDown className={cn("w-3.5 h-3.5 transition-transform", showAllNodes && "rotate-180")} />
+                  {showAllNodes ? "Show fewer" : `Show ${nodes.length - NODE_PAGE_SIZE} more node${nodes.length - NODE_PAGE_SIZE !== 1 ? "s" : ""}`}
+                </button>
+              )}
+            </>
           )}
-        </motion.div>
+        </CollapsibleSection>
 
         {/* Quick Actions */}
         {isAdmin && (
