@@ -95,6 +95,15 @@ spec:
               key: netbird-token
         - name: NODE_ENV
           value: production
+        - name: AUTHENTIK_URL
+          value: http://authentik-server.authentik.svc.cluster.local
+        - name: AUTHENTIK_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: infraweaver-console-secret
+              key: authentik-token
+        - name: ADMIN_EMAILS
+          value: remonhulst@gmail.com
         - name: AUTH_TRUST_HOST
           value: "true"
         # NAS provider configuration — for Synology/TrueNAS share management

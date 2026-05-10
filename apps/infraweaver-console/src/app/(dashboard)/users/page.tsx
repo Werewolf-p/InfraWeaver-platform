@@ -4,8 +4,10 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Users, Plus, Pencil, Trash2, Search, Save, X, ChevronDown,
   Shield, Eye, User, CheckCircle2, XCircle, AlertTriangle, ChevronRight,
-  Info, Lock, HardDrive,
+  Info, Lock, HardDrive, Mail,
 } from "lucide-react";
+import { UserActionsDropdown } from "@/components/users/user-actions-dropdown";
+import { InviteModal } from "@/components/users/invite-modal";
 import { toast } from "sonner";
 import { useUsersConfig, useSaveUsersConfig, type PlatformUser } from "@/hooks/use-users-config";
 import { useRBAC } from "@/hooks/use-rbac";
@@ -502,12 +504,13 @@ function RBACInfoCard() {
   );
 }
 
-function UserMobileCard({ user, isAdmin, isSelf, onEdit, onDelete }: {
+function UserMobileCard({ user, isAdmin, isSelf, onEdit, onDelete, actionsDropdown }: {
   user: PlatformUser;
   isAdmin: boolean;
   isSelf: boolean;
   onEdit: () => void;
   onDelete: () => void;
+  actionsDropdown?: React.ReactNode;
 }) {
   const [expanded, setExpanded] = useState(false);
   return (
@@ -559,19 +562,23 @@ function UserMobileCard({ user, isAdmin, isSelf, onEdit, onDelete }: {
               </div>
               {isAdmin && (
                 <div className="flex gap-2 pt-1">
-                  <button
-                    onClick={onEdit}
-                    className="flex-1 min-h-[48px] flex items-center justify-center gap-2 rounded-lg bg-white/5 border border-white/10 text-slate-300 hover:text-white hover:bg-white/10 transition-colors text-sm active:scale-95"
-                  >
-                    <Pencil className="w-4 h-4" /> Edit
-                  </button>
-                  <button
-                    onClick={onDelete}
-                    disabled={isSelf}
-                    className="flex-1 min-h-[48px] flex items-center justify-center gap-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500/20 transition-colors text-sm disabled:opacity-40 active:scale-95"
-                  >
-                    <Trash2 className="w-4 h-4" /> Delete
-                  </button>
+                  {actionsDropdown ? actionsDropdown : (
+                    <>
+                      <button
+                        onClick={onEdit}
+                        className="flex-1 min-h-[48px] flex items-center justify-center gap-2 rounded-lg bg-white/5 border border-white/10 text-slate-300 hover:text-white hover:bg-white/10 transition-colors text-sm active:scale-95"
+                      >
+                        <Pencil className="w-4 h-4" /> Edit
+                      </button>
+                      <button
+                        onClick={onDelete}
+                        disabled={isSelf}
+                        className="flex-1 min-h-[48px] flex items-center justify-center gap-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500/20 transition-colors text-sm disabled:opacity-40 active:scale-95"
+                      >
+                        <Trash2 className="w-4 h-4" /> Delete
+                      </button>
+                    </>
+                  )}
                 </div>
               )}
             </div>
@@ -593,6 +600,7 @@ export default function UsersPage() {
   const [editUser, setEditUser] = useState<PlatformUser | null>(null);
   const [deleteUser, setDeleteUser] = useState<PlatformUser | null>(null);
   const [activeTab, setActiveTab] = useState<"users" | "storage">("users");
+  const [inviteOpen, setInviteOpen] = useState(false);
 
   const currentEmail = session?.user?.email ?? "";
   const users = data?.users ?? [];
@@ -668,13 +676,22 @@ export default function UsersPage() {
             </p>
           </div>
           {isAdmin && activeTab === "users" && (
-            <button
-              onClick={() => { setEditUser(null); setModalOpen(true); }}
-              className="flex items-center justify-center gap-2 w-full sm:w-auto px-3 py-2.5 rounded-lg bg-purple-500/20 border border-purple-500/30 text-sm text-purple-300 hover:bg-purple-500/30 transition-colors active:scale-95 touch-manipulation"
-            >
-              <Plus className="w-4 h-4" />
-              Add User
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setInviteOpen(true)}
+                className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-indigo-500/20 border border-indigo-500/30 text-sm text-indigo-300 hover:bg-indigo-500/30 transition-colors active:scale-95 touch-manipulation"
+              >
+                <Mail className="w-4 h-4" />
+                Invite
+              </button>
+              <button
+                onClick={() => { setEditUser(null); setModalOpen(true); }}
+                className="flex items-center justify-center gap-2 w-full sm:w-auto px-3 py-2.5 rounded-lg bg-purple-500/20 border border-purple-500/30 text-sm text-purple-300 hover:bg-purple-500/30 transition-colors active:scale-95 touch-manipulation"
+              >
+                <Plus className="w-4 h-4" />
+                Add User
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -777,20 +794,14 @@ export default function UsersPage() {
                     </div>
                     {isAdmin && (
                       <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => { setEditUser(user); setModalOpen(true); }}
-                          className="p-1.5 rounded-lg bg-white/5 border border-white/10 text-slate-400 hover:text-white hover:bg-white/10 transition-colors active:scale-95"
-                        >
-                          <Pencil className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => setDeleteUser(user)}
-                          disabled={isSelf}
-                          className="p-1.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500/20 transition-colors disabled:opacity-30 active:scale-95"
-                          title={isSelf ? "Cannot delete yourself" : "Delete user"}
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        <UserActionsDropdown
+                          user={user}
+                          isSelf={isSelf}
+                          isAdmin={isAdmin}
+                          onEdit={() => { setEditUser(user); setModalOpen(true); }}
+                          onDelete={() => setDeleteUser(user)}
+                          onRefetch={() => { /* react-query will refetch */ }}
+                        />
                       </div>
                     )}
                   </motion.div>
@@ -813,6 +824,16 @@ export default function UsersPage() {
                   isSelf={user.email === currentEmail || user.username === currentUsername}
                   onEdit={() => { setEditUser(user); setModalOpen(true); }}
                   onDelete={() => setDeleteUser(user)}
+                  actionsDropdown={
+                    <UserActionsDropdown
+                      user={user}
+                      isSelf={user.email === currentEmail || user.username === currentUsername}
+                      isAdmin={isAdmin}
+                      onEdit={() => { setEditUser(user); setModalOpen(true); }}
+                      onDelete={() => setDeleteUser(user)}
+                      onRefetch={() => { /* react-query will refetch */ }}
+                    />
+                  }
                 />
               ))}
             </AnimatePresence>
@@ -859,6 +880,10 @@ export default function UsersPage() {
             onCancel={() => setDeleteUser(null)}
           />
         )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {inviteOpen && <InviteModal open={inviteOpen} onClose={() => setInviteOpen(false)} />}
       </AnimatePresence>
     </div>
   );
