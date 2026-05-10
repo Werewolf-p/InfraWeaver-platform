@@ -1,18 +1,5 @@
-apiVersion: metallb.io/v1beta1
-kind: IPAddressPool
-metadata:
-  name: game-servers-pool
-  namespace: metallb-system
-spec:
-  addresses:
-    - 10.10.0.206-10.10.0.210
-  autoAssign: false
----
-apiVersion: metallb.io/v1beta1
-kind: L2Advertisement
-metadata:
-  name: game-servers-l2
-  namespace: metallb-system
-spec:
-  ipAddressPools:
-    - game-servers-pool
+# The game-servers IPs (10.10.0.206-210) are already part of vlan3-pool
+# (10.10.0.200-210). No separate IPAddressPool is needed.
+# Services should use metallb.universe.tf/address-pool: vlan3-pool
+# with metallb.universe.tf/loadBalancerIPs set to the desired IP.
+# This file is intentionally a no-op to document the pool allocation.

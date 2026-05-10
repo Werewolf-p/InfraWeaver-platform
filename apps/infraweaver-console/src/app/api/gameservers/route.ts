@@ -101,7 +101,7 @@ export async function POST(req: NextRequest) {
           "infraweaver.io/game-type": gameType,
         },
         annotations: {
-          "metallb.universe.tf/address-pool": "game-servers-pool",
+          "metallb.universe.tf/address-pool": "vlan3-pool",
           "infraweaver.io/display-name": displayName,
           "infraweaver.io/game-type": gameType,
           "infraweaver.io/backend-type": backendType,
