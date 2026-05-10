@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { hasPermission } from "@/lib/rbac";
+import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN ?? "";
 const GITHUB_REPO = process.env.GITHUB_REPO ?? "Werewolf-p/InfraWeaver-platform";
@@ -46,6 +47,9 @@ export async function POST(req: NextRequest) {
   const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
   if (!hasPermission(groups, "catalog:write")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+  if (!checkRateLimit(rateLimitKey("catalog-install", req), 10, 60_000)) {
+    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
   }
   try {
     const body = (await req.json()) as {

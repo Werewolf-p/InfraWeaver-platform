@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { hasPermission } from "@/lib/rbac";
+import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 
 const GITHUB_REPO = process.env.GITHUB_REPO ?? "Werewolf-p/InfraWeaver-platform";
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN ?? "";
@@ -72,6 +73,9 @@ export async function POST(request: Request) {
   const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
   if (!hasPermission(groups, "config:write")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+  if (!checkRateLimit(rateLimitKey("pipelines-dispatch", request), 20, 60_000)) {
+    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
   }
   try {
     const { workflowId, ref = "main", inputs = {} } = await request.json() as { workflowId: number; ref?: string; inputs?: Record<string, string> };

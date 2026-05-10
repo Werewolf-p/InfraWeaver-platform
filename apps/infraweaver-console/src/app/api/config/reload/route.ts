@@ -2,12 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getRole } from "@/lib/rbac";
 import { auditLog } from "@/lib/audit-log";
+import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 
-export async function POST(_req: NextRequest) {
+export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
   if (getRole(groups) !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!checkRateLimit(rateLimitKey("config-reload", req), 10, 60_000)) {
+    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
+  }
   const server = process.env.ARGOCD_SERVER ?? "http://argocd-server.argocd.svc.cluster.local";
   const token = process.env.ARGOCD_TOKEN ?? "";
   const appName = process.env.ARGOCD_APP_OF_APPS ?? "app-of-apps";
