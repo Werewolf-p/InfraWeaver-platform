@@ -1,10 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@/lib/auth";
+import { hasPermission } from "@/lib/rbac";
+
+const SAFE_K8S_NAME_RE = /^[a-z0-9][a-z0-9-]*$/;
 
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ namespace: string; pod: string; container: string }> }
 ) {
+  const session = await auth();
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
+  if (!hasPermission(groups, "apps:read")) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const { namespace, pod, container } = await params;
+
+  if (!SAFE_K8S_NAME_RE.test(namespace) || !SAFE_K8S_NAME_RE.test(pod) || !SAFE_K8S_NAME_RE.test(container)) {
+    return NextResponse.json({ error: "Invalid name: only lowercase alphanumeric and dashes allowed" }, { status: 400 });
+  }
+
   const lines = parseInt(req.nextUrl.searchParams.get("lines") ?? "500");
 
   const mockLines = Array.from({ length: Math.min(lines, 50) }, (_, i) => {

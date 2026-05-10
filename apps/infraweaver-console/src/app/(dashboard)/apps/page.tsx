@@ -23,6 +23,11 @@ function useDeleteApp() {
   });
 }
 
+function getDisplayHealth(app: ArgoApp): string {
+  if (app.status.health.status === "Progressing" && app.status.sync.status === "Synced") return "Syncing";
+  return app.status.health.status;
+}
+
 function HealthDot({ status }: { status: string }) {
   const colors: Record<string, string> = {
     Healthy: "bg-green-500",
@@ -76,7 +81,7 @@ function AppCard({ app, onClick, compact }: { app: ArgoApp; onClick: () => void;
             "text-yellow-400": app.status.health.status === "Progressing",
             "text-slate-400": ["Suspended","Missing","Unknown"].includes(app.status.health.status),
           })}>
-            {app.status.health.status}
+            {getDisplayHealth(app)}
           </span>
         </div>
         <div className="flex items-center justify-between">
@@ -150,7 +155,7 @@ function AppSlideOver({ app, onClose }: { app: ArgoApp; onClose: () => void }) {
               <span className="text-xs text-slate-400">Health</span>
               <div className="flex items-center gap-2">
                 <HealthDot status={app.status.health.status} />
-                <span className="text-sm text-white">{app.status.health.status}</span>
+                <span className="text-sm text-white">{getDisplayHealth(app)}</span>
               </div>
             </div>
             <div className="flex items-center justify-between">
@@ -245,6 +250,17 @@ function AppSlideOver({ app, onClose }: { app: ArgoApp; onClose: () => void }) {
                 <ExternalLink className="w-3.5 h-3.5" />
                 View Pod Logs
               </Link>
+
+              {/* Open in ArgoCD button */}
+              <a
+                href={`${process.env.NEXT_PUBLIC_ARGOCD_URL || 'https://argocd.int.rlservers.com'}/applications/${app.metadata.name}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-center gap-2 w-full py-2 rounded-lg bg-white/5 border border-white/10 text-slate-300 text-sm font-medium hover:bg-white/10 transition-colors"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                Open in ArgoCD
+              </a>
 
               {/* Delete button */}
               {isAdmin && (

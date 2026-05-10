@@ -1,9 +1,24 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@/lib/auth";
+import { hasPermission } from "@/lib/rbac";
+import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
+import { auditLog } from "@/lib/audit-log";
 
 const ARGOCD_SERVER = process.env.ARGOCD_SERVER ?? "http://argocd-server.argocd.svc.cluster.local:80";
 const ARGOCD_TOKEN = process.env.ARGOCD_TOKEN ?? "";
 
-export async function POST() {
+export async function POST(req: NextRequest) {
+  const session = await auth();
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
+  if (!hasPermission(groups, "apps:sync")) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  if (!checkRateLimit(rateLimitKey("argocd-sync-all", req), 10, 60_000)) {
+    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
+  }
+
   try {
     const listRes = await fetch(`${ARGOCD_SERVER}/api/v1/applications?limit=500`, {
       headers: {
@@ -42,6 +57,11 @@ export async function POST() {
       })
     );
 
+    await auditLog(
+      "argocd:sync-all",
+      session.user?.email ?? "unknown",
+      `synced=${synced.length} errors=${errors.length}`
+    );
     return NextResponse.json({ synced, errors, total: outOfSync.length });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });

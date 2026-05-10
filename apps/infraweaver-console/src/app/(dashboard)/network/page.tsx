@@ -3,6 +3,21 @@ import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { Network, Wifi, WifiOff, ExternalLink } from "lucide-react";
 import { timeAgo, cn } from "@/lib/utils";
+import type { ArgoApp } from "@/hooks/use-argocd";
+
+function getNetbirdDeploymentStatus(app: ArgoApp | undefined): { label: string; colorClass: string; pulse: boolean } {
+  if (!app) return { label: "Unknown", colorClass: "bg-slate-500/10 text-slate-400", pulse: false };
+  const { health, sync } = app.status;
+  if (health.status === "Healthy" && sync.status === "Synced")
+    return { label: "Online", colorClass: "bg-green-500/10 text-green-400", pulse: false };
+  if (health.status === "Progressing" && sync.status === "Synced")
+    return { label: "Syncing", colorClass: "bg-yellow-500/10 text-yellow-400", pulse: true };
+  if (health.status === "Degraded")
+    return { label: "Degraded", colorClass: "bg-red-500/10 text-red-400", pulse: false };
+  if (sync.status === "OutOfSync")
+    return { label: "Out of Sync", colorClass: "bg-orange-500/10 text-orange-400", pulse: false };
+  return { label: health.status, colorClass: "bg-slate-500/10 text-slate-400", pulse: false };
+}
 
 export default function NetworkPage() {
   const { data: peers, isLoading } = useQuery({
@@ -14,6 +29,22 @@ export default function NetworkPage() {
     },
     refetchInterval: 30000,
   });
+
+  const { data: apps } = useQuery<ArgoApp[]>({
+    queryKey: ["argocd", "apps"],
+    queryFn: async () => {
+      const res = await fetch("/api/argocd/apps");
+      if (!res.ok) throw new Error("Failed to fetch apps");
+      return res.json();
+    },
+    refetchInterval: 30000,
+    staleTime: 15000,
+  });
+
+  const netbirdApp = (apps ?? []).find(
+    a => a.metadata.name === "platform-netbird" || a.metadata.name === "apps-netbird"
+  );
+  const deploymentStatus = getNetbirdDeploymentStatus(netbirdApp);
 
   const connectedCount = (peers ?? []).filter((p: { connected: boolean }) => p.connected).length;
   const totalCount = (peers ?? []).length;
@@ -34,6 +65,25 @@ export default function NetworkPage() {
           <ExternalLink className="w-3.5 h-3.5" />
           Open NetBird Dashboard
         </a>
+      </div>
+
+      {/* NetBird Deployment Status */}
+      <div className="bg-white/5 border border-white/10 rounded-xl p-4 mb-4 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-lg bg-blue-500/20 flex items-center justify-center">
+            <Network className="w-4 h-4 text-blue-400" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-white">NetBird Deployment</p>
+            <p className="text-xs text-slate-400">ArgoCD managed deployment status</p>
+          </div>
+        </div>
+        <div className={cn("flex items-center gap-1.5 text-xs px-3 py-1 rounded-full font-medium", deploymentStatus.colorClass)}>
+          {deploymentStatus.pulse && (
+            <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse flex-shrink-0" />
+          )}
+          {deploymentStatus.label}
+        </div>
       </div>
 
       {!isLoading && totalCount > 0 && (

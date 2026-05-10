@@ -25,3 +25,16 @@ spec:
     matchLabels:
       app.kubernetes.io/component: worker
       app.kubernetes.io/name: authentik
+---
+# PodDisruptionBudget for Authentik LDAP outpost
+# Ensures LDAP auth (TrueNAS etc.) stays available during node drains.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: authentik-ldap-outpost-pdb
+  namespace: authentik
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: authentik-ldap-outpost

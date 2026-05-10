@@ -1,4 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@/lib/auth";
+import { hasPermission } from "@/lib/rbac";
+import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
+import { auditLog } from "@/lib/audit-log";
 
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN ?? "";
 const GITHUB_REPO = process.env.GITHUB_REPO ?? "Werewolf-p/InfraWeaver-platform";
@@ -21,6 +25,12 @@ async function getFileFromGitHub() {
 }
 
 export async function GET() {
+  const session = await auth();
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
+  if (!hasPermission(groups, "users:read")) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
   try {
     const file = await getFileFromGitHub();
     const content = Buffer.from(file.content, "base64").toString("utf-8");
@@ -52,6 +62,17 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  const session = await auth();
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
+  if (!hasPermission(groups, "users:write")) {
+    return NextResponse.json({ error: "Forbidden: admin required" }, { status: 403 });
+  }
+
+  if (!checkRateLimit(rateLimitKey("users-config-post", req), 10, 60_000)) {
+    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
+  }
+
   try {
     const body = await req.json() as { users: unknown[]; commitMessage?: string; sha?: string };
     let sha = body.sha;
@@ -90,6 +111,11 @@ export async function POST(req: NextRequest) {
       const errText = await updateRes.text();
       throw new Error(`GitHub PUT failed: ${errText}`);
     }
+    await auditLog(
+      "users-config:write",
+      session.user?.email ?? "unknown",
+      `Updated users.yaml — ${(body.users as unknown[]).length} user(s)`
+    );
     return NextResponse.json({ ok: true });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });

@@ -2,21 +2,55 @@
 import { usePlatformConfig } from "./use-platform-config";
 import { useMemo } from "react";
 
-export function usePlatformApps() {
+interface PlatformApps {
+  argocd: boolean;
+  longhorn: boolean;
+  openbao: boolean;
+  certManager: boolean;
+  traefik: boolean;
+  grafana: boolean;
+  authentik: boolean;
+  netbird: boolean;
+  loki: boolean;
+  prometheus: boolean;
+  gatus: boolean;
+  wiki: boolean;
+  registry: boolean;
+  gitea: boolean;
+  vaultwarden: boolean;
+  uptimeKuma: boolean;
+}
+
+export function usePlatformApps(): PlatformApps {
   const { data } = usePlatformConfig();
   return useMemo(() => {
-    if (!data?.raw) return {};
-    const raw = data.raw;
+    const catalog = (data?.catalog as { enabled?: string[] })?.enabled ?? [];
+    const groups = (data?.groups ?? {}) as Record<string, { enabled?: boolean }>;
+
+    const corePlatformEnabled = groups["core-platform"]?.enabled !== false;
+    const coreMonitoringEnabled = groups["core-monitoring"]?.enabled !== false;
+
     return {
-      grafana: /grafana:\s*\n[^]*?enabled:\s*true/.test(raw),
-      loki: /loki:\s*\n[^]*?enabled:\s*true/.test(raw),
-      netbird: /netbird:\s*\n[^]*?enabled:\s*true/.test(raw),
-      openbao: /openbao:\s*\n[^]*?enabled:\s*true/.test(raw),
-      argocd: /argocd:\s*\n[^]*?enabled:\s*true/.test(raw),
-      wiki: /wiki:\s*\n[^]*?enabled:\s*true/.test(raw),
-      registry: /registry:\s*\n[^]*?enabled:\s*true/.test(raw),
-      gatus: /gatus:\s*\n[^]*?enabled:\s*true/.test(raw),
-      longhorn: /longhorn:\s*\n[^]*?enabled:\s*true/.test(raw),
+      // Always-on core apps
+      argocd: true,
+      longhorn: true,
+      openbao: true,
+      certManager: true,
+      traefik: true,
+      // Core-platform group
+      grafana: corePlatformEnabled,
+      authentik: corePlatformEnabled,
+      netbird: corePlatformEnabled,
+      // Core-monitoring group
+      loki: coreMonitoringEnabled,
+      prometheus: coreMonitoringEnabled,
+      // Catalog apps
+      gatus: catalog.includes("gatus"),
+      wiki: catalog.includes("wiki"),
+      registry: catalog.includes("registry"),
+      gitea: catalog.includes("gitea"),
+      vaultwarden: catalog.includes("vaultwarden"),
+      uptimeKuma: catalog.includes("uptime-kuma"),
     };
   }, [data]);
 }

@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { auth } from "@/lib/auth";
+import { hasPermission } from "@/lib/rbac";
 
 const REGISTRY_HOST = process.env.REGISTRY_HOST ?? "registry.int.rlservers.com";
 const REGISTRY_USERNAME = process.env.REGISTRY_USERNAME ?? "";
@@ -12,6 +14,12 @@ function getAuthHeader(): Record<string, string> {
 }
 
 export async function GET() {
+  const session = await auth();
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
+  if (!hasPermission(groups, "config:read")) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
   try {
     const res = await fetch(`https://${REGISTRY_HOST}/v2/_catalog`, {
       headers: { ...getAuthHeader(), Accept: "application/json" },

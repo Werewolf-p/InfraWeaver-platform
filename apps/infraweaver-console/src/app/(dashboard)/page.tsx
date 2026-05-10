@@ -1,13 +1,19 @@
 "use client";
 import { motion, useMotionValue, animate } from "framer-motion";
 import { useArgoApps } from "@/hooks/use-argocd";
-import { Box, CheckCircle2, AlertTriangle, RefreshCw, Zap, CheckCircle, XCircle, Loader2, Clock } from "lucide-react";
+import { usePlatformApps } from "@/hooks/use-platform-apps";
+import {
+  Box, CheckCircle2, AlertTriangle, RefreshCw, Zap, CheckCircle, XCircle,
+  Loader2, Clock, Activity, HardDrive, Shield, Users, BarChart3,
+  BookOpen, Package, Network, ArrowRight, ExternalLink, Container,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useRBAC } from "@/hooks/use-rbac";
 import { cn, timeAgo } from "@/lib/utils";
+import Link from "next/link";
 
 const container = {
   hidden: { opacity: 0 },
@@ -82,11 +88,107 @@ function ConnectionPill({ label, url }: { label: string; url: string }) {
   );
 }
 
+type ServiceStatus = "up" | "down" | "unknown";
+
+function StatusDot({ status }: { status: ServiceStatus }) {
+  return (
+    <div className={cn(
+      "w-2 h-2 rounded-full flex-shrink-0",
+      status === "up" ? "bg-green-400 live-dot" : status === "down" ? "bg-red-400" : "bg-slate-500"
+    )} title={status} />
+  );
+}
+
+const GATUS_KEY_MAP: Record<string, string[]> = {
+  argocd: ["argocd", "argo"],
+  authentik: ["authentik", "sso"],
+  grafana: ["grafana"],
+  netbird: ["netbird"],
+  openbao: ["openbao", "vault"],
+  longhorn: ["longhorn"],
+  gatus: ["gatus"],
+  wiki: ["wiki"],
+  registry: ["registry"],
+};
+
+function resolveStatus(
+  appKey: string,
+  endpoints: Array<{ name: string; results?: Array<{ success: boolean }> }>
+): ServiceStatus {
+  const keywords = GATUS_KEY_MAP[appKey] ?? [appKey];
+  const matches = endpoints.filter(ep =>
+    keywords.some(k => ep.name.toLowerCase().includes(k))
+  );
+  if (matches.length === 0) return "unknown";
+  const isUp = matches.every(ep => ep.results?.[0]?.success === true);
+  const isDown = matches.every(ep => ep.results?.[0]?.success === false);
+  if (isUp) return "up";
+  if (isDown) return "down";
+  return "unknown";
+}
+
+function ServiceCard({ name, description, href, icon: Icon, enabled, status, external }: {
+  name: string; description: string; href: string; icon: React.ElementType;
+  enabled: boolean; status?: ServiceStatus; external?: boolean;
+}) {
+  if (!enabled) return null;
+  const cardStatus = status ?? "unknown";
+  const Wrapper = external ? "a" : Link;
+  const wrapperProps = external ? { href, target: "_blank", rel: "noopener noreferrer" } : { href };
+
+  return (
+    <motion.div
+      variants={item}
+      whileHover={{ scale: 1.02, y: -2 }}
+      transition={{ type: "spring", stiffness: 400, damping: 25 }}
+      className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-4 flex flex-col"
+    >
+      <div className="flex items-start justify-between mb-3">
+        <div className="w-9 h-9 rounded-lg flex items-center justify-center bg-indigo-500/15 border border-indigo-500/20">
+          <Icon className="w-4 h-4 text-indigo-400" />
+        </div>
+        <StatusDot status={cardStatus} />
+      </div>
+      <h4 className="text-sm font-semibold text-white">{name}</h4>
+      <p className="text-xs text-slate-500 mt-0.5 mb-3 flex-1">{description}</p>
+      {/* @ts-expect-error - polymorphic link/anchor */}
+      <Wrapper {...wrapperProps} className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 transition-colors w-fit">
+        Open {external ? <ExternalLink className="w-3 h-3" /> : <ArrowRight className="w-3 h-3" />}
+      </Wrapper>
+    </motion.div>
+  );
+}
+
 export default function DashboardPage() {
   const { data: apps, isLoading, refetch } = useArgoApps();
   const { isAdmin } = useRBAC();
   const qc = useQueryClient();
   const [syncAllLoading, setSyncAllLoading] = useState(false);
+  const platformApps = usePlatformApps();
+
+  const { data: healthData } = useQuery({
+    queryKey: ["health"],
+    queryFn: async () => {
+      const res = await fetch("/api/health");
+      if (!res.ok) throw new Error("fail");
+      return res.json() as Promise<{ endpoints?: Array<{ name: string; results?: Array<{ success: boolean }> }> }>;
+    },
+    refetchInterval: 60000,
+    staleTime: 30000,
+  });
+
+  const { data: podsData } = useQuery({
+    queryKey: ["pods", "homepage"],
+    queryFn: async () => {
+      const res = await fetch("/api/pods");
+      if (!res.ok) throw new Error("fail");
+      return res.json() as Promise<Array<{ status: string }>>;
+    },
+    refetchInterval: 60000,
+    staleTime: 30000,
+  });
+
+  const endpoints = healthData?.endpoints ?? [];
 
   const stats = useMemo(() => {
     if (!apps) return { total: 0, healthy: 0, synced: 0, degraded: 0 };
@@ -97,6 +199,19 @@ export default function DashboardPage() {
       degraded: apps.filter(a => a.status.health.status === "Degraded").length,
     };
   }, [apps]);
+
+  const podStats = useMemo(() => {
+    const pods = podsData ?? [];
+    return {
+      running: pods.filter(p => p.status === "Running").length,
+      total: pods.length,
+    };
+  }, [podsData]);
+
+  const gatusStats = useMemo(() => {
+    const up = endpoints.filter(ep => ep.results?.[0]?.success === true).length;
+    return { up, total: endpoints.length };
+  }, [endpoints]);
 
   const recentActivity = useMemo(() => {
     if (!apps) return [];
@@ -151,7 +266,6 @@ export default function DashboardPage() {
         <div>
           <h2 className="text-xl font-bold text-white flex items-center gap-3">
             Platform Overview
-            {/* LIVE badge */}
             <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-green-500/10 border border-green-500/20 text-[10px] font-semibold text-green-400 uppercase tracking-wider">
               <span className="live-dot w-1.5 h-1.5" />
               Live
@@ -182,6 +296,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {/* Section 1: ArgoCD stat cards */}
       {isLoading ? (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
           {[...Array(4)].map((_, i) => (
@@ -202,7 +317,8 @@ export default function DashboardPage() {
         </motion.div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {/* Section 2: Charts + Recent Activity */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -278,6 +394,141 @@ export default function DashboardPage() {
           </div>
         </motion.div>
       </div>
+
+      {/* Section 3: Platform Services */}
+      <div className="mb-8">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+            <Activity className="w-4 h-4 text-slate-400" />
+            Platform Services
+          </h3>
+          <div className="flex items-center gap-2 text-xs text-slate-500">
+            {gatusStats.total > 0 && (
+              <span className="flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
+                {gatusStats.up}/{gatusStats.total} up
+              </span>
+            )}
+            {podStats.total > 0 && (
+              <span className="flex items-center gap-1">
+                <Container className="w-3 h-3" />
+                {podStats.running}/{podStats.total} pods
+              </span>
+            )}
+          </div>
+        </div>
+
+        <motion.div
+          variants={container}
+          initial="hidden"
+          animate="show"
+          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"
+        >
+          <ServiceCard
+            name="Gatus"
+            description="Endpoint monitoring & uptime tracking"
+            href="/health"
+            icon={Activity}
+            enabled={platformApps.gatus}
+            status={resolveStatus("gatus", endpoints)}
+          />
+          <ServiceCard
+            name="Longhorn"
+            description="Distributed block storage for Kubernetes"
+            href="/storage"
+            icon={HardDrive}
+            enabled={platformApps.longhorn}
+            status={resolveStatus("longhorn", endpoints)}
+          />
+          <ServiceCard
+            name="NetBird"
+            description="WireGuard-based overlay network & VPN"
+            href="/network"
+            icon={Network}
+            enabled={platformApps.netbird}
+            status={resolveStatus("netbird", endpoints)}
+          />
+          <ServiceCard
+            name="OpenBao"
+            description="Secrets management & encryption service"
+            href="/security"
+            icon={Shield}
+            enabled={platformApps.openbao}
+            status={resolveStatus("openbao", endpoints)}
+          />
+          <ServiceCard
+            name="Authentik"
+            description="Identity provider & SSO gateway"
+            href="/security"
+            icon={Users}
+            enabled={platformApps.authentik}
+            status={resolveStatus("authentik", endpoints)}
+          />
+          <ServiceCard
+            name="Grafana"
+            description="Metrics visualisation & dashboards"
+            href="/health"
+            icon={BarChart3}
+            enabled={platformApps.grafana}
+            status={resolveStatus("grafana", endpoints)}
+          />
+          <ServiceCard
+            name="Wiki"
+            description="Internal knowledge base"
+            href="/health"
+            icon={BookOpen}
+            enabled={platformApps.wiki}
+            status={resolveStatus("wiki", endpoints)}
+          />
+          <ServiceCard
+            name="Registry"
+            description="Container image registry"
+            href="/registry"
+            icon={Package}
+            enabled={platformApps.registry}
+            status={resolveStatus("registry", endpoints)}
+          />
+        </motion.div>
+      </div>
+
+      {/* Quick Actions */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.5 }}
+        className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-4"
+      >
+        <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Quick Actions</h3>
+        <div className="flex items-center gap-2 flex-wrap">
+          {isAdmin && (
+            <motion.button
+              whileTap={{ scale: 0.95 }}
+              onClick={handleSyncAll}
+              disabled={syncAllLoading}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg bg-indigo-500/20 border border-indigo-500/30 text-sm text-indigo-300 hover:bg-indigo-500/30 transition-colors disabled:opacity-50"
+            >
+              {syncAllLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+              Sync All Apps
+            </motion.button>
+          )}
+          <Link
+            href="/events"
+            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 hover:text-white hover:bg-white/10 transition-colors"
+          >
+            <Clock className="w-3.5 h-3.5" />
+            View Events
+          </Link>
+          {isAdmin && (
+            <Link
+              href="/security"
+              className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 hover:text-white hover:bg-white/10 transition-colors"
+            >
+              <Shield className="w-3.5 h-3.5" />
+              Security Overview
+            </Link>
+          )}
+        </div>
+      </motion.div>
     </div>
   );
 }

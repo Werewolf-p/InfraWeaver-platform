@@ -148,7 +148,7 @@ redis:
         memory: 128Mi
 
 server:
-  replicas: 1  # Reduced from 2: 8GB nodes OOM with 2 servers (each uses ~700Mi actual)
+  replicas: 2
   ingress:
     enabled: false
   # Give enough time for Django migrations on a fresh DB (292+ migrations)
@@ -161,6 +161,14 @@ server:
     initialDelaySeconds: 120
     periodSeconds: 10
     failureThreshold: 30
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: ScheduleAnyway
+      labelSelector:
+        matchLabels:
+          app.kubernetes.io/name: authentik
+          app.kubernetes.io/component: server
   affinity:
     podAntiAffinity:
       preferredDuringSchedulingIgnoredDuringExecution:
@@ -180,7 +188,15 @@ server:
       memory: 1Gi
 
 worker:
-  replicas: 1  # Reduced from 2: 8GB nodes OOM with 2 workers (each uses ~450Mi actual)
+  replicas: 2
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: ScheduleAnyway
+      labelSelector:
+        matchLabels:
+          app.kubernetes.io/name: authentik
+          app.kubernetes.io/component: worker
   affinity:
     podAntiAffinity:
       preferredDuringSchedulingIgnoredDuringExecution:

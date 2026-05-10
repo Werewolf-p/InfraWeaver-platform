@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@/lib/auth";
+import { hasPermission, getRole } from "@/lib/rbac";
 
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN ?? "";
 const GITHUB_REPO = process.env.GITHUB_REPO ?? "Werewolf-p/InfraWeaver-platform";
@@ -21,6 +23,12 @@ async function getFileFromGitHub() {
 }
 
 export async function GET() {
+  const session = await auth();
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
+  if (!hasPermission(groups, "config:read")) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
   try {
     const file = await getFileFromGitHub();
     const content = Buffer.from(file.content, "base64").toString("utf-8");
@@ -46,6 +54,12 @@ export async function GET() {
 }
 
 export async function PUT(req: NextRequest) {
+  const session = await auth();
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
+  if (getRole(groups) !== "admin") {
+    return NextResponse.json({ error: "Forbidden: admin required" }, { status: 403 });
+  }
   try {
     const body = await req.json() as { changes?: string[]; yamlContent?: string; commitMessage?: string };
     const file = await getFileFromGitHub();

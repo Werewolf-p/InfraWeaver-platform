@@ -32,7 +32,7 @@ metadata:
     app: authentik-ldap-outpost
     app.kubernetes.io/name: authentik-ldap-outpost
 spec:
-  replicas: 1
+  replicas: 2
   revisionHistoryLimit: 3
   selector:
     matchLabels:
@@ -43,6 +43,13 @@ spec:
         app: authentik-ldap-outpost
     spec:
       terminationGracePeriodSeconds: 30
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: authentik-ldap-outpost
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000

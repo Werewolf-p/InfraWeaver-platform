@@ -1,6 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@/lib/auth";
+import { hasPermission } from "@/lib/rbac";
 
 export async function GET(req: NextRequest) {
+  const session = await auth();
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
+  if (!hasPermission(groups, "apps:read")) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
   const namespace = req.nextUrl.searchParams.get("namespace") ?? undefined;
   const mockPods = [
     { name: "argocd-server-abc123", namespace: "argocd", status: "Running", containers: ["argocd-server"], nodeName: "node-1", createdAt: new Date().toISOString() },

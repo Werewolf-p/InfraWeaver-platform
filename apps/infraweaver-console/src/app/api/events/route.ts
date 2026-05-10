@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { auth } from "@/lib/auth";
+import { hasPermission } from "@/lib/rbac";
 import * as k8s from "@kubernetes/client-node";
 
 const mockEvents = [
@@ -8,6 +10,12 @@ const mockEvents = [
 ];
 
 export async function GET() {
+  const session = await auth();
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
+  if (!hasPermission(groups, "apps:read")) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
   try {
     const kc = new k8s.KubeConfig();
     if (process.env.KUBECONFIG) {

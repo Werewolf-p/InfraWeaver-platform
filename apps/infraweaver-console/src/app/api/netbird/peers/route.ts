@@ -1,9 +1,17 @@
 import { NextResponse } from "next/server";
+import { auth } from "@/lib/auth";
+import { hasPermission } from "@/lib/rbac";
 
 const NETBIRD_API = process.env.NETBIRD_API ?? "http://netbird-management.netbird.svc.cluster.local:80";
 const NETBIRD_TOKEN = process.env.NETBIRD_TOKEN ?? "";
 
 export async function GET() {
+  const session = await auth();
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
+  if (!hasPermission(groups, "config:read")) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
   try {
     const res = await fetch(`${NETBIRD_API}/api/peers`, {
       headers: {
