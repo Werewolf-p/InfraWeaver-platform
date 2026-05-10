@@ -7,7 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   LayoutDashboard, Box, Settings, Users, HardDrive,
   Network, Activity, ChevronLeft, ChevronRight, Terminal, History, Cog,
-  Package, FileText, Bell, ShieldCheck, Server
+  Package, FileText, Bell, ShieldCheck, Server, PlusCircle
 } from "lucide-react";
 import { useRBAC } from "@/hooks/use-rbac";
 import { useArgoApps } from "@/hooks/use-argocd";
@@ -17,6 +17,7 @@ import { useSession } from "next-auth/react";
 const navItems = [
   { href: "/", icon: LayoutDashboard, label: "Dashboard", shortcut: "G D" },
   { href: "/apps", icon: Box, label: "Applications", shortcut: "G A" },
+  { href: "/catalog-install", icon: PlusCircle, label: "App Installer", shortcut: "G I" },
   { href: "/events", icon: History, label: "Activity Log", shortcut: "G E" },
   { href: "/config", icon: Cog, label: "Config Editor", shortcut: "G C" },
   { href: "/users", icon: Users, label: "Users", shortcut: "G U" },

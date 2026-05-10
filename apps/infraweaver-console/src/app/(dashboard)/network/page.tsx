@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { Network, Wifi, WifiOff, ExternalLink } from "lucide-react";
 import { timeAgo, cn } from "@/lib/utils";
-import type { ArgoApp } from "@/hooks/use-argocd";
+import { type ArgoApp } from "@/hooks/use-argocd";
 
 function getNetbirdDeploymentStatus(app: ArgoApp | undefined): { label: string; colorClass: string; pulse: boolean } {
   if (!app) return { label: "Unknown", colorClass: "bg-slate-500/10 text-slate-400", pulse: false };
@@ -67,7 +67,7 @@ export default function NetworkPage() {
         </a>
       </div>
 
-      {/* NetBird Deployment Status */}
+      {/* NetBird Deployment Status from ArgoCD */}
       <div className="bg-white/5 border border-white/10 rounded-xl p-4 mb-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-lg bg-blue-500/20 flex items-center justify-center">
@@ -78,7 +78,7 @@ export default function NetworkPage() {
             <p className="text-xs text-slate-400">ArgoCD managed deployment status</p>
           </div>
         </div>
-        <div className={cn("flex items-center gap-1.5 text-xs px-3 py-1 rounded-full font-medium", deploymentStatus.colorClass)}>
+        <div className={cn("flex items-center gap-1.5 text-xs px-3 py-1 rounded-full font-medium border", deploymentStatus.colorClass)}>
           {deploymentStatus.pulse && (
             <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse flex-shrink-0" />
           )}
