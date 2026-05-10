@@ -1,6 +1,6 @@
 "use client";
 import { createContext, useContext, type ReactNode } from "react";
-import { useSettings, type AppSettings, type RefreshInterval } from "@/hooks/use-settings";
+import { useSettings, type AppSettings, type RefreshInterval, type Density } from "@/hooks/use-settings";
 
 interface SettingsContextValue {
   settings: AppSettings;
@@ -9,7 +9,7 @@ interface SettingsContextValue {
 }
 
 const SettingsContext = createContext<SettingsContextValue>({
-  settings: { refreshInterval: 30000, compactMode: false, showSystemApps: true },
+  settings: { refreshInterval: 30000, compactMode: false, showSystemApps: true, density: "comfortable" },
   updateSetting: () => {},
   mounted: false,
 });
@@ -27,4 +27,4 @@ export function useSettingsContext() {
   return useContext(SettingsContext);
 }
 
-export type { AppSettings, RefreshInterval };
+export type { AppSettings, RefreshInterval, Density };

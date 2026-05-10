@@ -1,10 +1,33 @@
 "use client";
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Terminal, Download, Trash2, Search, RefreshCw, AlertCircle } from "lucide-react";
+import { Terminal, Download, Trash2, Search, RefreshCw, AlertCircle, Copy, Check } from "lucide-react";
 import { usePods } from "@/hooks/use-pods";
 import { useRBAC } from "@/hooks/use-rbac";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+
+type LogLevel = "ALL" | "ERROR" | "WARN" | "INFO";
+
+function getLineLevel(line: string): LogLevel {
+  const l = line.toLowerCase();
+  if (l.includes("error") || l.includes("fatal") || l.includes("critical")) return "ERROR";
+  if (l.includes("warn") || l.includes("warning")) return "WARN";
+  if (l.includes("info") || l.includes("debug")) return "INFO";
+  return "ALL";
+}
+
+function CopyLineButton({ line }: { line: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      onClick={() => { void navigator.clipboard.writeText(line); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
+      className="opacity-0 group-hover:opacity-100 transition-opacity ml-2 shrink-0 text-white/30 hover:text-white/70"
+      aria-label="Copy line"
+    >
+      {copied ? <Check className="w-3 h-3 text-green-400" /> : <Copy className="w-3 h-3" />}
+    </button>
+  );
+}
 
 export default function LogsPage() {
   const { can } = useRBAC();
@@ -18,6 +41,7 @@ export default function LogsPage() {
   const [filter, setFilter] = useState("");
   const [autoScroll, setAutoScroll] = useState(true);
   const [error, setError] = useState("");
+  const [levelFilter, setLevelFilter] = useState<LogLevel>("ALL");
   const logsRef = useRef<HTMLDivElement>(null);
 
   const namespaces = [...new Set((pods ?? []).map(p => p.namespace))].sort();
@@ -46,7 +70,11 @@ export default function LogsPage() {
     }
   }, [logs, autoScroll]);
 
-  const filteredLogs = filter ? logs.filter(l => l.toLowerCase().includes(filter.toLowerCase())) : logs;
+  const filteredLogs = logs.filter(l => {
+    const textMatch = !filter || l.toLowerCase().includes(filter.toLowerCase());
+    const levelMatch = levelFilter === "ALL" || getLineLevel(l) === levelFilter;
+    return textMatch && levelMatch;
+  });
 
   const handleDownload = () => {
     const blob = new Blob([filteredLogs.join("\n")], { type: "text/plain" });
@@ -56,6 +84,12 @@ export default function LogsPage() {
     a.download = `${selectedPod}-${selectedContainer}.log`;
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const levelCounts = {
+    ERROR: logs.filter(l => getLineLevel(l) === "ERROR").length,
+    WARN: logs.filter(l => getLineLevel(l) === "WARN").length,
+    INFO: logs.filter(l => getLineLevel(l) === "INFO").length,
   };
 
   if (!can("apps:read")) {
@@ -138,6 +172,38 @@ export default function LogsPage() {
             className="w-full bg-white/5 border border-white/10 rounded-lg pl-9 pr-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50"
           />
         </div>
+
+        {/* Level filter buttons */}
+        <div className="flex items-center gap-0.5 p-0.5 rounded-lg bg-white/5 border border-white/10 flex-shrink-0">
+          {(["ALL", "ERROR", "WARN", "INFO"] as LogLevel[]).map(lvl => {
+            const count = lvl === "ALL" ? logs.length : levelCounts[lvl];
+            const styles: Record<LogLevel, string> = {
+              ALL: "hover:text-white",
+              ERROR: "hover:text-red-300",
+              WARN: "hover:text-yellow-300",
+              INFO: "hover:text-blue-300",
+            };
+            const activeStyles: Record<LogLevel, string> = {
+              ALL: "bg-white/15 text-white",
+              ERROR: "bg-red-500/20 text-red-300",
+              WARN: "bg-yellow-500/20 text-yellow-300",
+              INFO: "bg-blue-500/20 text-blue-300",
+            };
+            return (
+              <button
+                key={lvl}
+                onClick={() => setLevelFilter(lvl)}
+                className={cn(
+                  "px-2 py-1 rounded-md text-xs font-medium transition-all",
+                  levelFilter === lvl ? activeStyles[lvl] : `text-white/40 ${styles[lvl]}`
+                )}
+              >
+                {lvl} {count > 0 && <span className="opacity-60">({count})</span>}
+              </button>
+            );
+          })}
+        </div>
+
         <label className="flex items-center gap-2 text-sm text-slate-400 cursor-pointer flex-shrink-0">
           <input type="checkbox" checked={autoScroll} onChange={e => setAutoScroll(e.target.checked)} className="w-3.5 h-3.5 accent-indigo-500" />
           Auto-scroll
@@ -171,16 +237,21 @@ export default function LogsPage() {
             {selectedContainer ? "No logs loaded — click Load Logs" : "Select a namespace, pod, and container to view logs"}
           </div>
         ) : (
-          filteredLogs.map((line, i) => (
-            <div key={i} className={cn(
-              "py-0.5 hover:bg-white/5 px-1 rounded",
-              line.toLowerCase().includes("error") && "text-red-400",
-              line.toLowerCase().includes("warn") && "text-yellow-400"
-            )}>
-              <span className="text-slate-600 select-none mr-3">{(i + 1).toString().padStart(4, " ")}</span>
-              {line}
-            </div>
-          ))
+          filteredLogs.map((line, i) => {
+            const level = getLineLevel(line);
+            return (
+              <div key={i} className={cn(
+                "group flex items-start py-0.5 hover:bg-white/5 px-1 rounded",
+                level === "ERROR" && "text-red-400",
+                level === "WARN" && "text-yellow-400",
+                level === "INFO" && "text-blue-300",
+              )}>
+                <span className="text-slate-600 select-none mr-3 shrink-0">{(i + 1).toString().padStart(4, " ")}</span>
+                <span className="flex-1 break-all">{line}</span>
+                <CopyLineButton line={line} />
+              </div>
+            );
+          })
         )}
       </div>
     </div>

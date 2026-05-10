@@ -2,17 +2,20 @@
 import { useState, useEffect, useCallback } from "react";
 
 export type RefreshInterval = 15000 | 30000 | 60000 | 300000;
+export type Density = "compact" | "comfortable" | "spacious";
 
 export interface AppSettings {
   refreshInterval: RefreshInterval;
   compactMode: boolean;
   showSystemApps: boolean;
+  density: Density;
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
   refreshInterval: 30000,
   compactMode: false,
   showSystemApps: true,
+  density: "comfortable",
 };
 
 const STORAGE_KEY = "infraweaver-settings";

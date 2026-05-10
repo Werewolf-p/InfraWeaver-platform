@@ -2,6 +2,7 @@
 import { motion, useMotionValue, animate } from "framer-motion";
 import { useArgoApps } from "@/hooks/use-argocd";
 import { usePlatformApps } from "@/hooks/use-platform-apps";
+import { NamespaceUsage } from "@/components/ui/namespace-usage";
 import {
   Box, CheckCircle2, AlertTriangle, RefreshCw, Zap, CheckCircle, XCircle,
   Loader2, Clock, Activity, HardDrive, Shield, Users, BarChart3,
@@ -395,7 +396,12 @@ export default function DashboardPage() {
         </motion.div>
       </div>
 
-      {/* Section 3: Platform Services */}
+      {/* Section 3: Namespace Usage */}
+      <div className="mb-8">
+        <NamespaceUsage />
+      </div>
+
+      {/* Section 4: Platform Services */}
       <div className="mb-8">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-semibold text-white flex items-center gap-2">

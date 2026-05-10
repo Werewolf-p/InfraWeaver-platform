@@ -1,10 +1,12 @@
 "use client";
 import { motion } from "framer-motion";
-import { RefreshCw, Layout, Filter, CheckCircle2, XCircle, Loader2, Server, Copy, Check } from "lucide-react";
+import { RefreshCw, Layout, Filter, CheckCircle2, XCircle, Loader2, Server, Copy, Check, Sun, AlignJustify } from "lucide-react";
 import { useSettingsContext, type RefreshInterval } from "@/contexts/settings-context";
 import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
+import { ThemeToggle } from "@/components/ui/theme-toggle";
+import { DensityToggle } from "@/components/ui/density-toggle";
 
 const REFRESH_OPTIONS: { label: string; value: RefreshInterval }[] = [
   { label: "15s", value: 15000 },
@@ -173,6 +175,44 @@ export default function SettingsPage() {
               )}
             />
           </button>
+        </motion.div>
+
+        {/* Theme */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.12 }}
+          className="bg-white/5 border border-white/10 rounded-xl p-5"
+        >
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-9 h-9 rounded-lg bg-indigo-500/20 flex items-center justify-center">
+              <Sun className="w-4 h-4 text-indigo-400" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-white">Theme</p>
+              <p className="text-xs text-slate-400">Light, Dark, or follow System preference</p>
+            </div>
+          </div>
+          <ThemeToggle />
+        </motion.div>
+
+        {/* Density */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.14 }}
+          className="bg-white/5 border border-white/10 rounded-xl p-5"
+        >
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-9 h-9 rounded-lg bg-indigo-500/20 flex items-center justify-center">
+              <AlignJustify className="w-4 h-4 text-indigo-400" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-white">Display Density</p>
+              <p className="text-xs text-slate-400">Control spacing and padding in the UI</p>
+            </div>
+          </div>
+          <DensityToggle />
         </motion.div>
 
         {/* Connection Status */}

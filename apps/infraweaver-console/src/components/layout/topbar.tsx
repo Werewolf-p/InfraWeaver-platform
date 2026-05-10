@@ -1,7 +1,9 @@
 "use client";
-import { Bell, LogOut, Menu } from "lucide-react";
+import { LogOut, Menu } from "lucide-react";
 import { signOut, useSession } from "next-auth/react";
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
+import { NotificationCenter } from "@/components/ui/notification-center";
+import { ThemeToggle } from "@/components/ui/theme-toggle";
 
 export function TopBar({ title, onMenuClick }: { title?: string; onMenuClick?: () => void }) {
   const { data: session } = useSession();
@@ -29,9 +31,8 @@ export function TopBar({ title, onMenuClick }: { title?: string; onMenuClick?: (
         >
           <span>⌘K</span>
         </button>
-        <button className="w-8 h-8 rounded-lg bg-white/5 border border-white/5 flex items-center justify-center text-slate-400 hover:text-white transition-colors">
-          <Bell className="w-4 h-4" />
-        </button>
+        <ThemeToggle compact />
+        <NotificationCenter />
         <div className="flex items-center gap-2 pl-3 border-l border-white/10">
           <div className="w-7 h-7 rounded-full bg-indigo-500/30 flex items-center justify-center text-xs font-bold text-indigo-300">
             {session?.user?.name?.[0]?.toUpperCase() ?? "?"}

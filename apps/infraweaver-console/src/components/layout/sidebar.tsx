@@ -8,6 +8,7 @@ import {
   LayoutDashboard, Box, Settings, Users, HardDrive,
   Network, Activity, ChevronLeft, ChevronRight, Terminal, History, Cog,
   Package, FileText, Bell, ShieldCheck, Server, PlusCircle, ChevronDown,
+  Sparkles,
 } from "lucide-react";
 import { useRBAC } from "@/hooks/use-rbac";
 import { useArgoApps } from "@/hooks/use-argocd";
@@ -59,6 +60,7 @@ const navGroups: NavGroup[] = [
     label: "Settings",
     items: [
       { href: "/settings", icon: Settings, label: "Settings", shortcut: "" },
+      { href: "/changelog", icon: Sparkles, label: "What's New", shortcut: "" },
     ],
   },
 ];

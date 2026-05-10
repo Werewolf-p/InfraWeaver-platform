@@ -6,7 +6,7 @@ import { useArgoApps, useSyncApp, type ArgoApp } from "@/hooks/use-argocd";
 import { useRBAC } from "@/hooks/use-rbac";
 import { useSettingsContext } from "@/contexts/settings-context";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { RefreshCw, Search, X, RotateCcw, Clock, GitCommit, Trash2, ExternalLink } from "lucide-react";
+import { RefreshCw, Search, X, RotateCcw, Clock, GitCommit, Trash2, ExternalLink, Play } from "lucide-react";
 import { toast } from "sonner";
 import { cn, timeAgo } from "@/lib/utils";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -66,6 +66,7 @@ function HealthDot({ status }: { status: string }) {
 
 function AppCard({ app, onClick, compact }: { app: ArgoApp; onClick: () => void; compact?: boolean }) {
   const [showPreview, setShowPreview] = useState(false);
+  const [restarting, setRestarting] = useState(false);
   const previewTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const borderColor = {
     Healthy: "border-green-500/20 hover:border-green-500/40",
@@ -84,6 +85,24 @@ function AppCard({ app, onClick, compact }: { app: ArgoApp; onClick: () => void;
     setShowPreview(false);
   };
 
+  const handleRestart = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setRestarting(true);
+    try {
+      const res = await fetch("/api/cluster/restart-app", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ namespace: app.spec.destination.namespace, appName: app.metadata.name }),
+      });
+      if (!res.ok) throw new Error("Restart failed");
+      toast.success(`Restarted ${app.metadata.name}`);
+    } catch {
+      toast.error(`Failed to restart ${app.metadata.name}`);
+    } finally {
+      setRestarting(false);
+    }
+  };
+
   return (
     <div className="relative" onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
       <motion.div
@@ -98,7 +117,17 @@ function AppCard({ app, onClick, compact }: { app: ArgoApp; onClick: () => void;
       >
         <div className="flex items-start justify-between mb-3">
           <h3 className="font-medium text-white text-sm truncate pr-2">{app.metadata.name}</h3>
-          <HealthDot status={app.status.health.status} />
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={handleRestart}
+              disabled={restarting}
+              title="Rolling restart"
+              className="opacity-0 group-hover:opacity-100 hover:opacity-100 flex items-center justify-center w-6 h-6 rounded-md hover:bg-white/10 text-white/40 hover:text-white transition-all disabled:opacity-30"
+            >
+              {restarting ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
+            </button>
+            <HealthDot status={app.status.health.status} />
+          </div>
         </div>
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">

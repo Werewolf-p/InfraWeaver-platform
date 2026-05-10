@@ -2,6 +2,7 @@
 import { Sidebar } from "@/components/layout/sidebar";
 import { TopBar } from "@/components/layout/topbar";
 import { FloatingActionButton } from "@/components/floating-action-button";
+import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { useSession } from "next-auth/react";
 import { useRouter, usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -164,6 +165,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       <div className="flex-1 flex flex-col overflow-hidden overflow-x-hidden relative z-10">
         <TopBar onMenuClick={() => setMobileOpen(true)} />
+        <Breadcrumb />
         <main
           className="flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-6"
           style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px) + 72px, 80px)" }}
