@@ -70,7 +70,7 @@ export async function POST(request: Request) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
-  if (!hasPermission(groups, "admin")) {
+  if (!hasPermission(groups, "config:write")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   try {
