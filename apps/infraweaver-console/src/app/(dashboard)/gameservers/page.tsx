@@ -839,6 +839,7 @@ function AddServerDrawer({ open, onClose, onCreated }: { open: boolean; onClose:
               )}
               <div className="flex items-center justify-between w-full">
               <button
+                type="button"
                 onClick={() => step > 1 ? setStep(step - 1) : onClose()}
                 className="flex items-center gap-2 px-4 py-2 rounded-lg text-slate-400 hover:text-white transition-colors"
               >
@@ -847,6 +848,7 @@ function AddServerDrawer({ open, onClose, onCreated }: { open: boolean; onClose:
               </button>
               {step < totalSteps ? (
                 <button
+                  type="button"
                   onClick={() => setStep(step + 1)}
                   disabled={
                     (step === 1 && !gameType) ||
@@ -860,6 +862,7 @@ function AddServerDrawer({ open, onClose, onCreated }: { open: boolean; onClose:
                 </button>
               ) : (
                 <button
+                  type="button"
                   onClick={handleCreate} disabled={creating || !name || !targetIP}
                   className="flex items-center gap-2 px-5 py-2 rounded-lg bg-green-600 hover:bg-green-500 text-white text-sm font-medium transition-colors disabled:opacity-50"
                 >
