@@ -173,6 +173,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   );
                 })}
               </nav>
+
+              {/* Version — mobile drawer footer */}
+              <div className="px-5 py-4 border-t border-white/5 flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500/70 flex-shrink-0" />
+                <span className="text-[11px] font-mono text-slate-600">
+                  v{process.env.NEXT_PUBLIC_APP_VERSION ?? "dev"}
+                </span>
+                <span className="text-[11px] text-slate-700">· InfraWeaver Console</span>
+              </div>
             </motion.div>
           </>
         )}

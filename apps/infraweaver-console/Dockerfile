@@ -5,6 +5,9 @@ RUN npm ci --legacy-peer-deps
 # CACHEBUST ensures COPY . . and npm run build never use stale cache
 # (BuildKit can fail to invalidate cache for dirs with special chars like '(dashboard)')
 ARG CACHEBUST=1
+# APP_VERSION is the git short SHA injected by CI for the version indicator in the UI
+ARG APP_VERSION=dev
+ENV NEXT_PUBLIC_APP_VERSION=$APP_VERSION
 COPY . .
 RUN npm run build
 

@@ -283,6 +283,24 @@ export function Sidebar() {
             )}
           </AnimatePresence>
         </div>
+
+        {/* Version badge */}
+        <AnimatePresence>
+          {!collapsed && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="mt-3 flex items-center gap-1.5"
+            >
+              <span className="text-[10px] text-slate-600 font-mono">
+                v{process.env.NEXT_PUBLIC_APP_VERSION ?? "dev"}
+              </span>
+              <span className="w-1 h-1 rounded-full bg-emerald-500/60" />
+              <span className="text-[10px] text-slate-700">InfraWeaver</span>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* Collapse button */}
