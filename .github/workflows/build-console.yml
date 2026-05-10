@@ -33,8 +33,24 @@ jobs:
           SHA_TAG="${GITHUB_REF_NAME}-${SHORT_SHA}"
           IMAGE_BASE="${REGISTRY}/${IMAGE_NAME}"
 
+          # Wait for registry to be reachable (handles node disruptions)
+          echo "==> Waiting for registry to be reachable..."
+          for i in $(seq 1 12); do
+            if curl -sf --max-time 5 "https://${REGISTRY}/v2/" >/dev/null 2>&1 || \
+               curl -sf --max-time 5 "https://${REGISTRY}/v2/" -o /dev/null -w "%{http_code}" 2>/dev/null | grep -qE "200|401"; then
+              echo "Registry reachable after ${i} attempt(s)"
+              break
+            fi
+            echo "  Registry not ready (attempt $i/12), waiting 30s..."
+            sleep 30
+          done
+
           echo "==> Logging in to OneDev registry..."
-          echo "${ONEDEV_PASS}" | docker login "${REGISTRY}" -u "${ONEDEV_USER}" --password-stdin
+          for i in 1 2 3; do
+            echo "${ONEDEV_PASS}" | docker login "${REGISTRY}" -u "${ONEDEV_USER}" --password-stdin && break
+            echo "  Login failed (attempt $i/3), retrying in 20s..."
+            sleep 20
+          done
 
           echo "==> Building image..."
           docker buildx build \
@@ -62,6 +78,16 @@ jobs:
           mkdir -p ~/.kube
           echo "${KUBECONFIG_B64}" | base64 -d > ~/.kube/config
           chmod 600 ~/.kube/config
+
+          # Heal kubeconfig to a reachable API server
+          for ip in 10.10.0.90 10.10.0.91 10.10.0.92; do
+            if curl -sk --max-time 3 "https://$ip:6443/healthz" >/dev/null 2>&1; then
+              sed -i "s|server: https://[0-9.]*:6443|server: https://$ip:6443|g" ~/.kube/config
+              echo "Using API server: $ip"
+              break
+            fi
+          done
+
           kubectl rollout restart deployment/infraweaver-console -n infraweaver-console
-          kubectl rollout status deployment/infraweaver-console -n infraweaver-console --timeout=120s
+          kubectl rollout status deployment/infraweaver-console -n infraweaver-console --timeout=180s
           echo "✅ Deployment rolled out successfully" >> $GITHUB_STEP_SUMMARY
