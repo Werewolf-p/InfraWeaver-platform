@@ -9,6 +9,9 @@ import {
   Network, Activity, ChevronLeft, ChevronRight, Terminal, History, Cog,
   Package, FileText, Bell, ShieldCheck, Server, PlusCircle, ChevronDown,
   Sparkles, Home, Star, Clock, UserCircle,
+  BarChart2, Trash2, GitBranch, DollarSign, Globe, BellOff, Shield,
+  AlertTriangle, Database, Gauge, Radio, ScanLine, Calendar, TrendingUp,
+  Layers, MonitorCheck, Download,
 } from "lucide-react";
 import { useRBAC } from "@/hooks/use-rbac";
 import { useArgoApps } from "@/hooks/use-argocd";
@@ -47,6 +50,13 @@ const navGroups: NavGroup[] = [
       { href: "/users", icon: Users, label: "Users", shortcut: "G U" },
       { href: "/registry", icon: Package, label: "Registry", shortcut: "G R" },
       { href: "/logs", icon: FileText, label: "Pod Logs", shortcut: "G L" },
+      { href: "/maintenance", icon: Settings, label: "Maintenance", shortcut: "" },
+      { href: "/cronjobs", icon: Calendar, label: "CronJobs", shortcut: "" },
+      { href: "/image-vulnerabilities", icon: Package, label: "Images", shortcut: "" },
+      { href: "/resource-optimizer", icon: Activity, label: "Optimizer", shortcut: "" },
+      { href: "/status", icon: Activity, label: "Platform Status", shortcut: "" },
+      { href: "/app-graph", icon: Network, label: "App Graph", shortcut: "" },
+      { href: "/health-tester", icon: Activity, label: "Health Tester", shortcut: "" },
     ],
   },
   {
@@ -57,6 +67,28 @@ const navGroups: NavGroup[] = [
       { href: "/health", icon: Activity, label: "Health", shortcut: "G H" },
       { href: "/security", icon: ShieldCheck, label: "Security", shortcut: "G Y" },
       { href: "/cluster", icon: Server, label: "Cluster", shortcut: "G K" },
+      { href: "/storage-timeline", icon: HardDrive, label: "Storage Timeline", shortcut: "" },
+      { href: "/network-policies", icon: Network, label: "Net Policies", shortcut: "" },
+      { href: "/secret-expiry", icon: ShieldCheck, label: "Secret Expiry", shortcut: "" },
+      { href: "/pv-browser", icon: HardDrive, label: "PV Browser", shortcut: "" },
+      { href: "/pods", icon: Server, label: "Pods", shortcut: "" },
+    ],
+  },
+  {
+    label: "Tools",
+    items: [
+      { href: "/quota", icon: BarChart2, label: "Resource Quotas", shortcut: "" },
+      { href: "/namespace-cleanup", icon: Trash2, label: "NS Cleanup", shortcut: "" },
+      { href: "/deployment-compare", icon: GitBranch, label: "Deploy Compare", shortcut: "" },
+      { href: "/cost", icon: DollarSign, label: "Cost Estimate", shortcut: "" },
+      { href: "/scheduled-tasks", icon: Clock, label: "Scheduled Tasks", shortcut: "" },
+      { href: "/webhook-tester", icon: Globe, label: "Webhook Tester", shortcut: "" },
+      { href: "/alert-silence", icon: BellOff, label: "Alert Silence", shortcut: "" },
+      { href: "/pod-shell", icon: Terminal, label: "Pod Shell", shortcut: "" },
+      { href: "/rbac-viz", icon: Shield, label: "RBAC Viz", shortcut: "" },
+      { href: "/gitops-diff", icon: GitBranch, label: "GitOps Diff", shortcut: "" },
+      { href: "/log-analytics", icon: FileText, label: "Log Analytics", shortcut: "" },
+      { href: "/config-drift", icon: AlertTriangle, label: "Config Drift", shortcut: "" },
     ],
   },
   {
@@ -87,6 +119,33 @@ const hrefIconMap: Record<string, React.ElementType> = {
   "/settings": Settings,
   "/changelog": Sparkles,
   "/profile": UserCircle,
+  // Infrastructure
+  "/storage-timeline": HardDrive,
+  "/network-policies": Network,
+  "/secret-expiry": ShieldCheck,
+  "/pv-browser": HardDrive,
+  "/pods": Server,
+  // Tools
+  "/quota": BarChart2,
+  "/namespace-cleanup": Trash2,
+  "/deployment-compare": GitBranch,
+  "/cost": DollarSign,
+  "/scheduled-tasks": Clock,
+  "/webhook-tester": Globe,
+  "/alert-silence": BellOff,
+  "/pod-shell": Terminal,
+  "/rbac-viz": Shield,
+  "/gitops-diff": GitBranch,
+  "/log-analytics": FileText,
+  "/config-drift": AlertTriangle,
+  // Platform
+  "/maintenance": Settings,
+  "/cronjobs": Calendar,
+  "/image-vulnerabilities": Package,
+  "/resource-optimizer": Activity,
+  "/status": Activity,
+  "/app-graph": Network,
+  "/health-tester": Activity,
 };
 
 function ClusterHealthDot() {

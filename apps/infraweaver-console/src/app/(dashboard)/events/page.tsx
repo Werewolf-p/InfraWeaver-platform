@@ -1,10 +1,20 @@
 "use client";
 import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
-import { History, CheckCircle2, XCircle, Loader2, RefreshCw, GitCommit, Clock } from "lucide-react";
-import { cn, timeAgo, formatDate } from "@/lib/utils";
-import { useSettingsContext } from "@/contexts/settings-context";
-import { useCallback, useEffect, useState } from "react";
+import { useState, useCallback } from "react";
+import { RefreshCw, History, CheckCircle2, XCircle, Loader2, Clock, GitCommit } from "lucide-react";
+import { cn } from "@/lib/utils";
+
+interface K8sEvent {
+  name: string;
+  namespace: string;
+  reason: string;
+  message: string;
+  type: string;
+  count: number;
+  lastTimestamp: string;
+  involvedObject: { kind: string; name: string };
+}
 
 interface ArgoEvent {
   appName: string;
@@ -15,15 +25,7 @@ interface ArgoEvent {
   revision?: string;
 }
 
-const PHASES = ["All", "Succeeded", "Failed", "Running"] as const;
-type Phase = typeof PHASES[number];
-
-function PhaseIcon({ phase }: { phase: string }) {
-  if (phase === "Succeeded") return <CheckCircle2 className="w-4 h-4 text-green-400" />;
-  if (phase === "Failed" || phase === "Error") return <XCircle className="w-4 h-4 text-red-400" />;
-  if (phase === "Running") return <Loader2 className="w-4 h-4 text-yellow-400 animate-spin" />;
-  return <Clock className="w-4 h-4 text-slate-400" />;
-}
+type Tab = "k8s" | "argocd";
 
 function phaseBadge(phase: string) {
   if (phase === "Succeeded") return "bg-green-500/10 text-green-400 border-green-500/20";
@@ -32,155 +34,125 @@ function phaseBadge(phase: string) {
   return "bg-slate-500/10 text-slate-400 border-slate-500/20";
 }
 
-function RefreshCountdown({ onRefetch }: { onRefetch: () => void }) {
-  const [count, setCount] = useState(30);
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setCount(prev => {
-        if (prev <= 1) { onRefetch(); return 30; }
-        return prev - 1;
-      });
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [onRefetch]);
-  return <span className="text-xs text-slate-500">Refresh in {count}s</span>;
+function PhaseIcon({ phase }: { phase: string }) {
+  if (phase === "Succeeded") return <CheckCircle2 className="w-4 h-4 text-green-400" />;
+  if (phase === "Failed" || phase === "Error") return <XCircle className="w-4 h-4 text-red-400" />;
+  if (phase === "Running") return <Loader2 className="w-4 h-4 text-yellow-400 animate-spin" />;
+  return <Clock className="w-4 h-4 text-slate-400" />;
 }
 
 export default function EventsPage() {
-  const { settings } = useSettingsContext();
-  const [phaseFilter, setPhaseFilter] = useState<Phase>("All");
+  const [tab, setTab] = useState<Tab>("k8s");
+  const [search, setSearch] = useState("");
 
-  const { data: events, isLoading, refetch } = useQuery<ArgoEvent[]>({
+  const { data: k8sData, isLoading: k8sLoading, refetch: refetchK8s } = useQuery({
+    queryKey: ["k8s-events"],
+    queryFn: async () => {
+      const res = await fetch("/api/events");
+      if (!res.ok) throw new Error("Failed");
+      return res.json() as Promise<{ events: K8sEvent[]; live: boolean }>;
+    },
+    refetchInterval: 30000,
+    enabled: tab === "k8s",
+  });
+
+  const { data: argoData, isLoading: argoLoading, refetch: refetchArgo } = useQuery({
     queryKey: ["argocd", "events"],
     queryFn: async () => {
       const res = await fetch("/api/argocd/events");
-      if (!res.ok) throw new Error("Failed to fetch events");
-      return res.json();
+      if (!res.ok) throw new Error("Failed");
+      return res.json() as Promise<ArgoEvent[]>;
     },
-    refetchInterval: settings.refreshInterval,
-    staleTime: 15000,
+    refetchInterval: 30000,
+    enabled: tab === "argocd",
   });
 
-  const handleRefetch = useCallback(() => { void refetch(); }, [refetch]);
+  const handleRefetch = useCallback(() => {
+    if (tab === "k8s") void refetchK8s();
+    else void refetchArgo();
+  }, [tab, refetchK8s, refetchArgo]);
 
-  const filtered = (events ?? []).filter(e => phaseFilter === "All" || e.phase === phaseFilter);
+  const k8sEvents = (k8sData?.events ?? []).filter(e =>
+    !search || e.reason.toLowerCase().includes(search.toLowerCase()) || e.message.toLowerCase().includes(search.toLowerCase()) || e.namespace.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const argoEvents = (Array.isArray(argoData) ? argoData : []).filter(e =>
+    !search || e.appName.toLowerCase().includes(search.toLowerCase()) || (e.phase ?? "").toLowerCase().includes(search.toLowerCase())
+  );
+
+  const isLoading = tab === "k8s" ? k8sLoading : argoLoading;
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-white flex items-center gap-2">
-            <History className="w-5 h-5 text-slate-400" />
-            Activity Log
-          </h2>
-          <p className="text-sm text-slate-400 mt-0.5">Recent ArgoCD sync operations</p>
+          <h2 className="text-xl font-bold text-white flex items-center gap-2"><History className="w-5 h-5 text-slate-400" />Event Correlation</h2>
+          <p className="text-sm text-slate-400">K8s and ArgoCD events in one view</p>
         </div>
-        <div className="flex items-center gap-3">
-          <RefreshCountdown onRefetch={handleRefetch} />
-          <button
-            onClick={() => refetch()}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 hover:text-white transition-colors"
-          >
-            <RefreshCw className="w-3.5 h-3.5" />
-            Refresh
-          </button>
-        </div>
+        <button onClick={handleRefetch} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 hover:text-white hover:bg-white/10 transition-colors">
+          <RefreshCw className="w-3.5 h-3.5" />Refresh
+        </button>
       </div>
 
-      {/* Phase filter */}
-      <div className="flex items-center gap-1.5 mb-5 flex-wrap">
-        {PHASES.map(phase => (
-          <button
-            key={phase}
-            onClick={() => setPhaseFilter(phase)}
-            className={cn(
-              "px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors",
-              phaseFilter === phase
-                ? "bg-indigo-500/20 border-indigo-500/30 text-indigo-300"
-                : "bg-white/5 border-white/10 text-slate-400 hover:text-slate-200 hover:bg-white/10"
-            )}
-          >
-            {phase}
-            {phase !== "All" && events && (
-              <span className="ml-1.5 opacity-60">
-                {events.filter(e => e.phase === phase).length}
-              </span>
-            )}
-          </button>
-        ))}
+      <div className="flex items-center gap-2">
+        <button onClick={() => setTab("k8s")} className={cn("px-4 py-2 rounded-lg text-sm font-medium border transition-colors", tab === "k8s" ? "bg-indigo-500/20 border-indigo-500/30 text-indigo-300" : "bg-white/5 border-white/10 text-slate-400 hover:text-white")}>
+          K8s Events
+        </button>
+        <button onClick={() => setTab("argocd")} className={cn("px-4 py-2 rounded-lg text-sm font-medium border transition-colors", tab === "argocd" ? "bg-indigo-500/20 border-indigo-500/30 text-indigo-300" : "bg-white/5 border-white/10 text-slate-400 hover:text-white")}>
+          ArgoCD Events
+        </button>
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search..." className="ml-auto px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-white placeholder:text-slate-500 outline-none focus:border-indigo-500/50 w-48" />
       </div>
 
       {isLoading ? (
-        <div className="space-y-3">
-          {[...Array(6)].map((_, i) => (
-            <div key={i} className="h-20 rounded-xl bg-white/5 animate-pulse" />
+        <div className="space-y-3">{[...Array(6)].map((_, i) => <div key={i} className="h-16 rounded-xl bg-white/5 animate-pulse" />)}</div>
+      ) : tab === "k8s" ? (
+        <div className="space-y-2">
+          {k8sEvents.length === 0 && <div className="py-16 text-center text-slate-500 text-sm">No events found</div>}
+          {k8sEvents.map((e, i) => (
+            <motion.div key={`${e.name}-${i}`} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.02 }}
+              className={cn("p-3 rounded-xl border", e.type === "Warning" ? "bg-yellow-500/5 border-yellow-500/20" : "bg-white/5 border-white/10")}>
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className={cn("text-xs px-2 py-0.5 rounded-full font-medium", e.type === "Warning" ? "bg-yellow-500/10 text-yellow-400" : "bg-blue-500/10 text-blue-400")}>{e.reason}</span>
+                    <span className="text-xs text-slate-500">{e.involvedObject.kind}/{e.involvedObject.name}</span>
+                    <span className="text-xs text-slate-600">{e.namespace}</span>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-1 truncate">{e.message}</p>
+                </div>
+                <div className="text-right flex-shrink-0">
+                  <p className="text-xs text-slate-500">x{e.count}</p>
+                  <p className="text-[10px] text-slate-600">{e.lastTimestamp ? new Date(e.lastTimestamp).toLocaleTimeString() : ""}</p>
+                </div>
+              </div>
+            </motion.div>
           ))}
         </div>
-      ) : filtered.length > 0 ? (
-        <div className="relative">
-          {/* Timeline line */}
-          <div className="absolute left-5 top-6 bottom-6 w-px bg-white/5" />
-
-          <div className="space-y-3">
-            {filtered.map((event, i) => (
-              <motion.div
-                key={`${event.appName}-${event.startedAt}`}
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: i * 0.05 }}
-                className="relative flex gap-4"
-              >
-                {/* Timeline dot */}
-                <div className={cn(
-                  "relative z-10 w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 border",
-                  event.phase === "Succeeded" ? "bg-green-500/10 border-green-500/20"
-                    : event.phase === "Failed" || event.phase === "Error" ? "bg-red-500/10 border-red-500/20"
-                    : event.phase === "Running" ? "bg-yellow-500/10 border-yellow-500/20"
-                    : "bg-slate-500/10 border-slate-500/20"
-                )}>
-                  <PhaseIcon phase={event.phase} />
-                </div>
-
-                {/* Content */}
-                <div className="flex-1 bg-white/5 border border-white/10 rounded-xl p-4 hover:bg-white/[0.07] transition-colors">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-sm font-medium text-white">{event.appName}</span>
-                        <span className={cn("text-xs px-2 py-0.5 rounded-full border font-medium", phaseBadge(event.phase))}>
-                          {event.phase}
-                        </span>
-                        {event.revision && (
-                          <span className="flex items-center gap-1 text-xs text-slate-500 font-mono">
-                            <GitCommit className="w-3 h-3" />
-                            {event.revision.slice(0, 7)}
-                          </span>
-                        )}
-                      </div>
-                      {event.message && (
-                        <p className="text-xs text-slate-400 mt-1 truncate">{event.message}</p>
-                      )}
-                    </div>
-                    <div className="text-right flex-shrink-0">
-                      <p className="text-xs text-slate-400">
-                        {timeAgo(event.finishedAt ?? event.startedAt)}
-                      </p>
-                      <p className="text-[10px] text-slate-600 mt-0.5">
-                        {formatDate(event.startedAt)}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </motion.div>
-            ))}
-          </div>
-        </div>
       ) : (
-        <div className="flex flex-col items-center justify-center py-20 text-slate-500">
-          <History className="w-12 h-12 mb-3 opacity-30" />
-          <p className="text-sm">
-            {phaseFilter === "All" ? "No recent events found" : `No ${phaseFilter} events`}
-          </p>
+        <div className="space-y-3">
+          {argoEvents.length === 0 && <div className="py-16 text-center text-slate-500 text-sm">No ArgoCD events found</div>}
+          {argoEvents.map((e, i) => (
+            <motion.div key={`${e.appName}-${e.startedAt}`} initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.05 }}
+              className="flex gap-4">
+              <div className={cn("w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 border", e.phase === "Succeeded" ? "bg-green-500/10 border-green-500/20" : e.phase === "Failed" ? "bg-red-500/10 border-red-500/20" : "bg-yellow-500/10 border-yellow-500/20")}>
+                <PhaseIcon phase={e.phase} />
+              </div>
+              <div className="flex-1 bg-white/5 border border-white/10 rounded-xl p-4">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-white">{e.appName}</span>
+                      <span className={cn("text-xs px-2 py-0.5 rounded-full border font-medium", phaseBadge(e.phase))}>{e.phase}</span>
+                      {e.revision && <span className="flex items-center gap-1 text-xs text-slate-500 font-mono"><GitCommit className="w-3 h-3" />{e.revision.slice(0, 7)}</span>}
+                    </div>
+                    {e.message && <p className="text-xs text-slate-400 mt-1 truncate">{e.message}</p>}
+                  </div>
+                  <p className="text-xs text-slate-400 flex-shrink-0">{e.finishedAt ? new Date(e.finishedAt).toLocaleString() : new Date(e.startedAt).toLocaleString()}</p>
+                </div>
+              </div>
+            </motion.div>
+          ))}
         </div>
       )}
     </div>

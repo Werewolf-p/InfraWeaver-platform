@@ -5,6 +5,7 @@ import { CheckCircle2, XCircle, RefreshCw, ChevronDown, ChevronUp, Shield } from
 import { cn, timeAgo } from "@/lib/utils";
 import { useState, useCallback } from "react";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
+import { HealthTimeline } from "@/components/ui/health-timeline";
 
 interface EndpointResult {
   success: boolean;
@@ -224,6 +225,16 @@ export default function HealthPage() {
     refetchInterval: 120000,
   });
 
+  const { data: timelineData } = useQuery({
+    queryKey: ["health", "timeline"],
+    queryFn: async () => {
+      const res = await fetch("/api/health/timeline");
+      if (!res.ok) throw new Error("Failed");
+      return res.json() as Promise<{ data: { timestamp: string; status: string; latencyMs: number }[] }>;
+    },
+    staleTime: 60000,
+  });
+
   const handlePullRefresh = useCallback(async () => {
     if (pullRefreshing) return;
     setPullRefreshing(true);
@@ -335,6 +346,12 @@ export default function HealthPage() {
           {grouped.size === 0 && (
             <div className="py-16 text-center text-slate-500">
               <p className="text-sm">No endpoint data available</p>
+            </div>
+          )}
+          {timelineData && timelineData.data.length > 0 && (
+            <div className="bg-slate-900/60 border border-white/10 rounded-xl backdrop-blur-sm p-4 mt-4">
+              <h3 className="text-sm font-semibold text-white mb-3">Service Uptime Timeline</h3>
+              <HealthTimeline data={timelineData.data} />
             </div>
           )}
         </div>

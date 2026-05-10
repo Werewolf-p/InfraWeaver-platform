@@ -5,11 +5,12 @@ import Link from "next/link";
 import { useArgoApps, useSyncApp, type ArgoApp } from "@/hooks/use-argocd";
 import { useRBAC } from "@/hooks/use-rbac";
 import { useSettingsContext } from "@/contexts/settings-context";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RefreshCw, Search, X, RotateCcw, Clock, GitCommit, Trash2, ExternalLink, Play, ChevronDown, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { cn, timeAgo } from "@/lib/utils";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { DeploymentFrequencyChart } from "@/components/charts/deployment-frequency";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let confettiLib: any = null;
@@ -424,6 +425,16 @@ export default function AppsPage() {
   const [bulkSyncing, setBulkSyncing] = useState(false);
   const APPS_PAGE_SIZE = 8;
 
+  const { data: argoEvents } = useQuery({
+    queryKey: ["argocd", "events"],
+    queryFn: async () => {
+      const res = await fetch("/api/argocd/events");
+      if (!res.ok) throw new Error("Failed");
+      return res.json() as Promise<{ events: { appName: string; phase: string; startedAt: string }[] }>;
+    },
+    staleTime: 60000,
+  });
+
   const handlePullRefresh = useCallback(async () => {
     if (pullRefreshing) return;
     setPullRefreshing(true);
@@ -616,6 +627,12 @@ export default function AppsPage() {
         </div>
       ) : (
         <>
+          {argoEvents && (
+            <div className="bg-slate-900/60 border border-white/10 rounded-xl backdrop-blur-sm p-4 mb-4">
+              <h3 className="text-sm font-semibold text-white mb-3">Deployment Frequency (Last 30 Days)</h3>
+              <DeploymentFrequencyChart events={argoEvents.events ?? []} />
+            </div>
+          )}
           <motion.div
             layout
             className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4"

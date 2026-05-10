@@ -2,7 +2,7 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
-import { Server, Plus, RefreshCw, Zap, Link2, Loader2, Copy, Check, ChevronDown, Activity, Layers, BarChart2, GitBranch, Pencil, Save, X } from "lucide-react";
+import { Server, Plus, RefreshCw, Zap, Link2, Loader2, Copy, Check, ChevronDown, Activity, Layers, BarChart2, GitBranch, Pencil, Save, X, Download } from "lucide-react";
 import { useRBAC } from "@/hooks/use-rbac";
 import { cn, timeAgo } from "@/lib/utils";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -279,6 +279,10 @@ export default function ClusterPage() {
     }
   };
 
+  const handleExportYaml = () => {
+    window.location.href = "/api/cluster/export";
+  };
+
   return (
     <div>
       <div className="relative rounded-xl overflow-hidden mb-6">
@@ -300,6 +304,10 @@ export default function ClusterPage() {
               <GitBranch className="w-3.5 h-3.5" />
               Pipelines
             </Link>
+            <button onClick={handleExportYaml} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 hover:text-white hover:bg-white/10 transition-colors active:scale-95 touch-manipulation">
+              <Download className="w-3.5 h-3.5" />
+              Export YAML
+            </button>
             <button onClick={() => { void refetch(); void refetchMetrics(); void refetchHpa(); }} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 hover:text-white hover:bg-white/10 transition-colors active:scale-95 touch-manipulation">
               <RefreshCw className="w-3.5 h-3.5" />
               Refresh
