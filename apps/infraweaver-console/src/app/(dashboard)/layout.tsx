@@ -8,20 +8,21 @@ import { useRouter, usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import Link from "next/link";
-import { LayoutDashboard, Box, Activity, Network, Cog, X, ShieldCheck, Server, Users } from "lucide-react";
+import { LayoutDashboard, Box, Activity, Network, Cog, X, ShieldCheck, Server, Users, Home } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 
 const mobileNavItems = [
+  { href: "/home", icon: Home, label: "Home" },
   { href: "/", icon: LayoutDashboard, label: "Dashboard" },
   { href: "/apps", icon: Box, label: "Apps" },
   { href: "/health", icon: Activity, label: "Health" },
   { href: "/network", icon: Network, label: "Network" },
-  { href: "/users", icon: Users, label: "Users" },
   { href: "/config", icon: Cog, label: "Config" },
 ];
 
 const drawerNavItems = [
+  { href: "/home", icon: Home, label: "Home Portal" },
   { href: "/", icon: LayoutDashboard, label: "Dashboard" },
   { href: "/apps", icon: Box, label: "Applications" },
   { href: "/health", icon: Activity, label: "Health" },
@@ -126,7 +127,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm md:hidden"
+              drag="x"
+              dragConstraints={{ left: 0, right: 0 }}
+              dragElastic={0.1}
+              onDragEnd={(_, info) => {
+                if (info.offset.x < -40) setMobileOpen(false);
+              }}
+              className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm md:hidden cursor-default"
               onClick={() => setMobileOpen(false)}
             />
             <motion.div
@@ -134,6 +141,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               animate={{ x: 0, opacity: 1 }}
               exit={{ x: -280, opacity: 0 }}
               transition={{ type: "spring", damping: 30, stiffness: 300 }}
+              drag="x"
+              dragConstraints={{ left: -280, right: 0 }}
+              dragElastic={0.05}
+              onDragEnd={(_, info) => {
+                if (info.offset.x < -60 || info.velocity.x < -300) setMobileOpen(false);
+              }}
               className="fixed left-0 top-0 bottom-0 z-50 w-64 bg-slate-900/95 backdrop-blur-sm border-r border-white/5 md:hidden overflow-y-auto"
             >
               <div className="flex items-center justify-between px-4 py-5 border-b border-white/5">
@@ -148,7 +161,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   return (
                     <Link key={item.href} href={item.href}>
                       <div className={cn(
-                        "flex items-center gap-3 px-3 py-3 rounded-lg transition-colors",
+                        "flex items-center gap-3 px-3 py-3 rounded-lg transition-colors min-h-[44px] touch-manipulation",
                         isActive
                           ? "bg-indigo-500/20 text-indigo-300"
                           : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
@@ -169,8 +182,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <TopBar onMenuClick={() => setMobileOpen(true)} />
         <Breadcrumb />
         <main
-          className="flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-6"
-          style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px) + 72px, 80px)" }}
+          className="flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-6 pb-24 md:pb-6"
+          style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px) + 80px, 88px)" }}
         >
           <motion.div
             key={pathname}
@@ -190,7 +203,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <FloatingActionButton />
 
       {/* Bottom mobile nav */}
-      <nav className="fixed bottom-0 left-0 right-0 z-30 md:hidden bg-slate-900/95 backdrop-blur-sm border-t border-white/5 flex safe-bottom">
+      <nav className="fixed bottom-0 left-0 right-0 z-50 md:hidden bg-black/80 backdrop-blur-xl border-t border-white/10 flex landscape:hidden" style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
         {mobileNavItems.map(item => {
           const isActive = pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href));
           return (
@@ -198,11 +211,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               key={item.href}
               href={item.href}
               className={cn(
-                "flex-1 flex flex-col items-center gap-1 py-3 text-xs transition-colors active:scale-95",
+                "flex-1 flex flex-col items-center justify-center gap-1 min-h-[56px] text-[11px] transition-colors active:scale-95 touch-manipulation",
                 isActive ? "text-indigo-400" : "text-slate-500 hover:text-slate-300"
               )}
             >
-              <item.icon className="w-5 h-5" />
+              <item.icon className="w-6 h-6" />
               <span>{item.label}</span>
             </Link>
           );

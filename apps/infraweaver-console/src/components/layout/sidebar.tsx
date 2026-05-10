@@ -8,7 +8,7 @@ import {
   LayoutDashboard, Box, Settings, Users, HardDrive,
   Network, Activity, ChevronLeft, ChevronRight, Terminal, History, Cog,
   Package, FileText, Bell, ShieldCheck, Server, PlusCircle, ChevronDown,
-  Sparkles,
+  Sparkles, Home,
 } from "lucide-react";
 import { useRBAC } from "@/hooks/use-rbac";
 import { useArgoApps } from "@/hooks/use-argocd";
@@ -31,6 +31,7 @@ const navGroups: NavGroup[] = [
   {
     label: "Core",
     items: [
+      { href: "/home", icon: Home, label: "Home Portal", shortcut: "G O" },
       { href: "/", icon: LayoutDashboard, label: "Dashboard", shortcut: "G D" },
       { href: "/apps", icon: Box, label: "Applications", shortcut: "G A" },
       { href: "/catalog-install", icon: PlusCircle, label: "App Installer", shortcut: "G I" },
