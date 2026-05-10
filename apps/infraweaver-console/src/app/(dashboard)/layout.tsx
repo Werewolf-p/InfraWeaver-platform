@@ -8,7 +8,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import Link from "next/link";
-import { LayoutDashboard, Box, Activity, Network, Cog, X, ShieldCheck, Server, Users, Home, AlertTriangle } from "lucide-react";
+import { LayoutDashboard, Box, Activity, Network, Cog, X, ShieldCheck, Server, Users, Home, AlertTriangle, Gamepad2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import { CommandPalette } from "@/components/command-palette";
@@ -33,6 +33,7 @@ const drawerNavItems = [
   { href: "/security", icon: ShieldCheck, label: "Security" },
   { href: "/cluster", icon: Server, label: "Cluster" },
   { href: "/users", icon: Users, label: "User Management" },
+  { href: "/gameservers", icon: Gamepad2, label: "Game Servers" },
 ];
 
 function StatusBar() {

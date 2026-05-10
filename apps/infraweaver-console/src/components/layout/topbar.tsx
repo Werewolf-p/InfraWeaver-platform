@@ -20,7 +20,12 @@ export function TopBar({ title, onMenuClick }: { title?: string; onMenuClick?: (
           <Menu className="w-4 h-4" />
         </button>
         <div>
-          <h1 className="text-sm font-semibold text-white">{title ?? "InfraWeaver Console"}</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-sm font-semibold text-white">{title ?? "InfraWeaver Console"}</h1>
+            <span className="hidden sm:inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono text-slate-500 bg-slate-800/60 border border-slate-700/40">
+              v{process.env.NEXT_PUBLIC_APP_VERSION ?? "dev"}
+            </span>
+          </div>
           <p className="text-xs text-slate-500">infraweaver.int.rlservers.com</p>
         </div>
       </div>
