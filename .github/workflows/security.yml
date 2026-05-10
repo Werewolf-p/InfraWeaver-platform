@@ -14,11 +14,11 @@ jobs:
       - name: npm audit
         run: |
           cd apps/infraweaver-console
-          pnpm audit --audit-level=high 2>&1 || true
+          npm audit --audit-level=high 2>&1 || true
       - name: Check for known vulnerabilities
         run: |
           cd apps/infraweaver-console
-          AUDIT_OUT=$(pnpm audit --json 2>/dev/null || true)
+          AUDIT_OUT=$(npm audit --json 2>/dev/null || true)
           CRITICAL=$(echo "$AUDIT_OUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('metadata',{}).get('vulnerabilities',{}).get('critical',0))" 2>/dev/null || echo "0")
           HIGH=$(echo "$AUDIT_OUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('metadata',{}).get('vulnerabilities',{}).get('high',0))" 2>/dev/null || echo "0")
           echo "Critical: $CRITICAL, High: $HIGH"
@@ -77,8 +77,8 @@ jobs:
       - name: TypeScript type check
         run: |
           cd apps/infraweaver-console
-          pnpm install --frozen-lockfile 2>/dev/null || pnpm install
-          pnpm tsc --noEmit 2>&1 | tail -20 || true
+          npm ci --legacy-peer-deps 2>/dev/null || npm install --legacy-peer-deps
+          npx tsc --noEmit 2>&1 | tail -20 || true
 
   sbom:
     runs-on: [self-hosted, prod-worker]
@@ -92,7 +92,7 @@ jobs:
             cyclonedx-npm --output-file sbom.json 2>/dev/null
             echo "SBOM generated"
           else
-            pnpm list --json 2>/dev/null > sbom-basic.json || true
+            npm list --json 2>/dev/null > sbom-basic.json || true
             echo "Basic dependency list generated"
           fi
           echo "SBOM generation complete" >> $GITHUB_STEP_SUMMARY
