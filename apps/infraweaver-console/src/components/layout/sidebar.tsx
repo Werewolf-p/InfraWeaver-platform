@@ -11,7 +11,7 @@ import {
   Sparkles, Home, Star, Clock, UserCircle,
   BarChart2, Trash2, GitBranch, DollarSign, Globe, BellOff, Shield,
   AlertTriangle, Database, Gauge, Radio, ScanLine, Calendar, TrendingUp,
-  Layers, MonitorCheck, Download,
+  Layers, MonitorCheck, Download, Gamepad2,
 } from "lucide-react";
 import { useRBAC } from "@/hooks/use-rbac";
 import { useArgoApps } from "@/hooks/use-argocd";
@@ -92,6 +92,12 @@ const navGroups: NavGroup[] = [
     ],
   },
   {
+    label: "Services",
+    items: [
+      { href: "/gameservers", icon: Gamepad2, label: "Game Servers", shortcut: "" },
+    ],
+  },
+  {
     label: "Settings",
     items: [
       { href: "/settings", icon: Settings, label: "Settings", shortcut: "" },
@@ -146,6 +152,8 @@ const hrefIconMap: Record<string, React.ElementType> = {
   "/status": Activity,
   "/app-graph": Network,
   "/health-tester": Activity,
+  // Services
+  "/gameservers": Gamepad2,
 };
 
 function ClusterHealthDot() {

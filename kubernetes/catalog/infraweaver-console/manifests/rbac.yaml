@@ -32,3 +32,27 @@ subjects:
   - kind: ServiceAccount
     name: infraweaver-console
     namespace: infraweaver-console
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: infraweaver-console-game-servers
+  namespace: game-servers
+rules:
+  - apiGroups: [""]
+    resources: ["services", "endpoints", "configmaps"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: infraweaver-console-game-servers
+  namespace: game-servers
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: infraweaver-console-game-servers
+subjects:
+  - kind: ServiceAccount
+    name: infraweaver-console
+    namespace: infraweaver-console

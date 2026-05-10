@@ -197,3 +197,11 @@ html.light ::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.25); }
     transform: scale(0.97);
   }
 }
+
+/* Print styles */
+@media print {
+  .sidebar, nav, [data-sidebar], button, [role="button"] { display: none !important; }
+  body { background: white !important; color: black !important; }
+  a { color: inherit; text-decoration: underline; }
+  .no-print { display: none !important; }
+}

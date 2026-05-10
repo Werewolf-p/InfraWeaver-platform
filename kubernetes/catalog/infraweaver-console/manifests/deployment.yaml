@@ -102,6 +102,16 @@ spec:
             secretKeyRef:
               name: infraweaver-console-secret
               key: authentik-token
+        - name: CLOUDFLARE_API_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: infraweaver-console-secret
+              key: cloudflare-api-token
+        - name: CF_ZONE_ID
+          valueFrom:
+            secretKeyRef:
+              name: infraweaver-console-secret
+              key: cf-zone-id
         - name: ADMIN_EMAILS
           value: remonhulst@gmail.com
         - name: AUTH_TRUST_HOST
