@@ -414,26 +414,46 @@ function AddServerDrawer({ open, onClose, onCreated }: { open: boolean; onClose:
               {/* Step 1 — same for both modes */}
               {step === 1 && (
                 <div>
-                  <h3 className="text-sm font-semibold text-slate-300 mb-1">Select protocol / game type</h3>
-                  <p className="text-xs text-slate-500 mb-4">Pick one to auto-fill default ports, then press Next</p>
+                  <h3 className="text-sm font-semibold text-slate-300 mb-1">Select protocol / server type</h3>
+                  <p className="text-xs text-slate-500 mb-4">Tap a card to select it, then press Next ↓</p>
                   <div className="grid grid-cols-2 gap-3">
-                    {GAME_TYPES.map(gt => (
+                    {GAME_TYPES.filter(gt => gt.id !== "custom").map(gt => (
                       <button
                         key={gt.id}
-                        onClick={() => handleGameTypeSelect(gt.id)}
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); handleGameTypeSelect(gt.id); }}
                         className={cn(
-                          "flex flex-col items-center gap-2 p-4 rounded-xl border transition-all group",
+                          "flex flex-col items-center gap-2 p-4 rounded-xl border transition-all cursor-pointer touch-manipulation select-none",
                           gameType === gt.id
-                            ? "border-indigo-500 bg-indigo-500/20 ring-1 ring-indigo-500/50"
-                            : "border-white/10 bg-white/5 hover:border-indigo-500/50 hover:bg-indigo-500/10"
+                            ? "border-indigo-500 bg-indigo-500/20 ring-2 ring-indigo-500/60 shadow-lg shadow-indigo-500/10"
+                            : "border-white/10 bg-white/5 active:border-indigo-500/50 active:bg-indigo-500/10"
                         )}
                       >
                         <span className="text-3xl">{gt.icon}</span>
-                        <span className={cn("text-sm font-medium", gameType === gt.id ? "text-indigo-300" : "text-slate-300 group-hover:text-white")}>{gt.label}</span>
-                        {gameType === gt.id && <span className="text-[10px] text-indigo-400 font-medium">Selected ✓</span>}
+                        <span className={cn("text-sm font-medium", gameType === gt.id ? "text-indigo-300" : "text-slate-300")}>{gt.label}</span>
+                        {gameType === gt.id && (
+                          <span className="flex items-center gap-1 text-[10px] text-indigo-400 font-semibold">
+                            <Check className="w-3 h-3" /> Selected
+                          </span>
+                        )}
                       </button>
                     ))}
                   </div>
+                  {/* Custom — full width so it's never cut off */}
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); handleGameTypeSelect("custom"); }}
+                    className={cn(
+                      "mt-3 w-full flex items-center justify-center gap-3 p-4 rounded-xl border transition-all cursor-pointer touch-manipulation select-none",
+                      gameType === "custom"
+                        ? "border-indigo-500 bg-indigo-500/20 ring-2 ring-indigo-500/60 shadow-lg shadow-indigo-500/10"
+                        : "border-white/10 bg-white/5 active:border-indigo-500/50 active:bg-indigo-500/10"
+                    )}
+                  >
+                    <span className="text-2xl">🎮</span>
+                    <span className={cn("text-sm font-medium", gameType === "custom" ? "text-indigo-300" : "text-slate-300")}>Custom — I'll enter ports manually</span>
+                    {gameType === "custom" && <Check className="w-4 h-4 text-indigo-400 ml-auto" />}
+                  </button>
                 </div>
               )}
 
