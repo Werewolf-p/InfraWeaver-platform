@@ -1,10 +1,10 @@
 import {
   LayoutDashboard, Box, Settings, Users, HardDrive,
   Network, Activity, Terminal, History, Cog,
-  Package, FileText, ShieldCheck, Server, PlusCircle,
+  Package, FileText, ShieldCheck, Server,
   Sparkles, Home, UserCircle, BarChart2, Trash2, GitBranch,
   DollarSign, Globe, BellOff, Shield, AlertTriangle,
-  Calendar, TrendingUp, Gamepad2, Search, Store,
+  Calendar, TrendingUp, Gamepad2, Search, LayoutGrid,
 } from "lucide-react";
 
 export interface NavItem {
@@ -46,9 +46,7 @@ export const NAV_GROUPS: NavGroup[] = [
     icon: Box,
     defaultOpen: true,
     items: [
-      { href: "/apps", icon: Box, label: "All Applications", shortcut: "G A", description: "All deployed applications with status", pinnable: true },
-      { href: "/catalog-install", icon: PlusCircle, label: "App Catalog", shortcut: "G I", description: "One-click catalog app deployment" },
-      { href: "/community-apps", icon: Store, label: "Community Store", shortcut: "G U", description: "Browse 3,500+ apps — convert & deploy", pinnable: true },
+      { href: "/apps", icon: LayoutGrid, label: "Apps", shortcut: "G A", description: "Install and manage all platform applications", pinnable: true },
       { href: "/events", icon: History, label: "Activity Log", shortcut: "G E", description: "Cluster events and audit trail" },
     ],
   },
@@ -172,22 +170,18 @@ export const HREF_LABEL_MAP: Record<string, string> = Object.fromEntries(
   ALL_NAV_ITEMS.map(item => [item.href, item.label])
 );
 
-// Mobile bottom nav (5 items max)
+// Mobile bottom nav (4 items — 5th slot is "More" handled in layout.tsx)
 export const MOBILE_BOTTOM_NAV: NavItem[] = [
   { href: "/home", icon: Home, label: "Home" },
-  { href: "/", icon: LayoutDashboard, label: "Dashboard" },
-  { href: "/apps", icon: Box, label: "Apps" },
+  { href: "/apps", icon: LayoutGrid, label: "Apps" },
   { href: "/health", icon: Activity, label: "Health" },
-  { href: "/settings", icon: Settings, label: "Settings" },
 ];
 
-// Mobile drawer nav (all important pages)
+// Mobile drawer nav (shown in the "More" full-screen sheet)
 export const MOBILE_DRAWER_NAV: NavItem[] = [
   { href: "/home", icon: Home, label: "Home Portal" },
   { href: "/", icon: LayoutDashboard, label: "Dashboard" },
-  { href: "/apps", icon: Box, label: "Applications" },
-  { href: "/catalog-install", icon: PlusCircle, label: "App Catalog" },
-  { href: "/community-apps", icon: Store, label: "Community Store" },
+  { href: "/apps", icon: LayoutGrid, label: "Apps" },
   { href: "/health", icon: Activity, label: "Health" },
   { href: "/network", icon: Network, label: "Network" },
   { href: "/config", icon: Cog, label: "Config Editor" },
@@ -199,4 +193,5 @@ export const MOBILE_DRAWER_NAV: NavItem[] = [
   { href: "/certificates", icon: ShieldCheck, label: "Certificates" },
   { href: "/all-services", icon: Search, label: "All Services" },
   { href: "/tests", icon: Activity, label: "Platform Tests" },
+  { href: "/settings", icon: Settings, label: "Settings" },
 ];

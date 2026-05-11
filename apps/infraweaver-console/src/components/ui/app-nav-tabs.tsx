@@ -1,14 +1,13 @@
 "use client";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { Box, PlusCircle, Store, CheckCircle2 } from "lucide-react";
+import { LayoutGrid, Package, Store, CheckCircle2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const TABS = [
-  { href: "/apps", label: "Deployed Apps", icon: Box, exact: true },
-  { href: "/catalog-install", label: "App Catalog", icon: PlusCircle, exact: false },
-  { href: "/community-apps", label: "Community Store", icon: Store, exact: false },
-  { href: "/community-apps?tab=installed", label: "Installed", icon: CheckCircle2, exact: false, searchParam: { tab: "installed" } },
+  { href: "/apps", label: "All Installed", icon: LayoutGrid, tab: null },
+  { href: "/apps?tab=catalog", label: "App Catalog", icon: Package, tab: "catalog" },
+  { href: "/apps?tab=community", label: "Community Store", icon: Store, tab: "community" },
 ] as const;
 
 export function AppNavTabs() {
@@ -16,25 +15,16 @@ export function AppNavTabs() {
   const searchParams = useSearchParams();
   const tab = searchParams?.get("tab");
 
-  const isActive = (href: string, exact: boolean, searchParam?: { tab: string }) => {
-    const [path] = href.split("?");
-    if (searchParam) {
-      return pathname === path && tab === searchParam.tab;
-    }
-    if (exact) return pathname === path;
-    // For community-apps without tab param, only match when tab is not "installed"
-    if (path === "/community-apps") return pathname === path && tab !== "installed";
-    return pathname === path;
+  const isActive = (itemTab: string | null) => {
+    if (pathname !== "/apps") return false;
+    if (itemTab === null) return !tab || tab === "installed";
+    return tab === itemTab;
   };
 
   return (
     <div className="flex items-center gap-1 p-1 bg-slate-900/60 border border-white/10 rounded-xl mb-6 overflow-x-auto">
       {TABS.map((t) => {
-        const active = isActive(
-          t.href,
-          t.exact,
-          "searchParam" in t ? t.searchParam : undefined
-        );
+        const active = isActive(t.tab);
         return (
           <Link
             key={t.href}

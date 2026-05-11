@@ -8,7 +8,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import Link from "next/link";
-import { X, AlertTriangle, Grid3X3 } from "lucide-react";
+import { X, AlertTriangle, Grid3X3, MoreHorizontal, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import { CommandPalette } from "@/components/command-palette";
@@ -74,6 +74,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const router = useRouter();
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [moreSearch, setMoreSearch] = useState("");
   const [sessionWarning, setSessionWarning] = useState(false);
   const [countdown, setCountdown] = useState(300);
 
@@ -115,6 +117,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   useEffect(() => {
     setMobileOpen(false);
+    setMoreOpen(false);
   }, [pathname]);
 
   if (status === "loading") {
@@ -226,7 +229,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* Floating Action Button (mobile) */}
       <FloatingActionButton />
 
-      {/* Bottom mobile nav */}
+      {/* Bottom mobile nav — 3 items + More */}
       <nav className="fixed bottom-0 left-0 right-0 z-20 md:hidden bg-[#141414] border-t border-[#2a2a2a] flex landscape-hide" style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
         {mobileNavItems.map(item => {
           const isActive = pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href));
@@ -244,7 +247,93 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </Link>
           );
         })}
+        {/* More button */}
+        <button
+          onClick={() => setMoreOpen(true)}
+          className={cn(
+            "flex-1 flex flex-col items-center justify-center gap-1 min-h-[56px] text-[11px] transition-colors active:scale-95 touch-manipulation",
+            moreOpen ? "text-[#0078D4]" : "text-[#666] hover:text-[#9e9e9e]"
+          )}
+        >
+          <MoreHorizontal className="w-6 h-6" />
+          <span>More</span>
+        </button>
       </nav>
+
+      {/* More drawer — full-screen grid sheet */}
+      <AnimatePresence>
+        {moreOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm md:hidden"
+              onClick={() => setMoreOpen(false)}
+            />
+            <motion.div
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              transition={{ type: "spring", damping: 30, stiffness: 300 }}
+              drag="y"
+              dragConstraints={{ top: 0 }}
+              dragElastic={0.1}
+              onDragEnd={(_, info) => { if (info.offset.y > 80 || info.velocity.y > 500) setMoreOpen(false); }}
+              className="fixed bottom-0 left-0 right-0 z-[201] bg-[#141414] border-t border-[#2a2a2a] rounded-t-2xl md:hidden max-h-[85dvh] flex flex-col shadow-2xl"
+              style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
+            >
+              {/* Drag handle */}
+              <div className="flex-shrink-0 flex justify-center pt-3 pb-1">
+                <div className="w-10 h-1 rounded-full bg-[#444]" />
+              </div>
+              {/* Header */}
+              <div className="flex items-center justify-between px-5 py-3 border-b border-[#2a2a2a] flex-shrink-0">
+                <h2 className="text-sm font-semibold text-white">More</h2>
+                <button onClick={() => setMoreOpen(false)} className="w-8 h-8 flex items-center justify-center rounded-lg text-[#666] hover:text-white hover:bg-[#2a2a2a] transition-colors">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              {/* Search */}
+              <div className="px-4 py-3 border-b border-[#2a2a2a] flex-shrink-0">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#555]" />
+                  <input
+                    value={moreSearch}
+                    onChange={e => setMoreSearch(e.target.value)}
+                    placeholder="Search navigation…"
+                    className="w-full bg-[#0f0f0f] border border-[#333] rounded-lg pl-9 pr-3 py-2 text-sm text-[#f2f2f2] placeholder:text-[#555] focus:outline-none focus:border-[#0078D4]/50"
+                  />
+                </div>
+              </div>
+              {/* Grid of nav items */}
+              <div className="flex-1 overflow-y-auto p-4">
+                <div className="grid grid-cols-3 gap-2">
+                  {drawerNavItems
+                    .filter(item => !moreSearch || item.label.toLowerCase().includes(moreSearch.toLowerCase()))
+                    .map(item => {
+                      const isActive = pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href));
+                      return (
+                        <Link key={item.href} href={item.href}>
+                          <div className={cn(
+                            "flex flex-col items-center gap-2 p-3 rounded-xl transition-colors min-h-[72px] touch-manipulation",
+                            isActive ? "bg-[rgba(0,120,212,0.15)] text-[#0078D4]" : "text-[#9e9e9e] hover:text-[#f2f2f2] hover:bg-[#2a2a2a]"
+                          )}>
+                            <item.icon className="w-6 h-6 flex-shrink-0" />
+                            <span className="text-[11px] font-medium text-center leading-tight">{item.label}</span>
+                          </div>
+                        </Link>
+                      );
+                    })}
+                  {drawerNavItems.filter(item => !moreSearch || item.label.toLowerCase().includes(moreSearch.toLowerCase())).length === 0 && (
+                    <div className="col-span-3 text-center py-8 text-[#555] text-sm">No matches for &ldquo;{moreSearch}&rdquo;</div>
+                  )}
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
 
       {/* Command palette */}
       <CommandPalette />
