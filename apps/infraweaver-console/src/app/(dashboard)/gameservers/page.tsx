@@ -369,21 +369,24 @@ function AddServerDrawer({ open, onClose, onCreated }: { open: boolean; onClose:
     <AnimatePresence>
       {open && (
         <>
+          {/* Backdrop — no backdrop-blur (iOS Safari GPU compositing bug can render blur above z-101 siblings) */}
           <motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[100]"
+            className="fixed inset-0 bg-black/70 z-[100]"
             onClick={onClose}
           />
+          {/* Drawer — CSS grid layout (more reliable than flex for header/scroll/footer on mobile) */}
           <motion.div
             initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }}
             transition={{ type: "spring", damping: 30, stiffness: 300 }}
-            className="fixed inset-y-0 right-0 w-full max-w-xl bg-slate-900 border-l border-white/10 z-[101] flex flex-col shadow-2xl overflow-hidden"
+            className="fixed inset-y-0 right-0 w-full max-w-xl bg-slate-900 border-l border-slate-700 z-[101] shadow-2xl"
+            style={{ display: "grid", gridTemplateRows: "auto auto 1fr auto" }}
           >
-            {/* Header — shrink-0 so it never compresses */}
-            <div className="shrink-0 flex items-center justify-between px-5 py-3 border-b border-white/10">
+            {/* Row 1: Header */}
+            <div className="flex items-center justify-between px-5 py-3 border-b border-slate-700/60">
               <div>
                 <h2 className="text-base font-bold text-white">Add Port Route</h2>
-                <p className="text-xs text-slate-500">Step {step} of {totalSteps} — {activeStepLabels[step - 1]}</p>
+                <p className="text-xs text-slate-400">Step {step} of {totalSteps} — {activeStepLabels[step - 1]}</p>
               </div>
               <div className="flex items-center gap-2">
                 <button
@@ -392,28 +395,28 @@ function AddServerDrawer({ open, onClose, onCreated }: { open: boolean; onClose:
                   className={cn(
                     "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors",
                     simpleMode
-                      ? "bg-indigo-500/20 border-indigo-500/30 text-indigo-300"
-                      : "bg-white/5 border-white/10 text-slate-400 hover:text-white"
+                      ? "bg-indigo-500/20 border-indigo-500/40 text-indigo-300"
+                      : "bg-slate-800 border-slate-600 text-slate-300 hover:text-white"
                   )}
                 >
                   <Zap className="w-3 h-3" />
                   {simpleMode ? "Simple" : "Advanced"}
                 </button>
-                <button type="button" onClick={() => { onClose(); resetForm(); }} className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors">
+                <button type="button" onClick={() => { onClose(); resetForm(); }} className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 transition-colors">
                   <X className="w-5 h-5" />
                 </button>
               </div>
             </div>
 
-            {/* Progress bar — shrink-0 */}
-            <div className="shrink-0 flex px-5 py-2 gap-1 border-b border-white/5">
+            {/* Row 2: Progress bar */}
+            <div className="flex px-5 py-2 gap-1 border-b border-slate-800">
               {activeStepLabels.map((_, i) => (
-                <div key={i} className={cn("flex-1 h-1 rounded-full transition-all duration-300", i + 1 <= step ? "bg-indigo-500" : "bg-white/10")} />
+                <div key={i} className={cn("flex-1 h-1 rounded-full transition-all duration-300", i + 1 <= step ? "bg-indigo-500" : "bg-slate-700")} />
               ))}
             </div>
 
-            {/* Scrollable content — min-h-0 is REQUIRED for flex children to scroll */}
-            <div className="flex-1 min-h-0 overflow-y-auto p-5 pb-24">
+            {/* Row 3: Scrollable content — 1fr fills exactly the remaining space */}
+            <div className="overflow-y-auto bg-slate-900 p-5" style={{ WebkitOverflowScrolling: "touch" }}>
               {/* Step 1 — same for both modes */}
               {step === 1 && (
                 <div>
@@ -426,35 +429,35 @@ function AddServerDrawer({ open, onClose, onCreated }: { open: boolean; onClose:
                         type="button"
                         onClick={(e) => { e.stopPropagation(); handleGameTypeSelect(gt.id); }}
                         className={cn(
-                          "flex flex-col items-center gap-2 p-4 rounded-xl border transition-all cursor-pointer touch-manipulation select-none",
+                          "flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all cursor-pointer touch-manipulation select-none",
                           gameType === gt.id
-                            ? "border-indigo-500 bg-indigo-500/20 ring-2 ring-indigo-500/60 shadow-lg shadow-indigo-500/10"
-                            : "border-white/10 bg-white/5 active:border-indigo-500/50 active:bg-indigo-500/10"
+                            ? "border-indigo-500 bg-indigo-500/20 ring-2 ring-indigo-400/40"
+                            : "border-slate-600 bg-slate-800 active:border-indigo-500 active:bg-indigo-500/10"
                         )}
                       >
-                        <span className="text-3xl">{gt.icon}</span>
-                        <span className={cn("text-sm font-medium", gameType === gt.id ? "text-indigo-300" : "text-slate-300")}>{gt.label}</span>
+                        <span className="text-3xl leading-none">{gt.icon}</span>
+                        <span className={cn("text-sm font-semibold", gameType === gt.id ? "text-indigo-300" : "text-slate-200")}>{gt.label}</span>
                         {gameType === gt.id && (
-                          <span className="flex items-center gap-1 text-[10px] text-indigo-400 font-semibold">
+                          <span className="flex items-center gap-1 text-[10px] text-indigo-400 font-bold">
                             <Check className="w-3 h-3" /> Selected
                           </span>
                         )}
                       </button>
                     ))}
                   </div>
-                  {/* Custom — full width so it's never cut off */}
+                  {/* Custom — full width */}
                   <button
                     type="button"
                     onClick={(e) => { e.stopPropagation(); handleGameTypeSelect("custom"); }}
                     className={cn(
-                      "mt-3 w-full flex items-center justify-center gap-3 p-4 rounded-xl border transition-all cursor-pointer touch-manipulation select-none",
+                      "mt-3 w-full flex items-center justify-center gap-3 p-4 rounded-xl border-2 transition-all cursor-pointer touch-manipulation select-none",
                       gameType === "custom"
-                        ? "border-indigo-500 bg-indigo-500/20 ring-2 ring-indigo-500/60 shadow-lg shadow-indigo-500/10"
-                        : "border-white/10 bg-white/5 active:border-indigo-500/50 active:bg-indigo-500/10"
+                        ? "border-indigo-500 bg-indigo-500/20 ring-2 ring-indigo-400/40"
+                        : "border-slate-600 bg-slate-800 active:border-indigo-500 active:bg-indigo-500/10"
                     )}
                   >
                     <span className="text-2xl">🎮</span>
-                    <span className={cn("text-sm font-medium", gameType === "custom" ? "text-indigo-300" : "text-slate-300")}>Custom — I'll enter ports manually</span>
+                    <span className={cn("text-sm font-semibold", gameType === "custom" ? "text-indigo-300" : "text-slate-200")}>Custom — I&apos;ll enter ports manually</span>
                     {gameType === "custom" && <Check className="w-4 h-4 text-indigo-400 ml-auto" />}
                   </button>
                 </div>
@@ -830,8 +833,8 @@ function AddServerDrawer({ open, onClose, onCreated }: { open: boolean; onClose:
               )}
             </div>
 
-            {/* Footer — shrink-0 so it always stays at the bottom */}
-            <div className="shrink-0 flex flex-col items-end gap-1 border-t border-white/10 px-5 pt-3 pb-3" style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px) + 12px, 12px)" }}>
+            {/* Row 4: Footer */}
+            <div className="flex flex-col gap-1 border-t border-slate-700/60 px-5 pt-3 pb-3 bg-slate-900" style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px) + 12px, 12px)" }}>
               {/* Hint text for disabled Next */}
               {((step === 1 && !gameType) || (!simpleMode && step === 2 && (!name || !displayName)) || (simpleMode && step === 2 && (!name || !targetIP)) || (!simpleMode && step === 5 && !targetIP)) && (
                 <p className="text-[11px] text-amber-500/80 text-right">
