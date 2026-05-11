@@ -1,10 +1,9 @@
 /**
  * GET /api/community-apps
  *
- * Fetches and caches the Unraid Community Applications AppFeed (25MB JSON).
- * Uses Next.js server-side fetch caching (revalidate: 7200 = 2h) so the
- * full feed is only downloaded once per 2-hour window, matching the feed's
- * update cadence.
+ * Returns paginated apps from the Unraid Community Applications AppFeed.
+ * The feed (~33MB) is cached in Node.js memory for 2 hours via appfeed-cache.ts
+ * (Next.js fetch cache cannot handle responses >2MB).
  *
  * Query params:
  *   page     — page number (default: 1)
@@ -18,25 +17,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { hasPermission } from "@/lib/rbac";
 import { summarizeApp, detectTier, type AppFeedEntry } from "@/lib/appfeed-converter";
-
-const APPFEED_URL = "https://raw.githubusercontent.com/Squidly271/AppFeed/master/applicationFeed.json";
-
-interface AppFeedResponse {
-  apps: number;
-  last_updated: string;
-  last_updated_timestamp: number;
-  categories: Array<{ Cat: string; Des: string }>;
-  applist: AppFeedEntry[];
-}
-
-async function fetchFeed(): Promise<AppFeedResponse> {
-  const res = await fetch(APPFEED_URL, {
-    next: { revalidate: 7200 }, // cache 2h server-side — matches feed update cadence
-    headers: { "User-Agent": "InfraWeaver-Console/1.0 (homelab platform)" },
-  });
-  if (!res.ok) throw new Error(`AppFeed fetch failed: ${res.status}`);
-  return res.json() as Promise<AppFeedResponse>;
-}
+import { getAppFeed } from "@/lib/appfeed-cache";
 
 export async function GET(req: NextRequest) {
   const session = await auth();
@@ -54,7 +35,7 @@ export async function GET(req: NextRequest) {
   const tierFilter = searchParams.get("tier") ?? "";
 
   try {
-    const feed = await fetchFeed();
+    const feed = await getAppFeed();
 
     // Filter to valid apps (must have Name + Repository)
     let apps = feed.applist.filter(
@@ -72,7 +53,7 @@ export async function GET(req: NextRequest) {
 
     if (categoryFilter) {
       apps = apps.filter(a =>
-        (a.CategoryList ?? []).some(cat =>
+        (a.CategoryList ?? []).some((cat: string) =>
           cat.toLowerCase().includes(categoryFilter.toLowerCase())
         )
       );

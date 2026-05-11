@@ -11,9 +11,8 @@ import { auth } from "@/lib/auth";
 import { hasPermission } from "@/lib/rbac";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { z } from "zod";
-import { convertAppFeedEntry, type AppFeedEntry } from "@/lib/appfeed-converter";
-
-const APPFEED_URL = "https://raw.githubusercontent.com/Squidly271/AppFeed/master/applicationFeed.json";
+import { convertAppFeedEntry } from "@/lib/appfeed-converter";
+import { findAppByName } from "@/lib/appfeed-cache";
 
 const ConvertBody = z.object({
   // App can be passed by name (looked up from feed) or as full entry (from client cache)
@@ -25,18 +24,8 @@ const ConvertBody = z.object({
   createIngress: z.boolean().optional(),
 });
 
-async function findAppInFeed(name: string): Promise<AppFeedEntry | null> {
-  const res = await fetch(APPFEED_URL, {
-    next: { revalidate: 7200 },
-    headers: { "User-Agent": "InfraWeaver-Console/1.0" },
-  });
-  if (!res.ok) return null;
-
-  const feed = await res.json() as { applist: AppFeedEntry[] };
-  const lower = name.toLowerCase();
-  return feed.applist.find(
-    a => typeof a.Name === "string" && a.Name.toLowerCase() === lower
-  ) ?? null;
+async function findAppInFeed(name: string) {
+  return findAppByName(name);
 }
 
 export async function POST(req: NextRequest) {

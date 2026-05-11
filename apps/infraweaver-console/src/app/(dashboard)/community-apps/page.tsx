@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Search, Package, ExternalLink, AlertTriangle, Info, CheckCircle,
   Loader2, Globe, ChevronLeft, ChevronRight, RefreshCw, Terminal,
-  Download, Star, X, Shield, Zap, GitBranch, Eye
+  Download, Star, X, Shield, Zap, GitBranch, Eye, Store,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -56,6 +56,25 @@ interface DeployOptions {
   storageClass: string;
   ingressHost: string;
   createIngress: boolean;
+}
+
+interface InstalledApp {
+  slug: string;
+  name: string;
+  description: string;
+  namespace: string;
+  tier: Tier;
+  image: string;
+  categories: string[];
+  ingressHost?: string;
+  installedAt: string;
+  argoAppName: string;
+  manifestsPath: string;
+}
+
+interface InstalledResponse {
+  apps: InstalledApp[];
+  total: number;
 }
 
 // ── tier UI helpers ──────────────────────────────────────────────────────────
@@ -484,6 +503,7 @@ function AppCard({ app, onDeploy }: { app: AppSummary; onDeploy: (app: AppSummar
 // ── main page ─────────────────────────────────────────────────────────────────
 
 export default function CommunityAppsPage() {
+  const [activeTab, setActiveTab] = useState<"store" | "installed">("store");
   const [data, setData] = useState<FeedResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -494,6 +514,11 @@ export default function CommunityAppsPage() {
   const [tier, setTier] = useState("");
   const [deployApp, setDeployApp] = useState<AppSummary | null>(null);
   const [searchTimeout, setSearchTimeout] = useState<ReturnType<typeof setTimeout> | null>(null);
+
+  // Installed apps state
+  const [installed, setInstalled] = useState<InstalledResponse | null>(null);
+  const [installedLoading, setInstalledLoading] = useState(false);
+  const [installedError, setInstalledError] = useState<string | null>(null);
 
   const fetchApps = useCallback(async (opts: {
     page: number;
@@ -522,11 +547,33 @@ export default function CommunityAppsPage() {
     }
   }, []);
 
+  const fetchInstalled = useCallback(async () => {
+    setInstalledLoading(true);
+    setInstalledError(null);
+    try {
+      const res = await fetch("/api/community-apps/installed");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const result = await res.json() as InstalledResponse;
+      setInstalled(result);
+    } catch (err) {
+      setInstalledError(String(err));
+    } finally {
+      setInstalledLoading(false);
+    }
+  }, []);
+
   // Load on mount
   useEffect(() => {
     void fetchApps({ page: 1, search: "", category: "", tier: "" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Load installed when switching to that tab
+  useEffect(() => {
+    if (activeTab === "installed" && !installed) {
+      void fetchInstalled();
+    }
+  }, [activeTab, installed, fetchInstalled]);
 
   const handleSearch = (value: string) => {
     setSearch(value);
@@ -569,160 +616,291 @@ export default function CommunityAppsPage() {
           <p className="text-white/50 text-xs sm:text-sm mt-1">
             Browse 3,500+ apps from the Unraid Community Applications feed — convert and deploy to Kubernetes
           </p>
-          {data?.last_updated && (
+          {activeTab === "store" && data?.last_updated && (
             <p className="text-white/30 text-xs mt-0.5">
               Feed updated: {data.last_updated} · {data.total.toLocaleString()} apps
             </p>
           )}
+          {activeTab === "installed" && installed && (
+            <p className="text-white/30 text-xs mt-0.5">
+              {installed.total} app{installed.total !== 1 ? "s" : ""} installed via Community Apps
+            </p>
+          )}
         </div>
         <button
-          onClick={handleRefresh}
+          onClick={activeTab === "store" ? handleRefresh : () => { setInstalled(null); void fetchInstalled(); }}
           className="flex-shrink-0 flex items-center gap-2 px-3 py-2 rounded-lg text-white/60 hover:text-white border border-white/10 hover:border-white/30 transition-colors text-sm"
           title="Refresh"
         >
-          <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
+          <RefreshCw className={cn("w-4 h-4", (loading || installedLoading) && "animate-spin")} />
           <span className="hidden sm:inline">Refresh</span>
         </button>
       </div>
 
-      {/* Tier legend */}
-      <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
-        {(Object.entries(TIER_CONFIG) as Array<[Tier, typeof TIER_CONFIG.simple]>).map(([key, cfg]) => (
-          <button
-            key={key}
-            onClick={() => handleTier(tier === key ? "" : key)}
-            className={cn(
-              "flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-all",
-              tier === key ? cfg.color : "text-white/40 bg-white/5 border-white/10 hover:border-white/30"
-            )}
-          >
-            {cfg.icon} {cfg.label}
-          </button>
-        ))}
+      {/* Tabs */}
+      <div className="flex gap-1 p-1 bg-white/5 rounded-lg w-fit">
+        <button
+          onClick={() => setActiveTab("store")}
+          className={cn(
+            "flex items-center gap-2 px-4 py-1.5 rounded text-sm font-medium transition-all",
+            activeTab === "store" ? "bg-indigo-600 text-white" : "text-white/50 hover:text-white"
+          )}
+        >
+          <Store className="w-4 h-4" /> Store
+        </button>
+        <button
+          onClick={() => setActiveTab("installed")}
+          className={cn(
+            "flex items-center gap-2 px-4 py-1.5 rounded text-sm font-medium transition-all",
+            activeTab === "installed" ? "bg-indigo-600 text-white" : "text-white/50 hover:text-white"
+          )}
+        >
+          <Package className="w-4 h-4" />
+          Installed
+          {installed && installed.total > 0 && (
+            <span className="ml-1 px-1.5 py-0.5 rounded-full bg-white/10 text-xs">
+              {installed.total}
+            </span>
+          )}
+        </button>
       </div>
 
-      {/* Search + filters */}
-      <div className="flex flex-col sm:flex-row gap-3">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
-          <input
-            type="text"
-            placeholder="Search apps, images, descriptions…"
-            value={search}
-            onChange={e => handleSearch(e.target.value)}
-            className="w-full bg-white/5 border border-white/10 focus:border-indigo-500/50 rounded-lg pl-10 pr-4 py-2.5 text-white text-sm placeholder-white/30 focus:outline-none transition-colors"
-          />
-        </div>
-      </div>
-
-      {/* Category pills */}
-      <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
-        {QUICK_CATEGORIES.map(cat => (
-          <button
-            key={cat.value}
-            onClick={() => handleCategory(cat.value)}
-            className={cn(
-              "flex-shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-all border",
-              category === cat.value
-                ? "bg-indigo-600 text-white border-indigo-500"
-                : "text-white/50 border-white/10 hover:border-white/30 hover:text-white/80"
-            )}
-          >
-            {cat.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Results */}
-      {error && (
-        <div className="flex items-center gap-2 p-4 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
-          <AlertTriangle className="w-4 h-4" /> {error}
-        </div>
-      )}
-
-      {loading && !data && (
-        <div className="flex items-center justify-center h-64">
-          <Loader2 className="w-8 h-8 text-indigo-400 animate-spin" />
-        </div>
-      )}
-
-      {data && (
+      {/* ── STORE TAB ──────────────────────────────────────────────────────────── */}
+      {activeTab === "store" && (
         <>
-          <div className="flex items-center justify-between text-white/40 text-sm">
-            <span>{data.total.toLocaleString()} apps{debouncedSearch ? ` matching "${debouncedSearch}"` : ""}</span>
-            <span>Page {data.page} of {data.pages}</span>
+        {/* Tier legend */}
+        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
+          {(Object.entries(TIER_CONFIG) as Array<[Tier, typeof TIER_CONFIG.simple]>).map(([key, cfg]) => (
+            <button
+              key={key}
+              onClick={() => handleTier(tier === key ? "" : key)}
+              className={cn(
+                "flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-all",
+                tier === key ? cfg.color : "text-white/40 bg-white/5 border-white/10 hover:border-white/30"
+              )}
+            >
+              {cfg.icon} {cfg.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Search + filters */}
+        <div className="flex flex-col sm:flex-row gap-3">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
+            <input
+              type="text"
+              placeholder="Search apps, images, descriptions…"
+              value={search}
+              onChange={e => handleSearch(e.target.value)}
+              className="w-full bg-white/5 border border-white/10 focus:border-indigo-500/50 rounded-lg pl-10 pr-4 py-2.5 text-white text-sm placeholder-white/30 focus:outline-none transition-colors"
+            />
           </div>
+        </div>
 
-          {loading && (
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <Loader2 className="w-6 h-6 text-indigo-400 animate-spin" />
-            </div>
-          )}
+        {/* Category pills */}
+        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
+          {QUICK_CATEGORIES.map(cat => (
+            <button
+              key={cat.value}
+              onClick={() => handleCategory(cat.value)}
+              className={cn(
+                "flex-shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-all border",
+                category === cat.value
+                  ? "bg-indigo-600 text-white border-indigo-500"
+                  : "text-white/50 border-white/10 hover:border-white/30 hover:text-white/80"
+              )}
+            >
+              {cat.label}
+            </button>
+          ))}
+        </div>
 
-          <div className={cn(
-            "grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 transition-opacity",
-            loading && "opacity-50"
-          )}>
-            {data.apps.map(app => (
-              <AppCard key={app.slug + app.image} app={app} onDeploy={setDeployApp} />
-            ))}
+        {/* Results */}
+        {error && (
+          <div className="flex items-center gap-2 p-4 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
+            <AlertTriangle className="w-4 h-4" /> {error}
           </div>
+        )}
 
-          {data.apps.length === 0 && !loading && (
-            <div className="text-center py-16 text-white/40">
-              <Package className="w-12 h-12 mx-auto mb-3 opacity-30" />
-              <p>No apps found. Try adjusting your search or filters.</p>
+        {loading && !data && (
+          <div className="flex items-center justify-center h-64">
+            <Loader2 className="w-8 h-8 text-indigo-400 animate-spin" />
+          </div>
+        )}
+
+        {data && (
+          <>
+            <div className="flex items-center justify-between text-white/40 text-sm">
+              <span>{data.total.toLocaleString()} apps{debouncedSearch ? ` matching "${debouncedSearch}"` : ""}</span>
+              <span>Page {data.page} of {data.pages}</span>
             </div>
-          )}
 
-          {/* Pagination */}
-          {data.pages > 1 && (
-            <div className="flex items-center justify-center gap-1.5 pt-4">
-              <button
-                onClick={() => handlePage(page - 1)}
-                disabled={page === 1}
-                className="flex items-center gap-1 px-3 py-2 rounded-lg text-white/60 hover:text-white border border-white/10 hover:border-white/30 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm"
-              >
-                <ChevronLeft className="w-4 h-4" />
-                <span className="hidden sm:inline">Prev</span>
-              </button>
-
-              {/* Mobile: current / total. Desktop: numbered buttons */}
-              <span className="sm:hidden px-3 py-2 text-white/50 text-sm">
-                {page} / {data.pages}
-              </span>
-
-              <div className="hidden sm:flex items-center gap-1.5">
-                {Array.from({ length: Math.min(7, data.pages) }, (_, i) => {
-                  const p = page <= 4 ? i + 1 :
-                    page >= data.pages - 3 ? data.pages - 6 + i :
-                      page - 3 + i;
-                  if (p < 1 || p > data.pages) return null;
-                  return (
-                    <button
-                      key={p}
-                      onClick={() => handlePage(p)}
-                      className={cn(
-                        "w-9 h-9 rounded-lg text-sm transition-colors",
-                        p === page
-                          ? "bg-indigo-600 text-white"
-                          : "text-white/50 hover:text-white border border-white/10 hover:border-white/30"
-                      )}
-                    >
-                      {p}
-                    </button>
-                  );
-                })}
+            {loading && (
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <Loader2 className="w-6 h-6 text-indigo-400 animate-spin" />
               </div>
+            )}
 
-              <button
-                onClick={() => handlePage(page + 1)}
-                disabled={page === data.pages}
-                className="flex items-center gap-1 px-3 py-2 rounded-lg text-white/60 hover:text-white border border-white/10 hover:border-white/30 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm"
-              >
-                <span className="hidden sm:inline">Next</span>
-                <ChevronRight className="w-4 h-4" />
-              </button>
+            <div className={cn(
+              "grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 transition-opacity",
+              loading && "opacity-50"
+            )}>
+              {data.apps.map(app => (
+                <AppCard key={app.slug + app.image} app={app} onDeploy={setDeployApp} />
+              ))}
+            </div>
+
+            {data.apps.length === 0 && !loading && (
+              <div className="text-center py-16 text-white/40">
+                <Package className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                <p>No apps found. Try adjusting your search or filters.</p>
+              </div>
+            )}
+
+            {/* Pagination */}
+            {data.pages > 1 && (
+              <div className="flex items-center justify-center gap-1.5 pt-4">
+                <button
+                  onClick={() => handlePage(page - 1)}
+                  disabled={page === 1}
+                  className="flex items-center gap-1 px-3 py-2 rounded-lg text-white/60 hover:text-white border border-white/10 hover:border-white/30 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                  <span className="hidden sm:inline">Prev</span>
+                </button>
+
+                {/* Mobile: current / total. Desktop: numbered buttons */}
+                <span className="sm:hidden px-3 py-2 text-white/50 text-sm">
+                  {page} / {data.pages}
+                </span>
+
+                <div className="hidden sm:flex items-center gap-1.5">
+                  {Array.from({ length: Math.min(7, data.pages) }, (_, i) => {
+                    const p = page <= 4 ? i + 1 :
+                      page >= data.pages - 3 ? data.pages - 6 + i :
+                        page - 3 + i;
+                    if (p < 1 || p > data.pages) return null;
+                    return (
+                      <button
+                        key={p}
+                        onClick={() => handlePage(p)}
+                        className={cn(
+                          "w-9 h-9 rounded-lg text-sm transition-colors",
+                          p === page
+                            ? "bg-indigo-600 text-white"
+                            : "text-white/50 hover:text-white border border-white/10 hover:border-white/30"
+                        )}
+                      >
+                        {p}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <button
+                  onClick={() => handlePage(page + 1)}
+                  disabled={page === data.pages}
+                  className="flex items-center gap-1 px-3 py-2 rounded-lg text-white/60 hover:text-white border border-white/10 hover:border-white/30 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm"
+                >
+                  <span className="hidden sm:inline">Next</span>
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+          </>
+        )}
+
+        </>
+      )}
+
+      {/* ── INSTALLED TAB ───────────────────────────────────────────────────────── */}
+      {activeTab === "installed" && (
+        <>
+          {installedError && (
+            <div className="flex items-center gap-2 p-4 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
+              <AlertTriangle className="w-4 h-4" /> {installedError}
+            </div>
+          )}
+
+          {installedLoading && !installed && (
+            <div className="flex items-center justify-center h-64">
+              <Loader2 className="w-8 h-8 text-indigo-400 animate-spin" />
+            </div>
+          )}
+
+          {installed && installed.total === 0 && (
+            <div className="text-center py-20 text-white/40">
+              <Package className="w-14 h-14 mx-auto mb-4 opacity-20" />
+              <p className="text-lg font-medium">No apps installed yet</p>
+              <p className="text-sm mt-1">
+                Browse the{" "}
+                <button onClick={() => setActiveTab("store")} className="text-indigo-400 hover:underline">
+                  Store
+                </button>{" "}
+                and deploy your first app
+              </p>
+            </div>
+          )}
+
+          {installed && installed.total > 0 && (
+            <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {installed.apps.map(app => {
+                const tierCfg = TIER_CONFIG[app.tier as Tier] ?? TIER_CONFIG.simple;
+                return (
+                  <div
+                    key={app.slug}
+                    className="group bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.07] hover:border-white/20 rounded-xl p-4 flex flex-col gap-3 transition-all duration-200"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="w-10 h-10 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center flex-shrink-0">
+                        <Package className="w-5 h-5 text-indigo-400/70" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-white font-medium text-sm truncate">{app.name}</p>
+                        <p className="text-white/40 text-xs truncate">{app.namespace}</p>
+                      </div>
+                      <span className={cn(
+                        "flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] font-medium flex-shrink-0",
+                        tierCfg.color
+                      )}>
+                        {tierCfg.icon} {tierCfg.label}
+                      </span>
+                    </div>
+                    {app.description && (
+                      <p className="text-white/50 text-xs leading-relaxed line-clamp-2">{app.description}</p>
+                    )}
+                    {app.image && (
+                      <p className="text-white/30 text-[10px] truncate font-mono">{app.image}</p>
+                    )}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {app.categories.slice(0, 2).map(cat => (
+                        <span key={cat} className="px-1.5 py-0.5 rounded bg-white/5 text-white/40 text-[10px]">
+                          {cat.replace(/:/g, " \u203a ")}
+                        </span>
+                      ))}
+                    </div>
+                    <div className="flex gap-2 mt-auto pt-1">
+                      {app.ingressHost && (
+                        <a href={`https://${app.ingressHost}`} target="_blank" rel="noopener noreferrer"
+                          className="flex items-center gap-1 px-2 py-1.5 rounded text-xs text-white/50 hover:text-white border border-white/10 hover:border-white/30 transition-colors">
+                          <ExternalLink className="w-3 h-3" /> Open
+                        </a>
+                      )}
+                      <a href={`https://github.com/Werewolf-p/InfraWeaver-platform/tree/main/${app.manifestsPath}`}
+                        target="_blank" rel="noopener noreferrer"
+                        className="flex items-center gap-1 px-2 py-1.5 rounded text-xs text-white/50 hover:text-white border border-white/10 hover:border-white/30 transition-colors">
+                        <GitBranch className="w-3 h-3" /> Manifests
+                      </a>
+                      {app.installedAt && (
+                        <span className="ml-auto text-white/25 text-[10px] self-center">
+                          {new Date(app.installedAt).toLocaleDateString()}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </>

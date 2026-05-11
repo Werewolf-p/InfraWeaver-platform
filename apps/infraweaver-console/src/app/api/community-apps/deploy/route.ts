@@ -17,9 +17,9 @@ import { hasPermission } from "@/lib/rbac";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { auditLog } from "@/lib/audit-log";
 import { z } from "zod";
-import { convertAppFeedEntry, type AppFeedEntry } from "@/lib/appfeed-converter";
+import { convertAppFeedEntry } from "@/lib/appfeed-converter";
+import { findAppByName } from "@/lib/appfeed-cache";
 
-const APPFEED_URL = "https://raw.githubusercontent.com/Squidly271/AppFeed/master/applicationFeed.json";
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN ?? "";
 const GITHUB_REPO = process.env.GITHUB_REPO ?? "Werewolf-p/InfraWeaver-platform";
 
@@ -71,15 +71,8 @@ async function ghPut(path: string, content: string, message: string, sha?: strin
   }
 }
 
-async function findAppInFeed(name: string): Promise<AppFeedEntry | null> {
-  const res = await fetch(APPFEED_URL, {
-    next: { revalidate: 7200 },
-    headers: { "User-Agent": "InfraWeaver-Console/1.0" },
-  });
-  if (!res.ok) return null;
-  const feed = await res.json() as { applist: AppFeedEntry[] };
-  const lower = name.toLowerCase();
-  return feed.applist.find(a => typeof a.Name === "string" && a.Name.toLowerCase() === lower) ?? null;
+async function findAppInFeed(name: string) {
+  return findAppByName(name);
 }
 
 export async function POST(req: NextRequest) {
@@ -118,7 +111,50 @@ export async function POST(req: NextRequest) {
 
   const baseDir = `kubernetes/catalog/${slug}/manifests`;
 
-  // Build catalog.yaml metadata
+  // ArgoCD Application manifest (same pattern as catalog-*-manifests.yaml in bootstrap/)
+  const argoAppYaml = `---
+# catalog-${slug}-manifests.yaml — deployed by InfraWeaver Community Apps
+# Source: ${app.Repository}
+# Installed: ${new Date().toISOString()}
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: catalog-${slug}-manifests
+  namespace: argocd
+  labels:
+    infraweaver.io/type: catalog-app
+    infraweaver.io/source: community-apps
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  source:
+    repoURL: https://github.com/${GITHUB_REPO}.git
+    targetRevision: HEAD
+    path: ${baseDir}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ${ns}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+`;
+
+  // Combine deployment + service into one file
+  const deploymentWithService = result.manifests.service
+    ? result.manifests.deployment + "\n" + result.manifests.service
+    : result.manifests.deployment;
+
   const catalogYaml = `# Community app installed from Unraid AppFeed
 # Source: ${app.Repository}
 name: ${slug}
@@ -133,45 +169,19 @@ ${result.manifests.ingressroute ? `ingressroute:\n  host: ${ingressHost ?? `${sl
 installed_at: ${new Date().toISOString()}
 `;
 
+  const allFiles: Array<[string, string]> = [
+    [`${baseDir}/deployment.yaml`, deploymentWithService],
+  ];
+  if (result.manifests.pvcs.length > 0) {
+    allFiles.push([`${baseDir}/pvc.yaml`, result.manifests.pvcs.join("\n")]);
+  }
+  if (result.manifests.ingressroute) {
+    allFiles.push([`${baseDir}/ingressroute.yaml`, result.manifests.ingressroute]);
+  }
+  allFiles.push([`kubernetes/catalog/${slug}/catalog.yaml`, catalogYaml]);
+  allFiles.push([`kubernetes/bootstrap/catalog-${slug}-manifests.yaml`, argoAppYaml]);
+
   try {
-    // Commit all manifest files in parallel where possible
-    const files: Array<[string, string]> = [
-      [`${baseDir}/deployment.yaml`, result.manifests.deployment],
-    ];
-
-    if (result.manifests.service) {
-      files.push([`${baseDir}/deployment.yaml`,
-        result.manifests.deployment + "\n" + result.manifests.service]);
-      // Actually combine deployment + service into deployment.yaml
-    }
-
-    if (result.manifests.pvcs.length > 0) {
-      files.push([`${baseDir}/pvc.yaml`, result.manifests.pvcs.join("\n")]);
-    }
-
-    if (result.manifests.ingressroute) {
-      files.push([`${baseDir}/ingressroute.yaml`, result.manifests.ingressroute]);
-    }
-
-    files.push([`kubernetes/catalog/${slug}/catalog.yaml`, catalogYaml]);
-
-    // Combine deployment + service into one file
-    const deploymentWithService = result.manifests.service
-      ? result.manifests.deployment + "\n" + result.manifests.service
-      : result.manifests.deployment;
-
-    const allFiles: Array<[string, string]> = [
-      [`${baseDir}/deployment.yaml`, deploymentWithService],
-    ];
-    if (result.manifests.pvcs.length > 0) {
-      allFiles.push([`${baseDir}/pvc.yaml`, result.manifests.pvcs.join("\n")]);
-    }
-    if (result.manifests.ingressroute) {
-      allFiles.push([`${baseDir}/ingressroute.yaml`, result.manifests.ingressroute]);
-    }
-    allFiles.push([`kubernetes/catalog/${slug}/catalog.yaml`, catalogYaml]);
-
-    // Commit sequentially to avoid SHA conflicts
     for (const [filePath, content] of allFiles) {
       const existing = await ghGet(filePath);
       await ghPut(
