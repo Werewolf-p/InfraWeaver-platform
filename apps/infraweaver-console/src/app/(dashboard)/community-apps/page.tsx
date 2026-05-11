@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useTransition, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Search, Package, ExternalLink, AlertTriangle, Info, CheckCircle,
@@ -14,6 +15,14 @@ import Link from "next/link";
 import { AppNavTabs } from "@/components/ui/app-nav-tabs";
 
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
+
+// ── portal (renders outside all stacking contexts so z-index works correctly) ─
+function BodyPortal({ children }: { children: React.ReactNode }) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+  if (!mounted) return null;
+  return createPortal(children, document.body);
+}
 
 // ── types ────────────────────────────────────────────────────────────────────
 
@@ -194,7 +203,7 @@ function DeployModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-0 sm:p-4">
+    <div className="fixed inset-0 z-[300] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-0 sm:p-4">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -927,12 +936,14 @@ export default function CommunityAppsPage() {
         </>
       )}
 
-      {/* Deploy modal */}
-      <AnimatePresence>
-        {deployApp && (
-          <DeployModal app={deployApp} onClose={() => setDeployApp(null)} />
-        )}
-      </AnimatePresence>
+      {/* Deploy modal — portaled to document.body to escape layout z-10 stacking context */}
+      <BodyPortal>
+        <AnimatePresence>
+          {deployApp && (
+            <DeployModal app={deployApp} onClose={() => setDeployApp(null)} />
+          )}
+        </AnimatePresence>
+      </BodyPortal>
     </div>
   );
 }
