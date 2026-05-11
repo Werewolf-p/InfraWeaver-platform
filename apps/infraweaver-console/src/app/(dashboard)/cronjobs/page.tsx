@@ -1,8 +1,9 @@
 "use client";
 import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
-import { Calendar } from "lucide-react";
+import { Calendar, Clock} from "lucide-react";
 import { cn } from "@/lib/utils";
+import { PageHeader } from "@/components/ui/page-header";
 
 interface CronJob {
   namespace: string;
@@ -31,6 +32,7 @@ export default function CronJobsPage() {
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
+      <PageHeader icon={Clock} title="CronJobs" />
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold text-white flex items-center gap-2"><Calendar className="w-5 h-5 text-slate-400" />CronJob Manager</h2>

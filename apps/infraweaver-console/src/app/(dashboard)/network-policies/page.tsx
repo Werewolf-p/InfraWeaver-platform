@@ -2,7 +2,8 @@
 import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { Network } from "lucide-react";
+import { Network, Shield} from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 
 interface NetworkPolicy {
   namespace: string;
@@ -35,6 +36,7 @@ export default function NetworkPoliciesPage() {
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
+      <PageHeader icon={Shield} title="Network Policies" />
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold text-white flex items-center gap-2"><Network className="w-5 h-5 text-slate-400" />Network Policies</h2>

@@ -5,6 +5,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Clock, Plus, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { PageHeader } from "@/components/ui/page-header";
 
 interface ScheduledTask {
   id: string;
@@ -65,6 +66,7 @@ export default function ScheduledTasksPage() {
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
+      <PageHeader icon={Clock} title="Scheduled Tasks" />
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold text-white flex items-center gap-2"><Clock className="w-5 h-5 text-slate-400" />Scheduled Tasks</h2>

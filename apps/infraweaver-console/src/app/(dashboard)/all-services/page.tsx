@@ -6,6 +6,7 @@ import { Search, Star, ArrowRight, Grid3X3 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { NAV_GROUPS, type NavItem } from "@/lib/nav-config";
 import { useFavorites } from "@/hooks/use-favorites";
+import { PageHeader } from "@/components/ui/page-header";
 
 export default function AllServicesPage() {
   const [query, setQuery] = useState("");
@@ -33,6 +34,7 @@ export default function AllServicesPage() {
 
   return (
     <div className="animate-in fade-in-0 slide-in-from-bottom-4 duration-300 p-6 max-w-7xl mx-auto space-y-6">
+      <PageHeader icon={Grid3X3} title="All Services" />
       {/* Header */}
       <div>
         <div className="flex items-center gap-2 text-slate-500 text-xs mb-2">

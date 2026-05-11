@@ -2,8 +2,9 @@
 import { motion } from "framer-motion";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Settings } from "lucide-react";
+import { Settings, Wrench} from "lucide-react";
 import { cn } from "@/lib/utils";
+import { PageHeader } from "@/components/ui/page-header";
 
 interface MaintenanceEntry {
   id: string;
@@ -47,6 +48,7 @@ export default function MaintenancePage() {
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
+      <PageHeader icon={Wrench} title="Maintenance" />
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold text-white flex items-center gap-2"><Settings className="w-5 h-5 text-slate-400" />Maintenance Mode Manager</h2>

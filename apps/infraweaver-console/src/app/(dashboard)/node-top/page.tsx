@@ -2,9 +2,10 @@
 import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { useState, useMemo } from "react";
-import { Activity, Search, X, Download, RefreshCw, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
+import { Activity, Search, X, Download, RefreshCw, ArrowUpDown, ArrowUp, ArrowDown, Cpu} from "lucide-react";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
+import { PageHeader } from "@/components/ui/page-header";
 
 interface ContainerMetric {
   name: string;
@@ -110,6 +111,7 @@ export default function NodeTopPage() {
 
   return (
     <div>
+      <PageHeader icon={Cpu} title="Node Metrics" />
       <div className="relative rounded-xl overflow-hidden mb-6">
         <div className="absolute inset-0 page-gradient-cluster pointer-events-none" />
         <div className="relative flex items-start justify-between p-5 gap-4 flex-wrap">

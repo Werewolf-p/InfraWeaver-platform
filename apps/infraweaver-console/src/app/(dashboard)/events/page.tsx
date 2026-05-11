@@ -2,8 +2,9 @@
 import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { useState, useCallback } from "react";
-import { RefreshCw, History, CheckCircle2, XCircle, Loader2, Clock, GitCommit } from "lucide-react";
+import { RefreshCw, History, CheckCircle2, XCircle, Loader2, Clock, GitCommit, Activity} from "lucide-react";
 import { cn } from "@/lib/utils";
+import { PageHeader } from "@/components/ui/page-header";
 
 interface K8sEvent {
   name: string;
@@ -84,6 +85,7 @@ export default function EventsPage() {
 
   return (
     <div className="space-y-6">
+      <PageHeader icon={Activity} title="Activity Log" />
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold text-white flex items-center gap-2"><History className="w-5 h-5 text-slate-400" />Event Correlation</h2>

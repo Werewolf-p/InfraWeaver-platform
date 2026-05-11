@@ -1,8 +1,9 @@
 "use client";
 import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
-import { ShieldCheck } from "lucide-react";
+import { ShieldCheck, Lock} from "lucide-react";
 import { cn } from "@/lib/utils";
+import { PageHeader } from "@/components/ui/page-header";
 
 interface Secret {
   namespace: string;
@@ -37,6 +38,7 @@ export default function SecretExpiryPage() {
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
+      <PageHeader icon={Lock} title="Secret Expiry" />
       <div>
         <h2 className="text-xl font-bold text-white flex items-center gap-2"><ShieldCheck className="w-5 h-5 text-slate-400" />Secret Expiry Tracker</h2>
         <p className="text-sm text-slate-400">TLS certificate and secret expiration monitoring</p>

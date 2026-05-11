@@ -1,6 +1,8 @@
 "use client";
+import { BarChart2 } from "lucide-react";
 import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
+import { PageHeader } from "@/components/ui/page-header";
 
 interface Quota {
   namespace: string;
@@ -46,6 +48,7 @@ export default function QuotaPage() {
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
+      <PageHeader icon={BarChart2} title="Resource Quotas" />
       <div>
         <h2 className="text-xl font-bold text-white">Resource Quotas</h2>
         <p className="text-sm text-slate-400">Namespace resource usage vs limits</p>

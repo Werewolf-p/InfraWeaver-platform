@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { CopyButton } from "@/components/ui/copy-button";
 import { cn, formatBytes } from "@/lib/utils";
+import { PageHeader } from "@/components/ui/page-header";
 
 const REGISTRY_HOST = "registry.int.rlservers.com";
 
@@ -21,6 +22,7 @@ function TagRow({ repo, tag, onDelete, isAdmin }: {
   const pullCmd = `docker pull ${REGISTRY_HOST}/${repo}:${tag.tag}`;
   return (
     <div className="flex items-center gap-4 px-4 py-2.5 bg-white/3 border-b border-white/5 last:border-0 text-sm overflow-x-auto">
+      <PageHeader icon={Package} title="Container Registry" />
       <span className="text-slate-300 font-mono text-xs w-32 truncate">{tag.tag}</span>
       <span className="text-slate-500 font-mono text-xs w-36 truncate">{tag.digest || "—"}</span>
       <span className="text-slate-400 text-xs w-20">{tag.size ? formatBytes(tag.size) : "—"}</span>

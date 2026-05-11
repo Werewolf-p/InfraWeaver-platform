@@ -2,8 +2,9 @@
 import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { FileText } from "lucide-react";
+import { FileText, BarChart2} from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
+import { PageHeader } from "@/components/ui/page-header";
 
 interface Pod {
   name: string;
@@ -55,6 +56,7 @@ export default function LogAnalyticsPage() {
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
+      <PageHeader icon={BarChart2} title="Log Analytics" />
       <div>
         <h2 className="text-xl font-bold text-white flex items-center gap-2"><FileText className="w-5 h-5 text-slate-400" />Log Analytics</h2>
         <p className="text-sm text-slate-400">Analyze log patterns and error distribution</p>

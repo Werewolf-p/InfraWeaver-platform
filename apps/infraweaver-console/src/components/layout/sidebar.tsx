@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRight, Search, Star, Clock, Grid3X3, X, LogOut } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronDown, Search, Star, Clock, Grid3X3, X, LogOut } from "lucide-react";
 import { useRBAC } from "@/hooks/use-rbac";
 import { cn } from "@/lib/utils";
 import { useSession, signOut } from "next-auth/react";
@@ -83,12 +83,28 @@ function NavItemRow({ item, isActive, collapsed }: { item: NavItem; isActive: bo
 export function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const [search, setSearch] = useState("");
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>(() => {
+    if (typeof window === "undefined") return { overview: true, apps: true, compute: false, infrastructure: false, operations: false, monitoring: false, services: false, tools: false };
+    try {
+      const stored = localStorage.getItem("infraweaver_nav_sections");
+      if (stored) return JSON.parse(stored) as Record<string, boolean>;
+    } catch { /* ignore */ }
+    return { overview: true, apps: true, compute: false, infrastructure: false, operations: false, monitoring: false, services: false, tools: false };
+  });
   const pathname = usePathname();
   const { role } = useRBAC();
   const { data: session } = useSession();
   const { favorites } = useFavorites();
   const { recentPages, addRecentPage } = useRecentPages();
   const appVersion = process.env.NEXT_PUBLIC_APP_VERSION ?? "dev";
+
+  const toggleSection = (id: string) => {
+    setOpenSections(prev => {
+      const next = { ...prev, [id]: !prev[id] };
+      try { localStorage.setItem("infraweaver_nav_sections", JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  };
 
   useEffect(() => {
     const match = ALL_NAV_ITEMS.find(item =>
@@ -220,7 +236,7 @@ export function Sidebar() {
           <div className="mx-2 border-b border-[#2a2a2a] my-2" />
         )}
 
-        {/* Main nav groups - FLAT, not collapsible */}
+        {/* Main nav groups - COLLAPSIBLE accordion */}
         {filteredItems === null && NAV_GROUPS.filter(g => g.id !== "settings").map(group => {
           if (collapsed) {
             return (
@@ -240,15 +256,24 @@ export function Sidebar() {
               </div>
             );
           }
+          const isOpen = openSections[group.id] !== false;
           return (
-            <div key={group.id} className="mb-1">
-              <p className="text-[10px] text-[#666] uppercase tracking-widest py-1 px-3 mt-2 mb-0.5 select-none">{group.label}</p>
-              <div className="space-y-0.5">
-                {group.items.map(item => {
-                  const isActive = item.href === "/" ? pathname === "/" : item.href !== "/" && pathname.startsWith(item.href);
-                  return <NavItemRow key={item.href} item={item} isActive={isActive} collapsed={false} />;
-                })}
-              </div>
+            <div key={group.id} className="mb-0.5">
+              <button
+                onClick={() => toggleSection(group.id)}
+                className="w-full flex items-center gap-1.5 px-3 py-1 mt-1.5 mb-0.5 text-[10px] text-[#666] uppercase tracking-widest hover:text-[#9e9e9e] transition-colors select-none"
+              >
+                <span className="flex-1 text-left">{group.label}</span>
+                <ChevronDown className={cn("w-3 h-3 transition-transform", isOpen && "rotate-180")} />
+              </button>
+              {isOpen && (
+                <div className="space-y-0.5">
+                  {group.items.map(item => {
+                    const isActive = item.href === "/" ? pathname === "/" : item.href !== "/" && pathname.startsWith(item.href);
+                    return <NavItemRow key={item.href} item={item} isActive={isActive} collapsed={false} />;
+                  })}
+                </div>
+              )}
             </div>
           );
         })}

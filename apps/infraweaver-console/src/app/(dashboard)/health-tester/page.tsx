@@ -4,6 +4,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Activity, Plus, Trash2, Play } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { PageHeader } from "@/components/ui/page-header";
 
 interface Endpoint {
   id: string;
@@ -75,6 +76,7 @@ export default function HealthTesterPage() {
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
+      <PageHeader icon={Activity} title="Health Tester" />
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold text-white flex items-center gap-2"><Activity className="w-5 h-5 text-slate-400" />Health Check Tester</h2>

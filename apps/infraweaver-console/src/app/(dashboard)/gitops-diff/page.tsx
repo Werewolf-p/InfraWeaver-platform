@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { GitBranch } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 
 interface ArgoApp {
   metadata: { name: string };
@@ -47,6 +48,7 @@ export default function GitopsDiffPage() {
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
+      <PageHeader icon={GitBranch} title="GitOps Diff" />
       <div>
         <h2 className="text-xl font-bold text-white flex items-center gap-2"><GitBranch className="w-5 h-5 text-slate-400" />GitOps Diff Viewer</h2>
         <p className="text-sm text-slate-400">View ArgoCD application diffs</p>

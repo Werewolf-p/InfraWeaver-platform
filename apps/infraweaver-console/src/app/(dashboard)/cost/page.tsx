@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { DollarSign } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 
 interface NsCost {
   namespace: string;
@@ -29,6 +30,7 @@ export default function CostPage() {
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
+      <PageHeader icon={DollarSign} title="Cost Estimate" />
       <div>
         <h2 className="text-xl font-bold text-white flex items-center gap-2"><DollarSign className="w-5 h-5 text-slate-400" />Cost Estimation</h2>
         <p className="text-sm text-slate-400">Estimated monthly cloud cost based on resource requests</p>

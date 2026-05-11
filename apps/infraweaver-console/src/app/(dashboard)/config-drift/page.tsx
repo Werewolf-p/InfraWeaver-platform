@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
 import { AlertTriangle, Database, Trash2 } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 
 interface DriftEntry {
   namespace: string;
@@ -57,6 +58,7 @@ export default function ConfigDriftPage() {
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
+      <PageHeader icon={AlertTriangle} title="Config Drift" />
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold text-white flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-slate-400" />Config Drift Detector</h2>

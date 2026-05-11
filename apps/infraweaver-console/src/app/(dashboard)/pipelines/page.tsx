@@ -8,6 +8,7 @@ import { cn, timeAgo } from "@/lib/utils";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { toast } from "sonner";
 import Link from "next/link";
+import { PageHeader } from "@/components/ui/page-header";
 
 interface Workflow {
   id: number;
@@ -87,6 +88,7 @@ export default function PipelinesPage() {
 
   return (
     <div>
+      <PageHeader icon={GitBranch} title="Pipelines" />
       <div className="relative rounded-xl overflow-hidden mb-6">
         <div className="absolute inset-0 page-gradient-cluster pointer-events-none" />
         <div className="relative flex items-start justify-between p-5 gap-4 flex-wrap">

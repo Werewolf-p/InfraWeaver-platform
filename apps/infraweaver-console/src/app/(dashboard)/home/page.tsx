@@ -13,6 +13,12 @@ import { useSession } from "next-auth/react";
 import { toast } from "sonner";
 import { AnimatedNumber } from "@/components/ui/animated-number";
 import { PageHeader } from "@/components/ui/page-header";
+import { WidgetCard } from "@/components/ui/widget-card";
+import { useUserPreferences } from "@/hooks/use-user-preferences";
+import { useFavorites } from "@/hooks/use-favorites";
+import { ALL_NAV_ITEMS } from "@/lib/nav-config";
+import Link from "next/link";
+import { Star } from "lucide-react";
 
 // ─── Service definitions ────────────────────────────────────────────────────
 
@@ -444,6 +450,9 @@ function QuickStats() {
 export default function HomePortalPage() {
   const { data: session } = useSession();
   const [activeCategory, setActiveCategory] = useState("All");
+  const { prefs } = useUserPreferences();
+  const { favorites } = useFavorites();
+  const favNavItems = ALL_NAV_ITEMS.filter(item => favorites.some(f => f.href === item.href));
 
   const pingUrls = PINGABLE.map(s => s.pingUrl as string);
 
@@ -592,12 +601,15 @@ export default function HomePortalPage() {
       </motion.div>
 
       {/* Service groups */}
+      {prefs.widgets["platform-services"] && (
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 0.2 }}
         className="relative z-10 space-y-6"
       >
+        <WidgetCard title="Platform Services">
+        <div className="p-4">
         <AnimatePresence mode="wait">
           <motion.div
             key={activeCategory}
@@ -617,7 +629,35 @@ export default function HomePortalPage() {
             ))}
           </motion.div>
         </AnimatePresence>
+        </div>
+        </WidgetCard>
       </motion.div>
+      )}
+
+      {/* Quick links from favorites */}
+      {prefs.widgets["quick-links"] && favNavItems.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.25 }}
+          className="relative z-10"
+        >
+          <WidgetCard title="Pinned Pages" icon={Star}>
+            <div className="p-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+              {favNavItems.map(item => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className="flex items-center gap-2 p-2.5 rounded-lg bg-[#141414] border border-[#2a2a2a] hover:border-[rgba(0,120,212,0.3)] hover:bg-[rgba(0,120,212,0.05)] transition-all text-sm text-[#9e9e9e] hover:text-[#f2f2f2]"
+                >
+                  <item.icon className="w-4 h-4 flex-shrink-0 text-[#0078D4]" />
+                  <span className="truncate">{item.label}</span>
+                </Link>
+              ))}
+            </div>
+          </WidgetCard>
+        </motion.div>
+      )}
     </div>
   );
 }

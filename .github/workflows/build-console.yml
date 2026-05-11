@@ -16,7 +16,27 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: apps/infraweaver-console/package-lock.json
+      - name: Install dependencies
+        working-directory: apps/infraweaver-console
+        run: npm ci
+      - name: TypeScript check
+        working-directory: apps/infraweaver-console
+        run: npx tsc --noEmit
+      - name: Unit tests
+        working-directory: apps/infraweaver-console
+        run: npm test -- --passWithNoTests
+
   build:
+    needs: [test]
     runs-on: [self-hosted, prod-worker]
     timeout-minutes: 30
     permissions:

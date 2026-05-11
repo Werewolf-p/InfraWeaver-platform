@@ -2,7 +2,8 @@
 import { motion } from "framer-motion";
 import { useState } from "react";
 import { toast } from "sonner";
-import { GitBranch } from "lucide-react";
+import { GitBranch, Layers} from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 
 export default function DeploymentComparePage() {
   const [ns1, setNs1] = useState("default");
@@ -30,6 +31,7 @@ export default function DeploymentComparePage() {
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
+      <PageHeader icon={Layers} title="Deployment Compare" />
       <div>
         <h2 className="text-xl font-bold text-white flex items-center gap-2"><GitBranch className="w-5 h-5 text-slate-400" />Deployment Comparison</h2>
         <p className="text-sm text-slate-400">Compare two deployments side-by-side</p>

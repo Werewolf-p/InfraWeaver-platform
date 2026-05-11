@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Package, ShieldAlert, Shield } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 
 interface ImageEntry {
   image: string;
@@ -38,6 +39,7 @@ export default function ImageVulnerabilitiesPage() {
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
+      <PageHeader icon={Shield} title="Image Vulnerabilities" />
       <div>
         <h2 className="text-xl font-bold text-white flex items-center gap-2"><Package className="w-5 h-5 text-slate-400" />Image Vulnerability Summary</h2>
         <p className="text-sm text-slate-400">Container images running in the cluster</p>

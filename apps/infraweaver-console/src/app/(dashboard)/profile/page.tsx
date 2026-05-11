@@ -3,9 +3,10 @@ import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
-import { Pencil, Check, X, RefreshCw, CheckCircle2, XCircle } from "lucide-react";
+import { Pencil, Check, X, RefreshCw, CheckCircle2, XCircle, UserCircle} from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useUsersConfig } from "@/hooks/use-users-config";
+import { PageHeader } from "@/components/ui/page-header";
 
 interface AuthentikSession {
   identifier: string;
@@ -49,6 +50,7 @@ function InlineEdit({
   if (editing) {
     return (
       <div className="flex items-center gap-2">
+      <PageHeader icon={UserCircle} title="My Profile" />
         <input
           type={type}
           value={draft}

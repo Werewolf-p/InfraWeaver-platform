@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Terminal } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 
 interface Pod {
   name: string;
@@ -53,6 +54,7 @@ export default function PodShellPage() {
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
+      <PageHeader icon={Terminal} title="Pod Shell" />
       <div>
         <h2 className="text-xl font-bold text-white flex items-center gap-2"><Terminal className="w-5 h-5 text-slate-400" />Pod Shell Access</h2>
         <p className="text-sm text-slate-400">Execute safe read-only commands in pods</p>

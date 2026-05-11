@@ -2,8 +2,9 @@
 import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { Server } from "lucide-react";
+import { Server, RefreshCw } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
+import { CommandBar } from "@/components/ui/command-bar";
 import { cn } from "@/lib/utils";
 
 interface Pod {
@@ -53,21 +54,24 @@ export default function PodsPage() {
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
       <PageHeader icon={Server} title="Pods" subtitle="All pods with live status" />
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-bold text-white flex items-center gap-2"><Server className="w-5 h-5 text-slate-400" />Multi-Namespace Pod View</h2>
-          <p className="text-sm text-slate-400">{filtered.length} / {pods.length} pods</p>
-        </div>
-        <button onClick={() => void refetch()} className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 hover:text-white transition-colors">Refresh</button>
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <select value={nsFilter} onChange={e => setNsFilter(e.target.value)} className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-white outline-none focus:border-indigo-500/50">
-          {namespaces.map(ns => <option key={ns} value={ns}>{ns === "all" ? "All namespaces" : ns}</option>)}
-        </select>
-        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-white outline-none focus:border-indigo-500/50">
-          {statuses.map(s => <option key={s} value={s}>{s === "all" ? "All statuses" : s}</option>)}
-        </select>
-        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search pods..." className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-white placeholder:text-slate-500 outline-none focus:border-indigo-500/50 w-48" />
+      <CommandBar
+        actions={[
+          { label: "Refresh", icon: RefreshCw, onClick: () => void refetch() },
+        ]}
+        filter={
+          <div className="flex flex-wrap items-center gap-2">
+            <select value={nsFilter} onChange={e => setNsFilter(e.target.value)} className="px-3 py-2 rounded-lg bg-[#0f0f0f] border border-[#333] text-sm text-[#f2f2f2] outline-none focus:border-[#0078D4]/50">
+              {namespaces.map(ns => <option key={ns} value={ns}>{ns === "all" ? "All namespaces" : ns}</option>)}
+            </select>
+            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="px-3 py-2 rounded-lg bg-[#0f0f0f] border border-[#333] text-sm text-[#f2f2f2] outline-none focus:border-[#0078D4]/50">
+              {statuses.map(s => <option key={s} value={s}>{s === "all" ? "All statuses" : s}</option>)}
+            </select>
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search pods..." className="px-3 py-2 rounded-lg bg-[#0f0f0f] border border-[#333] text-sm text-[#f2f2f2] placeholder:text-[#555] outline-none focus:border-[#0078D4]/50 w-48" />
+          </div>
+        }
+      />
+      <div className="flex items-center justify-between px-4">
+        <p className="text-sm text-[#9e9e9e]">{filtered.length} / {pods.length} pods</p>
       </div>
       <div className="bg-slate-900/60 border border-white/10 rounded-xl backdrop-blur-sm overflow-hidden">
         <table className="w-full">

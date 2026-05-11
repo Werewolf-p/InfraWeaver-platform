@@ -2,6 +2,7 @@
 import { useState, useCallback } from "react";
 import { CheckCircle2, XCircle, Loader2, Play, Info, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { PageHeader } from "@/components/ui/page-header";
 
 interface TestResult {
   id: string;
@@ -169,6 +170,7 @@ export default function TestsPage() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
+      <PageHeader icon={CheckCircle2} title="Platform Tests" />
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
