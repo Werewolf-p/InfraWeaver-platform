@@ -39,30 +39,29 @@ spec:
         runAsGroup: 0
       containers:
         - name: terraria
-          image: ryshe/terraria:latest
+          # vanilla server accepts -world/-autocreate non-interactively
+          image: ryshe/terraria:vanilla-latest
+          args:
+            - "-world"
+            - "/world/World1.wld"
+            - "-autocreate"
+            - "2"
+            - "-worldname"
+            - "World1"
+            - "-port"
+            - "7777"
+            - "-maxplayers"
+            - "20"
           ports:
             - containerPort: 7777
               protocol: TCP
               name: game
-          env:
-            - name: DOTNET_BUNDLE_EXTRACT_BASE_DIR
-              value: "/world"
-            - name: WORLD
-              value: "World1"
-            - name: MAXPLAYERS
-              value: "20"
-            - name: PASSWORD
-              value: ""
-            - name: AUTOCREATE
-              value: "2"
-            - name: WORLDNAME
-              value: "World1"
           resources:
             requests:
               memory: 512Mi
               cpu: 250m
             limits:
-              memory: 1Gi
+              memory: 1500Mi
               cpu: "1"
           volumeMounts:
             - name: data
@@ -70,14 +69,14 @@ spec:
           livenessProbe:
             tcpSocket:
               port: 7777
-            initialDelaySeconds: 90
+            initialDelaySeconds: 120
             periodSeconds: 30
             failureThreshold: 5
           readinessProbe:
             tcpSocket:
               port: 7777
-            initialDelaySeconds: 60
-            periodSeconds: 15
+            initialDelaySeconds: 90
+            periodSeconds: 20
       volumes:
         - name: data
           persistentVolumeClaim:
@@ -100,3 +99,4 @@ spec:
       targetPort: 7777
       protocol: TCP
       name: game
+      nodePort: 31515
