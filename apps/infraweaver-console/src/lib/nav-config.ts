@@ -4,7 +4,7 @@ import {
   Package, FileText, ShieldCheck, Server,
   Sparkles, Home, UserCircle, BarChart2, Trash2, GitBranch,
   DollarSign, Globe, BellOff, Shield, AlertTriangle,
-  Calendar, TrendingUp, Gamepad2, Search, LayoutGrid,
+  Calendar, TrendingUp, Gamepad2, Search, LayoutGrid, TestTube2,
 } from "lucide-react";
 
 export interface NavItem {
@@ -139,6 +139,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/storage-timeline", icon: HardDrive, label: "Storage Timeline", description: "Historical storage usage charts" },
       { href: "/scheduled-tasks", icon: Calendar, label: "Scheduled Tasks", description: "View and manage scheduled operations" },
       { href: "/tests", icon: Activity, label: "Platform Tests", description: "Interactive platform test suite", pinnable: true },
+      { href: "/self-test", icon: TestTube2, label: "Self Test", description: "Verify console SA connectivity to the Kubernetes API" },
     ],
   },
   {
