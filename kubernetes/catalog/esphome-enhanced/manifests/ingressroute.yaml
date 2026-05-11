@@ -1,0 +1,23 @@
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: esphome-enhanced
+  namespace: esphome-enhanced
+  labels:
+    app.kubernetes.io/name: esphome-enhanced
+    infraweaver.io/source: community-apps
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`esphome-enhanced.int.rlservers.com`)
+      kind: Rule
+      middlewares:
+        - name: netbird-vpn-only
+          namespace: traefik
+      services:
+        - name: esphome-enhanced
+          port: 6052
+  tls:
+    secretName: int-rlservers-com-tls
