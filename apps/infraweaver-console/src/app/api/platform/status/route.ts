@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import * as k8s from "@kubernetes/client-node";
+import { auth } from "@/lib/auth";
 
 export async function GET() {
+  const session = await auth();
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   try {
     const kc = new k8s.KubeConfig();
     if (process.env.KUBECONFIG) { kc.loadFromFile(process.env.KUBECONFIG); }

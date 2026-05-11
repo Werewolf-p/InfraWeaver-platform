@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import dynamic from "next/dynamic";
 import Link from "next/link";
+import { AppNavTabs } from "@/components/ui/app-nav-tabs";
 
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
 
@@ -202,6 +203,7 @@ export default function CatalogInstallPage() {
           Install a new application to the catalog via ArgoCD
         </p>
       </div>
+      <AppNavTabs />
 
       {/* Step Indicators */}
       <div className="flex items-center gap-2 mb-8">

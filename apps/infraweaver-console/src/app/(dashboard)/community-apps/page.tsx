@@ -10,6 +10,8 @@ import {
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import dynamic from "next/dynamic";
+import Link from "next/link";
+import { AppNavTabs } from "@/components/ui/app-nav-tabs";
 
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
 
@@ -349,6 +351,14 @@ function DeployModal({
                   <p className="text-white/50 text-sm">ArgoCD will deploy {app.name} within ~60 seconds</p>
                 </div>
               </div>
+              {/* Post-deploy instructions */}
+              <div className="flex items-start gap-3 p-3 rounded-lg bg-indigo-500/10 border border-indigo-500/20">
+                <Info className="w-4 h-4 text-indigo-400 flex-shrink-0 mt-0.5" />
+                <div className="text-xs text-indigo-200 space-y-1">
+                  <p>✓ Deployment submitted — ArgoCD will sync within 2-3 minutes.</p>
+                  <p>Check the <Link href="/community-apps?tab=installed" onClick={onClose} className="text-indigo-300 underline hover:text-indigo-100">Installed tab</Link> to track status, or view the app in <Link href="/apps" onClick={onClose} className="text-indigo-300 underline hover:text-indigo-100">Applications</Link>.</p>
+                </div>
+              </div>
               <div className="bg-white/5 rounded-lg p-3 space-y-1">
                 <p className="text-white/60 text-xs font-medium mb-2">Files committed:</p>
                 {deployResult.paths.map(p => (
@@ -406,6 +416,15 @@ function DeployModal({
                 {isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Terminal className="w-4 h-4" />}
                 Deploy to Cluster
               </button>
+            )}
+            {step === "done" && (
+              <Link
+                href="/community-apps?tab=installed"
+                onClick={onClose}
+                className="flex items-center gap-2 px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors"
+              >
+                View Installed →
+              </Link>
             )}
           </div>
         </div>
@@ -636,6 +655,8 @@ export default function CommunityAppsPage() {
           <span className="hidden sm:inline">Refresh</span>
         </button>
       </div>
+
+      <AppNavTabs />
 
       {/* Tabs */}
       <div className="flex gap-1 p-1 bg-white/5 rounded-lg w-fit">

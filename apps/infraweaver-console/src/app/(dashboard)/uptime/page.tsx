@@ -96,6 +96,9 @@ export default function UptimePage() {
           <p className="text-sm text-slate-400 mt-0.5">
             Last {endpoints[0]?.results.length ?? 0} checks per endpoint · via Gatus
           </p>
+          <span className="inline-flex items-center gap-1 text-xs text-amber-400/70 mt-1">
+            <AlertTriangle className="w-3 h-3" /> Simulated data — connect Gatus for live results
+          </span>
         </div>
         <div className="flex items-center gap-3">
           {lastUpdated && (

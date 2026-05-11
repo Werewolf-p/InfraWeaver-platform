@@ -305,7 +305,7 @@ function AddServerDrawer({ open, onClose, onCreated }: { open: boolean; onClose:
     setGameType(id);
     const gt = GAME_TYPES.find(t => t.id === id);
     if (gt) setPorts(gt.defaultPorts.map(p => ({ ...p })));
-    // Don't auto-advance — let the user press Next so they see the button
+    setTimeout(() => setStep(2), 150);
   };
 
   const isPortConflict = (port: number, protocol: string) =>
@@ -386,15 +386,15 @@ function AddServerDrawer({ open, onClose, onCreated }: { open: boolean; onClose:
               className="fixed inset-0 bg-black/70 z-[200]"
               onClick={onClose}
             />
-            {/* Drawer — CSS grid layout, portaled to document.body to escape overflow-hidden layout */}
+            {/* Drawer — flexbox layout, portaled to document.body to escape overflow-hidden layout */}
             <motion.div
               initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }}
               transition={{ type: "spring", damping: 30, stiffness: 300 }}
-              className="fixed inset-y-0 right-0 w-full max-w-xl bg-slate-900 border-l border-slate-700 z-[201] shadow-2xl"
-              style={{ display: "grid", gridTemplateRows: "auto auto 1fr auto" }}
+              className="fixed inset-y-0 right-0 w-full max-w-xl bg-slate-900 border-l border-slate-700 z-[201] shadow-2xl flex flex-col"
+              style={{ maxHeight: '100dvh' }}
             >
               {/* Row 1: Header */}
-              <div className="flex items-center justify-between px-5 py-3 border-b border-slate-700/60">
+              <div className="flex-none flex items-center justify-between px-5 py-3 border-b border-slate-700/60">
               <div>
                 <h2 className="text-base font-bold text-white">Add Port Route</h2>
                 <p className="text-xs text-slate-400">Step {step} of {totalSteps} — {activeStepLabels[step - 1]}</p>
@@ -420,14 +420,14 @@ function AddServerDrawer({ open, onClose, onCreated }: { open: boolean; onClose:
             </div>
 
             {/* Row 2: Progress bar */}
-            <div className="flex px-5 py-2 gap-1 border-b border-slate-800">
+            <div className="flex-none flex px-5 py-2 gap-1 border-b border-slate-800">
               {activeStepLabels.map((_, i) => (
                 <div key={i} className={cn("flex-1 h-1 rounded-full transition-all duration-300", i + 1 <= step ? "bg-indigo-500" : "bg-slate-700")} />
               ))}
             </div>
 
-            {/* Row 3: Scrollable content — 1fr fills exactly the remaining space */}
-            <div className="overflow-y-auto bg-slate-900 p-5" style={{ WebkitOverflowScrolling: "touch" }}>
+            {/* Row 3: Scrollable content — flex-1 min-h-0 is CRITICAL for flexbox overflow scrolling */}
+            <div className="flex-1 min-h-0 overflow-y-auto bg-slate-900 p-5" style={{ WebkitOverflowScrolling: "touch" }}>
               {/* Step 1 — same for both modes */}
               {step === 1 && (
                 <div>
@@ -849,7 +849,7 @@ function AddServerDrawer({ open, onClose, onCreated }: { open: boolean; onClose:
             </div>
 
             {/* Row 4: Footer */}
-            <div className="flex flex-col gap-1 border-t border-slate-700/60 px-5 pt-3 pb-3 bg-slate-900" style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px) + 12px, 12px)" }}>
+            <div className="flex-none flex flex-col gap-1 border-t border-slate-700/60 px-5 pt-3 bg-slate-900" style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px) + 12px, 12px)" }}>
               {/* Hint text for disabled Next */}
               {((step === 1 && !gameType) || (!simpleMode && step === 2 && (!name || !displayName)) || (simpleMode && step === 2 && (!name || !targetIP)) || (!simpleMode && step === 5 && !targetIP)) && (
                 <p className="text-[11px] text-amber-500/80 text-right">
@@ -878,7 +878,7 @@ function AddServerDrawer({ open, onClose, onCreated }: { open: boolean; onClose:
                     (simpleMode && step === 2 && (!name || !targetIP)) ||
                     (!simpleMode && step === 5 && !targetIP)
                   }
-                  className="flex items-center gap-2 px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="flex items-center gap-2 px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Next <ChevronRight className="w-4 h-4" />
                 </button>

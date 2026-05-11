@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { cn, timeAgo } from "@/lib/utils";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { DeploymentFrequencyChart } from "@/components/charts/deployment-frequency";
+import { AppNavTabs } from "@/components/ui/app-nav-tabs";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let confettiLib: any = null;
@@ -553,6 +554,7 @@ export default function AppsPage() {
         </button>
         </div>
       </div>
+      <AppNavTabs />
 
       <div className="flex flex-col gap-3 mb-5">
         <div className="relative w-full">
