@@ -4,7 +4,7 @@ import {
   Package, FileText, ShieldCheck, Server,
   Sparkles, Home, UserCircle, BarChart2, Trash2, GitBranch,
   DollarSign, Globe, BellOff, Shield, AlertTriangle,
-  Calendar, TrendingUp, Gamepad2, Search, LayoutGrid, TestTube2,
+  Calendar, TrendingUp, Gamepad2, Search, LayoutGrid, TestTube2, Puzzle,
 } from "lucide-react";
 
 export interface NavItem {
@@ -106,6 +106,16 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
+    id: "gaming",
+    label: "Gaming",
+    description: "Game servers and gaming infrastructure",
+    icon: Gamepad2,
+    defaultOpen: false,
+    items: [
+      { href: "/game-hub", icon: Gamepad2, label: "Game Hub", description: "Deploy and manage game servers on Kubernetes" },
+    ],
+  },
+  {
     id: "services",
     label: "Services",
     description: "External services and routing",
@@ -152,6 +162,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/users", icon: Users, label: "User Management", shortcut: "G M", description: "Manage users, groups, and SSO", pinnable: true },
       { href: "/registry", icon: Package, label: "Registry", shortcut: "G R", description: "Container image registry browser" },
       { href: "/settings", icon: Settings, label: "Settings", description: "Console preferences and configuration" },
+      { href: "/settings/addons", icon: Puzzle, label: "Addons", description: "Enable/disable platform addons and features" },
       { href: "/profile", icon: UserCircle, label: "My Profile", description: "Your profile and session info" },
       { href: "/changelog", icon: Sparkles, label: "What's New", description: "Recent platform updates" },
     ],
@@ -190,9 +201,11 @@ export const MOBILE_DRAWER_NAV: NavItem[] = [
   { href: "/cluster", icon: Server, label: "Cluster" },
   { href: "/users", icon: Users, label: "User Management" },
   { href: "/gameservers", icon: Gamepad2, label: "Port Routing" },
+  { href: "/game-hub", icon: Gamepad2, label: "Game Hub" },
   { href: "/uptime", icon: TrendingUp, label: "Uptime History" },
   { href: "/certificates", icon: ShieldCheck, label: "Certificates" },
   { href: "/all-services", icon: Search, label: "All Services" },
   { href: "/tests", icon: Activity, label: "Platform Tests" },
   { href: "/settings", icon: Settings, label: "Settings" },
+  { href: "/settings/addons", icon: Puzzle, label: "Addons" },
 ];

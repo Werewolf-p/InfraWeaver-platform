@@ -1,0 +1,108 @@
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: valheim-server-config
+  namespace: game-hub
+  labels:
+    app: valheim-server
+    infraweaver/game: "true"
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: valheim-server
+  namespace: game-hub
+  labels:
+    app: valheim-server
+    infraweaver/game: "true"
+    infraweaver/game-type: valheim
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: valheim-server
+  template:
+    metadata:
+      labels:
+        app: valheim-server
+        infraweaver/game: "true"
+    spec:
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+      containers:
+        - name: valheim
+          image: lloesche/valheim-server:latest
+          ports:
+            - containerPort: 2456
+              protocol: UDP
+              name: game
+            - containerPort: 2457
+              protocol: UDP
+              name: rcon
+            - containerPort: 2458
+              protocol: TCP
+              name: query
+          env:
+            - name: SERVER_NAME
+              value: "InfraWeaver Valheim"
+            - name: WORLD_NAME
+              value: "MyWorld"
+            - name: SERVER_PASS
+              value: "changeme123"
+            - name: SERVER_PUBLIC
+              value: "false"
+            - name: BACKUPS
+              value: "false"
+            - name: UPDATE_CRON
+              value: ""
+          resources:
+            requests:
+              memory: 2Gi
+              cpu: 500m
+            limits:
+              memory: 4Gi
+              cpu: "2"
+          volumeMounts:
+            - name: config
+              mountPath: /config
+            - name: config
+              mountPath: /opt/valheim
+              subPath: valheim-data
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: valheim-server-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: valheim-server
+  namespace: game-hub
+  labels:
+    app: valheim-server
+    infraweaver/game: "true"
+spec:
+  type: NodePort
+  selector:
+    app: valheim-server
+  ports:
+    - port: 2456
+      targetPort: 2456
+      protocol: UDP
+      name: game
+    - port: 2457
+      targetPort: 2457
+      protocol: UDP
+      name: rcon
+    - port: 2458
+      targetPort: 2458
+      protocol: TCP
+      name: query
