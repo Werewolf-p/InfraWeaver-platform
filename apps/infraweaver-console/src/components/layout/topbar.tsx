@@ -13,7 +13,7 @@ const QUICK_CREATE_ITEMS = [
   { label: "Add Port Route", href: "/gameservers" },
 ];
 
-export function TopBar({ title: _title, onMenuClick }: { title?: string; onMenuClick?: () => void }) {
+export function TopBar({ title: _title, onMenuClick, onSearchClick }: { title?: string; onMenuClick?: () => void; onSearchClick?: () => void }) {
   const { data: session } = useSession();
   const setOpen = useCommandPaletteStore(s => s.setOpen);
   const [quickOpen, setQuickOpen] = useState(false);
@@ -36,6 +36,13 @@ export function TopBar({ title: _title, onMenuClick }: { title?: string; onMenuC
           aria-label="Open menu"
         >
           <Menu className="w-4 h-4" />
+        </button>
+        <button
+          onClick={onSearchClick}
+          className="md:hidden w-8 h-8 rounded flex items-center justify-center text-[#9e9e9e] hover:text-[#f2f2f2] hover:bg-[#2a2a2a] transition-colors"
+          aria-label="Search"
+        >
+          <Search className="w-4 h-4" />
         </button>
         {/* Inline search — clicking opens command palette */}
         <button

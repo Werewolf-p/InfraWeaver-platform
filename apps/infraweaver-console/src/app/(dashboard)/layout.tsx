@@ -8,13 +8,16 @@ import { useRouter, usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import Link from "next/link";
-import { X, AlertTriangle, Grid3X3, MoreHorizontal, Search } from "lucide-react";
+import { X, AlertTriangle, Grid3X3, MoreHorizontal, Search, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import { CommandPalette } from "@/components/command-palette";
 import { KeyboardShortcutsProvider } from "@/components/keyboard-shortcuts-modal";
 import { SimpleModeProvider } from "@/contexts/simple-mode-context";
 import { MOBILE_BOTTOM_NAV, MOBILE_DRAWER_NAV } from "@/lib/nav-config";
+import { SpotlightSearch } from "@/components/ui/spotlight-search";
+import { OfflineIndicator } from "@/components/ui/offline-indicator";
+import { useRecentPages } from "@/hooks/use-recent-pages";
 
 const mobileNavItems = MOBILE_BOTTOM_NAV;
 const drawerNavItems = MOBILE_DRAWER_NAV;
@@ -78,6 +81,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [moreSearch, setMoreSearch] = useState("");
   const [sessionWarning, setSessionWarning] = useState(false);
   const [countdown, setCountdown] = useState(300);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const { recentPages } = useRecentPages();
 
   // Session timeout warning
   useEffect(() => {
@@ -131,6 +136,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   return (
     <SimpleModeProvider>
     <div className="flex h-screen overflow-hidden overflow-x-hidden">
+      <OfflineIndicator />
       {/* Desktop Sidebar */}
       <Sidebar />
 
@@ -203,7 +209,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </AnimatePresence>
 
       <div className="flex-1 flex flex-col overflow-hidden overflow-x-hidden relative z-10">
-        <TopBar onMenuClick={() => setMobileOpen(true)} />
+        <TopBar onMenuClick={() => setMobileOpen(true)} onSearchClick={() => setSearchOpen(true)} />
         <Breadcrumb />
         <main
           className="flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-6 pb-24 md:pb-6"
@@ -237,6 +243,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <Link
               key={item.href}
               href={item.href}
+              onClick={() => { if (typeof navigator !== "undefined") navigator.vibrate?.(10); }}
               className={cn(
                 "flex-1 flex flex-col items-center justify-center gap-1 min-h-[56px] text-[11px] transition-colors active:scale-95 touch-manipulation",
                 isActive ? "text-[#0078D4]" : "text-[#666] hover:text-[#9e9e9e]"
@@ -249,7 +256,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         })}
         {/* More button */}
         <button
-          onClick={() => setMoreOpen(true)}
+          onClick={() => { if (typeof navigator !== "undefined") navigator.vibrate?.(10); setMoreOpen(true); }}
           className={cn(
             "flex-1 flex flex-col items-center justify-center gap-1 min-h-[56px] text-[11px] transition-colors active:scale-95 touch-manipulation",
             moreOpen ? "text-[#0078D4]" : "text-[#666] hover:text-[#9e9e9e]"
@@ -306,6 +313,22 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   />
                 </div>
               </div>
+              {/* Recent pages */}
+              {recentPages.length > 0 && !moreSearch && (
+                <div className="px-4 pt-3 pb-2 border-b border-[#2a2a2a] flex-shrink-0">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-[#555] mb-2">Recent</p>
+                  <div className="space-y-1">
+                    {recentPages.slice(0, 5).map((page: { href: string; title: string }) => (
+                      <Link key={page.href} href={page.href} onClick={() => setMoreOpen(false)}>
+                        <div className="flex items-center gap-2 px-2 py-2 rounded-lg text-[#9e9e9e] hover:text-white hover:bg-[#2a2a2a] transition-colors">
+                          <Clock className="w-3.5 h-3.5 flex-shrink-0" />
+                          <span className="text-xs">{page.title}</span>
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              )}
               {/* Grid of nav items */}
               <div className="flex-1 overflow-y-auto p-4">
                 <div className="grid grid-cols-3 gap-2">
@@ -408,6 +431,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </motion.div>
         )}
       </AnimatePresence>
+      <SpotlightSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
     </div>
     </SimpleModeProvider>
   );

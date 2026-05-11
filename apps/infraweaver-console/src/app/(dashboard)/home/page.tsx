@@ -6,7 +6,7 @@ import {
   GitBranch, Network, HardDrive, KeyRound, BarChart3, Activity,
   Shield, Wifi, BookOpen, HeartPulse, GitMerge, FileText, Package,
   Globe, ChevronDown, Search, RefreshCw, ExternalLink, Home,
-  Zap, CheckCircle2,
+  Zap, CheckCircle2, AlertTriangle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSession } from "next-auth/react";
@@ -370,7 +370,8 @@ function QuickStats() {
       if (!res.ok) return null;
       const apps = await res.json() as Array<{ status?: { health?: { status?: string } } }>;
       const healthy = apps.filter(a => a.status?.health?.status === "Healthy").length;
-      return { healthy, total: apps.length };
+      const issues = apps.filter(a => ["Degraded", "Failed", "Missing"].includes(a.status?.health?.status ?? "")).length;
+      return { healthy, total: apps.length, issues };
     },
     refetchInterval: 60000,
     staleTime: 50000,
@@ -454,6 +455,20 @@ export default function HomePortalPage() {
   const { favorites } = useFavorites();
   const favNavItems = ALL_NAV_ITEMS.filter(item => favorites.some(f => f.href === item.href));
 
+  const { data: argoApps } = useQuery({
+    queryKey: ["argocd", "apps", "home-portal"],
+    queryFn: async () => {
+      const res = await fetch("/api/argocd/apps");
+      if (!res.ok) return null;
+      const apps = await res.json() as Array<{ status?: { health?: { status?: string } } }>;
+      const healthy = apps.filter(a => a.status?.health?.status === "Healthy").length;
+      const issues = apps.filter(a => ["Degraded", "Failed", "Missing"].includes(a.status?.health?.status ?? "")).length;
+      return { healthy, total: apps.length, issues };
+    },
+    refetchInterval: 60000,
+    staleTime: 50000,
+  });
+
   const pingUrls = PINGABLE.map(s => s.pingUrl as string);
 
   const { data: pingData, isLoading: pingLoading, dataUpdatedAt, refetch } = useQuery({
@@ -492,6 +507,19 @@ export default function HomePortalPage() {
   return (
     <div className="space-y-6 max-w-screen-2xl mx-auto">
       <PageHeader icon={Home} title="Home" subtitle="Platform services and quick access" />
+
+      {/* Mobile alert banner */}
+      {argoApps && argoApps.issues > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="md:hidden flex items-center gap-3 px-4 py-3 bg-red-500/10 border border-red-500/30 rounded-xl text-sm text-red-400"
+        >
+          <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+          <span>{argoApps.issues} app{argoApps.issues > 1 ? "s" : ""} need attention</span>
+          <a href="/apps" className="ml-auto text-xs underline">View</a>
+        </motion.div>
+      )}
 
       {/* Hero section */}
       <motion.div

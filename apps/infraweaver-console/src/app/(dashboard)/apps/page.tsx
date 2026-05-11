@@ -2,7 +2,7 @@
 
 import React, { useState, useCallback, useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useMotionValue, useTransform } from "framer-motion";
 import {
   Package, FileText, ChevronRight, ChevronLeft, Check, Loader2,
   PlusCircle, Search, ExternalLink, AlertTriangle, Info, CheckCircle,
@@ -27,6 +27,9 @@ function BodyPortal({ children }: { children: React.ReactNode }) {
   if (!mounted) return null;
   return createPortal(children, document.body);
 }
+
+import { useSimpleMode } from "@/contexts/simple-mode-context";
+import { AppCardSkeleton, TableRowSkeleton } from "@/components/ui/skeleton-card";
 
 // ── Top-level tab types ────────────────────────────────────────────────────────
 type TopTab = "installed" | "catalog" | "community";
@@ -60,6 +63,122 @@ function toHealthStatus(val: string): AppHealthStatus {
   return MAP[v] ?? "unknown";
 }
 
+interface AppRow {
+  id: string;
+  name: string;
+  namespace: string;
+  health: AppHealthStatus;
+  syncStatus: AppHealthStatus;
+  source: "Catalog" | "Community";
+  lastSync: string;
+  sourceType: "Helm" | "Git" | "Community";
+}
+
+function SwipeableAppCard({
+  row,
+  syncingApp,
+  deletingApp,
+  onSync,
+  onDelete,
+  isOptimisticSyncing,
+}: {
+  row: AppRow;
+  syncingApp: string | null;
+  deletingApp: string | null;
+  onSync: (name: string) => Promise<void>;
+  onDelete: (name: string) => Promise<void>;
+  isOptimisticSyncing?: boolean;
+}) {
+  const x = useMotionValue(0);
+  const isCatalog = row.source === "Catalog";
+
+  const syncOpacity = useTransform(x, [0, 80], [0, 1]);
+  const deleteOpacity = useTransform(x, [-80, 0], [1, 0]);
+
+  const handleDragEnd = (_: unknown, info: { offset: { x: number } }) => {
+    if (!isCatalog) return;
+    if (info.offset.x > 80) {
+      void onSync(row.name);
+    } else if (info.offset.x < -80) {
+      void onDelete(row.name);
+    }
+  };
+
+  return (
+    <div className="relative overflow-hidden rounded-xl">
+      {/* Behind: Sync (right swipe) */}
+      {isCatalog && (
+        <motion.div
+          style={{ opacity: syncOpacity }}
+          className="absolute inset-0 bg-green-500/20 flex items-center pl-5 rounded-xl"
+        >
+          <RefreshCw className="w-5 h-5 text-green-400" />
+          <span className="ml-2 text-xs font-medium text-green-400">Sync</span>
+        </motion.div>
+      )}
+      {/* Behind: Delete (left swipe) */}
+      {isCatalog && (
+        <motion.div
+          style={{ opacity: deleteOpacity }}
+          className="absolute inset-0 bg-red-500/20 flex items-center justify-end pr-5 rounded-xl"
+        >
+          <span className="mr-2 text-xs font-medium text-red-400">Delete</span>
+          <X className="w-5 h-5 text-red-400" />
+        </motion.div>
+      )}
+      {/* Card */}
+      <motion.div
+        style={{ x }}
+        drag={isCatalog ? "x" : false}
+        dragConstraints={{ left: -100, right: 100 }}
+        dragElastic={0.1}
+        onDragEnd={handleDragEnd}
+        whileTap={{ cursor: "grabbing" }}
+        className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl p-4 relative z-10 touch-manipulation"
+      >
+        <div className="flex items-start justify-between mb-2">
+          <div className="flex-1 min-w-0 mr-3">
+            <p className="font-medium text-[#f2f2f2] text-sm truncate">{row.name}</p>
+            <p className="text-xs text-[#9e9e9e] font-mono truncate mt-0.5">{row.namespace}</p>
+          </div>
+          <StatusBadge status={isOptimisticSyncing ? "syncing" : row.health} />
+        </div>
+        <div className="flex items-center gap-2 mb-3">
+          <StatusBadge status={row.syncStatus} />
+          <span className={cn(
+            "px-2 py-0.5 rounded text-xs font-medium",
+            row.source === "Catalog"
+              ? "bg-blue-500/10 text-blue-400 border border-blue-500/20"
+              : "bg-purple-500/10 text-purple-400 border border-purple-500/20"
+          )}>
+            {row.source}
+          </span>
+        </div>
+        {isCatalog && (
+          <div className="flex gap-2">
+            <button
+              onClick={() => void onSync(row.name)}
+              disabled={syncingApp === row.name}
+              className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs border border-[#333] text-[#9e9e9e] hover:text-white hover:border-[#555] transition-colors min-h-[44px] disabled:opacity-50"
+            >
+              {syncingApp === row.name ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+              Sync
+            </button>
+            <button
+              onClick={() => void onDelete(row.name)}
+              disabled={deletingApp === row.name}
+              className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors min-h-[44px] disabled:opacity-50"
+            >
+              {deletingApp === row.name ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <X className="w-3.5 h-3.5" />}
+              Delete
+            </button>
+          </div>
+        )}
+      </motion.div>
+    </div>
+  );
+}
+
 function AllInstalledTab() {
   const { data: argoApps, isLoading: argoLoading, refetch } = useArgoApps();
   const [communityApps, setCommunityApps] = useState<InstalledCommunityApp[]>([]);
@@ -67,6 +186,7 @@ function AllInstalledTab() {
   const [search, setSearch] = useState("");
   const [syncingApp, setSyncingApp] = useState<string | null>(null);
   const [deletingApp, setDeletingApp] = useState<string | null>(null);
+  const [optimisticSyncing, setOptimisticSyncing] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     setCommunityLoading(true);
@@ -86,7 +206,7 @@ function AllInstalledTab() {
       syncStatus: toHealthStatus(app.status?.sync?.status ?? "Unknown"),
       source: "Catalog" as const,
       lastSync: app.status?.reconciledAt ?? "",
-      sourceType: app.spec?.source?.repoURL?.includes("charts") ? "Helm" : "Git",
+      sourceType: (app.spec?.source?.repoURL?.includes("charts") ? "Helm" : "Git") as "Helm" | "Git",
     }));
 
     const community = communityApps.map(app => ({
@@ -111,6 +231,7 @@ function AllInstalledTab() {
 
   const handleSync = async (name: string) => {
     setSyncingApp(name);
+    setOptimisticSyncing(prev => new Set([...prev, name]));
     try {
       const res = await fetch(`/api/argocd/apps/${encodeURIComponent(name)}/sync`, { method: "POST" });
       if (!res.ok) throw new Error("Sync failed");
@@ -120,6 +241,7 @@ function AllInstalledTab() {
       toast.error(`Failed to sync ${name}`);
     } finally {
       setSyncingApp(null);
+      setOptimisticSyncing(prev => { const next = new Set(prev); next.delete(name); return next; });
     }
   };
 
@@ -139,6 +261,7 @@ function AllInstalledTab() {
   };
 
   const loading = argoLoading || communityLoading;
+  const { simpleMode, toggle } = useSimpleMode();
 
   return (
     <div className="space-y-4">
@@ -153,6 +276,17 @@ function AllInstalledTab() {
           />
         </div>
         <button
+          onClick={toggle}
+          className={cn(
+            "flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-medium transition-colors",
+            simpleMode
+              ? "border-indigo-500/30 bg-indigo-500/10 text-indigo-400"
+              : "border-[#333] text-[#666] hover:text-[#9e9e9e]"
+          )}
+        >
+          {simpleMode ? "Simple" : "Advanced"}
+        </button>
+        <button
           onClick={() => void refetch()}
           className="flex items-center gap-2 px-3 py-2 rounded-lg border border-[#333] text-[#9e9e9e] hover:text-white hover:border-[#555] transition-colors text-sm"
         >
@@ -163,9 +297,31 @@ function AllInstalledTab() {
       </div>
 
       {loading && filtered.length === 0 && (
-        <div className="flex items-center justify-center h-40">
-          <Loader2 className="w-6 h-6 animate-spin text-[#0078D4]" />
-        </div>
+        <>
+          {/* Desktop skeleton */}
+          <div className="hidden md:block overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-[#2a2a2a] text-[#666] text-xs">
+                  <th className="text-left py-2 px-3 font-medium">Name</th>
+                  {!simpleMode && <th className="text-left py-2 px-3 font-medium">Namespace</th>}
+                  <th className="text-left py-2 px-3 font-medium">Health</th>
+                  <th className="text-left py-2 px-3 font-medium">Sync</th>
+                  <th className="text-left py-2 px-3 font-medium">Source</th>
+                  {!simpleMode && <th className="text-left py-2 px-3 font-medium">Last Sync</th>}
+                  <th className="text-right py-2 px-3 font-medium">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...Array(5)].map((_, i) => <TableRowSkeleton key={i} />)}
+              </tbody>
+            </table>
+          </div>
+          {/* Mobile skeleton */}
+          <div className="md:hidden space-y-3">
+            {[...Array(4)].map((_, i) => <AppCardSkeleton key={i} />)}
+          </div>
+        </>
       )}
 
       {!loading && filtered.length === 0 && (
@@ -182,11 +338,11 @@ function AllInstalledTab() {
             <thead>
               <tr className="border-b border-[#2a2a2a] text-[#666] text-xs">
                 <th className="text-left py-2 px-3 font-medium">Name</th>
-                <th className="text-left py-2 px-3 font-medium">Namespace</th>
+                {!simpleMode && <th className="text-left py-2 px-3 font-medium">Namespace</th>}
                 <th className="text-left py-2 px-3 font-medium">Health</th>
                 <th className="text-left py-2 px-3 font-medium">Sync</th>
                 <th className="text-left py-2 px-3 font-medium">Source</th>
-                <th className="text-left py-2 px-3 font-medium">Last Sync</th>
+                {!simpleMode && <th className="text-left py-2 px-3 font-medium">Last Sync</th>}
                 <th className="text-right py-2 px-3 font-medium">Actions</th>
               </tr>
             </thead>
@@ -194,8 +350,8 @@ function AllInstalledTab() {
               {filtered.map(row => (
                 <tr key={row.id} className="border-b border-[#1e1e1e] hover:bg-[#1a1a1a] transition-colors">
                   <td className="py-2.5 px-3 font-medium text-[#f2f2f2]">{row.name}</td>
-                  <td className="py-2.5 px-3 font-mono text-xs text-[#9e9e9e]">{row.namespace}</td>
-                  <td className="py-2.5 px-3"><StatusBadge status={row.health} /></td>
+                  {!simpleMode && <td className="py-2.5 px-3 font-mono text-xs text-[#9e9e9e]">{row.namespace}</td>}
+                  <td className="py-2.5 px-3"><StatusBadge status={optimisticSyncing.has(row.name) ? "syncing" : row.health} /></td>
                   <td className="py-2.5 px-3"><StatusBadge status={row.syncStatus} /></td>
                   <td className="py-2.5 px-3">
                     <span className={cn(
@@ -207,9 +363,7 @@ function AllInstalledTab() {
                       {row.source}
                     </span>
                   </td>
-                  <td className="py-2.5 px-3 text-xs text-[#666]">
-                    {row.lastSync ? new Date(row.lastSync).toLocaleString() : "—"}
-                  </td>
+                  {!simpleMode && <td className="py-2.5 px-3 text-xs text-[#666]">{row.lastSync ? new Date(row.lastSync).toLocaleString() : "—"}</td>}
                   <td className="py-2.5 px-3 text-right">
                     {row.source === "Catalog" && (
                       <div className="flex items-center justify-end gap-2">
@@ -241,48 +395,25 @@ function AllInstalledTab() {
 
       {/* Mobile cards */}
       <div className="md:hidden space-y-3">
-        {filtered.map(row => (
-          <div key={row.id} className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl p-4">
-            <div className="flex items-start justify-between mb-2">
-              <div className="flex-1 min-w-0 mr-3">
-                <p className="font-medium text-[#f2f2f2] text-sm truncate">{row.name}</p>
-                <p className="text-xs text-[#9e9e9e] font-mono truncate mt-0.5">{row.namespace}</p>
-              </div>
-              <StatusBadge status={row.health} />
-            </div>
-            <div className="flex items-center gap-2 mb-3">
-              <StatusBadge status={row.syncStatus} />
-              <span className={cn(
-                "px-2 py-0.5 rounded text-xs font-medium",
-                row.source === "Catalog"
-                  ? "bg-blue-500/10 text-blue-400 border border-blue-500/20"
-                  : "bg-purple-500/10 text-purple-400 border border-purple-500/20"
-              )}>
-                {row.source}
-              </span>
-            </div>
-            {row.source === "Catalog" && (
-              <div className="flex gap-2">
-                <button
-                  onClick={() => void handleSync(row.name)}
-                  disabled={syncingApp === row.name}
-                  className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs border border-[#333] text-[#9e9e9e] hover:text-white hover:border-[#555] transition-colors min-h-[44px] disabled:opacity-50"
-                >
-                  {syncingApp === row.name ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-                  Sync
-                </button>
-                <button
-                  onClick={() => void handleDelete(row.name)}
-                  disabled={deletingApp === row.name}
-                  className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors min-h-[44px] disabled:opacity-50"
-                >
-                  {deletingApp === row.name ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <X className="w-3.5 h-3.5" />}
-                  Delete
-                </button>
-              </div>
-            )}
-          </div>
-        ))}
+        <AnimatePresence>
+          {filtered.map((row, index) => (
+            <motion.div
+              key={row.id}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: Math.min(index * 0.05, 0.25), duration: 0.2 }}
+            >
+              <SwipeableAppCard
+                row={row}
+                syncingApp={syncingApp}
+                deletingApp={deletingApp}
+                onSync={handleSync}
+                onDelete={handleDelete}
+                isOptimisticSyncing={optimisticSyncing.has(row.name)}
+              />
+            </motion.div>
+          ))}
+        </AnimatePresence>
       </div>
     </div>
   );

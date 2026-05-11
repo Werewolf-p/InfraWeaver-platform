@@ -1,5 +1,5 @@
 "use client";
-import React from "react";
+import React, { useRef } from "react";
 import { cn } from "@/lib/utils";
 
 interface Tab {
@@ -17,8 +17,29 @@ interface SectionTabsProps {
 }
 
 export function SectionTabs({ tabs, activeTab, onTabChange, className }: SectionTabsProps) {
+  const touchStartX = useRef(0);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX;
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    const delta = e.changedTouches[0].clientX - touchStartX.current;
+    if (Math.abs(delta) < 50) return;
+    const currentIndex = tabs.findIndex(t => t.value === activeTab);
+    if (delta < 0 && currentIndex < tabs.length - 1) {
+      onTabChange(tabs[currentIndex + 1].value);
+    } else if (delta > 0 && currentIndex > 0) {
+      onTabChange(tabs[currentIndex - 1].value);
+    }
+  };
+
   return (
-    <div className={cn("border-b border-[#2a2a2a] flex overflow-x-auto scrollbar-none flex-shrink-0", className)}>
+    <div
+      className={cn("border-b border-[#2a2a2a] flex overflow-x-auto scrollbar-none flex-shrink-0", className)}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+    >
       {tabs.map(tab => {
         const Icon = tab.icon;
         const active = activeTab === tab.value;

@@ -6,6 +6,8 @@ import { Server, RefreshCw } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { CommandBar } from "@/components/ui/command-bar";
 import { cn } from "@/lib/utils";
+import { useSimpleMode } from "@/contexts/simple-mode-context";
+import { PodRowSkeleton } from "@/components/ui/skeleton-card";
 
 interface Pod {
   name: string;
@@ -29,6 +31,7 @@ export default function PodsPage() {
   const [nsFilter, setNsFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [search, setSearch] = useState("");
+  const { simpleMode, toggle } = useSimpleMode();
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ["pods"],
@@ -49,7 +52,13 @@ export default function PodsPage() {
     (!search || p.name.toLowerCase().includes(search.toLowerCase()))
   );
 
-  if (isLoading) return <div className="space-y-4">{[...Array(6)].map((_, i) => <div key={i} className="h-14 rounded-xl bg-white/5 animate-pulse" />)}</div>;
+  if (isLoading) return (
+    <div className="bg-slate-900/60 border border-white/10 rounded-xl overflow-hidden">
+      <table className="w-full">
+        <tbody>{[...Array(6)].map((_, i) => <PodRowSkeleton key={i} />)}</tbody>
+      </table>
+    </div>
+  );
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
@@ -67,6 +76,17 @@ export default function PodsPage() {
               {statuses.map(s => <option key={s} value={s}>{s === "all" ? "All statuses" : s}</option>)}
             </select>
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search pods..." className="px-3 py-2 rounded-lg bg-[#0f0f0f] border border-[#333] text-sm text-[#f2f2f2] placeholder:text-[#555] outline-none focus:border-[#0078D4]/50 w-48" />
+              <button
+                onClick={toggle}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-medium transition-colors",
+                  simpleMode
+                    ? "border-indigo-500/30 bg-indigo-500/10 text-indigo-400"
+                    : "border-[#333] text-[#666] hover:text-[#9e9e9e]"
+                )}
+              >
+                {simpleMode ? "Simple" : "Advanced"}
+              </button>
           </div>
         }
       />
@@ -79,8 +99,8 @@ export default function PodsPage() {
             <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400">Name</th>
             <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400">Namespace</th>
             <th className="text-center px-4 py-3 text-xs font-semibold text-slate-400">Status</th>
-            <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400">Node</th>
-            <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400">Containers</th>
+            {!simpleMode && <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400">Node</th>}
+            {!simpleMode && <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400">Containers</th>}
           </tr></thead>
           <tbody>
             {filtered.map(p => (
@@ -90,8 +110,8 @@ export default function PodsPage() {
                 <td className="px-4 py-3 text-center">
                   <span className={cn("text-xs px-2 py-0.5 rounded-full border", statusColor(p.status))}>{p.status}</span>
                 </td>
-                <td className="px-4 py-3 text-xs text-slate-500">{p.nodeName}</td>
-                <td className="px-4 py-3 text-xs text-slate-400">{Array.isArray(p.containers) ? p.containers.join(", ") : ""}</td>
+                {!simpleMode && <td className="px-4 py-3 text-xs text-slate-500">{p.nodeName}</td>}
+                {!simpleMode && <td className="px-4 py-3 text-xs text-slate-400">{Array.isArray(p.containers) ? p.containers.join(", ") : ""}</td>}
               </tr>
             ))}
           </tbody>
