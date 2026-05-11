@@ -356,9 +356,12 @@ fi
           # Write least-privilege policy for ESO (use env to properly pass VAULT_TOKEN/VAULT_ADDR)
 kubectl --kubeconfig "$KB" exec -n openbao openbao-0 -- \
   env VAULT_TOKEN="$ROOT_TOKEN" VAULT_ADDR=http://127.0.0.1:8200 sh -c \
-  "printf 'path \"%s\" {\n  capabilities = [\"read\", \"list\"]\n}\n' \
-     'secret/data/platform/*' 'secret/metadata/platform/*' | \
-   bao policy write platform-k8s -"
+  'bao policy write platform-k8s - <<EOF
+path "secret/data/platform/*" { capabilities = ["read","list"] }
+path "secret/metadata/platform/*" { capabilities = ["read","list"] }
+path "secret/data/infraweaver/*" { capabilities = ["read","list","create","update","delete"] }
+path "secret/metadata/infraweaver/*" { capabilities = ["read","list","create","update","delete"] }
+EOF'
 echo "==> ESO policy platform-k8s written"
 
 # Tune token auth to allow long-lived tokens (use bao CLI)
