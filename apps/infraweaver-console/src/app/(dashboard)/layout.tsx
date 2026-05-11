@@ -8,37 +8,16 @@ import { useRouter, usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import Link from "next/link";
-import { LayoutDashboard, Box, Activity, Network, Cog, X, ShieldCheck, Server, Users, Home, AlertTriangle, Gamepad2 } from "lucide-react";
+import { X, AlertTriangle, Grid3X3 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import { CommandPalette } from "@/components/command-palette";
 import { KeyboardShortcutsProvider } from "@/components/keyboard-shortcuts-modal";
 import { SimpleModeProvider } from "@/contexts/simple-mode-context";
-import { TrendingUp } from "lucide-react";
+import { MOBILE_BOTTOM_NAV, MOBILE_DRAWER_NAV } from "@/lib/nav-config";
 
-const mobileNavItems = [
-  { href: "/home", icon: Home, label: "Home" },
-  { href: "/", icon: LayoutDashboard, label: "Dashboard" },
-  { href: "/apps", icon: Box, label: "Apps" },
-  { href: "/health", icon: Activity, label: "Health" },
-  { href: "/network", icon: Network, label: "Network" },
-  { href: "/config", icon: Cog, label: "Config" },
-];
-
-const drawerNavItems = [
-  { href: "/home", icon: Home, label: "Home Portal" },
-  { href: "/", icon: LayoutDashboard, label: "Dashboard" },
-  { href: "/apps", icon: Box, label: "Applications" },
-  { href: "/health", icon: Activity, label: "Health" },
-  { href: "/network", icon: Network, label: "Network" },
-  { href: "/config", icon: Cog, label: "Config Editor" },
-  { href: "/security", icon: ShieldCheck, label: "Security" },
-  { href: "/cluster", icon: Server, label: "Cluster" },
-  { href: "/users", icon: Users, label: "User Management" },
-  { href: "/gameservers", icon: Gamepad2, label: "Port Routing" },
-  { href: "/uptime", icon: TrendingUp, label: "Uptime History" },
-  { href: "/certificates", icon: ShieldCheck, label: "Certificates" },
-];
+const mobileNavItems = MOBILE_BOTTOM_NAV;
+const drawerNavItems = MOBILE_DRAWER_NAV;
 
 function StatusBar() {
   const [time, setTime] = useState(new Date());
