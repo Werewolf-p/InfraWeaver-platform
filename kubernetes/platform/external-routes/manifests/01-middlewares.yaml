@@ -93,11 +93,16 @@ spec:
 # (that is highly app-specific and must be configured per-app if needed).
 #
 # Headers applied:
-#   HSTS          — forces HTTPS for 1 year, including subdomains
+#   HSTS          — forces HTTPS for 2 years, including subdomains, with preload
 #   X-Frame-Options — blocks your app from being embedded in iframes (clickjacking)
 #   X-Content-Type-Options — prevents MIME-type sniffing attacks
 #   Referrer-Policy — only send referrer to same-origin requests
 #   Permissions-Policy — disable sensitive browser APIs not needed by most apps
+#   X-Robots-Tag — prevents admin portals from being indexed by search engines
+#   X-Powered-By — cleared to prevent server technology fingerprinting
+#
+# Note: X-XSS-Protection removed — deprecated in modern browsers and can cause
+#       security issues on some setups. CSP is the correct mitigation.
 #
 # Usage in IngressRoute:
 #   middlewares:
@@ -111,12 +116,13 @@ metadata:
 spec:
   headers:
     customResponseHeaders:
-      Strict-Transport-Security: "max-age=31536000; includeSubDomains"
-      X-Frame-Options: "SAMEORIGIN"
+      Strict-Transport-Security: "max-age=63072000; includeSubDomains; preload"
+      X-Frame-Options: "DENY"
       X-Content-Type-Options: "nosniff"
       Referrer-Policy: "strict-origin-when-cross-origin"
-      Permissions-Policy: "geolocation=(), microphone=(), camera=(), payment=()"
-      X-XSS-Protection: "1; mode=block"
+      Permissions-Policy: "geolocation=(), microphone=(), camera=(), payment=(), usb=(), bluetooth=()"
+      X-Robots-Tag: "noindex, nofollow"
+      X-Powered-By: ""
 ---
 # Middleware: forward-auth — Authentik proxy auth for any logged-in user.
 #

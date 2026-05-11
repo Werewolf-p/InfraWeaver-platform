@@ -7,12 +7,14 @@ const SECURITY_HEADERS: Record<string, string> = {
   "X-Frame-Options": "DENY",
   "X-Content-Type-Options": "nosniff",
   "Referrer-Policy": "strict-origin-when-cross-origin",
-  "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=()",
+  "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=(), bluetooth=()",
   "Strict-Transport-Security": "max-age=63072000; includeSubDomains; preload",
   "X-DNS-Prefetch-Control": "off",
   "X-Download-Options": "noopen",
   "Cross-Origin-Embedder-Policy": "unsafe-none",
   "Cross-Origin-Opener-Policy": "same-origin-allow-popups",
+  // Prevent admin portal from being indexed by search engines
+  "X-Robots-Tag": "noindex, nofollow",
 };
 
 // auth() handles the session check and redirects unauthenticated users to sign-in.
@@ -20,9 +22,19 @@ const SECURITY_HEADERS: Record<string, string> = {
 export default auth((req) => {
   void req;
   const response = NextResponse.next();
+
+  // Inject all security headers on every authenticated response
   for (const [key, value] of Object.entries(SECURITY_HEADERS)) {
     response.headers.set(key, value);
   }
+
+  // API routes must never be cached — they return live data per authenticated user
+  if (req.nextUrl.pathname.startsWith("/api/")) {
+    response.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    response.headers.set("Pragma", "no-cache");
+    response.headers.set("Expires", "0");
+  }
+
   return response;
 });
 

@@ -1,9 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { hasPermission } from "@/lib/rbac";
+import { z } from "zod";
 
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN ?? "";
 const GITHUB_REPO = process.env.GITHUB_REPO ?? "Werewolf-p/InfraWeaver-platform";
+
+// K8s / filesystem safe names
+const K8S_NAME_RE = /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/;
+const SAFE_PATH_RE = /^[a-zA-Z0-9_/-]{1,200}$/;
+
+const AssignBody = z.object({
+  username:      z.string().min(1).max(63).regex(K8S_NAME_RE, "Invalid username"),
+  provider:      z.enum(["synology", "truenas"]),
+  share:         z.string().min(1).max(63).regex(/^[a-zA-Z0-9_-]+$/, "Invalid share name"),
+  subfolder:     z.string().min(1).max(200).regex(SAFE_PATH_RE).optional(),
+  access:        z.enum(["readonly", "readwrite"]),
+  pvc_namespace: z.string().min(1).max(63).regex(K8S_NAME_RE).optional(),
+  pvc_name:      z.string().min(1).max(253).regex(K8S_NAME_RE).optional(),
+});
+
+const DeleteBody = z.object({
+  username: z.string().min(1).max(63).regex(K8S_NAME_RE),
+  provider: z.string().min(1).max(30),
+  share:    z.string().min(1).max(63).regex(/^[a-zA-Z0-9_-]+$/),
+  subfolder: z.string().min(1).max(200).regex(SAFE_PATH_RE).optional(),
+});
 
 interface NasShareAssignment {
   provider: "synology" | "truenas";
@@ -130,20 +152,13 @@ export async function POST(req: NextRequest) {
   if (!hasPermission(groups, "users:write")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   try {
-    const body = await req.json() as {
-      username: string;
-      provider: "synology" | "truenas";
-      share: string;
-      subfolder?: string;
-      access: "readonly" | "readwrite";
-      pvc_namespace?: string;
-      pvc_name?: string;
-    };
+    const parsed = AssignBody.safeParse(await req.json());
+    if (!parsed.success) {
+      return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+    }
+    const body = parsed.data;
 
     const { username, provider, share, access } = body;
-    if (!username || !provider || !share || !access) {
-      return NextResponse.json({ error: "username, provider, share, access are required" }, { status: 400 });
-    }
 
     const subfolder = body.subfolder ?? username;
     const pvc_namespace = body.pvc_namespace ?? "plex";
@@ -158,13 +173,13 @@ export async function POST(req: NextRequest) {
 
     const content = Buffer.from(usersFile.content, "base64").toString("utf-8");
     const yaml = await import("js-yaml");
-    const parsed = yaml.load(content) as { users?: Record<string, Record<string, unknown>> };
-    if (!parsed?.users?.[username]) {
+    const usersData = yaml.load(content) as { users?: Record<string, Record<string, unknown>> };
+    if (!usersData?.users?.[username]) {
       return NextResponse.json({ error: `User '${username}' not found` }, { status: 404 });
     }
 
     // 2. Add nas_shares entry
-    const userData = parsed.users[username];
+    const userData = usersData.users[username];
     const existingShares = (userData.nas_shares as NasShareAssignment[]) ?? [];
     const newAssignment: NasShareAssignment = {
       provider,
@@ -175,7 +190,7 @@ export async function POST(req: NextRequest) {
       pvc_name,
       created_at: new Date().toISOString(),
     };
-    parsed.users[username].nas_shares = [...existingShares, newAssignment];
+    usersData.users[username].nas_shares = [...existingShares, newAssignment];
 
     // 3. Generate K8s manifest
     const manifestContent = generateK8sManifest({ username, provider, share, subfolder, pvc_name, pvc_namespace, host, access });
@@ -191,7 +206,7 @@ export async function POST(req: NextRequest) {
     );
 
     // 5. Update users.yaml
-    const newUsersContent = yaml.dump(parsed, { lineWidth: -1, indent: 2 });
+    const newUsersContent = yaml.dump(usersData, { lineWidth: -1, indent: 2 });
     await putFileToGitHub(
       "users.yaml",
       newUsersContent,
@@ -219,18 +234,13 @@ export async function DELETE(req: NextRequest) {
   if (!hasPermission(groups, "users:write")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   try {
-    const body = await req.json() as {
-      username: string;
-      provider: string;
-      share: string;
-      subfolder?: string;
-    };
+    const parsedBody = DeleteBody.safeParse(await req.json());
+    if (!parsedBody.success) {
+      return NextResponse.json({ error: parsedBody.error.flatten() }, { status: 400 });
+    }
+    const body = parsedBody.data;
     const { username, provider, share } = body;
     const subfolder = body.subfolder ?? username;
-
-    if (!username || !provider || !share) {
-      return NextResponse.json({ error: "username, provider, share are required" }, { status: 400 });
-    }
 
     // 1. Read users.yaml
     const usersFile = await getFileFromGitHub("users.yaml");
@@ -238,11 +248,11 @@ export async function DELETE(req: NextRequest) {
 
     const content = Buffer.from(usersFile.content, "base64").toString("utf-8");
     const yaml = await import("js-yaml");
-    const parsed = yaml.load(content) as { users?: Record<string, Record<string, unknown>> };
+    const usersData = yaml.load(content) as { users?: Record<string, Record<string, unknown>> };
 
-    if (parsed?.users?.[username]) {
-      const existing = (parsed.users[username].nas_shares as NasShareAssignment[]) ?? [];
-      parsed.users[username].nas_shares = existing.filter(
+    if (usersData?.users?.[username]) {
+      const existing = (usersData.users[username].nas_shares as NasShareAssignment[]) ?? [];
+      usersData.users[username].nas_shares = existing.filter(
         s => !(s.provider === provider && s.share === share && (s.subfolder ?? username) === subfolder)
       );
     }
@@ -255,7 +265,7 @@ export async function DELETE(req: NextRequest) {
     }
 
     // 3. Update users.yaml
-    const newUsersContent = yaml.dump(parsed, { lineWidth: -1, indent: 2 });
+    const newUsersContent = yaml.dump(usersData, { lineWidth: -1, indent: 2 });
     await putFileToGitHub(
       "users.yaml",
       newUsersContent,

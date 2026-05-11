@@ -16,8 +16,12 @@ async function fetchInsecure(url: string, init?: RequestInit): Promise<Response>
 async function synologyLogin(): Promise<string | null> {
   const host = process.env.SYNOLOGY_HOST ?? "10.25.0.21";
   const port = process.env.SYNOLOGY_PORT ?? "5001";
-  const user = encodeURIComponent(process.env.SYNOLOGY_USER ?? "Remon");
-  const pass = encodeURIComponent(process.env.SYNOLOGY_PASSWORD ?? "CodeRE52");
+  const user = encodeURIComponent(process.env.SYNOLOGY_USER ?? "");
+  const pass = encodeURIComponent(process.env.SYNOLOGY_PASSWORD ?? "");
+  if (!user || !pass) {
+    console.error("Synology credentials not configured (SYNOLOGY_USER / SYNOLOGY_PASSWORD env vars missing)");
+    return null;
+  }
   try {
     const url = `https://${host}:${port}/webapi/auth.cgi?api=SYNO.API.Auth&version=3&method=login&account=${user}&passwd=${pass}&session=FileStation&format=sid`;
     const res = await fetchInsecure(url);
