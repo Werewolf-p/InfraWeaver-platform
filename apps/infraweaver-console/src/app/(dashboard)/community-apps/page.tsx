@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useTransition, useEffect } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -149,7 +149,12 @@ function DeployModal({
   onClose: () => void;
 }) {
   const [step, setStep] = useState<"options" | "preview" | "deploying" | "done">("options");
-  const [isPending, startTransition] = useTransition();
+  // NOTE: useTransition with async callbacks does NOT keep isPending=true for the
+  // full duration of the await in React 18 — it only tracks the synchronous part.
+  // Use explicit loading state instead so the spinner persists during the fetch.
+  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
+  const [isDeployLoading, setIsDeployLoading] = useState(false);
+  const isPending = isPreviewLoading || isDeployLoading;
   const [options, setOptions] = useState<DeployOptions>({
     namespace: app.slug,
     pvcSizeGi: 10,
@@ -160,47 +165,49 @@ function DeployModal({
   const [preview, setPreview] = useState<ConversionResult | null>(null);
   const [deployResult, setDeployResult] = useState<{ paths: string[]; warnings: string[] } | null>(null);
 
-  const handlePreview = () => {
-    startTransition(async () => {
-      try {
-        const res = await fetch("/api/community-apps/convert", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ appName: app.name, ...options }),
-        });
-        const data = await res.json() as ConversionResult & { error?: string };
-        if (!res.ok) { toast.error(data.error ?? "Conversion failed"); return; }
-        setPreview(data);
-        setStep("preview");
-      } catch {
-        toast.error("Failed to generate preview");
-      }
-    });
+  const handlePreview = async () => {
+    setIsPreviewLoading(true);
+    try {
+      const res = await fetch("/api/community-apps/convert", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ appName: app.name, ...options }),
+      });
+      const data = await res.json() as ConversionResult & { error?: string };
+      if (!res.ok) { toast.error(data.error ?? "Conversion failed"); return; }
+      setPreview(data);
+      setStep("preview");
+    } catch {
+      toast.error("Failed to generate preview — AppFeed may still be loading, try again");
+    } finally {
+      setIsPreviewLoading(false);
+    }
   };
 
-  const handleDeploy = () => {
+  const handleDeploy = async () => {
+    setIsDeployLoading(true);
     setStep("deploying");
-    startTransition(async () => {
-      try {
-        const res = await fetch("/api/community-apps/deploy", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ appName: app.name, ...options }),
-        });
-        const data = await res.json() as { ok?: boolean; paths?: string[]; warnings?: string[]; error?: string };
-        if (!res.ok) {
-          toast.error(data.error ?? "Deploy failed");
-          setStep("preview");
-          return;
-        }
-        setDeployResult({ paths: data.paths ?? [], warnings: data.warnings ?? [] });
-        setStep("done");
-        toast.success(`${app.name} committed to Git — ArgoCD will deploy it shortly`);
-      } catch {
-        toast.error("Deploy request failed");
+    try {
+      const res = await fetch("/api/community-apps/deploy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ appName: app.name, ...options }),
+      });
+      const data = await res.json() as { ok?: boolean; paths?: string[]; warnings?: string[]; error?: string };
+      if (!res.ok) {
+        toast.error(data.error ?? "Deploy failed");
         setStep("preview");
+        return;
       }
-    });
+      setDeployResult({ paths: data.paths ?? [], warnings: data.warnings ?? [] });
+      setStep("done");
+      toast.success(`${app.name} committed to Git — ArgoCD will deploy it shortly`);
+    } catch {
+      toast.error("Deploy request failed");
+      setStep("preview");
+    } finally {
+      setIsDeployLoading(false);
+    }
   };
 
   return (
@@ -250,7 +257,16 @@ function DeployModal({
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-5">
-          {step === "options" && (
+          {/* Loading overlay for AppFeed download (first-time only, takes 5-30s) */}
+          {isPreviewLoading && (
+            <div className="flex flex-col items-center justify-center py-12 gap-3">
+              <Loader2 className="w-8 h-8 animate-spin text-blue-400" />
+              <p className="text-white/70 text-sm font-medium">Generating YAML preview…</p>
+              <p className="text-white/40 text-xs text-center max-w-xs">First run downloads the AppFeed index (~33MB). This may take up to 30 seconds.</p>
+            </div>
+          )}
+
+          {step === "options" && !isPreviewLoading && (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -331,12 +347,18 @@ function DeployModal({
                   ))}
                 </div>
               )}
-              <div className="h-[380px] rounded-lg overflow-hidden border border-white/10">
+              <div className="h-[380px] rounded-lg overflow-hidden border border-white/10 relative">
+                {isPreviewLoading && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-[#1e1e1e] z-10">
+                    <Loader2 className="w-6 h-6 animate-spin text-blue-400" />
+                  </div>
+                )}
                 <MonacoEditor
                   height="100%"
                   language="yaml"
                   value={preview.combinedYaml}
                   theme="vs-dark"
+                  loading={<div className="flex items-center justify-center h-full bg-[#1e1e1e]"><Loader2 className="w-6 h-6 animate-spin text-blue-400" /></div>}
                   options={{
                     readOnly: true,
                     minimap: { enabled: false },
