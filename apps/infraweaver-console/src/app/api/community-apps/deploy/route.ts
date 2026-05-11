@@ -1,0 +1,203 @@
+/**
+ * POST /api/community-apps/deploy
+ *
+ * Commits a converted AppFeed app to the platform Git repository so ArgoCD
+ * picks it up and deploys it to the cluster.
+ *
+ * Files committed:
+ *   kubernetes/catalog/<slug>/manifests/deployment.yaml  ← Deployment + (Service if ports)
+ *   kubernetes/catalog/<slug>/manifests/pvc.yaml         ← PVCs (if Path configs present)
+ *   kubernetes/catalog/<slug>/manifests/ingressroute.yaml ← Traefik route (if WebUI/ports)
+ *   kubernetes/catalog/<slug>/catalog.yaml               ← catalog metadata
+ */
+
+import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@/lib/auth";
+import { hasPermission } from "@/lib/rbac";
+import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
+import { auditLog } from "@/lib/audit-log";
+import { z } from "zod";
+import { convertAppFeedEntry, type AppFeedEntry } from "@/lib/appfeed-converter";
+
+const APPFEED_URL = "https://raw.githubusercontent.com/Squidly271/AppFeed/master/applicationFeed.json";
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN ?? "";
+const GITHUB_REPO = process.env.GITHUB_REPO ?? "Werewolf-p/InfraWeaver-platform";
+
+const DeployBody = z.object({
+  appName: z.string().min(1).max(200),
+  namespace: z.string().min(1).max(63).regex(/^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/).optional(),
+  pvcSizeGi: z.number().int().min(1).max(10000).optional(),
+  storageClass: z.string().max(63).optional(),
+  ingressHost: z.string().max(253).optional(),
+  createIngress: z.boolean().optional(),
+});
+
+interface GitHubFile {
+  sha?: string;
+}
+
+async function ghGet(path: string): Promise<GitHubFile | null> {
+  const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/contents/${path}`, {
+    headers: {
+      Authorization: `Bearer ${GITHUB_TOKEN}`,
+      Accept: "application/vnd.github.v3+json",
+    },
+    cache: "no-store",
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`GitHub GET ${path}: ${res.status}`);
+  return res.json() as Promise<GitHubFile>;
+}
+
+async function ghPut(path: string, content: string, message: string, sha?: string): Promise<void> {
+  const body: Record<string, unknown> = {
+    message,
+    content: Buffer.from(content).toString("base64"),
+    committer: { name: "InfraWeaver Console", email: "console@rlservers.com" },
+  };
+  if (sha) body.sha = sha;
+  const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/contents/${path}`, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${GITHUB_TOKEN}`,
+      Accept: "application/vnd.github.v3+json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`GitHub PUT ${path}: ${res.status} — ${text}`);
+  }
+}
+
+async function findAppInFeed(name: string): Promise<AppFeedEntry | null> {
+  const res = await fetch(APPFEED_URL, {
+    next: { revalidate: 7200 },
+    headers: { "User-Agent": "InfraWeaver-Console/1.0" },
+  });
+  if (!res.ok) return null;
+  const feed = await res.json() as { applist: AppFeedEntry[] };
+  const lower = name.toLowerCase();
+  return feed.applist.find(a => typeof a.Name === "string" && a.Name.toLowerCase() === lower) ?? null;
+}
+
+export async function POST(req: NextRequest) {
+  const session = await auth();
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
+  if (!hasPermission(groups, "catalog:write")) {
+    return NextResponse.json({ error: "Forbidden: catalog:write permission required" }, { status: 403 });
+  }
+
+  if (!checkRateLimit(rateLimitKey("community-deploy", req), 5, 60_000)) {
+    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
+  }
+
+  const parsed = DeployBody.safeParse(await req.json());
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+  }
+  const { appName, namespace, pvcSizeGi, storageClass, ingressHost, createIngress } = parsed.data;
+
+  const app = await findAppInFeed(appName);
+  if (!app) {
+    return NextResponse.json({ error: `App "${appName}" not found in AppFeed` }, { status: 404 });
+  }
+
+  const slug = app.Name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 63);
+  const ns = namespace ?? slug;
+
+  const result = convertAppFeedEntry(app, {
+    namespace: ns,
+    pvcSizeGi,
+    storageClass,
+    ingressHost,
+    createIngress,
+  });
+
+  const baseDir = `kubernetes/catalog/${slug}/manifests`;
+
+  // Build catalog.yaml metadata
+  const catalogYaml = `# Community app installed from Unraid AppFeed
+# Source: ${app.Repository}
+name: ${slug}
+description: "${(app.Overview ?? "").slice(0, 200).replace(/"/g, "'")}"
+namespace: ${ns}
+source: community-apps
+tier: ${result.tier}
+image: ${app.Repository}
+categories:
+${(app.CategoryList ?? []).map(c => `  - "${c}"`).join("\n")}
+${result.manifests.ingressroute ? `ingressroute:\n  host: ${ingressHost ?? `${slug}.int.rlservers.com`}` : ""}
+installed_at: ${new Date().toISOString()}
+`;
+
+  try {
+    // Commit all manifest files in parallel where possible
+    const files: Array<[string, string]> = [
+      [`${baseDir}/deployment.yaml`, result.manifests.deployment],
+    ];
+
+    if (result.manifests.service) {
+      files.push([`${baseDir}/deployment.yaml`,
+        result.manifests.deployment + "\n" + result.manifests.service]);
+      // Actually combine deployment + service into deployment.yaml
+    }
+
+    if (result.manifests.pvcs.length > 0) {
+      files.push([`${baseDir}/pvc.yaml`, result.manifests.pvcs.join("\n")]);
+    }
+
+    if (result.manifests.ingressroute) {
+      files.push([`${baseDir}/ingressroute.yaml`, result.manifests.ingressroute]);
+    }
+
+    files.push([`kubernetes/catalog/${slug}/catalog.yaml`, catalogYaml]);
+
+    // Combine deployment + service into one file
+    const deploymentWithService = result.manifests.service
+      ? result.manifests.deployment + "\n" + result.manifests.service
+      : result.manifests.deployment;
+
+    const allFiles: Array<[string, string]> = [
+      [`${baseDir}/deployment.yaml`, deploymentWithService],
+    ];
+    if (result.manifests.pvcs.length > 0) {
+      allFiles.push([`${baseDir}/pvc.yaml`, result.manifests.pvcs.join("\n")]);
+    }
+    if (result.manifests.ingressroute) {
+      allFiles.push([`${baseDir}/ingressroute.yaml`, result.manifests.ingressroute]);
+    }
+    allFiles.push([`kubernetes/catalog/${slug}/catalog.yaml`, catalogYaml]);
+
+    // Commit sequentially to avoid SHA conflicts
+    for (const [filePath, content] of allFiles) {
+      const existing = await ghGet(filePath);
+      await ghPut(
+        filePath,
+        content,
+        `feat(community-apps): install ${slug} from AppFeed`,
+        existing?.sha
+      );
+    }
+
+    await auditLog(
+      "community-apps:deploy",
+      session.user?.email ?? "unknown",
+      `Deployed ${appName} (${app.Repository}) → kubernetes/catalog/${slug}/`
+    );
+
+    return NextResponse.json({
+      ok: true,
+      slug,
+      namespace: ns,
+      tier: result.tier,
+      warnings: result.warnings,
+      paths: allFiles.map(([p]) => p),
+      argocdNote: `ArgoCD will auto-sync this app once the files are committed. If not, run: argocd app sync catalog-${slug}-manifests`,
+    });
+  } catch (err) {
+    return NextResponse.json({ error: String(err) }, { status: 500 });
+  }
+}

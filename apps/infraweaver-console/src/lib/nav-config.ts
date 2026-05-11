@@ -4,7 +4,7 @@ import {
   Package, FileText, ShieldCheck, Server, PlusCircle,
   Sparkles, Home, UserCircle, BarChart2, Trash2, GitBranch,
   DollarSign, Globe, BellOff, Shield, AlertTriangle,
-  Calendar, TrendingUp, Gamepad2, Search,
+  Calendar, TrendingUp, Gamepad2, Search, Store,
 } from "lucide-react";
 
 export interface NavItem {
@@ -38,6 +38,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/", icon: LayoutDashboard, label: "Dashboard", shortcut: "G D", description: "Real-time cluster metrics and status", pinnable: true },
       { href: "/apps", icon: Box, label: "Applications", shortcut: "G A", description: "All deployed applications", pinnable: true },
       { href: "/catalog-install", icon: PlusCircle, label: "App Installer", shortcut: "G I", description: "One-click catalog app deployment" },
+      { href: "/community-apps", icon: Store, label: "Community Apps", shortcut: "G U", description: "Browse 3,500+ Unraid apps — convert & deploy to Kubernetes", pinnable: true },
       { href: "/events", icon: History, label: "Activity Log", shortcut: "G E", description: "Cluster events and audit trail" },
       { href: "/status", icon: Activity, label: "Platform Status", shortcut: "", description: "Live health of all platform services", pinnable: true },
     ],
