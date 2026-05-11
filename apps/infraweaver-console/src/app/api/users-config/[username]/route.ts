@@ -4,6 +4,9 @@ import { hasPermission } from "@/lib/rbac";
 import { auditLog } from "@/lib/audit-log";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 
+// Authentik username: alphanumeric, dots, hyphens, underscores, @-sign
+const SAFE_USERNAME_RE = /^[\w.@+-]{1,150}$/;
+
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN ?? "";
 const GITHUB_REPO = process.env.GITHUB_REPO ?? "Werewolf-p/InfraWeaver-platform";
 const USERS_FILE_PATH = "users.yaml";
@@ -61,6 +64,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ user
   const { username } = await params;
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!SAFE_USERNAME_RE.test(username)) {
+    return NextResponse.json({ error: "Invalid username" }, { status: 400 });
+  }
   const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
   if (!hasPermission(groups, "users:write")) {
     return NextResponse.json({ error: "Forbidden: admin required" }, { status: 403 });
@@ -114,6 +120,9 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ u
   const { username } = await params;
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!SAFE_USERNAME_RE.test(username)) {
+    return NextResponse.json({ error: "Invalid username" }, { status: 400 });
+  }
   const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
   if (!hasPermission(groups, "users:write")) {
     return NextResponse.json({ error: "Forbidden: admin required" }, { status: 403 });
