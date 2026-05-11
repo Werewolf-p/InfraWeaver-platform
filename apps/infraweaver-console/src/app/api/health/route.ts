@@ -1,11 +1,10 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 
 const GATUS_URL = process.env.GATUS_URL ?? "http://gatus.gatus.svc.cluster.local:8080";
 
+// NOTE: This endpoint is intentionally public — used as the k8s liveness/readiness probe.
+// Sensitive health data (timeline, cluster status) is protected on separate authenticated routes.
 export async function GET() {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
     const res = await fetch(`${GATUS_URL}/api/v1/endpoints/statuses`, {
