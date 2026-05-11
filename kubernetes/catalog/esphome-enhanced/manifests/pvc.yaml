@@ -1,0 +1,66 @@
+---
+# PVC for "Config Folder" → /config
+# Default path on Unraid: /mnt/user/appdata/esphome-enhanced
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: esphome-enhanced-data-0
+  namespace: esphome-enhanced
+  labels:
+    app.kubernetes.io/name: esphome-enhanced
+    app.kubernetes.io/component: storage
+    infraweaver.io/source: community-apps
+  annotations:
+    infraweaver.io/unraid-path: "/mnt/user/appdata/esphome-enhanced"
+    infraweaver.io/required: "true"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 10Gi
+---
+# PVC for "Data Folder" → /data
+# Default path on Unraid: /mnt/user/appdata/esphome-enhanced-data
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: esphome-enhanced-data-1
+  namespace: esphome-enhanced
+  labels:
+    app.kubernetes.io/name: esphome-enhanced
+    app.kubernetes.io/component: storage
+    infraweaver.io/source: community-apps
+  annotations:
+    infraweaver.io/unraid-path: "/mnt/user/appdata/esphome-enhanced-data"
+    infraweaver.io/required: "false"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 10Gi
+---
+# PVC for "Cache Folder" → /cache
+# Default path on Unraid: /dev/shm/esphome-enh-cache
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: esphome-enhanced-data-2
+  namespace: esphome-enhanced
+  labels:
+    app.kubernetes.io/name: esphome-enhanced
+    app.kubernetes.io/component: storage
+    infraweaver.io/source: community-apps
+  annotations:
+    infraweaver.io/unraid-path: "/dev/shm/esphome-enh-cache"
+    infraweaver.io/required: "false"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 10Gi
