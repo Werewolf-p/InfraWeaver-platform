@@ -1,5 +1,6 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -11,6 +12,14 @@ import {
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { useSimpleMode } from "@/contexts/simple-mode-context";
+
+/** Renders children at document.body via a portal, bypassing overflow:hidden ancestors (iOS Safari fix). */
+function BodyPortal({ children }: { children: React.ReactNode }) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+  if (!mounted) return null;
+  return createPortal(children, document.body);
+}
 
 const GAME_TYPES = [
   { id: "minecraft", icon: "⛏", label: "Minecraft", color: "green", defaultPorts: [{ port: 25565, protocol: "TCP" as const, name: "game" }] },
@@ -356,6 +365,7 @@ function AddServerDrawer({ open, onClose, onCreated }: { open: boolean; onClose:
 
   const stepLabels = ["Protocol", "Details", "Ports", "Backend", "Routing", "DNS", "Review"];
   const simpleStepLabels = ["Protocol", "Quick Setup", "Create"];
+
   const activeStepLabels = simpleMode ? simpleStepLabels : stepLabels;
   const totalSteps = activeStepLabels.length;
   const effectiveIntIP = internalIP || targetIP;
@@ -366,24 +376,25 @@ function AddServerDrawer({ open, onClose, onCreated }: { open: boolean; onClose:
   };
 
   return (
-    <AnimatePresence>
-      {open && (
-        <>
-          {/* Backdrop — no backdrop-blur (iOS Safari GPU compositing bug can render blur above z-101 siblings) */}
-          <motion.div
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/70 z-[100]"
-            onClick={onClose}
-          />
-          {/* Drawer — CSS grid layout (more reliable than flex for header/scroll/footer on mobile) */}
-          <motion.div
-            initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }}
-            transition={{ type: "spring", damping: 30, stiffness: 300 }}
-            className="fixed inset-y-0 right-0 w-full max-w-xl bg-slate-900 border-l border-slate-700 z-[101] shadow-2xl"
-            style={{ display: "grid", gridTemplateRows: "auto auto 1fr auto" }}
-          >
-            {/* Row 1: Header */}
-            <div className="flex items-center justify-between px-5 py-3 border-b border-slate-700/60">
+    <BodyPortal>
+      <AnimatePresence>
+        {open && (
+          <>
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/70 z-[200]"
+              onClick={onClose}
+            />
+            {/* Drawer — CSS grid layout, portaled to document.body to escape overflow-hidden layout */}
+            <motion.div
+              initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }}
+              transition={{ type: "spring", damping: 30, stiffness: 300 }}
+              className="fixed inset-y-0 right-0 w-full max-w-xl bg-slate-900 border-l border-slate-700 z-[201] shadow-2xl"
+              style={{ display: "grid", gridTemplateRows: "auto auto 1fr auto" }}
+            >
+              {/* Row 1: Header */}
+              <div className="flex items-center justify-between px-5 py-3 border-b border-slate-700/60">
               <div>
                 <h2 className="text-base font-bold text-white">Add Port Route</h2>
                 <p className="text-xs text-slate-400">Step {step} of {totalSteps} — {activeStepLabels[step - 1]}</p>
@@ -424,10 +435,12 @@ function AddServerDrawer({ open, onClose, onCreated }: { open: boolean; onClose:
                   <p className="text-xs text-slate-500 mb-4">Tap a card to select it, then press Next ↓</p>
                   <div className="grid grid-cols-2 gap-3">
                     {GAME_TYPES.filter(gt => gt.id !== "custom").map(gt => (
-                      <button
+                      <div
                         key={gt.id}
-                        type="button"
+                        role="button"
+                        tabIndex={0}
                         onClick={(e) => { e.stopPropagation(); handleGameTypeSelect(gt.id); }}
+                        onKeyDown={(e) => e.key === "Enter" && handleGameTypeSelect(gt.id)}
                         className={cn(
                           "flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all cursor-pointer touch-manipulation select-none",
                           gameType === gt.id
@@ -442,13 +455,15 @@ function AddServerDrawer({ open, onClose, onCreated }: { open: boolean; onClose:
                             <Check className="w-3 h-3" /> Selected
                           </span>
                         )}
-                      </button>
+                      </div>
                     ))}
                   </div>
                   {/* Custom — full width */}
-                  <button
-                    type="button"
+                  <div
+                    role="button"
+                    tabIndex={0}
                     onClick={(e) => { e.stopPropagation(); handleGameTypeSelect("custom"); }}
+                    onKeyDown={(e) => e.key === "Enter" && handleGameTypeSelect("custom")}
                     className={cn(
                       "mt-3 w-full flex items-center justify-center gap-3 p-4 rounded-xl border-2 transition-all cursor-pointer touch-manipulation select-none",
                       gameType === "custom"
@@ -459,7 +474,7 @@ function AddServerDrawer({ open, onClose, onCreated }: { open: boolean; onClose:
                     <span className="text-2xl">🎮</span>
                     <span className={cn("text-sm font-semibold", gameType === "custom" ? "text-indigo-300" : "text-slate-200")}>Custom — I&apos;ll enter ports manually</span>
                     {gameType === "custom" && <Check className="w-4 h-4 text-indigo-400 ml-auto" />}
-                  </button>
+                  </div>
                 </div>
               )}
 
@@ -882,6 +897,7 @@ function AddServerDrawer({ open, onClose, onCreated }: { open: boolean; onClose:
         </>
       )}
     </AnimatePresence>
+  </BodyPortal>
   );
 }
 
@@ -974,7 +990,22 @@ export default function GameServersPage() {
 
       <HowItWorksPanel />
 
-      <div className="rounded-2xl border border-white/10 bg-white/[0.02] overflow-hidden">
+      {/* SNI / hostname routing notice */}
+      <div className="flex gap-3 p-4 rounded-xl bg-amber-500/10 border border-amber-500/30">
+        <Info className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+        <div className="space-y-1 text-xs">
+          <p className="text-amber-300 font-semibold">Hostname-based routing requires SNI (TLS)</p>
+          <p className="text-amber-500/80">
+            DNS routing by hostname works for <strong className="text-amber-400">HTTPS / TLS protocols</strong> that include a Server Name Indication (SNI) header — Traefik reads the hostname and routes to the correct backend IP.
+          </p>
+          <p className="text-amber-500/80">
+            <strong className="text-amber-400">Raw TCP without TLS</strong> (e.g. plain Minecraft, game UDP) has no hostname in the packet — use a <strong className="text-amber-400">dedicated port per server</strong> or enable TLS on your game server instead.
+          </p>
+        </div>
+      </div>
+
+
+      <div className="rounded-2xl bg-slate-800/50 overflow-hidden border border-white/5">
         <div className="flex items-center justify-between px-4 py-3 border-b border-white/5">
           <h2 className="text-sm font-semibold text-white">Servers</h2>
           <span className="text-xs text-slate-500">{servers?.length ?? 0} total</span>
