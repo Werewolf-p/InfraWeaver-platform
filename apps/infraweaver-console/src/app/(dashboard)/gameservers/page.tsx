@@ -377,16 +377,17 @@ function AddServerDrawer({ open, onClose, onCreated }: { open: boolean; onClose:
           <motion.div
             initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }}
             transition={{ type: "spring", damping: 30, stiffness: 300 }}
-            className="fixed right-0 top-0 w-full max-w-xl bg-slate-900 border-l border-white/10 z-[101] flex flex-col shadow-2xl"
-            style={{ height: "100dvh" }}
+            className="fixed inset-y-0 right-0 w-full max-w-xl bg-slate-900 border-l border-white/10 z-[101] flex flex-col shadow-2xl overflow-hidden"
           >
-            <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
+            {/* Header — shrink-0 so it never compresses */}
+            <div className="shrink-0 flex items-center justify-between px-5 py-3 border-b border-white/10">
               <div>
-                <h2 className="text-lg font-bold text-white">Add Port Route</h2>
-                <p className="text-xs text-slate-500 mt-0.5">Step {step} of {totalSteps} — {activeStepLabels[step - 1]}</p>
+                <h2 className="text-base font-bold text-white">Add Port Route</h2>
+                <p className="text-xs text-slate-500">Step {step} of {totalSteps} — {activeStepLabels[step - 1]}</p>
               </div>
               <div className="flex items-center gap-2">
                 <button
+                  type="button"
                   onClick={handleModeToggle}
                   className={cn(
                     "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors",
@@ -398,19 +399,21 @@ function AddServerDrawer({ open, onClose, onCreated }: { open: boolean; onClose:
                   <Zap className="w-3 h-3" />
                   {simpleMode ? "Simple" : "Advanced"}
                 </button>
-                <button onClick={() => { onClose(); resetForm(); }} className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors">
+                <button type="button" onClick={() => { onClose(); resetForm(); }} className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors">
                   <X className="w-5 h-5" />
                 </button>
               </div>
             </div>
 
-            <div className="flex px-6 py-3 gap-1 border-b border-white/5">
+            {/* Progress bar — shrink-0 */}
+            <div className="shrink-0 flex px-5 py-2 gap-1 border-b border-white/5">
               {activeStepLabels.map((_, i) => (
                 <div key={i} className={cn("flex-1 h-1 rounded-full transition-all duration-300", i + 1 <= step ? "bg-indigo-500" : "bg-white/10")} />
               ))}
             </div>
 
-            <div className="flex-1 overflow-y-auto p-6">
+            {/* Scrollable content — min-h-0 is REQUIRED for flex children to scroll */}
+            <div className="flex-1 min-h-0 overflow-y-auto p-5 pb-24">
               {/* Step 1 — same for both modes */}
               {step === 1 && (
                 <div>
@@ -827,7 +830,8 @@ function AddServerDrawer({ open, onClose, onCreated }: { open: boolean; onClose:
               )}
             </div>
 
-            <div className="flex flex-col items-end gap-1 border-t border-white/10 px-6 pt-4 pb-4" style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px) + 16px, 16px)" }}>
+            {/* Footer — shrink-0 so it always stays at the bottom */}
+            <div className="shrink-0 flex flex-col items-end gap-1 border-t border-white/10 px-5 pt-3 pb-3" style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px) + 12px, 12px)" }}>
               {/* Hint text for disabled Next */}
               {((step === 1 && !gameType) || (!simpleMode && step === 2 && (!name || !displayName)) || (simpleMode && step === 2 && (!name || !targetIP)) || (!simpleMode && step === 5 && !targetIP)) && (
                 <p className="text-[11px] text-amber-500/80 text-right">
