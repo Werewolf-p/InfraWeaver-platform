@@ -6,7 +6,7 @@ import { NamespaceUsage } from "@/components/ui/namespace-usage";
 import {
   Box, CheckCircle2, AlertTriangle, RefreshCw, Zap, CheckCircle, XCircle,
   Loader2, Clock, Activity, HardDrive, Shield, Users, BarChart3,
-  BookOpen, Package, Network, ArrowRight, ExternalLink, Container,
+  BookOpen, Package, Network, ArrowRight, ExternalLink, Container, LayoutDashboard,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { useRBAC } from "@/hooks/use-rbac";
 import { cn, timeAgo } from "@/lib/utils";
 import Link from "next/link";
+import { PageHeader } from "@/components/ui/page-header";
 
 const container = {
   hidden: { opacity: 0 },
@@ -44,21 +45,20 @@ function StatCard({ title, value, icon: Icon, color, subtitle }: {
   return (
     <motion.div
       variants={item}
-      whileHover={{ scale: 1.02, y: -3 }}
-      whileTap={{ scale: 0.98 }}
-      transition={{ type: "spring", stiffness: 400, damping: 25 }}
-      className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-3 md:p-5 cursor-default active:scale-95 touch-manipulation"
+      whileHover={{ borderColor: "rgba(0,120,212,0.5)" }}
+      transition={{ duration: 0.2 }}
+      className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl p-3 md:p-5 cursor-default active:scale-95 touch-manipulation"
     >
       <div className="flex items-center justify-between mb-3">
-        <span className="text-xs text-slate-400 font-medium">{title}</span>
+        <span className="text-xs text-[#9e9e9e] font-medium">{title}</span>
         <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${color}`}>
           <Icon className="w-4 h-4" />
         </div>
       </div>
-      <div className="text-2xl font-bold text-white">
+      <div className="text-2xl font-bold text-[#f2f2f2]">
         {typeof value === "number" ? <AnimatedNumber value={value} /> : value}
       </div>
-      {subtitle && <p className="text-xs text-slate-500 mt-1">{subtitle}</p>}
+      {subtitle && <p className="text-xs text-[#666] mt-1">{subtitle}</p>}
     </motion.div>
   );
 }
@@ -79,7 +79,7 @@ function ConnectionPill({ label, url }: { label: string; url: string }) {
   return (
     <div className={cn(
       "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border",
-      isLoading ? "bg-slate-500/10 border-slate-500/20 text-slate-400"
+      isLoading ? "bg-[#2a2a2a] border-[#333] text-[#9e9e9e]"
         : isError ? "bg-red-500/10 border-red-500/20 text-red-400"
         : "bg-green-500/10 border-green-500/20 text-green-400"
     )}>
@@ -140,20 +140,20 @@ function ServiceCard({ name, description, href, icon: Icon, enabled, status, ext
   return (
     <motion.div
       variants={item}
-      whileHover={{ scale: 1.02, y: -2 }}
-      transition={{ type: "spring", stiffness: 400, damping: 25 }}
-      className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-3 md:p-4 flex flex-col active:scale-95 touch-manipulation"
+      whileHover={{ borderColor: "rgba(0,120,212,0.5)" }}
+      transition={{ duration: 0.2 }}
+      className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl p-3 md:p-4 flex flex-col active:scale-95 touch-manipulation"
     >
       <div className="flex items-start justify-between mb-3">
-        <div className="w-9 h-9 rounded-lg flex items-center justify-center bg-indigo-500/15 border border-indigo-500/20">
-          <Icon className="w-4 h-4 text-indigo-400" />
+        <div className="w-9 h-9 rounded-lg flex items-center justify-center bg-[rgba(0,120,212,0.1)] border border-[rgba(0,120,212,0.2)]">
+          <Icon className="w-4 h-4 text-[#0078D4]" />
         </div>
         <StatusDot status={cardStatus} />
       </div>
-      <h4 className="text-sm font-semibold text-white">{name}</h4>
-      <p className="text-xs text-slate-500 mt-0.5 mb-3 flex-1">{description}</p>
+      <h4 className="text-sm font-semibold text-[#f2f2f2]">{name}</h4>
+      <p className="text-xs text-[#666] mt-0.5 mb-3 flex-1">{description}</p>
       {/* @ts-ignore - polymorphic link/anchor props differ */}
-      <Wrapper {...wrapperProps} className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 transition-colors w-fit">
+      <Wrapper {...wrapperProps} className="text-xs text-[#0078D4] hover:text-[#1a86d9] flex items-center gap-1 transition-colors w-fit">
         Open {external ? <ExternalLink className="w-3 h-3" /> : <ArrowRight className="w-3 h-3" />}
       </Wrapper>
     </motion.div>
@@ -256,6 +256,7 @@ export default function DashboardPage() {
 
   return (
     <div>
+      <PageHeader icon={LayoutDashboard} title="Dashboard" subtitle="Cluster overview and real-time metrics" />
       {/* Connection status row */}
       <div className="flex items-center gap-2 mb-5 flex-wrap">
         <ConnectionPill label="ArgoCD" url="/api/argocd/apps" />
@@ -265,14 +266,14 @@ export default function DashboardPage() {
 
       <div className="flex items-start justify-between mb-6 gap-4 flex-wrap">
         <div>
-          <h2 className="text-xl font-bold text-white flex items-center gap-3">
+          <h2 className="text-xl font-bold text-[#f2f2f2] flex items-center gap-3">
             Platform Overview
             <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-green-500/10 border border-green-500/20 text-xs font-semibold text-green-400 uppercase tracking-wider">
               <span className="live-dot w-1.5 h-1.5 rounded-full bg-green-400" />
               Live
             </span>
           </h2>
-          <p className="text-sm text-slate-400 mt-0.5">InfraWeaver homelab cluster status</p>
+          <p className="text-sm text-[#9e9e9e] mt-0.5">InfraWeaver homelab cluster status</p>
         </div>
         <div className="flex items-center gap-2">
           {isAdmin && (
@@ -280,7 +281,7 @@ export default function DashboardPage() {
               whileTap={{ scale: 0.95 }}
               onClick={handleSyncAll}
               disabled={syncAllLoading}
-              className="flex items-center gap-2 px-3 py-2 rounded-lg bg-indigo-500/20 border border-indigo-500/30 text-sm text-indigo-300 hover:bg-indigo-500/30 transition-colors disabled:opacity-50"
+              className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[rgba(0,120,212,0.1)] border border-[rgba(0,120,212,0.2)] text-sm text-[#0078D4] hover:bg-[rgba(0,120,212,0.2)] transition-colors disabled:opacity-50"
             >
               {syncAllLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
               Sync All
@@ -289,7 +290,7 @@ export default function DashboardPage() {
           <motion.button
             whileTap={{ scale: 0.95 }}
             onClick={() => refetch()}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 hover:text-white hover:bg-white/10 transition-colors"
+            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[#2a2a2a] border border-[#333] text-sm text-[#9e9e9e] hover:text-[#f2f2f2] hover:bg-[#333] transition-colors"
           >
             <RefreshCw className="w-3.5 h-3.5" />
             Refresh
@@ -324,9 +325,9 @@ export default function DashboardPage() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.3 }}
-          className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-5"
+          className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl p-5"
         >
-          <h3 className="text-sm font-semibold text-white mb-4">Health Distribution</h3>
+          <h3 className="text-sm font-semibold text-[#f2f2f2] mb-4">Health Distribution</h3>
           {chartData.length > 0 ? (
             <>
               <ResponsiveContainer width="100%" height={180}>
@@ -336,14 +337,14 @@ export default function DashboardPage() {
                       <Cell key={index} fill={entry.color} />
                     ))}
                   </Pie>
-                  <Tooltip contentStyle={{ background: "#1e293b", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, color: "#fff", fontSize: 12 }} />
+                  <Tooltip contentStyle={{ background: "#1a1a1a", border: "1px solid #333", borderRadius: 8, color: "#fff", fontSize: 12 }} />
                 </PieChart>
               </ResponsiveContainer>
               <div className="flex gap-4 justify-center mt-3 flex-wrap">
                 {chartData.map(d => (
                   <div key={d.name} className="flex items-center gap-1.5">
                     <div className="w-2 h-2 rounded-full" style={{ background: d.color }} />
-                    <span className="text-xs text-slate-400">{d.name}: <span className="text-slate-200 font-medium">{d.value}</span></span>
+                    <span className="text-xs text-[#9e9e9e]">{d.name}: <span className="text-[#f2f2f2] font-medium">{d.value}</span></span>
                   </div>
                 ))}
               </div>
@@ -357,10 +358,10 @@ export default function DashboardPage() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.4 }}
-          className="lg:col-span-2 bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-5"
+          className="lg:col-span-2 bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl p-5"
         >
-          <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
-            <Clock className="w-4 h-4 text-slate-400" />
+          <h3 className="text-sm font-semibold text-[#f2f2f2] mb-4 flex items-center gap-2">
+            <Clock className="w-4 h-4 text-[#9e9e9e]" />
             Recent Activity
           </h3>
           <div className="space-y-1">
@@ -372,9 +373,9 @@ export default function DashboardPage() {
               <motion.div
                 key={app.metadata.name}
                 whileHover={{ x: 2 }}
-                className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-white/5 transition-colors min-h-[44px] active:scale-95 touch-manipulation cursor-default"
+                className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-[#2a2a2a] transition-colors min-h-[44px] active:scale-95 touch-manipulation cursor-default"
               >
-                <span className="text-sm text-slate-200 font-medium truncate">{app.metadata.name}</span>
+                <span className="text-sm text-[#f2f2f2] font-medium truncate">{app.metadata.name}</span>
                 <div className="flex items-center gap-2 flex-shrink-0">
                   <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
                     app.status.health.status === "Healthy" ? "bg-green-500/15 text-green-400" :
@@ -385,7 +386,7 @@ export default function DashboardPage() {
                     {app.status.health.status}
                   </span>
                   {app.status.operationState?.finishedAt && (
-                    <span className="text-xs text-slate-500 hidden sm:block">
+                    <span className="text-xs text-[#666] hidden sm:block">
                       {timeAgo(app.status.operationState.finishedAt)}
                     </span>
                   )}
@@ -404,11 +405,11 @@ export default function DashboardPage() {
       {/* Section 4: Platform Services */}
       <div className="mb-8">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-            <Activity className="w-4 h-4 text-slate-400" />
+          <h3 className="text-sm font-semibold text-[#f2f2f2] flex items-center gap-2">
+            <Activity className="w-4 h-4 text-[#9e9e9e]" />
             Platform Services
           </h3>
-          <div className="flex items-center gap-2 text-xs text-slate-500">
+          <div className="flex items-center gap-2 text-xs text-[#666]">
             {gatusStats.total > 0 && (
               <span className="flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
@@ -502,16 +503,16 @@ export default function DashboardPage() {
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.5 }}
-        className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-4"
+        className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl p-4"
       >
-        <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Quick Actions</h3>
+        <h3 className="text-xs font-semibold text-[#9e9e9e] uppercase tracking-wider mb-3">Quick Actions</h3>
         <div className="flex items-center gap-2 flex-wrap">
           {isAdmin && (
             <motion.button
               whileTap={{ scale: 0.95 }}
               onClick={handleSyncAll}
               disabled={syncAllLoading}
-              className="flex items-center gap-2 px-3 py-2 rounded-lg bg-indigo-500/20 border border-indigo-500/30 text-sm text-indigo-300 hover:bg-indigo-500/30 transition-colors disabled:opacity-50"
+              className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[rgba(0,120,212,0.1)] border border-[rgba(0,120,212,0.2)] text-sm text-[#0078D4] hover:bg-[rgba(0,120,212,0.2)] transition-colors disabled:opacity-50"
             >
               {syncAllLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
               Sync All Apps
@@ -519,7 +520,7 @@ export default function DashboardPage() {
           )}
           <Link
             href="/events"
-            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 hover:text-white hover:bg-white/10 transition-colors"
+            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[#2a2a2a] border border-[#333] text-sm text-[#9e9e9e] hover:text-[#f2f2f2] hover:bg-[#333] transition-colors"
           >
             <Clock className="w-3.5 h-3.5" />
             View Events
@@ -527,7 +528,7 @@ export default function DashboardPage() {
           {isAdmin && (
             <Link
               href="/security"
-              className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 hover:text-white hover:bg-white/10 transition-colors"
+              className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[#2a2a2a] border border-[#333] text-sm text-[#9e9e9e] hover:text-[#f2f2f2] hover:bg-[#333] transition-colors"
             >
               <Shield className="w-3.5 h-3.5" />
               Security Overview

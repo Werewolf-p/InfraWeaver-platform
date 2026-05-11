@@ -11,8 +11,8 @@ import {
 import { cn } from "@/lib/utils";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
-import { GlassCard } from "@/components/ui/glass-card";
 import { AnimatedNumber } from "@/components/ui/animated-number";
+import { PageHeader } from "@/components/ui/page-header";
 
 // ─── Service definitions ────────────────────────────────────────────────────
 
@@ -89,8 +89,8 @@ function Clock() {
 
   return (
     <div className="flex flex-col items-center sm:items-end">
-      <span className="text-2xl font-bold text-white tabular-nums tracking-tight">{time}</span>
-      <span className="text-xs text-slate-400">{date}</span>
+      <span className="text-2xl font-bold text-[#f2f2f2] tabular-nums tracking-tight">{time}</span>
+      <span className="text-xs text-[#9e9e9e]">{date}</span>
     </div>
   );
 }
@@ -113,7 +113,7 @@ function SearchBar() {
         value={query}
         onChange={e => setQuery(e.target.value)}
         placeholder="Search Google…"
-        className="w-full pl-10 pr-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500/50 focus:bg-white/8 transition-all"
+        className="w-full pl-10 pr-4 py-2.5 bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl text-sm text-[#f2f2f2] placeholder-[#555] focus:outline-none focus:border-[#0078D4]/50 focus:bg-[#1a1a1a] transition-all"
       />
     </form>
   );
@@ -151,45 +151,40 @@ function ServiceCard({
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3, delay: index * 0.04, ease: "easeOut" }}
-      className="group block"
+      className="group block bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl flex flex-col gap-3 p-4 hover:border-[rgba(0,120,212,0.5)] transition-colors"
     >
-      <GlassCard
-        hover
-        className="flex flex-col gap-3 p-4 hover:border-white/20"
-      >
-        <div className="flex items-start justify-between gap-2">
+      <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-3">
-            <div className={cn("p-2 rounded-lg bg-white/5 border border-white/10 group-hover:border-white/20 transition-colors", service.color)}>
+            <div className={cn("p-2 rounded-lg bg-[#2a2a2a] border border-[#333] group-hover:border-[rgba(0,120,212,0.3)] transition-colors", service.color)}>
               <service.icon className="w-4 h-4" />
             </div>
             <div className="min-w-0">
-              <p className="text-sm font-semibold text-slate-100 truncate">{service.name}</p>
-              <p className="text-xs text-slate-500 truncate">{service.description}</p>
+              <p className="text-sm font-semibold text-[#f2f2f2] truncate">{service.name}</p>
+              <p className="text-xs text-[#666] truncate">{service.description}</p>
             </div>
           </div>
-          <ExternalLink className="w-3.5 h-3.5 text-slate-600 group-hover:text-slate-400 flex-shrink-0 mt-0.5 transition-colors" />
+          <ExternalLink className="w-3.5 h-3.5 text-[#555] group-hover:text-[#9e9e9e] flex-shrink-0 mt-0.5 transition-colors" />
         </div>
 
         {service.pingUrl && (
           <div className="flex items-center gap-2">
             <StatusDot status={pingStatus} />
             {pingStatus === "loading" ? (
-              <span className="text-xs text-slate-500">Checking…</span>
+              <span className="text-xs text-[#666]">Checking…</span>
             ) : pingStatus ? (
               pingStatus.ok ? (
                 <>
                   <span className="text-xs text-green-400">Online</span>
-                  <span className="ml-auto text-xs text-slate-500 font-mono">{pingStatus.latencyMs}ms</span>
+                  <span className="ml-auto text-xs text-[#666] font-mono">{pingStatus.latencyMs}ms</span>
                 </>
               ) : (
                 <span className="text-xs text-red-400">Offline</span>
               )
             ) : (
-              <span className="text-xs text-slate-500">—</span>
+              <span className="text-xs text-[#666]">—</span>
             )}
           </div>
         )}
-      </GlassCard>
     </motion.a>
   );
 }
@@ -200,18 +195,18 @@ function SkeletonCard({ index }: { index: number }) {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ delay: index * 0.03 }}
-      className="flex flex-col gap-3 p-4 bg-white/5 border border-white/10 rounded-xl"
+      className="flex flex-col gap-3 p-4 bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl"
     >
       <div className="flex items-center gap-3">
-        <div className="w-8 h-8 rounded-lg bg-white/10 animate-pulse" />
+        <div className="w-8 h-8 rounded-lg bg-[#2a2a2a] animate-pulse" />
         <div className="flex-1 space-y-1.5">
-          <div className="h-3 w-24 bg-white/10 rounded animate-pulse" />
-          <div className="h-2.5 w-36 bg-white/5 rounded animate-pulse" />
+          <div className="h-3 w-24 bg-[#2a2a2a] rounded animate-pulse" />
+          <div className="h-2.5 w-36 bg-[#1e1e1e] rounded animate-pulse" />
         </div>
       </div>
       <div className="flex items-center gap-2">
-        <div className="w-2 h-2 rounded-full bg-white/10 animate-pulse" />
-        <div className="h-2.5 w-12 bg-white/10 rounded animate-pulse" />
+        <div className="w-2 h-2 rounded-full bg-[#2a2a2a] animate-pulse" />
+        <div className="h-2.5 w-12 bg-[#2a2a2a] rounded animate-pulse" />
       </div>
     </motion.div>
   );
@@ -234,15 +229,15 @@ function GroupSection({
         onClick={() => setOpen(o => !o)}
         className="flex items-center gap-2 group w-full text-left"
       >
-        <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 group-hover:text-slate-400 transition-colors">
+        <span className="text-xs font-semibold uppercase tracking-wider text-[#666] group-hover:text-[#9e9e9e] transition-colors">
           {group.label}
         </span>
-        <span className="text-[10px] font-mono text-slate-600 bg-white/5 px-1.5 py-0.5 rounded">
+        <span className="text-[10px] font-mono text-[#555] bg-[#2a2a2a] px-1.5 py-0.5 rounded">
           {group.services.length}
         </span>
-        <div className="flex-1 h-px bg-white/5" />
+        <div className="flex-1 h-px bg-[#2a2a2a]" />
         <ChevronDown className={cn(
-          "w-3.5 h-3.5 text-slate-600 group-hover:text-slate-400 transition-all duration-200",
+          "w-3.5 h-3.5 text-[#555] group-hover:text-[#9e9e9e] transition-all duration-200",
           open ? "" : "-rotate-90"
         )} />
       </button>
@@ -308,7 +303,7 @@ function QuickActions() {
       <button
         onClick={handleSyncAll}
         disabled={syncing}
-        className="flex items-center gap-2 px-4 py-2 bg-indigo-500/20 border border-indigo-500/30 rounded-xl text-sm text-indigo-300 hover:bg-indigo-500/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+        className="flex items-center gap-2 px-4 py-2 bg-[rgba(0,120,212,0.1)] border border-[rgba(0,120,212,0.2)] rounded-xl text-sm text-[#0078D4] hover:bg-[rgba(0,120,212,0.2)] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {syncing ? (
           <RefreshCw className="w-3.5 h-3.5 animate-spin" />
@@ -334,7 +329,7 @@ function QuickActions() {
             target="_blank"
             rel="noopener noreferrer"
             className={cn(
-              "flex items-center gap-1.5 px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-xs hover:bg-white/10 transition-all",
+              "flex items-center gap-1.5 px-3 py-2 bg-[#2a2a2a] border border-[#333] rounded-lg text-xs hover:bg-[#333] transition-all",
               link.color
             )}
           >
@@ -396,7 +391,7 @@ function QuickStats() {
       transition={{ delay: 0.08 }}
       className="grid grid-cols-3 gap-3 relative z-10"
     >
-      <div className="bg-white/5 border border-white/10 rounded-xl p-4 flex items-center gap-3">
+      <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl p-4 flex items-center gap-3">
         <div className={cn(
           "w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0",
           isHealthy ? "bg-green-500/15" : "bg-red-500/15"
@@ -404,41 +399,41 @@ function QuickStats() {
           <Activity className={cn("w-4 h-4", isHealthy ? "text-green-400" : "text-red-400")} />
         </div>
         <div>
-          <p className="text-xs text-slate-500 uppercase tracking-wider">Cluster</p>
+          <p className="text-xs text-[#666] uppercase tracking-wider">Cluster</p>
           <p className={cn("text-sm font-semibold", isHealthy ? "text-green-400" : "text-red-400")}>
             {isHealthy ? "Healthy" : "Degraded"}
           </p>
         </div>
       </div>
-      <div className="bg-white/5 border border-white/10 rounded-xl p-4 flex items-center gap-3">
-        <div className="w-8 h-8 rounded-lg bg-indigo-500/15 flex items-center justify-center flex-shrink-0">
-          <Package className="w-4 h-4 text-indigo-400" />
+      <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl p-4 flex items-center gap-3">
+        <div className="w-8 h-8 rounded-lg bg-[rgba(0,120,212,0.1)] flex items-center justify-center flex-shrink-0">
+          <Package className="w-4 h-4 text-[#0078D4]" />
         </div>
         <div>
-          <p className="text-xs text-slate-500 uppercase tracking-wider">Pods</p>
-          <p className="text-sm font-semibold text-white tabular-nums">
+          <p className="text-xs text-[#666] uppercase tracking-wider">Pods</p>
+          <p className="text-sm font-semibold text-[#f2f2f2] tabular-nums">
             {totalPods > 0 ? (
               <>
-                <AnimatedNumber value={runningPods} duration={600} className="text-white" />
-                <span className="text-slate-500">/{totalPods}</span>
+                <AnimatedNumber value={runningPods} duration={600} className="text-[#f2f2f2]" />
+                <span className="text-[#666]">/{totalPods}</span>
               </>
-            ) : <span className="text-slate-500">—</span>}
+            ) : <span className="text-[#666]">—</span>}
           </p>
         </div>
       </div>
-      <div className="bg-white/5 border border-white/10 rounded-xl p-4 flex items-center gap-3">
+      <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl p-4 flex items-center gap-3">
         <div className="w-8 h-8 rounded-lg bg-orange-500/15 flex items-center justify-center flex-shrink-0">
           <GitBranch className="w-4 h-4 text-orange-400" />
         </div>
         <div>
-          <p className="text-xs text-slate-500 uppercase tracking-wider">ArgoCD Apps</p>
-          <p className="text-sm font-semibold text-white tabular-nums">
+          <p className="text-xs text-[#666] uppercase tracking-wider">ArgoCD Apps</p>
+          <p className="text-sm font-semibold text-[#f2f2f2] tabular-nums">
             {argoApps ? (
               <>
                 <AnimatedNumber value={argoApps.healthy} duration={600} className="text-green-400" />
-                <span className="text-slate-500">/{argoApps.total}</span>
+                <span className="text-[#666]">/{argoApps.total}</span>
               </>
-            ) : <span className="text-slate-500">—</span>}
+            ) : <span className="text-[#666]">—</span>}
           </p>
         </div>
       </div>
@@ -487,11 +482,7 @@ export default function HomePortalPage() {
 
   return (
     <div className="space-y-6 max-w-screen-2xl mx-auto">
-      {/* Aurora accent blobs */}
-      <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden">
-        <div className="absolute top-0 left-1/4 w-96 h-96 rounded-full bg-violet-600/6 blur-3xl" />
-        <div className="absolute bottom-0 right-1/4 w-80 h-80 rounded-full bg-cyan-600/6 blur-3xl" />
-      </div>
+      <PageHeader icon={Home} title="Home" subtitle="Platform services and quick access" />
 
       {/* Hero section */}
       <motion.div
@@ -500,34 +491,34 @@ export default function HomePortalPage() {
         transition={{ duration: 0.5 }}
         className="relative z-10"
       >
-        <GlassCard className="p-6" glow>
+        <div className="p-6 bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div className="space-y-1">
               <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight gradient-text">
                 InfraWeaver Platform
               </h1>
-              <p className="text-sm text-slate-400">
-                {greeting()}, <span className="text-slate-200 font-medium">{session?.user?.name?.split(" ")[0] ?? "there"}</span> 👋
+              <p className="text-sm text-[#9e9e9e]">
+                {greeting()}, <span className="text-[#f2f2f2] font-medium">{session?.user?.name?.split(" ")[0] ?? "there"}</span> 👋
               </p>
             </div>
 
             {/* Animated stats */}
             <div className="flex items-center gap-6">
               <div className="text-center">
-                <div className="text-2xl font-bold text-white tabular-nums">
+                <div className="text-2xl font-bold text-[#f2f2f2] tabular-nums">
                   <AnimatedNumber value={onlineCount} duration={800} />
-                  <span className="text-slate-500 text-lg">/{totalPingable}</span>
+                  <span className="text-[#666] text-lg">/{totalPingable}</span>
                 </div>
-                <p className="text-[10px] text-slate-500 uppercase tracking-wider mt-0.5">Online</p>
+                <p className="text-[10px] text-[#666] uppercase tracking-wider mt-0.5">Online</p>
               </div>
-              <div className="w-px h-10 bg-white/10" />
+              <div className="w-px h-10 bg-[#333]" />
               <div className="text-center">
-                <div className="text-2xl font-bold text-white tabular-nums">
+                <div className="text-2xl font-bold text-[#f2f2f2] tabular-nums">
                   <AnimatedNumber value={totalServices} duration={600} />
                 </div>
-                <p className="text-[10px] text-slate-500 uppercase tracking-wider mt-0.5">Services</p>
+                <p className="text-[10px] text-[#666] uppercase tracking-wider mt-0.5">Services</p>
               </div>
-              <div className="w-px h-10 bg-white/10" />
+              <div className="w-px h-10 bg-[#333]" />
               <div className="text-center">
                 <div className="text-2xl font-bold tabular-nums">
                   <AnimatedNumber
@@ -537,7 +528,7 @@ export default function HomePortalPage() {
                     className={onlineCount === totalPingable && totalPingable > 0 ? "text-emerald-400" : "text-amber-400"}
                   />
                 </div>
-                <p className="text-[10px] text-slate-500 uppercase tracking-wider mt-0.5">Uptime</p>
+                <p className="text-[10px] text-[#666] uppercase tracking-wider mt-0.5">Uptime</p>
               </div>
             </div>
 
@@ -546,7 +537,7 @@ export default function HomePortalPage() {
               <div className="flex items-center gap-3">
                 <button
                   onClick={() => refetch()}
-                  className="p-2 rounded-lg bg-white/5 border border-white/10 text-slate-400 hover:text-white hover:bg-white/10 transition-all"
+                  className="p-2 rounded-lg bg-[#2a2a2a] border border-[#333] text-[#9e9e9e] hover:text-[#f2f2f2] hover:bg-[#333] transition-all"
                   title="Refresh ping status"
                 >
                   <RefreshCw className={cn("w-4 h-4", pingLoading && "animate-spin")} />
@@ -557,11 +548,11 @@ export default function HomePortalPage() {
           </div>
 
           {lastUpdated && (
-            <p className="text-[10px] text-slate-600 mt-3">
+            <p className="text-[10px] text-[#555] mt-3">
               Last updated: {lastUpdated}
             </p>
           )}
-        </GlassCard>
+        </div>
       </motion.div>
 
       {/* Quick actions */}
@@ -569,7 +560,7 @@ export default function HomePortalPage() {
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.1 }}
-        className="relative z-10 p-4 bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl"
+        className="relative z-10 p-4 bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl"
       >
         <QuickActions />
       </motion.div>
@@ -591,8 +582,8 @@ export default function HomePortalPage() {
             className={cn(
               "px-3 py-1.5 rounded-lg text-xs font-medium transition-all",
               activeCategory === cat
-                ? "bg-indigo-500/20 border border-indigo-500/30 text-indigo-300"
-                : "bg-white/5 border border-white/10 text-slate-400 hover:text-white hover:bg-white/10"
+                ? "bg-[rgba(0,120,212,0.15)] border border-[rgba(0,120,212,0.2)] text-[#0078D4]"
+                : "bg-[#2a2a2a] border border-[#2a2a2a] text-[#9e9e9e] hover:text-[#f2f2f2] hover:bg-[#2a2a2a]"
             )}
           >
             {cat}

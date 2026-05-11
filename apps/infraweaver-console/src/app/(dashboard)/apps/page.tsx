@@ -6,12 +6,13 @@ import { useArgoApps, useSyncApp, type ArgoApp } from "@/hooks/use-argocd";
 import { useRBAC } from "@/hooks/use-rbac";
 import { useSettingsContext } from "@/contexts/settings-context";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { RefreshCw, Search, X, RotateCcw, Clock, GitCommit, Trash2, ExternalLink, Play, ChevronDown, Zap } from "lucide-react";
+import { RefreshCw, Search, X, RotateCcw, Clock, GitCommit, Trash2, ExternalLink, Play, ChevronDown, Zap, Box } from "lucide-react";
 import { toast } from "sonner";
 import { cn, timeAgo } from "@/lib/utils";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { DeploymentFrequencyChart } from "@/components/charts/deployment-frequency";
 import { AppNavTabs } from "@/components/ui/app-nav-tabs";
+import { PageHeader } from "@/components/ui/page-header";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let confettiLib: any = null;
@@ -108,11 +109,10 @@ function AppCard({ app, onClick, compact }: { app: ArgoApp; onClick: () => void;
   return (
     <div className="relative" onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
       <motion.div
-        whileHover={{ scale: 1.01, y: -1 }}
-        whileTap={{ scale: 0.97 }}
+        whileHover={{ borderColor: "rgba(0,120,212,0.4)" }}
         onClick={onClick}
         className={cn(
-          "bg-white/5 backdrop-blur-sm border rounded-xl cursor-pointer transition-all hover:shadow-[0_0_20px_rgba(99,102,241,0.15)] touch-manipulation",
+          "bg-[#1a1a1a] border rounded-lg cursor-pointer transition-all touch-manipulation",
           compact ? "p-3" : "p-3 md:p-4",
           borderColor
         )}
@@ -501,6 +501,7 @@ export default function AppsPage() {
 
   return (
     <div>
+      <PageHeader icon={Box} title="Applications" subtitle="Manage and monitor deployed applications" />
       {/* Pull-to-refresh indicator */}
       <motion.div
         drag="y"

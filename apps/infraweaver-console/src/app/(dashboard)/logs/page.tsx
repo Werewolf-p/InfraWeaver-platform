@@ -1,9 +1,10 @@
 "use client";
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Terminal, Download, Trash2, Search, RefreshCw, AlertCircle, Copy, Check } from "lucide-react";
+import { Terminal, Download, Trash2, Search, RefreshCw, AlertCircle, Copy, Check, FileText } from "lucide-react";
 import { usePods } from "@/hooks/use-pods";
 import { useRBAC } from "@/hooks/use-rbac";
 import { Skeleton } from "@/components/ui/skeleton";
+import { PageHeader } from "@/components/ui/page-header";
 import { cn } from "@/lib/utils";
 
 type LogLevel = "ALL" | "ERROR" | "WARN" | "INFO";
@@ -104,6 +105,7 @@ export default function LogsPage() {
 
   return (
     <div className="flex flex-col h-full gap-4">
+      <PageHeader icon={FileText} title="Pod Logs" subtitle="Live streaming pod logs" />
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold text-white flex items-center gap-2">

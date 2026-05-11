@@ -1,8 +1,9 @@
 "use client";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
-import { CheckCircle2, XCircle, RefreshCw, ChevronDown, ChevronUp, Shield } from "lucide-react";
+import { CheckCircle2, XCircle, RefreshCw, ChevronDown, ChevronUp, Shield, Activity } from "lucide-react";
 import { cn, timeAgo } from "@/lib/utils";
+import { PageHeader } from "@/components/ui/page-header";
 import { useState, useCallback } from "react";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import { HealthTimeline } from "@/components/ui/health-timeline";
@@ -253,6 +254,7 @@ export default function HealthPage() {
 
   return (
     <div className="relative">
+      <PageHeader icon={Activity} title="Health" subtitle="Cluster and service health overview" />
       {/* Pull-to-refresh indicator */}
       <motion.div
         drag="y"

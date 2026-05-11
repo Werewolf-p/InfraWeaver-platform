@@ -2,24 +2,31 @@
 
 :root {
   --foreground-rgb: 255, 255, 255;
-  --background-start-rgb: 2, 6, 23;
-  --background-end-rgb: 2, 6, 23;
+  --background-start-rgb: 15, 15, 15;
+  --background-end-rgb: 15, 15, 15;
+  --az-bg: #0f0f0f;
+  --az-surface: #1a1a1a;
+  --az-card: #262626;
+  --az-border: #333333;
+  --az-border-subtle: #2a2a2a;
+  --az-primary: #0078D4;
+  --az-primary-hover: #1a86d9;
+  --az-primary-muted: rgba(0, 120, 212, 0.15);
+  --az-text: #f2f2f2;
+  --az-text-secondary: #9e9e9e;
+  --az-text-muted: #666666;
+  --az-success: #57a300;
+  --az-warning: #d47500;
+  --az-danger: #d13438;
+  --az-info: #0078D4;
+  --az-sidebar-width: 220px;
+  --az-sidebar-collapsed: 48px;
 }
 
 body {
   color: rgb(var(--foreground-rgb));
   background: rgb(var(--background-start-rgb));
   overflow-x: hidden;
-}
-
-body.noise-bg::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-  opacity: 0.03;
-  pointer-events: none;
-  z-index: 0;
 }
 
 /* Landscape phone: hide bottom nav via media query backup */
@@ -38,14 +45,6 @@ body.noise-bg::before {
   border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-@keyframes aurora-blob {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  33% { transform: translate(30px, -20px) scale(1.05); }
-  66% { transform: translate(-20px, 15px) scale(0.95); }
-}
-@utility aurora-blob { animation: aurora-blob 8s ease-in-out infinite; }
-@utility aurora-blob-delay-2 { animation: aurora-blob 8s ease-in-out infinite 2.5s; }
-@utility aurora-blob-delay-4 { animation: aurora-blob 8s ease-in-out infinite 4.5s; }
 @utility live-dot { animation: live-dot-pulse 2s ease-in-out infinite; }
 @keyframes live-dot-pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
@@ -84,21 +83,14 @@ body.noise-bg::before {
 @utility status-syncing { animation: status-pulse-fast 0.5s ease-in-out infinite; }
 @utility status-degraded { animation: status-blink 1s step-end infinite; }
 
-/* Sticky table header blur */
+/* Sticky table header */
 @utility sticky-header {
   position: sticky;
   top: 0;
   backdrop-filter: blur(12px);
-  background: rgba(2, 6, 23, 0.85);
+  background: rgba(15, 15, 15, 0.85);
   z-index: 10;
 }
-
-/* Page gradient overlays */
-@utility page-gradient-security { background: linear-gradient(135deg, rgba(127,29,29,0.15) 0%, transparent 60%); }
-@utility page-gradient-cluster   { background: linear-gradient(135deg, rgba(30,58,138,0.15) 0%, transparent 60%); }
-@utility page-gradient-network   { background: linear-gradient(135deg, rgba(6,78,59,0.15) 0%, transparent 60%); }
-@utility page-gradient-users     { background: linear-gradient(135deg, rgba(88,28,135,0.15) 0%, transparent 60%); }
-@utility page-gradient-apps      { background: linear-gradient(135deg, rgba(124,45,18,0.15) 0%, transparent 60%); }
 
 /* Button active press effect */
 @utility btn-press { transition: transform 100ms ease; }
@@ -146,27 +138,12 @@ html.light body {
 html.light ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); }
 html.light ::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.25); }
 
-/* Noise texture overlay */
-.noise-bg::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-  opacity: 0.03;
-  pointer-events: none;
-  z-index: 0;
-}
-
 /* Live dot pulse animation */
 .live-dot { animation: pulse-dot 2s ease-in-out infinite; }
 @keyframes pulse-dot {
   0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(34,197,94,0.4); }
   50% { box-shadow: 0 0 0 6px rgba(34,197,94,0); }
 }
-
-/* Hover lift effect */
-.hover-lift { transition: transform 0.15s ease, box-shadow 0.15s ease; }
-.hover-lift:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.3); }
 
 /* Rainbow border */
 @keyframes rainbow-border {

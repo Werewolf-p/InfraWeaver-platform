@@ -1,12 +1,13 @@
 "use client";
 import { motion } from "framer-motion";
-import { RefreshCw, Layout, Filter, CheckCircle2, XCircle, Loader2, Server, Copy, Check, Sun, AlignJustify, Zap } from "lucide-react";
+import { RefreshCw, Layout, Filter, CheckCircle2, XCircle, Loader2, Server, Copy, Check, Sun, AlignJustify, Zap, Settings } from "lucide-react";
 import { useSettingsContext, type RefreshInterval } from "@/contexts/settings-context";
 import { useSimpleMode } from "@/contexts/simple-mode-context";
 import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
+import { PageHeader } from "@/components/ui/page-header";
 import { DensityToggle } from "@/components/ui/density-toggle";
 
 const REFRESH_OPTIONS: { label: string; value: RefreshInterval }[] = [
@@ -57,10 +58,7 @@ export default function SettingsPage() {
 
   return (
     <div>
-      <div className="mb-6">
-        <h2 className="text-xl font-bold text-white">Settings</h2>
-        <p className="text-sm text-slate-400">Console preferences — saved to browser localStorage</p>
-      </div>
+      <PageHeader icon={Settings} title="Settings" subtitle="Console and platform settings" />
 
       {/* Tabs */}
       <div className="flex gap-2 mb-6">

@@ -5,6 +5,7 @@ import { HardDrive, AlertCircle, CheckCircle2 } from "lucide-react";
 import { formatBytes, cn } from "@/lib/utils";
 import { StoragePieChart } from "@/components/charts/PieChart";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
+import { PageHeader } from "@/components/ui/page-header";
 
 interface BreakdownEntry {
   name: string;
@@ -36,6 +37,7 @@ export default function StoragePage() {
 
   return (
     <div>
+      <PageHeader icon={HardDrive} title="Storage" subtitle="Persistent volumes and storage classes" />
       <div className="mb-6">
         <h2 className="text-xl font-bold text-white">Storage</h2>
         <p className="text-sm text-slate-400">Longhorn distributed storage volumes</p>

@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import {
-  Shield, AlertTriangle, CheckCircle2, RefreshCw, Lock, Users, Loader2,
+  Shield, ShieldCheck, AlertTriangle, CheckCircle2, RefreshCw, Lock, Users, Loader2,
   KeyRound, Network, FileWarning, Server, Box, Activity, Database,
   ChevronDown, ChevronRight, Clock, Cpu,
   AlertCircle, BookOpen, Layers, GitBranch, HardDrive, BarChart2, Download,
@@ -13,6 +13,7 @@ import { useRBAC } from "@/hooks/use-rbac";
 import { useRouter } from "next/navigation";
 import { cn, timeAgo } from "@/lib/utils";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
+import { PageHeader } from "@/components/ui/page-header";
 import { PostureGauge } from "@/components/security/posture-gauge";
 import { AuditLogTable } from "@/components/security/audit-log-table";
 import { useAuditLog } from "@/hooks/use-audit-log";
@@ -392,6 +393,7 @@ export default function SecurityPage() {
 
   return (
     <div>
+      <PageHeader icon={ShieldCheck} title="Security" subtitle="Security posture, secrets, and audit log" />
       {/* Header */}
       <div className="relative rounded-xl overflow-hidden mb-6">
         <div className="absolute inset-0 page-gradient-security pointer-events-none" />

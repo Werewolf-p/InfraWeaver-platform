@@ -4,8 +4,9 @@ import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRBAC } from "@/hooks/use-rbac";
 import { toast } from "sonner";
-import { Save, Code, ToggleLeft, ToggleRight, GitCommit, Loader2, CheckCircle2, XCircle, Lock } from "lucide-react";
+import { Save, Code, ToggleLeft, ToggleRight, GitCommit, Loader2, CheckCircle2, XCircle, Lock, Cog } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { PageHeader } from "@/components/ui/page-header";
 import dynamic from "next/dynamic";
 import * as jsYaml from "js-yaml";
 
@@ -194,6 +195,7 @@ export default function ConfigPage() {
 
   return (
     <div>
+      <PageHeader icon={Cog} title="Config Editor" subtitle="Kubernetes ConfigMaps and Secrets" />
       <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="text-xl font-bold text-white">Platform Config</h2>

@@ -10,6 +10,7 @@ import {
   Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { PageHeader } from "@/components/ui/page-header";
 import { toast } from "sonner";
 import { useSimpleMode } from "@/contexts/simple-mode-context";
 
@@ -968,6 +969,7 @@ export default function GameServersPage() {
 
   return (
     <div className="animate-in fade-in-0 slide-in-from-bottom-4 duration-300 p-6 max-w-7xl mx-auto space-y-6">
+      <PageHeader icon={Gamepad2} title="Game Servers" subtitle="Game server management" />
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">

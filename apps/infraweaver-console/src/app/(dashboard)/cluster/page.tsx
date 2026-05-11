@@ -7,6 +7,7 @@ import { useRBAC } from "@/hooks/use-rbac";
 import { cn, timeAgo } from "@/lib/utils";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
+import { PageHeader } from "@/components/ui/page-header";
 import { toast } from "sonner";
 import Link from "next/link";
 import { MetricAreaChart } from "@/components/charts/AreaChart";
@@ -285,8 +286,8 @@ export default function ClusterPage() {
 
   return (
     <div>
+      <PageHeader icon={Server} title="Cluster Nodes" subtitle="Node management and cluster overview" />
       <div className="relative rounded-xl overflow-hidden mb-6">
-        <div className="absolute inset-0 page-gradient-cluster pointer-events-none" />
         <div className="relative flex items-start justify-between p-5 gap-4 flex-wrap">
           <div>
             <h2 className="text-xl font-bold bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent flex items-center gap-2">

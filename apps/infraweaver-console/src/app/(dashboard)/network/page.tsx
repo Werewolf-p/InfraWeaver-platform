@@ -5,6 +5,7 @@ import { Network, Wifi, WifiOff, ExternalLink } from "lucide-react";
 import { timeAgo, cn } from "@/lib/utils";
 import { type ArgoApp } from "@/hooks/use-argocd";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
+import { PageHeader } from "@/components/ui/page-header";
 
 interface TopoNode {
   id: string;
@@ -173,6 +174,7 @@ export default function NetworkPage() {
 
   return (
     <div>
+      <PageHeader icon={Network} title="Network" subtitle="Services, ingress, and network topology" />
       <div className="relative rounded-xl overflow-hidden mb-6">
         <div className="absolute inset-0 page-gradient-network pointer-events-none" />
         <div className="relative flex items-center justify-between p-5">

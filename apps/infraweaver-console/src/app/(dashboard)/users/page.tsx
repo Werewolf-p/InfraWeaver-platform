@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import { useUsersConfig, useSaveUsersConfig, type PlatformUser } from "@/hooks/use-users-config";
 import { useRBAC } from "@/hooks/use-rbac";
 import { Skeleton } from "@/components/ui/skeleton";
+import { PageHeader } from "@/components/ui/page-header";
 import { cn } from "@/lib/utils";
 import { useSession } from "next-auth/react";
 import { StorageTab } from "@/components/users/storage-tab";
@@ -688,6 +689,7 @@ export default function UsersPage() {
 
   return (
     <div className="space-y-6">
+      <PageHeader icon={Users} title="Users" subtitle="User management and access control" />
       {/* Page header with gradient */}
       <div className="relative rounded-xl overflow-hidden">
         <div className="absolute inset-0 page-gradient-users pointer-events-none" />

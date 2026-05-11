@@ -1,8 +1,9 @@
 "use client";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { TrendingUp, RefreshCw, CheckCircle2, XCircle, AlertTriangle, Clock } from "lucide-react";
+import { TrendingUp, RefreshCw, CheckCircle2, XCircle, AlertTriangle, Clock, Activity } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { PageHeader } from "@/components/ui/page-header";
 
 interface GatusResult {
   success: boolean;
@@ -82,6 +83,7 @@ export default function UptimePage() {
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
+      <PageHeader icon={Activity} title="Uptime" subtitle="Service uptime monitoring" />
       {/* Header */}
       <motion.div
         initial={{ opacity: 0, y: -10 }}

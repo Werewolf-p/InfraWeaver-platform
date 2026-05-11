@@ -1,12 +1,13 @@
 "use client";
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Package, FileText, ChevronRight, ChevronLeft, Check, Loader2 } from "lucide-react";
+import { Package, FileText, ChevronRight, ChevronLeft, Check, Loader2, PlusCircle } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { AppNavTabs } from "@/components/ui/app-nav-tabs";
+import { PageHeader } from "@/components/ui/page-header";
 
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
 
@@ -197,8 +198,8 @@ export default function CatalogInstallPage() {
 
   return (
     <div className="max-w-3xl mx-auto">
+      <PageHeader icon={PlusCircle} title="App Catalog" subtitle="One-click catalog app deployment" />
       <div className="mb-8">
-        <h2 className="text-xl font-bold text-white">App Installer</h2>
         <p className="text-sm text-slate-400 mt-1">
           Install a new application to the catalog via ArgoCD
         </p>

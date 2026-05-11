@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { AppNavTabs } from "@/components/ui/app-nav-tabs";
+import { PageHeader } from "@/components/ui/page-header";
 
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
 
@@ -637,6 +638,7 @@ export default function CommunityAppsPage() {
 
   return (
     <div className="p-4 sm:p-6 space-y-5 max-w-screen-2xl mx-auto">
+      <PageHeader icon={Store} title="Community Store" subtitle="Browse and deploy community applications" />
       {/* Header */}
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">

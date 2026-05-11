@@ -1,54 +1,42 @@
 "use client";
-import { LogOut, Menu } from "lucide-react";
-import { signOut, useSession } from "next-auth/react";
+import { Menu, Search } from "lucide-react";
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
 import { NotificationCenter } from "@/components/ui/notification-center";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
+import { useSession } from "next-auth/react";
 
 export function TopBar({ title, onMenuClick }: { title?: string; onMenuClick?: () => void }) {
   const { data: session } = useSession();
   const setOpen = useCommandPaletteStore(s => s.setOpen);
 
   return (
-    <header className="h-14 border-b border-white/5 bg-slate-950/80 backdrop-blur-sm flex items-center justify-between px-4 md:px-6 flex-shrink-0">
-      <div className="flex items-center gap-3">
+    <header className="h-12 border-b border-[#2a2a2a] bg-[#141414] flex items-center justify-between px-4 flex-shrink-0">
+      <div className="flex items-center gap-3 flex-1">
         <button
           onClick={onMenuClick}
-          className="md:hidden w-8 h-8 rounded-lg bg-white/5 border border-white/5 flex items-center justify-center text-slate-400 hover:text-white transition-colors"
+          className="md:hidden w-8 h-8 rounded flex items-center justify-center text-[#9e9e9e] hover:text-[#f2f2f2] hover:bg-[#2a2a2a] transition-colors"
           aria-label="Open menu"
         >
           <Menu className="w-4 h-4" />
         </button>
-        <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-sm font-semibold text-white">{title ?? "InfraWeaver Console"}</h1>
-            <span className="hidden sm:inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono text-slate-500 bg-slate-800/60 border border-slate-700/40">
-              v{process.env.NEXT_PUBLIC_APP_VERSION ?? "dev"}
-            </span>
-          </div>
-          <p className="text-xs text-slate-500">infraweaver.int.rlservers.com</p>
-        </div>
-      </div>
-      <div className="flex items-center gap-2 md:gap-3">
+        {/* Inline search — clicking opens command palette */}
         <button
           onClick={() => setOpen(true)}
-          className="hidden md:flex items-center gap-2 px-3 py-1.5 text-xs text-slate-400 bg-slate-800/50 border border-slate-700/50 rounded-lg hover:bg-slate-700/50 transition-colors"
+          className="hidden md:flex items-center gap-2 flex-1 max-w-sm px-3 py-1.5 bg-[#0f0f0f] border border-[#333] rounded text-sm text-[#666] hover:border-[#555] hover:text-[#9e9e9e] transition-colors"
         >
-          <span>⌘K</span>
+          <Search className="w-3.5 h-3.5" />
+          <span>Search resources...</span>
+          <span className="ml-auto text-xs font-mono opacity-60">⌘K</span>
         </button>
+      </div>
+      <div className="flex items-center gap-2">
         <ThemeToggle compact />
         <NotificationCenter />
-        <div className="flex items-center gap-2 pl-3 border-l border-white/10">
-          <div className="w-7 h-7 rounded-full bg-indigo-500/30 flex items-center justify-center text-xs font-bold text-indigo-300">
+        <div className="flex items-center gap-2 pl-3 border-l border-[#2a2a2a]">
+          <div className="w-7 h-7 rounded-full bg-[#0078D4] flex items-center justify-center text-xs font-bold text-white">
             {session?.user?.name?.[0]?.toUpperCase() ?? "?"}
           </div>
-          <span className="hidden md:block text-xs text-slate-300">{session?.user?.name}</span>
-          <button
-            onClick={() => signOut()}
-            className="ml-1 text-slate-500 hover:text-slate-300 transition-colors"
-          >
-            <LogOut className="w-3.5 h-3.5" />
-          </button>
+          <span className="hidden md:block text-xs text-[#9e9e9e]">{session?.user?.name}</span>
         </div>
       </div>
     </header>

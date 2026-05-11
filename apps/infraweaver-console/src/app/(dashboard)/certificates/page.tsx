@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { ShieldCheck, RefreshCw, AlertTriangle, Clock, CheckCircle2, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { PageHeader } from "@/components/ui/page-header";
 
 interface Certificate {
   name: string;
@@ -78,6 +79,7 @@ export default function CertificatesPage() {
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
+      <PageHeader icon={ShieldCheck} title="Certificates" subtitle="TLS certificate status and expiry" />
       {/* Header */}
       <motion.div
         initial={{ opacity: 0, y: -10 }}
