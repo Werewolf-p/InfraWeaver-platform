@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useTransition } from "react";
+import { useState, useCallback, useTransition, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Search, Package, ExternalLink, AlertTriangle, Info, CheckCircle,
@@ -173,12 +173,12 @@ function DeployModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-0 sm:p-4">
       <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.95 }}
-        className="bg-[#0d1117] border border-white/10 rounded-xl w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl"
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: 20 }}
+        className="bg-[#0d1117] border border-white/10 rounded-t-2xl sm:rounded-xl w-full sm:max-w-3xl max-h-[92dvh] sm:max-h-[90vh] flex flex-col shadow-2xl"
       >
         {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-white/10 flex-shrink-0">
@@ -523,9 +523,10 @@ export default function CommunityAppsPage() {
   }, []);
 
   // Load on mount
-  useState(() => {
+  useEffect(() => {
     void fetchApps({ page: 1, search: "", category: "", tier: "" });
-  });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleSearch = (value: string) => {
     setSearch(value);
@@ -560,12 +561,12 @@ export default function CommunityAppsPage() {
   };
 
   return (
-    <div className="p-6 space-y-6 max-w-screen-2xl mx-auto">
+    <div className="p-4 sm:p-6 space-y-5 max-w-screen-2xl mx-auto">
       {/* Header */}
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-white">Community Apps</h1>
-          <p className="text-white/50 text-sm mt-1">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-xl sm:text-2xl font-bold text-white">Community Apps</h1>
+          <p className="text-white/50 text-xs sm:text-sm mt-1">
             Browse 3,500+ apps from the Unraid Community Applications feed — convert and deploy to Kubernetes
           </p>
           {data?.last_updated && (
@@ -576,21 +577,22 @@ export default function CommunityAppsPage() {
         </div>
         <button
           onClick={handleRefresh}
-          className="flex items-center gap-2 px-3 py-2 rounded-lg text-white/60 hover:text-white border border-white/10 hover:border-white/30 transition-colors text-sm"
+          className="flex-shrink-0 flex items-center gap-2 px-3 py-2 rounded-lg text-white/60 hover:text-white border border-white/10 hover:border-white/30 transition-colors text-sm"
+          title="Refresh"
         >
           <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
-          Refresh
+          <span className="hidden sm:inline">Refresh</span>
         </button>
       </div>
 
       {/* Tier legend */}
-      <div className="flex gap-3 flex-wrap">
+      <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
         {(Object.entries(TIER_CONFIG) as Array<[Tier, typeof TIER_CONFIG.simple]>).map(([key, cfg]) => (
           <button
             key={key}
             onClick={() => handleTier(tier === key ? "" : key)}
             className={cn(
-              "flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-all",
+              "flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-all",
               tier === key ? cfg.color : "text-white/40 bg-white/5 border-white/10 hover:border-white/30"
             )}
           >
@@ -614,13 +616,13 @@ export default function CommunityAppsPage() {
       </div>
 
       {/* Category pills */}
-      <div className="flex gap-2 flex-wrap">
+      <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
         {QUICK_CATEGORIES.map(cat => (
           <button
             key={cat.value}
             onClick={() => handleCategory(cat.value)}
             className={cn(
-              "px-3 py-1 rounded-full text-xs font-medium transition-all border",
+              "flex-shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-all border",
               category === cat.value
                 ? "bg-indigo-600 text-white border-indigo-500"
                 : "text-white/50 border-white/10 hover:border-white/30 hover:text-white/80"
@@ -675,42 +677,51 @@ export default function CommunityAppsPage() {
 
           {/* Pagination */}
           {data.pages > 1 && (
-            <div className="flex items-center justify-center gap-2 pt-4">
+            <div className="flex items-center justify-center gap-1.5 pt-4">
               <button
                 onClick={() => handlePage(page - 1)}
                 disabled={page === 1}
                 className="flex items-center gap-1 px-3 py-2 rounded-lg text-white/60 hover:text-white border border-white/10 hover:border-white/30 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm"
               >
-                <ChevronLeft className="w-4 h-4" /> Prev
+                <ChevronLeft className="w-4 h-4" />
+                <span className="hidden sm:inline">Prev</span>
               </button>
 
-              {Array.from({ length: Math.min(7, data.pages) }, (_, i) => {
-                const p = page <= 4 ? i + 1 :
-                  page >= data.pages - 3 ? data.pages - 6 + i :
-                    page - 3 + i;
-                if (p < 1 || p > data.pages) return null;
-                return (
-                  <button
-                    key={p}
-                    onClick={() => handlePage(p)}
-                    className={cn(
-                      "w-9 h-9 rounded-lg text-sm transition-colors",
-                      p === page
-                        ? "bg-indigo-600 text-white"
-                        : "text-white/50 hover:text-white border border-white/10 hover:border-white/30"
-                    )}
-                  >
-                    {p}
-                  </button>
-                );
-              })}
+              {/* Mobile: current / total. Desktop: numbered buttons */}
+              <span className="sm:hidden px-3 py-2 text-white/50 text-sm">
+                {page} / {data.pages}
+              </span>
+
+              <div className="hidden sm:flex items-center gap-1.5">
+                {Array.from({ length: Math.min(7, data.pages) }, (_, i) => {
+                  const p = page <= 4 ? i + 1 :
+                    page >= data.pages - 3 ? data.pages - 6 + i :
+                      page - 3 + i;
+                  if (p < 1 || p > data.pages) return null;
+                  return (
+                    <button
+                      key={p}
+                      onClick={() => handlePage(p)}
+                      className={cn(
+                        "w-9 h-9 rounded-lg text-sm transition-colors",
+                        p === page
+                          ? "bg-indigo-600 text-white"
+                          : "text-white/50 hover:text-white border border-white/10 hover:border-white/30"
+                      )}
+                    >
+                      {p}
+                    </button>
+                  );
+                })}
+              </div>
 
               <button
                 onClick={() => handlePage(page + 1)}
                 disabled={page === data.pages}
                 className="flex items-center gap-1 px-3 py-2 rounded-lg text-white/60 hover:text-white border border-white/10 hover:border-white/30 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm"
               >
-                Next <ChevronRight className="w-4 h-4" />
+                <span className="hidden sm:inline">Next</span>
+                <ChevronRight className="w-4 h-4" />
               </button>
             </div>
           )}
