@@ -1,0 +1,14 @@
+# Community app installed from Unraid AppFeed
+# Source: ghcr.io/esphome/esphome:stable
+name: esphome
+description: "The official ESPHome Container. ESPHome is the perfect solution for creating custom firmwares for your ESP8266/ESP32/RPI/Beken boards. Its primary focus is making the process to get your ESP running a"
+namespace: esphome
+source: community-apps
+tier: simple
+image: ghcr.io/esphome/esphome:stable
+categories:
+  - "HomeAutomation"
+  - "Tools-Utilities"
+ingressroute:
+  host: esphome.int.rlservers.com
+installed_at: 2026-05-11T13:51:31.575Z
