@@ -1,3 +1,4 @@
+"use client";
 import { Sparkles, FileText} from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 
