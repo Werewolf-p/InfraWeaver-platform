@@ -458,8 +458,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <TopBar onMenuClick={() => setMobileOpen(true)} onSearchClick={() => setSearchOpen(true)} />
         <Breadcrumb />
         <main
-          className="flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-6 pb-24 md:pb-6"
-          style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px) + 80px, 88px)" }}
+          className="flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-6 md:pb-6"
+          style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px) + 72px, 80px)" }}
         >
           <AnimatePresence mode="wait">
             <motion.div

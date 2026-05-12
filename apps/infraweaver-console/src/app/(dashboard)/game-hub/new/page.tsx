@@ -384,7 +384,7 @@ spec:
                 </div>
               )}
 
-              <div className="flex gap-3 pt-2 pb-20 sm:pb-4">
+              <div className="flex gap-3 pt-2 pb-4">
                 <button onClick={() => setStep("choose")} className="flex items-center gap-1.5 px-4 py-2 bg-[#1a1a1a] border border-[#2a2a2a] text-[#9e9e9e] rounded-lg text-sm hover:bg-[#252525] transition-colors">
                   <ChevronLeft className="w-4 h-4" /> Back
                 </button>
@@ -405,7 +405,7 @@ spec:
               <div className="rounded-xl border border-[#2a2a2a] bg-[#0d0d0d] p-4 overflow-auto max-h-96">
                 <pre className="text-xs font-mono text-[#d4d4d4] whitespace-pre-wrap">{buildYamlPreview()}</pre>
               </div>
-              <div className="flex gap-3 pb-20 sm:pb-4">
+              <div className="flex gap-3 pb-4">
                 <button onClick={() => setStep("configure")} className="flex items-center gap-1.5 px-4 py-2 bg-[#1a1a1a] border border-[#2a2a2a] text-[#9e9e9e] rounded-lg text-sm hover:bg-[#252525] transition-colors">
                   <ChevronLeft className="w-4 h-4" /> Back
                 </button>

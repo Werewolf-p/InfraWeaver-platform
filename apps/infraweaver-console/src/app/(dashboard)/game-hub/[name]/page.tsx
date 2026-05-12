@@ -60,41 +60,64 @@ function ConsoleTab({ name, status }: { name: string; status: string }) {
   const [podInfo, setPodInfo] = useState<{ pod: string; container: string } | null>(null);
   const logEndRef = useRef<HTMLDivElement>(null);
   const logIdRef = useRef(0);
+  const esRef = useRef<EventSource | null>(null);
+  const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryCountRef = useRef(0);
 
   const addLine = useCallback((type: string, line: string) => {
     setLogLines(prev => [...prev.slice(-500), { type, line, id: logIdRef.current++ }]);
   }, []);
 
-  useEffect(() => {
+  const connect = useCallback(() => {
     if (status === "stopped") return;
+    esRef.current?.close();
 
     const es = new EventSource(`/api/game-hub/servers/${name}/logs?tail=200`);
+    esRef.current = es;
 
     es.onmessage = (e) => {
       try {
         const msg = JSON.parse(e.data) as { type: string; line?: string; pod?: string; container?: string };
         if (msg.type === "connected") {
+          retryCountRef.current = 0;
           setConnected(true);
           setPodInfo({ pod: msg.pod ?? "", container: msg.container ?? "" });
-          addLine("system", `Connected to ${msg.pod} (${msg.container})`);
+          addLine("system", `Connected to ${msg.pod ?? name} (${msg.container ?? ""})`);
         } else if (msg.type === "log" && msg.line) {
           addLine("log", msg.line);
         } else if (msg.type === "error" && msg.line) {
           addLine("error", msg.line);
         }
-      } catch {}
+      } catch {
+        // silently ignore parse errors from keep-alive pings
+      }
     };
 
     es.onerror = () => {
       setConnected(false);
-      addLine("error", "Log stream disconnected — retrying...");
-    };
-
-    return () => {
       es.close();
-      setConnected(false);
+      // Exponential backoff: 2s, 4s, 8s … max 30s
+      const delay = Math.min(2000 * Math.pow(2, retryCountRef.current), 30000);
+      retryCountRef.current += 1;
+      addLine("system", `Stream disconnected — reconnecting in ${(delay / 1000).toFixed(0)}s…`);
+      retryRef.current = setTimeout(connect, delay);
     };
   }, [name, status, addLine]);
+
+  useEffect(() => {
+    if (status === "stopped") {
+      esRef.current?.close();
+      setConnected(false);
+      return;
+    }
+    retryCountRef.current = 0;
+    connect();
+    return () => {
+      if (retryRef.current) clearTimeout(retryRef.current);
+      esRef.current?.close();
+      setConnected(false);
+    };
+  }, [name, status, connect]);
 
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -133,28 +156,39 @@ function ConsoleTab({ name, status }: { name: string; status: string }) {
   };
 
   return (
-    <div className="flex flex-col gap-3 h-[calc(100vh-22rem)]">
+    /* Mobile: natural height (page scrolls), Desktop: fixed terminal height */
+    <div className="flex flex-col gap-3 min-h-[400px] md:h-[calc(100vh-22rem)]">
       {/* Status bar */}
       <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#151515] border border-[#2a2a2a] text-xs">
         <Circle className={cn("w-2 h-2", connected ? "fill-green-400 text-green-400" : "fill-[#555] text-[#555]")} />
         <span className={connected ? "text-green-400" : "text-[#666]"}>
-          {connected ? `Connected — ${podInfo?.pod}` : status === "stopped" ? "Server is stopped" : "Connecting..."}
+          {connected ? `Connected — ${podInfo?.pod}` : status === "stopped" ? "Server is stopped" : "Connecting…"}
         </span>
-        {logLines.length > 0 && (
-          <button onClick={() => setLogLines([])} className="ml-auto text-[#555] hover:text-[#999] transition-colors">
-            <RefreshCw className="w-3 h-3" />
-          </button>
-        )}
+        <div className="ml-auto flex items-center gap-2">
+          {!connected && status !== "stopped" && (
+            <button
+              onClick={() => { retryCountRef.current = 0; connect(); }}
+              className="text-[#0078D4] text-xs hover:underline"
+            >
+              Retry
+            </button>
+          )}
+          {logLines.length > 0 && (
+            <button onClick={() => setLogLines([])} className="text-[#555] hover:text-[#999] transition-colors">
+              <RefreshCw className="w-3 h-3" />
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* Log area */}
-      <div className="flex-1 overflow-y-auto rounded-xl border border-[#2a2a2a] bg-[#0a0a0a] p-3 font-mono text-xs leading-5">
+      {/* Log area — fixed height on desktop, tall but natural on mobile */}
+      <div className="h-[320px] md:flex-1 overflow-y-auto rounded-xl border border-[#2a2a2a] bg-[#0a0a0a] p-3 font-mono text-xs leading-5">
         {status === "stopped" ? (
           <p className="text-[#555] italic">Server is stopped. Start it to see logs.</p>
         ) : logLines.length === 0 ? (
           <div className="flex items-center gap-2 text-[#555]">
             <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            <span>Connecting to log stream...</span>
+            <span>Connecting to log stream…</span>
           </div>
         ) : (
           logLines.map(({ type, line, id }) => (
@@ -168,23 +202,25 @@ function ConsoleTab({ name, status }: { name: string; status: string }) {
 
       {/* Command input */}
       <form onSubmit={sendCommand} className="flex gap-2">
-        <div className="flex-1 flex items-center gap-2 bg-[#151515] border border-[#2a2a2a] rounded-lg px-3 py-2">
+        <div className="flex-1 flex items-center gap-2 bg-[#151515] border border-[#2a2a2a] rounded-lg px-3 py-2.5 min-h-[44px]">
           <span className="text-green-400 font-mono text-xs">$</span>
           <input
             value={command}
             onChange={e => setCommand(e.target.value)}
-            placeholder={connected ? "Enter server command..." : "Server must be running..."}
+            placeholder={connected ? "Enter server command…" : "Server must be running…"}
             disabled={!connected || sending}
+            autoCapitalize="none"
+            autoCorrect="off"
             className="flex-1 bg-transparent text-xs font-mono text-[#f2f2f2] outline-none placeholder:text-[#555] disabled:opacity-50"
           />
         </div>
         <button
           type="submit"
           disabled={!connected || sending || !command.trim()}
-          className="flex items-center gap-1.5 px-3 py-2 bg-[#0078D4] hover:bg-[#0065B3] disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg text-xs font-medium transition-colors"
+          className="flex items-center gap-1.5 px-4 py-2.5 min-h-[44px] bg-[#0078D4] hover:bg-[#0065B3] disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg text-xs font-medium transition-colors touch-manipulation"
         >
           {sending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-          Send
+          <span className="hidden sm:inline">Send</span>
         </button>
       </form>
     </div>
@@ -274,9 +310,11 @@ function FilesTab({ name, status, mountPath }: { name: string; status: string; m
     setFileContent(null);
   }
 
-  const breadcrumbs = currentPath.split("/").filter(Boolean);
   const fileExt = selectedFile?.name.split(".").pop()?.toLowerCase() ?? "";
   const editorLang = { json: "json", yaml: "yaml", yml: "yaml", properties: "ini", conf: "ini", cfg: "ini", log: "plaintext", txt: "plaintext", sh: "shell", py: "python", js: "javascript", ts: "typescript", xml: "xml", toml: "toml" }[fileExt] ?? "plaintext";
+
+  // Mobile: track which pane to show (files or editor)
+  const [mobilePane, setMobilePane] = useState<"files" | "editor">("files");
 
   if (status === "stopped") {
     return (
@@ -286,124 +324,181 @@ function FilesTab({ name, status, mountPath }: { name: string; status: string; m
     );
   }
 
-  return (
-    <div className="flex gap-4 h-[calc(100vh-22rem)]">
-      {/* File tree */}
-      <div className="w-64 flex-shrink-0 flex flex-col gap-2 overflow-hidden">
-        {/* Breadcrumb + up */}
-        <div className="flex items-center gap-1 text-xs text-[#666] truncate">
-          <button onClick={goUp} disabled={pathHistory.length <= 1} className="text-[#555] hover:text-[#999] disabled:opacity-30 transition-colors flex-shrink-0">
-            <ArrowUp className="w-3.5 h-3.5" />
-          </button>
-          <span className="truncate font-mono">{currentPath}</span>
-          <button onClick={() => refetch()} className="ml-auto text-[#555] hover:text-[#999] flex-shrink-0">
-            <RefreshCw className="w-3.5 h-3.5" />
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto rounded-xl border border-[#2a2a2a] bg-[#1a1a1a] p-1">
-          {isLoading ? (
-            <div className="flex items-center justify-center h-20"><Loader2 className="w-4 h-4 animate-spin text-[#555]" /></div>
-          ) : (listing?.files.length === 0) ? (
-            <p className="text-xs text-[#555] text-center py-4">Empty directory</p>
-          ) : (
-            <div className="space-y-0.5">
-              {listing?.files
-                .sort((a, b) => {
-                  if (a.type === "directory" && b.type !== "directory") return -1;
-                  if (a.type !== "directory" && b.type === "directory") return 1;
-                  return a.name.localeCompare(b.name);
-                })
-                .map(entry => (
-                  <div
-                    key={entry.path}
-                    className={cn(
-                      "group flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer transition-colors text-xs",
-                      selectedFile?.path === entry.path
-                        ? "bg-[rgba(0,120,212,0.2)] text-[#f2f2f2]"
-                        : "hover:bg-[#252525] text-[#9e9e9e]"
-                    )}
-                    onClick={() => openFile(entry)}
-                  >
-                    {entry.type === "directory"
-                      ? <Folder className="w-3.5 h-3.5 text-yellow-400 flex-shrink-0" />
-                      : <File className="w-3.5 h-3.5 text-[#666] flex-shrink-0" />
-                    }
-                    <span className="truncate flex-1">{entry.name}</span>
-                    {entry.type !== "directory" && (
-                      <button
-                        onClick={e => { e.stopPropagation(); deleteFile(entry); }}
-                        className="opacity-0 group-hover:opacity-100 text-[#555] hover:text-red-400 transition-all flex-shrink-0"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </button>
-                    )}
-                  </div>
-                ))
-              }
-            </div>
-          )}
-        </div>
+  const fileTree = (
+    <div className="flex flex-col gap-2 h-full">
+      {/* Breadcrumb + up */}
+      <div className="flex items-center gap-1 text-xs text-[#666]">
+        <button onClick={goUp} disabled={pathHistory.length <= 1} className="text-[#555] hover:text-[#999] disabled:opacity-30 transition-colors flex-shrink-0 p-1 min-w-[28px] min-h-[28px] flex items-center justify-center">
+          <ArrowUp className="w-3.5 h-3.5" />
+        </button>
+        <span className="truncate font-mono flex-1 min-w-0">{currentPath}</span>
+        <button onClick={() => refetch()} className="text-[#555] hover:text-[#999] flex-shrink-0 p-1 min-w-[28px] min-h-[28px] flex items-center justify-center">
+          <RefreshCw className="w-3.5 h-3.5" />
+        </button>
       </div>
 
-      {/* Editor */}
-      <div className="flex-1 flex flex-col gap-2 min-w-0">
-        {selectedFile ? (
-          <>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-[#666] font-mono truncate">{selectedFile.path}</span>
-              <span className="text-xs text-[#555]">({(selectedFile.size / 1024).toFixed(1)} KB)</span>
-              <div className="ml-auto flex items-center gap-2">
-                <button
-                  onClick={() => { navigator.clipboard.writeText(fileContent ?? ""); toast.success("Copied"); }}
-                  className="text-xs text-[#555] hover:text-[#999] flex items-center gap-1"
-                >
-                  <Copy className="w-3 h-3" /> Copy
-                </button>
-                <button
-                  onClick={saveFile}
-                  disabled={saving || loadingContent}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[#0078D4] hover:bg-[#0065B3] disabled:opacity-50 text-white rounded-lg text-xs font-medium transition-colors"
-                >
-                  {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
-                  Save
-                </button>
-              </div>
-            </div>
-            <div className="flex-1 rounded-xl border border-[#2a2a2a] overflow-hidden">
-              {loadingContent ? (
-                <div className="flex items-center justify-center h-full">
-                  <Loader2 className="w-5 h-5 animate-spin text-[#555]" />
-                </div>
-              ) : (
-                <MonacoEditor
-                  height="100%"
-                  language={editorLang}
-                  value={fileContent ?? ""}
-                  onChange={v => setFileContent(v ?? "")}
-                  theme="vs-dark"
-                  options={{
-                    minimap: { enabled: false },
-                    fontSize: 12,
-                    lineNumbers: "on",
-                    wordWrap: "on",
-                    scrollBeyondLastLine: false,
-                    padding: { top: 8 },
-                  }}
-                />
-              )}
-            </div>
-          </>
+      <div className="flex-1 overflow-y-auto rounded-xl border border-[#2a2a2a] bg-[#1a1a1a] p-1">
+        {isLoading ? (
+          <div className="flex items-center justify-center h-20"><Loader2 className="w-4 h-4 animate-spin text-[#555]" /></div>
+        ) : (listing?.files.length === 0) ? (
+          <p className="text-xs text-[#555] text-center py-4">Empty directory</p>
         ) : (
-          <div className="flex-1 flex items-center justify-center rounded-xl border border-[#2a2a2a] bg-[#1a1a1a]">
-            <div className="text-center space-y-2">
-              <FolderOpen className="w-8 h-8 text-[#333] mx-auto" />
-              <p className="text-sm text-[#555]">Select a file to edit</p>
-            </div>
+          <div className="space-y-0.5">
+            {listing?.files
+              .sort((a, b) => {
+                if (a.type === "directory" && b.type !== "directory") return -1;
+                if (a.type !== "directory" && b.type === "directory") return 1;
+                return a.name.localeCompare(b.name);
+              })
+              .map(entry => (
+                <div
+                  key={entry.path}
+                  className={cn(
+                    "group flex items-center gap-2 px-2 py-2 rounded-lg cursor-pointer transition-colors text-xs touch-manipulation",
+                    selectedFile?.path === entry.path
+                      ? "bg-[rgba(0,120,212,0.2)] text-[#f2f2f2]"
+                      : "hover:bg-[#252525] text-[#9e9e9e]"
+                  )}
+                  onClick={() => {
+                    openFile(entry);
+                    if (entry.type !== "directory") setMobilePane("editor");
+                  }}
+                >
+                  {entry.type === "directory"
+                    ? <Folder className="w-3.5 h-3.5 text-yellow-400 flex-shrink-0" />
+                    : <File className="w-3.5 h-3.5 text-[#666] flex-shrink-0" />
+                  }
+                  <span className="truncate flex-1">{entry.name}</span>
+                  {entry.size > 0 && entry.type !== "directory" && (
+                    <span className="text-[10px] text-[#444] flex-shrink-0 hidden sm:block">
+                      {(entry.size / 1024).toFixed(0)}K
+                    </span>
+                  )}
+                  {entry.type !== "directory" && (
+                    <button
+                      onClick={e => { e.stopPropagation(); deleteFile(entry); }}
+                      className="opacity-0 group-hover:opacity-100 text-[#555] hover:text-red-400 transition-all flex-shrink-0 p-0.5"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              ))
+            }
           </div>
         )}
       </div>
     </div>
+  );
+
+  const editorPane = (
+    <div className="flex flex-col gap-2 h-full">
+      {selectedFile ? (
+        <>
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Back button on mobile */}
+            <button
+              onClick={() => setMobilePane("files")}
+              className="md:hidden flex items-center gap-1 text-xs text-[#0078D4] hover:underline flex-shrink-0"
+            >
+              <ArrowUp className="w-3 h-3 rotate-[-90deg]" /> Files
+            </button>
+            <span className="text-xs text-[#666] font-mono truncate flex-1 min-w-0">{selectedFile.path}</span>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <button
+                onClick={() => { navigator.clipboard.writeText(fileContent ?? ""); toast.success("Copied"); }}
+                className="text-xs text-[#555] hover:text-[#999] flex items-center gap-1 p-1"
+              >
+                <Copy className="w-3 h-3" />
+              </button>
+              <button
+                onClick={saveFile}
+                disabled={saving || loadingContent}
+                className="flex items-center gap-1.5 px-3 py-1.5 min-h-[32px] bg-[#0078D4] hover:bg-[#0065B3] disabled:opacity-50 text-white rounded-lg text-xs font-medium transition-colors"
+              >
+                {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                Save
+              </button>
+            </div>
+          </div>
+          <div className="flex-1 rounded-xl border border-[#2a2a2a] overflow-hidden min-h-[300px]">
+            {loadingContent ? (
+              <div className="flex items-center justify-center h-full min-h-[200px]">
+                <Loader2 className="w-5 h-5 animate-spin text-[#555]" />
+              </div>
+            ) : (
+              <MonacoEditor
+                height="100%"
+                language={editorLang}
+                value={fileContent ?? ""}
+                onChange={v => setFileContent(v ?? "")}
+                theme="vs-dark"
+                options={{
+                  minimap: { enabled: false },
+                  fontSize: 12,
+                  lineNumbers: "on",
+                  wordWrap: "on",
+                  scrollBeyondLastLine: false,
+                  padding: { top: 8 },
+                }}
+              />
+            )}
+          </div>
+        </>
+      ) : (
+        <div className="flex-1 flex flex-col items-center justify-center rounded-xl border border-[#2a2a2a] bg-[#1a1a1a] min-h-[200px]">
+          <div className="text-center space-y-2">
+            <FolderOpen className="w-8 h-8 text-[#333] mx-auto" />
+            <p className="text-sm text-[#555]">Select a file to edit</p>
+            <button
+              onClick={() => setMobilePane("files")}
+              className="md:hidden text-xs text-[#0078D4] hover:underline"
+            >
+              Browse files →
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  return (
+    <>
+      {/* Desktop: side-by-side layout */}
+      <div className="hidden md:flex gap-4 h-[calc(100vh-22rem)]">
+        <div className="w-64 flex-shrink-0">{fileTree}</div>
+        <div className="flex-1 min-w-0">{editorPane}</div>
+      </div>
+
+      {/* Mobile: single pane with tab switch */}
+      <div className="md:hidden">
+        {/* Tab switcher */}
+        <div className="flex gap-1 mb-3 p-1 bg-[#151515] rounded-lg border border-[#2a2a2a]">
+          <button
+            onClick={() => setMobilePane("files")}
+            className={cn(
+              "flex-1 flex items-center justify-center gap-1.5 py-2 rounded text-xs font-medium transition-colors",
+              mobilePane === "files" ? "bg-[#0078D4] text-white" : "text-[#666] hover:text-[#999]"
+            )}
+          >
+            <Folder className="w-3.5 h-3.5" /> Files
+          </button>
+          <button
+            onClick={() => setMobilePane("editor")}
+            className={cn(
+              "flex-1 flex items-center justify-center gap-1.5 py-2 rounded text-xs font-medium transition-colors",
+              mobilePane === "editor" ? "bg-[#0078D4] text-white" : "text-[#666] hover:text-[#999]"
+            )}
+          >
+            <File className="w-3.5 h-3.5" />
+            {selectedFile ? selectedFile.name : "Editor"}
+          </button>
+        </div>
+        <div className="min-h-[400px]">
+          {mobilePane === "files" ? fileTree : editorPane}
+        </div>
+      </div>
+    </>
   );
 }
 

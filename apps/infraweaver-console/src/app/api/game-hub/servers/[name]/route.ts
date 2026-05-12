@@ -60,7 +60,26 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
 
     await appsApi.deleteNamespacedDeployment({ name, namespace: GAME_HUB_NS }).catch(() => {});
     await coreApi.deleteNamespacedService({ name, namespace: GAME_HUB_NS }).catch(() => {});
-    await coreApi.deleteNamespacedPersistentVolumeClaim({ name: `${name}-data`, namespace: GAME_HUB_NS }).catch(() => {});
+
+    // Delete all PVCs for this server — query by label instead of guessing names
+    try {
+      const pvcs = await coreApi.listNamespacedPersistentVolumeClaim({
+        namespace: GAME_HUB_NS,
+        labelSelector: `app=${name}`,
+      });
+      await Promise.all(
+        pvcs.items.map(pvc =>
+          coreApi.deleteNamespacedPersistentVolumeClaim({
+            name: pvc.metadata!.name!,
+            namespace: GAME_HUB_NS,
+          }).catch(() => {})
+        )
+      );
+    } catch {
+      // Also try common PVC names as fallback
+      await coreApi.deleteNamespacedPersistentVolumeClaim({ name: `${name}-data`, namespace: GAME_HUB_NS }).catch(() => {});
+      await coreApi.deleteNamespacedPersistentVolumeClaim({ name: `${name}-config`, namespace: GAME_HUB_NS }).catch(() => {});
+    }
 
     return NextResponse.json({ deleted: true });
   } catch (err) {
