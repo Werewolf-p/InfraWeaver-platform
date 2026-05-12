@@ -74,17 +74,99 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json() as {
+      egg?: string;
       game: string;
       name: string;
+      image?: string;
       memory?: string;
       cpu?: string;
       storage?: string;
       storageClass?: string;
       env?: Record<string, string>;
       port?: number;
+      ports?: Array<{ name: string; port: number; protocol: "TCP" | "UDP" }>;
+      mountPath?: string;
+      pvcSuffix?: string;
     };
 
-    const { game, name, memory = "2Gi", cpu = "1", storage = "10Gi", storageClass = "longhorn", env = {}, port } = body;
+    const {
+      egg,
+      game,
+      name,
+      image: bodyImage,
+      memory = "2Gi",
+      cpu = "1",
+      storage = "10Gi",
+      storageClass = "longhorn",
+      env = {},
+      port,
+      ports: bodyPorts,
+      mountPath: bodyMountPath,
+      pvcSuffix: bodyPvcSuffix,
+    } = body;
+
+    // If egg-based request (new wizard), use egg definitions from the lib
+    if (egg && egg !== "custom" && bodyImage && bodyPorts) {
+      const slug = name.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/^-+|-+$/g, "");
+      const pvcName = `${slug}-${bodyPvcSuffix ?? "data"}`;
+      const mountPath = bodyMountPath ?? "/data";
+      const envVars = Object.entries(env).map(([k, v]) => ({ name: k, value: v }));
+
+      const k8s = await import("@kubernetes/client-node");
+      const kc = new k8s.KubeConfig();
+      kc.loadFromDefault();
+      const appsApi = kc.makeApiClient(k8s.AppsV1Api);
+      const coreApi = kc.makeApiClient(k8s.CoreV1Api);
+
+      // Create PVC
+      await coreApi.createNamespacedPersistentVolumeClaim({
+        namespace: GAME_HUB_NS,
+        body: {
+          metadata: { name: pvcName, namespace: GAME_HUB_NS, labels: { app: slug, "infraweaver/game": "true", "infraweaver/egg": egg } },
+          spec: { accessModes: ["ReadWriteOnce"], storageClassName: storageClass, resources: { requests: { storage } } },
+        },
+      });
+
+      // Create Deployment
+      const containerPorts = bodyPorts.map(p => ({ containerPort: p.port, protocol: p.protocol as "TCP" | "UDP" }));
+      await appsApi.createNamespacedDeployment({
+        namespace: GAME_HUB_NS,
+        body: {
+          metadata: { name: slug, namespace: GAME_HUB_NS, labels: { app: slug, "infraweaver/game": "true", "infraweaver/game-type": egg, "infraweaver/egg": egg } },
+          spec: {
+            replicas: 1,
+            selector: { matchLabels: { app: slug } },
+            template: {
+              metadata: { labels: { app: slug, "infraweaver/game": "true" } },
+              spec: {
+                securityContext: { runAsUser: 0 },
+                containers: [{
+                  name: egg.replace(/[^a-z0-9-]/g, "-"),
+                  image: bodyImage,
+                  ports: containerPorts,
+                  env: envVars,
+                  resources: { requests: { memory: "512Mi", cpu: "250m" }, limits: { memory, cpu } },
+                  volumeMounts: [{ name: "data", mountPath }],
+                }],
+                volumes: [{ name: "data", persistentVolumeClaim: { claimName: pvcName } }],
+              },
+            },
+          },
+        },
+      });
+
+      // Create Service with all ports
+      const servicePorts = bodyPorts.map(p => ({ name: p.name, port: p.port, targetPort: p.port, protocol: p.protocol as "TCP" | "UDP" }));
+      await coreApi.createNamespacedService({
+        namespace: GAME_HUB_NS,
+        body: {
+          metadata: { name: slug, namespace: GAME_HUB_NS, labels: { app: slug, "infraweaver/game": "true" } },
+          spec: { type: "NodePort", selector: { app: slug }, ports: servicePorts },
+        },
+      });
+
+      return NextResponse.json({ name: slug, game: egg, status: "creating" }, { status: 201 });
+    }
 
     const k8s = await import("@kubernetes/client-node");
     const kc = new k8s.KubeConfig();

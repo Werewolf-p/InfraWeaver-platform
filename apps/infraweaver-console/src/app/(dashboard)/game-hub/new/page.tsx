@@ -3,52 +3,12 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
-import { ChevronLeft, ChevronRight, Check, Loader2, Gamepad2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Check, Loader2, Gamepad2, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
 import { toast } from "sonner";
-
-const GAMES = [
-  {
-    id: "minecraft",
-    name: "Minecraft Java",
-    icon: "⛏",
-    description: "Paper Minecraft server with plugin support",
-    defaultPort: 25565,
-    envFields: [
-      { key: "VERSION", label: "Version", default: "LATEST", placeholder: "LATEST or 1.21.1" },
-      { key: "MAX_PLAYERS", label: "Max Players", default: "20", placeholder: "20" },
-      { key: "SERVER_NAME", label: "Server Name", default: "My Minecraft Server", placeholder: "Server name" },
-      { key: "MOTD", label: "MOTD", default: "A Minecraft Server", placeholder: "Message of the day" },
-    ],
-  },
-  {
-    id: "terraria",
-    name: "Terraria",
-    icon: "🌍",
-    description: "tShock Terraria server",
-    defaultPort: 7777,
-    envFields: [
-      { key: "WORLD", label: "World Name", default: "World1", placeholder: "World1" },
-      { key: "MAXPLAYERS", label: "Max Players", default: "20", placeholder: "20" },
-      { key: "PASSWORD", label: "Password", default: "", placeholder: "Leave empty for no password" },
-      { key: "AUTOCREATE", label: "World Size (1=Small, 2=Med, 3=Large)", default: "2", placeholder: "2" },
-    ],
-  },
-  {
-    id: "valheim",
-    name: "Valheim",
-    icon: "🪓",
-    description: "Valheim server with BepInEx mod support",
-    defaultPort: 2456,
-    envFields: [
-      { key: "SERVER_NAME", label: "Server Name", default: "My Valheim Server", placeholder: "Server name" },
-      { key: "WORLD_NAME", label: "World Name", default: "MyWorld", placeholder: "MyWorld" },
-      { key: "SERVER_PASS", label: "Password (min 5 chars)", default: "changeme", placeholder: "changeme" },
-      { key: "SERVER_PUBLIC", label: "Public (true/false)", default: "false", placeholder: "false" },
-    ],
-  },
-];
+import type { GameEgg } from "@/lib/game-eggs";
+import { CATEGORY_LABELS } from "@/lib/game-eggs";
 
 type StepId = "choose" | "configure" | "preview" | "deploy";
 const STEPS: StepId[] = ["choose", "configure", "preview", "deploy"];
@@ -57,8 +17,9 @@ const STEP_LABELS = ["Choose Game", "Configure", "Review", "Deploy"];
 export default function NewGameServerPage() {
   const router = useRouter();
   const [step, setStep] = useState<StepId>("choose");
-  const [selectedGame, setSelectedGame] = useState<typeof GAMES[0] | null>(null);
+  const [selectedEgg, setSelectedEgg] = useState<GameEgg | null>(null);
   const [serverName, setServerName] = useState("");
+  const [customImage, setCustomImage] = useState("");
   const [memory, setMemory] = useState("2Gi");
   const [cpu, setCpu] = useState("1");
   const [storage, setStorage] = useState("10Gi");
@@ -66,6 +27,16 @@ export default function NewGameServerPage() {
   const [envValues, setEnvValues] = useState<Record<string, string>>({});
   const [deploying, setDeploying] = useState(false);
   const [deployed, setDeployed] = useState(false);
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [eggSearch, setEggSearch] = useState("");
+
+  const { data: eggsData } = useQuery({
+    queryKey: ["game-hub", "eggs"],
+    queryFn: async () => {
+      const res = await fetch("/api/game-hub/eggs");
+      return res.json() as Promise<{ eggs: GameEgg[] }>;
+    },
+  });
 
   const { data: setupData } = useQuery({
     queryKey: ["game-hub", "setup"],
@@ -74,17 +45,43 @@ export default function NewGameServerPage() {
       return res.json() as Promise<{ storageClasses: Array<{ name: string; provisioner: string; isDefault: boolean }>; ready: boolean }>;
     },
   });
-  const availableStorageClasses = setupData?.storageClasses ?? [{ name: "longhorn", provisioner: "driver.longhorn.io", isDefault: true }];
 
+  const eggs = eggsData?.eggs ?? [];
+  const storageClasses = setupData?.storageClasses ?? [{ name: "longhorn", provisioner: "driver.longhorn.io", isDefault: true }];
   const stepIndex = STEPS.indexOf(step);
 
+  const filteredEggs = eggs.filter(egg => {
+    if (categoryFilter !== "all" && egg.category !== categoryFilter) return false;
+    if (eggSearch) {
+      const q = eggSearch.toLowerCase();
+      return egg.name.toLowerCase().includes(q) || egg.description.toLowerCase().includes(q);
+    }
+    return true;
+  });
+
+  function selectEgg(egg: GameEgg) {
+    setSelectedEgg(egg);
+    if (egg.id === "custom") {
+      setCustomImage("");
+    }
+    setMemory(egg.defaultMemory);
+    setCpu(egg.defaultCpu);
+    setStorage(egg.defaultStorage);
+    setEnvValues(Object.fromEntries(egg.defaultEnv.map(e => [e.key, e.default])));
+    setStep("configure");
+  }
+
   function buildYamlPreview() {
-    if (!selectedGame) return "";
-    const slug = serverName.toLowerCase().replace(/[^a-z0-9-]/g, "-");
-    const env = { ...Object.fromEntries(selectedGame.envFields.map(f => [f.key, envValues[f.key] ?? f.default])) };
-    const envLines = Object.entries(env).map(([k, v]) => `    - name: ${k}\n      value: "${v}"`).join("\n");
-    return `# ${selectedGame.name} Server: ${slug}
-# Namespace: game-hub
+    if (!selectedEgg) return "";
+    const slug = serverName.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/^-+|-+$/g, "");
+    const image = selectedEgg.id === "custom" ? customImage : selectedEgg.dockerImage;
+    const env = selectedEgg.defaultEnv.map(e => ({
+      key: e.key,
+      val: envValues[e.key] ?? e.default,
+    }));
+    const envLines = env.map(({ key, val }) => `    - name: ${key}\n      value: "${val}"`).join("\n");
+    const portsLines = selectedEgg.ports.map(p => `    - containerPort: ${p.port}\n      protocol: ${p.protocol}`).join("\n");
+    return `# ${selectedEgg.name} Server: ${slug}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -92,16 +89,19 @@ metadata:
   namespace: game-hub
 spec:
   replicas: 1
-  selector:
-    matchLabels:
-      app: ${slug}
+  selector: {matchLabels: {app: ${slug}}}
   template:
+    metadata:
+      labels:
+        app: ${slug}
+        infraweaver/game: "true"
+        infraweaver/game-type: ${selectedEgg.id}
     spec:
       containers:
-        - name: ${selectedGame.id}
-          image: ${selectedGame.id === "minecraft" ? "itzg/minecraft-server:latest" : selectedGame.id === "terraria" ? "ryshe/terraria:latest" : "lloesche/valheim-server:latest"}
+        - name: ${selectedEgg.id}
+          image: ${image}
           ports:
-            - containerPort: ${selectedGame.defaultPort}
+${portsLines}
           env:
 ${envLines}
           resources:
@@ -112,7 +112,7 @@ ${envLines}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: ${slug}-data
+  name: ${slug}-${selectedEgg.pvcSuffix}
   namespace: game-hub
 spec:
   storageClassName: ${storageClass}
@@ -122,22 +122,32 @@ spec:
   }
 
   async function deploy() {
-    if (!selectedGame) return;
+    if (!selectedEgg || !serverName.trim()) return;
     setDeploying(true);
     try {
       const slug = serverName.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/^-+|-+$/g, "");
-      const env = Object.fromEntries(selectedGame.envFields.map(f => [f.key, envValues[f.key] ?? f.default]));
+      const image = selectedEgg.id === "custom" ? customImage : selectedEgg.dockerImage;
       const res = await fetch("/api/game-hub/servers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ game: selectedGame.id, name: slug, memory, cpu, storage, storageClass, env }),
+        body: JSON.stringify({
+          egg: selectedEgg.id,
+          game: selectedEgg.id.replace(/-java|-bedrock/, ""),
+          name: slug,
+          image,
+          memory, cpu, storage, storageClass,
+          env: envValues,
+          ports: selectedEgg.ports,
+          mountPath: selectedEgg.mountPath,
+          pvcSuffix: selectedEgg.pvcSuffix,
+        }),
       });
       if (!res.ok) {
         const err = await res.json() as { error: string };
         throw new Error(err.error);
       }
       setDeployed(true);
-      toast.success(`${serverName} deployed successfully!`);
+      toast.success(`${serverName} deployed!`);
       setTimeout(() => router.push("/game-hub"), 2000);
     } catch (err) {
       toast.error(String(err));
@@ -146,179 +156,293 @@ spec:
     }
   }
 
+  const categories = ["all", ...Array.from(new Set(eggs.map(e => e.category)))];
+
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
-      <PageHeader title="New Game Server" subtitle="Deploy a game server on Kubernetes" icon={Gamepad2} />
+    <div className="max-w-4xl mx-auto space-y-6">
+      <div className="flex items-center gap-3">
+        <button onClick={() => router.back()} className="text-[#666] hover:text-[#9e9e9e] p-1">
+          <ChevronLeft className="w-5 h-5" />
+        </button>
+        <PageHeader title="New Game Server" subtitle="Deploy a game server on Kubernetes" icon={Gamepad2} />
+      </div>
 
       {/* Stepper */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-0">
         {STEPS.map((s, i) => (
-          <div key={s} className="flex items-center gap-2 flex-1">
-            <div className={cn(
-              "w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium flex-shrink-0",
-              i < stepIndex ? "bg-green-500 text-white" : i === stepIndex ? "bg-[#0078D4] text-white" : "bg-[#252525] text-[#666]"
-            )}>
-              {i < stepIndex ? <Check className="w-3.5 h-3.5" /> : i + 1}
+          <div key={s} className="flex items-center flex-1">
+            <div className="flex items-center gap-2">
+              <div className={cn(
+                "w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium flex-shrink-0 border transition-colors",
+                i < stepIndex ? "bg-green-500 border-green-500 text-white"
+                  : i === stepIndex ? "bg-[#0078D4] border-[#0078D4] text-white"
+                  : "bg-transparent border-[#333] text-[#555]"
+              )}>
+                {i < stepIndex ? <Check className="w-3.5 h-3.5" /> : i + 1}
+              </div>
+              <span className={cn(
+                "text-xs font-medium hidden sm:block",
+                i === stepIndex ? "text-[#f2f2f2]" : "text-[#555]"
+              )}>{STEP_LABELS[i]}</span>
             </div>
-            <span className={cn("text-xs hidden sm:block", i === stepIndex ? "text-[#f2f2f2]" : "text-[#666]")}>{STEP_LABELS[i]}</span>
-            {i < STEPS.length - 1 && <div className={cn("flex-1 h-px", i < stepIndex ? "bg-green-500/50" : "bg-[#2a2a2a]")} />}
+            {i < STEPS.length - 1 && (
+              <div className={cn("flex-1 h-px mx-3 transition-colors", i < stepIndex ? "bg-green-500" : "bg-[#2a2a2a]")} />
+            )}
           </div>
         ))}
       </div>
 
-      <div className="rounded-xl border border-[#2a2a2a] bg-[#1a1a1a] p-6">
-        <AnimatePresence mode="wait">
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={step}
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: -20 }}
+          transition={{ duration: 0.2 }}
+        >
+          {/* Step 1: Choose Game */}
           {step === "choose" && (
-            <motion.div key="choose" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-4">
-              <h2 className="text-sm font-medium text-[#f2f2f2]">Choose your game</h2>
-              <div className="grid gap-3 sm:grid-cols-3">
-                {GAMES.map(game => (
-                  <button
-                    key={game.id}
-                    onClick={() => { setSelectedGame(game); setEnvValues({}); }}
-                    className={cn(
-                      "rounded-xl border p-4 text-left transition-colors",
-                      selectedGame?.id === game.id
-                        ? "border-[#0078D4] bg-[rgba(0,120,212,0.1)]"
-                        : "border-[#2a2a2a] bg-[#252525] hover:border-[#333]"
-                    )}
-                  >
-                    <div className="text-3xl mb-2">{game.icon}</div>
-                    <p className="font-medium text-sm text-[#f2f2f2]">{game.name}</p>
-                    <p className="text-xs text-[#666] mt-1">{game.description}</p>
-                  </button>
-                ))}
+            <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row gap-3">
+                <div className="flex items-center gap-2 flex-1 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg px-3 py-2">
+                  <Search className="w-4 h-4 text-[#555]" />
+                  <input
+                    value={eggSearch}
+                    onChange={e => setEggSearch(e.target.value)}
+                    placeholder="Search games..."
+                    className="flex-1 bg-transparent text-sm text-[#f2f2f2] outline-none placeholder:text-[#555]"
+                  />
+                </div>
+                <div className="flex gap-1.5 flex-wrap">
+                  {categories.map(cat => (
+                    <button
+                      key={cat}
+                      onClick={() => setCategoryFilter(cat)}
+                      className={cn(
+                        "px-3 py-1.5 rounded-lg text-xs font-medium transition-colors capitalize",
+                        categoryFilter === cat
+                          ? "bg-[#0078D4] text-white"
+                          : "bg-[#1a1a1a] border border-[#2a2a2a] text-[#666] hover:text-[#9e9e9e]"
+                      )}
+                    >
+                      {cat === "all" ? "All" : CATEGORY_LABELS[cat as GameEgg["category"]] ?? cat}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </motion.div>
+
+              {filteredEggs.length === 0 ? (
+                <div className="flex items-center justify-center h-32 text-[#555] text-sm">
+                  No games match your search
+                </div>
+              ) : (
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {filteredEggs.map((egg, i) => (
+                    <motion.button
+                      key={egg.id}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: i * 0.03 }}
+                      onClick={() => selectEgg(egg)}
+                      className="flex items-start gap-3 p-4 rounded-xl border border-[#2a2a2a] bg-[#1a1a1a] hover:border-[#0078D4]/50 hover:bg-[rgba(0,120,212,0.05)] text-left transition-colors group"
+                    >
+                      <div className="text-2xl flex-shrink-0">{egg.icon}</div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-medium text-[#f2f2f2] group-hover:text-white">{egg.name}</p>
+                          {egg.pelican && (
+                            <span className="text-[10px] bg-purple-500/20 text-purple-300 border border-purple-500/30 rounded px-1">Pelican</span>
+                          )}
+                        </div>
+                        <p className="text-xs text-[#666] mt-0.5 line-clamp-2">{egg.description}</p>
+                        <div className="flex items-center gap-2 mt-2">
+                          <span className="text-[10px] bg-[#252525] text-[#666] rounded px-1.5 py-0.5 capitalize">
+                            {CATEGORY_LABELS[egg.category] ?? egg.category}
+                          </span>
+                          <span className="text-[10px] text-[#555]">{egg.defaultMemory} RAM</span>
+                        </div>
+                      </div>
+                    </motion.button>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
 
-          {step === "configure" && selectedGame && (
-            <motion.div key="configure" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-4">
-              <h2 className="text-sm font-medium text-[#f2f2f2]">Configure {selectedGame.name}</h2>
-              <div className="space-y-3">
+          {/* Step 2: Configure */}
+          {step === "configure" && selectedEgg && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-3 p-4 rounded-xl border border-[#2a2a2a] bg-[#1a1a1a]">
+                <div className="text-2xl">{selectedEgg.icon}</div>
                 <div>
-                  <label className="text-xs text-[#9e9e9e] mb-1 block">Server Name *</label>
+                  <p className="font-medium text-[#f2f2f2]">{selectedEgg.name}</p>
+                  <p className="text-xs text-[#666]">{selectedEgg.description}</p>
+                </div>
+                <button onClick={() => setStep("choose")} className="ml-auto text-xs text-[#0078D4] hover:underline">Change</button>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="sm:col-span-2 space-y-1.5">
+                  <label className="text-xs font-medium text-[#999]">Server Name *</label>
                   <input
-                    type="text"
                     value={serverName}
                     onChange={e => setServerName(e.target.value)}
                     placeholder="my-minecraft-server"
-                    className="w-full bg-[#252525] border border-[#333] rounded-lg px-3 py-2 text-sm text-[#f2f2f2] outline-none focus:border-[#0078D4]"
+                    className="w-full bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4] placeholder:text-[#555]"
                   />
-                  <p className="text-xs text-[#555] mt-1">Lowercase letters, numbers, hyphens only</p>
+                  <p className="text-[10px] text-[#555]">Lowercase letters, numbers, hyphens only</p>
                 </div>
-                <div className="grid grid-cols-3 gap-3">
-                  <div>
-                    <label className="text-xs text-[#9e9e9e] mb-1 block">Memory Limit</label>
-                    <select value={memory} onChange={e => setMemory(e.target.value)} className="w-full bg-[#252525] border border-[#333] rounded-lg px-3 py-2 text-sm text-[#f2f2f2] outline-none focus:border-[#0078D4]">
-                      <option>1Gi</option><option>2Gi</option><option>4Gi</option><option>8Gi</option>
-                    </select>
+
+                {selectedEgg.id === "custom" && (
+                  <div className="sm:col-span-2 space-y-1.5">
+                    <label className="text-xs font-medium text-[#999]">Docker Image *</label>
+                    <input
+                      value={customImage}
+                      onChange={e => setCustomImage(e.target.value)}
+                      placeholder="your-registry/image:tag"
+                      className="w-full bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg px-3 py-2 text-sm font-mono text-[#f2f2f2] focus:outline-none focus:border-[#0078D4] placeholder:text-[#555]"
+                    />
                   </div>
-                  <div>
-                    <label className="text-xs text-[#9e9e9e] mb-1 block">CPU Limit</label>
-                    <select value={cpu} onChange={e => setCpu(e.target.value)} className="w-full bg-[#252525] border border-[#333] rounded-lg px-3 py-2 text-sm text-[#f2f2f2] outline-none focus:border-[#0078D4]">
-                      <option value="0.5">0.5</option><option>1</option><option>2</option><option>4</option>
-                    </select>
+                )}
+
+                {/* Resources */}
+                {[
+                  { label: "Memory Limit", value: memory, onChange: setMemory, placeholder: "2Gi" },
+                  { label: "CPU Limit", value: cpu, onChange: setCpu, placeholder: "1" },
+                  { label: "Storage Size", value: storage, onChange: setStorage, placeholder: "10Gi" },
+                ].map(f => (
+                  <div key={f.label} className="space-y-1.5">
+                    <label className="text-xs font-medium text-[#999]">{f.label}</label>
+                    <input
+                      value={f.value}
+                      onChange={e => f.onChange(e.target.value)}
+                      placeholder={f.placeholder}
+                      className="w-full bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4] placeholder:text-[#555]"
+                    />
                   </div>
-                  <div>
-                    <label className="text-xs text-[#9e9e9e] mb-1 block">Storage</label>
-                    <select value={storage} onChange={e => setStorage(e.target.value)} className="w-full bg-[#252525] border border-[#333] rounded-lg px-3 py-2 text-sm text-[#f2f2f2] outline-none focus:border-[#0078D4]">
-                      <option>5Gi</option><option>10Gi</option><option>20Gi</option><option>50Gi</option>
-                    </select>
-                  </div>
-                </div>
-                <div className="space-y-2">
+                ))}
+
+                <div className="space-y-1.5">
                   <label className="text-xs font-medium text-[#999]">Storage Class</label>
                   <select
                     value={storageClass}
                     onChange={e => setStorageClass(e.target.value)}
-                    className="w-full bg-[#252525] border border-[#333] rounded-lg px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
+                    className="w-full bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
                   >
-                    {availableStorageClasses.map(sc => (
+                    {storageClasses.map(sc => (
                       <option key={sc.name} value={sc.name}>
-                        {sc.name} {sc.isDefault ? "(default)" : ""} — {sc.provisioner}
+                        {sc.name}{sc.isDefault ? " (default)" : ""}
                       </option>
                     ))}
                   </select>
                 </div>
-                <div className="border-t border-[#2a2a2a] pt-3">
-                  <p className="text-xs text-[#9e9e9e] mb-2 font-medium">Game Settings</p>
-                  {selectedGame.envFields.map(field => (
-                    <div key={field.key} className="mb-2">
-                      <label className="text-xs text-[#666] mb-1 block">{field.label}</label>
-                      <input
-                        type="text"
-                        value={envValues[field.key] ?? field.default}
-                        onChange={e => setEnvValues(prev => ({ ...prev, [field.key]: e.target.value }))}
-                        placeholder={field.placeholder}
-                        className="w-full bg-[#252525] border border-[#333] rounded-lg px-3 py-2 text-sm text-[#f2f2f2] outline-none focus:border-[#0078D4]"
-                      />
-                    </div>
-                  ))}
-                </div>
               </div>
-            </motion.div>
+
+              {/* Egg-specific env vars */}
+              {selectedEgg.defaultEnv.length > 0 && (
+                <div className="space-y-3">
+                  <p className="text-xs font-medium text-[#999] uppercase tracking-wide">Server Configuration</p>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {selectedEgg.defaultEnv.map(envDef => (
+                      <div key={envDef.key} className="space-y-1.5">
+                        <label className="text-xs font-medium text-[#999]">
+                          {envDef.label}
+                          {envDef.required && <span className="text-red-400 ml-1">*</span>}
+                        </label>
+                        {envDef.type === "select" ? (
+                          <select
+                            value={envValues[envDef.key] ?? envDef.default}
+                            onChange={e => setEnvValues(prev => ({ ...prev, [envDef.key]: e.target.value }))}
+                            className="w-full bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
+                          >
+                            {envDef.options?.map(o => <option key={o} value={o}>{o}</option>)}
+                          </select>
+                        ) : envDef.type === "boolean" ? (
+                          <select
+                            value={envValues[envDef.key] ?? envDef.default}
+                            onChange={e => setEnvValues(prev => ({ ...prev, [envDef.key]: e.target.value }))}
+                            className="w-full bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
+                          >
+                            <option value="true">true</option>
+                            <option value="false">false</option>
+                          </select>
+                        ) : (
+                          <input
+                            type={envDef.type === "password" ? "password" : "text"}
+                            value={envValues[envDef.key] ?? envDef.default}
+                            onChange={e => setEnvValues(prev => ({ ...prev, [envDef.key]: e.target.value }))}
+                            placeholder={envDef.default}
+                            className="w-full bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4] placeholder:text-[#555]"
+                          />
+                        )}
+                        {envDef.description && (
+                          <p className="text-[10px] text-[#555]">{envDef.description}</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex gap-3 pt-2 pb-20 sm:pb-4">
+                <button onClick={() => setStep("choose")} className="flex items-center gap-1.5 px-4 py-2 bg-[#1a1a1a] border border-[#2a2a2a] text-[#9e9e9e] rounded-lg text-sm hover:bg-[#252525] transition-colors">
+                  <ChevronLeft className="w-4 h-4" /> Back
+                </button>
+                <button
+                  onClick={() => setStep("preview")}
+                  disabled={!serverName.trim() || (selectedEgg.id === "custom" && !customImage.trim())}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-[#0078D4] hover:bg-[#0065B3] disabled:opacity-50 text-white rounded-lg text-sm transition-colors ml-auto"
+                >
+                  Preview <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
           )}
 
+          {/* Step 3: Preview */}
           {step === "preview" && (
-            <motion.div key="preview" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-3">
-              <h2 className="text-sm font-medium text-[#f2f2f2]">YAML Preview</h2>
-              <pre className="bg-[#0d0d0d] rounded-lg p-4 text-xs text-[#9e9e9e] overflow-auto max-h-80 font-mono leading-relaxed whitespace-pre-wrap border border-[#2a2a2a]">
-                {buildYamlPreview()}
-              </pre>
-            </motion.div>
+            <div className="space-y-4">
+              <div className="rounded-xl border border-[#2a2a2a] bg-[#0d0d0d] p-4 overflow-auto max-h-96">
+                <pre className="text-xs font-mono text-[#d4d4d4] whitespace-pre-wrap">{buildYamlPreview()}</pre>
+              </div>
+              <div className="flex gap-3 pb-20 sm:pb-4">
+                <button onClick={() => setStep("configure")} className="flex items-center gap-1.5 px-4 py-2 bg-[#1a1a1a] border border-[#2a2a2a] text-[#9e9e9e] rounded-lg text-sm hover:bg-[#252525] transition-colors">
+                  <ChevronLeft className="w-4 h-4" /> Back
+                </button>
+                <button
+                  onClick={() => { setStep("deploy"); deploy(); }}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium transition-colors ml-auto"
+                >
+                  Deploy Server <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
           )}
 
+          {/* Step 4: Deploy */}
           {step === "deploy" && (
-            <motion.div key="deploy" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-4 text-center py-4">
+            <div className="flex flex-col items-center justify-center py-16 space-y-4">
               {deployed ? (
                 <>
-                  <div className="text-5xl">🎉</div>
-                  <p className="text-[#f2f2f2] font-medium">Server deployed!</p>
-                  <p className="text-[#666] text-sm">Redirecting to Game Hub...</p>
+                  <div className="w-14 h-14 rounded-full bg-green-500/20 flex items-center justify-center">
+                    <Check className="w-7 h-7 text-green-400" />
+                  </div>
+                  <p className="text-lg font-semibold text-[#f2f2f2]">Server Deployed!</p>
+                  <p className="text-sm text-[#666]">Redirecting to game hub...</p>
                 </>
               ) : (
                 <>
-                  <div className="text-4xl">{selectedGame?.icon ?? "🎮"}</div>
-                  <p className="text-[#f2f2f2] font-medium">Ready to deploy {serverName}</p>
-                  <p className="text-[#666] text-sm">This will create a Deployment, PVC, and Service in the game-hub namespace.</p>
-                  <button
-                    onClick={deploy}
-                    disabled={deploying}
-                    className="flex items-center gap-2 mx-auto px-6 py-2.5 bg-[#0078D4] hover:bg-[#006cbe] text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
-                  >
-                    {deploying ? <><Loader2 className="w-4 h-4 animate-spin" />Deploying...</> : "Deploy Server"}
-                  </button>
+                  <div className="w-14 h-14 rounded-full bg-[rgba(0,120,212,0.15)] flex items-center justify-center">
+                    <Loader2 className="w-7 h-7 text-[#0078D4] animate-spin" />
+                  </div>
+                  <p className="text-lg font-semibold text-[#f2f2f2]">Deploying...</p>
+                  <p className="text-sm text-[#666]">Creating Kubernetes resources</p>
                 </>
               )}
-            </motion.div>
+            </div>
           )}
-        </AnimatePresence>
-      </div>
-
-      {/* Navigation */}
-      <div className="flex items-center justify-between">
-        <button
-          onClick={() => { if (stepIndex > 0) setStep(STEPS[stepIndex - 1]); else router.push("/game-hub"); }}
-          className="flex items-center gap-2 px-4 py-2 text-[#9e9e9e] hover:text-[#f2f2f2] text-sm transition-colors"
-        >
-          <ChevronLeft className="w-4 h-4" />
-          {stepIndex === 0 ? "Cancel" : "Back"}
-        </button>
-        {step !== "deploy" && (
-          <button
-            onClick={() => {
-              if (step === "choose" && !selectedGame) { toast.error("Please select a game"); return; }
-              if (step === "configure" && !serverName.trim()) { toast.error("Server name is required"); return; }
-              setStep(STEPS[stepIndex + 1]);
-            }}
-            className="flex items-center gap-2 px-4 py-2 bg-[#0078D4] hover:bg-[#006cbe] text-white rounded-lg text-sm font-medium transition-colors"
-          >
-            {step === "preview" ? "Proceed to Deploy" : "Next"}
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        )}
-      </div>
+        </motion.div>
+      </AnimatePresence>
     </div>
   );
 }

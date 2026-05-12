@@ -101,6 +101,23 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
       for (const pod of pods.items ?? []) {
         await coreApi.deleteNamespacedPod({ name: pod.metadata?.name ?? "", namespace: GAME_HUB_NS }).catch(() => {});
       }
+    } else if (body.action === "update-env") {
+      const envBody = body as { action: string; env: Record<string, string> };
+      const envVars = Object.entries(envBody.env ?? {}).map(([k, v]) => ({ name: k, value: v }));
+      await appsApi.patchNamespacedDeployment({
+        name, namespace: GAME_HUB_NS,
+        body: {
+          spec: {
+            template: {
+              spec: {
+                containers: [{ name: (await appsApi.readNamespacedDeployment({ name, namespace: GAME_HUB_NS })).spec?.template?.spec?.containers?.[0]?.name ?? name, env: envVars }],
+              },
+            },
+          },
+        },
+        force: true,
+        fieldManager: "infraweaver",
+      });
     }
 
     return NextResponse.json({ action: body.action, name });
