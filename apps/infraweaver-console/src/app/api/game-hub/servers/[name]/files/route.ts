@@ -16,7 +16,7 @@ async function execInPod(
   let stderr = "";
 
   await new Promise<void>((resolve, reject) => {
-    const timeout = setTimeout(() => resolve(), 15000);
+    const timeout = setTimeout(() => resolve(), 10000);
 
     const stdoutW = new Writable({
       write(chunk, _enc, cb) { stdout += chunk.toString(); cb(); },
@@ -33,7 +33,7 @@ async function execInPod(
         if (status?.status === "Failure") reject(new Error(status.message ?? "Exec failed"));
         else resolve();
       },
-    ).catch(reject);
+    ).catch((err) => { clearTimeout(timeout); reject(err); });
   });
 
   return { stdout, stderr };

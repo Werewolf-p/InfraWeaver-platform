@@ -52,6 +52,25 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ nam
       protocol: p.protocol ?? "TCP",
     }));
 
+    // HPA info (if one exists for this server)
+    const autoscalingApi = kc.makeApiClient(k8s.AutoscalingV2Api);
+    let hpa: { enabled: boolean; min: number; max: number; cpuTarget: number | null; currentReplicas: number | null } = {
+      enabled: false, min: 1, max: 3, cpuTarget: 70, currentReplicas: null,
+    };
+    try {
+      const hpaObj = await autoscalingApi.readNamespacedHorizontalPodAutoscaler({ name, namespace: GAME_HUB_NS });
+      const cpuMetric = hpaObj.spec?.metrics?.find(
+        m => m.type === "Resource" && (m.resource as { name?: string })?.name === "cpu"
+      );
+      hpa = {
+        enabled: true,
+        min: hpaObj.spec?.minReplicas ?? 1,
+        max: hpaObj.spec?.maxReplicas ?? 3,
+        cpuTarget: (cpuMetric?.resource as { target?: { averageUtilization?: number } } | undefined)?.target?.averageUtilization ?? null,
+        currentReplicas: hpaObj.status?.currentReplicas ?? null,
+      };
+    } catch { /* no HPA — that's fine */ }
+
     return NextResponse.json({
       name,
       gameType: deployment.metadata?.labels?.["infraweaver/game-type"] ?? "unknown",
@@ -64,6 +83,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ nam
       nodePort: svc?.spec?.ports?.[0]?.nodePort ?? null,
       nodeIp,
       allPorts,
+      hpa,
       memory: deployment.spec?.template?.spec?.containers?.[0]?.resources?.limits?.memory ?? "",
       cpu: deployment.spec?.template?.spec?.containers?.[0]?.resources?.limits?.cpu ?? "",
       env: (deployment.spec?.template?.spec?.containers?.[0]?.env ?? []).map(e => ({
@@ -125,7 +145,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { name } = await params;
-  const body = await req.json() as { action: "start" | "stop" | "restart" };
+  const body = await req.json() as {
+    action: "start" | "stop" | "restart" | "scale" | "set-hpa" | "remove-hpa" | "update-env";
+    replicas?: number;
+    hpaMin?: number; hpaMax?: number; hpaCpuTarget?: number;
+    env?: Record<string, string>;
+  };
 
   try {
     const k8s = await import("@kubernetes/client-node");
@@ -138,24 +163,58 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
       await appsApi.patchNamespacedDeployment({
         name, namespace: GAME_HUB_NS,
         body: { spec: { replicas: 1 } },
-        force: true,
-        fieldManager: "infraweaver",
+        force: true, fieldManager: "infraweaver",
       });
     } else if (body.action === "stop") {
       await appsApi.patchNamespacedDeployment({
         name, namespace: GAME_HUB_NS,
         body: { spec: { replicas: 0 } },
-        force: true,
-        fieldManager: "infraweaver",
+        force: true, fieldManager: "infraweaver",
       });
     } else if (body.action === "restart") {
       const pods = await coreApi.listNamespacedPod({ namespace: GAME_HUB_NS, labelSelector: `app=${name}` });
       for (const pod of pods.items ?? []) {
         await coreApi.deleteNamespacedPod({ name: pod.metadata?.name ?? "", namespace: GAME_HUB_NS }).catch(() => {});
       }
+    } else if (body.action === "scale") {
+      // Static replica count — also remove any HPA so it doesn't fight the manual setting
+      const autoscalingApi = kc.makeApiClient(k8s.AutoscalingV2Api);
+      await autoscalingApi.deleteNamespacedHorizontalPodAutoscaler({ name, namespace: GAME_HUB_NS }).catch(() => {});
+      const count = Math.max(0, Math.min(body.replicas ?? 1, 10));
+      await appsApi.patchNamespacedDeployment({
+        name, namespace: GAME_HUB_NS,
+        body: { spec: { replicas: count } },
+        force: true, fieldManager: "infraweaver",
+      });
+    } else if (body.action === "set-hpa") {
+      const autoscalingApi = kc.makeApiClient(k8s.AutoscalingV2Api);
+      const min = Math.max(1, body.hpaMin ?? 1);
+      const max = Math.max(min, body.hpaMax ?? 3);
+      const cpu = Math.min(100, Math.max(10, body.hpaCpuTarget ?? 70));
+      const hpaSpec = {
+        apiVersion: "autoscaling/v2",
+        kind: "HorizontalPodAutoscaler",
+        metadata: { name, namespace: GAME_HUB_NS },
+        spec: {
+          scaleTargetRef: { apiVersion: "apps/v1", kind: "Deployment", name },
+          minReplicas: min,
+          maxReplicas: max,
+          metrics: [{ type: "Resource", resource: { name: "cpu", target: { type: "Utilization", averageUtilization: cpu } } }],
+        },
+      };
+      // Upsert — try patch first, fall back to create
+      try {
+        await autoscalingApi.patchNamespacedHorizontalPodAutoscaler({
+          name, namespace: GAME_HUB_NS, body: hpaSpec, force: true, fieldManager: "infraweaver",
+        });
+      } catch {
+        await autoscalingApi.createNamespacedHorizontalPodAutoscaler({ namespace: GAME_HUB_NS, body: hpaSpec });
+      }
+    } else if (body.action === "remove-hpa") {
+      const autoscalingApi = kc.makeApiClient(k8s.AutoscalingV2Api);
+      await autoscalingApi.deleteNamespacedHorizontalPodAutoscaler({ name, namespace: GAME_HUB_NS }).catch(() => {});
     } else if (body.action === "update-env") {
-      const envBody = body as { action: string; env: Record<string, string> };
-      const envVars = Object.entries(envBody.env ?? {}).map(([k, v]) => ({ name: k, value: v }));
+      const envVars = Object.entries(body.env ?? {}).map(([k, v]) => ({ name: k, value: v }));
       await appsApi.patchNamespacedDeployment({
         name, namespace: GAME_HUB_NS,
         body: {
@@ -167,8 +226,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
             },
           },
         },
-        force: true,
-        fieldManager: "infraweaver",
+        force: true, fieldManager: "infraweaver",
       });
     }
 

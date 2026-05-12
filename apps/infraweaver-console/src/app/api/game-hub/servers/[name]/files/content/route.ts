@@ -10,13 +10,14 @@ async function execInPod(
   podName: string,
   containerName: string,
   command: string[],
+  timeoutMs = 10000,
 ): Promise<{ stdout: string; stderr: string }> {
   const exec = new k8s.Exec(kc);
   let stdout = "";
   let stderr = "";
 
   await new Promise<void>((resolve, reject) => {
-    const timeout = setTimeout(() => resolve(), 30000);
+    const timeout = setTimeout(() => resolve(), timeoutMs);
     const stdoutW = new Writable({ write(c, _, cb) { stdout += c.toString(); cb(); } });
     const stderrW = new Writable({ write(c, _, cb) { stderr += c.toString(); cb(); } });
 
@@ -24,7 +25,7 @@ async function execInPod(
       clearTimeout(timeout);
       if (status?.status === "Failure") reject(new Error(status.message ?? "Exec failed"));
       else resolve();
-    }).catch(reject);
+    }).catch((err) => { clearTimeout(timeout); reject(err); });
   });
 
   return { stdout, stderr };
@@ -52,25 +53,21 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ name
     const podName = pod.metadata.name;
     const containerName = pod.spec?.containers?.[0]?.name ?? name;
 
-    // Check if it's binary (use file command if available, else check size)
-    const { stdout: fileSize } = await execInPod(kc, k8s, podName, containerName, [
-      "sh", "-c", `wc -c < "${filePath}" 2>/dev/null || echo "0"`,
+    // Single exec: size-check + base64 combined to avoid double WebSocket overhead
+    const { stdout: raw, stderr } = await execInPod(kc, k8s, podName, containerName, [
+      "sh", "-c",
+      `SIZE=$(wc -c < "${filePath}" 2>/dev/null || echo 0); if [ "$SIZE" -gt 5242880 ]; then echo "TOO_LARGE:$SIZE"; else base64 "${filePath}" 2>&1; fi`,
     ]);
-    const size = parseInt(fileSize.trim(), 10);
 
-    if (size > 5 * 1024 * 1024) { // 5MB limit
+    if (raw.startsWith("TOO_LARGE:")) {
+      const size = parseInt(raw.split(":")[1] ?? "0", 10);
       return NextResponse.json({ error: "File too large (max 5MB)", size }, { status: 413 });
     }
 
-    // Read file content via base64 to handle special chars safely
-    const { stdout: b64, stderr } = await execInPod(kc, k8s, podName, containerName, [
-      "sh", "-c", `base64 "${filePath}" 2>&1`,
-    ]);
+    if (!raw && stderr) return NextResponse.json({ error: stderr.trim() }, { status: 500 });
 
-    if (stderr && !b64) return NextResponse.json({ error: stderr.trim() }, { status: 500 });
-
-    const content = Buffer.from(b64.replace(/\s/g, ""), "base64").toString("utf8");
-    return NextResponse.json({ path: filePath, content, size });
+    const content = Buffer.from(raw.replace(/\s/g, ""), "base64").toString("utf8");
+    return NextResponse.json({ path: filePath, content });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
   }

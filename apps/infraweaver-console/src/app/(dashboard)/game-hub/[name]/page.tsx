@@ -8,7 +8,7 @@ import {
   Settings, FolderOpen, Activity, File, Folder, Save, Trash2,
   RefreshCw, Copy, ArrowUp, Send, Circle, AlertTriangle,
   Cpu, MemoryStick, Network, Clock, Gamepad2, LayoutDashboard,
-  Shield, Server, Wifi
+  Shield, Server, Wifi, Layers
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -37,6 +37,7 @@ interface ServerDetail {
   podName: string | null; podPhase: string | null; podStartTime: string | null;
   port: number | null; nodePort: number | null; nodeIp: string | null;
   allPorts: ServicePort[];
+  hpa: { enabled: boolean; min: number; max: number; cpuTarget: number | null; currentReplicas: number | null };
   memory: string; cpu: string;
   env: Array<{ name: string; value?: string; valueFrom?: unknown }>; createdAt: string | null;
 }
@@ -512,13 +513,28 @@ function FilesTab({ name, status, mountPath }: { name: string; status: string; m
     }
     setSelectedFile(entry); setFileContent(null); setLoadingContent(true);
     setMobilePane("editor");
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
     try {
-      const res = await fetch(`/api/game-hub/servers/${name}/files/content?path=${encodeURIComponent(entry.path)}`);
-      if (!res.ok) throw new Error("Cannot read file");
+      const res = await fetch(
+        `/api/game-hub/servers/${name}/files/content?path=${encodeURIComponent(entry.path)}`,
+        { signal: controller.signal },
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({})) as { error?: string };
+        throw new Error(body.error ?? `HTTP ${res.status}`);
+      }
       const data = await res.json() as { content: string };
       setFileContent(data.content);
-    } catch (err) { toast.error(String(err)); }
-    finally { setLoadingContent(false); }
+    } catch (err) {
+      const msg = err instanceof Error && err.name === "AbortError"
+        ? "File load timed out — server may be busy"
+        : String(err);
+      toast.error(msg);
+    } finally {
+      clearTimeout(timer);
+      setLoadingContent(false);
+    }
   }
 
   async function saveFile() {
@@ -669,6 +685,38 @@ function FilesTab({ name, status, mountPath }: { name: string; status: string; m
 // ─── Settings Tab ─────────────────────────────────────────────────────────────
 function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
   const queryClient = useQueryClient();
+
+  // ── Replica control state ──
+  const [replicaMode, setReplicaMode] = useState<"static" | "dynamic">(server.hpa.enabled ? "dynamic" : "static");
+  const [staticCount, setStaticCount] = useState(server.replicas ?? 1);
+  const [hpaMin, setHpaMin] = useState(server.hpa.min);
+  const [hpaMax, setHpaMax] = useState(server.hpa.max);
+  const [hpaCpu, setHpaCpu] = useState(server.hpa.cpuTarget ?? 70);
+  const [scaleSaving, setScaleSaving] = useState(false);
+
+  async function saveReplicas() {
+    setScaleSaving(true);
+    try {
+      if (replicaMode === "static") {
+        const res = await fetch(`/api/game-hub/servers/${name}`, {
+          method: "PATCH", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "scale", replicas: staticCount }),
+        });
+        if (!res.ok) throw new Error("Scale failed");
+        toast.success(`Set to ${staticCount} replica${staticCount !== 1 ? "s" : ""}`);
+      } else {
+        const res = await fetch(`/api/game-hub/servers/${name}`, {
+          method: "PATCH", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "set-hpa", hpaMin, hpaMax, hpaCpuTarget: hpaCpu }),
+        });
+        if (!res.ok) throw new Error("HPA save failed");
+        toast.success(`Auto-scale enabled: ${hpaMin}–${hpaMax} replicas @ ${hpaCpu}% CPU`);
+      }
+      queryClient.invalidateQueries({ queryKey: ["game-hub", "server", name] });
+    } catch (err) { toast.error(String(err)); }
+    finally { setScaleSaving(false); }
+  }
+
   const [editingEnv, setEditingEnv] = useState(false);
   const [envStr, setEnvStr] = useState(
     server.env.map(e => `${e.name}=${e.value ?? ""}`).join("\n")
@@ -698,6 +746,77 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
 
   return (
     <div className="space-y-4">
+      {/* ── Replica / Scaling Control ── */}
+      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-[#1e1e1e]">
+          <Layers className="w-3.5 h-3.5 text-[#555]" />
+          <p className="text-xs font-medium text-[#888] uppercase tracking-wide">Replica Scaling</p>
+          {server.hpa.enabled && (
+            <span className="ml-auto text-[10px] px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/20">HPA active</span>
+          )}
+        </div>
+        <div className="p-4 space-y-4">
+          {/* Mode toggle */}
+          <div className="flex gap-2">
+            {(["static", "dynamic"] as const).map(m => (
+              <button key={m} onClick={() => setReplicaMode(m)}
+                className={cn("flex-1 py-2 rounded-lg text-xs font-medium transition-colors border",
+                  replicaMode === m
+                    ? "bg-[#0078D4]/20 border-[#0078D4]/50 text-[#0078D4]"
+                    : "bg-transparent border-[#2a2a2a] text-[#666] hover:text-[#888]")}>
+                {m === "static" ? "Static (fixed)" : "Dynamic (HPA)"}
+              </button>
+            ))}
+          </div>
+
+          {replicaMode === "static" ? (
+            <div className="flex items-center gap-3">
+              <label className="text-xs text-[#666] flex-shrink-0">Replicas</label>
+              <div className="flex items-center gap-1">
+                <button onClick={() => setStaticCount(c => Math.max(0, c - 1))}
+                  className="w-7 h-7 rounded bg-[#1e1e1e] hover:bg-[#2a2a2a] text-[#888] text-sm font-bold flex items-center justify-center">−</button>
+                <span className="w-8 text-center text-sm font-mono text-[#f2f2f2]">{staticCount}</span>
+                <button onClick={() => setStaticCount(c => Math.min(10, c + 1))}
+                  className="w-7 h-7 rounded bg-[#1e1e1e] hover:bg-[#2a2a2a] text-[#888] text-sm font-bold flex items-center justify-center">+</button>
+              </div>
+              <p className="text-[10px] text-[#444]">(0 = stopped, max 10)</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-[10px] text-[#666] mb-1">Min replicas</label>
+                  <input type="number" min={1} max={10} value={hpaMin}
+                    onChange={e => setHpaMin(Math.max(1, parseInt(e.target.value) || 1))}
+                    className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded px-2 py-1.5 text-sm text-[#f2f2f2] text-center focus:outline-none focus:border-[#0078D4]" />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-[#666] mb-1">Max replicas</label>
+                  <input type="number" min={1} max={10} value={hpaMax}
+                    onChange={e => setHpaMax(Math.max(hpaMin, parseInt(e.target.value) || 1))}
+                    className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded px-2 py-1.5 text-sm text-[#f2f2f2] text-center focus:outline-none focus:border-[#0078D4]" />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-[#666] mb-1">CPU target %</label>
+                  <input type="number" min={10} max={100} value={hpaCpu}
+                    onChange={e => setHpaCpu(Math.min(100, Math.max(10, parseInt(e.target.value) || 70)))}
+                    className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded px-2 py-1.5 text-sm text-[#f2f2f2] text-center focus:outline-none focus:border-[#0078D4]" />
+                </div>
+              </div>
+              {server.hpa.currentReplicas !== null && (
+                <p className="text-[10px] text-[#555]">Currently running {server.hpa.currentReplicas} replica(s) via HPA</p>
+              )}
+            </div>
+          )}
+
+          <button onClick={saveReplicas} disabled={scaleSaving}
+            className="flex items-center gap-1.5 px-4 py-2 bg-[#0078D4] hover:bg-[#0065B3] disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors">
+            {scaleSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+            Apply scaling
+          </button>
+        </div>
+      </div>
+
       {/* Environment variables */}
       <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
         <div className="flex items-center justify-between px-4 py-3 border-b border-[#1e1e1e]">
