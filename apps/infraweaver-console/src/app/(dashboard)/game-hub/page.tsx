@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, Gamepad2, Play, Square, RotateCcw, Trash2, Terminal, Loader2, AlertTriangle, HardDrive, X, CheckSquare, Square as SquareIcon } from "lucide-react";
+import { Plus, Gamepad2, Play, Square, RotateCcw, Trash2, Terminal, Loader2, AlertTriangle, HardDrive, X, CheckSquare, Square as SquareIcon, Search, ChevronDown, ChevronUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
 import { toast } from "sonner";
@@ -43,6 +43,165 @@ const STATUS_COLORS: Record<string, string> = {
   starting: "bg-yellow-500/20 text-yellow-300 border-yellow-500/30",
   stopped: "bg-[#333] text-[#999] border-[#444]",
   crashed: "bg-red-500/20 text-red-300 border-red-500/30",
+};
+
+const FEATURE_ROADMAP: Array<{ category: string; items: Array<{ name: string; status: "Shipped" | "Planned" | "Coming Soon" }> }> = [
+  {
+    category: "Server Management",
+    items: [
+      { name: "Start/Stop/Restart", status: "Shipped" },
+      { name: "Env vars editor", status: "Shipped" },
+      { name: "Static replicas", status: "Shipped" },
+      { name: "HPA auto-scale", status: "Shipped" },
+      { name: "Server delete", status: "Shipped" },
+      { name: "Server clone", status: "Planned" },
+      { name: "Templates library", status: "Planned" },
+      { name: "Bulk start/stop", status: "Planned" },
+      { name: "Scheduled on/off", status: "Coming Soon" },
+      { name: "Maintenance mode", status: "Coming Soon" },
+    ],
+  },
+  {
+    category: "Monitoring",
+    items: [
+      { name: "Status indicator", status: "Shipped" },
+      { name: "Uptime counter", status: "Shipped" },
+      { name: "CPU/RAM graphs", status: "Planned" },
+      { name: "Network traffic", status: "Coming Soon" },
+      { name: "Player count timeline", status: "Planned" },
+      { name: "Minecraft TPS", status: "Coming Soon" },
+      { name: "Disk usage chart", status: "Planned" },
+      { name: "Event timeline", status: "Shipped" },
+      { name: "Alert thresholds", status: "Coming Soon" },
+      { name: "Performance score", status: "Coming Soon" },
+    ],
+  },
+  {
+    category: "Console",
+    items: [
+      { name: "Interactive console", status: "Shipped" },
+      { name: "Command execution", status: "Shipped" },
+      { name: "Command history", status: "Shipped" },
+      { name: "Command templates", status: "Shipped" },
+      { name: "Broadcast button", status: "Shipped" },
+      { name: "Player kick/ban", status: "Planned" },
+      { name: "Whitelist editor", status: "Planned" },
+      { name: "Quick commands panel", status: "Shipped" },
+      { name: "Console search", status: "Coming Soon" },
+      { name: "Console export", status: "Shipped" },
+    ],
+  },
+  {
+    category: "File Management",
+    items: [
+      { name: "File browser", status: "Shipped" },
+      { name: "Monaco editor", status: "Shipped" },
+      { name: "File delete", status: "Shipped" },
+      { name: "File upload", status: "Planned" },
+      { name: "File download", status: "Coming Soon" },
+      { name: "Directory create", status: "Coming Soon" },
+      { name: "File rename", status: "Coming Soon" },
+      { name: "Permissions viewer", status: "Coming Soon" },
+      { name: "Binary file viewer", status: "Coming Soon" },
+      { name: "File diff", status: "Coming Soon" },
+    ],
+  },
+  {
+    category: "Backup & Recovery",
+    items: [
+      { name: "Manual world backup", status: "Planned" },
+      { name: "Scheduled backups", status: "Coming Soon" },
+      { name: "Backup retention", status: "Coming Soon" },
+      { name: "Restore from backup", status: "Coming Soon" },
+      { name: "Cross-server transfer", status: "Coming Soon" },
+      { name: "Backup size tracking", status: "Coming Soon" },
+      { name: "Backup verification", status: "Coming Soon" },
+      { name: "TrueNAS target", status: "Planned" },
+      { name: "S3 target", status: "Coming Soon" },
+      { name: "Incremental backup", status: "Coming Soon" },
+    ],
+  },
+  {
+    category: "Networking",
+    items: [
+      { name: "Connection info", status: "Shipped" },
+      { name: "Multi-port display", status: "Shipped" },
+      { name: "Custom domain", status: "Planned" },
+      { name: "DNS auto-register", status: "Coming Soon" },
+      { name: "Player capacity", status: "Planned" },
+      { name: "Bandwidth metering", status: "Coming Soon" },
+      { name: "Firewall rules", status: "Coming Soon" },
+      { name: "BungeeCord proxy", status: "Coming Soon" },
+      { name: "Cloudflare tunnel", status: "Coming Soon" },
+      { name: "Server ping", status: "Coming Soon" },
+    ],
+  },
+  {
+    category: "Player Management",
+    items: [
+      { name: "Online player list", status: "Planned" },
+      { name: "Whitelist editor", status: "Planned" },
+      { name: "Op management", status: "Planned" },
+      { name: "Ban list", status: "Planned" },
+      { name: "Player stats", status: "Coming Soon" },
+      { name: "Discord webhooks", status: "Planned" },
+      { name: "GeoIP map", status: "Coming Soon" },
+      { name: "Chat viewer", status: "Coming Soon" },
+      { name: "Player history", status: "Coming Soon" },
+      { name: "Player groups", status: "Coming Soon" },
+    ],
+  },
+  {
+    category: "Mods & Plugins",
+    items: [
+      { name: "Mod list viewer", status: "Planned" },
+      { name: "Plugin list", status: "Planned" },
+      { name: "Modrinth install", status: "Coming Soon" },
+      { name: "Mod updater", status: "Coming Soon" },
+      { name: "Mod conflicts", status: "Coming Soon" },
+      { name: "Plugin config editor", status: "Coming Soon" },
+      { name: "Mod packs", status: "Coming Soon" },
+      { name: "Workshop integration", status: "Coming Soon" },
+      { name: "Custom eggs", status: "Shipped" },
+      { name: "Docker image picker", status: "Shipped" },
+    ],
+  },
+  {
+    category: "Storage",
+    items: [
+      { name: "Longhorn backend", status: "Shipped" },
+      { name: "TrueNAS backend", status: "Planned" },
+      { name: "Synology backend", status: "Planned" },
+      { name: "ZFS snapshots", status: "Coming Soon" },
+      { name: "PVC expansion", status: "Planned" },
+      { name: "Data migration", status: "Coming Soon" },
+      { name: "IO benchmark", status: "Coming Soon" },
+      { name: "Storage analytics", status: "Coming Soon" },
+      { name: "Quota enforcement", status: "Coming Soon" },
+      { name: "Tiered storage", status: "Coming Soon" },
+    ],
+  },
+  {
+    category: "RBAC & Security",
+    items: [
+      { name: "Platform RBAC", status: "Shipped" },
+      { name: "Per-server roles", status: "Shipped" },
+      { name: "IaC user assignments", status: "Shipped" },
+      { name: "Audit log", status: "Planned" },
+      { name: "Command ACL", status: "Planned" },
+      { name: "File access control", status: "Coming Soon" },
+      { name: "Two-factor auth", status: "Coming Soon" },
+      { name: "API tokens", status: "Coming Soon" },
+      { name: "Session management", status: "Coming Soon" },
+      { name: "Security alerts", status: "Coming Soon" },
+    ],
+  },
+];
+
+const ROADMAP_STATUS_STYLES: Record<"Shipped" | "Planned" | "Coming Soon", string> = {
+  Shipped: "bg-green-500/15 text-green-300 border-green-500/30",
+  Planned: "bg-[#0078D4]/15 text-[#4db3ff] border-[#0078D4]/30",
+  "Coming Soon": "bg-[#252525] text-[#999] border-[#333]",
 };
 
 function PVCCleanupModal({ onClose }: { onClose: () => void }) {
@@ -214,6 +373,10 @@ export default function GameHubPage() {
   const queryClient = useQueryClient();
   const [actionLoading, setActionLoading] = useState<Record<string, string>>({});
   const [showPVCCleanup, setShowPVCCleanup] = useState(false);
+  const [search, setSearch] = useState("");
+  const [filterType, setFilterType] = useState("");
+  const [filterStatus, setFilterStatus] = useState("all");
+  const [showRoadmap, setShowRoadmap] = useState(false);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["game-hub", "servers"],
@@ -226,6 +389,13 @@ export default function GameHubPage() {
   });
 
   const servers = data?.servers ?? [];
+  const uniqueGameTypes = [...new Set(servers.map(s => s.gameType))].sort();
+  const filteredServers = servers.filter((s) => {
+    if (search && !s.name.toLowerCase().includes(search.toLowerCase())) return false;
+    if (filterStatus !== "all" && s.status !== filterStatus) return false;
+    if (filterType && s.gameType !== filterType) return false;
+    return true;
+  });
 
   async function doAction(name: string, action: string) {
     setActionLoading(prev => ({ ...prev, [name]: action }));
@@ -283,6 +453,30 @@ export default function GameHubPage() {
         }
       />
 
+      {/* Filter bar */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="relative flex-1 min-w-[160px] max-w-xs">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#555]" />
+          <input value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="Search servers..."
+            className="w-full bg-[#111] border border-[#2a2a2a] rounded-lg pl-8 pr-3 py-1.5 text-sm text-[#f2f2f2] placeholder:text-[#444] focus:outline-none focus:border-[#0078D4]/50" />
+        </div>
+        {["all", "running", "starting", "stopped"].map(s => (
+          <button key={s} onClick={() => setFilterStatus(s)}
+            className={cn("px-3 py-1.5 rounded-lg text-xs font-medium capitalize transition-colors border",
+              filterStatus === s ? "bg-[#0078D4]/20 border-[#0078D4]/40 text-[#0078D4]" : "bg-[#111] border-[#2a2a2a] text-[#666] hover:text-[#999]")}>
+            {s}
+          </button>
+        ))}
+        {uniqueGameTypes.length > 1 && (
+          <select value={filterType} onChange={e => setFilterType(e.target.value)}
+            className="bg-[#111] border border-[#2a2a2a] rounded-lg px-2 py-1.5 text-xs text-[#666] focus:outline-none focus:border-[#0078D4]/50">
+            <option value="">All types</option>
+            {uniqueGameTypes.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+        )}
+      </div>
+
       {isLoading && (
         <div className="flex items-center justify-center h-40">
           <Loader2 className="w-6 h-6 text-[#0078D4] animate-spin" />
@@ -320,9 +514,16 @@ export default function GameHubPage() {
         </motion.div>
       )}
 
+      {!isLoading && !error && servers.length > 0 && filteredServers.length === 0 && (
+        <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-6 text-center">
+          <p className="text-sm text-[#f2f2f2] font-medium">No servers match the current filters</p>
+          <p className="text-xs text-[#666] mt-1">Try a different search, status, or game type.</p>
+        </div>
+      )}
+
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         <AnimatePresence>
-          {servers.map((server, i) => (
+          {filteredServers.map((server, i) => (
             <motion.div
               key={server.name}
               initial={{ opacity: 0, y: 10 }}
@@ -401,6 +602,59 @@ export default function GameHubPage() {
             </motion.div>
           ))}
         </AnimatePresence>
+      </div>
+
+      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
+        <button
+          onClick={() => setShowRoadmap(v => !v)}
+          className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left border-b border-[#1e1e1e]"
+        >
+          <div>
+            <p className="text-sm font-medium text-[#f2f2f2]">Feature Roadmap</p>
+            <p className="text-xs text-[#666] mt-0.5">100 ideas across 10 categories, with shipped game hub features highlighted.</p>
+          </div>
+          <div className="flex items-center gap-2 text-[#666]">
+            <span className="text-[10px] px-2 py-0.5 rounded-full border border-[#2a2a2a] bg-[#0d0d0d]">
+              {FEATURE_ROADMAP.reduce((sum, category) => sum + category.items.length, 0)} items
+            </span>
+            {showRoadmap ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </div>
+        </button>
+        {showRoadmap && (
+          <div className="p-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {FEATURE_ROADMAP.map((category) => (
+              <div key={category.category} className="rounded-xl border border-[#1e1e1e] bg-[#0b0b0b] p-3 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs font-medium text-[#f2f2f2] uppercase tracking-wide">{category.category}</p>
+                  <span className="text-[10px] text-[#444]">{category.items.length}/10</span>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {category.items.map((feature) => (
+                    <div key={feature.name} className="rounded-lg border border-[#1d1d1d] bg-[#111] px-2.5 py-2">
+                      <div className="flex items-start gap-2">
+                        <span className={cn(
+                          "mt-0.5 text-[11px] leading-none",
+                          feature.status === "Shipped" ? "text-green-400" : "text-[#333]"
+                        )}>
+                          {feature.status === "Shipped" ? "✓" : "•"}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[11px] text-[#d4d4d4] leading-snug">{feature.name}</p>
+                          <span className={cn(
+                            "inline-flex mt-1 text-[9px] px-1.5 py-0.5 rounded-full border",
+                            ROADMAP_STATUS_STYLES[feature.status]
+                          )}>
+                            {feature.status}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

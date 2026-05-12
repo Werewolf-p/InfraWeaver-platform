@@ -432,6 +432,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     </div>
                   </div>
                 </Link>
+                {/* Version badge */}
+                <div className="flex items-center justify-between px-4 py-1">
+                  <span className="text-[9px] font-mono text-[#2e2e2e]">
+                    v{process.env.NEXT_PUBLIC_APP_VERSION ?? "dev"}
+                  </span>
+                  <span className="text-[9px] text-[#2e2e2e]">InfraWeaver Console</span>
+                </div>
                 {/* Quick action row */}
                 <div className="flex items-center gap-1 px-3 pb-1">
                   <Link href="/settings" onClick={() => { setMobileOpen(false); setDrawerSearch(""); }}

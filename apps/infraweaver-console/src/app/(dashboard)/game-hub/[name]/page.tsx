@@ -8,7 +8,7 @@ import {
   Settings, FolderOpen, Activity, File, Folder, Save, Trash2,
   RefreshCw, Copy, ArrowUp, Send, Circle, AlertTriangle,
   Cpu, MemoryStick, Network, Clock, Gamepad2, LayoutDashboard,
-  Shield, Server, Wifi, Layers
+  Shield, Server, Wifi, Layers, Download, FileText
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -38,7 +38,8 @@ interface ServerDetail {
   port: number | null; nodePort: number | null; nodeIp: string | null;
   allPorts: ServicePort[];
   hpa: { enabled: boolean; min: number; max: number; cpuTarget: number | null; currentReplicas: number | null };
-  memory: string; cpu: string;
+  restartPolicy: string;
+  memory: string; cpu: string; notes: string;
   env: Array<{ name: string; value?: string; valueFrom?: unknown }>; createdAt: string | null;
 }
 
@@ -47,7 +48,17 @@ interface FileEntry {
   size: number; modifiedAt: string; permissions: string;
 }
 
-type TabId = "dashboard" | "console" | "files" | "settings";
+interface GameEvent {
+  type: string;
+  reason: string;
+  message: string;
+  timestamp: string | null;
+  count: number;
+  involvedKind: string;
+  involvedName: string;
+}
+
+type TabId = "dashboard" | "console" | "files" | "settings" | "activity";
 
 // ─── Uptime counter ───────────────────────────────────────────────────────────
 function Uptime({ startTime }: { startTime: string | null }) {
@@ -117,6 +128,26 @@ const GAME_CONNECT_HINTS: Record<string, string> = {
   factorio: "Factorio → Multiplayer → Connect to address → paste address:port",
 };
 
+const QUICK_COMMANDS: Record<string, Array<{ label: string; cmd: string; color?: string }>> = {
+  minecraft: [
+    { label: "List players", cmd: "list" },
+    { label: "Save world", cmd: "save-all" },
+    { label: "Time day", cmd: "time set day" },
+    { label: "Weather clear", cmd: "weather clear" },
+    { label: "Broadcast", cmd: "say " },
+    { label: "Difficulty", cmd: "difficulty peaceful" },
+  ],
+  terraria: [
+    { label: "List players", cmd: "playing" },
+    { label: "Save world", cmd: "save" },
+    { label: "Broadcast", cmd: "say " },
+  ],
+  valheim: [
+    { label: "List players", cmd: "players" },
+    { label: "Save world", cmd: "save" },
+  ],
+};
+
 function ConnectCard({
   nodeIp, allPorts, gameType,
 }: { nodeIp: string | null; allPorts: ServicePort[]; gameType: string }) {
@@ -183,10 +214,10 @@ function ConnectCard({
 // ─── Dashboard Tab ─────────────────────────────────────────────────────────────
 function DashboardTab({ server, status, name }: { server: ServerDetail; status: string; name: string }) {
   const { data: events, isLoading: eventsLoading } = useQuery({
-    queryKey: ["game-hub", "activity", name],
+    queryKey: ["game-hub", "events-preview", name],
     queryFn: async () => {
-      const res = await fetch(`/api/k8s/events?namespace=game-hub&name=${name}`).catch(() => null);
-      if (res?.ok) return res.json() as Promise<{ events: Array<{ type: string; reason: string; message: string; timestamp: string }> }>;
+      const res = await fetch(`/api/game-hub/servers/${name}/events`).catch(() => null);
+      if (res?.ok) return res.json() as Promise<{ events: GameEvent[] }>;
       return { events: [] };
     },
     refetchInterval: 30000,
@@ -303,6 +334,9 @@ function ConsoleTab({ name, status, gameType }: { name: string; status: string; 
   const inputRef = useRef<HTMLInputElement>(null);
   const [history, setHistory] = useState<string[]>([]);
   const historyIdxRef = useRef(-1);
+  const quickCommands = isMinecraft
+    ? QUICK_COMMANDS.minecraft
+    : QUICK_COMMANDS[gameType.toLowerCase()] ?? [];
 
   const addLine = useCallback((type: string, line: string) => {
     setLogLines(prev => [...prev.slice(-1000), { type, line, id: logIdRef.current++ }]);
@@ -420,6 +454,15 @@ function ConsoleTab({ name, status, gameType }: { name: string; status: string; 
             {[
               { icon: RefreshCw, label: "Clear", action: () => setLogLines([]) },
               { icon: Copy, label: "Copy all", action: () => { navigator.clipboard.writeText(logLines.map(l => l.line).join("\n")); toast.success("Copied"); } },
+              { icon: Download, label: "Download logs", action: () => {
+                const blob = new Blob([logLines.map(l => l.line).join("\n")], { type: "text/plain" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `${name}-console-${new Date().toISOString().slice(0,10)}.txt`;
+                a.click();
+                URL.revokeObjectURL(url);
+              } },
             ].map(({ icon: Icon, label, action }) => (
               <button key={label} onClick={action} title={label}
                 className="p-1.5 text-[#444] hover:text-[#888] hover:bg-[#1e1e1e] rounded transition-colors">
@@ -447,6 +490,20 @@ function ConsoleTab({ name, status, gameType }: { name: string; status: string; 
         ))}
         <div ref={logEndRef} />
       </div>
+
+      {connected && quickCommands.length > 0 && (
+        <div className="flex-shrink-0 px-3 py-2 border-t border-[#1a1a1a] bg-[#0d0d0d]">
+          <p className="text-[10px] uppercase tracking-wide text-[#444] mb-2">Quick commands</p>
+          <div className="flex gap-1.5 flex-wrap">
+            {quickCommands.map(q => (
+              <button key={q.cmd} onClick={() => { setCommand(q.cmd); inputRef.current?.focus(); }}
+                className="px-2.5 py-1 rounded text-[10px] bg-[#1a1a1a] hover:bg-[#252525] border border-[#2a2a2a] text-[#777] hover:text-[#ccc] transition-colors">
+                {q.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Command input */}
       <div className="flex-shrink-0 border-t border-[#1a1a1a] p-2 bg-[#0d0d0d]">
@@ -682,6 +739,60 @@ function FilesTab({ name, status, mountPath }: { name: string; status: string; m
   );
 }
 
+function ActivityTab({ name }: { name: string }) {
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ["game-hub", "events", name],
+    queryFn: async () => {
+      const res = await fetch(`/api/game-hub/servers/${name}/events`);
+      if (!res.ok) throw new Error("Failed to load events");
+      return res.json() as Promise<{ events: GameEvent[] }>;
+    },
+    refetchInterval: 30000,
+  });
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-[#555] uppercase tracking-wide font-medium">Recent Events</p>
+        <button onClick={() => refetch()} className="p-1 text-[#444] hover:text-[#888]">
+          <RefreshCw className="w-3.5 h-3.5" />
+        </button>
+      </div>
+      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
+        {isLoading ? (
+          <div className="flex items-center justify-center h-20"><Loader2 className="w-4 h-4 animate-spin text-[#555]" /></div>
+        ) : !data?.events.length ? (
+          <div className="py-10 text-center text-[#444] text-sm">No recent events</div>
+        ) : (
+          <div className="divide-y divide-[#1e1e1e]">
+            {data.events.map((event, i) => (
+              <div key={i} className="flex items-start gap-3 px-4 py-3">
+                <span className={cn("w-2 h-2 rounded-full mt-1.5 flex-shrink-0",
+                  event.type === "Warning" ? "bg-yellow-400" : "bg-green-400")} />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-medium text-[#f2f2f2]">{event.reason}</span>
+                    {event.count > 1 && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[#252525] text-[#666] border border-[#333]">
+                        ×{event.count}
+                      </span>
+                    )}
+                    <span className="text-[10px] text-[#444] ml-auto">
+                      {event.timestamp ? new Date(event.timestamp).toLocaleString() : "—"}
+                    </span>
+                  </div>
+                  <p className="text-xs text-[#666] mt-0.5 break-words">{event.message}</p>
+                  <p className="text-[10px] text-[#333] mt-0.5">{event.involvedKind}/{event.involvedName}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Settings Tab ─────────────────────────────────────────────────────────────
 function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
   const queryClient = useQueryClient();
@@ -693,6 +804,13 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
   const [hpaMax, setHpaMax] = useState(server.hpa.max);
   const [hpaCpu, setHpaCpu] = useState(server.hpa.cpuTarget ?? 70);
   const [scaleSaving, setScaleSaving] = useState(false);
+  const [autoRestart, setAutoRestart] = useState(server.restartPolicy !== "OnFailure");
+  const [savingRestart, setSavingRestart] = useState(false);
+  const [notes, setNotes] = useState(server.notes ?? "");
+  const [savingNotes, setSavingNotes] = useState(false);
+  const [memLimit, setMemLimit] = useState(server.memory ?? "");
+  const [cpuLimit, setCpuLimit] = useState(server.cpu ?? "");
+  const [savingResources, setSavingResources] = useState(false);
 
   async function saveReplicas() {
     setScaleSaving(true);
@@ -715,6 +833,68 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
       queryClient.invalidateQueries({ queryKey: ["game-hub", "server", name] });
     } catch (err) { toast.error(String(err)); }
     finally { setScaleSaving(false); }
+  }
+
+  async function toggleAutoRestart() {
+    const next = !autoRestart;
+    setSavingRestart(true);
+    try {
+      const res = await fetch(`/api/game-hub/servers/${name}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "set-restart-policy", restartPolicy: next }),
+      });
+      if (!res.ok) throw new Error("Restart policy update failed");
+      setAutoRestart(next);
+      toast.success(next ? "Crash restart enabled" : "Crash restart limited to failures only");
+      queryClient.invalidateQueries({ queryKey: ["game-hub", "server", name] });
+    } catch (err) {
+      toast.error(String(err));
+    } finally {
+      setSavingRestart(false);
+    }
+  }
+
+  async function saveNotes() {
+    setSavingNotes(true);
+    try {
+      const res = await fetch(`/api/game-hub/servers/${name}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "set-notes", notes }),
+      });
+      if (!res.ok) throw new Error("Notes save failed");
+      toast.success("Server notes saved");
+      queryClient.invalidateQueries({ queryKey: ["game-hub", "server", name] });
+    } catch (err) {
+      toast.error(String(err));
+    } finally {
+      setSavingNotes(false);
+    }
+  }
+
+  async function saveResources() {
+    const memory = memLimit.trim();
+    const cpu = cpuLimit.trim();
+    if (!memory || !cpu) {
+      toast.error("Memory and CPU limits are required");
+      return;
+    }
+    setSavingResources(true);
+    try {
+      const res = await fetch(`/api/game-hub/servers/${name}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "update-resources", memory, cpu }),
+      });
+      if (!res.ok) throw new Error("Resource update failed");
+      toast.success("Resource limits updated");
+      queryClient.invalidateQueries({ queryKey: ["game-hub", "server", name] });
+    } catch (err) {
+      toast.error(String(err));
+    } finally {
+      setSavingResources(false);
+    }
   }
 
   const [editingEnv, setEditingEnv] = useState(false);
@@ -813,6 +993,73 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
             className="flex items-center gap-1.5 px-4 py-2 bg-[#0078D4] hover:bg-[#0065B3] disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors">
             {scaleSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
             Apply scaling
+          </button>
+        </div>
+      </div>
+
+      {/* Auto-restart policy */}
+      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-[#1e1e1e]">
+          <RotateCcw className="w-3.5 h-3.5 text-[#555]" />
+          <p className="text-xs font-medium text-[#888] uppercase tracking-wide">Auto-restart Policy</p>
+        </div>
+        <div className="p-4 flex items-center justify-between gap-4">
+          <div>
+            <p className="text-sm text-[#f2f2f2]">Restart on crash</p>
+            <p className="text-xs text-[#555] mt-0.5">Automatically restart if the server process exits unexpectedly</p>
+          </div>
+          <button onClick={toggleAutoRestart} disabled={savingRestart}
+            className={cn("relative w-11 h-6 rounded-full transition-colors flex-shrink-0",
+              autoRestart ? "bg-[#0078D4]" : "bg-[#2a2a2a]")}>
+            <span className={cn("absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform shadow",
+              autoRestart ? "translate-x-5" : "translate-x-0")} />
+          </button>
+        </div>
+      </div>
+
+      {/* Server notes */}
+      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-[#1e1e1e]">
+          <div className="flex items-center gap-2">
+            <FileText className="w-3.5 h-3.5 text-[#555]" />
+            <p className="text-xs font-medium text-[#888] uppercase tracking-wide">Server Notes</p>
+          </div>
+          <button onClick={saveNotes} disabled={savingNotes} className="text-xs text-[#0078D4] hover:underline">
+            {savingNotes ? "Saving..." : "Save"}
+          </button>
+        </div>
+        <div className="p-4">
+          <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={4}
+            placeholder="Add notes about this server, connection info, admin contacts..."
+            className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded-lg p-3 text-sm text-[#f2f2f2] resize-y focus:outline-none focus:border-[#0078D4] placeholder:text-[#333]" />
+        </div>
+      </div>
+
+      {/* Resource Limits */}
+      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-[#1e1e1e]">
+          <Cpu className="w-3.5 h-3.5 text-[#555]" />
+          <p className="text-xs font-medium text-[#888] uppercase tracking-wide">Resource Limits</p>
+        </div>
+        <div className="p-4 space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[10px] text-[#666] mb-1">Memory limit</label>
+              <input value={memLimit} onChange={e => setMemLimit(e.target.value)}
+                placeholder="e.g. 2Gi, 512Mi"
+                className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded px-2 py-1.5 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]" />
+            </div>
+            <div>
+              <label className="block text-[10px] text-[#666] mb-1">CPU limit</label>
+              <input value={cpuLimit} onChange={e => setCpuLimit(e.target.value)}
+                placeholder="e.g. 1, 500m"
+                className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded px-2 py-1.5 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]" />
+            </div>
+          </div>
+          <button onClick={saveResources} disabled={savingResources}
+            className="flex items-center gap-1.5 px-4 py-2 bg-[#0078D4] hover:bg-[#0065B3] disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors">
+            {savingResources ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+            Apply limits
           </button>
         </div>
       </div>
@@ -949,6 +1196,7 @@ export default function ServerDetailPage() {
     { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
     { id: "console", label: "Console", icon: Terminal },
     { id: "files", label: "Files", icon: FolderOpen },
+    { id: "activity", label: "Activity", icon: Activity },
     { id: "settings", label: "Settings", icon: Settings },
   ];
 
@@ -1048,6 +1296,7 @@ export default function ServerDetailPage() {
               {activeTab === "dashboard" && <DashboardTab server={server} status={status} name={name} />}
               {activeTab === "console" && <ConsoleTab name={name} status={status} gameType={server?.gameType ?? "unknown"} />}
               {activeTab === "files" && <FilesTab name={name} status={status} mountPath={mountPath} />}
+              {activeTab === "activity" && <ActivityTab name={name} />}
               {activeTab === "settings" && <SettingsTab name={name} server={server} />}
             </motion.div>
           </AnimatePresence>

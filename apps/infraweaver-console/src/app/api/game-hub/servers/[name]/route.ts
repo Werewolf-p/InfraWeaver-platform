@@ -84,8 +84,10 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ nam
       nodeIp,
       allPorts,
       hpa,
+      restartPolicy: deployment.spec?.template?.spec?.restartPolicy ?? "Always",
       memory: deployment.spec?.template?.spec?.containers?.[0]?.resources?.limits?.memory ?? "",
       cpu: deployment.spec?.template?.spec?.containers?.[0]?.resources?.limits?.cpu ?? "",
+      notes: deployment.metadata?.annotations?.["infraweaver/notes"] ?? "",
       env: (deployment.spec?.template?.spec?.containers?.[0]?.env ?? []).map(e => ({
         name: e.name,
         value: e.value ?? undefined,
@@ -146,10 +148,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
 
   const { name } = await params;
   const body = await req.json() as {
-    action: "start" | "stop" | "restart" | "scale" | "set-hpa" | "remove-hpa" | "update-env";
+    action: "start" | "stop" | "restart" | "scale" | "set-hpa" | "remove-hpa" | "update-env" | "set-restart-policy" | "set-notes" | "update-resources";
     replicas?: number;
     hpaMin?: number; hpaMax?: number; hpaCpuTarget?: number;
     env?: Record<string, string>;
+    restartPolicy?: boolean;
+    notes?: string;
+    memory?: string;
+    cpu?: string;
   };
 
   try {
@@ -222,6 +228,47 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
             template: {
               spec: {
                 containers: [{ name: (await appsApi.readNamespacedDeployment({ name, namespace: GAME_HUB_NS })).spec?.template?.spec?.containers?.[0]?.name ?? name, env: envVars }],
+              },
+            },
+          },
+        },
+        force: true, fieldManager: "infraweaver",
+      });
+    } else if (body.action === "set-restart-policy") {
+      const policy = body.restartPolicy === true ? "Always" : "OnFailure";
+      await appsApi.patchNamespacedDeployment({
+        name, namespace: GAME_HUB_NS,
+        body: { spec: { template: { spec: { restartPolicy: policy } } } },
+        force: true, fieldManager: "infraweaver",
+      });
+    } else if (body.action === "set-notes") {
+      await appsApi.patchNamespacedDeployment({
+        name, namespace: GAME_HUB_NS,
+        body: {
+          metadata: {
+            annotations: {
+              "infraweaver/notes": body.notes ?? "",
+            },
+          },
+        },
+        force: true, fieldManager: "infraweaver",
+      });
+    } else if (body.action === "update-resources") {
+      const containerName = (await appsApi.readNamespacedDeployment({ name, namespace: GAME_HUB_NS }))
+        .spec?.template?.spec?.containers?.[0]?.name ?? name;
+      await appsApi.patchNamespacedDeployment({
+        name, namespace: GAME_HUB_NS,
+        body: {
+          spec: {
+            template: {
+              spec: {
+                containers: [{
+                  name: containerName,
+                  resources: {
+                    limits: { memory: body.memory, cpu: body.cpu },
+                    requests: { memory: body.memory, cpu: body.cpu },
+                  },
+                }],
               },
             },
           },

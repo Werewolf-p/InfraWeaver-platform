@@ -10,13 +10,22 @@ async function execInPod(
   podName: string,
   containerName: string,
   command: string[],
+  timeoutMs = 10000,
 ): Promise<{ stdout: string; stderr: string }> {
   const exec = new k8s.Exec(kc);
   let stdout = "";
   let stderr = "";
+  let settled = false;
 
   await new Promise<void>((resolve, reject) => {
-    const timeout = setTimeout(() => resolve(), 10000);
+    const done = (err?: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      if (err) reject(err);
+      else resolve();
+    };
+    const timeout = setTimeout(() => done(), timeoutMs);
 
     const stdoutW = new Writable({
       write(chunk, _enc, cb) { stdout += chunk.toString(); cb(); },
@@ -29,11 +38,13 @@ async function execInPod(
       GAME_HUB_NS, podName, containerName,
       command, stdoutW, stderrW, null, false,
       (status) => {
-        clearTimeout(timeout);
-        if (status?.status === "Failure") reject(new Error(status.message ?? "Exec failed"));
-        else resolve();
+        if (status?.status === "Failure") done(new Error(status.message ?? "Exec failed"));
+        else done();
       },
-    ).catch((err) => { clearTimeout(timeout); reject(err); });
+    ).then((ws) => {
+      ws.on("close", () => done());
+      ws.on("error", (err: Error) => done(err));
+    }).catch((err: Error) => done(err));
   });
 
   return { stdout, stderr };
@@ -74,7 +85,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ name
       "sh", "-c", `ls -la --time-style="+%Y-%m-%dT%H:%M:%S" "${path}" 2>&1 || echo "ERROR: $?"`,
     ]);
 
-    if (stderr && stderr.includes("No such file")) {
+    if (stdout.includes("No such file") || stderr.includes("No such file")) {
       return NextResponse.json({ error: "Path not found", files: [] }, { status: 404 });
     }
 
