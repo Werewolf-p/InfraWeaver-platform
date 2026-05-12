@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
 import { getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
-import { GAME_HUB_NS, makeGameHubClients } from "@/lib/game-hub-server";
+import { GAME_HUB_NS, gracefulStopServer, makeGameHubClients, readServerEgg } from "@/lib/game-hub-server";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { safeError } from "@/lib/utils";
 
@@ -33,11 +33,15 @@ export async function POST(req: NextRequest) {
         if (body.action === "restart") {
           const pods = await coreApi.listNamespacedPod({ namespace: GAME_HUB_NS, labelSelector: `app=${name}` });
           await Promise.all((pods.items ?? []).map((pod) => coreApi.deleteNamespacedPod({ name: pod.metadata?.name ?? "", namespace: GAME_HUB_NS }).catch(() => undefined)));
+        } else if (body.action === "stop") {
+          const deployment = await appsApi.readNamespacedDeployment({ name, namespace: GAME_HUB_NS });
+          const egg = await readServerEgg(coreApi, name, deployment);
+          await gracefulStopServer({ ...makeGameHubClients(), appsApi, coreApi }, name, egg.stopCommand, 30_000);
         } else {
           await appsApi.patchNamespacedDeployment({
             name,
             namespace: GAME_HUB_NS,
-            body: { spec: { replicas: body.action === "start" ? 1 : 0 } },
+            body: { spec: { replicas: 1 }, metadata: { annotations: { "infraweaver.io/last-started": new Date().toISOString() } } },
             fieldManager: "infraweaver",
             force: true,
           });

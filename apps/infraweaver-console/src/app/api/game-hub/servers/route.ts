@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
 import { buildEggConfigMap, getEggEnvironmentDefaults, getEggForGameType, getEggPorts } from "@/lib/game-eggs";
 import { GAME_HUB_NAMESPACE, getGameHubAccessContext, getScopedGameServerNames, hasGameHubPermission } from "@/lib/game-hub";
-import { getServerDeployment, makeGameHubClients, normalizeServerName, readServerEgg } from "@/lib/game-hub-server";
+import { getServerDeployment, makeGameHubClients, normalizeServerName, parseImageVersion, parsePlayerHistory, readServerEgg } from "@/lib/game-hub-server";
 import { generateGameServerManifest, parsePvcSizeGi, writeGameServerManifest } from "@/lib/game-hub-manifest";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { hasPermission } from "@/lib/rbac";
@@ -26,6 +26,7 @@ async function createServer(body: {
   port?: number;
   ports?: Array<{ name: string; port: number; protocol: "TCP" | "UDP" }>;
   mountPath?: string;
+  groups?: string[];
 }) {
   const requestedGame = body.egg ?? body.game ?? "";
   const slug = normalizeServerName(body.name);
@@ -46,6 +47,12 @@ async function createServer(body: {
   const storage = body.storage ?? egg.defaultStorage ?? "10Gi";
   const storageClass = body.storageClass ?? "longhorn";
   const pvcName = `${slug}-${pvcSuffixForMountPath(egg.mountPath)}`;
+  const imageVersion = parseImageVersion(egg.dockerImage);
+  const annotations = {
+    "infraweaver.io/groups": (body.groups ?? []).join(","),
+    "infraweaver.io/image-version": imageVersion.version,
+    "infraweaver.io/last-started": new Date().toISOString(),
+  };
 
   const { appsApi, coreApi } = makeGameHubClients();
 
@@ -60,12 +67,12 @@ async function createServer(body: {
   await appsApi.createNamespacedDeployment({
     namespace: GAME_HUB_NAMESPACE,
     body: {
-      metadata: { name: slug, namespace: GAME_HUB_NAMESPACE, labels: { app: slug, "infraweaver/game": "true", "infraweaver/game-type": egg.id, "infraweaver/egg": egg.id } },
+      metadata: { name: slug, namespace: GAME_HUB_NAMESPACE, labels: { app: slug, "infraweaver/game": "true", "infraweaver/game-type": egg.id, "infraweaver/egg": egg.id }, annotations },
       spec: {
         replicas: 1,
         selector: { matchLabels: { app: slug } },
         template: {
-          metadata: { labels: { app: slug, "infraweaver/game": "true", "infraweaver/game-type": egg.id, "infraweaver/egg": egg.id } },
+          metadata: { labels: { app: slug, "infraweaver/game": "true", "infraweaver/game-type": egg.id, "infraweaver/egg": egg.id }, annotations },
           spec: {
             securityContext: egg.id === "valheim" ? { runAsUser: 0 } : { runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000 },
             containers: [{
@@ -112,6 +119,8 @@ async function cloneServer(source: string, newName: string) {
   const sourcePvcName = sourceDeployment.spec?.template?.spec?.volumes?.find((volume) => volume.persistentVolumeClaim?.claimName)?.persistentVolumeClaim?.claimName ?? `${source}-data`;
   const sourcePvc = await coreApi.readNamespacedPersistentVolumeClaim({ name: sourcePvcName, namespace: GAME_HUB_NAMESPACE }).catch(() => null);
   const pvcName = `${slug}-${pvcSuffixForMountPath(sourceEgg.mountPath)}`;
+  const container = sourceDeployment.spec?.template?.spec?.containers?.[0];
+  const imageVersion = parseImageVersion(container?.image ?? sourceEgg.dockerImage);
 
   await coreApi.createNamespacedPersistentVolumeClaim({
     namespace: GAME_HUB_NAMESPACE,
@@ -125,7 +134,6 @@ async function cloneServer(source: string, newName: string) {
     },
   });
 
-  const container = sourceDeployment.spec?.template?.spec?.containers?.[0];
   const volumeMount = container?.volumeMounts?.[0];
   await appsApi.createNamespacedDeployment({
     namespace: GAME_HUB_NAMESPACE,
@@ -134,13 +142,25 @@ async function cloneServer(source: string, newName: string) {
         name: slug,
         namespace: GAME_HUB_NAMESPACE,
         labels: { ...(sourceDeployment.metadata?.labels ?? {}), app: slug, "infraweaver/game": "true" },
-        annotations: { ...(sourceDeployment.metadata?.annotations ?? {}), "infraweaver/notes": `${sourceDeployment.metadata?.annotations?.["infraweaver/notes"] ?? ""}` },
+        annotations: {
+          ...(sourceDeployment.metadata?.annotations ?? {}),
+          "infraweaver/notes": `${sourceDeployment.metadata?.annotations?.["infraweaver/notes"] ?? ""}`,
+          "infraweaver.io/image-version": imageVersion.version,
+          "infraweaver.io/last-started": new Date().toISOString(),
+        },
       },
       spec: {
         replicas: sourceDeployment.spec?.replicas ?? 1,
         selector: { matchLabels: { app: slug } },
         template: {
-          metadata: { labels: { ...(sourceDeployment.spec?.template?.metadata?.labels ?? {}), app: slug, "infraweaver/game": "true" } },
+          metadata: {
+            labels: { ...(sourceDeployment.spec?.template?.metadata?.labels ?? {}), app: slug, "infraweaver/game": "true" },
+            annotations: {
+              ...(sourceDeployment.spec?.template?.metadata?.annotations ?? {}),
+              "infraweaver.io/image-version": imageVersion.version,
+              "infraweaver.io/last-started": new Date().toISOString(),
+            },
+          },
           spec: {
             securityContext: sourceDeployment.spec?.template?.spec?.securityContext,
             containers: [{
@@ -294,6 +314,12 @@ export async function GET() {
       const icon = deployment.metadata?.annotations?.["infraweaver.io/icon"] ?? deployment.metadata?.annotations?.["infraweaver/icon"] ?? "";
       const tagsRaw = deployment.metadata?.annotations?.["infraweaver.io/tags"] ?? deployment.metadata?.annotations?.["infraweaver/tags"] ?? "";
       const tags: string[] = tagsRaw ? tagsRaw.split(",").map((t: string) => t.trim()).filter(Boolean) : [];
+      const groupsRaw = deployment.metadata?.annotations?.["infraweaver.io/groups"] ?? "";
+      const groups: string[] = groupsRaw ? groupsRaw.split(",").map((group) => group.trim()).filter(Boolean) : [];
+      const playerHistory = parsePlayerHistory(deployment.metadata?.annotations?.["infraweaver/player-history"]);
+      const playerCount = playerHistory[playerHistory.length - 1]?.n ?? 0;
+      const image = deployment.spec?.template?.spec?.containers?.[0]?.image ?? egg.dockerImage;
+      const parsedVersion = parseImageVersion(image);
 
       return {
         name,
@@ -315,6 +341,11 @@ export async function GET() {
         description,
         icon,
         tags,
+        groups,
+        playerCount,
+        image,
+        imageVersion: deployment.metadata?.annotations?.["infraweaver.io/image-version"] ?? parsedVersion.version,
+        imagePinned: parsedVersion.pinned,
         cpuUsage,
         memoryUsage,
         cpuLimit,

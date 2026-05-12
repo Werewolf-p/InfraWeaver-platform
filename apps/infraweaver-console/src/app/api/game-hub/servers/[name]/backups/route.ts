@@ -11,17 +11,23 @@ interface BackupEntry {
   size: string;
   bytes: number;
   createdAt: string;
+  checksum: string;
+  status: "verified" | "warning";
 }
 
 function parseBackups(output: string): BackupEntry[] {
   return output.split("\n").map((line) => line.trim()).filter(Boolean).flatMap((line) => {
     const parts = line.split("\t");
-    if (parts.length < 4) return [];
+    if (parts.length < 5) return [];
+    const bytes = Number.parseInt(parts[2] ?? "0", 10);
+    const status: BackupEntry["status"] = bytes < 1_048_576 ? "warning" : "verified";
     return [{
       filename: (parts[0] ?? "").replace("/tmp/", ""),
       size: parts[1] ?? "0",
-      bytes: Number.parseInt(parts[2] ?? "0", 10),
+      bytes,
       createdAt: parts[3] ?? new Date().toISOString(),
+      checksum: parts[4] ?? "",
+      status,
     }];
   }).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
@@ -34,7 +40,7 @@ async function listBackups(name: string) {
     clients.kc,
     pod.metadata.name,
     getPrimaryContainerName(pod, name),
-    "for file in /tmp/gameserver-backup-*.tar.gz; do [ -f \"$file\" ] || continue; stat -c '%n\t%s\t%s\t%y' \"$file\"; done",
+    "for file in /tmp/gameserver-backup-*.tar.gz; do [ -f \"$file\" ] || continue; checksum=$(sha256sum \"$file\" | awk '{print $1}'); stat -c '%n\t%s\t%s\t%y' \"$file\" | awk -v checksum=\"$checksum\" '{printf \"%s\\t%s\\t%s\\t%s %s\\t%s\\n\", $1, $2, $3, $4, $5, checksum}'; done",
     10_000,
   );
   return parseBackups(result.stdout);
@@ -70,8 +76,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ nam
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const body = await req.json().catch(() => ({ action: "create" })) as { action?: string };
-  if ((body.action ?? "create") !== "create") {
+  const body = await req.json().catch(() => ({ action: "create" })) as { action?: "create" | "restore"; filename?: string };
+  if (!["create", "restore"].includes(body.action ?? "create")) {
     return NextResponse.json({ error: "Unsupported action" }, { status: 400 });
   }
 
@@ -81,6 +87,20 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ nam
     const egg = await readServerEgg(clients.coreApi, name, deployment);
     const pod = await getServerPod(clients.coreApi, name, true);
     if (!pod?.metadata?.name) return NextResponse.json({ error: "No running pod found" }, { status: 404 });
+
+    if ((body.action ?? "create") === "restore") {
+      if (!body.filename) return NextResponse.json({ error: "filename is required" }, { status: 400 });
+      await execShell(
+        clients.kc,
+        pod.metadata.name,
+        getPrimaryContainerName(pod, name),
+        `tar -xzf /tmp/${body.filename.replace(/[^a-zA-Z0-9._-]/g, "")} -C ${shellQuote(egg.mountPath)}`,
+        60_000,
+      );
+      await auditLog("game-hub:backup-restore", session.user?.email ?? "unknown", `restored backup ${body.filename} for ${name}`);
+      await appendServerAudit(clients.coreApi, name, { timestamp: new Date().toISOString(), user: session.user?.email ?? "unknown", action: "backup:restore", details: body.filename });
+      return NextResponse.json({ restored: true, backups: await listBackups(name) });
+    }
 
     const retention = Number.parseInt(deployment.metadata?.annotations?.["infraweaver/backup-retention"] ?? "7", 10) || 7;
     await execShell(

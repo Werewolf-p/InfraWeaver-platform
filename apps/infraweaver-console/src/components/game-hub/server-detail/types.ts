@@ -47,6 +47,22 @@ export interface SavedCommand {
   description?: string;
 }
 
+export interface ProcessEntry {
+  user: string;
+  pid: string;
+  cpu: number;
+  mem: number;
+  command: string;
+}
+
+export interface NetworkEntry {
+  iface: string;
+  rxBytes: number;
+  rxPackets: number;
+  txBytes: number;
+  txPackets: number;
+}
+
 export interface ServerDetail {
   name: string;
   gameType: string;
@@ -89,7 +105,10 @@ export interface ServerDetail {
   description?: string;
   icon?: string;
   tags?: string[];
+  groups?: string[];
   image?: string;
+  imageVersion?: string;
+  imagePinned?: boolean;
   imagePullPolicy?: string;
   deploymentStrategy?: string;
   savedCommands?: SavedCommand[];
@@ -120,7 +139,14 @@ export interface DiskUsage {
   topDirs: Array<{ size: string; path: string }>;
 }
 
-export interface BackupEntry { filename: string; size: string; bytes: number; createdAt: string; }
+export interface BackupEntry {
+  filename: string;
+  size: string;
+  bytes: number;
+  createdAt: string;
+  checksum?: string;
+  status?: "verified" | "warning";
+}
 export interface AuditEntry { timestamp: string; user: string; action: string; details: string; }
 export interface PlayerEntry { name: string; ip: string | null; countryCode: string | null; group: string; }
 export interface PlayerStats { recentJoins: Array<{ player: string; time: string }>; recentLeaves: Array<{ player: string; time: string }>; uniqueToday: number; }

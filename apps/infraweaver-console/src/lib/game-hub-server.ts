@@ -53,6 +53,19 @@ export function getDeploymentGameType(deployment: { metadata?: { labels?: Record
   return deployment?.metadata?.labels?.["infraweaver/game-type"] ?? deployment?.metadata?.labels?.["infraweaver.io/game-type"] ?? "unknown";
 }
 
+export function parseImageVersion(image: string | null | undefined) {
+  const value = (image ?? "").trim();
+  if (!value) return { version: "unknown", pinned: false };
+  if (value.includes("@sha256:")) return { version: "sha256", pinned: true };
+  const lastColon = value.lastIndexOf(":");
+  const lastSlash = value.lastIndexOf("/");
+  if (lastColon > lastSlash) {
+    const version = value.slice(lastColon + 1) || "latest";
+    return { version, pinned: version.toLowerCase() !== "latest" };
+  }
+  return { version: "latest", pinned: false };
+}
+
 export function makeGameHubClients() {
   const kc = loadKubeConfig();
   return {
@@ -198,6 +211,49 @@ export async function checkPortReachable(host: string | null, port: number | nul
     socket.once("timeout", () => finish(false));
     socket.once("error", () => finish(false));
   });
+}
+
+export async function gracefulStopServer(
+  clients: ReturnType<typeof makeGameHubClients>,
+  name: string,
+  stopCommand: string | null | undefined,
+  timeoutMs = 30_000,
+) {
+  const deployment = await getServerDeployment(clients.appsApi, name);
+  const pod = await getServerPod(clients.coreApi, name, true);
+  const containerName = getPrimaryContainerName(pod, name);
+  let stopCommandSent = false;
+
+  if (pod?.metadata?.name && stopCommand?.trim()) {
+    try {
+      await execShell(clients.kc, pod.metadata.name, containerName, stopCommand.trim(), 5_000);
+      stopCommandSent = true;
+    } catch {
+      stopCommandSent = false;
+    }
+  }
+
+  const startedWaitingAt = Date.now();
+  let exitedGracefully = false;
+  while (Date.now() - startedWaitingAt < timeoutMs) {
+    const currentPod = await getServerPod(clients.coreApi, name, true).catch(() => null);
+    const currentDeployment = await getServerDeployment(clients.appsApi, name).catch(() => deployment);
+    if (!currentPod?.metadata?.name || (currentDeployment.status?.readyReplicas ?? 0) === 0) {
+      exitedGracefully = true;
+      break;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+  }
+
+  await clients.appsApi.patchNamespacedDeployment({
+    name,
+    namespace: GAME_HUB_NS,
+    body: { spec: { replicas: 0 }, metadata: { annotations: { "infraweaver.io/last-stopped": new Date().toISOString() } } },
+    force: true,
+    fieldManager: "infraweaver",
+  });
+
+  return { stopCommandSent, exitedGracefully };
 }
 
 function parseJsonValue<T>(raw: string | undefined | null, fallback: T): T {

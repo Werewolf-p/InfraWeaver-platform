@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Activity, Copy, Download, HardDrive, Layers, Network, Server, Terminal, Users, Wifi } from "lucide-react";
 import { Area, AreaChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import type { BackupEntry, DiskUsage, GameEvent, MetricPoint, PlayerStats, PluginsData, ServerDetail } from "./types";
+import type { BackupEntry, DiskUsage, GameEvent, MetricPoint, NetworkEntry, PlayerStats, PluginsData, ProcessEntry, ServerDetail } from "./types";
 import { fetchJson } from "./utils";
 
 function Uptime({ startTime }: { startTime: string | null }) {
@@ -38,29 +38,14 @@ function computeHealth(server: ServerDetail, cpuPct: number, memoryPct: number) 
   return Math.max(0, Math.min(100, readyScore + cpuScore + memoryScore + ageScore - restartPenalty));
 }
 
-function parsePsAux(raw: string) {
-  return raw
-    .trim()
-    .split("\n")
-    .filter(Boolean)
-    .map((line) => {
-      const parts = line.trim().split(/\s+/);
-      return {
-        user: parts[0] ?? "",
-        pid: parts[1] ?? "",
-        cpu: parts[2] ?? "",
-        mem: parts[3] ?? "",
-        command: parts.slice(10).join(" ") || parts.slice(4).join(" "),
-      };
-    });
+function formatBytes(value: number) {
+  if (value >= 1024 ** 3) return `${(value / 1024 ** 3).toFixed(2)} GiB`;
+  if (value >= 1024 ** 2) return `${(value / 1024 ** 2).toFixed(1)} MiB`;
+  if (value >= 1024) return `${(value / 1024).toFixed(1)} KiB`;
+  return `${value} B`;
 }
 
 export function DashboardTab({ name, server }: { name: string; server: ServerDetail }) {
-  const [processOutput, setProcessOutput] = useState<string | null>(null);
-  const [networkOutput, setNetworkOutput] = useState<string | null>(null);
-  const [loadingProcesses, setLoadingProcesses] = useState(false);
-  const [loadingNetwork, setLoadingNetwork] = useState(false);
-
   const { data: metrics } = useQuery({
     queryKey: ["game-hub", "metrics", name],
     queryFn: () => fetchJson<MetricPoint[]>(`/api/game-hub/servers/${name}/metrics`),
@@ -99,6 +84,16 @@ export function DashboardTab({ name, server }: { name: string; server: ServerDet
     queryFn: () => fetchJson<PluginsData>(`/api/game-hub/servers/${name}/plugins`),
     enabled: server.replicas > 0,
   });
+  const { data: processes, refetch: refetchProcesses, isFetching: loadingProcesses } = useQuery({
+    queryKey: ["game-hub", "processes", name],
+    queryFn: () => fetchJson<{ processes: ProcessEntry[] }>(`/api/game-hub/servers/${name}/processes`),
+    enabled: false,
+  });
+  const { data: network, refetch: refetchNetwork, isFetching: loadingNetwork } = useQuery({
+    queryKey: ["game-hub", "network", name],
+    queryFn: () => fetchJson<{ stats: NetworkEntry[] }>(`/api/game-hub/servers/${name}/network`),
+    enabled: false,
+  });
 
   const latest = metrics?.[metrics.length - 1];
   const cpuPct = latest?.cpuLimit ? Math.round((latest.cpu / latest.cpuLimit) * 100) : 0;
@@ -129,7 +124,9 @@ export function DashboardTab({ name, server }: { name: string; server: ServerDet
   const primaryPort = server.allPorts.find((port) => port.nodePort) ?? server.allPorts[0] ?? null;
   const primaryAddress = primaryPort ? `${host}:${primaryPort.nodePort ?? primaryPort.port}` : host;
   const connectHint = server.egg?.connectionHint ?? server.egg?.description ?? "Connect using the address and port shown above";
-  const processRows = useMemo(() => (processOutput ? parsePsAux(processOutput) : []), [processOutput]);
+  const qrCodeSrc = `https://api.qrserver.com/v1/create-qr-code/?size=128x128&data=${encodeURIComponent(primaryAddress)}`;
+  const processRows = processes?.processes ?? [];
+  const networkRows = network?.stats ?? [];
 
   async function createBackup() {
     try {
@@ -139,6 +136,20 @@ export function DashboardTab({ name, server }: { name: string; server: ServerDet
         body: JSON.stringify({ action: "create" }),
       });
       toast.success("Backup created");
+      refetchBackups();
+    } catch (error) {
+      toast.error(String(error));
+    }
+  }
+
+  async function restoreBackup(filename: string) {
+    try {
+      await fetchJson(`/api/game-hub/servers/${name}/backups`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "restore", filename }),
+      });
+      toast.success("Backup restored");
       refetchBackups();
     } catch (error) {
       toast.error(String(error));
@@ -156,22 +167,6 @@ export function DashboardTab({ name, server }: { name: string; server: ServerDet
       refetchBackups();
     } catch (error) {
       toast.error(String(error));
-    }
-  }
-
-  async function runExec(command: string, setter: (value: string) => void, setLoading: (value: boolean) => void) {
-    setLoading(true);
-    try {
-      const result = await fetchJson<{ stdout?: string; stderr?: string }>(`/api/game-hub/servers/${name}/exec`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ command }),
-      });
-      setter([result.stdout, result.stderr].filter(Boolean).join("\n") || "(no output)");
-    } catch (error) {
-      toast.error(String(error));
-    } finally {
-      setLoading(false);
     }
   }
 
@@ -273,9 +268,18 @@ export function DashboardTab({ name, server }: { name: string; server: ServerDet
 
       <div className="rounded-xl border border-[#1e3a5f] bg-[#0a1929] p-4 space-y-3">
         <div className="flex items-center gap-2"><Wifi className="w-4 h-4 text-[#0078D4]" /><p className="text-xs font-semibold text-[#4fc3f7] uppercase tracking-wide">Connection Info</p><span className="ml-auto text-xl">{server.icon ?? "🎮"}</span></div>
-        <div className="flex items-center gap-2">
-          <div className="flex-1 font-mono text-sm text-[#e0e0e0] bg-[#0d1b2a] border border-[#1e3a5f] rounded-lg px-3 py-2 truncate">{primaryAddress}</div>
-          <button onClick={() => { navigator.clipboard.writeText(primaryAddress); toast.success("Copied!"); }} className="flex-shrink-0 p-2 rounded-lg border border-[#1e3a5f] hover:bg-[#0d2137] text-[#4fc3f7] transition-colors"><Copy className="w-3.5 h-3.5" /></button>
+        <div className="grid gap-3 md:grid-cols-[1fr_132px] items-start">
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <div className="flex-1 font-mono text-sm text-[#e0e0e0] bg-[#0d1b2a] border border-[#1e3a5f] rounded-lg px-3 py-2 truncate">{primaryAddress}</div>
+              <button onClick={() => { navigator.clipboard.writeText(primaryAddress); toast.success("Copied!"); }} className="flex-shrink-0 p-2 rounded-lg border border-[#1e3a5f] hover:bg-[#0d2137] text-[#4fc3f7] transition-colors"><Copy className="w-3.5 h-3.5" /></button>
+            </div>
+            <div className="flex flex-wrap gap-2 text-[11px]">
+              <span className="rounded-full border border-[#1e3a5f] bg-[#0d1b2a] px-2 py-1 text-[#9ccfff]">Version {server.imageVersion ?? "unknown"}</span>
+              {!server.imagePinned && <span className="rounded-full border border-yellow-500/30 bg-yellow-500/10 px-2 py-1 text-yellow-200">Image tag not pinned</span>}
+            </div>
+          </div>
+          <img src={qrCodeSrc} alt={`QR code for ${primaryAddress}`} className="h-32 w-32 rounded-lg border border-[#1e3a5f] bg-white p-2" />
         </div>
         <div className="space-y-1">
           {server.allPorts.map((port, index) => {
@@ -339,33 +343,23 @@ export function DashboardTab({ name, server }: { name: string; server: ServerDet
       {server.replicas > 0 && (
         <div className="grid lg:grid-cols-2 gap-4">
           <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4 space-y-3">
-            <div className="flex items-center justify-between"><div className="flex items-center gap-2 text-xs uppercase tracking-wide text-[#888]"><Terminal className="w-4 h-4 text-[#22d3ee]" /> Live Processes</div><button onClick={() => runExec("ps aux", setProcessOutput, setLoadingProcesses)} disabled={loadingProcesses} className="text-xs px-3 py-1.5 rounded-lg bg-[#1e1e1e] hover:bg-[#2a2a2a] text-[#888] hover:text-[#ccc] border border-[#2a2a2a] transition-colors disabled:opacity-50">{loadingProcesses ? "Loading…" : processOutput ? "Refresh" : "Load"}</button></div>
-            {processOutput ? (
-              processRows.length ? (
-                <div className="overflow-x-auto max-h-64 overflow-y-auto"><table className="w-full text-[11px] font-mono"><thead className="text-[#555] text-[10px] uppercase sticky top-0 bg-[#111]"><tr><th className="text-left pb-1 pr-3">User</th><th className="text-left pb-1 pr-3">PID</th><th className="text-left pb-1 pr-3">CPU%</th><th className="text-left pb-1 pr-3">MEM%</th><th className="text-left pb-1">Command</th></tr></thead><tbody>{processRows.slice(0, 30).map((row, index) => <tr key={`${row.pid}-${index}`} className="border-t border-[#1a1a1a] text-[#9e9e9e]"><td className="py-0.5 pr-3 text-[#666]">{row.user}</td><td className="py-0.5 pr-3">{row.pid}</td><td className="py-0.5 pr-3">{row.cpu}</td><td className="py-0.5 pr-3">{row.mem}</td><td className="py-0.5 text-[#d4d4d4] truncate max-w-[240px]">{row.command}</td></tr>)}</tbody></table></div>
-              ) : <p className="text-xs text-[#555]">No output</p>
+            <div className="flex items-center justify-between"><div className="flex items-center gap-2 text-xs uppercase tracking-wide text-[#888]"><Terminal className="w-4 h-4 text-[#22d3ee]" /> Live Processes</div><button onClick={() => { void refetchProcesses(); }} disabled={loadingProcesses} className="text-xs px-3 py-1.5 rounded-lg bg-[#1e1e1e] hover:bg-[#2a2a2a] text-[#888] hover:text-[#ccc] border border-[#2a2a2a] transition-colors disabled:opacity-50">{loadingProcesses ? "Loading…" : processRows.length ? "Refresh" : "Load"}</button></div>
+            {processRows.length ? (
+              <div className="overflow-x-auto max-h-64 overflow-y-auto"><table className="w-full text-[11px] font-mono"><thead className="text-[#555] text-[10px] uppercase sticky top-0 bg-[#111]"><tr><th className="text-left pb-1 pr-3">User</th><th className="text-left pb-1 pr-3">PID</th><th className="text-left pb-1 pr-3">CPU%</th><th className="text-left pb-1 pr-3">MEM%</th><th className="text-left pb-1">Command</th></tr></thead><tbody>{processRows.map((row) => <tr key={`${row.pid}-${row.command}`} className="border-t border-[#1a1a1a] text-[#9e9e9e]"><td className="py-0.5 pr-3 text-[#666]">{row.user}</td><td className="py-0.5 pr-3">{row.pid}</td><td className="py-0.5 pr-3">{row.cpu.toFixed(1)}</td><td className="py-0.5 pr-3">{row.mem.toFixed(1)}</td><td className="py-0.5 text-[#d4d4d4] truncate max-w-[240px]">{row.command}</td></tr>)}</tbody></table></div>
             ) : <p className="text-xs text-[#555]">Load the current process list from inside the container.</p>}
           </div>
 
           <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4 space-y-3">
-            <div className="flex items-center justify-between"><div className="flex items-center gap-2 text-xs uppercase tracking-wide text-[#888]"><Network className="w-4 h-4 text-[#22d3ee]" /> Network Connections</div><button onClick={() => runExec("ss -tunp 2>/dev/null || netstat -tunp 2>/dev/null || echo 'not available'", setNetworkOutput, setLoadingNetwork)} disabled={loadingNetwork} className="text-xs px-3 py-1.5 rounded-lg bg-[#1e1e1e] hover:bg-[#2a2a2a] text-[#888] hover:text-[#ccc] border border-[#2a2a2a] transition-colors disabled:opacity-50">{loadingNetwork ? "Loading…" : networkOutput ? "Refresh" : "Load"}</button></div>
-            {networkOutput ? <pre className="max-h-64 overflow-auto rounded-lg border border-[#1e1e1e] bg-[#0a0a0a] p-3 text-[11px] font-mono text-[#bdbdbd] whitespace-pre-wrap">{networkOutput}</pre> : <p className="text-xs text-[#555]">Inspect active TCP/UDP connections for this server pod.</p>}
+            <div className="flex items-center justify-between"><div className="flex items-center gap-2 text-xs uppercase tracking-wide text-[#888]"><Network className="w-4 h-4 text-[#22d3ee]" /> Network Stats</div><button onClick={() => { void refetchNetwork(); }} disabled={loadingNetwork} className="text-xs px-3 py-1.5 rounded-lg bg-[#1e1e1e] hover:bg-[#2a2a2a] text-[#888] hover:text-[#ccc] border border-[#2a2a2a] transition-colors disabled:opacity-50">{loadingNetwork ? "Loading…" : networkRows.length ? "Refresh" : "Load"}</button></div>
+            {networkRows.length ? <div className="overflow-x-auto max-h-64 overflow-y-auto"><table className="w-full text-[11px] font-mono"><thead className="text-[#555] text-[10px] uppercase sticky top-0 bg-[#111]"><tr><th className="text-left pb-1 pr-3">Iface</th><th className="text-left pb-1 pr-3">RX</th><th className="text-left pb-1 pr-3">RX pkt</th><th className="text-left pb-1 pr-3">TX</th><th className="text-left pb-1">TX pkt</th></tr></thead><tbody>{networkRows.map((row) => <tr key={row.iface} className="border-t border-[#1a1a1a] text-[#9e9e9e]"><td className="py-0.5 pr-3 text-[#d4d4d4]">{row.iface}</td><td className="py-0.5 pr-3">{formatBytes(row.rxBytes)}</td><td className="py-0.5 pr-3">{row.rxPackets}</td><td className="py-0.5 pr-3">{formatBytes(row.txBytes)}</td><td className="py-0.5">{row.txPackets}</td></tr>)}</tbody></table></div> : <p className="text-xs text-[#555]">Inspect bytes in and out from /proc/net/dev for this server pod.</p>}
           </div>
         </div>
       )}
 
       <div className="grid lg:grid-cols-2 gap-4">
         <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4 space-y-3">
-          <div className="flex items-center justify-between"><div className="flex items-center gap-2 text-xs uppercase tracking-wide text-[#888]"><Download className="w-4 h-4 text-[#60a5fa]" /> Backups</div><button onClick={createBackup} className="px-3 py-1.5 rounded-lg bg-[#0078D4] text-white text-xs">Create Backup</button></div>
-          <div className="space-y-2 max-h-52 overflow-y-auto">
-            {(backups?.backups ?? []).length === 0 ? <p className="text-xs text-[#666]">No backups found</p> : backups?.backups.map((backup) => (
-              <div key={backup.filename} className="rounded-lg border border-[#222] px-3 py-2 flex items-center gap-2 text-xs">
-                <div className="flex-1 min-w-0"><p className="text-[#f2f2f2] truncate">{backup.filename}</p><p className="text-[#666]">{backup.size}</p></div>
-                <a href={`/api/game-hub/servers/${name}/files/content?path=${encodeURIComponent(`/tmp/${backup.filename}`)}&download=1`} className="text-[#60a5fa] hover:underline">Download</a>
-                <button onClick={() => deleteBackup(backup.filename)} className="text-red-400 hover:text-red-300">Delete</button>
-              </div>
-            ))}
-          </div>
+          <div className="flex items-center justify-between"><div className="flex items-center gap-2 text-xs uppercase tracking-wide text-[#888]"><Download className="w-4 h-4 text-[#60a5fa]" /> Backup Browser</div><button onClick={createBackup} className="px-3 py-1.5 rounded-lg bg-[#0078D4] text-white text-xs">Create Backup</button></div>
+          {(backups?.backups ?? []).length === 0 ? <p className="text-xs text-[#666]">No backups found</p> : <div className="overflow-x-auto max-h-64 overflow-y-auto rounded-lg border border-[#1a1a1a]"><table className="w-full text-[11px]"><thead className="sticky top-0 bg-[#0d0d0d] text-[#666]"><tr><th className="px-3 py-2 text-left">Backup</th><th className="px-3 py-2 text-left">Size</th><th className="px-3 py-2 text-left">Date</th><th className="px-3 py-2 text-left">Status</th><th className="px-3 py-2 text-left">SHA256</th><th className="px-3 py-2 text-right">Actions</th></tr></thead><tbody>{(backups?.backups ?? []).map((backup) => <tr key={backup.filename} className="border-t border-[#1a1a1a] text-[#9e9e9e]"><td className="px-3 py-2 font-mono text-[#d4d4d4]">{backup.filename}</td><td className="px-3 py-2">{backup.size}</td><td className="px-3 py-2">{new Date(backup.createdAt).toLocaleString()}</td><td className="px-3 py-2">{backup.status === "warning" ? <span className="rounded-full border border-yellow-500/30 bg-yellow-500/10 px-2 py-0.5 text-yellow-200">Small / check</span> : <span className="rounded-full border border-green-500/30 bg-green-500/10 px-2 py-0.5 text-green-200">Verified</span>}</td><td className="px-3 py-2 font-mono text-[10px]">{backup.checksum?.slice(0, 10) ?? "—"}</td><td className="px-3 py-2"><div className="flex items-center justify-end gap-3"><a href={`/api/game-hub/servers/${name}/files/content?path=${encodeURIComponent(`/tmp/${backup.filename}`)}&download=1`} className="text-[#60a5fa] hover:underline">Download</a><button onClick={() => restoreBackup(backup.filename)} className="text-green-300 hover:text-green-200">Restore</button><button onClick={() => deleteBackup(backup.filename)} className="text-red-400 hover:text-red-300">Delete</button></div></td></tr>)}</tbody></table></div>}
         </div>
 
         <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4 space-y-3">

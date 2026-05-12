@@ -58,6 +58,16 @@ function readConsolePrefs() {
   }
 }
 
+function readConsoleHistory(name: string) {
+  if (typeof window === "undefined") return [] as string[];
+  try {
+    const stored = JSON.parse(localStorage.getItem(`${CONSOLE_HISTORY_KEY}:${name}`) ?? "[]") as string[];
+    return stored.filter((entry) => typeof entry === "string").slice(0, 50);
+  } catch {
+    return [] as string[];
+  }
+}
+
 function readRecentFiles(name: string) {
   if (typeof window === "undefined") return [] as string[];
   try {
@@ -99,14 +109,13 @@ function ConsoleTab({ name, status, server }: { name: string; status: string; se
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [matchIndex, setMatchIndex] = useState(0);
-  const [history, setHistory] = useState<string[]>([]);
+  const [history, setHistory] = useState<string[]>(() => readConsoleHistory(name));
   const [reconnectBanner, setReconnectBanner] = useState<string | null>(null);
-  const consolePrefs = readConsolePrefs();
-  const [autoScroll, setAutoScroll] = useState(consolePrefs.autoScroll !== false);
-  const [showTimestamps, setShowTimestamps] = useState(consolePrefs.showTimestamps !== false);
-  const [wordWrap, setWordWrap] = useState(consolePrefs.wordWrap !== false);
-  const [levelFilter, setLevelFilter] = useState<"all" | "error" | "warn" | "info">((consolePrefs.levelFilter as "all" | "error" | "warn" | "info") ?? "all");
-  const [regexMode, setRegexMode] = useState(Boolean(consolePrefs.regexMode));
+  const [autoScroll, setAutoScroll] = useState(() => readConsolePrefs().autoScroll !== false);
+  const [showTimestamps, setShowTimestamps] = useState(() => readConsolePrefs().showTimestamps !== false);
+  const [wordWrap, setWordWrap] = useState(() => readConsolePrefs().wordWrap !== false);
+  const [levelFilter, setLevelFilter] = useState<"all" | "error" | "warn" | "info">(() => (readConsolePrefs().levelFilter as "all" | "error" | "warn" | "info") ?? "all");
+  const [regexMode, setRegexMode] = useState(() => Boolean(readConsolePrefs().regexMode));
   const logEndRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -137,26 +146,6 @@ function ConsoleTab({ name, status, server }: { name: string; status: string; se
       bannerTimeoutRef.current = setTimeout(() => setReconnectBanner(null), durationMs);
     }
   }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const stored = JSON.parse(sessionStorage.getItem(CONSOLE_PREFS_KEY) ?? "{}");
-      setAutoScroll(stored.autoScroll !== false);
-      setShowTimestamps(stored.showTimestamps !== false);
-      setWordWrap(stored.wordWrap !== false);
-      setLevelFilter((stored.levelFilter as "all" | "error" | "warn" | "info") ?? "all");
-      setRegexMode(Boolean(stored.regexMode));
-    } catch {
-      // ignore
-    }
-    try {
-      const storedHistory = JSON.parse(localStorage.getItem(`${CONSOLE_HISTORY_KEY}:${name}`) ?? "[]") as string[];
-      setHistory(storedHistory.filter((entry) => typeof entry === "string").slice(0, 50));
-    } catch {
-      setHistory([]);
-    }
-  }, [name]);
 
   useEffect(() => {
     try {
@@ -230,9 +219,9 @@ function ConsoleTab({ name, status, server }: { name: string; status: string; se
 
   useEffect(() => {
     if (status === "stopped") {
-      showBanner(null);
       esRef.current?.close();
       if (retryRef.current) clearTimeout(retryRef.current);
+      if (bannerTimeoutRef.current) clearTimeout(bannerTimeoutRef.current);
       return () => undefined;
     }
 
@@ -495,7 +484,8 @@ function FilesTab({ name, status, mountPath }: { name: string; status: string; m
   const [fileSearch, setFileSearch] = useState("");
   const [sortKey, setSortKey] = useState<"name" | "size" | "modified">("name");
   const [recentFiles, setRecentFiles] = useState<string[]>(() => readRecentFiles(name));
-  const originalContentRef = useRef<string | null>(null);
+  const [originalContent, setOriginalContent] = useState<string | null>(null);
+  const saveFileRef = useRef<() => Promise<void>>(async () => undefined);
 
   const { data: listing, isLoading, refetch } = useQuery({
     queryKey: ["game-hub", "files", name, currentPath],
@@ -508,7 +498,7 @@ function FilesTab({ name, status, mountPath }: { name: string; status: string; m
   const editorLang = ({ json: "json", yaml: "yaml", yml: "yaml", properties: "ini", conf: "ini", cfg: "ini", log: "plaintext", txt: "plaintext", sh: "shell", py: "python", js: "javascript", ts: "typescript", xml: "xml", toml: "toml" } as Record<string, string>)[fileExt] ?? "plaintext";
   const isImageFile = ["png", "jpg", "jpeg", "gif", "webp", "svg"].includes(fileExt);
   const isArchiveFile = /\.(tar\.gz|tgz|zip)$/i.test(selectedFile?.name ?? "");
-  const isDirty = Boolean(selectedFile && fileContent !== null && fileContent !== originalContentRef.current);
+  const isDirty = Boolean(selectedFile && fileContent !== null && fileContent !== originalContent);
 
   useEffect(() => {
     try {
@@ -522,12 +512,12 @@ function FilesTab({ name, status, mountPath }: { name: string; status: string; m
     const handleSaveHotkey = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s" && selectedFile) {
         event.preventDefault();
-        if (!saving && !loadingContent && isDirty) void saveFile();
+        if (!saving && !loadingContent && isDirty) void saveFileRef.current();
       }
     };
     window.addEventListener("keydown", handleSaveHotkey);
     return () => window.removeEventListener("keydown", handleSaveHotkey);
-  }, [isDirty, loadingContent, saveFile, saving, selectedFile]);
+  }, [isDirty, loadingContent, saving, selectedFile]);
 
   useEffect(() => {
     const beforeUnload = (event: BeforeUnloadEvent) => {
@@ -551,13 +541,13 @@ function FilesTab({ name, status, mountPath }: { name: string; status: string; m
 
     setSelectedFile(entry);
     setFileContent(null);
-    originalContentRef.current = null;
+    setOriginalContent(null);
     setLoadingContent(!["png", "jpg", "jpeg", "gif", "webp", "svg"].includes(entry.name.split(".").pop()?.toLowerCase() ?? ""));
     setMobilePane("editor");
     setRecentFiles((prev) => [entry.path, ...prev.filter((item) => item !== entry.path)].slice(0, 5));
     if (["png", "jpg", "jpeg", "gif", "webp", "svg"].includes(entry.name.split(".").pop()?.toLowerCase() ?? "")) {
       setFileContent("");
-      originalContentRef.current = "";
+      setOriginalContent("");
       return;
     }
     const controller = new AbortController();
@@ -565,7 +555,7 @@ function FilesTab({ name, status, mountPath }: { name: string; status: string; m
     try {
       const result = await fetchJson<{ content: string }>(`/api/game-hub/servers/${name}/files/content?path=${encodeURIComponent(entry.path)}`, { signal: controller.signal });
       setFileContent(result.content);
-      originalContentRef.current = result.content;
+      setOriginalContent(result.content);
     } catch (error) {
       const message = error instanceof Error && error.name === "AbortError" ? "File load timed out — server may be busy" : String(error);
       toast.error(message);
@@ -584,7 +574,7 @@ function FilesTab({ name, status, mountPath }: { name: string; status: string; m
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ path: selectedFile.path, content: fileContent }),
       });
-      originalContentRef.current = fileContent;
+      setOriginalContent(fileContent);
       toast.success("File saved");
     } catch (error) {
       toast.error(String(error));
@@ -592,6 +582,10 @@ function FilesTab({ name, status, mountPath }: { name: string; status: string; m
       setSaving(false);
     }
   }
+
+  useEffect(() => {
+    saveFileRef.current = saveFile;
+  }, [fileContent, name, selectedFile]);
 
   async function deleteFile(entry: FileEntry) {
     if (!confirm(`Delete ${entry.name}?`)) return;
@@ -601,7 +595,7 @@ function FilesTab({ name, status, mountPath }: { name: string; status: string; m
       if (selectedFile?.path === entry.path) {
         setSelectedFile(null);
         setFileContent(null);
-        originalContentRef.current = null;
+        setOriginalContent(null);
       }
       refetch();
     } catch (error) {
@@ -630,7 +624,7 @@ function FilesTab({ name, status, mountPath }: { name: string; status: string; m
     setCurrentPath(nextHistory[nextHistory.length - 1]);
     setSelectedFile(null);
     setFileContent(null);
-    originalContentRef.current = null;
+    setOriginalContent(null);
   }
 
   const sortedFiles = useMemo(() => {
@@ -667,13 +661,13 @@ function FilesTab({ name, status, mountPath }: { name: string; status: string; m
           </button>
           <div className="flex-1 min-w-0 overflow-x-auto scrollbar-none">
             <div className="flex items-center gap-1.5 w-max min-w-full text-[10px] font-mono text-[#777]">
-              <button onClick={() => { setCurrentPath(mountPath); setPathHistory([mountPath]); setSelectedFile(null); setFileContent(null); originalContentRef.current = null; }} className="rounded px-1 py-0.5 hover:bg-[#1e1e1e]">root</button>
+              <button onClick={() => { setCurrentPath(mountPath); setPathHistory([mountPath]); setSelectedFile(null); setFileContent(null); setOriginalContent(null); }} className="rounded px-1 py-0.5 hover:bg-[#1e1e1e]">root</button>
               {breadcrumbParts.map((part, index) => {
                 const nextPath = `/${breadcrumbParts.slice(0, index + 1).join("/")}`;
                 return (
                   <Fragment key={nextPath}>
                     <span>/</span>
-                    <button onClick={() => { setCurrentPath(nextPath); setPathHistory((history) => [...history.filter((path) => path !== nextPath), nextPath]); setSelectedFile(null); setFileContent(null); originalContentRef.current = null; }} className="rounded px-1 py-0.5 hover:bg-[#1e1e1e]">{part}</button>
+                    <button onClick={() => { setCurrentPath(nextPath); setPathHistory((history) => [...history.filter((path) => path !== nextPath), nextPath]); setSelectedFile(null); setFileContent(null); setOriginalContent(null); }} className="rounded px-1 py-0.5 hover:bg-[#1e1e1e]">{part}</button>
                   </Fragment>
                 );
               })}

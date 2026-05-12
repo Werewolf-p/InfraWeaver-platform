@@ -13,8 +13,10 @@ import {
   getNodeIp,
   getServerDeployment,
   getServerPod,
+  gracefulStopServer,
   makeGameHubClients,
   parseDiscordWebhookConfig,
+  parseImageVersion,
   parsePlayerHistory,
   readSavedCommands,
   readServerEgg,
@@ -24,7 +26,7 @@ import {
   writeSavedCommands,
 } from "@/lib/game-hub-server";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
-import { getEffectivePermissions, hasPermission } from "@/lib/rbac";
+import { getEffectivePermissions } from "@/lib/rbac";
 import { safeError } from "@/lib/utils";
 
 async function upsertEggConfigMap(
@@ -165,7 +167,10 @@ async function buildResponse(name: string, limitedToken = false, access?: Awaite
   const tags: string[] = tagsRaw ? tagsRaw.split(",").map((t: string) => t.trim()).filter(Boolean) : [];
   const scheduledAction = deployment.metadata?.annotations?.["infraweaver.io/scheduled-action"] ?? null;
   const scheduledTime = deployment.metadata?.annotations?.["infraweaver.io/scheduled-time"] ?? null;
+  const groupsRaw = deployment.metadata?.annotations?.["infraweaver.io/groups"] ?? "";
+  const groups: string[] = groupsRaw ? groupsRaw.split(",").map((group) => group.trim()).filter(Boolean) : [];
   const image = container?.image ?? egg.dockerImage;
+  const imageVersion = parseImageVersion(image);
   const imagePullPolicy = container?.imagePullPolicy ?? "IfNotPresent";
   const deploymentStrategy = deployment.spec?.strategy?.type ?? "RollingUpdate";
   let deploymentYaml: string | undefined;
@@ -234,7 +239,10 @@ async function buildResponse(name: string, limitedToken = false, access?: Awaite
     description,
     icon,
     tags,
+    groups,
     image,
+    imageVersion: deployment.metadata?.annotations?.["infraweaver.io/image-version"] ?? imageVersion.version,
+    imagePinned: imageVersion.pinned,
     imagePullPolicy,
     deploymentStrategy,
     savedCommands,
@@ -384,6 +392,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
     description?: string;
     icon?: string;
     tags?: string[];
+    groups?: string[];
     ports?: Array<{ name: string; port: number; targetPort?: number; protocol?: "TCP" | "UDP"; nodePort?: number }>;
     scheduledAction?: string | null;
     scheduledTime?: string | null;
@@ -403,11 +412,17 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
     const webhookConfig = parseDiscordWebhookConfig(deployment.metadata?.annotations?.["infraweaver/discord-webhook"]);
 
     if (body.action === "start") {
-      await clients.appsApi.patchNamespacedDeployment({ name, namespace: GAME_HUB_NAMESPACE, body: { spec: { replicas: 1 } }, force: true, fieldManager: "infraweaver" });
+      await clients.appsApi.patchNamespacedDeployment({
+        name,
+        namespace: GAME_HUB_NAMESPACE,
+        body: { spec: { replicas: 1 }, metadata: { annotations: { "infraweaver.io/last-started": new Date().toISOString() } } },
+        force: true,
+        fieldManager: "infraweaver",
+      });
       await sendDiscordWebhook(webhookConfig, "start", `🟢 ${name} started`);
     } else if (body.action === "stop") {
-      await clients.appsApi.patchNamespacedDeployment({ name, namespace: GAME_HUB_NAMESPACE, body: { spec: { replicas: 0 } }, force: true, fieldManager: "infraweaver" });
-      await sendDiscordWebhook(webhookConfig, "stop", `⏹️ ${name} stopped`);
+      const result = await gracefulStopServer(clients, name, egg.stopCommand, 30_000);
+      await sendDiscordWebhook(webhookConfig, "stop", `⏹️ ${name} stopped${result.exitedGracefully ? " gracefully" : ""}`);
     } else if (body.action === "restart") {
       const pods = await clients.coreApi.listNamespacedPod({ namespace: GAME_HUB_NAMESPACE, labelSelector: `app=${name}` });
       for (const pod of pods.items ?? []) {
@@ -516,10 +531,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
     } else if (body.action === "update-image") {
       if (!body.image) return NextResponse.json({ error: "image is required" }, { status: 400 });
       const containerName = deployment.spec?.template?.spec?.containers?.[0]?.name ?? name;
+      const parsedVersion = parseImageVersion(body.image);
       await clients.appsApi.patchNamespacedDeployment({
         name,
         namespace: GAME_HUB_NAMESPACE,
-        body: { spec: { template: { spec: { containers: [{ name: containerName, image: body.image }] } } } },
+        body: {
+          metadata: { annotations: { "infraweaver.io/image-version": parsedVersion.version } },
+          spec: { template: { metadata: { annotations: { "infraweaver.io/image-version": parsedVersion.version } }, spec: { containers: [{ name: containerName, image: body.image }] } } },
+        },
         force: true,
         fieldManager: "infraweaver",
       });
@@ -547,6 +566,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
       if (body.description !== undefined) annotations["infraweaver.io/description"] = body.description;
       if (body.icon !== undefined) annotations["infraweaver.io/icon"] = body.icon;
       if (body.tags !== undefined) annotations["infraweaver.io/tags"] = (body.tags ?? []).join(",");
+      if (body.groups !== undefined) annotations["infraweaver.io/groups"] = (body.groups ?? []).join(",");
       await clients.appsApi.patchNamespacedDeployment({
         name,
         namespace: GAME_HUB_NAMESPACE,
