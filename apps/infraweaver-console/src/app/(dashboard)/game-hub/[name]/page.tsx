@@ -1,12 +1,13 @@
 "use client";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   ChevronLeft, Play, Square, RotateCcw, Loader2, Terminal,
   Settings, FolderOpen, Activity, File, Folder, Save, Trash2,
   RefreshCw, Copy, ArrowUp, Send, Circle, AlertTriangle,
-  Gamepad2, Cpu, MemoryStick, Network
+  Cpu, MemoryStick, Network, Clock, Gamepad2, LayoutDashboard,
+  Shield, Server
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -18,7 +19,7 @@ const MonacoEditor = dynamic(() => import("@monaco-editor/react"), { ssr: false 
 const GAME_ICONS: Record<string, string> = {
   minecraft: "⛏", "minecraft-java": "⛏", "minecraft-bedrock": "⛏",
   terraria: "🌍", valheim: "🪓", cs2: "🔫", rust: "🔩", ark: "🦕",
-  factorio: "⚙️", satisfactory: "🏭", "project-zomboid": "🧟",
+  factorio: "⚙️", satisfactory: "🏭", "project-zomboid": "��",
   vrising: "🧛", palworld: "🦎", "dont-starve-together": "🕯️",
   "seven-days-to-die": "💀", "team-fortress-2": "🎩", "garrys-mod": "🔧",
 };
@@ -27,7 +28,7 @@ interface ServerDetail {
   name: string; gameType: string; replicas: number; readyReplicas: number;
   podName: string | null; podPhase: string | null; podStartTime: string | null;
   port: number | null; nodePort: number | null; memory: string; cpu: string;
-  env: Array<{ name: string; value: string }>; createdAt: string | null;
+  env: Array<{ name: string; value?: string; valueFrom?: unknown }>; createdAt: string | null;
 }
 
 interface FileEntry {
@@ -35,40 +36,199 @@ interface FileEntry {
   size: number; modifiedAt: string; permissions: string;
 }
 
-type TabId = "files" | "activity" | "settings" | "info";
+type TabId = "dashboard" | "console" | "files" | "settings";
 
-// ─── Inline Console (always visible) ─────────────────────────────────────────
-function ConsolePanel({ name, status }: { name: string; status: string }) {
+// ─── Uptime counter ───────────────────────────────────────────────────────────
+function Uptime({ startTime }: { startTime: string | null }) {
+  const [display, setDisplay] = useState("—");
+  useEffect(() => {
+    if (!startTime) { setDisplay("—"); return; }
+    const update = () => {
+      const secs = Math.floor((Date.now() - new Date(startTime).getTime()) / 1000);
+      if (secs < 60) setDisplay(`${secs}s`);
+      else if (secs < 3600) setDisplay(`${Math.floor(secs / 60)}m ${secs % 60}s`);
+      else setDisplay(`${Math.floor(secs / 3600)}h ${Math.floor((secs % 3600) / 60)}m`);
+    };
+    update();
+    const t = setInterval(update, 1000);
+    return () => clearInterval(t);
+  }, [startTime]);
+  return <>{display}</>;
+}
+
+// ─── Resource bar (visual gauge) ─────────────────────────────────────────────
+function ResourceBar({ label, value, unit, color = "bg-[#0078D4]" }: {
+  label: string; value: string; unit?: string; color?: string;
+}) {
+  // Parse memory values like "2.5Gi", "2048M", or CPU like "2", "500m"
+  const pct = (() => {
+    if (!value) return 0;
+    const v = value.toLowerCase();
+    if (v.includes("gi")) return Math.min((parseFloat(v) / 8) * 100, 100);
+    if (v.includes("mi") || v.includes("m") && !v.includes("c")) {
+      const mb = parseFloat(v);
+      return Math.min((mb / 8192) * 100, 100);
+    }
+    if (v.includes("c") || (!isNaN(parseFloat(v)) && !v.includes("m"))) {
+      return Math.min((parseFloat(v) / 8) * 100, 100);
+    }
+    return 30;
+  })();
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between text-xs">
+        <span className="text-[#666]">{label}</span>
+        <span className="text-[#9e9e9e] font-mono">{value || "—"}{unit}</span>
+      </div>
+      <div className="h-1.5 bg-[#1e1e1e] rounded-full overflow-hidden">
+        <motion.div
+          className={cn("h-full rounded-full", color)}
+          initial={{ width: 0 }}
+          animate={{ width: `${pct}%` }}
+          transition={{ duration: 0.8, ease: "easeOut" }}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ─── Dashboard Tab ─────────────────────────────────────────────────────────────
+function DashboardTab({ server, status, name }: { server: ServerDetail; status: string; name: string }) {
+  const { data: events, isLoading: eventsLoading } = useQuery({
+    queryKey: ["game-hub", "activity", name],
+    queryFn: async () => {
+      const res = await fetch(`/api/k8s/events?namespace=game-hub&name=${name}`).catch(() => null);
+      if (res?.ok) return res.json() as Promise<{ events: Array<{ type: string; reason: string; message: string; timestamp: string }> }>;
+      return { events: [] };
+    },
+    refetchInterval: 30000,
+  });
+
+  const statusColor = { running: "text-green-400", starting: "text-yellow-400", stopped: "text-[#666]" }[status];
+  const dotColor = { running: "bg-green-400", starting: "bg-yellow-400 animate-pulse", stopped: "bg-[#555]" }[status];
+
+  return (
+    <div className="space-y-4">
+      {/* Stat cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[
+          { icon: Circle, label: "Status", value: status, color: statusColor, dot: dotColor },
+          { icon: Network, label: "Game Port", value: server.nodePort?.toString() ?? server.port?.toString() ?? "—" },
+          { icon: MemoryStick, label: "Memory", value: server.memory || "—" },
+          { icon: Cpu, label: "CPU", value: server.cpu || "—" },
+        ].map((item, i) => (
+          <div key={i} className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4">
+            <div className="flex items-center gap-1.5 mb-2">
+              {item.dot ? (
+                <span className={cn("w-2 h-2 rounded-full flex-shrink-0", item.dot)} />
+              ) : (
+                <item.icon className="w-3.5 h-3.5 text-[#555]" />
+              )}
+              <p className="text-[10px] text-[#555] uppercase tracking-wide">{item.label}</p>
+            </div>
+            <p className={cn("text-sm font-semibold capitalize truncate", item.color ?? "text-[#f2f2f2]")}>{item.value}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Resource gauges */}
+      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4 space-y-4">
+        <p className="text-xs font-medium text-[#888] uppercase tracking-wide flex items-center gap-1.5">
+          <Server className="w-3.5 h-3.5" /> Resource Configuration
+        </p>
+        <ResourceBar label="Memory Limit" value={server.memory} color="bg-[#0078D4]" />
+        <ResourceBar label="CPU Limit" value={server.cpu} color="bg-purple-500" />
+      </div>
+
+      {/* Pod info */}
+      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4">
+        <p className="text-xs font-medium text-[#888] uppercase tracking-wide mb-3 flex items-center gap-1.5">
+          <Gamepad2 className="w-3.5 h-3.5" /> Server Info
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {[
+            { label: "Game Type", value: server.gameType?.replace(/-/g, " ") || "—" },
+            { label: "Pod", value: server.podName ?? "—" },
+            { label: "Phase", value: server.podPhase ?? "—" },
+            { label: "Uptime", value: server.podStartTime ? null : "—", component: server.podStartTime ? <Uptime startTime={server.podStartTime} /> : null },
+            { label: "Created", value: server.createdAt ? new Date(server.createdAt).toLocaleDateString() : "—" },
+          ].map((item, i) => (
+            <div key={i} className="flex items-center justify-between py-1.5 border-b border-[#1a1a1a] last:border-0">
+              <span className="text-xs text-[#555]">{item.label}</span>
+              <span className="text-xs text-[#9e9e9e] font-mono capitalize truncate max-w-[150px]">
+                {item.component ?? item.value}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Recent activity */}
+      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
+        <div className="px-4 py-3 border-b border-[#1e1e1e] flex items-center gap-1.5">
+          <Activity className="w-3.5 h-3.5 text-[#555]" />
+          <p className="text-xs font-medium text-[#888] uppercase tracking-wide">Recent Events</p>
+        </div>
+        {eventsLoading ? (
+          <div className="flex items-center justify-center h-16"><Loader2 className="w-4 h-4 animate-spin text-[#555]" /></div>
+        ) : (events?.events.length ?? 0) === 0 ? (
+          <div className="flex items-center justify-center h-16 text-xs text-[#555]">No recent events</div>
+        ) : (
+          <div className="divide-y divide-[#1a1a1a]">
+            {events?.events.slice(0, 6).map((ev, i) => (
+              <div key={i} className="flex items-start gap-3 px-4 py-2.5">
+                <div className={cn("w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0",
+                  ev.type === "Warning" ? "bg-yellow-400" : "bg-green-400")} />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-medium text-[#d4d4d4]">{ev.reason}</span>
+                    <span className="text-[10px] text-[#444] flex-shrink-0">{ev.timestamp}</span>
+                  </div>
+                  <p className="text-[11px] text-[#666] mt-0.5 truncate">{ev.message}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Console Tab ──────────────────────────────────────────────────────────────
+function ConsoleTab({ name, status }: { name: string; status: string }) {
   const [logLines, setLogLines] = useState<Array<{ type: string; line: string; id: number }>>([]);
   const [command, setCommand] = useState("");
   const [sending, setSending] = useState(false);
   const [connected, setConnected] = useState(false);
-  const [podInfo, setPodInfo] = useState<string>("");
+  const [podLabel, setPodLabel] = useState("");
   const logEndRef = useRef<HTMLDivElement>(null);
   const logIdRef = useRef(0);
   const esRef = useRef<EventSource | null>(null);
   const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryCountRef = useRef(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [history, setHistory] = useState<string[]>([]);
+  const historyIdxRef = useRef(-1);
 
   const addLine = useCallback((type: string, line: string) => {
-    setLogLines(prev => [...prev.slice(-500), { type, line, id: logIdRef.current++ }]);
+    setLogLines(prev => [...prev.slice(-1000), { type, line, id: logIdRef.current++ }]);
   }, []);
 
   const connect = useCallback(() => {
     if (status === "stopped") return;
     if (retryRef.current) clearTimeout(retryRef.current);
     esRef.current?.close();
-
     const es = new EventSource(`/api/game-hub/servers/${name}/logs?tail=200`);
     esRef.current = es;
-
     es.onmessage = (e) => {
       try {
         const msg = JSON.parse(e.data) as { type: string; line?: string; pod?: string; container?: string };
         if (msg.type === "connected") {
           retryCountRef.current = 0;
           setConnected(true);
-          setPodInfo(msg.pod ?? name);
+          setPodLabel(msg.pod ?? name);
           addLine("system", `▶ Connected to ${msg.pod ?? name}`);
         } else if (msg.type === "log" && msg.line) {
           addLine("log", msg.line);
@@ -77,12 +237,11 @@ function ConsolePanel({ name, status }: { name: string; status: string }) {
         }
       } catch { /* keep-alive ping */ }
     };
-
     es.onerror = () => {
       setConnected(false);
       es.close();
       const delay = Math.min(2000 * Math.pow(2, retryCountRef.current), 30000);
-      retryCountRef.current += 1;
+      retryCountRef.current++;
       addLine("system", `⚠ Disconnected — reconnecting in ${Math.round(delay / 1000)}s…`);
       retryRef.current = setTimeout(connect, delay);
     };
@@ -109,10 +268,14 @@ function ConsolePanel({ name, status }: { name: string; status: string }) {
 
   async function sendCommand(e: React.FormEvent) {
     e.preventDefault();
-    if (!command.trim() || sending) return;
+    const cmd = command.trim();
+    if (!cmd || sending) return;
+    // Client-side safety: block obvious shell injection attempts
+    if (cmd.length > 512) { toast.error("Command too long (max 512 chars)"); return; }
     setSending(true);
-    const cmd = command;
     setCommand("");
+    historyIdxRef.current = -1;
+    setHistory(prev => [cmd, ...prev.slice(0, 49)]);
     addLine("input", `$ ${cmd}`);
     try {
       const res = await fetch(`/api/game-hub/servers/${name}/command`, {
@@ -120,97 +283,110 @@ function ConsolePanel({ name, status }: { name: string; status: string }) {
         body: JSON.stringify({ command: cmd }),
       });
       const data = await res.json() as { stdout?: string; stderr?: string; error?: string };
+      if (data.error) addLine("error", data.error);
       if (data.stdout) data.stdout.split("\n").filter(Boolean).forEach(l => addLine("output", l));
       if (data.stderr) data.stderr.split("\n").filter(Boolean).forEach(l => addLine("error", l));
-      if (data.error) addLine("error", data.error);
     } catch (err) { addLine("error", String(err)); }
-    finally { setSending(false); }
+    finally { setSending(false); inputRef.current?.focus(); }
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      const next = Math.min(historyIdxRef.current + 1, history.length - 1);
+      historyIdxRef.current = next;
+      setCommand(history[next] ?? "");
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      const next = Math.max(historyIdxRef.current - 1, -1);
+      historyIdxRef.current = next;
+      setCommand(next < 0 ? "" : (history[next] ?? ""));
+    }
   }
 
   const lineColor = (t: string) => ({
-    system: "text-blue-400", error: "text-red-400",
+    system: "text-blue-400/80", error: "text-red-400",
     input: "text-yellow-300", output: "text-cyan-300",
-  }[t] ?? "text-[#d4d4d4]");
+  }[t] ?? "text-[#ccc]");
 
   return (
-    <div className="rounded-xl border border-[#2a2a2a] bg-[#0d0d0d] overflow-hidden">
-      {/* Console header bar */}
-      <div className="flex items-center gap-2 px-4 py-2.5 bg-[#161616] border-b border-[#2a2a2a]">
-        <Terminal className="w-3.5 h-3.5 text-[#555]" />
-        <span className="text-xs font-medium text-[#888]">Console</span>
+    <div className="flex flex-col rounded-xl border border-[#2a2a2a] bg-[#0a0a0a] overflow-hidden"
+      style={{ height: "calc(100vh - 280px)", minHeight: "360px" }}>
+      {/* Toolbar */}
+      <div className="flex items-center gap-3 px-4 py-2.5 bg-[#111] border-b border-[#1e1e1e] flex-shrink-0">
+        <div className="flex items-center gap-2">
+          <Circle className={cn("w-2 h-2", connected ? "fill-green-400 text-green-400" : "fill-[#444] text-[#444]")} />
+          <span className={cn("text-xs", connected ? "text-green-400" : "text-[#555]")}>
+            {connected ? podLabel : status === "stopped" ? "Server stopped" : "Connecting…"}
+          </span>
+        </div>
         <div className="ml-auto flex items-center gap-3">
-          <div className="flex items-center gap-1.5">
-            <Circle className={cn("w-2 h-2", connected ? "fill-green-400 text-green-400" : "fill-[#444] text-[#444]")} />
-            <span className={cn("text-[10px]", connected ? "text-green-400" : "text-[#555]")}>
-              {connected ? podInfo : status === "stopped" ? "Stopped" : "Connecting…"}
-            </span>
-          </div>
           {!connected && status !== "stopped" && (
             <button onClick={() => { retryCountRef.current = 0; connect(); }}
-              className="text-[10px] text-[#0078D4] hover:underline">Retry</button>
+              className="text-xs text-[#0078D4] hover:underline">Reconnect</button>
           )}
-          {logLines.length > 0 && (
-            <button onClick={() => setLogLines([])}
-              className="text-[#444] hover:text-[#888] transition-colors" title="Clear">
-              <RefreshCw className="w-3 h-3" />
-            </button>
-          )}
+          <div className="flex items-center gap-1">
+            {[
+              { icon: RefreshCw, label: "Clear", action: () => setLogLines([]) },
+              { icon: Copy, label: "Copy all", action: () => { navigator.clipboard.writeText(logLines.map(l => l.line).join("\n")); toast.success("Copied"); } },
+            ].map(({ icon: Icon, label, action }) => (
+              <button key={label} onClick={action} title={label}
+                className="p-1.5 text-[#444] hover:text-[#888] hover:bg-[#1e1e1e] rounded transition-colors">
+                <Icon className="w-3.5 h-3.5" />
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
       {/* Log output */}
-      <div className="h-[300px] sm:h-[380px] overflow-y-auto p-3 font-mono text-xs leading-[1.6] overscroll-contain">
+      <div className="flex-1 overflow-y-auto p-4 font-mono text-xs leading-[1.7] overscroll-contain select-text">
         {status === "stopped" ? (
-          <div className="flex items-center gap-2 text-[#555] italic pt-2">
-            <Square className="w-3 h-3" />
-            <span>Server is stopped — start it to stream logs</span>
+          <div className="flex flex-col items-center justify-center h-full gap-3 text-[#444]">
+            <Square className="w-8 h-8" />
+            <p>Server is stopped</p>
           </div>
         ) : logLines.length === 0 ? (
-          <div className="flex items-center gap-2 text-[#555] pt-2">
-            <Loader2 className="w-3 h-3 animate-spin" />
+          <div className="flex items-center gap-2 text-[#444] pt-1">
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
             <span>Connecting to log stream…</span>
           </div>
-        ) : (
-          <>
-            {logLines.map(({ type, line, id }) => (
-              <div key={id} className={cn("whitespace-pre-wrap break-all", lineColor(type))}>
-                {line}
-              </div>
-            ))}
-          </>
-        )}
+        ) : logLines.map(({ type, line, id }) => (
+          <div key={id} className={cn("whitespace-pre-wrap break-all", lineColor(type))}>{line}</div>
+        ))}
         <div ref={logEndRef} />
       </div>
 
       {/* Command input */}
-      <div className="border-t border-[#1e1e1e] p-2">
+      <div className="flex-shrink-0 border-t border-[#1a1a1a] p-2 bg-[#0d0d0d]">
         <form onSubmit={sendCommand} className="flex gap-2">
           <div className={cn(
-            "flex-1 flex items-center gap-2 bg-[#111] border rounded-lg px-3 min-h-[44px]",
-            connected ? "border-[#2a2a2a]" : "border-[#1e1e1e] opacity-60"
+            "flex-1 flex items-center gap-2 bg-[#111] border rounded-lg px-3 min-h-[46px]",
+            connected ? "border-[#2a2a2a] focus-within:border-[#0078D4]" : "border-[#1a1a1a] opacity-50"
           )}>
-            <span className="text-green-500 font-mono text-xs select-none">›</span>
-            <input
-              value={command}
-              onChange={e => setCommand(e.target.value)}
-              placeholder={connected ? "Type a server command…" : status === "stopped" ? "Start server first" : "Waiting for connection…"}
+            <span className="text-green-500 font-mono text-sm select-none flex-shrink-0">❯</span>
+            <input ref={inputRef}
+              value={command} onChange={e => setCommand(e.target.value)} onKeyDown={handleKeyDown}
+              placeholder={connected ? "Type a command… (↑↓ for history)" : "Waiting for connection…"}
               disabled={!connected || sending}
               autoCapitalize="none" autoCorrect="off" spellCheck={false}
-              className="flex-1 bg-transparent text-sm font-mono text-[#f2f2f2] outline-none placeholder:text-[#3a3a3a] disabled:cursor-not-allowed"
+              // font-size 16px prevents iOS auto-zoom
+              className="flex-1 bg-transparent text-[16px] leading-none font-mono text-[#f0f0f0] outline-none placeholder:text-[#333] disabled:cursor-not-allowed py-1"
             />
           </div>
           <button type="submit" disabled={!connected || sending || !command.trim()}
-            className="flex items-center justify-center gap-1.5 w-[52px] min-h-[44px] bg-[#0078D4] hover:bg-[#0065B3] disabled:opacity-30 disabled:cursor-not-allowed text-white rounded-lg transition-colors touch-manipulation flex-shrink-0">
+            className="flex items-center justify-center w-[50px] min-h-[46px] bg-[#0078D4] hover:bg-[#0065B3] disabled:opacity-25 text-white rounded-lg transition-colors touch-manipulation flex-shrink-0">
             {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
           </button>
         </form>
+        <p className="text-[10px] text-[#2a2a2a] mt-1.5 px-1">Commands are executed on the game server process • ↑↓ for history</p>
       </div>
     </div>
   );
 }
 
-// ─── Files Panel ──────────────────────────────────────────────────────────────
-function FilesPanel({ name, status, mountPath }: { name: string; status: string; mountPath: string }) {
+// ─── Files Tab ────────────────────────────────────────────────────────────────
+function FilesTab({ name, status, mountPath }: { name: string; status: string; mountPath: string }) {
   const [currentPath, setCurrentPath] = useState(mountPath);
   const [selectedFile, setSelectedFile] = useState<FileEntry | null>(null);
   const [fileContent, setFileContent] = useState<string | null>(null);
@@ -284,44 +460,51 @@ function FilesPanel({ name, status, mountPath }: { name: string; status: string;
   }
 
   if (status === "stopped") return (
-    <div className="flex items-center justify-center h-24 text-[#555] text-sm">Server must be running to browse files</div>
+    <div className="flex flex-col items-center justify-center h-40 gap-3 text-[#555]">
+      <FolderOpen className="w-8 h-8" />
+      <p className="text-sm">Start the server to browse files</p>
+    </div>
   );
+
+  const sortedFiles = listing?.files.sort((a, b) => {
+    if (a.type === "directory" && b.type !== "directory") return -1;
+    if (a.type !== "directory" && b.type === "directory") return 1;
+    return a.name.localeCompare(b.name);
+  }) ?? [];
 
   const fileTree = (
     <div className="flex flex-col gap-2">
-      <div className="flex items-center gap-1 text-xs text-[#666]">
+      <div className="flex items-center gap-1 bg-[#111] rounded-lg border border-[#2a2a2a] px-2 py-1.5">
         <button onClick={goUp} disabled={pathHistory.length <= 1}
-          className="p-1.5 rounded hover:bg-[#252525] disabled:opacity-30 transition-colors">
-          <ArrowUp className="w-3.5 h-3.5" />
+          className="p-1 rounded hover:bg-[#1e1e1e] disabled:opacity-30 transition-colors flex-shrink-0">
+          <ArrowUp className="w-3.5 h-3.5 text-[#666]" />
         </button>
-        <span className="truncate font-mono flex-1 min-w-0 text-[10px]">{currentPath}</span>
-        <button onClick={() => refetch()} className="p-1.5 rounded hover:bg-[#252525] transition-colors">
-          <RefreshCw className="w-3.5 h-3.5" />
+        <span className="flex-1 min-w-0 truncate font-mono text-[10px] text-[#555]">{currentPath}</span>
+        <button onClick={() => refetch()} className="p-1 rounded hover:bg-[#1e1e1e] transition-colors flex-shrink-0">
+          <RefreshCw className="w-3 h-3 text-[#555]" />
         </button>
       </div>
       <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
         {isLoading ? (
           <div className="flex items-center justify-center h-20"><Loader2 className="w-4 h-4 animate-spin text-[#555]" /></div>
-        ) : (listing?.files.length === 0) ? (
+        ) : sortedFiles.length === 0 ? (
           <p className="text-xs text-[#555] text-center py-6">Empty directory</p>
         ) : (
-          <div className="p-1 space-y-0.5 max-h-[50vh] overflow-y-auto">
-            {listing?.files.sort((a, b) => {
-              if (a.type === "directory" && b.type !== "directory") return -1;
-              if (a.type !== "directory" && b.type === "directory") return 1;
-              return a.name.localeCompare(b.name);
-            }).map(entry => (
+          <div className="p-1 max-h-[55vh] overflow-y-auto overscroll-contain">
+            {sortedFiles.map(entry => (
               <div key={entry.path}
-                className={cn("group flex items-center gap-2 px-2 py-2 rounded-lg cursor-pointer transition-colors text-xs touch-manipulation",
-                  selectedFile?.path === entry.path ? "bg-[rgba(0,120,212,0.2)] text-[#f2f2f2]" : "hover:bg-[#1e1e1e] text-[#9e9e9e]")}
-                onClick={() => openFile(entry)}>
+                onClick={() => openFile(entry)}
+                className={cn("group flex items-center gap-2 px-2.5 py-2 rounded-lg cursor-pointer transition-colors text-xs touch-manipulation",
+                  selectedFile?.path === entry.path
+                    ? "bg-[rgba(0,120,212,0.2)] text-white"
+                    : "hover:bg-[#1a1a1a] text-[#9e9e9e]")}>
                 {entry.type === "directory"
                   ? <Folder className="w-3.5 h-3.5 text-yellow-400 flex-shrink-0" />
-                  : <File className="w-3.5 h-3.5 text-[#555] flex-shrink-0" />}
+                  : <File className="w-3.5 h-3.5 text-[#444] flex-shrink-0" />}
                 <span className="truncate flex-1">{entry.name}</span>
                 {entry.type !== "directory" && (
                   <button onClick={e => { e.stopPropagation(); deleteFile(entry); }}
-                    className="opacity-0 group-hover:opacity-100 p-0.5 text-[#555] hover:text-red-400 transition-all flex-shrink-0">
+                    className="opacity-0 group-hover:opacity-100 p-0.5 text-[#444] hover:text-red-400 transition-all">
                     <Trash2 className="w-3 h-3" />
                   </button>
                 )}
@@ -337,26 +520,21 @@ function FilesPanel({ name, status, mountPath }: { name: string; status: string;
     <div className="flex flex-col gap-2">
       {selectedFile ? (
         <>
-          <div className="flex items-center gap-2 flex-wrap">
-            <button onClick={() => setMobilePane("files")}
-              className="md:hidden flex items-center gap-1 text-xs text-[#0078D4]">
+          <div className="flex items-center gap-2">
+            <button onClick={() => setMobilePane("files")} className="md:hidden flex items-center gap-1 text-xs text-[#0078D4] flex-shrink-0">
               ← Files
             </button>
-            <span className="text-xs text-[#666] font-mono truncate flex-1 min-w-0">{selectedFile.name}</span>
-            <div className="flex items-center gap-2 flex-shrink-0">
-              <button onClick={() => { navigator.clipboard.writeText(fileContent ?? ""); toast.success("Copied"); }}
-                className="p-1.5 text-[#555] hover:text-[#999]"><Copy className="w-3.5 h-3.5" /></button>
-              <button onClick={saveFile} disabled={saving || loadingContent}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-[#0078D4] hover:bg-[#0065B3] disabled:opacity-50 text-white rounded-lg text-xs font-medium">
-                {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />} Save
-              </button>
-            </div>
+            <span className="text-xs text-[#555] font-mono truncate flex-1 min-w-0">{selectedFile.path}</span>
+            <button onClick={() => { navigator.clipboard.writeText(fileContent ?? ""); toast.success("Copied"); }}
+              className="p-1.5 text-[#444] hover:text-[#888] flex-shrink-0"><Copy className="w-3.5 h-3.5" /></button>
+            <button onClick={saveFile} disabled={saving || loadingContent}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#0078D4] hover:bg-[#0065B3] disabled:opacity-50 text-white rounded-lg text-xs font-medium flex-shrink-0">
+              {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />} Save
+            </button>
           </div>
-          <div className="rounded-xl border border-[#2a2a2a] overflow-hidden h-[300px] sm:h-[400px]">
+          <div className="rounded-xl border border-[#2a2a2a] overflow-hidden" style={{ height: "55vh", minHeight: "300px" }}>
             {loadingContent ? (
-              <div className="flex items-center justify-center h-full">
-                <Loader2 className="w-5 h-5 animate-spin text-[#555]" />
-              </div>
+              <div className="flex items-center justify-center h-full"><Loader2 className="w-5 h-5 animate-spin text-[#555]" /></div>
             ) : (
               <MonacoEditor height="100%" language={editorLang} value={fileContent ?? ""}
                 onChange={v => setFileContent(v ?? "")} theme="vs-dark"
@@ -365,8 +543,8 @@ function FilesPanel({ name, status, mountPath }: { name: string; status: string;
           </div>
         </>
       ) : (
-        <div className="flex flex-col items-center justify-center rounded-xl border border-[#2a2a2a] bg-[#111] h-[200px] gap-2">
-          <FolderOpen className="w-8 h-8 text-[#333]" />
+        <div className="flex flex-col items-center justify-center rounded-xl border border-[#2a2a2a] bg-[#111] gap-3" style={{ height: "55vh", minHeight: "200px" }}>
+          <FolderOpen className="w-10 h-10 text-[#2a2a2a]" />
           <p className="text-sm text-[#555]">Select a file to edit</p>
           <button onClick={() => setMobilePane("files")} className="md:hidden text-xs text-[#0078D4]">Browse files →</button>
         </div>
@@ -376,17 +554,15 @@ function FilesPanel({ name, status, mountPath }: { name: string; status: string;
 
   return (
     <>
-      {/* Desktop: side-by-side */}
       <div className="hidden md:grid grid-cols-[260px_1fr] gap-4">{fileTree}{editorPane}</div>
-      {/* Mobile: tab switcher */}
       <div className="md:hidden space-y-3">
-        <div className="flex gap-1 p-1 bg-[#151515] rounded-lg border border-[#2a2a2a]">
+        <div className="flex gap-1 p-1 bg-[#111] rounded-lg border border-[#2a2a2a]">
           {(["files", "editor"] as const).map(p => (
             <button key={p} onClick={() => setMobilePane(p)}
-              className={cn("flex-1 py-2 rounded text-xs font-medium transition-colors capitalize flex items-center justify-center gap-1.5",
+              className={cn("flex-1 py-2.5 rounded text-xs font-medium transition-colors flex items-center justify-center gap-1.5",
                 mobilePane === p ? "bg-[#0078D4] text-white" : "text-[#666]")}>
               {p === "files" ? <Folder className="w-3.5 h-3.5" /> : <File className="w-3.5 h-3.5" />}
-              {p === "editor" && selectedFile ? selectedFile.name : p.charAt(0).toUpperCase() + p.slice(1)}
+              {p === "editor" && selectedFile ? selectedFile.name : p === "files" ? "Files" : "Editor"}
             </button>
           ))}
         </div>
@@ -396,45 +572,13 @@ function FilesPanel({ name, status, mountPath }: { name: string; status: string;
   );
 }
 
-// ─── Activity Panel ───────────────────────────────────────────────────────────
-function ActivityPanel({ name }: { name: string }) {
-  const { data, isLoading } = useQuery({
-    queryKey: ["game-hub", "activity", name],
-    queryFn: async () => {
-      const res = await fetch(`/api/k8s/events?namespace=game-hub&name=${name}`).catch(() => null);
-      if (res?.ok) return res.json() as Promise<{ events: Array<{ type: string; reason: string; message: string; timestamp: string }> }>;
-      return { events: [] };
-    },
-    refetchInterval: 15000,
-  });
-
-  return (
-    <div className="rounded-xl border border-[#2a2a2a] bg-[#111] divide-y divide-[#1e1e1e]">
-      {isLoading ? (
-        <div className="flex items-center justify-center h-20"><Loader2 className="w-4 h-4 animate-spin text-[#555]" /></div>
-      ) : (data?.events.length ?? 0) === 0 ? (
-        <div className="flex items-center justify-center h-20 text-sm text-[#555]">No recent events</div>
-      ) : data?.events.map((ev, i) => (
-        <div key={i} className="flex items-start gap-3 px-4 py-3">
-          <div className={cn("w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0", ev.type === "Warning" ? "bg-yellow-400" : "bg-green-400")} />
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-medium text-[#f2f2f2]">{ev.reason}</span>
-              <span className="text-[10px] text-[#555]">{ev.timestamp}</span>
-            </div>
-            <p className="text-xs text-[#9e9e9e] mt-0.5 break-words">{ev.message}</p>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// ─── Settings Panel ───────────────────────────────────────────────────────────
-function SettingsPanel({ name, server }: { name: string; server: ServerDetail }) {
+// ─── Settings Tab ─────────────────────────────────────────────────────────────
+function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
   const queryClient = useQueryClient();
   const [editingEnv, setEditingEnv] = useState(false);
-  const [envStr, setEnvStr] = useState(server.env.map(e => `${e.name}=${e.value}`).join("\n"));
+  const [envStr, setEnvStr] = useState(
+    server.env.map(e => `${e.name}=${e.value ?? ""}`).join("\n")
+  );
   const [saving, setSaving] = useState(false);
 
   async function saveEnv() {
@@ -451,7 +595,7 @@ function SettingsPanel({ name, server }: { name: string; server: ServerDetail })
         body: JSON.stringify({ action: "update-env", env }),
       });
       if (!res.ok) throw new Error("Save failed");
-      toast.success("Environment variables updated — restart to apply");
+      toast.success("Saved — restart the server to apply changes");
       setEditingEnv(false);
       queryClient.invalidateQueries({ queryKey: ["game-hub", "server", name] });
     } catch (err) { toast.error(String(err)); }
@@ -460,37 +604,71 @@ function SettingsPanel({ name, server }: { name: string; server: ServerDetail })
 
   return (
     <div className="space-y-4">
-      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <p className="text-sm font-medium text-[#f2f2f2]">Environment Variables</p>
+      {/* Environment variables */}
+      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-[#1e1e1e]">
+          <div className="flex items-center gap-2">
+            <Shield className="w-3.5 h-3.5 text-[#555]" />
+            <p className="text-xs font-medium text-[#888] uppercase tracking-wide">Environment Variables</p>
+          </div>
           <button onClick={() => setEditingEnv(!editingEnv)} className="text-xs text-[#0078D4] hover:underline">
             {editingEnv ? "Cancel" : "Edit"}
           </button>
         </div>
-        {editingEnv ? (
-          <div className="space-y-2">
-            <p className="text-xs text-[#666]">One KEY=VALUE per line</p>
-            <textarea value={envStr} onChange={e => setEnvStr(e.target.value)} rows={10}
-              className="w-full bg-[#0a0a0a] border border-[#333] rounded-lg p-3 text-xs font-mono text-[#f2f2f2] resize-y focus:outline-none focus:border-[#0078D4]" />
-            <button onClick={saveEnv} disabled={saving}
-              className="flex items-center gap-1.5 px-4 py-2 bg-[#0078D4] text-white rounded-lg text-xs font-medium disabled:opacity-50">
-              {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-              Save
-            </button>
+        <div className="p-4">
+          {editingEnv ? (
+            <div className="space-y-3">
+              <p className="text-xs text-[#555]">One <code className="text-[#888]">KEY=VALUE</code> per line. Sensitive values are hidden in the display view.</p>
+              <textarea value={envStr} onChange={e => setEnvStr(e.target.value)} rows={12}
+                className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded-lg p-3 text-sm font-mono text-[#f2f2f2] resize-y focus:outline-none focus:border-[#0078D4] leading-relaxed" />
+              <button onClick={saveEnv} disabled={saving}
+                className="flex items-center gap-1.5 px-4 py-2 bg-[#0078D4] text-white rounded-lg text-sm font-medium disabled:opacity-50">
+                {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                Save changes
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-2 max-h-72 overflow-y-auto">
+              {server.env.length === 0 ? (
+                <p className="text-xs text-[#555]">No environment variables set.</p>
+              ) : server.env.map(e => (
+                <div key={e.name} className="flex items-start gap-2 text-xs py-0.5">
+                  <span className="font-mono text-[#0078D4] flex-shrink-0 min-w-[120px]">{e.name}</span>
+                  <span className="text-[#444]">=</span>
+                  <span className={cn("font-mono break-all", e.name.match(/PASS|SECRET|KEY|TOKEN/i) ? "text-[#444] italic" : "text-[#9e9e9e]")}>
+                    {e.name.match(/PASS|SECRET|KEY|TOKEN/i) ? "••••••••" : (e.value ?? "<from secret>")}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Danger zone */}
+      <div className="rounded-xl border border-red-500/20 bg-red-500/5 overflow-hidden">
+        <div className="px-4 py-3 border-b border-red-500/20">
+          <p className="text-xs font-medium text-red-400/80 uppercase tracking-wide">Danger Zone</p>
+        </div>
+        <div className="p-4 flex items-center justify-between gap-4">
+          <div>
+            <p className="text-sm text-[#f2f2f2]">Delete this server</p>
+            <p className="text-xs text-[#666] mt-0.5">Permanently removes the deployment and all data. This cannot be undone.</p>
           </div>
-        ) : (
-          <div className="space-y-1.5 max-h-48 overflow-y-auto">
-            {server.env.map(e => (
-              <div key={e.name} className="flex items-start gap-2 text-xs">
-                <span className="font-mono text-[#0078D4] flex-shrink-0">{e.name}</span>
-                <span className="text-[#555]">=</span>
-                <span className={cn("font-mono break-all", e.name.match(/PASS|SECRET|KEY/) ? "text-[#555] italic" : "text-[#9e9e9e]")}>
-                  {e.name.match(/PASS|SECRET|KEY/) ? "••••••" : e.value}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
+          <button
+            onClick={async () => {
+              if (!confirm(`Permanently delete ${name} and all its data? This cannot be undone.`)) return;
+              try {
+                const res = await fetch(`/api/game-hub/servers/${name}`, { method: "DELETE" });
+                if (!res.ok) throw new Error("Delete failed");
+                toast.success(`${name} deleted`);
+                window.location.href = "/game-hub";
+              } catch (err) { toast.error(String(err)); }
+            }}
+            className="flex-shrink-0 flex items-center gap-1.5 px-4 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/30 rounded-lg text-sm font-medium transition-colors">
+            <Trash2 className="w-3.5 h-3.5" /> Delete
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -499,7 +677,7 @@ function SettingsPanel({ name, server }: { name: string; server: ServerDetail })
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function ServerDetailPage({ params }: { params: { name: string } }) {
   const { name } = params;
-  const [activeTab, setActiveTab] = useState<TabId>("files");
+  const [activeTab, setActiveTab] = useState<TabId>("dashboard");
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
@@ -507,7 +685,11 @@ export default function ServerDetailPage({ params }: { params: { name: string } 
     queryKey: ["game-hub", "server", name],
     queryFn: async () => {
       const res = await fetch(`/api/game-hub/servers/${name}`);
-      if (!res.ok) throw new Error(`API error ${res.status}`);
+      if (!res.ok) {
+        // Try to get the error detail from the response body
+        const body = await res.json().catch(() => ({ error: `HTTP ${res.status}` })) as { error?: string };
+        throw new Error(body.error ?? `HTTP ${res.status}`);
+      }
       return res.json() as Promise<ServerDetail>;
     },
     refetchInterval: 10000,
@@ -533,137 +715,117 @@ export default function ServerDetailPage({ params }: { params: { name: string } 
 
   const mountPath = server?.gameType === "valheim" || server?.gameType === "satisfactory" ? "/config" : "/data";
 
-  const statusDot = { running: "bg-green-400", starting: "bg-yellow-400 animate-pulse", stopped: "bg-[#555]" }[status];
+  const statusDot = { running: "bg-green-400", starting: "bg-yellow-400 animate-pulse", stopped: "bg-[#444]" }[status];
   const statusText = { running: "text-green-400", starting: "text-yellow-400", stopped: "text-[#666]" }[status];
 
   const tabs: Array<{ id: TabId; label: string; icon: React.ElementType }> = [
+    { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+    { id: "console", label: "Console", icon: Terminal },
     { id: "files", label: "Files", icon: FolderOpen },
-    { id: "activity", label: "Activity", icon: Activity },
     { id: "settings", label: "Settings", icon: Settings },
-    { id: "info", label: "Info", icon: Gamepad2 },
   ];
 
   return (
-    <div className="space-y-4 pb-2">
-      {/* ── Header ── */}
-      <div className="flex items-center gap-3">
-        <Link href="/game-hub" className="p-2 rounded-lg text-[#666] hover:text-[#9e9e9e] hover:bg-[#1e1e1e] transition-colors flex-shrink-0">
-          <ChevronLeft className="w-5 h-5" />
-        </Link>
-        <div className="text-2xl">{GAME_ICONS[server?.gameType ?? ""] ?? "🎮"}</div>
-        <div className="flex-1 min-w-0">
-          <h1 className="text-base font-semibold text-[#f2f2f2] truncate">{name}</h1>
-          <p className="text-xs text-[#666] capitalize">{server?.gameType?.replace(/-/g, " ") ?? "Game"} Server</p>
-        </div>
-        {/* Action buttons in header for quick access */}
-        {server && (
-          <div className="flex items-center gap-1.5 flex-shrink-0">
-            {status === "stopped" ? (
-              <button onClick={() => doAction("start")} disabled={!!actionLoading}
-                className="flex items-center gap-1.5 px-3 py-2 min-h-[40px] bg-green-500/20 hover:bg-green-500/30 text-green-300 border border-green-500/30 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 touch-manipulation">
-                {actionLoading === "start" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
-                Start
-              </button>
-            ) : (
-              <>
-                <button onClick={() => doAction("restart")} disabled={!!actionLoading}
-                  className="p-2.5 min-h-[40px] min-w-[40px] bg-[#1e1e1e] hover:bg-[#252525] text-[#9e9e9e] rounded-lg transition-colors disabled:opacity-50 touch-manipulation flex items-center justify-center">
-                  {actionLoading === "restart" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
-                </button>
-                <button onClick={() => doAction("stop")} disabled={!!actionLoading}
-                  className="p-2.5 min-h-[40px] min-w-[40px] bg-[#1e1e1e] hover:bg-[#252525] text-[#9e9e9e] rounded-lg transition-colors disabled:opacity-50 touch-manipulation flex items-center justify-center">
-                  {actionLoading === "stop" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Square className="w-3.5 h-3.5" />}
-                </button>
-              </>
-            )}
+    <div className="space-y-0 pb-2">
+      {/* ── Server header ── */}
+      <div className="sticky top-0 z-10 bg-[#0e0e0e]/95 backdrop-blur-sm border-b border-[#1e1e1e] -mx-4 px-4 pb-0 pt-0">
+        {/* Top row */}
+        <div className="flex items-center gap-2 py-3">
+          <Link href="/game-hub"
+            className="p-1.5 rounded-lg text-[#555] hover:text-[#9e9e9e] hover:bg-[#1e1e1e] transition-colors flex-shrink-0">
+            <ChevronLeft className="w-5 h-5" />
+          </Link>
+          <span className="text-xl flex-shrink-0">{GAME_ICONS[server?.gameType ?? ""] ?? "🎮"}</span>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <h1 className="text-sm font-semibold text-[#f2f2f2] truncate">{name}</h1>
+              <div className="flex items-center gap-1.5 flex-shrink-0">
+                <span className={cn("w-2 h-2 rounded-full flex-shrink-0", statusDot)} />
+                <span className={cn("text-xs capitalize hidden sm:block", statusText)}>{status}</span>
+              </div>
+            </div>
+            <p className="text-[10px] text-[#555] capitalize">{server?.gameType?.replace(/-/g, " ") ?? "Game"} Server</p>
           </div>
-        )}
+          {/* Action buttons */}
+          {server && (
+            <div className="flex items-center gap-1 flex-shrink-0">
+              {status === "stopped" ? (
+                <button onClick={() => doAction("start")} disabled={!!actionLoading}
+                  className="flex items-center gap-1.5 px-3 py-2 min-h-[38px] bg-green-500/20 hover:bg-green-500/30 text-green-300 border border-green-500/30 rounded-lg text-xs font-medium disabled:opacity-50 touch-manipulation">
+                  {actionLoading === "start" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+                  Start
+                </button>
+              ) : (
+                <>
+                  <button onClick={() => doAction("restart")} disabled={!!actionLoading} title="Restart"
+                    className="p-2 min-h-[38px] min-w-[38px] bg-[#1a1a1a] hover:bg-[#222] text-[#888] rounded-lg transition-colors disabled:opacity-50 touch-manipulation flex items-center justify-center">
+                    {actionLoading === "restart" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
+                  </button>
+                  <button onClick={() => doAction("stop")} disabled={!!actionLoading} title="Stop"
+                    className="p-2 min-h-[38px] min-w-[38px] bg-[#1a1a1a] hover:bg-[#222] text-[#888] rounded-lg transition-colors disabled:opacity-50 touch-manipulation flex items-center justify-center">
+                    {actionLoading === "stop" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Square className="w-3.5 h-3.5" />}
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Tab bar */}
+        <div className="flex gap-0 overflow-x-auto scrollbar-none touch-pan-x">
+          {tabs.map(({ id, label, icon: Icon }) => (
+            <button key={id} onClick={() => setActiveTab(id)}
+              className={cn(
+                "flex items-center gap-1.5 px-4 py-2.5 text-xs font-medium transition-colors border-b-2 -mb-px whitespace-nowrap flex-shrink-0 touch-manipulation",
+                activeTab === id
+                  ? "border-[#0078D4] text-[#0078D4] bg-[#0078D4]/5"
+                  : "border-transparent text-[#555] hover:text-[#888]"
+              )}>
+              <Icon className="w-3.5 h-3.5" />
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* ── Loading ── */}
-      {isLoading && (
-        <div className="flex items-center justify-center h-32">
-          <div className="flex flex-col items-center gap-3">
+      {/* ── Content ── */}
+      <div className="pt-4">
+        {isLoading && (
+          <div className="flex flex-col items-center justify-center h-48 gap-3">
             <Loader2 className="w-6 h-6 text-[#0078D4] animate-spin" />
-            <p className="text-xs text-[#555]">Loading server…</p>
+            <p className="text-xs text-[#555]">Loading server details…</p>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* ── Error ── */}
-      {error && !isLoading && (
-        <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 flex items-start gap-3">
-          <AlertTriangle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
-          <div className="flex-1">
-            <p className="text-sm font-medium text-red-300">Could not load server details</p>
-            <p className="text-xs text-red-400/70 mt-1">{String(error)}</p>
-            <button onClick={() => refetch()} className="mt-3 text-xs text-red-300 hover:underline flex items-center gap-1">
-              <RefreshCw className="w-3 h-3" /> Retry
-            </button>
-          </div>
-        </div>
-      )}
-
-      {server && !isLoading && (
-        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
-          {/* ── Status row ── */}
-          <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-[#151515] border border-[#222]">
-            <div className="flex items-center gap-2">
-              <span className={cn("w-2.5 h-2.5 rounded-full flex-shrink-0", statusDot)} />
-              <span className={cn("text-sm font-semibold capitalize", statusText)}>{status}</span>
-            </div>
-            <div className="h-4 w-px bg-[#2a2a2a]" />
-            <div className="flex items-center gap-3 text-xs text-[#666] flex-wrap">
-              {server.nodePort && <span className="flex items-center gap-1"><Network className="w-3 h-3" /> :{server.nodePort}</span>}
-              {server.memory && <span className="flex items-center gap-1"><MemoryStick className="w-3 h-3" /> {server.memory}</span>}
-              {server.cpu && <span className="flex items-center gap-1 hidden sm:flex"><Cpu className="w-3 h-3" /> {server.cpu}</span>}
-            </div>
-          </div>
-
-          {/* ── CONSOLE — always visible, never in a tab ── */}
-          <ConsolePanel name={name} status={status} />
-
-          {/* ── Secondary tabs ── */}
-          <div className="flex gap-1 border-b border-[#2a2a2a] overflow-x-auto scrollbar-none">
-            {tabs.map(({ id, label, icon: Icon }) => (
-              <button key={id} onClick={() => setActiveTab(id)}
-                className={cn(
-                  "flex items-center gap-1.5 px-4 py-2.5 text-xs font-medium transition-colors border-b-2 -mb-px whitespace-nowrap flex-shrink-0",
-                  activeTab === id ? "border-[#0078D4] text-[#0078D4]" : "border-transparent text-[#666] hover:text-[#9e9e9e]"
-                )}>
-                <Icon className="w-3.5 h-3.5" />
-                {label}
+        {error && !isLoading && (
+          <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-5 flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-red-300">Could not load server details</p>
+              <p className="text-xs text-red-400/80 mt-1 font-mono">{String(error)}</p>
+              <button onClick={() => refetch()}
+                className="mt-3 flex items-center gap-1.5 text-xs text-red-300 hover:underline">
+                <RefreshCw className="w-3 h-3" /> Retry
               </button>
-            ))}
+            </div>
           </div>
+        )}
 
-          {/* ── Tab content ── */}
-          <div>
-            {activeTab === "files" && <FilesPanel name={name} status={status} mountPath={mountPath} />}
-            {activeTab === "activity" && <ActivityPanel name={name} />}
-            {activeTab === "settings" && <SettingsPanel name={name} server={server} />}
-            {activeTab === "info" && (
-              <div className="space-y-3">
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                  {[
-                    { label: "Game Port", value: server.port?.toString() ?? "—" },
-                    { label: "Node Port", value: server.nodePort?.toString() ?? "—" },
-                    { label: "Pod Phase", value: server.podPhase ?? "—" },
-                    { label: "Memory", value: server.memory || "—" },
-                    { label: "CPU", value: server.cpu || "—" },
-                    { label: "Pod", value: server.podName ?? "—" },
-                  ].map(item => (
-                    <div key={item.label} className="rounded-xl border border-[#2a2a2a] bg-[#111] p-3">
-                      <p className="text-[10px] text-[#555] uppercase tracking-wide mb-1">{item.label}</p>
-                      <p className="text-xs font-medium text-[#f2f2f2] truncate">{item.value}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        </motion.div>
-      )}
+        {server && !isLoading && (
+          <AnimatePresence mode="wait">
+            <motion.div key={activeTab}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.12 }}>
+              {activeTab === "dashboard" && <DashboardTab server={server} status={status} name={name} />}
+              {activeTab === "console" && <ConsoleTab name={name} status={status} />}
+              {activeTab === "files" && <FilesTab name={name} status={status} mountPath={mountPath} />}
+              {activeTab === "settings" && <SettingsTab name={name} server={server} />}
+            </motion.div>
+          </AnimatePresence>
+        )}
+      </div>
     </div>
   );
 }

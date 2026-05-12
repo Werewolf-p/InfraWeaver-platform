@@ -32,15 +32,19 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ nam
       readyReplicas: deployment.status?.readyReplicas ?? 0,
       podName: pod?.metadata?.name ?? null,
       podPhase: pod?.status?.phase ?? null,
-      podStartTime: pod?.status?.startTime ?? null,
+      podStartTime: pod?.status?.startTime ? new Date(pod.status.startTime as string | Date).toISOString() : null,
       port: svc?.spec?.ports?.[0]?.port ?? null,
       nodePort: svc?.spec?.ports?.[0]?.nodePort ?? null,
       memory: deployment.spec?.template?.spec?.containers?.[0]?.resources?.limits?.memory ?? "",
       cpu: deployment.spec?.template?.spec?.containers?.[0]?.resources?.limits?.cpu ?? "",
-      env: deployment.spec?.template?.spec?.containers?.[0]?.env ?? [],
-      createdAt: deployment.metadata?.creationTimestamp ?? null,
+      env: (deployment.spec?.template?.spec?.containers?.[0]?.env ?? []).map(e => ({
+        name: e.name,
+        value: e.value ?? undefined,
+      })),
+      createdAt: deployment.metadata?.creationTimestamp ? new Date(deployment.metadata.creationTimestamp as string | Date).toISOString() : null,
     });
   } catch (err) {
+    console.error(`[game-hub] GET /servers/${(await params).name} failed:`, err);
     return NextResponse.json({ error: String(err) }, { status: 500 });
   }
 }
