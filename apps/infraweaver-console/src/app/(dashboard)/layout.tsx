@@ -80,9 +80,26 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [moreSearch, setMoreSearch] = useState("");
   const [moreCategory, setMoreCategory] = useState<string>("all");
   const [drawerSearch, setDrawerSearch] = useState("");
-  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(
-    () => Object.fromEntries(NAV_GROUPS.map(g => [g.id, g.defaultOpen ?? false]))
-  );
+
+  // Auto-expand the group that contains the current page; others default to their defaultOpen
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
+    const activeGroupId = NAV_GROUPS.find(g =>
+      g.items.some(i => pathname === i.href || (i.href !== "/" && pathname.startsWith(i.href)))
+    )?.id;
+    return Object.fromEntries(
+      NAV_GROUPS.map(g => [g.id, g.id === activeGroupId ? true : (g.defaultOpen ?? false)])
+    );
+  });
+
+  // When pathname changes, ensure the active group is open
+  useEffect(() => {
+    const activeGroupId = NAV_GROUPS.find(g =>
+      g.items.some(i => pathname === i.href || (i.href !== "/" && pathname.startsWith(i.href)))
+    )?.id;
+    if (activeGroupId) {
+      setOpenGroups(prev => ({ ...prev, [activeGroupId]: true }));
+    }
+  }, [pathname]);
   const [sessionWarning, setSessionWarning] = useState(false);
   const [countdown, setCountdown] = useState(300);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -279,11 +296,22 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 })}
               </div>
 
-              {/* Footer */}
-              <div className="px-4 py-3 border-t border-[#1e1e1e] flex items-center gap-2" style={{ paddingBottom: "calc(env(safe-area-inset-bottom,0px) + 12px)" }}>
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500/70 flex-shrink-0" />
-                <span className="text-[11px] font-mono text-[#444]">v{process.env.NEXT_PUBLIC_APP_VERSION ?? "dev"}</span>
-                <span className="text-[11px] text-[#333]">· InfraWeaver</span>
+              {/* Footer — user profile */}
+              <div className="border-t border-[#1e1e1e]" style={{ paddingBottom: "calc(env(safe-area-inset-bottom,0px) + 8px)" }}>
+                <Link href="/profile" onClick={() => { setMobileOpen(false); setDrawerSearch(""); }}>
+                  <div className="flex items-center gap-3 px-4 py-3 hover:bg-[#1a1a1a] transition-colors touch-manipulation">
+                    <div className="w-8 h-8 rounded-full bg-[#0078D4]/20 border border-[#0078D4]/30 flex items-center justify-center flex-shrink-0">
+                      <span className="text-[#0078D4] text-xs font-semibold">
+                        {(session?.user?.name ?? session?.user?.email ?? "U").slice(0, 1).toUpperCase()}
+                      </span>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-medium text-[#ccc] truncate">{session?.user?.name ?? "User"}</div>
+                      <div className="text-[10px] text-[#444] truncate">{session?.user?.email ?? ""}</div>
+                    </div>
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500/70 flex-shrink-0" />
+                  </div>
+                </Link>
               </div>
             </motion.div>
           </>
