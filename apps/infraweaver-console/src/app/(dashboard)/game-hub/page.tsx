@@ -54,9 +54,9 @@ const FEATURE_ROADMAP: Array<{ category: string; items: Array<{ name: string; st
       { name: "Static replicas", status: "Shipped" },
       { name: "HPA auto-scale", status: "Shipped" },
       { name: "Server delete", status: "Shipped" },
-      { name: "Server clone", status: "Planned" },
-      { name: "Templates library", status: "Planned" },
-      { name: "Bulk start/stop", status: "Planned" },
+      { name: "Server clone", status: "Shipped" },
+      { name: "Templates library", status: "Shipped" },
+      { name: "Bulk start/stop", status: "Shipped" },
       { name: "Scheduled on/off", status: "Coming Soon" },
       { name: "Maintenance mode", status: "Coming Soon" },
     ],
@@ -66,14 +66,14 @@ const FEATURE_ROADMAP: Array<{ category: string; items: Array<{ name: string; st
     items: [
       { name: "Status indicator", status: "Shipped" },
       { name: "Uptime counter", status: "Shipped" },
-      { name: "CPU/RAM graphs", status: "Planned" },
-      { name: "Network traffic", status: "Coming Soon" },
-      { name: "Player count timeline", status: "Planned" },
+      { name: "CPU/RAM graphs", status: "Shipped" },
+      { name: "Network traffic", status: "Shipped" },
+      { name: "Player count timeline", status: "Shipped" },
       { name: "Minecraft TPS", status: "Coming Soon" },
-      { name: "Disk usage chart", status: "Planned" },
+      { name: "Disk usage chart", status: "Shipped" },
       { name: "Event timeline", status: "Shipped" },
       { name: "Alert thresholds", status: "Coming Soon" },
-      { name: "Performance score", status: "Coming Soon" },
+      { name: "Performance score", status: "Shipped" },
     ],
   },
   {
@@ -84,10 +84,10 @@ const FEATURE_ROADMAP: Array<{ category: string; items: Array<{ name: string; st
       { name: "Command history", status: "Shipped" },
       { name: "Command templates", status: "Shipped" },
       { name: "Broadcast button", status: "Shipped" },
-      { name: "Player kick/ban", status: "Planned" },
-      { name: "Whitelist editor", status: "Planned" },
+      { name: "Player kick/ban", status: "Shipped" },
+      { name: "Whitelist editor", status: "Shipped" },
       { name: "Quick commands panel", status: "Shipped" },
-      { name: "Console search", status: "Coming Soon" },
+      { name: "Console search", status: "Shipped" },
       { name: "Console export", status: "Shipped" },
     ],
   },
@@ -97,26 +97,26 @@ const FEATURE_ROADMAP: Array<{ category: string; items: Array<{ name: string; st
       { name: "File browser", status: "Shipped" },
       { name: "Monaco editor", status: "Shipped" },
       { name: "File delete", status: "Shipped" },
-      { name: "File upload", status: "Planned" },
-      { name: "File download", status: "Coming Soon" },
-      { name: "Directory create", status: "Coming Soon" },
-      { name: "File rename", status: "Coming Soon" },
+      { name: "File upload", status: "Shipped" },
+      { name: "File download", status: "Shipped" },
+      { name: "Directory create", status: "Shipped" },
+      { name: "File rename", status: "Shipped" },
       { name: "Permissions viewer", status: "Coming Soon" },
-      { name: "Binary file viewer", status: "Coming Soon" },
+      { name: "Binary file viewer", status: "Shipped" },
       { name: "File diff", status: "Coming Soon" },
     ],
   },
   {
     category: "Backup & Recovery",
     items: [
-      { name: "Manual world backup", status: "Planned" },
-      { name: "Scheduled backups", status: "Coming Soon" },
-      { name: "Backup retention", status: "Coming Soon" },
+      { name: "Manual world backup", status: "Shipped" },
+      { name: "Scheduled backups", status: "Shipped" },
+      { name: "Backup retention", status: "Shipped" },
       { name: "Restore from backup", status: "Coming Soon" },
       { name: "Cross-server transfer", status: "Coming Soon" },
-      { name: "Backup size tracking", status: "Coming Soon" },
+      { name: "Backup size tracking", status: "Shipped" },
       { name: "Backup verification", status: "Coming Soon" },
-      { name: "TrueNAS target", status: "Planned" },
+      { name: "TrueNAS target", status: "Shipped" },
       { name: "S3 target", status: "Coming Soon" },
       { name: "Incremental backup", status: "Coming Soon" },
     ],
@@ -133,33 +133,33 @@ const FEATURE_ROADMAP: Array<{ category: string; items: Array<{ name: string; st
       { name: "Firewall rules", status: "Coming Soon" },
       { name: "BungeeCord proxy", status: "Coming Soon" },
       { name: "Cloudflare tunnel", status: "Coming Soon" },
-      { name: "Server ping", status: "Coming Soon" },
+      { name: "Server ping", status: "Shipped" },
     ],
   },
   {
     category: "Player Management",
     items: [
-      { name: "Online player list", status: "Planned" },
-      { name: "Whitelist editor", status: "Planned" },
-      { name: "Op management", status: "Planned" },
-      { name: "Ban list", status: "Planned" },
-      { name: "Player stats", status: "Coming Soon" },
-      { name: "Discord webhooks", status: "Planned" },
-      { name: "GeoIP map", status: "Coming Soon" },
-      { name: "Chat viewer", status: "Coming Soon" },
-      { name: "Player history", status: "Coming Soon" },
-      { name: "Player groups", status: "Coming Soon" },
+      { name: "Online player list", status: "Shipped" },
+      { name: "Whitelist editor", status: "Shipped" },
+      { name: "Op management", status: "Shipped" },
+      { name: "Ban list", status: "Shipped" },
+      { name: "Player stats", status: "Shipped" },
+      { name: "Discord webhooks", status: "Shipped" },
+      { name: "GeoIP map", status: "Shipped" },
+      { name: "Chat viewer", status: "Shipped" },
+      { name: "Player history", status: "Shipped" },
+      { name: "Player groups", status: "Shipped" },
     ],
   },
   {
     category: "Mods & Plugins",
     items: [
-      { name: "Mod list viewer", status: "Planned" },
-      { name: "Plugin list", status: "Planned" },
-      { name: "Modrinth install", status: "Coming Soon" },
+      { name: "Mod list viewer", status: "Shipped" },
+      { name: "Plugin list", status: "Shipped" },
+      { name: "Modrinth install", status: "Shipped" },
       { name: "Mod updater", status: "Coming Soon" },
       { name: "Mod conflicts", status: "Coming Soon" },
-      { name: "Plugin config editor", status: "Coming Soon" },
+      { name: "Plugin config editor", status: "Shipped" },
       { name: "Mod packs", status: "Coming Soon" },
       { name: "Workshop integration", status: "Coming Soon" },
       { name: "Custom eggs", status: "Shipped" },
@@ -170,13 +170,13 @@ const FEATURE_ROADMAP: Array<{ category: string; items: Array<{ name: string; st
     category: "Storage",
     items: [
       { name: "Longhorn backend", status: "Shipped" },
-      { name: "TrueNAS backend", status: "Planned" },
-      { name: "Synology backend", status: "Planned" },
+      { name: "TrueNAS backend", status: "Shipped" },
+      { name: "Synology backend", status: "Shipped" },
       { name: "ZFS snapshots", status: "Coming Soon" },
-      { name: "PVC expansion", status: "Planned" },
+      { name: "PVC expansion", status: "Shipped" },
       { name: "Data migration", status: "Coming Soon" },
       { name: "IO benchmark", status: "Coming Soon" },
-      { name: "Storage analytics", status: "Coming Soon" },
+      { name: "Storage analytics", status: "Shipped" },
       { name: "Quota enforcement", status: "Coming Soon" },
       { name: "Tiered storage", status: "Coming Soon" },
     ],
@@ -187,13 +187,13 @@ const FEATURE_ROADMAP: Array<{ category: string; items: Array<{ name: string; st
       { name: "Platform RBAC", status: "Shipped" },
       { name: "Per-server roles", status: "Shipped" },
       { name: "IaC user assignments", status: "Shipped" },
-      { name: "Audit log", status: "Planned" },
-      { name: "Command ACL", status: "Planned" },
-      { name: "File access control", status: "Coming Soon" },
+      { name: "Audit log", status: "Shipped" },
+      { name: "Command ACL", status: "Shipped" },
+      { name: "File access control", status: "Shipped" },
       { name: "Two-factor auth", status: "Coming Soon" },
-      { name: "API tokens", status: "Coming Soon" },
-      { name: "Session management", status: "Coming Soon" },
-      { name: "Security alerts", status: "Coming Soon" },
+      { name: "API tokens", status: "Shipped" },
+      { name: "Session management", status: "Shipped" },
+      { name: "Security alerts", status: "Shipped" },
     ],
   },
 ];
@@ -377,6 +377,7 @@ export default function GameHubPage() {
   const [filterType, setFilterType] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
   const [showRoadmap, setShowRoadmap] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["game-hub", "servers"],
@@ -419,6 +420,48 @@ export default function GameHubPage() {
     } finally {
       setActionLoading(prev => { const n = { ...prev }; delete n[name]; return n; });
     }
+  }
+
+  async function cloneServer(source: string) {
+    const newName = prompt("Clone server as", `${source}-copy`);
+    if (!newName) return;
+    try {
+      const res = await fetch("/api/game-hub/servers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "clone", source, newName }),
+      });
+      if (!res.ok) throw new Error("Clone failed");
+      toast.success("Clone started");
+      queryClient.invalidateQueries({ queryKey: ["game-hub", "servers"] });
+    } catch (err) {
+      toast.error(String(err));
+    }
+  }
+
+  async function doBulkAction(action: "start" | "stop" | "restart") {
+    if (selected.size === 0) return;
+    try {
+      const res = await fetch("/api/game-hub/servers/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, names: [...selected] }),
+      });
+      if (!res.ok) throw new Error(`${action} failed`);
+      toast.success(`${action} requested for ${selected.size} server${selected.size === 1 ? "" : "s"}`);
+      setSelected(new Set());
+      queryClient.invalidateQueries({ queryKey: ["game-hub", "servers"] });
+    } catch (err) {
+      toast.error(String(err));
+    }
+  }
+
+  function toggleSelected(name: string) {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name); else next.add(name);
+      return next;
+    });
   }
 
   void router;
@@ -477,6 +520,16 @@ export default function GameHubPage() {
         )}
       </div>
 
+      {selected.size > 0 && (
+        <div className="sticky top-16 z-10 flex items-center gap-2 rounded-xl border border-[#0078D4]/30 bg-[#0b1a2a] px-4 py-3">
+          <span className="text-sm text-[#d4e7ff]">{selected.size} selected</span>
+          <button onClick={() => doBulkAction("start")} className="px-3 py-1.5 rounded-lg bg-green-500/20 text-green-300 text-xs">Start All</button>
+          <button onClick={() => doBulkAction("stop")} className="px-3 py-1.5 rounded-lg bg-[#252525] text-[#d4d4d4] text-xs">Stop All</button>
+          <button onClick={() => doBulkAction("restart")} className="px-3 py-1.5 rounded-lg bg-[#252525] text-[#d4d4d4] text-xs">Restart All</button>
+          <button onClick={() => setSelected(new Set())} className="ml-auto text-xs text-[#0078D4]">Deselect</button>
+        </div>
+      )}
+
       {isLoading && (
         <div className="flex items-center justify-center h-40">
           <Loader2 className="w-6 h-6 text-[#0078D4] animate-spin" />
@@ -533,8 +586,11 @@ export default function GameHubPage() {
               className="rounded-xl border border-[#2a2a2a] bg-[#1a1a1a] p-5 flex flex-col gap-4 cursor-pointer hover:border-[#3a3a3a] transition-colors"
               onClick={() => window.location.href = `/game-hub/${server.name}`}
             >
-              <div className="flex items-start justify-between">
+              <div className="flex items-start justify-between gap-2">
                 <div className="flex items-center gap-3">
+                  <button onClick={(e) => { e.stopPropagation(); toggleSelected(server.name); }} className="mt-2">
+                    {selected.has(server.name) ? <CheckSquare className="w-4 h-4 text-[#0078D4]" /> : <SquareIcon className="w-4 h-4 text-[#666]" />}
+                  </button>
                   <div className="w-10 h-10 rounded-lg bg-[#252525] flex items-center justify-center text-xl">
                     {GAME_ICONS[server.gameType] ?? "🎮"}
                   </div>
@@ -583,6 +639,12 @@ export default function GameHubPage() {
                     </button>
                   </>
                 )}
+                <button
+                  onClick={() => cloneServer(server.name)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[#252525] hover:bg-[#2a2a2a] text-[#9e9e9e] rounded-lg text-xs font-medium transition-colors"
+                >
+                  Clone
+                </button>
                 <Link
                   href={`/game-hub/${server.name}`}
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-[rgba(0,120,212,0.15)] hover:bg-[rgba(0,120,212,0.25)] text-[#0078D4] rounded-lg text-xs font-medium transition-colors"

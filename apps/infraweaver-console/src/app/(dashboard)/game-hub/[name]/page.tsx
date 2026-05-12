@@ -8,14 +8,18 @@ import {
   Settings, FolderOpen, Activity, File, Folder, Save, Trash2,
   RefreshCw, Copy, ArrowUp, Send, Circle, AlertTriangle,
   Cpu, MemoryStick, Network, Clock, Gamepad2, LayoutDashboard,
-  Shield, Server, Wifi, Layers, Download, FileText
+  Shield, Server, Wifi, Layers, Download, FileText, Users, Search
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import Link from "next/link";
 import dynamic from "next/dynamic";
+import { DashboardTab as DashboardTabFeature } from "@/components/game-hub/server-detail/dashboard-tab";
+import { PlayersTab as PlayersTabFeature } from "@/components/game-hub/server-detail/players-tab";
+import { ActivityTab as ActivityTabFeature } from "@/components/game-hub/server-detail/activity-tab";
 
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
+const MonacoDiffEditor = dynamic(() => import("@monaco-editor/react").then((mod) => mod.DiffEditor), { ssr: false });
 
 const GAME_ICONS: Record<string, string> = {
   minecraft: "⛏", "minecraft-java": "⛏", "minecraft-bedrock": "⛏",
@@ -33,14 +37,21 @@ interface ServicePort {
 }
 
 interface ServerDetail {
-  name: string; gameType: string; replicas: number; readyReplicas: number;
+  name: string; gameType: string; status?: string; replicas: number; readyReplicas: number; restartCount?: number;
   podName: string | null; podPhase: string | null; podStartTime: string | null;
   port: number | null; nodePort: number | null; nodeIp: string | null;
-  allPorts: ServicePort[];
+  allPorts: ServicePort[]; portReachable?: boolean; maintenanceMode?: boolean;
   hpa: { enabled: boolean; min: number; max: number; cpuTarget: number | null; currentReplicas: number | null };
   restartPolicy: string;
   memory: string; cpu: string; notes: string;
   env: Array<{ name: string; value?: string; valueFrom?: unknown }>; createdAt: string | null;
+  scheduledRestart?: string | null; backupSchedule?: string | null; backupRetention?: number; backupTarget?: string;
+  playerHistory?: Array<{ t: number; n: number }>;
+  pvc?: { name: string; size: string | null; storageClass: string | null; allowExpansion: boolean } | null;
+  permissions?: { canConsole: boolean; canAdmin: boolean; canStart: boolean; canStop: boolean; canWriteFiles: boolean; readOnlyFiles: boolean };
+  egg?: { mountPath: string; quickCommands: Array<{ label: string; command: string; description: string }> };
+  allowedCommands?: string[];
+  nasTargets?: { truenas: boolean; synology: boolean };
 }
 
 interface FileEntry {
@@ -58,7 +69,7 @@ interface GameEvent {
   involvedName: string;
 }
 
-type TabId = "dashboard" | "console" | "files" | "settings" | "activity";
+type TabId = "dashboard" | "console" | "players" | "files" | "settings" | "activity";
 
 // ─── Uptime counter ───────────────────────────────────────────────────────────
 function Uptime({ startTime }: { startTime: string | null }) {
@@ -212,109 +223,8 @@ function ConnectCard({
 }
 
 // ─── Dashboard Tab ─────────────────────────────────────────────────────────────
-function DashboardTab({ server, status, name }: { server: ServerDetail; status: string; name: string }) {
-  const { data: events, isLoading: eventsLoading } = useQuery({
-    queryKey: ["game-hub", "events-preview", name],
-    queryFn: async () => {
-      const res = await fetch(`/api/game-hub/servers/${name}/events`).catch(() => null);
-      if (res?.ok) return res.json() as Promise<{ events: GameEvent[] }>;
-      return { events: [] };
-    },
-    refetchInterval: 30000,
-  });
-
-  const statusColor = { running: "text-green-400", starting: "text-yellow-400", stopped: "text-[#666]" }[status];
-  const dotColor = { running: "bg-green-400", starting: "bg-yellow-400 animate-pulse", stopped: "bg-[#555]" }[status];
-
-  return (
-    <div className="space-y-4">
-      {/* Stat cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {[
-          { icon: Circle, label: "Status", value: status, color: statusColor, dot: dotColor },
-          { icon: Network, label: "Game Port", value: server.nodePort?.toString() ?? server.port?.toString() ?? "—" },
-          { icon: MemoryStick, label: "Memory", value: server.memory || "—" },
-          { icon: Cpu, label: "CPU", value: server.cpu || "—" },
-        ].map((item, i) => (
-          <div key={i} className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4">
-            <div className="flex items-center gap-1.5 mb-2">
-              {item.dot ? (
-                <span className={cn("w-2 h-2 rounded-full flex-shrink-0", item.dot)} />
-              ) : (
-                <item.icon className="w-3.5 h-3.5 text-[#555]" />
-              )}
-              <p className="text-[10px] text-[#555] uppercase tracking-wide">{item.label}</p>
-            </div>
-            <p className={cn("text-sm font-semibold capitalize truncate", item.color ?? "text-[#f2f2f2]")}>{item.value}</p>
-          </div>
-        ))}
-      </div>
-
-      {/* Resource gauges */}
-      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4 space-y-4">
-        <p className="text-xs font-medium text-[#888] uppercase tracking-wide flex items-center gap-1.5">
-          <Server className="w-3.5 h-3.5" /> Resource Configuration
-        </p>
-        <ResourceBar label="Memory Limit" value={server.memory} color="bg-[#0078D4]" />
-        <ResourceBar label="CPU Limit" value={server.cpu} color="bg-purple-500" />
-      </div>
-
-      {/* Pod info */}
-      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4">
-        <p className="text-xs font-medium text-[#888] uppercase tracking-wide mb-3 flex items-center gap-1.5">
-          <Gamepad2 className="w-3.5 h-3.5" /> Server Info
-        </p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          {[
-            { label: "Game Type", value: server.gameType?.replace(/-/g, " ") || "—" },
-            { label: "Pod", value: server.podName ?? "—" },
-            { label: "Phase", value: server.podPhase ?? "—" },
-            { label: "Uptime", value: server.podStartTime ? null : "—", component: server.podStartTime ? <Uptime startTime={server.podStartTime} /> : null },
-            { label: "Created", value: server.createdAt ? new Date(server.createdAt).toLocaleDateString() : "—" },
-          ].map((item, i) => (
-            <div key={i} className="flex items-center justify-between py-1.5 border-b border-[#1a1a1a] last:border-0">
-              <span className="text-xs text-[#555]">{item.label}</span>
-              <span className="text-xs text-[#9e9e9e] font-mono capitalize truncate max-w-[150px]">
-                {item.component ?? item.value}
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* How to Connect */}
-      <ConnectCard nodeIp={server.nodeIp} allPorts={server.allPorts} gameType={server.gameType} />
-
-      {/* Recent activity */}
-      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
-        <div className="px-4 py-3 border-b border-[#1e1e1e] flex items-center gap-1.5">
-          <Activity className="w-3.5 h-3.5 text-[#555]" />
-          <p className="text-xs font-medium text-[#888] uppercase tracking-wide">Recent Events</p>
-        </div>
-        {eventsLoading ? (
-          <div className="flex items-center justify-center h-16"><Loader2 className="w-4 h-4 animate-spin text-[#555]" /></div>
-        ) : (events?.events.length ?? 0) === 0 ? (
-          <div className="flex items-center justify-center h-16 text-xs text-[#555]">No recent events</div>
-        ) : (
-          <div className="divide-y divide-[#1a1a1a]">
-            {events?.events.slice(0, 6).map((ev, i) => (
-              <div key={i} className="flex items-start gap-3 px-4 py-2.5">
-                <div className={cn("w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0",
-                  ev.type === "Warning" ? "bg-yellow-400" : "bg-green-400")} />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs font-medium text-[#d4d4d4]">{ev.reason}</span>
-                    <span className="text-[10px] text-[#444] flex-shrink-0">{ev.timestamp}</span>
-                  </div>
-                  <p className="text-[11px] text-[#666] mt-0.5 truncate">{ev.message}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
+function DashboardTab({ server, name }: { server: ServerDetail; status: string; name: string }) {
+  return <DashboardTabFeature name={name} server={server} />;
 }
 
 // ─── Console Tab ──────────────────────────────────────────────────────────────
@@ -327,12 +237,17 @@ function ConsoleTab({ name, status, gameType }: { name: string; status: string; 
   const [connected, setConnected] = useState(false);
   const [podLabel, setPodLabel] = useState("");
   const logEndRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const lineRefs = useRef<Record<number, HTMLDivElement | null>>({});
   const logIdRef = useRef(0);
   const esRef = useRef<EventSource | null>(null);
   const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryCountRef = useRef(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const [history, setHistory] = useState<string[]>([]);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [matchIndex, setMatchIndex] = useState(0);
   const historyIdxRef = useRef(-1);
   const quickCommands = isMinecraft
     ? QUICK_COMMANDS.minecraft
@@ -392,6 +307,19 @@ function ConsoleTab({ name, status, gameType }: { name: string; status: string; 
     logEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [logLines]);
 
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f") {
+        event.preventDefault();
+        setSearchOpen(true);
+        setTimeout(() => searchRef.current?.focus(), 0);
+      }
+      if (event.key === "Escape") setSearchOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   async function sendCommand(e: React.FormEvent) {
     e.preventDefault();
     const cmd = command.trim();
@@ -433,6 +361,13 @@ function ConsoleTab({ name, status, gameType }: { name: string; status: string; 
     system: "text-blue-400/80", error: "text-red-400",
     input: "text-yellow-300", output: "text-cyan-300",
   }[t] ?? "text-[#ccc]");
+  const matches = searchTerm ? logLines.filter(l => l.line.toLowerCase().includes(searchTerm.toLowerCase())).map(l => l.id) : [];
+  const jumpToMatch = (direction: 1 | -1) => {
+    if (matches.length === 0) return;
+    const next = (matchIndex + direction + matches.length) % matches.length;
+    setMatchIndex(next);
+    lineRefs.current[matches[next]]?.scrollIntoView({ block: "center" });
+  };
 
   return (
     <div className="flex flex-col rounded-xl border border-[#2a2a2a] bg-[#0a0a0a] overflow-hidden"
@@ -450,6 +385,10 @@ function ConsoleTab({ name, status, gameType }: { name: string; status: string; 
             <button onClick={() => { retryCountRef.current = 0; connect(); }}
               className="text-xs text-[#0078D4] hover:underline">Reconnect</button>
           )}
+          <button onClick={() => { setSearchOpen(v => !v); setTimeout(() => searchRef.current?.focus(), 0); }}
+            className="p-1.5 text-[#444] hover:text-[#888] hover:bg-[#1e1e1e] rounded transition-colors">
+            <Search className="w-3.5 h-3.5" />
+          </button>
           <div className="flex items-center gap-1">
             {[
               { icon: RefreshCw, label: "Clear", action: () => setLogLines([]) },
@@ -473,6 +412,18 @@ function ConsoleTab({ name, status, gameType }: { name: string; status: string; 
         </div>
       </div>
 
+      {searchOpen && (
+        <div className="flex items-center gap-2 px-4 py-2 border-b border-[#1e1e1e] bg-[#101010]">
+          <Search className="w-3.5 h-3.5 text-[#666]" />
+          <input ref={searchRef} value={searchTerm} onChange={e => { setSearchTerm(e.target.value); setMatchIndex(0); }} placeholder="Search console..."
+            className="flex-1 bg-transparent text-sm text-[#f2f2f2] outline-none" />
+          <span className="text-xs text-[#666]">{matches.length === 0 ? "0" : `${matchIndex + 1}/${matches.length}`}</span>
+          <button onClick={() => jumpToMatch(-1)} className="text-xs text-[#0078D4]">Prev</button>
+          <button onClick={() => jumpToMatch(1)} className="text-xs text-[#0078D4]">Next</button>
+          <button onClick={() => setSearchOpen(false)} className="text-xs text-[#666]">Esc</button>
+        </div>
+      )}
+
       {/* Log output */}
       <div className="flex-1 overflow-y-auto p-4 font-mono text-xs leading-[1.7] overscroll-contain select-text">
         {status === "stopped" ? (
@@ -486,7 +437,8 @@ function ConsoleTab({ name, status, gameType }: { name: string; status: string; 
             <span>Connecting to log stream…</span>
           </div>
         ) : logLines.map(({ type, line, id }) => (
-          <div key={id} className={cn("whitespace-pre-wrap break-all", lineColor(type))}>{line}</div>
+          <div key={id} ref={el => { lineRefs.current[id] = el; }}
+            className={cn("whitespace-pre-wrap break-all px-1 rounded", lineColor(type), matches.includes(id) && "bg-yellow-400/10", matches[matchIndex] === id && "ring-1 ring-yellow-400/40")}>{line}</div>
         ))}
         <div ref={logEndRef} />
       </div>
@@ -535,6 +487,10 @@ function ConsoleTab({ name, status, gameType }: { name: string; status: string; 
       </div>
     </div>
   );
+}
+
+function PlayersTab({ name, server }: { name: string; server: ServerDetail }) {
+  return <PlayersTabFeature name={name} server={server} />;
 }
 
 // ─── Files Tab ────────────────────────────────────────────────────────────────
@@ -740,57 +696,7 @@ function FilesTab({ name, status, mountPath }: { name: string; status: string; m
 }
 
 function ActivityTab({ name }: { name: string }) {
-  const { data, isLoading, refetch } = useQuery({
-    queryKey: ["game-hub", "events", name],
-    queryFn: async () => {
-      const res = await fetch(`/api/game-hub/servers/${name}/events`);
-      if (!res.ok) throw new Error("Failed to load events");
-      return res.json() as Promise<{ events: GameEvent[] }>;
-    },
-    refetchInterval: 30000,
-  });
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <p className="text-xs text-[#555] uppercase tracking-wide font-medium">Recent Events</p>
-        <button onClick={() => refetch()} className="p-1 text-[#444] hover:text-[#888]">
-          <RefreshCw className="w-3.5 h-3.5" />
-        </button>
-      </div>
-      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
-        {isLoading ? (
-          <div className="flex items-center justify-center h-20"><Loader2 className="w-4 h-4 animate-spin text-[#555]" /></div>
-        ) : !data?.events.length ? (
-          <div className="py-10 text-center text-[#444] text-sm">No recent events</div>
-        ) : (
-          <div className="divide-y divide-[#1e1e1e]">
-            {data.events.map((event, i) => (
-              <div key={i} className="flex items-start gap-3 px-4 py-3">
-                <span className={cn("w-2 h-2 rounded-full mt-1.5 flex-shrink-0",
-                  event.type === "Warning" ? "bg-yellow-400" : "bg-green-400")} />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-xs font-medium text-[#f2f2f2]">{event.reason}</span>
-                    {event.count > 1 && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[#252525] text-[#666] border border-[#333]">
-                        ×{event.count}
-                      </span>
-                    )}
-                    <span className="text-[10px] text-[#444] ml-auto">
-                      {event.timestamp ? new Date(event.timestamp).toLocaleString() : "—"}
-                    </span>
-                  </div>
-                  <p className="text-xs text-[#666] mt-0.5 break-words">{event.message}</p>
-                  <p className="text-[10px] text-[#333] mt-0.5">{event.involvedKind}/{event.involvedName}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
+  return <ActivityTabFeature name={name} />;
 }
 
 // ─── Settings Tab ─────────────────────────────────────────────────────────────
@@ -1170,8 +1076,9 @@ export default function ServerDetailPage() {
     finally { setActionLoading(null); }
   }
 
-  const status = server?.readyReplicas && server.readyReplicas > 0 ? "running"
-    : (server?.replicas ?? 0) > 0 ? "starting" : "stopped";
+  const status = server?.maintenanceMode ? "maintenance"
+    : server?.readyReplicas && server.readyReplicas > 0 ? "running"
+      : (server?.replicas ?? 0) > 0 ? "starting" : "stopped";
 
   // Map each game type to the container path where its data PVC is mounted
   const GAME_MOUNT_PATHS: Record<string, string> = {
@@ -1187,14 +1094,15 @@ export default function ServerDetailPage() {
     cs2: "/data",
     factorio: "/data",
   };
-  const mountPath = GAME_MOUNT_PATHS[server?.gameType ?? ""] ?? "/data";
+  const mountPath = server?.egg?.mountPath ?? GAME_MOUNT_PATHS[server?.gameType ?? ""] ?? "/data";
 
-  const statusDot = { running: "bg-green-400", starting: "bg-yellow-400 animate-pulse", stopped: "bg-[#444]" }[status];
-  const statusText = { running: "text-green-400", starting: "text-yellow-400", stopped: "text-[#666]" }[status];
+  const statusDot = { running: "bg-green-400", starting: "bg-yellow-400 animate-pulse", maintenance: "bg-yellow-400", stopped: "bg-[#444]" }[status];
+  const statusText = { running: "text-green-400", starting: "text-yellow-400", maintenance: "text-yellow-400", stopped: "text-[#666]" }[status];
 
   const tabs: Array<{ id: TabId; label: string; icon: React.ElementType }> = [
     { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
     { id: "console", label: "Console", icon: Terminal },
+    ...(status !== "stopped" ? [{ id: "players" as const, label: "Players", icon: Users }] : []),
     { id: "files", label: "Files", icon: FolderOpen },
     { id: "activity", label: "Activity", icon: Activity },
     { id: "settings", label: "Settings", icon: Settings },
@@ -1224,6 +1132,25 @@ export default function ServerDetailPage() {
           {/* Action buttons */}
           {server && (
             <div className="flex items-center gap-1 flex-shrink-0">
+              <button
+                onClick={async () => {
+                  const newName = prompt("Clone server as", `${name}-copy`);
+                  if (!newName) return;
+                  try {
+                    const res = await fetch("/api/game-hub/servers", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ action: "clone", source: name, newName }),
+                    });
+                    if (!res.ok) throw new Error("Clone failed");
+                    toast.success("Clone started");
+                    queryClient.invalidateQueries({ queryKey: ["game-hub", "servers"] });
+                  } catch (err) { toast.error(String(err)); }
+                }}
+                className="px-3 py-2 min-h-[38px] bg-[#1a1a1a] hover:bg-[#222] text-[#888] rounded-lg text-xs transition-colors"
+              >
+                Clone
+              </button>
               {status === "stopped" ? (
                 <button onClick={() => doAction("start")} disabled={!!actionLoading}
                   className="flex items-center gap-1.5 px-3 py-2 min-h-[38px] bg-green-500/20 hover:bg-green-500/30 text-green-300 border border-green-500/30 rounded-lg text-xs font-medium disabled:opacity-50 touch-manipulation">
@@ -1295,6 +1222,7 @@ export default function ServerDetailPage() {
               transition={{ duration: 0.12 }}>
               {activeTab === "dashboard" && <DashboardTab server={server} status={status} name={name} />}
               {activeTab === "console" && <ConsoleTab name={name} status={status} gameType={server?.gameType ?? "unknown"} />}
+              {activeTab === "players" && <PlayersTab name={name} server={server} />}
               {activeTab === "files" && <FilesTab name={name} status={status} mountPath={mountPath} />}
               {activeTab === "activity" && <ActivityTab name={name} />}
               {activeTab === "settings" && <SettingsTab name={name} server={server} />}

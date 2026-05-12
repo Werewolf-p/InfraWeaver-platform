@@ -1,50 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { GAME_HUB_NAMESPACE, getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
-import { loadKubeConfig } from "@/lib/k8s";
+import { auditLog } from "@/lib/audit-log";
+import { getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
+import { appendServerAudit, execShell, getPrimaryContainerName, getServerPod, makeGameHubClients, shellQuote } from "@/lib/game-hub-server";
+import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { safeError } from "@/lib/utils";
-import { Writable } from "stream";
-
-async function execInPod(
-  kc: import("@kubernetes/client-node").KubeConfig,
-  k8s: typeof import("@kubernetes/client-node"),
-  podName: string,
-  containerName: string,
-  command: string[],
-  timeoutMs = 10000,
-): Promise<{ stdout: string; stderr: string }> {
-  const exec = new k8s.Exec(kc);
-  let stdout = "";
-  let stderr = "";
-  let settled = false;
-
-  await new Promise<void>((resolve, reject) => {
-    const done = (error?: Error) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      if (error) reject(error);
-      else resolve();
-    };
-    const timeout = setTimeout(() => done(), timeoutMs);
-    const stdoutW = new Writable({ write(chunk, _enc, cb) { stdout += chunk.toString(); cb(); } });
-    const stderrW = new Writable({ write(chunk, _enc, cb) { stderr += chunk.toString(); cb(); } });
-    exec.exec(GAME_HUB_NAMESPACE, podName, containerName, command, stdoutW, stderrW, null, false, (status) => {
-      if (status?.status === "Failure") done(new Error(status.message ?? "Exec failed"));
-      else done();
-    }).then((ws) => {
-      ws.on("close", () => done());
-      ws.on("error", (error: Error) => done(error));
-    }).catch((error: Error) => done(error));
-  });
-
-  return { stdout, stderr };
-}
-
-async function getPod(coreApi: import("@kubernetes/client-node").CoreV1Api, name: string) {
-  const pods = await coreApi.listNamespacedPod({ namespace: GAME_HUB_NAMESPACE, labelSelector: `app=${name}` });
-  return pods.items?.find((pod) => pod.status?.phase === "Running") ?? pods.items?.[0] ?? null;
-}
 
 interface FileEntry {
   name: string;
@@ -70,7 +30,7 @@ function parseLsOutput(output: string, basePath: string): FileEntry[] {
       name: namePart,
       path: `${cleanBase}${namePart}`,
       type: perms[0] === "d" ? "directory" : perms[0] === "l" ? "symlink" : perms[0] === "-" ? "file" : "other",
-      size: parseInt(sizeStr, 10),
+      size: Number.parseInt(sizeStr, 10),
       modifiedAt: date,
       permissions: perms,
     });
@@ -78,40 +38,96 @@ function parseLsOutput(output: string, basePath: string): FileEntry[] {
   return files;
 }
 
+async function writableAccess(req: NextRequest, name: string) {
+  const session = await auth();
+  if (!session) return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
+  const access = await getGameHubAccessContext(session, 60);
+  if (!hasGameHubPermission(access.groups, access.username, access.roleAssignments, "game-hub:files", name)) {
+    return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
+  }
+  return { session, access };
+}
+
 export async function GET(req: NextRequest, { params }: { params: Promise<{ name: string }> }) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { name } = await params;
   const access = await getGameHubAccessContext(session, 60);
-  if (!hasGameHubPermission(access.groups, access.username, access.roleAssignments, "game-hub:files", name)) {
+  if (!hasGameHubPermission(access.groups, access.username, access.roleAssignments, "game-hub:read", name)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const path = req.nextUrl.searchParams.get("path") ?? "/";
   try {
-    const k8s = await import("@kubernetes/client-node");
-    const kc = loadKubeConfig();
-    const coreApi = kc.makeApiClient(k8s.CoreV1Api);
-    const pod = await getPod(coreApi, name);
+    const clients = makeGameHubClients();
+    const pod = await getServerPod(clients.coreApi, name, true);
     if (!pod?.metadata?.name) return NextResponse.json({ error: "No pod found" }, { status: 404 });
-    const result = await execInPod(kc, k8s, pod.metadata.name, pod.spec?.containers?.[0]?.name ?? name, ["sh", "-c", `ls -la --time-style="+%Y-%m-%dT%H:%M:%S" "${path}" 2>&1 || echo "ERROR: $?"`]);
+    const result = await execShell(clients.kc, pod.metadata.name, getPrimaryContainerName(pod, name), `ls -la --time-style=+%Y-%m-%dT%H:%M:%S ${shellQuote(path)} 2>&1 || echo ERROR:$?`);
     if (result.stdout.includes("No such file") || result.stderr.includes("No such file")) {
       return NextResponse.json({ error: "Path not found", files: [] }, { status: 404 });
     }
-    return NextResponse.json({ path, files: parseLsOutput(result.stdout, path) });
+    return NextResponse.json({ path, files: parseLsOutput(result.stdout, path), readOnly: !hasGameHubPermission(access.groups, access.username, access.roleAssignments, "game-hub:files", name) });
   } catch (error) {
+    console.error("file listing failed", error);
+    return NextResponse.json({ error: safeError(error) }, { status: 500 });
+  }
+}
+
+export async function POST(req: NextRequest, { params }: { params: Promise<{ name: string }> }) {
+  if (!checkRateLimit(rateLimitKey("game-hub-files-post", req), 20, 60_000)) {
+    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
+  }
+  const { name } = await params;
+  const authz = await writableAccess(req, name);
+  if (authz.error) return authz.error;
+  const body = await req.json() as { action?: "mkdir"; path?: string };
+  if (body.action !== "mkdir" || !body.path) return NextResponse.json({ error: "mkdir path required" }, { status: 400 });
+
+  try {
+    const clients = makeGameHubClients();
+    const pod = await getServerPod(clients.coreApi, name, true);
+    if (!pod?.metadata?.name) return NextResponse.json({ error: "No pod found" }, { status: 404 });
+    await execShell(clients.kc, pod.metadata.name, getPrimaryContainerName(pod, name), `mkdir -p ${shellQuote(body.path)}`);
+    await auditLog("game-hub:mkdir", authz.session?.user?.email ?? "unknown", `${name} ${body.path}`);
+    await appendServerAudit(clients.coreApi, name, { timestamp: new Date().toISOString(), user: authz.session?.user?.email ?? "unknown", action: "file:mkdir", details: body.path });
+    return NextResponse.json({ ok: true, path: body.path });
+  } catch (error) {
+    console.error("mkdir failed", error);
+    return NextResponse.json({ error: safeError(error) }, { status: 500 });
+  }
+}
+
+export async function PATCH(req: NextRequest, { params }: { params: Promise<{ name: string }> }) {
+  if (!checkRateLimit(rateLimitKey("game-hub-files-patch", req), 20, 60_000)) {
+    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
+  }
+  const { name } = await params;
+  const authz = await writableAccess(req, name);
+  if (authz.error) return authz.error;
+  const body = await req.json() as { action?: "rename"; from?: string; to?: string };
+  if (body.action !== "rename" || !body.from || !body.to) return NextResponse.json({ error: "rename from/to required" }, { status: 400 });
+
+  try {
+    const clients = makeGameHubClients();
+    const pod = await getServerPod(clients.coreApi, name, true);
+    if (!pod?.metadata?.name) return NextResponse.json({ error: "No pod found" }, { status: 404 });
+    await execShell(clients.kc, pod.metadata.name, getPrimaryContainerName(pod, name), `mv ${shellQuote(body.from)} ${shellQuote(body.to)}`);
+    await auditLog("game-hub:rename", authz.session?.user?.email ?? "unknown", `${name} ${body.from} -> ${body.to}`);
+    await appendServerAudit(clients.coreApi, name, { timestamp: new Date().toISOString(), user: authz.session?.user?.email ?? "unknown", action: "file:rename", details: `${body.from} -> ${body.to}` });
+    return NextResponse.json({ ok: true, from: body.from, to: body.to });
+  } catch (error) {
+    console.error("rename failed", error);
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ name: string }> }) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const { name } = await params;
-  const access = await getGameHubAccessContext(session, 60);
-  if (!hasGameHubPermission(access.groups, access.username, access.roleAssignments, "game-hub:files", name)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!checkRateLimit(rateLimitKey("game-hub-files-delete", req), 20, 60_000)) {
+    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
   }
+  const { name } = await params;
+  const authz = await writableAccess(req, name);
+  if (authz.error) return authz.error;
 
   const path = req.nextUrl.searchParams.get("path");
   if (!path) return NextResponse.json({ error: "path required" }, { status: 400 });
@@ -120,15 +136,16 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ n
   }
 
   try {
-    const k8s = await import("@kubernetes/client-node");
-    const kc = loadKubeConfig();
-    const coreApi = kc.makeApiClient(k8s.CoreV1Api);
-    const pod = await getPod(coreApi, name);
+    const clients = makeGameHubClients();
+    const pod = await getServerPod(clients.coreApi, name, true);
     if (!pod?.metadata?.name) return NextResponse.json({ error: "No pod found" }, { status: 404 });
-    const result = await execInPod(kc, k8s, pod.metadata.name, pod.spec?.containers?.[0]?.name ?? name, ["sh", "-c", `rm -rf "${path}"`]);
+    const result = await execShell(clients.kc, pod.metadata.name, getPrimaryContainerName(pod, name), `rm -rf ${shellQuote(path)}`);
     if (result.stderr) return NextResponse.json({ error: result.stderr }, { status: 500 });
+    await auditLog("game-hub:delete-file", authz.session?.user?.email ?? "unknown", `${name} ${path}`);
+    await appendServerAudit(clients.coreApi, name, { timestamp: new Date().toISOString(), user: authz.session?.user?.email ?? "unknown", action: "file:delete", details: path });
     return NextResponse.json({ deleted: true, path });
   } catch (error) {
+    console.error("delete file failed", error);
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
 }

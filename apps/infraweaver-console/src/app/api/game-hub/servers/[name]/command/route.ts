@@ -1,19 +1,33 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { GAME_HUB_NAMESPACE, getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
-import { loadKubeConfig } from "@/lib/k8s";
+import { auditLog } from "@/lib/audit-log";
+import { getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
+import { appendServerAudit, getServerDeployment, getServerPod, makeGameHubClients, readServerEgg, runServerCommand } from "@/lib/game-hub-server";
+import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
+import { getEffectivePermissions } from "@/lib/rbac";
 import { safeError } from "@/lib/utils";
-import { Writable } from "stream";
 
 const MAX_COMMAND_LENGTH = 512;
-const RCON_GAME_TYPES = new Set(["minecraft", "minecraft-java", "minecraft-bedrock", "paper", "spigot", "forge", "fabric"]);
+
+function allowedForRole(commandAcl: Record<string, string[]> | undefined, roleKey: string) {
+  return commandAcl?.[roleKey] ?? [];
+}
+
+function isCommandAllowed(command: string, allowed: string[]) {
+  if (allowed.includes("*")) return true;
+  return allowed.some((entry) => command === entry || command.startsWith(`${entry} `));
+}
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ name: string }> }) {
+  if (!checkRateLimit(rateLimitKey("game-hub-command", req), 20, 60_000)) {
+    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
+  }
+
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { name } = await params;
   const access = await getGameHubAccessContext(session, 60);
-  if (!hasGameHubPermission(access.groups, access.username, access.roleAssignments, "game-hub:console", name)) {
+  if (!hasGameHubPermission(access.groups, access.username, access.roleAssignments, "game-hub:read", name)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -23,39 +37,28 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ nam
   if (command.length > MAX_COMMAND_LENGTH) return NextResponse.json({ error: `Command too long (max ${MAX_COMMAND_LENGTH} chars)` }, { status: 400 });
 
   try {
-    const k8s = await import("@kubernetes/client-node");
-    const kc = loadKubeConfig();
-    const coreApi = kc.makeApiClient(k8s.CoreV1Api);
-    const appsApi = kc.makeApiClient(k8s.AppsV1Api);
-    const pods = await coreApi.listNamespacedPod({ namespace: GAME_HUB_NAMESPACE, labelSelector: `app=${name}` });
-    const pod = pods.items?.find((entry) => entry.status?.phase === "Running") ?? pods.items?.[0];
-    const podName = pod?.metadata?.name;
-    if (!podName) return NextResponse.json({ error: "No running pod found" }, { status: 404 });
+    const clients = makeGameHubClients();
+    const deployment = await getServerDeployment(clients.appsApi, name);
+    const egg = await readServerEgg(clients.coreApi, name, deployment);
+    const perms = getEffectivePermissions(access.groups, access.username, access.roleAssignments, `/game-hub/servers/${name}`);
+    const roleKey = perms.has("*") || perms.has("game-hub:admin")
+      ? "game-server-admin"
+      : perms.has("game-hub:write") || perms.has("game-hub:console") || perms.has("game-hub:files") || perms.has("game-hub:start") || perms.has("game-hub:stop")
+        ? "game-server-operator"
+        : "game-server-viewer";
+    const allowed = allowedForRole(egg.commandAcl, roleKey);
+    if (!isCommandAllowed(command, allowed)) {
+      return NextResponse.json({ error: "Command not allowed for your role", stdout: "", stderr: "", success: false }, { status: 403 });
+    }
 
-    let gameType = "unknown";
-    try {
-      const deployment = await appsApi.readNamespacedDeployment({ name, namespace: GAME_HUB_NAMESPACE });
-      gameType = deployment.metadata?.labels?.["infraweaver/game-type"] ?? "unknown";
-    } catch {}
-
-    const exec = new k8s.Exec(kc);
-    const execCommand = RCON_GAME_TYPES.has(gameType.toLowerCase()) ? ["rcon-cli", command] : ["sh", "-c", command];
-    let stdout = "";
-    let stderr = "";
-
-    await new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => resolve(), 10000);
-      const stdoutStream = new Writable({ write(chunk, _enc, cb) { stdout += chunk.toString(); cb(); } });
-      const stderrStream = new Writable({ write(chunk, _enc, cb) { stderr += chunk.toString(); cb(); } });
-      exec.exec(GAME_HUB_NAMESPACE, podName, pod.spec?.containers?.[0]?.name ?? name, execCommand, stdoutStream, stderrStream, null, false, (status) => {
-        clearTimeout(timeout);
-        if (status?.status === "Failure") reject(new Error(status.message ?? "Command failed"));
-        else resolve();
-      }).catch(reject);
-    });
-
-    return NextResponse.json({ stdout, stderr, success: true, method: RCON_GAME_TYPES.has(gameType.toLowerCase()) ? "rcon" : "shell" });
+    const pod = await getServerPod(clients.coreApi, name, true);
+    if (!pod?.metadata?.name) return NextResponse.json({ error: "No running pod found" }, { status: 404 });
+    const result = await runServerCommand(clients, name, command, 10_000);
+    await auditLog("game-hub:command", session.user?.email ?? "unknown", `${name} — ${command}`);
+    await appendServerAudit(clients.coreApi, name, { timestamp: new Date().toISOString(), user: session.user?.email ?? "unknown", action: "command", details: command });
+    return NextResponse.json({ stdout: result.stdout, stderr: result.stderr, success: true, method: result.gameType.includes("minecraft") ? "rcon" : "shell" });
   } catch (error) {
+    console.error("game hub command failed", error);
     return NextResponse.json({ error: safeError(error), stdout: "", stderr: "", success: false }, { status: 500 });
   }
 }

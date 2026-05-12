@@ -19,12 +19,22 @@ export interface GameEgg {
     command: string;
     description: string;
   }>;
+  commandAcl?: Record<string, string[]>;
   installScriptUrl?: string;
   protocol?: "TCP" | "UDP";
   ports?: Array<{ name: string; port: number; protocol: "TCP" | "UDP" }>;
   defaultMemory?: string;
   defaultCpu?: string;
   defaultStorage?: string;
+}
+
+function defaultCommandAcl(egg: Pick<GameEgg, "quickCommands">): Record<string, string[]> {
+  const quick = egg.quickCommands.map((entry) => entry.command.trim()).filter(Boolean);
+  return {
+    "game-server-viewer": [...new Set(["list", "players", "playing", ...quick.filter((command) => /^(list|players|playing)/.test(command))])],
+    "game-server-operator": [...new Set(["list", "players", "playing", "time set day", "weather clear", ...quick])],
+    "game-server-admin": ["*"],
+  };
 }
 
 const minecraftJava: GameEgg = {
@@ -320,7 +330,7 @@ const EGG_ALIASES: Record<string, string> = {
 export function getEggForGameType(gameType: string): GameEgg {
   const normalized = (gameType || "").toLowerCase();
   const alias = EGG_ALIASES[normalized] ?? normalized;
-  return GAME_EGGS[alias] ?? {
+  const egg = GAME_EGGS[alias] ?? {
     id: "generic",
     name: gameType || "Game Server",
     description: "Generic game server",
@@ -336,6 +346,11 @@ export function getEggForGameType(gameType: string): GameEgg {
     defaultMemory: "1Gi",
     defaultCpu: "500m",
     defaultStorage: "10Gi",
+  };
+
+  return {
+    ...egg,
+    commandAcl: egg.commandAcl ?? defaultCommandAcl(egg),
   };
 }
 
@@ -374,6 +389,7 @@ export function buildEggConfigMap(
       "egg.json": JSON.stringify(
         {
           ...egg,
+          commandAcl: egg.commandAcl ?? defaultCommandAcl(egg),
           environment: egg.environment.map((entry) => ({
             ...entry,
             defaultValue: customEnv[entry.name] ?? entry.defaultValue,

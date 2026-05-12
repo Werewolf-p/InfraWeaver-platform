@@ -7,7 +7,7 @@ import { ChevronLeft, ChevronRight, Check, Loader2, Gamepad2, Search } from "luc
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
 import { toast } from "sonner";
-import type { GameEgg } from "@/lib/game-eggs";
+import { BUILT_IN_EGGS, type GameEgg } from "@/lib/game-eggs";
 
 type StepId = "choose" | "configure" | "preview" | "deploy";
 const STEPS: StepId[] = ["choose", "configure", "preview", "deploy"];
@@ -289,6 +289,32 @@ spec:
                 </div>
               </div>
 
+              <div className="space-y-3">
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-[#666] mb-2">Quick Start</p>
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {BUILT_IN_EGGS.slice(0, 6).map((egg) => (
+                      <button
+                        key={`quick-${egg.id}`}
+                        onClick={() => selectEgg(egg)}
+                        className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4 text-left hover:border-[#0078D4]/50 transition-colors"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="text-2xl">{eggIcon(egg)}</div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-[#f2f2f2] truncate">{egg.name}</p>
+                            <p className="text-xs text-[#666] line-clamp-2">{egg.description}</p>
+                          </div>
+                        </div>
+                        <div className="mt-3 text-[11px] text-[#777] space-y-1">
+                          <div>Ports: {(egg.ports ?? []).map((port) => `${port.protocol} ${port.port}`).join(", ") || egg.gamePort}</div>
+                          <div>Storage: {egg.defaultStorage ?? "10Gi"}</div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
               {filteredEggs.length === 0 ? (
                 <div className="flex items-center justify-center h-32 text-[#555] text-sm">
                   No games match your search
@@ -321,6 +347,7 @@ spec:
                   ))}
                 </div>
               )}
+              </div>
             </div>
           )}
 
