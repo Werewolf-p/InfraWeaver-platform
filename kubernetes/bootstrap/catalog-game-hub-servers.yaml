@@ -1,0 +1,50 @@
+---
+# catalog-game-hub-servers.yaml — tracks game server manifests committed by InfraWeaver Console
+# DO NOT edit manually — servers are managed via InfraWeaver Console at /game-hub
+#
+# prune: false is CRITICAL — we never delete a running server because its manifest
+# was removed from git (e.g. during a manual cleanup or accidental git revert).
+# Servers must be explicitly deleted through the UI.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: catalog-game-hub-servers
+  namespace: argocd
+  labels:
+    infraweaver.io/type: catalog-app
+    infraweaver.io/source: game-hub
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  source:
+    repoURL: https://github.com/Werewolf-p/InfraWeaver-platform.git
+    targetRevision: HEAD
+    path: kubernetes/catalog/game-hub/servers
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: game-hub
+  syncPolicy:
+    automated:
+      prune: false    # NEVER delete a running server just because its manifest was removed
+      selfHeal: true  # re-apply if someone manually mutates the resource
+    retry:
+      limit: 3
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 2m
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - RespectIgnoreDifferences=true
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas    # don't revert scale operations done from the UI
+    - group: ""
+      kind: Service
+      jsonPointers:
+        - /spec/clusterIP   # assigned by k8s, not in manifest
+        - /spec/clusterIPs

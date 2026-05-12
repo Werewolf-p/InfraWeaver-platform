@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import { Plus, Gamepad2, Play, Square, RotateCcw, Trash2, Terminal, Loader2, AlertTriangle, HardDrive, X, CheckSquare, Square as SquareIcon, Search, ChevronDown, ChevronUp, BarChart2, BookOpen } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, timeAgo } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
 import { toast } from "sonner";
 import Link from "next/link";
@@ -340,6 +340,9 @@ function PVCCleanupModal({ onClose }: { onClose: () => void }) {
   );
 }
 
+type ServerSortKey = "name" | "health" | "status" | "uptime";
+const SERVER_SORT_KEY = "infraweaver:game-hub-sort";
+
 function computeHealthScore(server: GameServer) {
   const readyScore = server.readyReplicas > 0 ? 40 : 0;
   const restartPenalty = Math.min((server.restartCount ?? 0) * 5, 20);
@@ -388,6 +391,7 @@ export default function GameHubPage() {
   const [actionLoading, setActionLoading] = useState<Record<string, string>>({});
   const [showPVCCleanup, setShowPVCCleanup] = useState(false);
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [filterType, setFilterType] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
   const [showRoadmap, setShowRoadmap] = useState(false);
@@ -395,6 +399,22 @@ export default function GameHubPage() {
   const [compareMode, setCompareMode] = useState(false);
   const [compareSet, setCompareSet] = useState<Set<string>>(new Set());
   const [filterTag, setFilterTag] = useState("");
+  const [sortKey, setSortKey] = useState<ServerSortKey>(() => {
+    if (typeof window === "undefined") return "health";
+    try {
+      return (JSON.parse(localStorage.getItem(SERVER_SORT_KEY) ?? "{}")?.sortKey as ServerSortKey) ?? "health";
+    } catch {
+      return "health";
+    }
+  });
+  const [sortDir, setSortDir] = useState<"asc" | "desc">(() => {
+    if (typeof window === "undefined") return "desc";
+    try {
+      return JSON.parse(localStorage.getItem(SERVER_SORT_KEY) ?? "{}")?.sortDir === "asc" ? "asc" : "desc";
+    } catch {
+      return "desc";
+    }
+  });
   const [now, setNow] = useState(0);
 
   useEffect(() => {
@@ -407,6 +427,19 @@ export default function GameHubPage() {
     };
   }, []);
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 300);
+    return () => window.clearTimeout(timer);
+  }, [search]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SERVER_SORT_KEY, JSON.stringify({ sortKey, sortDir }));
+    } catch {
+      // ignore
+    }
+  }, [sortDir, sortKey]);
+
   const { data, isLoading, error } = useQuery({
     queryKey: ["game-hub", "servers"],
     queryFn: async () => {
@@ -417,16 +450,33 @@ export default function GameHubPage() {
     refetchInterval: 15000,
   });
 
+  const { data: iacData } = useQuery({
+    queryKey: ["game-hub", "iac-status"],
+    queryFn: async () => {
+      const res = await fetch("/api/game-hub/servers/iac-status");
+      if (!res.ok) return { servers: {} as Record<string, boolean> };
+      return res.json() as Promise<{ servers: Record<string, boolean> }>;
+    },
+    refetchInterval: 60000,
+    staleTime: 30000,
+  });
+  const iacStatus = iacData?.servers ?? {};
+
   const servers = data?.servers ?? [];
   const uniqueGameTypes = [...new Set(servers.map((server) => server.gameType))].sort();
   const allTags = [...new Set(servers.flatMap((server) => server.tags ?? []))].sort((a, b) => a.localeCompare(b));
-  const filteredServers = servers.filter((server) => {
+  const filteredServers = [...servers.filter((server) => {
     const haystack = [server.name, server.description ?? "", ...(server.tags ?? [])].join(" ").toLowerCase();
-    if (search && !haystack.includes(search.toLowerCase())) return false;
+    if (debouncedSearch && !haystack.includes(debouncedSearch.toLowerCase())) return false;
     if (filterStatus !== "all" && server.status !== filterStatus) return false;
     if (filterType && server.gameType !== filterType) return false;
     if (filterTag && !(server.tags ?? []).includes(filterTag)) return false;
     return true;
+  })].sort((a, b) => {
+    const direction = sortDir === "asc" ? 1 : -1;
+    if (sortKey === "health") return direction * (computeHealthScore(a) - computeHealthScore(b));
+    if (sortKey === "uptime") return direction * ((a.podStartTime ? new Date(a.podStartTime).getTime() : 0) - (b.podStartTime ? new Date(b.podStartTime).getTime() : 0));
+    return direction * String(a[sortKey]).localeCompare(String(b[sortKey]), undefined, { sensitivity: "base" });
   });
   const comparedServers = [...compareSet].map((name) => servers.find((server) => server.name === name)).filter((server): server is GameServer => Boolean(server));
 
@@ -516,6 +566,23 @@ export default function GameHubPage() {
     });
   }
 
+  function setSort(nextKey: ServerSortKey) {
+    if (sortKey === nextKey) {
+      setSortDir((current) => current === "asc" ? "desc" : "asc");
+      return;
+    }
+    setSortKey(nextKey);
+    setSortDir(nextKey === "health" || nextKey === "uptime" ? "desc" : "asc");
+  }
+
+  function resetFilters() {
+    setSearch("");
+    setDebouncedSearch("");
+    setFilterType("");
+    setFilterStatus("all");
+    setFilterTag("");
+  }
+
   return (
     <div className="space-y-6">
       <AnimatePresence>
@@ -552,8 +619,8 @@ export default function GameHubPage() {
         }
       />
 
-      <div className="flex items-center gap-2 flex-wrap">
-        <div className="relative flex-1 min-w-[160px] max-w-xs">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative min-w-0 flex-1 sm:min-w-[220px] sm:max-w-xs">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#555]" />
           <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search servers..." className="w-full bg-[#111] border border-[#2a2a2a] rounded-lg pl-8 pr-3 py-1.5 text-sm text-[#f2f2f2] placeholder:text-[#444] focus:outline-none focus:border-[#0078D4]/50" />
         </div>
@@ -565,6 +632,15 @@ export default function GameHubPage() {
             <option value="">All types</option>
             {uniqueGameTypes.map((type) => <option key={type} value={type}>{type}</option>)}
           </select>
+        )}
+        <select value={sortKey} onChange={(event) => setSort(event.target.value as ServerSortKey)} className="bg-[#111] border border-[#2a2a2a] rounded-lg px-2 py-1.5 text-xs text-[#666] focus:outline-none focus:border-[#0078D4]/50">
+          <option value="health">Sort by health</option>
+          <option value="name">Sort by name</option>
+          <option value="status">Sort by status</option>
+          <option value="uptime">Sort by uptime</option>
+        </select>
+        {(search || filterType || filterTag || filterStatus !== "all") && (
+          <button onClick={resetFilters} className="px-3 py-1.5 rounded-lg border border-[#2a2a2a] bg-[#111] text-xs text-[#888] hover:text-white hover:border-[#3a3a3a]">Reset</button>
         )}
       </div>
 
@@ -578,7 +654,7 @@ export default function GameHubPage() {
       )}
 
       {selected.size > 0 && (
-        <div className="sticky top-16 z-10 flex items-center gap-2 rounded-xl border border-[#0078D4]/30 bg-[#0b1a2a] px-4 py-3">
+        <div className="sticky top-16 z-10 flex flex-wrap items-center gap-2 rounded-xl border border-[#0078D4]/30 bg-[#0b1a2a] px-4 py-3">
           <span className="text-sm text-[#d4e7ff]">{selected.size} selected</span>
           <button onClick={() => doBulkAction("start")} className="px-3 py-1.5 rounded-lg bg-green-500/20 text-green-300 text-xs">Start All</button>
           <button onClick={() => doBulkAction("stop")} className="px-3 py-1.5 rounded-lg bg-[#252525] text-[#d4d4d4] text-xs">Stop All</button>
@@ -616,7 +692,7 @@ export default function GameHubPage() {
       {!isLoading && !error && servers.length > 0 && filteredServers.length === 0 && (
         <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-6 text-center">
           <p className="text-sm text-[#f2f2f2] font-medium">No servers match the current filters</p>
-          <p className="text-xs text-[#666] mt-1">Try a different search, status, type, or tag.</p>
+          <p className="text-xs text-[#666] mt-1">Try clearing filters, changing the sort order, or searching for a different game.</p>
         </div>
       )}
 
@@ -648,6 +724,11 @@ export default function GameHubPage() {
                         <span className={cn("text-[10px] font-medium rounded-full px-2 py-0.5 border capitalize", stoppedStyle)}>{server.status}</span>
                         <span className={cn("text-[10px] font-medium rounded-full px-2 py-0.5 border", health.className)}>{server.status === "stopped" ? "Stopped" : `Health ${health.label}`}</span>
                         {server.status === "stopped" && <span className="text-[10px] px-2 py-0.5 rounded-full border border-amber-500/30 bg-amber-500/10 text-amber-200">Stopped</span>}
+                        {server.name in iacStatus && (
+                          iacStatus[server.name]
+                            ? <span className="text-[10px] px-2 py-0.5 rounded-full border border-green-500/30 bg-green-500/10 text-green-300" title="Manifest committed to git — survives cluster rebuild">📝 In Git</span>
+                            : <span className="text-[10px] px-2 py-0.5 rounded-full border border-amber-500/30 bg-amber-500/10 text-amber-300" title="No manifest in git — will be lost on cluster rebuild">⚠️ Not in Git</span>
+                        )}
                       </div>
                       <p className="text-xs text-[#666] capitalize mt-0.5">{server.gameType.replace(/-/g, " ")}</p>
                       {server.description && <p className="text-[11px] text-[#777] mt-1 line-clamp-2">{server.description}</p>}
@@ -659,11 +740,12 @@ export default function GameHubPage() {
                     </div>
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-2 text-xs text-[#666]">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-[#666]">
                   <div>Port: <span className="text-[#9e9e9e]">{server.nodePort || server.port || "—"}</span></div>
                   <div>Memory: <span className="text-[#9e9e9e]">{server.memory || "—"}</span></div>
                   <div>CPU: <span className="text-[#9e9e9e]">{server.cpu || "—"}</span></div>
                   <div>Replicas: <span className="text-[#9e9e9e]">{replicaSummary(server)}</span></div>
+                  <div>Last restart: <span className="text-[#9e9e9e]">{server.podStartTime ? timeAgo(server.podStartTime) : "—"}</span></div>
                 </div>
                 <div className="flex items-center gap-2 flex-wrap" onClick={(event) => event.stopPropagation()}>
                   {server.status === "stopped" ? (
@@ -704,7 +786,7 @@ export default function GameHubPage() {
             </div>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[640px] text-sm">
+            <table className="w-full min-w-[360px] sm:min-w-[640px] text-sm">
               <thead className="bg-[#0d0d0d]">
                 <tr>
                   <th className="text-left px-4 py-3 text-xs uppercase tracking-wide text-[#666]">Metric</th>
