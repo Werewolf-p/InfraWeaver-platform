@@ -123,6 +123,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       g.items.some(i => pathname === i.href || (i.href !== "/" && pathname.startsWith(i.href)))
     )?.id;
     if (activeGroupId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setOpenGroups(prev => ({ ...prev, [activeGroupId]: true }));
     }
   }, [pathname, filteredNavGroups]);
@@ -168,6 +169,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }, [status, router]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMobileOpen(false);
     setMoreOpen(false);
   }, [pathname]);

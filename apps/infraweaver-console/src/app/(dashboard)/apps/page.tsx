@@ -12,7 +12,6 @@ import {
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import dynamic from "next/dynamic";
-import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import { PageHeader } from "@/components/ui/page-header";
 import { useArgoApps } from "@/hooks/use-argocd";
@@ -23,9 +22,7 @@ const MonacoEditor = dynamic(() => import("@monaco-editor/react"), { ssr: false 
 
 // ── BodyPortal ────────────────────────────────────────────────────────────────
 function BodyPortal({ children }: { children: React.ReactNode }) {
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => { setMounted(true); }, []);
-  if (!mounted) return null;
+  if (typeof document === "undefined") return null;
   return createPortal(children, document.body);
 }
 
@@ -79,7 +76,6 @@ function useAppPolicy(slug: string): AppPolicy | null {
       })
       .catch(() => { /* silent */ });
     return () => { cancelled = true; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug]);
   return policy;
 }
@@ -245,6 +241,7 @@ function AllInstalledTab() {
   const [updatePolicyApp, setUpdatePolicyApp] = useState<{ name: string; slug: string } | null>(null);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setCommunityLoading(true);
     fetch("/api/community-apps/installed")
       .then(r => r.ok ? r.json() : { apps: [] })
@@ -678,6 +675,7 @@ function CatalogBrowseView({
   const [search, setSearch] = useState("");
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
     fetch("/api/config/catalog-apps")
       .then(r => r.ok ? r.json() as Promise<CatalogAppEntry[]> : Promise.resolve([] as CatalogAppEntry[]))
@@ -1419,8 +1417,16 @@ function CommunityStoreTab() {
     }
   }, []);
 
-  useEffect(() => { void fetchApps({ page: 1, search: "", category: "", tier: "" }); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { if (storeTab === "installed" && !installed) void fetchInstalled(); }, [storeTab, installed, fetchInstalled]);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void fetchApps({ page: 1, search: "", category: "", tier: "" });
+  }, [fetchApps]);
+  useEffect(() => {
+    if (storeTab === "installed" && !installed) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      void fetchInstalled();
+    }
+  }, [storeTab, installed, fetchInstalled]);
 
   const handleSearch = (value: string) => {
     setSearch(value);

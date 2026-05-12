@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, Gamepad2, Play, Square, RotateCcw, Trash2, Terminal, Loader2, AlertTriangle, HardDrive, X, CheckSquare, Square as SquareIcon, Search, ChevronDown, ChevronUp, BarChart2, BookOpen } from "lucide-react";
+import { Plus, Gamepad2, Play, Square, RotateCcw, Trash2, Terminal, Loader2, AlertTriangle, HardDrive, X, CheckSquare, Square as SquareIcon, Search, ChevronDown, ChevronUp, BarChart2, BookOpen, Star, LayoutGrid, Rows3 } from "lucide-react";
 import { cn, timeAgo } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
 import { toast } from "sonner";
@@ -25,6 +25,10 @@ interface GameServer {
   description?: string;
   icon?: string;
   tags?: string[];
+  groups?: string[];
+  playerCount?: number;
+  imageVersion?: string;
+  imagePinned?: boolean;
   restartCount?: number;
   healthScore?: number;
   podStartTime?: string | null;
@@ -216,7 +220,7 @@ function PVCCleanupModal({ onClose }: { onClose: () => void }) {
   const { data, isLoading, error } = useQuery({
     queryKey: ["pvc-cleanup"],
     queryFn: async () => {
-      const res = await fetch("/api/storage/pvc-cleanup");
+      const res = await fetch("/api/game-hub/pvcs/unused");
       if (!res.ok) throw new Error("Failed to fetch unused PVCs");
       const result = await res.json() as { unused: UnusedPVC[] };
       setChecked(new Set(result.unused.map((pvc) => `${pvc.namespace}/${pvc.name}`)));
@@ -245,14 +249,14 @@ function PVCCleanupModal({ onClose }: { onClose: () => void }) {
     if (toDelete.length === 0) return;
     setDeleting(true);
     try {
-      const res = await fetch("/api/storage/pvc-cleanup", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pvcs: toDelete.map((pvc) => ({ namespace: pvc.namespace, name: pvc.name })) }),
-      });
-      const result = await res.json() as { deleted: number; failed: number };
-      if (result.failed > 0) toast.error(`${result.failed} PVC(s) failed to delete`);
-      else toast.success(`${result.deleted} PVC(s) deleted`);
+      const results = await Promise.all(toDelete.map(async (pvc) => {
+        const res = await fetch(`/api/game-hub/pvcs/${encodeURIComponent(pvc.name)}`, { method: "DELETE" });
+        return { ok: res.ok, pvc };
+      }));
+      const deleted = results.filter((result) => result.ok).length;
+      const failed = results.length - deleted;
+      if (failed > 0) toast.error(`${failed} PVC(s) failed to delete`);
+      if (deleted > 0) toast.success(`${deleted} PVC(s) deleted`);
       onClose();
     } catch (error) {
       toast.error(String(error));
@@ -340,8 +344,11 @@ function PVCCleanupModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-type ServerSortKey = "name" | "health" | "status" | "uptime";
+type ServerSortKey = "name" | "status" | "cpu" | "players" | "started" | "health";
+type ServerViewMode = "detailed" | "compact";
 const SERVER_SORT_KEY = "infraweaver:game-hub-sort";
+const SERVER_FAVORITES_KEY = "infraweaver:game-hub-favorites";
+const SERVER_VIEW_KEY = "infraweaver:game-hub-view";
 
 function computeHealthScore(server: GameServer) {
   const readyScore = server.readyReplicas > 0 ? 40 : 0;
@@ -399,6 +406,23 @@ export default function GameHubPage() {
   const [compareMode, setCompareMode] = useState(false);
   const [compareSet, setCompareSet] = useState<Set<string>>(new Set());
   const [filterTag, setFilterTag] = useState("");
+  const [filterGroup, setFilterGroup] = useState("");
+  const [favorites, setFavorites] = useState<Set<string>>(() => {
+    if (typeof window === "undefined") return new Set();
+    try {
+      return new Set(JSON.parse(localStorage.getItem(SERVER_FAVORITES_KEY) ?? "[]") as string[]);
+    } catch {
+      return new Set();
+    }
+  });
+  const [viewMode, setViewMode] = useState<ServerViewMode>(() => {
+    if (typeof window === "undefined") return "detailed";
+    try {
+      return localStorage.getItem(SERVER_VIEW_KEY) === "compact" ? "compact" : "detailed";
+    } catch {
+      return "detailed";
+    }
+  });
   const [sortKey, setSortKey] = useState<ServerSortKey>(() => {
     if (typeof window === "undefined") return "health";
     try {
@@ -440,6 +464,22 @@ export default function GameHubPage() {
     }
   }, [sortDir, sortKey]);
 
+  useEffect(() => {
+    try {
+      localStorage.setItem(SERVER_FAVORITES_KEY, JSON.stringify([...favorites]));
+    } catch {
+      // ignore
+    }
+  }, [favorites]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SERVER_VIEW_KEY, viewMode);
+    } catch {
+      // ignore
+    }
+  }, [viewMode]);
+
   const { data, isLoading, error } = useQuery({
     queryKey: ["game-hub", "servers"],
     queryFn: async () => {
@@ -465,17 +505,22 @@ export default function GameHubPage() {
   const servers = data?.servers ?? [];
   const uniqueGameTypes = [...new Set(servers.map((server) => server.gameType))].sort();
   const allTags = [...new Set(servers.flatMap((server) => server.tags ?? []))].sort((a, b) => a.localeCompare(b));
+  const allGroups = [...new Set(servers.flatMap((server) => server.groups ?? []))].sort((a, b) => a.localeCompare(b));
   const filteredServers = [...servers.filter((server) => {
-    const haystack = [server.name, server.description ?? "", ...(server.tags ?? [])].join(" ").toLowerCase();
+    const haystack = [server.name, server.description ?? "", ...(server.tags ?? []), ...(server.groups ?? [])].join(" ").toLowerCase();
     if (debouncedSearch && !haystack.includes(debouncedSearch.toLowerCase())) return false;
     if (filterStatus !== "all" && server.status !== filterStatus) return false;
     if (filterType && server.gameType !== filterType) return false;
     if (filterTag && !(server.tags ?? []).includes(filterTag)) return false;
+    if (filterGroup && !(server.groups ?? []).includes(filterGroup)) return false;
     return true;
   })].sort((a, b) => {
+    if (favorites.has(a.name) !== favorites.has(b.name)) return favorites.has(a.name) ? -1 : 1;
     const direction = sortDir === "asc" ? 1 : -1;
     if (sortKey === "health") return direction * (computeHealthScore(a) - computeHealthScore(b));
-    if (sortKey === "uptime") return direction * ((a.podStartTime ? new Date(a.podStartTime).getTime() : 0) - (b.podStartTime ? new Date(b.podStartTime).getTime() : 0));
+    if (sortKey === "started") return direction * ((a.podStartTime ? new Date(a.podStartTime).getTime() : 0) - (b.podStartTime ? new Date(b.podStartTime).getTime() : 0));
+    if (sortKey === "cpu") return direction * ((a.cpuLimit && a.cpuUsage ? a.cpuUsage / a.cpuLimit : 0) - (b.cpuLimit && b.cpuUsage ? b.cpuUsage / b.cpuLimit : 0));
+    if (sortKey === "players") return direction * ((a.playerCount ?? 0) - (b.playerCount ?? 0));
     return direction * String(a[sortKey]).localeCompare(String(b[sortKey]), undefined, { sensitivity: "base" });
   });
   const comparedServers = [...compareSet].map((name) => servers.find((server) => server.name === name)).filter((server): server is GameServer => Boolean(server));
@@ -572,7 +617,16 @@ export default function GameHubPage() {
       return;
     }
     setSortKey(nextKey);
-    setSortDir(nextKey === "health" || nextKey === "uptime" ? "desc" : "asc");
+    setSortDir(["health", "cpu", "players", "started"].includes(nextKey) ? "desc" : "asc");
+  }
+
+  function toggleFavorite(name: string) {
+    setFavorites((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
   }
 
   function resetFilters() {
@@ -581,6 +635,7 @@ export default function GameHubPage() {
     setFilterType("");
     setFilterStatus("all");
     setFilterTag("");
+    setFilterGroup("");
   }
 
   return (
@@ -633,13 +688,25 @@ export default function GameHubPage() {
             {uniqueGameTypes.map((type) => <option key={type} value={type}>{type}</option>)}
           </select>
         )}
+        {allGroups.length > 0 && (
+          <select value={filterGroup} onChange={(event) => setFilterGroup(event.target.value)} className="bg-[#111] border border-[#2a2a2a] rounded-lg px-2 py-1.5 text-xs text-[#666] focus:outline-none focus:border-[#0078D4]/50">
+            <option value="">All groups</option>
+            {allGroups.map((group) => <option key={group} value={group}>{group}</option>)}
+          </select>
+        )}
         <select value={sortKey} onChange={(event) => setSort(event.target.value as ServerSortKey)} className="bg-[#111] border border-[#2a2a2a] rounded-lg px-2 py-1.5 text-xs text-[#666] focus:outline-none focus:border-[#0078D4]/50">
           <option value="health">Sort by health</option>
           <option value="name">Sort by name</option>
           <option value="status">Sort by status</option>
-          <option value="uptime">Sort by uptime</option>
+          <option value="cpu">Sort by CPU usage</option>
+          <option value="players">Sort by players</option>
+          <option value="started">Sort by last started</option>
         </select>
-        {(search || filterType || filterTag || filterStatus !== "all") && (
+        <div className="flex items-center rounded-lg border border-[#2a2a2a] bg-[#111] p-1">
+          <button onClick={() => setViewMode("detailed")} className={cn("rounded px-2 py-1 text-xs transition-colors", viewMode === "detailed" ? "bg-[#0078D4]/15 text-[#4db3ff]" : "text-[#666]")} title="Detailed cards"><LayoutGrid className="w-3.5 h-3.5" /></button>
+          <button onClick={() => setViewMode("compact")} className={cn("rounded px-2 py-1 text-xs transition-colors", viewMode === "compact" ? "bg-[#0078D4]/15 text-[#4db3ff]" : "text-[#666]")} title="Compact list"><Rows3 className="w-3.5 h-3.5" /></button>
+        </div>
+        {(search || filterType || filterTag || filterGroup || filterStatus !== "all") && (
           <button onClick={resetFilters} className="px-3 py-1.5 rounded-lg border border-[#2a2a2a] bg-[#111] text-xs text-[#888] hover:text-white hover:border-[#3a3a3a]">Reset</button>
         )}
       </div>
@@ -649,6 +716,9 @@ export default function GameHubPage() {
           <button onClick={() => setFilterTag("")} className={cn("px-2.5 py-1 rounded-full border text-[11px] transition-colors", !filterTag ? "border-[#0078D4]/30 bg-[#0078D4]/15 text-[#4db3ff]" : "border-[#2a2a2a] bg-[#111] text-[#777] hover:text-[#ccc]")}>All tags</button>
           {allTags.map((tag) => (
             <button key={tag} onClick={() => setFilterTag((prev) => prev === tag ? "" : tag)} className={cn("px-2.5 py-1 rounded-full border text-[11px] transition-colors", filterTag === tag ? "border-[#0078D4]/30 bg-[#0078D4]/15 text-[#4db3ff]" : "border-[#2a2a2a] bg-[#111] text-[#777] hover:text-[#ccc]")}>#{tag}</button>
+          ))}
+          {allGroups.map((group) => (
+            <button key={`group-${group}`} onClick={() => setFilterGroup((prev) => prev === group ? "" : group)} className={cn("px-2.5 py-1 rounded-full border text-[11px] transition-colors", filterGroup === group ? "border-green-500/30 bg-green-500/15 text-green-300" : "border-[#2a2a2a] bg-[#111] text-[#777] hover:text-[#ccc]")}>@{group}</button>
           ))}
         </div>
       )}
@@ -696,7 +766,7 @@ export default function GameHubPage() {
         </div>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      <div className={cn("grid gap-4", viewMode === "compact" ? "grid-cols-1" : "sm:grid-cols-2 xl:grid-cols-3")}>
         <AnimatePresence>
           {filteredServers.map((server, index) => {
             const health = healthBadge(server);
@@ -709,14 +779,19 @@ export default function GameHubPage() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.95 }}
                 transition={{ delay: index * 0.05 }}
-                className={cn("rounded-xl border bg-[#1a1a1a] p-5 flex flex-col gap-4 transition-colors", compareMode ? "cursor-pointer" : "cursor-pointer hover:border-[#3a3a3a]", compareSet.has(server.name) ? "border-[#0078D4] ring-1 ring-[#0078D4]/40" : "border-[#2a2a2a]")}
+                className={cn("rounded-xl border bg-[#1a1a1a] flex flex-col transition-colors", viewMode === "compact" ? "p-4 gap-3" : "p-5 gap-4", compareMode ? "cursor-pointer" : "cursor-pointer hover:border-[#3a3a3a]", compareSet.has(server.name) ? "border-[#0078D4] ring-1 ring-[#0078D4]/40" : "border-[#2a2a2a]")}
                 onClick={() => compareMode ? toggleCompare(server.name) : router.push(`/game-hub/${server.name}`)}
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-start gap-3 min-w-0">
-                    <button onClick={(event) => { event.stopPropagation(); toggleSelected(server.name); }} className="mt-2">
-                      {selected.has(server.name) ? <CheckSquare className="w-4 h-4 text-[#0078D4]" /> : <SquareIcon className="w-4 h-4 text-[#666]" />}
-                    </button>
+                    <div className="flex flex-col items-center gap-2 pt-1">
+                      <button onClick={(event) => { event.stopPropagation(); toggleFavorite(server.name); }} className="text-[#666] hover:text-yellow-300 transition-colors" title={favorites.has(server.name) ? "Remove favorite" : "Favorite server"}>
+                        <Star className={cn("w-4 h-4", favorites.has(server.name) && "fill-yellow-300 text-yellow-300")} />
+                      </button>
+                      <button onClick={(event) => { event.stopPropagation(); toggleSelected(server.name); }}>
+                        {selected.has(server.name) ? <CheckSquare className="w-4 h-4 text-[#0078D4]" /> : <SquareIcon className="w-4 h-4 text-[#666]" />}
+                      </button>
+                    </div>
                     <div className="w-10 h-10 rounded-lg bg-[#252525] flex items-center justify-center text-xl flex-shrink-0">{cardIcon}</div>
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -732,20 +807,23 @@ export default function GameHubPage() {
                       </div>
                       <p className="text-xs text-[#666] capitalize mt-0.5">{server.gameType.replace(/-/g, " ")}</p>
                       {server.description && <p className="text-[11px] text-[#777] mt-1 line-clamp-2">{server.description}</p>}
-                      {(server.tags ?? []).length > 0 && (
+                      {((server.tags ?? []).length > 0 || (server.groups ?? []).length > 0 || server.imageVersion) && (
                         <div className="flex flex-wrap gap-1 mt-2">
-                          {server.tags?.map((tag) => <span key={tag} className="px-1.5 py-0.5 rounded-full bg-[#111] border border-[#2a2a2a] text-[10px] text-[#9e9e9e]">#{tag}</span>)}
+                          {(server.tags ?? []).map((tag) => <span key={tag} className="px-1.5 py-0.5 rounded-full bg-[#111] border border-[#2a2a2a] text-[10px] text-[#9e9e9e]">#{tag}</span>)}
+                          {(server.groups ?? []).map((group) => <span key={group} className="px-1.5 py-0.5 rounded-full bg-green-500/10 border border-green-500/20 text-[10px] text-green-300">@{group}</span>)}
+                          {server.imageVersion && <span className={cn("px-1.5 py-0.5 rounded-full border text-[10px]", server.imagePinned ? "bg-[#111] border-[#2a2a2a] text-[#9e9e9e]" : "bg-yellow-500/10 border-yellow-500/20 text-yellow-200")}>{server.imagePinned ? `v${server.imageVersion}` : `latest (${server.imageVersion})`}</span>}
                         </div>
                       )}
                     </div>
                   </div>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-[#666]">
+                <div className={cn("grid gap-2 text-xs text-[#666]", viewMode === "compact" ? "grid-cols-2 lg:grid-cols-5" : "grid-cols-1 sm:grid-cols-2")}>
                   <div>Port: <span className="text-[#9e9e9e]">{server.nodePort || server.port || "—"}</span></div>
                   <div>Memory: <span className="text-[#9e9e9e]">{server.memory || "—"}</span></div>
                   <div>CPU: <span className="text-[#9e9e9e]">{server.cpu || "—"}</span></div>
-                  <div>Replicas: <span className="text-[#9e9e9e]">{replicaSummary(server)}</span></div>
+                  <div>Players: <span className="text-[#9e9e9e]">{server.playerCount ?? 0}</span></div>
                   <div>Last restart: <span className="text-[#9e9e9e]">{server.podStartTime ? timeAgo(server.podStartTime) : "—"}</span></div>
+                  <div>Replicas: <span className="text-[#9e9e9e]">{replicaSummary(server)}</span></div>
                 </div>
                 <div className="flex items-center gap-2 flex-wrap" onClick={(event) => event.stopPropagation()}>
                   {server.status === "stopped" ? (

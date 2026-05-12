@@ -13,7 +13,7 @@ const QUICK_CREATE_ITEMS = [
   { label: "Add Port Route", href: "/gameservers" },
 ];
 
-export function TopBar({ title: _title, onMenuClick, onSearchClick }: { title?: string; onMenuClick?: () => void; onSearchClick?: () => void }) {
+export function TopBar({ onMenuClick, onSearchClick }: { title?: string; onMenuClick?: () => void; onSearchClick?: () => void }) {
   const { data: session } = useSession();
   const setOpen = useCommandPaletteStore(s => s.setOpen);
   const [quickOpen, setQuickOpen] = useState(false);

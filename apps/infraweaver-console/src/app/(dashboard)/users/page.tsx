@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Users, Plus, Pencil, Trash2, Search, Save, X, ChevronDown,
@@ -13,6 +13,7 @@ import { useUsersConfig, useSaveUsersConfig, type PlatformUser } from "@/hooks/u
 import { useRBAC } from "@/hooks/use-rbac";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/ui/page-header";
+import { CopyButton } from "@/components/ui/copy-button";
 import { cn } from "@/lib/utils";
 import { useSession } from "next-auth/react";
 import { StorageTab } from "@/components/users/storage-tab";
@@ -171,7 +172,9 @@ function UserFormModal({
     }));
   };
 
-  const isValid = form.username.trim() && form.email.trim() && form.name.trim();
+  const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim());
+  const usernameValid = /^[a-z0-9.\-]{3,32}$/.test(form.username.trim());
+  const isValid = form.username.trim() && form.email.trim() && form.name.trim() && emailValid && usernameValid;
 
   const handleSubmit = async () => {
     if (!isValid) return;
@@ -212,11 +215,18 @@ function UserFormModal({
           </button>
         </div>
 
-        <div className="p-5 space-y-5">
+        <form
+          className="p-5 space-y-5"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void handleSubmit();
+          }}
+        >
           {/* Basic fields */}
           <div>
             <label className="text-xs text-slate-400 mb-1 block">Full Name *</label>
             <input
+              autoFocus
               value={form.name}
               onChange={e => {
                 const name = e.target.value;
@@ -229,6 +239,7 @@ function UserFormModal({
               className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-base md:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50"
               placeholder="John Doe"
             />
+            {!form.name.trim() && <p className="mt-1 text-[11px] text-red-300">Full name is required.</p>}
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -241,6 +252,7 @@ function UserFormModal({
                 className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-base md:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50 disabled:opacity-50 disabled:cursor-not-allowed"
                 placeholder="jdoe"
               />
+              {!usernameValid && <p className="mt-1 text-[11px] text-red-300">Use 3-32 lowercase letters, numbers, dots, or dashes.</p>}
             </div>
             <div>
               <label className="text-xs text-slate-400 mb-1 block">Email *</label>
@@ -251,6 +263,7 @@ function UserFormModal({
                 className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-base md:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50"
                 placeholder="jdoe@example.com"
               />
+              {form.email.trim() && !emailValid && <p className="mt-1 text-[11px] text-red-300">Enter a valid email address.</p>}
             </div>
           </div>
 
@@ -263,7 +276,7 @@ function UserFormModal({
                 Cannot change your own role to prevent self-lockout
               </div>
             )}
-            <div className="flex gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               {ACCESS_LEVELS.map(level => (
                 <RoleCard
                   key={level}
@@ -340,17 +353,17 @@ function UserFormModal({
             </div>
           </div>
           )}
-        </div>
 
         <div className="flex flex-col-reverse sm:flex-row gap-3 p-5 border-t border-white/5 sm:justify-end">
           <button
+            type="button"
             onClick={onClose}
             className="w-full sm:w-auto px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 hover:text-white transition-colors active:scale-95 touch-manipulation"
           >
             Cancel
           </button>
           <button
-            onClick={handleSubmit}
+            type="submit"
             disabled={!isValid || loading}
             className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-indigo-500/20 border border-indigo-500/30 text-sm text-indigo-300 hover:bg-indigo-500/30 transition-colors disabled:opacity-50 active:scale-95 touch-manipulation"
           >
@@ -366,6 +379,7 @@ function UserFormModal({
             {isNew ? "Add User" : "Save Changes"}
           </button>
         </div>
+        </form>
       </motion.div>
     </div>
   );
@@ -413,9 +427,11 @@ function DeleteConfirmModal({
           Type the username to confirm:
         </p>
         <input
+          autoFocus
           value={input}
           onChange={e => setInput(e.target.value)}
           placeholder={user.username}
+          onKeyDown={(event) => { if (event.key === "Enter" && matches) void handleConfirm(); }}
           className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-red-500/50 mb-4 font-mono"
         />
         <div className="flex gap-3 justify-end">
@@ -624,6 +640,8 @@ export default function UsersPage() {
   const { simpleMode, toggle: toggleSimpleMode } = useSimpleMode();
 
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [sortBy, setSortBy] = useState<"name" | "username" | "role">("name");
   const [modalOpen, setModalOpen] = useState(false);
   const [editUser, setEditUser] = useState<PlatformUser | null>(null);
   const [deleteUser, setDeleteUser] = useState<PlatformUser | null>(null);
@@ -632,16 +650,29 @@ export default function UsersPage() {
   const [inviteOpen, setInviteOpen] = useState(false);
 
   const currentEmail = session?.user?.email ?? "";
-  const users = data?.users ?? [];
+  const users = useMemo(() => data?.users ?? [], [data?.users]);
 
   const selfUser = users.find(u => u.email === currentEmail);
   const currentUsername = selfUser?.username;
 
-  const filtered = users.filter(u =>
-    u.username.toLowerCase().includes(search.toLowerCase()) ||
-    u.name?.toLowerCase().includes(search.toLowerCase()) ||
-    u.email?.toLowerCase().includes(search.toLowerCase())
-  );
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(search.trim().toLowerCase()), 300);
+    return () => window.clearTimeout(timer);
+  }, [search]);
+
+  const filtered = useMemo(() => {
+    const results = users.filter(u =>
+      !debouncedSearch ||
+      u.username.toLowerCase().includes(debouncedSearch) ||
+      u.name?.toLowerCase().includes(debouncedSearch) ||
+      u.email?.toLowerCase().includes(debouncedSearch)
+    );
+    return [...results].sort((a, b) => {
+      if (sortBy === "role") return a.access_level.localeCompare(b.access_level);
+      if (sortBy === "username") return a.username.localeCompare(b.username);
+      return (a.name || a.username).localeCompare(b.name || b.username);
+    });
+  }, [debouncedSearch, sortBy, users]);
 
   const selectedUser = filtered.find(user => user.username === selectedUsername) ?? filtered[0] ?? null;
 
@@ -775,14 +806,21 @@ export default function UsersPage() {
       {activeTab === "users" && (
         <>
       {/* Search */}
-      <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-        <input
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          placeholder="Search users..."
-          className="w-full bg-white/5 border border-white/10 rounded-lg pl-9 pr-3 py-2.5 text-base md:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50"
-        />
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative min-w-0 flex-1 max-w-full sm:max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search users..."
+            className="w-full bg-white/5 border border-white/10 rounded-lg pl-9 pr-3 py-2.5 text-base md:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50"
+          />
+        </div>
+        <select value={sortBy} onChange={(event) => setSortBy(event.target.value as "name" | "username" | "role")} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500/50">
+          <option value="name">Sort by name</option>
+          <option value="username">Sort by username</option>
+          <option value="role">Sort by role</option>
+        </select>
       </div>
 
       {isLoading ? (
@@ -829,7 +867,10 @@ export default function UsersPage() {
                         <p className="text-xs text-slate-500 truncate">@{user.username}</p>
                       </div>
                     </div>
-                    <span className="text-sm text-slate-400 truncate">{user.email}</span>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-sm text-slate-400 truncate">{user.email}</span>
+                      <CopyButton text={user.email} className="px-1.5 py-1" />
+                    </div>
                     <AccessBadge level={user.access_level} />
                     <span className="text-xs text-slate-400">{user.wiki_role ?? "—"}</span>
                     <div className="flex flex-wrap gap-1 max-w-[200px]">
@@ -857,7 +898,7 @@ export default function UsersPage() {
               })}
             </AnimatePresence>
             {filtered.length === 0 && (
-              <div className="py-12 text-center text-slate-500 text-sm">No users found</div>
+              <div className="py-12 text-center text-slate-500 text-sm">No users found. Try a different name, username, email, or sort order.</div>
             )}
           </div>
 
@@ -886,7 +927,7 @@ export default function UsersPage() {
               ))}
             </AnimatePresence>
             {filtered.length === 0 && (
-              <div className="py-12 text-center text-slate-500 text-sm">No users found</div>
+              <div className="py-12 text-center text-slate-500 text-sm">No users found. Try a different name, username, email, or sort order.</div>
             )}
           </div>
 

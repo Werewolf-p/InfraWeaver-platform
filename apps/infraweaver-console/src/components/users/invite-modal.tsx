@@ -98,6 +98,7 @@ export function InviteModal({ open, onClose }: Props) {
               <div>
                 <label className="block text-xs text-slate-400 mb-2">Email address</label>
                 <input
+                  autoFocus
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
