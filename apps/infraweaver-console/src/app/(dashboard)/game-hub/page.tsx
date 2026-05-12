@@ -143,7 +143,8 @@ export default function GameHubPage() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95 }}
               transition={{ delay: i * 0.05 }}
-              className="rounded-xl border border-[#2a2a2a] bg-[#1a1a1a] p-5 flex flex-col gap-4"
+              className="rounded-xl border border-[#2a2a2a] bg-[#1a1a1a] p-5 flex flex-col gap-4 cursor-pointer hover:border-[#3a3a3a] transition-colors"
+              onClick={() => window.location.href = `/game-hub/${server.name}`}
             >
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-3">
