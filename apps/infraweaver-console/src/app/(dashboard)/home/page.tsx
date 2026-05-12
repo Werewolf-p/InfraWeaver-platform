@@ -25,7 +25,6 @@ import { Star } from "lucide-react";
 interface Service {
   name: string;
   href: string;
-  pingUrl?: string;
   icon: React.ElementType;
   description: string;
   color: string;
@@ -40,19 +39,19 @@ const SERVICE_GROUPS: ServiceGroup[] = [
   {
     label: "Platform Infrastructure",
     services: [
-      { name: "ArgoCD", href: "https://argocd.int.rlservers.com", pingUrl: "http://argocd-server.argocd.svc.cluster.local", icon: GitBranch, description: "GitOps continuous delivery", color: "text-orange-400" },
-      { name: "Traefik", href: "https://traefik.int.rlservers.com", pingUrl: "http://traefik.traefik.svc.cluster.local:8080/ping", icon: Network, description: "Ingress & reverse proxy", color: "text-cyan-400" },
-      { name: "Longhorn", href: "https://longhorn.int.rlservers.com", pingUrl: "http://longhorn-frontend.longhorn-system.svc.cluster.local", icon: HardDrive, description: "Distributed block storage", color: "text-green-400" },
-      { name: "OpenBao", href: "https://openbao.int.rlservers.com", pingUrl: "http://openbao.openbao.svc.cluster.local:8200/v1/sys/health", icon: KeyRound, description: "Secrets & key management", color: "text-yellow-400" },
-      { name: "Grafana", href: "https://grafana.int.rlservers.com", pingUrl: "http://grafana-apps.apps-grafana.svc.cluster.local", icon: BarChart3, description: "Metrics & dashboards", color: "text-orange-300" },
-      { name: "Prometheus", href: "https://prometheus.int.rlservers.com", pingUrl: "http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090/-/healthy", icon: Activity, description: "Metrics collection & alerting", color: "text-red-400" },
+      { name: "ArgoCD", href: "https://argocd.int.rlservers.com", icon: GitBranch, description: "GitOps continuous delivery", color: "text-orange-400" },
+      { name: "Traefik", href: "https://traefik.int.rlservers.com", icon: Network, description: "Ingress & reverse proxy", color: "text-cyan-400" },
+      { name: "Longhorn", href: "https://longhorn.int.rlservers.com", icon: HardDrive, description: "Distributed block storage", color: "text-green-400" },
+      { name: "OpenBao", href: "https://openbao.int.rlservers.com", icon: KeyRound, description: "Secrets & key management", color: "text-yellow-400" },
+      { name: "Grafana", href: "https://grafana.int.rlservers.com", icon: BarChart3, description: "Metrics & dashboards", color: "text-orange-300" },
+      { name: "Prometheus", href: "https://prometheus.int.rlservers.com", icon: Activity, description: "Metrics collection & alerting", color: "text-red-400" },
     ],
   },
   {
     label: "Security & Identity",
     services: [
-      { name: "Authentik", href: "https://auth.rlservers.com", pingUrl: "http://authentik-server.authentik.svc.cluster.local/-/health/ready/", icon: Shield, description: "Identity provider & SSO", color: "text-indigo-400" },
-      { name: "NetBird VPN", href: "https://netbird.int.rlservers.com", pingUrl: "http://netbird-management.netbird.svc.cluster.local/api/v1/health", icon: Wifi, description: "Mesh VPN network", color: "text-blue-400" },
+      { name: "Authentik", href: "https://auth.rlservers.com", icon: Shield, description: "Identity provider & SSO", color: "text-indigo-400" },
+      { name: "NetBird VPN", href: "https://netbird.int.rlservers.com", icon: Wifi, description: "Mesh VPN network", color: "text-blue-400" },
     ],
   },
   {
@@ -77,9 +76,6 @@ const SERVICE_GROUPS: ServiceGroup[] = [
     ],
   },
 ];
-
-// Collect only services with a pingUrl
-const PINGABLE = SERVICE_GROUPS.flatMap(g => g.services).filter(s => s.pingUrl);
 
 // ─── Sub-components ─────────────────────────────────────────────────────────
 
@@ -125,9 +121,9 @@ function SearchBar() {
   );
 }
 
-type PingStatus = { ok: boolean; latencyMs: number };
+type HealthStatus = { ok: boolean; status: string };
 
-function StatusDot({ status }: { status: PingStatus | undefined | "loading" }) {
+function StatusDot({ status }: { status: HealthStatus | undefined | "loading" }) {
   if (status === "loading") {
     return <span className="w-2 h-2 rounded-full bg-slate-600 animate-pulse inline-block" />;
   }
@@ -142,11 +138,11 @@ function StatusDot({ status }: { status: PingStatus | undefined | "loading" }) {
 
 function ServiceCard({
   service,
-  pingStatus,
+  healthStatus,
   index,
 }: {
   service: Service;
-  pingStatus: PingStatus | undefined | "loading";
+  healthStatus: HealthStatus | undefined | "loading";
   index: number;
 }) {
   return (
@@ -172,19 +168,16 @@ function ServiceCard({
           <ExternalLink className="w-3.5 h-3.5 text-[#555] group-hover:text-[#9e9e9e] flex-shrink-0 mt-0.5 transition-colors" />
         </div>
 
-        {service.pingUrl && (
+        {healthStatus !== undefined && (
           <div className="flex items-center gap-2">
-            <StatusDot status={pingStatus} />
-            {pingStatus === "loading" ? (
+            <StatusDot status={healthStatus} />
+            {healthStatus === "loading" ? (
               <span className="text-xs text-[#666]">Checking…</span>
-            ) : pingStatus ? (
-              pingStatus.ok ? (
-                <>
-                  <span className="text-xs text-green-400">Online</span>
-                  <span className="ml-auto text-xs text-[#666] font-mono">{pingStatus.latencyMs}ms</span>
-                </>
+            ) : healthStatus ? (
+              healthStatus.ok ? (
+                <span className="text-xs text-green-400">Healthy</span>
               ) : (
-                <span className="text-xs text-red-400">Offline</span>
+                <span className="text-xs text-red-400">{healthStatus.status ?? "Degraded"}</span>
               )
             ) : (
               <span className="text-xs text-[#666]">—</span>
@@ -220,11 +213,11 @@ function SkeletonCard({ index }: { index: number }) {
 
 function GroupSection({
   group,
-  pingData,
+  healthData,
   isLoading,
 }: {
   group: ServiceGroup;
-  pingData: Record<string, PingStatus>;
+  healthData: Record<string, HealthStatus>;
   isLoading: boolean;
 }) {
   const [open, setOpen] = useState(true);
@@ -260,11 +253,11 @@ function GroupSection({
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 pb-1">
               {isLoading
                 ? group.services.map((_, i) => <SkeletonCard key={i} index={i} />)
-                : group.services.map((svc, i) => (
+                  : group.services.map((svc, i) => (
                     <ServiceCard
                       key={svc.name}
                       service={svc}
-                      pingStatus={svc.pingUrl ? (pingData[svc.pingUrl] ?? "loading") : undefined}
+                      healthStatus={isLoading ? "loading" : healthData[svc.name]}
                       index={i}
                     />
                   ))}
@@ -469,24 +462,21 @@ export default function HomePortalPage() {
     staleTime: 50000,
   });
 
-  const pingUrls = PINGABLE.map(s => s.pingUrl as string);
-
-  const { data: pingData, isLoading: pingLoading, dataUpdatedAt, refetch } = useQuery({
-    queryKey: ["homepage-ping"],
+  const { data: healthData, isLoading: healthLoading, dataUpdatedAt, refetch } = useQuery({
+    queryKey: ["homepage-health"],
     queryFn: async () => {
-      const res = await fetch(`/api/homepage-ping?urls=${encodeURIComponent(pingUrls.join(","))}`);
-      if (!res.ok) throw new Error("Ping failed");
-      const json = await res.json() as { results: Record<string, PingStatus> };
-      return json.results;
+      const res = await fetch("/api/homepage-health");
+      if (!res.ok) return {} as Record<string, HealthStatus>;
+      return res.json() as Promise<Record<string, HealthStatus>>;
     },
     refetchInterval: 30000,
     staleTime: 25000,
   });
 
-  const onlineCount = pingData
-    ? Object.values(pingData).filter(v => v.ok).length
+  const onlineCount = healthData
+    ? Object.values(healthData).filter(v => v.ok).length
     : 0;
-  const totalPingable = PINGABLE.length;
+  const totalPingable = Object.keys(healthData ?? {}).length;
   const totalServices = SERVICE_GROUPS.flatMap(g => g.services).length;
 
   const lastUpdated = dataUpdatedAt
@@ -577,7 +567,7 @@ export default function HomePortalPage() {
                   className="p-2 rounded-lg bg-[#2a2a2a] border border-[#333] text-[#9e9e9e] hover:text-[#f2f2f2] hover:bg-[#333] transition-all"
                   title="Refresh ping status"
                 >
-                  <RefreshCw className={cn("w-4 h-4", pingLoading && "animate-spin")} />
+                  <RefreshCw className={cn("w-4 h-4", healthLoading && "animate-spin")} />
                 </button>
                 <Clock />
               </div>
@@ -651,8 +641,8 @@ export default function HomePortalPage() {
               <GroupSection
                 key={group.label}
                 group={group}
-                pingData={pingData ?? {}}
-                isLoading={pingLoading && !pingData}
+                healthData={healthData ?? {}}
+                isLoading={healthLoading && !healthData}
               />
             ))}
           </motion.div>
