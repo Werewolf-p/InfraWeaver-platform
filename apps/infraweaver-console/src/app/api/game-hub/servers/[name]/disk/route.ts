@@ -26,18 +26,33 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ nam
       clients.kc,
       pod.metadata.name,
       getPrimaryContainerName(pod, name),
-      `df -P ${shellQuote(mountPath)} 2>/dev/null | tail -n 1 || du -sh ${shellQuote(mountPath)} 2>/dev/null`,
-      10_000,
+      `df -h ${shellQuote(mountPath)} 2>/dev/null && echo '---' && du -sh /* 2>/dev/null | sort -rh | head -20`,
+      15_000,
     );
 
-    const line = result.stdout.trim().split("\n").filter(Boolean).pop() ?? "";
-    const dfMatch = line.match(/^\S+\s+\S+\s+(\S+)\s+(\S+)\s+(\d+)%/);
-    if (dfMatch) {
-      return NextResponse.json({ used: dfMatch[1], available: dfMatch[2], percent: Number.parseInt(dfMatch[3] ?? "0", 10), mountPath });
-    }
+    const output = result.stdout.trim();
+    const parts = output.split(/\n---\n/);
+    const dfSection = parts[0] ?? "";
+    const duSection = parts[1] ?? "";
 
-    const duMatch = line.match(/^(\S+)/);
-    return NextResponse.json({ used: duMatch?.[1] ?? "0", available: "—", percent: 0, mountPath, raw: line });
+    const dfLines = dfSection.split("\n").filter(Boolean);
+    const dfDataLine = dfLines.find((l) => !l.startsWith("Filesystem"));
+    const dfMatch = dfDataLine?.match(/^\S+\s+(\S+)\s+(\S+)\s+(\S+)\s+(\d+)%\s+\S+$/);
+
+    const filesystem = dfMatch
+      ? { total: dfMatch[1] ?? "?", used: dfMatch[2] ?? "?", available: dfMatch[3] ?? "?", percent: Number.parseInt(dfMatch[4] ?? "0", 10), mountPath }
+      : { total: "?", used: "?", available: "?", percent: 0, mountPath, raw: dfSection };
+
+    const topDirs = duSection
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => {
+        const m = line.match(/^(\S+)\s+(\/\S*)$/);
+        return m ? { size: m[1] ?? "", path: m[2] ?? "" } : null;
+      })
+      .filter((entry): entry is { size: string; path: string } => entry !== null);
+
+    return NextResponse.json({ filesystem, topDirs });
   } catch (error) {
     console.error("disk route failed", error);
     return NextResponse.json({ error: safeError(error) }, { status: 500 });

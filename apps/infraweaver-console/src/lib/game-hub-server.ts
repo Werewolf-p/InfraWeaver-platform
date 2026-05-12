@@ -2,14 +2,14 @@ import * as k8s from "@kubernetes/client-node";
 import { randomBytes, randomUUID } from "crypto";
 import net from "net";
 import { Writable } from "stream";
-import { getEggForGameType, type GameEgg } from "@/lib/game-eggs";
-import { GAME_HUB_NAMESPACE } from "@/lib/game-hub";
+import { getEggForGameType, type GameEgg, type SavedCommand } from "@/lib/game-eggs";
+import { GAME_HUB_NAMESPACE, parseEggConfig } from "@/lib/game-hub";
 import { loadKubeConfig } from "@/lib/k8s";
 
 export const GAME_HUB_NS = GAME_HUB_NAMESPACE;
-const RCON_GAME_TYPES = new Set(["minecraft", "minecraft-java", "minecraft-bedrock", "paper", "spigot", "forge", "fabric"]);
 const AUDIT_CONFIG_MAP_KEY = "entries.json";
 const TOKENS_SECRET_KEY = "tokens.json";
+const SAVED_COMMANDS_KEY = "saved-commands.json";
 
 export interface ExecResult {
   stdout: string;
@@ -73,7 +73,7 @@ export async function readServerEgg(
   try {
     const configMap = await coreApi.readNamespacedConfigMap({ name: `gameserver-${name}-egg`, namespace: GAME_HUB_NS });
     const raw = configMap.data?.["egg.json"];
-    if (raw) return JSON.parse(raw) as GameEgg;
+    if (raw) return parseEggConfig(raw, getDeploymentGameType(deployment));
   } catch {
     // fall through to game type defaults
   }
@@ -101,7 +101,7 @@ export async function execInPod(
   podName: string,
   containerName: string,
   command: string[],
-  timeoutMs = 10000,
+  timeoutMs = 15000,
 ): Promise<ExecResult> {
   const exec = new k8s.Exec(kc);
   let stdout = "";
@@ -138,16 +138,16 @@ export async function execShell(
   podName: string,
   containerName: string,
   script: string,
-  timeoutMs = 10000,
+  timeoutMs = 15000,
 ) {
-  return execInPod(kc, podName, containerName, ["sh", "-lc", script], timeoutMs);
+  return execInPod(kc, podName, containerName, ["sh", "-c", script], timeoutMs);
 }
 
 export async function runServerCommand(
   clients: ReturnType<typeof makeGameHubClients>,
   name: string,
   command: string,
-  timeoutMs = 10000,
+  timeoutMs = 15000,
 ) {
   const deployment = await getServerDeployment(clients.appsApi, name);
   const pod = await getServerPod(clients.coreApi, name, true);
@@ -157,17 +157,6 @@ export async function runServerCommand(
 
   const containerName = getPrimaryContainerName(pod, name);
   const gameType = getDeploymentGameType(deployment).toLowerCase();
-  if (RCON_GAME_TYPES.has(gameType)) {
-    const preferred = await execInPod(
-      clients.kc,
-      pod.metadata.name,
-      containerName,
-      ["/usr/local/bin/rcon-cli", "--config", "/data/.rcon-cli.yaml", command],
-      timeoutMs,
-    ).catch(async () => execInPod(clients.kc, pod.metadata!.name!, containerName, ["rcon-cli", command], timeoutMs));
-    return { ...preferred, gameType, pod };
-  }
-
   const result = await execShell(clients.kc, pod.metadata.name, containerName, command, timeoutMs);
   return { ...result, gameType, pod };
 }
@@ -304,6 +293,43 @@ export async function writeServerTokens(coreApi: k8s.CoreV1Api, name: string, to
 export async function validateServerToken(coreApi: k8s.CoreV1Api, name: string, token: string) {
   const tokens = await readServerTokens(coreApi, name);
   return tokens.find((entry) => entry.token === token) ?? null;
+}
+
+export async function readSavedCommands(coreApi: k8s.CoreV1Api, name: string): Promise<SavedCommand[]> {
+  try {
+    const configMap = await coreApi.readNamespacedConfigMap({ name: `gameserver-${name}-egg`, namespace: GAME_HUB_NS });
+    const raw = configMap.data?.[SAVED_COMMANDS_KEY];
+    if (!raw) return [];
+    return JSON.parse(raw) as SavedCommand[];
+  } catch {
+    return [];
+  }
+}
+
+export async function writeSavedCommands(coreApi: k8s.CoreV1Api, name: string, commands: SavedCommand[]) {
+  const payload = JSON.stringify(commands, null, 2);
+  try {
+    await coreApi.readNamespacedConfigMap({ name: `gameserver-${name}-egg`, namespace: GAME_HUB_NS });
+    await coreApi.patchNamespacedConfigMap({
+      name: `gameserver-${name}-egg`,
+      namespace: GAME_HUB_NS,
+      body: { data: { [SAVED_COMMANDS_KEY]: payload } },
+      fieldManager: "infraweaver",
+      force: true,
+    });
+  } catch {
+    await coreApi.createNamespacedConfigMap({
+      namespace: GAME_HUB_NS,
+      body: {
+        metadata: {
+          name: `gameserver-${name}-egg`,
+          namespace: GAME_HUB_NS,
+          labels: { app: name, "infraweaver/game": "true", "infraweaver/type": "game-egg" },
+        },
+        data: { [SAVED_COMMANDS_KEY]: payload },
+      },
+    });
+  }
 }
 
 export function parsePlayerHistory(raw: string | undefined | null) {

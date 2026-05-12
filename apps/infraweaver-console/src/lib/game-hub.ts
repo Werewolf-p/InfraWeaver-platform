@@ -1,6 +1,6 @@
 import type { Session } from "next-auth";
 import { getRole, hasPermission, type Permission, type RoleAssignment } from "@/lib/rbac";
-import { getEggForGameType, type GameEgg } from "@/lib/game-eggs";
+import { getEggForGameType, getQuickCommandStr, type GameEgg, type QuickCommand } from "@/lib/game-eggs";
 import { getRoleAssignmentsForSession } from "@/lib/users-config";
 
 export const GAME_HUB_NAMESPACE = "game-hub";
@@ -57,7 +57,14 @@ export function canAccessLogsTarget(
 export function parseEggConfig(raw: string | undefined | null, gameType = ""): GameEgg {
   if (raw) {
     try {
-      return JSON.parse(raw) as GameEgg;
+      const parsed = JSON.parse(raw) as GameEgg;
+      if (Array.isArray(parsed.quickCommands)) {
+        parsed.quickCommands = parsed.quickCommands.map((q: QuickCommand) => ({
+          ...q,
+          cmd: getQuickCommandStr(q) || undefined,
+        }));
+      }
+      return parsed;
     } catch {
       // fall through
     }

@@ -56,7 +56,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ nam
     const result = await runServerCommand(clients, name, command, 10_000);
     await auditLog("game-hub:command", session.user?.email ?? "unknown", `${name} — ${command}`);
     await appendServerAudit(clients.coreApi, name, { timestamp: new Date().toISOString(), user: session.user?.email ?? "unknown", action: "command", details: command });
-    return NextResponse.json({ stdout: result.stdout, stderr: result.stderr, success: true, method: result.gameType.includes("minecraft") ? "rcon" : "shell" });
+    return NextResponse.json({ stdout: result.stdout, stderr: result.stderr, success: true, method: "shell" });
   } catch (error) {
     console.error("game hub command failed", error);
     return NextResponse.json({ error: safeError(error), stdout: "", stderr: "", success: false }, { status: 500 });

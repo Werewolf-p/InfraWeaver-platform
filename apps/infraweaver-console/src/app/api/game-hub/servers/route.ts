@@ -219,7 +219,7 @@ export async function GET() {
   }
 
   try {
-    const { appsApi, coreApi } = makeGameHubClients();
+    const { appsApi, coreApi, customObjectsApi } = makeGameHubClients();
     const deployments = await appsApi.listNamespacedDeployment({
       namespace: GAME_HUB_NAMESPACE,
       labelSelector: "infraweaver/game=true",
@@ -240,9 +240,16 @@ export async function GET() {
       const status = maintenanceMode ? "maintenance" : deployment.spec?.replicas === 0 ? "stopped" : readyReplicas > 0 ? "running" : replicas > 0 ? "starting" : "stopped";
 
       let podName = "";
+      let restartCount = 0;
+      let podStartTime: string | null = null;
+      let podPhase: string | null = null;
       try {
         const pods = await coreApi.listNamespacedPod({ namespace: GAME_HUB_NAMESPACE, labelSelector: `app=${name}` });
-        podName = pods.items?.[0]?.metadata?.name ?? "";
+        const pod = pods.items?.find((p) => p.status?.phase === "Running") ?? pods.items?.[0];
+        podName = pod?.metadata?.name ?? "";
+        podPhase = pod?.status?.phase ?? null;
+        podStartTime = pod?.status?.startTime ? new Date(pod.status.startTime as string | Date).toISOString() : null;
+        restartCount = (pod?.status?.containerStatuses ?? []).reduce((sum, cs) => sum + (cs.restartCount ?? 0), 0);
       } catch {
         podName = "";
       }
@@ -258,19 +265,59 @@ export async function GET() {
         port = 0;
       }
 
+      let cpuUsage: number | null = null;
+      let memoryUsage: number | null = null;
+      let cpuLimit: number | null = null;
+      let memoryLimit: number | null = null;
+      try {
+        const { parseCpuQuantity, parseMemoryBytes } = await import("@/lib/game-hub-server");
+        const limits = deployment.spec?.template?.spec?.containers?.[0]?.resources?.limits;
+        cpuLimit = limits?.cpu ? parseCpuQuantity(typeof limits.cpu === "string" ? limits.cpu : null) : null;
+        memoryLimit = limits?.memory ? parseMemoryBytes(typeof limits.memory === "string" ? limits.memory : null) : null;
+        const podMetrics = await customObjectsApi.listNamespacedCustomObject({
+          group: "metrics.k8s.io",
+          version: "v1beta1",
+          namespace: GAME_HUB_NAMESPACE,
+          plural: "pods",
+        }) as unknown as { items?: Array<{ metadata?: { name?: string }; containers?: Array<{ usage?: { cpu?: string; memory?: string } }> }> };
+        const matching = (podMetrics.items ?? []).filter((item) => (item.metadata?.name ?? "").startsWith(`${name}-`));
+        if (matching.length > 0) {
+          cpuUsage = matching.reduce((sum, item) => sum + (item.containers ?? []).reduce((inner, c) => inner + parseCpuQuantity(c.usage?.cpu ?? null), 0), 0);
+          memoryUsage = matching.reduce((sum, item) => sum + (item.containers ?? []).reduce((inner, c) => inner + parseMemoryBytes(c.usage?.memory ?? null), 0), 0);
+        }
+      } catch {
+        // metrics not available
+      }
+
+      const description = deployment.metadata?.annotations?.["infraweaver.io/description"] ?? deployment.metadata?.annotations?.["infraweaver/description"] ?? "";
+      const icon = deployment.metadata?.annotations?.["infraweaver.io/icon"] ?? deployment.metadata?.annotations?.["infraweaver/icon"] ?? "";
+      const tagsRaw = deployment.metadata?.annotations?.["infraweaver.io/tags"] ?? deployment.metadata?.annotations?.["infraweaver/tags"] ?? "";
+      const tags: string[] = tagsRaw ? tagsRaw.split(",").map((t: string) => t.trim()).filter(Boolean) : [];
+
       return {
         name,
         gameType,
         status,
         replicas,
         readyReplicas,
+        desiredReplicas: deployment.spec?.replicas ?? 0,
         podName,
+        podPhase,
+        podStartTime,
+        restartCount,
         port,
         nodePort,
         memory: deployment.spec?.template?.spec?.containers?.[0]?.resources?.limits?.memory ?? egg.defaultMemory ?? "",
         cpu: deployment.spec?.template?.spec?.containers?.[0]?.resources?.limits?.cpu ?? egg.defaultCpu ?? "",
         createdAt: deployment.metadata?.creationTimestamp ?? null,
         maintenanceMode,
+        description,
+        icon,
+        tags,
+        cpuUsage,
+        memoryUsage,
+        cpuLimit,
+        memoryLimit,
       };
     }));
 

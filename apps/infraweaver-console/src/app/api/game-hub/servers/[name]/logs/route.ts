@@ -16,6 +16,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ name
   }
 
   const tail = parseInt(req.nextUrl.searchParams.get("tail") ?? "200", 10);
+  const sinceTimeParam = req.nextUrl.searchParams.get("sinceTime");
+  const sinceTime = sinceTimeParam ? new Date(sinceTimeParam) : null;
 
   try {
     const k8s = await import("@kubernetes/client-node");
@@ -38,6 +40,19 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ name
       start(controller) {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "connected", pod: pod.metadata?.name ?? name, container: pod.spec?.containers?.[0]?.name ?? name })}\n\n`));
         const log = new k8s.Log(kc);
+
+        const logOptions: { follow: boolean; timestamps: boolean; tailLines?: number; sinceTime?: Date; pretty: boolean } = {
+          follow: true,
+          timestamps: true,
+          pretty: false,
+        };
+
+        if (sinceTime && !isNaN(sinceTime.getTime())) {
+          logOptions.sinceTime = sinceTime;
+        } else {
+          logOptions.tailLines = tail;
+        }
+
         log.log(
           GAME_HUB_NAMESPACE,
           pod.metadata!.name!,
@@ -51,15 +66,18 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ name
             }
             try { controller.close(); } catch {}
           },
-          { follow: true, tailLines: tail, timestamps: false, pretty: false }
+          logOptions as unknown as import("@kubernetes/client-node").LogOptions,
         );
 
         logStream.on("data", (chunk: Buffer) => {
           if (cancelled) return;
-          for (const line of chunk.toString("utf8").split("\n")) {
-            if (!line.trim()) continue;
+          for (const raw of chunk.toString("utf8").split("\n")) {
+            if (!raw.trim()) continue;
+            const tsMatch = raw.match(/^(\d{4}-\d{2}-\d{2}T[\d:.]+Z)\s([\s\S]*)$/);
+            const timestamp = tsMatch ? tsMatch[1] : undefined;
+            const line = tsMatch ? (tsMatch[2] ?? "") : raw;
             try {
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "log", line })}\n\n`));
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "log", line, ...(timestamp ? { timestamp } : {}) })}\n\n`));
             } catch {
               cancelled = true;
             }

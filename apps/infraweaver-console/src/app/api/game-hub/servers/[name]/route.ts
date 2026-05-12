@@ -15,10 +15,12 @@ import {
   makeGameHubClients,
   parseDiscordWebhookConfig,
   parsePlayerHistory,
+  readSavedCommands,
   readServerEgg,
   sendDiscordWebhook,
   upsertCronJob,
   validateServerToken,
+  writeSavedCommands,
 } from "@/lib/game-hub-server";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { getEffectivePermissions, hasPermission } from "@/lib/rbac";
@@ -46,6 +48,9 @@ function actionPermission(action: string) {
   if (["set-hpa", "remove-hpa", "update-env", "set-restart-policy", "set-notes", "update-resources", "set-maintenance", "set-schedule", "set-backup-schedule", "set-backup-target", "expand-pvc"].includes(action)) {
     return "game-hub:admin" as const;
   }
+  if (["update-image", "update-pull-policy", "update-strategy", "update-identity", "update-service-ports", "set-scheduled-action", "save-command", "delete-saved-command"].includes(action)) {
+    return "game-hub:admin" as const;
+  }
   return "game-hub:write" as const;
 }
 
@@ -58,7 +63,7 @@ async function currentRestartSchedule(batchApi: import("@kubernetes/client-node"
   }
 }
 
-async function buildResponse(name: string, limitedToken = false, access?: Awaited<ReturnType<typeof getGameHubAccessContext>>) {
+async function buildResponse(name: string, limitedToken = false, access?: Awaited<ReturnType<typeof getGameHubAccessContext>>, includeYaml = false) {
   const { appsApi, autoscalingApi, batchApi, coreApi } = makeGameHubClients();
   const deployment = await getServerDeployment(appsApi, name);
   const egg = await readServerEgg(coreApi, name, deployment);
@@ -112,12 +117,61 @@ async function buildResponse(name: string, limitedToken = false, access?: Awaite
 
   const schedule = await currentRestartSchedule(batchApi, name);
   const restartCount = (pod?.status?.containerStatuses ?? []).reduce((sum, status) => sum + (status.restartCount ?? 0), 0);
-  const allPorts = (service?.spec?.ports ?? []).map((port) => ({
-    name: port.name ?? null,
-    port: port.port,
-    nodePort: port.nodePort ?? null,
-    protocol: port.protocol ?? "TCP",
+  const allPorts = (service?.spec?.ports ?? []).map((port) => {
+    const tp = port.targetPort;
+    const targetPort = typeof tp === "number"
+      ? tp
+      : typeof tp === "object" && tp !== null
+        ? ((tp as { intVal?: number }).intVal ?? port.port)
+        : Number(tp) || port.port;
+    return {
+      name: port.name ?? null,
+      port: port.port,
+      targetPort,
+      nodePort: port.nodePort ?? null,
+      protocol: port.protocol ?? "TCP",
+    };
+  });
+  const savedCommands = await readSavedCommands(coreApi, name);
+  const container = deployment.spec?.template?.spec?.containers?.[0];
+  const volumeMounts = (container?.volumeMounts ?? []).map((vm) => ({
+    name: vm.name,
+    mountPath: vm.mountPath,
+    readOnly: vm.readOnly ?? false,
   }));
+  const volumesInfo = await Promise.all(
+    (deployment.spec?.template?.spec?.volumes ?? []).map(async (vol) => {
+      let pvcSize: string | null = null;
+      if (vol.persistentVolumeClaim?.claimName) {
+        try {
+          const pvcObj = await coreApi.readNamespacedPersistentVolumeClaim({ name: vol.persistentVolumeClaim.claimName, namespace: GAME_HUB_NAMESPACE });
+          pvcSize = pvcObj.spec?.resources?.requests?.storage ?? null;
+        } catch {
+          // ignore
+        }
+      }
+      return {
+        name: vol.name,
+        type: vol.persistentVolumeClaim ? "pvc" : vol.configMap ? "configMap" : vol.secret ? "secret" : vol.emptyDir ? "emptyDir" : "other",
+        claimName: vol.persistentVolumeClaim?.claimName ?? null,
+        pvcSize,
+      };
+    })
+  );
+  const description = deployment.metadata?.annotations?.["infraweaver.io/description"] ?? deployment.metadata?.annotations?.["infraweaver/description"] ?? "";
+  const icon = deployment.metadata?.annotations?.["infraweaver.io/icon"] ?? deployment.metadata?.annotations?.["infraweaver/icon"] ?? "";
+  const tagsRaw = deployment.metadata?.annotations?.["infraweaver.io/tags"] ?? deployment.metadata?.annotations?.["infraweaver/tags"] ?? "";
+  const tags: string[] = tagsRaw ? tagsRaw.split(",").map((t: string) => t.trim()).filter(Boolean) : [];
+  const scheduledAction = deployment.metadata?.annotations?.["infraweaver.io/scheduled-action"] ?? null;
+  const scheduledTime = deployment.metadata?.annotations?.["infraweaver.io/scheduled-time"] ?? null;
+  const image = container?.image ?? egg.dockerImage;
+  const imagePullPolicy = container?.imagePullPolicy ?? "IfNotPresent";
+  const deploymentStrategy = deployment.spec?.strategy?.type ?? "RollingUpdate";
+  let deploymentYaml: string | undefined;
+  if (includeYaml) {
+    const yaml = await import("js-yaml");
+    deploymentYaml = yaml.dump(deployment, { skipInvalid: true });
+  }
   const status = maintenanceMode
     ? "maintenance"
     : (deployment.status?.readyReplicas ?? 0) > 0
@@ -176,6 +230,18 @@ async function buildResponse(name: string, limitedToken = false, access?: Awaite
     env: (deployment.spec?.template?.spec?.containers?.[0]?.env ?? []).map((entry) => ({ name: entry.name, value: entry.value ?? undefined })),
     createdAt: deployment.metadata?.creationTimestamp ? new Date(deployment.metadata.creationTimestamp as string | Date).toISOString() : null,
     maintenanceMode,
+    description,
+    icon,
+    tags,
+    image,
+    imagePullPolicy,
+    deploymentStrategy,
+    savedCommands,
+    volumeMounts,
+    volumes: volumesInfo,
+    scheduledAction,
+    scheduledTime,
+    ...(includeYaml ? { deploymentYaml } : {}),
     scheduledRestart: schedule,
     backupSchedule: deployment.metadata?.annotations?.["infraweaver/backup-schedule"] ?? null,
     backupRetention: Number.parseInt(deployment.metadata?.annotations?.["infraweaver/backup-retention"] ?? "7", 10) || 7,
@@ -228,7 +294,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ name
   }
 
   try {
-    return NextResponse.json(await buildResponse(name, false, access));
+    const includeYaml = req.nextUrl.searchParams.get("includeYaml") === "1";
+    return NextResponse.json(await buildResponse(name, false, access, includeYaml));
   } catch (error) {
     console.error("server GET failed", error);
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
@@ -286,7 +353,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
 
   const { name } = await params;
   const body = await req.json() as {
-    action: "start" | "stop" | "restart" | "scale" | "set-hpa" | "remove-hpa" | "update-env" | "set-restart-policy" | "set-notes" | "update-resources" | "set-maintenance" | "set-schedule" | "set-backup-schedule" | "set-backup-target" | "expand-pvc";
+    action: "start" | "stop" | "restart" | "scale" | "set-hpa" | "remove-hpa" | "update-env" | "set-restart-policy" | "set-notes" | "update-resources" | "set-maintenance" | "set-schedule" | "set-backup-schedule" | "set-backup-target" | "expand-pvc" | "update-image" | "update-pull-policy" | "update-strategy" | "update-identity" | "update-service-ports" | "set-scheduled-action" | "save-command" | "delete-saved-command";
     replicas?: number;
     hpaMin?: number;
     hpaMax?: number;
@@ -302,6 +369,17 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
     target?: string;
     pvcName?: string;
     newSize?: string;
+    image?: string;
+    pullPolicy?: "Always" | "IfNotPresent" | "Never";
+    strategy?: "RollingUpdate" | "Recreate";
+    description?: string;
+    icon?: string;
+    tags?: string[];
+    ports?: Array<{ name: string; port: number; targetPort?: number; protocol?: "TCP" | "UDP"; nodePort?: number }>;
+    scheduledAction?: string | null;
+    scheduledTime?: string | null;
+    command?: { id?: string; label: string; cmd: string; color?: string; description?: string };
+    commandId?: string;
   };
 
   const access = await getGameHubAccessContext(session, 60);
@@ -426,6 +504,92 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
         fieldManager: "infraweaver",
         force: true,
       });
+    } else if (body.action === "update-image") {
+      if (!body.image) return NextResponse.json({ error: "image is required" }, { status: 400 });
+      const containerName = deployment.spec?.template?.spec?.containers?.[0]?.name ?? name;
+      await clients.appsApi.patchNamespacedDeployment({
+        name,
+        namespace: GAME_HUB_NAMESPACE,
+        body: { spec: { template: { spec: { containers: [{ name: containerName, image: body.image }] } } } },
+        force: true,
+        fieldManager: "infraweaver",
+      });
+    } else if (body.action === "update-pull-policy") {
+      if (!body.pullPolicy) return NextResponse.json({ error: "pullPolicy is required" }, { status: 400 });
+      const containerName = deployment.spec?.template?.spec?.containers?.[0]?.name ?? name;
+      await clients.appsApi.patchNamespacedDeployment({
+        name,
+        namespace: GAME_HUB_NAMESPACE,
+        body: { spec: { template: { spec: { containers: [{ name: containerName, imagePullPolicy: body.pullPolicy }] } } } },
+        force: true,
+        fieldManager: "infraweaver",
+      });
+    } else if (body.action === "update-strategy") {
+      const strategyType = body.strategy === "Recreate" ? "Recreate" : "RollingUpdate";
+      await clients.appsApi.patchNamespacedDeployment({
+        name,
+        namespace: GAME_HUB_NAMESPACE,
+        body: { spec: { strategy: { type: strategyType } } },
+        force: true,
+        fieldManager: "infraweaver",
+      });
+    } else if (body.action === "update-identity") {
+      const annotations: Record<string, string> = {};
+      if (body.description !== undefined) annotations["infraweaver.io/description"] = body.description;
+      if (body.icon !== undefined) annotations["infraweaver.io/icon"] = body.icon;
+      if (body.tags !== undefined) annotations["infraweaver.io/tags"] = (body.tags ?? []).join(",");
+      await clients.appsApi.patchNamespacedDeployment({
+        name,
+        namespace: GAME_HUB_NAMESPACE,
+        body: { metadata: { annotations } },
+        force: true,
+        fieldManager: "infraweaver",
+      });
+    } else if (body.action === "update-service-ports") {
+      if (!body.ports?.length) return NextResponse.json({ error: "ports array is required" }, { status: 400 });
+      await clients.coreApi.patchNamespacedService({
+        name,
+        namespace: GAME_HUB_NAMESPACE,
+        body: {
+          spec: {
+            ports: body.ports.map((p) => ({
+              name: p.name,
+              port: p.port,
+              targetPort: p.targetPort ?? p.port,
+              protocol: p.protocol ?? "TCP",
+              ...(p.nodePort ? { nodePort: p.nodePort } : {}),
+            })),
+          },
+        },
+        force: true,
+        fieldManager: "infraweaver",
+      });
+    } else if (body.action === "set-scheduled-action") {
+      const annotations: Record<string, string> = {
+        "infraweaver.io/scheduled-action": body.scheduledAction ?? "",
+        "infraweaver.io/scheduled-time": body.scheduledTime ?? "",
+      };
+      await clients.appsApi.patchNamespacedDeployment({
+        name,
+        namespace: GAME_HUB_NAMESPACE,
+        body: { metadata: { annotations } },
+        force: true,
+        fieldManager: "infraweaver",
+      });
+    } else if (body.action === "save-command") {
+      if (!body.command?.label || !body.command?.cmd) return NextResponse.json({ error: "command.label and command.cmd are required" }, { status: 400 });
+      const existing = await readSavedCommands(clients.coreApi, name);
+      const { randomUUID } = await import("crypto");
+      const id = body.command.id ?? randomUUID();
+      const filtered = existing.filter((c) => c.id !== id);
+      await writeSavedCommands(clients.coreApi, name, [
+        ...filtered,
+        { id, label: body.command.label, cmd: body.command.cmd, color: body.command.color, description: body.command.description },
+      ]);
+    } else if (body.action === "delete-saved-command") {
+      if (!body.commandId) return NextResponse.json({ error: "commandId is required" }, { status: 400 });
+      const existing = await readSavedCommands(clients.coreApi, name);
+      await writeSavedCommands(clients.coreApi, name, existing.filter((c) => c.id !== body.commandId));
     }
 
     await auditLog(`game-hub:${body.action}`, session.user?.email ?? "unknown", `${body.action} ${name}`);

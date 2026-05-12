@@ -7,15 +7,6 @@ import { appendServerAudit, getServerDeployment, makeGameHubClients, parsePlayer
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { safeError } from "@/lib/utils";
 
-async function readOps(clients: ReturnType<typeof makeGameHubClients>, name: string) {
-  try {
-    const result = await runServerCommand(clients, name, "cat /data/ops.json", 10_000);
-    return JSON.parse(result.stdout) as Array<{ name?: string }>;
-  } catch {
-    return [] as Array<{ name?: string }>;
-  }
-}
-
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ name: string }> }) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -38,7 +29,6 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ nam
       ? await clients.coreApi.readNamespacedPodLog({ name: pod.metadata.name, namespace: "game-hub", container: pod.spec?.containers?.[0]?.name ?? name, tailLines: 300 }) as string
       : "";
     const ipMap = parsePlayerIpMap(logs);
-    const ops = new Set((await readOps(clients, name)).map((entry) => entry.name ?? "").filter(Boolean));
 
     const players = await Promise.all(names.map(async (player) => {
       const ip = ipMap.get(player) ?? null;
@@ -47,7 +37,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ nam
         name: player,
         ip,
         countryCode,
-        group: ops.has(player) ? "OP" : "Member",
+        group: "Online",
       };
     }));
 

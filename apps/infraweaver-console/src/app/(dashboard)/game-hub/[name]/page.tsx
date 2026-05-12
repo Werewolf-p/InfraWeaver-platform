@@ -1,4 +1,5 @@
 "use client";
+
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -7,301 +8,179 @@ import {
   ChevronLeft, Play, Square, RotateCcw, Loader2, Terminal,
   Settings, FolderOpen, Activity, File, Folder, Save, Trash2,
   RefreshCw, Copy, ArrowUp, Send, Circle, AlertTriangle,
-  Cpu, MemoryStick, Network, Clock, Gamepad2, LayoutDashboard,
-  Shield, Server, Wifi, Layers, Download, FileText, Users, Search
+  Cpu, LayoutDashboard, Shield, Wifi, Layers, Download,
+  FileText, Users, Search, Clock, Package, Plus, X, HardDrive
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { getEggForGameType } from "@/lib/game-eggs";
 import { toast } from "sonner";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { DashboardTab as DashboardTabFeature } from "@/components/game-hub/server-detail/dashboard-tab";
 import { PlayersTab as PlayersTabFeature } from "@/components/game-hub/server-detail/players-tab";
 import { ActivityTab as ActivityTabFeature } from "@/components/game-hub/server-detail/activity-tab";
+import type { FileEntry, SavedCommand, ServerDetail } from "@/components/game-hub/server-detail/types";
+import { fetchJson } from "@/components/game-hub/server-detail/utils";
 
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
-const MonacoDiffEditor = dynamic(() => import("@monaco-editor/react").then((mod) => mod.DiffEditor), { ssr: false });
-
-const GAME_ICONS: Record<string, string> = {
-  minecraft: "⛏", "minecraft-java": "⛏", "minecraft-bedrock": "⛏",
-  terraria: "🌍", valheim: "🪓", cs2: "🔫", rust: "🔩", ark: "🦕",
-  factorio: "⚙️", satisfactory: "🏭", "project-zomboid": "��",
-  vrising: "🧛", palworld: "🦎", "dont-starve-together": "🕯️",
-  "seven-days-to-die": "💀", "team-fortress-2": "🎩", "garrys-mod": "🔧",
-};
-
-interface ServicePort {
-  name: string | null;
-  port: number;
-  nodePort: number | null;
-  protocol: string;
-}
-
-interface ServerDetail {
-  name: string; gameType: string; status?: string; replicas: number; readyReplicas: number; restartCount?: number;
-  podName: string | null; podPhase: string | null; podStartTime: string | null;
-  port: number | null; nodePort: number | null; nodeIp: string | null;
-  allPorts: ServicePort[]; portReachable?: boolean; maintenanceMode?: boolean;
-  hpa: { enabled: boolean; min: number; max: number; cpuTarget: number | null; currentReplicas: number | null };
-  restartPolicy: string;
-  memory: string; cpu: string; notes: string;
-  env: Array<{ name: string; value?: string; valueFrom?: unknown }>; createdAt: string | null;
-  scheduledRestart?: string | null; backupSchedule?: string | null; backupRetention?: number; backupTarget?: string;
-  playerHistory?: Array<{ t: number; n: number }>;
-  pvc?: { name: string; size: string | null; storageClass: string | null; allowExpansion: boolean } | null;
-  permissions?: { canConsole: boolean; canAdmin: boolean; canStart: boolean; canStop: boolean; canWriteFiles: boolean; readOnlyFiles: boolean };
-  egg?: { mountPath: string; quickCommands: Array<{ label: string; command: string; description: string }> };
-  allowedCommands?: string[];
-  nasTargets?: { truenas: boolean; synology: boolean };
-}
-
-interface FileEntry {
-  name: string; path: string; type: "file" | "directory" | "symlink" | "other";
-  size: number; modifiedAt: string; permissions: string;
-}
-
-interface GameEvent {
-  type: string;
-  reason: string;
-  message: string;
-  timestamp: string | null;
-  count: number;
-  involvedKind: string;
-  involvedName: string;
-}
 
 type TabId = "dashboard" | "console" | "players" | "files" | "settings" | "activity";
+type RuntimeSavedCommand = SavedCommand & { id?: string; cmd?: string; command?: string; color?: string; description?: string };
+type RuntimeQuickCommand = { label: string; command?: string; cmd?: string; description?: string; color?: string };
+type EditablePort = { id: string; name: string; port: number; targetPort: number; protocol: string };
 
-// ─── Uptime counter ───────────────────────────────────────────────────────────
-function Uptime({ startTime }: { startTime: string | null }) {
-  const [display, setDisplay] = useState("—");
-  useEffect(() => {
-    if (!startTime) { setDisplay("—"); return; }
-    const update = () => {
-      const secs = Math.floor((Date.now() - new Date(startTime).getTime()) / 1000);
-      if (secs < 60) setDisplay(`${secs}s`);
-      else if (secs < 3600) setDisplay(`${Math.floor(secs / 60)}m ${secs % 60}s`);
-      else setDisplay(`${Math.floor(secs / 3600)}h ${Math.floor((secs % 3600) / 60)}m`);
-    };
-    update();
-    const t = setInterval(update, 1000);
-    return () => clearInterval(t);
-  }, [startTime]);
-  return <>{display}</>;
+const ISO_TIMESTAMP_PREFIX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z\s*/;
+const ICON_OPTIONS = ["🎮", "🕹️", "🎯", "🏆", "🎲", "🎸", "🔥", "💥", "⚔️", "🛡️", "🌍", "🌟", "💎", "🚀", "🏰", "🎪", "🎭", "🎬", "🎤", "🎵"];
+
+function normalizeCommandValue(entry: { command?: string; cmd?: string }) {
+  return entry.command ?? entry.cmd ?? "";
 }
 
-// ─── Resource bar (visual gauge) ─────────────────────────────────────────────
-function ResourceBar({ label, value, unit, color = "bg-[#0078D4]" }: {
-  label: string; value: string; unit?: string; color?: string;
-}) {
-  // Parse memory values like "2.5Gi", "2048M", or CPU like "2", "500m"
-  const pct = (() => {
-    if (!value) return 0;
-    const v = value.toLowerCase();
-    if (v.includes("gi")) return Math.min((parseFloat(v) / 8) * 100, 100);
-    if (v.includes("mi") || v.includes("m") && !v.includes("c")) {
-      const mb = parseFloat(v);
-      return Math.min((mb / 8192) * 100, 100);
-    }
-    if (v.includes("c") || (!isNaN(parseFloat(v)) && !v.includes("m"))) {
-      return Math.min((parseFloat(v) / 8) * 100, 100);
-    }
-    return 30;
-  })();
-
-  return (
-    <div className="space-y-1.5">
-      <div className="flex items-center justify-between text-xs">
-        <span className="text-[#666]">{label}</span>
-        <span className="text-[#9e9e9e] font-mono">{value || "—"}{unit}</span>
-      </div>
-      <div className="h-1.5 bg-[#1e1e1e] rounded-full overflow-hidden">
-        <motion.div
-          className={cn("h-full rounded-full", color)}
-          initial={{ width: 0 }}
-          animate={{ width: `${pct}%` }}
-          transition={{ duration: 0.8, ease: "easeOut" }}
-        />
-      </div>
-    </div>
-  );
+function normalizeSavedCommands(entries: ServerDetail["savedCommands"] | undefined): RuntimeSavedCommand[] {
+  return ((entries ?? []) as RuntimeSavedCommand[]).map((entry) => ({ ...entry, command: normalizeCommandValue(entry) }));
 }
 
-// ─── Connection Card ──────────────────────────────────────────────────────────
-const GAME_CONNECT_HINTS: Record<string, string> = {
-  minecraft: "Open Minecraft → Multiplayer → Add Server → paste the address below",
-  "minecraft-java": "Open Minecraft Java Edition → Multiplayer → Add Server",
-  "minecraft-bedrock": "Open Minecraft → Play → Servers → Add Server (port may differ)",
-  terraria: "Open Terraria → Multiplayer → Join via IP → paste address & port",
-  valheim: "In Steam: View → Servers → Add Server → paste address:port (primary UDP port)",
-  cs2: "In CS2 console: connect <address>:<port>",
-  rust: "In Rust: press F1 → client.connect <address>:<port>",
-  ark: "Open ARK → Join ARK → Session Filter → search by IP",
-  factorio: "Factorio → Multiplayer → Connect to address → paste address:port",
-};
-
-const QUICK_COMMANDS: Record<string, Array<{ label: string; cmd: string; color?: string }>> = {
-  minecraft: [
-    { label: "List players", cmd: "list" },
-    { label: "Save world", cmd: "save-all" },
-    { label: "Time day", cmd: "time set day" },
-    { label: "Weather clear", cmd: "weather clear" },
-    { label: "Broadcast", cmd: "say " },
-    { label: "Difficulty", cmd: "difficulty peaceful" },
-  ],
-  terraria: [
-    { label: "List players", cmd: "playing" },
-    { label: "Save world", cmd: "save" },
-    { label: "Broadcast", cmd: "say " },
-  ],
-  valheim: [
-    { label: "List players", cmd: "players" },
-    { label: "Save world", cmd: "save" },
-  ],
-};
-
-function ConnectCard({
-  nodeIp, allPorts, gameType,
-}: { nodeIp: string | null; allPorts: ServicePort[]; gameType: string }) {
-  const host = nodeIp ?? "—";
-  const hint = GAME_CONNECT_HINTS[gameType] ?? "Connect using the address and port below";
-
-  const primaryPort = allPorts.find(p => p.nodePort) ?? null;
-  const primaryAddress = primaryPort ? `${host}:${primaryPort.nodePort}` : host;
-
-  return (
-    <div className="rounded-xl border border-[#1e3a5f] bg-[#0a1929] p-4 space-y-3">
-      <div className="flex items-center gap-2">
-        <Wifi className="w-4 h-4 text-[#0078D4]" />
-        <p className="text-xs font-semibold text-[#4fc3f7] uppercase tracking-wide">How to Connect</p>
-      </div>
-
-      {/* Primary copy box */}
-      <div className="flex items-center gap-2">
-        <div className="flex-1 font-mono text-sm text-[#e0e0e0] bg-[#0d1b2a] border border-[#1e3a5f] rounded-lg px-3 py-2 truncate">
-          {primaryAddress}
-        </div>
-        <button
-          onClick={() => { navigator.clipboard.writeText(primaryAddress); toast.success("Copied!"); }}
-          className="flex-shrink-0 p-2 rounded-lg border border-[#1e3a5f] hover:bg-[#0d2137] text-[#4fc3f7] transition-colors"
-        >
-          <Copy className="w-3.5 h-3.5" />
-        </button>
-      </div>
-
-      {/* All ports table */}
-      {allPorts.length > 0 && (
-        <div className="space-y-1">
-          {allPorts.map((p, i) => {
-            const addr = `${host}:${p.nodePort ?? p.port}`;
-            return (
-              <div key={i} className="flex items-center justify-between gap-2 text-xs">
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className={cn(
-                    "px-1.5 py-0.5 rounded text-[10px] font-mono flex-shrink-0",
-                    p.protocol === "UDP" ? "bg-purple-900/40 text-purple-300 border border-purple-700/40"
-                      : "bg-blue-900/40 text-blue-300 border border-blue-700/40"
-                  )}>{p.protocol}</span>
-                  {p.name && <span className="text-[#555] capitalize">{p.name.replace(/-/g, " ")}</span>}
-                  <span className="text-[#888] font-mono truncate">{addr}</span>
-                </div>
-                <button
-                  onClick={() => { navigator.clipboard.writeText(addr); toast.success("Copied!"); }}
-                  className="flex-shrink-0 text-[#555] hover:text-[#4fc3f7] transition-colors p-0.5"
-                >
-                  <Copy className="w-3 h-3" />
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Hint */}
-      <p className="text-[11px] text-[#4a6fa5] leading-relaxed">{hint}</p>
-    </div>
-  );
+function normalizeQuickCommands(entries: Array<{ label: string; command?: string; description?: string }> | undefined): Array<{ label: string; command: string; description?: string }> {
+  return ((entries ?? []) as RuntimeQuickCommand[])
+    .map((entry) => ({ label: entry.label, command: normalizeCommandValue(entry), description: entry.description }))
+    .filter((entry) => entry.command.trim().length > 0);
 }
 
-// ─── Dashboard Tab ─────────────────────────────────────────────────────────────
-function DashboardTab({ server, name }: { server: ServerDetail; status: string; name: string }) {
+function downloadTextFile(filename: string, content: string, type = "text/plain") {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+function formatScheduledValue(value: string | null | undefined) {
+  return value ? new Date(value).toISOString().slice(0, 16) : "";
+}
+
+function stringifyEnv(env: ServerDetail["env"]) {
+  return env.map((entry) => `${entry.name}=${entry.value ?? ""}`).join("\n");
+}
+
+function DashboardTab({ server, name }: { server: ServerDetail; name: string }) {
   return <DashboardTabFeature name={name} server={server} />;
 }
 
-// ─── Console Tab ──────────────────────────────────────────────────────────────
-function ConsoleTab({ name, status, gameType }: { name: string; status: string; gameType: string }) {
-  const isMinecraft = ["minecraft", "minecraft-java", "minecraft-bedrock", "paper", "spigot", "forge", "fabric"]
-    .includes(gameType.toLowerCase());
+function ConsoleTab({ name, status, server }: { name: string; status: string; server: ServerDetail }) {
+  const queryClient = useQueryClient();
   const [logLines, setLogLines] = useState<Array<{ type: string; line: string; id: number }>>([]);
   const [command, setCommand] = useState("");
   const [sending, setSending] = useState(false);
   const [connected, setConnected] = useState(false);
   const [podLabel, setPodLabel] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [matchIndex, setMatchIndex] = useState(0);
+  const [history, setHistory] = useState<string[]>([]);
+  const [reconnectBanner, setReconnectBanner] = useState<string | null>(null);
   const logEndRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const lineRefs = useRef<Record<number, HTMLDivElement | null>>({});
   const logIdRef = useRef(0);
   const esRef = useRef<EventSource | null>(null);
   const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryCountRef = useRef(0);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [history, setHistory] = useState<string[]>([]);
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [matchIndex, setMatchIndex] = useState(0);
   const historyIdxRef = useRef(-1);
-  const quickCommands = isMinecraft
-    ? QUICK_COMMANDS.minecraft
-    : QUICK_COMMANDS[gameType.toLowerCase()] ?? [];
+  const lastLogTimestampRef = useRef<string | null>(null);
+  const hasConnectedRef = useRef(false);
+  const connectRef = useRef<() => void>(() => undefined);
+  const bannerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const eggCommands = normalizeQuickCommands(server.egg?.quickCommands);
+  const savedCommands = normalizeSavedCommands(server.savedCommands);
+  const isConnected = status !== "stopped" && connected;
 
   const addLine = useCallback((type: string, line: string) => {
-    setLogLines(prev => [...prev.slice(-1000), { type, line, id: logIdRef.current++ }]);
+    setLogLines((prev) => [...prev.slice(-1000), { type, line, id: logIdRef.current++ }]);
+  }, []);
+
+  const showBanner = useCallback((message: string | null, durationMs?: number) => {
+    if (bannerTimeoutRef.current) clearTimeout(bannerTimeoutRef.current);
+    setReconnectBanner(message);
+    if (message && durationMs) {
+      bannerTimeoutRef.current = setTimeout(() => setReconnectBanner(null), durationMs);
+    }
   }, []);
 
   const connect = useCallback(() => {
     if (status === "stopped") return;
     if (retryRef.current) clearTimeout(retryRef.current);
     esRef.current?.close();
-    const es = new EventSource(`/api/game-hub/servers/${name}/logs?tail=200`);
+
+    const params = new URLSearchParams();
+    if (lastLogTimestampRef.current) params.set("sinceTime", lastLogTimestampRef.current);
+    else params.set("tail", "200");
+
+    const es = new EventSource(`/api/game-hub/servers/${name}/logs?${params.toString()}`);
     esRef.current = es;
-    es.onmessage = (e) => {
+
+    es.onmessage = (event) => {
       try {
-        const msg = JSON.parse(e.data) as { type: string; line?: string; pod?: string; container?: string };
+        const msg = JSON.parse(event.data) as { type: string; line?: string; pod?: string; timestamp?: string };
         if (msg.type === "connected") {
+          const isReconnect = hasConnectedRef.current;
           retryCountRef.current = 0;
           setConnected(true);
           setPodLabel(msg.pod ?? name);
-          addLine("system", `▶ Connected to ${msg.pod ?? name}`);
-        } else if (msg.type === "log" && msg.line) {
-          addLine("log", msg.line);
-        } else if (msg.type === "error" && msg.line) {
-          addLine("error", msg.line);
+          if (!hasConnectedRef.current) {
+            addLine("system", `▶ Connected to ${msg.pod ?? name}`);
+            hasConnectedRef.current = true;
+          } else if (isReconnect) {
+            showBanner("Reconnected", 2500);
+          }
+          return;
         }
-      } catch { /* keep-alive ping */ }
+
+        if ((msg.type === "log" || msg.type === "error") && msg.line) {
+          const lineTimestamp = msg.timestamp ?? msg.line.match(ISO_TIMESTAMP_PREFIX)?.[0]?.trim() ?? null;
+          if (lineTimestamp) lastLogTimestampRef.current = lineTimestamp;
+          const cleanLine = msg.line.replace(ISO_TIMESTAMP_PREFIX, "");
+          addLine(msg.type === "error" ? "error" : "log", cleanLine || msg.line);
+        }
+      } catch {
+        // ignore keep-alive messages
+      }
     };
+
     es.onerror = () => {
       setConnected(false);
       es.close();
-      const delay = Math.min(2000 * Math.pow(2, retryCountRef.current), 30000);
-      retryCountRef.current++;
-      addLine("system", `⚠ Disconnected — reconnecting in ${Math.round(delay / 1000)}s…`);
-      retryRef.current = setTimeout(connect, delay);
+      const delay = Math.min(2000 * 2 ** retryCountRef.current, 30000);
+      retryCountRef.current += 1;
+      showBanner(`Disconnected — reconnecting in ${Math.round(delay / 1000)}s…`);
+      retryRef.current = setTimeout(() => connectRef.current(), delay);
     };
-  }, [name, status, addLine]);
+  }, [addLine, name, showBanner, status]);
+
+  useEffect(() => {
+    connectRef.current = connect;
+  }, [connect]);
 
   useEffect(() => {
     if (status === "stopped") {
+      setConnected(false);
+      showBanner(null);
       esRef.current?.close();
       if (retryRef.current) clearTimeout(retryRef.current);
-      setConnected(false);
-      return;
+      return () => undefined;
     }
+
     retryCountRef.current = 0;
     connect();
     return () => {
       if (retryRef.current) clearTimeout(retryRef.current);
+      if (bannerTimeoutRef.current) clearTimeout(bannerTimeoutRef.current);
       esRef.current?.close();
     };
-  }, [name, status, connect]);
+  }, [connect, showBanner, status]);
 
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -320,48 +199,83 @@ function ConsoleTab({ name, status, gameType }: { name: string; status: string; 
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  async function sendCommand(e: React.FormEvent) {
-    e.preventDefault();
-    const cmd = command.trim();
-    if (!cmd || sending) return;
-    if (cmd.length > 512) { toast.error("Command too long (max 512 chars)"); return; }
+  async function sendCommand(event: React.FormEvent) {
+    event.preventDefault();
+    const trimmed = command.trim();
+    if (!trimmed || sending) return;
+    if (trimmed.length > 512) {
+      toast.error("Command too long (max 512 chars)");
+      return;
+    }
+
     setSending(true);
     setCommand("");
     historyIdxRef.current = -1;
-    setHistory(prev => [cmd, ...prev.slice(0, 49)]);
-    addLine("input", `❯ ${cmd}`);
+    setHistory((prev) => [trimmed, ...prev.slice(0, 49)]);
+    addLine("input", `❯ ${trimmed}`);
     try {
-      const res = await fetch(`/api/game-hub/servers/${name}/command`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ command: cmd }),
+      const result = await fetchJson<{ stdout?: string; stderr?: string; error?: string }>(`/api/game-hub/servers/${name}/command`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ command: trimmed }),
       });
-      const data = await res.json() as { stdout?: string; stderr?: string; error?: string };
-      if (data.error) addLine("error", data.error);
-      if (data.stdout) data.stdout.split("\n").filter(Boolean).forEach(l => addLine("output", l));
-      if (data.stderr) data.stderr.split("\n").filter(Boolean).forEach(l => addLine("error", l));
-    } catch (err) { addLine("error", String(err)); }
-    finally { setSending(false); inputRef.current?.focus(); }
+      if (result.error) addLine("error", result.error);
+      if (result.stdout) result.stdout.split("\n").filter(Boolean).forEach((line) => addLine("output", line));
+      if (result.stderr) result.stderr.split("\n").filter(Boolean).forEach((line) => addLine("error", line));
+    } catch (error) {
+      addLine("error", String(error));
+    } finally {
+      setSending(false);
+      inputRef.current?.focus();
+    }
   }
 
-  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "ArrowUp") {
-      e.preventDefault();
+  async function saveCurrentCommand() {
+    const trimmed = command.trim();
+    if (!trimmed) return;
+    try {
+      await fetchJson(`/api/game-hub/servers/${name}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "save-command", command: { label: trimmed, cmd: trimmed } }),
+      });
+      toast.success("Saved command");
+      queryClient.invalidateQueries({ queryKey: ["game-hub", "server", name] });
+    } catch (error) {
+      toast.error(String(error));
+    }
+  }
+
+  async function deleteSavedCommand(entry: RuntimeSavedCommand) {
+    try {
+      await fetchJson(`/api/game-hub/servers/${name}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete-saved-command", commandId: entry.id }),
+      });
+      toast.success("Saved command removed");
+      queryClient.invalidateQueries({ queryKey: ["game-hub", "server", name] });
+    } catch (error) {
+      toast.error(String(error));
+    }
+  }
+
+  function handleKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
       const next = Math.min(historyIdxRef.current + 1, history.length - 1);
       historyIdxRef.current = next;
       setCommand(history[next] ?? "");
-    } else if (e.key === "ArrowDown") {
-      e.preventDefault();
+    } else if (event.key === "ArrowDown") {
+      event.preventDefault();
       const next = Math.max(historyIdxRef.current - 1, -1);
       historyIdxRef.current = next;
       setCommand(next < 0 ? "" : (history[next] ?? ""));
     }
   }
 
-  const lineColor = (t: string) => ({
-    system: "text-blue-400/80", error: "text-red-400",
-    input: "text-yellow-300", output: "text-cyan-300",
-  }[t] ?? "text-[#ccc]");
-  const matches = searchTerm ? logLines.filter(l => l.line.toLowerCase().includes(searchTerm.toLowerCase())).map(l => l.id) : [];
+  const lineColor = (type: string) => ({ system: "text-blue-400/80", error: "text-red-400", input: "text-yellow-300", output: "text-cyan-300" }[type] ?? "text-[#ccc]");
+  const matches = searchTerm ? logLines.filter((line) => line.line.toLowerCase().includes(searchTerm.toLowerCase())).map((line) => line.id) : [];
   const jumpToMatch = (direction: 1 | -1) => {
     if (matches.length === 0) return;
     const next = (matchIndex + direction + matches.length) % matches.length;
@@ -370,43 +284,22 @@ function ConsoleTab({ name, status, gameType }: { name: string; status: string; 
   };
 
   return (
-    <div className="flex flex-col rounded-xl border border-[#2a2a2a] bg-[#0a0a0a] overflow-hidden"
-      style={{ height: "calc(100vh - 280px)", minHeight: "360px" }}>
-      {/* Toolbar */}
+    <div className="flex flex-col rounded-xl border border-[#2a2a2a] bg-[#0a0a0a] overflow-hidden" style={{ height: "calc(100vh - 280px)", minHeight: "360px" }}>
       <div className="flex items-center gap-3 px-4 py-2.5 bg-[#111] border-b border-[#1e1e1e] flex-shrink-0">
         <div className="flex items-center gap-2">
-          <Circle className={cn("w-2 h-2", connected ? "fill-green-400 text-green-400" : "fill-[#444] text-[#444]")} />
-          <span className={cn("text-xs", connected ? "text-green-400" : "text-[#555]")}>
-            {connected ? podLabel : status === "stopped" ? "Server stopped" : "Connecting…"}
-          </span>
+          <Circle className={cn("w-2 h-2", isConnected ? "fill-green-400 text-green-400" : "fill-[#444] text-[#444]")} />
+          <span className={cn("text-xs", isConnected ? "text-green-400" : "text-[#555]")}>{isConnected ? podLabel : status === "stopped" ? "Server stopped" : "Connecting…"}</span>
         </div>
         <div className="ml-auto flex items-center gap-3">
-          {!connected && status !== "stopped" && (
-            <button onClick={() => { retryCountRef.current = 0; connect(); }}
-              className="text-xs text-[#0078D4] hover:underline">Reconnect</button>
-          )}
-          <button onClick={() => { setSearchOpen(v => !v); setTimeout(() => searchRef.current?.focus(), 0); }}
-            className="p-1.5 text-[#444] hover:text-[#888] hover:bg-[#1e1e1e] rounded transition-colors">
-            <Search className="w-3.5 h-3.5" />
-          </button>
+          {!isConnected && status !== "stopped" && <button onClick={() => { retryCountRef.current = 0; connectRef.current(); }} className="text-xs text-[#0078D4] hover:underline">Reconnect</button>}
+          <button onClick={() => { setSearchOpen((prev) => !prev); setTimeout(() => searchRef.current?.focus(), 0); }} className="p-1.5 text-[#444] hover:text-[#888] hover:bg-[#1e1e1e] rounded transition-colors"><Search className="w-3.5 h-3.5" /></button>
           <div className="flex items-center gap-1">
             {[
               { icon: RefreshCw, label: "Clear", action: () => setLogLines([]) },
-              { icon: Copy, label: "Copy all", action: () => { navigator.clipboard.writeText(logLines.map(l => l.line).join("\n")); toast.success("Copied"); } },
-              { icon: Download, label: "Download logs", action: () => {
-                const blob = new Blob([logLines.map(l => l.line).join("\n")], { type: "text/plain" });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement("a");
-                a.href = url;
-                a.download = `${name}-console-${new Date().toISOString().slice(0,10)}.txt`;
-                a.click();
-                URL.revokeObjectURL(url);
-              } },
+              { icon: Copy, label: "Copy all", action: () => { navigator.clipboard.writeText(logLines.map((line) => line.line).join("\n")); toast.success("Copied"); } },
+              { icon: Download, label: "Download logs", action: () => downloadTextFile(`${name}-console-${new Date().toISOString().slice(0, 10)}.txt`, logLines.map((line) => line.line).join("\n")) },
             ].map(({ icon: Icon, label, action }) => (
-              <button key={label} onClick={action} title={label}
-                className="p-1.5 text-[#444] hover:text-[#888] hover:bg-[#1e1e1e] rounded transition-colors">
-                <Icon className="w-3.5 h-3.5" />
-              </button>
+              <button key={label} onClick={action} title={label} className="p-1.5 text-[#444] hover:text-[#888] hover:bg-[#1e1e1e] rounded transition-colors"><Icon className="w-3.5 h-3.5" /></button>
             ))}
           </div>
         </div>
@@ -415,8 +308,7 @@ function ConsoleTab({ name, status, gameType }: { name: string; status: string; 
       {searchOpen && (
         <div className="flex items-center gap-2 px-4 py-2 border-b border-[#1e1e1e] bg-[#101010]">
           <Search className="w-3.5 h-3.5 text-[#666]" />
-          <input ref={searchRef} value={searchTerm} onChange={e => { setSearchTerm(e.target.value); setMatchIndex(0); }} placeholder="Search console..."
-            className="flex-1 bg-transparent text-sm text-[#f2f2f2] outline-none" />
+          <input ref={searchRef} value={searchTerm} onChange={(event) => { setSearchTerm(event.target.value); setMatchIndex(0); }} placeholder="Search console..." className="flex-1 bg-transparent text-sm text-[#f2f2f2] outline-none" />
           <span className="text-xs text-[#666]">{matches.length === 0 ? "0" : `${matchIndex + 1}/${matches.length}`}</span>
           <button onClick={() => jumpToMatch(-1)} className="text-xs text-[#0078D4]">Prev</button>
           <button onClick={() => jumpToMatch(1)} className="text-xs text-[#0078D4]">Next</button>
@@ -424,76 +316,65 @@ function ConsoleTab({ name, status, gameType }: { name: string; status: string; 
         </div>
       )}
 
-      {/* Log output */}
+      {reconnectBanner && status !== "stopped" && <div className="px-4 py-1.5 border-b border-[#1e1e1e] bg-[#111827] text-[11px] text-[#93c5fd]">{reconnectBanner}</div>}
+
       <div className="flex-1 overflow-y-auto p-4 font-mono text-xs leading-[1.7] overscroll-contain select-text">
         {status === "stopped" ? (
-          <div className="flex flex-col items-center justify-center h-full gap-3 text-[#444]">
-            <Square className="w-8 h-8" />
-            <p>Server is stopped</p>
-          </div>
+          <div className="flex flex-col items-center justify-center h-full gap-3 text-[#444]"><Square className="w-8 h-8" /><p>Server is stopped</p></div>
         ) : logLines.length === 0 ? (
-          <div className="flex items-center gap-2 text-[#444] pt-1">
-            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            <span>Connecting to log stream…</span>
-          </div>
+          <div className="flex items-center gap-2 text-[#444] pt-1"><Loader2 className="w-3.5 h-3.5 animate-spin" /><span>Connecting to log stream…</span></div>
         ) : logLines.map(({ type, line, id }) => (
-          <div key={id} ref={el => { lineRefs.current[id] = el; }}
-            className={cn("whitespace-pre-wrap break-all px-1 rounded", lineColor(type), matches.includes(id) && "bg-yellow-400/10", matches[matchIndex] === id && "ring-1 ring-yellow-400/40")}>{line}</div>
+          <div key={id} ref={(element) => { lineRefs.current[id] = element; }} className={cn("whitespace-pre-wrap break-all px-1 rounded", lineColor(type), matches.includes(id) && "bg-yellow-400/10", matches[matchIndex] === id && "ring-1 ring-yellow-400/40")}>{line}</div>
         ))}
         <div ref={logEndRef} />
       </div>
 
-      {connected && quickCommands.length > 0 && (
-        <div className="flex-shrink-0 px-3 py-2 border-t border-[#1a1a1a] bg-[#0d0d0d]">
-          <p className="text-[10px] uppercase tracking-wide text-[#444] mb-2">Quick commands</p>
-          <div className="flex gap-1.5 flex-wrap">
-            {quickCommands.map(q => (
-              <button key={q.cmd} onClick={() => { setCommand(q.cmd); inputRef.current?.focus(); }}
-                className="px-2.5 py-1 rounded text-[10px] bg-[#1a1a1a] hover:bg-[#252525] border border-[#2a2a2a] text-[#777] hover:text-[#ccc] transition-colors">
-                {q.label}
-              </button>
-            ))}
-          </div>
+      {isConnected && (eggCommands.length > 0 || savedCommands.length > 0) && (
+        <div className="flex-shrink-0 px-3 py-2 border-t border-[#1a1a1a] bg-[#0d0d0d] space-y-3">
+          {eggCommands.length > 0 && (
+            <div>
+              <p className="text-[10px] uppercase tracking-wide text-[#444] mb-2">Quick Commands</p>
+              <div className="flex gap-1.5 flex-wrap">
+                {eggCommands.map((entry) => <button key={`${entry.label}-${entry.command}`} onClick={() => { setCommand(entry.command); inputRef.current?.focus(); }} className="px-2.5 py-1 rounded text-[10px] bg-[#1a1a1a] hover:bg-[#252525] border border-[#2a2a2a] text-[#777] hover:text-[#ccc] transition-colors">{entry.label}</button>)}
+              </div>
+            </div>
+          )}
+          {savedCommands.length > 0 && (
+            <div>
+              <p className="text-[10px] uppercase tracking-wide text-[#444] mb-2">Saved Commands</p>
+              <div className="flex gap-1.5 flex-wrap">
+                {savedCommands.map((entry) => (
+                  <div key={`${entry.id ?? entry.label}-${entry.command}`} className="flex items-center rounded border border-[#2a2a2a] bg-[#1a1a1a] overflow-hidden">
+                    <button onClick={() => { setCommand(entry.command ?? ""); inputRef.current?.focus(); }} className="px-2.5 py-1 text-[10px] text-[#777] hover:text-[#ccc] hover:bg-[#252525] transition-colors">{entry.label}</button>
+                    <button onClick={() => deleteSavedCommand(entry)} className="px-1.5 py-1 text-[10px] text-[#555] hover:text-red-300 hover:bg-red-500/10 transition-colors">✕</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Command input */}
       <div className="flex-shrink-0 border-t border-[#1a1a1a] p-2 bg-[#0d0d0d]">
         <form onSubmit={sendCommand} className="flex gap-2">
-          <div className={cn(
-            "flex-1 flex items-center gap-2 bg-[#111] border rounded-lg px-3 min-h-[46px]",
-            connected ? "border-[#2a2a2a] focus-within:border-[#0078D4]" : "border-[#1a1a1a] opacity-50"
-          )}>
+          <div className={cn("flex-1 flex items-center gap-2 bg-[#111] border rounded-lg px-3 min-h-[46px]", isConnected ? "border-[#2a2a2a] focus-within:border-[#0078D4]" : "border-[#1a1a1a] opacity-50")}>
             <span className="text-green-500 font-mono text-sm select-none flex-shrink-0">❯</span>
-            <input ref={inputRef}
-              value={command} onChange={e => setCommand(e.target.value)} onKeyDown={handleKeyDown}
-              placeholder={connected
-                ? isMinecraft ? "help, list, say Hello… (↑↓ history)" : "shell command… (↑↓ history)"
-                : "Waiting for connection…"}
-              disabled={!connected || sending}
-              autoCapitalize="none" autoCorrect="off" spellCheck={false}
-              // font-size 16px prevents iOS auto-zoom
-              className="flex-1 bg-transparent text-[16px] leading-none font-mono text-[#f0f0f0] outline-none placeholder:text-[#333] disabled:cursor-not-allowed py-1"
-            />
+            <input ref={inputRef} value={command} onChange={(event) => setCommand(event.target.value)} onKeyDown={handleKeyDown} placeholder={isConnected ? "Enter command… (↑↓ history)" : "Waiting for connection…"} disabled={!isConnected || sending} autoCapitalize="none" autoCorrect="off" spellCheck={false} className="flex-1 bg-transparent text-[16px] leading-none font-mono text-[#f0f0f0] outline-none placeholder:text-[#333] disabled:cursor-not-allowed py-1" />
           </div>
-          <button type="submit" disabled={!connected || sending || !command.trim()}
-            className="flex items-center justify-center w-[50px] min-h-[46px] bg-[#0078D4] hover:bg-[#0065B3] disabled:opacity-25 text-white rounded-lg transition-colors touch-manipulation flex-shrink-0">
-            {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-          </button>
+          <button type="button" onClick={saveCurrentCommand} disabled={!command.trim()} className="px-3 min-h-[46px] bg-[#1a1a1a] hover:bg-[#252525] disabled:opacity-40 text-[#cfcfcf] rounded-lg transition-colors text-xs font-medium flex-shrink-0">Save</button>
+          <button type="submit" disabled={!isConnected || sending || !command.trim()} className="flex items-center justify-center w-[50px] min-h-[46px] bg-[#0078D4] hover:bg-[#0065B3] disabled:opacity-25 text-white rounded-lg transition-colors touch-manipulation flex-shrink-0">{sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}</button>
         </form>
-        <p className="text-[10px] text-[#2a2a2a] mt-1.5 px-1">
-          {isMinecraft ? "Minecraft RCON — type commands without /  •  ↑↓ for history" : "Shell access — commands run in container  •  ↑↓ for history"}
-        </p>
+        <p className="text-[10px] text-[#2a2a2a] mt-1.5 px-1">Universal console • ↑↓ for history</p>
       </div>
     </div>
   );
 }
 
+
 function PlayersTab({ name, server }: { name: string; server: ServerDetail }) {
   return <PlayersTabFeature name={name} server={server} />;
 }
 
-// ─── Files Tab ────────────────────────────────────────────────────────────────
 function FilesTab({ name, status, mountPath }: { name: string; status: string; mountPath: string }) {
   const [currentPath, setCurrentPath] = useState(mountPath);
   const [selectedFile, setSelectedFile] = useState<FileEntry | null>(null);
@@ -505,11 +386,7 @@ function FilesTab({ name, status, mountPath }: { name: string; status: string; m
 
   const { data: listing, isLoading, refetch } = useQuery({
     queryKey: ["game-hub", "files", name, currentPath],
-    queryFn: async () => {
-      const res = await fetch(`/api/game-hub/servers/${name}/files?path=${encodeURIComponent(currentPath)}`);
-      if (!res.ok) throw new Error("Failed to list files");
-      return res.json() as Promise<{ files: FileEntry[] }>;
-    },
+    queryFn: () => fetchJson<{ files: FileEntry[] }>(`/api/game-hub/servers/${name}/files?path=${encodeURIComponent(currentPath)}`),
     enabled: status !== "stopped",
     retry: 1,
   });
@@ -519,31 +396,25 @@ function FilesTab({ name, status, mountPath }: { name: string; status: string; m
 
   async function openFile(entry: FileEntry) {
     if (entry.type === "directory") {
-      setPathHistory(h => [...h, entry.path]);
+      setPathHistory((history) => [...history, entry.path]);
       setCurrentPath(entry.path);
-      setSelectedFile(null); setFileContent(null);
+      setSelectedFile(null);
+      setFileContent(null);
       return;
     }
-    setSelectedFile(entry); setFileContent(null); setLoadingContent(true);
+
+    setSelectedFile(entry);
+    setFileContent(null);
+    setLoadingContent(true);
     setMobilePane("editor");
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 15000);
     try {
-      const res = await fetch(
-        `/api/game-hub/servers/${name}/files/content?path=${encodeURIComponent(entry.path)}`,
-        { signal: controller.signal },
-      );
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({})) as { error?: string };
-        throw new Error(body.error ?? `HTTP ${res.status}`);
-      }
-      const data = await res.json() as { content: string };
-      setFileContent(data.content);
-    } catch (err) {
-      const msg = err instanceof Error && err.name === "AbortError"
-        ? "File load timed out — server may be busy"
-        : String(err);
-      toast.error(msg);
+      const result = await fetchJson<{ content: string }>(`/api/game-hub/servers/${name}/files/content?path=${encodeURIComponent(entry.path)}`, { signal: controller.signal });
+      setFileContent(result.content);
+    } catch (error) {
+      const message = error instanceof Error && error.name === "AbortError" ? "File load timed out — server may be busy" : String(error);
+      toast.error(message);
     } finally {
       clearTimeout(timer);
       setLoadingContent(false);
@@ -554,52 +425,62 @@ function FilesTab({ name, status, mountPath }: { name: string; status: string; m
     if (!selectedFile || fileContent === null) return;
     setSaving(true);
     try {
-      const res = await fetch(`/api/game-hub/servers/${name}/files/content`, {
-        method: "PUT", headers: { "Content-Type": "application/json" },
+      await fetchJson(`/api/game-hub/servers/${name}/files/content`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ path: selectedFile.path, content: fileContent }),
       });
-      if (!res.ok) throw new Error("Save failed");
       toast.success("File saved");
-    } catch (err) { toast.error(String(err)); }
-    finally { setSaving(false); }
+    } catch (error) {
+      toast.error(String(error));
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function deleteFile(entry: FileEntry) {
     if (!confirm(`Delete ${entry.name}?`)) return;
     try {
-      const res = await fetch(`/api/game-hub/servers/${name}/files?path=${encodeURIComponent(entry.path)}`, { method: "DELETE" });
-      if (!res.ok) throw new Error("Delete failed");
+      await fetchJson(`/api/game-hub/servers/${name}/files?path=${encodeURIComponent(entry.path)}`, { method: "DELETE" });
       toast.success(`${entry.name} deleted`);
-      if (selectedFile?.path === entry.path) { setSelectedFile(null); setFileContent(null); }
+      if (selectedFile?.path === entry.path) {
+        setSelectedFile(null);
+        setFileContent(null);
+      }
       refetch();
-    } catch (err) { toast.error(String(err)); }
+    } catch (error) {
+      toast.error(String(error));
+    }
   }
 
   function goUp() {
     if (pathHistory.length <= 1) return;
-    const h = pathHistory.slice(0, -1);
-    setPathHistory(h); setCurrentPath(h[h.length - 1]);
-    setSelectedFile(null); setFileContent(null);
+    const nextHistory = pathHistory.slice(0, -1);
+    setPathHistory(nextHistory);
+    setCurrentPath(nextHistory[nextHistory.length - 1]);
+    setSelectedFile(null);
+    setFileContent(null);
   }
 
-  if (status === "stopped") return (
-    <div className="flex flex-col items-center justify-center h-40 gap-3 text-[#555]">
-      <FolderOpen className="w-8 h-8" />
-      <p className="text-sm">Start the server to browse files</p>
-    </div>
-  );
+  if (status === "stopped") {
+    return (
+      <div className="flex flex-col items-center justify-center h-40 gap-3 text-[#555]">
+        <FolderOpen className="w-8 h-8" />
+        <p className="text-sm">Start the server to browse files</p>
+      </div>
+    );
+  }
 
-  const sortedFiles = listing?.files.sort((a, b) => {
+  const sortedFiles = [...(listing?.files ?? [])].sort((a, b) => {
     if (a.type === "directory" && b.type !== "directory") return -1;
     if (a.type !== "directory" && b.type === "directory") return 1;
     return a.name.localeCompare(b.name);
-  }) ?? [];
+  });
 
   const fileTree = (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-1 bg-[#111] rounded-lg border border-[#2a2a2a] px-2 py-1.5">
-        <button onClick={goUp} disabled={pathHistory.length <= 1}
-          className="p-1 rounded hover:bg-[#1e1e1e] disabled:opacity-30 transition-colors flex-shrink-0">
+        <button onClick={goUp} disabled={pathHistory.length <= 1} className="p-1 rounded hover:bg-[#1e1e1e] disabled:opacity-30 transition-colors flex-shrink-0">
           <ArrowUp className="w-3.5 h-3.5 text-[#666]" />
         </button>
         <span className="flex-1 min-w-0 truncate font-mono text-[10px] text-[#555]">{currentPath}</span>
@@ -614,20 +495,12 @@ function FilesTab({ name, status, mountPath }: { name: string; status: string; m
           <p className="text-xs text-[#555] text-center py-6">Empty directory</p>
         ) : (
           <div className="p-1 max-h-[55vh] overflow-y-auto overscroll-contain">
-            {sortedFiles.map(entry => (
-              <div key={entry.path}
-                onClick={() => openFile(entry)}
-                className={cn("group flex items-center gap-2 px-2.5 py-2 rounded-lg cursor-pointer transition-colors text-xs touch-manipulation",
-                  selectedFile?.path === entry.path
-                    ? "bg-[rgba(0,120,212,0.2)] text-white"
-                    : "hover:bg-[#1a1a1a] text-[#9e9e9e]")}>
-                {entry.type === "directory"
-                  ? <Folder className="w-3.5 h-3.5 text-yellow-400 flex-shrink-0" />
-                  : <File className="w-3.5 h-3.5 text-[#444] flex-shrink-0" />}
+            {sortedFiles.map((entry) => (
+              <div key={entry.path} onClick={() => openFile(entry)} className={cn("group flex items-center gap-2 px-2.5 py-2 rounded-lg cursor-pointer transition-colors text-xs touch-manipulation", selectedFile?.path === entry.path ? "bg-[rgba(0,120,212,0.2)] text-white" : "hover:bg-[#1a1a1a] text-[#9e9e9e]")}>
+                {entry.type === "directory" ? <Folder className="w-3.5 h-3.5 text-yellow-400 flex-shrink-0" /> : <File className="w-3.5 h-3.5 text-[#444] flex-shrink-0" />}
                 <span className="truncate flex-1">{entry.name}</span>
                 {entry.type !== "directory" && (
-                  <button onClick={e => { e.stopPropagation(); deleteFile(entry); }}
-                    className="opacity-0 group-hover:opacity-100 p-0.5 text-[#444] hover:text-red-400 transition-all">
+                  <button onClick={(event) => { event.stopPropagation(); deleteFile(entry); }} className="opacity-0 group-hover:opacity-100 p-0.5 text-[#444] hover:text-red-400 transition-all">
                     <Trash2 className="w-3 h-3" />
                   </button>
                 )}
@@ -644,14 +517,10 @@ function FilesTab({ name, status, mountPath }: { name: string; status: string; m
       {selectedFile ? (
         <>
           <div className="flex items-center gap-2">
-            <button onClick={() => setMobilePane("files")} className="md:hidden flex items-center gap-1 text-xs text-[#0078D4] flex-shrink-0">
-              ← Files
-            </button>
+            <button onClick={() => setMobilePane("files")} className="md:hidden flex items-center gap-1 text-xs text-[#0078D4] flex-shrink-0">← Files</button>
             <span className="text-xs text-[#555] font-mono truncate flex-1 min-w-0">{selectedFile.path}</span>
-            <button onClick={() => { navigator.clipboard.writeText(fileContent ?? ""); toast.success("Copied"); }}
-              className="p-1.5 text-[#444] hover:text-[#888] flex-shrink-0"><Copy className="w-3.5 h-3.5" /></button>
-            <button onClick={saveFile} disabled={saving || loadingContent}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#0078D4] hover:bg-[#0065B3] disabled:opacity-50 text-white rounded-lg text-xs font-medium flex-shrink-0">
+            <button onClick={() => { navigator.clipboard.writeText(fileContent ?? ""); toast.success("Copied"); }} className="p-1.5 text-[#444] hover:text-[#888] flex-shrink-0"><Copy className="w-3.5 h-3.5" /></button>
+            <button onClick={saveFile} disabled={saving || loadingContent} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#0078D4] hover:bg-[#0065B3] disabled:opacity-50 text-white rounded-lg text-xs font-medium flex-shrink-0">
               {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />} Save
             </button>
           </div>
@@ -659,9 +528,7 @@ function FilesTab({ name, status, mountPath }: { name: string; status: string; m
             {loadingContent ? (
               <div className="flex items-center justify-center h-full"><Loader2 className="w-5 h-5 animate-spin text-[#555]" /></div>
             ) : (
-              <MonacoEditor height="100%" language={editorLang} value={fileContent ?? ""}
-                onChange={v => setFileContent(v ?? "")} theme="vs-dark"
-                options={{ minimap: { enabled: false }, fontSize: 13, lineNumbers: "on", wordWrap: "on", scrollBeyondLastLine: false, padding: { top: 8 } }} />
+              <MonacoEditor height="100%" language={editorLang} value={fileContent ?? ""} onChange={(value) => setFileContent(value ?? "")} theme="vs-dark" options={{ minimap: { enabled: false }, fontSize: 13, lineNumbers: "on", wordWrap: "on", scrollBeyondLastLine: false, padding: { top: 8 } }} />
             )}
           </div>
         </>
@@ -680,12 +547,10 @@ function FilesTab({ name, status, mountPath }: { name: string; status: string; m
       <div className="hidden md:grid grid-cols-[260px_1fr] gap-4">{fileTree}{editorPane}</div>
       <div className="md:hidden space-y-3">
         <div className="flex gap-1 p-1 bg-[#111] rounded-lg border border-[#2a2a2a]">
-          {(["files", "editor"] as const).map(p => (
-            <button key={p} onClick={() => setMobilePane(p)}
-              className={cn("flex-1 py-2.5 rounded text-xs font-medium transition-colors flex items-center justify-center gap-1.5",
-                mobilePane === p ? "bg-[#0078D4] text-white" : "text-[#666]")}>
-              {p === "files" ? <Folder className="w-3.5 h-3.5" /> : <File className="w-3.5 h-3.5" />}
-              {p === "editor" && selectedFile ? selectedFile.name : p === "files" ? "Files" : "Editor"}
+          {(["files", "editor"] as const).map((pane) => (
+            <button key={pane} onClick={() => setMobilePane(pane)} className={cn("flex-1 py-2.5 rounded text-xs font-medium transition-colors flex items-center justify-center gap-1.5", mobilePane === pane ? "bg-[#0078D4] text-white" : "text-[#666]")}>
+              {pane === "files" ? <Folder className="w-3.5 h-3.5" /> : <File className="w-3.5 h-3.5" />}
+              {pane === "editor" && selectedFile ? selectedFile.name : pane === "files" ? "Files" : "Editor"}
             </button>
           ))}
         </div>
@@ -699,13 +564,31 @@ function ActivityTab({ name }: { name: string }) {
   return <ActivityTabFeature name={name} />;
 }
 
-// ─── Settings Tab ─────────────────────────────────────────────────────────────
 function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
   const queryClient = useQueryClient();
+  const envImportRef = useRef<HTMLInputElement>(null);
+  const defaultEgg = getEggForGameType(server.gameType);
+  const defaultEnv = Object.fromEntries((defaultEgg.environment ?? []).map((entry) => [entry.name, entry.defaultValue]));
+  const currentEnv = Object.fromEntries(server.env.map((entry) => [entry.name, entry.value ?? ""]));
+  const envDiff = [...new Set([...Object.keys(defaultEnv), ...Object.keys(currentEnv)])]
+    .sort((a, b) => a.localeCompare(b))
+    .map((key) => {
+      const defaultValue = defaultEnv[key];
+      const currentValue = currentEnv[key];
+      const state = defaultValue === undefined
+        ? "added"
+        : currentValue === undefined
+          ? "removed"
+          : currentValue !== defaultValue
+            ? "changed"
+            : "same";
+      return { key, defaultValue, currentValue, state };
+    })
+    .filter((entry) => entry.state !== "same");
+  const isLonghornPvc = Boolean(server.pvc?.storageClass?.toLowerCase().includes("longhorn"));
 
-  // ── Replica control state ──
   const [replicaMode, setReplicaMode] = useState<"static" | "dynamic">(server.hpa.enabled ? "dynamic" : "static");
-  const [staticCount, setStaticCount] = useState(server.replicas ?? 1);
+  const [staticCount, setStaticCount] = useState(Math.max(server.replicas ?? 1, 1));
   const [hpaMin, setHpaMin] = useState(server.hpa.min);
   const [hpaMax, setHpaMax] = useState(server.hpa.max);
   const [hpaCpu, setHpaCpu] = useState(server.hpa.cpuTarget ?? 70);
@@ -717,45 +600,64 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
   const [memLimit, setMemLimit] = useState(server.memory ?? "");
   const [cpuLimit, setCpuLimit] = useState(server.cpu ?? "");
   const [savingResources, setSavingResources] = useState(false);
+  const [editingEnv, setEditingEnv] = useState(false);
+  const [envStr, setEnvStr] = useState(stringifyEnv(server.env));
+  const [savingEnv, setSavingEnv] = useState(false);
+  const [description, setDescription] = useState(server.description ?? "");
+  const [icon, setIcon] = useState(server.icon ?? "🎮");
+  const [tagsStr, setTagsStr] = useState((server.tags ?? []).join(", "));
+  const [image, setImage] = useState(server.image ?? "");
+  const [imagePullPolicy, setImagePullPolicy] = useState(server.imagePullPolicy ?? "IfNotPresent");
+  const [deploymentStrategy, setDeploymentStrategy] = useState(server.deploymentStrategy ?? "RollingUpdate");
+  const [yamlOpen, setYamlOpen] = useState(false);
+  const [yamlContent, setYamlContent] = useState(server.deploymentYaml ?? "");
+  const [yamlLoading, setYamlLoading] = useState(false);
+  const [servicePorts, setServicePorts] = useState<EditablePort[]>((server.allPorts ?? []).map((port, index) => ({ id: `${port.name ?? "port"}-${index}`, name: port.name ?? "", port: port.port, targetPort: Number(port.targetPort ?? port.port), protocol: port.protocol })));
+  const [scheduledAction, setScheduledAction] = useState(server.scheduledAction ?? "none");
+  const [scheduledTime, setScheduledTime] = useState(formatScheduledValue(server.scheduledTime));
+  const [commandLabel, setCommandLabel] = useState("");
+  const [commandText, setCommandText] = useState("");
+
+  const savedCommands = normalizeSavedCommands(server.savedCommands);
+  const { data: snapshotsData, refetch: refetchSnapshots, isFetching: snapshotsLoading } = useQuery({
+    queryKey: ["game-hub", "snapshots", name],
+    queryFn: () => fetchJson<{ snapshots: Array<{ metadata?: { name?: string; creationTimestamp?: string; annotations?: Record<string, string> }; status?: { readyToUse?: boolean } }> }>(`/api/game-hub/servers/${name}/snapshot`),
+    enabled: isLonghornPvc,
+  });
+
+  async function patchServer(body: unknown, successMessage: string) {
+    await fetchJson(`/api/game-hub/servers/${name}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    toast.success(successMessage);
+    queryClient.invalidateQueries({ queryKey: ["game-hub", "server", name] });
+  }
 
   async function saveReplicas() {
     setScaleSaving(true);
     try {
       if (replicaMode === "static") {
-        const res = await fetch(`/api/game-hub/servers/${name}`, {
-          method: "PATCH", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "scale", replicas: staticCount }),
-        });
-        if (!res.ok) throw new Error("Scale failed");
-        toast.success(`Set to ${staticCount} replica${staticCount !== 1 ? "s" : ""}`);
+        await patchServer({ action: "scale", replicas: staticCount }, `Set to ${staticCount} replica${staticCount !== 1 ? "s" : ""}`);
       } else {
-        const res = await fetch(`/api/game-hub/servers/${name}`, {
-          method: "PATCH", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "set-hpa", hpaMin, hpaMax, hpaCpuTarget: hpaCpu }),
-        });
-        if (!res.ok) throw new Error("HPA save failed");
-        toast.success(`Auto-scale enabled: ${hpaMin}–${hpaMax} replicas @ ${hpaCpu}% CPU`);
+        await patchServer({ action: "set-hpa", hpaMin, hpaMax, hpaCpuTarget: hpaCpu }, `Auto-scale enabled: ${hpaMin}–${hpaMax} replicas @ ${hpaCpu}% CPU`);
       }
-      queryClient.invalidateQueries({ queryKey: ["game-hub", "server", name] });
-    } catch (err) { toast.error(String(err)); }
-    finally { setScaleSaving(false); }
+    } catch (error) {
+      toast.error(String(error));
+    } finally {
+      setScaleSaving(false);
+    }
   }
 
   async function toggleAutoRestart() {
     const next = !autoRestart;
     setSavingRestart(true);
     try {
-      const res = await fetch(`/api/game-hub/servers/${name}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "set-restart-policy", restartPolicy: next }),
-      });
-      if (!res.ok) throw new Error("Restart policy update failed");
+      await patchServer({ action: "set-restart-policy", restartPolicy: next }, next ? "Crash restart enabled" : "Crash restart limited to failures only");
       setAutoRestart(next);
-      toast.success(next ? "Crash restart enabled" : "Crash restart limited to failures only");
-      queryClient.invalidateQueries({ queryKey: ["game-hub", "server", name] });
-    } catch (err) {
-      toast.error(String(err));
+    } catch (error) {
+      toast.error(String(error));
     } finally {
       setSavingRestart(false);
     }
@@ -764,283 +666,252 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
   async function saveNotes() {
     setSavingNotes(true);
     try {
-      const res = await fetch(`/api/game-hub/servers/${name}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "set-notes", notes }),
-      });
-      if (!res.ok) throw new Error("Notes save failed");
-      toast.success("Server notes saved");
-      queryClient.invalidateQueries({ queryKey: ["game-hub", "server", name] });
-    } catch (err) {
-      toast.error(String(err));
+      await patchServer({ action: "set-notes", notes }, "Server notes saved");
+    } catch (error) {
+      toast.error(String(error));
     } finally {
       setSavingNotes(false);
     }
   }
 
   async function saveResources() {
-    const memory = memLimit.trim();
-    const cpu = cpuLimit.trim();
-    if (!memory || !cpu) {
+    if (!memLimit.trim() || !cpuLimit.trim()) {
       toast.error("Memory and CPU limits are required");
       return;
     }
     setSavingResources(true);
     try {
-      const res = await fetch(`/api/game-hub/servers/${name}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "update-resources", memory, cpu }),
-      });
-      if (!res.ok) throw new Error("Resource update failed");
-      toast.success("Resource limits updated");
-      queryClient.invalidateQueries({ queryKey: ["game-hub", "server", name] });
-    } catch (err) {
-      toast.error(String(err));
+      await patchServer({ action: "update-resources", memory: memLimit.trim(), cpu: cpuLimit.trim() }, "Resource limits updated");
+    } catch (error) {
+      toast.error(String(error));
     } finally {
       setSavingResources(false);
     }
   }
 
-  const [editingEnv, setEditingEnv] = useState(false);
-  const [envStr, setEnvStr] = useState(
-    server.env.map(e => `${e.name}=${e.value ?? ""}`).join("\n")
-  );
-  const [saving, setSaving] = useState(false);
-
   async function saveEnv() {
-    setSaving(true);
+    setSavingEnv(true);
     try {
       const env: Record<string, string> = {};
       for (const line of envStr.split("\n")) {
-        const eq = line.indexOf("=");
-        if (eq < 0) continue;
-        env[line.slice(0, eq).trim()] = line.slice(eq + 1).trim();
+        const index = line.indexOf("=");
+        if (index < 0) continue;
+        env[line.slice(0, index).trim()] = line.slice(index + 1).trim();
       }
-      const res = await fetch(`/api/game-hub/servers/${name}`, {
-        method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "update-env", env }),
-      });
-      if (!res.ok) throw new Error("Save failed");
-      toast.success("Saved — restart the server to apply changes");
+      await patchServer({ action: "update-env", env }, "Saved — restart the server to apply changes");
       setEditingEnv(false);
+    } catch (error) {
+      toast.error(String(error));
+    } finally {
+      setSavingEnv(false);
+    }
+  }
+
+  function exportEnv() {
+    downloadTextFile(`${name}.env`, editingEnv ? envStr : stringifyEnv(server.env));
+  }
+
+  async function importEnvFile(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      setEnvStr(await file.text());
+      setEditingEnv(true);
+      toast.success(".env imported");
+    } catch (error) {
+      toast.error(String(error));
+    } finally {
+      event.target.value = "";
+    }
+  }
+
+  async function saveIdentity() {
+    try {
+      await patchServer({ action: "update-identity", description, icon, tags: tagsStr.split(",").map((tag) => tag.trim()).filter(Boolean) }, "Server identity updated");
+    } catch (error) {
+      toast.error(String(error));
+    }
+  }
+
+  async function saveImage() {
+    try {
+      await patchServer({ action: "update-image", image }, "Container image updated");
+    } catch (error) {
+      toast.error(String(error));
+    }
+  }
+
+  async function savePullPolicy() {
+    try {
+      await patchServer({ action: "update-pull-policy", pullPolicy: imagePullPolicy }, "Pull policy updated");
+    } catch (error) {
+      toast.error(String(error));
+    }
+  }
+
+  async function saveStrategy() {
+    try {
+      await patchServer({ action: "update-strategy", strategy: deploymentStrategy }, "Deployment strategy updated");
+    } catch (error) {
+      toast.error(String(error));
+    }
+  }
+
+  async function rollbackDeployment() {
+    try {
+      await fetchJson(`/api/game-hub/servers/${name}/rollback`, { method: "POST" });
+      toast.success("Rollback requested");
       queryClient.invalidateQueries({ queryKey: ["game-hub", "server", name] });
-    } catch (err) { toast.error(String(err)); }
-    finally { setSaving(false); }
+    } catch (error) {
+      toast.error(String(error));
+    }
+  }
+
+  async function viewYaml() {
+    setYamlLoading(true);
+    setYamlOpen(true);
+    try {
+      const result = await fetchJson<ServerDetail>(`/api/game-hub/servers/${name}?includeYaml=1`);
+      setYamlContent(result.deploymentYaml ?? "# YAML unavailable");
+    } catch (error) {
+      toast.error(String(error));
+      setYamlContent("# Failed to load deployment YAML");
+    } finally {
+      setYamlLoading(false);
+    }
+  }
+
+  function updatePort(id: string, patch: Partial<EditablePort>) {
+    setServicePorts((ports) => ports.map((port) => port.id === id ? { ...port, ...patch } : port));
+  }
+
+  function addPortRow() {
+    setServicePorts((ports) => [...ports, { id: `${Date.now()}-${ports.length}`, name: "", port: 25565, targetPort: 25565, protocol: "TCP" }]);
+  }
+
+  function removePortRow(id: string) {
+    setServicePorts((ports) => ports.filter((port) => port.id !== id));
+  }
+
+  async function savePorts() {
+    try {
+      const ports = servicePorts
+        .filter((port) => port.port > 0)
+        .map((port) => ({ name: port.name || undefined, port: Number(port.port), targetPort: Number(port.targetPort || port.port), protocol: port.protocol as "TCP" | "UDP" }));
+      await patchServer({ action: "update-service-ports", ports }, "Service ports updated");
+    } catch (error) {
+      toast.error(String(error));
+    }
+  }
+
+  async function saveScheduledAction() {
+    try {
+      await patchServer({ action: "set-scheduled-action", scheduledAction: scheduledAction === "none" ? null : scheduledAction, scheduledTime: scheduledTime || null }, "Scheduled action updated");
+    } catch (error) {
+      toast.error(String(error));
+    }
+  }
+
+  async function createSnapshot() {
+    try {
+      await fetchJson(`/api/game-hub/servers/${name}/snapshot`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
+      toast.success("Snapshot requested");
+      refetchSnapshots();
+    } catch (error) {
+      toast.error(String(error));
+    }
+  }
+
+  async function saveQuickCommand() {
+    const label = commandLabel.trim();
+    const cmd = commandText.trim();
+    if (!label || !cmd) {
+      toast.error("Label and command are required");
+      return;
+    }
+    try {
+      await patchServer({ action: "save-command", command: { label, cmd } }, "Saved command added");
+      setCommandLabel("");
+      setCommandText("");
+    } catch (error) {
+      toast.error(String(error));
+    }
+  }
+
+  async function deleteQuickCommand(entry: RuntimeSavedCommand) {
+    try {
+      await patchServer({ action: "delete-saved-command", commandId: entry.id }, "Saved command removed");
+    } catch (error) {
+      toast.error(String(error));
+    }
+  }
+
+  async function exportServer() {
+    try {
+      const result = await fetchJson<ServerDetail>(`/api/game-hub/servers/${name}`);
+      downloadTextFile(`${name}-config.json`, JSON.stringify({
+        name: result.name,
+        gameType: result.gameType,
+        dockerImage: result.image,
+        env: Object.fromEntries(result.env.map((entry) => [entry.name, entry.value ?? ""])),
+        ports: result.allPorts,
+        resources: { cpu: result.cpu, memory: result.memory },
+        replicas: result.replicas,
+        pvcSize: result.pvc?.size ?? null,
+        egg: result.egg,
+      }, null, 2), "application/json");
+      toast.success("Server export downloaded");
+    } catch (error) {
+      toast.error(String(error));
+    }
   }
 
   return (
     <div className="space-y-4">
-      {/* ── Replica / Scaling Control ── */}
       <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-[#1e1e1e]">
-          <Layers className="w-3.5 h-3.5 text-[#555]" />
-          <p className="text-xs font-medium text-[#888] uppercase tracking-wide">Replica Scaling</p>
-          {server.hpa.enabled && (
-            <span className="ml-auto text-[10px] px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/20">HPA active</span>
-          )}
-        </div>
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-[#1e1e1e]"><Layers className="w-3.5 h-3.5 text-[#555]" /><p className="text-xs font-medium text-[#888] uppercase tracking-wide">Replica Scaling</p>{server.hpa.enabled && <span className="ml-auto text-[10px] px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/20">HPA active</span>}</div>
         <div className="p-4 space-y-4">
-          {/* Mode toggle */}
-          <div className="flex gap-2">
-            {(["static", "dynamic"] as const).map(m => (
-              <button key={m} onClick={() => setReplicaMode(m)}
-                className={cn("flex-1 py-2 rounded-lg text-xs font-medium transition-colors border",
-                  replicaMode === m
-                    ? "bg-[#0078D4]/20 border-[#0078D4]/50 text-[#0078D4]"
-                    : "bg-transparent border-[#2a2a2a] text-[#666] hover:text-[#888]")}>
-                {m === "static" ? "Static (fixed)" : "Dynamic (HPA)"}
-              </button>
-            ))}
-          </div>
-
+          {server.replicas === 0 && <p className="text-xs text-[#888] rounded-lg border border-[#2a2a2a] bg-[#0d0d0d] px-3 py-2">Server is stopped (0 replicas running). Use the Start button above to start it.</p>}
+          <div className="flex gap-2">{(["static", "dynamic"] as const).map((mode) => <button key={mode} onClick={() => setReplicaMode(mode)} className={cn("flex-1 py-2 rounded-lg text-xs font-medium transition-colors border", replicaMode === mode ? "bg-[#0078D4]/20 border-[#0078D4]/50 text-[#0078D4]" : "bg-transparent border-[#2a2a2a] text-[#666] hover:text-[#888]")}>{mode === "static" ? "Static (fixed)" : "Dynamic (HPA)"}</button>)}</div>
           {replicaMode === "static" ? (
-            <div className="flex items-center gap-3">
-              <label className="text-xs text-[#666] flex-shrink-0">Replicas</label>
-              <div className="flex items-center gap-1">
-                <button onClick={() => setStaticCount(c => Math.max(0, c - 1))}
-                  className="w-7 h-7 rounded bg-[#1e1e1e] hover:bg-[#2a2a2a] text-[#888] text-sm font-bold flex items-center justify-center">−</button>
-                <span className="w-8 text-center text-sm font-mono text-[#f2f2f2]">{staticCount}</span>
-                <button onClick={() => setStaticCount(c => Math.min(10, c + 1))}
-                  className="w-7 h-7 rounded bg-[#1e1e1e] hover:bg-[#2a2a2a] text-[#888] text-sm font-bold flex items-center justify-center">+</button>
-              </div>
-              <p className="text-[10px] text-[#444]">(0 = stopped, max 10)</p>
-            </div>
+            <div className="flex items-center gap-3"><label className="text-xs text-[#666] flex-shrink-0">Replicas</label><div className="flex items-center gap-1"><button onClick={() => setStaticCount((count) => Math.max(1, count - 1))} className="w-7 h-7 rounded bg-[#1e1e1e] hover:bg-[#2a2a2a] text-[#888] text-sm font-bold flex items-center justify-center">−</button><span className="w-8 text-center text-sm font-mono text-[#f2f2f2]">{staticCount}</span><button onClick={() => setStaticCount((count) => Math.min(10, count + 1))} className="w-7 h-7 rounded bg-[#1e1e1e] hover:bg-[#2a2a2a] text-[#888] text-sm font-bold flex items-center justify-center">+</button></div></div>
           ) : (
-            <div className="space-y-3">
-              <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-[10px] text-[#666] mb-1">Min replicas</label>
-                  <input type="number" min={1} max={10} value={hpaMin}
-                    onChange={e => setHpaMin(Math.max(1, parseInt(e.target.value) || 1))}
-                    className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded px-2 py-1.5 text-sm text-[#f2f2f2] text-center focus:outline-none focus:border-[#0078D4]" />
-                </div>
-                <div>
-                  <label className="block text-[10px] text-[#666] mb-1">Max replicas</label>
-                  <input type="number" min={1} max={10} value={hpaMax}
-                    onChange={e => setHpaMax(Math.max(hpaMin, parseInt(e.target.value) || 1))}
-                    className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded px-2 py-1.5 text-sm text-[#f2f2f2] text-center focus:outline-none focus:border-[#0078D4]" />
-                </div>
-                <div>
-                  <label className="block text-[10px] text-[#666] mb-1">CPU target %</label>
-                  <input type="number" min={10} max={100} value={hpaCpu}
-                    onChange={e => setHpaCpu(Math.min(100, Math.max(10, parseInt(e.target.value) || 70)))}
-                    className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded px-2 py-1.5 text-sm text-[#f2f2f2] text-center focus:outline-none focus:border-[#0078D4]" />
-                </div>
-              </div>
-              {server.hpa.currentReplicas !== null && (
-                <p className="text-[10px] text-[#555]">Currently running {server.hpa.currentReplicas} replica(s) via HPA</p>
-              )}
-            </div>
+            <div className="space-y-3"><div className="grid grid-cols-3 gap-3"><div><label className="block text-[10px] text-[#666] mb-1">Min replicas</label><input type="number" min={1} max={10} value={hpaMin} onChange={(event) => setHpaMin(Math.max(1, parseInt(event.target.value, 10) || 1))} className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded px-2 py-1.5 text-sm text-[#f2f2f2] text-center focus:outline-none focus:border-[#0078D4]" /></div><div><label className="block text-[10px] text-[#666] mb-1">Max replicas</label><input type="number" min={1} max={10} value={hpaMax} onChange={(event) => setHpaMax(Math.max(hpaMin, parseInt(event.target.value, 10) || 1))} className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded px-2 py-1.5 text-sm text-[#f2f2f2] text-center focus:outline-none focus:border-[#0078D4]" /></div><div><label className="block text-[10px] text-[#666] mb-1">CPU target %</label><input type="number" min={10} max={100} value={hpaCpu} onChange={(event) => setHpaCpu(Math.min(100, Math.max(10, parseInt(event.target.value, 10) || 70)))} className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded px-2 py-1.5 text-sm text-[#f2f2f2] text-center focus:outline-none focus:border-[#0078D4]" /></div></div>{server.hpa.currentReplicas !== null && <p className="text-[10px] text-[#555]">Currently running {server.hpa.currentReplicas} replica(s) via HPA</p>}</div>
           )}
-
-          <button onClick={saveReplicas} disabled={scaleSaving}
-            className="flex items-center gap-1.5 px-4 py-2 bg-[#0078D4] hover:bg-[#0065B3] disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors">
-            {scaleSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-            Apply scaling
-          </button>
+          <button onClick={saveReplicas} disabled={scaleSaving} className="flex items-center gap-1.5 px-4 py-2 bg-[#0078D4] hover:bg-[#0065B3] disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors">{scaleSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />} Apply scaling</button>
         </div>
       </div>
 
-      {/* Auto-restart policy */}
-      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-[#1e1e1e]">
-          <RotateCcw className="w-3.5 h-3.5 text-[#555]" />
-          <p className="text-xs font-medium text-[#888] uppercase tracking-wide">Auto-restart Policy</p>
-        </div>
-        <div className="p-4 flex items-center justify-between gap-4">
-          <div>
-            <p className="text-sm text-[#f2f2f2]">Restart on crash</p>
-            <p className="text-xs text-[#555] mt-0.5">Automatically restart if the server process exits unexpectedly</p>
-          </div>
-          <button onClick={toggleAutoRestart} disabled={savingRestart}
-            className={cn("relative w-11 h-6 rounded-full transition-colors flex-shrink-0",
-              autoRestart ? "bg-[#0078D4]" : "bg-[#2a2a2a]")}>
-            <span className={cn("absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform shadow",
-              autoRestart ? "translate-x-5" : "translate-x-0")} />
-          </button>
-        </div>
-      </div>
+      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden"><div className="flex items-center gap-2 px-4 py-3 border-b border-[#1e1e1e]"><RotateCcw className="w-3.5 h-3.5 text-[#555]" /><p className="text-xs font-medium text-[#888] uppercase tracking-wide">Auto-restart Policy</p></div><div className="p-4 flex items-center justify-between gap-4"><div><p className="text-sm text-[#f2f2f2]">Restart on crash</p><p className="text-xs text-[#555] mt-0.5">Automatically restart if the server process exits unexpectedly</p></div><button onClick={toggleAutoRestart} disabled={savingRestart} className={cn("relative w-11 h-6 rounded-full transition-colors flex-shrink-0", autoRestart ? "bg-[#0078D4]" : "bg-[#2a2a2a]")}><span className={cn("absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform shadow", autoRestart ? "translate-x-5" : "translate-x-0")} /></button></div></div>
 
-      {/* Server notes */}
-      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-[#1e1e1e]">
-          <div className="flex items-center gap-2">
-            <FileText className="w-3.5 h-3.5 text-[#555]" />
-            <p className="text-xs font-medium text-[#888] uppercase tracking-wide">Server Notes</p>
-          </div>
-          <button onClick={saveNotes} disabled={savingNotes} className="text-xs text-[#0078D4] hover:underline">
-            {savingNotes ? "Saving..." : "Save"}
-          </button>
-        </div>
-        <div className="p-4">
-          <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={4}
-            placeholder="Add notes about this server, connection info, admin contacts..."
-            className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded-lg p-3 text-sm text-[#f2f2f2] resize-y focus:outline-none focus:border-[#0078D4] placeholder:text-[#333]" />
-        </div>
-      </div>
+      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden"><div className="flex items-center justify-between px-4 py-3 border-b border-[#1e1e1e]"><div className="flex items-center gap-2"><FileText className="w-3.5 h-3.5 text-[#555]" /><p className="text-xs font-medium text-[#888] uppercase tracking-wide">Server Notes</p></div><button onClick={saveNotes} disabled={savingNotes} className="text-xs text-[#0078D4] hover:underline">{savingNotes ? "Saving..." : "Save"}</button></div><div className="p-4"><textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={4} placeholder="Add notes about this server, connection info, admin contacts..." className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded-lg p-3 text-sm text-[#f2f2f2] resize-y focus:outline-none focus:border-[#0078D4] placeholder:text-[#333]" /></div></div>
 
-      {/* Resource Limits */}
-      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-[#1e1e1e]">
-          <Cpu className="w-3.5 h-3.5 text-[#555]" />
-          <p className="text-xs font-medium text-[#888] uppercase tracking-wide">Resource Limits</p>
-        </div>
-        <div className="p-4 space-y-3">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-[10px] text-[#666] mb-1">Memory limit</label>
-              <input value={memLimit} onChange={e => setMemLimit(e.target.value)}
-                placeholder="e.g. 2Gi, 512Mi"
-                className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded px-2 py-1.5 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]" />
-            </div>
-            <div>
-              <label className="block text-[10px] text-[#666] mb-1">CPU limit</label>
-              <input value={cpuLimit} onChange={e => setCpuLimit(e.target.value)}
-                placeholder="e.g. 1, 500m"
-                className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded px-2 py-1.5 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]" />
-            </div>
-          </div>
-          <button onClick={saveResources} disabled={savingResources}
-            className="flex items-center gap-1.5 px-4 py-2 bg-[#0078D4] hover:bg-[#0065B3] disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors">
-            {savingResources ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-            Apply limits
-          </button>
-        </div>
-      </div>
+      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden"><div className="flex items-center gap-2 px-4 py-3 border-b border-[#1e1e1e]"><Cpu className="w-3.5 h-3.5 text-[#555]" /><p className="text-xs font-medium text-[#888] uppercase tracking-wide">Resource Limits</p></div><div className="p-4 space-y-3"><div className="grid grid-cols-2 gap-3"><div><label className="block text-[10px] text-[#666] mb-1">Memory limit</label><input value={memLimit} onChange={(event) => setMemLimit(event.target.value)} placeholder="e.g. 2Gi, 512Mi" className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded px-2 py-1.5 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]" /></div><div><label className="block text-[10px] text-[#666] mb-1">CPU limit</label><input value={cpuLimit} onChange={(event) => setCpuLimit(event.target.value)} placeholder="e.g. 1, 500m" className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded px-2 py-1.5 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]" /></div></div><button onClick={saveResources} disabled={savingResources} className="flex items-center gap-1.5 px-4 py-2 bg-[#0078D4] hover:bg-[#0065B3] disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors">{savingResources ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />} Apply limits</button></div></div>
 
-      {/* Environment variables */}
-      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-[#1e1e1e]">
-          <div className="flex items-center gap-2">
-            <Shield className="w-3.5 h-3.5 text-[#555]" />
-            <p className="text-xs font-medium text-[#888] uppercase tracking-wide">Environment Variables</p>
-          </div>
-          <button onClick={() => setEditingEnv(!editingEnv)} className="text-xs text-[#0078D4] hover:underline">
-            {editingEnv ? "Cancel" : "Edit"}
-          </button>
-        </div>
-        <div className="p-4">
-          {editingEnv ? (
-            <div className="space-y-3">
-              <p className="text-xs text-[#555]">One <code className="text-[#888]">KEY=VALUE</code> per line. Sensitive values are hidden in the display view.</p>
-              <textarea value={envStr} onChange={e => setEnvStr(e.target.value)} rows={12}
-                className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded-lg p-3 text-sm font-mono text-[#f2f2f2] resize-y focus:outline-none focus:border-[#0078D4] leading-relaxed" />
-              <button onClick={saveEnv} disabled={saving}
-                className="flex items-center gap-1.5 px-4 py-2 bg-[#0078D4] text-white rounded-lg text-sm font-medium disabled:opacity-50">
-                {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-                Save changes
-              </button>
-            </div>
-          ) : (
-            <div className="space-y-2 max-h-72 overflow-y-auto">
-              {server.env.length === 0 ? (
-                <p className="text-xs text-[#555]">No environment variables set.</p>
-              ) : server.env.map(e => (
-                <div key={e.name} className="flex items-start gap-2 text-xs py-0.5">
-                  <span className="font-mono text-[#0078D4] flex-shrink-0 min-w-[120px]">{e.name}</span>
-                  <span className="text-[#444]">=</span>
-                  <span className={cn("font-mono break-all", e.name.match(/PASS|SECRET|KEY|TOKEN/i) ? "text-[#444] italic" : "text-[#9e9e9e]")}>
-                    {e.name.match(/PASS|SECRET|KEY|TOKEN/i) ? "••••••••" : (e.value ?? "<from secret>")}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
+      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden"><div className="flex items-center justify-between px-4 py-3 border-b border-[#1e1e1e]"><div className="flex items-center gap-2"><Shield className="w-3.5 h-3.5 text-[#555]" /><p className="text-xs font-medium text-[#888] uppercase tracking-wide">Environment Variables</p></div><div className="flex items-center gap-3"><button onClick={exportEnv} className="text-xs text-[#9e9e9e] hover:text-white">Export .env</button><button onClick={() => envImportRef.current?.click()} className="text-xs text-[#9e9e9e] hover:text-white">Import .env</button><button onClick={() => setEditingEnv((prev) => !prev)} className="text-xs text-[#0078D4] hover:underline">{editingEnv ? "Cancel" : "Edit"}</button></div></div><input ref={envImportRef} type="file" accept=".env,text/plain" className="hidden" onChange={importEnvFile} /><div className="p-4 space-y-4">{editingEnv ? (<div className="space-y-3"><p className="text-xs text-[#555]">One <code className="text-[#888]">KEY=VALUE</code> per line. Sensitive values are hidden in display mode.</p><textarea value={envStr} onChange={(event) => setEnvStr(event.target.value)} rows={12} className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded-lg p-3 text-sm font-mono text-[#f2f2f2] resize-y focus:outline-none focus:border-[#0078D4] leading-relaxed" /><button onClick={saveEnv} disabled={savingEnv} className="flex items-center gap-1.5 px-4 py-2 bg-[#0078D4] text-white rounded-lg text-sm font-medium disabled:opacity-50">{savingEnv ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />} Save changes</button></div>) : (<div className="space-y-2 max-h-72 overflow-y-auto">{server.env.length === 0 ? <p className="text-xs text-[#555]">No environment variables set.</p> : server.env.map((entry) => <div key={entry.name} className="flex items-start gap-2 text-xs py-0.5"><span className="font-mono text-[#0078D4] flex-shrink-0 min-w-[120px]">{entry.name}</span><span className="text-[#444]">=</span><span className={cn("font-mono break-all", entry.name.match(/PASS|SECRET|KEY|TOKEN/i) ? "text-[#444] italic" : "text-[#9e9e9e]")}>{entry.name.match(/PASS|SECRET|KEY|TOKEN/i) ? "••••••••" : (entry.value ?? "<from secret>")}</span></div>)}</div>)}<div className="rounded-lg border border-[#2a2a2a] bg-[#0d0d0d] p-3"><p className="text-[11px] uppercase tracking-wide text-[#666] mb-2">Config Diff vs Egg Defaults</p>{envDiff.length === 0 ? <p className="text-xs text-[#555]">No differences from the egg defaults.</p> : <div className="space-y-2">{envDiff.map((entry) => <div key={entry.key} className={cn("rounded border px-3 py-2 text-xs", entry.state === "added" ? "border-green-500/20 bg-green-500/5" : entry.state === "removed" ? "border-red-500/20 bg-red-500/5" : "border-yellow-500/20 bg-yellow-500/5")}><div className="font-mono text-[#f2f2f2]">{entry.key}</div><div className="mt-1 text-[#777]">Default: <span className="font-mono">{entry.defaultValue ?? "<unset>"}</span></div><div className="text-[#777]">Current: <span className="font-mono">{entry.currentValue ?? "<unset>"}</span></div></div>)}</div>}</div></div></div>
 
-      {/* Danger zone */}
-      <div className="rounded-xl border border-red-500/20 bg-red-500/5 overflow-hidden">
-        <div className="px-4 py-3 border-b border-red-500/20">
-          <p className="text-xs font-medium text-red-400/80 uppercase tracking-wide">Danger Zone</p>
-        </div>
-        <div className="p-4 flex items-center justify-between gap-4">
-          <div>
-            <p className="text-sm text-[#f2f2f2]">Delete this server</p>
-            <p className="text-xs text-[#666] mt-0.5">Permanently removes the deployment and all data. This cannot be undone.</p>
-          </div>
-          <button
-            onClick={async () => {
-              if (!confirm(`Permanently delete ${name} and all its data? This cannot be undone.`)) return;
-              try {
-                const res = await fetch(`/api/game-hub/servers/${name}`, { method: "DELETE" });
-                if (!res.ok) throw new Error("Delete failed");
-                toast.success(`${name} deleted`);
-                window.location.href = "/game-hub";
-              } catch (err) { toast.error(String(err)); }
-            }}
-            className="flex-shrink-0 flex items-center gap-1.5 px-4 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/30 rounded-lg text-sm font-medium transition-colors">
-            <Trash2 className="w-3.5 h-3.5" /> Delete
-          </button>
-        </div>
-      </div>
+      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden"><div className="flex items-center gap-2 px-4 py-3 border-b border-[#1e1e1e]"><FileText className="w-3.5 h-3.5 text-[#555]" /><p className="text-xs font-medium text-[#888] uppercase tracking-wide">Description & Identity</p></div><div className="p-4 space-y-4"><div><label className="block text-[10px] text-[#666] mb-1">Description</label><textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={3} className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded-lg p-3 text-sm text-[#f2f2f2] resize-y focus:outline-none focus:border-[#0078D4]" /></div><div><label className="block text-[10px] text-[#666] mb-2">Icon</label><div className="grid grid-cols-5 sm:grid-cols-10 gap-2">{ICON_OPTIONS.map((emoji) => <button key={emoji} onClick={() => setIcon(emoji)} className={cn("h-10 rounded-lg border text-lg transition-colors", icon === emoji ? "border-[#0078D4] bg-[#0078D4]/15" : "border-[#2a2a2a] bg-[#0a0a0a] hover:border-[#3a3a3a]")}>{emoji}</button>)}</div></div><div><label className="block text-[10px] text-[#666] mb-1">Tags</label><input value={tagsStr} onChange={(event) => setTagsStr(event.target.value)} placeholder="survival, friends, modded" className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]" /></div><button onClick={saveIdentity} className="px-3 py-2 rounded-lg bg-[#0078D4] text-white text-xs">Save identity</button></div></div>
+
+      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden"><div className="flex items-center gap-2 px-4 py-3 border-b border-[#1e1e1e]"><Package className="w-3.5 h-3.5 text-[#555]" /><p className="text-xs font-medium text-[#888] uppercase tracking-wide">Image & Deployment</p></div><div className="p-4 space-y-4"><div><label className="block text-[10px] text-[#666] mb-1">Image</label><div className="flex gap-2"><input value={image} onChange={(event) => setImage(event.target.value)} className="flex-1 bg-[#0a0a0a] border border-[#2a2a2a] rounded px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]" /><button onClick={saveImage} className="px-3 py-2 rounded-lg bg-[#0078D4] text-white text-xs">Save image</button></div></div><div className="grid md:grid-cols-2 gap-3"><div><label className="block text-[10px] text-[#666] mb-1">Image pull policy</label><div className="flex gap-2"><select value={imagePullPolicy} onChange={(event) => setImagePullPolicy(event.target.value)} className="flex-1 bg-[#0a0a0a] border border-[#2a2a2a] rounded px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"><option value="Always">Always</option><option value="IfNotPresent">IfNotPresent</option><option value="Never">Never</option></select><button onClick={savePullPolicy} className="px-3 py-2 rounded-lg bg-[#1a1a1a] border border-[#2a2a2a] text-xs text-[#d4d4d4]">Save</button></div></div><div><label className="block text-[10px] text-[#666] mb-1">Deployment strategy</label><div className="flex gap-2"><select value={deploymentStrategy} onChange={(event) => setDeploymentStrategy(event.target.value)} className="flex-1 bg-[#0a0a0a] border border-[#2a2a2a] rounded px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"><option value="RollingUpdate">RollingUpdate</option><option value="Recreate">Recreate</option></select><button onClick={saveStrategy} className="px-3 py-2 rounded-lg bg-[#1a1a1a] border border-[#2a2a2a] text-xs text-[#d4d4d4]">Save</button></div></div></div><div className="flex flex-wrap gap-2"><button onClick={rollbackDeployment} className="px-3 py-2 rounded-lg bg-[#1a1a1a] border border-[#2a2a2a] text-xs text-[#d4d4d4] hover:bg-[#222]">Rollback</button><button onClick={viewYaml} className="px-3 py-2 rounded-lg bg-[#1a1a1a] border border-[#2a2a2a] text-xs text-[#d4d4d4] hover:bg-[#222]">View Raw YAML</button></div></div></div>
+
+      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden"><div className="flex items-center gap-2 px-4 py-3 border-b border-[#1e1e1e]"><Wifi className="w-3.5 h-3.5 text-[#555]" /><p className="text-xs font-medium text-[#888] uppercase tracking-wide">Service Ports</p></div><div className="p-4 space-y-3"><div className="space-y-2">{servicePorts.map((port) => <div key={port.id} className="grid grid-cols-[1fr_110px_110px_110px_auto] gap-2 items-center"><input value={port.name} onChange={(event) => updatePort(port.id, { name: event.target.value })} placeholder="name" className="bg-[#0a0a0a] border border-[#2a2a2a] rounded px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]" /><input type="number" min={1} value={port.port} onChange={(event) => updatePort(port.id, { port: Math.max(1, parseInt(event.target.value, 10) || 1) })} className="bg-[#0a0a0a] border border-[#2a2a2a] rounded px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]" /><input type="number" min={1} value={port.targetPort} onChange={(event) => updatePort(port.id, { targetPort: Math.max(1, parseInt(event.target.value, 10) || 1) })} className="bg-[#0a0a0a] border border-[#2a2a2a] rounded px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]" /><select value={port.protocol} onChange={(event) => updatePort(port.id, { protocol: event.target.value })} className="bg-[#0a0a0a] border border-[#2a2a2a] rounded px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"><option value="TCP">TCP</option><option value="UDP">UDP</option></select><button onClick={() => removePortRow(port.id)} disabled={servicePorts.length <= 1} className="p-2 rounded-lg border border-[#2a2a2a] text-[#777] hover:text-red-300 disabled:opacity-40">✕</button></div>)}</div><div className="flex gap-2"><button onClick={addPortRow} className="px-3 py-2 rounded-lg bg-[#1a1a1a] border border-[#2a2a2a] text-xs text-[#d4d4d4] flex items-center gap-1.5"><Plus className="w-3.5 h-3.5" />Add port</button><button onClick={savePorts} className="px-3 py-2 rounded-lg bg-[#0078D4] text-white text-xs">Save</button></div></div></div>
+
+      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden"><div className="flex items-center gap-2 px-4 py-3 border-b border-[#1e1e1e]"><Clock className="w-3.5 h-3.5 text-[#555]" /><p className="text-xs font-medium text-[#888] uppercase tracking-wide">Scheduled Action</p></div><div className="p-4 space-y-3">{server.scheduledAction && server.scheduledTime && <p className="text-xs text-[#888]">Current schedule: <span className="text-[#f2f2f2]">{server.scheduledAction}</span> @ {new Date(server.scheduledTime).toLocaleString()}</p>}<p className="text-[11px] text-[#666]">Scheduled actions require the platform to be running so the controller can apply them.</p><div className="grid md:grid-cols-[200px_1fr_auto] gap-2"><select value={scheduledAction} onChange={(event) => setScheduledAction(event.target.value)} className="bg-[#0a0a0a] border border-[#2a2a2a] rounded px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"><option value="none">None</option><option value="stop">Stop</option><option value="restart">Restart</option></select><input type="datetime-local" value={scheduledTime} onChange={(event) => setScheduledTime(event.target.value)} className="bg-[#0a0a0a] border border-[#2a2a2a] rounded px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]" /><button onClick={saveScheduledAction} className="px-3 py-2 rounded-lg bg-[#0078D4] text-white text-xs">Save</button></div></div></div>
+
+      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden"><div className="flex items-center gap-2 px-4 py-3 border-b border-[#1e1e1e]"><HardDrive className="w-3.5 h-3.5 text-[#555]" /><p className="text-xs font-medium text-[#888] uppercase tracking-wide">PVC Snapshots</p></div><div className="p-4 space-y-3">{!isLonghornPvc ? <p className="text-xs text-[#666]">Snapshots are available for Longhorn-backed PVCs.</p> : <><div className="flex items-center justify-between gap-2"><p className="text-xs text-[#888]">Create CSI snapshots for {server.pvc?.name ?? "this PVC"}.</p><button onClick={createSnapshot} className="px-3 py-2 rounded-lg bg-[#0078D4] text-white text-xs">Create Snapshot</button></div><div className="space-y-2">{(snapshotsData?.snapshots ?? []).length === 0 ? <p className="text-xs text-[#555]">{snapshotsLoading ? "Loading snapshots..." : "No snapshots found."}</p> : (snapshotsData?.snapshots ?? []).map((snapshot) => <div key={snapshot.metadata?.name} className="rounded-lg border border-[#2a2a2a] bg-[#0a0a0a] px-3 py-2 text-xs"><div className="flex items-center justify-between gap-2"><span className="font-mono text-[#f2f2f2]">{snapshot.metadata?.name}</span><span className={cn("px-2 py-0.5 rounded-full border text-[10px]", snapshot.status?.readyToUse ? "border-green-500/30 bg-green-500/10 text-green-300" : "border-yellow-500/30 bg-yellow-500/10 text-yellow-300")}>{snapshot.status?.readyToUse ? "Ready" : "Pending"}</span></div><p className="text-[#666] mt-1">{snapshot.metadata?.creationTimestamp ? new Date(snapshot.metadata.creationTimestamp).toLocaleString() : "Waiting for controller"}</p></div>)}</div></>}</div></div>
+
+      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden"><div className="flex items-center gap-2 px-4 py-3 border-b border-[#1e1e1e]"><Terminal className="w-3.5 h-3.5 text-[#555]" /><p className="text-xs font-medium text-[#888] uppercase tracking-wide">Saved Quick Commands</p></div><div className="p-4 space-y-4"><div className="space-y-2">{savedCommands.length === 0 ? <p className="text-xs text-[#555]">No saved commands yet.</p> : savedCommands.map((entry) => <div key={`${entry.id ?? entry.label}-${entry.command}`} className="flex items-center gap-3 rounded-lg border border-[#2a2a2a] bg-[#0a0a0a] px-3 py-2 text-sm"><div className="flex-1 min-w-0"><p className="text-[#f2f2f2]">{entry.label}</p><p className="text-xs text-[#777] font-mono truncate">{entry.command}</p></div><button onClick={() => deleteQuickCommand(entry)} className="text-xs text-red-300 hover:text-red-200">Delete</button></div>)}</div><div className="grid md:grid-cols-[180px_1fr_auto] gap-2"><input value={commandLabel} onChange={(event) => setCommandLabel(event.target.value)} placeholder="Label" className="bg-[#0a0a0a] border border-[#2a2a2a] rounded px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]" /><input value={commandText} onChange={(event) => setCommandText(event.target.value)} placeholder="Command" className="bg-[#0a0a0a] border border-[#2a2a2a] rounded px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]" /><button onClick={saveQuickCommand} className="px-3 py-2 rounded-lg bg-[#0078D4] text-white text-xs">Save</button></div></div></div>
+
+      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden"><div className="flex items-center gap-2 px-4 py-3 border-b border-[#1e1e1e]"><Download className="w-3.5 h-3.5 text-[#555]" /><p className="text-xs font-medium text-[#888] uppercase tracking-wide">Server Export</p></div><div className="p-4"><button onClick={exportServer} className="px-3 py-2 rounded-lg bg-[#0078D4] text-white text-xs">Export Config</button></div></div>
+
+      <div className="rounded-xl border border-red-500/20 bg-red-500/5 overflow-hidden"><div className="px-4 py-3 border-b border-red-500/20"><p className="text-xs font-medium text-red-400/80 uppercase tracking-wide">Danger Zone</p></div><div className="p-4 flex items-center justify-between gap-4"><div><p className="text-sm text-[#f2f2f2]">Delete this server</p><p className="text-xs text-[#666] mt-0.5">Permanently removes the deployment and all data. This cannot be undone.</p></div><button onClick={async () => { if (!confirm(`Permanently delete ${name} and all its data? This cannot be undone.`)) return; try { await fetchJson(`/api/game-hub/servers/${name}`, { method: "DELETE" }); toast.success(`${name} deleted`); window.location.href = "/game-hub"; } catch (error) { toast.error(String(error)); } }} className="flex-shrink-0 flex items-center gap-1.5 px-4 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/30 rounded-lg text-sm font-medium transition-colors"><Trash2 className="w-3.5 h-3.5" /> Delete</button></div></div>
+
+      <AnimatePresence>{yamlOpen && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"><motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }} className="w-full max-w-5xl bg-[#111] border border-[#2a2a2a] rounded-xl overflow-hidden shadow-2xl"><div className="flex items-center justify-between px-4 py-3 border-b border-[#1e1e1e]"><div><p className="text-sm font-medium text-[#f2f2f2]">Deployment YAML</p><p className="text-xs text-[#666]">Read-only deployment manifest</p></div><div className="flex items-center gap-2"><button onClick={() => { navigator.clipboard.writeText(yamlContent); toast.success("Copied"); }} className="px-3 py-1.5 rounded-lg bg-[#1a1a1a] border border-[#2a2a2a] text-xs text-[#d4d4d4]">Copy</button><button onClick={() => setYamlOpen(false)} className="p-2 text-[#777] hover:text-white"><X className="w-4 h-4" /></button></div></div><div className="h-[70vh]">{yamlLoading ? <div className="h-full flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-[#0078D4]" /></div> : <MonacoEditor height="100%" language="yaml" value={yamlContent} theme="vs-dark" options={{ readOnly: true, minimap: { enabled: false }, fontSize: 13, wordWrap: "on", scrollBeyondLastLine: false, padding: { top: 8 } }} />}</div></motion.div></div>}</AnimatePresence>
     </div>
   );
 }
 
-// ─── Main Page ────────────────────────────────────────────────────────────────
+
 export default function ServerDetailPage() {
   const { name } = useParams<{ name: string }>();
   const [activeTab, setActiveTab] = useState<TabId>("dashboard");
@@ -1049,15 +920,7 @@ export default function ServerDetailPage() {
 
   const { data: server, isLoading, error, refetch } = useQuery({
     queryKey: ["game-hub", "server", name],
-    queryFn: async () => {
-      const res = await fetch(`/api/game-hub/servers/${name}`);
-      if (!res.ok) {
-        // Try to get the error detail from the response body
-        const body = await res.json().catch(() => ({ error: `HTTP ${res.status}` })) as { error?: string };
-        throw new Error(body.error ?? `HTTP ${res.status}`);
-      }
-      return res.json() as Promise<ServerDetail>;
-    },
+    queryFn: async () => fetchJson<ServerDetail>(`/api/game-hub/servers/${name}`),
     refetchInterval: 10000,
     retry: 2,
   });
@@ -1065,37 +928,22 @@ export default function ServerDetailPage() {
   async function doAction(action: string) {
     setActionLoading(action);
     try {
-      const res = await fetch(`/api/game-hub/servers/${name}`, {
-        method: "PATCH", headers: { "Content-Type": "application/json" },
+      await fetchJson(`/api/game-hub/servers/${name}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action }),
       });
-      if (!res.ok) throw new Error(`${action} failed`);
       toast.success(`${action} successful`);
       queryClient.invalidateQueries({ queryKey: ["game-hub", "server", name] });
-    } catch (err) { toast.error(String(err)); }
-    finally { setActionLoading(null); }
+    } catch (error) {
+      toast.error(String(error));
+    } finally {
+      setActionLoading(null);
+    }
   }
 
-  const status = server?.maintenanceMode ? "maintenance"
-    : server?.readyReplicas && server.readyReplicas > 0 ? "running"
-      : (server?.replicas ?? 0) > 0 ? "starting" : "stopped";
-
-  // Map each game type to the container path where its data PVC is mounted
-  const GAME_MOUNT_PATHS: Record<string, string> = {
-    minecraft: "/data", "minecraft-java": "/data", "minecraft-bedrock": "/data",
-    terraria: "/world",
-    valheim: "/config",
-    satisfactory: "/config",
-    "project-zomboid": "/data",
-    vrising: "/config",
-    palworld: "/data",
-    ark: "/data",
-    rust: "/data",
-    cs2: "/data",
-    factorio: "/data",
-  };
-  const mountPath = server?.egg?.mountPath ?? GAME_MOUNT_PATHS[server?.gameType ?? ""] ?? "/data";
-
+  const status = server?.maintenanceMode ? "maintenance" : server?.readyReplicas && server.readyReplicas > 0 ? "running" : (server?.replicas ?? 0) > 0 ? "starting" : "stopped";
+  const mountPath = server?.egg?.mountPath ?? "/data";
   const statusDot = { running: "bg-green-400", starting: "bg-yellow-400 animate-pulse", maintenance: "bg-yellow-400", stopped: "bg-[#444]" }[status];
   const statusText = { running: "text-green-400", starting: "text-yellow-400", maintenance: "text-yellow-400", stopped: "text-[#666]" }[status];
 
@@ -1110,15 +958,12 @@ export default function ServerDetailPage() {
 
   return (
     <div className="space-y-0 pb-2">
-      {/* ── Server header ── */}
       <div className="sticky top-0 z-10 bg-[#0e0e0e]/95 backdrop-blur-sm border-b border-[#1e1e1e] -mx-4 px-4 pb-0 pt-0">
-        {/* Top row */}
         <div className="flex items-center gap-2 py-3">
-          <Link href="/game-hub"
-            className="p-1.5 rounded-lg text-[#555] hover:text-[#9e9e9e] hover:bg-[#1e1e1e] transition-colors flex-shrink-0">
+          <Link href="/game-hub" className="p-1.5 rounded-lg text-[#555] hover:text-[#9e9e9e] hover:bg-[#1e1e1e] transition-colors flex-shrink-0">
             <ChevronLeft className="w-5 h-5" />
           </Link>
-          <span className="text-xl flex-shrink-0">{GAME_ICONS[server?.gameType ?? ""] ?? "🎮"}</span>
+          <span className="text-xl flex-shrink-0">{server?.icon ?? "🎮"}</span>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
               <h1 className="text-sm font-semibold text-[#f2f2f2] truncate">{name}</h1>
@@ -1127,44 +972,32 @@ export default function ServerDetailPage() {
                 <span className={cn("text-xs capitalize hidden sm:block", statusText)}>{status}</span>
               </div>
             </div>
-            <p className="text-[10px] text-[#555] capitalize">{server?.gameType?.replace(/-/g, " ") ?? "Game"} Server</p>
+            <p className="text-[10px] text-[#555]">{server?.description || `${server?.gameType?.replace(/-/g, " ") ?? "Game"} Server`}</p>
+            {status === "stopped" && <p className="text-[10px] text-amber-300 mt-0.5">Server is stopped. Use Start to bring it online.</p>}
           </div>
-          {/* Action buttons */}
           {server && (
             <div className="flex items-center gap-1 flex-shrink-0">
-              <button
-                onClick={async () => {
-                  const newName = prompt("Clone server as", `${name}-copy`);
-                  if (!newName) return;
-                  try {
-                    const res = await fetch("/api/game-hub/servers", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ action: "clone", source: name, newName }),
-                    });
-                    if (!res.ok) throw new Error("Clone failed");
-                    toast.success("Clone started");
-                    queryClient.invalidateQueries({ queryKey: ["game-hub", "servers"] });
-                  } catch (err) { toast.error(String(err)); }
-                }}
-                className="px-3 py-2 min-h-[38px] bg-[#1a1a1a] hover:bg-[#222] text-[#888] rounded-lg text-xs transition-colors"
-              >
-                Clone
-              </button>
+              <button onClick={async () => {
+                const newName = prompt("Clone server as", `${name}-copy`);
+                if (!newName) return;
+                try {
+                  await fetchJson("/api/game-hub/servers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "clone", source: name, newName }) });
+                  toast.success("Clone started");
+                  queryClient.invalidateQueries({ queryKey: ["game-hub", "servers"] });
+                } catch (error) {
+                  toast.error(String(error));
+                }
+              }} className="px-3 py-2 min-h-[38px] bg-[#1a1a1a] hover:bg-[#222] text-[#888] rounded-lg text-xs transition-colors">Clone</button>
               {status === "stopped" ? (
-                <button onClick={() => doAction("start")} disabled={!!actionLoading}
-                  className="flex items-center gap-1.5 px-3 py-2 min-h-[38px] bg-green-500/20 hover:bg-green-500/30 text-green-300 border border-green-500/30 rounded-lg text-xs font-medium disabled:opacity-50 touch-manipulation">
-                  {actionLoading === "start" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
-                  Start
+                <button onClick={() => doAction("start")} disabled={!!actionLoading} className="flex items-center gap-1.5 px-3 py-2 min-h-[38px] bg-green-500/20 hover:bg-green-500/30 text-green-300 border border-green-500/30 rounded-lg text-xs font-medium disabled:opacity-50 touch-manipulation">
+                  {actionLoading === "start" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />} Start
                 </button>
               ) : (
                 <>
-                  <button onClick={() => doAction("restart")} disabled={!!actionLoading} title="Restart"
-                    className="p-2 min-h-[38px] min-w-[38px] bg-[#1a1a1a] hover:bg-[#222] text-[#888] rounded-lg transition-colors disabled:opacity-50 touch-manipulation flex items-center justify-center">
+                  <button onClick={() => doAction("restart")} disabled={!!actionLoading} title="Restart" className="p-2 min-h-[38px] min-w-[38px] bg-[#1a1a1a] hover:bg-[#222] text-[#888] rounded-lg transition-colors disabled:opacity-50 touch-manipulation flex items-center justify-center">
                     {actionLoading === "restart" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
                   </button>
-                  <button onClick={() => doAction("stop")} disabled={!!actionLoading} title="Stop"
-                    className="p-2 min-h-[38px] min-w-[38px] bg-[#1a1a1a] hover:bg-[#222] text-[#888] rounded-lg transition-colors disabled:opacity-50 touch-manipulation flex items-center justify-center">
+                  <button onClick={() => doAction("stop")} disabled={!!actionLoading} title="Stop" className="p-2 min-h-[38px] min-w-[38px] bg-[#1a1a1a] hover:bg-[#222] text-[#888] rounded-lg transition-colors disabled:opacity-50 touch-manipulation flex items-center justify-center">
                     {actionLoading === "stop" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Square className="w-3.5 h-3.5" />}
                   </button>
                 </>
@@ -1173,16 +1006,9 @@ export default function ServerDetailPage() {
           )}
         </div>
 
-        {/* Tab bar */}
         <div className="flex gap-0 overflow-x-auto scrollbar-none touch-pan-x">
           {tabs.map(({ id, label, icon: Icon }) => (
-            <button key={id} onClick={() => setActiveTab(id)}
-              className={cn(
-                "flex items-center gap-1.5 px-4 py-2.5 text-xs font-medium transition-colors border-b-2 -mb-px whitespace-nowrap flex-shrink-0 touch-manipulation",
-                activeTab === id
-                  ? "border-[#0078D4] text-[#0078D4] bg-[#0078D4]/5"
-                  : "border-transparent text-[#555] hover:text-[#888]"
-              )}>
+            <button key={id} onClick={() => setActiveTab(id)} className={cn("flex items-center gap-1.5 px-4 py-2.5 text-xs font-medium transition-colors border-b-2 -mb-px whitespace-nowrap flex-shrink-0 touch-manipulation", activeTab === id ? "border-[#0078D4] text-[#0078D4] bg-[#0078D4]/5" : "border-transparent text-[#555] hover:text-[#888]")}>
               <Icon className="w-3.5 h-3.5" />
               {label}
             </button>
@@ -1190,7 +1016,6 @@ export default function ServerDetailPage() {
         </div>
       </div>
 
-      {/* ── Content ── */}
       <div className="pt-4">
         {isLoading && (
           <div className="flex flex-col items-center justify-center h-48 gap-3">
@@ -1205,23 +1030,16 @@ export default function ServerDetailPage() {
             <div className="flex-1">
               <p className="text-sm font-semibold text-red-300">Could not load server details</p>
               <p className="text-xs text-red-400/80 mt-1 font-mono">{String(error)}</p>
-              <button onClick={() => refetch()}
-                className="mt-3 flex items-center gap-1.5 text-xs text-red-300 hover:underline">
-                <RefreshCw className="w-3 h-3" /> Retry
-              </button>
+              <button onClick={() => refetch()} className="mt-3 flex items-center gap-1.5 text-xs text-red-300 hover:underline"><RefreshCw className="w-3 h-3" /> Retry</button>
             </div>
           </div>
         )}
 
         {server && !isLoading && (
           <AnimatePresence mode="wait">
-            <motion.div key={activeTab}
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.12 }}>
-              {activeTab === "dashboard" && <DashboardTab server={server} status={status} name={name} />}
-              {activeTab === "console" && <ConsoleTab name={name} status={status} gameType={server?.gameType ?? "unknown"} />}
+            <motion.div key={activeTab} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.12 }}>
+              {activeTab === "dashboard" && <DashboardTab server={server} name={name} />}
+              {activeTab === "console" && <ConsoleTab name={name} status={status} server={server} />}
               {activeTab === "players" && <PlayersTab name={name} server={server} />}
               {activeTab === "files" && <FilesTab name={name} status={status} mountPath={mountPath} />}
               {activeTab === "activity" && <ActivityTab name={name} />}

@@ -1,9 +1,10 @@
 "use client";
-import { useState } from "react";
+
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, Gamepad2, Play, Square, RotateCcw, Trash2, Terminal, Loader2, AlertTriangle, HardDrive, X, CheckSquare, Square as SquareIcon, Search, ChevronDown, ChevronUp } from "lucide-react";
+import { Plus, Gamepad2, Play, Square, RotateCcw, Trash2, Terminal, Loader2, AlertTriangle, HardDrive, X, CheckSquare, Square as SquareIcon, Search, ChevronDown, ChevronUp, BarChart2, BookOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
 import { toast } from "sonner";
@@ -21,6 +22,16 @@ interface GameServer {
   memory: string;
   cpu: string;
   createdAt: string | null;
+  description?: string;
+  icon?: string;
+  tags?: string[];
+  restartCount?: number;
+  healthScore?: number;
+  podStartTime?: string | null;
+  cpuUsage?: number | null;
+  memoryUsage?: number | null;
+  cpuLimit?: number | null;
+  memoryLimit?: number | null;
 }
 
 interface UnusedPVC {
@@ -31,12 +42,6 @@ interface UnusedPVC {
   capacity: string;
   createdAt: string | null;
 }
-
-const GAME_ICONS: Record<string, string> = {
-  minecraft: "⛏",
-  terraria: "🌍",
-  valheim: "🪓",
-};
 
 const STATUS_COLORS: Record<string, string> = {
   running: "bg-green-500/20 text-green-300 border-green-500/30",
@@ -69,7 +74,7 @@ const FEATURE_ROADMAP: Array<{ category: string; items: Array<{ name: string; st
       { name: "CPU/RAM graphs", status: "Shipped" },
       { name: "Network traffic", status: "Shipped" },
       { name: "Player count timeline", status: "Shipped" },
-      { name: "Minecraft TPS", status: "Coming Soon" },
+      { name: "Server tick metrics", status: "Coming Soon" },
       { name: "Disk usage chart", status: "Shipped" },
       { name: "Event timeline", status: "Shipped" },
       { name: "Alert thresholds", status: "Coming Soon" },
@@ -213,10 +218,9 @@ function PVCCleanupModal({ onClose }: { onClose: () => void }) {
     queryFn: async () => {
       const res = await fetch("/api/storage/pvc-cleanup");
       if (!res.ok) throw new Error("Failed to fetch unused PVCs");
-      const d = await res.json() as { unused: UnusedPVC[] };
-      // auto-check all on first load
-      setChecked(new Set(d.unused.map(p => `${p.namespace}/${p.name}`)));
-      return d;
+      const result = await res.json() as { unused: UnusedPVC[] };
+      setChecked(new Set(result.unused.map((pvc) => `${pvc.namespace}/${pvc.name}`)));
+      return result;
     },
     staleTime: 0,
   });
@@ -225,11 +229,11 @@ function PVCCleanupModal({ onClose }: { onClose: () => void }) {
 
   function toggleAll() {
     if (checked.size === unused.length) setChecked(new Set());
-    else setChecked(new Set(unused.map(p => `${p.namespace}/${p.name}`)));
+    else setChecked(new Set(unused.map((pvc) => `${pvc.namespace}/${pvc.name}`)));
   }
 
   function toggle(key: string) {
-    setChecked(prev => {
+    setChecked((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key); else next.add(key);
       return next;
@@ -237,21 +241,21 @@ function PVCCleanupModal({ onClose }: { onClose: () => void }) {
   }
 
   async function doCleanup() {
-    const toDelete = unused.filter(p => checked.has(`${p.namespace}/${p.name}`));
+    const toDelete = unused.filter((pvc) => checked.has(`${pvc.namespace}/${pvc.name}`));
     if (toDelete.length === 0) return;
     setDeleting(true);
     try {
       const res = await fetch("/api/storage/pvc-cleanup", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pvcs: toDelete.map(p => ({ namespace: p.namespace, name: p.name })) }),
+        body: JSON.stringify({ pvcs: toDelete.map((pvc) => ({ namespace: pvc.namespace, name: pvc.name })) }),
       });
       const result = await res.json() as { deleted: number; failed: number };
       if (result.failed > 0) toast.error(`${result.failed} PVC(s) failed to delete`);
       else toast.success(`${result.deleted} PVC(s) deleted`);
       onClose();
-    } catch (err) {
-      toast.error(String(err));
+    } catch (error) {
+      toast.error(String(error));
     } finally {
       setDeleting(false);
     }
@@ -259,13 +263,7 @@ function PVCCleanupModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <motion.div
-        initial={{ opacity: 0, scale: 0.96 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.96 }}
-        className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl w-full max-w-lg max-h-[80vh] flex flex-col shadow-2xl"
-      >
-        {/* Header */}
+      <motion.div initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }} className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl w-full max-w-lg max-h-[80vh] flex flex-col shadow-2xl">
         <div className="flex items-center justify-between p-5 border-b border-[#2a2a2a]">
           <div className="flex items-center gap-3">
             <HardDrive className="w-5 h-5 text-[#0078D4]" />
@@ -278,8 +276,6 @@ function PVCCleanupModal({ onClose }: { onClose: () => void }) {
             <X className="w-4 h-4" />
           </button>
         </div>
-
-        {/* Body */}
         <div className="flex-1 overflow-y-auto p-5">
           {isLoading && (
             <div className="flex items-center justify-center h-32 gap-2 text-[#666]">
@@ -309,31 +305,16 @@ function PVCCleanupModal({ onClose }: { onClose: () => void }) {
                   {checked.size === unused.length ? "Deselect all" : "Select all"}
                 </button>
               </div>
-              {unused.map(pvc => {
+              {unused.map((pvc) => {
                 const key = `${pvc.namespace}/${pvc.name}`;
                 const isChecked = checked.has(key);
                 return (
-                  <button
-                    key={key}
-                    onClick={() => toggle(key)}
-                    className={cn(
-                      "w-full flex items-start gap-3 p-3 rounded-lg border text-left transition-colors",
-                      isChecked
-                        ? "bg-red-500/10 border-red-500/30 hover:bg-red-500/15"
-                        : "bg-[#252525] border-[#2a2a2a] hover:bg-[#2a2a2a]"
-                    )}
-                  >
-                    <div className={cn("mt-0.5 w-4 h-4 rounded border flex-shrink-0 flex items-center justify-center",
-                      isChecked ? "bg-red-500 border-red-500" : "border-[#444]")}>
-                      {isChecked && <span className="text-white text-[10px] font-bold">✓</span>}
-                    </div>
+                  <button key={key} onClick={() => toggle(key)} className={cn("w-full flex items-start gap-3 p-3 rounded-lg border text-left transition-colors", isChecked ? "bg-red-500/10 border-red-500/30 hover:bg-red-500/15" : "bg-[#252525] border-[#2a2a2a] hover:bg-[#2a2a2a]")}>
+                    <div className={cn("mt-0.5 w-4 h-4 rounded border flex-shrink-0 flex items-center justify-center", isChecked ? "bg-red-500 border-red-500" : "border-[#444]")}>{isChecked && <span className="text-white text-[10px] font-bold">✓</span>}</div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-medium text-[#f2f2f2] truncate">{pvc.name}</span>
-                        <span className={cn("text-[10px] px-1.5 py-0.5 rounded-full border flex-shrink-0",
-                          pvc.status === "Released" ? "bg-yellow-500/20 text-yellow-300 border-yellow-500/30" :
-                          pvc.status === "Lost" ? "bg-red-500/20 text-red-300 border-red-500/30" :
-                          "bg-[#333] text-[#999] border-[#444]")}>{pvc.status}</span>
+                        <span className={cn("text-[10px] px-1.5 py-0.5 rounded-full border flex-shrink-0", pvc.status === "Released" ? "bg-yellow-500/20 text-yellow-300 border-yellow-500/30" : pvc.status === "Lost" ? "bg-red-500/20 text-red-300 border-red-500/30" : "bg-[#333] text-[#999] border-[#444]")}>{pvc.status}</span>
                       </div>
                       <p className="text-[11px] text-[#666] mt-0.5">{pvc.namespace} · {pvc.storageClass || "default"} · {pvc.capacity || "unknown size"}</p>
                     </div>
@@ -343,22 +324,13 @@ function PVCCleanupModal({ onClose }: { onClose: () => void }) {
             </div>
           )}
         </div>
-
-        {/* Footer */}
         {!isLoading && unused.length > 0 && (
           <div className="flex items-center justify-between gap-3 p-5 border-t border-[#2a2a2a]">
             <p className="text-xs text-[#666]">{checked.size} of {unused.length} selected</p>
             <div className="flex gap-2">
-              <button onClick={onClose} className="px-4 py-2 rounded-lg bg-[#252525] hover:bg-[#2a2a2a] text-[#9e9e9e] text-sm font-medium transition-colors">
-                Cancel
-              </button>
-              <button
-                onClick={doCleanup}
-                disabled={checked.size === 0 || deleting}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-300 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                Delete {checked.size > 0 ? `${checked.size} PVC${checked.size !== 1 ? "s" : ""}` : ""}
+              <button onClick={onClose} className="px-4 py-2 rounded-lg bg-[#252525] hover:bg-[#2a2a2a] text-[#9e9e9e] text-sm font-medium transition-colors">Cancel</button>
+              <button onClick={doCleanup} disabled={checked.size === 0 || deleting} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-300 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />} Delete {checked.size > 0 ? `${checked.size} PVC${checked.size !== 1 ? "s" : ""}` : ""}
               </button>
             </div>
           </div>
@@ -366,6 +338,48 @@ function PVCCleanupModal({ onClose }: { onClose: () => void }) {
       </motion.div>
     </div>
   );
+}
+
+function computeHealthScore(server: GameServer) {
+  const readyScore = server.readyReplicas > 0 ? 40 : 0;
+  const restartPenalty = Math.min((server.restartCount ?? 0) * 5, 20);
+  const cpuPct = server.cpuUsage && server.cpuLimit ? (server.cpuUsage / server.cpuLimit) * 100 : 0;
+  const memoryPct = server.memoryUsage && server.memoryLimit ? (server.memoryUsage / server.memoryLimit) * 100 : 0;
+  const cpuScore = cpuPct <= 0 ? 10 : cpuPct <= 80 ? 20 : cpuPct <= 95 ? 10 : 0;
+  const memoryScore = memoryPct <= 0 ? 10 : memoryPct <= 80 ? 20 : memoryPct <= 95 ? 10 : 0;
+  const ageHours = server.podStartTime ? (Date.now() - new Date(server.podStartTime).getTime()) / 3_600_000 : 0;
+  const ageScore = !server.podStartTime ? 0 : ageHours >= 24 ? 20 : ageHours >= 1 ? 12 : 6;
+  return Math.max(0, Math.min(100, readyScore + cpuScore + memoryScore + ageScore - restartPenalty));
+}
+
+function healthBadge(server: GameServer) {
+  const score = computeHealthScore(server);
+  if (server.status === "stopped") return { label: "Stopped", score, className: "bg-[#333] text-[#bbb] border-[#444]" };
+  if (score >= 80) return { label: `${score}/100`, score, className: "bg-green-500/15 text-green-300 border-green-500/30" };
+  if (score >= 50) return { label: `${score}/100`, score, className: "bg-yellow-500/15 text-yellow-300 border-yellow-500/30" };
+  return { label: `${score}/100`, score, className: "bg-red-500/15 text-red-300 border-red-500/30" };
+}
+
+function formatUsage(value: number | null | undefined, limit: number | null | undefined, kind: "cpu" | "memory") {
+  if (!value || !limit) return "—";
+  const pct = Math.round((value / limit) * 100);
+  if (kind === "cpu") return `${pct}%`;
+  const gib = (value / (1024 ** 3)).toFixed(1);
+  return `${gib}Gi (${pct}%)`;
+}
+
+function replicaSummary(server: GameServer) {
+  if (server.readyReplicas === 0 && server.replicas === 0) return "—";
+  return `${server.readyReplicas}/${server.replicas}`;
+}
+
+function formatUptime(startTime: string | null | undefined, now: number) {
+  if (!startTime || !now) return "—";
+  const diff = Math.max(0, Math.floor((now - new Date(startTime).getTime()) / 1000));
+  if (diff < 60) return `${diff}s`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ${diff % 60}s`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ${Math.floor((diff % 3600) / 60)}m`;
+  return `${Math.floor(diff / 86400)}d ${Math.floor((diff % 86400) / 3600)}h`;
 }
 
 export default function GameHubPage() {
@@ -378,6 +392,20 @@ export default function GameHubPage() {
   const [filterStatus, setFilterStatus] = useState("all");
   const [showRoadmap, setShowRoadmap] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [compareMode, setCompareMode] = useState(false);
+  const [compareSet, setCompareSet] = useState<Set<string>>(new Set());
+  const [filterTag, setFilterTag] = useState("");
+  const [now, setNow] = useState(0);
+
+  useEffect(() => {
+    const tick = () => setNow(Date.now());
+    const immediate = setTimeout(tick, 0);
+    const interval = setInterval(tick, 60000);
+    return () => {
+      clearTimeout(immediate);
+      clearInterval(interval);
+    };
+  }, []);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["game-hub", "servers"],
@@ -390,16 +418,20 @@ export default function GameHubPage() {
   });
 
   const servers = data?.servers ?? [];
-  const uniqueGameTypes = [...new Set(servers.map(s => s.gameType))].sort();
-  const filteredServers = servers.filter((s) => {
-    if (search && !s.name.toLowerCase().includes(search.toLowerCase())) return false;
-    if (filterStatus !== "all" && s.status !== filterStatus) return false;
-    if (filterType && s.gameType !== filterType) return false;
+  const uniqueGameTypes = [...new Set(servers.map((server) => server.gameType))].sort();
+  const allTags = [...new Set(servers.flatMap((server) => server.tags ?? []))].sort((a, b) => a.localeCompare(b));
+  const filteredServers = servers.filter((server) => {
+    const haystack = [server.name, server.description ?? "", ...(server.tags ?? [])].join(" ").toLowerCase();
+    if (search && !haystack.includes(search.toLowerCase())) return false;
+    if (filterStatus !== "all" && server.status !== filterStatus) return false;
+    if (filterType && server.gameType !== filterType) return false;
+    if (filterTag && !(server.tags ?? []).includes(filterTag)) return false;
     return true;
   });
+  const comparedServers = [...compareSet].map((name) => servers.find((server) => server.name === name)).filter((server): server is GameServer => Boolean(server));
 
   async function doAction(name: string, action: string) {
-    setActionLoading(prev => ({ ...prev, [name]: action }));
+    setActionLoading((prev) => ({ ...prev, [name]: action }));
     try {
       if (action === "delete") {
         const res = await fetch(`/api/game-hub/servers/${name}`, { method: "DELETE" });
@@ -415,10 +447,14 @@ export default function GameHubPage() {
         toast.success(`${name} ${action} successful`);
       }
       queryClient.invalidateQueries({ queryKey: ["game-hub", "servers"] });
-    } catch (err) {
-      toast.error(String(err));
+    } catch (error) {
+      toast.error(String(error));
     } finally {
-      setActionLoading(prev => { const n = { ...prev }; delete n[name]; return n; });
+      setActionLoading((prev) => {
+        const next = { ...prev };
+        delete next[name];
+        return next;
+      });
     }
   }
 
@@ -434,8 +470,8 @@ export default function GameHubPage() {
       if (!res.ok) throw new Error("Clone failed");
       toast.success("Clone started");
       queryClient.invalidateQueries({ queryKey: ["game-hub", "servers"] });
-    } catch (err) {
-      toast.error(String(err));
+    } catch (error) {
+      toast.error(String(error));
     }
   }
 
@@ -451,20 +487,34 @@ export default function GameHubPage() {
       toast.success(`${action} requested for ${selected.size} server${selected.size === 1 ? "" : "s"}`);
       setSelected(new Set());
       queryClient.invalidateQueries({ queryKey: ["game-hub", "servers"] });
-    } catch (err) {
-      toast.error(String(err));
+    } catch (error) {
+      toast.error(String(error));
     }
   }
 
   function toggleSelected(name: string) {
-    setSelected(prev => {
+    setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(name)) next.delete(name); else next.add(name);
       return next;
     });
   }
 
-  void router;
+  function toggleCompare(name: string) {
+    setCompareSet((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) {
+        next.delete(name);
+        return next;
+      }
+      if (next.size >= 3) {
+        toast.info("You can compare up to 3 servers at once");
+        return prev;
+      }
+      next.add(name);
+      return next;
+    });
+  }
 
   return (
     <div className="space-y-6">
@@ -478,17 +528,23 @@ export default function GameHubPage() {
         icon={Gamepad2}
         actions={
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => setShowPVCCleanup(true)}
-              className="flex items-center gap-2 px-3 py-2 bg-[#252525] hover:bg-[#2a2a2a] border border-[#2a2a2a] text-[#9e9e9e] hover:text-[#f2f2f2] rounded-lg text-sm font-medium transition-colors"
-            >
+            <button onClick={() => setShowPVCCleanup(true)} className="flex items-center gap-2 px-3 py-2 bg-[#252525] hover:bg-[#2a2a2a] border border-[#2a2a2a] text-[#9e9e9e] hover:text-[#f2f2f2] rounded-lg text-sm font-medium transition-colors">
               <HardDrive className="w-4 h-4" />
               <span className="hidden sm:inline">Cleanup PVCs</span>
             </button>
-            <Link
-              href="/game-hub/new"
-              className="flex items-center gap-2 px-4 py-2 bg-[#0078D4] hover:bg-[#006cbe] text-white rounded-lg text-sm font-medium transition-colors"
+            <button
+              onClick={() => {
+                setCompareMode((prev) => {
+                  if (prev) setCompareSet(new Set());
+                  return !prev;
+                });
+              }}
+              className={cn("flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors border", compareMode ? "bg-[#0078D4]/15 border-[#0078D4]/30 text-[#4db3ff]" : "bg-[#252525] hover:bg-[#2a2a2a] border-[#2a2a2a] text-[#9e9e9e] hover:text-[#f2f2f2]")}
             >
+              <BarChart2 className="w-4 h-4" />
+              <span className="hidden sm:inline">{compareMode ? "Comparing" : "Compare"}</span>
+            </button>
+            <Link href="/game-hub/new" className="flex items-center gap-2 px-4 py-2 bg-[#0078D4] hover:bg-[#006cbe] text-white rounded-lg text-sm font-medium transition-colors">
               <Plus className="w-4 h-4" />
               New Server
             </Link>
@@ -496,29 +552,30 @@ export default function GameHubPage() {
         }
       />
 
-      {/* Filter bar */}
       <div className="flex items-center gap-2 flex-wrap">
         <div className="relative flex-1 min-w-[160px] max-w-xs">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#555]" />
-          <input value={search} onChange={e => setSearch(e.target.value)}
-            placeholder="Search servers..."
-            className="w-full bg-[#111] border border-[#2a2a2a] rounded-lg pl-8 pr-3 py-1.5 text-sm text-[#f2f2f2] placeholder:text-[#444] focus:outline-none focus:border-[#0078D4]/50" />
+          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search servers..." className="w-full bg-[#111] border border-[#2a2a2a] rounded-lg pl-8 pr-3 py-1.5 text-sm text-[#f2f2f2] placeholder:text-[#444] focus:outline-none focus:border-[#0078D4]/50" />
         </div>
-        {["all", "running", "starting", "stopped"].map(s => (
-          <button key={s} onClick={() => setFilterStatus(s)}
-            className={cn("px-3 py-1.5 rounded-lg text-xs font-medium capitalize transition-colors border",
-              filterStatus === s ? "bg-[#0078D4]/20 border-[#0078D4]/40 text-[#0078D4]" : "bg-[#111] border-[#2a2a2a] text-[#666] hover:text-[#999]")}>
-            {s}
-          </button>
+        {["all", "running", "starting", "stopped"].map((status) => (
+          <button key={status} onClick={() => setFilterStatus(status)} className={cn("px-3 py-1.5 rounded-lg text-xs font-medium capitalize transition-colors border", filterStatus === status ? "bg-[#0078D4]/20 border-[#0078D4]/40 text-[#0078D4]" : "bg-[#111] border-[#2a2a2a] text-[#666] hover:text-[#999]")}>{status}</button>
         ))}
         {uniqueGameTypes.length > 1 && (
-          <select value={filterType} onChange={e => setFilterType(e.target.value)}
-            className="bg-[#111] border border-[#2a2a2a] rounded-lg px-2 py-1.5 text-xs text-[#666] focus:outline-none focus:border-[#0078D4]/50">
+          <select value={filterType} onChange={(event) => setFilterType(event.target.value)} className="bg-[#111] border border-[#2a2a2a] rounded-lg px-2 py-1.5 text-xs text-[#666] focus:outline-none focus:border-[#0078D4]/50">
             <option value="">All types</option>
-            {uniqueGameTypes.map(t => <option key={t} value={t}>{t}</option>)}
+            {uniqueGameTypes.map((type) => <option key={type} value={type}>{type}</option>)}
           </select>
         )}
       </div>
+
+      {allTags.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          <button onClick={() => setFilterTag("")} className={cn("px-2.5 py-1 rounded-full border text-[11px] transition-colors", !filterTag ? "border-[#0078D4]/30 bg-[#0078D4]/15 text-[#4db3ff]" : "border-[#2a2a2a] bg-[#111] text-[#777] hover:text-[#ccc]")}>All tags</button>
+          {allTags.map((tag) => (
+            <button key={tag} onClick={() => setFilterTag((prev) => prev === tag ? "" : tag)} className={cn("px-2.5 py-1 rounded-full border text-[11px] transition-colors", filterTag === tag ? "border-[#0078D4]/30 bg-[#0078D4]/15 text-[#4db3ff]" : "border-[#2a2a2a] bg-[#111] text-[#777] hover:text-[#ccc]")}>#{tag}</button>
+          ))}
+        </div>
+      )}
 
       {selected.size > 0 && (
         <div className="sticky top-16 z-10 flex items-center gap-2 rounded-xl border border-[#0078D4]/30 bg-[#0b1a2a] px-4 py-3">
@@ -530,11 +587,7 @@ export default function GameHubPage() {
         </div>
       )}
 
-      {isLoading && (
-        <div className="flex items-center justify-center h-40">
-          <Loader2 className="w-6 h-6 text-[#0078D4] animate-spin" />
-        </div>
-      )}
+      {isLoading && <div className="flex items-center justify-center h-40"><Loader2 className="w-6 h-6 text-[#0078D4] animate-spin" /></div>}
 
       {error && (
         <div className="flex items-center gap-3 p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-300">
@@ -547,20 +600,13 @@ export default function GameHubPage() {
       )}
 
       {!isLoading && !error && servers.length === 0 && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="flex flex-col items-center justify-center h-64 rounded-xl border border-dashed border-[#2a2a2a] gap-4"
-        >
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col items-center justify-center h-64 rounded-xl border border-dashed border-[#2a2a2a] gap-4">
           <div className="text-5xl">🎮</div>
           <div className="text-center">
             <p className="text-[#f2f2f2] font-medium">No game servers yet</p>
             <p className="text-[#666] text-sm mt-1">Deploy your first server to get started</p>
           </div>
-          <Link
-            href="/game-hub/new"
-            className="flex items-center gap-2 px-4 py-2 bg-[#0078D4] hover:bg-[#006cbe] text-white rounded-lg text-sm font-medium transition-colors"
-          >
+          <Link href="/game-hub/new" className="flex items-center gap-2 px-4 py-2 bg-[#0078D4] hover:bg-[#006cbe] text-white rounded-lg text-sm font-medium transition-colors">
             <Plus className="w-4 h-4" />
             Deploy Server
           </Link>
@@ -570,115 +616,137 @@ export default function GameHubPage() {
       {!isLoading && !error && servers.length > 0 && filteredServers.length === 0 && (
         <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-6 text-center">
           <p className="text-sm text-[#f2f2f2] font-medium">No servers match the current filters</p>
-          <p className="text-xs text-[#666] mt-1">Try a different search, status, or game type.</p>
+          <p className="text-xs text-[#666] mt-1">Try a different search, status, type, or tag.</p>
         </div>
       )}
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         <AnimatePresence>
-          {filteredServers.map((server, i) => (
-            <motion.div
-              key={server.name}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              transition={{ delay: i * 0.05 }}
-              className="rounded-xl border border-[#2a2a2a] bg-[#1a1a1a] p-5 flex flex-col gap-4 cursor-pointer hover:border-[#3a3a3a] transition-colors"
-              onClick={() => window.location.href = `/game-hub/${server.name}`}
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex items-center gap-3">
-                  <button onClick={(e) => { e.stopPropagation(); toggleSelected(server.name); }} className="mt-2">
-                    {selected.has(server.name) ? <CheckSquare className="w-4 h-4 text-[#0078D4]" /> : <SquareIcon className="w-4 h-4 text-[#666]" />}
-                  </button>
-                  <div className="w-10 h-10 rounded-lg bg-[#252525] flex items-center justify-center text-xl">
-                    {GAME_ICONS[server.gameType] ?? "🎮"}
-                  </div>
-                  <div>
-                    <p className="font-medium text-sm text-[#f2f2f2]">{server.name}</p>
-                    <p className="text-xs text-[#666] capitalize">{server.gameType}</p>
+          {filteredServers.map((server, index) => {
+            const health = healthBadge(server);
+            const cardIcon = server.icon ?? server.gameType[0]?.toUpperCase() ?? "🎮";
+            const stoppedStyle = server.status === "stopped" ? "border-amber-500/30 bg-amber-500/10 text-amber-300" : (STATUS_COLORS[server.status] ?? STATUS_COLORS.stopped);
+            return (
+              <motion.div
+                key={server.name}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                transition={{ delay: index * 0.05 }}
+                className={cn("rounded-xl border bg-[#1a1a1a] p-5 flex flex-col gap-4 transition-colors", compareMode ? "cursor-pointer" : "cursor-pointer hover:border-[#3a3a3a]", compareSet.has(server.name) ? "border-[#0078D4] ring-1 ring-[#0078D4]/40" : "border-[#2a2a2a]")}
+                onClick={() => compareMode ? toggleCompare(server.name) : router.push(`/game-hub/${server.name}`)}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-start gap-3 min-w-0">
+                    <button onClick={(event) => { event.stopPropagation(); toggleSelected(server.name); }} className="mt-2">
+                      {selected.has(server.name) ? <CheckSquare className="w-4 h-4 text-[#0078D4]" /> : <SquareIcon className="w-4 h-4 text-[#666]" />}
+                    </button>
+                    <div className="w-10 h-10 rounded-lg bg-[#252525] flex items-center justify-center text-xl flex-shrink-0">{cardIcon}</div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="font-medium text-sm text-[#f2f2f2] truncate">{server.name}</p>
+                        <span className={cn("text-[10px] font-medium rounded-full px-2 py-0.5 border capitalize", stoppedStyle)}>{server.status}</span>
+                        <span className={cn("text-[10px] font-medium rounded-full px-2 py-0.5 border", health.className)}>{server.status === "stopped" ? "Stopped" : `Health ${health.label}`}</span>
+                        {server.status === "stopped" && <span className="text-[10px] px-2 py-0.5 rounded-full border border-amber-500/30 bg-amber-500/10 text-amber-200">Stopped</span>}
+                      </div>
+                      <p className="text-xs text-[#666] capitalize mt-0.5">{server.gameType.replace(/-/g, " ")}</p>
+                      {server.description && <p className="text-[11px] text-[#777] mt-1 line-clamp-2">{server.description}</p>}
+                      {(server.tags ?? []).length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          {server.tags?.map((tag) => <span key={tag} className="px-1.5 py-0.5 rounded-full bg-[#111] border border-[#2a2a2a] text-[10px] text-[#9e9e9e]">#{tag}</span>)}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
-                <span className={cn("text-xs font-medium rounded-full px-2 py-0.5 border capitalize", STATUS_COLORS[server.status] ?? STATUS_COLORS.stopped)}>
-                  {server.status}
-                </span>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2 text-xs text-[#666]">
-                <div>Port: <span className="text-[#9e9e9e]">{server.nodePort || server.port || "—"}</span></div>
-                <div>Memory: <span className="text-[#9e9e9e]">{server.memory || "—"}</span></div>
-              </div>
-
-              <div className="flex items-center gap-2 flex-wrap" onClick={e => e.stopPropagation()}>
-                {server.status === "stopped" ? (
-                  <button
-                    onClick={() => doAction(server.name, "start")}
-                    disabled={!!actionLoading[server.name]}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-green-500/20 hover:bg-green-500/30 text-green-300 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
-                  >
-                    {actionLoading[server.name] === "start" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
-                    Start
+                <div className="grid grid-cols-2 gap-2 text-xs text-[#666]">
+                  <div>Port: <span className="text-[#9e9e9e]">{server.nodePort || server.port || "—"}</span></div>
+                  <div>Memory: <span className="text-[#9e9e9e]">{server.memory || "—"}</span></div>
+                  <div>CPU: <span className="text-[#9e9e9e]">{server.cpu || "—"}</span></div>
+                  <div>Replicas: <span className="text-[#9e9e9e]">{replicaSummary(server)}</span></div>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap" onClick={(event) => event.stopPropagation()}>
+                  {server.status === "stopped" ? (
+                    <button onClick={() => doAction(server.name, "start")} disabled={!!actionLoading[server.name]} className="flex items-center gap-1.5 px-3 py-1.5 bg-green-500/20 hover:bg-green-500/30 text-green-300 rounded-lg text-xs font-medium transition-colors disabled:opacity-50">
+                      {actionLoading[server.name] === "start" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />} Start
+                    </button>
+                  ) : (
+                    <>
+                      <button onClick={() => doAction(server.name, "stop")} disabled={!!actionLoading[server.name]} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#252525] hover:bg-[#2a2a2a] text-[#9e9e9e] rounded-lg text-xs font-medium transition-colors disabled:opacity-50">
+                        {actionLoading[server.name] === "stop" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Square className="w-3.5 h-3.5" />} Stop
+                      </button>
+                      <button onClick={() => doAction(server.name, "restart")} disabled={!!actionLoading[server.name]} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#252525] hover:bg-[#2a2a2a] text-[#9e9e9e] rounded-lg text-xs font-medium transition-colors disabled:opacity-50">
+                        {actionLoading[server.name] === "restart" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />} Restart
+                      </button>
+                    </>
+                  )}
+                  <button onClick={() => cloneServer(server.name)} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#252525] hover:bg-[#2a2a2a] text-[#9e9e9e] rounded-lg text-xs font-medium transition-colors">Clone</button>
+                  <Link href={`/game-hub/${server.name}`} className="flex items-center gap-1.5 px-3 py-1.5 bg-[rgba(0,120,212,0.15)] hover:bg-[rgba(0,120,212,0.25)] text-[#0078D4] rounded-lg text-xs font-medium transition-colors">
+                    <Terminal className="w-3.5 h-3.5" /> Console
+                  </Link>
+                  <button onClick={() => { if (confirm(`Delete ${server.name}? This will remove the server and its data.`)) doAction(server.name, "delete"); }} disabled={!!actionLoading[server.name]} className="ml-auto flex items-center gap-1.5 px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg text-xs font-medium transition-colors disabled:opacity-50">
+                    {actionLoading[server.name] === "delete" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />} Delete
                   </button>
-                ) : (
-                  <>
-                    <button
-                      onClick={() => doAction(server.name, "stop")}
-                      disabled={!!actionLoading[server.name]}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-[#252525] hover:bg-[#2a2a2a] text-[#9e9e9e] rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
-                    >
-                      {actionLoading[server.name] === "stop" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Square className="w-3.5 h-3.5" />}
-                      Stop
-                    </button>
-                    <button
-                      onClick={() => doAction(server.name, "restart")}
-                      disabled={!!actionLoading[server.name]}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-[#252525] hover:bg-[#2a2a2a] text-[#9e9e9e] rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
-                    >
-                      {actionLoading[server.name] === "restart" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
-                      Restart
-                    </button>
-                  </>
-                )}
-                <button
-                  onClick={() => cloneServer(server.name)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[#252525] hover:bg-[#2a2a2a] text-[#9e9e9e] rounded-lg text-xs font-medium transition-colors"
-                >
-                  Clone
-                </button>
-                <Link
-                  href={`/game-hub/${server.name}`}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[rgba(0,120,212,0.15)] hover:bg-[rgba(0,120,212,0.25)] text-[#0078D4] rounded-lg text-xs font-medium transition-colors"
-                >
-                  <Terminal className="w-3.5 h-3.5" />
-                  Console
-                </Link>
-                <button
-                  onClick={() => { if (confirm(`Delete ${server.name}? This will remove the server and its data.`)) doAction(server.name, "delete"); }}
-                  disabled={!!actionLoading[server.name]}
-                  className="ml-auto flex items-center gap-1.5 px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
-                >
-                  {actionLoading[server.name] === "delete" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-                  Delete
-                </button>
-              </div>
-            </motion.div>
-          ))}
+                </div>
+              </motion.div>
+            );
+          })}
         </AnimatePresence>
       </div>
 
+      {compareMode && comparedServers.length >= 2 && (
+        <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
+          <div className="flex items-center gap-2 px-4 py-3 border-b border-[#1e1e1e]">
+            <BarChart2 className="w-4 h-4 text-[#4db3ff]" />
+            <div>
+              <p className="text-sm font-medium text-[#f2f2f2]">Server Comparison</p>
+              <p className="text-xs text-[#666]">Compare up to three servers side by side.</p>
+            </div>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] text-sm">
+              <thead className="bg-[#0d0d0d]">
+                <tr>
+                  <th className="text-left px-4 py-3 text-xs uppercase tracking-wide text-[#666]">Metric</th>
+                  {comparedServers.map((server) => (
+                    <th key={server.name} className="text-left px-4 py-3 text-xs uppercase tracking-wide text-[#888]">{server.icon ?? server.gameType[0]?.toUpperCase() ?? "🎮"} {server.name}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {[
+                  { label: "Status", render: (server: GameServer) => server.status },
+                  { label: "Game type", render: (server: GameServer) => server.gameType },
+                  { label: "Replicas", render: replicaSummary },
+                  { label: "CPU usage", render: (server: GameServer) => formatUsage(server.cpuUsage, server.cpuLimit, "cpu") },
+                  { label: "Memory usage", render: (server: GameServer) => formatUsage(server.memoryUsage, server.memoryLimit, "memory") },
+                  { label: "Restarts", render: (server: GameServer) => String(server.restartCount ?? 0) },
+                  { label: "Uptime", render: (server: GameServer) => formatUptime(server.podStartTime, now) },
+                ].map((row) => (
+                  <tr key={row.label} className="border-t border-[#1e1e1e]">
+                    <td className="px-4 py-3 text-[#666] text-xs uppercase tracking-wide">{row.label}</td>
+                    {comparedServers.map((server) => (
+                      <td key={`${row.label}-${server.name}`} className="px-4 py-3 text-[#d4d4d4]">{row.render(server)}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
-        <button
-          onClick={() => setShowRoadmap(v => !v)}
-          className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left border-b border-[#1e1e1e]"
-        >
-          <div>
-            <p className="text-sm font-medium text-[#f2f2f2]">Feature Roadmap</p>
-            <p className="text-xs text-[#666] mt-0.5">100 ideas across 10 categories, with shipped game hub features highlighted.</p>
+        <button onClick={() => setShowRoadmap((prev) => !prev)} className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left border-b border-[#1e1e1e]">
+          <div className="flex items-start gap-3">
+            <BookOpen className="w-4 h-4 text-[#4db3ff] mt-0.5" />
+            <div>
+              <p className="text-sm font-medium text-[#f2f2f2]">Feature Roadmap</p>
+              <p className="text-xs text-[#666] mt-0.5">100 ideas across 10 categories, with shipped game hub features highlighted.</p>
+            </div>
           </div>
           <div className="flex items-center gap-2 text-[#666]">
-            <span className="text-[10px] px-2 py-0.5 rounded-full border border-[#2a2a2a] bg-[#0d0d0d]">
-              {FEATURE_ROADMAP.reduce((sum, category) => sum + category.items.length, 0)} items
-            </span>
+            <span className="text-[10px] px-2 py-0.5 rounded-full border border-[#2a2a2a] bg-[#0d0d0d]">{FEATURE_ROADMAP.reduce((sum, category) => sum + category.items.length, 0)} items</span>
             {showRoadmap ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
           </div>
         </button>
@@ -694,20 +762,10 @@ export default function GameHubPage() {
                   {category.items.map((feature) => (
                     <div key={feature.name} className="rounded-lg border border-[#1d1d1d] bg-[#111] px-2.5 py-2">
                       <div className="flex items-start gap-2">
-                        <span className={cn(
-                          "mt-0.5 text-[11px] leading-none",
-                          feature.status === "Shipped" ? "text-green-400" : "text-[#333]"
-                        )}>
-                          {feature.status === "Shipped" ? "✓" : "•"}
-                        </span>
+                        <span className={cn("mt-0.5 text-[11px] leading-none", feature.status === "Shipped" ? "text-green-400" : "text-[#333]")}>{feature.status === "Shipped" ? "✓" : "•"}</span>
                         <div className="min-w-0 flex-1">
                           <p className="text-[11px] text-[#d4d4d4] leading-snug">{feature.name}</p>
-                          <span className={cn(
-                            "inline-flex mt-1 text-[9px] px-1.5 py-0.5 rounded-full border",
-                            ROADMAP_STATUS_STYLES[feature.status]
-                          )}>
-                            {feature.status}
-                          </span>
+                          <span className={cn("inline-flex mt-1 text-[9px] px-1.5 py-0.5 rounded-full border", ROADMAP_STATUS_STYLES[feature.status])}>{feature.status}</span>
                         </div>
                       </div>
                     </div>
@@ -720,5 +778,4 @@ export default function GameHubPage() {
       </div>
     </div>
   );
-
 }

@@ -1,3 +1,25 @@
+export interface QuickCommand {
+  label: string;
+  /** Preferred field for the command string (new eggs should use this) */
+  cmd?: string;
+  /** Legacy field - kept for backward compat; getQuickCommandStr prefers cmd */
+  command?: string;
+  color?: string;
+  description?: string;
+}
+
+export function getQuickCommandStr(q: QuickCommand): string {
+  return (q.cmd ?? q.command ?? "").trim();
+}
+
+export interface SavedCommand {
+  id: string;
+  label: string;
+  cmd: string;
+  color?: string;
+  description?: string;
+}
+
 export interface GameEgg {
   id: string;
   name: string;
@@ -14,11 +36,7 @@ export interface GameEgg {
     defaultValue: string;
     required: boolean;
   }>;
-  quickCommands: Array<{
-    label: string;
-    command: string;
-    description: string;
-  }>;
+  quickCommands: QuickCommand[];
   commandAcl?: Record<string, string[]>;
   installScriptUrl?: string;
   protocol?: "TCP" | "UDP";
@@ -26,10 +44,12 @@ export interface GameEgg {
   defaultMemory?: string;
   defaultCpu?: string;
   defaultStorage?: string;
+  supportsModrinth?: boolean;
+  connectionHint?: string;
 }
 
 function defaultCommandAcl(egg: Pick<GameEgg, "quickCommands">): Record<string, string[]> {
-  const quick = egg.quickCommands.map((entry) => entry.command.trim()).filter(Boolean);
+  const quick = egg.quickCommands.map((entry) => getQuickCommandStr(entry)).filter(Boolean);
   return {
     "game-server-viewer": [...new Set(["list", "players", "playing", ...quick.filter((command) => /^(list|players|playing)/.test(command))])],
     "game-server-operator": [...new Set(["list", "players", "playing", "time set day", "weather clear", ...quick])],
@@ -52,6 +72,7 @@ const minecraftJava: GameEgg = {
   defaultMemory: "2Gi",
   defaultCpu: "1",
   defaultStorage: "10Gi",
+  supportsModrinth: true,
   environment: [
     { name: "EULA", description: "Accept EULA", defaultValue: "TRUE", required: true },
     { name: "TYPE", description: "Server type (VANILLA, PAPER, SPIGOT)", defaultValue: "PAPER", required: false },
