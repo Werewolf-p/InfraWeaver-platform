@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -675,8 +676,8 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
 }
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
-export default function ServerDetailPage({ params }: { params: { name: string } }) {
-  const { name } = params;
+export default function ServerDetailPage() {
+  const { name } = useParams<{ name: string }>();
   const [activeTab, setActiveTab] = useState<TabId>("dashboard");
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const queryClient = useQueryClient();
