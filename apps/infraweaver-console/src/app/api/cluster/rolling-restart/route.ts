@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getRole } from "@/lib/rbac";
 import { auditLog } from "@/lib/audit-log";
+import { loadKubeConfig } from "@/lib/k8s";
+import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { z } from "zod";
 import * as k8s from "@kubernetes/client-node";
 
@@ -10,27 +12,31 @@ export async function POST(req: NextRequest) {
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
   if (getRole(groups) !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  const RollingRestartBody = z.object({ namespace: z.string().min(1).max(63) });
-  const result = RollingRestartBody.safeParse(await req.json());
+  if (!checkRateLimit(rateLimitKey("cluster-rolling-restart", req), 3, 60_000)) {
+    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
+  }
+
+  const result = z.object({ namespace: z.string().min(1).max(63) }).safeParse(await req.json());
   if (!result.success) return NextResponse.json({ error: result.error.flatten() }, { status: 400 });
+
   const { namespace } = result.data;
   const restarted: string[] = [];
   const errors: string[] = [];
+
   try {
-    const kc = new k8s.KubeConfig();
-    if (process.env.KUBECONFIG) { kc.loadFromFile(process.env.KUBECONFIG); } else { try { kc.loadFromCluster(); } catch { kc.loadFromDefault(); } }
-    const appsApi = kc.makeApiClient(k8s.AppsV1Api);
-    const deps = await appsApi.listNamespacedDeployment({ namespace });
-    for (const dep of deps.items) {
-      const name = dep.metadata?.name ?? "";
+    const appsApi = loadKubeConfig().makeApiClient(k8s.AppsV1Api);
+    const deployments = await appsApi.listNamespacedDeployment({ namespace });
+    for (const deployment of deployments.items) {
+      const name = deployment.metadata?.name ?? "";
       try {
         await appsApi.patchNamespacedDeployment({
-          name, namespace,
+          name,
+          namespace,
           body: { spec: { template: { metadata: { annotations: { "kubectl.kubernetes.io/restartedAt": new Date().toISOString() } } } } },
         });
         restarted.push(name);
-      } catch (e) {
-        errors.push(`${name}: ${String(e)}`);
+      } catch (error) {
+        errors.push(`${name}: ${error instanceof Error ? error.message : "restart failed"}`);
       }
     }
     await auditLog("cluster:rolling-restart", session.user?.email ?? "unknown", `rolling restart in ${namespace}: ${restarted.join(", ")}`);

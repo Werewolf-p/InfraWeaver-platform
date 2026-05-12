@@ -1,48 +1,64 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { buildEggConfigMap, getEggEnvironmentDefaults, getEggForGameType, getEggPorts } from "@/lib/game-eggs";
+import { GAME_HUB_NAMESPACE, getGameHubAccessContext, getScopedGameServerNames, hasGameHubPermission } from "@/lib/game-hub";
+import { loadKubeConfig } from "@/lib/k8s";
+import { hasPermission } from "@/lib/rbac";
+import { safeError } from "@/lib/utils";
 
-const GAME_HUB_NS = "game-hub";
+function pvcSuffixForMountPath(mountPath: string) {
+  return (mountPath.split("/").filter(Boolean).pop() ?? "data").replace(/[^a-z0-9-]/g, "-") || "data";
+}
+
+function normalizeServerName(name: string) {
+  return name.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/^-+|-+$/g, "");
+}
 
 export async function GET() {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  const access = await getGameHubAccessContext(session, 60);
+  const scopedServers = new Set(getScopedGameServerNames(access.roleAssignments));
+  const canReadAll = hasPermission(access.groups, "game-hub:read", access.roleAssignments, "/game-hub/", access.username);
+  if (!canReadAll && scopedServers.size === 0) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   try {
     const k8s = await import("@kubernetes/client-node");
-    const kc = new k8s.KubeConfig();
-    kc.loadFromDefault();
+    const kc = loadKubeConfig();
     const appsApi = kc.makeApiClient(k8s.AppsV1Api);
     const coreApi = kc.makeApiClient(k8s.CoreV1Api);
 
     const deployments = await appsApi.listNamespacedDeployment({
-      namespace: GAME_HUB_NS,
+      namespace: GAME_HUB_NAMESPACE,
       labelSelector: "infraweaver/game=true",
     });
 
-    const servers = await Promise.all((deployments.items ?? []).map(async (d) => {
-      const name = d.metadata?.name ?? "";
-      const gameType = d.metadata?.labels?.["infraweaver/game-type"] ?? "unknown";
-      const replicas = d.status?.replicas ?? 0;
-      const readyReplicas = d.status?.readyReplicas ?? 0;
-      let status = "stopped";
-      if (d.spec?.replicas === 0) status = "stopped";
-      else if (readyReplicas > 0) status = "running";
-      else if (replicas > 0) status = "starting";
+    const visibleDeployments = (deployments.items ?? []).filter((deployment) => {
+      const name = deployment.metadata?.name ?? "";
+      return canReadAll || scopedServers.has(name) || hasGameHubPermission(access.groups, access.username, access.roleAssignments, "game-hub:read", name);
+    });
+
+    const servers = await Promise.all(visibleDeployments.map(async (deployment) => {
+      const name = deployment.metadata?.name ?? "";
+      const gameType = deployment.metadata?.labels?.["infraweaver/game-type"] ?? "unknown";
+      const egg = getEggForGameType(gameType);
+      const replicas = deployment.status?.replicas ?? 0;
+      const readyReplicas = deployment.status?.readyReplicas ?? 0;
+      const status = deployment.spec?.replicas === 0 ? "stopped" : readyReplicas > 0 ? "running" : replicas > 0 ? "starting" : "stopped";
 
       let podName = "";
       try {
-        const pods = await coreApi.listNamespacedPod({
-          namespace: GAME_HUB_NS,
-          labelSelector: `app=${name}`,
-        });
-        const pod = pods.items?.[0];
-        podName = pod?.metadata?.name ?? "";
+        const pods = await coreApi.listNamespacedPod({ namespace: GAME_HUB_NAMESPACE, labelSelector: `app=${name}` });
+        podName = pods.items?.[0]?.metadata?.name ?? "";
       } catch {}
 
       let nodePort = 0;
       let port = 0;
       try {
-        const svc = await coreApi.readNamespacedService({ name, namespace: GAME_HUB_NS });
+        const svc = await coreApi.readNamespacedService({ name, namespace: GAME_HUB_NAMESPACE });
         port = svc.spec?.ports?.[0]?.port ?? 0;
         nodePort = svc.spec?.ports?.[0]?.nodePort ?? 0;
       } catch {}
@@ -56,15 +72,15 @@ export async function GET() {
         podName,
         port,
         nodePort,
-        memory: d.spec?.template?.spec?.containers?.[0]?.resources?.limits?.memory ?? "",
-        cpu: d.spec?.template?.spec?.containers?.[0]?.resources?.limits?.cpu ?? "",
-        createdAt: d.metadata?.creationTimestamp ?? null,
+        memory: deployment.spec?.template?.spec?.containers?.[0]?.resources?.limits?.memory ?? egg.defaultMemory ?? "",
+        cpu: deployment.spec?.template?.spec?.containers?.[0]?.resources?.limits?.cpu ?? egg.defaultCpu ?? "",
+        createdAt: deployment.metadata?.creationTimestamp ?? null,
       };
     }));
 
     return NextResponse.json({ servers });
-  } catch (err) {
-    return NextResponse.json({ error: String(err) }, { status: 500 });
+  } catch (error) {
+    return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
 }
 
@@ -72,10 +88,15 @@ export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  const access = await getGameHubAccessContext(session, 60);
+  if (!hasPermission(access.groups, "game-hub:admin", access.roleAssignments, "/game-hub/", access.username)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   try {
     const body = await req.json() as {
       egg?: string;
-      game: string;
+      game?: string;
       name: string;
       image?: string;
       memory?: string;
@@ -86,166 +107,59 @@ export async function POST(req: NextRequest) {
       port?: number;
       ports?: Array<{ name: string; port: number; protocol: "TCP" | "UDP" }>;
       mountPath?: string;
-      pvcSuffix?: string;
     };
 
-    const {
-      egg,
-      game,
-      name,
-      image: bodyImage,
-      memory = "2Gi",
-      cpu = "1",
-      storage = "10Gi",
-      storageClass = "longhorn",
-      env = {},
-      port,
-      ports: bodyPorts,
-      mountPath: bodyMountPath,
-      pvcSuffix: bodyPvcSuffix,
-    } = body;
-
-    // If egg-based request (new wizard), use egg definitions from the lib
-    if (egg && egg !== "custom" && bodyImage && bodyPorts) {
-      const slug = name.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/^-+|-+$/g, "");
-      const pvcName = `${slug}-${bodyPvcSuffix ?? "data"}`;
-      const mountPath = bodyMountPath ?? "/data";
-      const envVars = Object.entries(env).map(([k, v]) => ({ name: k, value: v }));
-
-      const k8s = await import("@kubernetes/client-node");
-      const kc = new k8s.KubeConfig();
-      kc.loadFromDefault();
-      const appsApi = kc.makeApiClient(k8s.AppsV1Api);
-      const coreApi = kc.makeApiClient(k8s.CoreV1Api);
-
-      // Create PVC
-      await coreApi.createNamespacedPersistentVolumeClaim({
-        namespace: GAME_HUB_NS,
-        body: {
-          metadata: { name: pvcName, namespace: GAME_HUB_NS, labels: { app: slug, "infraweaver/game": "true", "infraweaver/egg": egg } },
-          spec: { accessModes: ["ReadWriteOnce"], storageClassName: storageClass, resources: { requests: { storage } } },
-        },
-      });
-
-      // Create Deployment
-      const containerPorts = bodyPorts.map(p => ({ containerPort: p.port, protocol: p.protocol as "TCP" | "UDP" }));
-      await appsApi.createNamespacedDeployment({
-        namespace: GAME_HUB_NS,
-        body: {
-          metadata: { name: slug, namespace: GAME_HUB_NS, labels: { app: slug, "infraweaver/game": "true", "infraweaver/game-type": egg, "infraweaver/egg": egg } },
-          spec: {
-            replicas: 1,
-            selector: { matchLabels: { app: slug } },
-            template: {
-              metadata: { labels: { app: slug, "infraweaver/game": "true" } },
-              spec: {
-                securityContext: { runAsUser: 0 },
-                containers: [{
-                  name: egg.replace(/[^a-z0-9-]/g, "-"),
-                  image: bodyImage,
-                  ports: containerPorts,
-                  env: envVars,
-                  resources: { requests: { memory: "512Mi", cpu: "250m" }, limits: { memory, cpu } },
-                  volumeMounts: [{ name: "data", mountPath }],
-                }],
-                volumes: [{ name: "data", persistentVolumeClaim: { claimName: pvcName } }],
-              },
-            },
-          },
-        },
-      });
-
-      // Create Service with all ports
-      const servicePorts = bodyPorts.map(p => ({ name: p.name, port: p.port, targetPort: p.port, protocol: p.protocol as "TCP" | "UDP" }));
-      await coreApi.createNamespacedService({
-        namespace: GAME_HUB_NS,
-        body: {
-          metadata: { name: slug, namespace: GAME_HUB_NS, labels: { app: slug, "infraweaver/game": "true" } },
-          spec: { type: "NodePort", selector: { app: slug }, ports: servicePorts },
-        },
-      });
-
-      return NextResponse.json({ name: slug, game: egg, status: "creating" }, { status: 201 });
-    }
+    const requestedGame = body.egg ?? body.game ?? "";
+    const slug = normalizeServerName(body.name);
+    const baseEgg = getEggForGameType(requestedGame);
+    const customPorts = body.ports?.length ? body.ports : undefined;
+    const egg = {
+      ...baseEgg,
+      id: requestedGame || baseEgg.id,
+      name: baseEgg.id === "generic" ? body.name : baseEgg.name,
+      dockerImage: body.image ?? baseEgg.dockerImage,
+      gamePort: body.port ?? baseEgg.gamePort,
+      mountPath: body.mountPath ?? baseEgg.mountPath,
+      ports: customPorts ?? getEggPorts({ ...baseEgg, gamePort: body.port ?? baseEgg.gamePort }),
+    };
+    const env = { ...getEggEnvironmentDefaults(egg), ...(body.env ?? {}) };
+    const memory = body.memory ?? egg.defaultMemory ?? "2Gi";
+    const cpu = body.cpu ?? egg.defaultCpu ?? "1";
+    const storage = body.storage ?? egg.defaultStorage ?? "10Gi";
+    const storageClass = body.storageClass ?? "longhorn";
+    const pvcName = `${slug}-${pvcSuffixForMountPath(egg.mountPath)}`;
 
     const k8s = await import("@kubernetes/client-node");
-    const kc = new k8s.KubeConfig();
-    kc.loadFromDefault();
+    const kc = loadKubeConfig();
     const appsApi = kc.makeApiClient(k8s.AppsV1Api);
     const coreApi = kc.makeApiClient(k8s.CoreV1Api);
 
-    const GAME_CONFIGS: Record<string, { image: string; containerPort: number; protocol: string; mountPath: string; defaultEnv: Record<string, string> }> = {
-      minecraft: {
-        image: "itzg/minecraft-server:latest",
-        containerPort: 25565,
-        protocol: "TCP",
-        mountPath: "/data",
-        defaultEnv: { EULA: "TRUE", TYPE: "PAPER", VERSION: "LATEST", MEMORY: memory.replace("Gi", "000M").replace("Mi", "M") },
-      },
-      terraria: {
-        image: "ryshe/terraria:latest",
-        containerPort: 7777,
-        protocol: "TCP",
-        mountPath: "/world",
-        defaultEnv: { WORLD: "World1", MAXPLAYERS: "20", PASSWORD: "", AUTOCREATE: "2" },
-      },
-      valheim: {
-        image: "lloesche/valheim-server:latest",
-        containerPort: 2456,
-        protocol: "UDP",
-        mountPath: "/config",
-        defaultEnv: { SERVER_NAME: name, WORLD_NAME: "MyWorld", SERVER_PASS: "changeme", SERVER_PUBLIC: "false" },
-      },
-    };
-
-    const cfg = GAME_CONFIGS[game];
-    if (!cfg) return NextResponse.json({ error: `Unknown game: ${game}` }, { status: 400 });
-
-    const slug = name.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/^-+|-+$/g, "");
-    const mergedEnv = { ...cfg.defaultEnv, ...env };
-    const envVars = Object.entries(mergedEnv).map(([k, v]) => ({ name: k, value: v }));
-
-    const pvcName = game === "valheim" ? `${slug}-config` : `${slug}-data`;
-
-    // Create PVC
     await coreApi.createNamespacedPersistentVolumeClaim({
-      namespace: GAME_HUB_NS,
+      namespace: GAME_HUB_NAMESPACE,
       body: {
-        metadata: { name: pvcName, namespace: GAME_HUB_NS, labels: { app: slug, "infraweaver/game": "true" } },
-        spec: {
-          accessModes: ["ReadWriteOnce"],
-          storageClassName: storageClass,
-          resources: { requests: { storage } },
-        },
+        metadata: { name: pvcName, namespace: GAME_HUB_NAMESPACE, labels: { app: slug, "infraweaver/game": "true", "infraweaver/egg": egg.id } },
+        spec: { accessModes: ["ReadWriteOnce"], storageClassName: storageClass, resources: { requests: { storage } } },
       },
     });
 
-    // Create Deployment
     await appsApi.createNamespacedDeployment({
-      namespace: GAME_HUB_NS,
+      namespace: GAME_HUB_NAMESPACE,
       body: {
-        metadata: {
-          name: slug,
-          namespace: GAME_HUB_NS,
-          labels: { app: slug, "infraweaver/game": "true", "infraweaver/game-type": game },
-        },
+        metadata: { name: slug, namespace: GAME_HUB_NAMESPACE, labels: { app: slug, "infraweaver/game": "true", "infraweaver/game-type": egg.id, "infraweaver/egg": egg.id } },
         spec: {
           replicas: 1,
           selector: { matchLabels: { app: slug } },
           template: {
             metadata: { labels: { app: slug, "infraweaver/game": "true" } },
             spec: {
-              securityContext: game === "valheim" ? { runAsUser: 0 } : { runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000 },
+              securityContext: egg.id === "valheim" ? { runAsUser: 0 } : { runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000 },
               containers: [{
-                name: game,
-                image: cfg.image,
-                ports: [{ containerPort: cfg.containerPort, protocol: cfg.protocol as "TCP" | "UDP" }],
-                env: envVars,
-                resources: {
-                  requests: { memory: "512Mi", cpu: "250m" },
-                  limits: { memory, cpu },
-                },
-                volumeMounts: [{ name: "data", mountPath: cfg.mountPath }],
+                name: slug,
+                image: egg.dockerImage,
+                ports: getEggPorts(egg).map((port) => ({ containerPort: port.port, protocol: port.protocol })),
+                env: Object.entries(env).map(([key, value]) => ({ name: key, value })),
+                resources: { requests: { memory: "512Mi", cpu: "250m" }, limits: { memory, cpu } },
+                volumeMounts: [{ name: "data", mountPath: egg.mountPath }],
               }],
               volumes: [{ name: "data", persistentVolumeClaim: { claimName: pvcName } }],
             },
@@ -254,30 +168,25 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    // Build service ports — Valheim requires 3 ports (game/query/rcon)
-    const servicePorts: Array<{ name: string; port: number; targetPort: number; protocol: "TCP" | "UDP" }> = [
-      { name: "game", port: port ?? cfg.containerPort, targetPort: cfg.containerPort, protocol: cfg.protocol as "TCP" | "UDP" },
-      ...(game === "valheim" ? [
-        { name: "query", port: 2457, targetPort: 2457, protocol: "UDP" as const },
-        { name: "rcon", port: 2458, targetPort: 2458, protocol: "TCP" as const },
-      ] : []),
-    ];
-
-    // Create Service
     await coreApi.createNamespacedService({
-      namespace: GAME_HUB_NS,
+      namespace: GAME_HUB_NAMESPACE,
       body: {
-        metadata: { name: slug, namespace: GAME_HUB_NS, labels: { app: slug, "infraweaver/game": "true" } },
+        metadata: { name: slug, namespace: GAME_HUB_NAMESPACE, labels: { app: slug, "infraweaver/game": "true" } },
         spec: {
           type: "NodePort",
           selector: { app: slug },
-          ports: servicePorts,
+          ports: getEggPorts(egg).map((port) => ({ name: port.name, port: port.port, targetPort: port.port, protocol: port.protocol })),
         },
       },
     });
 
-    return NextResponse.json({ name: slug, game, status: "creating" }, { status: 201 });
-  } catch (err) {
-    return NextResponse.json({ error: String(err) }, { status: 500 });
+    await coreApi.createNamespacedConfigMap({
+      namespace: GAME_HUB_NAMESPACE,
+      body: buildEggConfigMap(GAME_HUB_NAMESPACE, slug, egg, env),
+    });
+
+    return NextResponse.json({ name: slug, game: egg.id, status: "creating" }, { status: 201 });
+  } catch (error) {
+    return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
 }

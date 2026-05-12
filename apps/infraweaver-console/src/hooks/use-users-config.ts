@@ -20,6 +20,16 @@ export interface PlatformUser {
   authentik_groups?: string[];
   argocd_role?: string;
   nas_shares?: NasShareAssignment[];
+  role_assignments?: Array<{
+    id: string;
+    roleId: string;
+    scope: string;
+    principalType?: "user" | "group";
+    principalId?: string;
+    grantedBy: string;
+    grantedAt: string;
+    expiresAt?: string;
+  }>;
 }
 
 export function useUsersConfig() {

@@ -54,3 +54,9 @@ export function statusColor(status: string) {
   if (s.includes("failed") || s.includes("error") || s.includes("not ready")) return STATUS_COLORS.failed;
   return STATUS_COLORS.unknown;
 }
+
+
+export function safeError(e: unknown): string {
+  if (e instanceof Error) return e.message.replace(/https?:\/\/[\w.:-]+/g, "[internal]");
+  return "An error occurred";
+}

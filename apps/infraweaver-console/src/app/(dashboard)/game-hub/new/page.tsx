@@ -8,11 +8,70 @@ import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
 import { toast } from "sonner";
 import type { GameEgg } from "@/lib/game-eggs";
-import { CATEGORY_LABELS } from "@/lib/game-eggs";
 
 type StepId = "choose" | "configure" | "preview" | "deploy";
 const STEPS: StepId[] = ["choose", "configure", "preview", "deploy"];
 const STEP_LABELS = ["Choose Game", "Configure", "Review", "Deploy"];
+const CATEGORY_LABELS: Record<string, string> = {
+  sandbox: "Sandbox",
+  survival: "Survival",
+  strategy: "Strategy",
+  shooter: "Shooter",
+  automation: "Automation",
+  custom: "Custom",
+  other: "Other",
+};
+const EGG_CATEGORIES: Record<string, string> = {
+  "minecraft-java": "sandbox",
+  terraria: "sandbox",
+  valheim: "survival",
+  satisfactory: "automation",
+  "v-rising": "survival",
+  palworld: "survival",
+  rust: "survival",
+  ark: "survival",
+  cs2: "shooter",
+  factorio: "automation",
+  generic: "other",
+};
+const EGG_ICONS: Record<string, string> = {
+  "minecraft-java": "⛏️",
+  terraria: "🌳",
+  valheim: "🛡️",
+  satisfactory: "🏭",
+  "v-rising": "🧛",
+  palworld: "🐾",
+  rust: "🔧",
+  ark: "🦖",
+  cs2: "🎯",
+  factorio: "⚙️",
+  generic: "🎮",
+  custom: "🧩",
+};
+
+function eggCategory(egg: GameEgg) {
+  return EGG_CATEGORIES[egg.id] ?? "other";
+}
+
+function eggIcon(egg: GameEgg) {
+  return EGG_ICONS[egg.id] ?? "🎮";
+}
+
+function eggEnvDefs(egg: GameEgg) {
+  return egg.environment.map((entry) => ({
+    key: entry.name,
+    label: entry.name,
+    default: entry.defaultValue,
+    required: entry.required,
+    type: entry.name.toLowerCase().includes("password") ? "password" : "text",
+    description: entry.description,
+    options: undefined as string[] | undefined,
+  }));
+}
+
+function eggPvcSuffix(egg: GameEgg) {
+  return egg.mountPath.split("/").filter(Boolean).pop() ?? "data";
+}
 
 export default function NewGameServerPage() {
   const router = useRouter();
@@ -51,7 +110,7 @@ export default function NewGameServerPage() {
   const stepIndex = STEPS.indexOf(step);
 
   const filteredEggs = eggs.filter(egg => {
-    if (categoryFilter !== "all" && egg.category !== categoryFilter) return false;
+    if (categoryFilter !== "all" && eggCategory(egg) !== categoryFilter) return false;
     if (eggSearch) {
       const q = eggSearch.toLowerCase();
       return egg.name.toLowerCase().includes(q) || egg.description.toLowerCase().includes(q);
@@ -64,10 +123,10 @@ export default function NewGameServerPage() {
     if (egg.id === "custom") {
       setCustomImage("");
     }
-    setMemory(egg.defaultMemory);
-    setCpu(egg.defaultCpu);
-    setStorage(egg.defaultStorage);
-    setEnvValues(Object.fromEntries(egg.defaultEnv.map(e => [e.key, e.default])));
+    setMemory(egg.defaultMemory ?? "2Gi");
+    setCpu(egg.defaultCpu ?? "1");
+    setStorage(egg.defaultStorage ?? "10Gi");
+    setEnvValues(Object.fromEntries(eggEnvDefs(egg).map((envDef) => [envDef.key, envDef.default])));
     setStep("configure");
   }
 
@@ -75,12 +134,12 @@ export default function NewGameServerPage() {
     if (!selectedEgg) return "";
     const slug = serverName.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/^-+|-+$/g, "");
     const image = selectedEgg.id === "custom" ? customImage : selectedEgg.dockerImage;
-    const env = selectedEgg.defaultEnv.map(e => ({
-      key: e.key,
-      val: envValues[e.key] ?? e.default,
+    const env = eggEnvDefs(selectedEgg).map((envDef) => ({
+      key: envDef.key,
+      val: envValues[envDef.key] ?? envDef.default,
     }));
     const envLines = env.map(({ key, val }) => `    - name: ${key}\n      value: "${val}"`).join("\n");
-    const portsLines = selectedEgg.ports.map(p => `    - containerPort: ${p.port}\n      protocol: ${p.protocol}`).join("\n");
+    const portsLines = (selectedEgg.ports ?? []).map((p) => `    - containerPort: ${p.port}\n      protocol: ${p.protocol}`).join("\n");
     return `# ${selectedEgg.name} Server: ${slug}
 apiVersion: apps/v1
 kind: Deployment
@@ -112,7 +171,7 @@ ${envLines}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: ${slug}-${selectedEgg.pvcSuffix}
+  name: ${slug}-${eggPvcSuffix(selectedEgg)}
   namespace: game-hub
 spec:
   storageClassName: ${storageClass}
@@ -139,7 +198,6 @@ spec:
           env: envValues,
           ports: selectedEgg.ports,
           mountPath: selectedEgg.mountPath,
-          pvcSuffix: selectedEgg.pvcSuffix,
         }),
       });
       if (!res.ok) {
@@ -156,7 +214,7 @@ spec:
     }
   }
 
-  const categories = ["all", ...Array.from(new Set(eggs.map(e => e.category)))];
+  const categories = ["all", ...Array.from(new Set(eggs.map((egg) => eggCategory(egg))))];
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -225,7 +283,7 @@ spec:
                           : "bg-[#1a1a1a] border border-[#2a2a2a] text-[#666] hover:text-[#9e9e9e]"
                       )}
                     >
-                      {cat === "all" ? "All" : CATEGORY_LABELS[cat as GameEgg["category"]] ?? cat}
+                      {cat === "all" ? "All" : CATEGORY_LABELS[cat] ?? cat}
                     </button>
                   ))}
                 </div>
@@ -246,18 +304,15 @@ spec:
                       onClick={() => selectEgg(egg)}
                       className="flex items-start gap-3 p-4 rounded-xl border border-[#2a2a2a] bg-[#1a1a1a] hover:border-[#0078D4]/50 hover:bg-[rgba(0,120,212,0.05)] text-left transition-colors group"
                     >
-                      <div className="text-2xl flex-shrink-0">{egg.icon}</div>
+                      <div className="text-2xl flex-shrink-0">{eggIcon(egg)}</div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <p className="text-sm font-medium text-[#f2f2f2] group-hover:text-white">{egg.name}</p>
-                          {egg.pelican && (
-                            <span className="text-[10px] bg-purple-500/20 text-purple-300 border border-purple-500/30 rounded px-1">Pelican</span>
-                          )}
                         </div>
                         <p className="text-xs text-[#666] mt-0.5 line-clamp-2">{egg.description}</p>
                         <div className="flex items-center gap-2 mt-2">
                           <span className="text-[10px] bg-[#252525] text-[#666] rounded px-1.5 py-0.5 capitalize">
-                            {CATEGORY_LABELS[egg.category] ?? egg.category}
+                            {CATEGORY_LABELS[eggCategory(egg)] ?? eggCategory(egg)}
                           </span>
                           <span className="text-[10px] text-[#555]">{egg.defaultMemory} RAM</span>
                         </div>
@@ -273,7 +328,7 @@ spec:
           {step === "configure" && selectedEgg && (
             <div className="space-y-4">
               <div className="flex items-center gap-3 p-4 rounded-xl border border-[#2a2a2a] bg-[#1a1a1a]">
-                <div className="text-2xl">{selectedEgg.icon}</div>
+                <div className="text-2xl">{eggIcon(selectedEgg)}</div>
                 <div>
                   <p className="font-medium text-[#f2f2f2]">{selectedEgg.name}</p>
                   <p className="text-xs text-[#666]">{selectedEgg.description}</p>
@@ -339,11 +394,11 @@ spec:
               </div>
 
               {/* Egg-specific env vars */}
-              {selectedEgg.defaultEnv.length > 0 && (
+              {eggEnvDefs(selectedEgg).length > 0 && (
                 <div className="space-y-3">
                   <p className="text-xs font-medium text-[#999] uppercase tracking-wide">Server Configuration</p>
                   <div className="grid gap-3 sm:grid-cols-2">
-                    {selectedEgg.defaultEnv.map(envDef => (
+                    {eggEnvDefs(selectedEgg).map((envDef) => (
                       <div key={envDef.key} className="space-y-1.5">
                         <label className="text-xs font-medium text-[#999]">
                           {envDef.label}

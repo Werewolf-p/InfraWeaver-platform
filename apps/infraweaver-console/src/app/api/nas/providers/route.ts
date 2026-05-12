@@ -1,18 +1,14 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { hasPermission } from "@/lib/rbac";
+import { fetchInsecure } from "@/lib/insecure-fetch";
 
 async function checkReachable(url: string): Promise<boolean> {
-  const prev = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
-  process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(2000), cache: "no-store" });
+    const res = await fetchInsecure(url, { signal: AbortSignal.timeout(2000) });
     return res.ok || res.status < 500;
   } catch {
     return false;
-  } finally {
-    if (prev !== undefined) process.env.NODE_TLS_REJECT_UNAUTHORIZED = prev;
-    else delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
   }
 }
 
@@ -33,24 +29,8 @@ export async function GET() {
 
   return NextResponse.json({
     providers: [
-      {
-        id: "synology",
-        name: "Synology NAS",
-        host: synoHost,
-        port: parseInt(synoPort),
-        protocol: "https",
-        enabled: true,
-        reachable: synoReachable,
-      },
-      {
-        id: "truenas",
-        name: "TrueNAS Scale",
-        host: truenasHost,
-        port: 443,
-        protocol: "https",
-        enabled: !!process.env.TRUENAS_API_KEY,
-        reachable: truenasReachable,
-      },
+      { id: "synology", name: "Synology NAS", host: synoHost, port: parseInt(synoPort, 10), protocol: "https", enabled: true, reachable: synoReachable },
+      { id: "truenas", name: "TrueNAS Scale", host: truenasHost, port: 443, protocol: "https", enabled: !!process.env.TRUENAS_API_KEY, reachable: truenasReachable },
     ],
   });
 }

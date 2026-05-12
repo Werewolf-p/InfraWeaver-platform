@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { hasPermission } from "@/lib/rbac";
-
-const SAFE_K8S_NAME_RE = /^[a-z0-9][a-z0-9-]*$/;
+import { canAccessLogsTarget, getGameHubAccessContext } from "@/lib/game-hub";
+import { loadKubeConfig } from "@/lib/k8s";
+import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
+import { isValidContainerName, isValidK8sName, isValidNamespace } from "@/lib/validate";
 
 export async function GET(
   req: NextRequest,
@@ -10,29 +11,29 @@ export async function GET(
 ) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
-  if (!hasPermission(groups, "apps:read")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!checkRateLimit(rateLimitKey("logs-read", req), 30, 60_000)) {
+    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
   }
 
   const { namespace, pod, container } = await params;
-
-  if (!SAFE_K8S_NAME_RE.test(namespace) || !SAFE_K8S_NAME_RE.test(pod) || !SAFE_K8S_NAME_RE.test(container)) {
+  if (!isValidNamespace(namespace) || !isValidK8sName(pod) || !isValidContainerName(container)) {
     return NextResponse.json({ error: "Invalid name: only lowercase alphanumeric and dashes allowed" }, { status: 400 });
   }
 
-  const lines = parseInt(req.nextUrl.searchParams.get("lines") ?? "500");
+  const access = await getGameHubAccessContext(session, 60);
+  if (!canAccessLogsTarget(access.groups, access.username, access.roleAssignments, namespace, pod)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
+  const lines = Math.min(Math.max(parseInt(req.nextUrl.searchParams.get("lines") ?? "500", 10) || 500, 1), 1000);
   const mockLines = Array.from({ length: Math.min(lines, 50) }, (_, i) => {
-    const d = new Date(Date.now() - (50 - i) * 2000);
-    return `${d.toISOString()} INFO [${container}] Log line ${i + 1} - container ${container} in ${namespace}/${pod} is running normally`;
+    const date = new Date(Date.now() - (50 - i) * 2000);
+    return `${date.toISOString()} INFO [${container}] Log line ${i + 1} - container ${container} in ${namespace}/${pod} is running normally`;
   }).join("\n");
 
   try {
     const k8s = await import("@kubernetes/client-node");
-    const kc = new k8s.KubeConfig();
-    kc.loadFromDefault();
-    const coreApi = kc.makeApiClient(k8s.CoreV1Api);
+    const coreApi = loadKubeConfig().makeApiClient(k8s.CoreV1Api);
     const logRes = await coreApi.readNamespacedPodLog({
       name: pod,
       namespace,
@@ -40,12 +41,8 @@ export async function GET(
       tailLines: lines,
       timestamps: true,
     });
-    return new NextResponse(logRes as string, {
-      headers: { "Content-Type": "text/plain; charset=utf-8" },
-    });
+    return new NextResponse(logRes as string, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
   } catch {
-    return new NextResponse(mockLines, {
-      headers: { "Content-Type": "text/plain; charset=utf-8" },
-    });
+    return new NextResponse(mockLines, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
   }
 }

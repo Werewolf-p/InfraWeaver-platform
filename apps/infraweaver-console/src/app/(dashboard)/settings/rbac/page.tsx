@@ -37,13 +37,14 @@ const CATEGORY_LABEL: Record<string, string> = {
   network: "Network",
   catalog: "Catalog",
 };
+const builtInRoles = Object.values(BUILT_IN_ROLES);
 
 // ─── Role Card ────────────────────────────────────────────────────────────────
 function RoleCard({
   role, assignmentCount, onClick, selected,
 }: { role: RoleDefinition; assignmentCount: number; onClick: () => void; selected: boolean }) {
-  const colors = ROLE_COLOR_CLASSES[role.color];
-  const Icon = CATEGORY_ICON[role.category] ?? Shield;
+  const colors = ROLE_COLOR_CLASSES[role.color ?? "gray"];
+  const Icon = CATEGORY_ICON[role.category ?? "platform"] ?? Shield;
   return (
     <button
       onClick={onClick}
@@ -60,7 +61,7 @@ function RoleCard({
           <span className="text-sm font-semibold text-[#f2f2f2] leading-tight">{role.name}</span>
         </div>
         <span className={cn("text-[10px] px-1.5 py-0.5 rounded border font-mono flex-shrink-0", colors.badge)}>
-          {CATEGORY_LABEL[role.category]}
+          {CATEGORY_LABEL[role.category ?? "platform"]}
         </span>
       </div>
       <p className="text-xs text-[#666] mb-3 leading-relaxed">{role.description}</p>
@@ -133,8 +134,8 @@ function AddAssignmentModal({
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const selectedRole = BUILT_IN_ROLES.find(r => r.id === roleId);
-  const isPerServerRole = ["game-hub-server-admin","game-hub-server-editor","game-hub-server-reader"].includes(roleId);
+  const selectedRole = builtInRoles.find((role) => role.id === roleId);
+  const isPerServerRole = ["game-server-admin", "game-server-operator", "game-server-viewer", "game-hub-server-admin", "game-hub-server-editor", "game-hub-server-reader"].includes(roleId);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
@@ -187,8 +188,8 @@ function AddAssignmentModal({
               <option value="">Select a role…</option>
               {["platform", "game-hub", "storage", "catalog"].map(cat => (
                 <optgroup key={cat} label={CATEGORY_LABEL[cat]}>
-                  {BUILT_IN_ROLES.filter(r => r.category === cat).map(r => (
-                    <option key={r.id} value={r.id}>{r.name}</option>
+                  {builtInRoles.filter((role) => role.category === cat).map((role) => (
+                    <option key={role.id} value={role.id}>{role.name}</option>
                   ))}
                 </optgroup>
               ))}
@@ -301,7 +302,7 @@ export default function RBACPage() {
   const countByRole: Record<string, number> = {};
   for (const a of assignments) countByRole[a.roleId] = (countByRole[a.roleId] ?? 0) + 1;
 
-  const selectedRole = BUILT_IN_ROLES.find(r => r.id === selectedRoleId);
+  const selectedRole = builtInRoles.find((role) => role.id === selectedRoleId);
   const visibleAssignments = assignments.filter(a => {
     if (selectedRoleId && a.roleId !== selectedRoleId) return false;
     if (filterUser && !a.userName.toLowerCase().includes(filterUser.toLowerCase()) &&
@@ -310,7 +311,10 @@ export default function RBACPage() {
   });
 
   const groupedRoles: Record<string, RoleDefinition[]> = {};
-  for (const r of BUILT_IN_ROLES) (groupedRoles[r.category] ??= []).push(r);
+  for (const role of builtInRoles) {
+    const category = role.category ?? "platform";
+    (groupedRoles[category] ??= []).push(role);
+  }
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-6 space-y-6">
@@ -347,7 +351,7 @@ export default function RBACPage() {
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-xs font-semibold text-[#888] uppercase tracking-wide">Built-in Roles</h2>
-            <span className="text-[10px] text-[#555] px-1.5 py-0.5 rounded bg-[#1a1a1a] border border-[#2a2a2a]">{BUILT_IN_ROLES.length} roles</span>
+            <span className="text-[10px] text-[#555] px-1.5 py-0.5 rounded bg-[#1a1a1a] border border-[#2a2a2a]">{builtInRoles.length} roles</span>
           </div>
           {Object.entries(groupedRoles).map(([cat, roles]) => (
             <div key={cat} className="space-y-2">
@@ -449,8 +453,8 @@ export default function RBACPage() {
                   ))}
                 </div>
                 {visibleAssignments.map(a => {
-                  const role = BUILT_IN_ROLES.find(r => r.id === a.roleId);
-                  const colors = role ? ROLE_COLOR_CLASSES[role.color] : ROLE_COLOR_CLASSES.gray;
+                  const role = builtInRoles.find((entry) => entry.id === a.roleId);
+                  const colors = role ? ROLE_COLOR_CLASSES[role.color ?? "gray"] : ROLE_COLOR_CLASSES.gray;
                   return (
                     <div key={a.id} className="grid grid-cols-[1fr_1fr_auto_auto] gap-3 px-4 py-3 items-center hover:bg-[#0d0d0d] transition-colors">
                       {/* User */}

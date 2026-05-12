@@ -16,6 +16,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { cn } from "@/lib/utils";
 import { useSession } from "next-auth/react";
 import { StorageTab } from "@/components/users/storage-tab";
+import { RoleAssignmentsPanel } from "@/components/users/role-assignments-panel";
 import { useSimpleMode } from "@/contexts/simple-mode-context";
 
 const ACCESS_LEVELS = ["admin", "platform-user", "viewer"] as const;
@@ -626,6 +627,7 @@ export default function UsersPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editUser, setEditUser] = useState<PlatformUser | null>(null);
   const [deleteUser, setDeleteUser] = useState<PlatformUser | null>(null);
+  const [selectedUsername, setSelectedUsername] = useState("");
   const [activeTab, setActiveTab] = useState<"users" | "storage">("users");
   const [inviteOpen, setInviteOpen] = useState(false);
 
@@ -640,6 +642,8 @@ export default function UsersPage() {
     u.name?.toLowerCase().includes(search.toLowerCase()) ||
     u.email?.toLowerCase().includes(search.toLowerCase())
   );
+
+  const selectedUser = filtered.find(user => user.username === selectedUsername) ?? filtered[0] ?? null;
 
   const handleSave = async (user: PlatformUser) => {
     let updated: PlatformUser[];
@@ -807,7 +811,11 @@ export default function UsersPage() {
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, x: -20 }}
                     transition={{ delay: i * 0.03 }}
-                    className="grid grid-cols-[1fr_1fr_1fr_auto_auto_auto] gap-4 items-center px-4 py-3 border-b border-white/5 last:border-0 hover:bg-white/[0.03] transition-colors min-h-[56px]"
+                    onClick={() => setSelectedUsername(user.username)}
+                    className={cn(
+                      "grid grid-cols-[1fr_1fr_1fr_auto_auto_auto] gap-4 items-center px-4 py-3 border-b border-white/5 last:border-0 hover:bg-white/[0.03] transition-colors min-h-[56px] cursor-pointer",
+                      selectedUsername === user.username && "bg-indigo-500/10"
+                    )}
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       <div className="w-8 h-8 rounded-full bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-xs font-bold text-indigo-300 flex-shrink-0">
@@ -838,7 +846,7 @@ export default function UsersPage() {
                           user={user}
                           isSelf={isSelf}
                           isAdmin={isAdmin}
-                          onEdit={() => { setEditUser(user); setModalOpen(true); }}
+                          onEdit={() => { setSelectedUsername(user.username); setEditUser(user); setModalOpen(true); }}
                           onDelete={() => setDeleteUser(user)}
                           onRefetch={() => { /* react-query will refetch */ }}
                         />
@@ -862,14 +870,14 @@ export default function UsersPage() {
                   user={user}
                   isAdmin={isAdmin}
                   isSelf={user.email === currentEmail || user.username === currentUsername}
-                  onEdit={() => { setEditUser(user); setModalOpen(true); }}
+                  onEdit={() => { setSelectedUsername(user.username); setEditUser(user); setModalOpen(true); }}
                   onDelete={() => setDeleteUser(user)}
                   actionsDropdown={
                     <UserActionsDropdown
                       user={user}
                       isSelf={user.email === currentEmail || user.username === currentUsername}
                       isAdmin={isAdmin}
-                      onEdit={() => { setEditUser(user); setModalOpen(true); }}
+                      onEdit={() => { setSelectedUsername(user.username); setEditUser(user); setModalOpen(true); }}
                       onDelete={() => setDeleteUser(user)}
                       onRefetch={() => { /* react-query will refetch */ }}
                     />
@@ -881,20 +889,22 @@ export default function UsersPage() {
               <div className="py-12 text-center text-slate-500 text-sm">No users found</div>
             )}
           </div>
+
+          <RoleAssignmentsPanel user={selectedUser} isAdmin={isAdmin} />
+
+          {/* Permission Matrix */}
+          <div>
+            <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
+              <Shield className="w-4 h-4 text-purple-400" />
+              Role Permission Matrix
+            </h3>
+            <PermissionMatrix />
+          </div>
+
+          {/* RBAC info card */}
+          <RBACInfoCard />
         </>
       )}
-
-      {/* Permission Matrix */}
-      <div>
-        <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
-          <Shield className="w-4 h-4 text-purple-400" />
-          Role Permission Matrix
-        </h3>
-        <PermissionMatrix />
-      </div>
-
-      {/* RBAC info card */}
-      <RBACInfoCard />
         </>
       )}
 
