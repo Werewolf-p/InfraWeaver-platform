@@ -10,7 +10,7 @@ import {
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import {
-  BUILT_IN_ROLES, SCOPES, scopeLabel, ROLE_COLOR_CLASSES,
+  BUILT_IN_ROLES, STATIC_SCOPES, buildScopes, scopeLabel, ROLE_COLOR_CLASSES,
   type RoleDefinition, type RoleAssignment,
 } from "@/lib/rbac";
 
@@ -96,12 +96,24 @@ function PermBadge({ perm }: { perm: string }) {
 
 // ─── Add Assignment Modal ─────────────────────────────────────────────────────
 function AddAssignmentModal({
-  onClose, users, preselectedRoleId,
-}: { onClose: () => void; users: PlatformUser[]; preselectedRoleId?: string }) {
+  onClose, users, preselectedRoleId, gameServers,
+}: { onClose: () => void; users: PlatformUser[]; preselectedRoleId?: string; gameServers: string[] }) {
   const qc = useQueryClient();
   const [username, setUsername] = useState("");
   const [roleId, setRoleId] = useState(preselectedRoleId ?? "");
   const [scope, setScope] = useState("/");
+
+  const allScopes = buildScopes(gameServers);
+
+  // Auto-set scope to game-hub when a per-server role is chosen
+  const handleRoleChange = (id: string) => {
+    setRoleId(id);
+    if (["game-hub-server-admin","game-hub-server-editor","game-hub-server-reader"].includes(id)) {
+      // If only one game server exists, pre-select it
+      if (gameServers.length === 1) setScope(`/game-hub/servers/${gameServers[0]}`);
+      else if (!scope.startsWith("/game-hub/servers/")) setScope("/game-hub/servers/");
+    }
+  };
 
   const mutation = useMutation({
     mutationFn: async () => {
@@ -122,6 +134,7 @@ function AddAssignmentModal({
   });
 
   const selectedRole = BUILT_IN_ROLES.find(r => r.id === roleId);
+  const isPerServerRole = ["game-hub-server-admin","game-hub-server-editor","game-hub-server-reader"].includes(roleId);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
@@ -168,7 +181,7 @@ function AddAssignmentModal({
             <label className="block text-xs text-[#888] mb-1.5 font-medium">Role</label>
             <select
               value={roleId}
-              onChange={e => setRoleId(e.target.value)}
+              onChange={e => handleRoleChange(e.target.value)}
               className="w-full bg-[#0d0d0d] border border-[#2a2a2a] rounded-lg px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
             >
               <option value="">Select a role…</option>
@@ -184,17 +197,22 @@ function AddAssignmentModal({
 
           {/* Scope */}
           <div>
-            <label className="block text-xs text-[#888] mb-1.5 font-medium">Scope</label>
+            <label className="block text-xs text-[#888] mb-1.5 font-medium">
+              Scope
+              {isPerServerRole && <span className="text-[#0078D4] ml-1">← select a specific server</span>}
+            </label>
             <select
               value={scope}
               onChange={e => setScope(e.target.value)}
               className="w-full bg-[#0d0d0d] border border-[#2a2a2a] rounded-lg px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
             >
-              {SCOPES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+              {allScopes.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
             </select>
             <p className="text-[10px] text-[#555] mt-1 flex items-center gap-1">
               <Info className="w-3 h-3" />
-              A broader scope like &quot;Platform&quot; grants access to all child resources.
+              {isPerServerRole
+                ? "Pick \"Server: <name>\" to limit this role to one game server."
+                : "A broader scope like \"Platform\" grants access to all child resources."}
             </p>
           </div>
 
@@ -250,6 +268,18 @@ export default function RBACPage() {
       return r.json();
     },
   });
+
+  // Load deployed game servers for scope selector
+  const { data: gameServersData } = useQuery<{ servers: Array<{ name: string }> }>({
+    queryKey: ["game-hub", "servers"],
+    queryFn: async () => {
+      const r = await fetch("/api/game-hub/servers");
+      if (!r.ok) return { servers: [] };
+      return r.json();
+    },
+    staleTime: 60_000,
+  });
+  const gameServers = (gameServersData?.servers ?? []).map(s => s.name);
 
   const revokeMutation = useMutation({
     mutationFn: async ({ id, username }: { id: string; username: string }) => {
@@ -461,9 +491,9 @@ export default function RBACPage() {
           <div className="rounded-xl border border-[#1e1e1e] bg-[#0d0d0d] p-4">
             <p className="text-[10px] text-[#555] uppercase tracking-wide mb-3 font-medium">Scope Hierarchy</p>
             <div className="space-y-1.5">
-              {SCOPES.map((s, i) => (
+              {buildScopes(gameServers).map((s, i) => (
                 <div key={s.value} className="flex items-center gap-2 text-xs text-[#666]">
-                  <div style={{ width: i * 12 }} />
+                  <div style={{ width: Math.min(i, 4) * 12 }} />
                   <ChevronRight className="w-3 h-3 text-[#333] flex-shrink-0" />
                   <span className="font-mono text-[#555]">{s.value}</span>
                   <span className="text-[#444]">—</span>
@@ -481,6 +511,7 @@ export default function RBACPage() {
             onClose={() => setShowAddModal(false)}
             users={users}
             preselectedRoleId={addModalPreRole}
+            gameServers={gameServers}
           />
         )}
       </AnimatePresence>

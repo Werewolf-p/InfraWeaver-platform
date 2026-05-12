@@ -120,6 +120,39 @@ export const BUILT_IN_ROLES: RoleDefinition[] = [
     color: "gray",
   },
   {
+    id: "game-hub-server-admin",
+    name: "Game Server Admin",
+    description: "Full control over a specific game server — scoped via assignment",
+    isBuiltIn: true,
+    category: "game-hub",
+    permissions: [
+      "game-hub/servers/read", "game-hub/servers/write", "game-hub/servers/delete",
+      "game-hub/servers/console", "game-hub/servers/files/read", "game-hub/servers/files/write",
+    ],
+    color: "red",
+  },
+  {
+    id: "game-hub-server-editor",
+    name: "Game Server Editor",
+    description: "Start, stop, use console and manage files on a specific server",
+    isBuiltIn: true,
+    category: "game-hub",
+    permissions: [
+      "game-hub/servers/read", "game-hub/servers/write",
+      "game-hub/servers/console", "game-hub/servers/files/read", "game-hub/servers/files/write",
+    ],
+    color: "orange",
+  },
+  {
+    id: "game-hub-server-reader",
+    name: "Game Server Reader",
+    description: "View status and browse files on a specific server — no console or changes",
+    isBuiltIn: true,
+    category: "game-hub",
+    permissions: ["game-hub/servers/read", "game-hub/servers/files/read"],
+    color: "green",
+  },
+  {
     id: "storage-admin",
     name: "Storage Administrator",
     description: "View and delete persistent volume claims",
@@ -199,7 +232,8 @@ export function checkPermission(
 }
 
 // ─── Scope helpers ────────────────────────────────────────────────────────────
-export const SCOPES = [
+/** Static well-known scopes always shown in the UI */
+export const STATIC_SCOPES = [
   { value: "/",                 label: "Platform (all resources)" },
   { value: "/game-hub/",        label: "Game Hub (all servers)" },
   { value: "/storage/",         label: "Storage (all PVCs)" },
@@ -207,9 +241,31 @@ export const SCOPES = [
   { value: "/network/",         label: "Network" },
 ];
 
-export function scopeLabel(scope: string): string {
-  return SCOPES.find(s => s.value === scope)?.label ?? scope;
+/** Build dynamic scope for a specific game server */
+export function gameServerScope(serverName: string): string {
+  return `/game-hub/servers/${serverName}`;
 }
+
+/** Human-readable label for any scope string */
+export function scopeLabel(scope: string): string {
+  const known = STATIC_SCOPES.find(s => s.value === scope);
+  if (known) return known.label;
+  // /game-hub/servers/<name>
+  const serverMatch = scope.match(/^\/game-hub\/servers\/(.+)$/);
+  if (serverMatch) return `Server: ${serverMatch[1]}`;
+  return scope;
+}
+
+/** All scopes = static + per-server (dynamic, provided by caller) */
+export function buildScopes(serverNames: string[] = []) {
+  return [
+    ...STATIC_SCOPES,
+    ...serverNames.map(n => ({ value: gameServerScope(n), label: `Server: ${n}` })),
+  ];
+}
+
+// Keep SCOPES as alias for static-only (backward compat)
+export const SCOPES = STATIC_SCOPES;
 
 // ─── UI color maps ────────────────────────────────────────────────────────────
 export const ROLE_COLOR_CLASSES: Record<RoleDefinition["color"], { badge: string; dot: string }> = {

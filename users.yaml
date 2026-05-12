@@ -61,6 +61,14 @@ users:
     # For Proxmox access (10.25.0.3:8006), use proxmox-client-key.
     # Multiple devices can use different keys for different access levels.
     netbird_setup_key: proxmox-client-key   # grants proxmox-users group → TCP 8006 to Proxmox
+    # ── Platform RBAC role assignments (managed by InfraWeaver Console → Settings → Access Control)
+    # Scoped assignments: / = global, /game-hub/ = all game servers, /game-hub/servers/<name> = one server
+    role_assignments:
+      - id: "ra-ardaty-terraria-reader"
+        roleId: "game-hub-server-reader"
+        scope: "/game-hub/servers/terraria-server"
+        grantedBy: "remonhulst@gmail.com"
+        grantedAt: "2026-05-12T15:00:00Z"
     # NAS share assignments — managed via InfraWeaver console → Users → Storage Access
     # K8s manifests auto-generated in kubernetes/catalog/nas-shares/
     nas_shares:

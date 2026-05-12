@@ -807,7 +807,21 @@ export default function ServerDetailPage() {
   const status = server?.readyReplicas && server.readyReplicas > 0 ? "running"
     : (server?.replicas ?? 0) > 0 ? "starting" : "stopped";
 
-  const mountPath = server?.gameType === "valheim" || server?.gameType === "satisfactory" ? "/config" : "/data";
+  // Map each game type to the container path where its data PVC is mounted
+  const GAME_MOUNT_PATHS: Record<string, string> = {
+    minecraft: "/data", "minecraft-java": "/data", "minecraft-bedrock": "/data",
+    terraria: "/world",
+    valheim: "/config",
+    satisfactory: "/config",
+    "project-zomboid": "/data",
+    vrising: "/config",
+    palworld: "/data",
+    ark: "/data",
+    rust: "/data",
+    cs2: "/data",
+    factorio: "/data",
+  };
+  const mountPath = GAME_MOUNT_PATHS[server?.gameType ?? ""] ?? "/data";
 
   const statusDot = { running: "bg-green-400", starting: "bg-yellow-400 animate-pulse", stopped: "bg-[#444]" }[status];
   const statusText = { running: "text-green-400", starting: "text-yellow-400", stopped: "text-[#666]" }[status];
