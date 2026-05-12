@@ -9,6 +9,7 @@ export interface CatalogApp {
   name: string;
   description: string;
   host: string;
+  namespace: string;
 }
 
 export async function GET() {
@@ -40,7 +41,7 @@ export async function GET() {
             `https://api.github.com/repos/${GITHUB_REPO}/contents/kubernetes/catalog/${dir.name}/catalog.yaml`,
             { headers, cache: "no-store" }
           );
-          if (!fileRes.ok) return { name: dir.name, description: "", host: "" };
+          if (!fileRes.ok) return { name: dir.name, description: "", host: "", namespace: dir.name };
           const file = await fileRes.json() as { content: string };
           const content = Buffer.from(file.content, "base64").toString("utf-8");
           const yaml = await import("js-yaml");
@@ -48,10 +49,11 @@ export async function GET() {
           return {
             name: dir.name,
             description: (parsed?.description as string) ?? "",
-            host: (parsed?.["ingressroute.host"] as string) ?? (parsed?.host as string) ?? "",
+            host: (parsed?.["ingressroute.host"] as string) ?? (parsed?.ingressroute as Record<string, string>)?.host ?? (parsed?.host as string) ?? "",
+            namespace: (parsed?.namespace as string) ?? dir.name,
           };
         } catch {
-          return { name: dir.name, description: "", host: "" };
+          return { name: dir.name, description: "", host: "", namespace: dir.name };
         }
       })
     );
@@ -59,17 +61,14 @@ export async function GET() {
     return NextResponse.json(apps);
   } catch {
     return NextResponse.json([
-      { name: "wiki", description: "Wiki.js documentation", host: "wiki.int.rlservers.com" },
-      { name: "gatus", description: "Status monitoring", host: "gatus.int.rlservers.com" },
-      { name: "stirling-pdf", description: "PDF tools", host: "stirling-pdf.int.rlservers.com" },
-      { name: "onedev", description: "Git forge + CI", host: "onedev.rlservers.com" },
-      { name: "vaultwarden", description: "Password manager", host: "vaultwarden.int.rlservers.com" },
-      { name: "gitea", description: "Self-hosted Git", host: "gitea.int.rlservers.com" },
-      { name: "it-tools", description: "IT/Dev tools", host: "it-tools.int.rlservers.com" },
-      { name: "excalidraw", description: "Whiteboard", host: "excalidraw.int.rlservers.com" },
-      { name: "actual", description: "Personal finance", host: "actual.int.rlservers.com" },
-      { name: "outline", description: "Team knowledge base", host: "outline.int.rlservers.com" },
-      { name: "jellyfin", description: "Media server", host: "jellyfin.int.rlservers.com" },
+      { name: "wiki", description: "Wiki.js documentation", host: "wiki.int.rlservers.com", namespace: "wiki" },
+      { name: "gatus", description: "Status monitoring", host: "gatus.int.rlservers.com", namespace: "gatus" },
+      { name: "stirling-pdf", description: "PDF tools", host: "stirling-pdf.int.rlservers.com", namespace: "stirling-pdf" },
+      { name: "onedev", description: "Git forge + CI", host: "onedev.rlservers.com", namespace: "onedev" },
+      { name: "vaultwarden", description: "Password manager", host: "vaultwarden.int.rlservers.com", namespace: "vaultwarden" },
+      { name: "jellyfin", description: "Media server", host: "jellyfin.int.rlservers.com", namespace: "jellyfin" },
+      { name: "n8n", description: "Workflow automation", host: "n8n.int.rlservers.com", namespace: "n8n" },
+      { name: "actual", description: "Personal finance", host: "actual.int.rlservers.com", namespace: "actual" },
     ] as CatalogApp[]);
   }
 }

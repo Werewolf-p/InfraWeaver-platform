@@ -522,6 +522,13 @@ interface RawFields {
   gitPath: string; targetRevision: string;
 }
 
+interface CatalogAppEntry {
+  name: string;
+  description: string;
+  host: string;
+  namespace: string;
+}
+
 function generateHelmYaml(f: HelmFields): string {
   const valuesBlock = f.valuesOverride.trim()
     ? `\n    helm:\n      releaseName: ${f.appName}\n      values: |\n${f.valuesOverride.split("\n").map(l => `        ${l}`).join("\n")}`
@@ -591,7 +598,168 @@ function Field({ label, required, children }: { label: string; required?: boolea
   );
 }
 
+// ── Catalog Browse Card ────────────────────────────────────────────────────────
+function CatalogBrowseCard({
+  app,
+  installed,
+  onInstall,
+}: {
+  app: CatalogAppEntry;
+  installed: boolean;
+  onInstall: (app: CatalogAppEntry) => void;
+}) {
+  const displayName = app.name.replace(/-/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="group bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.07] hover:border-white/20 rounded-xl p-4 flex flex-col gap-3 transition-all duration-200"
+    >
+      {/* Header */}
+      <div className="flex items-start gap-3">
+        <div className="w-9 h-9 rounded-lg bg-[#0078D4]/20 border border-[#0078D4]/30 flex items-center justify-center flex-shrink-0">
+          <Package className="w-4 h-4 text-[#0078D4]" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-white font-medium text-sm truncate">{displayName}</p>
+          <p className="text-white/40 text-[10px] font-mono truncate">{app.name}</p>
+        </div>
+        {installed && (
+          <span className="flex items-center gap-1 px-1.5 py-0.5 rounded border border-emerald-500/30 bg-emerald-500/10 text-[10px] font-medium text-emerald-400 flex-shrink-0">
+            <Check className="w-2.5 h-2.5" /> Installed
+          </span>
+        )}
+      </div>
+
+      {/* Description */}
+      {app.description && (
+        <p className="text-white/50 text-xs leading-relaxed line-clamp-2 flex-1">{app.description}</p>
+      )}
+
+      {/* Host */}
+      {app.host && (
+        <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-white/5 border border-white/10">
+          <Globe className="w-3 h-3 text-white/40 flex-shrink-0" />
+          <span className="text-white/50 text-[10px] font-mono truncate">{app.host}</span>
+        </div>
+      )}
+
+      {/* Actions */}
+      <div className="flex gap-2 mt-auto pt-1">
+        <button
+          onClick={() => onInstall(app)}
+          disabled={installed}
+          className={cn(
+            "flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors min-h-[36px]",
+            installed
+              ? "bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 cursor-default"
+              : "bg-[#0078D4] hover:bg-[#0066b8] text-white"
+          )}
+        >
+          {installed ? <><Check className="w-3 h-3" /> Installed</> : <><Download className="w-3 h-3" /> Install</>}
+        </button>
+      </div>
+    </motion.div>
+  );
+}
+
+// ── Catalog Browse View ───────────────────────────────────────────────────────
+function CatalogBrowseView({
+  onInstall,
+  onCustom,
+  installedNames,
+}: {
+  onInstall: (app: CatalogAppEntry) => void;
+  onCustom: () => void;
+  installedNames: Set<string>;
+}) {
+  const [apps, setApps] = useState<CatalogAppEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    setLoading(true);
+    fetch("/api/config/catalog-apps")
+      .then(r => r.ok ? r.json() as Promise<CatalogAppEntry[]> : Promise.resolve([] as CatalogAppEntry[]))
+      .then(data => { setApps(data.filter(a => a.name !== "_template")); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
+
+  const filtered = apps.filter(a =>
+    !search ||
+    a.name.toLowerCase().includes(search.toLowerCase()) ||
+    a.description.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const sorted = [...filtered].sort((a, b) => {
+    const ai = installedNames.has(a.name) ? 1 : 0;
+    const bi = installedNames.has(b.name) ? 1 : 0;
+    if (ai !== bi) return ai - bi; // not installed first
+    return a.name.localeCompare(b.name);
+  });
+
+  return (
+    <div className="space-y-4">
+      {/* Toolbar */}
+      <div className="flex gap-2">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#555]" />
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search catalog apps…"
+            className="w-full bg-[#0f0f0f] border border-[#333] rounded-lg pl-9 pr-3 py-2 text-sm text-[#f2f2f2] placeholder:text-[#555] focus:outline-none focus:border-[#0078D4]/50"
+          />
+        </div>
+        <button
+          onClick={onCustom}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-[#333] text-[#9e9e9e] hover:text-white hover:border-[#555] text-sm transition-colors whitespace-nowrap"
+        >
+          <PlusCircle className="w-4 h-4" />
+          <span className="hidden sm:inline">Custom URL</span>
+        </button>
+      </div>
+
+      {/* Counts */}
+      {!loading && (
+        <p className="text-xs text-[#666]">
+          {sorted.length} app{sorted.length !== 1 ? "s" : ""} in catalog
+          {installedNames.size > 0 && ` · ${installedNames.size} installed`}
+        </p>
+      )}
+
+      {/* Grid */}
+      {loading ? (
+        <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+          {[...Array(9)].map((_, i) => (
+            <div key={i} className="bg-white/[0.03] border border-white/[0.07] rounded-xl p-4 h-36 animate-pulse" />
+          ))}
+        </div>
+      ) : sorted.length === 0 ? (
+        <div className="text-center py-16 text-[#555]">
+          <Package className="w-10 h-10 mx-auto mb-3 opacity-30" />
+          <p className="text-sm">No catalog apps found</p>
+        </div>
+      ) : (
+        <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+          {sorted.map(app => (
+            <CatalogBrowseCard
+              key={app.name}
+              app={app}
+              installed={installedNames.has(app.name)}
+              onInstall={onInstall}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Catalog Installer (browse + wizard) ───────────────────────────────────────
 function CatalogInstallerTab({ onInstalled }: { onInstalled?: () => void }) {
+  // "browse" = catalog grid, "wizard" = manual step wizard
+  const [mode, setMode] = useState<"browse" | "wizard">("browse");
   const [step, setStep] = useState(1);
   const [appType, setAppType] = useState<AppType>(null);
   const [helmFields, setHelmFields] = useState<HelmFields>({
@@ -606,16 +774,42 @@ function CatalogInstallerTab({ onInstalled }: { onInstalled?: () => void }) {
   const [installing, setInstalling] = useState(false);
   const [success, setSuccess] = useState(false);
 
+  // Pull ArgoCD apps to know what's installed
+  const { data: argoApps } = useArgoApps();
+  const installedNames = useMemo(() => {
+    const names = new Set<string>();
+    for (const app of argoApps ?? []) {
+      const n = app.metadata?.name ?? "";
+      // ArgoCD name pattern: catalog-{appname}-manifests
+      const m = n.match(/^catalog-(.+)-manifests$/);
+      if (m) names.add(m[1]);
+    }
+    return names;
+  }, [argoApps]);
+
   const appName = appType === "helm" ? helmFields.appName : rawFields.appName;
   const generatedYaml = appType === "helm"
     ? generateHelmYaml(helmFields)
     : appType === "raw" ? generateRawYaml(rawFields) : "";
   const defaultCommitMessage = `feat: install catalog app ${appName} via InfraWeaver Console`;
 
-  const canProceedStep1 = appType !== null;
   const canProceedStep2 = appType === "helm"
     ? !!(helmFields.appName && helmFields.namespace && helmFields.helmRepoURL && helmFields.chartName && helmFields.chartVersion)
     : !!(rawFields.appName && rawFields.namespace && rawFields.gitRepoURL && rawFields.gitPath);
+
+  // Called when user clicks "Install" on a catalog browse card
+  const handleCatalogInstall = (app: CatalogAppEntry) => {
+    setRawFields({
+      appName: app.name,
+      namespace: app.namespace || app.name,
+      gitRepoURL: DEFAULT_GIT_REPO,
+      gitPath: `kubernetes/catalog/${app.name}`,
+      targetRevision: "HEAD",
+    });
+    setAppType("raw");
+    setStep(2); // Go to pre-filled details step
+    setMode("wizard");
+  };
 
   const handleInstall = async () => {
     setInstalling(true);
@@ -641,8 +835,28 @@ function CatalogInstallerTab({ onInstalled }: { onInstalled?: () => void }) {
     }
   };
 
+  // ── Browse Mode ──────────────────────────────────────────────────────────────
+  if (mode === "browse") {
+    return (
+      <CatalogBrowseView
+        onInstall={handleCatalogInstall}
+        onCustom={() => { setAppType(null); setStep(1); setMode("wizard"); }}
+        installedNames={installedNames}
+      />
+    );
+  }
+
+  // ── Wizard Mode ──────────────────────────────────────────────────────────────
   return (
     <div className="max-w-3xl mx-auto">
+      {/* Back to browse */}
+      <button
+        onClick={() => { setMode("browse"); setStep(1); setAppType(null); setSuccess(false); }}
+        className="flex items-center gap-1.5 text-sm text-[#9e9e9e] hover:text-white mb-6 transition-colors"
+      >
+        <ChevronLeft className="w-4 h-4" /> Back to Catalog
+      </button>
+
       {/* Step Indicators */}
       <div className="flex items-center gap-2 mb-8">
         {["Choose Type", "Fill Details", "Preview YAML", "Commit"].map((label, i) => {
@@ -687,7 +901,7 @@ function CatalogInstallerTab({ onInstalled }: { onInstalled?: () => void }) {
               ))}
             </div>
             <div className="flex justify-end">
-              <button onClick={() => setStep(2)} disabled={!canProceedStep1}
+              <button onClick={() => setStep(2)} disabled={!appType}
                 className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600 transition-colors disabled:opacity-40">
                 Next <ChevronRight className="w-4 h-4" />
               </button>
@@ -720,7 +934,7 @@ function CatalogInstallerTab({ onInstalled }: { onInstalled?: () => void }) {
               )}
             </div>
             <div className="flex justify-between">
-              <button onClick={() => setStep(1)} className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-slate-300 text-sm font-medium hover:bg-white/10 transition-colors">
+              <button onClick={() => appType ? setStep(1) : setMode("browse")} className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-slate-300 text-sm font-medium hover:bg-white/10 transition-colors">
                 <ChevronLeft className="w-4 h-4" /> Back
               </button>
               <button onClick={() => setStep(3)} disabled={!canProceedStep2}
@@ -763,10 +977,16 @@ function CatalogInstallerTab({ onInstalled }: { onInstalled?: () => void }) {
                 </div>
                 <h3 className="text-lg font-semibold text-white mb-2">{appName} installed!</h3>
                 <p className="text-sm text-slate-400 mb-6">ArgoCD will sync the application shortly.</p>
-                <button onClick={() => { setSuccess(false); setStep(1); setAppType(null); onInstalled?.(); }}
-                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600 transition-colors">
-                  Install Another
-                </button>
+                <div className="flex items-center justify-center gap-3">
+                  <button onClick={() => { setSuccess(false); setStep(1); setAppType(null); setMode("browse"); }}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg border border-white/10 text-slate-300 text-sm font-medium hover:bg-white/10 transition-colors">
+                    Back to Catalog
+                  </button>
+                  <button onClick={() => { setSuccess(false); setStep(1); setAppType(null); onInstalled?.(); }}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600 transition-colors">
+                    Install Another
+                  </button>
+                </div>
               </div>
             ) : (
               <>
@@ -1395,7 +1615,7 @@ function CommunityStoreTab() {
 const TOP_TABS: Array<{ value: TopTab; label: string; icon: React.ElementType }> = [
   { value: "installed", label: "All Installed", icon: Layers },
   { value: "catalog", label: "Platform Catalog", icon: Package },
-  { value: "community", label: "Community Store", icon: Store },
+  { value: "community", label: "Community", icon: Store },
 ];
 
 export default function AppsPage() {

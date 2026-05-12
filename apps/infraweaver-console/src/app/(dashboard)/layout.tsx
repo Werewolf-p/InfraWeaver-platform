@@ -191,10 +191,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               initial={{ x: -300 }}
               animate={{ x: 0 }}
               exit={{ x: -300 }}
-              transition={{ type: "spring", damping: 32, stiffness: 320 }}
+              transition={{ type: "spring", damping: 50, stiffness: 700, restDelta: 0.5 }}
               drag="x"
               dragConstraints={{ left: -300, right: 0 }}
-              dragElastic={0.05}
+              dragElastic={0}
+              dragMomentum={false}
               onDragEnd={(_, info) => {
                 if (info.offset.x < -60 || info.velocity.x < -300) { setMobileOpen(false); setDrawerSearch(""); }
               }}
@@ -240,9 +241,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
               {/* ── ITER 2: Recent pages quick-chips ── */}
               {!drawerSearch && recentPages.length > 0 && (
-                <div className="flex-shrink-0 px-3 pt-2.5 pb-1">
+                <div
+                  className="flex-shrink-0 px-3 pt-2.5 pb-1"
+                  onPointerDown={e => e.stopPropagation()}
+                >
                   <p className="text-[9px] font-semibold uppercase tracking-widest text-[#444] mb-1.5 px-1">Recent</p>
-                  <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                  <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none" style={{ touchAction: "pan-x" }}>
                     {recentPages.slice(0, 4).map((page: { href: string; title: string }) => (
                       <Link key={page.href} href={page.href} onClick={() => { setMobileOpen(false); setDrawerSearch(""); }}>
                         <div className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[#1a1a1a] border border-[#252525] text-[#888] hover:text-white hover:border-[#333] transition-colors whitespace-nowrap touch-manipulation">
@@ -511,10 +515,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               initial={{ y: "100%" }}
               animate={{ y: 0 }}
               exit={{ y: "100%" }}
-              transition={{ type: "spring", damping: 32, stiffness: 320 }}
+              transition={{ type: "spring", damping: 50, stiffness: 700, restDelta: 0.5 }}
               drag="y"
               dragConstraints={{ top: 0 }}
-              dragElastic={0.1}
+              dragElastic={0}
+              dragMomentum={false}
               onDragEnd={(_, info) => {
                 if (info.offset.y > 80 || info.velocity.y > 500) { setMoreOpen(false); setMoreSearch(""); setMoreCategory("all"); }
               }}
@@ -560,7 +565,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
               {/* Category pills */}
               {!moreSearch && (
-                <div className="flex-shrink-0 overflow-x-auto px-4 pb-3 scrollbar-none">
+                <div
+                  className="flex-shrink-0 overflow-x-auto px-4 pb-3 scrollbar-none"
+                  onPointerDown={e => e.stopPropagation()}
+                  style={{ touchAction: "pan-x" }}
+                >
                   <div className="flex gap-1.5 w-max">
                     <button
                       onClick={() => setMoreCategory("all")}
@@ -596,7 +605,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 {recentPages.length > 0 && !moreSearch && moreCategory === "all" && (
                   <div className="mb-4">
                     <p className="text-[9px] font-semibold uppercase tracking-widest text-[#444] px-2 mb-2">Recently visited</p>
-                    <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
+                    <div
+                      className="flex gap-2 overflow-x-auto pb-1 scrollbar-none"
+                      onPointerDown={e => e.stopPropagation()}
+                      style={{ touchAction: "pan-x" }}
+                    >
                       {recentPages.slice(0, 5).map((page: { href: string; title: string }) => (
                         <Link key={page.href} href={page.href} onClick={() => { setMoreOpen(false); setMoreCategory("all"); }}>
                           <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#1a1a1a] border border-[#232323] text-[#888] hover:text-white hover:border-[#333] transition-colors whitespace-nowrap touch-manipulation min-h-[36px]">
