@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import { ChevronLeft, ChevronRight, Check, Loader2, Gamepad2 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -61,9 +62,19 @@ export default function NewGameServerPage() {
   const [memory, setMemory] = useState("2Gi");
   const [cpu, setCpu] = useState("1");
   const [storage, setStorage] = useState("10Gi");
+  const [storageClass, setStorageClass] = useState("longhorn");
   const [envValues, setEnvValues] = useState<Record<string, string>>({});
   const [deploying, setDeploying] = useState(false);
   const [deployed, setDeployed] = useState(false);
+
+  const { data: setupData } = useQuery({
+    queryKey: ["game-hub", "setup"],
+    queryFn: async () => {
+      const res = await fetch("/api/game-hub/setup");
+      return res.json() as Promise<{ storageClasses: Array<{ name: string; provisioner: string; isDefault: boolean }>; ready: boolean }>;
+    },
+  });
+  const availableStorageClasses = setupData?.storageClasses ?? [{ name: "longhorn", provisioner: "driver.longhorn.io", isDefault: true }];
 
   const stepIndex = STEPS.indexOf(step);
 
@@ -104,7 +115,7 @@ metadata:
   name: ${slug}-data
   namespace: game-hub
 spec:
-  storageClassName: longhorn
+  storageClassName: ${storageClass}
   resources:
     requests:
       storage: ${storage}`;
@@ -119,7 +130,7 @@ spec:
       const res = await fetch("/api/game-hub/servers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ game: selectedGame.id, name: slug, memory, cpu, storage, env }),
+        body: JSON.stringify({ game: selectedGame.id, name: slug, memory, cpu, storage, storageClass, env }),
       });
       if (!res.ok) {
         const err = await res.json() as { error: string };
@@ -215,6 +226,20 @@ spec:
                       <option>5Gi</option><option>10Gi</option><option>20Gi</option><option>50Gi</option>
                     </select>
                   </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-medium text-[#999]">Storage Class</label>
+                  <select
+                    value={storageClass}
+                    onChange={e => setStorageClass(e.target.value)}
+                    className="w-full bg-[#252525] border border-[#333] rounded-lg px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
+                  >
+                    {availableStorageClasses.map(sc => (
+                      <option key={sc.name} value={sc.name}>
+                        {sc.name} {sc.isDefault ? "(default)" : ""} — {sc.provisioner}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div className="border-t border-[#2a2a2a] pt-3">
                   <p className="text-xs text-[#9e9e9e] mb-2 font-medium">Game Settings</p>

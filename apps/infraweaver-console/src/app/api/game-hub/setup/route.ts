@@ -1,11 +1,5 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { execFile } from "child_process";
-import { promisify } from "util";
-import path from "path";
-
-const execFileAsync = promisify(execFile);
-const REPO_ROOT = path.resolve(process.cwd(), "../../..");
 
 export async function GET() {
   const session = await auth();
@@ -17,6 +11,7 @@ export async function GET() {
     kc.loadFromDefault();
     const coreApi = kc.makeApiClient(k8s.CoreV1Api);
     const apiExtApi = kc.makeApiClient(k8s.ApiextensionsV1Api);
+    const storageApi = kc.makeApiClient(k8s.StorageV1Api);
 
     // Check namespace
     let nsExists = false;
@@ -32,15 +27,27 @@ export async function GET() {
       crdExists = true;
     } catch {}
 
-    // Check Longhorn
-    let longhornAvailable = false;
+    // List available storage classes
+    const storageClasses: Array<{ name: string; provisioner: string; isDefault: boolean }> = [];
     try {
-      const storageApi = kc.makeApiClient(k8s.StorageV1Api);
       const scs = await storageApi.listStorageClass();
-      longhornAvailable = (scs.items ?? []).some((sc: { metadata?: { name?: string } }) => sc.metadata?.name === "longhorn");
+      for (const sc of scs.items ?? []) {
+        const name = sc.metadata?.name ?? "";
+        if (!name) continue;
+        const isDefault = sc.metadata?.annotations?.["storageclass.kubernetes.io/is-default-class"] === "true";
+        storageClasses.push({ name, provisioner: sc.provisioner ?? "", isDefault });
+      }
     } catch {}
 
-    return NextResponse.json({ nsExists, crdExists, longhornAvailable, ready: nsExists && crdExists && longhornAvailable });
+    const longhornAvailable = storageClasses.some(sc => sc.name === "longhorn");
+
+    return NextResponse.json({
+      nsExists,
+      crdExists,
+      longhornAvailable,
+      storageClasses,
+      ready: nsExists && crdExists,
+    });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
   }
@@ -52,18 +59,42 @@ export async function POST() {
 
   const results: Array<{ resource: string; status: string; error?: string }> = [];
 
-  const manifests = [
-    path.join(REPO_ROOT, "kubernetes/crds/gameserver-crd.yaml"),
-    path.join(REPO_ROOT, "kubernetes/catalog/game-hub/namespace.yaml"),
-  ];
+  try {
+    const k8s = await import("@kubernetes/client-node");
+    const kc = new k8s.KubeConfig();
+    kc.loadFromDefault();
+    const coreApi = kc.makeApiClient(k8s.CoreV1Api);
 
-  for (const manifest of manifests) {
+    // Create game-hub namespace if it doesn't exist
     try {
-      await execFileAsync("kubectl", ["apply", "-f", manifest]);
-      results.push({ resource: path.basename(manifest), status: "applied" });
-    } catch (err) {
-      results.push({ resource: path.basename(manifest), status: "error", error: String(err) });
+      await coreApi.readNamespace({ name: "game-hub" });
+      results.push({ resource: "game-hub namespace", status: "already exists" });
+    } catch {
+      try {
+        await coreApi.createNamespace({
+          body: {
+            metadata: {
+              name: "game-hub",
+              labels: { "app.kubernetes.io/managed-by": "infraweaver-console" },
+            },
+          },
+        });
+        results.push({ resource: "game-hub namespace", status: "created" });
+      } catch (err) {
+        results.push({ resource: "game-hub namespace", status: "error", error: String(err) });
+      }
     }
+
+    // CRD is deployed via ArgoCD — just verify it exists
+    try {
+      const apiExtApi = kc.makeApiClient(k8s.ApiextensionsV1Api);
+      await apiExtApi.readCustomResourceDefinition({ name: "gameservers.infraweaver.rlservers.com" });
+      results.push({ resource: "GameServer CRD", status: "already exists" });
+    } catch {
+      results.push({ resource: "GameServer CRD", status: "not found — deployed automatically via ArgoCD" });
+    }
+  } catch (err) {
+    results.push({ resource: "setup", status: "error", error: String(err) });
   }
 
   return NextResponse.json({ results });

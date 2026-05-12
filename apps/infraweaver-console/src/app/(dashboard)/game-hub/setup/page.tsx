@@ -11,6 +11,7 @@ interface SetupStatus {
   nsExists: boolean;
   crdExists: boolean;
   longhornAvailable: boolean;
+  storageClasses: Array<{ name: string; provisioner: string; isDefault: boolean }>;
   ready: boolean;
 }
 
@@ -50,7 +51,6 @@ export default function GameHubSetupPage() {
   const checks = [
     { label: "game-hub namespace", key: "nsExists" as keyof SetupStatus, description: "Kubernetes namespace for game servers" },
     { label: "GameServer CRD", key: "crdExists" as keyof SetupStatus, description: "Custom Resource Definition for game servers" },
-    { label: "Longhorn storage", key: "longhornAvailable" as keyof SetupStatus, description: "Persistent storage for game data" },
   ];
 
   return (
@@ -82,6 +82,21 @@ export default function GameHubSetupPage() {
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {status && (status.storageClasses?.length ?? 0) > 0 && (
+          <div className="border-t border-[#2a2a2a] pt-4 space-y-2">
+            <p className="text-xs font-medium text-[#999]">Available Storage Classes</p>
+            {status.storageClasses.map(sc => (
+              <div key={sc.name} className="flex items-center justify-between text-xs text-[#666]">
+                <span className="font-mono">{sc.name}{sc.isDefault ? " (default)" : ""}</span>
+                <span className="text-[#444]">{sc.provisioner}</span>
+              </div>
+            ))}
+            {!status.longhornAvailable && (
+              <p className="text-xs text-amber-500/80 mt-1">⚠ Longhorn not found — select a different storage class when creating servers</p>
+            )}
           </div>
         )}
 

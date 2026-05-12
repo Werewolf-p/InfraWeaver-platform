@@ -5,7 +5,7 @@ import { FloatingActionButton } from "@/components/floating-action-button";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { useSession, signOut } from "next-auth/react";
 import { useRouter, usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import Link from "next/link";
 import {
@@ -21,6 +21,7 @@ import { MOBILE_BOTTOM_NAV, NAV_GROUPS } from "@/lib/nav-config";
 import { SpotlightSearch } from "@/components/ui/spotlight-search";
 import { OfflineIndicator } from "@/components/ui/offline-indicator";
 import { useRecentPages } from "@/hooks/use-recent-pages";
+import { useAddons } from "@/hooks/use-addons";
 
 const mobileNavItems = MOBILE_BOTTOM_NAV;
 
@@ -93,6 +94,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [moreSearch, setMoreSearch] = useState("");
   const [moreCategory, setMoreCategory] = useState<string>("all");
   const [drawerSearch, setDrawerSearch] = useState("");
+  const { addons, mounted: addonsMounted } = useAddons();
+
+  // Build filtered nav groups based on enabled addons
+  const filteredNavGroups = useMemo(() => {
+    if (!addonsMounted) return NAV_GROUPS;
+    return NAV_GROUPS.filter(group => {
+      if (group.id === "gaming") {
+        return addons.find(a => a.id === "game-hub")?.enabled === true;
+      }
+      return true;
+    });
+  }, [addons, addonsMounted]);
 
   // Auto-expand the group that contains the current page; others default to their defaultOpen
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
@@ -106,13 +119,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   // When pathname changes, ensure the active group is open
   useEffect(() => {
-    const activeGroupId = NAV_GROUPS.find(g =>
+    const activeGroupId = filteredNavGroups.find(g =>
       g.items.some(i => pathname === i.href || (i.href !== "/" && pathname.startsWith(i.href)))
     )?.id;
     if (activeGroupId) {
       setOpenGroups(prev => ({ ...prev, [activeGroupId]: true }));
     }
-  }, [pathname]);
+  }, [pathname, filteredNavGroups]);
   const [sessionWarning, setSessionWarning] = useState(false);
   const [countdown, setCountdown] = useState(300);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -264,7 +277,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 {drawerSearch && (
                   /* Flat search results */
                   <div className="px-2">
-                    {NAV_GROUPS.flatMap(g => g.items).filter(i =>
+                    {filteredNavGroups.flatMap(g => g.items).filter(i =>
                       i.label.toLowerCase().includes(drawerSearch.toLowerCase()) ||
                       (i.description ?? "").toLowerCase().includes(drawerSearch.toLowerCase())
                     ).map(item => {
@@ -290,7 +303,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                         </Link>
                       );
                     })}
-                    {NAV_GROUPS.flatMap(g => g.items).filter(i =>
+                    {filteredNavGroups.flatMap(g => g.items).filter(i =>
                       i.label.toLowerCase().includes(drawerSearch.toLowerCase()) ||
                       (i.description ?? "").toLowerCase().includes(drawerSearch.toLowerCase())
                     ).length === 0 && (
@@ -299,7 +312,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   </div>
                 )}
 
-                {!drawerSearch && NAV_GROUPS.map((group, gi) => {
+                {!drawerSearch && filteredNavGroups.map((group, gi) => {
                   const isOpen = openGroups[group.id] ?? false;
                   const hasActiveItem = group.items.some(i =>
                     pathname === i.href || (i.href !== "/" && pathname.startsWith(i.href))
@@ -535,7 +548,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <div className="flex-shrink-0 flex items-center justify-between px-4 pt-1 pb-2.5">
                 <div>
                   <h2 className="text-base font-semibold text-white leading-tight">All Features</h2>
-                  <p className="text-[10px] text-[#555] mt-0.5">{NAV_GROUPS.reduce((n, g) => n + g.items.length, 0)} pages available</p>
+                  <p className="text-[10px] text-[#555] mt-0.5">{filteredNavGroups.reduce((n, g) => n + g.items.length, 0)} pages available</p>
                 </div>
                 <button
                   onClick={() => { setMoreOpen(false); setMoreSearch(""); setMoreCategory("all"); }}
@@ -578,7 +591,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                         moreCategory === "all" ? "bg-[#0078D4] text-white" : "bg-[#1e1e1e] text-[#777] hover:text-white hover:bg-[#2a2a2a]"
                       )}
                     >All</button>
-                    {NAV_GROUPS.map(group => {
+                    {filteredNavGroups.map(group => {
                       const accent = GROUP_ACCENT[group.id] ?? "bg-[#555]";
                       return (
                         <button
@@ -625,7 +638,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 {/* In search mode: flat list */}
                 {moreSearch && (
                   <div className="space-y-0.5">
-                    {NAV_GROUPS.flatMap(g => g.items).filter(i =>
+                    {filteredNavGroups.flatMap(g => g.items).filter(i =>
                       i.label.toLowerCase().includes(moreSearch.toLowerCase()) ||
                       (i.description ?? "").toLowerCase().includes(moreSearch.toLowerCase())
                     ).map(item => {
@@ -648,7 +661,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                         </Link>
                       );
                     })}
-                    {NAV_GROUPS.flatMap(g => g.items).filter(i =>
+                    {filteredNavGroups.flatMap(g => g.items).filter(i =>
                       i.label.toLowerCase().includes(moreSearch.toLowerCase()) ||
                       (i.description ?? "").toLowerCase().includes(moreSearch.toLowerCase())
                     ).length === 0 && (
@@ -658,7 +671,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 )}
 
                 {/* Category/All mode: section groups with 2-col grid */}
-                {!moreSearch && NAV_GROUPS.filter(g => moreCategory === "all" || g.id === moreCategory).map(group => {
+                {!moreSearch && filteredNavGroups.filter(g => moreCategory === "all" || g.id === moreCategory).map(group => {
                   const accent = GROUP_ACCENT[group.id] ?? "bg-[#555]";
                   return (
                     <div key={group.id} className="mb-5">

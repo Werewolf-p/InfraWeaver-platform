@@ -79,11 +79,12 @@ export async function POST(req: NextRequest) {
       memory?: string;
       cpu?: string;
       storage?: string;
+      storageClass?: string;
       env?: Record<string, string>;
       port?: number;
     };
 
-    const { game, name, memory = "2Gi", cpu = "1", storage = "10Gi", env = {}, port } = body;
+    const { game, name, memory = "2Gi", cpu = "1", storage = "10Gi", storageClass = "longhorn", env = {}, port } = body;
 
     const k8s = await import("@kubernetes/client-node");
     const kc = new k8s.KubeConfig();
@@ -122,14 +123,16 @@ export async function POST(req: NextRequest) {
     const mergedEnv = { ...cfg.defaultEnv, ...env };
     const envVars = Object.entries(mergedEnv).map(([k, v]) => ({ name: k, value: v }));
 
+    const pvcName = game === "valheim" ? `${slug}-config` : `${slug}-data`;
+
     // Create PVC
     await coreApi.createNamespacedPersistentVolumeClaim({
       namespace: GAME_HUB_NS,
       body: {
-        metadata: { name: `${slug}-data`, namespace: GAME_HUB_NS, labels: { app: slug, "infraweaver/game": "true" } },
+        metadata: { name: pvcName, namespace: GAME_HUB_NS, labels: { app: slug, "infraweaver/game": "true" } },
         spec: {
           accessModes: ["ReadWriteOnce"],
-          storageClassName: "longhorn",
+          storageClassName: storageClass,
           resources: { requests: { storage } },
         },
       },
@@ -162,12 +165,21 @@ export async function POST(req: NextRequest) {
                 },
                 volumeMounts: [{ name: "data", mountPath: cfg.mountPath }],
               }],
-              volumes: [{ name: "data", persistentVolumeClaim: { claimName: `${slug}-data` } }],
+              volumes: [{ name: "data", persistentVolumeClaim: { claimName: pvcName } }],
             },
           },
         },
       },
     });
+
+    // Build service ports — Valheim requires 3 ports (game/query/rcon)
+    const servicePorts: Array<{ name: string; port: number; targetPort: number; protocol: "TCP" | "UDP" }> = [
+      { name: "game", port: port ?? cfg.containerPort, targetPort: cfg.containerPort, protocol: cfg.protocol as "TCP" | "UDP" },
+      ...(game === "valheim" ? [
+        { name: "query", port: 2457, targetPort: 2457, protocol: "UDP" as const },
+        { name: "rcon", port: 2458, targetPort: 2458, protocol: "TCP" as const },
+      ] : []),
+    ];
 
     // Create Service
     await coreApi.createNamespacedService({
@@ -177,7 +189,7 @@ export async function POST(req: NextRequest) {
         spec: {
           type: "NodePort",
           selector: { app: slug },
-          ports: [{ port: port ?? cfg.containerPort, targetPort: cfg.containerPort, protocol: cfg.protocol as "TCP" | "UDP" }],
+          ports: servicePorts,
         },
       },
     });
