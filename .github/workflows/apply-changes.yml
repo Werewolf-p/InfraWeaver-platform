@@ -138,10 +138,10 @@ jobs:
           echo "==> Newly added users: ${NEW_USERS}"
 
           # Detect new/changed bootstrap Application files (created by new-app.sh)
-          if echo "$CHANGED" | grep -qE "^kubernetes/bootstrap/app-"; then
+          if echo "$CHANGED" | grep -qE "^kubernetes/bootstrap/"; then
             echo "new_bootstrap=true" >> $GITHUB_OUTPUT
             echo "==> Changed bootstrap files:"
-            echo "$CHANGED" | grep -E "^kubernetes/bootstrap/app-"
+            echo "$CHANGED" | grep -E "^kubernetes/bootstrap/"
           else
             echo "new_bootstrap=false" >> $GITHUB_OUTPUT
           fi
@@ -384,7 +384,7 @@ jobs:
         run: |
           KB=~/.kube/config-platform-${{ env.ENV_NAME }}
           KT="kubectl --kubeconfig $KB --insecure-skip-tls-verify"
-          CHANGED=$(git diff --name-only HEAD~1 HEAD 2>/dev/null | grep "^kubernetes/bootstrap/app-" || echo "")
+          CHANGED=$(git diff --name-only HEAD~1 HEAD 2>/dev/null | grep "^kubernetes/bootstrap/" || echo "")
 
           if [ -z "$CHANGED" ]; then
             echo "==> No changed bootstrap files detected — applying all bootstrap apps"

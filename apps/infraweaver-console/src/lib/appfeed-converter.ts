@@ -79,13 +79,57 @@ export interface ConversionResult {
 // ── helpers ─────────────────────────────────────────────────────────────────
 
 function toSlug(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 63);
+  const slug = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 63)
+    .replace(/-+$/g, "");
+  return slug || "app";
+}
+
+function yamlString(value: string): string {
+  return JSON.stringify(value);
+}
+
+function portName(name: string | undefined, port: number): string {
+  const candidate = (name ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 15)
+    .replace(/-+$/g, "");
+  return candidate || `port-${port}`;
+}
+
+function splitArgs(value: string): string[] {
+  const matches = value.match(/"[^"]*"|'[^']*'|\S+/g) ?? [];
+  return matches.map(token => token.replace(/^(["'])(.*)\1$/, "$2"));
 }
 
 function extractWebUIPort(webUI: string): number | null {
-  // Patterns: :PORT/path, [IP]:[PORT], http://[IP]:[PORT]
-  const match = webUI.match(/:(\d{2,5})/);
-  return match ? parseInt(match[1], 10) : null;
+  const patterns = [
+    /\[PORT:(\d{2,5})\]/i,
+    /PORT:(\d{2,5})/i,
+    /:(\d{2,5})(?:[/?#\]]|$)/,
+  ];
+
+  for (const pattern of patterns) {
+    const match = webUI.match(pattern);
+    if (match) return parseInt(match[1], 10);
+  }
+
+  try {
+    const normalized = webUI
+      .replace(/\[IP\]|\[HOST\]/gi, "127.0.0.1")
+      .replace(/\[PORT:(\d{2,5})\]/gi, "$1")
+      .replace(/\[PORT\]/gi, "80");
+    const url = new URL(normalized.match(/^[a-z]+:\/\//i) ? normalized : `http://${normalized}`);
+    const port = parseInt(url.port, 10);
+    return Number.isNaN(port) ? null : port;
+  } catch {
+    return null;
+  }
 }
 
 function getConfigs(app: AppFeedEntry): AppFeedConfig[] {
@@ -119,13 +163,13 @@ function buildEnvVars(configs: AppFeedConfig[]): string[] {
     .filter(c => c["@attributes"]?.Type === "Variable")
     .map(c => {
       const attrs = c["@attributes"];
-      const value = (c.value ?? attrs.Default ?? "").replace(/"/g, '\\"');
+      const value = c.value ?? attrs.Default ?? "";
       const masked = attrs.Mask === "true";
       return [
         `        - name: ${attrs.Target}`,
         masked
           ? `          valueFrom:\n            secretKeyRef:\n              name: ${toSlug(attrs.Name)}-secret\n              key: value`
-          : `          value: "${value}"`,
+          : `          value: ${yamlString(value)}`,
       ].join("\n");
     });
 }
@@ -141,7 +185,7 @@ function buildContainerPorts(configs: AppFeedConfig[]): string[] {
       return [
         `        - containerPort: ${containerPort}`,
         `          protocol: ${proto}`,
-        `          name: ${toSlug(attrs.Name).slice(0, 15)}`,
+        `          name: ${portName(attrs.Name, containerPort)}`,
       ].join("\n");
     })
     .filter(Boolean);
@@ -156,7 +200,7 @@ function buildVolumeMounts(configs: AppFeedConfig[], slug: string): string[] {
       const pvcName = `${slug}-data-${i}`;
       return [
         `        - name: ${pvcName}`,
-        `          mountPath: "${mountPath}"`,
+        `          mountPath: ${yamlString(mountPath)}`,
       ].join("\n");
     });
 }
@@ -194,7 +238,7 @@ metadata:
     app.kubernetes.io/component: storage
     infraweaver.io/source: community-apps
   annotations:
-    infraweaver.io/unraid-path: "${attrs.Default || attrs.Target}"
+    infraweaver.io/unraid-path: ${yamlString(attrs.Default || attrs.Target)}
     infraweaver.io/required: "${required}"
 spec:
   accessModes:
@@ -220,7 +264,7 @@ function buildService(ports: AppFeedConfig[], slug: string, namespace: string): 
         `  - port: ${containerPort}`,
         `    targetPort: ${containerPort}`,
         `    protocol: ${proto}`,
-        `    name: ${toSlug(attrs.Name).slice(0, 15)}`,
+        `    name: ${portName(attrs.Name, containerPort)}`,
       ].join("\n");
     })
     .filter(Boolean);
@@ -276,10 +320,20 @@ export function convertAppFeedEntry(
   app: AppFeedEntry,
   options: ConvertOptions = {}
 ): ConversionResult {
-  const slug = toSlug(app.Name);
-  const namespace = options.namespace ?? slug;
+  const appName = app.Name?.trim();
+  const image = app.Repository?.trim();
+
+  if (!appName) {
+    throw new Error("AppFeed entry is missing a Name");
+  }
+  if (!image) {
+    throw new Error(`App "${appName}" is missing a container image`);
+  }
+
+  const slug = toSlug(appName);
+  const namespace = options.namespace?.trim() || slug;
   const pvcSizeGi = options.pvcSizeGi ?? 10;
-  const storageClass = options.storageClass ?? "longhorn";
+  const storageClass = options.storageClass?.trim() || "longhorn";
   const tier = detectTier(app);
 
   const warnings: string[] = [];
@@ -303,8 +357,8 @@ export function convertAppFeedEntry(
   if (app.Requires) {
     warnings.push(`ℹ️ Prerequisites: ${app.Requires}`);
   }
-  if (app.PostArgs) {
-    warnings.push(`ℹ️ Unraid PostArgs ("${app.PostArgs}") are set as the container command args.`);
+  if (app.PostArgs?.trim()) {
+    warnings.push(`ℹ️ Unraid PostArgs ("${app.PostArgs}") are set as the container args.`);
   }
 
   // Build env vars
@@ -314,16 +368,18 @@ export function convertAppFeedEntry(
   const volumes = buildVolumes(configs, slug);
   const pvcs = buildPVCs(configs, slug, namespace, pvcSizeGi, storageClass);
 
-  // Extract image + tag
-  const image = app.Repository;
-  const postArgs = app.PostArgs ? `\n      command:\n${app.PostArgs.split(" ").map(a => `        - "${a}"`).join("\n")}` : "";
+  // Extract image + args
+  const postArgs = splitArgs(app.PostArgs ?? "");
+  const argsYaml = postArgs.length > 0
+    ? `\n          args:\n${postArgs.map(arg => `            - ${yamlString(arg)}`).join("\n")}`
+    : "";
 
   // Security context
   const secCtxLines: string[] = [];
-  if (isPrivileged) secCtxLines.push("        privileged: true");
+  if (isPrivileged) secCtxLines.push("privileged: true");
   if (!isPrivileged) {
-    secCtxLines.push("        runAsNonRoot: false");
-    secCtxLines.push("        allowPrivilegeEscalation: false");
+    secCtxLines.push("runAsNonRoot: false");
+    secCtxLines.push("allowPrivilegeEscalation: false");
   }
 
   const deploymentYaml = `---
@@ -353,12 +409,12 @@ spec:
     spec:${isHostNetwork ? "\n      hostNetwork: true" : ""}
       containers:
         - name: ${slug}
-          image: ${image}${postArgs}
+          image: ${image}${argsYaml}
 ${envVars.length > 0 ? `          env:\n${envVars.join("\n")}` : "          # No environment variables defined"}
 ${containerPorts.length > 0 ? `          ports:\n${containerPorts.join("\n")}` : "          # No ports defined"}
 ${volumeMounts.length > 0 ? `          volumeMounts:\n${volumeMounts.join("\n")}` : "          # No volume mounts defined"}
           securityContext:
-${secCtxLines.join("\n")}
+${indent(secCtxLines.join("\n"), 12)}
           resources:
             requests:
               memory: "128Mi"
@@ -373,7 +429,7 @@ ${volumes.length > 0 ? `      volumes:\n${volumes.join("\n")}` : "      # No vol
 
   // IngressRoute: use WebUI hint or first TCP port
   let ingressRouteYaml: string | undefined;
-  let createIngress = options.createIngress ?? (!!app.WebUI || portConfigs.length > 0);
+  const createIngress = options.createIngress ?? (!!app.WebUI || portConfigs.length > 0);
 
   if (createIngress) {
     let port: number | null = null;
@@ -387,14 +443,6 @@ ${volumes.length > 0 ? `      volumes:\n${volumes.join("\n")}` : "      # No vol
       ingressRouteYaml = buildIngressRoute(slug, namespace, port, host);
     }
   }
-
-  const kustomizationYaml = `---
-apiVersion: kustomize.config.k8s.io/v1beta1
-kind: Kustomization
-namespace: ${namespace}
-resources:
-  - deployment.yaml
-${serviceYaml ? "  - service.yaml\n" : ""}${pvcs.length > 0 ? "  - pvc.yaml\n" : ""}${ingressRouteYaml ? "  - ingressroute.yaml\n" : ""}`;
 
   const allParts: string[] = [deploymentYaml];
   if (serviceYaml) allParts.push(serviceYaml);

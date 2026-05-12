@@ -1133,7 +1133,7 @@ function DeployModal({ app, onClose }: { app: AppSummary; onClose: () => void })
       if (!res.ok) { toast.error(data.error ?? "Deploy failed"); setStep("preview"); return; }
       setDeployResult({ paths: data.paths ?? [], warnings: data.warnings ?? [] });
       setStep("done");
-      toast.success(`${app.name} committed to Git — ArgoCD will deploy it shortly`);
+      toast.success(`${app.name} deployed! ArgoCD will sync in ~2 minutes. If it doesn't appear, the bootstrap file has been committed to git.`);
     } catch {
       toast.error("Deploy request failed");
       setStep("preview");
@@ -1262,15 +1262,15 @@ function DeployModal({ app, onClose }: { app: AppSummary; onClose: () => void })
               <div className="flex items-center gap-3 text-emerald-400">
                 <CheckCircle className="w-8 h-8" />
                 <div>
-                  <p className="font-semibold">Successfully committed to Git</p>
-                  <p className="text-white/50 text-sm">ArgoCD will deploy {app.name} within ~60 seconds</p>
+                  <p className="font-semibold">App deployed! Bootstrap file committed to Git</p>
+                  <p className="text-white/50 text-sm">ArgoCD usually shows {app.name} within ~2 minutes.</p>
                 </div>
               </div>
               <div className="flex items-start gap-3 p-3 rounded-lg bg-indigo-500/10 border border-indigo-500/20">
                 <Info className="w-4 h-4 text-indigo-400 flex-shrink-0 mt-0.5" />
                 <div className="text-xs text-indigo-200 space-y-1">
-                  <p>✓ Deployment submitted — ArgoCD will sync within 2-3 minutes.</p>
-                  <p>Check the <button onClick={onClose} className="text-indigo-300 underline hover:text-indigo-100">All Installed</button> tab to track status.</p>
+                  <p>✓ ArgoCD sync is not instant — give it about 2 minutes to appear.</p>
+                  <p>If it does not show up yet, the bootstrap file was still committed to git. Check the <button onClick={onClose} className="text-indigo-300 underline hover:text-indigo-100">All Installed</button> tab again shortly.</p>
                 </div>
               </div>
               <div className="bg-white/5 rounded-lg p-3 space-y-1">

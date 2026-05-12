@@ -51,13 +51,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `App "${appName}" not found in AppFeed` }, { status: 404 });
   }
 
-  const result = convertAppFeedEntry(app, {
-    namespace: namespace ?? app.Name.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 63),
-    pvcSizeGi,
-    storageClass,
-    ingressHost,
-    createIngress,
-  });
+  try {
+    const result = convertAppFeedEntry(app, {
+      namespace,
+      pvcSizeGi,
+      storageClass: storageClass?.trim() || undefined,
+      ingressHost: ingressHost?.trim() || undefined,
+      createIngress,
+    });
 
-  return NextResponse.json(result);
+    return NextResponse.json(result);
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Conversion failed" },
+      { status: 422 }
+    );
+  }
 }

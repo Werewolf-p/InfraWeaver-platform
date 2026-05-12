@@ -101,13 +101,21 @@ export async function POST(req: NextRequest) {
   const slug = app.Name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 63);
   const ns = namespace ?? slug;
 
-  const result = convertAppFeedEntry(app, {
-    namespace: ns,
-    pvcSizeGi,
-    storageClass,
-    ingressHost,
-    createIngress,
-  });
+  let result: ReturnType<typeof convertAppFeedEntry>;
+  try {
+    result = convertAppFeedEntry(app, {
+      namespace: ns,
+      pvcSizeGi,
+      storageClass: storageClass?.trim() || undefined,
+      ingressHost: ingressHost?.trim() || undefined,
+      createIngress,
+    });
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Deployment conversion failed" },
+      { status: 422 }
+    );
+  }
 
   const baseDir = `kubernetes/catalog/${slug}/manifests`;
 
