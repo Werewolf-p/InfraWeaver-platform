@@ -5,6 +5,9 @@ import { Writable } from "stream";
 const GAME_HUB_NS = "game-hub";
 const MAX_COMMAND_LENGTH = 512;
 
+// Game types that have rcon-cli available (itzg/minecraft-server image)
+const RCON_GAME_TYPES = new Set(["minecraft", "minecraft-java", "minecraft-bedrock", "paper", "spigot", "forge", "fabric"]);
+
 export async function POST(req: NextRequest, { params }: { params: Promise<{ name: string }> }) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -17,12 +20,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ nam
     return NextResponse.json({ error: "No command provided" }, { status: 400 });
   }
 
-  // Security: enforce max length
   if (command.length > MAX_COMMAND_LENGTH) {
     return NextResponse.json({ error: `Command too long (max ${MAX_COMMAND_LENGTH} chars)` }, { status: 400 });
   }
 
-  // Audit log: record who ran what
   const userEmail = session.user?.email ?? "unknown";
   console.log(`[AUDIT] game-hub exec | user=${userEmail} | server=${name} | command=${command}`);
 
@@ -31,6 +32,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ nam
     const kc = new k8s.KubeConfig();
     kc.loadFromDefault();
     const coreApi = kc.makeApiClient(k8s.CoreV1Api);
+    const appsApi = kc.makeApiClient(k8s.AppsV1Api);
 
     const pods = await coreApi.listNamespacedPod({
       namespace: GAME_HUB_NS,
@@ -42,12 +44,26 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ nam
       return NextResponse.json({ error: "No running pod found" }, { status: 404 });
     }
 
+    // Get game type to decide command method
+    let gameType = "unknown";
+    try {
+      const dep = await appsApi.readNamespacedDeployment({ name, namespace: GAME_HUB_NS });
+      gameType = dep.metadata?.labels?.["infraweaver/game-type"] ?? "unknown";
+    } catch { /* ignore, fall back to shell */ }
+
     const podName = pod.metadata.name;
     const containerName = pod.spec?.containers?.[0]?.name ?? name;
 
     const exec = new k8s.Exec(kc);
     let stdout = "";
     let stderr = "";
+
+    // For Minecraft-type servers: use rcon-cli (sends command to running game process)
+    // For others: use sh -c (shell access for admin/debugging)
+    const useRcon = RCON_GAME_TYPES.has(gameType.toLowerCase());
+    const execCmd = useRcon
+      ? ["rcon-cli", command]
+      : ["sh", "-c", command];
 
     await new Promise<void>((resolve, reject) => {
       const timeout = setTimeout(() => resolve(), 10000);
@@ -61,7 +77,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ nam
 
       exec.exec(
         GAME_HUB_NS, podName, containerName,
-        ["sh", "-c", command],
+        execCmd,
         stdoutStream, stderrStream, null, false,
         (status) => {
           clearTimeout(timeout);
@@ -71,7 +87,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ nam
       ).catch(reject);
     });
 
-    return NextResponse.json({ stdout, stderr, success: true });
+    return NextResponse.json({ stdout, stderr, success: true, method: useRcon ? "rcon" : "shell" });
   } catch (err) {
     console.error(`[game-hub] exec failed | server=${name} | command=${command} |`, err);
     return NextResponse.json({ error: String(err), stdout: "", stderr: "", success: false }, { status: 500 });

@@ -141,8 +141,8 @@ function parseLsOutput(output: string, basePath: string): FileEntry[] {
     if (!line.trim() || line.startsWith("total ") || line.startsWith("ERROR:")) continue;
 
     // Parse: permissions links owner group size date name
-    // Example: -rw-r--r-- 1 root root 1234 2024-01-01T00:00:00 server.properties
-    const match = line.match(/^([dlrwx\-]{10})\s+\d+\s+\S+\s+\S+\s+(\d+)\s+(\S+)\s+(.+)$/);
+    // Handle ACL marker (+) or SELinux (.) after the 10 permission chars
+    const match = line.match(/^([dlrwx\-]{10}[+@.]?)\s+\d+\s+\S+\s+\S+\s+(\d+)\s+(\S+)\s+(.+)$/);
     if (!match) continue;
 
     const [, perms, sizeStr, date, rawName] = match;

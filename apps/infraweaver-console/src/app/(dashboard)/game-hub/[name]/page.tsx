@@ -198,7 +198,9 @@ function DashboardTab({ server, status, name }: { server: ServerDetail; status: 
 }
 
 // ─── Console Tab ──────────────────────────────────────────────────────────────
-function ConsoleTab({ name, status }: { name: string; status: string }) {
+function ConsoleTab({ name, status, gameType }: { name: string; status: string; gameType: string }) {
+  const isMinecraft = ["minecraft", "minecraft-java", "minecraft-bedrock", "paper", "spigot", "forge", "fabric"]
+    .includes(gameType.toLowerCase());
   const [logLines, setLogLines] = useState<Array<{ type: string; line: string; id: number }>>([]);
   const [command, setCommand] = useState("");
   const [sending, setSending] = useState(false);
@@ -271,13 +273,12 @@ function ConsoleTab({ name, status }: { name: string; status: string }) {
     e.preventDefault();
     const cmd = command.trim();
     if (!cmd || sending) return;
-    // Client-side safety: block obvious shell injection attempts
     if (cmd.length > 512) { toast.error("Command too long (max 512 chars)"); return; }
     setSending(true);
     setCommand("");
     historyIdxRef.current = -1;
     setHistory(prev => [cmd, ...prev.slice(0, 49)]);
-    addLine("input", `$ ${cmd}`);
+    addLine("input", `❯ ${cmd}`);
     try {
       const res = await fetch(`/api/game-hub/servers/${name}/command`, {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -368,7 +369,9 @@ function ConsoleTab({ name, status }: { name: string; status: string }) {
             <span className="text-green-500 font-mono text-sm select-none flex-shrink-0">❯</span>
             <input ref={inputRef}
               value={command} onChange={e => setCommand(e.target.value)} onKeyDown={handleKeyDown}
-              placeholder={connected ? "Type a command… (↑↓ for history)" : "Waiting for connection…"}
+              placeholder={connected
+                ? isMinecraft ? "help, list, say Hello… (↑↓ history)" : "shell command… (↑↓ history)"
+                : "Waiting for connection…"}
               disabled={!connected || sending}
               autoCapitalize="none" autoCorrect="off" spellCheck={false}
               // font-size 16px prevents iOS auto-zoom
@@ -380,7 +383,9 @@ function ConsoleTab({ name, status }: { name: string; status: string }) {
             {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
           </button>
         </form>
-        <p className="text-[10px] text-[#2a2a2a] mt-1.5 px-1">Commands are executed on the game server process • ↑↓ for history</p>
+        <p className="text-[10px] text-[#2a2a2a] mt-1.5 px-1">
+          {isMinecraft ? "Minecraft RCON — type commands without /  •  ↑↓ for history" : "Shell access — commands run in container  •  ↑↓ for history"}
+        </p>
       </div>
     </div>
   );
@@ -820,7 +825,7 @@ export default function ServerDetailPage() {
               exit={{ opacity: 0 }}
               transition={{ duration: 0.12 }}>
               {activeTab === "dashboard" && <DashboardTab server={server} status={status} name={name} />}
-              {activeTab === "console" && <ConsoleTab name={name} status={status} />}
+              {activeTab === "console" && <ConsoleTab name={name} status={status} gameType={server?.gameType ?? "unknown"} />}
               {activeTab === "files" && <FilesTab name={name} status={status} mountPath={mountPath} />}
               {activeTab === "settings" && <SettingsTab name={name} server={server} />}
             </motion.div>
