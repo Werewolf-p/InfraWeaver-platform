@@ -163,6 +163,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/registry", icon: Package, label: "Registry", shortcut: "G R", description: "Container image registry browser" },
       { href: "/settings", icon: Settings, label: "Settings", description: "Console preferences and configuration" },
       { href: "/settings/addons", icon: Puzzle, label: "Addons", description: "Enable/disable platform addons and features" },
+      { href: "/settings/rbac", icon: Shield, label: "Access Control", description: "Manage role assignments and permissions (RBAC)" },
       { href: "/profile", icon: UserCircle, label: "My Profile", description: "Your profile and session info" },
       { href: "/changelog", icon: Sparkles, label: "What's New", description: "Recent platform updates" },
     ],
