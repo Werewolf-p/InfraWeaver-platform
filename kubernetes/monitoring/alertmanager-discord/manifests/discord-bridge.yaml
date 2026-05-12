@@ -31,6 +31,9 @@ spec:
           type: RuntimeDefault
       containers:
         - name: alertmanager-discord
+          # NOTE: pin this to a specific digest/tag when next updating.
+          # Using :latest risks unexpected breakage on node restarts/rollouts.
+          # Check releases: https://github.com/benjojo/alertmanager-discord/releases
           image: benjojo/alertmanager-discord:latest
           ports:
             - containerPort: 9094
@@ -85,7 +88,8 @@ metadata:
   name: discord-webhook
   namespace: monitoring
 spec:
-  refreshInterval: 1h
+  # Match ArgoCD's shorter refresh window so webhook rotations heal quickly.
+  refreshInterval: 15m
   secretStoreRef:
     name: openbao
     kind: ClusterSecretStore

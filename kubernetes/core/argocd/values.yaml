@@ -217,11 +217,16 @@ notifications:
                 "fields": [
                   {"name": "Health", "value": "{{ .app.status.health.status }}", "inline": true},
                   {"name": "Sync", "value": "{{ .app.status.sync.status }}", "inline": true},
-                  {"name": "Message", "value": "{{ trunc 200 (default \"(no message)\" .app.status.operationState.message) }}"}
+                  {"name": "Message", "value": "{{ trunc 200 (default \"(no message)\" .app.status.operationState.message) }}"},
+                  {"name": "Action", "value": "Self-healer will retry. If repeated, check ArgoCD UI.", "inline": false}
                 ],
                 "url": "{{ .context.argocdUrl }}/applications/{{ .app.metadata.name }}"
               }]
             }
+    # app-health-degraded only fires after the app stays Degraded beyond its
+    # configured minimum duration (default 10m; override via
+    # infraweaver.io/min-degraded-duration: 5m|10m|30m|self-healer-only).
+    # Self-healer sends its own escalation for *persistent* (>30m) degradations.
     template.app-health-degraded: |
       webhook:
         discord:
@@ -229,11 +234,14 @@ notifications:
           body: |
             {
               "embeds": [{
-                "title": ":warning: App Degraded — {{ .app.metadata.name }}",
+                "title": ":warning: Persistent App Degraded — {{ .app.metadata.name }}",
                 "color": 15105570,
+                "description": "{{ default \"(no health message)\" .app.status.health.message }}",
                 "fields": [
                   {"name": "Health", "value": "{{ .app.status.health.status }}", "inline": true},
-                  {"name": "Sync", "value": "{{ .app.status.sync.status }}", "inline": true}
+                  {"name": "Sync", "value": "{{ .app.status.sync.status }}", "inline": true},
+                  {"name": "Since", "value": "{{ .app.status.health.lastTransitionTime }}", "inline": false},
+                  {"name": "Action", "value": "Inspect the app resource tree and recent events. Self-healer escalates again only if still degraded >30m.", "inline": false}
                 ],
                 "url": "{{ .context.argocdUrl }}/applications/{{ .app.metadata.name }}"
               }]
@@ -241,16 +249,35 @@ notifications:
 
   triggers:
     trigger.on-sync-failed: |
-      - when: app.status.operationState.phase in ['Error', 'Failed']
+      - when: app.status?.operationState.phase in ['Error', 'Failed']
+        oncePer: app.status?.operationState.startedAt
         send: [app-sync-failed]
-    # Only alert on Degraded for actual app workloads — exclude meta/infrastructure apps:
-    # - bootstrap: app-of-apps (inherits worst-child health)
-    # - core-argocd-manifests: self-referential (manages self-healer CronJob)
-    # - core-external-secrets-manifests: health depends on OpenBao uptime
+    # Fires once per Degraded episode, but only after the app has remained
+    # Degraded for its minimum duration gate.
+    # Duration gates:
+    #   default:                        10m
+    #   infraweaver.io/min-degraded-duration: 5m|10m|30m|self-healer-only
+    # Excluded apps:
+    #   bootstrap:                     app-of-apps (inherits worst-child health)
+    #   core-argocd-manifests:         self-referential (manages self-healer CronJob)
+    #   core-external-secrets-manifests: health tied to OpenBao uptime
+    # Suppressed conditions:
+    #   infraweaver.io/transient=true  annotation: intentionally transient app
+    #   op phase Running/Terminating:  sync/self-healer operation in progress
     trigger.on-health-degraded: |
       - when: >-
           app.status.health.status == 'Degraded' &&
-          app.metadata.name not in ['bootstrap', 'core-argocd-manifests', 'core-external-secrets-manifests']
+          app.status.health.lastTransitionTime != nil &&
+          (app.status?.operationState == nil || app.status.operationState.phase not in ['Running', 'Terminating']) &&
+          app.metadata.name not in ['bootstrap', 'core-argocd-manifests', 'core-external-secrets-manifests'] &&
+          app.metadata.annotations['infraweaver.io/transient'] != 'true' &&
+          app.metadata.annotations['infraweaver.io/min-degraded-duration'] != 'self-healer-only' &&
+          (
+            (app.metadata.annotations['infraweaver.io/min-degraded-duration'] == '5m' && time.Now().Sub(time.Parse(app.status.health.lastTransitionTime)).Minutes() >= 5) ||
+            (app.metadata.annotations['infraweaver.io/min-degraded-duration'] == '30m' && time.Now().Sub(time.Parse(app.status.health.lastTransitionTime)).Minutes() >= 30) ||
+            ((app.metadata.annotations['infraweaver.io/min-degraded-duration'] == nil || app.metadata.annotations['infraweaver.io/min-degraded-duration'] in ['', '10m']) && time.Now().Sub(time.Parse(app.status.health.lastTransitionTime)).Minutes() >= 10)
+          )
+        oncePer: app.status.health.lastTransitionTime
         send: [app-health-degraded]
 
   subscriptions:

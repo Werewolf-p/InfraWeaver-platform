@@ -36,3 +36,16 @@ spec:
       # grafana-admin-secret is created by ExternalSecret (ESO-managed)
       - kind: Secret
         name: grafana-admin-secret
+      # Game-hub PVCs hold persistent game-server data and intentionally outlive
+      # individual ArgoCD application objects (servers can be re-provisioned without
+      # data loss). These would generate OrphanedResourceWarnings if warn: true is
+      # ever enabled — pre-emptively ignoring them for that scenario.
+      - kind: PersistentVolumeClaim
+        namespace: game-hub
+        name: minecraft-server-data
+      - kind: PersistentVolumeClaim
+        namespace: game-hub
+        name: terraria-server-data
+      - kind: PersistentVolumeClaim
+        namespace: game-hub
+        name: valheim-server-config
