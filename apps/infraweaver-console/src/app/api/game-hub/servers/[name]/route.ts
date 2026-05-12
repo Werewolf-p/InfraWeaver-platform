@@ -25,6 +25,33 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ nam
       svc = await coreApi.readNamespacedService({ name, namespace: GAME_HUB_NS });
     } catch {}
 
+    // Resolve the node IP for the running pod (or first ready node as fallback)
+    let nodeIp: string | null = process.env.GAME_HUB_EXTERNAL_HOSTNAME ?? null;
+    if (!nodeIp) {
+      try {
+        const nodeName = pod?.spec?.nodeName;
+        if (nodeName) {
+          const node = await coreApi.readNode({ name: nodeName });
+          nodeIp = node.status?.addresses?.find(a => a.type === "InternalIP")?.address ?? null;
+        }
+        if (!nodeIp) {
+          const nodes = await coreApi.listNode();
+          const ready = nodes.items.find(n =>
+            n.status?.conditions?.some(c => c.type === "Ready" && c.status === "True")
+          );
+          nodeIp = ready?.status?.addresses?.find(a => a.type === "InternalIP")?.address ?? null;
+        }
+      } catch {}
+    }
+
+    // All service ports (Valheim has 3, Minecraft has 1, etc.)
+    const allPorts = (svc?.spec?.ports ?? []).map(p => ({
+      name: p.name ?? null,
+      port: p.port,
+      nodePort: p.nodePort ?? null,
+      protocol: p.protocol ?? "TCP",
+    }));
+
     return NextResponse.json({
       name,
       gameType: deployment.metadata?.labels?.["infraweaver/game-type"] ?? "unknown",
@@ -35,6 +62,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ nam
       podStartTime: pod?.status?.startTime ? new Date(pod.status.startTime as string | Date).toISOString() : null,
       port: svc?.spec?.ports?.[0]?.port ?? null,
       nodePort: svc?.spec?.ports?.[0]?.nodePort ?? null,
+      nodeIp,
+      allPorts,
       memory: deployment.spec?.template?.spec?.containers?.[0]?.resources?.limits?.memory ?? "",
       cpu: deployment.spec?.template?.spec?.containers?.[0]?.resources?.limits?.cpu ?? "",
       env: (deployment.spec?.template?.spec?.containers?.[0]?.env ?? []).map(e => ({

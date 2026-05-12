@@ -8,7 +8,7 @@ import {
   Settings, FolderOpen, Activity, File, Folder, Save, Trash2,
   RefreshCw, Copy, ArrowUp, Send, Circle, AlertTriangle,
   Cpu, MemoryStick, Network, Clock, Gamepad2, LayoutDashboard,
-  Shield, Server
+  Shield, Server, Wifi
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -25,10 +25,19 @@ const GAME_ICONS: Record<string, string> = {
   "seven-days-to-die": "💀", "team-fortress-2": "🎩", "garrys-mod": "🔧",
 };
 
+interface ServicePort {
+  name: string | null;
+  port: number;
+  nodePort: number | null;
+  protocol: string;
+}
+
 interface ServerDetail {
   name: string; gameType: string; replicas: number; readyReplicas: number;
   podName: string | null; podPhase: string | null; podStartTime: string | null;
-  port: number | null; nodePort: number | null; memory: string; cpu: string;
+  port: number | null; nodePort: number | null; nodeIp: string | null;
+  allPorts: ServicePort[];
+  memory: string; cpu: string;
   env: Array<{ name: string; value?: string; valueFrom?: unknown }>; createdAt: string | null;
 }
 
@@ -90,6 +99,82 @@ function ResourceBar({ label, value, unit, color = "bg-[#0078D4]" }: {
           transition={{ duration: 0.8, ease: "easeOut" }}
         />
       </div>
+    </div>
+  );
+}
+
+// ─── Connection Card ──────────────────────────────────────────────────────────
+const GAME_CONNECT_HINTS: Record<string, string> = {
+  minecraft: "Open Minecraft → Multiplayer → Add Server → paste the address below",
+  "minecraft-java": "Open Minecraft Java Edition → Multiplayer → Add Server",
+  "minecraft-bedrock": "Open Minecraft → Play → Servers → Add Server (port may differ)",
+  terraria: "Open Terraria → Multiplayer → Join via IP → paste address & port",
+  valheim: "In Steam: View → Servers → Add Server → paste address:port (primary UDP port)",
+  cs2: "In CS2 console: connect <address>:<port>",
+  rust: "In Rust: press F1 → client.connect <address>:<port>",
+  ark: "Open ARK → Join ARK → Session Filter → search by IP",
+  factorio: "Factorio → Multiplayer → Connect to address → paste address:port",
+};
+
+function ConnectCard({
+  nodeIp, allPorts, gameType,
+}: { nodeIp: string | null; allPorts: ServicePort[]; gameType: string }) {
+  const host = nodeIp ?? "—";
+  const hint = GAME_CONNECT_HINTS[gameType] ?? "Connect using the address and port below";
+
+  const primaryPort = allPorts.find(p => p.nodePort) ?? null;
+  const primaryAddress = primaryPort ? `${host}:${primaryPort.nodePort}` : host;
+
+  return (
+    <div className="rounded-xl border border-[#1e3a5f] bg-[#0a1929] p-4 space-y-3">
+      <div className="flex items-center gap-2">
+        <Wifi className="w-4 h-4 text-[#0078D4]" />
+        <p className="text-xs font-semibold text-[#4fc3f7] uppercase tracking-wide">How to Connect</p>
+      </div>
+
+      {/* Primary copy box */}
+      <div className="flex items-center gap-2">
+        <div className="flex-1 font-mono text-sm text-[#e0e0e0] bg-[#0d1b2a] border border-[#1e3a5f] rounded-lg px-3 py-2 truncate">
+          {primaryAddress}
+        </div>
+        <button
+          onClick={() => { navigator.clipboard.writeText(primaryAddress); toast.success("Copied!"); }}
+          className="flex-shrink-0 p-2 rounded-lg border border-[#1e3a5f] hover:bg-[#0d2137] text-[#4fc3f7] transition-colors"
+        >
+          <Copy className="w-3.5 h-3.5" />
+        </button>
+      </div>
+
+      {/* All ports table */}
+      {allPorts.length > 0 && (
+        <div className="space-y-1">
+          {allPorts.map((p, i) => {
+            const addr = `${host}:${p.nodePort ?? p.port}`;
+            return (
+              <div key={i} className="flex items-center justify-between gap-2 text-xs">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className={cn(
+                    "px-1.5 py-0.5 rounded text-[10px] font-mono flex-shrink-0",
+                    p.protocol === "UDP" ? "bg-purple-900/40 text-purple-300 border border-purple-700/40"
+                      : "bg-blue-900/40 text-blue-300 border border-blue-700/40"
+                  )}>{p.protocol}</span>
+                  {p.name && <span className="text-[#555] capitalize">{p.name.replace(/-/g, " ")}</span>}
+                  <span className="text-[#888] font-mono truncate">{addr}</span>
+                </div>
+                <button
+                  onClick={() => { navigator.clipboard.writeText(addr); toast.success("Copied!"); }}
+                  className="flex-shrink-0 text-[#555] hover:text-[#4fc3f7] transition-colors p-0.5"
+                >
+                  <Copy className="w-3 h-3" />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Hint */}
+      <p className="text-[11px] text-[#4a6fa5] leading-relaxed">{hint}</p>
     </div>
   );
 }
@@ -164,6 +249,9 @@ function DashboardTab({ server, status, name }: { server: ServerDetail; status: 
           ))}
         </div>
       </div>
+
+      {/* How to Connect */}
+      <ConnectCard nodeIp={server.nodeIp} allPorts={server.allPorts} gameType={server.gameType} />
 
       {/* Recent activity */}
       <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
