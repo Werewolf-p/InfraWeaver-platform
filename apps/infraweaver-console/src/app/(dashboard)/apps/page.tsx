@@ -7,7 +7,7 @@ import {
   Package, FileText, ChevronRight, ChevronLeft, Check, Loader2,
   PlusCircle, Search, ExternalLink, AlertTriangle, Info, CheckCircle,
   Globe, Star, X, Shield, Zap, GitBranch, Eye, Store,
-  Terminal, Download, RefreshCw, LayoutGrid, Layers,
+  Terminal, Download, RefreshCw, LayoutGrid, Layers, Settings2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -17,6 +17,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { PageHeader } from "@/components/ui/page-header";
 import { useArgoApps } from "@/hooks/use-argocd";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { UpdatePolicyModal } from "@/components/apps/update-policy-modal";
 
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
 
@@ -52,6 +53,60 @@ interface InstalledCommunityApp {
   installedAt: string;
   argoAppName: string;
   manifestsPath: string;
+}
+
+// ── Policy badge helpers ───────────────────────────────────────────────────────
+
+type PolicySource = "aciu" | "renovate" | "none";
+type PolicySchedule = "continuous" | "daily" | "weekly" | "monthly" | "manual";
+
+interface AppPolicy {
+  source: PolicySource;
+  schedule?: PolicySchedule;
+  enabled?: boolean;
+}
+
+function useAppPolicy(slug: string): AppPolicy | null {
+  const [policy, setPolicy] = useState<AppPolicy | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/apps/update-policy?app=${encodeURIComponent(slug)}`)
+      .then(r => r.ok ? r.json() : null)
+      .then((d: { source?: PolicySource; policy?: { enabled?: boolean; schedule?: PolicySchedule } } | null) => {
+        if (!cancelled && d) {
+          setPolicy({ source: d.source ?? "none", schedule: d.policy?.schedule, enabled: d.policy?.enabled });
+        }
+      })
+      .catch(() => { /* silent */ });
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slug]);
+  return policy;
+}
+
+function PolicyBadge({ slug }: { slug: string }) {
+  const policy = useAppPolicy(slug);
+  if (!policy || policy.source === "none" || !policy.enabled) return null;
+
+  if (policy.source === "aciu") {
+    return (
+      <span className="flex items-center gap-1 px-1.5 py-0.5 rounded border border-blue-500/30 bg-blue-500/10 text-[10px] font-medium text-blue-400">
+        🤖 Continuous
+      </span>
+    );
+  }
+  if (policy.source === "renovate") {
+    const label = policy.schedule === "manual" ? "Manual" : policy.schedule
+      ? policy.schedule.charAt(0).toUpperCase() + policy.schedule.slice(1)
+      : "Scheduled";
+    const emoji = policy.schedule === "manual" ? "👤" : "📅";
+    return (
+      <span className="flex items-center gap-1 px-1.5 py-0.5 rounded border border-violet-500/30 bg-violet-500/10 text-[10px] font-medium text-violet-400">
+        {emoji} {label}
+      </span>
+    );
+  }
+  return null;
 }
 
 function toHealthStatus(val: string): AppHealthStatus {
@@ -187,6 +242,7 @@ function AllInstalledTab() {
   const [syncingApp, setSyncingApp] = useState<string | null>(null);
   const [deletingApp, setDeletingApp] = useState<string | null>(null);
   const [optimisticSyncing, setOptimisticSyncing] = useState<Set<string>>(new Set());
+  const [updatePolicyApp, setUpdatePolicyApp] = useState<{ name: string; slug: string } | null>(null);
 
   useEffect(() => {
     setCommunityLoading(true);
@@ -365,26 +421,36 @@ function AllInstalledTab() {
                   </td>
                   {!simpleMode && <td className="py-2.5 px-3 text-xs text-[#666]">{row.lastSync ? new Date(row.lastSync).toLocaleString() : "—"}</td>}
                   <td className="py-2.5 px-3 text-right">
-                    {row.source === "Catalog" && (
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          onClick={() => void handleSync(row.name)}
-                          disabled={syncingApp === row.name}
-                          className="flex items-center gap-1 px-2 py-1 rounded text-xs border border-[#333] text-[#9e9e9e] hover:text-white hover:border-[#555] transition-colors disabled:opacity-50"
-                        >
-                          {syncingApp === row.name ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
-                          Sync
-                        </button>
-                        <button
-                          onClick={() => void handleDelete(row.name)}
-                          disabled={deletingApp === row.name}
-                          className="flex items-center gap-1 px-2 py-1 rounded text-xs border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
-                        >
-                          {deletingApp === row.name ? <Loader2 className="w-3 h-3 animate-spin" /> : <X className="w-3 h-3" />}
-                          Delete
-                        </button>
-                      </div>
-                    )}
+                    <div className="flex items-center justify-end gap-2">
+                      {row.source === "Catalog" && (
+                        <>
+                          <PolicyBadge slug={row.name} />
+                          <button
+                            onClick={() => setUpdatePolicyApp({ name: row.name, slug: row.name })}
+                            className="flex items-center gap-1 px-2 py-1 rounded text-xs border border-[#2a2a2a] text-[#666] hover:text-[#0078D4] hover:border-[#0078D4]/40 transition-colors"
+                            title="Update Policy"
+                          >
+                            <Settings2 className="w-3 h-3" />
+                          </button>
+                          <button
+                            onClick={() => void handleSync(row.name)}
+                            disabled={syncingApp === row.name}
+                            className="flex items-center gap-1 px-2 py-1 rounded text-xs border border-[#333] text-[#9e9e9e] hover:text-white hover:border-[#555] transition-colors disabled:opacity-50"
+                          >
+                            {syncingApp === row.name ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                            Sync
+                          </button>
+                          <button
+                            onClick={() => void handleDelete(row.name)}
+                            disabled={deletingApp === row.name}
+                            className="flex items-center gap-1 px-2 py-1 rounded text-xs border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                          >
+                            {deletingApp === row.name ? <Loader2 className="w-3 h-3 animate-spin" /> : <X className="w-3 h-3" />}
+                            Delete
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -411,10 +477,31 @@ function AllInstalledTab() {
                 onDelete={handleDelete}
                 isOptimisticSyncing={optimisticSyncing.has(row.name)}
               />
+              {row.source === "Catalog" && (
+                <div className="flex items-center gap-2 mt-2 px-1">
+                  <PolicyBadge slug={row.name} />
+                  <button
+                    onClick={() => setUpdatePolicyApp({ name: row.name, slug: row.name })}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs border border-[#2a2a2a] text-[#666] hover:text-[#0078D4] hover:border-[#0078D4]/40 transition-colors min-h-[36px]"
+                  >
+                    <Settings2 className="w-3.5 h-3.5" /> Update Policy
+                  </button>
+                </div>
+              )}
             </motion.div>
           ))}
         </AnimatePresence>
       </div>
+
+      {/* Update Policy Modal */}
+      {updatePolicyApp && (
+        <UpdatePolicyModal
+          appName={updatePolicyApp.name}
+          appSlug={updatePolicyApp.slug}
+          open={true}
+          onClose={() => setUpdatePolicyApp(null)}
+        />
+      )}
     </div>
   );
 }

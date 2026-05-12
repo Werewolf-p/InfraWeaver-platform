@@ -1,6 +1,7 @@
 export type Permission =
   | "*"
   | "apps:read"
+  | "apps:write"
   | "apps:sync"
   | "config:read"
   | "config:write"
