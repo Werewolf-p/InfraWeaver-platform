@@ -1,10 +1,5 @@
 import { NextResponse } from "next/server";
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Public endpoint — no session required (used on pre-auth home screen too).
-// Uses ArgoCD app health to determine service status. This avoids cross-namespace
-// HTTP pings that are blocked by NetworkPolicies.
-// ──────────────────────────────────────────────────────────────────────────────
+import { auth } from "@/lib/auth";
 
 const ARGOCD_SERVER = process.env.ARGOCD_SERVER ?? "http://argocd-server.argocd.svc.cluster.local:80";
 const ARGOCD_TOKEN  = process.env.ARGOCD_TOKEN ?? "";
@@ -34,6 +29,9 @@ let _cacheTime = 0;
 const CACHE_TTL_MS = 30_000; // 30s
 
 export async function GET() {
+  const session = await auth();
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   // Return cached result if fresh
   if (_cache && Date.now() - _cacheTime < CACHE_TTL_MS) {
     return NextResponse.json(_cache);
