@@ -45,12 +45,22 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
 
-      - name: Free disk space (prune Docker build cache)
+      - name: Free disk space (aggressive cleanup)
         run: |
           df -h /
-          docker buildx prune --filter "until=72h" -f || true
-          docker image prune -f || true
+          # Remove all stopped containers, dangling images, unused networks, build cache
+          docker system prune -f || true
+          # Remove unused images older than 24h (keeps the base layers we need cached)
+          docker image prune -a --filter "until=24h" -f || true
+          # Remove stale buildx cache
+          docker buildx prune --filter "until=24h" -f || true
           rm -rf /tmp/.buildx-cache-console-new || true
+          # Clean up runner diagnostic logs older than 1 day
+          find /opt/platform-runner/_diag -name "*.log" -mtime +1 -delete 2>/dev/null || true
+          find /opt/platform-runner/_work/_temp -mindepth 1 -maxdepth 1 -mtime +1 -exec rm -rf {} + 2>/dev/null || true
+          # Clean npm cache if >5GB
+          NPM_CACHE_SIZE=$(du -sb ~/.npm 2>/dev/null | cut -f1 || echo 0)
+          if [ "$NPM_CACHE_SIZE" -gt 5368709120 ]; then npm cache clean --force || true; fi
           df -h /
 
       - name: Build and push Docker image
