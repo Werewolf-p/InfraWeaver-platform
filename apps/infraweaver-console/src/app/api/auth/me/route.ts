@@ -3,8 +3,9 @@ import { auth } from "@/lib/auth";
 import { getRole, hasPermission, type Permission } from "@/lib/rbac";
 
 const ALL_PERMISSIONS: Permission[] = [
-  "apps:read", "apps:sync", "config:read", "config:write",
-  "catalog:write", "users:read", "users:write",
+  "apps:read", "apps:sync", "apps:write", "config:read", "config:write",
+  "catalog:write", "users:read", "users:write", "infra:read", "rbac:admin",
+  "cluster:read", "game-hub:read", "game-hub:players", "game-hub:start", "game-hub:stop",
 ];
 
 export async function GET() {

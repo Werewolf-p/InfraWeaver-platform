@@ -12,6 +12,7 @@ import { useFavorites } from "@/hooks/use-favorites";
 import { useRecentPages } from "@/hooks/use-recent-pages";
 import { useAddons } from "@/hooks/use-addons";
 import { filterNavGroupsByAddons } from "@/lib/addons";
+import { filterNavGroupsByPermissions } from "@/lib/navigation-rbac";
 import { NAV_GROUPS, type NavItem } from "@/lib/nav-config";
 
 const ROLE_COLORS: Record<string, string> = {
@@ -94,14 +95,21 @@ export function Sidebar() {
     return { overview: true, apps: true, compute: false, infrastructure: false, operations: false, monitoring: false, services: false, tools: false };
   });
   const pathname = usePathname();
-  const { role } = useRBAC();
+  const { role, permissions, assignments } = useRBAC();
   const { data: session } = useSession();
   const { favorites } = useFavorites();
   const { recentPages, addRecentPage } = useRecentPages();
   const { addons } = useAddons();
   const appVersion = process.env.NEXT_PUBLIC_APP_VERSION ?? "dev";
 
-  const filteredNavGroups = useMemo(() => filterNavGroupsByAddons(NAV_GROUPS, addons), [addons]);
+  const accessibleNavGroups = useMemo(
+    () => filterNavGroupsByPermissions(NAV_GROUPS, permissions, assignments),
+    [assignments, permissions],
+  );
+  const filteredNavGroups = useMemo(
+    () => filterNavGroupsByAddons(accessibleNavGroups, addons),
+    [accessibleNavGroups, addons],
+  );
   const visibleNavItems = useMemo(() => filteredNavGroups.flatMap((group) => group.items), [filteredNavGroups]);
 
   const toggleSection = (id: string) => {

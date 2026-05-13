@@ -209,6 +209,7 @@ const HISTORY_DEPTH_MAX_LINES: Record<ConsoleHistoryDepth, number> = {
   "3d": 20000,
   "7d": 20000,
 };
+const GAME_HUB_TAB_STORAGE_PREFIX = "infraweaver:game-hub:tab";
 
 function readConsoleHistory(name: string) {
   if (typeof window === "undefined") return [] as string[];
@@ -4564,7 +4565,10 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
 
 export default function ServerDetailPage() {
   const { name } = useParams<{ name: string }>();
-  const [activeTab, setActiveTab] = useState<TabId>("dashboard");
+  const [activeTab, setActiveTab] = useState<TabId>(() => {
+    if (typeof window === "undefined") return "dashboard";
+    return (window.localStorage.getItem(`${GAME_HUB_TAB_STORAGE_PREFIX}:${name}`) as TabId | null) ?? "dashboard";
+  });
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
@@ -4651,16 +4655,38 @@ export default function ServerDetailPage() {
     };
   }, [name, status]);
 
-  const tabs: Array<{ id: TabId; label: string; icon: React.ElementType }> = [
-    { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-    { id: "console", label: "Console", icon: Terminal },
-    ...(status !== "stopped"
-      ? [{ id: "players" as const, label: "Players", icon: Users }]
-      : []),
-    { id: "files", label: "Files", icon: FolderOpen },
-    { id: "activity", label: "Activity", icon: Activity },
-    { id: "settings", label: "Settings", icon: Settings },
-  ];
+  const tabs = useMemo<Array<{ id: TabId; label: string; icon: React.ElementType }>>(() => {
+    const next: Array<{ id: TabId; label: string; icon: React.ElementType }> = [
+      { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+    ];
+
+    if (server?.permissions?.canOpenConsole) {
+      next.push({ id: "console", label: "Console", icon: Terminal });
+    }
+    if (status !== "stopped" && server?.permissions?.canPlayers) {
+      next.push({ id: "players", label: "Players", icon: Users });
+    }
+    if (server?.permissions?.canWriteFiles) {
+      next.push({ id: "files", label: "Files", icon: FolderOpen });
+    }
+
+    next.push({ id: "activity", label: "Activity", icon: Activity });
+
+    if (server?.permissions?.canAdmin) {
+      next.push({ id: "settings", label: "Settings", icon: Settings });
+    }
+
+    return next;
+  }, [server?.permissions?.canAdmin, server?.permissions?.canOpenConsole, server?.permissions?.canPlayers, server?.permissions?.canWriteFiles, status]);
+
+  const resolvedActiveTab = tabs.some((tab) => tab.id === activeTab)
+    ? activeTab
+    : (tabs[0]?.id ?? "dashboard");
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(`${GAME_HUB_TAB_STORAGE_PREFIX}:${name}`, resolvedActiveTab);
+  }, [name, resolvedActiveTab]);
 
   return (
     <div className="space-y-0 pb-2">
@@ -4705,6 +4731,21 @@ export default function ServerDetailPage() {
                 <span className={cn("text-[11px] capitalize", statusText)}>
                   {status}
                 </span>
+                {typeof connectivity?.external.latencyMs === "number" && (
+                  <span className="inline-flex items-center gap-1 text-[10px] text-[#666]" title={`Connection quality ${connectivity.external.latencyMs}ms`}>
+                    <span
+                      className={cn(
+                        "h-2 w-2 rounded-full",
+                        connectivity.external.latencyMs < 100
+                          ? "bg-emerald-400"
+                          : connectivity.external.latencyMs < 250
+                            ? "bg-amber-400"
+                            : "bg-red-400",
+                      )}
+                    />
+                    {connectivity.external.latencyMs}ms
+                  </span>
+                )}
               </div>
             </div>
             <p className="mt-0.5 text-[10px] text-[#555] line-clamp-2 sm:line-clamp-1">
@@ -4812,112 +4853,122 @@ export default function ServerDetailPage() {
                   <span className="truncate">{connectionInfo}</span>
                 </button>
               )}
-              <button
-                onClick={async () => {
-                  try {
-                    await fetchJson(`/api/game-hub/servers/${name}`, {
-                      method: "PATCH",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({
-                        action: "set-maintenance",
-                        enabled: !server.maintenanceMode,
-                      }),
-                    });
-                    toast.success(
-                      server.maintenanceMode
-                        ? "Maintenance mode disabled"
-                        : "Maintenance mode enabled",
-                    );
-                    queryClient.invalidateQueries({
-                      queryKey: ["game-hub", "server", name],
-                    });
-                    queryClient.invalidateQueries({
-                      queryKey: ["game-hub", "servers"],
-                    });
-                  } catch (error) {
-                    toast.error(String(error));
-                  }
-                }}
-                title={
-                  server.maintenanceMode
-                    ? "Exit Maintenance"
-                    : "Enter Maintenance"
-                }
-                className={cn(
-                  "group flex min-h-[40px] items-center gap-1.5 rounded-lg border px-2.5 py-2 text-xs transition-all",
-                  server.maintenanceMode
-                    ? "border-yellow-400/40 bg-yellow-500/20 text-yellow-100 shadow-[0_0_18px_rgba(250,204,21,0.22)]"
-                    : "border-[#2a2a2a] bg-[#1a1a1a] text-[#888] hover:border-yellow-500/30 hover:bg-yellow-500/10 hover:text-yellow-200",
-                )}
-              >
-                <Wrench className="w-3.5 h-3.5" />
-                <span className="hidden min-[420px]:inline">Maintenance</span>
-              </button>
-              <button
-                onClick={async () => {
-                  const newName = prompt("Clone server as", `${name}-copy`);
-                  if (!newName) return;
-                  try {
-                    await fetchJson("/api/game-hub/servers", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({
-                        action: "clone",
-                        source: name,
-                        newName,
-                      }),
-                    });
-                    toast.success("Clone started");
-                    queryClient.invalidateQueries({
-                      queryKey: ["game-hub", "servers"],
-                    });
-                  } catch (error) {
-                    toast.error(String(error));
-                  }
-                }}
-                className="hidden min-h-[40px] rounded-lg bg-[#1a1a1a] px-3 py-2 text-xs text-[#888] transition-colors hover:bg-[#222] sm:flex"
-              >
-                Clone
-              </button>
-              {status === "stopped" ? (
+              {server.permissions?.canAdmin ? (
                 <button
-                  onClick={() => doAction("start")}
-                  disabled={!!actionLoading}
-                  className="flex min-h-[40px] items-center gap-1.5 rounded-lg border border-green-500/30 bg-green-500/20 px-3 py-2 text-xs font-medium text-green-300 disabled:opacity-50 touch-manipulation hover:bg-green-500/30"
+                  onClick={async () => {
+                    try {
+                      await fetchJson(`/api/game-hub/servers/${name}`, {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          action: "set-maintenance",
+                          enabled: !server.maintenanceMode,
+                        }),
+                      });
+                      toast.success(
+                        server.maintenanceMode
+                          ? "Maintenance mode disabled"
+                          : "Maintenance mode enabled",
+                      );
+                      queryClient.invalidateQueries({
+                        queryKey: ["game-hub", "server", name],
+                      });
+                      queryClient.invalidateQueries({
+                        queryKey: ["game-hub", "servers"],
+                      });
+                    } catch (error) {
+                      toast.error(String(error));
+                    }
+                  }}
+                  title={
+                    server.maintenanceMode
+                      ? "Exit Maintenance"
+                      : "Enter Maintenance"
+                  }
+                  className={cn(
+                    "group flex min-h-[40px] items-center gap-1.5 rounded-lg border px-2.5 py-2 text-xs transition-all",
+                    server.maintenanceMode
+                      ? "border-yellow-400/40 bg-yellow-500/20 text-yellow-100 shadow-[0_0_18px_rgba(250,204,21,0.22)]"
+                      : "border-[#2a2a2a] bg-[#1a1a1a] text-[#888] hover:border-yellow-500/30 hover:bg-yellow-500/10 hover:text-yellow-200",
+                  )}
                 >
-                  {actionLoading === "start" ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <Play className="w-3.5 h-3.5" />
-                  )}{" "}
-                  Start
+                  <Wrench className="w-3.5 h-3.5" />
+                  <span className="hidden min-[420px]:inline">Maintenance</span>
                 </button>
+              ) : null}
+              {server.permissions?.canAdmin ? (
+                <button
+                  onClick={async () => {
+                    const newName = prompt("Clone server as", `${name}-copy`);
+                    if (!newName) return;
+                    try {
+                      await fetchJson("/api/game-hub/servers", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          action: "clone",
+                          source: name,
+                          newName,
+                        }),
+                      });
+                      toast.success("Clone started");
+                      queryClient.invalidateQueries({
+                        queryKey: ["game-hub", "servers"],
+                      });
+                    } catch (error) {
+                      toast.error(String(error));
+                    }
+                  }}
+                  className="hidden min-h-[40px] rounded-lg bg-[#1a1a1a] px-3 py-2 text-xs text-[#888] transition-colors hover:bg-[#222] sm:flex"
+                >
+                  Clone
+                </button>
+              ) : null}
+              {status === "stopped" ? (
+                server.permissions?.canStart ? (
+                  <button
+                    onClick={() => doAction("start")}
+                    disabled={!!actionLoading}
+                    className="flex min-h-[40px] items-center gap-1.5 rounded-lg border border-green-500/30 bg-green-500/20 px-3 py-2 text-xs font-medium text-green-300 disabled:opacity-50 touch-manipulation hover:bg-green-500/30"
+                  >
+                    {actionLoading === "start" ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Play className="w-3.5 h-3.5" />
+                    )}{" "}
+                    Start
+                  </button>
+                ) : null
               ) : (
                 <>
-                  <button
-                    onClick={() => doAction("restart")}
-                    disabled={!!actionLoading}
-                    title="Quick restart"
-                    className="flex min-h-[40px] min-w-[40px] items-center justify-center rounded-lg bg-[#1a1a1a] p-2 text-[#888] transition-colors disabled:opacity-50 touch-manipulation hover:bg-[#222]"
-                  >
-                    {actionLoading === "restart" ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      <RotateCcw className="w-3.5 h-3.5" />
-                    )}
-                  </button>
-                  <button
-                    onClick={() => doAction("stop")}
-                    disabled={!!actionLoading}
-                    title="Stop"
-                    className="flex min-h-[40px] min-w-[40px] items-center justify-center rounded-lg bg-[#1a1a1a] p-2 text-[#888] transition-colors disabled:opacity-50 touch-manipulation hover:bg-[#222]"
-                  >
-                    {actionLoading === "stop" ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      <Square className="w-3.5 h-3.5" />
-                    )}
-                  </button>
+                  {server.permissions?.canAdmin ? (
+                    <button
+                      onClick={() => doAction("restart")}
+                      disabled={!!actionLoading}
+                      title="Quick restart"
+                      className="flex min-h-[40px] min-w-[40px] items-center justify-center rounded-lg bg-[#1a1a1a] p-2 text-[#888] transition-colors disabled:opacity-50 touch-manipulation hover:bg-[#222]"
+                    >
+                      {actionLoading === "restart" ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <RotateCcw className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+                  ) : null}
+                  {server.permissions?.canStop ? (
+                    <button
+                      onClick={() => doAction("stop")}
+                      disabled={!!actionLoading}
+                      title="Stop"
+                      className="flex min-h-[40px] min-w-[40px] items-center justify-center rounded-lg bg-[#1a1a1a] p-2 text-[#888] transition-colors disabled:opacity-50 touch-manipulation hover:bg-[#222]"
+                    >
+                      {actionLoading === "stop" ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Square className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+                  ) : null}
                 </>
               )}
             </div>
@@ -4931,7 +4982,7 @@ export default function ServerDetailPage() {
               onClick={() => setActiveTab(id)}
               className={cn(
                 "flex min-h-[40px] items-center gap-1.5 border-b-2 px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap -mb-px flex-shrink-0 touch-manipulation sm:px-4 sm:py-2.5",
-                activeTab === id
+                resolvedActiveTab === id
                   ? "border-[#0078D4] text-[#0078D4] bg-[#0078D4]/5"
                   : "border-transparent text-[#555] hover:text-[#888]",
               )}
@@ -4974,13 +5025,13 @@ export default function ServerDetailPage() {
         {server && !isLoading && (
           <AnimatePresence mode="wait">
             <motion.div
-              key={activeTab}
+              key={resolvedActiveTab}
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.12 }}
             >
-              {activeTab === "dashboard" && (
+              {resolvedActiveTab === "dashboard" && (
                 <div className="space-y-4">
                   <DashboardTab server={server} name={name} connectivity={connectivity} />
                   {server.gameType.toLowerCase().includes("minecraft") ? (
@@ -4995,17 +5046,17 @@ export default function ServerDetailPage() {
                   ) : null}
                 </div>
               )}
-              {activeTab === "console" && (
+              {resolvedActiveTab === "console" && (
                 <ConsoleTab name={name} status={status} server={server} />
               )}
-              {activeTab === "players" && (
+              {resolvedActiveTab === "players" && (
                 <PlayersTab name={name} server={server} />
               )}
-              {activeTab === "files" && (
+              {resolvedActiveTab === "files" && (
                 <FilesTab name={name} status={status} mountPath={mountPath} />
               )}
-              {activeTab === "activity" && <ActivityTab name={name} />}
-              {activeTab === "settings" && (
+              {resolvedActiveTab === "activity" && <ActivityTab name={name} />}
+              {resolvedActiveTab === "settings" && (
                 <SettingsTab name={name} server={server} />
               )}
             </motion.div>

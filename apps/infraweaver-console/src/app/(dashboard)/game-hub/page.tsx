@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Plus, Gamepad2, Play, Square, RotateCcw, Trash2, Terminal, Loader2, AlertTriangle, HardDrive, X, CheckSquare, Square as SquareIcon, Search, ChevronDown, ChevronUp, BarChart2, BookOpen, Star, LayoutGrid, Rows3 } from "lucide-react";
 import { cn, timeAgo } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
+import { useRBAC } from "@/hooks/use-rbac";
 import { toast } from "sonner";
 import Link from "next/link";
 
@@ -36,6 +37,15 @@ interface GameServer {
   memoryUsage?: number | null;
   cpuLimit?: number | null;
   memoryLimit?: number | null;
+  permissions?: {
+    canRead: boolean;
+    canPlayers: boolean;
+    canConsole: boolean;
+    canFiles: boolean;
+    canAdmin: boolean;
+    canStart: boolean;
+    canStop: boolean;
+  };
   inGit: boolean;
 }
 
@@ -396,6 +406,8 @@ function formatUptime(startTime: string | null | undefined, now: number) {
 export default function GameHubPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const { can } = useRBAC();
+  const canManageGameHub = can("game-hub:admin", "/game-hub/");
   const [actionLoading, setActionLoading] = useState<Record<string, string>>({});
   const [showPVCCleanup, setShowPVCCleanup] = useState(false);
   const [search, setSearch] = useState("");
@@ -513,6 +525,10 @@ export default function GameHubPage() {
     return direction * String(a[sortKey]).localeCompare(String(b[sortKey]), undefined, { sensitivity: "base" });
   });
   const comparedServers = [...compareSet].map((name) => servers.find((server) => server.name === name)).filter((server): server is GameServer => Boolean(server));
+  const selectedServers = filteredServers.filter((server) => selected.has(server.name));
+  const canBulkStart = selectedServers.some((server) => server.permissions?.canStart);
+  const canBulkStop = selectedServers.some((server) => server.permissions?.canStop);
+  const canBulkRestart = selectedServers.some((server) => server.permissions?.canAdmin);
 
   async function doAction(name: string, action: string) {
     setActionLoading((prev) => ({ ...prev, [name]: action }));
@@ -639,10 +655,12 @@ export default function GameHubPage() {
         icon={Gamepad2}
         actions={
           <div className="flex items-center gap-2">
-            <button onClick={() => setShowPVCCleanup(true)} className="flex items-center gap-2 px-3 py-2 bg-[#252525] hover:bg-[#2a2a2a] border border-[#2a2a2a] text-[#9e9e9e] hover:text-[#f2f2f2] rounded-lg text-sm font-medium transition-colors">
-              <HardDrive className="w-4 h-4" />
-              <span className="hidden sm:inline">Cleanup PVCs</span>
-            </button>
+            {canManageGameHub ? (
+              <button onClick={() => setShowPVCCleanup(true)} className="flex items-center gap-2 px-3 py-2 bg-[#252525] hover:bg-[#2a2a2a] border border-[#2a2a2a] text-[#9e9e9e] hover:text-[#f2f2f2] rounded-lg text-sm font-medium transition-colors">
+                <HardDrive className="w-4 h-4" />
+                <span className="hidden sm:inline">Cleanup PVCs</span>
+              </button>
+            ) : null}
             <button
               onClick={() => {
                 setCompareMode((prev) => {
@@ -655,10 +673,12 @@ export default function GameHubPage() {
               <BarChart2 className="w-4 h-4" />
               <span className="hidden sm:inline">{compareMode ? "Comparing" : "Compare"}</span>
             </button>
-            <Link href="/game-hub/new" className="flex items-center gap-2 px-4 py-2 bg-[#0078D4] hover:bg-[#006cbe] text-white rounded-lg text-sm font-medium transition-colors">
-              <Plus className="w-4 h-4" />
-              New Server
-            </Link>
+            {canManageGameHub ? (
+              <Link href="/game-hub/new" className="flex items-center gap-2 px-4 py-2 bg-[#0078D4] hover:bg-[#006cbe] text-white rounded-lg text-sm font-medium transition-colors">
+                <Plus className="w-4 h-4" />
+                New Server
+              </Link>
+            ) : null}
           </div>
         }
       />
@@ -712,12 +732,12 @@ export default function GameHubPage() {
         </div>
       )}
 
-      {selected.size > 0 && (
+      {selected.size > 0 && (canBulkStart || canBulkStop || canBulkRestart) && (
         <div className="sticky top-16 z-10 flex flex-wrap items-center gap-2 rounded-xl border border-[#0078D4]/30 bg-[#0b1a2a] px-4 py-3">
           <span className="text-sm text-[#d4e7ff]">{selected.size} selected</span>
-          <button onClick={() => doBulkAction("start")} className="px-3 py-1.5 rounded-lg bg-green-500/20 text-green-300 text-xs">Start All</button>
-          <button onClick={() => doBulkAction("stop")} className="px-3 py-1.5 rounded-lg bg-[#252525] text-[#d4d4d4] text-xs">Stop All</button>
-          <button onClick={() => doBulkAction("restart")} className="px-3 py-1.5 rounded-lg bg-[#252525] text-[#d4d4d4] text-xs">Restart All</button>
+          {canBulkStart ? <button onClick={() => doBulkAction("start")} className="px-3 py-1.5 rounded-lg bg-green-500/20 text-green-300 text-xs">Start All</button> : null}
+          {canBulkStop ? <button onClick={() => doBulkAction("stop")} className="px-3 py-1.5 rounded-lg bg-[#252525] text-[#d4d4d4] text-xs">Stop All</button> : null}
+          {canBulkRestart ? <button onClick={() => doBulkAction("restart")} className="px-3 py-1.5 rounded-lg bg-[#252525] text-[#d4d4d4] text-xs">Restart All</button> : null}
           <button onClick={() => setSelected(new Set())} className="ml-auto text-xs text-[#0078D4]">Deselect</button>
         </div>
       )}
@@ -741,10 +761,12 @@ export default function GameHubPage() {
             <p className="text-[#f2f2f2] font-medium">No game servers yet</p>
             <p className="text-[#666] text-sm mt-1">Deploy your first server to get started</p>
           </div>
-          <Link href="/game-hub/new" className="flex items-center gap-2 px-4 py-2 bg-[#0078D4] hover:bg-[#006cbe] text-white rounded-lg text-sm font-medium transition-colors">
-            <Plus className="w-4 h-4" />
-            Deploy Server
-          </Link>
+          {canManageGameHub ? (
+            <Link href="/game-hub/new" className="flex items-center gap-2 px-4 py-2 bg-[#0078D4] hover:bg-[#006cbe] text-white rounded-lg text-sm font-medium transition-colors">
+              <Plus className="w-4 h-4" />
+              Deploy Server
+            </Link>
+          ) : null}
         </motion.div>
       )}
 
@@ -793,17 +815,19 @@ export default function GameHubPage() {
                         ) : (
                           <>
                             <span className="text-[10px] px-2 py-0.5 rounded-full border border-[#444] bg-[#252525] text-[#b3b3b3]" title="No manifest in git — will be lost on cluster rebuild">Not in Git</span>
-                            <button
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                void doAction(server.name, "sync-to-git");
-                              }}
-                              disabled={actionLoading[server.name] === "sync-to-git"}
-                              className="inline-flex items-center gap-1 rounded-full border border-[#2f6fa8] bg-[#0078D4]/10 px-2 py-0.5 text-[10px] font-medium text-[#7cc4ff] transition-colors hover:bg-[#0078D4]/20 disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                              {actionLoading[server.name] === "sync-to-git" ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
-                              Sync
-                            </button>
+                            {server.permissions?.canAdmin ? (
+                              <button
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void doAction(server.name, "sync-to-git");
+                                }}
+                                disabled={actionLoading[server.name] === "sync-to-git"}
+                                className="inline-flex items-center gap-1 rounded-full border border-[#2f6fa8] bg-[#0078D4]/10 px-2 py-0.5 text-[10px] font-medium text-[#7cc4ff] transition-colors hover:bg-[#0078D4]/20 disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                {actionLoading[server.name] === "sync-to-git" ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                                Sync
+                              </button>
+                            ) : null}
                           </>
                         )}
                       </div>
@@ -829,26 +853,36 @@ export default function GameHubPage() {
                 </div>
                 <div className="flex items-center gap-2 flex-wrap" onClick={(event) => event.stopPropagation()}>
                   {server.status === "stopped" ? (
-                    <button onClick={() => doAction(server.name, "start")} disabled={!!actionLoading[server.name]} className="flex items-center gap-1.5 px-3 py-1.5 bg-green-500/20 hover:bg-green-500/30 text-green-300 rounded-lg text-xs font-medium transition-colors disabled:opacity-50">
-                      {actionLoading[server.name] === "start" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />} Start
-                    </button>
+                    server.permissions?.canStart ? (
+                      <button onClick={() => doAction(server.name, "start")} disabled={!!actionLoading[server.name]} className="flex items-center gap-1.5 px-3 py-1.5 bg-green-500/20 hover:bg-green-500/30 text-green-300 rounded-lg text-xs font-medium transition-colors disabled:opacity-50">
+                        {actionLoading[server.name] === "start" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />} Start
+                      </button>
+                    ) : null
                   ) : (
                     <>
-                      <button onClick={() => doAction(server.name, "stop")} disabled={!!actionLoading[server.name]} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#252525] hover:bg-[#2a2a2a] text-[#9e9e9e] rounded-lg text-xs font-medium transition-colors disabled:opacity-50">
-                        {actionLoading[server.name] === "stop" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Square className="w-3.5 h-3.5" />} Stop
-                      </button>
-                      <button onClick={() => doAction(server.name, "restart")} disabled={!!actionLoading[server.name]} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#252525] hover:bg-[#2a2a2a] text-[#9e9e9e] rounded-lg text-xs font-medium transition-colors disabled:opacity-50">
-                        {actionLoading[server.name] === "restart" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />} Restart
-                      </button>
+                      {server.permissions?.canStop ? (
+                        <button onClick={() => doAction(server.name, "stop")} disabled={!!actionLoading[server.name]} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#252525] hover:bg-[#2a2a2a] text-[#9e9e9e] rounded-lg text-xs font-medium transition-colors disabled:opacity-50">
+                          {actionLoading[server.name] === "stop" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Square className="w-3.5 h-3.5" />} Stop
+                        </button>
+                      ) : null}
+                      {server.permissions?.canAdmin ? (
+                        <button onClick={() => doAction(server.name, "restart")} disabled={!!actionLoading[server.name]} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#252525] hover:bg-[#2a2a2a] text-[#9e9e9e] rounded-lg text-xs font-medium transition-colors disabled:opacity-50">
+                          {actionLoading[server.name] === "restart" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />} Restart
+                        </button>
+                      ) : null}
                     </>
                   )}
-                  <button onClick={() => cloneServer(server.name)} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#252525] hover:bg-[#2a2a2a] text-[#9e9e9e] rounded-lg text-xs font-medium transition-colors">Clone</button>
+                  {server.permissions?.canAdmin ? (
+                    <button onClick={() => cloneServer(server.name)} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#252525] hover:bg-[#2a2a2a] text-[#9e9e9e] rounded-lg text-xs font-medium transition-colors">Clone</button>
+                  ) : null}
                   <Link href={`/game-hub/${server.name}`} className="flex items-center gap-1.5 px-3 py-1.5 bg-[rgba(0,120,212,0.15)] hover:bg-[rgba(0,120,212,0.25)] text-[#0078D4] rounded-lg text-xs font-medium transition-colors">
-                    <Terminal className="w-3.5 h-3.5" /> Console
+                    <Terminal className="w-3.5 h-3.5" /> {server.permissions?.canConsole ? "Console" : "View"}
                   </Link>
-                  <button onClick={() => { if (confirm(`Delete ${server.name}? This will remove the server and its data.`)) doAction(server.name, "delete"); }} disabled={!!actionLoading[server.name]} className="ml-auto flex items-center gap-1.5 px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg text-xs font-medium transition-colors disabled:opacity-50">
-                    {actionLoading[server.name] === "delete" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />} Delete
-                  </button>
+                  {server.permissions?.canAdmin ? (
+                    <button onClick={() => { if (confirm(`Delete ${server.name}? This will remove the server and its data.`)) doAction(server.name, "delete"); }} disabled={!!actionLoading[server.name]} className="ml-auto flex items-center gap-1.5 px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg text-xs font-medium transition-colors disabled:opacity-50">
+                      {actionLoading[server.name] === "delete" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />} Delete
+                    </button>
+                  ) : null}
                 </div>
               </motion.div>
             );

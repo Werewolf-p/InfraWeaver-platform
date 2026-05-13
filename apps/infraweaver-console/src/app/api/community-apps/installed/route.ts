@@ -10,7 +10,7 @@
 
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { hasPermission } from "@/lib/rbac";
+import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { safeError } from "@/lib/utils";
 
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN ?? "";
@@ -108,8 +108,8 @@ function parseSimpleYaml(yaml: string): Record<string, string | string[]> {
 export async function GET() {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
-  if (!hasPermission(groups, "apps:read")) {
+  const access = await getSessionRBACContext(session, 60);
+  if (!hasSessionPermission(access, "apps:read")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

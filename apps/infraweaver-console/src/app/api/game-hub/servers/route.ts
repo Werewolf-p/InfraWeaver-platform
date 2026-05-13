@@ -6,7 +6,7 @@ import { GAME_HUB_NAMESPACE, getGameHubAccessContext, getScopedGameServerNames, 
 import { getServerDeployment, makeGameHubClients, normalizeServerName, parseImageVersion, parsePlayerHistory, readServerEgg } from "@/lib/game-hub-server";
 import { readServerManifestSha, writeServerManifest } from "@/lib/game-hub-manifest";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
-import { hasPermission } from "@/lib/rbac";
+import { getEffectivePermissions, hasPermission } from "@/lib/rbac";
 import { safeError } from "@/lib/utils";
 
 function pvcSuffixForMountPath(mountPath: string) {
@@ -348,6 +348,7 @@ export async function GET() {
       const parsedVersion = parseImageVersion(image);
 
       const manifestSha = await manifestShaPromise;
+      const perms = getEffectivePermissions(access.groups, access.username, access.roleAssignments, `/game-hub/servers/${name}`);
 
       return {
         name,
@@ -378,6 +379,15 @@ export async function GET() {
         memoryUsage,
         cpuLimit,
         memoryLimit,
+        permissions: {
+          canRead: perms.has("*") || perms.has("game-hub:read"),
+          canPlayers: perms.has("*") || perms.has("game-hub:players"),
+          canConsole: perms.has("*") || perms.has("game-hub:console"),
+          canFiles: perms.has("*") || perms.has("game-hub:files"),
+          canAdmin: perms.has("*") || perms.has("game-hub:admin"),
+          canStart: perms.has("*") || perms.has("game-hub:start"),
+          canStop: perms.has("*") || perms.has("game-hub:stop"),
+        },
         inGit: manifestSha !== null,
       };
     }));

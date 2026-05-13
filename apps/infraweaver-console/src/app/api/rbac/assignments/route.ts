@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
-import { getBuiltInRoles, hasPermission, type RoleAssignment } from "@/lib/rbac";
+import { getBuiltInRoles, type RoleAssignment } from "@/lib/rbac";
+import { getSessionRBACContext, hasAnySessionPermission } from "@/lib/session-rbac";
 import { safeError } from "@/lib/utils";
 import { loadUsersConfig, normalizeRoleAssignments, saveUsersConfig } from "@/lib/users-config";
 import { randomUUID } from "crypto";
@@ -11,8 +12,8 @@ const SAFE_SCOPE_RE = /^\/(|[a-z0-9/_-]+)$/;
 export async function GET() {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
-  if (!hasPermission(groups, "users:read")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const access = await getSessionRBACContext(session, 60);
+  if (!hasAnySessionPermission(access, ["users:read", "rbac:admin"])) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   try {
     const file = await loadUsersConfig();
@@ -36,8 +37,8 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
-  if (!hasPermission(groups, "users:write")) return NextResponse.json({ error: "Forbidden: admin required" }, { status: 403 });
+  const access = await getSessionRBACContext(session, 60);
+  if (!hasAnySessionPermission(access, ["users:write", "rbac:admin"])) return NextResponse.json({ error: "Forbidden: admin required" }, { status: 403 });
 
   const body = await req.json() as { username: string; roleId: string; scope: string; principalType?: "user" | "group"; expiresAt?: string };
   if (!body.username || !body.roleId || !body.scope) return NextResponse.json({ error: "username, roleId, scope required" }, { status: 400 });
@@ -74,8 +75,8 @@ export async function POST(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
-  if (!hasPermission(groups, "users:write")) return NextResponse.json({ error: "Forbidden: admin required" }, { status: 403 });
+  const access = await getSessionRBACContext(session, 60);
+  if (!hasAnySessionPermission(access, ["users:write", "rbac:admin"])) return NextResponse.json({ error: "Forbidden: admin required" }, { status: 403 });
 
   const { id, username } = await req.json() as { id: string; username: string };
   if (!id || !username) return NextResponse.json({ error: "id and username required" }, { status: 400 });

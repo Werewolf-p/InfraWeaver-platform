@@ -3,7 +3,8 @@ import { dump } from "js-yaml";
 import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
 import { loadKubeConfig } from "@/lib/k8s";
-import { getRole, hasPermission } from "@/lib/rbac";
+import { getRole } from "@/lib/rbac";
+import { getSessionRBACContext, hasAnySessionPermission } from "@/lib/session-rbac";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import * as k8s from "@kubernetes/client-node";
 
@@ -41,8 +42,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ nam
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
-  if (!hasPermission(groups, "apps:read")) {
+  const access = await getSessionRBACContext(session, 60);
+  if (!hasAnySessionPermission(access, ["cluster:read", "infra:read"])) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

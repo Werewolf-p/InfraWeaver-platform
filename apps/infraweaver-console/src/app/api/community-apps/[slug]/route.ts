@@ -8,7 +8,7 @@
 
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { hasPermission } from "@/lib/rbac";
+import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN ?? "";
 const GITHUB_REPO = process.env.GITHUB_REPO ?? "Werewolf-p/InfraWeaver-platform";
@@ -77,8 +77,8 @@ export async function DELETE(
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
-  if (!hasPermission(groups, "apps:write")) {
+  const access = await getSessionRBACContext(session, 60);
+  if (!hasSessionPermission(access, "apps:write")) {
     return NextResponse.json({ error: "Forbidden — requires apps:write" }, { status: 403 });
   }
 

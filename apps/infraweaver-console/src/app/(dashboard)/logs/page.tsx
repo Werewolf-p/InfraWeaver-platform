@@ -37,7 +37,7 @@ function loadStoredSelection(): StoredSelection {
 }
 
 export default function LogsPage() {
-  const { can } = useRBAC();
+  const { canAny } = useRBAC();
   const { data: pods = [], isLoading } = usePods();
   const isMobile = useMediaQuery("(max-width: 1024px)");
   const [search, setSearch] = useState("");
@@ -74,12 +74,12 @@ export default function LogsPage() {
     }
   };
 
-  if (!can("apps:read")) {
+  if (!canAny(["cluster:read", "infra:read"])) {
     return (
       <div className="flex h-64 flex-col items-center justify-center text-center">
         <AlertCircle className="mb-3 h-8 w-8 text-red-400" />
         <h3 className="mb-1 font-semibold text-white">Access denied</h3>
-        <p className="text-sm text-slate-400">You need apps:read permission to view pod logs.</p>
+        <p className="text-sm text-slate-400">You need cluster:read or infra:read permission to view pod logs.</p>
       </div>
     );
   }

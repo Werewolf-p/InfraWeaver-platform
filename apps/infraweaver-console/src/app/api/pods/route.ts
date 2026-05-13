@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { hasPermission } from "@/lib/rbac";
+import { getSessionRBACContext, hasAnySessionPermission } from "@/lib/session-rbac";
 
 export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
-  if (!hasPermission(groups, "apps:read")) {
+  const access = await getSessionRBACContext(session, 60);
+  if (!hasAnySessionPermission(access, ["cluster:read", "infra:read"])) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   const namespace = req.nextUrl.searchParams.get("namespace") ?? undefined;

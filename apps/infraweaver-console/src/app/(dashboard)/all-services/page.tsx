@@ -5,32 +5,43 @@ import { motion } from "framer-motion";
 import { Search, Star, ArrowRight, Grid3X3 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { NAV_GROUPS, type NavItem } from "@/lib/nav-config";
+import { useAddons } from "@/hooks/use-addons";
 import { useFavorites } from "@/hooks/use-favorites";
+import { useRBAC } from "@/hooks/use-rbac";
 import { PageHeader } from "@/components/ui/page-header";
+import { filterNavGroupsByAddons } from "@/lib/addons";
+import { filterNavGroupsByPermissions } from "@/lib/navigation-rbac";
 
 export default function AllServicesPage() {
   const [query, setQuery] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
+  const { addons } = useAddons();
+  const { permissions, assignments } = useRBAC();
   const { isFavorite, toggleFavorite } = useFavorites();
 
   useEffect(() => {
     searchRef.current?.focus();
   }, []);
 
+  const visibleNavGroups = useMemo(
+    () => filterNavGroupsByAddons(filterNavGroupsByPermissions(NAV_GROUPS, permissions, assignments), addons),
+    [addons, assignments, permissions],
+  );
+
   const filteredGroups = useMemo(() => {
-    if (!query.trim()) return NAV_GROUPS;
+    if (!query.trim()) return visibleNavGroups;
     const q = query.toLowerCase();
-    return NAV_GROUPS.map(group => ({
+    return visibleNavGroups.map(group => ({
       ...group,
       items: group.items.filter(item =>
         item.label.toLowerCase().includes(q) ||
         item.description?.toLowerCase().includes(q)
       ),
     })).filter(g => g.items.length > 0);
-  }, [query]);
+  }, [query, visibleNavGroups]);
 
   const totalShown = filteredGroups.reduce((s, g) => s + g.items.length, 0);
-  const totalItems = NAV_GROUPS.flatMap(g => g.items).length;
+  const totalItems = visibleNavGroups.flatMap(g => g.items).length;
 
   return (
     <div className="animate-in fade-in-0 slide-in-from-bottom-4 duration-300 p-6 max-w-7xl mx-auto space-y-6">

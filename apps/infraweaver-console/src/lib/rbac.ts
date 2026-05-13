@@ -7,7 +7,9 @@ export type Permission =
   | "cluster:read" | "cluster:drain" | "cluster:scale" | "cluster:admin"
   | "security:read" | "security:write"
   | "nas:read" | "nas:write"
+  | "infra:read" | "rbac:admin"
   | "game-hub:read" | "game-hub:write" | "game-hub:admin"
+  | "game-hub:players"
   | "game-hub:console" | "game-hub:files" | "game-hub:start" | "game-hub:stop" | "game-hub:scale";
 
 export type BuiltInRoleId =
@@ -15,9 +17,15 @@ export type BuiltInRoleId =
   | "platform-admin"
   | "platform-operator"
   | "platform-viewer"
+  | "viewer"
+  | "ops"
+  | "developer"
+  | "readonly-infra"
   | "game-server-admin"
   | "game-server-operator"
-  | "game-server-viewer";
+  | "game-server-viewer"
+  | "game-hub-player"
+  | "support";
 
 export type RoleId = BuiltInRoleId | string;
 
@@ -56,16 +64,17 @@ export const BUILT_IN_ROLES: Record<BuiltInRoleId, RoleDefinition> = {
   "platform-admin": {
     id: "platform-admin",
     name: "Platform Admin",
-    description: "Manage all apps, configs, users, and cluster operations.",
+    description: "Manage all apps, configs, users, infrastructure, and cluster operations.",
     permissions: [
-      "apps:read", "apps:sync", "apps:delete",
+      "apps:read", "apps:write", "apps:sync", "apps:delete",
       "config:read", "config:write",
       "catalog:write", "catalog:delete",
       "users:read", "users:write", "users:invite",
       "cluster:read", "cluster:drain", "cluster:scale", "cluster:admin",
       "security:read", "security:write",
       "nas:read", "nas:write",
-      "game-hub:read", "game-hub:write", "game-hub:admin",
+      "infra:read", "rbac:admin",
+      "game-hub:read", "game-hub:write", "game-hub:admin", "game-hub:players",
       "game-hub:console", "game-hub:files", "game-hub:start", "game-hub:stop", "game-hub:scale",
     ],
     isBuiltIn: true,
@@ -76,7 +85,7 @@ export const BUILT_IN_ROLES: Record<BuiltInRoleId, RoleDefinition> = {
     id: "platform-operator",
     name: "Platform Operator",
     description: "Sync apps, read configs, and manage catalog entries.",
-    permissions: ["apps:read", "apps:sync", "config:read", "catalog:write", "users:read", "cluster:read", "game-hub:read"],
+    permissions: ["apps:read", "apps:sync", "config:read", "catalog:write", "users:read", "cluster:read", "game-hub:read", "game-hub:players"],
     isBuiltIn: true,
     category: "platform",
     color: "teal",
@@ -84,17 +93,53 @@ export const BUILT_IN_ROLES: Record<BuiltInRoleId, RoleDefinition> = {
   "platform-viewer": {
     id: "platform-viewer",
     name: "Platform Viewer",
-    description: "Read-only access to apps, configs, and platform health.",
-    permissions: ["apps:read", "config:read", "users:read", "cluster:read", "security:read", "game-hub:read"],
+    description: "Read-only access to apps, configs, platform health, and game servers.",
+    permissions: ["apps:read", "config:read", "users:read", "cluster:read", "security:read", "infra:read", "game-hub:read", "game-hub:players"],
     isBuiltIn: true,
     category: "platform",
     color: "gray",
+  },
+  viewer: {
+    id: "viewer",
+    name: "Viewer",
+    description: "Read-only access to apps, pods, logs, infrastructure status, and game servers.",
+    permissions: ["apps:read", "config:read", "cluster:read", "security:read", "infra:read", "game-hub:read", "game-hub:players"],
+    isBuiltIn: true,
+    category: "platform",
+    color: "gray",
+  },
+  ops: {
+    id: "ops",
+    name: "Operations",
+    description: "Start and stop services, view pods and logs, without infrastructure or RBAC admin rights.",
+    permissions: ["apps:read", "cluster:read", "game-hub:read", "game-hub:players", "game-hub:start", "game-hub:stop"],
+    isBuiltIn: true,
+    category: "platform",
+    color: "orange",
+  },
+  developer: {
+    id: "developer",
+    name: "Developer",
+    description: "Deploy apps, view logs, and manage community apps without infrastructure or RBAC access.",
+    permissions: ["apps:read", "apps:write", "apps:sync", "catalog:write", "cluster:read"],
+    isBuiltIn: true,
+    category: "platform",
+    color: "blue",
+  },
+  "readonly-infra": {
+    id: "readonly-infra",
+    name: "Readonly Infrastructure",
+    description: "Read-only access to infrastructure status, metrics, pods, and ArgoCD application state.",
+    permissions: ["apps:read", "config:read", "cluster:read", "security:read", "infra:read"],
+    isBuiltIn: true,
+    category: "platform",
+    color: "teal",
   },
   "game-server-admin": {
     id: "game-server-admin",
     name: "Game Server Admin",
     description: "Full control over scoped game server(s).",
-    permissions: ["game-hub:read", "game-hub:write", "game-hub:admin", "game-hub:console", "game-hub:files", "game-hub:start", "game-hub:stop", "game-hub:scale"],
+    permissions: ["game-hub:read", "game-hub:write", "game-hub:admin", "game-hub:players", "game-hub:console", "game-hub:files", "game-hub:start", "game-hub:stop", "game-hub:scale"],
     isBuiltIn: true,
     category: "game-hub",
     color: "purple",
@@ -103,7 +148,7 @@ export const BUILT_IN_ROLES: Record<BuiltInRoleId, RoleDefinition> = {
     id: "game-server-operator",
     name: "Game Server Operator",
     description: "Start/stop, console, and file access for scoped server(s).",
-    permissions: ["game-hub:read", "game-hub:console", "game-hub:files", "game-hub:start", "game-hub:stop"],
+    permissions: ["game-hub:read", "game-hub:players", "game-hub:console", "game-hub:files", "game-hub:start", "game-hub:stop"],
     isBuiltIn: true,
     category: "game-hub",
     color: "orange",
@@ -112,10 +157,28 @@ export const BUILT_IN_ROLES: Record<BuiltInRoleId, RoleDefinition> = {
     id: "game-server-viewer",
     name: "Game Server Viewer",
     description: "Read-only access to scoped game server(s).",
+    permissions: ["game-hub:read", "game-hub:players"],
+    isBuiltIn: true,
+    category: "game-hub",
+    color: "green",
+  },
+  "game-hub-player": {
+    id: "game-hub-player",
+    name: "Game Hub Player",
+    description: "View assigned game servers and connection information only.",
     permissions: ["game-hub:read"],
     isBuiltIn: true,
     category: "game-hub",
     color: "green",
+  },
+  support: {
+    id: "support",
+    name: "Support",
+    description: "View game server status and player lists without console, files, or admin access.",
+    permissions: ["game-hub:read", "game-hub:players"],
+    isBuiltIn: true,
+    category: "game-hub",
+    color: "yellow",
   },
 };
 
@@ -154,6 +217,36 @@ function normalizeRoleId(roleId: RoleId): BuiltInRoleId | null {
 export function resolveRoleDefinition(roleId: RoleId): RoleDefinition | null {
   const normalized = normalizeRoleId(roleId);
   return normalized ? BUILT_IN_ROLES[normalized] : null;
+}
+
+export function roleHasPermission(role: RoleDefinition | null, permission: Permission): boolean {
+  return Boolean(role && (role.permissions.includes("*") || role.permissions.includes(permission)));
+}
+
+export function hasAssignedPermissionForScope(
+  roleAssignments: RoleAssignment[],
+  permission: Permission,
+  scope: string,
+) {
+  const now = new Date();
+  return roleAssignments.some((assignment) => {
+    if (assignment.expiresAt && new Date(assignment.expiresAt) < now) return false;
+    if (!scope.startsWith(assignment.scope)) return false;
+    return roleHasPermission(resolveRoleDefinition(assignment.roleId), permission);
+  });
+}
+
+export function hasAssignedPermissionInScopeTree(
+  roleAssignments: RoleAssignment[],
+  permission: Permission,
+  scopePrefix: string,
+) {
+  const now = new Date();
+  return roleAssignments.some((assignment) => {
+    if (assignment.expiresAt && new Date(assignment.expiresAt) < now) return false;
+    if (!(assignment.scope.startsWith(scopePrefix) || scopePrefix.startsWith(assignment.scope))) return false;
+    return roleHasPermission(resolveRoleDefinition(assignment.roleId), permission);
+  });
 }
 
 export function getEffectivePermissions(

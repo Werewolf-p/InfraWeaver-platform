@@ -330,7 +330,10 @@ async function buildResponse(name: string, limitedToken = false, access?: Awaite
       allowExpansion: storageClassAllowExpansion,
     } : null,
     permissions: {
+      canRead: perms.has("*") || perms.has("game-hub:read"),
+      canPlayers: perms.has("*") || perms.has("game-hub:players"),
       canConsole: perms.has("*") || perms.has("game-hub:console") || allowedCommands.length > 0,
+      canOpenConsole: perms.has("*") || perms.has("game-hub:console"),
       canAdmin: perms.has("*") || perms.has("game-hub:admin"),
       canStart: perms.has("*") || perms.has("game-hub:start"),
       canStop: perms.has("*") || perms.has("game-hub:stop"),

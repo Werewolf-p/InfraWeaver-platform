@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { dump } from "js-yaml";
 import { auth } from "@/lib/auth";
 import { loadKubeConfig } from "@/lib/k8s";
-import { hasPermission } from "@/lib/rbac";
+import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import * as k8s from "@kubernetes/client-node";
 
 const ARGOCD_SERVER = process.env.ARGOCD_SERVER ?? "http://argocd-server.argocd.svc.cluster.local:80";
@@ -149,8 +149,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ nam
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
-  if (!hasPermission(groups, "apps:read")) {
+  const access = await getSessionRBACContext(session, 60);
+  if (!hasSessionPermission(access, "apps:read")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

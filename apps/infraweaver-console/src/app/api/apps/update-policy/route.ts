@@ -3,7 +3,7 @@ process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { hasPermission } from "@/lib/rbac";
+import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { safeError } from "@/lib/utils";
 import { z } from "zod";
@@ -386,8 +386,8 @@ function parsePolicyFromRenovateRule(rule: RenovatePackageRule): Partial<UpdateP
 export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
-  if (!hasPermission(groups, "apps:read")) {
+  const access = await getSessionRBACContext(session, 60);
+  if (!hasSessionPermission(access, "apps:read")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -455,8 +455,8 @@ export async function GET(req: NextRequest) {
 export async function PUT(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
-  if (!hasPermission(groups, "apps:write")) {
+  const access = await getSessionRBACContext(session, 60);
+  if (!hasSessionPermission(access, "apps:write")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   if (!checkRateLimit(rateLimitKey("update-policy", req), 20, 60_000)) {

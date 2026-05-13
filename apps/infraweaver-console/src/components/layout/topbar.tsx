@@ -1,6 +1,5 @@
 "use client";
 import { Menu, Search, Plus, ExternalLink } from "lucide-react";
-import { useCommandPaletteStore } from "@/stores/command-palette-store";
 import { NotificationCenter } from "@/components/ui/notification-center";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { useSession } from "next-auth/react";
@@ -10,13 +9,22 @@ import Link from "next/link";
 const QUICK_CREATE_ITEMS = [
   { label: "Deploy from Catalog", href: "/catalog-install" },
   { label: "Community App", href: "/community-apps" },
+  { label: "Add DNS Record", href: "/dns" },
   { label: "Add Port Route", href: "/gameservers" },
 ];
 
 export function TopBar({ onMenuClick, onSearchClick }: { title?: string; onMenuClick?: () => void; onSearchClick?: () => void }) {
   const { data: session } = useSession();
-  const setOpen = useCommandPaletteStore(s => s.setOpen);
+  const appVersion = process.env.NEXT_PUBLIC_APP_VERSION ?? "dev";
   const [quickOpen, setQuickOpen] = useState(false);
+  const [showChangelogDot, setShowChangelogDot] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return localStorage.getItem("infraweaver:last-seen-version") !== appVersion;
+    } catch {
+      return false;
+    }
+  });
   const dropRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -44,9 +52,8 @@ export function TopBar({ onMenuClick, onSearchClick }: { title?: string; onMenuC
         >
           <Search className="w-4 h-4" />
         </button>
-        {/* Inline search — clicking opens command palette */}
         <button
-          onClick={() => setOpen(true)}
+          onClick={onSearchClick}
           className="hidden md:flex items-center gap-2 flex-1 max-w-md px-3 py-1.5 bg-[#0f0f0f] border border-[#333] rounded text-sm text-[#666] hover:border-[#555] hover:text-[#9e9e9e] transition-colors"
         >
           <Search className="w-3.5 h-3.5" />
@@ -82,12 +89,24 @@ export function TopBar({ onMenuClick, onSearchClick }: { title?: string; onMenuC
         </div>
         <ThemeToggle compact />
         <NotificationCenter />
-        <div className="flex items-center gap-2 pl-3 border-l border-[#2a2a2a]">
-          <div className="w-7 h-7 rounded-full bg-[#0078D4] flex items-center justify-center text-xs font-bold text-white">
+        <Link
+          href="/changelog"
+          onClick={() => {
+            try { localStorage.setItem("infraweaver:last-seen-version", appVersion); } catch {}
+            setShowChangelogDot(false);
+          }}
+          className="flex items-center gap-2 border-l border-[#2a2a2a] pl-3"
+          title="What’s new"
+        >
+          <div className="relative w-7 h-7 rounded-full bg-[#0078D4] flex items-center justify-center text-xs font-bold text-white">
             {session?.user?.name?.[0]?.toUpperCase() ?? "?"}
+            {showChangelogDot && <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-emerald-400 ring-2 ring-[#141414]" />}
           </div>
-          <span className="hidden md:block text-xs text-[#9e9e9e]">{session?.user?.name}</span>
-        </div>
+          <div className="hidden md:block">
+            <span className="block text-xs text-[#9e9e9e]">{session?.user?.name}</span>
+            <span className="block text-[10px] text-[#555]">What’s new</span>
+          </div>
+        </Link>
       </div>
     </header>
   );

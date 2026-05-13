@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { hasPermission } from "@/lib/rbac";
+import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 
 const ARGOCD_SERVER = process.env.ARGOCD_SERVER ?? "http://argocd-server.argocd.svc.cluster.local:80";
 const ARGOCD_TOKEN = process.env.ARGOCD_TOKEN ?? "";
@@ -12,8 +12,8 @@ let _lastFetchTime = 0;
 export async function GET() {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
-  if (!hasPermission(groups, "apps:read")) {
+  const access = await getSessionRBACContext(session, 60);
+  if (!hasSessionPermission(access, "apps:read")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   try {

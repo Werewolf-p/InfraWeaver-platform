@@ -8,7 +8,7 @@ import {
   Globe, ChevronDown, Search, RefreshCw, ExternalLink, Home,
   Zap, CheckCircle2, AlertTriangle,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, timeAgo } from "@/lib/utils";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
 import { AnimatedNumber } from "@/components/ui/animated-number";

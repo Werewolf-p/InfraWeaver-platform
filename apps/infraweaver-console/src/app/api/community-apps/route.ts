@@ -15,7 +15,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { hasPermission } from "@/lib/rbac";
+import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { summarizeApp, detectTier, type AppFeedEntry } from "@/lib/appfeed-converter";
 import { getAppFeed } from "@/lib/appfeed-cache";
 import { safeError } from "@/lib/utils";
@@ -23,8 +23,8 @@ import { safeError } from "@/lib/utils";
 export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
-  if (!hasPermission(groups, "apps:read")) {
+  const access = await getSessionRBACContext(session, 60);
+  if (!hasSessionPermission(access, "apps:read")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

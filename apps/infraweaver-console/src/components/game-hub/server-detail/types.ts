@@ -130,7 +130,17 @@ export interface ServerDetail {
   playerHistory?: Array<{ t: number; n: number }>;
   events?: GameEvent[];
   pvc?: { name: string; size: string | null; storageClass: string | null; allowExpansion: boolean } | null;
-  permissions?: { canConsole: boolean; canAdmin: boolean; canStart: boolean; canStop: boolean; canWriteFiles: boolean; readOnlyFiles: boolean };
+  permissions?: {
+    canRead: boolean;
+    canPlayers: boolean;
+    canConsole: boolean;
+    canOpenConsole: boolean;
+    canAdmin: boolean;
+    canStart: boolean;
+    canStop: boolean;
+    canWriteFiles: boolean;
+    readOnlyFiles: boolean;
+  };
   egg?: {
     mountPath: string;
     description?: string;

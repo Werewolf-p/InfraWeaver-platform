@@ -2,7 +2,7 @@
 import { Sidebar } from "@/components/layout/sidebar";
 import { TopBar } from "@/components/layout/topbar";
 import { FloatingActionButton } from "@/components/floating-action-button";
-import { Breadcrumb } from "@/components/ui/breadcrumb";
+import { Breadcrumb, titleForPathname } from "@/components/ui/breadcrumb";
 import { useSession, signOut } from "next-auth/react";
 import { useRouter, usePathname } from "next/navigation";
 import { useEffect, useState, useMemo } from "react";
@@ -14,22 +14,22 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
-import { CmdPalette } from "@/components/layout/cmd-palette";
 import { KeyboardShortcutsProvider } from "@/components/keyboard-shortcuts-modal";
 import { SimpleModeProvider } from "@/contexts/simple-mode-context";
 import { NAV_GROUPS } from "@/lib/nav-config";
 import {
   ALL_NAV_ITEMS as NAV_FAVORITE_ITEMS,
-  DEFAULT_FAVORITES,
   MAX_NAV_FAVORITES,
   loadFavorites,
   saveFavorites,
 } from "@/components/layout/nav-favorites-config";
-import { SpotlightSearch } from "@/components/ui/spotlight-search";
 import { OfflineIndicator } from "@/components/ui/offline-indicator";
+import { GlobalSearch } from "@/components/search/global-search";
 import { useRecentPages } from "@/hooks/use-recent-pages";
 import { useAddons } from "@/hooks/use-addons";
+import { useRBAC } from "@/hooks/use-rbac";
 import { filterNavGroupsByAddons } from "@/lib/addons";
+import { filterNavGroupsByPermissions, filterNavItemsByPermissions } from "@/lib/navigation-rbac";
 
 // ── Section accent colors (Iter 3: colored group identifiers) ─────────────────
 const GROUP_ACCENT: Record<string, string> = {
@@ -52,6 +52,7 @@ function StatusBar() {
     queryKey: ["pods", "status-bar"],
     queryFn: async () => {
       const res = await fetch("/api/pods");
+      if (!res.ok) return [] as Array<{ status: string }>;
       return res.json() as Promise<Array<{ status: string }>>;
     },
     refetchInterval: 60000,
@@ -62,6 +63,7 @@ function StatusBar() {
     queryKey: ["health", "cluster"],
     queryFn: async () => {
       const res = await fetch("/api/health/cluster");
+      if (!res.ok) return { status: "unknown" };
       return res.json() as Promise<{ status: string }>;
     },
     refetchInterval: 60000,
@@ -77,18 +79,22 @@ function StatusBar() {
   const totalPods = (pods ?? []).length;
   const isHealthy = !cluster || cluster.status === "healthy";
   const utcTime = time.toUTCString().split(" ")[4];
+  const issueCount = Math.max(0, totalPods - runningPods) + (isHealthy ? 0 : 1);
 
   return (
-    <div className="flex items-center justify-between px-4 py-1.5 border-t border-[#2a2a2a] bg-[#0f0f0f] text-xs text-[#666] flex-shrink-0">
+    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/5 bg-[#0f172a]/70 px-4 py-2 text-xs text-slate-400 backdrop-blur-sm">
       <div className="flex items-center gap-3">
         <div className={cn(
-          "w-1.5 h-1.5 rounded-full",
-          isHealthy ? "bg-green-500 live-dot" : "bg-red-500"
+          "h-2 w-2 rounded-full",
+          issueCount === 0 ? "bg-emerald-400 live-dot" : "bg-amber-400"
         )} />
-        <span>{isHealthy ? "All systems operational" : "Degraded"}</span>
+        <span className={cn("font-medium", issueCount === 0 ? "text-emerald-300" : "text-amber-200")}>
+          {issueCount === 0 ? "All systems operational" : `⚠ ${issueCount} issue${issueCount === 1 ? "" : "s"} detected`}
+        </span>
+        {totalPods > 0 ? <span className="text-slate-500">{runningPods}/{totalPods} pods running</span> : null}
       </div>
-      <div className="flex items-center gap-4">
-        {totalPods > 0 && <span>{runningPods}/{totalPods} pods</span>}
+      <div className="flex items-center gap-4 text-slate-500">
+        <span>Cluster {isHealthy ? "healthy" : "degraded"}</span>
         <span>{utcTime} UTC</span>
       </div>
     </div>
@@ -105,8 +111,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [moreCategory, setMoreCategory] = useState<string>("all");
   const [drawerSearch, setDrawerSearch] = useState("");
   const { addons } = useAddons();
+  const { permissions, assignments } = useRBAC();
 
-  const filteredNavGroups = useMemo(() => filterNavGroupsByAddons(NAV_GROUPS, addons), [addons]);
+  const accessibleNavGroups = useMemo(
+    () => filterNavGroupsByPermissions(NAV_GROUPS, permissions, assignments),
+    [assignments, permissions],
+  );
+  const filteredNavGroups = useMemo(
+    () => filterNavGroupsByAddons(accessibleNavGroups, addons),
+    [accessibleNavGroups, addons],
+  );
+  const favoriteNavItems = useMemo(
+    () => filterNavItemsByPermissions(NAV_FAVORITE_ITEMS, permissions, assignments),
+    [assignments, permissions],
+  );
 
   // Auto-expand the group that contains the current page; others default to their defaultOpen
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
@@ -137,7 +155,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const sanitizeMobileFavorites = (ids: string[]) =>
     ids
       .filter((href, index, values) => values.indexOf(href) === index)
-      .filter((href) => NAV_FAVORITE_ITEMS.some((item) => item.href === href))
+      .filter((href) => favoriteNavItems.some((item) => item.href === href))
       .slice(0, MAX_NAV_FAVORITES);
 
   const updateMobileFavorites = (
@@ -155,9 +173,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const mobileNavItems = useMemo(
     () =>
       mobileFavorites
-        .map((href) => NAV_FAVORITE_ITEMS.find((item) => item.href === href))
-        .filter((item): item is (typeof NAV_FAVORITE_ITEMS)[number] => Boolean(item)),
-    [mobileFavorites],
+        .map((href) => favoriteNavItems.find((item) => item.href === href))
+        .filter((item): item is (typeof favoriteNavItems)[number] => Boolean(item)),
+    [favoriteNavItems, mobileFavorites],
   );
 
   const toggleMobileFavorite = (href: string) => {
@@ -222,12 +240,40 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setMobileOpen(false);
     setMoreOpen(false);
+    setSearchOpen(false);
   }, [pathname]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    document.title = `${titleForPathname(pathname)} • InfraWeaver`;
+  }, [pathname]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setSearchOpen(true);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   if (status === "loading") {
     return (
-      <div className="flex items-center justify-center h-screen bg-[#0f0f0f]">
-        <div className="w-8 h-8 border-2 border-[#0078D4] border-t-transparent rounded-full animate-spin" />
+      <div className="flex h-screen bg-[#0f0f0f]">
+        <div className="hidden w-[220px] flex-shrink-0 border-r border-[#2a2a2a] bg-[#141414] md:block" />
+        <div className="flex-1 space-y-4 p-6">
+          <div className="h-12 rounded-xl bg-white/5 animate-pulse" />
+          <div className="h-9 rounded-xl bg-white/5 animate-pulse" />
+          <div className="grid gap-4 md:grid-cols-3">
+            <div className="h-32 rounded-2xl bg-white/5 animate-pulse" />
+            <div className="h-32 rounded-2xl bg-white/5 animate-pulse" />
+            <div className="h-32 rounded-2xl bg-white/5 animate-pulse" />
+          </div>
+          <div className="h-[320px] rounded-2xl bg-white/5 animate-pulse" />
+        </div>
       </div>
     );
   }
@@ -522,6 +568,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       <div className="flex-1 flex flex-col overflow-hidden overflow-x-hidden relative z-10">
         <TopBar onMenuClick={() => setMobileOpen(true)} onSearchClick={() => setSearchOpen(true)} />
+        <StatusBar />
         <Breadcrumb />
         <main
           className="flex-1 overflow-y-auto overflow-x-hidden p-4 pb-24 sm:pb-4 md:p-6 md:pb-6"
@@ -538,9 +585,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </motion.div>
           </AnimatePresence>
         </main>
-        <div className="hidden md:block">
-          <StatusBar />
-        </div>
       </div>
 
       {/* Floating Action Button (mobile) */}
@@ -655,7 +699,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     </span>
                   </div>
                   <div className="mt-3 space-y-1.5">
-                    {NAV_FAVORITE_ITEMS.map((item) => {
+                    {favoriteNavItems.map((item) => {
                       const favoriteIndex = mobileFavorites.indexOf(item.href);
                       const isFavorite = favoriteIndex !== -1;
                       const disableAdd = !isFavorite && mobileFavorites.length >= MAX_NAV_FAVORITES;
@@ -865,8 +909,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         )}
       </AnimatePresence>
 
-      {/* Command palette */}
-      <CmdPalette />
+      <GlobalSearch open={searchOpen} onOpenChange={setSearchOpen} />
 
       {/* Keyboard shortcuts */}
       <KeyboardShortcutsProvider />
@@ -938,7 +981,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </motion.div>
         )}
       </AnimatePresence>
-      <SpotlightSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
     </div>
     </SimpleModeProvider>
   );

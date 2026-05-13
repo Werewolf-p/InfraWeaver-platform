@@ -13,7 +13,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { hasPermission } from "@/lib/rbac";
+import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { auditLog } from "@/lib/audit-log";
 import { z } from "zod";
@@ -79,8 +79,8 @@ async function findAppInFeed(name: string) {
 export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
-  if (!hasPermission(groups, "catalog:write")) {
+  const access = await getSessionRBACContext(session, 60);
+  if (!hasSessionPermission(access, "catalog:write")) {
     return NextResponse.json({ error: "Forbidden: catalog:write permission required" }, { status: 403 });
   }
 
