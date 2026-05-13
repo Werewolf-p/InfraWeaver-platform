@@ -3,8 +3,10 @@ import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
 import { buildEggConfigMap, getEggEnvironmentDefaults, getEggForGameType, getEggPorts } from "@/lib/game-eggs";
 import { GAME_HUB_NAMESPACE, getGameHubAccessContext, getScopedGameServerNames, hasGameHubPermission } from "@/lib/game-hub";
-import { getServerDeployment, makeGameHubClients, normalizeServerName, parseImageVersion, parsePlayerHistory, readServerEgg } from "@/lib/game-hub-server";
 import { readServerManifestSha, writeServerManifest } from "@/lib/game-hub-manifest";
+import { buildUniversalGameServerProbes } from "@/lib/game-hub-probes";
+import { getServerDeployment, makeGameHubClients, normalizeServerName, parseImageVersion, parsePlayerHistory, readServerEgg } from "@/lib/game-hub-server";
+import { getPelicanGameEgg } from "@/lib/pelican-eggs";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { getEffectivePermissions, hasPermission } from "@/lib/rbac";
 import { safeError } from "@/lib/utils";
@@ -31,11 +33,14 @@ async function createServer(body: {
 }) {
   const requestedGame = body.egg ?? body.game ?? "";
   const slug = normalizeServerName(body.name);
-  const baseEgg = getEggForGameType(requestedGame);
+  const baseEgg = requestedGame.startsWith("pelican:")
+    ? (await getPelicanGameEgg(requestedGame.replace(/^pelican:/, ""))).egg
+    : getEggForGameType(requestedGame);
   const customPorts = body.ports?.length ? body.ports : undefined;
+  const eggId = requestedGame.startsWith("pelican:") ? baseEgg.id : (requestedGame || baseEgg.id);
   const egg = {
     ...baseEgg,
-    id: requestedGame || baseEgg.id,
+    id: eggId,
     name: baseEgg.id === "generic" ? body.name : baseEgg.name,
     dockerImage: body.image ?? baseEgg.dockerImage,
     gamePort: body.port ?? baseEgg.gamePort,
@@ -55,6 +60,7 @@ async function createServer(body: {
     "infraweaver.io/image-version": imageVersion.version,
     "infraweaver.io/last-started": new Date().toISOString(),
     ...(dnsHostname ? { "infraweaver.io/dns-hostname": dnsHostname } : {}),
+    ...(requestedGame.startsWith("pelican:") ? { "infraweaver.io/egg-source": requestedGame } : {}),
   };
 
   const { appsApi, coreApi } = makeGameHubClients();
@@ -85,6 +91,7 @@ async function createServer(body: {
               env: Object.entries(env).map(([key, value]) => ({ name: key, value })),
               resources: { requests: { memory: "512Mi", cpu: "250m" }, limits: { memory, cpu } },
               volumeMounts: [{ name: "data", mountPath: egg.mountPath }],
+              ...buildUniversalGameServerProbes(),
             }],
             volumes: [{ name: "data", persistentVolumeClaim: { claimName: pvcName } }],
           },
@@ -184,6 +191,7 @@ async function cloneServer(source: string, newName: string) {
               ports: (container?.ports ?? []).map((port) => ({ containerPort: port.containerPort, protocol: port.protocol })),
               resources: container?.resources,
               volumeMounts: [{ name: "data", mountPath: volumeMount?.mountPath ?? sourceEgg.mountPath }],
+              ...buildUniversalGameServerProbes(),
             }],
             volumes: [{ name: "data", persistentVolumeClaim: { claimName: pvcName } }],
           },

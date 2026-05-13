@@ -65,16 +65,14 @@ spec:
     matchLabels:
       app: minecraft-server
   strategy:
-    rollingUpdate:
-      maxSurge: 25%
-      maxUnavailable: 25%
-    type: RollingUpdate
+    type: Recreate
   template:
     metadata:
       labels:
         app: minecraft-server
         infraweaver/game: 'true'
     spec:
+      priorityClassName: game-server
       containers:
         - env:
             - name: EULA
@@ -92,35 +90,31 @@ spec:
             - name: MOTD
               value: A Minecraft Server - InfraWeaver
           image: itzg/minecraft-server:latest
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           livenessProbe:
-            failureThreshold: 5
+            exec:
+              command: ["sh", "-c", "pgrep -P 1 > /dev/null 2>&1"]
             initialDelaySeconds: 120
             periodSeconds: 30
-            successThreshold: 1
-            tcpSocket:
-              port: 25565
-            timeoutSeconds: 1
+            failureThreshold: 3
           name: minecraft
           ports:
             - containerPort: 25565
               name: game
               protocol: TCP
           readinessProbe:
-            failureThreshold: 3
+            exec:
+              command: ["sh", "-c", "pgrep -P 1 > /dev/null 2>&1"]
             initialDelaySeconds: 60
             periodSeconds: 15
-            successThreshold: 1
-            tcpSocket:
-              port: 25565
-            timeoutSeconds: 1
+            failureThreshold: 3
           resources:
             limits:
               cpu: '2'
               memory: 2560Mi
             requests:
-              cpu: 500m
-              memory: 1Gi
+              cpu: '2'
+              memory: 2560Mi
           terminationMessagePath: /dev/termination-log
           terminationMessagePolicy: File
           volumeMounts:
@@ -133,7 +127,7 @@ spec:
         fsGroup: 1000
         runAsGroup: 1000
         runAsUser: 1000
-      terminationGracePeriodSeconds: 30
+      terminationGracePeriodSeconds: 60
       volumes:
         - name: data
           persistentVolumeClaim:

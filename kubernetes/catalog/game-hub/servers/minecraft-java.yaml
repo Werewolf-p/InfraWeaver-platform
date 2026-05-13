@@ -25,6 +25,8 @@ metadata:
     infraweaver/game-type: minecraft
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: minecraft-server
@@ -34,6 +36,7 @@ spec:
         app: minecraft-server
         infraweaver/game: "true"
     spec:
+      priorityClassName: game-server
       securityContext:
         runAsUser: 1000
         runAsGroup: 1000
@@ -41,6 +44,7 @@ spec:
       containers:
         - name: minecraft
           image: itzg/minecraft-server:latest
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 25565
               protocol: TCP
@@ -62,8 +66,8 @@ spec:
               value: "A Minecraft Server - InfraWeaver"
           resources:
             requests:
-              memory: 1Gi
-              cpu: 500m
+              memory: 2.5Gi
+              cpu: "2"
             limits:
               memory: 2.5Gi
               cpu: "2"
@@ -71,16 +75,18 @@ spec:
             - name: data
               mountPath: /data
           livenessProbe:
-            tcpSocket:
-              port: 25565
+            exec:
+              command: ["sh", "-c", "pgrep -P 1 > /dev/null 2>&1"]
             initialDelaySeconds: 120
             periodSeconds: 30
-            failureThreshold: 5
+            failureThreshold: 3
           readinessProbe:
-            tcpSocket:
-              port: 25565
+            exec:
+              command: ["sh", "-c", "pgrep -P 1 > /dev/null 2>&1"]
             initialDelaySeconds: 60
             periodSeconds: 15
+            failureThreshold: 3
+      terminationGracePeriodSeconds: 60
       volumes:
         - name: data
           persistentVolumeClaim:

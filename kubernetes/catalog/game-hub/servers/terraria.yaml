@@ -25,6 +25,8 @@ metadata:
     infraweaver/game-type: terraria
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: terraria-server
@@ -34,6 +36,7 @@ spec:
         app: terraria-server
         infraweaver/game: "true"
     spec:
+      priorityClassName: game-server
       securityContext:
         runAsUser: 0
         runAsGroup: 0
@@ -41,6 +44,7 @@ spec:
         - name: terraria
           # vanilla server accepts -world/-autocreate non-interactively
           image: ryshe/terraria:vanilla-latest
+          imagePullPolicy: IfNotPresent
           args:
             - "-world"
             - "/world/World1.wld"
@@ -58,8 +62,8 @@ spec:
               name: game
           resources:
             requests:
-              memory: 512Mi
-              cpu: 250m
+              memory: 1500Mi
+              cpu: "1"
             limits:
               memory: 1500Mi
               cpu: "1"
@@ -67,16 +71,18 @@ spec:
             - name: data
               mountPath: /world
           livenessProbe:
-            tcpSocket:
-              port: 7777
+            exec:
+              command: ["sh", "-c", "pgrep -P 1 > /dev/null 2>&1"]
             initialDelaySeconds: 120
             periodSeconds: 30
-            failureThreshold: 5
+            failureThreshold: 3
           readinessProbe:
-            tcpSocket:
-              port: 7777
-            initialDelaySeconds: 90
-            periodSeconds: 20
+            exec:
+              command: ["sh", "-c", "pgrep -P 1 > /dev/null 2>&1"]
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            failureThreshold: 3
+      terminationGracePeriodSeconds: 60
       volumes:
         - name: data
           persistentVolumeClaim:

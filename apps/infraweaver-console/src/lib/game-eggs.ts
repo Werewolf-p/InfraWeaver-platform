@@ -35,6 +35,10 @@ export interface GameEgg {
     description: string;
     defaultValue: string;
     required: boolean;
+    fieldType?: "text" | "boolean" | "integer";
+    userViewable?: boolean;
+    userEditable?: boolean;
+    rules?: string;
   }>;
   quickCommands: QuickCommand[];
   commandAcl?: Record<string, string[]>;
