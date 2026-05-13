@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
-import { CommandPalette } from "@/components/command-palette";
+import { CmdPalette } from "@/components/layout/cmd-palette";
 import { KeyboardShortcutsProvider } from "@/components/keyboard-shortcuts-modal";
 import { SimpleModeProvider } from "@/contexts/simple-mode-context";
 import { MOBILE_BOTTOM_NAV, NAV_GROUPS } from "@/lib/nav-config";
@@ -28,12 +28,16 @@ const mobileNavItems = MOBILE_BOTTOM_NAV;
 
 // ── Section accent colors (Iter 3: colored group identifiers) ─────────────────
 const GROUP_ACCENT: Record<string, string> = {
-  core:           "bg-blue-500",
-  platform:       "bg-violet-500",
-  infrastructure: "bg-emerald-500",
-  tools:          "bg-amber-500",
-  services:       "bg-cyan-500",
-  settings:       "bg-[#555]",
+  overview: "bg-blue-500",
+  apps: "bg-violet-500",
+  compute: "bg-emerald-500",
+  infrastructure: "bg-cyan-500",
+  operations: "bg-amber-500",
+  monitoring: "bg-rose-500",
+  gaming: "bg-fuchsia-500",
+  services: "bg-sky-500",
+  tools: "bg-yellow-500",
+  settings: "bg-[#555]",
 };
 
 function StatusBar() {
@@ -190,7 +194,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 z-40 bg-black/70 md:hidden"
+              className="fixed inset-0 z-40 bg-black/70 hidden sm:block md:hidden"
               style={{ touchAction: "pan-y" }}
               onClick={() => { setMobileOpen(false); setDrawerSearch(""); }}
             />
@@ -207,7 +211,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               onDragEnd={(_, info) => {
                 if (info.offset.x < -60 || info.velocity.x < -300) { setMobileOpen(false); setDrawerSearch(""); }
               }}
-              className="fixed left-0 top-0 bottom-0 z-50 w-[300px] bg-[#111] border-r border-[#222] md:hidden flex flex-col flex-shrink-0 overflow-hidden"
+              className="fixed left-0 top-0 bottom-0 z-50 hidden sm:flex md:hidden w-[300px] bg-[#111] border-r border-[#222] flex-col flex-shrink-0 overflow-hidden"
+              style={{ touchAction: "pan-y" }}
             >
               {/* ── ITER 1: Header with branding + cluster health dot ── */}
               <div className="flex-shrink-0 flex items-center justify-between px-4 pt-[calc(env(safe-area-inset-top,0px)+14px)] pb-3 border-b border-[#222]">
@@ -455,6 +460,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   </button>
                 </div>
               </div>
+
             </motion.div>
           </>
         )}
@@ -464,8 +470,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <TopBar onMenuClick={() => setMobileOpen(true)} onSearchClick={() => setSearchOpen(true)} />
         <Breadcrumb />
         <main
-          className="flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-6 md:pb-6"
-          style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px) + 72px, 80px)" }}
+          className="flex-1 overflow-y-auto overflow-x-hidden p-4 pb-16 sm:pb-4 md:p-6 md:pb-6"
         >
           <AnimatePresence mode="wait">
             <motion.div
@@ -487,35 +492,37 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* Floating Action Button (mobile) */}
       <FloatingActionButton />
 
-      {/* Bottom mobile nav — 3 items + More */}
-      <nav className="fixed bottom-0 left-0 right-0 z-20 md:hidden bg-[#141414] border-t border-[#2a2a2a] flex landscape-hide" style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
+      {/* Bottom mobile nav — Home | Apps | Game Hub | Pods | Menu */}
+      <nav
+        className="fixed bottom-0 left-0 right-0 z-50 flex border-t border-[#2a2a2a] bg-[#141414]/95 backdrop-blur sm:hidden landscape-hide pb-safe"
+        style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 8px)" }}
+      >
         {mobileNavItems.map(item => {
           const isActive = pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href));
           return (
             <Link
               key={item.href}
               href={item.href}
-              onClick={() => { if (typeof navigator !== "undefined") navigator.vibrate?.(10); }}
+              onClick={() => { if (typeof navigator !== "undefined") navigator.vibrate?.(10); setMoreOpen(false); }}
               className={cn(
-                "flex-1 flex flex-col items-center justify-center gap-1 min-h-[56px] text-[11px] transition-colors active:scale-95 touch-manipulation",
+                "flex-1 flex flex-col items-center justify-center gap-1 px-2 py-2 text-[11px] transition-colors touch-manipulation",
                 isActive ? "text-[#0078D4]" : "text-[#666] hover:text-[#9e9e9e]"
               )}
             >
-              <item.icon className="w-6 h-6" />
-              <span>{item.label}</span>
+              <item.icon className="h-5 w-5 min-[380px]:h-4 min-[380px]:w-4" />
+              <span className="hidden min-[380px]:block">{item.label}</span>
             </Link>
           );
         })}
-        {/* More button */}
         <button
           onClick={() => { if (typeof navigator !== "undefined") navigator.vibrate?.(10); setMoreOpen(true); }}
           className={cn(
-            "flex-1 flex flex-col items-center justify-center gap-1 min-h-[56px] text-[11px] transition-colors active:scale-95 touch-manipulation",
+            "flex-1 flex flex-col items-center justify-center gap-1 px-2 py-2 text-[11px] transition-colors touch-manipulation",
             moreOpen ? "text-[#0078D4]" : "text-[#666] hover:text-[#9e9e9e]"
           )}
         >
-          <MoreHorizontal className="w-6 h-6" />
-          <span>More</span>
+          <MoreHorizontal className="h-5 w-5 min-[380px]:h-4 min-[380px]:w-4" />
+          <span className="hidden min-[380px]:block">Menu</span>
         </button>
       </nav>
 
@@ -527,7 +534,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 z-[200] bg-black/70 md:hidden"
+              className="fixed inset-0 z-[200] bg-black/70 sm:hidden"
               style={{ touchAction: "pan-y" }}
               onClick={() => { setMoreOpen(false); setMoreSearch(""); setMoreCategory("all"); }}
             />
@@ -543,19 +550,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               onDragEnd={(_, info) => {
                 if (info.offset.y > 80 || info.velocity.y > 500) { setMoreOpen(false); setMoreSearch(""); setMoreCategory("all"); }
               }}
-              className="fixed bottom-0 left-0 right-0 z-[201] bg-[#111] border-t border-[#222] rounded-t-2xl md:hidden max-h-[92dvh] flex flex-col flex-shrink-0 overflow-hidden shadow-2xl"
-              style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
+              className="fixed inset-0 z-[201] bg-[#111] sm:hidden flex flex-col overflow-hidden shadow-2xl"
+              style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 12px)", touchAction: "pan-y" }}
             >
-              {/* Drag handle */}
-              <div className="flex-shrink-0 flex justify-center pt-2.5 pb-1">
-                <div className="w-10 h-1 rounded-full bg-[#2a2a2a]" />
-              </div>
+              <div className="flex-shrink-0 pt-[calc(env(safe-area-inset-top,0px)+8px)]" />
 
               {/* Header row */}
               <div className="flex-shrink-0 flex items-center justify-between px-4 pt-1 pb-2.5">
                 <div>
-                  <h2 className="text-base font-semibold text-white leading-tight">All Features</h2>
-                  <p className="text-[10px] text-[#555] mt-0.5">{filteredNavGroups.reduce((n, g) => n + g.items.length, 0)} pages available</p>
+                  <h2 className="text-base font-semibold text-white leading-tight">Menu</h2>
+                  <p className="text-[10px] text-[#555] mt-0.5">{filteredNavGroups.reduce((n, g) => n + g.items.length, 0)} pages grouped for quick access</p>
                 </div>
                 <button
                   onClick={() => { setMoreOpen(false); setMoreSearch(""); setMoreCategory("all"); }}
@@ -726,13 +730,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   );
                 })}
               </div>
+
+              <div className="flex-shrink-0 border-t border-[#1e1e1e] px-4 pt-3 text-center">
+                <p className="text-[10px] text-[#555]">InfraWeaver Console</p>
+                <p className="mt-1 text-[10px] font-mono text-[#444]">
+                  v{process.env.NEXT_PUBLIC_APP_VERSION ?? "dev"}
+                </p>
+              </div>
             </motion.div>
           </>
         )}
       </AnimatePresence>
 
       {/* Command palette */}
-      <CommandPalette />
+      <CmdPalette />
 
       {/* Keyboard shortcuts */}
       <KeyboardShortcutsProvider />

@@ -47,6 +47,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ nam
     const clients = makeGameHubClients();
     if (body.action === "test") {
       const config = body.url ? { url: body.url, events: Array.isArray(body.events) ? body.events : [] } : await readConfig(name);
+      if (!config?.url) {
+        return NextResponse.json({ error: "No Discord webhook configured" }, { status: 400 });
+      }
       await sendDiscordWebhook(config, "test", `InfraWeaver test notification for ${name}`);
       return NextResponse.json({ ok: true });
     }

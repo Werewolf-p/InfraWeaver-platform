@@ -1,5 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -37,6 +39,14 @@ interface GameServer {
   name: string; displayName: string; gameType: string; targetIP: string; internalIP?: string;
   ports: Port[]; backendType: string; description: string; publicDns: boolean;
   internalDns: boolean; createdAt: string | null; serviceStatus?: string;
+}
+
+interface GameHubServerSummary {
+  name: string;
+  gameType?: string;
+  nodeIp?: string | null;
+  nodePort?: number | null;
+  description?: string;
 }
 
 function ProtocolBadge({ protocol }: { protocol: string }) {
@@ -275,7 +285,17 @@ function RouterConfigTable({ servers }: { servers: GameServer[] }) {
   );
 }
 
-function AddServerDrawer({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: () => void }) {
+function AddServerDrawer({
+  open,
+  onClose,
+  onCreated,
+  prefill,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onCreated: () => void;
+  prefill?: GameHubServerSummary | null;
+}) {
   const { simpleMode, toggle: toggleSimpleMode } = useSimpleMode();
   const [step, setStep] = useState(1);
   const [gameType, setGameType] = useState("");
@@ -370,6 +390,20 @@ function AddServerDrawer({ open, onClose, onCreated }: { open: boolean; onClose:
   const activeStepLabels = simpleMode ? simpleStepLabels : stepLabels;
   const totalSteps = activeStepLabels.length;
   const effectiveIntIP = internalIP || targetIP;
+
+  useEffect(() => {
+    if (!open || !prefill) return;
+    setName(prefill.name);
+    setDisplayName((current) => current || prefill.name);
+    setTargetIP(prefill.nodeIp ?? "");
+    setDescription((current) => current || prefill.description || "");
+    if (prefill.gameType && GAME_TYPES.some((entry) => entry.id === prefill.gameType)) {
+      setGameType(prefill.gameType);
+    }
+    if (prefill.nodePort) {
+      setPorts([{ port: prefill.nodePort, protocol: "TCP", name: "game" }]);
+    }
+  }, [open, prefill?.name, prefill?.nodeIp, prefill?.nodePort, prefill?.description]);
 
   const handleModeToggle = () => {
     toggleSimpleMode();
@@ -950,9 +984,12 @@ function DeleteConfirmDialog({ server, onClose, onDeleted }: { server: GameServe
 
 export default function GameServersPage() {
   const queryClient = useQueryClient();
+  const searchParams = useSearchParams();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<GameServer | null>(null);
   const [expandedServer, setExpandedServer] = useState<string | null>(null);
+  const targetParam = searchParams.get("target") ?? "";
+  const requestedPort = Number.parseInt(searchParams.get("port") ?? "", 10) || null;
 
   const { data: servers, isLoading, refetch } = useQuery({
     queryKey: ["gameservers"],
@@ -965,7 +1002,44 @@ export default function GameServersPage() {
     refetchInterval: 60000,
   });
 
+  const { data: gameHubServers } = useQuery({
+    queryKey: ["game-hub-route-targets"],
+    queryFn: async () => {
+      const res = await fetch("/api/game-hub/servers");
+      if (!res.ok) throw new Error("Failed to fetch Game Hub servers");
+      const data = await res.json() as { servers: Array<{ name: string }> };
+      return data.servers;
+    },
+    staleTime: 30000,
+  });
+  const { data: linkedGameHubServer } = useQuery({
+    queryKey: ["game-hub-route-target", targetParam],
+    queryFn: async () => {
+      const res = await fetch(`/api/game-hub/servers/${encodeURIComponent(targetParam)}`);
+      if (!res.ok) throw new Error("Failed to fetch target Game Hub server");
+      return res.json() as Promise<{ name: string; gameType?: string; nodeIp?: string | null; nodePort?: number | null; description?: string }>;
+    },
+    enabled: drawerOpen && Boolean(targetParam),
+    staleTime: 30000,
+  });
+
+  useEffect(() => {
+    if (searchParams.get("new") === "1") {
+      setDrawerOpen(true);
+    }
+  }, [searchParams]);
+
   const gameTypeMap = Object.fromEntries(GAME_TYPES.map(t => [t.id, t]));
+  const gameHubServerNames = new Set((gameHubServers ?? []).map((server) => server.name));
+  const routePrefill = linkedGameHubServer
+    ? {
+        name: linkedGameHubServer.name,
+        gameType: linkedGameHubServer.gameType,
+        nodeIp: linkedGameHubServer.nodeIp ?? null,
+        nodePort: requestedPort ?? linkedGameHubServer.nodePort ?? null,
+        description: linkedGameHubServer.description,
+      }
+    : null;
 
   return (
     <div className="animate-in fade-in-0 slide-in-from-bottom-4 duration-300 p-6 max-w-7xl mx-auto space-y-6">
@@ -996,7 +1070,7 @@ export default function GameServersPage() {
       <div className="flex gap-3 p-4 rounded-xl bg-amber-500/10 border border-amber-500/30">
         <Info className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
         <div className="space-y-1 text-xs">
-          <p className="text-amber-300 font-semibold">Hostname-based routing requires SNI (TLS)</p>
+          <p className="text-amber-300 font-semibold">TCP port routing does not support hostname-based routing (SNI only)</p>
           <p className="text-amber-500/80">
             DNS routing by hostname works for <strong className="text-amber-400">HTTPS / TLS protocols</strong> that include a Server Name Indication (SNI) header — Traefik reads the hostname and routes to the correct backend IP.
           </p>
@@ -1060,7 +1134,18 @@ export default function GameServersPage() {
                           <span className="text-xl">{gt?.icon ?? "🎮"}</span>
                           <div>
                             <p className="text-sm font-medium text-white">{server.displayName}</p>
-                            <p className="text-xs text-slate-500 font-mono">{server.name}</p>
+                            <div className="flex items-center gap-2">
+                              <p className="text-xs text-slate-500 font-mono">{server.name}</p>
+                              {gameHubServerNames.has(server.name) && (
+                                <Link
+                                  href={`/game-hub/${encodeURIComponent(server.name)}`}
+                                  onClick={(event) => event.stopPropagation()}
+                                  className="rounded-full border border-indigo-500/30 bg-indigo-500/10 px-2 py-0.5 text-[10px] font-medium text-indigo-300 hover:text-indigo-200"
+                                >
+                                  → Game Hub
+                                </Link>
+                              )}
+                            </div>
                           </div>
                         </div>
                       </td>
@@ -1160,7 +1245,7 @@ export default function GameServersPage() {
 
       <RouterConfigTable servers={servers ?? []} />
 
-      <AddServerDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} onCreated={() => queryClient.invalidateQueries({ queryKey: ["gameservers"] })} />
+      <AddServerDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} onCreated={() => queryClient.invalidateQueries({ queryKey: ["gameservers"] })} prefill={routePrefill} />
       {deleteTarget && <DeleteConfirmDialog server={deleteTarget} onClose={() => setDeleteTarget(null)} onDeleted={() => queryClient.invalidateQueries({ queryKey: ["gameservers"] })} />}
     </div>
   );

@@ -6,7 +6,9 @@ import { GAME_HUB_NAMESPACE, getGameHubAccessContext, hasGameHubPermission } fro
 import { deleteServerManifest, writeServerManifest } from "@/lib/game-hub-manifest";
 import {
   appendServerAudit,
+  buildPowerScheduleCron,
   checkPortReachable,
+  createCronJob,
   deleteCronJob,
   GAME_HUB_NS,
   getDeploymentGameType,
@@ -18,10 +20,10 @@ import {
   parseDiscordWebhookConfig,
   parseImageVersion,
   parsePlayerHistory,
+  parsePowerSchedule,
   readSavedCommands,
   readServerEgg,
   sendDiscordWebhook,
-  upsertCronJob,
   validateServerToken,
   writeSavedCommands,
 } from "@/lib/game-hub-server";
@@ -54,6 +56,7 @@ const MANIFEST_SYNC_ACTIONS = new Set([
   "set-schedule",
   "set-backup-schedule",
   "set-backup-target",
+  "set-alert-thresholds",
   "expand-pvc",
   "update-image",
   "update-pull-policy",
@@ -69,7 +72,7 @@ function actionPermission(action: string) {
   if (action === "start") return "game-hub:start" as const;
   if (action === "stop") return "game-hub:stop" as const;
   if (action === "scale") return "game-hub:scale" as const;
-  if (["sync-to-git", "set-hpa", "remove-hpa", "update-env", "set-restart-policy", "set-notes", "update-resources", "set-maintenance", "set-schedule", "set-backup-schedule", "set-backup-target", "expand-pvc"].includes(action)) {
+  if (["sync-to-git", "set-hpa", "remove-hpa", "update-env", "set-restart-policy", "set-notes", "update-resources", "set-maintenance", "set-schedule", "set-backup-schedule", "set-backup-target", "set-alert-thresholds", "expand-pvc"].includes(action)) {
     return "game-hub:admin" as const;
   }
   if (["update-image", "update-pull-policy", "update-strategy", "update-identity", "update-service-ports", "set-scheduled-action", "save-command", "delete-saved-command"].includes(action)) {
@@ -275,6 +278,32 @@ async function buildResponse(name: string, limitedToken = false, access?: Awaite
     scheduledTime,
     ...(includeYaml ? { deploymentYaml } : {}),
     scheduledRestart: schedule,
+    scheduleStart: parsePowerSchedule(deployment.metadata?.annotations?.["infraweaver.io/schedule-start"]),
+    scheduleStop: parsePowerSchedule(deployment.metadata?.annotations?.["infraweaver.io/schedule-stop"]),
+    alertCpu:
+      deployment.metadata?.annotations?.["infraweaver.io/alert-cpu"] !== undefined &&
+      deployment.metadata?.annotations?.["infraweaver.io/alert-cpu"] !== ""
+        ? Number.parseInt(
+            deployment.metadata?.annotations?.["infraweaver.io/alert-cpu"] ?? "0",
+            10,
+          )
+        : null,
+    alertMemory:
+      deployment.metadata?.annotations?.["infraweaver.io/alert-memory"] !== undefined &&
+      deployment.metadata?.annotations?.["infraweaver.io/alert-memory"] !== ""
+        ? Number.parseInt(
+            deployment.metadata?.annotations?.["infraweaver.io/alert-memory"] ?? "0",
+            10,
+          )
+        : null,
+    alertRestarts:
+      deployment.metadata?.annotations?.["infraweaver.io/alert-restarts"] !== undefined &&
+      deployment.metadata?.annotations?.["infraweaver.io/alert-restarts"] !== ""
+        ? Number.parseInt(
+            deployment.metadata?.annotations?.["infraweaver.io/alert-restarts"] ?? "0",
+            10,
+          )
+        : null,
     backupSchedule: deployment.metadata?.annotations?.["infraweaver/backup-schedule"] ?? null,
     backupRetention: Number.parseInt(deployment.metadata?.annotations?.["infraweaver/backup-retention"] ?? "7", 10) || 7,
     backupTarget: deployment.metadata?.annotations?.["infraweaver/backup-target"] ?? "local",
@@ -357,6 +386,8 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ n
     await coreApi.deleteNamespacedSecret({ name: `gameserver-${name}-tokens`, namespace: GAME_HUB_NAMESPACE }).catch(() => undefined);
     await deleteCronJob(batchApi, `gameserver-${name}-restart`);
     await deleteCronJob(batchApi, `gameserver-${name}-backup`);
+    await deleteCronJob(batchApi, `gameserver-${name}-scheduled-start`);
+    await deleteCronJob(batchApi, `gameserver-${name}-scheduled-stop`);
 
     try {
       const pvcs = await coreApi.listNamespacedPersistentVolumeClaim({ namespace: GAME_HUB_NAMESPACE, labelSelector: `app=${name}` });
@@ -393,7 +424,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
 
   const { name } = await params;
   const body = await req.json() as {
-    action: "start" | "stop" | "restart" | "scale" | "set-hpa" | "remove-hpa" | "update-env" | "set-restart-policy" | "set-notes" | "update-resources" | "set-maintenance" | "set-schedule" | "set-backup-schedule" | "set-backup-target" | "expand-pvc" | "update-image" | "update-pull-policy" | "update-strategy" | "update-identity" | "update-service-ports" | "set-scheduled-action" | "save-command" | "delete-saved-command" | "sync-to-git";
+    action: "start" | "stop" | "restart" | "scale" | "set-hpa" | "remove-hpa" | "update-env" | "set-restart-policy" | "set-notes" | "update-resources" | "set-maintenance" | "set-schedule" | "set-backup-schedule" | "set-backup-target" | "set-alert-thresholds" | "expand-pvc" | "update-image" | "update-pull-policy" | "update-strategy" | "update-identity" | "update-service-ports" | "set-scheduled-action" | "save-command" | "delete-saved-command" | "sync-to-git";
     replicas?: number;
     hpaMin?: number;
     hpaMax?: number;
@@ -405,7 +436,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
     cpu?: string;
     enabled?: boolean;
     cronExpr?: string | null;
+    startSchedule?: import("@/lib/game-hub-server").PowerSchedule | null;
+    stopSchedule?: import("@/lib/game-hub-server").PowerSchedule | null;
     retention?: number;
+    alertCpu?: number;
+    alertMemory?: number;
+    alertRestarts?: number;
     target?: string;
     pvcName?: string;
     newSize?: string;
@@ -512,15 +548,45 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
         force: true,
       });
     } else if (body.action === "set-schedule") {
-      if (body.cronExpr) {
-        await upsertCronJob(clients.batchApi, `gameserver-${name}-restart`, body.cronExpr, `kubectl rollout restart deployment/${name} -n game-hub`, { app: name, "infraweaver/game": "true", "infraweaver/type": "scheduled-restart" });
+      const startSchedule = parsePowerSchedule(body.startSchedule);
+      const stopSchedule = parsePowerSchedule(body.stopSchedule);
+      await deleteCronJob(clients.batchApi, `gameserver-${name}-restart`);
+      if (startSchedule) {
+        await createCronJob(
+          clients.batchApi,
+          `gameserver-${name}-scheduled-start`,
+          buildPowerScheduleCron(startSchedule),
+          `kubectl scale deployment/${name} -n ${GAME_HUB_NAMESPACE} --replicas=1`,
+          { app: name, "infraweaver/game": "true", "infraweaver/type": "scheduled-start" },
+          startSchedule.timezone,
+        );
       } else {
-        await deleteCronJob(clients.batchApi, `gameserver-${name}-restart`);
+        await deleteCronJob(clients.batchApi, `gameserver-${name}-scheduled-start`);
+      }
+      if (stopSchedule) {
+        await createCronJob(
+          clients.batchApi,
+          `gameserver-${name}-scheduled-stop`,
+          buildPowerScheduleCron(stopSchedule),
+          `kubectl scale deployment/${name} -n ${GAME_HUB_NAMESPACE} --replicas=0`,
+          { app: name, "infraweaver/game": "true", "infraweaver/type": "scheduled-stop" },
+          stopSchedule.timezone,
+        );
+      } else {
+        await deleteCronJob(clients.batchApi, `gameserver-${name}-scheduled-stop`);
       }
       await clients.appsApi.patchNamespacedDeployment({
         name,
         namespace: GAME_HUB_NAMESPACE,
-        body: { metadata: { annotations: { "infraweaver/restart-schedule": body.cronExpr ?? "" } } },
+        body: {
+          metadata: {
+            annotations: {
+              "infraweaver.io/schedule-start": startSchedule ? JSON.stringify(startSchedule) : "",
+              "infraweaver.io/schedule-stop": stopSchedule ? JSON.stringify(stopSchedule) : "",
+              "infraweaver/restart-schedule": "",
+            },
+          },
+        },
         fieldManager: "infraweaver",
         force: true,
       });
@@ -537,6 +603,25 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
         name,
         namespace: GAME_HUB_NAMESPACE,
         body: { metadata: { annotations: { "infraweaver/backup-target": body.target ?? "local" } } },
+        fieldManager: "infraweaver",
+        force: true,
+      });
+    } else if (body.action === "set-alert-thresholds") {
+      const alertCpu = Math.min(100, Math.max(0, Math.round(body.alertCpu ?? 80)));
+      const alertMemory = Math.min(100, Math.max(0, Math.round(body.alertMemory ?? 80)));
+      const alertRestarts = Math.min(20, Math.max(1, Math.round(body.alertRestarts ?? 5)));
+      await clients.appsApi.patchNamespacedDeployment({
+        name,
+        namespace: GAME_HUB_NAMESPACE,
+        body: {
+          metadata: {
+            annotations: {
+              "infraweaver.io/alert-cpu": String(alertCpu),
+              "infraweaver.io/alert-memory": String(alertMemory),
+              "infraweaver.io/alert-restarts": String(alertRestarts),
+            },
+          },
+        },
         fieldManager: "infraweaver",
         force: true,
       });

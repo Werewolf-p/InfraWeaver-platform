@@ -2,6 +2,7 @@
 import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { Terminal } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
@@ -16,9 +17,10 @@ interface Pod {
 const ALLOWED_COMMANDS = ["ls", "cat /etc/os-release", "env", "ps", "df", "free", "uname -a", "id", "pwd", "date", "ls -la", "ls -l", "df -h", "free -h", "ps aux"];
 
 export default function PodShellPage() {
-  const [selectedNs, setSelectedNs] = useState("default");
-  const [selectedPod, setSelectedPod] = useState("");
-  const [selectedContainer, setSelectedContainer] = useState("");
+  const searchParams = useSearchParams();
+  const [selectedNs, setSelectedNs] = useState(searchParams.get("namespace") ?? "default");
+  const [selectedPod, setSelectedPod] = useState(searchParams.get("pod") ?? "");
+  const [selectedContainer, setSelectedContainer] = useState(searchParams.get("container") ?? "");
   const [command, setCommand] = useState("ls");
   const [output, setOutput] = useState<{ text: string; isError: boolean }[]>([]);
   const [loading, setLoading] = useState(false);
@@ -36,12 +38,15 @@ export default function PodShellPage() {
   const namespaces = [...new Set(pods.map(p => p.namespace))];
   const nsPods = pods.filter(p => p.namespace === selectedNs);
   const selectedPodObj = nsPods.find(p => p.name === selectedPod);
+  const activeContainer = selectedPodObj?.containers.includes(selectedContainer)
+    ? selectedContainer
+    : (selectedPodObj?.containers[0] ?? searchParams.get("container") ?? "");
 
   const handleExec = async () => {
-    if (!selectedPod || !selectedContainer || !command) { toast.error("Select pod, container and command"); return; }
+    if (!selectedPod || !activeContainer || !command) { toast.error("Select pod, container and command"); return; }
     setLoading(true);
     try {
-      const res = await fetch("/api/pods/exec", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ namespace: selectedNs, pod: selectedPod, container: selectedContainer, command }) });
+      const res = await fetch("/api/pods/exec", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ namespace: selectedNs, pod: selectedPod, container: activeContainer, command }) });
       const data = await res.json() as { output?: string; error?: string | null };
       if (data.output) setOutput(prev => [...prev, { text: `$ ${command}\n${data.output}`, isError: false }]);
       if (data.error) setOutput(prev => [...prev, { text: data.error ?? "", isError: true }]);
@@ -76,7 +81,7 @@ export default function PodShellPage() {
           </div>
           <div>
             <label className="text-xs text-slate-400 mb-1 block">Container</label>
-            <select value={selectedContainer} onChange={e => setSelectedContainer(e.target.value)} className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-white outline-none focus:border-indigo-500/50">
+            <select value={activeContainer} onChange={e => setSelectedContainer(e.target.value)} className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-white outline-none focus:border-indigo-500/50">
               <option value="">Select container...</option>
               {(selectedPodObj?.containers ?? []).map(c => <option key={c} value={c}>{c}</option>)}
             </select>

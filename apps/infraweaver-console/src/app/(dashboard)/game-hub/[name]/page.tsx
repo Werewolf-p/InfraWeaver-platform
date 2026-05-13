@@ -46,6 +46,7 @@ import {
   Plus,
   X,
   HardDrive,
+  Wrench,
 } from "lucide-react";
 import { cn, formatBytes, timeAgo } from "@/lib/utils";
 import { getEggForGameType } from "@/lib/game-eggs";
@@ -58,6 +59,7 @@ import { PlayersTab as PlayersTabFeature } from "@/components/game-hub/server-de
 import { ActivityTab as ActivityTabFeature } from "@/components/game-hub/server-detail/activity-tab";
 import type {
   FileEntry,
+  PowerSchedule,
   SavedCommand,
   ServerDetail,
 } from "@/components/game-hub/server-detail/types";
@@ -121,6 +123,16 @@ const ICON_OPTIONS = [
   "🎤",
   "🎵",
 ];
+const SCHEDULE_DAY_OPTIONS = [
+  { value: "mon", label: "Mon" },
+  { value: "tue", label: "Tue" },
+  { value: "wed", label: "Wed" },
+  { value: "thu", label: "Thu" },
+  { value: "fri", label: "Fri" },
+  { value: "sat", label: "Sat" },
+  { value: "sun", label: "Sun" },
+] as const;
+const ALL_SCHEDULE_DAYS = SCHEDULE_DAY_OPTIONS.map((entry) => entry.value);
 
 function normalizeCommandValue(entry: { command?: string; cmd?: string }) {
   return entry.command ?? entry.cmd ?? "";
@@ -212,6 +224,28 @@ function formatScheduledValue(value: string | null | undefined) {
   return value ? new Date(value).toISOString().slice(0, 16) : "";
 }
 
+function getDefaultScheduleTimezone() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    return "UTC";
+  }
+}
+
+function buildSchedulePayload(
+  enabled: boolean,
+  time: string,
+  days: string[],
+  timezone: string,
+): PowerSchedule | null {
+  if (!enabled) return null;
+  return {
+    time,
+    days: days.length > 0 ? days : ALL_SCHEDULE_DAYS,
+    timezone: timezone.trim() || "UTC",
+  };
+}
+
 function stringifyEnv(env: ServerDetail["env"]) {
   return env.map((entry) => `${entry.name}=${entry.value ?? ""}`).join("\n");
 }
@@ -220,6 +254,68 @@ function countContentLines(value: string | null) {
   if (value === null) return 0;
   if (!value.length) return 1;
   return value.split(/\r\n|\r|\n/).length;
+}
+
+function formatDateTime(value: string | null | undefined) {
+  if (!value) return "—";
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? "—" : parsed.toLocaleString();
+}
+
+type DiffLine = {
+  type: "context" | "added" | "removed";
+  value: string;
+  key: string;
+};
+
+function splitDiffLines(value: string) {
+  if (!value.length) return [] as string[];
+  return value.split(/\r\n|\r|\n/);
+}
+
+function buildUnifiedDiff(original: string, updated: string): DiffLine[] {
+  const before = splitDiffLines(original);
+  const after = splitDiffLines(updated);
+  const lcs = Array.from({ length: before.length + 1 }, () =>
+    Array<number>(after.length + 1).fill(0),
+  );
+
+  for (let i = before.length - 1; i >= 0; i -= 1) {
+    for (let j = after.length - 1; j >= 0; j -= 1) {
+      lcs[i][j] =
+        before[i] === after[j]
+          ? lcs[i + 1][j + 1] + 1
+          : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+    }
+  }
+
+  const diff: DiffLine[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < before.length && j < after.length) {
+    if (before[i] === after[j]) {
+      diff.push({ type: "context", value: before[i], key: `context-${i}-${j}` });
+      i += 1;
+      j += 1;
+      continue;
+    }
+    if (lcs[i + 1][j] >= lcs[i][j + 1]) {
+      diff.push({ type: "removed", value: before[i], key: `removed-${i}-${j}` });
+      i += 1;
+    } else {
+      diff.push({ type: "added", value: after[j], key: `added-${i}-${j}` });
+      j += 1;
+    }
+  }
+  while (i < before.length) {
+    diff.push({ type: "removed", value: before[i], key: `removed-tail-${i}` });
+    i += 1;
+  }
+  while (j < after.length) {
+    diff.push({ type: "added", value: after[j], key: `added-tail-${j}` });
+    j += 1;
+  }
+  return diff;
 }
 
 function DashboardTab({
@@ -1070,7 +1166,8 @@ function FilesTab({
   const [recentFiles, setRecentFiles] = useState<string[]>(() =>
     readRecentFiles(name),
   );
-  const [originalContent, setOriginalContent] = useState<string | null>(null);
+  const originalContentRef = useRef<string | null>(null);
+  const [diffOpen, setDiffOpen] = useState(false);
   const saveFileRef = useRef<() => Promise<void>>(async () => undefined);
 
   const {
@@ -1112,9 +1209,16 @@ function FilesTab({
   );
   const isArchiveFile = /\.(tar\.gz|tgz|zip)$/i.test(selectedFile?.name ?? "");
   const isDirty = Boolean(
-    selectedFile && fileContent !== null && fileContent !== originalContent,
+    selectedFile &&
+      fileContent !== null &&
+      fileContent !== originalContentRef.current,
   );
   const fileLineCount = countContentLines(fileContent);
+  const diffLines = useMemo(
+    () => buildUnifiedDiff(originalContentRef.current ?? "", fileContent ?? ""),
+    [fileContent, selectedFile?.path],
+  );
+  const changedDiffLines = diffLines.filter((line) => line.type !== "context").length;
 
   useEffect(() => {
     try {
@@ -1135,7 +1239,7 @@ function FilesTab({
         selectedFile
       ) {
         event.preventDefault();
-        if (!saving && !loadingContent && isDirty) void saveFileRef.current();
+        if (!saving && !loadingContent && isDirty) setDiffOpen(true);
       }
     };
     window.addEventListener("keydown", handleSaveHotkey);
@@ -1163,14 +1267,17 @@ function FilesTab({
     if (entry.type === "directory") {
       setPathHistory((history) => [...history, entry.path]);
       setCurrentPath(entry.path);
+      setDiffOpen(false);
       setSelectedFile(null);
       setFileContent(null);
+      originalContentRef.current = null;
       return;
     }
 
+    setDiffOpen(false);
     setSelectedFile(entry);
     setFileContent(null);
-    setOriginalContent(null);
+    originalContentRef.current = null;
     setLoadingContent(
       !["png", "jpg", "jpeg", "gif", "webp", "svg"].includes(
         entry.name.split(".").pop()?.toLowerCase() ?? "",
@@ -1186,7 +1293,7 @@ function FilesTab({
       )
     ) {
       setFileContent("");
-      setOriginalContent("");
+      originalContentRef.current = "";
       return;
     }
     const controller = new AbortController();
@@ -1197,7 +1304,7 @@ function FilesTab({
         { signal: controller.signal },
       );
       setFileContent(result.content);
-      setOriginalContent(result.content);
+      originalContentRef.current = result.content;
     } catch (error) {
       const message =
         error instanceof Error && error.name === "AbortError"
@@ -1219,7 +1326,8 @@ function FilesTab({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ path: selectedFile.path, content: fileContent }),
       });
-      setOriginalContent(fileContent);
+      originalContentRef.current = fileContent;
+      setDiffOpen(false);
       setSelectedFile((current) =>
         current
           ? {
@@ -1251,9 +1359,10 @@ function FilesTab({
       );
       toast.success(`${entry.name} deleted`);
       if (selectedFile?.path === entry.path) {
+        setDiffOpen(false);
         setSelectedFile(null);
         setFileContent(null);
-        setOriginalContent(null);
+        originalContentRef.current = null;
       }
       refetch();
     } catch (error) {
@@ -1280,9 +1389,10 @@ function FilesTab({
     const nextHistory = pathHistory.slice(0, -1);
     setPathHistory(nextHistory);
     setCurrentPath(nextHistory[nextHistory.length - 1]);
+    setDiffOpen(false);
     setSelectedFile(null);
     setFileContent(null);
-    setOriginalContent(null);
+    originalContentRef.current = null;
   }
 
   const sortedFiles = useMemo(() => {
@@ -1345,9 +1455,10 @@ function FilesTab({
                 onClick={() => {
                   setCurrentPath(mountPath);
                   setPathHistory([mountPath]);
+                  setDiffOpen(false);
                   setSelectedFile(null);
                   setFileContent(null);
-                  setOriginalContent(null);
+                  originalContentRef.current = null;
                 }}
                 className="rounded px-1 py-0.5 hover:bg-[#1e1e1e]"
               >
@@ -1365,9 +1476,10 @@ function FilesTab({
                           ...history.filter((path) => path !== nextPath),
                           nextPath,
                         ]);
+                        setDiffOpen(false);
                         setSelectedFile(null);
                         setFileContent(null);
-                        setOriginalContent(null);
+                        originalContentRef.current = null;
                       }}
                       className="rounded px-1 py-0.5 hover:bg-[#1e1e1e]"
                     >
@@ -1470,22 +1582,27 @@ function FilesTab({
                   <File className="w-3.5 h-3.5 text-[#444] flex-shrink-0" />
                 )}
                 <div className="min-w-0 flex-1">
-                  <span
-                    className={cn(
-                      "truncate block",
-                      fileSearch &&
-                        entry.name
-                          .toLowerCase()
-                          .includes(fileSearch.toLowerCase()) &&
-                        "text-white",
-                    )}
-                  >
-                    {entry.name}
-                  </span>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span
+                      className={cn(
+                        "truncate block min-w-0",
+                        fileSearch &&
+                          entry.name
+                            .toLowerCase()
+                            .includes(fileSearch.toLowerCase()) &&
+                          "text-white",
+                      )}
+                    >
+                      {entry.name}
+                    </span>
+                    <span className="shrink-0 rounded border border-[#2a2a2a] bg-[#0a0a0a] px-1.5 py-0.5 text-[10px] font-mono text-[#8fb8ff]">
+                      {entry.permissions || "---------"}
+                    </span>
+                  </div>
                   <span className="text-[10px] text-[#555]">
                     {entry.type === "directory"
-                      ? `Directory • ${entry.permissions}`
-                      : `${entry.permissions} • ${formatBytes(entry.size)} • ${timeAgo(entry.modifiedAt)}`}
+                      ? "Directory"
+                      : `${formatBytes(entry.size)} • ${timeAgo(entry.modifiedAt)}`}
                   </span>
                 </div>
                 {entry.type !== "directory" &&
@@ -1538,7 +1655,7 @@ function FilesTab({
               <span className="text-[10px] text-[#444]">
                 {selectedFile.permissions || "---------"} •{" "}
                 {formatBytes(selectedFile.size)} • Modified{" "}
-                {new Date(selectedFile.modifiedAt).toLocaleString()} •{" "}
+                {formatDateTime(selectedFile.modifiedAt)} •{" "}
                 {fileLineCount} line{fileLineCount === 1 ? "" : "s"}{" "}
                 {isDirty ? "• Unsaved changes" : "• Saved"}
               </span>
@@ -1560,10 +1677,22 @@ function FilesTab({
                 <Package className="w-3 h-3" /> Extract
               </button>
             )}
+            {!isImageFile && isDirty && (
+              <button
+                onClick={() => setDiffOpen(true)}
+                disabled={saving || loadingContent}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-[#1a1a1a] hover:bg-[#252525] disabled:opacity-50 text-[#d4d4d4] rounded-lg text-xs font-medium flex-shrink-0"
+              >
+                <FileText className="w-3 h-3" /> Show diff
+              </button>
+            )}
             {!isImageFile && (
               <button
-                onClick={saveFile}
-                disabled={saving || loadingContent}
+                onClick={() => {
+                  if (!isDirty) return;
+                  setDiffOpen(true);
+                }}
+                disabled={!isDirty || saving || loadingContent}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-[#0078D4] hover:bg-[#0065B3] disabled:opacity-50 text-white rounded-lg text-xs font-medium flex-shrink-0"
               >
                 {saving ? (
@@ -1623,6 +1752,104 @@ function FilesTab({
 
   return (
     <>
+      <AnimatePresence>
+        {diffOpen && selectedFile && !isImageFile && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+            onClick={() => setDiffOpen(false)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.98, y: 12 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.98, y: 12 }}
+              transition={{ duration: 0.18 }}
+              className="flex w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-[#2a2a2a] bg-[#0d0d0d] shadow-2xl"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="border-b border-[#1e1e1e] px-5 py-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[11px] uppercase tracking-[0.24em] text-[#666]">
+                      Unified diff preview
+                    </p>
+                    <h3 className="mt-1 text-base font-semibold text-[#f2f2f2]">
+                      {selectedFile.name}
+                    </h3>
+                    <p className="mt-1 text-xs text-[#777]">
+                      {changedDiffLines} changed line{changedDiffLines === 1 ? "" : "s"} • review before saving
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setDiffOpen(false)}
+                    className="rounded-lg border border-[#2a2a2a] p-2 text-[#666] transition-colors hover:bg-[#161616] hover:text-[#d4d4d4]"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+              <div className="border-b border-[#1e1e1e] bg-[#101010] px-5 py-2 font-mono text-[11px] text-[#666]">
+                <div>--- original</div>
+                <div>+++ current</div>
+              </div>
+              <div className="max-h-[65vh] overflow-auto bg-[#0a0a0a] p-3 font-mono text-xs leading-6">
+                {diffLines.length === 0 ? (
+                  <div className="rounded-lg border border-[#1e1e1e] bg-[#111] px-4 py-6 text-center text-[#666]">
+                    No changes detected.
+                  </div>
+                ) : (
+                  diffLines.map((line) => (
+                    <div
+                      key={line.key}
+                      className={cn(
+                        "rounded-md px-3 py-0.5 whitespace-pre-wrap break-all",
+                        line.type === "removed"
+                          ? "bg-red-500/15 text-red-100"
+                          : line.type === "added"
+                            ? "bg-green-500/15 text-green-100"
+                            : "text-[#8a8a8a]",
+                      )}
+                    >
+                      <span className="mr-2 inline-block w-3 text-center text-[#666]">
+                        {line.type === "removed"
+                          ? "-"
+                          : line.type === "added"
+                            ? "+"
+                            : " "}
+                      </span>
+                      {line.value || " "}
+                    </div>
+                  ))
+                )}
+              </div>
+              <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[#1e1e1e] bg-[#101010] px-5 py-4">
+                <button
+                  onClick={() => setDiffOpen(false)}
+                  className="rounded-lg border border-[#2a2a2a] px-4 py-2 text-sm text-[#999] transition-colors hover:bg-[#161616] hover:text-[#f2f2f2]"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    void saveFileRef.current();
+                  }}
+                  disabled={saving}
+                  className="inline-flex items-center gap-2 rounded-lg border border-[#0078D4]/40 bg-[#0078D4] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#0065B3] disabled:opacity-50"
+                >
+                  {saving ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Save className="h-4 w-4" />
+                  )}
+                  Save anyway
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
       <div className="hidden md:grid grid-cols-[minmax(0,260px)_minmax(0,1fr)] gap-4">
         {fileTree}
         {editorPane}
@@ -2146,6 +2373,12 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
   const isLonghornPvc = Boolean(
     server.pvc?.storageClass?.toLowerCase().includes("longhorn"),
   );
+  const initialScheduleDays =
+    server.scheduleStart?.days?.length
+      ? server.scheduleStart.days
+      : server.scheduleStop?.days?.length
+        ? server.scheduleStop.days
+        : ALL_SCHEDULE_DAYS;
 
   const [replicaMode, setReplicaMode] = useState<"static" | "dynamic">(
     server.hpa.enabled ? "dynamic" : "static",
@@ -2200,6 +2433,32 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
   const [scheduledTime, setScheduledTime] = useState(
     formatScheduledValue(server.scheduledTime),
   );
+  const [scheduleStartEnabled, setScheduleStartEnabled] = useState(
+    Boolean(server.scheduleStart),
+  );
+  const [scheduleStartTime, setScheduleStartTime] = useState(
+    server.scheduleStart?.time ?? "08:00",
+  );
+  const [scheduleStopEnabled, setScheduleStopEnabled] = useState(
+    Boolean(server.scheduleStop),
+  );
+  const [scheduleStopTime, setScheduleStopTime] = useState(
+    server.scheduleStop?.time ?? "22:00",
+  );
+  const [scheduleDays, setScheduleDays] = useState<string[]>(initialScheduleDays);
+  const [scheduleTimezone, setScheduleTimezone] = useState(
+    server.scheduleStart?.timezone ??
+      server.scheduleStop?.timezone ??
+      getDefaultScheduleTimezone(),
+  );
+  const [savingSchedule, setSavingSchedule] = useState(false);
+  const [alertCpu, setAlertCpu] = useState(server.alertCpu ?? 80);
+  const [alertMemory, setAlertMemory] = useState(server.alertMemory ?? 80);
+  const [alertRestarts, setAlertRestarts] = useState(
+    server.alertRestarts ?? 5,
+  );
+  const [savingThresholds, setSavingThresholds] = useState(false);
+  const [testingWebhook, setTestingWebhook] = useState(false);
   const [commandLabel, setCommandLabel] = useState("");
   const [commandText, setCommandText] = useState("");
   const isServerStopped = server.replicas === 0 || server.status === "stopped";
@@ -2304,6 +2563,81 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
       toast.error(String(error));
     } finally {
       setSavingResources(false);
+    }
+  }
+
+  function toggleScheduleDay(day: string) {
+    setScheduleDays((current) =>
+      current.includes(day)
+        ? current.filter((entry) => entry !== day)
+        : [...current, day],
+    );
+  }
+
+  async function saveSchedule() {
+    if ((scheduleStartEnabled || scheduleStopEnabled) && scheduleDays.length === 0) {
+      toast.error("Select at least one day");
+      return;
+    }
+    setSavingSchedule(true);
+    try {
+      await patchServer(
+        {
+          action: "set-schedule",
+          startSchedule: buildSchedulePayload(
+            scheduleStartEnabled,
+            scheduleStartTime,
+            scheduleDays,
+            scheduleTimezone,
+          ),
+          stopSchedule: buildSchedulePayload(
+            scheduleStopEnabled,
+            scheduleStopTime,
+            scheduleDays,
+            scheduleTimezone,
+          ),
+        },
+        "Power schedule saved",
+      );
+    } catch (error) {
+      toast.error(String(error));
+    } finally {
+      setSavingSchedule(false);
+    }
+  }
+
+  async function saveAlertThresholds() {
+    setSavingThresholds(true);
+    try {
+      await patchServer(
+        {
+          action: "set-alert-thresholds",
+          alertCpu,
+          alertMemory,
+          alertRestarts,
+        },
+        "Alert thresholds saved",
+      );
+    } catch (error) {
+      toast.error(String(error));
+    } finally {
+      setSavingThresholds(false);
+    }
+  }
+
+  async function testWebhook() {
+    setTestingWebhook(true);
+    try {
+      await fetchJson(`/api/game-hub/servers/${name}/webhooks`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "test" }),
+      });
+      toast.success("Test webhook sent");
+    } catch (error) {
+      toast.error(String(error));
+    } finally {
+      setTestingWebhook(false);
     }
   }
 
@@ -2772,6 +3106,215 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
               )}
             />
           </button>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-[#1e1e1e]">
+          <Clock className="w-3.5 h-3.5 text-[#555]" />
+          <p className="text-xs font-medium text-[#888] uppercase tracking-wide">
+            Scheduled On/Off
+          </p>
+        </div>
+        <div className="p-4 space-y-4">
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="rounded-lg border border-[#2a2a2a] bg-[#0d0d0d] p-3 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm text-[#f2f2f2]">Enable scheduled start</p>
+                  <p className="text-[11px] text-[#555]">Scale the server back to 1 replica on the selected days.</p>
+                </div>
+                <button
+                  onClick={() => setScheduleStartEnabled((current) => !current)}
+                  className={cn(
+                    "relative w-11 h-6 rounded-full transition-colors flex-shrink-0",
+                    scheduleStartEnabled ? "bg-[#0078D4]" : "bg-[#2a2a2a]",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform shadow",
+                      scheduleStartEnabled ? "translate-x-5" : "translate-x-0",
+                    )}
+                  />
+                </button>
+              </div>
+              <input
+                type="time"
+                step={60}
+                value={scheduleStartTime}
+                onChange={(event) => setScheduleStartTime(event.target.value)}
+                disabled={!scheduleStartEnabled}
+                className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded px-3 py-2 text-sm text-[#f2f2f2] disabled:opacity-50 focus:outline-none focus:border-[#0078D4]"
+              />
+            </div>
+            <div className="rounded-lg border border-[#2a2a2a] bg-[#0d0d0d] p-3 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm text-[#f2f2f2]">Enable scheduled stop</p>
+                  <p className="text-[11px] text-[#555]">Scale the server down cleanly at the chosen time.</p>
+                </div>
+                <button
+                  onClick={() => setScheduleStopEnabled((current) => !current)}
+                  className={cn(
+                    "relative w-11 h-6 rounded-full transition-colors flex-shrink-0",
+                    scheduleStopEnabled ? "bg-[#0078D4]" : "bg-[#2a2a2a]",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform shadow",
+                      scheduleStopEnabled ? "translate-x-5" : "translate-x-0",
+                    )}
+                  />
+                </button>
+              </div>
+              <input
+                type="time"
+                step={60}
+                value={scheduleStopTime}
+                onChange={(event) => setScheduleStopTime(event.target.value)}
+                disabled={!scheduleStopEnabled}
+                className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded px-3 py-2 text-sm text-[#f2f2f2] disabled:opacity-50 focus:outline-none focus:border-[#0078D4]"
+              />
+            </div>
+          </div>
+          <div className="grid gap-3 md:grid-cols-[1fr_220px]">
+            <div>
+              <label className="block text-[10px] text-[#666] mb-2">Days of week</label>
+              <div className="flex flex-wrap gap-2">
+                {SCHEDULE_DAY_OPTIONS.map((day) => {
+                  const active = scheduleDays.includes(day.value);
+                  return (
+                    <button
+                      key={day.value}
+                      onClick={() => toggleScheduleDay(day.value)}
+                      className={cn(
+                        "rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors",
+                        active
+                          ? "border-[#0078D4]/50 bg-[#0078D4]/15 text-[#7cc2ff]"
+                          : "border-[#2a2a2a] bg-[#0a0a0a] text-[#777] hover:text-[#bbb]",
+                      )}
+                    >
+                      {day.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <div>
+              <label className="block text-[10px] text-[#666] mb-2">Timezone</label>
+              <input
+                value={scheduleTimezone}
+                onChange={(event) => setScheduleTimezone(event.target.value)}
+                placeholder="America/New_York"
+                className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded px-3 py-2 text-sm text-[#f2f2f2] font-mono focus:outline-none focus:border-[#0078D4]"
+              />
+              <p className="mt-1 text-[10px] text-[#555]">CronJobs use this IANA timezone.</p>
+            </div>
+          </div>
+          <button
+            onClick={saveSchedule}
+            disabled={savingSchedule}
+            className="flex items-center gap-1.5 px-4 py-2 bg-[#0078D4] hover:bg-[#0065B3] disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors"
+          >
+            {savingSchedule ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Save className="w-3.5 h-3.5" />
+            )}
+            Save Schedule
+          </button>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-[#1e1e1e]">
+          <AlertTriangle className="w-3.5 h-3.5 text-[#555]" />
+          <p className="text-xs font-medium text-[#888] uppercase tracking-wide">
+            Alert Thresholds
+          </p>
+        </div>
+        <div className="p-4 space-y-4">
+          <div className="grid gap-3 md:grid-cols-3">
+            <div>
+              <label className="block text-[10px] text-[#666] mb-1">CPU warning at</label>
+              <div className="flex items-center rounded border border-[#2a2a2a] bg-[#0a0a0a] px-3 py-2">
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={alertCpu}
+                  onChange={(event) =>
+                    setAlertCpu(
+                      Math.min(100, Math.max(0, parseInt(event.target.value, 10) || 0)),
+                    )
+                  }
+                  className="w-full bg-transparent text-sm text-[#f2f2f2] focus:outline-none"
+                />
+                <span className="text-xs text-[#666]">%</span>
+              </div>
+            </div>
+            <div>
+              <label className="block text-[10px] text-[#666] mb-1">Memory warning at</label>
+              <div className="flex items-center rounded border border-[#2a2a2a] bg-[#0a0a0a] px-3 py-2">
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={alertMemory}
+                  onChange={(event) =>
+                    setAlertMemory(
+                      Math.min(100, Math.max(0, parseInt(event.target.value, 10) || 0)),
+                    )
+                  }
+                  className="w-full bg-transparent text-sm text-[#f2f2f2] focus:outline-none"
+                />
+                <span className="text-xs text-[#666]">%</span>
+              </div>
+            </div>
+            <div>
+              <label className="block text-[10px] text-[#666] mb-1">Max restart count</label>
+              <input
+                type="number"
+                min={1}
+                max={20}
+                value={alertRestarts}
+                onChange={(event) =>
+                  setAlertRestarts(
+                    Math.min(20, Math.max(1, parseInt(event.target.value, 10) || 1)),
+                  )
+                }
+                className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
+              />
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={saveAlertThresholds}
+              disabled={savingThresholds}
+              className="flex items-center gap-1.5 px-4 py-2 bg-[#0078D4] hover:bg-[#0065B3] disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors"
+            >
+              {savingThresholds ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Save className="w-3.5 h-3.5" />
+              )}
+              Save Thresholds
+            </button>
+            <button
+              onClick={testWebhook}
+              disabled={testingWebhook}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-yellow-500/30 bg-yellow-500/10 text-yellow-200 text-sm font-medium hover:bg-yellow-500/15 disabled:opacity-50"
+            >
+              {testingWebhook ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Send className="w-3.5 h-3.5" />
+              )}
+              Test webhook
+            </button>
+          </div>
         </div>
       </div>
 
@@ -3275,7 +3818,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
             <p className="text-xs text-[#888]">
               Current schedule:{" "}
               <span className="text-[#f2f2f2]">{server.scheduledAction}</span> @{" "}
-              {new Date(server.scheduledTime).toLocaleString()}
+              {formatDateTime(server.scheduledTime)}
             </p>
           )}
           <p className="text-[11px] text-[#666]">
@@ -3363,9 +3906,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
                       </div>
                       <p className="text-[#666] mt-1">
                         {snapshot.metadata?.creationTimestamp
-                          ? new Date(
-                              snapshot.metadata.creationTimestamp,
-                            ).toLocaleString()
+                          ? formatDateTime(snapshot.metadata.creationTimestamp)
                           : "Waiting for controller"}
                       </p>
                     </div>
@@ -3756,14 +4297,20 @@ export default function ServerDetailPage() {
                     toast.error(String(error));
                   }
                 }}
-                className={cn(
-                  "hidden sm:flex px-3 py-2 min-h-[38px] rounded-lg text-xs transition-colors border",
+                title={
                   server.maintenanceMode
-                    ? "bg-yellow-500/20 border-yellow-500/30 text-yellow-200"
-                    : "bg-[#1a1a1a] border-[#2a2a2a] hover:bg-[#222] text-[#888]",
+                    ? "Exit Maintenance"
+                    : "Enter Maintenance"
+                }
+                className={cn(
+                  "group flex items-center gap-1.5 px-2.5 py-2 min-h-[38px] rounded-lg text-xs transition-all border",
+                  server.maintenanceMode
+                    ? "bg-yellow-500/20 border-yellow-400/40 text-yellow-100 shadow-[0_0_18px_rgba(250,204,21,0.22)]"
+                    : "bg-[#1a1a1a] border-[#2a2a2a] hover:bg-yellow-500/10 hover:border-yellow-500/30 text-[#888] hover:text-yellow-200",
                 )}
               >
-                Maintenance
+                <Wrench className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Maintenance</span>
               </button>
               <button
                 onClick={async () => {

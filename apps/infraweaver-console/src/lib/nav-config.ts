@@ -183,11 +183,12 @@ export const HREF_LABEL_MAP: Record<string, string> = Object.fromEntries(
   ALL_NAV_ITEMS.map(item => [item.href, item.label])
 );
 
-// Mobile bottom nav (4 items — 5th slot is "More" handled in layout.tsx)
+// Mobile bottom nav (4 items — 5th slot is "Menu" handled in layout.tsx)
 export const MOBILE_BOTTOM_NAV: NavItem[] = [
   { href: "/home", icon: Home, label: "Home" },
   { href: "/apps", icon: LayoutGrid, label: "Apps" },
-  { href: "/health", icon: Activity, label: "Health" },
+  { href: "/game-hub", icon: Gamepad2, label: "Game Hub" },
+  { href: "/pods", icon: Server, label: "Pods" },
 ];
 
 // Mobile drawer nav (shown in the "More" full-screen sheet)

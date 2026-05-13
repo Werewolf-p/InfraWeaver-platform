@@ -1,5 +1,8 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+
+import { useCallback, useMemo } from "react";
+import { useServerPreferences } from "@/hooks/use-server-preferences";
+import { ALL_NAV_ITEMS } from "@/lib/nav-config";
 
 export interface Favorite {
   id: string;
@@ -8,57 +11,48 @@ export interface Favorite {
   iconName: string;
 }
 
-const STORAGE_KEY = "infraweaver:favorites";
-
-function load(): Favorite[] {
-  if (typeof window === "undefined") return [];
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "[]");
-  } catch {
-    return [];
-  }
-}
-
-function save(favorites: Favorite[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(favorites));
+function mapHrefToFavorite(href: string): Favorite {
+  const item = ALL_NAV_ITEMS.find((entry) => entry.href === href);
+  return {
+    id: href,
+    href,
+    label: item?.label ?? href,
+    iconName: item?.label ?? href,
+  };
 }
 
 export function useFavorites() {
-  const [favorites, setFavorites] = useState<Favorite[]>([]);
-
-  useEffect(() => {
-    setFavorites(load());
-  }, []);
+  const { preferences, setPreferences } = useServerPreferences();
+  const favorites = useMemo(
+    () => preferences.pinnedApps.map(mapHrefToFavorite),
+    [preferences.pinnedApps]
+  );
 
   const addFavorite = useCallback((fav: Favorite) => {
-    setFavorites(prev => {
-      if (prev.some(f => f.href === fav.href)) return prev;
-      const next = [...prev, fav];
-      save(next);
-      return next;
-    });
-  }, []);
+    setPreferences((current) => (
+      current.pinnedApps.includes(fav.href)
+        ? {}
+        : { pinnedApps: [...current.pinnedApps, fav.href] }
+    ));
+  }, [setPreferences]);
 
   const removeFavorite = useCallback((href: string) => {
-    setFavorites(prev => {
-      const next = prev.filter(f => f.href !== href);
-      save(next);
-      return next;
-    });
-  }, []);
+    setPreferences((current) => ({
+      pinnedApps: current.pinnedApps.filter((entry) => entry !== href),
+    }));
+  }, [setPreferences]);
 
   const toggleFavorite = useCallback((fav: Favorite) => {
-    setFavorites(prev => {
-      const exists = prev.some(f => f.href === fav.href);
-      const next = exists ? prev.filter(f => f.href !== fav.href) : [...prev, fav];
-      save(next);
-      return next;
-    });
-  }, []);
+    setPreferences((current) => ({
+      pinnedApps: current.pinnedApps.includes(fav.href)
+        ? current.pinnedApps.filter((entry) => entry !== fav.href)
+        : [...current.pinnedApps, fav.href],
+    }));
+  }, [setPreferences]);
 
   const isFavorite = useCallback(
-    (href: string) => favorites.some(f => f.href === href),
-    [favorites]
+    (href: string) => preferences.pinnedApps.includes(href),
+    [preferences.pinnedApps]
   );
 
   return { favorites, addFavorite, removeFavorite, toggleFavorite, isFavorite };

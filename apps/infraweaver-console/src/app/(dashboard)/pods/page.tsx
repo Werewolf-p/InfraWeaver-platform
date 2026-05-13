@@ -1,6 +1,7 @@
 "use client";
 import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
+import Link from "next/link";
 import { useState } from "react";
 import { Server, RefreshCw } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
@@ -105,7 +106,11 @@ export default function PodsPage() {
           <tbody>
             {filtered.map(p => (
               <tr key={`${p.namespace}/${p.name}`} className="border-b border-white/5 hover:bg-white/5 transition-colors">
-                <td className="px-4 py-3 text-sm text-white font-medium max-w-xs truncate">{p.name}</td>
+                <td className="px-4 py-3 text-sm text-white font-medium max-w-xs truncate">
+                  <Link href={`/pods/${encodeURIComponent(p.namespace)}/${encodeURIComponent(p.name)}`} className="transition hover:text-indigo-300">
+                    {p.name}
+                  </Link>
+                </td>
                 <td className="px-4 py-3 text-sm text-slate-400">{p.namespace}</td>
                 <td className="px-4 py-3 text-center">
                   <span className={cn("text-xs px-2 py-0.5 rounded-full border", statusColor(p.status))}>{p.status}</span>

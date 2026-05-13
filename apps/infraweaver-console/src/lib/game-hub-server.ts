@@ -41,6 +41,12 @@ export interface DiscordWebhookConfig {
   events: string[];
 }
 
+export interface PowerSchedule {
+  time: string;
+  days: string[];
+  timezone: string;
+}
+
 export function normalizeServerName(name: string) {
   return name.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/^-+|-+$/g, "");
 }
@@ -419,7 +425,56 @@ export async function sendDiscordWebhook(config: DiscordWebhookConfig | null, ev
   }).catch(() => undefined);
 }
 
-export async function upsertCronJob(batchApi: k8s.BatchV1Api, name: string, schedule: string, command: string, labels: Record<string, string> = {}) {
+const SCHEDULE_DAY_ORDER = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const;
+const SCHEDULE_DAY_TO_CRON: Record<(typeof SCHEDULE_DAY_ORDER)[number], string> = {
+  sun: "0",
+  mon: "1",
+  tue: "2",
+  wed: "3",
+  thu: "4",
+  fri: "5",
+  sat: "6",
+};
+
+export function parsePowerSchedule(input: unknown): PowerSchedule | null {
+  let value = input;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    try {
+      value = JSON.parse(trimmed);
+    } catch {
+      return null;
+    }
+  }
+
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as Partial<PowerSchedule>;
+  const time = typeof candidate.time === "string" ? candidate.time.trim() : "";
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) return null;
+
+  const days = Array.isArray(candidate.days)
+    ? Array.from(new Set(candidate.days
+      .map((day) => (typeof day === "string" ? day.trim().toLowerCase().slice(0, 3) : ""))
+      .filter((day): day is (typeof SCHEDULE_DAY_ORDER)[number] => SCHEDULE_DAY_ORDER.includes(day as (typeof SCHEDULE_DAY_ORDER)[number]))))
+    : [];
+  const normalizedDays = days.length ? [...days].sort((a, b) => SCHEDULE_DAY_ORDER.indexOf(a) - SCHEDULE_DAY_ORDER.indexOf(b)) : [...SCHEDULE_DAY_ORDER];
+  const timezone = typeof candidate.timezone === "string" && candidate.timezone.trim()
+    ? candidate.timezone.trim()
+    : "UTC";
+
+  return { time, days: normalizedDays, timezone };
+}
+
+export function buildPowerScheduleCron(schedule: PowerSchedule) {
+  const [hours, minutes] = schedule.time.split(":").map((entry) => Number.parseInt(entry, 10));
+  const days = (schedule.days.length ? schedule.days : [...SCHEDULE_DAY_ORDER])
+    .map((day) => SCHEDULE_DAY_TO_CRON[day as (typeof SCHEDULE_DAY_ORDER)[number]])
+    .join(",");
+  return `${minutes} ${hours} * * ${days}`;
+}
+
+export async function createCronJob(batchApi: k8s.BatchV1Api, name: string, schedule: string, command: string, labels: Record<string, string> = {}, timeZone?: string | null) {
   const body: k8s.V1CronJob = {
     apiVersion: "batch/v1",
     kind: "CronJob",
@@ -430,6 +485,7 @@ export async function upsertCronJob(batchApi: k8s.BatchV1Api, name: string, sche
     },
     spec: {
       schedule,
+      ...(timeZone ? { timeZone } : {}),
       successfulJobsHistoryLimit: 1,
       failedJobsHistoryLimit: 1,
       jobTemplate: {
@@ -456,6 +512,8 @@ export async function upsertCronJob(batchApi: k8s.BatchV1Api, name: string, sche
     await batchApi.createNamespacedCronJob({ namespace: GAME_HUB_NS, body });
   }
 }
+
+export const upsertCronJob = createCronJob;
 
 export async function deleteCronJob(batchApi: k8s.BatchV1Api, name: string) {
   await batchApi.deleteNamespacedCronJob({ name, namespace: GAME_HUB_NS }).catch(() => undefined);

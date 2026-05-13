@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import dynamic from "next/dynamic";
 import { useSearchParams, useRouter } from "next/navigation";
+import Link from "next/link";
 import { PageHeader } from "@/components/ui/page-header";
 import { useArgoApps } from "@/hooks/use-argocd";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -189,7 +190,7 @@ function SwipeableAppCard({
       >
         <div className="flex items-start justify-between mb-2">
           <div className="flex-1 min-w-0 mr-3">
-            <p className="font-medium text-[#f2f2f2] text-sm truncate">{row.name}</p>
+            <Link href={`/apps/${encodeURIComponent(row.name)}`} className="block truncate text-sm font-medium text-[#f2f2f2] transition hover:text-[#7cb9ff]">{row.name}</Link>
             <p className="text-xs text-[#9e9e9e] font-mono truncate mt-0.5">{row.namespace}</p>
           </div>
           <StatusBadge status={isOptimisticSyncing ? "syncing" : row.health} />
@@ -419,7 +420,11 @@ function AllInstalledTab() {
             <tbody>
               {filtered.map(row => (
                 <tr key={row.id} className="border-b border-[#1e1e1e] hover:bg-[#1a1a1a] transition-colors">
-                  <td className="py-2.5 px-3 font-medium text-[#f2f2f2]">{row.name}</td>
+                  <td className="py-2.5 px-3 font-medium text-[#f2f2f2]">
+                    <Link href={`/apps/${encodeURIComponent(row.name)}`} className="transition hover:text-[#7cb9ff]">
+                      {row.name}
+                    </Link>
+                  </td>
                   {!simpleMode && <td className="py-2.5 px-3 font-mono text-xs text-[#9e9e9e]">{row.namespace}</td>}
                   <td className="py-2.5 px-3"><StatusBadge status={optimisticSyncing.has(row.name) ? "syncing" : row.health} /></td>
                   <td className="py-2.5 px-3"><StatusBadge status={row.syncStatus} /></td>

@@ -4,7 +4,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "sonner";
 import { useState, createContext, useContext, useEffect, type ReactNode } from "react";
 import { SettingsProvider } from "@/contexts/settings-context";
-import { CommandPalette } from "@/components/ui/command-palette";
 import { KeyboardShortcutsProvider } from "@/components/ui/keyboard-shortcuts-modal";
 import { OnboardingWizard } from "@/components/ui/onboarding-wizard";
 
@@ -39,6 +38,7 @@ function ThemeProvider({ children }: { children: ReactNode }) {
     try {
       const t = localStorage.getItem("iw-theme") as Theme | null;
       const d = localStorage.getItem("iw-density") as Density | null;
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       if (t) setThemeState(t);
       if (d) setDensityState(d);
     } catch {}
@@ -92,7 +92,6 @@ export function Providers({ children }: { children: React.ReactNode }) {
         <SettingsProvider>
           <ThemeProvider>
             {children}
-            <CommandPalette />
             <KeyboardShortcutsProvider />
             <OnboardingWizard />
             <Toaster richColors position="top-right" />

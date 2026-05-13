@@ -32,7 +32,7 @@ export function TopBar({ onMenuClick, onSearchClick }: { title?: string; onMenuC
       <div className="flex items-center gap-3 flex-1">
         <button
           onClick={onMenuClick}
-          className="md:hidden w-8 h-8 rounded flex items-center justify-center text-[#9e9e9e] hover:text-[#f2f2f2] hover:bg-[#2a2a2a] transition-colors"
+          className="hidden sm:flex md:hidden w-8 h-8 rounded items-center justify-center text-[#9e9e9e] hover:text-[#f2f2f2] hover:bg-[#2a2a2a] transition-colors"
           aria-label="Open menu"
         >
           <Menu className="w-4 h-4" />

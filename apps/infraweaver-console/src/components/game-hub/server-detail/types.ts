@@ -47,6 +47,12 @@ export interface SavedCommand {
   description?: string;
 }
 
+export interface PowerSchedule {
+  time: string;
+  days: string[];
+  timezone: string;
+}
+
 export interface ProcessEntry {
   user: string;
   pid: string;
@@ -80,6 +86,11 @@ export interface ServerDetail {
   portReachable?: boolean;
   maintenanceMode?: boolean;
   scheduledRestart?: string | null;
+  scheduleStart?: PowerSchedule | null;
+  scheduleStop?: PowerSchedule | null;
+  alertCpu?: number | null;
+  alertMemory?: number | null;
+  alertRestarts?: number | null;
   backupSchedule?: string | null;
   backupRetention?: number;
   backupTarget?: string;
@@ -141,6 +152,7 @@ export interface DiskUsage {
 
 export interface BackupEntry {
   filename: string;
+  path?: string;
   size: string;
   bytes: number;
   createdAt: string;

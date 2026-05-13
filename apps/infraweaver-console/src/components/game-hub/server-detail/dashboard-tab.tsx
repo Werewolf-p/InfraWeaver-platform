@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
@@ -93,6 +94,10 @@ function computeHealth(server: ServerDetail, hasOomKilled: boolean) {
   return score;
 }
 
+const CPU_ALERT_THRESHOLD = 85;
+const MEMORY_ALERT_THRESHOLD = 80;
+const RESTART_ALERT_THRESHOLD = 5;
+
 function formatBytes(value: number) {
   if (value >= 1024 ** 3) return `${(value / 1024 ** 3).toFixed(2)} GiB`;
   if (value >= 1024 ** 2) return `${(value / 1024 ** 2).toFixed(1)} MiB`;
@@ -103,6 +108,12 @@ function formatBytes(value: number) {
 function formatPercent(value: number | null | undefined) {
   if (value === null || value === undefined || Number.isNaN(value)) return "—";
   return `${Math.round(value)}%`;
+}
+
+function formatDateTime(value: string | null | undefined) {
+  if (!value) return "—";
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? "—" : parsed.toLocaleString();
 }
 
 export function DashboardTab({
@@ -297,8 +308,30 @@ export function DashboardTab({
         ? "No data available from the metrics API."
         : metricsLoading
           ? "Loading metrics…"
-          : "No data yet.";
+          : server.podName
+            ? "Waiting for the first metrics sample from the cluster."
+            : "Server pod is still starting up.";
   const restartCount = server.restartCount ?? 0;
+  const alertThresholds = [
+    {
+      label: "CPU",
+      threshold: `${CPU_ALERT_THRESHOLD}%`,
+      triggered: (cpuPct ?? 0) >= CPU_ALERT_THRESHOLD,
+      current: formatPercent(cpuPct),
+    },
+    {
+      label: "Memory",
+      threshold: `${MEMORY_ALERT_THRESHOLD}%`,
+      triggered: (memoryPct ?? 0) >= MEMORY_ALERT_THRESHOLD,
+      current: formatPercent(memoryPct),
+    },
+    {
+      label: "Restarts",
+      threshold: `${RESTART_ALERT_THRESHOLD}+`,
+      triggered: restartCount >= RESTART_ALERT_THRESHOLD,
+      current: String(restartCount),
+    },
+  ];
 
   async function createBackup() {
     try {
@@ -315,14 +348,23 @@ export function DashboardTab({
   }
 
   async function restoreBackup(filename: string) {
+    if (
+      !window.confirm(
+        "This will STOP the server, restore from backup, then restart. Continue?",
+      )
+    ) {
+      return;
+    }
     try {
       await fetchJson(`/api/game-hub/servers/${name}/backups`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "restore", filename }),
+        body: JSON.stringify({ action: "restore", backupName: filename }),
       });
       toast.success("Backup restored");
-      refetchBackups();
+      setTimeout(() => {
+        void refetchBackups();
+      }, 5000);
     } catch (error) {
       toast.error(String(error));
     }
@@ -369,11 +411,61 @@ export function DashboardTab({
         </div>
       )}
 
-      {memoryPct !== null && memoryPct > 80 && (
+      {cpuPct !== null && cpuPct >= CPU_ALERT_THRESHOLD && (
+        <div className="rounded-xl border border-yellow-500/20 bg-yellow-500/10 px-4 py-2.5 text-xs text-yellow-200">
+          CPU usage crossed the alert threshold.
+        </div>
+      )}
+
+      {memoryPct !== null && memoryPct >= MEMORY_ALERT_THRESHOLD && (
         <div className="rounded-xl border border-yellow-500/20 bg-yellow-500/10 px-4 py-2.5 text-xs text-yellow-200">
           Memory near limit — risk of eviction
         </div>
       )}
+
+      <div className="grid gap-3 md:grid-cols-3">
+        {alertThresholds.map((alert) => (
+          <div
+            key={alert.label}
+            className={cn(
+              "rounded-xl border px-4 py-3",
+              alert.triggered
+                ? "border-yellow-500/30 bg-yellow-500/10"
+                : "border-[#2a2a2a] bg-[#111]",
+            )}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-[10px] uppercase tracking-wide text-[#666]">
+                {alert.label} alert threshold
+              </p>
+              <span
+                className={cn(
+                  "rounded-full border px-2 py-0.5 text-[10px]",
+                  alert.triggered
+                    ? "border-yellow-500/30 bg-yellow-500/10 text-yellow-200"
+                    : "border-[#2a2a2a] text-[#777]",
+                )}
+              >
+                {alert.triggered ? "Triggered" : "Normal"}
+              </span>
+            </div>
+            <div className="mt-2 flex items-end justify-between gap-3">
+              <div>
+                <p className="text-xl font-semibold text-[#f2f2f2]">
+                  {alert.current}
+                </p>
+                <p className="text-[11px] text-[#666]">Current</p>
+              </div>
+              <div className="text-right">
+                <p className="text-sm font-medium text-[#d4d4d4]">
+                  {alert.threshold}
+                </p>
+                <p className="text-[11px] text-[#666]">Threshold</p>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-3">
         <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4">
@@ -393,10 +485,18 @@ export function DashboardTab({
           <p
             className={cn(
               "text-sm mt-1",
-              server.portReachable ? "text-green-300" : "text-red-300",
+              server.portReachable === true
+                ? "text-green-300"
+                : server.portReachable === false
+                  ? "text-red-300"
+                  : "text-[#999]",
             )}
           >
-            {server.portReachable ? "Port Open" : "Port Closed"}
+            {server.portReachable === true
+              ? "Port Open"
+              : server.portReachable === false
+                ? "Port Closed"
+                : "Unknown"}
           </p>
         </div>
         <div
@@ -705,6 +805,22 @@ export function DashboardTab({
             </p>
           </div>
         </div>
+        {server.nodeIp && server.nodePort && (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#1e3a5f] bg-[#0d1b2a] px-3 py-2 text-xs text-[#9ccfff]">
+            <div>
+              <span className="text-[#4a6fa5]">External:</span>{" "}
+              <span className="font-mono text-[#e0e0e0]">
+                {server.nodeIp}:{server.nodePort}
+              </span>
+            </div>
+            <Link
+              href={`/gameservers?new=1&target=${encodeURIComponent(name)}&port=${server.nodePort}`}
+              className="text-[#60a5fa] hover:text-[#93c5fd]"
+            >
+              Create Port Route →
+            </Link>
+          </div>
+        )}
         <div className="space-y-2">
           {connectionRows.length === 0 ? (
             <p className="text-xs text-[#4a6fa5]">
@@ -987,7 +1103,7 @@ export function DashboardTab({
                       </td>
                       <td className="px-3 py-2">{backup.size}</td>
                       <td className="px-3 py-2">
-                        {new Date(backup.createdAt).toLocaleString()}
+                        {formatDateTime(backup.createdAt)}
                       </td>
                       <td className="px-3 py-2">
                         {backup.status === "warning" ? (
@@ -1006,7 +1122,7 @@ export function DashboardTab({
                       <td className="px-3 py-2">
                         <div className="flex items-center justify-end gap-3">
                           <a
-                            href={`/api/game-hub/servers/${name}/files/content?path=${encodeURIComponent(`/tmp/${backup.filename}`)}&download=1`}
+                            href={`/api/game-hub/servers/${name}/files/content?path=${encodeURIComponent(backup.path ?? `/tmp/${backup.filename}`)}&download=1`}
                             className="text-[#60a5fa] hover:underline"
                           >
                             Download
@@ -1103,7 +1219,7 @@ export function DashboardTab({
                 <p className="text-xs text-[#666] mt-1">{event.message}</p>
                 {event.timestamp && (
                   <p className="text-[10px] text-[#444] mt-0.5">
-                    {new Date(event.timestamp).toLocaleString()}
+                    {formatDateTime(event.timestamp)}
                   </p>
                 )}
               </div>

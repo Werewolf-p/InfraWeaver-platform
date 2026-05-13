@@ -50,17 +50,48 @@ export interface GameEgg {
 
 function defaultCommandAcl(egg: Pick<GameEgg, "quickCommands">): Record<string, string[]> {
   const quick = egg.quickCommands.map((entry) => getQuickCommandStr(entry)).filter(Boolean);
+  const readOnlyQuick = quick.filter((command) => /^(list|players|playing|status|help|showplayers|info|\/players|\/help)$/i.test(command));
   return {
-    "game-server-viewer": [...new Set(["list", "players", "playing", ...quick.filter((command) => /^(list|players|playing)/.test(command))])],
-    "game-server-operator": [...new Set(["list", "players", "playing", "time set day", "weather clear", ...quick])],
+    "game-server-viewer": [...new Set(["list", "players", "playing", "status", "help", "ShowPlayers", "Info", "/players", "/help", ...readOnlyQuick])],
+    "game-server-operator": [...new Set(["list", "players", "playing", "status", "help", "time set day", "weather clear", ...quick])],
     "game-server-admin": ["*"],
   };
+}
+
+function standardQuickCommands(options?: {
+  status?: string;
+  list?: string;
+  help?: string;
+}): QuickCommand[] {
+  const statusCmd = options?.status ?? "status";
+  const listCmd = options?.list ?? "list";
+  const helpCmd = options?.help ?? "help";
+  const statusLabel = /^(list|players|playing|showplayers|\/players)$/i.test(statusCmd)
+    ? "List Players"
+    : "Status";
+
+  return [
+    {
+      label: statusLabel,
+      cmd: statusCmd,
+      description:
+        statusLabel === "List Players"
+          ? "List connected players"
+          : "Show the current server state",
+    },
+    ...(statusCmd === listCmd
+      ? []
+      : [{ label: "List Players", cmd: listCmd, description: "List connected players" }]),
+    ...(helpCmd === statusCmd || helpCmd === listCmd
+      ? []
+      : [{ label: "Help", cmd: helpCmd, description: "Show supported console commands" }]),
+  ];
 }
 
 const minecraftJava: GameEgg = {
   id: "minecraft-java",
   name: "Minecraft Java Edition",
-  description: "Vanilla Minecraft Java Edition server",
+  description: "Paper-ready Minecraft Java server powered by itzg/minecraft-server",
   dockerImage: "itzg/minecraft-server:latest",
   startupCommand: "java -Xmx{{MEMORY}} -Xms{{MEMORY}} -jar server.jar nogui",
   stopCommand: "stop",
@@ -73,24 +104,22 @@ const minecraftJava: GameEgg = {
   defaultCpu: "1",
   defaultStorage: "10Gi",
   supportsModrinth: true,
+  connectionHint: "Join with the listed host and port in the Minecraft multiplayer browser.",
   environment: [
-    { name: "EULA", description: "Accept EULA", defaultValue: "TRUE", required: true },
+    { name: "EULA", description: "Accept Mojang's EULA", defaultValue: "TRUE", required: true },
     { name: "TYPE", description: "Server type (VANILLA, PAPER, SPIGOT)", defaultValue: "PAPER", required: false },
     { name: "VERSION", description: "Minecraft version", defaultValue: "LATEST", required: false },
-    { name: "MEMORY", description: "Memory allocation", defaultValue: "2G", required: false },
+    { name: "MEMORY", description: "Heap size passed to the server JVM", defaultValue: "2G", required: false },
     { name: "MOTD", description: "Message of the Day", defaultValue: "A Minecraft Server", required: false },
     { name: "MAX_PLAYERS", description: "Maximum players", defaultValue: "20", required: false },
     { name: "DIFFICULTY", description: "Difficulty (peaceful, easy, normal, hard)", defaultValue: "normal", required: false },
     { name: "GAMEMODE", description: "Game mode (survival, creative, adventure)", defaultValue: "survival", required: false },
+    { name: "ENABLE_RCON", description: "Enable RCON support", defaultValue: "true", required: false },
     { name: "RCON_PASSWORD", description: "RCON password", defaultValue: "", required: false },
-    { name: "ENABLE_RCON", description: "Enable RCON", defaultValue: "true", required: false },
   ],
   quickCommands: [
-    { label: "Player List", command: "list", description: "Show online players" },
-    { label: "Save World", command: "save-all", description: "Force save the world" },
-    { label: "Set Day", command: "time set day", description: "Set time to day" },
-    { label: "Set Weather Clear", command: "weather clear", description: "Clear weather" },
-    { label: "Server Info", command: "version", description: "Show server version" },
+    ...standardQuickCommands({ status: "list", list: "list", help: "help" }),
+    { label: "Save World", cmd: "save-all", description: "Force save the world" },
   ],
 };
 
@@ -99,9 +128,9 @@ export const GAME_EGGS: Record<string, GameEgg> = {
   terraria: {
     id: "terraria",
     name: "Terraria",
-    description: "Terraria dedicated server with TShock",
-    dockerImage: "ryshe/terraria:latest",
-    startupCommand: "/TShock/TShock.Server -port 7777 -world /world/world.wld -autocreate 2",
+    description: "Terraria dedicated server using the terrariad image",
+    dockerImage: "ryshe/terrariad:latest",
+    startupCommand: "TerrariaServer -world /world/{{WORLD_NAME}}.wld -autocreate {{WORLD_SIZE}} -worldname {{WORLD_NAME}} -port 7777 -maxplayers {{MAX_PLAYERS}}",
     stopCommand: "exit",
     gamePort: 7777,
     mountPath: "/world",
@@ -110,17 +139,18 @@ export const GAME_EGGS: Record<string, GameEgg> = {
     defaultMemory: "1Gi",
     defaultCpu: "500m",
     defaultStorage: "5Gi",
+    connectionHint: "Connect from Terraria using the listed host and port.",
     environment: [
       { name: "WORLD_SIZE", description: "World size (1=Small, 2=Medium, 3=Large)", defaultValue: "2", required: false },
       { name: "WORLD_NAME", description: "World name", defaultValue: "World", required: false },
+      { name: "WORLD_FILENAME", description: "World file name", defaultValue: "World.wld", required: false },
       { name: "MAX_PLAYERS", description: "Maximum players", defaultValue: "16", required: false },
-      { name: "SERVER_PASSWORD", description: "Server password", defaultValue: "", required: false },
+      { name: "SERVER_PASSWORD", description: "Optional join password", defaultValue: "", required: false },
+      { name: "TZ", description: "Container timezone", defaultValue: "UTC", required: false },
     ],
     quickCommands: [
-      { label: "Players", command: "playing", description: "Show online players" },
-      { label: "Save", command: "save", description: "Save the world" },
-      { label: "Time (Dawn)", command: "time dawn", description: "Set time to dawn" },
-      { label: "Server Info", command: "version", description: "Show server version" },
+      ...standardQuickCommands({ status: "playing", list: "playing", help: "help" }),
+      { label: "Save World", cmd: "save", description: "Save the current world" },
     ],
   },
   valheim: {
@@ -142,15 +172,17 @@ export const GAME_EGGS: Record<string, GameEgg> = {
     defaultMemory: "4Gi",
     defaultCpu: "2",
     defaultStorage: "10Gi",
+    connectionHint: "Use the listed host and UDP game port in the Valheim server browser.",
     environment: [
       { name: "SERVER_NAME", description: "Server name", defaultValue: "My Valheim Server", required: false },
-      { name: "WORLD_NAME", description: "World name", defaultValue: "Dedicated", required: false },
-      { name: "SERVER_PASS", description: "Server password", defaultValue: "", required: false },
-      { name: "SERVER_PUBLIC", description: "Publicly visible", defaultValue: "false", required: false },
+      { name: "WORLD_NAME", description: "World save name", defaultValue: "Dedicated", required: false },
+      { name: "SERVER_PASS", description: "Server password", defaultValue: "changeme123", required: false },
+      { name: "SERVER_PUBLIC", description: "Advertise to the public server list", defaultValue: "false", required: false },
+      { name: "TZ", description: "Container timezone", defaultValue: "UTC", required: false },
     ],
     quickCommands: [
-      { label: "Players", command: "players", description: "Show online players" },
-      { label: "Save", command: "save", description: "Save the world" },
+      ...standardQuickCommands({ status: "players", list: "players", help: "help" }),
+      { label: "Save World", cmd: "save", description: "Persist the current world state" },
     ],
   },
   satisfactory: {
@@ -205,10 +237,11 @@ export const GAME_EGGS: Record<string, GameEgg> = {
     id: "palworld",
     name: "Palworld",
     description: "Palworld dedicated server",
-    dockerImage: "thijsvanloef/palworld-server-docker:latest",
-    startupCommand: "/usr/local/bin/supervisord -n -c /etc/supervisor/conf.d/supervisord.conf",
-    stopCommand: "exit",
+    dockerImage: "jammsen/palworld-dedicated-server:latest",
+    startupCommand: "./PalServer.sh -useperfthreads -NoAsyncLoadingThread -UseMultithreadForDS",
+    stopCommand: "DoExit",
     gamePort: 8211,
+    queryPort: 27015,
     mountPath: "/palworld",
     protocol: "UDP",
     ports: [
@@ -218,14 +251,20 @@ export const GAME_EGGS: Record<string, GameEgg> = {
     defaultMemory: "16Gi",
     defaultCpu: "4",
     defaultStorage: "20Gi",
+    connectionHint: "Connect from Palworld with the listed host and game port.",
     environment: [
-      { name: "PLAYERS", description: "Max players", defaultValue: "16", required: false },
-      { name: "SERVER_NAME", description: "Server name", defaultValue: "worldofpals", required: false },
-      { name: "SERVER_PASSWORD", description: "Server password", defaultValue: "", required: false },
+      { name: "SERVER_NAME", description: "Server name", defaultValue: "InfraWeaver Palworld", required: false },
+      { name: "SERVER_DESCRIPTION", description: "Server description", defaultValue: "Managed by InfraWeaver", required: false },
+      { name: "SERVER_PASSWORD", description: "Join password", defaultValue: "", required: false },
       { name: "ADMIN_PASSWORD", description: "Admin password", defaultValue: "", required: false },
-      { name: "MULTITHREADING", description: "Enable multithreading", defaultValue: "true", required: false },
+      { name: "PLAYERS", description: "Maximum players", defaultValue: "16", required: false },
+      { name: "PORT", description: "Game port", defaultValue: "8211", required: false },
     ],
-    quickCommands: [],
+    quickCommands: [
+      { label: "Status", cmd: "Info", description: "Show server status information" },
+      { label: "List Players", cmd: "ShowPlayers", description: "List connected players" },
+      { label: "Save World", cmd: "Save", description: "Save the current world" },
+    ],
   },
   rust: {
     id: "rust",
@@ -289,54 +328,69 @@ export const GAME_EGGS: Record<string, GameEgg> = {
   },
   cs2: {
     id: "cs2",
-    name: "Counter-Strike 2",
-    description: "CS2 dedicated server",
-    dockerImage: "joedwards32/cs2:latest",
-    startupCommand: "/home/user/cs2/game/bin/linuxsteamrt64/cs2 -dedicated",
+    name: "Counter-Strike 2 / CS:GO",
+    description: "Counter-Strike dedicated server using the cm2network image",
+    dockerImage: "cm2network/csgo:latest",
+    startupCommand: "srcds_run -game csgo -console -usercon +game_type 0 +game_mode 1 +mapgroup mg_active +map de_dust2",
     stopCommand: "quit",
     gamePort: 27015,
-    mountPath: "/home/user/cs2",
+    queryPort: 27020,
+    mountPath: "/home/steam/csgo-dedicated",
     protocol: "UDP",
     ports: [
       { name: "game", port: 27015, protocol: "UDP" },
-      { name: "game-tcp", port: 27015, protocol: "TCP" },
+      { name: "query", port: 27020, protocol: "UDP" },
+      { name: "rcon", port: 27015, protocol: "TCP" },
     ],
     defaultMemory: "4Gi",
     defaultCpu: "2",
     defaultStorage: "40Gi",
+    connectionHint: "Use the listed address in the Counter-Strike server browser or via connect command.",
     environment: [
-      { name: "CS2_SERVERNAME", description: "Server name", defaultValue: "My CS2 Server", required: false },
-      { name: "CS2_MAXPLAYERS", description: "Max players", defaultValue: "10", required: false },
-      { name: "CS2_PORT", description: "Server port", defaultValue: "27015", required: false },
-      { name: "CS2_RCON_PORT", description: "RCON port", defaultValue: "27015", required: false },
-      { name: "CS2_RCONPW", description: "RCON password", defaultValue: "", required: false },
+      { name: "SRCDS_HOSTNAME", description: "Server name", defaultValue: "InfraWeaver Counter-Strike", required: false },
+      { name: "SRCDS_STARTMAP", description: "Initial map", defaultValue: "de_dust2", required: false },
+      { name: "SRCDS_MAXPLAYERS", description: "Maximum players", defaultValue: "10", required: false },
+      { name: "SRCDS_PORT", description: "Game port", defaultValue: "27015", required: false },
+      { name: "SRCDS_TOKEN", description: "Steam game server login token", defaultValue: "", required: false },
+      { name: "SRCDS_RCONPW", description: "RCON password", defaultValue: "", required: false },
     ],
     quickCommands: [
-      { label: "Status", command: "status", description: "Server status" },
+      ...standardQuickCommands({ status: "status", list: "status", help: "help" }),
+      { label: "Change Map", cmd: "changelevel de_dust2", description: "Switch to de_dust2" },
     ],
   },
   factorio: {
     id: "factorio",
     name: "Factorio",
     description: "Factorio headless server",
-    dockerImage: "factoriotools/factorio:latest",
+    dockerImage: "factoriotools/factorio:stable",
     startupCommand: "/docker-entrypoint.sh",
-    stopCommand: "exit",
+    stopCommand: "/quit",
     gamePort: 34197,
+    queryPort: 27015,
     mountPath: "/factorio",
     protocol: "UDP",
-    ports: [{ name: "game", port: 34197, protocol: "UDP" }],
+    ports: [
+      { name: "game", port: 34197, protocol: "UDP" },
+      { name: "rcon", port: 27015, protocol: "TCP" },
+    ],
     defaultMemory: "2Gi",
     defaultCpu: "1",
     defaultStorage: "10Gi",
+    connectionHint: "Point the Factorio client at the listed host and UDP game port.",
     environment: [
-      { name: "TOKEN", description: "Factorio game token", defaultValue: "", required: false },
-      { name: "GENERATE_NEW_SAVE", description: "Generate new save", defaultValue: "true", required: false },
-      { name: "SAVE_NAME", description: "Save name", defaultValue: "default", required: false },
+      { name: "GENERATE_NEW_SAVE", description: "Generate a new save on first boot", defaultValue: "true", required: false },
+      { name: "SAVE_NAME", description: "Save name to create or load", defaultValue: "infraweaver", required: false },
+      { name: "LOAD_LATEST_SAVE", description: "Load the most recent save automatically", defaultValue: "true", required: false },
+      { name: "PORT", description: "Game port", defaultValue: "34197", required: false },
+      { name: "RCON_PORT", description: "RCON port", defaultValue: "27015", required: false },
+      { name: "TOKEN", description: "Factorio account token", defaultValue: "", required: false },
     ],
     quickCommands: [
-      { label: "Players", command: "/players", description: "List players" },
-      { label: "Save", command: "/server-save", description: "Save the game" },
+      { label: "Status", cmd: "/players", description: "Show connected players" },
+      { label: "List Players", cmd: "/players", description: "List connected players" },
+      { label: "Help", cmd: "/help", description: "Show available console commands" },
+      { label: "Save World", cmd: "/server-save", description: "Save the current game" },
     ],
   },
 };
@@ -345,6 +399,7 @@ export const BUILT_IN_EGGS = Object.values(GAME_EGGS);
 
 const EGG_ALIASES: Record<string, string> = {
   minecraft: "minecraft-java",
+  csgo: "cs2",
   vrising: "v-rising",
 };
 

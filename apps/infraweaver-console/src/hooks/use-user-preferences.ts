@@ -1,52 +1,34 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
 
-interface UserPreferences {
-  widgets: Record<string, boolean>;
-  navSections: Record<string, boolean>;
-  density: "compact" | "comfortable";
-  startPage: string;
-}
+import { useCallback } from "react";
+import { useServerPreferences } from "@/hooks/use-server-preferences";
+import type { DashboardLayoutPreferences } from "@/lib/user-preferences";
 
-const DEFAULTS: UserPreferences = {
-  widgets: {
-    "platform-services": true,
-    "recent-activity": true,
-    "resource-usage": true,
-    "quick-links": true,
-  },
-  navSections: {},
-  density: "comfortable",
-  startPage: "/home",
-};
-
-const KEY = "infraweaver_prefs";
+export type UserPreferences = DashboardLayoutPreferences;
 
 export function useUserPreferences() {
-  const [prefs, setPrefs] = useState<UserPreferences>(DEFAULTS);
+  const { preferences, setPreferences, isLoading } = useServerPreferences();
+  const prefs = preferences.dashboardLayout;
 
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem(KEY);
-      if (stored) setPrefs(prev => ({ ...prev, ...JSON.parse(stored) }));
-    } catch { /* ignore */ }
-  }, []);
-
-  const setPreference = useCallback(<K extends keyof UserPreferences>(key: K, value: UserPreferences[K]) => {
-    setPrefs(prev => {
-      const next = { ...prev, [key]: value };
-      try { localStorage.setItem(KEY, JSON.stringify(next)); } catch { /* ignore */ }
-      return next;
+  const setPreference = useCallback(<K extends keyof DashboardLayoutPreferences>(
+    key: K,
+    value: DashboardLayoutPreferences[K]
+  ) => {
+    setPreferences({
+      dashboardLayout: { [key]: value } as Partial<DashboardLayoutPreferences>,
     });
-  }, []);
+  }, [setPreferences]);
 
   const toggleWidget = useCallback((id: string) => {
-    setPrefs(prev => {
-      const next = { ...prev, widgets: { ...prev.widgets, [id]: !prev.widgets[id] } };
-      try { localStorage.setItem(KEY, JSON.stringify(next)); } catch { /* ignore */ }
-      return next;
-    });
-  }, []);
+    setPreferences((current) => ({
+      dashboardLayout: {
+        widgets: {
+          ...current.dashboardLayout.widgets,
+          [id]: !current.dashboardLayout.widgets[id],
+        },
+      },
+    }));
+  }, [setPreferences]);
 
-  return { prefs, setPreference, toggleWidget };
+  return { prefs, setPreference, toggleWidget, isLoading };
 }
