@@ -72,6 +72,7 @@ export interface NetworkEntry {
 export interface ServerDetail {
   name: string;
   gameType: string;
+  dnsHostname?: string;
   status?: string;
   replicas: number;
   readyReplicas: number;
@@ -135,6 +136,8 @@ export interface MetricPoint {
   cpuLimit: number;
   memory: number;
   memoryLimit: number;
+  cpuRaw: number;
+  memoryRaw: number;
   timestamp: string;
 }
 

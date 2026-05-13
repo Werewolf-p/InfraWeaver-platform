@@ -73,6 +73,15 @@ function eggPvcSuffix(egg: GameEgg) {
   return egg.mountPath.split("/").filter(Boolean).pop() ?? "data";
 }
 
+function normalizeServerNameInput(value: string) {
+  return value.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+function defaultDnsHostname(value: string) {
+  const slug = normalizeServerNameInput(value);
+  return slug ? `${slug}.games.int.rlservers.com` : "";
+}
+
 export default function NewGameServerPage() {
   const router = useRouter();
   const [step, setStep] = useState<StepId>("choose");
@@ -83,6 +92,8 @@ export default function NewGameServerPage() {
   const [cpu, setCpu] = useState("1");
   const [storage, setStorage] = useState("10Gi");
   const [storageClass, setStorageClass] = useState("longhorn");
+  const [dnsHostname, setDnsHostname] = useState("");
+  const [dnsHostnameDirty, setDnsHostnameDirty] = useState(false);
   const [envValues, setEnvValues] = useState<Record<string, string>>({});
   const [deploying, setDeploying] = useState(false);
   const [deployed, setDeployed] = useState(false);
@@ -132,7 +143,7 @@ export default function NewGameServerPage() {
 
   function buildYamlPreview() {
     if (!selectedEgg) return "";
-    const slug = serverName.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/^-+|-+$/g, "");
+    const slug = normalizeServerNameInput(serverName);
     const image = selectedEgg.id === "custom" ? customImage : selectedEgg.dockerImage;
     const env = eggEnvDefs(selectedEgg).map((envDef) => ({
       key: envDef.key,
@@ -184,7 +195,7 @@ spec:
     if (!selectedEgg || !serverName.trim()) return;
     setDeploying(true);
     try {
-      const slug = serverName.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/^-+|-+$/g, "");
+      const slug = normalizeServerNameInput(serverName);
       const image = selectedEgg.id === "custom" ? customImage : selectedEgg.dockerImage;
       const res = await fetch("/api/game-hub/servers", {
         method: "POST",
@@ -193,6 +204,7 @@ spec:
           egg: selectedEgg.id,
           game: selectedEgg.id.replace(/-java|-bedrock/, ""),
           name: slug,
+          dnsHostname: dnsHostname.trim(),
           image,
           memory, cpu, storage, storageClass,
           env: envValues,
@@ -368,11 +380,29 @@ spec:
                   <label className="text-xs font-medium text-[#999]">Server Name *</label>
                   <input
                     value={serverName}
-                    onChange={e => setServerName(e.target.value)}
+                    onChange={e => {
+                      const nextName = e.target.value;
+                      setServerName(nextName);
+                      if (!dnsHostnameDirty) setDnsHostname(defaultDnsHostname(nextName));
+                    }}
                     placeholder="my-minecraft-server"
                     className="w-full bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4] placeholder:text-[#555]"
                   />
                   <p className="text-[10px] text-[#555]">Lowercase letters, numbers, hyphens only</p>
+                </div>
+
+                <div className="sm:col-span-2 space-y-1.5">
+                  <label className="text-xs font-medium text-[#999]">DNS Hostname</label>
+                  <input
+                    value={dnsHostname}
+                    onChange={e => {
+                      setDnsHostnameDirty(true);
+                      setDnsHostname(e.target.value);
+                    }}
+                    placeholder="{serverName}.games.int.rlservers.com"
+                    className="w-full bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4] placeholder:text-[#555]"
+                  />
+                  <p className="text-[10px] text-[#555]">Auto-populated DNS record via ExternalDNS. Leave blank to skip.</p>
                 </div>
 
                 {selectedEgg.id === "custom" && (

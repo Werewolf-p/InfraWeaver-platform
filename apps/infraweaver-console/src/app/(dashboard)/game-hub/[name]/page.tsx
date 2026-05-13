@@ -75,6 +75,7 @@ type TabId =
   | "files"
   | "settings"
   | "activity";
+type ConsoleHistoryDepth = "1h" | "6h" | "1d" | "3d" | "7d";
 type RuntimeSavedCommand = SavedCommand & {
   id?: string;
   cmd?: string;
@@ -169,6 +170,7 @@ function readConsolePrefs() {
       wordWrap: boolean;
       levelFilter: "all" | "error" | "warn" | "info";
       regexMode: boolean;
+      historyDepth: ConsoleHistoryDepth;
     }>;
   try {
     return JSON.parse(sessionStorage.getItem(CONSOLE_PREFS_KEY) ?? "{}");
@@ -179,9 +181,23 @@ function readConsolePrefs() {
       wordWrap: boolean;
       levelFilter: "all" | "error" | "warn" | "info";
       regexMode: boolean;
+      historyDepth: ConsoleHistoryDepth;
     }>;
   }
 }
+
+function depthToSinceTime(depth: string): string {
+  const ms: Record<string, number> = { "1h": 3600000, "6h": 21600000, "1d": 86400000, "3d": 259200000, "7d": 604800000 };
+  return new Date(Date.now() - (ms[depth] ?? 86400000)).toISOString();
+}
+
+const HISTORY_DEPTH_MAX_LINES: Record<ConsoleHistoryDepth, number> = {
+  "1h": 2000,
+  "6h": 5000,
+  "1d": 10000,
+  "3d": 20000,
+  "7d": 20000,
+};
 
 function readConsoleHistory(name: string) {
   if (typeof window === "undefined") return [] as string[];
@@ -372,6 +388,9 @@ function ConsoleTab({
   const [regexMode, setRegexMode] = useState(() =>
     Boolean(readConsolePrefs().regexMode),
   );
+  const [historyDepth, setHistoryDepth] = useState<ConsoleHistoryDepth>(
+    () => (readConsolePrefs().historyDepth as ConsoleHistoryDepth) ?? "1d",
+  );
   const logEndRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -384,7 +403,7 @@ function ConsoleTab({
   const historyIdxRef = useRef(-1);
   const lastLogTimestampRef = useRef<string | null>(null);
   const hasConnectedRef = useRef(false);
-  const connectRef = useRef<() => void>(() => undefined);
+  const connectRef = useRef<(depth?: ConsoleHistoryDepth) => void>(() => undefined);
   const bannerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const draftCommandRef = useRef("");
 
@@ -392,15 +411,16 @@ function ConsoleTab({
   const savedCommands = normalizeSavedCommands(server.savedCommands);
   const isConnected = status !== "stopped" && connected;
   const canStartServer = server.permissions?.canStart ?? true;
+  const maxLines = HISTORY_DEPTH_MAX_LINES[historyDepth];
 
   const addLine = useCallback(
     (type: string, line: string, timestamp?: string | null) => {
       setLogLines((prev) => [
-        ...prev.slice(-1000),
+        ...prev.slice(-(maxLines - 1)),
         { type, line, timestamp, id: logIdRef.current++ },
       ]);
     },
-    [],
+    [maxLines],
   );
 
   const showBanner = useCallback(
@@ -427,12 +447,17 @@ function ConsoleTab({
           wordWrap,
           levelFilter,
           regexMode,
+          historyDepth,
         }),
       );
     } catch {
       // ignore
     }
-  }, [autoScroll, levelFilter, regexMode, showTimestamps, wordWrap]);
+  }, [autoScroll, historyDepth, levelFilter, regexMode, showTimestamps, wordWrap]);
+
+  useEffect(() => {
+    setLogLines((prev) => prev.slice(-maxLines));
+  }, [maxLines]);
 
   useEffect(() => {
     try {
@@ -445,7 +470,7 @@ function ConsoleTab({
     }
   }, [history, name]);
 
-  const connect = useCallback(() => {
+  const connect = useCallback((depthOverride?: ConsoleHistoryDepth) => {
     if (status === "stopped") return;
     if (retryRef.current) clearTimeout(retryRef.current);
     esRef.current?.close();
@@ -453,7 +478,11 @@ function ConsoleTab({
     const params = new URLSearchParams();
     if (lastLogTimestampRef.current)
       params.set("sinceTime", lastLogTimestampRef.current);
-    else params.set("tail", "200");
+    else
+      params.set(
+        "sinceTime",
+        depthToSinceTime(depthOverride ?? historyDepth),
+      );
 
     const es = new EventSource(
       `/api/game-hub/servers/${name}/logs?${params.toString()}`,
@@ -514,7 +543,7 @@ function ConsoleTab({
       }
       retryRef.current = setTimeout(() => connectRef.current(), delay);
     };
-  }, [addLine, name, showBanner, status]);
+  }, [addLine, historyDepth, name, showBanner, status]);
 
   useEffect(() => {
     connectRef.current = connect;
@@ -822,6 +851,23 @@ function ConsoleTab({
           >
             Wrap
           </button>
+          <select
+            value={historyDepth}
+            onChange={(e) => {
+              const nextDepth = e.target.value as ConsoleHistoryDepth;
+              setHistoryDepth(nextDepth);
+              lastLogTimestampRef.current = null;
+              setLogLines([]);
+              connect(nextDepth);
+            }}
+            className="text-[10px] bg-[#1a1a1a] border border-[#2a2a2a] text-[#888] rounded px-1.5 py-0.5 cursor-pointer"
+          >
+            <option value="1h">1h history</option>
+            <option value="6h">6h history</option>
+            <option value="1d">1d history</option>
+            <option value="3d">3d history</option>
+            <option value="7d">7d history</option>
+          </select>
           <button
             onClick={() => {
               setSearchOpen((prev) => !prev);
@@ -945,6 +991,12 @@ function ConsoleTab({
       {reconnectBanner && status !== "stopped" && (
         <div className="px-4 py-1.5 border-b border-[#1e1e1e] bg-[#111827] text-[11px] text-[#93c5fd]">
           {reconnectBanner}
+        </div>
+      )}
+
+      {logLines.length >= maxLines && (
+        <div className="px-4 py-1.5 border-b border-[#3a2a00] bg-yellow-500/10 text-[11px] text-yellow-200">
+          ⚠ Display capped at {maxLines} lines
         </div>
       )}
 
@@ -2352,6 +2404,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
   const currentEnv = Object.fromEntries(
     server.env.map((entry) => [entry.name, entry.value ?? ""]),
   );
+  const eggEnvVars = server.egg?.environment ?? defaultEgg.environment ?? [];
   const envDiff = [
     ...new Set([...Object.keys(defaultEnv), ...Object.keys(currentEnv)]),
   ]
@@ -2461,7 +2514,14 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
   const [testingWebhook, setTestingWebhook] = useState(false);
   const [commandLabel, setCommandLabel] = useState("");
   const [commandText, setCommandText] = useState("");
+  const [unsetApplyState, setUnsetApplyState] = useState<Record<string, "loading" | "done" | undefined>>({});
+  const [appliedUnsetEnv, setAppliedUnsetEnv] = useState<Record<string, string>>({});
   const isServerStopped = server.replicas === 0 || server.status === "stopped";
+  const effectiveEnv = { ...currentEnv, ...appliedUnsetEnv };
+  const unsetRecommendedEnvVars = eggEnvVars.filter((entry) => {
+    const currentValue = effectiveEnv[entry.name]?.trim();
+    return (entry.defaultValue.trim().length > 0 || entry.required) && !currentValue;
+  });
 
   const savedCommands = normalizeSavedCommands(server.savedCommands);
   const {
@@ -2659,6 +2719,34 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
       toast.error(String(error));
     } finally {
       setSavingEnv(false);
+    }
+  }
+
+  async function applyUnsetEnvVar(entry: { name: string; defaultValue: string }) {
+    setUnsetApplyState((prev) => ({ ...prev, [entry.name]: "loading" }));
+    try {
+      await fetchJson(`/api/game-hub/servers/${name}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "update-env", env: { [entry.name]: entry.defaultValue } }),
+      });
+      setUnsetApplyState((prev) => ({ ...prev, [entry.name]: "done" }));
+      setTimeout(() => {
+        setAppliedUnsetEnv((prev) => ({ ...prev, [entry.name]: entry.defaultValue }));
+        setUnsetApplyState((prev) => {
+          const next = { ...prev };
+          delete next[entry.name];
+          return next;
+        });
+        queryClient.invalidateQueries({ queryKey: ["game-hub", "server", name] });
+      }, 600);
+    } catch (error) {
+      setUnsetApplyState((prev) => {
+        const next = { ...prev };
+        delete next[entry.name];
+        return next;
+      });
+      toast.error(String(error));
     }
   }
 
@@ -2925,6 +3013,36 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
 
   return (
     <div className="space-y-4">
+      {unsetRecommendedEnvVars.length > 0 && (
+        <div className="rounded-xl border border-yellow-500/20 bg-yellow-500/5 p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <AlertTriangle className="w-4 h-4 text-yellow-400" />
+            <span className="text-sm font-medium text-yellow-300">Recommended settings not configured</span>
+          </div>
+          <div className="space-y-2">
+            {unsetRecommendedEnvVars.map((entry) => {
+              const state = unsetApplyState[entry.name];
+              return (
+                <div key={entry.name} className="flex flex-wrap items-center gap-3 rounded-lg border border-yellow-500/10 bg-[#111] px-3 py-2">
+                  <span className="rounded border border-yellow-500/20 bg-yellow-500/10 px-2 py-0.5 font-mono text-[10px] text-yellow-100">{entry.name}</span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-[#f2f2f2]">{entry.description || "Recommended setting"}</p>
+                    {entry.defaultValue && <p className="text-[11px] text-yellow-200/70">default: {entry.defaultValue}</p>}
+                  </div>
+                  <button
+                    onClick={() => void applyUnsetEnvVar(entry)}
+                    disabled={state === "loading"}
+                    className="inline-flex items-center gap-1 rounded-md border border-green-500/30 bg-green-500/15 px-2.5 py-1 text-[11px] text-green-200 transition-colors hover:bg-green-500/20 disabled:opacity-60"
+                  >
+                    {state === "loading" ? <Loader2 className="h-3 w-3 animate-spin" /> : <span>{state === "done" ? "✓ Applied" : "✓ Apply"}</span>}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
         <div className="flex items-center gap-2 px-4 py-3 border-b border-[#1e1e1e]">
           <Layers className="w-3.5 h-3.5 text-[#555]" />
@@ -4109,6 +4227,15 @@ export default function ServerDetailPage() {
     retry: 2,
   });
 
+  const { data: connectivity } = useQuery<{
+    internal: { ready: boolean; clusterIP?: string | null; port?: number | null };
+    external: { open: boolean; host?: string | null; port?: number | null; latencyMs?: number | null };
+  }>({
+    queryKey: ["game-hub", "connectivity", name],
+    queryFn: () => fetchJson(`/api/game-hub/servers/${name}/connectivity`),
+    refetchInterval: 30000,
+  });
+
   async function doAction(action: string) {
     setActionLoading(action);
     try {
@@ -4250,6 +4377,38 @@ export default function ServerDetailPage() {
               <p className="hidden sm:block text-[10px] text-[#4db3ff] mt-0.5">
                 Last restart {timeAgo(server.podStartTime)}
               </p>
+            )}
+            {server?.dnsHostname && (
+              <p className="hidden sm:block text-[10px] text-emerald-300 mt-0.5 font-mono">
+                DNS {server.dnsHostname}:{server.port}
+              </p>
+            )}
+            {connectivity && (
+              <div className="mt-1 hidden sm:flex flex-wrap gap-1.5 text-[10px]">
+                <span
+                  className={cn(
+                    "rounded-full border px-2 py-0.5",
+                    connectivity.internal.ready
+                      ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
+                      : "border-red-500/20 bg-red-500/10 text-red-300",
+                  )}
+                >
+                  Internal {connectivity.internal.ready ? "ready" : "unavailable"}
+                </span>
+                <span
+                  className={cn(
+                    "rounded-full border px-2 py-0.5",
+                    connectivity.external.open
+                      ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
+                      : "border-yellow-500/20 bg-yellow-500/10 text-yellow-200",
+                  )}
+                >
+                  External {connectivity.external.open ? "open" : "blocked"}
+                  {typeof connectivity.external.latencyMs === "number"
+                    ? ` · ${connectivity.external.latencyMs}ms`
+                    : ""}
+                </span>
+              </div>
             )}
             {status === "stopped" && (
               <p className="hidden sm:block text-[10px] text-amber-300 mt-0.5">

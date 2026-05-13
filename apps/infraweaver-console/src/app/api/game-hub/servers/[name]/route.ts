@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
-import { buildEggConfigMap, getEggEnvironmentDefaults } from "@/lib/game-eggs";
+import { buildEggConfigMap } from "@/lib/game-eggs";
 import { GAME_HUB_NAMESPACE, getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
 import { deleteServerManifest, writeServerManifest } from "@/lib/game-hub-manifest";
 import {
@@ -187,6 +187,7 @@ async function buildResponse(name: string, limitedToken = false, access?: Awaite
   );
   const description = deployment.metadata?.annotations?.["infraweaver.io/description"] ?? deployment.metadata?.annotations?.["infraweaver/description"] ?? "";
   const icon = deployment.metadata?.annotations?.["infraweaver.io/icon"] ?? deployment.metadata?.annotations?.["infraweaver/icon"] ?? "";
+  const dnsHostname = deployment.metadata?.annotations?.["infraweaver.io/dns-hostname"] ?? service?.metadata?.annotations?.["external-dns.alpha.kubernetes.io/hostname"] ?? undefined;
   const tagsRaw = deployment.metadata?.annotations?.["infraweaver.io/tags"] ?? deployment.metadata?.annotations?.["infraweaver/tags"] ?? "";
   const tags: string[] = tagsRaw ? tagsRaw.split(",").map((t: string) => t.trim()).filter(Boolean) : [];
   const scheduledAction = deployment.metadata?.annotations?.["infraweaver.io/scheduled-action"] ?? null;
@@ -241,6 +242,7 @@ async function buildResponse(name: string, limitedToken = false, access?: Awaite
   return {
     name,
     gameType: getDeploymentGameType(deployment),
+    dnsHostname,
     egg,
     status,
     replicas: deployment.status?.replicas ?? 0,
@@ -515,7 +517,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
     } else if (body.action === "remove-hpa") {
       await clients.autoscalingApi.deleteNamespacedHorizontalPodAutoscaler({ name, namespace: GAME_HUB_NAMESPACE }).catch(() => undefined);
     } else if (body.action === "update-env") {
-      const envVars = Object.entries(body.env ?? {}).map(([key, value]) => ({ name: key, value }));
+      const currentEnv = Object.fromEntries((deployment.spec?.template?.spec?.containers?.[0]?.env ?? []).map((entry) => [entry.name, entry.value ?? ""]));
+      const mergedEnv = { ...currentEnv, ...(body.env ?? {}) };
+      const envVars = Object.entries(mergedEnv).map(([key, value]) => ({ name: key, value }));
       const containerName = deployment.spec?.template?.spec?.containers?.[0]?.name ?? name;
       await clients.appsApi.patchNamespacedDeployment({
         name,
@@ -524,7 +528,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
         force: true,
         fieldManager: "infraweaver",
       });
-      await upsertEggConfigMap(clients.coreApi, name, egg, body.env ?? getEggEnvironmentDefaults(egg));
+      await upsertEggConfigMap(clients.coreApi, name, egg, mergedEnv);
     } else if (body.action === "set-restart-policy") {
       const policy = body.restartPolicy === true ? "Always" : "OnFailure";
       await clients.appsApi.patchNamespacedDeployment({ name, namespace: GAME_HUB_NAMESPACE, body: { spec: { template: { spec: { restartPolicy: policy } } } }, force: true, fieldManager: "infraweaver" });

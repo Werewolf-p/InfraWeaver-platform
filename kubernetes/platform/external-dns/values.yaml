@@ -11,6 +11,7 @@
 
 sources:
   - traefik-proxy
+  - service
 
 provider:
   name: cloudflare
@@ -26,6 +27,7 @@ env:
 # Only manage records under int.rlservers.com — never touch public records
 domainFilters:
   - "int.rlservers.com"
+  - "games.int.rlservers.com"
 
 # All int. services route through Traefik at 10.10.0.200 (MetalLB)
 # This avoids annotating every IngressRoute with the target IP

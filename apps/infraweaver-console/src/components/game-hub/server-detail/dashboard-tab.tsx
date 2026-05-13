@@ -41,6 +41,10 @@ import type {
 } from "./types";
 import { fetchJson } from "./utils";
 
+type MetricsQueryResponse =
+  | MetricPoint[]
+  | { error?: string; points?: MetricPoint[] };
+
 function Uptime({ startTime }: { startTime: string | null }) {
   const [elapsed, setElapsed] = useState(0);
 
@@ -110,6 +114,11 @@ function formatPercent(value: number | null | undefined) {
   return `${Math.round(value)}%`;
 }
 
+function formatCpuMilli(value: number | null | undefined) {
+  if (value === null || value === undefined || Number.isNaN(value)) return "—";
+  return `${Math.round(value)}m CPU`;
+}
+
 function formatDateTime(value: string | null | undefined) {
   if (!value) return "—";
   const parsed = new Date(value);
@@ -124,13 +133,19 @@ export function DashboardTab({
   server: ServerDetail;
 }) {
   const {
-    data: metrics,
+    data: metricsResponse,
     isLoading: metricsLoading,
-    isError: metricsError,
+    error: metricsQueryError,
   } = useQuery({
     queryKey: ["game-hub", "metrics", name],
-    queryFn: () =>
-      fetchJson<MetricPoint[]>(`/api/game-hub/servers/${name}/metrics`),
+    queryFn: async () => {
+      const result = await fetchJson<MetricsQueryResponse>(
+        `/api/game-hub/servers/${name}/metrics`,
+      );
+      return Array.isArray(result)
+        ? { points: result, error: null as string | null }
+        : { points: result.points ?? [], error: result.error ?? null };
+    },
     enabled: server.replicas > 0,
     refetchInterval: server.replicas > 0 ? 15000 : false,
     retry: false,
@@ -204,13 +219,37 @@ export function DashboardTab({
     enabled: false,
   });
 
-  const latest = metrics?.[metrics.length - 1];
+  const metrics = metricsResponse?.points ?? [];
+  const metricsErrorMessage =
+    metricsResponse?.error ??
+    (metricsQueryError instanceof Error ? metricsQueryError.message : null);
+  const metricsError = Boolean(metricsErrorMessage);
+  const latest = metrics[metrics.length - 1];
   const cpuPct = latest?.cpuLimit
     ? Number(((latest.cpu / latest.cpuLimit) * 100).toFixed(1))
     : null;
   const memoryPct = latest?.memoryLimit
     ? Number(((latest.memory / latest.memoryLimit) * 100).toFixed(1))
     : null;
+  const cpuUsesPercent = Boolean(latest?.cpuLimit);
+  const memoryUsesPercent = Boolean(latest?.memoryLimit);
+  const cpuMetricLabel = cpuUsesPercent
+    ? formatPercent(cpuPct)
+    : formatCpuMilli(latest?.cpuRaw ?? null);
+  const memoryMetricLabel = memoryUsesPercent
+    ? formatPercent(memoryPct)
+    : formatBytes(latest?.memoryRaw ?? 0);
+  const cpuObservedMax = Math.max(...metrics.map((point) => point.cpuRaw), 1);
+  const memoryObservedMax = Math.max(
+    ...metrics.map((point) => point.memoryRaw),
+    1,
+  );
+  const cpuBarWidth = cpuUsesPercent
+    ? Math.min(cpuPct ?? 0, 100)
+    : Math.min(((latest?.cpuRaw ?? 0) / cpuObservedMax) * 100, 100);
+  const memoryBarWidth = memoryUsesPercent
+    ? Math.min(memoryPct ?? 0, 100)
+    : Math.min(((latest?.memoryRaw ?? 0) / memoryObservedMax) * 100, 100);
   const oomEvent = (events?.events ?? []).find(
     (event) =>
       event.reason === "OOMKilled" ||
@@ -253,17 +292,17 @@ export function DashboardTab({
       n: point.n,
     }),
   );
-  const chartData = (metrics ?? []).map((point) => ({
+  const chartData = metrics.map((point) => ({
     t: new Date(point.timestamp).toLocaleTimeString([], {
       hour: "2-digit",
       minute: "2-digit",
     }),
     cpu: point.cpuLimit
       ? Number(((point.cpu / point.cpuLimit) * 100).toFixed(1))
-      : 0,
+      : point.cpuRaw,
     memory: point.memoryLimit
       ? Number(((point.memory / point.memoryLimit) * 100).toFixed(1))
-      : 0,
+      : Number((point.memoryRaw / 1024 ** 2).toFixed(1)),
   }));
   const host = server.nodeIp ?? "Unavailable";
   const connectionRows = (
@@ -304,13 +343,16 @@ export function DashboardTab({
   const metricsMessage =
     server.replicas === 0
       ? "No data while the server is stopped."
-      : metricsError
-        ? "No data available from the metrics API."
-        : metricsLoading
-          ? "Loading metrics…"
-          : server.podName
-            ? "Waiting for the first metrics sample from the cluster."
-            : "Server pod is still starting up.";
+      : metricsError &&
+          metricsErrorMessage?.toLowerCase().includes("metrics-server")
+        ? "Metrics server not available. Install metrics-server to enable CPU/RAM charts."
+        : metricsError
+          ? "No data available from the metrics API."
+          : metricsLoading
+            ? "Loading metrics…"
+            : server.podName
+              ? "Waiting for the first metrics sample from the cluster."
+              : "Server pod is still starting up.";
   const restartCount = server.restartCount ?? 0;
   const alertThresholds = [
     {
@@ -588,12 +630,14 @@ export function DashboardTab({
                 <div>
                   <p className="text-[10px] uppercase text-[#666]">CPU</p>
                   <p className="text-2xl font-semibold text-[#f2f2f2] mt-1">
-                    {formatPercent(cpuPct)}
+                    {cpuMetricLabel}
                   </p>
                 </div>
                 <p className="text-[11px] text-[#666] text-right">
                   {latest
-                    ? `${latest.cpu.toFixed(2)} / ${latest.cpuLimit.toFixed(2)} cores`
+                    ? cpuUsesPercent
+                      ? `${latest.cpu.toFixed(2)} / ${latest.cpuLimit.toFixed(2)} cores`
+                      : `${latest.cpuRaw.toFixed(0)}m total`
                     : "No data"}
                 </p>
               </div>
@@ -607,7 +651,7 @@ export function DashboardTab({
                         ? "bg-yellow-500"
                         : "bg-sky-500",
                   )}
-                  style={{ width: `${Math.min(cpuPct ?? 0, 100)}%` }}
+                  style={{ width: `${cpuBarWidth}%` }}
                 />
               </div>
             </div>
@@ -616,12 +660,14 @@ export function DashboardTab({
                 <div>
                   <p className="text-[10px] uppercase text-[#666]">Memory</p>
                   <p className="text-2xl font-semibold text-[#f2f2f2] mt-1">
-                    {formatPercent(memoryPct)}
+                    {memoryMetricLabel}
                   </p>
                 </div>
                 <p className="text-[11px] text-[#666] text-right">
                   {latest
-                    ? `${formatBytes(latest.memory)} / ${formatBytes(latest.memoryLimit)}`
+                    ? memoryUsesPercent
+                      ? `${formatBytes(latest.memory)} / ${formatBytes(latest.memoryLimit)}`
+                      : `${formatBytes(latest.memoryRaw)} total`
                     : "No data"}
                 </p>
               </div>
@@ -635,7 +681,7 @@ export function DashboardTab({
                         ? "bg-yellow-500"
                         : "bg-violet-500",
                   )}
-                  style={{ width: `${Math.min(memoryPct ?? 0, 100)}%` }}
+                  style={{ width: `${memoryBarWidth}%` }}
                 />
               </div>
             </div>
@@ -647,18 +693,47 @@ export function DashboardTab({
                   <CartesianGrid stroke="#222" vertical={false} />
                   <XAxis dataKey="t" tick={{ fill: "#666", fontSize: 10 }} />
                   <YAxis
+                    yAxisId="cpu"
                     tick={{ fill: "#666", fontSize: 10 }}
-                    unit="%"
-                    width={32}
+                    unit={cpuUsesPercent ? "%" : "m"}
+                    width={40}
+                  />
+                  <YAxis
+                    yAxisId="memory"
+                    orientation="right"
+                    tick={{ fill: "#666", fontSize: 10 }}
+                    unit={memoryUsesPercent ? "%" : "MiB"}
+                    width={48}
                   />
                   <Tooltip
                     contentStyle={{
                       background: "#111",
                       border: "1px solid #333",
                     }}
+                    formatter={(value, label) => {
+                      const numericValue = Number(value ?? 0);
+                      if (label === "cpu") {
+                        return cpuUsesPercent
+                          ? [`${numericValue.toFixed(1)}%`, "CPU"]
+                          : [`${numericValue.toFixed(0)}m`, "CPU"];
+                      }
+                      return memoryUsesPercent
+                        ? [`${numericValue.toFixed(1)}%`, "Memory"]
+                        : [`${numericValue.toFixed(1)} MiB`, "Memory"];
+                    }}
                   />
-                  <Area dataKey="cpu" stroke="#38bdf8" fill="#38bdf833" />
-                  <Area dataKey="memory" stroke="#c084fc" fill="#c084fc22" />
+                  <Area
+                    yAxisId="cpu"
+                    dataKey="cpu"
+                    stroke="#38bdf8"
+                    fill="#38bdf833"
+                  />
+                  <Area
+                    yAxisId="memory"
+                    dataKey="memory"
+                    stroke="#c084fc"
+                    fill="#c084fc22"
+                  />
                 </AreaChart>
               </ResponsiveContainer>
             ) : (

@@ -17,6 +17,7 @@ async function createServer(body: {
   egg?: string;
   game?: string;
   name: string;
+  dnsHostname?: string;
   image?: string;
   memory?: string;
   cpu?: string;
@@ -48,10 +49,12 @@ async function createServer(body: {
   const storageClass = body.storageClass ?? "longhorn";
   const pvcName = `${slug}-${pvcSuffixForMountPath(egg.mountPath)}`;
   const imageVersion = parseImageVersion(egg.dockerImage);
+  const dnsHostname = typeof body.dnsHostname === "string" ? body.dnsHostname.trim().toLowerCase() : `${slug}.games.int.rlservers.com`;
   const annotations = {
     "infraweaver.io/groups": (body.groups ?? []).join(","),
     "infraweaver.io/image-version": imageVersion.version,
     "infraweaver.io/last-started": new Date().toISOString(),
+    ...(dnsHostname ? { "infraweaver.io/dns-hostname": dnsHostname } : {}),
   };
 
   const { appsApi, coreApi } = makeGameHubClients();
@@ -93,7 +96,15 @@ async function createServer(body: {
   await coreApi.createNamespacedService({
     namespace: GAME_HUB_NAMESPACE,
     body: {
-      metadata: { name: slug, namespace: GAME_HUB_NAMESPACE, labels: { app: slug, "infraweaver/game": "true" } },
+      metadata: {
+        name: slug,
+        namespace: GAME_HUB_NAMESPACE,
+        labels: { app: slug, "infraweaver/game": "true" },
+        annotations: dnsHostname ? {
+          "external-dns.alpha.kubernetes.io/hostname": dnsHostname,
+          "external-dns.alpha.kubernetes.io/ttl": "60",
+        } : undefined,
+      },
       spec: {
         type: "NodePort",
         selector: { app: slug },
@@ -121,6 +132,7 @@ async function cloneServer(source: string, newName: string) {
   const pvcName = `${slug}-${pvcSuffixForMountPath(sourceEgg.mountPath)}`;
   const container = sourceDeployment.spec?.template?.spec?.containers?.[0];
   const imageVersion = parseImageVersion(container?.image ?? sourceEgg.dockerImage);
+  const dnsHostname = `${slug}.games.int.rlservers.com`;
 
   await coreApi.createNamespacedPersistentVolumeClaim({
     namespace: GAME_HUB_NAMESPACE,
@@ -147,6 +159,7 @@ async function cloneServer(source: string, newName: string) {
           "infraweaver/notes": `${sourceDeployment.metadata?.annotations?.["infraweaver/notes"] ?? ""}`,
           "infraweaver.io/image-version": imageVersion.version,
           "infraweaver.io/last-started": new Date().toISOString(),
+          "infraweaver.io/dns-hostname": dnsHostname,
         },
       },
       spec: {
@@ -159,6 +172,7 @@ async function cloneServer(source: string, newName: string) {
               ...(sourceDeployment.spec?.template?.metadata?.annotations ?? {}),
               "infraweaver.io/image-version": imageVersion.version,
               "infraweaver.io/last-started": new Date().toISOString(),
+              "infraweaver.io/dns-hostname": dnsHostname,
             },
           },
           spec: {
@@ -181,7 +195,15 @@ async function cloneServer(source: string, newName: string) {
   await coreApi.createNamespacedService({
     namespace: GAME_HUB_NAMESPACE,
     body: {
-      metadata: { name: slug, namespace: GAME_HUB_NAMESPACE, labels: { ...(sourceService.metadata?.labels ?? {}), app: slug, "infraweaver/game": "true" } },
+      metadata: {
+        name: slug,
+        namespace: GAME_HUB_NAMESPACE,
+        labels: { ...(sourceService.metadata?.labels ?? {}), app: slug, "infraweaver/game": "true" },
+        annotations: {
+          "external-dns.alpha.kubernetes.io/hostname": dnsHostname,
+          "external-dns.alpha.kubernetes.io/ttl": "60",
+        },
+      },
       spec: {
         type: sourceService.spec?.type ?? "NodePort",
         selector: { app: slug },
@@ -388,6 +410,7 @@ export async function POST(req: NextRequest) {
       egg?: string;
       game?: string;
       name: string;
+      dnsHostname?: string;
       image?: string;
       memory?: string;
       cpu?: string;
