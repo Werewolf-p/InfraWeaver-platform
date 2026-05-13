@@ -11,7 +11,6 @@ const PUBLIC_EXACT_PATHS = new Set([
   "/favicon.ico",
   "/api/ping",
   "/api/health",
-  "/api/homepage-ping",
   "/api/game-hub/public-status",
 ]);
 const PUBLIC_PREFIXES = ["/api/auth", "/_next", "/public"];
@@ -19,7 +18,6 @@ const RATE_LIMIT_EXEMPT_PATHS = new Set([
   "/favicon.ico",
   "/api/ping",
   "/api/health",
-  "/api/homepage-ping",
   "/api/game-hub/public-status",
 ]);
 const PUBLIC_FILE_RE = /\.[a-z0-9]+$/i;

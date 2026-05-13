@@ -91,7 +91,7 @@ async function createServer(body: {
   const memory = body.memory ?? egg.defaultMemory ?? "2Gi";
   const cpu = body.cpu ?? egg.defaultCpu ?? "1";
   const storage = body.storage ?? egg.defaultStorage ?? "10Gi";
-  const storageClass = body.storageClass ?? "longhorn";
+  const storageClass = body.storageClass ?? "longhorn-game";
   const pvcName = `${slug}-${pvcSuffixForMountPath(egg.mountPath)}`;
   const imageVersion = parseImageVersion(egg.dockerImage);
   const dnsHostname = typeof body.dnsHostname === "string" ? body.dnsHostname.trim().toLowerCase() : `${slug}.games.int.rlservers.com`;
@@ -129,6 +129,13 @@ async function createServer(body: {
           spec: {
             priorityClassName: "game-server",
             terminationGracePeriodSeconds: 60,
+            // Spread game servers across nodes to prevent resource concentration
+            topologySpreadConstraints: [{
+              maxSkew: 1,
+              topologyKey: "kubernetes.io/hostname",
+              whenUnsatisfiable: "ScheduleAnyway",
+              labelSelector: { matchLabels: { "infraweaver/game": "true" } },
+            }],
             securityContext: eggLabel === "valheim" ? { runAsUser: 0, runAsGroup: 0 } : { runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000 },
             containers: [{
               name: slug,

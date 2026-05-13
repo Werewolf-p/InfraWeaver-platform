@@ -9,7 +9,7 @@ metadata:
     infraweaver/game: "true"
 spec:
   accessModes: [ReadWriteOnce]
-  storageClassName: longhorn
+  storageClassName: longhorn-game
   resources:
     requests:
       storage: 5Gi
@@ -37,6 +37,13 @@ spec:
         infraweaver/game: "true"
     spec:
       priorityClassName: game-server
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              infraweaver/game: "true"
       securityContext:
         runAsUser: 0
         runAsGroup: 0

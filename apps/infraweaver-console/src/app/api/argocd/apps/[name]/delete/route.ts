@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { getRole } from "@/lib/rbac";
+import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { auditLog } from "@/lib/audit-log";
 
@@ -12,9 +12,9 @@ const SAFE_NAME_RE = /^[a-z0-9][a-z0-9-]*$/;
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ name: string }> }) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
-  if (getRole(groups) !== "admin") {
-    return NextResponse.json({ error: "Forbidden: admin required" }, { status: 403 });
+  const access = await getSessionRBACContext(session, 60);
+  if (!hasSessionPermission(access, "apps:sync")) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   if (!checkRateLimit(rateLimitKey("argocd-delete", req), 5, 60_000)) {

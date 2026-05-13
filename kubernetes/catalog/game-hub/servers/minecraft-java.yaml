@@ -9,7 +9,7 @@ metadata:
     infraweaver/game: "true"
 spec:
   accessModes: [ReadWriteOnce]
-  storageClassName: longhorn
+  storageClassName: longhorn-game
   resources:
     requests:
       storage: 10Gi

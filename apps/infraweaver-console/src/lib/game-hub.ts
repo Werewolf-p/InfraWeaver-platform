@@ -47,7 +47,16 @@ export function canAccessLogsTarget(
   pod: string,
 ) {
   if (getRole(groups) === "admin") return true;
+  if (
+    hasPermission(groups, "cluster:read", roleAssignments, "/", username)
+    || hasPermission(groups, "infra:read", roleAssignments, "/", username)
+  ) {
+    return true;
+  }
   if (namespace !== GAME_HUB_NAMESPACE) return false;
+  if (hasPermission(groups, "game-hub:read", roleAssignments, "/game-hub/", username)) {
+    return true;
+  }
   return getScopedGameServerNames(roleAssignments).some((serverName) => {
     if (pod !== serverName && !pod.startsWith(`${serverName}-`)) return false;
     return hasPermission(groups, "game-hub:read", roleAssignments, gameHubScope(serverName), username);
