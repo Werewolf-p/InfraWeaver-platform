@@ -125,6 +125,7 @@ interface AppRow {
   source: "Catalog" | "Community";
   lastSync: string;
   sourceType: "Helm" | "Git" | "Community";
+  ingressHost?: string;
 }
 
 function SwipeableAppCard({
@@ -133,18 +134,24 @@ function SwipeableAppCard({
   deletingApp,
   onSync,
   onDelete,
+  onUninstall,
+  uninstallingApp,
   isOptimisticSyncing,
   canSync,
   canDelete,
+  canManageApps,
 }: {
   row: AppRow;
   syncingApp: string | null;
   deletingApp: string | null;
   onSync: (name: string) => Promise<void>;
   onDelete: (name: string) => Promise<void>;
+  onUninstall?: (name: string) => Promise<void>;
+  uninstallingApp?: string | null;
   isOptimisticSyncing?: boolean;
   canSync: boolean;
   canDelete: boolean;
+  canManageApps?: boolean;
 }) {
   const x = useMotionValue(0);
   const isCatalog = row.source === "Catalog";
@@ -197,6 +204,19 @@ function SwipeableAppCard({
           <div className="flex-1 min-w-0 mr-3">
             <Link href={`/apps/${encodeURIComponent(row.name)}`} className="block truncate text-sm font-medium text-[#f2f2f2] transition hover:text-[#7cb9ff]">{row.name}</Link>
             <p className="text-xs text-[#9e9e9e] font-mono truncate mt-0.5">{row.namespace}</p>
+            {row.ingressHost && (
+              <a
+                href={`https://${row.ingressHost}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                title={row.ingressHost.includes(".int.") ? "Requires NetBird VPN" : "Public URL"}
+                className="flex items-center gap-1 text-xs text-[#555] hover:text-[#7cb9ff] transition-colors mt-1"
+                onClick={e => e.stopPropagation()}
+              >
+                <ExternalLink className="w-3 h-3 flex-shrink-0" />
+                <span className="truncate">{row.ingressHost}</span>
+              </a>
+            )}
           </div>
           <StatusBadge status={isOptimisticSyncing ? "syncing" : row.health} />
         </div>
@@ -230,6 +250,16 @@ function SwipeableAppCard({
               Delete
             </button>
           </div>
+        )}
+        {!isCatalog && onUninstall && (
+          <button
+            onClick={() => void onUninstall(row.name)}
+            disabled={uninstallingApp === row.name || !canManageApps}
+            className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors min-h-[44px] disabled:opacity-50"
+          >
+            {uninstallingApp === row.name ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <X className="w-3.5 h-3.5" />}
+            Uninstall
+          </button>
         )}
       </motion.div>
     </div>
@@ -275,6 +305,7 @@ function AllInstalledTab() {
         source: "Catalog" as const,
         lastSync: app.status?.reconciledAt ?? "",
         sourceType: (app.spec?.source?.repoURL?.includes("charts") ? "Helm" : "Git") as "Helm" | "Git",
+        ingressHost: undefined as string | undefined,
       }));
 
     const community = communityApps.map(app => {
@@ -292,6 +323,7 @@ function AllInstalledTab() {
         source: "Community" as const,
         lastSync: argoApp?.status?.reconciledAt ?? app.installedAt,
         sourceType: "Community" as const,
+        ingressHost: app.ingressHost,
       };
     });
 
@@ -453,9 +485,26 @@ function AllInstalledTab() {
               {filtered.map(row => (
                 <tr key={row.id} className="border-b border-[#1e1e1e] hover:bg-[#1a1a1a] transition-colors">
                   <td className="py-2.5 px-3 font-medium text-[#f2f2f2]">
-                    <Link href={`/apps/${encodeURIComponent(row.name)}`} className="transition hover:text-[#7cb9ff]">
-                      {row.name}
-                    </Link>
+                    <div className="flex items-center gap-2">
+                      <Link href={`/apps/${encodeURIComponent(row.name)}`} className="transition hover:text-[#7cb9ff]">
+                        {row.name}
+                      </Link>
+                      {row.ingressHost && (
+                        <a
+                          href={`https://${row.ingressHost}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title={`Open ${row.ingressHost} (requires NetBird VPN for .int. URLs)`}
+                          className="text-[#444] hover:text-[#7cb9ff] transition-colors"
+                          onClick={e => e.stopPropagation()}
+                        >
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                      )}
+                    </div>
+                    {row.ingressHost && (
+                      <p className="text-xs text-[#555] font-mono mt-0.5 truncate max-w-[240px]">{row.ingressHost}</p>
+                    )}
                   </td>
                   {!simpleMode && <td className="py-2.5 px-3 font-mono text-xs text-[#9e9e9e]">{row.namespace}</td>}
                   <td className="py-2.5 px-3"><StatusBadge status={optimisticSyncing.has(row.name) ? "syncing" : row.health} /></td>
@@ -503,14 +552,28 @@ function AllInstalledTab() {
                         </>
                       )}
                       {row.source === "Community" && (
-                        <button
-                          onClick={() => void handleUninstallCommunity(row.name)}
-                          disabled={uninstallingApp === row.name || !canManageApps}
-                          className="flex items-center gap-1 px-2 py-1 rounded text-xs border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
-                        >
-                          {uninstallingApp === row.name ? <Loader2 className="w-3 h-3 animate-spin" /> : <X className="w-3 h-3" />}
-                          Uninstall
-                        </button>
+                        <div className="flex items-center gap-2">
+                          {row.ingressHost && (
+                            <a
+                              href={`https://${row.ingressHost}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title={row.ingressHost.includes(".int.") ? `${row.ingressHost} — requires NetBird VPN` : row.ingressHost}
+                              className="flex items-center gap-1 px-2 py-1 rounded text-xs border border-[#2a2a2a] text-[#555] hover:text-[#7cb9ff] hover:border-[#7cb9ff]/40 transition-colors"
+                            >
+                              <ExternalLink className="w-3 h-3" />
+                              Open
+                            </a>
+                          )}
+                          <button
+                            onClick={() => void handleUninstallCommunity(row.name)}
+                            disabled={uninstallingApp === row.name || !canManageApps}
+                            className="flex items-center gap-1 px-2 py-1 rounded text-xs border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                          >
+                            {uninstallingApp === row.name ? <Loader2 className="w-3 h-3 animate-spin" /> : <X className="w-3 h-3" />}
+                            Uninstall
+                          </button>
+                        </div>
                       )}
                     </div>
                   </td>
@@ -537,9 +600,12 @@ function AllInstalledTab() {
                 deletingApp={deletingApp}
                 onSync={handleSync}
                 onDelete={handleDelete}
+                onUninstall={handleUninstallCommunity}
+                uninstallingApp={uninstallingApp}
                 isOptimisticSyncing={optimisticSyncing.has(row.name)}
                 canSync={canSyncApps}
                 canDelete={canSyncApps}
+                canManageApps={canManageApps}
               />
               {row.source === "Catalog" && (
                 <div className="mt-2 flex flex-wrap items-center gap-2 px-1">
