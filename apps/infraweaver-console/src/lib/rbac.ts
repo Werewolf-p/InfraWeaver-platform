@@ -10,7 +10,8 @@ export type Permission =
   | "infra:read" | "rbac:admin"
   | "game-hub:read" | "game-hub:write" | "game-hub:admin"
   | "game-hub:players"
-  | "game-hub:console" | "game-hub:files" | "game-hub:start" | "game-hub:stop" | "game-hub:scale";
+  | "game-hub:console" | "game-hub:files" | "game-hub:start" | "game-hub:stop" | "game-hub:scale"
+  | "wiki:read" | "wiki:edit";
 
 export type BuiltInRoleId =
   | "platform-owner"
@@ -25,6 +26,8 @@ export type BuiltInRoleId =
   | "game-server-operator"
   | "game-server-viewer"
   | "game-hub-player"
+  | "wiki-viewer"
+  | "wiki-editor"
   | "support";
 
 export type RoleId = BuiltInRoleId | string;
@@ -35,7 +38,7 @@ export interface RoleDefinition {
   description: string;
   permissions: Permission[];
   isBuiltIn: boolean;
-  category?: "platform" | "game-hub";
+  category?: "platform" | "game-hub" | "wiki";
   color?: "red" | "blue" | "green" | "purple" | "orange" | "yellow" | "teal" | "gray";
 }
 
@@ -171,6 +174,24 @@ export const BUILT_IN_ROLES: Record<BuiltInRoleId, RoleDefinition> = {
     category: "game-hub",
     color: "green",
   },
+  "wiki-viewer": {
+    id: "wiki-viewer",
+    name: "Wiki Viewer",
+    description: "Read wiki content within the assigned scope.",
+    permissions: ["wiki:read"],
+    isBuiltIn: true,
+    category: "wiki",
+    color: "gray",
+  },
+  "wiki-editor": {
+    id: "wiki-editor",
+    name: "Wiki Editor",
+    description: "Read and edit wiki content within the assigned scope.",
+    permissions: ["wiki:read", "wiki:edit"],
+    isBuiltIn: true,
+    category: "wiki",
+    color: "blue",
+  },
   support: {
     id: "support",
     name: "Support",
@@ -257,6 +278,10 @@ export function getEffectivePermissions(
 ): Set<Permission> {
   const perms = new Set<Permission>();
 
+  if (groups.length > 0 || Boolean(username) || roleAssignments.length > 0) {
+    perms.add("wiki:read");
+  }
+
   const legacyRole = getRole(groups);
   const legacyRoleId = getLegacyRoleId(groups);
 
@@ -324,6 +349,7 @@ export function isAssignmentExpired(assignment: RoleAssignment): boolean {
 export const STATIC_SCOPES = [
   { value: "/", label: "Cluster-wide" },
   { value: "/game-hub/", label: "All Game Hub servers" },
+  { value: "/wiki", label: "Wiki" },
 ];
 
 export function gameServerScope(serverName: string): string {

@@ -1,0 +1,205 @@
+{
+  "sections": [
+    {
+      "id": "user-manual",
+      "title": "User Manual",
+      "description": "Daily workflows for operators, players, and service owners using the InfraWeaver Console.",
+      "pages": [
+        {
+          "slug": "getting-started",
+          "title": "Getting Started",
+          "description": "Learn the login flow, sidebar, dashboard, and first deployment steps.",
+          "file": "user-manual/getting-started.md",
+          "keywords": [
+            "login",
+            "dashboard",
+            "sidebar",
+            "quick start"
+          ]
+        },
+        {
+          "slug": "game-hub",
+          "title": "Game Hub",
+          "description": "Deploy and operate game servers with the four-step wizard and server detail view.",
+          "file": "user-manual/game-hub.md",
+          "keywords": [
+            "servers",
+            "eggs",
+            "console",
+            "files",
+            "metrics"
+          ]
+        },
+        {
+          "slug": "dns-management",
+          "title": "DNS Management",
+          "description": "Manage internal and public DNS records through the Cloudflare-backed DNS page.",
+          "file": "user-manual/dns-management.md",
+          "keywords": [
+            "dns",
+            "cloudflare",
+            "hostnames"
+          ]
+        },
+        {
+          "slug": "rbac-access-control",
+          "title": "RBAC & Access Control",
+          "description": "Understand platform roles, scoped assignments, and who can access what.",
+          "file": "user-manual/rbac-access-control.md",
+          "keywords": [
+            "rbac",
+            "roles",
+            "permissions",
+            "users"
+          ]
+        },
+        {
+          "slug": "community-apps",
+          "title": "Community Apps",
+          "description": "Browse, install, and manage community apps from the catalog.",
+          "file": "user-manual/community-apps.md",
+          "keywords": [
+            "catalog",
+            "apps",
+            "deploy"
+          ]
+        },
+        {
+          "slug": "monitoring",
+          "title": "Monitoring",
+          "description": "Read health, uptime, ArgoCD, Prometheus, and per-node metrics.",
+          "file": "user-manual/monitoring.md",
+          "keywords": [
+            "health",
+            "prometheus",
+            "uptime",
+            "argocd"
+          ]
+        },
+        {
+          "slug": "files-and-storage",
+          "title": "Files & Storage",
+          "description": "Browse mounted volumes, edit files safely, and understand persistent storage.",
+          "file": "user-manual/files-and-storage.md",
+          "keywords": [
+            "files",
+            "storage",
+            "longhorn",
+            "pvc"
+          ]
+        },
+        {
+          "slug": "mobile-usage",
+          "title": "Mobile Usage",
+          "description": "Use InfraWeaver on phones and tablets for triage and quick actions.",
+          "file": "user-manual/mobile-usage.md",
+          "keywords": [
+            "mobile",
+            "responsive",
+            "drawer"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "developer-guide",
+      "title": "Developer Guide",
+      "description": "Architecture, APIs, deployment flow, and maintenance guidance for console contributors.",
+      "pages": [
+        {
+          "slug": "architecture",
+          "title": "Architecture",
+          "description": "System overview, stack, cluster shape, and service account model.",
+          "file": "developer-guide/architecture.md",
+          "keywords": [
+            "system overview",
+            "stack",
+            "cluster",
+            "security"
+          ]
+        },
+        {
+          "slug": "api-reference",
+          "title": "API Reference",
+          "description": "Major API routes, auth expectations, RBAC, and request/response examples.",
+          "file": "developer-guide/api-reference.md",
+          "keywords": [
+            "api",
+            "routes",
+            "rbac",
+            "json"
+          ]
+        },
+        {
+          "slug": "deployment",
+          "title": "Deployment",
+          "description": "CI/CD pipeline, ArgoCD sync flow, and environment variable handling.",
+          "file": "developer-guide/deployment.md",
+          "keywords": [
+            "cicd",
+            "argocd",
+            "deployment",
+            "env"
+          ]
+        },
+        {
+          "slug": "kubernetes-manifests",
+          "title": "Kubernetes Manifests",
+          "description": "Manifest layout, conventions, and review rules for platform resources.",
+          "file": "developer-guide/kubernetes-manifests.md",
+          "keywords": [
+            "manifests",
+            "yaml",
+            "kubernetes"
+          ]
+        },
+        {
+          "slug": "adding-features",
+          "title": "Adding Features",
+          "description": "Recommended workflow for new pages, API routes, RBAC, and docs.",
+          "file": "developer-guide/adding-features.md",
+          "keywords": [
+            "features",
+            "workflow",
+            "rbac",
+            "docs"
+          ]
+        },
+        {
+          "slug": "troubleshooting",
+          "title": "Troubleshooting",
+          "description": "Common failure modes for deployment, game servers, DNS, and metrics.",
+          "file": "developer-guide/troubleshooting.md",
+          "keywords": [
+            "troubleshooting",
+            "crashloop",
+            "argocd"
+          ]
+        },
+        {
+          "slug": "security",
+          "title": "Security",
+          "description": "Authentication, authorization, network security, and secret handling.",
+          "file": "developer-guide/security.md",
+          "keywords": [
+            "security",
+            "auth",
+            "secrets",
+            "network"
+          ]
+        },
+        {
+          "slug": "game-eggs",
+          "title": "Game Eggs",
+          "description": "How built-in and remote game eggs work and how to add new ones.",
+          "file": "developer-guide/game-eggs.md",
+          "keywords": [
+            "eggs",
+            "game hub",
+            "templates"
+          ]
+        }
+      ]
+    }
+  ]
+}

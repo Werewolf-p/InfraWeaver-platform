@@ -21,6 +21,13 @@ users:
         principalId: remon
         grantedBy: remonhulst@gmail.com
         grantedAt: '2026-05-13T12:57:04.676Z'
+      - id: 43a1fd4e-9d11-4f6f-9f13-a1b3470dbe23
+        roleId: wiki-editor
+        scope: /wiki
+        principalType: user
+        principalId: remon
+        grantedBy: remonhulst@gmail.com
+        grantedAt: '2026-05-13T13:15:00.000Z'
   ardaty:
     name: Ardaty
     email: ardaty@rlservers.com

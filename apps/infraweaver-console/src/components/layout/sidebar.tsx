@@ -87,12 +87,12 @@ export function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const [search, setSearch] = useState("");
   const [openSections, setOpenSections] = useState<Record<string, boolean>>(() => {
-    if (typeof window === "undefined") return { overview: true, apps: true, compute: false, infrastructure: false, operations: false, monitoring: false, services: false, tools: false };
+    if (typeof window === "undefined") return { overview: true, apps: true, compute: false, infrastructure: false, operations: false, monitoring: false, documentation: false, services: false, tools: false };
     try {
       const stored = localStorage.getItem("infraweaver_nav_sections");
       if (stored) return JSON.parse(stored) as Record<string, boolean>;
     } catch { /* ignore */ }
-    return { overview: true, apps: true, compute: false, infrastructure: false, operations: false, monitoring: false, services: false, tools: false };
+    return { overview: true, apps: true, compute: false, infrastructure: false, operations: false, monitoring: false, documentation: false, services: false, tools: false };
   });
   const pathname = usePathname();
   const { role, permissions, assignments } = useRBAC();

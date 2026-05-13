@@ -4,7 +4,7 @@ import {
   Package, FileText, ShieldCheck, Server,
   Sparkles, Home, UserCircle, BarChart2, Trash2, GitBranch,
   DollarSign, Globe, BellOff, Shield, AlertTriangle,
-  Calendar, TrendingUp, Gamepad2, Search, LayoutGrid, TestTube2, Puzzle,
+  Calendar, TrendingUp, Gamepad2, Search, LayoutGrid, TestTube2, Puzzle, BookOpen,
 } from "lucide-react";
 
 export interface NavItem {
@@ -117,6 +117,16 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
+    id: "documentation",
+    label: "Documentation",
+    description: "User manuals and developer guides",
+    icon: BookOpen,
+    defaultOpen: false,
+    items: [
+      { href: "/wiki", icon: BookOpen, label: "Wiki", shortcut: "G W", description: "Interactive user and developer documentation", pinnable: true },
+    ],
+  },
+  {
     id: "services",
     label: "Services",
     description: "External services and routing",
@@ -207,6 +217,7 @@ export const MOBILE_DRAWER_NAV: NavItem[] = [
   { href: "/users", icon: Users, label: "User Management" },
   { href: "/gameservers", icon: Gamepad2, label: "Port Routing" },
   { href: "/game-hub", icon: Gamepad2, label: "Game Hub" },
+  { href: "/wiki", icon: BookOpen, label: "Wiki" },
   { href: "/uptime", icon: TrendingUp, label: "Uptime History" },
   { href: "/certificates", icon: ShieldCheck, label: "Certificates" },
   { href: "/all-services", icon: Search, label: "All Services" },

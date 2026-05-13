@@ -49,6 +49,8 @@ const FALLBACK_PERMISSIONS: Permission[] = [
   "game-hub:start",
   "game-hub:stop",
   "game-hub:scale",
+  "wiki:read",
+  "wiki:edit",
 ];
 
 export function useRBAC() {

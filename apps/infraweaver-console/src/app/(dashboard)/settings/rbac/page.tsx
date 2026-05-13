@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Shield, Plus, Trash2, ChevronRight, Loader2, X,
   User, Users, Lock, CheckCircle, AlertTriangle, Info,
-  ShieldCheck, Gamepad2, HardDrive, Network, Package,
+  ShieldCheck, Gamepad2, HardDrive, Network, Package, BookOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -26,6 +26,7 @@ interface PlatformUser { username: string; name?: string; email?: string }
 const CATEGORY_ICON: Record<string, React.ElementType> = {
   platform: Shield,
   "game-hub": Gamepad2,
+  wiki: BookOpen,
   storage: HardDrive,
   network: Network,
   catalog: Package,
@@ -33,6 +34,7 @@ const CATEGORY_ICON: Record<string, React.ElementType> = {
 const CATEGORY_LABEL: Record<string, string> = {
   platform: "Platform",
   "game-hub": "Game Hub",
+  wiki: "Wiki",
   storage: "Storage",
   network: "Network",
   catalog: "Catalog",
@@ -186,7 +188,7 @@ function AddAssignmentModal({
               className="w-full bg-[#0d0d0d] border border-[#2a2a2a] rounded-lg px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
             >
               <option value="">Select a role…</option>
-              {["platform", "game-hub", "storage", "catalog"].map(cat => (
+              {["platform", "game-hub", "wiki", "storage", "catalog"].map(cat => (
                 <optgroup key={cat} label={CATEGORY_LABEL[cat]}>
                   {builtInRoles.filter((role) => role.category === cat).map((role) => (
                     <option key={role.id} value={role.id}>{role.name}</option>
