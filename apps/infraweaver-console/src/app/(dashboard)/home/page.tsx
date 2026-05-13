@@ -109,7 +109,7 @@ function SearchBar() {
   };
 
   return (
-    <form onSubmit={handleSearch} className="relative flex-1 max-w-md">
+    <form onSubmit={handleSearch} className="relative w-full sm:flex-1 sm:max-w-md">
       <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" />
       <input
         type="text"
@@ -316,7 +316,7 @@ function QuickActions() {
       <button
         onClick={handleSyncAll}
         disabled={syncing}
-        className="flex items-center gap-2 px-4 py-2 bg-[rgba(0,120,212,0.1)] border border-[rgba(0,120,212,0.2)] rounded-xl text-sm text-[#0078D4] hover:bg-[rgba(0,120,212,0.2)] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+        className="flex min-h-[40px] items-center gap-2 rounded-xl border border-[rgba(0,120,212,0.2)] bg-[rgba(0,120,212,0.1)] px-4 py-2 text-sm text-[#0078D4] transition-all hover:bg-[rgba(0,120,212,0.2)] disabled:cursor-not-allowed disabled:opacity-50"
       >
         {syncing ? (
           <RefreshCw className="w-3.5 h-3.5 animate-spin" />
@@ -328,28 +328,30 @@ function QuickActions() {
 
       <a
         href="/health"
-        className="flex items-center gap-2 px-4 py-2 bg-green-500/10 border border-green-500/20 rounded-xl text-sm text-green-400 hover:bg-green-500/20 transition-all"
+        className="flex min-h-[40px] items-center gap-2 rounded-xl border border-green-500/20 bg-green-500/10 px-4 py-2 text-sm text-green-400 transition-all hover:bg-green-500/20"
       >
         <CheckCircle2 className="w-3.5 h-3.5" />
         Cluster Health
       </a>
 
-      <div className="flex items-center gap-2 ml-auto">
-        {quickLinks.map(link => (
-          <a
-            key={link.label}
-            href={link.href}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={cn(
-              "flex items-center gap-1.5 px-3 py-2 bg-[#2a2a2a] border border-[#333] rounded-lg text-xs hover:bg-[#333] transition-all",
-              link.color
-            )}
-          >
-            <link.icon className="w-3.5 h-3.5" />
-            {link.label}
-          </a>
-        ))}
+      <div className="w-full overflow-x-auto scrollbar-none sm:ml-auto sm:w-auto">
+        <div className="flex w-max items-center gap-2 sm:w-auto">
+          {quickLinks.map(link => (
+            <a
+              key={link.label}
+              href={link.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={cn(
+                "flex min-h-[40px] items-center gap-1.5 rounded-lg border border-[#333] bg-[#2a2a2a] px-3 py-2 text-xs transition-all hover:bg-[#333]",
+                link.color
+              )}
+            >
+              <link.icon className="w-3.5 h-3.5" />
+              {link.label}
+            </a>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -403,7 +405,7 @@ function QuickStats() {
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.08 }}
-      className="grid grid-cols-3 gap-3 relative z-10"
+      className="relative z-10 grid grid-cols-1 gap-3 sm:grid-cols-3"
     >
       <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl p-4 flex items-center gap-3">
         <div className={cn(
@@ -521,7 +523,7 @@ export default function HomePortalPage() {
         >
           <AlertTriangle className="w-4 h-4 flex-shrink-0" />
           <span>{argoApps.issues} app{argoApps.issues > 1 ? "s" : ""} need attention</span>
-          <a href="/apps" className="ml-auto text-xs underline">View</a>
+          <Link href="/apps" className="ml-auto text-xs underline">View</Link>
         </motion.div>
       )}
 
@@ -544,7 +546,7 @@ export default function HomePortalPage() {
             </div>
 
             {/* Animated stats */}
-            <div className="flex items-center gap-6">
+            <div className="flex w-full items-center justify-between gap-4 sm:w-auto sm:justify-start sm:gap-6">
               <div className="text-center">
                 <div className="text-2xl font-bold text-[#f2f2f2] tabular-nums">
                   <AnimatedNumber value={onlineCount} duration={800} />
@@ -575,10 +577,10 @@ export default function HomePortalPage() {
 
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 w-full sm:w-auto">
               <SearchBar />
-              <div className="flex items-center gap-3">
+              <div className="flex w-full items-center justify-between gap-3 sm:w-auto sm:justify-start">
                 <button
                   onClick={() => refetch()}
-                  className="p-2 rounded-lg bg-[#2a2a2a] border border-[#333] text-[#9e9e9e] hover:text-[#f2f2f2] hover:bg-[#333] transition-all"
+                  className="min-h-[40px] rounded-lg border border-[#333] bg-[#2a2a2a] p-2 text-[#9e9e9e] transition-all hover:bg-[#333] hover:text-[#f2f2f2]"
                   title="Refresh ping status"
                 >
                   <RefreshCw className={cn("w-4 h-4", healthLoading && "animate-spin")} />

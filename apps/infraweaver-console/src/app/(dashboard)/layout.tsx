@@ -10,21 +10,26 @@ import { AnimatePresence, motion } from "framer-motion";
 import Link from "next/link";
 import {
   X, AlertTriangle, MoreHorizontal, Search, Clock,
-  ChevronDown, ChevronRight, Settings, LogOut,
+  ChevronDown, ChevronRight, Settings, LogOut, ArrowUp, ArrowDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import { CmdPalette } from "@/components/layout/cmd-palette";
 import { KeyboardShortcutsProvider } from "@/components/keyboard-shortcuts-modal";
 import { SimpleModeProvider } from "@/contexts/simple-mode-context";
-import { MOBILE_BOTTOM_NAV, NAV_GROUPS } from "@/lib/nav-config";
+import { NAV_GROUPS } from "@/lib/nav-config";
+import {
+  ALL_NAV_ITEMS as NAV_FAVORITE_ITEMS,
+  DEFAULT_FAVORITES,
+  MAX_NAV_FAVORITES,
+  loadFavorites,
+  saveFavorites,
+} from "@/components/layout/nav-favorites-config";
 import { SpotlightSearch } from "@/components/ui/spotlight-search";
 import { OfflineIndicator } from "@/components/ui/offline-indicator";
 import { useRecentPages } from "@/hooks/use-recent-pages";
 import { useAddons } from "@/hooks/use-addons";
 import { filterNavGroupsByAddons } from "@/lib/addons";
-
-const mobileNavItems = MOBILE_BOTTOM_NAV;
 
 // ── Section accent colors (Iter 3: colored group identifiers) ─────────────────
 const GROUP_ACCENT: Record<string, string> = {
@@ -127,6 +132,55 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [countdown, setCountdown] = useState(300);
   const [searchOpen, setSearchOpen] = useState(false);
   const { recentPages } = useRecentPages();
+  const [mobileFavorites, setMobileFavorites] = useState<string[]>(() => loadFavorites());
+
+  const sanitizeMobileFavorites = (ids: string[]) =>
+    ids
+      .filter((href, index, values) => values.indexOf(href) === index)
+      .filter((href) => NAV_FAVORITE_ITEMS.some((item) => item.href === href))
+      .slice(0, MAX_NAV_FAVORITES);
+
+  const updateMobileFavorites = (
+    updater: string[] | ((previous: string[]) => string[]),
+  ) => {
+    setMobileFavorites((previous) => {
+      const next = sanitizeMobileFavorites(
+        typeof updater === "function" ? updater(previous) : updater,
+      );
+      saveFavorites(next);
+      return next;
+    });
+  };
+
+  const mobileNavItems = useMemo(
+    () =>
+      mobileFavorites
+        .map((href) => NAV_FAVORITE_ITEMS.find((item) => item.href === href))
+        .filter((item): item is (typeof NAV_FAVORITE_ITEMS)[number] => Boolean(item)),
+    [mobileFavorites],
+  );
+
+  const toggleMobileFavorite = (href: string) => {
+    updateMobileFavorites((previous) =>
+      previous.includes(href)
+        ? previous.filter((entry) => entry !== href)
+        : previous.length < MAX_NAV_FAVORITES
+          ? [...previous, href]
+          : previous,
+    );
+  };
+
+  const moveMobileFavorite = (href: string, direction: -1 | 1) => {
+    updateMobileFavorites((previous) => {
+      const index = previous.indexOf(href);
+      if (index === -1) return previous;
+      const nextIndex = index + direction;
+      if (nextIndex < 0 || nextIndex >= previous.length) return previous;
+      const next = [...previous];
+      [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
+      return next;
+    });
+  };
 
   // Session timeout warning
   useEffect(() => {
@@ -470,7 +524,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <TopBar onMenuClick={() => setMobileOpen(true)} onSearchClick={() => setSearchOpen(true)} />
         <Breadcrumb />
         <main
-          className="flex-1 overflow-y-auto overflow-x-hidden p-4 pb-16 sm:pb-4 md:p-6 md:pb-6"
+          className="flex-1 overflow-y-auto overflow-x-hidden p-4 pb-24 sm:pb-4 md:p-6 md:pb-6"
         >
           <AnimatePresence mode="wait">
             <motion.div
@@ -505,7 +559,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               href={item.href}
               onClick={() => { if (typeof navigator !== "undefined") navigator.vibrate?.(10); setMoreOpen(false); }}
               className={cn(
-                "flex-1 flex flex-col items-center justify-center gap-1 px-2 py-2 text-[11px] transition-colors touch-manipulation",
+                "flex-1 flex min-h-[56px] flex-col items-center justify-center gap-1 px-2 py-2 text-[11px] transition-colors touch-manipulation",
                 isActive ? "text-[#0078D4]" : "text-[#666] hover:text-[#9e9e9e]"
               )}
             >
@@ -517,12 +571,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <button
           onClick={() => { if (typeof navigator !== "undefined") navigator.vibrate?.(10); setMoreOpen(true); }}
           className={cn(
-            "flex-1 flex flex-col items-center justify-center gap-1 px-2 py-2 text-[11px] transition-colors touch-manipulation",
+            "flex-1 flex min-h-[56px] flex-col items-center justify-center gap-1 px-2 py-2 text-[11px] transition-colors touch-manipulation",
             moreOpen ? "text-[#0078D4]" : "text-[#666] hover:text-[#9e9e9e]"
           )}
         >
           <MoreHorizontal className="h-5 w-5 min-[380px]:h-4 min-[380px]:w-4" />
-          <span className="hidden min-[380px]:block">Menu</span>
+          <span className="hidden min-[380px]:block">More</span>
         </button>
       </nav>
 
@@ -584,6 +638,75 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                       <X className="w-3.5 h-3.5 text-[#555] hover:text-white" />
                     </button>
                   )}
+                </div>
+              </div>
+
+              <div className="flex-shrink-0 px-4 pb-3">
+                <div className="rounded-2xl border border-[#222] bg-[#0d0d0d] p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-medium text-[#f2f2f2]">Customize Navigation</h3>
+                      <p className="mt-1 text-[11px] text-[#666]">
+                        Choose up to {MAX_NAV_FAVORITES} favorites for the bottom bar.
+                      </p>
+                    </div>
+                    <span className="rounded-full border border-[#2a2a2a] bg-[#111] px-2 py-1 text-[10px] text-[#888]">
+                      {mobileFavorites.length}/{MAX_NAV_FAVORITES}
+                    </span>
+                  </div>
+                  <div className="mt-3 space-y-1.5">
+                    {NAV_FAVORITE_ITEMS.map((item) => {
+                      const favoriteIndex = mobileFavorites.indexOf(item.href);
+                      const isFavorite = favoriteIndex !== -1;
+                      const disableAdd = !isFavorite && mobileFavorites.length >= MAX_NAV_FAVORITES;
+                      return (
+                        <div
+                          key={item.href}
+                          className="flex items-center gap-3 rounded-xl px-2 py-2.5 hover:bg-[#141414]"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isFavorite}
+                            disabled={disableAdd}
+                            onChange={() => toggleMobileFavorite(item.href)}
+                            className="h-4 w-4 rounded border border-[#333] bg-[#111] text-[#0078D4] disabled:opacity-40"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <item.icon className="h-4 w-4 flex-shrink-0 text-[#666]" />
+                              <span className="truncate text-sm text-[#f2f2f2]">{item.label}</span>
+                              {isFavorite && (
+                                <span className="rounded-full border border-[#2a2a2a] bg-[#111] px-1.5 py-0.5 text-[10px] text-[#888]">
+                                  #{favoriteIndex + 1}
+                                </span>
+                              )}
+                            </div>
+                            <span className="block truncate text-[11px] text-[#555]">{item.href}</span>
+                          </div>
+                          {isFavorite && (
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={() => moveMobileFavorite(item.href, -1)}
+                                disabled={favoriteIndex === 0}
+                                className="flex h-9 w-9 items-center justify-center rounded-lg border border-[#2a2a2a] bg-[#111] text-[#888] transition-colors hover:text-white disabled:opacity-40"
+                                aria-label={`Move ${item.label} up`}
+                              >
+                                <ArrowUp className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                onClick={() => moveMobileFavorite(item.href, 1)}
+                                disabled={favoriteIndex === mobileFavorites.length - 1}
+                                className="flex h-9 w-9 items-center justify-center rounded-lg border border-[#2a2a2a] bg-[#111] text-[#888] transition-colors hover:text-white disabled:opacity-40"
+                                aria-label={`Move ${item.label} down`}
+                              >
+                                <ArrowDown className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
 

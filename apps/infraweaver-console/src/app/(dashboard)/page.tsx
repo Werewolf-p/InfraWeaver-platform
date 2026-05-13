@@ -266,7 +266,7 @@ export default function DashboardPage() {
 
       <div className="flex items-start justify-between mb-6 gap-4 flex-wrap">
         <div>
-          <h2 className="text-xl font-bold text-[#f2f2f2] flex items-center gap-3">
+          <h2 className="flex flex-wrap items-center gap-3 text-xl font-bold text-[#f2f2f2]">
             Platform Overview
             <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-green-500/10 border border-green-500/20 text-xs font-semibold text-green-400 uppercase tracking-wider">
               <span className="live-dot w-1.5 h-1.5 rounded-full bg-green-400" />
@@ -275,13 +275,13 @@ export default function DashboardPage() {
           </h2>
           <p className="text-sm text-[#9e9e9e] mt-0.5">InfraWeaver homelab cluster status</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
           {isAdmin && (
             <motion.button
               whileTap={{ scale: 0.95 }}
               onClick={handleSyncAll}
               disabled={syncAllLoading}
-              className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[rgba(0,120,212,0.1)] border border-[rgba(0,120,212,0.2)] text-sm text-[#0078D4] hover:bg-[rgba(0,120,212,0.2)] transition-colors disabled:opacity-50"
+              className="flex min-h-[40px] items-center gap-2 rounded-lg border border-[rgba(0,120,212,0.2)] bg-[rgba(0,120,212,0.1)] px-3 py-2 text-sm text-[#0078D4] transition-colors hover:bg-[rgba(0,120,212,0.2)] disabled:opacity-50"
             >
               {syncAllLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
               Sync All
@@ -290,7 +290,7 @@ export default function DashboardPage() {
           <motion.button
             whileTap={{ scale: 0.95 }}
             onClick={() => refetch()}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[#2a2a2a] border border-[#333] text-sm text-[#9e9e9e] hover:text-[#f2f2f2] hover:bg-[#333] transition-colors"
+            className="flex min-h-[40px] items-center gap-2 rounded-lg border border-[#333] bg-[#2a2a2a] px-3 py-2 text-sm text-[#9e9e9e] transition-colors hover:bg-[#333] hover:text-[#f2f2f2]"
           >
             <RefreshCw className="w-3.5 h-3.5" />
             Refresh
@@ -404,12 +404,12 @@ export default function DashboardPage() {
 
       {/* Section 4: Platform Services */}
       <div className="mb-8">
-        <div className="flex items-center justify-between mb-4">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-sm font-semibold text-[#f2f2f2] flex items-center gap-2">
             <Activity className="w-4 h-4 text-[#9e9e9e]" />
             Platform Services
           </h3>
-          <div className="flex items-center gap-2 text-xs text-[#666]">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-[#666]">
             {gatusStats.total > 0 && (
               <span className="flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
@@ -512,7 +512,7 @@ export default function DashboardPage() {
               whileTap={{ scale: 0.95 }}
               onClick={handleSyncAll}
               disabled={syncAllLoading}
-              className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[rgba(0,120,212,0.1)] border border-[rgba(0,120,212,0.2)] text-sm text-[#0078D4] hover:bg-[rgba(0,120,212,0.2)] transition-colors disabled:opacity-50"
+              className="flex min-h-[40px] items-center gap-2 rounded-lg border border-[rgba(0,120,212,0.2)] bg-[rgba(0,120,212,0.1)] px-3 py-2 text-sm text-[#0078D4] transition-colors hover:bg-[rgba(0,120,212,0.2)] disabled:opacity-50"
             >
               {syncAllLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
               Sync All Apps

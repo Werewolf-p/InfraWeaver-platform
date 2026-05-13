@@ -1002,7 +1002,7 @@ function ConsoleTab({
                 retryCountRef.current = 0;
                 connectRef.current();
               }}
-              className="text-xs text-[#0078D4] hover:underline"
+              className="min-h-[36px] text-xs text-[#0078D4] hover:underline"
             >
               Reconnect
             </button>
@@ -1010,7 +1010,7 @@ function ConsoleTab({
           <button
             onClick={() => setAutoScroll((value) => !value)}
             className={cn(
-              "rounded-md border px-2 py-1 text-[10px] transition-colors",
+              "min-h-[36px] rounded-md border px-2 py-1 text-[10px] transition-colors",
               autoScroll
                 ? "border-[#0078D4]/30 bg-[#0078D4]/10 text-[#4db3ff]"
                 : "border-[#2a2a2a] text-[#777]",
@@ -1021,7 +1021,7 @@ function ConsoleTab({
           <button
             onClick={() => setShowTimestamps((value) => !value)}
             className={cn(
-              "rounded-md border px-2 py-1 text-[10px] transition-colors",
+              "min-h-[36px] rounded-md border px-2 py-1 text-[10px] transition-colors",
               showTimestamps
                 ? "border-[#0078D4]/30 bg-[#0078D4]/10 text-[#4db3ff]"
                 : "border-[#2a2a2a] text-[#777]",
@@ -1032,7 +1032,7 @@ function ConsoleTab({
           <button
             onClick={() => setWordWrap((value) => !value)}
             className={cn(
-              "rounded-md border px-2 py-1 text-[10px] transition-colors",
+              "min-h-[36px] rounded-md border px-2 py-1 text-[10px] transition-colors",
               wordWrap
                 ? "border-[#0078D4]/30 bg-[#0078D4]/10 text-[#4db3ff]"
                 : "border-[#2a2a2a] text-[#777]",
@@ -1049,7 +1049,7 @@ function ConsoleTab({
               setLogLines([]);
               connect(nextDepth);
             }}
-            className="text-[10px] bg-[#1a1a1a] border border-[#2a2a2a] text-[#888] rounded px-1.5 py-0.5 cursor-pointer"
+            className="min-h-[36px] cursor-pointer rounded border border-[#2a2a2a] bg-[#1a1a1a] px-1.5 py-0.5 text-[10px] text-[#888]"
           >
             <option value="1h">1h history</option>
             <option value="6h">6h history</option>
@@ -1059,7 +1059,7 @@ function ConsoleTab({
           </select>
           <button
             onClick={() => searchRef.current?.focus()}
-            className="p-1.5 text-[#444] hover:text-[#888] hover:bg-[#1e1e1e] rounded transition-colors"
+            className="min-h-[36px] rounded p-1.5 text-[#444] transition-colors hover:bg-[#1e1e1e] hover:text-[#888]"
           >
             <Search className="w-3.5 h-3.5" />
           </button>
@@ -1098,7 +1098,7 @@ function ConsoleTab({
                 key={label}
                 onClick={action}
                 title={label}
-                className="p-1.5 text-[#444] hover:text-[#888] hover:bg-[#1e1e1e] rounded transition-colors"
+                className="min-h-[36px] rounded p-1.5 text-[#444] transition-colors hover:bg-[#1e1e1e] hover:text-[#888]"
               >
                 <Icon className="w-3.5 h-3.5" />
               </button>
@@ -1108,19 +1108,19 @@ function ConsoleTab({
       </div>
 
       <div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b border-[#1e1e1e] bg-[#101010]">
-        <div className="flex min-w-[220px] flex-1 items-center gap-2 rounded-lg border border-[#2a2a2a] bg-[#0d0d0d] px-3 py-2">
+        <div className="flex min-w-0 basis-full flex-1 items-center gap-2 rounded-lg border border-[#2a2a2a] bg-[#0d0d0d] px-3 py-2 sm:min-w-[220px] sm:basis-auto">
           <Search className="h-3.5 w-3.5 text-[#666]" />
           <input
             ref={searchRef}
             value={logSearch}
             onChange={(event) => setLogSearch(event.target.value)}
             placeholder="Search logs…"
-            className="min-w-[160px] flex-1 bg-transparent text-sm text-[#f2f2f2] outline-none"
+            className="min-w-0 flex-1 bg-transparent text-sm text-[#f2f2f2] outline-none"
           />
           {logSearch && (
             <button
               onClick={() => setLogSearch("")}
-              className="rounded p-1 text-[#666] hover:bg-[#1a1a1a] hover:text-[#f2f2f2]"
+              className="min-h-[36px] rounded p-1 text-[#666] hover:bg-[#1a1a1a] hover:text-[#f2f2f2]"
               aria-label="Clear search"
             >
               <X className="h-3.5 w-3.5" />
@@ -1133,7 +1133,7 @@ function ConsoleTab({
         <button
           onClick={() => setLogFilterMode((value) => !value)}
           className={cn(
-            "rounded-lg border px-3 py-1.5 text-[11px] transition-colors",
+            "min-h-[36px] rounded-lg border px-3 py-1.5 text-[11px] transition-colors",
             logFilterMode
               ? "border-[#0078D4]/30 bg-[#0078D4]/10 text-[#4db3ff]"
               : "border-[#2a2a2a] bg-[#0d0d0d] text-[#888]",
@@ -1148,7 +1148,7 @@ function ConsoleTab({
               event.target.value as "all" | "error" | "warn" | "info",
             )
           }
-          className="rounded border border-[#2a2a2a] bg-[#0d0d0d] px-2 py-1.5 text-[10px] text-[#bbb] focus:outline-none"
+          className="min-h-[36px] rounded border border-[#2a2a2a] bg-[#0d0d0d] px-2 py-1.5 text-[10px] text-[#bbb] focus:outline-none"
         >
           <option value="all">All levels</option>
           <option value="error">ERROR</option>
@@ -1172,7 +1172,7 @@ function ConsoleTab({
       <div
         ref={consoleRef}
         onScroll={handleConsoleScroll}
-        className="flex-1 overflow-y-auto overflow-x-auto p-4 font-mono text-xs leading-[1.7] overscroll-contain select-text"
+        className="flex-1 overflow-y-auto overflow-x-auto touch-pan-y p-4 font-mono text-xs leading-[1.7] overscroll-contain select-text"
       >
         {status === "stopped" ? (
           <div className="flex h-full items-center justify-center p-6">
@@ -4672,41 +4672,46 @@ export default function ServerDetailPage() {
           <ChevronRight className="w-3 h-3 flex-shrink-0" />
           <span className="text-[#9e9e9e] truncate">{name}</span>
         </div>
-        <div className="flex items-center gap-2 py-2 sm:py-3">
+        <div className="flex flex-wrap items-start gap-2 py-2 sm:py-3">
           <Link
             href="/game-hub"
-            className="p-1.5 rounded-lg text-[#555] hover:text-[#9e9e9e] hover:bg-[#1e1e1e] transition-colors flex-shrink-0"
+            className="flex-shrink-0 rounded-lg p-1.5 text-[#555] transition-colors hover:bg-[#1e1e1e] hover:text-[#9e9e9e]"
           >
             <ChevronLeft className="w-5 h-5" />
           </Link>
           <span className="text-xl flex-shrink-0">{server?.icon ?? "🎮"}</span>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <h1 className="text-sm font-semibold text-[#f2f2f2] truncate">
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <h1 className="min-w-0 flex-1 truncate text-sm font-semibold text-[#f2f2f2] sm:flex-none">
                 {name}
               </h1>
-              <div className="flex items-center gap-1.5 flex-shrink-0">
+              {primaryTag && (
+                <span className="shrink-0 rounded-full bg-[#222] px-2 py-0.5 text-xs text-[#888]">
+                  {primaryTag}
+                </span>
+              )}
+              {server?.podStartTime && (
+                <span className="shrink-0 text-xs text-[#666]">
+                  ↺ {timeAgo(server.podStartTime)}
+                </span>
+              )}
+              <div className="flex shrink-0 items-center gap-1.5">
                 <span
                   className={cn(
                     "w-2 h-2 rounded-full flex-shrink-0",
                     statusDot,
                   )}
                 />
-                <span
-                  className={cn(
-                    "text-xs capitalize hidden sm:block",
-                    statusText,
-                  )}
-                >
+                <span className={cn("text-[11px] capitalize", statusText)}>
                   {status}
                 </span>
               </div>
             </div>
-            <p className="hidden sm:block text-[10px] text-[#555]">
+            <p className="mt-0.5 text-[10px] text-[#555] line-clamp-2 sm:line-clamp-1">
               {server?.description ||
                 `${server?.gameType?.replace(/-/g, " ") ?? "Game"} Server`}
             </p>
-            <div className="mt-1 hidden sm:flex flex-wrap gap-1.5 text-[10px]">
+            <div className="mt-1 flex flex-wrap gap-1.5 text-[10px]">
               {server?.imageVersion && (
                 <span className="rounded-full border border-[#2a2a2a] bg-[#111] px-2 py-0.5 text-[#9e9e9e]">
                   Version {server.imageVersion}
@@ -4735,7 +4740,7 @@ export default function ServerDetailPage() {
                     actionLoading === "pin-image-version" ||
                     actionLoading === "unpin-image-version"
                   }
-                  className="rounded-full border border-[#2a2a2a] bg-[#1a1a1a] px-2 py-0.5 text-[#d4d4d4] transition-colors hover:bg-[#222] disabled:opacity-50"
+                  className="min-h-[36px] rounded-full border border-[#2a2a2a] bg-[#1a1a1a] px-2 py-0.5 text-[#d4d4d4] transition-colors hover:bg-[#222] disabled:opacity-50"
                 >
                   {actionLoading === "pin-image-version" || actionLoading === "unpin-image-version"
                     ? "Saving…"
@@ -4744,27 +4749,24 @@ export default function ServerDetailPage() {
                       : "Pin to current version"}
                 </button>
               )}
-              {(server?.groups ?? []).map((group) => (
-                <span
-                  key={group}
-                  className="rounded-full border border-[#0078D4]/20 bg-[#0078D4]/10 px-2 py-0.5 text-[#7cc2ff]"
-                >
-                  {group}
-                </span>
-              ))}
+              {(server?.groups ?? [])
+                .filter((group) => group !== primaryTag)
+                .map((group) => (
+                  <span
+                    key={group}
+                    className="rounded-full border border-[#0078D4]/20 bg-[#0078D4]/10 px-2 py-0.5 text-[#7cc2ff]"
+                  >
+                    {group}
+                  </span>
+                ))}
             </div>
-            {server?.podStartTime && (
-              <p className="hidden sm:block text-[10px] text-[#4db3ff] mt-0.5">
-                Last restart {timeAgo(server.podStartTime)}
-              </p>
-            )}
             {server?.dnsHostname && (
-              <p className="hidden sm:block text-[10px] text-emerald-300 mt-0.5 font-mono">
+              <p className="mt-1 break-all text-[10px] font-mono text-emerald-300 sm:break-normal">
                 DNS {server.dnsHostname}:{server.port}
               </p>
             )}
             {connectivity && (
-              <div className="mt-1 hidden sm:flex flex-wrap gap-1.5 text-[10px]">
+              <div className="mt-1 flex flex-wrap gap-1.5 text-[10px]">
                 <span
                   className={cn(
                     "rounded-full border px-2 py-0.5",
@@ -4778,16 +4780,12 @@ export default function ServerDetailPage() {
                 <span
                   className={cn(
                     "rounded-full border px-2 py-0.5",
-                    connectivity.external.status === "open"
+                    connectivity.external.open
                       ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
-                      : connectivity.external.status === "unverified"
-                        ? "border-slate-500/20 bg-slate-500/10 text-slate-300"
-                        : "border-yellow-500/20 bg-yellow-500/10 text-yellow-200",
+                      : "border-yellow-500/20 bg-yellow-500/10 text-yellow-200",
                   )}
                 >
-                  {connectivity.external.status === "unverified"
-                    ? `External ${connectivity.external.protocol ?? "UDP"} (cannot verify)`
-                    : `External ${connectivity.external.protocol ?? "TCP"} ${connectivity.external.status === "open" ? "open" : "blocked"}`}
+                  External {connectivity.external.open ? "open" : "blocked"}
                   {typeof connectivity.external.latencyMs === "number"
                     ? ` · ${connectivity.external.latencyMs}ms`
                     : ""}
@@ -4795,13 +4793,13 @@ export default function ServerDetailPage() {
               </div>
             )}
             {status === "stopped" && (
-              <p className="hidden sm:block text-[10px] text-amber-300 mt-0.5">
+              <p className="mt-1 text-[10px] text-amber-300">
                 Server is stopped. Use Start to bring it online.
               </p>
             )}
           </div>
           {server && (
-            <div className="flex items-center gap-1 flex-shrink-0">
+            <div className="flex w-full flex-wrap items-center justify-end gap-1 sm:w-auto sm:justify-start">
               {connectionInfo && (
                 <button
                   onClick={() => {
@@ -4809,9 +4807,9 @@ export default function ServerDetailPage() {
                     toast.success("Connection info copied");
                   }}
                   title={connectionInfo}
-                  className="hidden sm:flex px-2 py-2 min-h-[38px] bg-[#1a1a1a] hover:bg-[#222] text-[#888] rounded-lg text-xs transition-colors max-w-[140px] truncate"
+                  className="flex min-h-[40px] max-w-full items-center rounded-lg bg-[#1a1a1a] px-2 py-2 text-xs text-[#888] transition-colors hover:bg-[#222] sm:max-w-[140px]"
                 >
-                  {connectionInfo}
+                  <span className="truncate">{connectionInfo}</span>
                 </button>
               )}
               <button
@@ -4846,14 +4844,14 @@ export default function ServerDetailPage() {
                     : "Enter Maintenance"
                 }
                 className={cn(
-                  "group flex items-center gap-1.5 px-2.5 py-2 min-h-[38px] rounded-lg text-xs transition-all border",
+                  "group flex min-h-[40px] items-center gap-1.5 rounded-lg border px-2.5 py-2 text-xs transition-all",
                   server.maintenanceMode
-                    ? "bg-yellow-500/20 border-yellow-400/40 text-yellow-100 shadow-[0_0_18px_rgba(250,204,21,0.22)]"
-                    : "bg-[#1a1a1a] border-[#2a2a2a] hover:bg-yellow-500/10 hover:border-yellow-500/30 text-[#888] hover:text-yellow-200",
+                    ? "border-yellow-400/40 bg-yellow-500/20 text-yellow-100 shadow-[0_0_18px_rgba(250,204,21,0.22)]"
+                    : "border-[#2a2a2a] bg-[#1a1a1a] text-[#888] hover:border-yellow-500/30 hover:bg-yellow-500/10 hover:text-yellow-200",
                 )}
               >
                 <Wrench className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Maintenance</span>
+                <span className="hidden min-[420px]:inline">Maintenance</span>
               </button>
               <button
                 onClick={async () => {
@@ -4877,7 +4875,7 @@ export default function ServerDetailPage() {
                     toast.error(String(error));
                   }
                 }}
-                className="hidden sm:flex px-3 py-2 min-h-[38px] bg-[#1a1a1a] hover:bg-[#222] text-[#888] rounded-lg text-xs transition-colors"
+                className="hidden min-h-[40px] rounded-lg bg-[#1a1a1a] px-3 py-2 text-xs text-[#888] transition-colors hover:bg-[#222] sm:flex"
               >
                 Clone
               </button>
@@ -4885,7 +4883,7 @@ export default function ServerDetailPage() {
                 <button
                   onClick={() => doAction("start")}
                   disabled={!!actionLoading}
-                  className="flex items-center gap-1.5 px-3 py-2 min-h-[38px] bg-green-500/20 hover:bg-green-500/30 text-green-300 border border-green-500/30 rounded-lg text-xs font-medium disabled:opacity-50 touch-manipulation"
+                  className="flex min-h-[40px] items-center gap-1.5 rounded-lg border border-green-500/30 bg-green-500/20 px-3 py-2 text-xs font-medium text-green-300 disabled:opacity-50 touch-manipulation hover:bg-green-500/30"
                 >
                   {actionLoading === "start" ? (
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -4900,7 +4898,7 @@ export default function ServerDetailPage() {
                     onClick={() => doAction("restart")}
                     disabled={!!actionLoading}
                     title="Quick restart"
-                    className="p-2 min-h-[38px] min-w-[38px] bg-[#1a1a1a] hover:bg-[#222] text-[#888] rounded-lg transition-colors disabled:opacity-50 touch-manipulation flex items-center justify-center"
+                    className="flex min-h-[40px] min-w-[40px] items-center justify-center rounded-lg bg-[#1a1a1a] p-2 text-[#888] transition-colors disabled:opacity-50 touch-manipulation hover:bg-[#222]"
                   >
                     {actionLoading === "restart" ? (
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -4912,7 +4910,7 @@ export default function ServerDetailPage() {
                     onClick={() => doAction("stop")}
                     disabled={!!actionLoading}
                     title="Stop"
-                    className="p-2 min-h-[38px] min-w-[38px] bg-[#1a1a1a] hover:bg-[#222] text-[#888] rounded-lg transition-colors disabled:opacity-50 touch-manipulation flex items-center justify-center"
+                    className="flex min-h-[40px] min-w-[40px] items-center justify-center rounded-lg bg-[#1a1a1a] p-2 text-[#888] transition-colors disabled:opacity-50 touch-manipulation hover:bg-[#222]"
                   >
                     {actionLoading === "stop" ? (
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -4932,7 +4930,7 @@ export default function ServerDetailPage() {
               key={id}
               onClick={() => setActiveTab(id)}
               className={cn(
-                "flex items-center gap-1.5 px-3 sm:px-4 py-1.5 sm:py-2.5 text-xs font-medium transition-colors border-b-2 -mb-px whitespace-nowrap flex-shrink-0 touch-manipulation",
+                "flex min-h-[40px] items-center gap-1.5 border-b-2 px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap -mb-px flex-shrink-0 touch-manipulation sm:px-4 sm:py-2.5",
                 activeTab === id
                   ? "border-[#0078D4] text-[#0078D4] bg-[#0078D4]/5"
                   : "border-transparent text-[#555] hover:text-[#888]",

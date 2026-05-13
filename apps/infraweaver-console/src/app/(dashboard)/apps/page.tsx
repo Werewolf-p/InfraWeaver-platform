@@ -195,7 +195,7 @@ function SwipeableAppCard({
           </div>
           <StatusBadge status={isOptimisticSyncing ? "syncing" : row.health} />
         </div>
-        <div className="flex items-center gap-2 mb-3">
+        <div className="mb-3 flex flex-wrap items-center gap-2">
           <StatusBadge status={row.syncStatus} />
           <span className={cn(
             "px-2 py-0.5 rounded text-xs font-medium",
@@ -336,8 +336,8 @@ function AllInstalledTab() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3">
-        <div className="relative flex-1 max-w-sm">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative w-full sm:flex-1 sm:max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#555]" />
           <input
             value={search}
@@ -349,7 +349,7 @@ function AllInstalledTab() {
         <button
           onClick={toggle}
           className={cn(
-            "flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-medium transition-colors",
+            "flex min-h-[40px] items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium transition-colors",
             simpleMode
               ? "border-indigo-500/30 bg-indigo-500/10 text-indigo-400"
               : "border-[#333] text-[#666] hover:text-[#9e9e9e]"
@@ -359,12 +359,12 @@ function AllInstalledTab() {
         </button>
         <button
           onClick={() => void refetch()}
-          className="flex items-center gap-2 px-3 py-2 rounded-lg border border-[#333] text-[#9e9e9e] hover:text-white hover:border-[#555] transition-colors text-sm"
+          className="flex min-h-[40px] items-center gap-2 rounded-lg border border-[#333] px-3 py-2 text-sm text-[#9e9e9e] transition-colors hover:border-[#555] hover:text-white"
         >
           <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
           <span className="hidden sm:inline">Refresh</span>
         </button>
-        <span className="text-sm text-[#666]">{allRows.length} apps</span>
+        <span className="w-full text-xs text-[#666] sm:w-auto sm:text-sm">{allRows.length} apps</span>
       </div>
 
       {loading && filtered.length === 0 && (
@@ -507,7 +507,7 @@ function AllInstalledTab() {
                 isOptimisticSyncing={optimisticSyncing.has(row.name)}
               />
               {row.source === "Catalog" && (
-                <div className="flex items-center gap-2 mt-2 px-1">
+                <div className="mt-2 flex flex-wrap items-center gap-2 px-1">
                   <PolicyBadge slug={row.name} />
                   <button
                     onClick={() => setUpdatePolicyApp({ name: row.name, slug: row.name })}
@@ -731,7 +731,7 @@ function CatalogBrowseView({
   return (
     <div className="space-y-4">
       {/* Toolbar */}
-      <div className="flex gap-2">
+      <div className="flex flex-col gap-2 sm:flex-row">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#555]" />
           <input
@@ -743,7 +743,7 @@ function CatalogBrowseView({
         </div>
         <button
           onClick={onCustom}
-          className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-[#333] text-[#9e9e9e] hover:text-white hover:border-[#555] text-sm transition-colors whitespace-nowrap"
+          className="flex min-h-[40px] w-full items-center justify-center gap-1.5 rounded-lg border border-[#333] px-3 py-2 text-sm text-[#9e9e9e] transition-colors hover:border-[#555] hover:text-white sm:w-auto whitespace-nowrap"
         >
           <PlusCircle className="w-4 h-4" />
           <span className="hidden sm:inline">Custom URL</span>
@@ -1471,7 +1471,7 @@ function CommunityStoreTab() {
   return (
     <div className="space-y-5">
       {/* Sub-header */}
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-white/50 text-sm">Browse 3,500+ apps from the Unraid Community Applications feed — convert and deploy to Kubernetes</p>
           {storeTab === "store" && data?.last_updated && (
@@ -1482,14 +1482,14 @@ function CommunityStoreTab() {
           )}
         </div>
         <button onClick={storeTab === "store" ? () => void fetchApps({ page, search: debouncedSearch, category, tier }) : () => { setInstalled(null); void fetchInstalled(); }}
-          className="flex-shrink-0 flex items-center gap-2 px-3 py-2 rounded-lg text-white/60 hover:text-white border border-white/10 hover:border-white/30 transition-colors text-sm">
+          className="flex min-h-[40px] flex-shrink-0 items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-sm text-white/60 transition-colors hover:border-white/30 hover:text-white">
           <RefreshCw className={cn("w-4 h-4", (loading || installedLoading) && "animate-spin")} />
           <span className="hidden sm:inline">Refresh</span>
         </button>
       </div>
 
       {/* Store / Installed sub-tabs */}
-      <div className="flex gap-1 p-1 bg-white/5 rounded-lg w-fit">
+      <div className="flex w-full gap-1 overflow-x-auto rounded-lg bg-white/5 p-1 sm:w-fit">
         <button onClick={() => setStoreTab("store")}
           className={cn("flex items-center gap-2 px-4 py-1.5 rounded text-sm font-medium transition-all", storeTab === "store" ? "bg-indigo-600 text-white" : "text-white/50 hover:text-white")}>
           <Store className="w-4 h-4" /> Store
@@ -1532,7 +1532,7 @@ function CommunityStoreTab() {
           {loading && !data && <div className="flex items-center justify-center h-64"><Loader2 className="w-8 h-8 text-indigo-400 animate-spin" /></div>}
           {data && (
             <>
-              <div className="flex items-center justify-between text-white/40 text-sm">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-white/40">
                 <span>{data.total.toLocaleString()} apps{debouncedSearch ? ` matching "${debouncedSearch}"` : ""}</span>
                 <span>Page {data.page} of {data.pages}</span>
               </div>
@@ -1671,7 +1671,7 @@ export default function AppsPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <PageHeader
           title="Apps"
           icon={LayoutGrid}
@@ -1680,7 +1680,7 @@ export default function AppsPage() {
         {/* Floating + Install App button */}
         <button
           onClick={() => { setInstallSource(null); setShowInstallModal(true); }}
-          className="flex-shrink-0 flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors min-h-[40px]"
+          className="flex min-h-[40px] w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500 sm:w-auto"
         >
           <PlusCircle className="w-4 h-4" />
           <span className="hidden sm:inline">Install App</span>
@@ -1688,7 +1688,7 @@ export default function AppsPage() {
       </div>
 
       {/* Top tabs */}
-      <div className="flex gap-1 border-b border-[#2a2a2a]">
+      <div className="flex gap-1 overflow-x-auto border-b border-[#2a2a2a] scrollbar-none touch-pan-x">
         {TOP_TABS.map(tab => {
           const Icon = tab.icon;
           return (
@@ -1696,7 +1696,7 @@ export default function AppsPage() {
               key={tab.value}
               onClick={() => setActiveTab(tab.value)}
               className={cn(
-                "flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px",
+                "flex min-h-[40px] flex-shrink-0 items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-medium transition-colors -mb-px",
                 activeTab === tab.value
                   ? "border-[#0078D4] text-[#0078D4]"
                   : "border-transparent text-[#9e9e9e] hover:text-[#f2f2f2]"
