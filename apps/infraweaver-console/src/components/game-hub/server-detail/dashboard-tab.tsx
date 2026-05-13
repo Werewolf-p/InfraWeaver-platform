@@ -34,6 +34,8 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type {
   BackupEntry,
+  ConnectivityDetails,
+  ConnectivityStatus,
   DiskUsage,
   GameEvent,
   MetricPoint,
@@ -70,6 +72,85 @@ type NetworkThroughputPoint = {
   rx: number;
   tx: number;
 };
+
+type MetricsHistoryPoint = {
+  t: number;
+  cpu: number;
+  ram: number;
+  ramBytes: number;
+};
+
+const MAX_METRICS_HISTORY = 200;
+
+function formatChartTime(value: number) {
+  return new Date(value).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function loadMetricsHistory(historyKey: string): MetricsHistoryPoint[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(historyKey);
+    const parsed = raw ? JSON.parse(raw) as MetricsHistoryPoint[] : [];
+    return Array.isArray(parsed) ? parsed.slice(-MAX_METRICS_HISTORY) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveMetricsHistory(historyKey: string, history: MetricsHistoryPoint[]) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(historyKey, JSON.stringify(history.slice(-MAX_METRICS_HISTORY)));
+  } catch {
+    // ignore quota/storage issues
+  }
+}
+
+function getConnectivityTone(status: ConnectivityStatus) {
+  if (status === "open") {
+    return {
+      text: "text-green-300",
+      badge: "border-emerald-500/30 bg-emerald-500/10 text-emerald-200",
+      dot: "bg-emerald-400",
+    };
+  }
+  if (status === "closed") {
+    return {
+      text: "text-red-300",
+      badge: "border-red-500/30 bg-red-500/10 text-red-200",
+      dot: "bg-red-400",
+    };
+  }
+  if (status === "unverified") {
+    return {
+      text: "text-slate-300",
+      badge: "border-slate-500/30 bg-slate-500/10 text-slate-300",
+      dot: "bg-slate-400",
+    };
+  }
+  return {
+    text: "text-[#999]",
+    badge: "border-[#1e3a5f] bg-[#10233a] text-[#7aa8da]",
+    dot: "bg-[#4a6fa5]",
+  };
+}
+
+function getConnectivitySummaryLabel(status: ConnectivityStatus, protocol: string) {
+  if (status === "unverified") return `${protocol} (cannot verify)`;
+  if (status === "open") return "Port Open";
+  if (status === "closed") return "Port Closed";
+  return "Unknown";
+}
+
+function getConnectivityBadgeLabel(status: ConnectivityStatus, protocol: string) {
+  if (status === "unverified") return `${protocol} (cannot verify)`;
+  if (status === "open") return "External open";
+  if (status === "closed") return "External closed";
+  return "External unknown";
+}
 
 function Uptime({ startTime }: { startTime: string | null }) {
   const [elapsed, setElapsed] = useState(0);
@@ -214,11 +295,15 @@ function truncateText(value: string, maxLength = 80) {
 export function DashboardTab({
   name,
   server,
+  connectivity,
 }: {
   name: string;
   server: ServerDetail;
+  connectivity?: ConnectivityDetails;
 }) {
   const queryClient = useQueryClient();
+  const metricsHistoryKey = `metrics-history:${name}`;
+  const [metricsHistory, setMetricsHistory] = useState<MetricsHistoryPoint[]>([]);
   const [storageHistory, setStorageHistory] = useState<
     Array<{ t: number; used: number; total: number }>
   >([]);
@@ -318,6 +403,10 @@ export function DashboardTab({
     enabled: false,
   });
   const networkHistoryRef = useRef<NetworkSnapshot[]>([]);
+
+  useEffect(() => {
+    setMetricsHistory(loadMetricsHistory(metricsHistoryKey));
+  }, [metricsHistoryKey]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -436,6 +525,32 @@ export function DashboardTab({
   const memoryPct = latest?.memoryLimit
     ? Number(((latest.memory / latest.memoryLimit) * 100).toFixed(1))
     : null;
+
+  useEffect(() => {
+    if (!latest?.timestamp) return;
+    setMetricsHistory((current) => {
+      const nextPoint = {
+        t: Date.now(),
+        cpu: Number((cpuPct ?? 0).toFixed(1)),
+        ram: Number((memoryPct ?? 0).toFixed(1)),
+        ramBytes: latest.memoryRaw ?? 0,
+      };
+      const previous = current[current.length - 1];
+      if (
+        previous
+        && previous.cpu === nextPoint.cpu
+        && previous.ram === nextPoint.ram
+        && previous.ramBytes === nextPoint.ramBytes
+        && nextPoint.t - previous.t < 5_000
+      ) {
+        return current;
+      }
+      const next = [...current, nextPoint].slice(-MAX_METRICS_HISTORY);
+      saveMetricsHistory(metricsHistoryKey, next);
+      return next;
+    });
+  }, [cpuPct, latest?.memoryRaw, latest?.timestamp, memoryPct, metricsHistoryKey]);
+
   const cpuUsesPercent = Boolean(latest?.cpuLimit);
   const memoryUsesPercent = Boolean(latest?.memoryLimit);
   const cpuMetricLabel = cpuUsesPercent
@@ -500,24 +615,14 @@ export function DashboardTab({
       }),
       n: point.n,
     }));
-  const metricWindow = metrics.slice(-20);
-  const cpuChartData = metricWindow.map((point) => ({
-    t: new Date(point.timestamp).toLocaleTimeString([], {
-      hour: "2-digit",
-      minute: "2-digit",
-    }),
-    value: point.cpuLimit
-      ? Number(((point.cpu / point.cpuLimit) * 100).toFixed(1))
-      : point.cpuRaw,
+  const cpuChartData = metricsHistory.map((point) => ({
+    t: point.t,
+    value: point.cpu,
   }));
-  const memoryChartData = metricWindow.map((point) => ({
-    t: new Date(point.timestamp).toLocaleTimeString([], {
-      hour: "2-digit",
-      minute: "2-digit",
-    }),
-    value: point.memoryLimit
-      ? Number(((point.memory / point.memoryLimit) * 100).toFixed(1))
-      : Number((point.memoryRaw / 1024 ** 2).toFixed(1)),
+  const memoryChartData = metricsHistory.map((point) => ({
+    t: point.t,
+    value: point.ram,
+    ramBytes: point.ramBytes,
   }));
   const cpuAverage = cpuChartData.length
     ? cpuChartData.reduce((sum, point) => sum + point.value, 0) /
@@ -557,6 +662,12 @@ export function DashboardTab({
   const networkTxGradientId = `${chartIdPrefix}-network-tx-gradient`;
   const playerGradientId = `${chartIdPrefix}-player-gradient`;
   const host = server.nodeIp ?? "Unavailable";
+  const connectivityPortLookup = new Map(
+    (connectivity?.ports ?? []).map((port) => [
+      `${port.name ?? ""}:${port.servicePort ?? ""}:${port.protocol.toUpperCase()}`,
+      port,
+    ]),
+  );
   const connectionRows = (
     server.allPorts.length
       ? server.allPorts
@@ -571,22 +682,44 @@ export function DashboardTab({
         ]
   )
     .filter((port) => port.port > 0)
-    .map((port, index) => ({
-      id: `${port.name ?? port.port}-${index}`,
-      label: port.name
-        ? port.name.replace(/-/g, " ")
-        : index === 0
-          ? "game"
-          : `port ${index + 1}`,
-      protocol: port.protocol,
-      servicePort: port.port,
-      nodePort: port.nodePort,
-      address:
-        host === "Unavailable"
-          ? `Port ${port.nodePort ?? port.port}`
-          : `${host}:${port.nodePort ?? port.port}`,
-    }));
-  const primaryAddress = connectionRows[0]?.address ?? host;
+    .map((port, index) => {
+      const protocol = String(port.protocol ?? "TCP").toUpperCase();
+      const connectivityPort = connectivityPortLookup.get(`${port.name ?? ""}:${port.port}:${protocol}`);
+      const externalStatus: ConnectivityStatus = connectivityPort?.status
+        ?? (protocol === "UDP"
+          ? "unverified"
+          : index === 0
+            ? server.portReachable === true
+              ? "open"
+              : server.portReachable === false
+                ? "closed"
+                : "unknown"
+            : "unknown");
+      return {
+        id: `${port.name ?? port.port}-${index}`,
+        label: port.name
+          ? port.name.replace(/-/g, " ")
+          : index === 0
+            ? "game"
+            : `port ${index + 1}`,
+        protocol,
+        servicePort: port.port,
+        nodePort: port.nodePort,
+        address:
+          host === "Unavailable"
+            ? `Port ${port.nodePort ?? port.port}`
+            : `${host}:${port.nodePort ?? port.port}`,
+        externalStatus,
+        latencyMs: connectivityPort?.latencyMs ?? null,
+      };
+    });
+  const primaryConnection = connectionRows[0];
+  const primaryAddress = primaryConnection?.address ?? host;
+  const primaryConnectivityStatus: ConnectivityStatus = primaryConnection?.externalStatus ?? "unknown";
+  const primaryConnectivityTone = getConnectivityTone(primaryConnectivityStatus);
+  const primaryConnectivityLabel = primaryConnection
+    ? getConnectivitySummaryLabel(primaryConnectivityStatus, primaryConnection.protocol)
+    : "Unknown";
   const connectionHost = server.dnsHostname || server.nodeIp || host;
   const connectionString = `${connectionHost}:${connectionRows[0]?.nodePort ?? server.nodePort ?? connectionRows[0]?.servicePort ?? server.port ?? "?"}`;
   const connectHint =
@@ -836,21 +969,8 @@ export function DashboardTab({
         </div>
         <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4">
           <p className="text-[10px] uppercase text-[#666]">Connectivity</p>
-          <p
-            className={cn(
-              "text-sm mt-1",
-              server.portReachable === true
-                ? "text-green-300"
-                : server.portReachable === false
-                  ? "text-red-300"
-                  : "text-[#999]",
-            )}
-          >
-            {server.portReachable === true
-              ? "Port Open"
-              : server.portReachable === false
-                ? "Port Closed"
-                : "Unknown"}
+          <p className={cn("text-sm mt-1", primaryConnectivityTone.text)}>
+            {primaryConnectivityLabel}
           </p>
         </div>
         <div
@@ -1096,23 +1216,21 @@ export function DashboardTab({
                         </linearGradient>
                       </defs>
                       <CartesianGrid stroke="#222" vertical={false} />
-                      <XAxis dataKey="t" tick={{ fill: "#666", fontSize: 10 }} />
+                      <XAxis
+                        dataKey="t"
+                        tick={{ fill: "#666", fontSize: 10 }}
+                        tickFormatter={(value) => formatChartTime(Number(value))}
+                      />
                       <YAxis
                         tick={{ fill: "#666", fontSize: 10 }}
                         width={48}
-                        tickFormatter={(value) =>
-                          cpuUsesPercent ? `${value}%` : `${Math.round(Number(value))}m`
-                        }
+                        tickFormatter={(value) => `${value}%`}
                       />
                       <Tooltip
                         isAnimationActive
                         contentStyle={CHART_TOOLTIP_STYLE}
-                        formatter={(value) => {
-                          const numericValue = Number(value ?? 0);
-                          return cpuUsesPercent
-                            ? [`${numericValue.toFixed(1)}%`, "CPU"]
-                            : [`${numericValue.toFixed(0)}m`, "CPU"];
-                        }}
+                        labelFormatter={(value) => formatChartTime(Number(value))}
+                        formatter={(value) => [`${Number(value ?? 0).toFixed(1)}%`, "CPU"]}
                       />
                       <ReferenceLine
                         y={cpuAverage}
@@ -1148,25 +1266,21 @@ export function DashboardTab({
                         </linearGradient>
                       </defs>
                       <CartesianGrid stroke="#222" vertical={false} />
-                      <XAxis dataKey="t" tick={{ fill: "#666", fontSize: 10 }} />
+                      <XAxis
+                        dataKey="t"
+                        tick={{ fill: "#666", fontSize: 10 }}
+                        tickFormatter={(value) => formatChartTime(Number(value))}
+                      />
                       <YAxis
                         tick={{ fill: "#666", fontSize: 10 }}
                         width={56}
-                        tickFormatter={(value) =>
-                          memoryUsesPercent
-                            ? `${value}%`
-                            : `${Number(value).toFixed(0)} MiB`
-                        }
+                        tickFormatter={(value) => `${value}%`}
                       />
                       <Tooltip
                         isAnimationActive
                         contentStyle={CHART_TOOLTIP_STYLE}
-                        formatter={(value) => {
-                          const numericValue = Number(value ?? 0);
-                          return memoryUsesPercent
-                            ? [`${numericValue.toFixed(1)}%`, "Memory"]
-                            : [`${numericValue.toFixed(1)} MiB`, "Memory"];
-                        }}
+                        labelFormatter={(value) => formatChartTime(Number(value))}
+                        formatter={(value) => [`${Number(value ?? 0).toFixed(1)}%`, "Memory"]}
                       />
                       <ReferenceLine
                         y={memoryAverage}
@@ -1391,8 +1505,8 @@ export function DashboardTab({
                   </tr>
                 </thead>
                 <tbody>
-                  {connectionRows.map((port, index) => {
-                    const externalReady = index === 0 ? server.portReachable : null;
+                  {connectionRows.map((port) => {
+                    const externalTone = getConnectivityTone(port.externalStatus);
                     return (
                       <tr key={port.id} className="border-t border-[#1e3a5f]">
                         <td className="px-3 py-2 capitalize text-[#e0e0e0]">{port.label}</td>
@@ -1407,24 +1521,12 @@ export function DashboardTab({
                             <span
                               className={cn(
                                 "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px]",
-                                externalReady === true
-                                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
-                                  : externalReady === false
-                                    ? "border-red-500/30 bg-red-500/10 text-red-200"
-                                    : "border-[#1e3a5f] bg-[#10233a] text-[#7aa8da]",
+                                externalTone.badge,
                               )}
                             >
-                              <span
-                                className={cn(
-                                  "h-2 w-2 rounded-full",
-                                  externalReady === true
-                                    ? "bg-emerald-400"
-                                    : externalReady === false
-                                      ? "bg-red-400"
-                                      : "bg-[#4a6fa5]",
-                                )}
-                              />
-                              External {externalReady === true ? "open" : externalReady === false ? "closed" : "unknown"}
+                              <span className={cn("h-2 w-2 rounded-full", externalTone.dot)} />
+                              {getConnectivityBadgeLabel(port.externalStatus, port.protocol)}
+                              {typeof port.latencyMs === "number" ? ` · ${port.latencyMs}ms` : ""}
                             </span>
                           </div>
                         </td>

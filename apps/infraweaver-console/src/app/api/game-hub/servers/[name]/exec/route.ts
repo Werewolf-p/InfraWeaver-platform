@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
-import { execShell, getPrimaryContainerName, getServerPod, makeGameHubClients } from "@/lib/game-hub-server";
+import { isServerStartingError, makeGameHubClients, runServerCommand } from "@/lib/game-hub-server";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { safeError } from "@/lib/utils";
 
@@ -30,14 +30,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ nam
 
   try {
     const clients = makeGameHubClients();
-    const pod = await getServerPod(clients.coreApi, name, true);
-    if (!pod?.metadata?.name) {
-      return NextResponse.json({ error: "No running pod found" }, { status: 404 });
-    }
-    const result = await execShell(clients.kc, pod.metadata.name, getPrimaryContainerName(pod, name), command);
+    const result = await runServerCommand(clients, name, command);
     return NextResponse.json({ stdout: result.stdout, stderr: result.stderr });
   } catch (error) {
     console.error("exec route failed", error);
+    if (isServerStartingError(error)) {
+      return NextResponse.json({ error: "Server is starting up, please wait..." }, { status: 503 });
+    }
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
 }

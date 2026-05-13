@@ -10,6 +10,7 @@ export const GAME_HUB_NS = GAME_HUB_NAMESPACE;
 const AUDIT_CONFIG_MAP_KEY = "entries.json";
 const TOKENS_SECRET_KEY = "tokens.json";
 const SAVED_COMMANDS_KEY = "saved-commands.json";
+const COMMAND_RETRY_DELAY_MS = 2_000;
 
 export interface ExecResult {
   stdout: string;
@@ -49,10 +50,6 @@ export interface PowerSchedule {
 
 export function normalizeServerName(name: string) {
   return name.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/^-+|-+$/g, "");
-}
-
-export function shellQuote(value: string) {
-  return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
 export function getDeploymentGameType(deployment: { metadata?: { labels?: Record<string, string> } } | null | undefined) {
@@ -108,7 +105,13 @@ export async function getServerDeployment(appsApi: k8s.AppsV1Api, name: string) 
 export async function getServerPod(coreApi: k8s.CoreV1Api, name: string, runningOnly = false) {
   const pods = await coreApi.listNamespacedPod({ namespace: GAME_HUB_NS, labelSelector: `app=${name}` });
   if (runningOnly) {
-    return pods.items.find((pod) => pod.status?.phase === "Running") ?? null;
+    const fullyRunning = pods.items.find((pod) => {
+      if (pod.status?.phase !== "Running") return false;
+      const containerStatuses = pod.status?.containerStatuses ?? [];
+      if (containerStatuses.length === 0) return false;
+      return containerStatuses.every((cs) => cs.state?.running != null);
+    });
+    return fullyRunning ?? null;
   }
   return pods.items.find((pod) => pod.status?.phase === "Running") ?? pods.items[0] ?? null;
 }
@@ -164,6 +167,15 @@ export async function execShell(
   return execInPod(kc, podName, containerName, ["sh", "-c", script], timeoutMs);
 }
 
+export function isServerStartingError(error: unknown) {
+  const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
+  return message.includes("container not found")
+    || message.includes("container not running")
+    || message.includes("no running pod found")
+    || message.includes("server may be starting up")
+    || message.includes("server is starting up");
+}
+
 export async function runServerCommand(
   clients: ReturnType<typeof makeGameHubClients>,
   name: string,
@@ -171,15 +183,33 @@ export async function runServerCommand(
   timeoutMs = 15000,
 ) {
   const deployment = await getServerDeployment(clients.appsApi, name);
-  const pod = await getServerPod(clients.coreApi, name, true);
-  if (!pod?.metadata?.name) {
-    throw new Error("No running pod found");
+  const gameType = getDeploymentGameType(deployment).toLowerCase();
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const pod = await getServerPod(clients.coreApi, name, true);
+    if (!pod?.metadata?.name) {
+      if (attempt < 2) {
+        await new Promise((resolve) => setTimeout(resolve, COMMAND_RETRY_DELAY_MS));
+        continue;
+      }
+      throw new Error("No running pod found — server may be starting up");
+    }
+
+    const containerName = getPrimaryContainerName(pod, name);
+    try {
+      const result = await execShell(clients.kc, pod.metadata.name, containerName, command, timeoutMs);
+      return { ...result, gameType, pod };
+    } catch (error) {
+      const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
+      if ((message.includes("container not found") || message.includes("container not running")) && attempt < 2) {
+        await new Promise((resolve) => setTimeout(resolve, COMMAND_RETRY_DELAY_MS));
+        continue;
+      }
+      throw error;
+    }
   }
 
-  const containerName = getPrimaryContainerName(pod, name);
-  const gameType = getDeploymentGameType(deployment).toLowerCase();
-  const result = await execShell(clients.kc, pod.metadata.name, containerName, command, timeoutMs);
-  return { ...result, gameType, pod };
+  throw new Error("Server is starting up, please try again in a moment");
 }
 
 export async function getNodeIp(coreApi: k8s.CoreV1Api, pod: k8s.V1Pod | null | undefined) {

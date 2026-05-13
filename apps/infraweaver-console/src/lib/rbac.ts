@@ -137,6 +137,14 @@ export function getRole(groups: string[]): LegacyRole {
   return "unknown";
 }
 
+export function getLegacyRoleId(groups: string[]): BuiltInRoleId | null {
+  const legacyRole = getRole(groups);
+  if (legacyRole === "admin") return "platform-admin";
+  if (legacyRole === "operator") return "platform-operator";
+  if (legacyRole === "viewer") return "platform-viewer";
+  return null;
+}
+
 function normalizeRoleId(roleId: RoleId): BuiltInRoleId | null {
   if (roleId in BUILT_IN_ROLES) return roleId as BuiltInRoleId;
   if (roleId in ROLE_ALIASES) return ROLE_ALIASES[roleId];
@@ -157,10 +165,7 @@ export function getEffectivePermissions(
   const perms = new Set<Permission>();
 
   const legacyRole = getRole(groups);
-  let legacyRoleId: BuiltInRoleId | null = null;
-  if (legacyRole === "admin") legacyRoleId = "platform-admin";
-  else if (legacyRole === "operator") legacyRoleId = "platform-operator";
-  else if (legacyRole === "viewer") legacyRoleId = "platform-viewer";
+  const legacyRoleId = getLegacyRoleId(groups);
 
   if (legacyRoleId) {
     for (const permission of BUILT_IN_ROLES[legacyRoleId].permissions) {

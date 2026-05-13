@@ -28,24 +28,24 @@ spec:
         - name: esphome
           image: ghcr.io/esphome/esphome:stable
           env:
-        - name: ESPHOME_DASHBOARD_USE_PING
-          value: ""
-        - name: ESPHOME_DATA_DIR
-          value: ""
+            - name: ESPHOME_DASHBOARD_USE_PING
+              value: ""
+            - name: ESPHOME_DATA_DIR
+              value: ""
           ports:
-        - containerPort: 6052
-          protocol: TCP
-          name: webui
+            - containerPort: 6052
+              protocol: TCP
+              name: webui
           volumeMounts:
-        - name: esphome-data-0
-          mountPath: "/config"
-        - name: esphome-data-1
-          mountPath: "/data"
-        - name: esphome-data-2
-          mountPath: "/cache"
+            - name: esphome-data-0
+              mountPath: "/config"
+            - name: esphome-data-1
+              mountPath: "/data"
+            - name: esphome-data-2
+              mountPath: "/cache"
           securityContext:
-        runAsNonRoot: false
-        allowPrivilegeEscalation: false
+            runAsNonRoot: false
+            allowPrivilegeEscalation: false
           resources:
             requests:
               memory: "128Mi"
@@ -54,15 +54,15 @@ spec:
               memory: "1Gi"
               cpu: "1000m"
       volumes:
-      - name: esphome-data-0
-        persistentVolumeClaim:
-          claimName: esphome-data-0
-      - name: esphome-data-1
-        persistentVolumeClaim:
-          claimName: esphome-data-1
-      - name: esphome-data-2
-        persistentVolumeClaim:
-          claimName: esphome-data-2
+        - name: esphome-data-0
+          persistentVolumeClaim:
+            claimName: esphome-data-0
+        - name: esphome-data-1
+          persistentVolumeClaim:
+            claimName: esphome-data-1
+        - name: esphome-data-2
+          persistentVolumeClaim:
+            claimName: esphome-data-2
 ---
 apiVersion: v1
 kind: Service

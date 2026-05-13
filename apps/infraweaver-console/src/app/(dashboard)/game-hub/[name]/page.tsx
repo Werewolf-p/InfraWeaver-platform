@@ -68,6 +68,7 @@ import { RconPanel } from "@/components/game-hub/server-detail/rcon-panel";
 import { WhitelistManager } from "@/components/game-hub/server-detail/whitelist-manager";
 import { WorldInfo } from "@/components/game-hub/server-detail/world-info";
 import type {
+  ConnectivityDetails,
   FileEntry,
   PowerSchedule,
   SavedCommand,
@@ -530,11 +531,13 @@ function buildUnifiedDiff(original: string, updated: string): DiffLine[] {
 function DashboardTab({
   server,
   name,
+  connectivity,
 }: {
   server: ServerDetail;
   name: string;
+  connectivity?: ConnectivityDetails;
 }) {
-  return <DashboardTabFeature name={name} server={server} />;
+  return <DashboardTabFeature name={name} server={server} connectivity={connectivity} />;
 }
 
 function ConsoleTab({
@@ -4578,10 +4581,7 @@ export default function ServerDetailPage() {
     retry: 2,
   });
 
-  const { data: connectivity } = useQuery<{
-    internal: { ready: boolean; clusterIP?: string | null; port?: number | null };
-    external: { open: boolean; host?: string | null; port?: number | null; latencyMs?: number | null };
-  }>({
+  const { data: connectivity } = useQuery<ConnectivityDetails>({
     queryKey: ["game-hub", "connectivity", name],
     queryFn: () => fetchJson(`/api/game-hub/servers/${name}/connectivity`),
     refetchInterval: 30000,
@@ -4633,6 +4633,7 @@ export default function ServerDetailPage() {
         : server?.port
           ? `Port ${server.port}`
           : "";
+  const primaryTag = server?.tags?.[0] ?? server?.groups?.[0] ?? null;
 
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -4777,12 +4778,16 @@ export default function ServerDetailPage() {
                 <span
                   className={cn(
                     "rounded-full border px-2 py-0.5",
-                    connectivity.external.open
+                    connectivity.external.status === "open"
                       ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
-                      : "border-yellow-500/20 bg-yellow-500/10 text-yellow-200",
+                      : connectivity.external.status === "unverified"
+                        ? "border-slate-500/20 bg-slate-500/10 text-slate-300"
+                        : "border-yellow-500/20 bg-yellow-500/10 text-yellow-200",
                   )}
                 >
-                  External {connectivity.external.open ? "open" : "blocked"}
+                  {connectivity.external.status === "unverified"
+                    ? `External ${connectivity.external.protocol ?? "UDP"} (cannot verify)`
+                    : `External ${connectivity.external.protocol ?? "TCP"} ${connectivity.external.status === "open" ? "open" : "blocked"}`}
                   {typeof connectivity.external.latencyMs === "number"
                     ? ` · ${connectivity.external.latencyMs}ms`
                     : ""}
@@ -4979,7 +4984,7 @@ export default function ServerDetailPage() {
             >
               {activeTab === "dashboard" && (
                 <div className="space-y-4">
-                  <DashboardTab server={server} name={name} />
+                  <DashboardTab server={server} name={name} connectivity={connectivity} />
                   {server.gameType.toLowerCase().includes("minecraft") ? (
                     <div className="grid gap-4 xl:grid-cols-2">
                       <WorldInfo serverName={name} mountPath={mountPath} gameType={server.gameType} />

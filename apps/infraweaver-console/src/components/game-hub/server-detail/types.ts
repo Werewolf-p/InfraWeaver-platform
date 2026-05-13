@@ -69,6 +69,31 @@ export interface NetworkEntry {
   txPackets: number;
 }
 
+export type ConnectivityStatus = "open" | "closed" | "unverified" | "unknown";
+
+export interface ConnectivityPortStatus {
+  name: string | null;
+  servicePort: number | null;
+  nodePort: number | null;
+  protocol: string;
+  status: ConnectivityStatus;
+  open: boolean | null;
+  latencyMs: number | null;
+}
+
+export interface ConnectivityDetails {
+  internal: { ready: boolean; clusterIP?: string | null; port?: number | null };
+  external: {
+    status: ConnectivityStatus;
+    open: boolean | null;
+    host?: string | null;
+    port?: number | null;
+    protocol?: string | null;
+    latencyMs?: number | null;
+  };
+  ports: ConnectivityPortStatus[];
+}
+
 export interface ServerDetail {
   name: string;
   gameType: string;

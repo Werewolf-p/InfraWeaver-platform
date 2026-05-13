@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
 import { getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
-import { appendServerAudit, getServerDeployment, getServerPod, makeGameHubClients, readServerEgg, runServerCommand } from "@/lib/game-hub-server";
+import { appendServerAudit, getServerDeployment, isServerStartingError, makeGameHubClients, readServerEgg, runServerCommand } from "@/lib/game-hub-server";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { getEffectivePermissions } from "@/lib/rbac";
 import { safeError } from "@/lib/utils";
@@ -51,14 +51,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ nam
       return NextResponse.json({ error: "Command not allowed for your role", stdout: "", stderr: "", success: false }, { status: 403 });
     }
 
-    const pod = await getServerPod(clients.coreApi, name, true);
-    if (!pod?.metadata?.name) return NextResponse.json({ error: "No running pod found" }, { status: 404 });
     const result = await runServerCommand(clients, name, command, 10_000);
     await auditLog("game-hub:command", session.user?.email ?? "unknown", `${name} — ${command}`);
     await appendServerAudit(clients.coreApi, name, { timestamp: new Date().toISOString(), user: session.user?.email ?? "unknown", action: "command", details: command });
     return NextResponse.json({ stdout: result.stdout, stderr: result.stderr, success: true, method: "shell" });
   } catch (error) {
     console.error("game hub command failed", error);
+    if (isServerStartingError(error)) {
+      return NextResponse.json(
+        { error: "Server is starting up, please wait...", stdout: "", stderr: "", success: false },
+        { status: 503 },
+      );
+    }
     return NextResponse.json({ error: safeError(error), stdout: "", stderr: "", success: false }, { status: 500 });
   }
 }

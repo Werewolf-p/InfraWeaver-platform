@@ -10,6 +10,12 @@ import {
 } from "@/lib/game-hub-server";
 import { safeError } from "@/lib/utils";
 
+type ConnectivityStatus = "open" | "closed" | "unverified" | "unknown";
+
+function normalizeProtocol(protocol: string | null | undefined) {
+  return String(protocol ?? "TCP").toUpperCase() === "UDP" ? "UDP" : "TCP";
+}
+
 async function checkTcpConnect(host: string | null, port: number | null) {
   if (!host || !port) {
     return { open: false, latencyMs: null };
@@ -87,17 +93,48 @@ export async function GET(
     }
 
     const host = await getNodeIp(coreApi, pod);
-    const nodePort = service?.spec?.ports?.[0]?.nodePort ?? null;
-    const external = await checkTcpConnect(host, nodePort);
+    const ports = await Promise.all(
+      (service?.spec?.ports ?? []).map(async (servicePort) => {
+        const protocol = normalizeProtocol(servicePort.protocol);
+        const servicePortNumber = servicePort.port ?? null;
+        const nodePort = servicePort.nodePort ?? null;
+        if (protocol === "UDP") {
+          return {
+            name: servicePort.name ?? null,
+            servicePort: servicePortNumber,
+            nodePort,
+            protocol,
+            status: "unverified" as ConnectivityStatus,
+            open: null,
+            latencyMs: null,
+          };
+        }
+
+        const external = await checkTcpConnect(host, nodePort ?? servicePortNumber);
+        return {
+          name: servicePort.name ?? null,
+          servicePort: servicePortNumber,
+          nodePort,
+          protocol,
+          status: (external.open ? "open" : "closed") as ConnectivityStatus,
+          open: external.open,
+          latencyMs: external.latencyMs,
+        };
+      }),
+    );
+    const primaryPort = ports[0] ?? null;
 
     return NextResponse.json({
       internal: { ready: internalReady, clusterIP, port },
       external: {
-        open: external.open,
+        status: primaryPort?.status ?? "unknown",
+        open: primaryPort?.open ?? null,
         host,
-        port: nodePort,
-        latencyMs: external.latencyMs,
+        port: primaryPort?.nodePort ?? primaryPort?.servicePort ?? null,
+        protocol: primaryPort?.protocol ?? null,
+        latencyMs: primaryPort?.latencyMs ?? null,
       },
+      ports,
     });
   } catch (error) {
     console.error("connectivity route failed", error);

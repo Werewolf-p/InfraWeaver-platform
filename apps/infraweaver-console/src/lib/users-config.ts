@@ -9,6 +9,7 @@ const USERS_FILE_PATH = "users.yaml";
 export interface UsersConfigUser extends Record<string, unknown> {
   name?: string;
   email?: string;
+  authentik_groups?: string[];
   role_assignments?: RoleAssignment[];
 }
 

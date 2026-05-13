@@ -5,7 +5,7 @@ import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
 import { gameHubScope, getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
 import { normalizeRoleAssignments, loadUsersConfig, saveUsersConfig } from "@/lib/users-config";
-import { resolveRoleDefinition, type RoleAssignment } from "@/lib/rbac";
+import { getLegacyRoleId, resolveRoleDefinition, type RoleAssignment } from "@/lib/rbac";
 import { safeError } from "@/lib/utils";
 
 const SAFE_USERNAME_RE = /^[\w.@+-]{1,150}$/;
@@ -47,6 +47,20 @@ function sortAccess<T extends { user: string; role: string }>(entries: T[]) {
   return entries.sort((left, right) => left.user.localeCompare(right.user) || left.role.localeCompare(right.role));
 }
 
+function pushInherited(entries: InheritedAccessAssignment[], entry: InheritedAccessAssignment) {
+  if (entries.some((current) => current.user === entry.user && current.role === entry.role && current.scope === entry.scope && current.source === entry.source)) {
+    return;
+  }
+  entries.push(entry);
+}
+
+function pushServerAssignment(entries: ServerAccessAssignment[], entry: ServerAccessAssignment) {
+  if (entries.some((current) => current.user === entry.user && current.role === entry.role)) {
+    return;
+  }
+  entries.push(entry);
+}
+
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ name: string }> }) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -64,17 +78,29 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ nam
     const scope = gameHubScope(name);
 
     for (const [username, user] of Object.entries(file.users)) {
+      const authentikGroups = Array.isArray(user.authentik_groups)
+        ? user.authentik_groups.filter((group): group is string => typeof group === "string")
+        : [];
+      const legacyRoleId = getLegacyRoleId(authentikGroups);
+      if (legacyRoleId) {
+        pushInherited(inherited, { user: username, role: legacyRoleId, scope: "/", source: "platform" });
+      }
+
       for (const assignment of normalizeRoleAssignments(username, user.role_assignments)) {
-        if (assignment.principalType !== "user") continue;
-        if ((assignment.principalId ?? username) !== username) continue;
+        const appliesToUser = assignment.principalType === "group"
+          ? Boolean(assignment.principalId) && authentikGroups.includes(assignment.principalId)
+          : (assignment.principalId ?? username) === username;
+        if (!appliesToUser) continue;
 
         const role = normalizeRoleId(assignment.roleId);
         if (assignment.scope === "/") {
-          inherited.push({ user: username, role, scope: assignment.scope, source: "platform" });
+          pushInherited(inherited, { user: username, role, scope: assignment.scope, source: "platform" });
         } else if (assignment.scope === "/game-hub/") {
-          inherited.push({ user: username, role, scope: assignment.scope, source: "game-hub" });
+          pushInherited(inherited, { user: username, role, scope: assignment.scope, source: "game-hub" });
+        } else if (assignment.scope === scope && assignment.principalType === "group") {
+          pushInherited(inherited, { user: username, role, scope: assignment.scope, source: "game-hub" });
         } else if (assignment.scope === scope) {
-          serverAssignments.push({ user: username, role });
+          pushServerAssignment(serverAssignments, { user: username, role });
         }
       }
     }

@@ -46,10 +46,10 @@ spec:
               name: game
             - containerPort: 2457
               protocol: UDP
-              name: rcon
+              name: query
             - containerPort: 2458
               protocol: TCP
-              name: query
+              name: rcon
           env:
             - name: SERVER_NAME
               value: "InfraWeaver Valheim"
@@ -101,8 +101,8 @@ spec:
     - port: 2457
       targetPort: 2457
       protocol: UDP
-      name: rcon
+      name: query
     - port: 2458
       targetPort: 2458
       protocol: TCP
-      name: query
+      name: rcon
