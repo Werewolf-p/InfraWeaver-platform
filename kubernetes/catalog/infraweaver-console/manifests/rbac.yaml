@@ -81,8 +81,20 @@ rules:
   - apiGroups: [""]
     resources: ["pods", "services", "persistentvolumeclaims", "configmaps", "events", "pods/log", "pods/exec"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Secrets: token storage for game servers (gameserver-<name>-tokens)
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "create", "update", "patch", "delete"]
   - apiGroups: ["apps"]
     resources: ["deployments", "statefulsets", "replicasets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # HPA: auto-scaling game servers (set-hpa / remove-hpa actions)
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # CronJobs: restart / backup / scheduled-start / scheduled-stop schedules
+  - apiGroups: ["batch"]
+    resources: ["cronjobs", "jobs"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
