@@ -4937,13 +4937,14 @@ export default function ServerDetailPage() {
                         onClick={() => void doAction("restart")}
                         disabled={!!actionLoading}
                         title="Quick restart"
-                        className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl bg-[#1a1a1a] p-2 text-[#888] transition-colors disabled:opacity-50 touch-manipulation hover:bg-[#222]"
+                        className="flex min-h-[44px] items-center gap-1.5 rounded-xl bg-[#1a1a1a] px-2.5 py-2 text-xs text-[#888] transition-colors disabled:opacity-50 touch-manipulation hover:bg-[#222] hover:text-[#bbb]"
                       >
                         {actionLoading === "restart" ? (
                           <Loader2 className="w-3.5 h-3.5 animate-spin" />
                         ) : (
                           <RotateCcw className="w-3.5 h-3.5" />
                         )}
+                        <span className="hidden min-[380px]:inline">Restart</span>
                       </button>
                     ) : null}
                     {server.permissions?.canStop ? (
@@ -4951,13 +4952,14 @@ export default function ServerDetailPage() {
                         onClick={() => void doAction("stop")}
                         disabled={!!actionLoading}
                         title="Stop"
-                        className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl bg-[#1a1a1a] p-2 text-[#888] transition-colors disabled:opacity-50 touch-manipulation hover:bg-[#222]"
+                        className="flex min-h-[44px] items-center gap-1.5 rounded-xl bg-[#1a1a1a] px-2.5 py-2 text-xs text-[#888] transition-colors disabled:opacity-50 touch-manipulation hover:bg-red-500/15 hover:text-red-300"
                       >
                         {actionLoading === "stop" ? (
                           <Loader2 className="w-3.5 h-3.5 animate-spin" />
                         ) : (
                           <Square className="w-3.5 h-3.5" />
                         )}
+                        <span className="hidden min-[380px]:inline">Stop</span>
                       </button>
                     ) : null}
                   </>
@@ -4967,7 +4969,8 @@ export default function ServerDetailPage() {
                 <button
                   onClick={() => setMobileActionSheetOpen(true)}
                   className="flex h-11 w-11 items-center justify-center rounded-xl border border-[#2a2a2a] bg-[#1a1a1a] text-[#888] transition-colors hover:bg-[#222] sm:hidden"
-                  aria-label="Open server actions"
+                  aria-label="More server actions"
+                  title="More actions"
                 >
                   <MoreHorizontal className="h-4 w-4" />
                 </button>

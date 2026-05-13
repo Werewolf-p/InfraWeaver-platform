@@ -820,6 +820,45 @@ export default function GameHubPage() {
                 onClick={() => compareMode ? toggleCompare(server.name) : router.push(`/game-hub/${server.name}`)}
               >
                 <div className="flex items-start justify-between gap-2">
+                  {/* ── Quick power controls — always visible top-right ── */}
+                  <div className="order-last flex flex-shrink-0 items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                    {server.status === "stopped" ? (
+                      server.permissions?.canStart ? (
+                        <button
+                          onClick={() => doAction(server.name, "start")}
+                          disabled={!!actionLoading[server.name]}
+                          title="Start server"
+                          className="flex min-h-[36px] items-center gap-1 rounded-lg border border-green-500/30 bg-green-500/15 px-2.5 py-1.5 text-[11px] font-medium text-green-300 transition-colors hover:bg-green-500/25 disabled:opacity-50 sm:px-3"
+                        >
+                          {actionLoading[server.name] === "start" ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
+                          <span className="hidden sm:inline">Start</span>
+                        </button>
+                      ) : null
+                    ) : (
+                      <>
+                        {server.permissions?.canAdmin ? (
+                          <button
+                            onClick={() => doAction(server.name, "restart")}
+                            disabled={!!actionLoading[server.name]}
+                            title="Restart"
+                            className="flex min-h-[36px] min-w-[36px] items-center justify-center rounded-lg bg-[#222] p-2 text-[#888] transition-colors hover:bg-[#2a2a2a] hover:text-[#bbb] disabled:opacity-50"
+                          >
+                            {actionLoading[server.name] === "restart" ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />}
+                          </button>
+                        ) : null}
+                        {server.permissions?.canStop ? (
+                          <button
+                            onClick={() => doAction(server.name, "stop")}
+                            disabled={!!actionLoading[server.name]}
+                            title="Stop"
+                            className="flex min-h-[36px] min-w-[36px] items-center justify-center rounded-lg bg-[#222] p-2 text-[#888] transition-colors hover:bg-red-500/15 hover:text-red-300 disabled:opacity-50"
+                          >
+                            {actionLoading[server.name] === "stop" ? <Loader2 className="w-3 h-3 animate-spin" /> : <Square className="w-3 h-3" />}
+                          </button>
+                        ) : null}
+                      </>
+                    )}
+                  </div>
                   <div className="flex items-start gap-3 min-w-0">
                     <div className="flex flex-col items-center gap-2 pt-1">
                       <button onClick={(event) => { event.stopPropagation(); toggleFavorite(server.name); }} className="text-[#666] hover:text-yellow-300 transition-colors" title={favorites.has(server.name) ? "Remove favorite" : "Favorite server"}>
