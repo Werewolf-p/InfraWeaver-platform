@@ -10,7 +10,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import dynamic from "next/dynamic";
 import * as jsYaml from "js-yaml";
 
-const MonacoEditor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
+
 
 interface CatalogApp {
   name: string;
@@ -437,20 +437,12 @@ export default function ConfigPage() {
               {yamlCommitMutation.isPending ? "Saving..." : "Save & Commit"}
             </button>
           </div>
-          <MonacoEditor
-            height="500px"
-            language="yaml"
-            theme="vs-dark"
+          <textarea
             value={yamlContent}
-            onChange={v => setYamlContent(v ?? "")}
-            options={{
-              fontSize: 13,
-              minimap: { enabled: false },
-              scrollBeyondLastLine: false,
-              wordWrap: "on",
-              lineNumbers: "on",
-              renderLineHighlight: "all",
-            }}
+            onChange={e => setYamlContent(e.target.value)}
+            spellCheck={false}
+            className="w-full h-[500px] bg-[#1e1e1e] text-slate-200 font-mono text-[13px] leading-5 p-4 resize-none focus:outline-none border-0 rounded-b-xl"
+            style={{ tabSize: 2 }}
           />
         </motion.div>
       )}

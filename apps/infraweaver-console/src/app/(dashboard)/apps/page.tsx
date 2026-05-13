@@ -19,7 +19,7 @@ import { useArgoApps } from "@/hooks/use-argocd";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { UpdatePolicyModal } from "@/components/apps/update-policy-modal";
 
-const MonacoEditor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
+
 
 // ── BodyPortal ────────────────────────────────────────────────────────────────
 function BodyPortal({ children }: { children: React.ReactNode }) {
@@ -982,10 +982,9 @@ function CatalogInstallerTab({ onInstalled }: { onInstalled?: () => void }) {
               This ArgoCD Application manifest will be committed to{" "}
               <code className="font-mono bg-white/10 px-1 rounded">kubernetes/catalog/{appName}/application.yaml</code>
             </p>
-            <div className="rounded-xl overflow-hidden border border-white/10 mb-6">
-              <MonacoEditor height="380px" language="yaml" theme="vs-dark" value={generatedYaml}
-                options={{ readOnly: true, fontSize: 12, minimap: { enabled: false }, scrollBeyondLastLine: false, wordWrap: "on", lineNumbers: "on" }} />
-            </div>
+              <div className="rounded-xl overflow-hidden border border-white/10 mb-6">
+                <pre className="h-[380px] bg-[#1e1e1e] text-slate-200 font-mono text-xs leading-5 p-4 overflow-auto whitespace-pre">{generatedYaml}</pre>
+              </div>
             <div className="flex justify-between">
               <button onClick={() => setStep(2)} className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-slate-300 text-sm font-medium hover:bg-white/10 transition-colors">
                 <ChevronLeft className="w-4 h-4" /> Back
@@ -1279,9 +1278,7 @@ function DeployModal({ app, onClose }: { app: AppSummary; onClose: () => void })
               )}
               <div className="h-[380px] rounded-lg overflow-hidden border border-white/10 relative">
                 {isPreviewLoading && <div className="absolute inset-0 flex items-center justify-center bg-[#1e1e1e] z-10"><Loader2 className="w-6 h-6 animate-spin text-blue-400" /></div>}
-                <MonacoEditor height="100%" language="yaml" value={preview.combinedYaml} theme="vs-dark"
-                  loading={<div className="flex items-center justify-center h-full bg-[#1e1e1e]"><Loader2 className="w-6 h-6 animate-spin text-blue-400" /></div>}
-                  options={{ readOnly: true, minimap: { enabled: false }, fontSize: 12, wordWrap: "on", scrollBeyondLastLine: false }} />
+                <pre className="w-full h-full bg-[#1e1e1e] text-slate-200 font-mono text-xs leading-5 p-4 overflow-auto whitespace-pre">{preview.combinedYaml}</pre>
               </div>
               <p className="text-white/40 text-xs">This YAML will be committed to <code className="bg-white/10 px-1 rounded">kubernetes/catalog/{preview.slug}/manifests/</code> and deployed by ArgoCD.</p>
             </div>
