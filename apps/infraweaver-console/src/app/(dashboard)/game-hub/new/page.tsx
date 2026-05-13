@@ -139,11 +139,12 @@ export default function NewGameServerPage() {
   const [serverName, setServerName] = useState("");
   const [dnsHostname, setDnsHostname] = useState("");
   const [dnsTouched, setDnsTouched] = useState(false);
+  const [dnsType, setDnsType] = useState<"internal" | "public" | "custom">("internal");
   const [envValues, setEnvValues] = useState<Record<string, string>>({});
   const [memoryMi, setMemoryMi] = useState(2048);
   const [cpuCores, setCpuCores] = useState(1);
   const [storageGi, setStorageGi] = useState(10);
-  const [storageClass, setStorageClass] = useState("longhorn");
+  const [storageClass, setStorageClass] = useState("longhorn-game");
   const [deploying, setDeploying] = useState(false);
   const [deployedServerName, setDeployedServerName] = useState<string | null>(null);
 
@@ -217,11 +218,14 @@ export default function NewGameServerPage() {
   }, [activeEgg, activeEggKey]);
 
   useEffect(() => {
-    if (!dnsTouched) {
-      const normalized = normalizeServerName(serverName);
+    if (dnsType === "custom") return; // let the user type freely
+    const normalized = normalizeServerName(serverName);
+    if (dnsType === "internal") {
       setDnsHostname(normalized ? `${normalized}.games.int.rlservers.com` : "");
+    } else {
+      setDnsHostname(normalized ? `${normalized}.games.rlservers.com` : "");
     }
-  }, [dnsTouched, serverName]);
+  }, [dnsType, serverName]);
 
   const remoteCategories = catalogData?.categories ?? [];
   const remoteEggs = useMemo(() => remoteCategories.flatMap((category) =>
@@ -567,15 +571,42 @@ export default function NewGameServerPage() {
                     </div>
                     <div className="space-y-2 md:col-span-2">
                       <label className="text-xs font-semibold uppercase tracking-[0.2em] text-[#666]">DNS Hostname</label>
-                      <input
-                        value={dnsHostname}
-                        onChange={(event) => {
-                          setDnsTouched(true);
-                          setDnsHostname(event.target.value);
-                        }}
-                        placeholder="my-server.games.int.rlservers.com"
-                        className="w-full rounded-xl border border-[#2a2a2a] bg-[#111] px-4 py-3 text-sm text-[#f2f2f2] outline-none transition-colors focus:border-[#0078D4]/50"
-                      />
+                      {/* DNS type toggle */}
+                      <div className="flex gap-1 rounded-lg bg-[#0d0d0d] p-1 w-fit">
+                        {(["internal", "public", "custom"] as const).map((t) => (
+                          <button
+                            key={t}
+                            type="button"
+                            onClick={() => setDnsType(t)}
+                            className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                              dnsType === t
+                                ? "bg-[#0078D4] text-white"
+                                : "text-[#888] hover:text-[#f2f2f2]"
+                            }`}
+                          >
+                            {t === "internal" ? "🔒 Internal" : t === "public" ? "🌐 Public" : "✏️ Custom"}
+                          </button>
+                        ))}
+                      </div>
+                      {dnsType === "custom" ? (
+                        <input
+                          value={dnsHostname}
+                          onChange={(e) => setDnsHostname(e.target.value)}
+                          placeholder="e.g. game.example.com"
+                          className="w-full rounded-xl border border-[#2a2a2a] bg-[#111] px-4 py-3 text-sm text-[#f2f2f2] outline-none transition-colors focus:border-[#0078D4]/50"
+                        />
+                      ) : (
+                        <p className="rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] px-4 py-3 text-sm text-[#888] font-mono">
+                          {dnsHostname || <span className="italic">Enter a server name above</span>}
+                        </p>
+                      )}
+                      <p className="text-xs text-[#555]">
+                        {dnsType === "internal"
+                          ? "Only accessible via NetBird VPN (int.rlservers.com)"
+                          : dnsType === "public"
+                          ? "Publicly reachable on the internet"
+                          : "Custom hostname — you manage the DNS record"}
+                      </p>
                     </div>
                   </div>
 

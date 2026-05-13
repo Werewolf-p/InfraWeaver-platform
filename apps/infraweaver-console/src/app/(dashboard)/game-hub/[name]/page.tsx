@@ -602,6 +602,10 @@ function ConsoleTab({
   const connectRef = useRef<(depth?: ConsoleHistoryDepth) => void>(() => undefined);
   const bannerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const draftCommandRef = useRef("");
+  // Tracks seen log keys to avoid showing duplicate lines when SSE reconnects + replays history
+  const seenLogKeysRef = useRef(new Set<string>());
+  // Prevents adding multiple "Live logs" markers across reconnects
+  const historyEndSeenRef = useRef(false);
 
   const eggCommands = normalizeQuickCommands(server.egg?.quickCommands);
   const savedCommands = normalizeSavedCommands(server.savedCommands);
@@ -671,6 +675,13 @@ function ConsoleTab({
     if (retryRef.current) clearTimeout(retryRef.current);
     esRef.current?.close();
 
+    // When user explicitly changes history depth, reset dedup state for a clean slate
+    if (depthOverride !== undefined) {
+      seenLogKeysRef.current.clear();
+      historyEndSeenRef.current = false;
+      lastLogTimestampRef.current = null;
+    }
+
     const params = new URLSearchParams();
     const depth = depthOverride ?? historyDepth;
     const capLines = Math.min(HISTORY_DEPTH_MAX_LINES[depth] ?? 500, 2000);
@@ -707,7 +718,11 @@ function ConsoleTab({
         }
 
         if (msg.type === "history-end") {
-          addLine("history-marker", msg.line ?? "Live logs");
+          // Only add the marker once across all reconnects to prevent "LIVE LOGS" spam
+          if (!historyEndSeenRef.current) {
+            historyEndSeenRef.current = true;
+          }
+          // Don't render a visual divider — logs flow as one continuous stream
           return;
         }
 
@@ -718,9 +733,31 @@ function ConsoleTab({
             null;
           if (lineTimestamp) lastLogTimestampRef.current = lineTimestamp;
           const cleanLine = msg.line.replace(ISO_TIMESTAMP_PREFIX, "");
+          const content = cleanLine || msg.line;
+
+          // Filter noisy lines that clutter the console
+          const isNoise =
+            /Thread RCON Client .+(started|shutting down)/i.test(content) ||
+            /^\s*$/.test(content);
+          if (isNoise) return;
+
+          // Deduplicate: SSE replays history on every reconnect — skip already-seen lines
+          const dedupeKey = `${lineTimestamp ?? ""}|${content.slice(0, 120)}`;
+          if (seenLogKeysRef.current.has(dedupeKey)) return;
+          seenLogKeysRef.current.add(dedupeKey);
+          // Prevent the seen-set from growing unboundedly
+          if (seenLogKeysRef.current.size > 5000) {
+            const iter = seenLogKeysRef.current.values();
+            for (let i = 0; i < 1000; i++) {
+              const { value, done } = iter.next();
+              if (done) break;
+              seenLogKeysRef.current.delete(value);
+            }
+          }
+
           addLine(
             msg.type === "error" ? "error" : "log",
-            cleanLine || msg.line,
+            content,
             lineTimestamp,
           );
         }
@@ -853,13 +890,18 @@ function ConsoleTab({
 
   async function deleteSavedCommand(entry: RuntimeSavedCommand) {
     try {
+      const body: Record<string, unknown> = { action: "delete-saved-command" };
+      if (entry.id) {
+        body.commandId = entry.id;
+      } else {
+        // Legacy commands without IDs — match by label+cmd
+        body.commandLabel = entry.label;
+        body.commandCmd = entry.cmd ?? entry.command ?? "";
+      }
       await fetchJson(`/api/game-hub/servers/${name}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "delete-saved-command",
-          commandId: entry.id,
-        }),
+        body: JSON.stringify(body),
       });
       toast.success("Saved command removed");
       queryClient.invalidateQueries({ queryKey: ["game-hub", "server", name] });
@@ -1180,14 +1222,8 @@ function ConsoleTab({
         ) : (
           displayedLogLines.map((entry) => (
             entry.type === "history-marker" ? (
-              <div
-                key={entry.id}
-                className="my-3 flex items-center gap-3 text-[10px] uppercase tracking-[0.3em] text-[#5f6b7a]"
-              >
-                <div className="h-px flex-1 bg-[#1f2937]" />
-                <span>{entry.line}</span>
-                <div className="h-px flex-1 bg-[#1f2937]" />
-              </div>
+              // History-marker is kept in logLines for dedup tracking but renders nothing
+              <span key={entry.id} style={{ display: "none" }} aria-hidden="true" />
             ) : (
               <div
                 key={entry.id}

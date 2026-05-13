@@ -476,6 +476,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
     scheduledTime?: string | null;
     command?: { id?: string; label: string; cmd: string; color?: string; description?: string };
     commandId?: string;
+    commandLabel?: string;
+    commandCmd?: string;
   };
 
   const access = await getGameHubAccessContext(session, 60);
@@ -777,9 +779,19 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
         { id, label: body.command.label, cmd: body.command.cmd, color: body.command.color, description: body.command.description },
       ]);
     } else if (body.action === "delete-saved-command") {
-      if (!body.commandId) return NextResponse.json({ error: "commandId is required" }, { status: 400 });
       const existing = await readSavedCommands(clients.coreApi, name);
-      await writeSavedCommands(clients.coreApi, name, existing.filter((c) => c.id !== body.commandId));
+      let updated: typeof existing;
+      if (body.commandId) {
+        updated = existing.filter((c) => c.id !== body.commandId);
+      } else if (body.commandLabel !== undefined || body.commandCmd !== undefined) {
+        // Legacy commands stored without IDs — match by label + cmd
+        updated = existing.filter(
+          (c) => !(c.label === body.commandLabel && c.cmd === body.commandCmd),
+        );
+      } else {
+        return NextResponse.json({ error: "commandId or commandLabel+commandCmd is required" }, { status: 400 });
+      }
+      await writeSavedCommands(clients.coreApi, name, updated);
     } else if (body.action === "sync-to-git") {
       // Manifest sync is handled below.
     }
