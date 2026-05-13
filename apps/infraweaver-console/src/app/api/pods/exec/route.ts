@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { getRole } from "@/lib/rbac";
 import { auditLog } from "@/lib/audit-log";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
+import { safeError } from "@/lib/utils";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import { z } from "zod";
@@ -63,6 +64,6 @@ export async function POST(req: NextRequest) {
     ]);
     return NextResponse.json({ output: stdout, error: stderr || null });
   } catch (err) {
-    return NextResponse.json({ output: "", error: String(err) });
+    return NextResponse.json({ output: "", error: safeError(err) }, { status: 500 });
   }
 }

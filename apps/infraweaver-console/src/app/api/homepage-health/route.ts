@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getHomepageServiceHealthMap } from "@/lib/homepage-health";
+import { safeError } from "@/lib/utils";
 
 function getErrorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "Unable to read homepage health";
+  return safeError(error);
 }
 
 export async function GET() {

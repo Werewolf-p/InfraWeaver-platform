@@ -4,6 +4,7 @@ import { getRole } from "@/lib/rbac";
 import { auditLog } from "@/lib/audit-log";
 import { loadKubeConfig } from "@/lib/k8s";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
+import { safeError } from "@/lib/utils";
 import { z } from "zod";
 import * as k8s from "@kubernetes/client-node";
 
@@ -35,7 +36,7 @@ export async function POST(req: NextRequest) {
         await coreApi.createNamespacedPodEviction({ name, namespace, body: { metadata: { name, namespace } } as k8s.V1Eviction });
         evicted.push(`${namespace}/${name}`);
       } catch (error) {
-        errors.push(`${namespace}/${name}: ${error instanceof Error ? error.message : "eviction failed"}`);
+        errors.push(`${namespace}/${name}: ${safeError(error)}`);
       }
     }
     await auditLog("cluster:drain", session.user?.email ?? "unknown", `drained node ${node}, evicted ${evicted.length} pods`);

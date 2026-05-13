@@ -3,9 +3,10 @@ import { auth } from "@/lib/auth";
 import { ADDONS } from "@/lib/addons";
 import { setAddonEnabled } from "@/lib/addons-server";
 import { getRole } from "@/lib/rbac";
+import { safeError } from "@/lib/utils";
 
 function getErrorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "Failed to update addon";
+  return safeError(error);
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {

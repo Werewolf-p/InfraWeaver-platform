@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { hasPermission } from "@/lib/rbac";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
+import { safeError } from "@/lib/utils";
 import { z } from "zod";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -530,6 +531,6 @@ export async function PUT(req: NextRequest) {
       imageRef: imageRef ?? null,
     });
   } catch (err) {
-    return NextResponse.json({ error: String(err) }, { status: 500 });
+    return NextResponse.json({ error: safeError(err) }, { status: 500 });
   }
 }

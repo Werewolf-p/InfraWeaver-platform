@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { sanitizeConsoleCommand } from "@/lib/api-helpers";
+import { auditLog, auditUnauthorizedAccess } from "@/lib/audit-log";
 import { getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
 import { isServerStartingError, makeGameHubClients, runServerCommand } from "@/lib/game-hub-server";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
@@ -18,12 +20,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ nam
   const { name } = await params;
   const access = await getGameHubAccessContext(session, 60);
   if (!hasGameHubPermission(access.groups, access.username, access.roleAssignments, "game-hub:console", name)) {
+    await auditUnauthorizedAccess("game-hub:exec-denied", req, session.user?.email ?? "unknown", `${name} missing game-hub:console`);
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const body = await req.json() as { command?: string };
-  const command = body.command?.trim() ?? "";
-  if (!command) return NextResponse.json({ error: "command is required" }, { status: 400 });
+  const sanitized = sanitizeConsoleCommand(body.command ?? "");
+  if (!sanitized.ok) return NextResponse.json({ error: sanitized.error }, { status: 400 });
+  const command = sanitized.value;
   if (command.length > MAX_COMMAND_LENGTH) {
     return NextResponse.json({ error: `Command too long (max ${MAX_COMMAND_LENGTH} chars)` }, { status: 400 });
   }
@@ -31,7 +35,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ nam
   try {
     const clients = makeGameHubClients();
     const result = await runServerCommand(clients, name, command);
-    return NextResponse.json({ stdout: result.stdout, stderr: result.stderr });
+    await auditLog("game-hub:exec", session.user?.email ?? "unknown", `${name} — ${command}`);
+    return NextResponse.json({ stdout: result.stdout, stderr: result.stderr, method: result.method });
   } catch (error) {
     console.error("exec route failed", error);
     if (isServerStartingError(error)) {

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
+import { safeError } from "@/lib/utils";
 import { getUserPreferences, updateUserPreferences } from "@/lib/user-preferences-server";
 
 const dashboardLayoutSchema = z.object({
@@ -35,7 +36,7 @@ export async function GET() {
     return NextResponse.json(preferences);
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to load preferences" },
+      { error: safeError(error) },
       { status: 500 }
     );
   }
@@ -59,7 +60,7 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json(preferences);
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to save preferences" },
+      { error: safeError(error) },
       { status: 500 }
     );
   }

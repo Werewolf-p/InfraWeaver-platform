@@ -34,6 +34,12 @@ function GridDots() {
   );
 }
 
+function getCallbackUrl() {
+  if (typeof window === "undefined") return "/";
+  const value = new URLSearchParams(window.location.search).get("callbackUrl");
+  return value?.startsWith("/") ? value : "/";
+}
+
 export default function SignInPage() {
   return (
     <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 relative overflow-hidden">
@@ -127,7 +133,7 @@ export default function SignInPage() {
               <motion.button
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.97 }}
-                onClick={() => signIn("authentik", { callbackUrl: "/" })}
+                onClick={() => signIn("authentik", { callbackUrl: getCallbackUrl() })}
                 className="relative w-full group overflow-hidden flex items-center justify-center gap-3 py-3.5 px-6 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-sm transition-colors shadow-lg shadow-indigo-500/25"
               >
                 {/* Shimmer effect */}
@@ -147,7 +153,7 @@ export default function SignInPage() {
               <motion.button
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.97 }}
-                onClick={() => signIn("authentik", { callbackUrl: "/" })}
+                onClick={() => signIn("authentik", { callbackUrl: getCallbackUrl() })}
                 className="w-full flex items-center justify-center gap-3 py-3 px-6 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 font-medium text-sm transition-colors"
               >
                 <svg viewBox="0 0 24 24" className="w-4 h-4 fill-current">

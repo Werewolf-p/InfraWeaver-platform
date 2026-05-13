@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { safeError } from "@/lib/utils";
 
 export async function GET() {
   const session = await auth();
@@ -49,7 +50,7 @@ export async function GET() {
       ready: nsExists && crdExists,
     });
   } catch (err) {
-    return NextResponse.json({ error: String(err) }, { status: 500 });
+    return NextResponse.json({ error: safeError(err) }, { status: 500 });
   }
 }
 
@@ -81,7 +82,7 @@ export async function POST() {
         });
         results.push({ resource: "game-hub namespace", status: "created" });
       } catch (err) {
-        results.push({ resource: "game-hub namespace", status: "error", error: String(err) });
+        results.push({ resource: "game-hub namespace", status: "error", error: safeError(err) });
       }
     }
 
@@ -94,7 +95,7 @@ export async function POST() {
       results.push({ resource: "GameServer CRD", status: "not found — deployed automatically via ArgoCD" });
     }
   } catch (err) {
-    results.push({ resource: "setup", status: "error", error: String(err) });
+    results.push({ resource: "setup", status: "error", error: safeError(err) });
   }
 
   return NextResponse.json({ results });

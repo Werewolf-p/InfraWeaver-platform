@@ -7,6 +7,9 @@ interface RateLimitEntry {
   timestamps: number[];
 }
 
+export const LOGIN_RATE_LIMIT = { max: 5, windowMs: 60_000 };
+export const UNAUTHENTICATED_RATE_LIMIT = { max: 30, windowMs: 60_000 };
+
 const store = new Map<string, RateLimitEntry>();
 
 // Periodically clean up expired entries to prevent memory leaks

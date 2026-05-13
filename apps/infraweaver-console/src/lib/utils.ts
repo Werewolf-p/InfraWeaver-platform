@@ -56,7 +56,37 @@ export function statusColor(status: string) {
 }
 
 
+const SAFE_ERROR_SUBSTRINGS = [
+  "unauthorized",
+  "forbidden",
+  "not found",
+  "already exists",
+  "rate limit",
+  "invalid",
+  "required",
+  "timeout",
+  "too long",
+  "not allowed",
+  "rejected",
+  "failed",
+  "unavailable",
+];
+
+function redactErrorMessage(message: string) {
+  return message
+    .replace(/https?:\/\/[^\s]+/g, "[internal]")
+    .replace(/\b(?:[A-Z]:\\|\/)[\w./\\-]+/g, "[path]")
+    .replace(/\s+at\s+[^\n]+/g, "")
+    .trim();
+}
+
 export function safeError(e: unknown): string {
-  if (e instanceof Error) return e.message.replace(/https?:\/\/[\w.:-]+/g, "[internal]");
-  return "An error occurred";
+  if (!(e instanceof Error)) return process.env.NODE_ENV === "production" ? "Internal error" : "An error occurred";
+
+  const message = redactErrorMessage(e.message);
+  if (!message) return process.env.NODE_ENV === "production" ? "Internal error" : "An error occurred";
+  if (process.env.NODE_ENV !== "production") return message;
+
+  const normalized = message.toLowerCase();
+  return SAFE_ERROR_SUBSTRINGS.some((entry) => normalized.includes(entry)) ? message : "Internal error";
 }

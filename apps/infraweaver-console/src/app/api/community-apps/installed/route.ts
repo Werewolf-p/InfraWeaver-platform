@@ -11,6 +11,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { hasPermission } from "@/lib/rbac";
+import { safeError } from "@/lib/utils";
 
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN ?? "";
 const GITHUB_REPO = process.env.GITHUB_REPO ?? "Werewolf-p/InfraWeaver-platform";
@@ -184,6 +185,6 @@ export async function GET() {
 
     return NextResponse.json({ apps: installedApps, total: installedApps.length });
   } catch (err) {
-    return NextResponse.json({ error: String(err) }, { status: 502 });
+    return NextResponse.json({ error: safeError(err) }, { status: 502 });
   }
 }

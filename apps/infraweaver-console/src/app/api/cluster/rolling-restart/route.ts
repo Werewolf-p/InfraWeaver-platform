@@ -4,6 +4,7 @@ import { getRole } from "@/lib/rbac";
 import { auditLog } from "@/lib/audit-log";
 import { loadKubeConfig } from "@/lib/k8s";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
+import { safeError } from "@/lib/utils";
 import { z } from "zod";
 import * as k8s from "@kubernetes/client-node";
 
@@ -36,7 +37,7 @@ export async function POST(req: NextRequest) {
         });
         restarted.push(name);
       } catch (error) {
-        errors.push(`${name}: ${error instanceof Error ? error.message : "restart failed"}`);
+        errors.push(`${name}: ${safeError(error)}`);
       }
     }
     await auditLog("cluster:rolling-restart", session.user?.email ?? "unknown", `rolling restart in ${namespace}: ${restarted.join(", ")}`);

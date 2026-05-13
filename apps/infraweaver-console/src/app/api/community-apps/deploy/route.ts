@@ -19,6 +19,7 @@ import { auditLog } from "@/lib/audit-log";
 import { z } from "zod";
 import { convertAppFeedEntry } from "@/lib/appfeed-converter";
 import { findAppByName } from "@/lib/appfeed-cache";
+import { safeError } from "@/lib/utils";
 
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN ?? "";
 const GITHUB_REPO = process.env.GITHUB_REPO ?? "Werewolf-p/InfraWeaver-platform";
@@ -112,7 +113,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Deployment conversion failed" },
+      { error: safeError(error) },
       { status: 422 }
     );
   }
@@ -216,6 +217,6 @@ installed_at: ${new Date().toISOString()}
       argocdNote: `ArgoCD will auto-sync this app once the files are committed. If not, run: argocd app sync catalog-${slug}-manifests`,
     });
   } catch (err) {
-    return NextResponse.json({ error: String(err) }, { status: 500 });
+    return NextResponse.json({ error: safeError(err) }, { status: 500 });
   }
 }

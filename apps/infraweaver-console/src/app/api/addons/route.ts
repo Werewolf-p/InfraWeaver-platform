@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getEnabledAddons } from "@/lib/addons-server";
+import { safeError } from "@/lib/utils";
 
 function getErrorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "Failed to load addons";
+  return safeError(error);
 }
 
 export async function GET() {

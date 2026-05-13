@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { safeError } from "@/lib/utils";
 import * as k8s from "@kubernetes/client-node";
 
 function makeClient() {
@@ -39,7 +40,7 @@ export async function GET() {
     return NextResponse.json({ unused });
   } catch (err) {
     console.error("[pvc-cleanup] GET failed:", err);
-    return NextResponse.json({ error: String(err) }, { status: 500 });
+    return NextResponse.json({ error: safeError(err) }, { status: 500 });
   }
 }
 
@@ -63,7 +64,7 @@ export async function DELETE(req: NextRequest) {
       results.push({ namespace, name, success: true });
     } catch (err) {
       console.error(`[pvc-cleanup] failed to delete ${namespace}/${name}:`, err);
-      results.push({ namespace, name, success: false, error: String(err) });
+      results.push({ namespace, name, success: false, error: safeError(err) });
     }
   }
 

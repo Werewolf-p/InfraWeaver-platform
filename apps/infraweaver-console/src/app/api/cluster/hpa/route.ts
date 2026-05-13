@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { hasPermission } from "@/lib/rbac";
+import { safeError } from "@/lib/utils";
 import * as k8s from "@kubernetes/client-node";
 
 function makeKc() {
@@ -81,6 +82,6 @@ export async function PATCH(request: Request) {
     if (!res.ok) throw new Error(await res.text());
     return NextResponse.json({ ok: true });
   } catch (err) {
-    return NextResponse.json({ error: String(err) }, { status: 500 });
+    return NextResponse.json({ error: safeError(err) }, { status: 500 });
   }
 }

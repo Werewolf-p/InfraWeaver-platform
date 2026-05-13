@@ -18,6 +18,7 @@ import { auth } from "@/lib/auth";
 import { hasPermission } from "@/lib/rbac";
 import { summarizeApp, detectTier, type AppFeedEntry } from "@/lib/appfeed-converter";
 import { getAppFeed } from "@/lib/appfeed-cache";
+import { safeError } from "@/lib/utils";
 
 export async function GET(req: NextRequest) {
   const session = await auth();
@@ -93,6 +94,6 @@ export async function GET(req: NextRequest) {
       }
     );
   } catch (err) {
-    return NextResponse.json({ error: String(err) }, { status: 502 });
+    return NextResponse.json({ error: safeError(err) }, { status: 502 });
   }
 }

@@ -52,6 +52,10 @@ export function normalizeServerName(name: string) {
   return name.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/^-+|-+$/g, "");
 }
 
+export function shellQuote(value: string) {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
 export function getDeploymentGameType(deployment: { metadata?: { labels?: Record<string, string> } } | null | undefined) {
   return deployment?.metadata?.labels?.["infraweaver/game-type"] ?? deployment?.metadata?.labels?.["infraweaver.io/game-type"] ?? "unknown";
 }
@@ -120,6 +124,53 @@ export function getPrimaryContainerName(pod: k8s.V1Pod | null | undefined, fallb
   return pod?.spec?.containers?.[0]?.name ?? fallback;
 }
 
+function missingExecutable(error: unknown) {
+  if (!(error instanceof Error)) return false;
+  const message = error.message.toLowerCase();
+  return message.includes("executable file not found") || message.includes("no such file or directory") || message.includes("not found");
+}
+
+export function splitExecCommand(command: string) {
+  const args: string[] = [];
+  let current = "";
+  let quote: '"' | "'" | null = null;
+  let escaped = false;
+
+  for (const char of command) {
+    if (escaped) {
+      current += char;
+      escaped = false;
+      continue;
+    }
+
+    if (char === "\\" && quote !== "'") {
+      escaped = true;
+      continue;
+    }
+
+    if ((char === '"' || char === "'") && (!quote || quote === char)) {
+      quote = quote === char ? null : char;
+      continue;
+    }
+
+    if (/\s/.test(char) && !quote) {
+      if (current) {
+        args.push(current);
+        current = "";
+      }
+      continue;
+    }
+
+    current += char;
+  }
+
+  if (quote) throw new Error("Unterminated quoted string");
+  if (escaped) throw new Error("Trailing escape in command");
+  if (current) args.push(current);
+  if (args.length === 0) throw new Error("command is required");
+  return args;
+}
+
 export async function execInPod(
   kc: k8s.KubeConfig,
   podName: string,
@@ -167,6 +218,40 @@ export async function execShell(
   return execInPod(kc, podName, containerName, ["sh", "-c", script], timeoutMs);
 }
 
+export async function execCommandText(
+  kc: k8s.KubeConfig,
+  podName: string,
+  containerName: string,
+  command: string,
+  timeoutMs = 15000,
+) {
+  return execInPod(kc, podName, containerName, splitExecCommand(command), timeoutMs);
+}
+
+export async function runRconCommand(
+  kc: k8s.KubeConfig,
+  podName: string,
+  containerName: string,
+  command: string,
+  timeoutMs = 15000,
+) {
+  const candidates = [
+    ["/usr/local/bin/rcon-cli", command],
+    ["/usr/bin/rcon-cli", command],
+    ["rcon-cli", command],
+  ];
+
+  for (const candidate of candidates) {
+    try {
+      return await execInPod(kc, podName, containerName, candidate, timeoutMs);
+    } catch (error) {
+      if (!missingExecutable(error)) throw error;
+    }
+  }
+
+  throw new Error("RCON client is unavailable for this server");
+}
+
 export function isServerStartingError(error: unknown) {
   const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
   return message.includes("container not found")
@@ -197,8 +282,8 @@ export async function runServerCommand(
 
     const containerName = getPrimaryContainerName(pod, name);
     try {
-      const result = await execShell(clients.kc, pod.metadata.name, containerName, command, timeoutMs);
-      return { ...result, gameType, pod };
+      const result = await runRconCommand(clients.kc, pod.metadata.name, containerName, command, timeoutMs);
+      return { ...result, gameType, pod, method: "rcon" as const };
     } catch (error) {
       const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
       if ((message.includes("container not found") || message.includes("container not running")) && attempt < 2) {

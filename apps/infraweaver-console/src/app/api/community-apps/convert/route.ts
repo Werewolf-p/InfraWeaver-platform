@@ -13,6 +13,7 @@ import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { z } from "zod";
 import { convertAppFeedEntry } from "@/lib/appfeed-converter";
 import { findAppByName } from "@/lib/appfeed-cache";
+import { safeError } from "@/lib/utils";
 
 const ConvertBody = z.object({
   // App can be passed by name (looked up from feed) or as full entry (from client cache)
@@ -63,7 +64,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(result);
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Conversion failed" },
+      { error: safeError(error) },
       { status: 422 }
     );
   }

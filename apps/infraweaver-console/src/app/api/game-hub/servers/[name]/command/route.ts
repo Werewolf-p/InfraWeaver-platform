@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { auditLog } from "@/lib/audit-log";
+import { sanitizeConsoleCommand } from "@/lib/api-helpers";
+import { auditLog, auditUnauthorizedAccess } from "@/lib/audit-log";
 import { getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
 import { appendServerAudit, getServerDeployment, isServerStartingError, makeGameHubClients, readServerEgg, runServerCommand } from "@/lib/game-hub-server";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
@@ -28,12 +29,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ nam
   const { name } = await params;
   const access = await getGameHubAccessContext(session, 60);
   if (!hasGameHubPermission(access.groups, access.username, access.roleAssignments, "game-hub:read", name)) {
+    await auditUnauthorizedAccess("game-hub:command-denied", req, session.user?.email ?? "unknown", `${name} missing game-hub:read`);
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const body = await req.json() as { command: string };
-  const command = body.command?.trim() ?? "";
-  if (!command) return NextResponse.json({ error: "No command provided" }, { status: 400 });
+  const sanitized = sanitizeConsoleCommand(body.command ?? "");
+  if (!sanitized.ok) return NextResponse.json({ error: sanitized.error }, { status: 400 });
+  const command = sanitized.value;
   if (command.length > MAX_COMMAND_LENGTH) return NextResponse.json({ error: `Command too long (max ${MAX_COMMAND_LENGTH} chars)` }, { status: 400 });
 
   try {
@@ -48,13 +51,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ nam
         : "game-server-viewer";
     const allowed = allowedForRole(egg.commandAcl, roleKey);
     if (!isCommandAllowed(command, allowed)) {
+      await auditUnauthorizedAccess("game-hub:command-acl-denied", req, session.user?.email ?? "unknown", `${name} denied command ${command}`);
       return NextResponse.json({ error: "Command not allowed for your role", stdout: "", stderr: "", success: false }, { status: 403 });
     }
 
     const result = await runServerCommand(clients, name, command, 10_000);
     await auditLog("game-hub:command", session.user?.email ?? "unknown", `${name} — ${command}`);
     await appendServerAudit(clients.coreApi, name, { timestamp: new Date().toISOString(), user: session.user?.email ?? "unknown", action: "command", details: command });
-    return NextResponse.json({ stdout: result.stdout, stderr: result.stderr, success: true, method: "shell" });
+    return NextResponse.json({ stdout: result.stdout, stderr: result.stderr, success: true, method: result.method });
   } catch (error) {
     console.error("game hub command failed", error);
     if (isServerStartingError(error)) {

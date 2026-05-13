@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { safeError } from "@/lib/utils";
 
 export async function POST(req: NextRequest) {
   const session = await auth();
@@ -19,6 +20,6 @@ export async function POST(req: NextRequest) {
     res.headers.forEach((v, k) => { resHeaders[k] = v; });
     return NextResponse.json({ status: res.status, statusText: res.statusText, headers: resHeaders, body: resBody, latencyMs: Date.now() - start });
   } catch (err) {
-    return NextResponse.json({ error: String(err), latencyMs: Date.now() - start }, { status: 500 });
+    return NextResponse.json({ error: safeError(err), latencyMs: Date.now() - start }, { status: 500 });
   }
 }
