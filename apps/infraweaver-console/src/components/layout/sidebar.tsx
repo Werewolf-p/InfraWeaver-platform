@@ -10,7 +10,9 @@ import { cn } from "@/lib/utils";
 import { useSession, signOut } from "next-auth/react";
 import { useFavorites } from "@/hooks/use-favorites";
 import { useRecentPages } from "@/hooks/use-recent-pages";
-import { NAV_GROUPS, ALL_NAV_ITEMS, type NavItem } from "@/lib/nav-config";
+import { useAddons } from "@/hooks/use-addons";
+import { filterNavGroupsByAddons } from "@/lib/addons";
+import { NAV_GROUPS, type NavItem } from "@/lib/nav-config";
 
 const ROLE_COLORS: Record<string, string> = {
   admin: "bg-[rgba(0,120,212,0.2)] text-[#0078D4] border-[rgba(0,120,212,0.3)]",
@@ -96,7 +98,11 @@ export function Sidebar() {
   const { data: session } = useSession();
   const { favorites } = useFavorites();
   const { recentPages, addRecentPage } = useRecentPages();
+  const { addons } = useAddons();
   const appVersion = process.env.NEXT_PUBLIC_APP_VERSION ?? "dev";
+
+  const filteredNavGroups = useMemo(() => filterNavGroupsByAddons(NAV_GROUPS, addons), [addons]);
+  const visibleNavItems = useMemo(() => filteredNavGroups.flatMap((group) => group.items), [filteredNavGroups]);
 
   const toggleSection = (id: string) => {
     setOpenSections(prev => {
@@ -107,23 +113,23 @@ export function Sidebar() {
   };
 
   useEffect(() => {
-    const match = ALL_NAV_ITEMS.find(item =>
+    const match = visibleNavItems.find((item) =>
       item.href === "/" ? pathname === "/" : item.href !== "/" && pathname.startsWith(item.href)
     );
     if (match) addRecentPage(match.href, match.label);
-  }, [pathname, addRecentPage]);
+  }, [pathname, addRecentPage, visibleNavItems]);
 
   const filteredItems = useMemo(() => {
     if (!search.trim()) return null;
     const q = search.toLowerCase();
-    return ALL_NAV_ITEMS.filter(item =>
+    return visibleNavItems.filter((item) =>
       item.label.toLowerCase().includes(q) || item.description?.toLowerCase().includes(q)
     );
-  }, [search]);
+  }, [search, visibleNavItems]);
 
-  const favItems = ALL_NAV_ITEMS.filter(item => favorites.some(f => f.href === item.href));
-  const recentItems = ALL_NAV_ITEMS.filter(item =>
-    recentPages.some((r: { href: string }) => r.href === item.href) && !favorites.some(f => f.href === item.href)
+  const favItems = visibleNavItems.filter((item) => favorites.some((f) => f.href === item.href));
+  const recentItems = visibleNavItems.filter((item) =>
+    recentPages.some((r: { href: string }) => r.href === item.href) && !favorites.some((f) => f.href === item.href)
   ).slice(0, 3);
 
   const userName = session?.user?.name ?? session?.user?.email ?? "User";
@@ -237,7 +243,7 @@ export function Sidebar() {
         )}
 
         {/* Main nav groups - COLLAPSIBLE accordion */}
-        {filteredItems === null && NAV_GROUPS.filter(g => g.id !== "settings").map(group => {
+        {filteredItems === null && filteredNavGroups.filter((g) => g.id !== "settings").map(group => {
           if (collapsed) {
             return (
               <div key={group.id} className="py-0.5">
@@ -300,7 +306,7 @@ export function Sidebar() {
       {/* Settings group (always at bottom) */}
       {!collapsed && (
         <div className="px-2 py-2 border-t border-[#2a2a2a] flex-shrink-0 space-y-0.5">
-          {NAV_GROUPS.find(g => g.id === "settings")?.items.map(item => {
+          {filteredNavGroups.find((g) => g.id === "settings")?.items.map(item => {
             const isActive = pathname === item.href;
             return <NavItemRow key={item.href} item={item} isActive={isActive} collapsed={false} />;
           })}

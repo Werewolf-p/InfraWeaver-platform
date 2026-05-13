@@ -1,4 +1,5 @@
 "use client";
+import { useState } from "react";
 import { motion } from "framer-motion";
 import { Puzzle, Gamepad2, Network, ExternalLink, CheckCircle2, XCircle } from "lucide-react";
 import { useAddons } from "@/hooks/use-addons";
@@ -20,6 +21,24 @@ const CATEGORY_COLORS: Record<string, string> = {
 
 export default function AddonsPage() {
   const { addons, enableAddon, disableAddon, mounted } = useAddons();
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
+
+  const handleToggle = async (addon: (typeof addons)[number]) => {
+    setUpdatingId(addon.id);
+    try {
+      if (addon.enabled) {
+        await disableAddon(addon.id);
+        toast.success(`${addon.name} disabled`);
+      } else {
+        await enableAddon(addon.id);
+        toast.success(`${addon.name} enabled${addon.requiresSetup ? " — setup required" : ""}`);
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : `Failed to update ${addon.name}`);
+    } finally {
+      setUpdatingId(null);
+    }
+  };
 
   if (!mounted) {
     return (
@@ -68,17 +87,10 @@ export default function AddonsPage() {
                 </div>
                 {/* Toggle */}
                 <button
-                  onClick={() => {
-                    if (addon.enabled) {
-                      disableAddon(addon.id);
-                      toast.success(`${addon.name} disabled`);
-                    } else {
-                      enableAddon(addon.id);
-                      toast.success(`${addon.name} enabled${addon.requiresSetup ? " — setup required" : ""}`);
-                    }
-                  }}
+                  onClick={() => void handleToggle(addon)}
+                  disabled={updatingId === addon.id}
                   className={cn(
-                    "relative w-11 h-6 rounded-full transition-colors flex-shrink-0",
+                    "relative w-11 h-6 rounded-full transition-colors flex-shrink-0 disabled:cursor-wait disabled:opacity-60",
                     addon.enabled ? "bg-[#0078D4]" : "bg-[#333]"
                   )}
                   aria-label={addon.enabled ? `Disable ${addon.name}` : `Enable ${addon.name}`}

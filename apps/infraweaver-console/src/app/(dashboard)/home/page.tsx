@@ -19,6 +19,7 @@ import { useFavorites } from "@/hooks/use-favorites";
 import { ALL_NAV_ITEMS } from "@/lib/nav-config";
 import Link from "next/link";
 import { Star } from "lucide-react";
+import type { HomepageServiceHealth } from "@/lib/homepage-service-config";
 
 // ─── Service definitions ────────────────────────────────────────────────────
 
@@ -121,7 +122,18 @@ function SearchBar() {
   );
 }
 
-type HealthStatus = { ok: boolean; status: string };
+type HealthStatus = HomepageServiceHealth;
+
+function getHealthTextClass(status: HomepageServiceHealth["status"]) {
+  if (status === "healthy") return "text-green-400";
+  if (status === "degraded") return "text-amber-400";
+  return "text-red-400";
+}
+
+function getHealthLabel(status: HealthStatus) {
+  if (status.status === "healthy") return "Healthy";
+  return status.reason ?? (status.status === "degraded" ? "Degraded" : "Offline");
+}
 
 function StatusDot({ status }: { status: HealthStatus | undefined | "loading" }) {
   if (status === "loading") {
@@ -131,7 +143,11 @@ function StatusDot({ status }: { status: HealthStatus | undefined | "loading" })
   return (
     <span className={cn(
       "w-2 h-2 rounded-full inline-block",
-      status.ok ? "bg-green-500" : "bg-red-500"
+      status.status === "healthy"
+        ? "bg-green-500"
+        : status.status === "degraded"
+          ? "bg-amber-500"
+          : "bg-red-500"
     )} />
   );
 }
@@ -174,11 +190,9 @@ function ServiceCard({
             {healthStatus === "loading" ? (
               <span className="text-xs text-[#666]">Checking…</span>
             ) : healthStatus ? (
-              healthStatus.ok ? (
-                <span className="text-xs text-green-400">Healthy</span>
-              ) : (
-                <span className="text-xs text-red-400">{healthStatus.status ?? "Degraded"}</span>
-              )
+              <span className={cn("text-xs", getHealthTextClass(healthStatus.status))}>
+                {getHealthLabel(healthStatus)}
+              </span>
             ) : (
               <span className="text-xs text-[#666]">—</span>
             )}
@@ -474,7 +488,7 @@ export default function HomePortalPage() {
   });
 
   const onlineCount = healthData
-    ? Object.values(healthData).filter(v => v.ok).length
+    ? Object.values(healthData).filter((value) => value.status === "healthy").length
     : 0;
   const totalPingable = Object.keys(healthData ?? {}).length;
   const totalServices = SERVICE_GROUPS.flatMap(g => g.services).length;

@@ -22,6 +22,7 @@ import { SpotlightSearch } from "@/components/ui/spotlight-search";
 import { OfflineIndicator } from "@/components/ui/offline-indicator";
 import { useRecentPages } from "@/hooks/use-recent-pages";
 import { useAddons } from "@/hooks/use-addons";
+import { filterNavGroupsByAddons } from "@/lib/addons";
 
 const mobileNavItems = MOBILE_BOTTOM_NAV;
 
@@ -94,18 +95,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [moreSearch, setMoreSearch] = useState("");
   const [moreCategory, setMoreCategory] = useState<string>("all");
   const [drawerSearch, setDrawerSearch] = useState("");
-  const { addons, mounted: addonsMounted } = useAddons();
+  const { addons } = useAddons();
 
-  // Build filtered nav groups based on enabled addons
-  const filteredNavGroups = useMemo(() => {
-    if (!addonsMounted) return NAV_GROUPS;
-    return NAV_GROUPS.filter(group => {
-      if (group.id === "gaming") {
-        return addons.find(a => a.id === "game-hub")?.enabled === true;
-      }
-      return true;
-    });
-  }, [addons, addonsMounted]);
+  const filteredNavGroups = useMemo(() => filterNavGroupsByAddons(NAV_GROUPS, addons), [addons]);
 
   // Auto-expand the group that contains the current page; others default to their defaultOpen
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
@@ -199,6 +191,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               className="fixed inset-0 z-40 bg-black/70 md:hidden"
+              style={{ touchAction: "pan-y" }}
               onClick={() => { setMobileOpen(false); setDrawerSearch(""); }}
             />
             {/* Drawer panel */}
@@ -214,7 +207,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               onDragEnd={(_, info) => {
                 if (info.offset.x < -60 || info.velocity.x < -300) { setMobileOpen(false); setDrawerSearch(""); }
               }}
-              className="fixed left-0 top-0 bottom-0 z-50 w-[300px] bg-[#111] border-r border-[#222] md:hidden flex flex-col"
+              className="fixed left-0 top-0 bottom-0 z-50 w-[300px] bg-[#111] border-r border-[#222] md:hidden flex flex-col flex-shrink-0 overflow-hidden"
             >
               {/* ── ITER 1: Header with branding + cluster health dot ── */}
               <div className="flex-shrink-0 flex items-center justify-between px-4 pt-[calc(env(safe-area-inset-top,0px)+14px)] pb-3 border-b border-[#222]">
@@ -275,7 +268,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               )}
 
               {/* ── ITER 3+4: Nav groups — scrollable ── */}
-              <div className="flex-1 overflow-y-auto pt-2 pb-2" style={{ touchAction: "pan-y" }}>
+              <div
+                className="flex-1 overflow-y-auto overflow-x-hidden pt-2 pb-2 [-webkit-overflow-scrolling:touch]"
+                onPointerDown={(e) => e.stopPropagation()}
+                style={{ touchAction: "pan-y" }}
+              >
                 {drawerSearch && (
                   /* Flat search results */
                   <div className="px-2">
@@ -531,6 +528,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               className="fixed inset-0 z-[200] bg-black/70 md:hidden"
+              style={{ touchAction: "pan-y" }}
               onClick={() => { setMoreOpen(false); setMoreSearch(""); setMoreCategory("all"); }}
             />
             <motion.div
@@ -545,7 +543,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               onDragEnd={(_, info) => {
                 if (info.offset.y > 80 || info.velocity.y > 500) { setMoreOpen(false); setMoreSearch(""); setMoreCategory("all"); }
               }}
-              className="fixed bottom-0 left-0 right-0 z-[201] bg-[#111] border-t border-[#222] rounded-t-2xl md:hidden max-h-[92dvh] flex flex-col shadow-2xl"
+              className="fixed bottom-0 left-0 right-0 z-[201] bg-[#111] border-t border-[#222] rounded-t-2xl md:hidden max-h-[92dvh] flex flex-col flex-shrink-0 overflow-hidden shadow-2xl"
               style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
             >
               {/* Drag handle */}
@@ -621,7 +619,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               )}
 
               {/* Content — grid when category selected, list when searching */}
-              <div className="flex-1 overflow-y-auto px-3 pb-4" style={{ touchAction: "pan-y" }}>
+              <div
+                className="flex-1 overflow-y-auto overflow-x-hidden px-3 pb-4 [-webkit-overflow-scrolling:touch]"
+                onPointerDown={(e) => e.stopPropagation()}
+                style={{ touchAction: "pan-y" }}
+              >
 
                 {/* Recent pages (all + no search) */}
                 {recentPages.length > 0 && !moreSearch && moreCategory === "all" && (

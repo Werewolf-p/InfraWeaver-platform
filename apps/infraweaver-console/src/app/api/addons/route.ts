@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { getHomepageServiceHealthMap } from "@/lib/homepage-health";
+import { getEnabledAddons } from "@/lib/addons";
 
 function getErrorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "Unable to read homepage health";
+  return error instanceof Error ? error.message : "Failed to load addons";
 }
 
 export async function GET() {
@@ -11,8 +11,8 @@ export async function GET() {
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
-    return NextResponse.json(await getHomepageServiceHealthMap());
+    return NextResponse.json(await getEnabledAddons());
   } catch (error) {
-    return NextResponse.json({ error: getErrorMessage(error) }, { status: 503 });
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
   }
 }
