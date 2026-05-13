@@ -1,7 +1,7 @@
 "use client";
 
 import * as Dialog from "@radix-ui/react-dialog";
-import { Loader2, Search as SearchIcon } from "lucide-react";
+import { Compass, Gamepad2, Loader2, Package, Search as SearchIcon, Settings2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -24,6 +24,14 @@ const CATEGORY_ORDER: Array<keyof SearchResponse> = [
   "settings",
 ];
 
+const CATEGORY_ICONS = {
+  navigation: Compass,
+  "game-server": Gamepad2,
+  pod: Compass,
+  app: Package,
+  setting: Settings2,
+};
+
 export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -32,12 +40,7 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (!open) {
-      setQuery("");
-      setResults(EMPTY_SEARCH_RESPONSE);
-      setLoading(false);
-      return;
-    }
+    if (!open) return;
 
     const timer = window.setTimeout(() => inputRef.current?.focus(), 10);
     return () => window.clearTimeout(timer);
@@ -87,7 +90,7 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
 
   const handleSelect = (result: SearchResult) => {
     router.push(result.href);
-    onOpenChange(false);
+    handleOpenChange(false);
   };
 
   const handleEnter = () => {
@@ -96,8 +99,17 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
     }
   };
 
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) {
+      setQuery("");
+      setResults(EMPTY_SEARCH_RESPONSE);
+      setLoading(false);
+    }
+    onOpenChange(nextOpen);
+  };
+
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+    <Dialog.Root open={open} onOpenChange={handleOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-[500] bg-black/70 backdrop-blur-sm" />
         <Dialog.Content className="fixed left-1/2 top-[14vh] z-[501] w-[min(92vw,40rem)] -translate-x-1/2 overflow-hidden rounded-2xl border border-[#2a2a2a] bg-[#111] p-0 shadow-2xl outline-none">
@@ -132,22 +144,25 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
                       ? "setting"
                       : "navigation";
 
+              const CategoryIcon = CATEGORY_ICONS[category];
+
               return (
                 <div key={key}>
-                  <div className="px-4 py-1.5 text-xs font-medium uppercase tracking-wider text-[#666]">
+                  <div className="flex items-center gap-2 px-4 py-1.5 text-xs font-medium uppercase tracking-wider text-[#888]">
+                    <CategoryIcon className="h-3.5 w-3.5" />
                     {SEARCH_CATEGORY_LABELS[category]}
                   </div>
                   {entries.map((result) => (
                     <button
                       key={result.id}
-                      className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-[#1a1a1a]"
+                      className="flex w-full cursor-pointer items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-[#1a1a1a] focus:bg-[#1a1a1a] focus:outline-none"
                       onClick={() => handleSelect(result)}
                     >
-                      <span className="text-base">{result.icon ?? "•"}</span>
+                      <span className="text-base text-[#d4d4d4]">{result.icon ?? "•"}</span>
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-sm text-[#f2f2f2]">{result.title}</div>
                         {result.subtitle ? (
-                          <div className="truncate text-xs text-[#666]">{result.subtitle}</div>
+                          <div className="truncate text-xs text-[#888]">{result.subtitle}</div>
                         ) : null}
                       </div>
                       {result.badge ? (
@@ -161,7 +176,7 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
               );
             })}
             {query.length > 0 && flatResults.length === 0 && !loading ? (
-              <div className="px-4 py-8 text-center text-sm text-[#444]">No results for &quot;{query}&quot;</div>
+              <div className="px-4 py-8 text-center text-sm text-[#888]">No results for &quot;{query}&quot;</div>
             ) : null}
           </div>
         </Dialog.Content>

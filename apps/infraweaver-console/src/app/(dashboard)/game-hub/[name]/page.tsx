@@ -3486,21 +3486,22 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
             Auto-restart Policy
           </p>
         </div>
-        <div className="p-4 flex items-center justify-between gap-4">
-          <div>
-            <p className="text-sm text-[#f2f2f2]">Restart on crash</p>
-            <p className="text-xs text-[#555] mt-0.5">
-              Automatically restart if the server process exits unexpectedly
-            </p>
-          </div>
-          <button
-            onClick={toggleAutoRestart}
-            disabled={savingRestart}
-            className={cn(
-              "relative w-11 h-6 rounded-full transition-colors flex-shrink-0",
-              autoRestart ? "bg-[#0078D4]" : "bg-[#2a2a2a]",
-            )}
-          >
+        <div className="p-4">
+          <div className="flex min-w-0 items-center justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <p className="block truncate text-sm text-[#f2f2f2]">Restart on crash</p>
+              <p className="mt-0.5 truncate text-xs text-[#888]">
+                Automatically restart if the server process exits unexpectedly
+              </p>
+            </div>
+            <button
+              onClick={toggleAutoRestart}
+              disabled={savingRestart}
+              className={cn(
+                "relative h-6 w-11 shrink-0 rounded-full transition-colors",
+                autoRestart ? "bg-[#3b82f6]" : "bg-[#2a2a2a]",
+              )}
+            >
             <span
               className={cn(
                 "absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform shadow",
@@ -3510,6 +3511,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
           </button>
         </div>
       </div>
+    </div>
 
       <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
         <div className="flex items-center gap-2 px-4 py-3 border-b border-[#1e1e1e]">
@@ -3521,16 +3523,16 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
         <div className="p-4 space-y-4">
           <div className="grid gap-4 md:grid-cols-2">
             <div className="rounded-lg border border-[#2a2a2a] bg-[#0d0d0d] p-3 space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm text-[#f2f2f2]">Enable scheduled start</p>
-                  <p className="text-[11px] text-[#555]">Scale the server back to 1 replica on the selected days.</p>
+              <div className="flex min-w-0 items-center justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="block truncate text-sm text-[#f2f2f2]">Enable scheduled start</p>
+                  <p className="truncate text-[11px] text-[#888]">Scale the server back to 1 replica on the selected days.</p>
                 </div>
                 <button
                   onClick={() => setScheduleStartEnabled((current) => !current)}
                   className={cn(
-                    "relative w-11 h-6 rounded-full transition-colors flex-shrink-0",
-                    scheduleStartEnabled ? "bg-[#0078D4]" : "bg-[#2a2a2a]",
+                    "relative h-6 w-11 shrink-0 rounded-full transition-colors",
+                    scheduleStartEnabled ? "bg-[#3b82f6]" : "bg-[#2a2a2a]",
                   )}
                 >
                   <span
@@ -3551,16 +3553,16 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
               />
             </div>
             <div className="rounded-lg border border-[#2a2a2a] bg-[#0d0d0d] p-3 space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm text-[#f2f2f2]">Enable scheduled stop</p>
-                  <p className="text-[11px] text-[#555]">Scale the server down cleanly at the chosen time.</p>
+              <div className="flex min-w-0 items-center justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="block truncate text-sm text-[#f2f2f2]">Enable scheduled stop</p>
+                  <p className="truncate text-[11px] text-[#888]">Scale the server down cleanly at the chosen time.</p>
                 </div>
                 <button
                   onClick={() => setScheduleStopEnabled((current) => !current)}
                   className={cn(
-                    "relative w-11 h-6 rounded-full transition-colors flex-shrink-0",
-                    scheduleStopEnabled ? "bg-[#0078D4]" : "bg-[#2a2a2a]",
+                    "relative h-6 w-11 shrink-0 rounded-full transition-colors",
+                    scheduleStopEnabled ? "bg-[#3b82f6]" : "bg-[#2a2a2a]",
                   )}
                 >
                   <span
@@ -3583,7 +3585,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
           </div>
           <div className="grid gap-3 md:grid-cols-[1fr_220px]">
             <div>
-              <label className="block text-[10px] text-[#666] mb-2">Days of week</label>
+              <label className="mb-2 block text-[10px] text-[#888]">Days of week</label>
               <div className="flex flex-wrap gap-2">
                 {SCHEDULE_DAY_OPTIONS.map((day) => {
                   const active = scheduleDays.includes(day.value);
@@ -3605,14 +3607,14 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
               </div>
             </div>
             <div>
-              <label className="block text-[10px] text-[#666] mb-2">Timezone</label>
+              <label className="mb-2 block text-[10px] text-[#888]">Timezone</label>
               <input
                 value={scheduleTimezone}
                 onChange={(event) => setScheduleTimezone(event.target.value)}
                 placeholder="America/New_York"
                 className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded px-3 py-2 text-sm text-[#f2f2f2] font-mono focus:outline-none focus:border-[#0078D4]"
               />
-              <p className="mt-1 text-[10px] text-[#555]">CronJobs use this IANA timezone.</p>
+              <p className="mt-1 text-[10px] text-[#888]">CronJobs use this IANA timezone.</p>
             </div>
           </div>
           <button

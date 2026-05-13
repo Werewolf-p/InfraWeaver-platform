@@ -210,19 +210,19 @@ export function DnsRecordDialog({
       <Dialog.Root open={open} onOpenChange={(nextOpen) => (nextOpen ? onOpenChange(true) : requestClose())}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 z-[70] bg-black/70 backdrop-blur-sm" />
-          <Dialog.Content className="fixed left-1/2 top-1/2 z-[71] w-[calc(100vw-2rem)] max-w-2xl -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-white/10 bg-slate-950 shadow-2xl focus:outline-none">
-            <div className="flex items-start justify-between gap-4 border-b border-white/10 px-6 py-5">
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-[71] w-[calc(100vw-2rem)] max-w-2xl -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-[#2a2a2a] bg-[#111] text-[#f2f2f2] shadow-2xl focus:outline-none">
+            <div className="flex items-start justify-between gap-4 border-b border-[#2a2a2a] px-6 py-5">
               <div>
-                <Dialog.Title className="text-lg font-semibold text-white">
+                <Dialog.Title className="text-lg font-semibold text-[#f2f2f2]">
                   {isEditing ? "Edit DNS Record" : "Add DNS Record"}
                 </Dialog.Title>
-                <Dialog.Description className="mt-1 text-sm text-slate-400">
+                <Dialog.Description className="mt-1 text-sm text-[#888]">
                   Manage internal VPN hostnames and public Cloudflare DNS records without leaving InfraWeaver.
                 </Dialog.Description>
               </div>
               <button
                 onClick={requestClose}
-                className="rounded-lg p-2 text-slate-500 transition hover:bg-white/5 hover:text-white"
+                className="rounded-lg p-2 text-[#888] transition hover:bg-[#1a1a1a] hover:text-[#f2f2f2]"
                 aria-label="Close DNS dialog"
                 title="Close"
               >
@@ -246,13 +246,13 @@ export function DnsRecordDialog({
                         <button
                           key={`${target.label}-${target.value}`}
                           onClick={() => applyTemplate(target)}
-                          className="rounded-lg border border-cyan-500/20 bg-slate-950/60 px-3 py-2 text-left text-xs text-white transition hover:border-cyan-400/40 hover:bg-cyan-500/10"
+                          className="rounded-lg border border-cyan-500/20 bg-[#0d0d0d] px-3 py-2 text-left text-xs text-[#f2f2f2] transition hover:border-cyan-400/40 hover:bg-cyan-500/10"
                           title={target.description ?? target.value}
                         >
                           <div className="font-medium">{target.label}</div>
                           <div className="font-mono text-cyan-200/80">{target.value}</div>
                         </button>
-                      )) : <p className="text-xs text-slate-500">No node IPs detected yet.</p>}
+                      )) : <p className="text-xs text-[#888]">No node IPs detected yet.</p>}
                     </div>
                   </div>
 
@@ -266,9 +266,9 @@ export function DnsRecordDialog({
                     </p>
                     <div className="mt-3 space-y-2">
                       {gameServerTargets.length > 0 ? gameServerTargets.slice(0, 3).map((target) => (
-                        <div key={`${target.label}-${target.value}`} className="flex items-center justify-between gap-3 rounded-lg border border-violet-500/15 bg-slate-950/60 px-3 py-2">
+                        <div key={`${target.label}-${target.value}`} className="flex items-center justify-between gap-3 rounded-lg border border-violet-500/15 bg-[#0d0d0d] px-3 py-2">
                           <div className="min-w-0">
-                            <div className="truncate text-sm font-medium text-white">{target.label}</div>
+                            <div className="truncate text-sm font-medium text-[#f2f2f2]">{target.label}</div>
                             <div className="truncate font-mono text-xs text-violet-200/80">{target.value}</div>
                           </div>
                           <button
@@ -278,7 +278,7 @@ export function DnsRecordDialog({
                             Use
                           </button>
                         </div>
-                      )) : <p className="text-xs text-slate-500">No game servers detected.</p>}
+                      )) : <p className="text-xs text-[#888]">No game servers detected.</p>}
                     </div>
                     <Link href="/game-hub" className="mt-3 inline-flex items-center gap-1.5 text-xs text-violet-200 hover:text-white">
                       View Game Hub servers
@@ -290,36 +290,36 @@ export function DnsRecordDialog({
 
               <div className="grid gap-4 md:grid-cols-2">
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-slate-200">Record name</label>
+                  <label className="mb-1 block text-sm font-medium text-[#f2f2f2]">Record name</label>
                   <input
                     value={form.name}
                     onChange={(event) => updateField("name", event.target.value.toLowerCase())}
                     disabled={isEditing}
                     placeholder="minecraft"
                     className={cn(
-                      "w-full rounded-xl border bg-slate-900 px-3 py-2.5 text-sm text-white outline-none transition",
-                      errors.name ? "border-red-500/50" : "border-white/10 focus:border-cyan-500/40",
+                      "w-full rounded-xl border bg-[#0d0d0d] px-3 py-2.5 text-sm text-[#f2f2f2] outline-none transition placeholder:text-[#444] focus:ring-1 focus:ring-[#3b82f6]",
+                      errors.name ? "border-red-500/50" : "border-[#2a2a2a] focus:border-[#3b82f6]",
                       isEditing && "cursor-not-allowed opacity-70",
                     )}
                   />
-                  <p className="mt-1 text-xs text-slate-500">
+                  <p className="mt-1 text-xs text-[#888]">
                     {form.internal ? "Creates *.int.rlservers.com for NetBird/VPN" : "Creates *.rlservers.com for public access"}
                   </p>
                   {errors.name ? <p className="mt-1 text-xs text-red-400">{errors.name}</p> : null}
                 </div>
 
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-slate-200">Value</label>
+                  <label className="mb-1 block text-sm font-medium text-[#f2f2f2]">Value</label>
                   <input
                     value={form.value}
                     onChange={(event) => updateField("value", event.target.value)}
                     placeholder={form.type === "A" ? "10.25.0.10" : form.type === "TXT" ? "verification-token" : "target.example.com"}
                     className={cn(
-                      "w-full rounded-xl border bg-slate-900 px-3 py-2.5 text-sm text-white outline-none transition",
-                      errors.value ? "border-red-500/50" : "border-white/10 focus:border-cyan-500/40",
+                      "w-full rounded-xl border bg-[#0d0d0d] px-3 py-2.5 text-sm text-[#f2f2f2] outline-none transition placeholder:text-[#444] focus:ring-1 focus:ring-[#3b82f6]",
+                      errors.value ? "border-red-500/50" : "border-[#2a2a2a] focus:border-[#3b82f6]",
                     )}
                   />
-                  <div className="mt-1 flex items-center justify-between text-xs text-slate-500">
+                  <div className="mt-1 flex items-center justify-between text-xs text-[#888]">
                     <span>{form.type === "A" ? "IPv4 address or node IP" : form.type === "CNAME" ? "Hostname target" : "TXT value"}</span>
                     <span>{form.value.length}/512 characters</span>
                   </div>
@@ -329,14 +329,14 @@ export function DnsRecordDialog({
 
               <div className="grid gap-4 md:grid-cols-[1.1fr_1.1fr_0.8fr]">
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-slate-200">Scope</label>
+                  <label className="mb-1 block text-sm font-medium text-[#f2f2f2]">Scope</label>
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       onClick={() => updateField("internal", true)}
                       disabled={isEditing}
                       className={cn(
                         "flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm transition",
-                        form.internal ? "border-cyan-500/40 bg-cyan-500/10 text-cyan-200" : "border-white/10 bg-slate-900 text-slate-400",
+                        form.internal ? "border-cyan-500/40 bg-cyan-500/10 text-cyan-200" : "border-[#2a2a2a] bg-[#0d0d0d] text-[#888]",
                         isEditing && "cursor-not-allowed opacity-70",
                       )}
                     >
@@ -347,7 +347,7 @@ export function DnsRecordDialog({
                       disabled={isEditing}
                       className={cn(
                         "flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm transition",
-                        !form.internal ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200" : "border-white/10 bg-slate-900 text-slate-400",
+                        !form.internal ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200" : "border-[#2a2a2a] bg-[#0d0d0d] text-[#888]",
                         isEditing && "cursor-not-allowed opacity-70",
                       )}
                     >
@@ -357,13 +357,13 @@ export function DnsRecordDialog({
                 </div>
 
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-slate-200">Type</label>
+                  <label className="mb-1 block text-sm font-medium text-[#f2f2f2]">Type</label>
                   <select
                     value={form.type}
                     onChange={(event) => updateField("type", event.target.value as ManagedRecordType)}
                     disabled={isEditing}
                     className={cn(
-                      "w-full rounded-xl border border-white/10 bg-slate-900 px-3 py-2.5 text-sm text-white outline-none focus:border-cyan-500/40",
+                      "w-full rounded-xl border border-[#2a2a2a] bg-[#0d0d0d] px-3 py-2.5 text-sm text-[#f2f2f2] outline-none focus:border-[#3b82f6] focus:ring-1 focus:ring-[#3b82f6]",
                       isEditing && "cursor-not-allowed opacity-70",
                     )}
                   >
@@ -374,11 +374,11 @@ export function DnsRecordDialog({
                 </div>
 
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-slate-200">TTL</label>
+                  <label className="mb-1 block text-sm font-medium text-[#f2f2f2]">TTL</label>
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => updateField("ttl", Math.max(1, form.ttl - 60))}
-                      className="rounded-xl border border-white/10 bg-slate-900 p-2.5 text-slate-300 transition hover:text-white"
+                      className="rounded-xl border border-[#2a2a2a] bg-[#0d0d0d] p-2.5 text-[#d4d4d4] transition hover:bg-[#1a1a1a] hover:text-[#f2f2f2]"
                       title="Decrease TTL"
                     >
                       <Minus className="h-4 w-4" />
@@ -391,43 +391,43 @@ export function DnsRecordDialog({
                       value={form.ttl}
                       onChange={(event) => updateField("ttl", Number(event.target.value) || 1)}
                       className={cn(
-                        "w-full rounded-xl border bg-slate-900 px-3 py-2.5 text-sm text-white outline-none transition",
-                        errors.ttl ? "border-red-500/50" : "border-white/10 focus:border-cyan-500/40",
+                        "w-full rounded-xl border bg-[#0d0d0d] px-3 py-2.5 text-sm text-[#f2f2f2] outline-none transition focus:ring-1 focus:ring-[#3b82f6]",
+                        errors.ttl ? "border-red-500/50" : "border-[#2a2a2a] focus:border-[#3b82f6]",
                       )}
                     />
                     <button
                       onClick={() => updateField("ttl", Math.min(86400, form.ttl + 60))}
-                      className="rounded-xl border border-white/10 bg-slate-900 p-2.5 text-slate-300 transition hover:text-white"
+                      className="rounded-xl border border-[#2a2a2a] bg-[#0d0d0d] p-2.5 text-[#d4d4d4] transition hover:bg-[#1a1a1a] hover:text-[#f2f2f2]"
                       title="Increase TTL"
                     >
                       <Plus className="h-4 w-4" />
                     </button>
                   </div>
-                  {errors.ttl ? <p className="mt-1 text-xs text-red-400">{errors.ttl}</p> : <p className="mt-1 text-xs text-slate-500">Short TTLs propagate faster during changes.</p>}
+                  {errors.ttl ? <p className="mt-1 text-xs text-red-400">{errors.ttl}</p> : <p className="mt-1 text-xs text-[#888]">Short TTLs propagate faster during changes.</p>}
                 </div>
               </div>
             </div>
 
-            <div className="flex items-center justify-between gap-3 border-t border-white/10 px-6 py-4">
-              <div className="text-xs text-slate-500">
+            <div className="flex items-center justify-between gap-3 border-t border-[#2a2a2a] px-6 py-4">
+              <div className="text-xs text-[#888]">
                 {isEditing ? "Editing updates value + TTL on the existing Cloudflare record." : "Drafts auto-save every 30 seconds while you edit."}
               </div>
               <div className="flex items-center gap-3">
                 {showSavedState ? (
-                  <div className="inline-flex items-center gap-2 text-sm text-emerald-300">
+                  <div className="inline-flex items-center gap-2 text-sm text-emerald-400">
                     <CheckCircle2 className="h-4 w-4 animate-pulse" /> Saved
                   </div>
                 ) : null}
                 <button
                   onClick={requestClose}
-                  className="rounded-xl border border-white/10 px-4 py-2 text-sm text-slate-300 transition hover:bg-white/5 hover:text-white"
+                  className="rounded-xl border border-[#2a2a2a] px-4 py-2 text-sm text-[#d4d4d4] transition hover:bg-[#1a1a1a] hover:text-[#f2f2f2]"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={() => void handleSubmit()}
                   disabled={submitting}
-                  className="rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-4 py-2 text-sm font-medium text-cyan-200 transition hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="rounded-xl bg-[#3b82f6] px-4 py-2 text-sm font-medium text-white transition hover:bg-[#2563eb] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {submitting ? "Saving…" : isEditing ? "Save changes" : "Create record"}
                 </button>

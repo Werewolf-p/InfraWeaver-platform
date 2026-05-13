@@ -17,21 +17,21 @@ export function DensityToggle({ className }: DensityToggleProps) {
   const { settings, updateSetting } = useSettingsContext();
 
   return (
-    <div className={cn("flex items-center gap-1 p-1 rounded-lg bg-white/5 border border-white/10", className)}>
+    <div className={cn("flex items-center gap-1 rounded-lg border border-[#2a2a2a] bg-[#0d0d0d] p-1", className)}>
       {options.map(({ value, Icon, label }) => (
         <button
           key={value}
           onClick={() => updateSetting("density" as keyof typeof settings, value)}
           className={cn(
-            "flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all",
+            "flex h-8 items-center gap-1.5 rounded-md px-3 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3b82f6] focus-visible:ring-offset-1 focus-visible:ring-offset-[#111]",
             settings.density === value
-              ? "bg-white/15 text-white shadow"
-              : "text-white/50 hover:text-white/80"
+              ? "bg-[#1a1a1a] text-[#f2f2f2] shadow"
+              : "text-[#888] hover:bg-[#1a1a1a] hover:text-[#f2f2f2]",
           )}
           aria-label={label}
           title={label}
         >
-          <Icon className="w-3.5 h-3.5" />
+          <Icon className="h-3.5 w-3.5" />
           {label}
         </button>
       ))}

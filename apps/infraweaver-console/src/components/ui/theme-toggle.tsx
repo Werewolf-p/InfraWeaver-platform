@@ -18,36 +18,37 @@ export function ThemeToggle({ className, compact = false }: ThemeToggleProps) {
   const { theme, setTheme } = useTheme();
 
   if (compact) {
-    const current = options.find(o => o.value === theme) ?? options[2];
+    const current = options.find((option) => option.value === theme) ?? options[2];
     const Icon = current.Icon;
     const next = options[(options.indexOf(current) + 1) % options.length];
     return (
       <button
         onClick={() => setTheme(next.value)}
-        className={cn("flex items-center justify-center w-9 h-9 rounded-lg hover:bg-white/10 transition-colors", className)}
+        className={cn("flex h-9 w-9 items-center justify-center rounded-lg border border-[#2a2a2a] bg-[#0d0d0d] text-[#888] transition-colors hover:bg-[#1a1a1a] hover:text-[#f2f2f2] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3b82f6] focus-visible:ring-offset-1 focus-visible:ring-offset-[#111]", className)}
         aria-label={`Switch to ${next.label} mode`}
         title={`Switch to ${next.label} mode`}
       >
-        <Icon className="w-4 h-4 text-white/70" />
+        <Icon className="h-4 w-4" />
       </button>
     );
   }
 
   return (
-    <div className={cn("flex items-center gap-1 p-1 rounded-lg bg-white/5 border border-white/10", className)}>
+    <div className={cn("flex items-center gap-1 rounded-lg border border-[#2a2a2a] bg-[#0d0d0d] p-1", className)}>
       {options.map(({ value, Icon, label }) => (
         <button
           key={value}
           onClick={() => setTheme(value)}
           className={cn(
-            "flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all",
+            "flex h-8 items-center gap-1.5 rounded-md px-3 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3b82f6] focus-visible:ring-offset-1 focus-visible:ring-offset-[#111]",
             theme === value
-              ? "bg-white/15 text-white shadow"
-              : "text-white/50 hover:text-white/80"
+              ? "bg-[#1a1a1a] text-[#f2f2f2] shadow"
+              : "text-[#888] hover:bg-[#1a1a1a] hover:text-[#f2f2f2]",
           )}
           aria-label={label}
+          title={label}
         >
-          <Icon className="w-3.5 h-3.5" />
+          <Icon className="h-3.5 w-3.5" />
           {label}
         </button>
       ))}

@@ -19,12 +19,17 @@ const sizes = {
 
 export function ToggleSwitch({ checked, onChange, label, description, disabled, size = "md", className }: ToggleSwitchProps) {
   const s = sizes[size];
+
   return (
     <div className={cn("flex items-center justify-between gap-3", className)}>
       {(label || description) && (
-        <div className="flex-1 min-w-0">
-          {label && <p className={cn("text-sm font-medium", disabled ? "text-slate-500" : "text-white")}>{label}</p>}
-          {description && <p className="text-xs text-slate-500 mt-0.5">{description}</p>}
+        <div className="min-w-0 flex-1">
+          {label ? (
+            <p className={cn("block truncate text-sm font-medium", disabled ? "text-[#666]" : "text-[#f2f2f2]")}>{label}</p>
+          ) : null}
+          {description ? (
+            <p className={cn("mt-0.5 truncate text-xs", disabled ? "text-[#666]" : "text-[#888]")}>{description}</p>
+          ) : null}
         </div>
       )}
       <button
@@ -34,17 +39,16 @@ export function ToggleSwitch({ checked, onChange, label, description, disabled, 
         disabled={disabled}
         onClick={() => onChange(!checked)}
         className={cn(
-          "relative inline-flex flex-shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500",
+          "relative inline-flex shrink-0 items-center rounded-full border border-transparent transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3b82f6] focus-visible:ring-offset-1 focus-visible:ring-offset-[#111] disabled:cursor-not-allowed disabled:opacity-50",
           s.track,
-          checked ? "bg-indigo-500" : "bg-slate-700",
-          disabled && "opacity-50 cursor-not-allowed"
+          checked ? "bg-[#3b82f6]" : "bg-[#2a2a2a]",
         )}
       >
         <span
           className={cn(
             "inline-block transform rounded-full bg-white shadow-sm transition-transform duration-200",
             s.thumb,
-            checked ? s.translate : "translate-x-0.5"
+            checked ? s.translate : "translate-x-0.5",
           )}
         />
       </button>

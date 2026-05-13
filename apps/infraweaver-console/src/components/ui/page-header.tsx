@@ -19,33 +19,33 @@ interface PageHeaderProps {
 
 export function PageHeader({ icon: Icon, title, subtitle, actions, badge, breadcrumb }: PageHeaderProps) {
   return (
-    <div className="pb-4 mb-6 border-b border-[#2a2a2a] flex-shrink-0">
-      {breadcrumb && breadcrumb.length > 0 && (
-        <nav className="flex items-center gap-1 mb-2 text-xs text-[#666]">
+    <div className="mb-6 flex-shrink-0 border-b border-[#2a2a2a] pb-4">
+      {breadcrumb && breadcrumb.length > 0 ? (
+        <nav className="mb-2 flex items-center gap-1 text-xs text-[#888]">
           {breadcrumb.map((crumb, i) => (
             <React.Fragment key={i}>
-              {i > 0 && <ChevronRight className="w-3 h-3" />}
+              {i > 0 ? <ChevronRight className="h-3 w-3" /> : null}
               {crumb.href ? (
-                <Link href={crumb.href} className="hover:text-[#9e9e9e] transition-colors">{crumb.label}</Link>
+                <Link href={crumb.href} className="transition-colors hover:text-[#d4d4d4]">{crumb.label}</Link>
               ) : (
-                <span className="text-[#9e9e9e]">{crumb.label}</span>
+                <span className="text-[#d4d4d4]">{crumb.label}</span>
               )}
             </React.Fragment>
           ))}
         </nav>
-      )}
-      <div className="flex items-center gap-3">
-        {Icon && <Icon className="w-6 h-6 text-[#0078D4] flex-shrink-0" />}
+      ) : null}
+      <div className="flex flex-wrap items-center gap-3">
+        {Icon ? <Icon className="h-6 w-6 shrink-0 text-[#3b82f6]" /> : null}
         <h1 className="text-xl font-semibold text-[#f2f2f2]">{title}</h1>
-        {badge && (
-          <span className="px-2 py-0.5 rounded text-xs bg-[#2a2a2a] text-[#9e9e9e] border border-[#333] font-mono">
+        {badge ? (
+          <span className="rounded-full border border-[#2a2a2a] bg-[#0d0d0d] px-2 py-0.5 font-mono text-xs text-[#888]">
             {badge}
           </span>
-        )}
+        ) : null}
         <div className="flex-1" />
-        {actions && <div className="flex items-center gap-2">{actions}</div>}
+        {actions ? <div className="flex items-center gap-2">{actions}</div> : null}
       </div>
-      {subtitle && <p className="mt-1 text-sm text-[#9e9e9e]">{subtitle}</p>}
+      {subtitle ? <p className="mt-1 text-sm text-[#d4d4d4]">{subtitle}</p> : null}
     </div>
   );
 }

@@ -11,6 +11,7 @@ export default function InfrastructureSettingsPage() {
         icon={Server}
         title="Infrastructure"
         subtitle="Read-only cluster configuration and platform infrastructure status"
+        breadcrumb={[{ label: "Home", href: "/" }, { label: "Settings", href: "/settings" }, { label: "Infrastructure" }]}
       />
       <ClusterSettingsPanel />
     </div>

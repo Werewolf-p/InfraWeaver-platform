@@ -23,6 +23,10 @@ interface Props {
   onRefetch: () => void;
 }
 
+const inputCls = "w-full rounded-xl border border-[#2a2a2a] bg-[#0d0d0d] px-3 py-2.5 text-sm text-[#f2f2f2] placeholder:text-[#444] focus:border-[#3b82f6] focus:outline-none focus:ring-1 focus:ring-[#3b82f6]";
+const ghostButtonCls = "inline-flex h-9 items-center justify-center rounded-lg border border-[#2a2a2a] bg-transparent px-4 text-sm text-[#d4d4d4] transition-colors hover:bg-[#1a1a1a] hover:text-[#f2f2f2] active:bg-[#1f1f1f]";
+const primaryButtonCls = "inline-flex h-9 items-center justify-center rounded-lg bg-[#3b82f6] px-4 text-sm font-medium text-white transition-colors hover:bg-[#2563eb] active:bg-[#1d4ed8]";
+
 function SmallDialog({
   open,
   onClose,
@@ -35,14 +39,14 @@ function SmallDialog({
   children: React.ReactNode;
 }) {
   return (
-    <Dialog.Root open={open} onOpenChange={(o) => !o && onClose()}>
+    <Dialog.Root open={open} onOpenChange={(nextOpen) => !nextOpen && onClose()}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-sm bg-slate-900 border border-white/10 rounded-2xl shadow-2xl p-5 focus:outline-none">
-          <div className="flex items-center justify-between mb-4">
-            <Dialog.Title className="text-sm font-semibold text-white">{title}</Dialog.Title>
-            <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors">
-              <X className="w-4 h-4" />
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm" />
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-full max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-[#2a2a2a] bg-[#111] p-5 text-[#f2f2f2] shadow-2xl focus:outline-none">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <Dialog.Title className="text-sm font-semibold text-[#f2f2f2]">{title}</Dialog.Title>
+            <button onClick={onClose} className="rounded-lg p-1.5 text-[#888] transition-colors hover:bg-[#1a1a1a] hover:text-[#f2f2f2]">
+              <X className="h-4 w-4" />
             </button>
           </div>
           {children}
@@ -68,17 +72,17 @@ export function UserActionsDropdown({ user, isSelf, isAdmin, onEdit, onDelete, o
     setStatusLoading(true);
     try {
       const currentlyActive = (user as PlatformUser & { is_active?: boolean }).is_active !== false;
-      const r = await fetch(`/api/users/${user.username}/status`, {
+      const response = await fetch(`/api/users/${user.username}/status`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ active: !currentlyActive }),
       });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error ?? "Failed");
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Failed");
       toast.success(`User ${currentlyActive ? "disabled" : "enabled"}`);
       onRefetch();
-    } catch (e) {
-      toast.error(String(e));
+    } catch (error) {
+      toast.error(String(error));
     } finally {
       setStatusLoading(false);
     }
@@ -90,19 +94,19 @@ export function UserActionsDropdown({ user, isSelf, isAdmin, onEdit, onDelete, o
       return;
     }
     try {
-      const r = await fetch(`/api/users/${user.username}/email`, {
+      const response = await fetch(`/api/users/${user.username}/email`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ newEmail }),
       });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error ?? "Failed");
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Failed");
       toast.success("Email updated");
       setShowChangeEmail(false);
       setNewEmail("");
       onRefetch();
-    } catch (e) {
-      toast.error(String(e));
+    } catch (error) {
+      toast.error(String(error));
     }
   }
 
@@ -112,118 +116,117 @@ export function UserActionsDropdown({ user, isSelf, isAdmin, onEdit, onDelete, o
       return;
     }
     try {
-      const r = await fetch(`/api/users/${user.username}/username`, {
+      const response = await fetch(`/api/users/${user.username}/username`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ newUsername }),
       });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error ?? "Failed");
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Failed");
       toast.success("Username updated");
       setShowChangeUsername(false);
       setNewUsername("");
       onRefetch();
-    } catch (e) {
-      toast.error(String(e));
+    } catch (error) {
+      toast.error(String(error));
     }
   }
 
-  const itemCls = "flex items-center gap-2 px-3 py-2 text-sm text-slate-300 hover:text-white hover:bg-white/5 cursor-pointer rounded-lg focus:outline-none select-none";
-  const destructiveCls = "flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:text-red-300 hover:bg-red-500/10 cursor-pointer rounded-lg focus:outline-none select-none";
+  const itemCls = "flex cursor-pointer select-none items-center gap-2 rounded-lg px-3 py-2 text-sm text-[#f2f2f2] outline-none transition-colors data-[disabled]:pointer-events-none data-[disabled]:opacity-50 data-[highlighted]:bg-[#1a1a1a] data-[highlighted]:text-[#f2f2f2]";
+  const destructiveCls = "flex cursor-pointer select-none items-center gap-2 rounded-lg px-3 py-2 text-sm text-red-400 outline-none transition-colors data-[disabled]:pointer-events-none data-[disabled]:opacity-50 data-[highlighted]:bg-red-500/10 data-[highlighted]:text-red-300";
 
   return (
     <>
       <DropdownMenu.Root>
         <DropdownMenu.Trigger asChild>
-          <button className="p-1.5 rounded-lg bg-white/5 border border-white/10 text-slate-400 hover:text-white hover:bg-white/10 transition-colors active:scale-95">
-            <MoreVertical className="w-3.5 h-3.5" />
+          <button className="rounded-lg border border-[#2a2a2a] bg-[#0d0d0d] p-1.5 text-[#888] transition-colors hover:bg-[#1a1a1a] hover:text-[#f2f2f2] active:scale-95">
+            <MoreVertical className="h-3.5 w-3.5" />
           </button>
         </DropdownMenu.Trigger>
         <DropdownMenu.Portal>
           <DropdownMenu.Content
-            className="bg-slate-900 border border-white/10 rounded-xl shadow-2xl min-w-[200px] z-50 p-1"
+            className="z-50 min-w-[200px] rounded-xl border border-[#2a2a2a] bg-[#111] p-1 text-[#f2f2f2] shadow-2xl"
             sideOffset={5}
             align="end"
           >
-            {isAdmin && (
+            {isAdmin ? (
               <DropdownMenu.Item className={itemCls} onSelect={onEdit}>
-                <Pencil className="w-3.5 h-3.5" />
+                <Pencil className="h-3.5 w-3.5" />
                 Edit User
               </DropdownMenu.Item>
-            )}
+            ) : null}
 
-            {isAdmin && <DropdownMenu.Separator className="my-1 border-t border-white/10" />}
+            {isAdmin ? <DropdownMenu.Separator className="my-1 border-t border-[#2a2a2a]" /> : null}
 
-            {isAdmin && !isSelf && (
+            {isAdmin && !isSelf ? (
               <DropdownMenu.Item className={itemCls} onSelect={() => setShowResetPassword(true)}>
-                <KeyRound className="w-3.5 h-3.5" />
+                <KeyRound className="h-3.5 w-3.5" />
                 Reset Password
               </DropdownMenu.Item>
-            )}
-            {isAdmin && (
+            ) : null}
+            {isAdmin ? (
               <DropdownMenu.Item className={itemCls} onSelect={() => { setNewEmail(user.email); setShowChangeEmail(true); }}>
-                <Mail className="w-3.5 h-3.5" />
+                <Mail className="h-3.5 w-3.5" />
                 Change Email
               </DropdownMenu.Item>
-            )}
-            {isAdmin && !isSelf && (
+            ) : null}
+            {isAdmin && !isSelf ? (
               <DropdownMenu.Item
                 className={itemCls}
                 disabled={statusLoading}
                 onSelect={handleToggleStatus}
               >
                 {statusLoading ? (
-                  <PowerOff className="w-3.5 h-3.5 animate-pulse" />
+                  <PowerOff className="h-3.5 w-3.5 animate-pulse" />
                 ) : (
-                  <PowerIcon className="w-3.5 h-3.5" />
+                  <PowerIcon className="h-3.5 w-3.5" />
                 )}
                 Toggle Status
               </DropdownMenu.Item>
-            )}
-            {isAdmin && (
+            ) : null}
+            {isAdmin ? (
               <DropdownMenu.Item className={itemCls} onSelect={() => setShowMFAReset(true)}>
-                <ShieldOff className="w-3.5 h-3.5" />
+                <ShieldOff className="h-3.5 w-3.5" />
                 Reset MFA
               </DropdownMenu.Item>
-            )}
-            {isAdmin && (
+            ) : null}
+            {isAdmin ? (
               <DropdownMenu.Item className={itemCls} onSelect={() => setShowSessions(true)}>
-                <MonitorSmartphone className="w-3.5 h-3.5" />
+                <MonitorSmartphone className="h-3.5 w-3.5" />
                 View Sessions
               </DropdownMenu.Item>
-            )}
-            {isAdmin && (
+            ) : null}
+            {isAdmin ? (
               <DropdownMenu.Item className={itemCls} onSelect={() => setShowHistory(true)}>
-                <History className="w-3.5 h-3.5" />
+                <History className="h-3.5 w-3.5" />
                 Login History
               </DropdownMenu.Item>
-            )}
-            {isAdmin && !isSelf && (
+            ) : null}
+            {isAdmin && !isSelf ? (
               <DropdownMenu.Item className={itemCls} onSelect={() => { setNewUsername(user.username); setShowChangeUsername(true); }}>
-                <UserCog className="w-3.5 h-3.5" />
+                <UserCog className="h-3.5 w-3.5" />
                 Change Username
               </DropdownMenu.Item>
-            )}
+            ) : null}
 
-            {isAdmin && !isSelf && <DropdownMenu.Separator className="my-1 border-t border-white/10" />}
+            {isAdmin && !isSelf ? <DropdownMenu.Separator className="my-1 border-t border-[#2a2a2a]" /> : null}
 
-            {isAdmin && !isSelf && (
+            {isAdmin && !isSelf ? (
               <DropdownMenu.Item className={destructiveCls} onSelect={() => setShowOffboard(true)}>
-                <UserX className="w-3.5 h-3.5" />
+                <UserX className="h-3.5 w-3.5" />
                 Offboard User
               </DropdownMenu.Item>
-            )}
-            {isAdmin && !isSelf && (
+            ) : null}
+            {isAdmin && !isSelf ? (
               <DropdownMenu.Item className={destructiveCls} onSelect={onDelete}>
-                <Trash2 className="w-3.5 h-3.5" />
+                <Trash2 className="h-3.5 w-3.5" />
                 Delete
               </DropdownMenu.Item>
-            )}
+            ) : null}
           </DropdownMenu.Content>
         </DropdownMenu.Portal>
       </DropdownMenu.Root>
 
-      {/* Modals */}
       <ResetPasswordModal
         open={showResetPassword}
         username={user.username}
@@ -250,67 +253,65 @@ export function UserActionsDropdown({ user, isSelf, isAdmin, onEdit, onDelete, o
         onClose={() => setShowOffboard(false)}
       />
 
-      {/* Change Email Dialog */}
       <SmallDialog
         open={showChangeEmail}
         onClose={() => { setShowChangeEmail(false); setNewEmail(""); }}
-        title={<span className="flex items-center gap-2"><Mail className="w-4 h-4 text-indigo-400" />Change Email</span>}
+        title={<span className="flex items-center gap-2"><Mail className="h-4 w-4 text-[#3b82f6]" />Change Email</span>}
       >
         <div className="space-y-3">
           <input
             type="email"
             value={newEmail}
-            onChange={(e) => setNewEmail(e.target.value)}
+            onChange={(event) => setNewEmail(event.target.value)}
             placeholder="new@email.com"
-            className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50"
+            className={inputCls}
           />
           <div className="flex gap-2">
             <button
               onClick={() => { setShowChangeEmail(false); setNewEmail(""); }}
-              className="flex-1 px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-sm text-slate-300 hover:bg-white/10 transition-colors"
+              className={`${ghostButtonCls} flex-1`}
             >
               Cancel
             </button>
             <button
               onClick={handleChangeEmail}
-              className="flex-1 px-3 py-2 rounded-xl bg-indigo-500/20 border border-indigo-500/30 text-sm text-indigo-300 hover:bg-indigo-500/30 transition-colors flex items-center justify-center gap-1.5"
+              className={`${primaryButtonCls} flex-1 gap-1.5`}
             >
-              <Check className="w-3.5 h-3.5" /> Save
+              <Check className="h-3.5 w-3.5" /> Save
             </button>
           </div>
         </div>
       </SmallDialog>
 
-      {/* Change Username Dialog */}
       <SmallDialog
         open={showChangeUsername}
         onClose={() => { setShowChangeUsername(false); setNewUsername(""); }}
-        title={<span className="flex items-center gap-2"><UserCog className="w-4 h-4 text-indigo-400" />Change Username</span>}
+        title={<span className="flex items-center gap-2"><UserCog className="h-4 w-4 text-[#3b82f6]" />Change Username</span>}
       >
         <div className="space-y-3">
           <div>
             <input
               type="text"
               value={newUsername}
-              onChange={(e) => setNewUsername(e.target.value.toLowerCase())}
+              onChange={(event) => setNewUsername(event.target.value.toLowerCase())}
               placeholder="new-username"
               pattern="[a-z0-9.\-]{3,32}"
-              className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50"
+              className={inputCls}
             />
-            <p className="text-xs text-slate-500 mt-1.5">3-32 chars, lowercase letters, numbers, dots, hyphens</p>
+            <p className="mt-1.5 text-xs text-[#888]">3-32 chars, lowercase letters, numbers, dots, hyphens</p>
           </div>
           <div className="flex gap-2">
             <button
               onClick={() => { setShowChangeUsername(false); setNewUsername(""); }}
-              className="flex-1 px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-sm text-slate-300 hover:bg-white/10 transition-colors"
+              className={`${ghostButtonCls} flex-1`}
             >
               Cancel
             </button>
             <button
               onClick={handleChangeUsername}
-              className="flex-1 px-3 py-2 rounded-xl bg-indigo-500/20 border border-indigo-500/30 text-sm text-indigo-300 hover:bg-indigo-500/30 transition-colors flex items-center justify-center gap-1.5"
+              className={`${primaryButtonCls} flex-1 gap-1.5`}
             >
-              <Check className="w-3.5 h-3.5" /> Save
+              <Check className="h-3.5 w-3.5" /> Save
             </button>
           </div>
         </div>

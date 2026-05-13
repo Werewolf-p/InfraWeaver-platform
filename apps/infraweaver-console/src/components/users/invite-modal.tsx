@@ -18,6 +18,8 @@ const EXPIRY_OPTIONS = [
   { label: "7 days", value: 168 },
 ];
 
+const inputCls = "w-full rounded-xl border border-[#2a2a2a] bg-[#0d0d0d] px-3 py-2.5 text-sm text-[#f2f2f2] placeholder:text-[#444] focus:border-[#3b82f6] focus:outline-none focus:ring-1 focus:ring-[#3b82f6]";
+
 export function InviteModal({ open, onClose }: Props) {
   const [email, setEmail] = useState("");
   const [expiryHours, setExpiryHours] = useState(24);
@@ -25,21 +27,21 @@ export function InviteModal({ open, onClose }: Props) {
   const [inviteUrl, setInviteUrl] = useState("");
   const [copied, setCopied] = useState(false);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault();
     setLoading(true);
     try {
-      const r = await fetch("/api/users/invite", {
+      const response = await fetch("/api/users/invite", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, groups: [], expiryHours }),
       });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error ?? "Failed");
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Failed");
       setInviteUrl(data.url);
       toast.success("Invite created");
-    } catch (e) {
-      toast.error(String(e));
+    } catch (error) {
+      toast.error(String(error));
     } finally {
       setLoading(false);
     }
@@ -48,6 +50,7 @@ export function InviteModal({ open, onClose }: Props) {
   async function handleCopy() {
     await navigator.clipboard.writeText(inviteUrl);
     setCopied(true);
+    toast.success("Invite link copied");
     setTimeout(() => setCopied(false), 2000);
   }
 
@@ -60,35 +63,35 @@ export function InviteModal({ open, onClose }: Props) {
   }
 
   return (
-    <Dialog.Root open={open} onOpenChange={(o) => !o && handleClose()}>
+    <Dialog.Root open={open} onOpenChange={(nextOpen) => !nextOpen && handleClose()}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-md bg-slate-900 border border-white/10 rounded-2xl shadow-2xl p-6 focus:outline-none">
-          <div className="flex items-center justify-between mb-5">
-            <Dialog.Title className="flex items-center gap-2 text-base font-semibold text-white">
-              <Mail className="w-4 h-4 text-indigo-400" />
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm" />
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-[#2a2a2a] bg-[#111] p-6 text-[#f2f2f2] shadow-2xl focus:outline-none">
+          <div className="mb-5 flex items-center justify-between gap-3">
+            <Dialog.Title className="flex items-center gap-2 text-base font-semibold text-[#f2f2f2]">
+              <Mail className="h-4 w-4 text-[#3b82f6]" />
               Invite User
             </Dialog.Title>
-            <button onClick={handleClose} className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors">
-              <X className="w-4 h-4" />
+            <button onClick={handleClose} className="rounded-lg p-1.5 text-[#888] transition-colors hover:bg-[#1a1a1a] hover:text-[#f2f2f2]">
+              <X className="h-4 w-4" />
             </button>
           </div>
 
           {inviteUrl ? (
             <div className="space-y-4">
-              <p className="text-sm text-slate-400">Share this link with the user:</p>
-              <div className="flex items-center gap-2 p-3 rounded-xl bg-white/5 border border-white/10">
-                <span className="flex-1 text-xs text-indigo-300 truncate">{inviteUrl}</span>
+              <p className="text-sm text-[#888]">Share this link with the user:</p>
+              <div className="group flex items-center gap-2 rounded-xl border border-[#2a2a2a] bg-[#0d0d0d] p-3">
+                <span className="flex-1 truncate font-mono text-xs text-[#d4d4d4]">{inviteUrl}</span>
                 <button
                   onClick={handleCopy}
-                  className="p-1.5 rounded-lg bg-white/5 text-slate-400 hover:text-white transition-colors flex-shrink-0"
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[#2a2a2a] bg-[#111] text-[#888] opacity-0 transition-all group-hover:opacity-100 hover:bg-[#1a1a1a] hover:text-[#f2f2f2] focus:opacity-100"
                 >
-                  {copied ? <Check className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4" />}
+                  {copied ? <Check className="h-4 w-4 text-emerald-400" /> : <Copy className="h-4 w-4" />}
                 </button>
               </div>
               <button
                 onClick={handleClose}
-                className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-sm text-slate-300 hover:bg-white/10 transition-colors"
+                className="inline-flex h-9 w-full items-center justify-center rounded-lg bg-[#3b82f6] px-4 text-sm font-medium text-white transition-colors hover:bg-[#2563eb] active:bg-[#1d4ed8]"
               >
                 Done
               </button>
@@ -96,34 +99,34 @@ export function InviteModal({ open, onClose }: Props) {
           ) : (
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="block text-xs text-slate-400 mb-2">Email address</label>
+                <label className="mb-2 block text-xs text-[#888]">Email address</label>
                 <input
                   autoFocus
                   type="email"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(event) => setEmail(event.target.value)}
                   required
                   placeholder="user@example.com"
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50"
+                  className={inputCls}
                 />
               </div>
               <div>
-                <label className="block text-xs text-slate-400 mb-2">Link expiry</label>
-                <Select.Root value={String(expiryHours)} onValueChange={(v) => setExpiryHours(Number(v))}>
-                  <Select.Trigger className="w-full flex items-center justify-between bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500/50">
+                <label className="mb-2 block text-xs text-[#888]">Link expiry</label>
+                <Select.Root value={String(expiryHours)} onValueChange={(value) => setExpiryHours(Number(value))}>
+                  <Select.Trigger className="flex w-full items-center justify-between rounded-xl border border-[#2a2a2a] bg-[#0d0d0d] px-3 py-2.5 text-sm text-[#f2f2f2] focus:border-[#3b82f6] focus:outline-none focus:ring-1 focus:ring-[#3b82f6]">
                     <Select.Value />
-                    <ChevronDown className="w-4 h-4 text-slate-400" />
+                    <ChevronDown className="h-4 w-4 text-[#888]" />
                   </Select.Trigger>
                   <Select.Portal>
-                    <Select.Content className="bg-slate-800 border border-white/10 rounded-xl shadow-2xl z-[60] overflow-hidden">
+                    <Select.Content className="z-[60] overflow-hidden rounded-xl border border-[#2a2a2a] bg-[#111] text-[#f2f2f2] shadow-2xl">
                       <Select.Viewport className="p-1">
-                        {EXPIRY_OPTIONS.map((opt) => (
+                        {EXPIRY_OPTIONS.map((option) => (
                           <Select.Item
-                            key={opt.value}
-                            value={String(opt.value)}
-                            className="flex items-center px-3 py-2 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg cursor-pointer focus:outline-none"
+                            key={option.value}
+                            value={String(option.value)}
+                            className="flex cursor-pointer items-center rounded-lg px-3 py-2 text-sm text-[#f2f2f2] outline-none data-[highlighted]:bg-[#1a1a1a] data-[highlighted]:text-[#f2f2f2]"
                           >
-                            <Select.ItemText>{opt.label}</Select.ItemText>
+                            <Select.ItemText>{option.label}</Select.ItemText>
                           </Select.Item>
                         ))}
                       </Select.Viewport>
@@ -135,14 +138,14 @@ export function InviteModal({ open, onClose }: Props) {
                 <button
                   type="button"
                   onClick={handleClose}
-                  className="flex-1 px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-sm text-slate-300 hover:bg-white/10 transition-colors"
+                  className="flex h-9 flex-1 items-center justify-center rounded-lg border border-[#2a2a2a] bg-transparent px-4 text-sm text-[#d4d4d4] transition-colors hover:bg-[#1a1a1a] hover:text-[#f2f2f2] active:bg-[#1f1f1f]"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={loading || !email}
-                  className="flex-1 px-4 py-2.5 rounded-xl bg-indigo-500/20 border border-indigo-500/30 text-sm text-indigo-300 hover:bg-indigo-500/30 transition-colors disabled:opacity-50"
+                  className="flex h-9 flex-1 items-center justify-center rounded-lg bg-[#3b82f6] px-4 text-sm font-medium text-white transition-colors hover:bg-[#2563eb] active:bg-[#1d4ed8] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {loading ? "Creating…" : "Create Invite"}
                 </button>
