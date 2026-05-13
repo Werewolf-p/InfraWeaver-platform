@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { hasPermission } from "@/lib/rbac";
-import fs from "fs";
+import fs from "node:fs";
 
 interface AuthEvent {
   id: string;
