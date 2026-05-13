@@ -145,16 +145,25 @@ spec:
       initContainers:
         - name: fix-permissions
           image: busybox:1.35
+          imagePullPolicy: IfNotPresent
           command: ["sh", "-c", "chown -R 999:999 /var/lib/postgresql/data"]
           securityContext:
             runAsUser: 0
             runAsNonRoot: false
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 50m
+              memory: 32Mi
           volumeMounts:
             - name: data
               mountPath: /var/lib/postgresql/data
         # Self-healing: remove stale lock file and reset corrupted WAL before postgres starts.
         - name: pg-resetwal
           image: postgres:16
+          imagePullPolicy: IfNotPresent
           command:
             - sh
             - -c
@@ -179,6 +188,13 @@ spec:
               drop: [ALL]
             seccompProfile:
               type: RuntimeDefault
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
       securityContext:
         fsGroup: 999
         runAsUser: 999
@@ -188,6 +204,7 @@ spec:
       containers:
         - name: postgresql
           image: postgres:16
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 5432
           envFrom:
@@ -209,6 +226,11 @@ spec:
               command: ["pg_isready", "-U", "gitea"]
             initialDelaySeconds: 10
             periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "gitea"]
+            initialDelaySeconds: 30
+            periodSeconds: 10
       volumes:
         - name: data
           persistentVolumeClaim:

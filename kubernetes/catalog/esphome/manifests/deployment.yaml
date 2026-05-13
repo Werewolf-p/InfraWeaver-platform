@@ -27,6 +27,7 @@ spec:
       containers:
         - name: esphome
           image: ghcr.io/esphome/esphome:stable
+          imagePullPolicy: IfNotPresent
           env:
             - name: ESPHOME_DASHBOARD_USE_PING
               value: ""
@@ -53,6 +54,16 @@ spec:
             limits:
               memory: "1Gi"
               cpu: "1000m"
+          readinessProbe:
+            tcpSocket:
+              port: 6052
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 6052
+            initialDelaySeconds: 30
+            periodSeconds: 30
       volumes:
         - name: esphome-data-0
           persistentVolumeClaim:

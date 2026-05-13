@@ -1,7 +1,7 @@
 ---
 # Self-Healer — automatic ArgoCD OutOfSync recovery
 #
-# Runs every 15 minutes and finds apps that are:
+# Runs every 5 minutes and finds apps that are:
 #   Health=Healthy  + Sync=OutOfSync  (safe to re-sync, workloads are fine)
 #   Health=Unknown  + Sync=OutOfSync  (stale refresh — trigger hard-refresh)
 #
@@ -123,7 +123,7 @@ metadata:
     app.kubernetes.io/name: argocd-self-healer
     infraweaver.io/auth: vpn
 spec:
-  schedule: "*/15 * * * *"
+  schedule: "*/5 * * * *"
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 2
   # Keep 0 failed jobs — ArgoCD marks a CronJob Degraded when failed job pods exist in history.
@@ -147,7 +147,9 @@ spec:
           containers:
             - name: healer
               # bitnami/kubectl — has bash + kubectl, works with in-cluster SA token
-              image: bitnami/kubectl:latest
+              # Pin to a specific version matching your cluster's Kubernetes minor version.
+              # Update here when upgrading the cluster (check: kubectl version --short).
+              image: bitnami/kubectl:1.32
               securityContext:
                 allowPrivilegeEscalation: false
                 capabilities:
@@ -183,7 +185,7 @@ spec:
                   # Shorter skip for apps whose name implies ExternalSecret dependency
                   # (ESO provisioning can take a few minutes after OpenBao unseal)
                   ES_SKIP_SECONDS=600
-                  # Only alert when degradation has persisted > 60m (4 full healer cycles)
+                  # Only alert when degradation has persisted > 60m (12 full healer cycles)
                   ALERT_THRESHOLD_SECONDS=3600
 
                   echo "[self-healer] $(date -u) — scanning ArgoCD apps in namespace: $NAMESPACE"

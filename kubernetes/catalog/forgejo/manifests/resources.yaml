@@ -107,6 +107,7 @@ spec:
         # Self-healing: remove stale lock file and reset corrupted WAL before postgres starts.
         - name: pg-resetwal
           image: postgres:16
+          imagePullPolicy: IfNotPresent
           command:
             - sh
             - -c
@@ -129,9 +130,17 @@ spec:
               drop: [ALL]
             seccompProfile:
               type: RuntimeDefault
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
       containers:
         - name: postgres
           image: postgres:16
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 5432
           env:
@@ -155,6 +164,11 @@ spec:
               command: ["pg_isready", "-U", "forgejo", "-d", "forgejo"]
             initialDelaySeconds: 10
             periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "forgejo", "-d", "forgejo"]
+            initialDelaySeconds: 30
+            periodSeconds: 10
       volumes:
         - name: data
           persistentVolumeClaim:

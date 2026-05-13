@@ -129,10 +129,10 @@ ports:
 resources:
   requests:
     cpu: 100m
-    memory: 128Mi
+    memory: 64Mi
   limits:
     cpu: 500m
-    memory: 384Mi   # Bumped from 256Mi — Traefik needs headroom for connection pool + access log buffer
+    memory: 256Mi
 
 # Self-healing: ensure Traefik is never evicted under resource pressure
 priorityClassName: platform-critical

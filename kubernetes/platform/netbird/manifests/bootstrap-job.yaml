@@ -501,7 +501,8 @@ spec:
       initContainers:
         # Wait for management HTTP API to respond (any HTTP code = it's up)
         - name: wait-for-api
-          image: alpine
+          image: alpine:3.21
+          imagePullPolicy: IfNotPresent
           command:
             - sh
             - -c
@@ -520,9 +521,17 @@ spec:
               done
               echo "ERROR: Management API not ready after 6 minutes"
               exit 1
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 50m
+              memory: 32Mi
       containers:
         - name: fix-db
           image: python:3.12-alpine
+          imagePullPolicy: IfNotPresent
           command:
             - sh
             - -c
@@ -696,6 +705,13 @@ spec:
               fi
 
               echo "=== Bootstrap complete ==="
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
           env:
             - name: DB
               value: /data/store.db

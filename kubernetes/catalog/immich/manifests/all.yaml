@@ -101,11 +101,19 @@ spec:
       initContainers:
         - name: wait-for-postgres
           image: busybox:1.36
+          imagePullPolicy: IfNotPresent
           command: ['sh', '-c', 'until nc -z immich-postgres 5432; do echo "waiting for postgres..."; sleep 3; done']
           securityContext:
             runAsNonRoot: false
             runAsUser: 0
             allowPrivilegeEscalation: false
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 50m
+              memory: 32Mi
       containers:
         - name: immich-server
           image: ghcr.io/immich-app/immich-server:release
