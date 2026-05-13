@@ -45,6 +45,14 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
 
+      - name: Free disk space (prune Docker build cache)
+        run: |
+          df -h /
+          docker buildx prune --filter "until=72h" -f || true
+          docker image prune -f || true
+          rm -rf /tmp/.buildx-cache-console-new || true
+          df -h /
+
       - name: Build and push Docker image
         env:
           ONEDEV_USER: ${{ secrets.ONEDEV_REGISTRY_USER }}
