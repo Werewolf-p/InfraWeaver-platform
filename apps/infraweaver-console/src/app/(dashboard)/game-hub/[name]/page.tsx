@@ -812,76 +812,97 @@ function ActivityTab({ name }: { name: string }) {
 
 // ─── Per-server RBAC Panel ────────────────────────────────────────────────────
 
-interface RbacAssignment {
-  id: string;
-  roleId: string;
+type ServerAccessRole = "game-server-admin" | "game-server-operator" | "game-server-viewer";
+
+interface InheritedAccessAssignment {
+  user: string;
+  role: string;
   scope: string;
-  username: string;
-  userEmail: string;
-  userName: string;
-  grantedAt: string;
-  expiresAt?: string;
+  source: "platform" | "game-hub";
+}
+
+interface ServerAccessAssignment {
+  user: string;
+  role: string;
+}
+
+interface ServerAccessResponse {
+  inherited: InheritedAccessAssignment[];
+  serverAssignments: ServerAccessAssignment[];
+  availableUsers: string[];
 }
 
 const GAME_SERVER_ROLES = [
-  { id: "game-server-admin", label: "Admin", description: "Full control over this server" },
-  { id: "game-server-operator", label: "Operator", description: "Start/stop, console, file access" },
-  { id: "game-server-viewer", label: "Viewer", description: "Read-only access" },
+  { id: "game-server-admin", label: "game-server-admin", description: "Full control (start/stop/scale/console/files/settings)" },
+  { id: "game-server-operator", label: "game-server-operator", description: "Console and file access only" },
+  { id: "game-server-viewer", label: "game-server-viewer", description: "Read-only status/metrics/logs" },
 ] as const;
 
-function ServerRbacPanel({ serverName }: { serverName: string }) {
+function roleBadgeClasses(roleId: string) {
+  if (roleId === "game-server-admin") return "border-red-500/30 bg-red-500/10 text-red-300";
+  if (roleId === "game-server-operator") return "border-[#0078D4]/30 bg-[#0078D4]/10 text-[#4db3ff]";
+  if (roleId === "game-server-viewer") return "border-emerald-500/30 bg-emerald-500/10 text-emerald-300";
+  return "border-[#333] bg-[#1a1a1a] text-[#888]";
+}
+
+function sourceBadgeClasses(source: InheritedAccessAssignment["source"]) {
+  return source === "platform"
+    ? "border-amber-500/30 bg-amber-500/10 text-amber-300"
+    : "border-violet-500/30 bg-violet-500/10 text-violet-300";
+}
+
+function sourceLabel(source: InheritedAccessAssignment["source"]) {
+  return source === "platform" ? "Platform Inherited" : "Game Hub Inherited";
+}
+
+function ServerRbacPanel({ serverName, canEdit }: { serverName: string; canEdit: boolean }) {
   const queryClient = useQueryClient();
   const scope = `/game-hub/servers/${serverName}`;
+  const [showInherited, setShowInherited] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [addUsername, setAddUsername] = useState("");
-  const [addRole, setAddRole] = useState<string>(GAME_SERVER_ROLES[0].id);
+  const [addRole, setAddRole] = useState<ServerAccessRole>(GAME_SERVER_ROLES[0].id);
   const [adding, setAdding] = useState(false);
   const [removing, setRemoving] = useState<string | null>(null);
 
-  const { data, isLoading } = useQuery({
-    queryKey: ["rbac-assignments", "game-hub", serverName],
-    queryFn: async () => {
-      const res = await fetch("/api/rbac/assignments");
-      if (!res.ok) throw new Error("Failed to load assignments");
-      const result = await res.json() as { assignments: RbacAssignment[] };
-      return result.assignments.filter((a) => a.scope === scope);
-    },
+  const accessQuery = useQuery<ServerAccessResponse>({
+    queryKey: ["game-hub", "server-access", serverName],
+    queryFn: () => fetchJson<ServerAccessResponse>(`/api/game-hub/servers/${serverName}/access`),
     staleTime: 30000,
   });
 
-  const { data: usersData } = useQuery({
-    queryKey: ["users-config-list"],
-    queryFn: async () => {
-      const res = await fetch("/api/users-config");
-      if (!res.ok) return { users: {} as Record<string, { name?: string; email?: string }> };
-      return res.json() as Promise<{ users: Record<string, { name?: string; email?: string }> }>;
-    },
-    staleTime: 60000,
-  });
-  const knownUsernames = Object.keys(usersData?.users ?? {}).sort();
+  const availableUsers = accessQuery.data?.availableUsers ?? [];
+  const inheritedAssignments = accessQuery.data?.inherited ?? [];
+  const serverAssignments = accessQuery.data?.serverAssignments ?? [];
 
-  const assignments = data ?? [];
+  useEffect(() => {
+    if (!addUsername && availableUsers.length > 0) {
+      setAddUsername(availableUsers[0]);
+    }
+  }, [addUsername, availableUsers]);
+
+  async function refreshAccess() {
+    await queryClient.invalidateQueries({ queryKey: ["game-hub", "server-access", serverName] });
+    await queryClient.invalidateQueries({ queryKey: ["game-hub", "server", serverName] });
+  }
 
   async function addAssignment() {
-    if (!addUsername.trim()) {
-      toast.error("Username is required");
+    if (!canEdit) return;
+    if (!addUsername) {
+      toast.error("Select a user first");
       return;
     }
+
     setAdding(true);
     try {
-      const res = await fetch("/api/rbac/assignments", {
+      await fetchJson(`/api/game-hub/servers/${serverName}/access`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: addUsername.trim(), roleId: addRole, scope, principalType: "user" }),
+        body: JSON.stringify({ username: addUsername, role: addRole }),
       });
-      if (!res.ok) {
-        const err = await res.json() as { error?: string };
-        throw new Error(err.error ?? "Failed to add assignment");
-      }
-      toast.success(`${addRole} granted to ${addUsername.trim()}`);
+      toast.success(`${addRole} granted to ${addUsername}`);
       setShowAdd(false);
-      setAddUsername("");
-      queryClient.invalidateQueries({ queryKey: ["rbac-assignments", "game-hub", serverName] });
+      await refreshAccess();
     } catch (error) {
       toast.error(String(error));
     } finally {
@@ -889,20 +910,17 @@ function ServerRbacPanel({ serverName }: { serverName: string }) {
     }
   }
 
-  async function removeAssignment(assignment: RbacAssignment) {
-    setRemoving(assignment.id);
+  async function removeAssignment(assignment: ServerAccessAssignment) {
+    if (!canEdit) return;
+
+    setRemoving(`${assignment.user}:${assignment.role}`);
     try {
-      const res = await fetch("/api/rbac/assignments", {
+      const params = new URLSearchParams({ username: assignment.user, role: assignment.role });
+      await fetchJson(`/api/game-hub/servers/${serverName}/access?${params.toString()}`, {
         method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: assignment.id, username: assignment.username }),
       });
-      if (!res.ok) {
-        const err = await res.json() as { error?: string };
-        throw new Error(err.error ?? "Failed to remove assignment");
-      }
-      toast.success(`Role removed from ${assignment.username}`);
-      queryClient.invalidateQueries({ queryKey: ["rbac-assignments", "game-hub", serverName] });
+      toast.success(`Removed ${assignment.role} from ${assignment.user}`);
+      await refreshAccess();
     } catch (error) {
       toast.error(String(error));
     } finally {
@@ -910,139 +928,207 @@ function ServerRbacPanel({ serverName }: { serverName: string }) {
     }
   }
 
-  const roleLabel = (roleId: string) => GAME_SERVER_ROLES.find((r) => r.id === roleId)?.label ?? roleId;
-
   return (
     <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-[#1e1e1e]">
-        <div className="flex items-center gap-2">
-          <Shield className="w-3.5 h-3.5 text-[#555]" />
-          <p className="text-xs font-medium text-[#888] uppercase tracking-wide">Access Control</p>
-          <span className="text-[10px] px-1.5 py-0.5 rounded border border-[#2a2a2a] text-[#555] font-mono">{scope}</span>
+      <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-[#1e1e1e]">
+        <div className="flex items-start gap-2">
+          <Shield className="w-3.5 h-3.5 text-[#555] mt-0.5" />
+          <div>
+            <p className="text-xs font-medium text-[#888] uppercase tracking-wide">Access Control</p>
+            <p className="text-[11px] text-[#555] mt-1">Inherited access is read-only here. Server-specific assignments are stored in users.yaml.</p>
+          </div>
         </div>
-        <button
-          onClick={() => setShowAdd((prev) => !prev)}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0078D4]/15 hover:bg-[#0078D4]/25 text-[#4db3ff] text-xs font-medium transition-colors"
-        >
-          <Plus className="w-3 h-3" /> Add User
-        </button>
+        <span className="text-[10px] px-1.5 py-0.5 rounded border border-[#2a2a2a] text-[#555] font-mono">{scope}</span>
       </div>
 
-      <div className="p-4 space-y-3">
-        {/* Add user form */}
-        <AnimatePresence>
-          {showAdd && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: "auto" }}
-              exit={{ opacity: 0, height: 0 }}
-              className="rounded-lg border border-[#0078D4]/30 bg-[#0d1e33] p-4 space-y-3"
-            >
-              <p className="text-xs font-medium text-[#4db3ff]">Grant server access</p>
-              <div className="grid sm:grid-cols-[1fr_160px_auto] gap-2">
-                <div>
-                  <label className="block text-[10px] text-[#666] mb-1">Username</label>
-                  <input
-                    value={addUsername}
-                    onChange={(e) => setAddUsername(e.target.value)}
-                    placeholder="username"
-                    list="rbac-users-datalist"
-                    className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
-                    onKeyDown={(e) => e.key === "Enter" && addAssignment()}
-                  />
-                  <datalist id="rbac-users-datalist">
-                    {knownUsernames.map((u) => <option key={u} value={u} />)}
-                  </datalist>
-                </div>
-                <div>
-                  <label className="block text-[10px] text-[#666] mb-1">Role</label>
-                  <select
-                    value={addRole}
-                    onChange={(e) => setAddRole(e.target.value)}
-                    className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
-                  >
-                    {GAME_SERVER_ROLES.map((r) => (
-                      <option key={r.id} value={r.id}>{r.label}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="flex items-end gap-2">
-                  <button
-                    onClick={addAssignment}
-                    disabled={adding}
-                    className="px-3 py-2 rounded-lg bg-[#0078D4] hover:bg-[#0065B3] disabled:opacity-50 text-white text-xs font-medium flex items-center gap-1.5"
-                  >
-                    {adding ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
-                    Grant
-                  </button>
-                  <button onClick={() => setShowAdd(false)} className="px-3 py-2 rounded-lg bg-[#1a1a1a] text-[#888] text-xs">
-                    Cancel
-                  </button>
-                </div>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {GAME_SERVER_ROLES.map((r) => (
-                  <div key={r.id} className="text-[10px] text-[#555]">
-                    <span className="text-[#888]">{r.label}</span>: {r.description}
-                  </div>
-                ))}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+      <div className="p-4 space-y-4">
+        {!canEdit && (
+          <div className="rounded-lg border border-[#2a2a2a] bg-[#0a0a0a] px-3 py-2 text-xs text-[#777]">
+            Read-only. Only Game Hub admins can change server assignments.
+          </div>
+        )}
 
-        {/* Assignment list */}
-        {isLoading && (
+        {accessQuery.isLoading ? (
           <div className="flex items-center gap-2 text-xs text-[#555]">
             <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            Loading assignments…
+            Loading access assignments…
           </div>
-        )}
-        {!isLoading && assignments.length === 0 && (
-          <p className="text-xs text-[#555]">
-            No users have been granted access to this server.
-            Platform admins always have full access via their platform role.
-          </p>
-        )}
-        {!isLoading && assignments.length > 0 && (
-          <div className="space-y-2">
-            {assignments.map((a) => (
-              <div
-                key={a.id}
-                className="flex items-center justify-between gap-3 rounded-lg border border-[#2a2a2a] bg-[#0a0a0a] px-3 py-2.5"
+        ) : accessQuery.error ? (
+          <div className="rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-xs text-red-300">
+            Failed to load access control details.
+          </div>
+        ) : (
+          <>
+            <div className="rounded-lg border border-[#2a2a2a] bg-[#0a0a0a] overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setShowInherited((prev) => !prev)}
+                className="w-full flex items-center justify-between gap-3 px-3 py-3 text-left"
               >
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-7 h-7 rounded-full bg-[#1e1e1e] flex items-center justify-center text-xs text-[#888] flex-shrink-0 border border-[#2a2a2a]">
-                    {(a.userName || a.username).slice(0, 1).toUpperCase()}
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-sm text-[#f2f2f2] truncate">{a.userName || a.username}</p>
-                    <p className="text-[10px] text-[#555] truncate">{a.userEmail || a.username}</p>
-                  </div>
+                <div>
+                  <p className="text-sm text-[#f2f2f2]">Inherited access</p>
+                  <p className="text-xs text-[#555] mt-1">Platform-wide and Game Hub-wide roles that also apply to this server.</p>
                 </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <span className={cn(
-                    "text-[10px] px-2 py-0.5 rounded-full border font-medium",
-                    a.roleId === "game-server-admin"
-                      ? "border-red-500/30 bg-red-500/10 text-red-300"
-                      : a.roleId === "game-server-operator"
-                        ? "border-[#0078D4]/30 bg-[#0078D4]/10 text-[#4db3ff]"
-                        : "border-[#333] bg-[#1a1a1a] text-[#888]",
-                  )}>
-                    {roleLabel(a.roleId)}
-                  </span>
-                  <button
-                    onClick={() => removeAssignment(a)}
-                    disabled={removing === a.id}
-                    title={`Remove ${a.username}'s access`}
-                    className="p-1.5 rounded-lg text-[#555] hover:text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                <div className="flex items-center gap-2 text-[#666]">
+                  <span className="text-[10px] px-2 py-0.5 rounded-full border border-[#2a2a2a]">{inheritedAssignments.length}</span>
+                  <ChevronRight className={cn("w-4 h-4 transition-transform", showInherited && "rotate-90")} />
+                </div>
+              </button>
+              <AnimatePresence initial={false}>
+                {showInherited && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="border-t border-[#1e1e1e] p-3 space-y-2"
                   >
-                    {removing === a.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-                  </button>
+                    {inheritedAssignments.length === 0 ? (
+                      <p className="text-xs text-[#555]">No inherited assignments found for this server.</p>
+                    ) : (
+                      inheritedAssignments.map((assignment) => (
+                        <div
+                          key={`${assignment.user}:${assignment.role}:${assignment.scope}`}
+                          className="flex items-center justify-between gap-3 rounded-lg border border-[#2a2a2a] bg-[#111] px-3 py-2.5"
+                        >
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="text-sm text-[#f2f2f2] truncate">{assignment.user}</p>
+                              <span className={cn("text-[10px] px-2 py-0.5 rounded-full border font-medium", sourceBadgeClasses(assignment.source))}>
+                                {sourceLabel(assignment.source)}
+                              </span>
+                            </div>
+                            <p className="text-[10px] text-[#555] font-mono mt-1">{assignment.scope}</p>
+                          </div>
+                          <span className={cn("text-[10px] px-2 py-0.5 rounded-full border font-medium", roleBadgeClasses(assignment.role))}>
+                            {assignment.role}
+                          </span>
+                        </div>
+                      ))
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+
+            <div className="rounded-lg border border-[#2a2a2a] bg-[#0a0a0a] overflow-hidden">
+              <div className="flex items-center justify-between gap-3 px-3 py-3 border-b border-[#1e1e1e]">
+                <div>
+                  <p className="text-sm text-[#f2f2f2]">Server-specific access</p>
+                  <p className="text-xs text-[#555] mt-1">Users assigned directly to this server only.</p>
                 </div>
+                {canEdit && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!showAdd && !addUsername && availableUsers.length > 0) {
+                        setAddUsername(availableUsers[0]);
+                      }
+                      setShowAdd((prev) => !prev);
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0078D4]/15 hover:bg-[#0078D4]/25 text-[#4db3ff] text-xs font-medium transition-colors"
+                  >
+                    <Plus className="w-3 h-3" /> Add User
+                  </button>
+                )}
               </div>
-            ))}
-          </div>
+              <div className="p-3 space-y-3">
+                <AnimatePresence initial={false}>
+                  {showAdd && canEdit && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: "auto" }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className="rounded-lg border border-[#0078D4]/30 bg-[#0d1e33] p-4 space-y-3"
+                    >
+                      <p className="text-xs font-medium text-[#4db3ff]">Grant direct server access</p>
+                      <div className="grid lg:grid-cols-[1fr_220px_auto] gap-2">
+                        <div>
+                          <label className="block text-[10px] text-[#666] mb-1">Username</label>
+                          <select
+                            value={addUsername}
+                            onChange={(event) => setAddUsername(event.target.value)}
+                            className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
+                          >
+                            {availableUsers.length === 0 ? (
+                              <option value="">No users available</option>
+                            ) : (
+                              availableUsers.map((username) => <option key={username} value={username}>{username}</option>)
+                            )}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-[10px] text-[#666] mb-1">Role</label>
+                          <select
+                            value={addRole}
+                            onChange={(event) => setAddRole(event.target.value as ServerAccessRole)}
+                            className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
+                          >
+                            {GAME_SERVER_ROLES.map((role) => (
+                              <option key={role.id} value={role.id}>{role.label}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={addAssignment}
+                          disabled={adding || !addUsername || availableUsers.length === 0}
+                          className="h-fit self-end px-3 py-2 rounded-lg bg-[#0078D4] hover:bg-[#0065B3] disabled:opacity-50 text-white text-xs font-medium flex items-center justify-center gap-1.5"
+                        >
+                          {adding ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
+                          Add
+                        </button>
+                      </div>
+                      <div className="grid gap-2 md:grid-cols-3">
+                        {GAME_SERVER_ROLES.map((role) => (
+                          <div key={role.id} className="rounded-lg border border-[#234] bg-[#08111d] px-3 py-2">
+                            <p className="text-[11px] text-[#f2f2f2] font-mono">{role.label}</p>
+                            <p className="text-[10px] text-[#6f88a6] mt-1">{role.description}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                {serverAssignments.length === 0 ? (
+                  <p className="text-xs text-[#555]">No server-specific assignments yet.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {serverAssignments.map((assignment) => {
+                      const assignmentKey = `${assignment.user}:${assignment.role}`;
+                      return (
+                        <div
+                          key={assignmentKey}
+                          className="flex items-center justify-between gap-3 rounded-lg border border-[#2a2a2a] bg-[#111] px-3 py-2.5"
+                        >
+                          <div className="min-w-0">
+                            <p className="text-sm text-[#f2f2f2] truncate">{assignment.user}</p>
+                            <p className="text-[10px] text-[#555] font-mono mt-1">{scope}</p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className={cn("text-[10px] px-2 py-0.5 rounded-full border font-medium", roleBadgeClasses(assignment.role))}>
+                              {assignment.role}
+                            </span>
+                            {canEdit && (
+                              <button
+                                type="button"
+                                onClick={() => removeAssignment(assignment)}
+                                disabled={removing === assignmentKey}
+                                title={`Remove ${assignment.user}'s access`}
+                                className="p-1.5 rounded-lg text-[#555] hover:text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                              >
+                                {removing === assignmentKey ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
         )}
       </div>
     </div>
@@ -1390,9 +1476,9 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
 
       <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden"><div className="flex items-center gap-2 px-4 py-3 border-b border-[#1e1e1e]"><Download className="w-3.5 h-3.5 text-[#555]" /><p className="text-xs font-medium text-[#888] uppercase tracking-wide">Server Export</p></div><div className="p-4"><button onClick={exportServer} className="px-3 py-2 rounded-lg bg-[#0078D4] text-white text-xs">Export Config</button></div></div>
 
-      <ServerRbacPanel serverName={name} />
-
       <div className="rounded-xl border border-red-500/20 bg-red-500/5 overflow-hidden"><div className="px-4 py-3 border-b border-red-500/20"><p className="text-xs font-medium text-red-400/80 uppercase tracking-wide">Danger Zone</p></div><div className="p-4 flex items-center justify-between gap-4"><div><p className="text-sm text-[#f2f2f2]">Delete this server</p><p className="text-xs text-[#666] mt-0.5">Permanently removes the deployment and all data. This cannot be undone.</p></div><button onClick={async () => { if (!confirm(`Permanently delete ${name} and all its data? This cannot be undone.`)) return; try { await fetchJson(`/api/game-hub/servers/${name}`, { method: "DELETE" }); toast.success(`${name} deleted`); window.location.href = "/game-hub"; } catch (error) { toast.error(String(error)); } }} className="flex-shrink-0 flex items-center gap-1.5 px-4 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/30 rounded-lg text-sm font-medium transition-colors"><Trash2 className="w-3.5 h-3.5" /> Delete</button></div></div>
+
+      <ServerRbacPanel serverName={name} canEdit={Boolean(server.permissions?.canAdmin)} />
 
       <AnimatePresence>{yamlOpen && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"><motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }} className="w-full max-w-5xl bg-[#111] border border-[#2a2a2a] rounded-xl overflow-hidden shadow-2xl"><div className="flex items-center justify-between px-4 py-3 border-b border-[#1e1e1e]"><div><p className="text-sm font-medium text-[#f2f2f2]">Deployment YAML</p><p className="text-xs text-[#666]">Read-only deployment manifest</p></div><div className="flex items-center gap-2"><button onClick={() => { navigator.clipboard.writeText(yamlContent); toast.success("Copied"); }} className="px-3 py-1.5 rounded-lg bg-[#1a1a1a] border border-[#2a2a2a] text-xs text-[#d4d4d4]">Copy</button><button onClick={() => setYamlOpen(false)} className="p-2 text-[#777] hover:text-white"><X className="w-4 h-4" /></button></div></div><div className="h-[70vh]">{yamlLoading ? <div className="h-full flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-[#0078D4]" /></div> : <pre className="h-full overflow-auto bg-[#1e1e1e] text-[#d4d4d4] font-mono text-[13px] leading-[1.5] p-3 m-0 whitespace-pre">{yamlContent}</pre>}</div></motion.div></div>}</AnimatePresence>
     </div>
