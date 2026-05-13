@@ -147,9 +147,8 @@ spec:
           containers:
             - name: healer
               # bitnami/kubectl — has bash + kubectl, works with in-cluster SA token
-              # Pin to a specific version matching your cluster's Kubernetes minor version.
-              # Update here when upgrading the cluster (check: kubectl version --short).
-              image: bitnami/kubectl:1.32
+              # bitnami/kubectl only publishes 'latest' on Docker Hub (no minor-version tags).
+              image: bitnami/kubectl:latest
               securityContext:
                 allowPrivilegeEscalation: false
                 capabilities:

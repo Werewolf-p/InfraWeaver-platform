@@ -72,13 +72,13 @@ spec:
               memory: 4Gi
               cpu: "2"
           readinessProbe:
-            tcpSocket:
-              port: 2458
+            exec:
+              command: ["pgrep", "-f", "valheim_server"]
             initialDelaySeconds: 60
             periodSeconds: 15
           livenessProbe:
-            tcpSocket:
-              port: 2458
+            exec:
+              command: ["pgrep", "-f", "valheim_server"]
             initialDelaySeconds: 120
             periodSeconds: 30
           volumeMounts:
