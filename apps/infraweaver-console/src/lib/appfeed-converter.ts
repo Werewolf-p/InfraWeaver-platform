@@ -333,7 +333,9 @@ export function convertAppFeedEntry(
   const slug = toSlug(appName);
   const namespace = options.namespace?.trim() || slug;
   const pvcSizeGi = options.pvcSizeGi ?? 10;
-  const storageClass = options.storageClass?.trim() || "longhorn-game";
+  // Community apps use the standard HA StorageClass (3 replicas, best-effort locality).
+  // longhorn-game is reserved for game servers only (strict-local, single replica).
+  const storageClass = options.storageClass?.trim() || "longhorn";
   const tier = detectTier(app);
 
   const warnings: string[] = [];

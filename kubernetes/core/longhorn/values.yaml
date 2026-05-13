@@ -19,6 +19,14 @@ defaultSettings:
   guaranteedInstanceManagerCPU: 12
   # Limit concurrent rebuild pressure during volume creation/recovery storms.
   concurrentReplicaRebuildPerNodeLimit: 1
+  # Wait before replenishing a failed replica — avoids immediate rebuild storms on node flap.
+  replicaReplenishmentWaitInterval: 600
+  # Limit concurrent engine upgrades per node so upgrades don't cause I/O storms.
+  concurrentAutomaticEngineUpgradePerNodeLimit: 1
+  # Disable periodic snapshot integrity checks — reduces background I/O on small cluster.
+  snapshotDataIntegrity: disabled
+  # Auto-clean orphaned replicas left behind after PVC deletion (prevents disk fill).
+  orphanAutoDeletion: true
   # Reserve 15% of disk for system use (reduced from 30% default to allow more scheduling headroom)
   storageReservedPercentageForDefaultDisk: 15
   # Auto-balance replicas when nodes have unequal replica counts
