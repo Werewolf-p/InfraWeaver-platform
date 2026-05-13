@@ -82,7 +82,43 @@ type MetricsHistoryPoint = {
   ramBytes: number;
 };
 
-const MAX_METRICS_HISTORY = 200;
+const MAX_METRICS_HISTORY = 720;
+
+function normalizeMetricsHistoryPoints(points: MetricPoint[]): MetricsHistoryPoint[] {
+  return points
+    .map((point) => {
+      const timestamp = new Date(point.timestamp).getTime();
+      if (!Number.isFinite(timestamp)) return null;
+      return {
+        t: timestamp,
+        cpu: point.cpuLimit
+          ? Number(((point.cpu / point.cpuLimit) * 100).toFixed(1))
+          : 0,
+        ram: point.memoryLimit
+          ? Number(((point.memory / point.memoryLimit) * 100).toFixed(1))
+          : 0,
+        ramBytes: point.memoryRaw ?? 0,
+      };
+    })
+    .filter((point): point is MetricsHistoryPoint => point !== null);
+}
+
+function mergeMetricsHistoryPoints(...batches: MetricsHistoryPoint[][]): MetricsHistoryPoint[] {
+  const merged = batches
+    .flat()
+    .filter((point) => Number.isFinite(point.t))
+    .sort((left, right) => left.t - right.t);
+  const deduped: MetricsHistoryPoint[] = [];
+  for (const point of merged) {
+    const previous = deduped[deduped.length - 1];
+    if (previous && previous.t === point.t) {
+      deduped[deduped.length - 1] = point;
+      continue;
+    }
+    deduped.push(point);
+  }
+  return deduped.slice(-MAX_METRICS_HISTORY);
+}
 
 function formatChartTime(value: number) {
   return new Date(value).toLocaleTimeString([], {
@@ -96,7 +132,7 @@ function loadMetricsHistory(historyKey: string): MetricsHistoryPoint[] {
   try {
     const raw = localStorage.getItem(historyKey);
     const parsed = raw ? JSON.parse(raw) as MetricsHistoryPoint[] : [];
-    return Array.isArray(parsed) ? parsed.slice(-MAX_METRICS_HISTORY) : [];
+    return Array.isArray(parsed) ? mergeMetricsHistoryPoints(parsed) : [];
   } catch {
     return [];
   }
@@ -105,7 +141,7 @@ function loadMetricsHistory(historyKey: string): MetricsHistoryPoint[] {
 function saveMetricsHistory(historyKey: string, history: MetricsHistoryPoint[]) {
   if (typeof window === "undefined") return;
   try {
-    localStorage.setItem(historyKey, JSON.stringify(history.slice(-MAX_METRICS_HISTORY)));
+    localStorage.setItem(historyKey, JSON.stringify(mergeMetricsHistoryPoints(history)));
   } catch {
     // ignore quota/storage issues
   }
@@ -319,6 +355,16 @@ export function DashboardTab({
   const [killingPid, setKillingPid] = useState<string | null>(null);
   const [testingConnectivity, setTestingConnectivity] = useState(false);
   const [dnsDialogOpen, setDnsDialogOpen] = useState(false);
+  const { data: metricsHistoryResponse } = useQuery({
+    queryKey: ["game-hub", "metrics-history", "game-hub", server.podName],
+    queryFn: () =>
+      fetchJson<MetricPoint[]>(
+        `/api/metrics/history/game-hub/${encodeURIComponent(server.podName ?? "")}`,
+      ),
+    enabled: server.replicas > 0 && Boolean(server.podName),
+    staleTime: 60_000,
+    retry: false,
+  });
   const {
     data: metricsResponse,
     isLoading: metricsLoading,
@@ -334,7 +380,7 @@ export function DashboardTab({
         : { points: result.points ?? [], error: result.error ?? null };
     },
     enabled: server.replicas > 0,
-    refetchInterval: server.replicas > 0 ? 15000 : false,
+    refetchInterval: server.replicas > 0 ? 5000 : false,
     retry: false,
   });
   const { data: disk } = useQuery({
@@ -410,6 +456,16 @@ export function DashboardTab({
   useEffect(() => {
     setMetricsHistory(loadMetricsHistory(metricsHistoryKey));
   }, [metricsHistoryKey]);
+
+  useEffect(() => {
+    if (!metricsHistoryResponse?.length) return;
+    const historicalPoints = normalizeMetricsHistoryPoints(metricsHistoryResponse);
+    setMetricsHistory((current) => {
+      const next = mergeMetricsHistoryPoints(current, historicalPoints);
+      saveMetricsHistory(metricsHistoryKey, next);
+      return next;
+    });
+  }, [metricsHistoryKey, metricsHistoryResponse]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -531,28 +587,24 @@ export function DashboardTab({
 
   useEffect(() => {
     if (!latest?.timestamp) return;
+    const [nextPoint] = normalizeMetricsHistoryPoints([latest]);
+    if (!nextPoint) return;
     setMetricsHistory((current) => {
-      const nextPoint = {
-        t: Date.now(),
-        cpu: Number((cpuPct ?? 0).toFixed(1)),
-        ram: Number((memoryPct ?? 0).toFixed(1)),
-        ramBytes: latest.memoryRaw ?? 0,
-      };
       const previous = current[current.length - 1];
       if (
         previous
+        && previous.t === nextPoint.t
         && previous.cpu === nextPoint.cpu
         && previous.ram === nextPoint.ram
         && previous.ramBytes === nextPoint.ramBytes
-        && nextPoint.t - previous.t < 5_000
       ) {
         return current;
       }
-      const next = [...current, nextPoint].slice(-MAX_METRICS_HISTORY);
+      const next = mergeMetricsHistoryPoints(current, [nextPoint]);
       saveMetricsHistory(metricsHistoryKey, next);
       return next;
     });
-  }, [cpuPct, latest?.memoryRaw, latest?.timestamp, memoryPct, metricsHistoryKey]);
+  }, [latest, metricsHistoryKey]);
 
   const cpuUsesPercent = Boolean(latest?.cpuLimit);
   const memoryUsesPercent = Boolean(latest?.memoryLimit);

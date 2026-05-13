@@ -197,11 +197,6 @@ function readConsolePrefs() {
   }
 }
 
-function depthToSinceTime(depth: string): string {
-  const ms: Record<string, number> = { "1h": 3600000, "6h": 21600000, "1d": 86400000, "3d": 259200000, "7d": 604800000 };
-  return new Date(Date.now() - (ms[depth] ?? 86400000)).toISOString();
-}
-
 const HISTORY_DEPTH_MAX_LINES: Record<ConsoleHistoryDepth, number> = {
   "1h": 2000,
   "6h": 5000,
@@ -673,12 +668,11 @@ function ConsoleTab({
 
     const params = new URLSearchParams();
     const depth = depthOverride ?? historyDepth;
-    const capLines = HISTORY_DEPTH_MAX_LINES[depth] ?? 500;
+    const capLines = Math.min(HISTORY_DEPTH_MAX_LINES[depth] ?? 500, 2000);
     params.set("tail", String(capLines));
-    if (lastLogTimestampRef.current)
+    if (lastLogTimestampRef.current) {
       params.set("sinceTime", lastLogTimestampRef.current);
-    else
-      params.set("sinceTime", depthToSinceTime(depth));
+    }
 
     const es = new EventSource(
       `/api/game-hub/servers/${name}/logs?${params.toString()}`,
@@ -704,6 +698,11 @@ function ConsoleTab({
           } else if (isReconnect) {
             showBanner("Reconnected", 2500);
           }
+          return;
+        }
+
+        if (msg.type === "history-end") {
+          addLine("history-marker", msg.line ?? "Live logs");
           return;
         }
 
@@ -913,6 +912,7 @@ function ConsoleTab({
   const lineColor = (type: string) =>
     ({
       system: "text-blue-400/80",
+      "history-marker": "text-[#7c8ba1]",
       error: "text-red-400",
       input: "text-yellow-300",
       output: "text-cyan-300",
@@ -925,7 +925,8 @@ function ConsoleTab({
     return "info" as const;
   }, []);
   const renderedLine = useCallback(
-    (entry: { line: string; timestamp?: string | null }) => {
+    (entry: { type?: string; line: string; timestamp?: string | null }) => {
+      if (entry.type === "history-marker") return entry.line;
       if (!showTimestamps || !entry.timestamp) return entry.line;
       return `${entry.timestamp} ${entry.line}`;
     },
@@ -934,6 +935,7 @@ function ConsoleTab({
   const visibleLogLines = useMemo(
     () =>
       logLines.filter((entry) => {
+        if (entry.type === "history-marker") return true;
         if (levelFilter === "all") return true;
         return detectLogLevel(entry.type, entry.line) === levelFilter;
       }),
@@ -1218,21 +1220,32 @@ function ConsoleTab({
           </div>
         ) : (
           displayedLogLines.map((entry) => (
-            <div
-              key={entry.id}
-              ref={(element) => {
-                lineRefs.current[entry.id] = element;
-              }}
-              className={cn(
-                wordWrap ? "whitespace-pre-wrap break-all" : "whitespace-pre",
-                "px-1 rounded min-w-fit transition-opacity",
-                lineColor(entry.type),
-                normalizedLogSearch && !logFilterMode && !matchingLineIds.includes(entry.id) && "opacity-35",
-                matchingLineIds.includes(entry.id) && "bg-yellow-400/10",
-              )}
-            >
-              {highlightLogMatch(renderedLine(entry), logSearch)}
-            </div>
+            entry.type === "history-marker" ? (
+              <div
+                key={entry.id}
+                className="my-3 flex items-center gap-3 text-[10px] uppercase tracking-[0.3em] text-[#5f6b7a]"
+              >
+                <div className="h-px flex-1 bg-[#1f2937]" />
+                <span>{entry.line}</span>
+                <div className="h-px flex-1 bg-[#1f2937]" />
+              </div>
+            ) : (
+              <div
+                key={entry.id}
+                ref={(element) => {
+                  lineRefs.current[entry.id] = element;
+                }}
+                className={cn(
+                  wordWrap ? "whitespace-pre-wrap break-all" : "whitespace-pre",
+                  "px-1 rounded min-w-fit transition-opacity",
+                  lineColor(entry.type),
+                  normalizedLogSearch && !logFilterMode && !matchingLineIds.includes(entry.id) && "opacity-35",
+                  matchingLineIds.includes(entry.id) && "bg-yellow-400/10",
+                )}
+              >
+                {highlightLogMatch(renderedLine(entry), logSearch)}
+              </div>
+            )
           ))
         )}
         <div ref={logEndRef} />

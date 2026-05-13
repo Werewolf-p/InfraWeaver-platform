@@ -5,6 +5,41 @@ import { loadKubeConfig } from "@/lib/k8s";
 import { safeError } from "@/lib/utils";
 import { PassThrough } from "stream";
 
+const ISO_TIMESTAMP_PREFIX = /^(\d{4}-\d{2}-\d{2}T[\d:.]+Z)\s([\s\S]*)$/;
+const LOG_HISTORY_LIMIT = 2000;
+const OVERLAP_LINE_COUNT = 50;
+
+function emitEvent(controller: ReadableStreamDefaultController<Uint8Array>, encoder: TextEncoder, payload: unknown) {
+  controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
+}
+
+function emitLogLine(controller: ReadableStreamDefaultController<Uint8Array>, encoder: TextEncoder, raw: string) {
+  if (!raw.trim()) return null;
+  const tsMatch = raw.match(ISO_TIMESTAMP_PREFIX);
+  const timestamp = tsMatch ? tsMatch[1] : undefined;
+  const line = tsMatch ? (tsMatch[2] ?? "") : raw;
+  emitEvent(controller, encoder, {
+    type: "log",
+    line,
+    ...(timestamp ? { timestamp } : {}),
+  });
+  return raw;
+}
+
+function emitLogChunk(controller: ReadableStreamDefaultController<Uint8Array>, encoder: TextEncoder, chunk: string) {
+  const lines: string[] = [];
+  for (const raw of chunk.split(/\r?\n/)) {
+    const emitted = emitLogLine(controller, encoder, raw);
+    if (emitted) lines.push(emitted);
+  }
+  return lines;
+}
+
+function toSinceSeconds(value: Date | null) {
+  if (!value || Number.isNaN(value.getTime())) return undefined;
+  return Math.max(1, Math.ceil((Date.now() - value.getTime()) / 1000));
+}
+
 export async function GET(req: NextRequest, { params }: { params: Promise<{ name: string }> }) {
   const session = await auth();
   if (!session) return new Response("Unauthorized", { status: 401 });
@@ -15,9 +50,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ name
     return new Response("Forbidden", { status: 403 });
   }
 
-  const tail = parseInt(req.nextUrl.searchParams.get("tail") ?? "200", 10);
+  const requestedTail = Number.parseInt(req.nextUrl.searchParams.get("tail") ?? String(LOG_HISTORY_LIMIT), 10);
+  const tail = Math.min(Math.max(Number.isFinite(requestedTail) ? requestedTail : LOG_HISTORY_LIMIT, 1), LOG_HISTORY_LIMIT);
   const sinceTimeParam = req.nextUrl.searchParams.get("sinceTime");
   const sinceTime = sinceTimeParam ? new Date(sinceTimeParam) : null;
+  const sinceSeconds = toSinceSeconds(sinceTime);
 
   try {
     const k8s = await import("@kubernetes/client-node");
@@ -34,68 +71,117 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ name
 
     const encoder = new TextEncoder();
     const logStream = new PassThrough();
+    const containerName = pod.spec?.containers?.[0]?.name ?? name;
     let cancelled = false;
+    let followAbortController: AbortController | null = null;
 
     const readable = new ReadableStream({
-      start(controller) {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "connected", pod: pod.metadata?.name ?? name, container: pod.spec?.containers?.[0]?.name ?? name })}\n\n`));
-        const log = new k8s.Log(kc);
-
-        const logOptions: { follow: boolean; timestamps: boolean; tailLines?: number; sinceTime?: Date; pretty: boolean } = {
-          follow: true,
-          timestamps: true,
-          pretty: false,
-        };
-
-        if (sinceTime && !isNaN(sinceTime.getTime())) {
-          logOptions.sinceTime = sinceTime;
-          // Always cap with tailLines so initial connection doesn't stream gigabytes
-          logOptions.tailLines = tail;
-        } else {
-          logOptions.tailLines = tail;
-        }
-
-        log.log(
-          GAME_HUB_NAMESPACE,
-          pod.metadata!.name!,
-          pod.spec?.containers?.[0]?.name ?? name,
-          logStream,
-          (error) => {
-            if (error && !cancelled) {
-              try {
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "error", line: safeError(error) })}\n\n`));
-              } catch {}
-            }
-            try { controller.close(); } catch {}
-          },
-          logOptions as unknown as import("@kubernetes/client-node").LogOptions,
-        );
-
-        logStream.on("data", (chunk: Buffer) => {
-          if (cancelled) return;
-          for (const raw of chunk.toString("utf8").split("\n")) {
-            if (!raw.trim()) continue;
-            const tsMatch = raw.match(/^(\d{4}-\d{2}-\d{2}T[\d:.]+Z)\s([\s\S]*)$/);
-            const timestamp = tsMatch ? tsMatch[1] : undefined;
-            const line = tsMatch ? (tsMatch[2] ?? "") : raw;
-            try {
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "log", line, ...(timestamp ? { timestamp } : {}) })}\n\n`));
-            } catch {
-              cancelled = true;
-            }
+      async start(controller) {
+        try {
+          emitEvent(controller, encoder, { type: "connected", pod: pod.metadata?.name ?? name, container: containerName });
+          const historyLog = await coreApi.readNamespacedPodLog({
+            name: pod.metadata!.name!,
+            namespace: GAME_HUB_NAMESPACE,
+            container: containerName,
+            tailLines: tail,
+            timestamps: true,
+            ...(sinceSeconds ? { sinceSeconds } : {}),
+          });
+          const historyLines = emitLogChunk(controller, encoder, historyLog);
+          const lastHistoryTimestamp = historyLines[historyLines.length - 1]?.match(ISO_TIMESTAMP_PREFIX)?.[1];
+          if (historyLines.length > 0) {
+            emitEvent(controller, encoder, { type: "history-end", line: "Live logs" });
           }
-        });
 
-        logStream.on("end", () => { try { controller.close(); } catch {} });
-        logStream.on("error", (error) => {
-          try {
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "error", line: safeError(error) })}\n\n`));
-            controller.close();
-          } catch {}
-        });
+          const overlapLines = lastHistoryTimestamp
+            ? historyLines.filter((line) => line.startsWith(lastHistoryTimestamp)).slice(-OVERLAP_LINE_COUNT)
+            : [];
+          let pendingChunk = "";
+          const log = new k8s.Log(kc);
+          const followSinceTime = lastHistoryTimestamp
+            ?? (sinceTime && !Number.isNaN(sinceTime.getTime()) ? sinceTime.toISOString() : new Date().toISOString());
+
+          logStream.on("data", (chunk: Buffer | string) => {
+            if (cancelled) return;
+            pendingChunk += chunk.toString();
+            const parts = pendingChunk.split(/\r?\n/);
+            pendingChunk = parts.pop() ?? "";
+            for (const raw of parts) {
+              if (!raw.trim()) continue;
+              if (overlapLines.length > 0 && raw === overlapLines[0]) {
+                overlapLines.shift();
+                continue;
+              }
+              overlapLines.length = 0;
+              try {
+                emitLogLine(controller, encoder, raw);
+              } catch {
+                cancelled = true;
+                followAbortController?.abort();
+                logStream.destroy();
+                break;
+              }
+            }
+          });
+
+          logStream.on("end", () => {
+            if (cancelled) return;
+            if (pendingChunk.trim()) {
+              try {
+                emitLogLine(controller, encoder, pendingChunk);
+              } catch {
+                cancelled = true;
+              }
+            }
+            try {
+              controller.close();
+            } catch {}
+          });
+
+          logStream.on("error", (error) => {
+            if (cancelled) return;
+            try {
+              emitEvent(controller, encoder, { type: "error", line: safeError(error) });
+              controller.close();
+            } catch {}
+          });
+
+          followAbortController = await log.log(
+            GAME_HUB_NAMESPACE,
+            pod.metadata!.name!,
+            containerName,
+            logStream,
+            (error) => {
+              if (error && !cancelled) {
+                try {
+                  emitEvent(controller, encoder, { type: "error", line: safeError(error) });
+                } catch {}
+              }
+              if (!cancelled) {
+                try {
+                  controller.close();
+                } catch {}
+              }
+            },
+            {
+              follow: true,
+              timestamps: true,
+              pretty: false,
+              sinceTime: followSinceTime,
+            } as import("@kubernetes/client-node").LogOptions,
+          );
+        } catch (error) {
+          if (!cancelled) {
+            try {
+              emitEvent(controller, encoder, { type: "error", line: safeError(error) });
+              controller.close();
+            } catch {}
+          }
+        }
       },
       cancel() {
         cancelled = true;
+        followAbortController?.abort();
         logStream.destroy();
       },
     });

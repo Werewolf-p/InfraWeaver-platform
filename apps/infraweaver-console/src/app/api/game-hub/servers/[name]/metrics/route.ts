@@ -55,7 +55,7 @@ async function readMetrics(
   name: string,
 ): Promise<{ points: MetricPoint[]; error?: string }> {
   const cached = metricsCache.get(name);
-  if (cached && Date.now() - cached.updatedAt < 15_000) {
+  if (cached && Date.now() - cached.updatedAt < 5_000) {
     return { points: cached.data };
   }
 
