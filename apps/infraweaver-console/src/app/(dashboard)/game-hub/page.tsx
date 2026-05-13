@@ -411,6 +411,8 @@ export default function GameHubPage() {
   const [actionLoading, setActionLoading] = useState<Record<string, string>>({});
   const [showPVCCleanup, setShowPVCCleanup] = useState(false);
   const [search, setSearch] = useState("");
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [filterType, setFilterType] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
@@ -656,7 +658,7 @@ export default function GameHubPage() {
         actions={
           <div className="flex items-center gap-2">
             {canManageGameHub ? (
-              <button onClick={() => setShowPVCCleanup(true)} className="flex items-center gap-2 px-3 py-2 bg-[#252525] hover:bg-[#2a2a2a] border border-[#2a2a2a] text-[#9e9e9e] hover:text-[#f2f2f2] rounded-lg text-sm font-medium transition-colors">
+              <button onClick={() => setShowPVCCleanup(true)} className="flex min-h-[44px] items-center gap-2 rounded-lg border border-[#2a2a2a] bg-[#252525] px-3 py-2 text-sm font-medium text-[#9e9e9e] transition-colors hover:bg-[#2a2a2a] hover:text-[#f2f2f2]">
                 <HardDrive className="w-4 h-4" />
                 <span className="hidden sm:inline">Cleanup PVCs</span>
               </button>
@@ -674,7 +676,7 @@ export default function GameHubPage() {
               <span className="hidden sm:inline">{compareMode ? "Comparing" : "Compare"}</span>
             </button>
             {canManageGameHub ? (
-              <Link href="/game-hub/new" className="flex items-center gap-2 px-4 py-2 bg-[#0078D4] hover:bg-[#006cbe] text-white rounded-lg text-sm font-medium transition-colors">
+              <Link href="/game-hub/new" className="hidden min-h-[44px] items-center gap-2 rounded-lg bg-[#0078D4] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#006cbe] sm:flex">
                 <Plus className="w-4 h-4" />
                 New Server
               </Link>
@@ -683,45 +685,69 @@ export default function GameHubPage() {
         }
       />
 
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative min-w-0 flex-1 sm:min-w-[220px] sm:max-w-xs">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#555]" />
-          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search servers..." className="w-full bg-[#111] border border-[#2a2a2a] rounded-lg pl-8 pr-3 py-1.5 text-sm text-[#f2f2f2] placeholder:text-[#444] focus:outline-none focus:border-[#0078D4]/50" />
+      <div className="space-y-3">
+        <div className="flex items-center gap-2 sm:hidden">
+          <button
+            onClick={() => setMobileSearchOpen((value) => !value)}
+            className={cn("flex h-11 w-11 items-center justify-center rounded-xl border border-[#2a2a2a] bg-[#111] text-[#888] transition-colors", mobileSearchOpen && "border-[#0078D4]/30 bg-[#0078D4]/10 text-[#4db3ff]")}
+            aria-label="Toggle search"
+          >
+            <Search className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => setMobileFiltersOpen((value) => !value)}
+            className={cn("inline-flex min-h-[44px] items-center gap-2 rounded-xl border border-[#2a2a2a] bg-[#111] px-3 text-sm text-[#888] transition-colors", mobileFiltersOpen && "border-[#0078D4]/30 bg-[#0078D4]/10 text-[#4db3ff]")}
+          >
+            Filters
+            <ChevronDown className={cn("w-4 h-4 transition-transform", mobileFiltersOpen && "rotate-180")} />
+          </button>
+          <div className="ml-auto flex items-center rounded-lg border border-[#2a2a2a] bg-[#111] p-1">
+            <button onClick={() => setViewMode("detailed")} className={cn("rounded px-2 py-1 text-xs transition-colors", viewMode === "detailed" ? "bg-[#0078D4]/15 text-[#4db3ff]" : "text-[#666]")} title="Detailed cards"><LayoutGrid className="w-3.5 h-3.5" /></button>
+            <button onClick={() => setViewMode("compact")} className={cn("rounded px-2 py-1 text-xs transition-colors", viewMode === "compact" ? "bg-[#0078D4]/15 text-[#4db3ff]" : "text-[#666]")} title="Compact list"><Rows3 className="w-3.5 h-3.5" /></button>
+          </div>
         </div>
-        {["all", "running", "starting", "stopped"].map((status) => (
-          <button key={status} onClick={() => setFilterStatus(status)} className={cn("px-3 py-1.5 rounded-lg text-xs font-medium capitalize transition-colors border", filterStatus === status ? "bg-[#0078D4]/20 border-[#0078D4]/40 text-[#0078D4]" : "bg-[#111] border-[#2a2a2a] text-[#666] hover:text-[#999]")}>{status}</button>
-        ))}
-        {uniqueGameTypes.length > 1 && (
-          <select value={filterType} onChange={(event) => setFilterType(event.target.value)} className="bg-[#111] border border-[#2a2a2a] rounded-lg px-2 py-1.5 text-xs text-[#666] focus:outline-none focus:border-[#0078D4]/50">
-            <option value="">All types</option>
-            {uniqueGameTypes.map((type) => <option key={type} value={type}>{type}</option>)}
-          </select>
-        )}
-        {allGroups.length > 0 && (
-          <select value={filterGroup} onChange={(event) => setFilterGroup(event.target.value)} className="bg-[#111] border border-[#2a2a2a] rounded-lg px-2 py-1.5 text-xs text-[#666] focus:outline-none focus:border-[#0078D4]/50">
-            <option value="">All groups</option>
-            {allGroups.map((group) => <option key={group} value={group}>{group}</option>)}
-          </select>
-        )}
-        <select value={sortKey} onChange={(event) => setSort(event.target.value as ServerSortKey)} className="bg-[#111] border border-[#2a2a2a] rounded-lg px-2 py-1.5 text-xs text-[#666] focus:outline-none focus:border-[#0078D4]/50">
-          <option value="health">Sort by health</option>
-          <option value="name">Sort by name</option>
-          <option value="status">Sort by status</option>
-          <option value="cpu">Sort by CPU usage</option>
-          <option value="players">Sort by players</option>
-          <option value="started">Sort by last started</option>
-        </select>
-        <div className="flex items-center rounded-lg border border-[#2a2a2a] bg-[#111] p-1">
-          <button onClick={() => setViewMode("detailed")} className={cn("rounded px-2 py-1 text-xs transition-colors", viewMode === "detailed" ? "bg-[#0078D4]/15 text-[#4db3ff]" : "text-[#666]")} title="Detailed cards"><LayoutGrid className="w-3.5 h-3.5" /></button>
-          <button onClick={() => setViewMode("compact")} className={cn("rounded px-2 py-1 text-xs transition-colors", viewMode === "compact" ? "bg-[#0078D4]/15 text-[#4db3ff]" : "text-[#666]")} title="Compact list"><Rows3 className="w-3.5 h-3.5" /></button>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className={cn("relative min-w-0 flex-1", mobileSearchOpen ? "block" : "hidden sm:block", "sm:min-w-[220px] sm:max-w-xs")}>
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#555]" />
+            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search servers..." className="min-h-[44px] w-full rounded-xl border border-[#2a2a2a] bg-[#111] pl-8 pr-3 text-sm text-[#f2f2f2] placeholder:text-[#444] focus:outline-none focus:border-[#0078D4]/50" />
+          </div>
+          <div className={cn("w-full flex-wrap items-center gap-2", mobileFiltersOpen ? "flex" : "hidden sm:flex", "sm:w-auto")}>
+            {["all", "running", "starting", "stopped"].map((status) => (
+              <button key={status} onClick={() => setFilterStatus(status)} className={cn("min-h-[44px] rounded-xl border px-3 py-1.5 text-xs font-medium capitalize transition-colors", filterStatus === status ? "bg-[#0078D4]/20 border-[#0078D4]/40 text-[#0078D4]" : "bg-[#111] border-[#2a2a2a] text-[#666] hover:text-[#999]")}>{status}</button>
+            ))}
+            {uniqueGameTypes.length > 1 && (
+              <select value={filterType} onChange={(event) => setFilterType(event.target.value)} className="min-h-[44px] rounded-xl border border-[#2a2a2a] bg-[#111] px-3 py-1.5 text-xs text-[#666] focus:outline-none focus:border-[#0078D4]/50">
+                <option value="">All types</option>
+                {uniqueGameTypes.map((type) => <option key={type} value={type}>{type}</option>)}
+              </select>
+            )}
+            {allGroups.length > 0 && (
+              <select value={filterGroup} onChange={(event) => setFilterGroup(event.target.value)} className="min-h-[44px] rounded-xl border border-[#2a2a2a] bg-[#111] px-3 py-1.5 text-xs text-[#666] focus:outline-none focus:border-[#0078D4]/50">
+                <option value="">All groups</option>
+                {allGroups.map((group) => <option key={group} value={group}>{group}</option>)}
+              </select>
+            )}
+            <select value={sortKey} onChange={(event) => setSort(event.target.value as ServerSortKey)} className="min-h-[44px] rounded-xl border border-[#2a2a2a] bg-[#111] px-3 py-1.5 text-xs text-[#666] focus:outline-none focus:border-[#0078D4]/50">
+              <option value="health">Sort by health</option>
+              <option value="name">Sort by name</option>
+              <option value="status">Sort by status</option>
+              <option value="cpu">Sort by CPU usage</option>
+              <option value="players">Sort by players</option>
+              <option value="started">Sort by last started</option>
+            </select>
+            <div className="hidden items-center rounded-lg border border-[#2a2a2a] bg-[#111] p-1 sm:flex">
+              <button onClick={() => setViewMode("detailed")} className={cn("rounded px-2 py-1 text-xs transition-colors", viewMode === "detailed" ? "bg-[#0078D4]/15 text-[#4db3ff]" : "text-[#666]")} title="Detailed cards"><LayoutGrid className="w-3.5 h-3.5" /></button>
+              <button onClick={() => setViewMode("compact")} className={cn("rounded px-2 py-1 text-xs transition-colors", viewMode === "compact" ? "bg-[#0078D4]/15 text-[#4db3ff]" : "text-[#666]")} title="Compact list"><Rows3 className="w-3.5 h-3.5" /></button>
+            </div>
+            {(search || filterType || filterTag || filterGroup || filterStatus !== "all") && (
+              <button onClick={resetFilters} className="min-h-[44px] rounded-xl border border-[#2a2a2a] bg-[#111] px-3 py-1.5 text-xs text-[#888] hover:text-white hover:border-[#3a3a3a]">Reset</button>
+            )}
+          </div>
         </div>
-        {(search || filterType || filterTag || filterGroup || filterStatus !== "all") && (
-          <button onClick={resetFilters} className="px-3 py-1.5 rounded-lg border border-[#2a2a2a] bg-[#111] text-xs text-[#888] hover:text-white hover:border-[#3a3a3a]">Reset</button>
-        )}
       </div>
 
       {allTags.length > 0 && (
-        <div className="flex flex-wrap gap-2">
+        <div className={cn("flex flex-wrap gap-2", mobileFiltersOpen ? "flex" : "hidden sm:flex")}>
           <button onClick={() => setFilterTag("")} className={cn("px-2.5 py-1 rounded-full border text-[11px] transition-colors", !filterTag ? "border-[#0078D4]/30 bg-[#0078D4]/15 text-[#4db3ff]" : "border-[#2a2a2a] bg-[#111] text-[#777] hover:text-[#ccc]")}>All tags</button>
           {allTags.map((tag) => (
             <button key={tag} onClick={() => setFilterTag((prev) => prev === tag ? "" : tag)} className={cn("px-2.5 py-1 rounded-full border text-[11px] transition-colors", filterTag === tag ? "border-[#0078D4]/30 bg-[#0078D4]/15 text-[#4db3ff]" : "border-[#2a2a2a] bg-[#111] text-[#777] hover:text-[#ccc]")}>#{tag}</button>
@@ -777,7 +803,7 @@ export default function GameHubPage() {
         </div>
       )}
 
-      <div className={cn("grid gap-4", viewMode === "compact" ? "grid-cols-1" : "sm:grid-cols-2 xl:grid-cols-3")}>
+      <div className={cn("grid gap-3 sm:gap-4", viewMode === "compact" ? "grid-cols-1" : "grid-cols-1 sm:grid-cols-2 xl:grid-cols-3")}>
         <AnimatePresence>
           {filteredServers.map((server, index) => {
             const health = healthBadge(server);
@@ -790,7 +816,7 @@ export default function GameHubPage() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.95 }}
                 transition={{ delay: index * 0.05 }}
-                className={cn("rounded-xl border bg-[#1a1a1a] flex flex-col transition-colors", viewMode === "compact" ? "p-4 gap-3" : "p-5 gap-4", compareMode ? "cursor-pointer" : "cursor-pointer hover:border-[#3a3a3a]", compareSet.has(server.name) ? "border-[#0078D4] ring-1 ring-[#0078D4]/40" : "border-[#2a2a2a]")}
+                className={cn("flex flex-col rounded-xl border bg-[#1a1a1a] transition-colors", viewMode === "compact" ? "gap-3 p-3 sm:p-4" : "gap-3 p-3 sm:gap-4 sm:p-5", compareMode ? "cursor-pointer" : "cursor-pointer hover:border-[#3a3a3a]", compareSet.has(server.name) ? "border-[#0078D4] ring-1 ring-[#0078D4]/40" : "border-[#2a2a2a]")}
                 onClick={() => compareMode ? toggleCompare(server.name) : router.push(`/game-hub/${server.name}`)}
               >
                 <div className="flex items-start justify-between gap-2">
@@ -831,8 +857,8 @@ export default function GameHubPage() {
                           </>
                         )}
                       </div>
-                      <p className="text-xs text-[#666] capitalize mt-0.5">{server.gameType.replace(/-/g, " ")}</p>
-                      {server.description && <p className="text-[11px] text-[#777] mt-1 line-clamp-2">{server.description}</p>}
+                      <p className="mt-0.5 text-xs capitalize text-[#666]">{server.gameType.replace(/-/g, " ")}</p>
+                      {server.description && <p className="mt-1 hidden text-[11px] text-[#777] line-clamp-2 sm:block">{server.description}</p>}
                       {((server.tags ?? []).length > 0 || (server.groups ?? []).length > 0 || server.imageVersion) && (
                         <div className="flex flex-wrap gap-1 mt-2">
                           {(server.tags ?? []).map((tag) => <span key={tag} className="px-1.5 py-0.5 rounded-full bg-[#111] border border-[#2a2a2a] text-[10px] text-[#9e9e9e]">#{tag}</span>)}
@@ -843,7 +869,11 @@ export default function GameHubPage() {
                     </div>
                   </div>
                 </div>
-                <div className={cn("grid gap-2 text-xs text-[#666]", viewMode === "compact" ? "grid-cols-2 lg:grid-cols-5" : "grid-cols-1 sm:grid-cols-2")}>
+                <div className="grid grid-cols-2 gap-2 text-xs text-[#666] sm:hidden">
+                  <div>Status: <span className="text-[#9e9e9e] capitalize">{server.status}</span></div>
+                  <div>Players: <span className="text-[#9e9e9e]">{server.playerCount ?? 0}</span></div>
+                </div>
+                <div className={cn("hidden gap-2 text-xs text-[#666] sm:grid", viewMode === "compact" ? "sm:grid-cols-2 lg:grid-cols-5" : "sm:grid-cols-2")}>
                   <div>Port: <span className="text-[#9e9e9e]">{server.nodePort || server.port || "—"}</span></div>
                   <div>Memory: <span className="text-[#9e9e9e]">{server.memory || "—"}</span></div>
                   <div>CPU: <span className="text-[#9e9e9e]">{server.cpu || "—"}</span></div>
@@ -899,8 +929,26 @@ export default function GameHubPage() {
               <p className="text-xs text-[#666]">Compare up to three servers side by side.</p>
             </div>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[360px] sm:min-w-[640px] text-sm">
+          <div className="space-y-3 p-3 sm:hidden">
+            {comparedServers.map((server) => (
+              <div key={server.name} className="rounded-xl border border-[#1e1e1e] bg-[#0d0d0d] p-3 text-sm text-[#d4d4d4]">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <p className="font-medium text-[#f2f2f2]">{server.icon ?? server.gameType[0]?.toUpperCase() ?? "🎮"} {server.name}</p>
+                  <span className="rounded-full border border-[#2a2a2a] px-2 py-0.5 text-[10px] uppercase text-[#888]">{server.status}</span>
+                </div>
+                <dl className="grid grid-cols-2 gap-2 text-[11px]">
+                  <div><dt className="text-[#666]">Game</dt><dd className="mt-1">{server.gameType}</dd></div>
+                  <div><dt className="text-[#666]">Players</dt><dd className="mt-1">{server.playerCount ?? 0}</dd></div>
+                  <div><dt className="text-[#666]">Replicas</dt><dd className="mt-1">{replicaSummary(server)}</dd></div>
+                  <div><dt className="text-[#666]">Restarts</dt><dd className="mt-1">{server.restartCount ?? 0}</dd></div>
+                  <div><dt className="text-[#666]">CPU</dt><dd className="mt-1">{formatUsage(server.cpuUsage, server.cpuLimit, "cpu")}</dd></div>
+                  <div><dt className="text-[#666]">Memory</dt><dd className="mt-1">{formatUsage(server.memoryUsage, server.memoryLimit, "memory")}</dd></div>
+                </dl>
+              </div>
+            ))}
+          </div>
+          <div className="hidden overflow-x-auto sm:block">
+            <table className="w-full min-w-[640px] text-sm">
               <thead className="bg-[#0d0d0d]">
                 <tr>
                   <th className="text-left px-4 py-3 text-xs uppercase tracking-wide text-[#666]">Metric</th>
@@ -931,6 +979,12 @@ export default function GameHubPage() {
           </div>
         </div>
       )}
+
+      {canManageGameHub ? (
+        <Link href="/game-hub/new" className="fixed bottom-24 right-4 z-30 inline-flex h-14 w-14 items-center justify-center rounded-full bg-[#0078D4] text-white shadow-[0_14px_30px_rgba(0,120,212,0.35)] transition-colors hover:bg-[#006cbe] sm:hidden" aria-label="Create new server">
+          <Plus className="w-5 h-5" />
+        </Link>
+      ) : null}
 
       <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
         <button onClick={() => setShowRoadmap((prev) => !prev)} className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left border-b border-[#1e1e1e]">

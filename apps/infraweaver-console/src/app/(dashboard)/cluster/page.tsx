@@ -287,8 +287,8 @@ export default function ClusterPage() {
   return (
     <div>
       <PageHeader icon={Server} title="Cluster Nodes" subtitle="Node management and cluster overview" />
-      <div className="relative rounded-xl overflow-hidden mb-6">
-        <div className="relative flex items-start justify-between p-5 gap-4 flex-wrap">
+      <div className="relative mb-4 overflow-hidden rounded-xl sm:mb-6">
+        <div className="relative flex flex-wrap items-start justify-between gap-3 p-4 sm:gap-4 sm:p-5">
           <div>
             <h2 className="text-xl font-bold bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent flex items-center gap-2">
               <Server className="w-5 h-5 text-indigo-400" />
@@ -296,20 +296,20 @@ export default function ClusterPage() {
             </h2>
             <p className="text-sm text-slate-400 mt-0.5">Node status and cluster operations</p>
           </div>
-          <div className="flex items-center gap-2">
-            <Link href="/node-top" className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 hover:text-white hover:bg-white/10 transition-colors active:scale-95 touch-manipulation">
+          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+            <Link href="/node-top" className="flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-300 transition-colors hover:bg-white/10 hover:text-white active:scale-95 touch-manipulation sm:flex-none">
               <Activity className="w-3.5 h-3.5" />
               Node Top
             </Link>
-            <Link href="/pipelines" className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 hover:text-white hover:bg-white/10 transition-colors active:scale-95 touch-manipulation">
+            <Link href="/pipelines" className="flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-300 transition-colors hover:bg-white/10 hover:text-white active:scale-95 touch-manipulation sm:flex-none">
               <GitBranch className="w-3.5 h-3.5" />
               Pipelines
             </Link>
-            <button onClick={handleExportYaml} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 hover:text-white hover:bg-white/10 transition-colors active:scale-95 touch-manipulation">
+            <button onClick={handleExportYaml} className="flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-300 transition-colors hover:bg-white/10 hover:text-white active:scale-95 touch-manipulation sm:flex-none">
               <Download className="w-3.5 h-3.5" />
               Export YAML
             </button>
-            <button onClick={() => { void refetch(); void refetchMetrics(); void refetchHpa(); }} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 hover:text-white hover:bg-white/10 transition-colors active:scale-95 touch-manipulation">
+            <button onClick={() => { void refetch(); void refetchMetrics(); void refetchHpa(); }} className="flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-300 transition-colors hover:bg-white/10 hover:text-white active:scale-95 touch-manipulation sm:flex-none">
               <RefreshCw className="w-3.5 h-3.5" />
               Refresh
             </button>
@@ -317,7 +317,7 @@ export default function ClusterPage() {
         </div>
       </div>
 
-      <div className="space-y-6">
+      <div className="space-y-4 sm:space-y-6">
         {metrics.length > 0 && (
           <CollapsibleSection title="Node Resource Heatmap" storageKey="cluster-heatmap" badge={<BarChart2 className="w-4 h-4 text-indigo-400 flex-shrink-0" />}>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
@@ -330,7 +330,7 @@ export default function ClusterPage() {
 
         {(cpuHistory.length > 1 || memHistory.length > 1) && (
           <CollapsibleSection title="Live Metrics" storageKey="cluster-live-metrics" badge={<Activity className="w-4 h-4 text-emerald-400 flex-shrink-0" />}>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <MetricAreaChart data={cpuHistory} label="Average Cluster CPU" unit="%" color="emerald" warnAt={70} critAt={90} />
               <MetricAreaChart data={memHistory} label="Average Cluster Memory" unit="%" color="indigo" warnAt={70} critAt={90} />
             </div>
@@ -399,22 +399,22 @@ export default function ClusterPage() {
         )}
 
         {isAdmin && (
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="bg-white/5 border border-white/10 rounded-xl p-5">
-            <h3 className="text-sm font-semibold text-white mb-4">Quick Cluster Actions</h3>
-            <div className="flex flex-wrap gap-3">
-              <button onClick={() => setShowSyncConfirm(true)} disabled={syncing} className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-indigo-500/20 border border-indigo-500/30 text-sm text-indigo-300 hover:bg-indigo-500/30 transition-colors disabled:opacity-50">
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="rounded-xl border border-white/10 bg-white/5 p-4 sm:p-5">
+            <h3 className="mb-4 text-sm font-semibold text-white">Quick Cluster Actions</h3>
+            <div className="flex flex-wrap gap-2 sm:gap-3">
+              <button onClick={() => setShowSyncConfirm(true)} disabled={syncing} className="flex min-h-[44px] w-full items-center gap-2 rounded-lg border border-indigo-500/30 bg-indigo-500/20 px-4 py-2.5 text-sm text-indigo-300 transition-colors hover:bg-indigo-500/30 disabled:opacity-50 sm:w-auto">
                 {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
                 Sync All ArgoCD Apps
               </button>
-              <button onClick={() => setShowRolloutConfirm(true)} disabled={rolling} className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-orange-500/20 border border-orange-500/30 text-sm text-orange-300 hover:bg-orange-500/30 transition-colors disabled:opacity-50">
+              <button onClick={() => setShowRolloutConfirm(true)} disabled={rolling} className="flex min-h-[44px] w-full items-center gap-2 rounded-lg border border-orange-500/30 bg-orange-500/20 px-4 py-2.5 text-sm text-orange-300 transition-colors hover:bg-orange-500/30 disabled:opacity-50 sm:w-auto">
                 {rolling ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
                 Force Redeploy InfraWeaver
               </button>
-              <button onClick={() => setShowAddNode(true)} className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-green-500/20 border border-green-500/30 text-sm text-green-300 hover:bg-green-500/30 transition-colors">
+              <button onClick={() => setShowAddNode(true)} className="flex min-h-[44px] w-full items-center gap-2 rounded-lg border border-green-500/30 bg-green-500/20 px-4 py-2.5 text-sm text-green-300 transition-colors hover:bg-green-500/30 sm:w-auto">
                 <Plus className="w-4 h-4" />
                 Add Node Wizard
               </button>
-              <Link href="/config" className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 hover:text-white hover:bg-white/10 transition-colors">
+              <Link href="/config" className="flex min-h-[44px] w-full items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-slate-300 transition-colors hover:bg-white/10 hover:text-white sm:w-auto">
                 <Link2 className="w-4 h-4" />
                 Platform YAML Editor
               </Link>

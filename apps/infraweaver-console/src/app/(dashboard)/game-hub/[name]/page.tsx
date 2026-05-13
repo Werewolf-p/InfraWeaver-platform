@@ -48,6 +48,7 @@ import {
   X,
   HardDrive,
   Wrench,
+  MoreHorizontal,
 } from "lucide-react";
 import { cn, formatBytes, timeAgo } from "@/lib/utils";
 import { getEggForGameType } from "@/lib/game-eggs";
@@ -971,10 +972,7 @@ function ConsoleTab({
   };
 
   return (
-    <div
-      className="flex flex-col rounded-xl border border-[#2a2a2a] bg-[#0a0a0a] overflow-hidden"
-      style={{ height: "calc(100vh - 280px)", minHeight: "360px" }}
-    >
+    <div className="flex h-[calc(100dvh-220px)] min-h-[65vh] flex-col overflow-hidden rounded-xl border border-[#2a2a2a] bg-[#0a0a0a] sm:h-[calc(100dvh-280px)] sm:min-h-[360px]">
       <div className="flex flex-wrap items-center gap-3 px-4 py-2.5 bg-[#111] border-b border-[#1e1e1e] flex-shrink-0">
         <div className="flex items-center gap-2 min-w-0">
           <Circle
@@ -1101,7 +1099,10 @@ function ConsoleTab({
                 key={label}
                 onClick={action}
                 title={label}
-                className="min-h-[36px] rounded p-1.5 text-[#444] transition-colors hover:bg-[#1e1e1e] hover:text-[#888]"
+                className={cn(
+                  "min-h-[36px] rounded p-1.5 text-[#444] transition-colors hover:bg-[#1e1e1e] hover:text-[#888]",
+                  label === "Copy all" && "hidden sm:inline-flex",
+                )}
               >
                 <Icon className="w-3.5 h-3.5" />
               </button>
@@ -1175,7 +1176,7 @@ function ConsoleTab({
       <div
         ref={consoleRef}
         onScroll={handleConsoleScroll}
-        className="flex-1 overflow-y-auto overflow-x-auto touch-pan-y p-4 font-mono text-xs leading-[1.7] overscroll-contain select-text"
+        className="flex-1 overflow-y-auto overflow-x-auto touch-pan-y px-3 py-3 font-mono text-xs leading-[1.7] overscroll-contain select-text sm:p-4"
       >
         {status === "stopped" ? (
           <div className="flex h-full items-center justify-center p-6">
@@ -1258,19 +1259,21 @@ function ConsoleTab({
               <p className="text-[10px] uppercase tracking-wide text-[#444] mb-2">
                 Quick Commands
               </p>
-              <div className="flex gap-1.5 flex-wrap">
-                {eggCommands.map((entry) => (
-                  <button
-                    key={`${entry.label}-${entry.command}`}
-                    onClick={() => {
-                      setCommand(entry.command);
-                      inputRef.current?.focus();
-                    }}
-                    className="px-2.5 py-1 rounded text-[10px] bg-[#1a1a1a] hover:bg-[#252525] border border-[#2a2a2a] text-[#777] hover:text-[#ccc] transition-colors"
-                  >
-                    {entry.label}
-                  </button>
-                ))}
+              <div className="overflow-x-auto scrollbar-none">
+                <div className="flex w-max gap-2 pb-1">
+                  {eggCommands.map((entry) => (
+                    <button
+                      key={`${entry.label}-${entry.command}`}
+                      onClick={() => {
+                        setCommand(entry.command);
+                        inputRef.current?.focus();
+                      }}
+                      className="min-h-[36px] rounded-full border border-[#2a2a2a] bg-[#1a1a1a] px-3 py-1 text-[10px] text-[#777] transition-colors hover:bg-[#252525] hover:text-[#ccc]"
+                    >
+                      {entry.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           )}
@@ -1279,46 +1282,66 @@ function ConsoleTab({
               <p className="text-[10px] uppercase tracking-wide text-[#444] mb-2">
                 Saved Commands
               </p>
-              <div className="flex gap-1.5 flex-wrap">
-                {savedCommands.map((entry) => (
-                  <div
-                    key={`${entry.id ?? entry.label}-${entry.command}`}
-                    className="flex items-center rounded border border-[#2a2a2a] bg-[#1a1a1a] overflow-hidden"
-                  >
-                    <button
-                      onClick={() => {
-                        setCommand(entry.command ?? "");
-                        inputRef.current?.focus();
-                      }}
-                      className="px-2.5 py-1 text-[10px] text-[#777] hover:text-[#ccc] hover:bg-[#252525] transition-colors"
+              <div className="overflow-x-auto scrollbar-none">
+                <div className="flex w-max gap-2 pb-1">
+                  {savedCommands.map((entry) => (
+                    <div
+                      key={`${entry.id ?? entry.label}-${entry.command}`}
+                      className="flex items-center overflow-hidden rounded-full border border-[#2a2a2a] bg-[#1a1a1a]"
                     >
-                      {entry.label}
-                    </button>
-                    <button
-                      onClick={() => deleteSavedCommand(entry)}
-                      className="px-1.5 py-1 text-[10px] text-[#555] hover:text-red-300 hover:bg-red-500/10 transition-colors"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                ))}
+                      <button
+                        onClick={() => {
+                          setCommand(entry.command ?? "");
+                          inputRef.current?.focus();
+                        }}
+                        className="min-h-[36px] px-3 py-1 text-[10px] text-[#777] transition-colors hover:bg-[#252525] hover:text-[#ccc]"
+                      >
+                        {entry.label}
+                      </button>
+                      <button
+                        onClick={() => deleteSavedCommand(entry)}
+                        className="min-h-[36px] px-2 py-1 text-[10px] text-[#555] transition-colors hover:bg-red-500/10 hover:text-red-300"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           )}
         </div>
       )}
 
-      <div className="flex-shrink-0 border-t border-[#1a1a1a] p-2 bg-[#0d0d0d]">
-        <form onSubmit={sendCommand} className="flex gap-2">
+      <div className="sticky bottom-0 z-10 flex-shrink-0 border-t border-[#1a1a1a] bg-[#0d0d0d]/95 p-2 backdrop-blur supports-[backdrop-filter]:bg-[#0d0d0d]/85 pb-[calc(env(safe-area-inset-bottom,0px)+0.5rem)]">
+        <div className="mb-2 flex items-center justify-between gap-2 sm:hidden">
+          <button
+            type="button"
+            onClick={saveCurrentCommand}
+            disabled={!command.trim()}
+            className="min-h-[40px] rounded-full border border-[#2a2a2a] bg-[#1a1a1a] px-3 text-[11px] font-medium text-[#cfcfcf] transition-colors hover:bg-[#252525] disabled:opacity-40"
+          >
+            Save command
+          </button>
+          <button
+            type="button"
+            onClick={clearCommandHistory}
+            disabled={history.length === 0}
+            className="min-h-[40px] rounded-full border border-[#2a2a2a] bg-[#1a1a1a] px-3 text-[11px] font-medium text-[#9e9e9e] transition-colors hover:bg-[#252525] disabled:opacity-40"
+          >
+            Clear history
+          </button>
+        </div>
+        <form onSubmit={sendCommand} className="flex items-center gap-2">
           <div
             className={cn(
-              "flex-1 flex items-center gap-2 bg-[#111] border rounded-lg px-3 min-h-[46px]",
+              "flex min-h-[46px] flex-1 items-center gap-2 rounded-xl border bg-[#111] px-3",
               isConnected
                 ? "border-[#2a2a2a] focus-within:border-[#0078D4]"
                 : "border-[#1a1a1a] opacity-50",
             )}
           >
-            <span className="text-green-500 font-mono text-sm select-none flex-shrink-0">
+            <span className="select-none font-mono text-sm text-green-500">
               ❯
             </span>
             <input
@@ -1335,14 +1358,14 @@ function ConsoleTab({
               autoCapitalize="none"
               autoCorrect="off"
               spellCheck={false}
-              className="flex-1 bg-transparent text-[16px] leading-none font-mono text-[#f0f0f0] outline-none placeholder:text-[#333] disabled:cursor-not-allowed py-1"
+              className="flex-1 bg-transparent py-1 font-mono text-[16px] leading-none text-[#f0f0f0] outline-none placeholder:text-[#333] disabled:cursor-not-allowed"
             />
           </div>
           <button
             type="button"
             onClick={saveCurrentCommand}
             disabled={!command.trim()}
-            className="px-3 min-h-[46px] bg-[#1a1a1a] hover:bg-[#252525] disabled:opacity-40 text-[#cfcfcf] rounded-lg transition-colors text-xs font-medium flex-shrink-0"
+            className="hidden min-h-[46px] rounded-xl bg-[#1a1a1a] px-3 text-xs font-medium text-[#cfcfcf] transition-colors hover:bg-[#252525] disabled:opacity-40 sm:inline-flex sm:items-center"
           >
             Save
           </button>
@@ -1350,23 +1373,27 @@ function ConsoleTab({
             type="button"
             onClick={clearCommandHistory}
             disabled={history.length === 0}
-            className="px-3 min-h-[46px] bg-[#1a1a1a] hover:bg-[#252525] disabled:opacity-40 text-[#9e9e9e] rounded-lg transition-colors text-xs font-medium flex-shrink-0"
+            className="hidden min-h-[46px] rounded-xl bg-[#1a1a1a] px-3 text-xs font-medium text-[#9e9e9e] transition-colors hover:bg-[#252525] disabled:opacity-40 sm:inline-flex sm:items-center"
           >
             Clear History
           </button>
           <button
             type="submit"
             disabled={!isConnected || sending || !command.trim()}
-            className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-[#0078D4] text-white transition-colors touch-manipulation hover:bg-[#0065B3] disabled:opacity-25"
+            className="inline-flex min-h-[46px] items-center justify-center rounded-xl bg-[#0078D4] px-4 text-sm font-medium text-white transition-colors touch-manipulation hover:bg-[#0065B3] disabled:opacity-25 sm:h-11 sm:w-11 sm:px-0"
           >
             {sending ? (
               <Loader2 className="w-4 h-4 animate-spin" />
             ) : (
-              <Send className="w-4 h-4" />
+              <>
+                <Send className="w-4 h-4 sm:hidden" />
+                <span className="hidden sm:inline">Send</span>
+                <Send className="hidden w-4 h-4 sm:inline" />
+              </>
             )}
           </button>
         </form>
-        <p className="text-[10px] text-[#2a2a2a] mt-1.5 px-1">
+        <p className="mt-1.5 px-1 text-[10px] text-[#2a2a2a]">
           Universal console • ↑↓ for history
         </p>
       </div>
@@ -4585,6 +4612,7 @@ export default function ServerDetailPage() {
     return (window.localStorage.getItem(`${GAME_HUB_TAB_STORAGE_PREFIX}:${name}`) as TabId | null) ?? "dashboard";
   });
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [mobileActionSheetOpen, setMobileActionSheetOpen] = useState(false);
   const queryClient = useQueryClient();
 
   const {
@@ -4654,6 +4682,55 @@ export default function ServerDetailPage() {
           : "";
   const primaryTag = server?.tags?.[0] ?? server?.groups?.[0] ?? null;
 
+  function copyConnectionInfo() {
+    if (!connectionInfo) return;
+    navigator.clipboard.writeText(connectionInfo);
+    toast.success("Connection info copied");
+  }
+
+  async function toggleMaintenanceMode() {
+    if (!server) return;
+    try {
+      await fetchJson(`/api/game-hub/servers/${name}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "set-maintenance",
+          enabled: !server.maintenanceMode,
+        }),
+      });
+      toast.success(
+        server.maintenanceMode
+          ? "Maintenance mode disabled"
+          : "Maintenance mode enabled",
+      );
+      queryClient.invalidateQueries({ queryKey: ["game-hub", "server", name] });
+      queryClient.invalidateQueries({ queryKey: ["game-hub", "servers"] });
+    } catch (error) {
+      toast.error(String(error));
+    }
+  }
+
+  async function cloneCurrentServer() {
+    const newName = prompt("Clone server as", `${name}-copy`);
+    if (!newName) return;
+    try {
+      await fetchJson("/api/game-hub/servers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "clone",
+          source: name,
+          newName,
+        }),
+      });
+      toast.success("Clone started");
+      queryClient.invalidateQueries({ queryKey: ["game-hub", "servers"] });
+    } catch (error) {
+      toast.error(String(error));
+    }
+  }
+
   useEffect(() => {
     if (typeof document === "undefined") return;
     const prefix =
@@ -4697,6 +4774,14 @@ export default function ServerDetailPage() {
   const resolvedActiveTab = tabs.some((tab) => tab.id === activeTab)
     ? activeTab
     : (tabs[0]?.id ?? "dashboard");
+  const activeTabIndex = tabs.findIndex((tab) => tab.id === resolvedActiveTab);
+  const activeTabConfig = tabs[activeTabIndex] ?? tabs[0];
+
+  const cycleTab = (direction: -1 | 1) => {
+    if (!tabs.length) return;
+    const nextIndex = (activeTabIndex + direction + tabs.length) % tabs.length;
+    setActiveTab(tabs[nextIndex]?.id ?? resolvedActiveTab);
+  };
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -4705,7 +4790,7 @@ export default function ServerDetailPage() {
 
   return (
     <div className="space-y-0 overflow-x-hidden pb-2">
-      <div className="sticky top-[env(safe-area-inset-top,0px)] z-10 -mx-3 border-b border-[#1e1e1e] bg-[#0e0e0e]/95 px-3 pb-0 pt-0 backdrop-blur-sm sm:-mx-4 sm:px-4 md:-mx-6 md:px-6">
+      <div className="sticky top-[env(safe-area-inset-top,0px)] z-10 -mx-4 border-b border-[#1e1e1e] bg-[#0e0e0e]/95 px-4 pb-0 pt-0 backdrop-blur-sm sm:-mx-4 sm:px-4 md:-mx-6 md:px-6">
         <div className="hidden sm:flex items-center gap-1 px-1 pt-2 text-[10px] text-[#666] overflow-x-auto scrollbar-none whitespace-nowrap">
           <Link href="/game-hub" className="hover:text-white">
             Game Hub
@@ -4796,7 +4881,7 @@ export default function ServerDetailPage() {
                     actionLoading === "pin-image-version" ||
                     actionLoading === "unpin-image-version"
                   }
-                  className="min-h-[44px] rounded-full border border-[#2a2a2a] bg-[#1a1a1a] px-3 py-1 text-[#d4d4d4] transition-colors hover:bg-[#222] disabled:opacity-50"
+                  className="hidden min-h-[44px] rounded-full border border-[#2a2a2a] bg-[#1a1a1a] px-3 py-1 text-[#d4d4d4] transition-colors hover:bg-[#222] disabled:opacity-50 sm:inline-flex"
                 >
                   {actionLoading === "pin-image-version" || actionLoading === "unpin-image-version"
                     ? "Saving…"
@@ -4855,142 +4940,131 @@ export default function ServerDetailPage() {
             )}
           </div>
           {server && (
-            <div className="flex w-full flex-wrap items-center justify-start gap-2 sm:w-auto sm:justify-end">
+            <div className="flex w-full items-center gap-2 sm:w-auto sm:justify-end">
               {connectionInfo && (
                 <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(connectionInfo);
-                    toast.success("Connection info copied");
-                  }}
+                  onClick={copyConnectionInfo}
                   title={connectionInfo}
-                  className="flex min-h-[44px] w-full items-center rounded-xl bg-[#1a1a1a] px-3 py-2 text-xs text-[#888] transition-colors hover:bg-[#222] sm:w-auto sm:max-w-[180px]"
+                  className="flex min-h-[44px] min-w-0 flex-1 items-center rounded-xl bg-[#1a1a1a] px-3 py-2 text-xs text-[#888] transition-colors hover:bg-[#222] sm:w-auto sm:max-w-[180px] sm:flex-none"
                 >
                   <span className="truncate">{connectionInfo}</span>
                 </button>
               )}
-              {server.permissions?.canAdmin ? (
-                <button
-                  onClick={async () => {
-                    try {
-                      await fetchJson(`/api/game-hub/servers/${name}`, {
-                        method: "PATCH",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                          action: "set-maintenance",
-                          enabled: !server.maintenanceMode,
-                        }),
-                      });
-                      toast.success(
-                        server.maintenanceMode
-                          ? "Maintenance mode disabled"
-                          : "Maintenance mode enabled",
-                      );
-                      queryClient.invalidateQueries({
-                        queryKey: ["game-hub", "server", name],
-                      });
-                      queryClient.invalidateQueries({
-                        queryKey: ["game-hub", "servers"],
-                      });
-                    } catch (error) {
-                      toast.error(String(error));
-                    }
-                  }}
-                  title={
-                    server.maintenanceMode
-                      ? "Exit Maintenance"
-                      : "Enter Maintenance"
-                  }
-                  className={cn(
-                    "group flex min-h-[44px] items-center gap-1.5 rounded-xl border px-3 py-2 text-xs transition-all",
-                    server.maintenanceMode
-                      ? "border-yellow-400/40 bg-yellow-500/20 text-yellow-100 shadow-[0_0_18px_rgba(250,204,21,0.22)]"
-                      : "border-[#2a2a2a] bg-[#1a1a1a] text-[#888] hover:border-yellow-500/30 hover:bg-yellow-500/10 hover:text-yellow-200",
-                  )}
-                >
-                  <Wrench className="w-3.5 h-3.5" />
-                  <span className="hidden min-[420px]:inline">Maintenance</span>
-                </button>
-              ) : null}
-              {server.permissions?.canAdmin ? (
-                <button
-                  onClick={async () => {
-                    const newName = prompt("Clone server as", `${name}-copy`);
-                    if (!newName) return;
-                    try {
-                      await fetchJson("/api/game-hub/servers", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                          action: "clone",
-                          source: name,
-                          newName,
-                        }),
-                      });
-                      toast.success("Clone started");
-                      queryClient.invalidateQueries({
-                        queryKey: ["game-hub", "servers"],
-                      });
-                    } catch (error) {
-                      toast.error(String(error));
-                    }
-                  }}
-                  className="hidden min-h-[44px] rounded-xl bg-[#1a1a1a] px-3 py-2 text-xs text-[#888] transition-colors hover:bg-[#222] sm:flex"
-                >
-                  Clone
-                </button>
-              ) : null}
-              {status === "stopped" ? (
-                server.permissions?.canStart ? (
+              <div className="hidden items-center gap-2 sm:flex">
+                {server.permissions?.canAdmin ? (
                   <button
-                    onClick={() => doAction("start")}
-                    disabled={!!actionLoading}
-                    className="flex min-h-[44px] items-center gap-1.5 rounded-xl border border-green-500/30 bg-green-500/20 px-3 py-2 text-xs font-medium text-green-300 disabled:opacity-50 touch-manipulation hover:bg-green-500/30"
+                    onClick={() => void toggleMaintenanceMode()}
+                    title={
+                      server.maintenanceMode
+                        ? "Exit Maintenance"
+                        : "Enter Maintenance"
+                    }
+                    className={cn(
+                      "group flex min-h-[44px] items-center gap-1.5 rounded-xl border px-3 py-2 text-xs transition-all",
+                      server.maintenanceMode
+                        ? "border-yellow-400/40 bg-yellow-500/20 text-yellow-100 shadow-[0_0_18px_rgba(250,204,21,0.22)]"
+                        : "border-[#2a2a2a] bg-[#1a1a1a] text-[#888] hover:border-yellow-500/30 hover:bg-yellow-500/10 hover:text-yellow-200",
+                    )}
                   >
-                    {actionLoading === "start" ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      <Play className="w-3.5 h-3.5" />
-                    )}{" "}
-                    Start
+                    <Wrench className="w-3.5 h-3.5" />
+                    <span className="hidden min-[420px]:inline">Maintenance</span>
                   </button>
-                ) : null
-              ) : (
-                <>
-                  {server.permissions?.canAdmin ? (
+                ) : null}
+                {server.permissions?.canAdmin ? (
+                  <button
+                    onClick={() => void cloneCurrentServer()}
+                    className="hidden min-h-[44px] rounded-xl bg-[#1a1a1a] px-3 py-2 text-xs text-[#888] transition-colors hover:bg-[#222] lg:flex"
+                  >
+                    Clone
+                  </button>
+                ) : null}
+                {status === "stopped" ? (
+                  server.permissions?.canStart ? (
                     <button
-                      onClick={() => doAction("restart")}
+                      onClick={() => void doAction("start")}
                       disabled={!!actionLoading}
-                      title="Quick restart"
-                      className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl bg-[#1a1a1a] p-2 text-[#888] transition-colors disabled:opacity-50 touch-manipulation hover:bg-[#222]"
+                      className="flex min-h-[44px] items-center gap-1.5 rounded-xl border border-green-500/30 bg-green-500/20 px-3 py-2 text-xs font-medium text-green-300 disabled:opacity-50 touch-manipulation hover:bg-green-500/30"
                     >
-                      {actionLoading === "restart" ? (
+                      {actionLoading === "start" ? (
                         <Loader2 className="w-3.5 h-3.5 animate-spin" />
                       ) : (
-                        <RotateCcw className="w-3.5 h-3.5" />
+                        <Play className="w-3.5 h-3.5" />
                       )}
+                      Start
                     </button>
-                  ) : null}
-                  {server.permissions?.canStop ? (
-                    <button
-                      onClick={() => doAction("stop")}
-                      disabled={!!actionLoading}
-                      title="Stop"
-                      className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl bg-[#1a1a1a] p-2 text-[#888] transition-colors disabled:opacity-50 touch-manipulation hover:bg-[#222]"
-                    >
-                      {actionLoading === "stop" ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      ) : (
-                        <Square className="w-3.5 h-3.5" />
-                      )}
-                    </button>
-                  ) : null}
-                </>
-              )}
+                  ) : null
+                ) : (
+                  <>
+                    {server.permissions?.canAdmin ? (
+                      <button
+                        onClick={() => void doAction("restart")}
+                        disabled={!!actionLoading}
+                        title="Quick restart"
+                        className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl bg-[#1a1a1a] p-2 text-[#888] transition-colors disabled:opacity-50 touch-manipulation hover:bg-[#222]"
+                      >
+                        {actionLoading === "restart" ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <RotateCcw className="w-3.5 h-3.5" />
+                        )}
+                      </button>
+                    ) : null}
+                    {server.permissions?.canStop ? (
+                      <button
+                        onClick={() => void doAction("stop")}
+                        disabled={!!actionLoading}
+                        title="Stop"
+                        className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl bg-[#1a1a1a] p-2 text-[#888] transition-colors disabled:opacity-50 touch-manipulation hover:bg-[#222]"
+                      >
+                        {actionLoading === "stop" ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Square className="w-3.5 h-3.5" />
+                        )}
+                      </button>
+                    ) : null}
+                  </>
+                )}
+              </div>
+              {(server.permissions?.canAdmin || server.permissions?.canStart || server.permissions?.canStop) ? (
+                <button
+                  onClick={() => setMobileActionSheetOpen(true)}
+                  className="flex h-11 w-11 items-center justify-center rounded-xl border border-[#2a2a2a] bg-[#1a1a1a] text-[#888] transition-colors hover:bg-[#222] sm:hidden"
+                  aria-label="Open server actions"
+                >
+                  <MoreHorizontal className="h-4 w-4" />
+                </button>
+              ) : null}
             </div>
           )}
         </div>
 
-        <div className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1 scrollbar-none touch-pan-x">
+        {activeTabConfig ? (
+          <div className="flex items-center gap-2 pb-2 sm:hidden">
+            <button
+              onClick={() => cycleTab(-1)}
+              disabled={tabs.length < 2}
+              className="flex h-11 w-11 items-center justify-center rounded-xl border border-[#2a2a2a] bg-[#151515] text-[#888] transition-colors hover:bg-[#1d1d1d] disabled:opacity-40"
+              aria-label="Previous tab"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <div className="flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-xl border border-[#0078D4]/20 bg-[#0078D4]/10 px-3 text-sm font-medium text-[#4db3ff]">
+              <activeTabConfig.icon className="h-4 w-4" />
+              <span>{activeTabConfig.label}</span>
+            </div>
+            <button
+              onClick={() => cycleTab(1)}
+              disabled={tabs.length < 2}
+              className="flex h-11 w-11 items-center justify-center rounded-xl border border-[#2a2a2a] bg-[#151515] text-[#888] transition-colors hover:bg-[#1d1d1d] disabled:opacity-40"
+              aria-label="Next tab"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+        ) : null}
+
+        <div className="hidden -mx-1 gap-1 overflow-x-auto px-1 pb-1 scrollbar-none touch-pan-x sm:flex">
           {tabs.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
@@ -5078,6 +5152,126 @@ export default function ServerDetailPage() {
           </AnimatePresence>
         )}
       </div>
+      <AnimatePresence>
+        {mobileActionSheetOpen && server ? (
+          <>
+            <motion.button
+              type="button"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setMobileActionSheetOpen(false)}
+              className="fixed inset-0 z-40 bg-black/60 sm:hidden"
+              aria-label="Close server actions"
+            />
+            <motion.div
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              transition={{ type: "spring", damping: 35, stiffness: 320 }}
+              className="fixed inset-x-0 bottom-0 z-50 rounded-t-[28px] border border-[#2a2a2a] bg-[#111] p-4 pb-[calc(env(safe-area-inset-bottom,0px)+1rem)] shadow-2xl sm:hidden"
+            >
+              <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-[#2a2a2a]" />
+              <div className="mb-4 flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-[#f2f2f2]">Server actions</p>
+                  <p className="text-xs text-[#666]">Quick controls for {name}</p>
+                </div>
+                <button
+                  onClick={() => setMobileActionSheetOpen(false)}
+                  className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#1a1a1a] text-[#888]"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="grid gap-2">
+                {server.permissions?.canAdmin && server.imageVersion ? (
+                  <button
+                    onClick={() => {
+                      setMobileActionSheetOpen(false);
+                      void doAction(
+                        server.imagePinned ? "unpin-image-version" : "pin-image-version",
+                        server.imagePinned
+                          ? "Using latest image tag"
+                          : `Pinned to ${server.imageVersion}`,
+                      );
+                    }}
+                    className="flex min-h-[48px] items-center justify-between rounded-2xl border border-[#2a2a2a] bg-[#161616] px-4 text-sm text-[#d4d4d4]"
+                  >
+                    <span>{server.imagePinned ? "Use latest image" : "Pin current image"}</span>
+                    <Package className="h-4 w-4 text-[#888]" />
+                  </button>
+                ) : null}
+                {server.permissions?.canAdmin ? (
+                  <button
+                    onClick={() => {
+                      setMobileActionSheetOpen(false);
+                      void toggleMaintenanceMode();
+                    }}
+                    className="flex min-h-[48px] items-center justify-between rounded-2xl border border-[#2a2a2a] bg-[#161616] px-4 text-sm text-[#d4d4d4]"
+                  >
+                    <span>{server.maintenanceMode ? "Disable maintenance" : "Enable maintenance"}</span>
+                    <Wrench className="h-4 w-4 text-[#888]" />
+                  </button>
+                ) : null}
+                {server.permissions?.canAdmin ? (
+                  <button
+                    onClick={() => {
+                      setMobileActionSheetOpen(false);
+                      void cloneCurrentServer();
+                    }}
+                    className="flex min-h-[48px] items-center justify-between rounded-2xl border border-[#2a2a2a] bg-[#161616] px-4 text-sm text-[#d4d4d4]"
+                  >
+                    <span>Clone server</span>
+                    <Copy className="h-4 w-4 text-[#888]" />
+                  </button>
+                ) : null}
+                {status === "stopped" ? (
+                  server.permissions?.canStart ? (
+                    <button
+                      onClick={() => {
+                        setMobileActionSheetOpen(false);
+                        void doAction("start");
+                      }}
+                      className="flex min-h-[52px] items-center justify-between rounded-2xl border border-green-500/30 bg-green-500/20 px-4 text-sm font-medium text-green-200"
+                    >
+                      <span>Start server</span>
+                      <Play className="h-4 w-4" />
+                    </button>
+                  ) : null
+                ) : (
+                  <>
+                    {server.permissions?.canAdmin ? (
+                      <button
+                        onClick={() => {
+                          setMobileActionSheetOpen(false);
+                          void doAction("restart");
+                        }}
+                        className="flex min-h-[52px] items-center justify-between rounded-2xl border border-[#2a2a2a] bg-[#161616] px-4 text-sm text-[#d4d4d4]"
+                      >
+                        <span>Restart server</span>
+                        <RotateCcw className="h-4 w-4 text-[#888]" />
+                      </button>
+                    ) : null}
+                    {server.permissions?.canStop ? (
+                      <button
+                        onClick={() => {
+                          setMobileActionSheetOpen(false);
+                          void doAction("stop");
+                        }}
+                        className="flex min-h-[52px] items-center justify-between rounded-2xl border border-red-500/30 bg-red-500/10 px-4 text-sm font-medium text-red-200"
+                      >
+                        <span>Stop server</span>
+                        <Square className="h-4 w-4" />
+                      </button>
+                    ) : null}
+                  </>
+                )}
+              </div>
+            </motion.div>
+          </>
+        ) : null}
+      </AnimatePresence>
       <MiniOverviewDrawer currentServerName={name} />
     </div>
   );

@@ -355,6 +355,7 @@ export function DashboardTab({
   const [killingPid, setKillingPid] = useState<string | null>(null);
   const [testingConnectivity, setTestingConnectivity] = useState(false);
   const [dnsDialogOpen, setDnsDialogOpen] = useState(false);
+  const [showMobileDetails, setShowMobileDetails] = useState(false);
   const { data: metricsHistoryResponse } = useQuery({
     queryKey: ["game-hub", "metrics-history", "game-hub", server.podName],
     queryFn: () =>
@@ -670,6 +671,7 @@ export function DashboardTab({
       }),
       n: point.n,
     }));
+  const currentPlayerCount = players?.count ?? playerHistory[playerHistory.length - 1]?.n ?? 0;
   const cpuChartData = metricsHistory.map((point) => ({
     t: point.t,
     value: point.cpu,
@@ -965,7 +967,28 @@ export function DashboardTab({
         </div>
       )}
 
-      <div className="grid gap-3 md:grid-cols-3">
+      <div className="grid grid-cols-2 gap-3 sm:hidden">
+        <div className="rounded-2xl border border-[#2a2a2a] bg-[#111] px-4 py-3">
+          <p className="text-[10px] uppercase tracking-wide text-[#666]">Status</p>
+          <p className="mt-1 text-sm font-semibold capitalize text-[#f2f2f2]">
+            {server.status ?? "unknown"}
+          </p>
+        </div>
+        <div className="rounded-2xl border border-[#2a2a2a] bg-[#111] px-4 py-3">
+          <p className="text-[10px] uppercase tracking-wide text-[#666]">Players</p>
+          <p className="mt-1 text-sm font-semibold text-[#f2f2f2]">{currentPlayerCount}</p>
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={() => setShowMobileDetails((value) => !value)}
+        className="inline-flex min-h-[44px] items-center justify-center rounded-full border border-[#2a2a2a] bg-[#111] px-4 text-xs font-medium text-[#d4d4d4] transition-colors hover:bg-[#181818] sm:hidden"
+      >
+        {showMobileDetails ? "Hide extra details" : "Show more details"}
+      </button>
+
+      <div className={cn("space-y-4", showMobileDetails ? "block" : "hidden", "sm:block")}>
+        <div className="grid gap-3 sm:grid-cols-3">
         {alertThresholds.map((alert) => (
           <div
             key={alert.label}
@@ -1009,7 +1032,7 @@ export function DashboardTab({
         ))}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-3">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
         <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4">
           <p className="text-[10px] uppercase text-[#666]">Status</p>
           <p className="text-sm text-[#f2f2f2] mt-1 capitalize">
@@ -1105,10 +1128,10 @@ export function DashboardTab({
         </div>
       </div>
 
-      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4 space-y-3">
-        <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-[#888]">
-          <Activity className="w-4 h-4 text-[#f87171]" /> Crash History
-        </div>
+        <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4 space-y-3">
+          <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-[#888]">
+            <Activity className="w-4 h-4 text-[#f87171]" /> Crash History
+          </div>
         {crashEvents.length === 0 ? (
           <p className="text-xs text-[#666]">No crash events</p>
         ) : (
@@ -1144,13 +1167,15 @@ export function DashboardTab({
         )}
       </div>
 
-      <div className="grid lg:grid-cols-[2fr_1fr] gap-4">
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
         <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4">
           <div className="mb-4 flex items-center gap-2 text-xs uppercase tracking-wide text-[#888]">
             <Server className="w-4 h-4 text-[#38bdf8]" />
             Resource Metrics
           </div>
-          <div className="mb-4 grid gap-3 md:grid-cols-2">
+          <div className="mb-4 grid gap-3 sm:grid-cols-2">
             <div className="rounded-lg border border-[#1e1e1e] bg-[#0d0d0d] p-3">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
@@ -1261,7 +1286,7 @@ export function DashboardTab({
                   <p className="text-xs uppercase tracking-wide text-[#888]">CPU</p>
                   <p className="text-sm font-medium text-[#f2f2f2]">{cpuMetricLabel}</p>
                 </div>
-                <div className="h-[120px]">
+                <div className="h-[200px] sm:h-[220px]">
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={cpuChartData}>
                       <defs>
@@ -1311,7 +1336,7 @@ export function DashboardTab({
                   <p className="text-xs uppercase tracking-wide text-[#888]">Memory</p>
                   <p className="text-sm font-medium text-[#f2f2f2]">{memoryMetricLabel}</p>
                 </div>
-                <div className="h-[120px]">
+                <div className="h-[200px] sm:h-[220px]">
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={memoryChartData}>
                       <defs>
@@ -1364,7 +1389,7 @@ export function DashboardTab({
           )}
         </div>
 
-        <div className="space-y-4">
+        <div className={cn("space-y-4", showMobileDetails ? "block" : "hidden", "sm:block")}>
           <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4 space-y-3">
             <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-[#888]">
               <HardDrive className="w-4 h-4 text-[#34d399]" /> Storage
@@ -1514,7 +1539,8 @@ export function DashboardTab({
         </div>
       </div>
 
-      <div className="rounded-xl border border-[#1e3a5f] bg-[#0a1929] p-4 space-y-4">
+      <div className={cn(showMobileDetails ? "block" : "hidden", "sm:block")}>
+        <div className="rounded-xl border border-[#1e3a5f] bg-[#0a1929] p-4 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <Wifi className="w-4 h-4 text-[#0078D4]" />
@@ -2297,6 +2323,7 @@ export function DashboardTab({
             </div>
           </div>
         </div>
+      </div>
       </div>
     </div>
   );

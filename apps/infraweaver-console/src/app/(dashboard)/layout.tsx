@@ -10,26 +10,20 @@ import { AnimatePresence, motion } from "framer-motion";
 import Link from "next/link";
 import {
   X, AlertTriangle, MoreHorizontal, Search, Clock,
-  ChevronDown, ChevronRight, Settings, LogOut, ArrowUp, ArrowDown,
+  ChevronDown, ChevronRight, Settings, LogOut,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import { KeyboardShortcutsProvider } from "@/components/keyboard-shortcuts-modal";
 import { SimpleModeProvider } from "@/contexts/simple-mode-context";
 import { NAV_GROUPS } from "@/lib/nav-config";
-import {
-  ALL_NAV_ITEMS as NAV_FAVORITE_ITEMS,
-  MAX_NAV_FAVORITES,
-  loadFavorites,
-  saveFavorites,
-} from "@/components/layout/nav-favorites-config";
 import { OfflineIndicator } from "@/components/ui/offline-indicator";
 import { GlobalSearch } from "@/components/search/global-search";
 import { useRecentPages } from "@/hooks/use-recent-pages";
 import { useAddons } from "@/hooks/use-addons";
 import { useRBAC } from "@/hooks/use-rbac";
 import { filterNavGroupsByAddons } from "@/lib/addons";
-import { filterNavGroupsByPermissions, filterNavItemsByPermissions } from "@/lib/navigation-rbac";
+import { filterNavGroupsByPermissions } from "@/lib/navigation-rbac";
 
 // ── Section accent colors (Iter 3: colored group identifiers) ─────────────────
 const GROUP_ACCENT: Record<string, string> = {
@@ -82,7 +76,7 @@ function StatusBar() {
   const issueCount = Math.max(0, totalPods - runningPods) + (isHealthy ? 0 : 1);
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/5 bg-[#0f172a]/70 px-4 py-2 text-xs text-slate-400 backdrop-blur-sm">
+    <div className="hidden flex-wrap items-center justify-between gap-3 border-b border-white/5 bg-[#0f172a]/70 px-4 py-2 text-xs text-slate-400 backdrop-blur-sm sm:flex">
       <div className="flex items-center gap-3">
         <div className={cn(
           "h-2 w-2 rounded-full",
@@ -121,10 +115,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     () => filterNavGroupsByAddons(accessibleNavGroups, addons),
     [accessibleNavGroups, addons],
   );
-  const favoriteNavItems = useMemo(
-    () => filterNavItemsByPermissions(NAV_FAVORITE_ITEMS, permissions, assignments),
-    [assignments, permissions],
-  );
 
   // Auto-expand the group that contains the current page; others default to their defaultOpen
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
@@ -150,55 +140,31 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [countdown, setCountdown] = useState(300);
   const [searchOpen, setSearchOpen] = useState(false);
   const { recentPages } = useRecentPages();
-  const [mobileFavorites, setMobileFavorites] = useState<string[]>(() => loadFavorites());
-
-  const sanitizeMobileFavorites = (ids: string[]) =>
-    ids
-      .filter((href, index, values) => values.indexOf(href) === index)
-      .filter((href) => favoriteNavItems.some((item) => item.href === href))
-      .slice(0, MAX_NAV_FAVORITES);
-
-  const updateMobileFavorites = (
-    updater: string[] | ((previous: string[]) => string[]),
-  ) => {
-    setMobileFavorites((previous) => {
-      const next = sanitizeMobileFavorites(
-        typeof updater === "function" ? updater(previous) : updater,
-      );
-      saveFavorites(next);
-      return next;
-    });
-  };
-
-  const mobileNavItems = useMemo(
-    () =>
-      mobileFavorites
-        .map((href) => favoriteNavItems.find((item) => item.href === href))
-        .filter((item): item is (typeof favoriteNavItems)[number] => Boolean(item)),
-    [favoriteNavItems, mobileFavorites],
+  const flatNavItems = useMemo(
+    () => filteredNavGroups.flatMap((group) => group.items),
+    [filteredNavGroups],
   );
-
-  const toggleMobileFavorite = (href: string) => {
-    updateMobileFavorites((previous) =>
-      previous.includes(href)
-        ? previous.filter((entry) => entry !== href)
-        : previous.length < MAX_NAV_FAVORITES
-          ? [...previous, href]
-          : previous,
-    );
-  };
-
-  const moveMobileFavorite = (href: string, direction: -1 | 1) => {
-    updateMobileFavorites((previous) => {
-      const index = previous.indexOf(href);
-      if (index === -1) return previous;
-      const nextIndex = index + direction;
-      if (nextIndex < 0 || nextIndex >= previous.length) return previous;
-      const next = [...previous];
-      [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
-      return next;
-    });
-  };
+  const mobilePrimaryNavItems = useMemo(
+    () =>
+      ["/home", "/game-hub", "/apps", "/cluster"]
+        .map((href) => flatNavItems.find((item) => item.href === href))
+        .filter((item): item is (typeof flatNavItems)[number] => Boolean(item)),
+    [flatNavItems],
+  );
+  const mobilePrimaryNavHrefs = useMemo(
+    () => new Set(mobilePrimaryNavItems.map((item) => item.href)),
+    [mobilePrimaryNavItems],
+  );
+  const moreNavGroups = useMemo(
+    () =>
+      filteredNavGroups
+        .map((group) => ({
+          ...group,
+          items: group.items.filter((item) => !mobilePrimaryNavHrefs.has(item.href)),
+        }))
+        .filter((group) => group.items.length > 0),
+    [filteredNavGroups, mobilePrimaryNavHrefs],
+  );
 
   // Session timeout warning
   useEffect(() => {
@@ -275,10 +241,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return (
       <div className="flex h-screen bg-[#0f0f0f]">
         <div className="hidden w-[220px] flex-shrink-0 border-r border-[#2a2a2a] bg-[#141414] md:block" />
-        <div className="flex-1 space-y-4 p-6">
+        <div className="flex-1 space-y-4 px-4 py-4 sm:p-6">
           <div className="h-12 rounded-xl bg-white/5 animate-pulse" />
           <div className="h-9 rounded-xl bg-white/5 animate-pulse" />
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3">
             <div className="h-32 rounded-2xl bg-white/5 animate-pulse" />
             <div className="h-32 rounded-2xl bg-white/5 animate-pulse" />
             <div className="h-32 rounded-2xl bg-white/5 animate-pulse" />
@@ -392,7 +358,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 {drawerSearch && (
                   /* Flat search results */
                   <div className="px-2">
-                    {filteredNavGroups.flatMap(g => g.items).filter(i =>
+                    {moreNavGroups.flatMap(g => g.items).filter(i =>
                       i.label.toLowerCase().includes(drawerSearch.toLowerCase()) ||
                       (i.description ?? "").toLowerCase().includes(drawerSearch.toLowerCase())
                     ).map(item => {
@@ -418,7 +384,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                         </Link>
                       );
                     })}
-                    {filteredNavGroups.flatMap(g => g.items).filter(i =>
+                    {moreNavGroups.flatMap(g => g.items).filter(i =>
                       i.label.toLowerCase().includes(drawerSearch.toLowerCase()) ||
                       (i.description ?? "").toLowerCase().includes(drawerSearch.toLowerCase())
                     ).length === 0 && (
@@ -580,9 +546,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <div className="relative z-10 flex min-w-0 flex-1 flex-col overflow-hidden overflow-x-hidden">
         <TopBar onMenuClick={() => setMobileOpen(true)} onSearchClick={() => setSearchOpen(true)} />
         <StatusBar />
-        <Breadcrumb />
+        <Breadcrumb className="hidden sm:flex" />
         <main
-          className="flex-1 overflow-y-auto overflow-x-hidden p-3 pb-28 sm:p-4 sm:pb-4 md:p-6 md:pb-6"
+          className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-4 pb-28 sm:px-4 sm:py-4 sm:pb-4 md:p-6 md:pb-6"
         >
           <AnimatePresence mode="wait">
             <motion.div
@@ -602,12 +568,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* Floating Action Button (mobile) */}
       <FloatingActionButton />
 
-      {/* Bottom mobile nav — Home | Apps | Game Hub | Pods | Menu */}
+      {/* Bottom mobile nav — Home | Game Hub | Apps | Cluster | More */}
       <nav
         className="fixed bottom-0 left-0 right-0 z-50 flex gap-1 border-t border-[#2a2a2a] bg-[#141414]/95 px-2 pt-2 pb-[env(safe-area-inset-bottom)] backdrop-blur sm:hidden"
         style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 8px)" }}
       >
-        {mobileNavItems.map(item => {
+        {mobilePrimaryNavItems.map((item) => {
           const isActive = pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href));
           return (
             <Link
@@ -615,26 +581,26 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               href={item.href}
               onClick={() => { if (typeof navigator !== "undefined") navigator.vibrate?.(10); setMoreOpen(false); }}
               className={cn(
-                "relative flex-1 rounded-2xl flex min-h-[56px] flex-col items-center justify-center gap-1 px-2 py-2 text-[11px] transition-colors touch-manipulation",
-                isActive ? "bg-[#0078D4]/10 text-[#4db3ff]" : "text-[#666] hover:bg-white/5 hover:text-[#9e9e9e]"
+                "relative flex min-h-[58px] flex-1 flex-col items-center justify-center rounded-2xl px-2 py-2 text-[10px] transition-colors touch-manipulation",
+                isActive ? "bg-[#0078D4]/10 text-[#4db3ff]" : "text-[#666] hover:bg-white/5 hover:text-[#9e9e9e]",
               )}
             >
-              {isActive ? <span className="absolute inset-x-4 top-1 h-0.5 rounded-full bg-[#0078D4]" /> : null}
-              <item.icon className="h-5 w-5 min-[380px]:h-4 min-[380px]:w-4" />
-              <span className="hidden min-[380px]:block">{item.label}</span>
+              {isActive ? <span className="absolute top-2 h-1.5 w-1.5 rounded-full bg-[#0078D4]" /> : null}
+              <item.icon className="h-4 w-4" />
+              <span className="mt-1 truncate">{item.label}</span>
             </Link>
           );
         })}
         <button
           onClick={() => { if (typeof navigator !== "undefined") navigator.vibrate?.(10); setMoreOpen(true); }}
           className={cn(
-            "relative flex-1 rounded-2xl flex min-h-[56px] flex-col items-center justify-center gap-1 px-2 py-2 text-[11px] transition-colors touch-manipulation",
-            moreOpen ? "bg-[#0078D4]/10 text-[#4db3ff]" : "text-[#666] hover:bg-white/5 hover:text-[#9e9e9e]"
+            "relative flex min-h-[58px] flex-1 flex-col items-center justify-center rounded-2xl px-2 py-2 text-[10px] transition-colors touch-manipulation",
+            moreOpen ? "bg-[#0078D4]/10 text-[#4db3ff]" : "text-[#666] hover:bg-white/5 hover:text-[#9e9e9e]",
           )}
         >
-          {moreOpen ? <span className="absolute inset-x-4 top-1 h-0.5 rounded-full bg-[#0078D4]" /> : null}
-          <MoreHorizontal className="h-5 w-5 min-[380px]:h-4 min-[380px]:w-4" />
-          <span className="hidden min-[380px]:block">More</span>
+          {moreOpen ? <span className="absolute top-2 h-1.5 w-1.5 rounded-full bg-[#0078D4]" /> : null}
+          <MoreHorizontal className="h-4 w-4" />
+          <span className="mt-1">More</span>
         </button>
       </nav>
 
@@ -662,16 +628,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               onDragEnd={(_, info) => {
                 if (info.offset.y > 80 || info.velocity.y > 500) { setMoreOpen(false); setMoreSearch(""); setMoreCategory("all"); }
               }}
-              className="fixed inset-0 z-[201] bg-[#111] sm:hidden flex flex-col overflow-hidden shadow-2xl"
+              className="fixed inset-x-0 bottom-0 z-[201] flex max-h-[85vh] flex-col overflow-hidden rounded-t-[28px] border border-[#222] bg-[#111] shadow-2xl sm:hidden"
               style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 12px)", touchAction: "pan-y" }}
             >
-              <div className="flex-shrink-0 pt-[calc(env(safe-area-inset-top,0px)+8px)]" />
+              <div className="mx-auto mt-3 h-1.5 w-12 rounded-full bg-[#2a2a2a]" />
 
               {/* Header row */}
               <div className="flex-shrink-0 flex items-center justify-between px-4 pt-1 pb-2.5">
                 <div>
                   <h2 className="text-base font-semibold text-white leading-tight">Menu</h2>
-                  <p className="text-[10px] text-[#555] mt-0.5">{filteredNavGroups.reduce((n, g) => n + g.items.length, 0)} pages grouped for quick access</p>
+                  <p className="text-[10px] text-[#555] mt-0.5">{moreNavGroups.reduce((n, g) => n + g.items.length, 0)} pages grouped for quick access</p>
                 </div>
                 <button
                   onClick={() => { setMoreOpen(false); setMoreSearch(""); setMoreCategory("all"); }}
@@ -698,110 +664,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   )}
                 </div>
               </div>
-
-              <div className="flex-shrink-0 px-4 pb-3">
-                <div className="rounded-2xl border border-[#222] bg-[#0d0d0d] p-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <h3 className="text-sm font-medium text-[#f2f2f2]">Customize Navigation</h3>
-                      <p className="mt-1 text-[11px] text-[#666]">
-                        Choose up to {MAX_NAV_FAVORITES} favorites for the bottom bar.
-                      </p>
-                    </div>
-                    <span className="rounded-full border border-[#2a2a2a] bg-[#111] px-2 py-1 text-[10px] text-[#888]">
-                      {mobileFavorites.length}/{MAX_NAV_FAVORITES}
-                    </span>
-                  </div>
-                  <div className="mt-3 space-y-1.5">
-                    {favoriteNavItems.map((item) => {
-                      const favoriteIndex = mobileFavorites.indexOf(item.href);
-                      const isFavorite = favoriteIndex !== -1;
-                      const disableAdd = !isFavorite && mobileFavorites.length >= MAX_NAV_FAVORITES;
-                      return (
-                        <div
-                          key={item.href}
-                          className="flex items-center gap-3 rounded-xl px-2 py-2.5 hover:bg-[#141414]"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={isFavorite}
-                            disabled={disableAdd}
-                            onChange={() => toggleMobileFavorite(item.href)}
-                            className="h-4 w-4 rounded border border-[#333] bg-[#111] text-[#0078D4] disabled:opacity-40"
-                          />
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
-                              <item.icon className="h-4 w-4 flex-shrink-0 text-[#666]" />
-                              <span className="truncate text-sm text-[#f2f2f2]">{item.label}</span>
-                              {isFavorite && (
-                                <span className="rounded-full border border-[#2a2a2a] bg-[#111] px-1.5 py-0.5 text-[10px] text-[#888]">
-                                  #{favoriteIndex + 1}
-                                </span>
-                              )}
-                            </div>
-                            <span className="block truncate text-[11px] text-[#555]">{item.href}</span>
-                          </div>
-                          {isFavorite && (
-                            <div className="flex items-center gap-1">
-                              <button
-                                onClick={() => moveMobileFavorite(item.href, -1)}
-                                disabled={favoriteIndex === 0}
-                                className="flex h-11 w-11 items-center justify-center rounded-lg border border-[#2a2a2a] bg-[#111] text-[#888] transition-colors hover:text-white disabled:opacity-40"
-                                aria-label={`Move ${item.label} up`}
-                              >
-                                <ArrowUp className="h-3.5 w-3.5" />
-                              </button>
-                              <button
-                                onClick={() => moveMobileFavorite(item.href, 1)}
-                                disabled={favoriteIndex === mobileFavorites.length - 1}
-                                className="flex h-11 w-11 items-center justify-center rounded-lg border border-[#2a2a2a] bg-[#111] text-[#888] transition-colors hover:text-white disabled:opacity-40"
-                                aria-label={`Move ${item.label} down`}
-                              >
-                                <ArrowDown className="h-3.5 w-3.5" />
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-
-              {/* Category pills */}
-              {!moreSearch && (
-                <div
-                  className="flex-shrink-0 overflow-x-auto px-4 pb-3 scrollbar-none"
-                  onPointerDown={e => e.stopPropagation()}
-                  style={{ touchAction: "pan-x" }}
-                >
-                  <div className="flex gap-1.5 w-max">
-                    <button
-                      onClick={() => setMoreCategory("all")}
-                      className={cn(
-                        "px-3 py-1.5 rounded-full text-xs font-medium transition-colors touch-manipulation whitespace-nowrap",
-                        moreCategory === "all" ? "bg-[#0078D4] text-white" : "bg-[#1e1e1e] text-[#777] hover:text-white hover:bg-[#2a2a2a]"
-                      )}
-                    >All</button>
-                    {filteredNavGroups.map(group => {
-                      const accent = GROUP_ACCENT[group.id] ?? "bg-[#555]";
-                      return (
-                        <button
-                          key={group.id}
-                          onClick={() => setMoreCategory(group.id)}
-                          className={cn(
-                            "px-3 py-1.5 rounded-full text-xs font-medium transition-colors touch-manipulation whitespace-nowrap flex items-center gap-1.5",
-                            moreCategory === group.id ? "bg-[#0078D4] text-white" : "bg-[#1e1e1e] text-[#777] hover:text-white hover:bg-[#2a2a2a]"
-                          )}
-                        >
-                          <span className={cn("w-1.5 h-1.5 rounded-full flex-shrink-0", moreCategory === group.id ? "bg-white" : accent)} />
-                          {group.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
 
               {/* Content — grid when category selected, list when searching */}
               <div
@@ -834,7 +696,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 {/* In search mode: flat list */}
                 {moreSearch && (
                   <div className="space-y-0.5">
-                    {filteredNavGroups.flatMap(g => g.items).filter(i =>
+                    {moreNavGroups.flatMap(g => g.items).filter(i =>
                       i.label.toLowerCase().includes(moreSearch.toLowerCase()) ||
                       (i.description ?? "").toLowerCase().includes(moreSearch.toLowerCase())
                     ).map(item => {
@@ -857,7 +719,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                         </Link>
                       );
                     })}
-                    {filteredNavGroups.flatMap(g => g.items).filter(i =>
+                    {moreNavGroups.flatMap(g => g.items).filter(i =>
                       i.label.toLowerCase().includes(moreSearch.toLowerCase()) ||
                       (i.description ?? "").toLowerCase().includes(moreSearch.toLowerCase())
                     ).length === 0 && (
@@ -867,7 +729,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 )}
 
                 {/* Category/All mode: section groups with 2-col grid */}
-                {!moreSearch && filteredNavGroups.filter(g => moreCategory === "all" || g.id === moreCategory).map(group => {
+                {!moreSearch && moreNavGroups.filter(g => moreCategory === "all" || g.id === moreCategory).map(group => {
                   const accent = GROUP_ACCENT[group.id] ?? "bg-[#555]";
                   return (
                     <div key={group.id} className="mb-5">

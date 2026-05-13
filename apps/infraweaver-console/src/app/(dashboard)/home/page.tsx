@@ -265,7 +265,7 @@ function GroupSection({
             transition={{ duration: 0.2, ease: "easeInOut" }}
             className="overflow-hidden"
           >
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 pb-1">
+            <div className="grid grid-cols-2 gap-3 pb-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {isLoading
                 ? group.services.map((_, i) => <SkeletonCard key={i} index={i} />)
                   : group.services.map((svc, i) => (
@@ -416,11 +416,11 @@ function QuickStats() {
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.08 }}
-      className="relative z-10 grid grid-cols-1 gap-3 sm:grid-cols-3"
+      className="relative z-10 grid grid-cols-2 gap-3 sm:grid-cols-3"
     >
-      <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl p-4 flex items-center gap-3">
+      <div className="col-span-1 flex items-center gap-3 rounded-xl border border-[#2a2a2a] bg-[#1a1a1a] p-3 sm:p-4">
         <div className={cn(
-          "w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0",
+          "h-8 w-8 flex-shrink-0 rounded-lg flex items-center justify-center",
           isHealthy ? "bg-green-500/15" : "bg-red-500/15"
         )}>
           <Activity className={cn("w-4 h-4", isHealthy ? "text-green-400" : "text-red-400")} />
@@ -432,8 +432,8 @@ function QuickStats() {
           </p>
         </div>
       </div>
-      <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl p-4 flex items-center gap-3">
-        <div className="w-8 h-8 rounded-lg bg-[rgba(0,120,212,0.1)] flex items-center justify-center flex-shrink-0">
+      <div className="col-span-1 flex items-center gap-3 rounded-xl border border-[#2a2a2a] bg-[#1a1a1a] p-3 sm:p-4">
+        <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-[rgba(0,120,212,0.1)]">
           <Package className="w-4 h-4 text-[#0078D4]" />
         </div>
         <div>
@@ -448,8 +448,8 @@ function QuickStats() {
           </p>
         </div>
       </div>
-      <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl p-4 flex items-center gap-3">
-        <div className="w-8 h-8 rounded-lg bg-orange-500/15 flex items-center justify-center flex-shrink-0">
+      <div className="col-span-2 flex items-center gap-3 rounded-xl border border-[#2a2a2a] bg-[#1a1a1a] p-3 sm:col-span-1 sm:p-4">
+        <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-orange-500/15">
           <GitBranch className="w-4 h-4 text-orange-400" />
         </div>
         <div>
@@ -616,7 +616,7 @@ export default function HomePortalPage() {
     : SERVICE_GROUPS.filter(g => g.label === activeCategory);
 
   return (
-    <div className="space-y-6 max-w-screen-2xl mx-auto">
+    <div className="mx-auto max-w-screen-2xl space-y-4 sm:space-y-6">
       <PageHeader icon={Home} title="Home" subtitle="Platform services and quick access" />
 
       {/* Mobile alert banner */}
@@ -639,10 +639,10 @@ export default function HomePortalPage() {
         transition={{ duration: 0.5 }}
         className="relative z-10"
       >
-        <div className="p-6 bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl">
+        <div className="rounded-xl border border-[#2a2a2a] bg-[#1a1a1a] p-4 sm:p-6">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div className="space-y-1">
-              <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight gradient-text">
+              <h1 className="text-xl sm:text-3xl font-extrabold tracking-tight gradient-text">
                 InfraWeaver Platform
               </h1>
               <p className="text-sm text-[#9e9e9e]">
@@ -651,9 +651,9 @@ export default function HomePortalPage() {
             </div>
 
             {/* Animated stats */}
-            <div className="flex w-full items-center justify-between gap-4 sm:w-auto sm:justify-start sm:gap-6">
+            <div className="flex w-full items-center justify-between gap-3 sm:w-auto sm:justify-start sm:gap-6">
               <div className="text-center">
-                <div className="text-2xl font-bold text-[#f2f2f2] tabular-nums">
+                <div className="text-xl font-bold text-[#f2f2f2] tabular-nums sm:text-2xl">
                   <AnimatedNumber value={onlineCount} duration={800} />
                   <span className="text-[#666] text-lg">/{totalPingable}</span>
                 </div>
@@ -661,14 +661,14 @@ export default function HomePortalPage() {
               </div>
               <div className="w-px h-10 bg-[#333]" />
               <div className="text-center">
-                <div className="text-2xl font-bold text-[#f2f2f2] tabular-nums">
+                <div className="text-xl font-bold text-[#f2f2f2] tabular-nums sm:text-2xl">
                   <AnimatedNumber value={totalServices} duration={600} />
                 </div>
                 <p className="text-[10px] text-[#666] uppercase tracking-wider mt-0.5">Services</p>
               </div>
               <div className="w-px h-10 bg-[#333]" />
               <div className="text-center">
-                <div className="text-2xl font-bold tabular-nums">
+                <div className="text-xl font-bold tabular-nums sm:text-2xl">
                   <AnimatedNumber
                     value={totalPingable > 0 ? Math.round((onlineCount / totalPingable) * 100) : 0}
                     duration={900}
@@ -708,7 +708,7 @@ export default function HomePortalPage() {
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.1 }}
-        className="relative z-10 p-4 bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl"
+        className="relative z-10 rounded-xl border border-[#2a2a2a] bg-[#1a1a1a] p-3 sm:p-4"
       >
         <QuickActions />
       </motion.div>
@@ -766,7 +766,7 @@ export default function HomePortalPage() {
             key={cat}
             onClick={() => setActiveCategory(cat)}
             className={cn(
-              "px-3 py-1.5 rounded-lg text-xs font-medium transition-all",
+              "min-h-[44px] rounded-lg px-3 py-1.5 text-xs font-medium transition-all",
               activeCategory === cat
                 ? "bg-[rgba(0,120,212,0.15)] border border-[rgba(0,120,212,0.2)] text-[#0078D4]"
                 : "bg-[#2a2a2a] border border-[#2a2a2a] text-[#9e9e9e] hover:text-[#f2f2f2] hover:bg-[#2a2a2a]"
@@ -783,10 +783,10 @@ export default function HomePortalPage() {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 0.2 }}
-        className="relative z-10 space-y-6"
+        className="relative z-10 space-y-4 sm:space-y-6"
       >
         <WidgetCard title="Platform Services">
-        <div className="p-4">
+        <div className="p-3 sm:p-4">
         <AnimatePresence mode="wait">
           <motion.div
             key={activeCategory}
@@ -820,7 +820,7 @@ export default function HomePortalPage() {
           className="relative z-10"
         >
           <WidgetCard title="Pinned Pages" icon={Star}>
-            <div className="p-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+            <div className="grid grid-cols-2 gap-2 p-3 sm:grid-cols-3 sm:p-4 lg:grid-cols-4">
               {favNavItems.map(item => (
                 <Link
                   key={item.href}

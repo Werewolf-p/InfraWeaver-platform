@@ -39,15 +39,16 @@ export function MetricAreaChart({ data, label, unit = "%", color = "emerald", wa
   const gradId = `grad-${label.replace(/\s+/g, "")}`;
 
   return (
-    <div className={cn("bg-white/5 border border-white/10 rounded-xl p-4", className)}>
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-sm font-medium text-slate-300">{label}</span>
-        <span className={cn("text-lg font-bold tabular-nums", lastVal >= critAt ? "text-red-400" : lastVal >= warnAt ? "text-amber-400" : "text-emerald-400")}>
+    <div className={cn("rounded-xl border border-white/10 bg-white/5 p-3 sm:p-4", className)}>
+      <div className="mb-2 flex items-center justify-between sm:mb-3">
+        <span className="text-xs font-medium text-slate-300 sm:text-sm">{label}</span>
+        <span className={cn("text-base font-bold tabular-nums sm:text-lg", lastVal >= critAt ? "text-red-400" : lastVal >= warnAt ? "text-amber-400" : "text-emerald-400")}>
           {Math.round(lastVal)}{unit}
         </span>
       </div>
-      <ResponsiveContainer width="100%" height={100}>
-        <AreaChart data={data} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
+      <div className="h-[200px] w-full sm:h-[120px]">
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={data} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
           <defs>
             <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
               <stop offset="5%" stopColor={fill} stopOpacity={0.3} />
@@ -63,8 +64,9 @@ export function MetricAreaChart({ data, label, unit = "%", color = "emerald", wa
             labelFormatter={(l) => `Time: ${l}`}
           />
           <Area type="monotone" dataKey="value" stroke={stroke} strokeWidth={2} fill={`url(#${gradId})`} dot={false} isAnimationActive />
-        </AreaChart>
-      </ResponsiveContainer>
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
     </div>
   );
 }
