@@ -583,6 +583,10 @@ function ConsoleTab({
   const [historyDepth, setHistoryDepth] = useState<ConsoleHistoryDepth>(
     () => (readConsolePrefs().historyDepth as ConsoleHistoryDepth) ?? "1d",
   );
+  // Mobile: collapse secondary console chrome to give log area max space
+  const [showConsoleOptions, setShowConsoleOptions] = useState(false);
+  const [showMobileSearch, setShowMobileSearch] = useState(false);
+  const [showCommandsPanel, setShowCommandsPanel] = useState(false);
   const logEndRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -972,146 +976,100 @@ function ConsoleTab({
   };
 
   return (
-    <div className="flex h-[calc(100dvh-220px)] min-h-[65vh] flex-col overflow-hidden rounded-xl border border-[#2a2a2a] bg-[#0a0a0a] sm:h-[calc(100dvh-280px)] sm:min-h-[360px]">
-      <div className="flex flex-wrap items-center gap-3 px-4 py-2.5 bg-[#111] border-b border-[#1e1e1e] flex-shrink-0">
-        <div className="flex items-center gap-2 min-w-0">
-          <Circle
-            className={cn(
-              "w-2 h-2",
-              isConnected
-                ? "fill-green-400 text-green-400"
-                : "fill-[#444] text-[#444]",
-            )}
-          />
-          <span
-            className={cn(
-              "text-xs truncate",
-              isConnected ? "text-green-400" : "text-[#555]",
-            )}
-          >
-            {isConnected
-              ? podLabel
-              : status === "stopped"
-                ? "Server stopped"
-                : "Connecting…"}
-          </span>
-        </div>
-        <div className="ml-auto flex flex-wrap items-center gap-2">
+    <div className="flex h-[calc(100dvh-170px)] min-h-[65vh] flex-col overflow-hidden rounded-xl border border-[#2a2a2a] bg-[#0a0a0a] sm:h-[calc(100dvh-280px)] sm:min-h-[360px]">
+      {/* ── Toolbar ── */}
+      <div className="flex flex-shrink-0 items-center gap-2 border-b border-[#1e1e1e] bg-[#111] px-3 py-2">
+        {/* Status — always visible */}
+        <Circle className={cn("w-2 h-2 flex-shrink-0", isConnected ? "fill-green-400 text-green-400" : "fill-[#444] text-[#444]")} />
+        <span className={cn("min-w-0 flex-1 truncate text-xs", isConnected ? "text-green-400" : "text-[#555]")}>
+          {isConnected ? podLabel : status === "stopped" ? "Server stopped" : "Connecting…"}
+        </span>
+
+        {/* Mobile: 3 compact icon buttons (search · options · clear) */}
+        <div className="flex items-center gap-0.5 sm:hidden">
           {!isConnected && status !== "stopped" && (
-            <button
-              onClick={() => {
-                retryCountRef.current = 0;
-                connectRef.current();
-              }}
-              className="min-h-[36px] text-xs text-[#0078D4] hover:underline"
-            >
-              Reconnect
-            </button>
+            <button onClick={() => { retryCountRef.current = 0; connectRef.current(); }}
+              className="min-h-[36px] px-2 text-xs text-[#0078D4] hover:underline">↺</button>
           )}
-          <button
-            onClick={() => setAutoScroll((value) => !value)}
-            className={cn(
-              "min-h-[36px] rounded-md border px-2 py-1 text-[10px] transition-colors",
-              autoScroll
-                ? "border-[#0078D4]/30 bg-[#0078D4]/10 text-[#4db3ff]"
-                : "border-[#2a2a2a] text-[#777]",
-            )}
-          >
-            {autoScroll ? "Auto-scroll on" : "Auto-scroll off"}
-          </button>
-          <button
-            onClick={() => setShowTimestamps((value) => !value)}
-            className={cn(
-              "min-h-[36px] rounded-md border px-2 py-1 text-[10px] transition-colors",
-              showTimestamps
-                ? "border-[#0078D4]/30 bg-[#0078D4]/10 text-[#4db3ff]"
-                : "border-[#2a2a2a] text-[#777]",
-            )}
-          >
-            Timestamps
-          </button>
-          <button
-            onClick={() => setWordWrap((value) => !value)}
-            className={cn(
-              "min-h-[36px] rounded-md border px-2 py-1 text-[10px] transition-colors",
-              wordWrap
-                ? "border-[#0078D4]/30 bg-[#0078D4]/10 text-[#4db3ff]"
-                : "border-[#2a2a2a] text-[#777]",
-            )}
-          >
-            Wrap
-          </button>
-          <select
-            value={historyDepth}
-            onChange={(e) => {
-              const nextDepth = e.target.value as ConsoleHistoryDepth;
-              setHistoryDepth(nextDepth);
-              lastLogTimestampRef.current = null;
-              setLogLines([]);
-              connect(nextDepth);
-            }}
-            className="min-h-[36px] cursor-pointer rounded border border-[#2a2a2a] bg-[#1a1a1a] px-1.5 py-0.5 text-[10px] text-[#888]"
-          >
-            <option value="1h">1h history</option>
-            <option value="6h">6h history</option>
-            <option value="1d">1d history</option>
-            <option value="3d">3d history</option>
-            <option value="7d">7d history</option>
-          </select>
-          <button
-            onClick={() => searchRef.current?.focus()}
-            className="min-h-[36px] rounded p-1.5 text-[#444] transition-colors hover:bg-[#1e1e1e] hover:text-[#888]"
-          >
+          <button onClick={() => { setShowMobileSearch(v => !v); if (!showMobileSearch) setTimeout(() => searchRef.current?.focus(), 50); }}
+            className={cn("min-h-[36px] rounded p-2 transition-colors", showMobileSearch ? "text-[#4db3ff] bg-[#0078D4]/10" : "text-[#555] hover:text-[#888] hover:bg-[#1e1e1e]")}>
             <Search className="w-3.5 h-3.5" />
           </button>
-          <div className="flex items-center gap-1">
-            {[
-              {
-                icon: RefreshCw,
-                label: "Clear",
-                action: () => setLogLines([]),
-              },
-              {
-                icon: Copy,
-                label: "Copy all",
-                action: () => {
-                  navigator.clipboard.writeText(
-                    displayedLogLines
-                      .map((line) => renderedLine(line))
-                      .join("\n"),
-                  );
-                  toast.success("Copied");
-                },
-              },
-              {
-                icon: Download,
-                label: "Download logs",
-                action: () =>
-                  downloadTextFile(
-                    `${name}-console-${new Date().toISOString().slice(0, 10)}.txt`,
-                    displayedLogLines
-                      .map((line) => renderedLine(line))
-                      .join("\n"),
-                  ),
-              },
-            ].map(({ icon: Icon, label, action }) => (
-              <button
-                key={label}
-                onClick={action}
-                title={label}
-                className={cn(
-                  "min-h-[36px] rounded p-1.5 text-[#444] transition-colors hover:bg-[#1e1e1e] hover:text-[#888]",
-                  label === "Copy all" && "hidden sm:inline-flex",
-                )}
-              >
-                <Icon className="w-3.5 h-3.5" />
-              </button>
-            ))}
-          </div>
+          <button onClick={() => setLogLines([])} title="Clear"
+            className="min-h-[36px] rounded p-2 text-[#555] transition-colors hover:text-[#888] hover:bg-[#1e1e1e]">
+            <RefreshCw className="w-3.5 h-3.5" />
+          </button>
+          <button onClick={() => setShowConsoleOptions(v => !v)}
+            className={cn("min-h-[36px] rounded p-2 transition-colors", showConsoleOptions ? "text-[#4db3ff] bg-[#0078D4]/10" : "text-[#555] hover:text-[#888] hover:bg-[#1e1e1e]")}>
+            <MoreHorizontal className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        {/* Desktop: all controls */}
+        <div className="hidden items-center gap-2 sm:flex">
+          {!isConnected && status !== "stopped" && (
+            <button onClick={() => { retryCountRef.current = 0; connectRef.current(); }}
+              className="min-h-[36px] text-xs text-[#0078D4] hover:underline">Reconnect</button>
+          )}
+          {[
+            { label: autoScroll ? "Auto-scroll on" : "Auto-scroll off", active: autoScroll, toggle: () => setAutoScroll(v => !v) },
+            { label: "Timestamps", active: showTimestamps, toggle: () => setShowTimestamps(v => !v) },
+            { label: "Wrap", active: wordWrap, toggle: () => setWordWrap(v => !v) },
+          ].map(({ label, active, toggle }) => (
+            <button key={label} onClick={toggle}
+              className={cn("min-h-[36px] rounded-md border px-2 py-1 text-[10px] transition-colors",
+                active ? "border-[#0078D4]/30 bg-[#0078D4]/10 text-[#4db3ff]" : "border-[#2a2a2a] text-[#777]")}>
+              {label}
+            </button>
+          ))}
+          <select value={historyDepth} onChange={(e) => { const d = e.target.value as ConsoleHistoryDepth; setHistoryDepth(d); lastLogTimestampRef.current = null; setLogLines([]); connect(d); }}
+            className="min-h-[36px] cursor-pointer rounded border border-[#2a2a2a] bg-[#1a1a1a] px-1.5 py-0.5 text-[10px] text-[#888]">
+            <option value="1h">1h</option><option value="6h">6h</option>
+            <option value="1d">1d</option><option value="3d">3d</option><option value="7d">7d</option>
+          </select>
+          <button onClick={() => searchRef.current?.focus()} className="min-h-[36px] rounded p-1.5 text-[#444] hover:bg-[#1e1e1e] hover:text-[#888]"><Search className="w-3.5 h-3.5" /></button>
+          {[
+            { icon: RefreshCw, label: "Clear", action: () => setLogLines([]) },
+            { icon: Copy, label: "Copy all", action: () => { navigator.clipboard.writeText(displayedLogLines.map(l => renderedLine(l)).join("\n")); toast.success("Copied"); } },
+            { icon: Download, label: "Download logs", action: () => downloadTextFile(`${name}-console-${new Date().toISOString().slice(0, 10)}.txt`, displayedLogLines.map(l => renderedLine(l)).join("\n")) },
+          ].map(({ icon: Icon, label, action }) => (
+            <button key={label} onClick={action} title={label} className="min-h-[36px] rounded p-1.5 text-[#444] hover:bg-[#1e1e1e] hover:text-[#888]"><Icon className="w-3.5 h-3.5" /></button>
+          ))}
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b border-[#1e1e1e] bg-[#101010]">
+      {/* Mobile options panel (toggleable) */}
+      {showConsoleOptions && (
+        <div className="flex flex-wrap items-center gap-2 border-b border-[#1e1e1e] bg-[#0d0d0d] px-3 py-2 sm:hidden">
+          {[
+            { label: autoScroll ? "Auto ✓" : "Auto-scroll", active: autoScroll, toggle: () => setAutoScroll(v => !v) },
+            { label: showTimestamps ? "Time ✓" : "Timestamps", active: showTimestamps, toggle: () => setShowTimestamps(v => !v) },
+            { label: wordWrap ? "Wrap ✓" : "Wrap", active: wordWrap, toggle: () => setWordWrap(v => !v) },
+          ].map(({ label, active, toggle }) => (
+            <button key={label} onClick={toggle}
+              className={cn("rounded-full border px-3 py-1 text-[10px] transition-colors",
+                active ? "border-[#0078D4]/30 bg-[#0078D4]/10 text-[#4db3ff]" : "border-[#2a2a2a] text-[#777]")}>
+              {label}
+            </button>
+          ))}
+          <select value={historyDepth} onChange={(e) => { const d = e.target.value as ConsoleHistoryDepth; setHistoryDepth(d); lastLogTimestampRef.current = null; setLogLines([]); connect(d); }}
+            className="cursor-pointer rounded-full border border-[#2a2a2a] bg-[#0d0d0d] px-2 py-1 text-[10px] text-[#888]">
+            <option value="1h">1h history</option><option value="6h">6h history</option>
+            <option value="1d">1d history</option><option value="3d">3d history</option><option value="7d">7d history</option>
+          </select>
+          <button onClick={() => { navigator.clipboard.writeText(displayedLogLines.map(l => renderedLine(l)).join("\n")); toast.success("Copied"); }}
+            className="rounded-full border border-[#2a2a2a] px-3 py-1 text-[10px] text-[#777]">Copy all</button>
+          <button onClick={() => downloadTextFile(`${name}-console-${new Date().toISOString().slice(0, 10)}.txt`, displayedLogLines.map(l => renderedLine(l)).join("\n"))}
+            className="rounded-full border border-[#2a2a2a] px-3 py-1 text-[10px] text-[#777]">Download</button>
+        </div>
+      )}
+
+      {/* Search bar — always on desktop, toggle-shown on mobile */}
+      <div className={cn(
+        "flex flex-wrap items-center gap-2 px-4 py-2 border-b border-[#1e1e1e] bg-[#101010]",
+        !showMobileSearch && "hidden sm:flex",
+        showMobileSearch && "flex",
+      )}>
         <div className="flex min-w-0 basis-full flex-1 items-center gap-2 rounded-lg border border-[#2a2a2a] bg-[#0d0d0d] px-3 py-2 sm:min-w-[220px] sm:basis-auto">
           <Search className="h-3.5 w-3.5 text-[#666]" />
           <input
@@ -1253,85 +1211,64 @@ function ConsoleTab({
       </div>
 
       {isConnected && (eggCommands.length > 0 || savedCommands.length > 0) && (
-        <div className="flex-shrink-0 px-3 py-2 border-t border-[#1a1a1a] bg-[#0d0d0d] space-y-3">
-          {eggCommands.length > 0 && (
-            <div>
-              <p className="text-[10px] uppercase tracking-wide text-[#444] mb-2">
-                Quick Commands
-              </p>
-              <div className="overflow-x-auto scrollbar-none">
-                <div className="flex w-max gap-2 pb-1">
-                  {eggCommands.map((entry) => (
-                    <button
-                      key={`${entry.label}-${entry.command}`}
-                      onClick={() => {
-                        setCommand(entry.command);
-                        inputRef.current?.focus();
-                      }}
-                      className="min-h-[36px] rounded-full border border-[#2a2a2a] bg-[#1a1a1a] px-3 py-1 text-[10px] text-[#777] transition-colors hover:bg-[#252525] hover:text-[#ccc]"
-                    >
-                      {entry.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-          {savedCommands.length > 0 && (
-            <div>
-              <p className="text-[10px] uppercase tracking-wide text-[#444] mb-2">
-                Saved Commands
-              </p>
-              <div className="overflow-x-auto scrollbar-none">
-                <div className="flex w-max gap-2 pb-1">
-                  {savedCommands.map((entry) => (
-                    <div
-                      key={`${entry.id ?? entry.label}-${entry.command}`}
-                      className="flex items-center overflow-hidden rounded-full border border-[#2a2a2a] bg-[#1a1a1a]"
-                    >
-                      <button
-                        onClick={() => {
-                          setCommand(entry.command ?? "");
-                          inputRef.current?.focus();
-                        }}
-                        className="min-h-[36px] px-3 py-1 text-[10px] text-[#777] transition-colors hover:bg-[#252525] hover:text-[#ccc]"
-                      >
+        <div className="flex-shrink-0 border-t border-[#1a1a1a] bg-[#0d0d0d]">
+          {/* Mobile: collapse toggle */}
+          <button
+            onClick={() => setShowCommandsPanel(v => !v)}
+            className="flex w-full items-center justify-between px-3 py-2 text-[10px] text-[#555] transition-colors hover:text-[#888] sm:hidden"
+          >
+            <span className="uppercase tracking-wide">
+              Commands ({eggCommands.length + savedCommands.length})
+            </span>
+            <ChevronDown className={cn("w-3.5 h-3.5 transition-transform duration-200", showCommandsPanel && "rotate-180")} />
+          </button>
+
+          {/* Content — always visible desktop, toggle on mobile */}
+          <div className={cn("space-y-3 px-3 py-2", !showCommandsPanel && "hidden sm:block")}>
+            {eggCommands.length > 0 && (
+              <div>
+                <p className="text-[10px] uppercase tracking-wide text-[#444] mb-2">Quick Commands</p>
+                <div className="overflow-x-auto scrollbar-none">
+                  <div className="flex w-max gap-2 pb-1">
+                    {eggCommands.map((entry) => (
+                      <button key={`${entry.label}-${entry.command}`}
+                        onClick={() => { setCommand(entry.command); inputRef.current?.focus(); }}
+                        className="min-h-[36px] rounded-full border border-[#2a2a2a] bg-[#1a1a1a] px-3 py-1 text-[10px] text-[#777] transition-colors hover:bg-[#252525] hover:text-[#ccc]">
                         {entry.label}
                       </button>
-                      <button
-                        onClick={() => deleteSavedCommand(entry)}
-                        className="min-h-[36px] px-2 py-1 text-[10px] text-[#555] transition-colors hover:bg-red-500/10 hover:text-red-300"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            )}
+            {savedCommands.length > 0 && (
+              <div>
+                <p className="text-[10px] uppercase tracking-wide text-[#444] mb-2">Saved Commands</p>
+                <div className="overflow-x-auto scrollbar-none">
+                  <div className="flex w-max gap-2 pb-1">
+                    {savedCommands.map((entry) => (
+                      <div key={`${entry.id ?? entry.label}-${entry.command}`}
+                        className="flex items-center overflow-hidden rounded-full border border-[#2a2a2a] bg-[#1a1a1a]">
+                        <button onClick={() => { setCommand(entry.command ?? ""); inputRef.current?.focus(); }}
+                          className="min-h-[36px] px-3 py-1 text-[10px] text-[#777] transition-colors hover:bg-[#252525] hover:text-[#ccc]">
+                          {entry.label}
+                        </button>
+                        <button onClick={() => deleteSavedCommand(entry)}
+                          className="min-h-[36px] px-2 py-1 text-[10px] text-[#555] transition-colors hover:bg-red-500/10 hover:text-red-300">
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
       <div className="sticky bottom-0 z-10 flex-shrink-0 border-t border-[#1a1a1a] bg-[#0d0d0d]/95 p-2 backdrop-blur supports-[backdrop-filter]:bg-[#0d0d0d]/85 pb-[calc(env(safe-area-inset-bottom,0px)+0.5rem)]">
-        <div className="mb-2 flex items-center justify-between gap-2 sm:hidden">
-          <button
-            type="button"
-            onClick={saveCurrentCommand}
-            disabled={!command.trim()}
-            className="min-h-[40px] rounded-full border border-[#2a2a2a] bg-[#1a1a1a] px-3 text-[11px] font-medium text-[#cfcfcf] transition-colors hover:bg-[#252525] disabled:opacity-40"
-          >
-            Save command
-          </button>
-          <button
-            type="button"
-            onClick={clearCommandHistory}
-            disabled={history.length === 0}
-            className="min-h-[40px] rounded-full border border-[#2a2a2a] bg-[#1a1a1a] px-3 text-[11px] font-medium text-[#9e9e9e] transition-colors hover:bg-[#252525] disabled:opacity-40"
-          >
-            Clear history
-          </button>
-        </div>
+        {/* No extra row on mobile — save icon is inside the input bar */}
         <form onSubmit={sendCommand} className="flex items-center gap-2">
           <div
             className={cn(
@@ -1341,25 +1278,25 @@ function ConsoleTab({
                 : "border-[#1a1a1a] opacity-50",
             )}
           >
-            <span className="select-none font-mono text-sm text-green-500">
-              ❯
-            </span>
+            <span className="select-none font-mono text-sm text-green-500">❯</span>
             <input
               ref={inputRef}
               value={command}
               onChange={(event) => setCommand(event.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={
-                isConnected
-                  ? "Enter command… (↑↓ history)"
-                  : "Waiting for connection…"
-              }
+              placeholder={isConnected ? "Enter command… (↑↓ history)" : "Waiting for connection…"}
               disabled={!isConnected || sending}
               autoCapitalize="none"
               autoCorrect="off"
               spellCheck={false}
               className="flex-1 bg-transparent py-1 font-mono text-[16px] leading-none text-[#f0f0f0] outline-none placeholder:text-[#333] disabled:cursor-not-allowed"
             />
+            {/* Save command icon — shown on mobile inside input bar */}
+            <button type="button" onClick={saveCurrentCommand} disabled={!command.trim()}
+              title="Save command"
+              className="min-h-[36px] rounded p-1 text-[#444] transition-colors hover:text-[#888] disabled:opacity-30 sm:hidden">
+              <Save className="w-3.5 h-3.5" />
+            </button>
           </div>
           <button
             type="button"

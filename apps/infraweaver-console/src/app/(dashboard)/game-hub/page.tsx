@@ -980,11 +980,7 @@ export default function GameHubPage() {
         </div>
       )}
 
-      {canManageGameHub ? (
-        <Link href="/game-hub/new" className="fixed bottom-24 right-4 z-30 inline-flex h-14 w-14 items-center justify-center rounded-full bg-[#0078D4] text-white shadow-[0_14px_30px_rgba(0,120,212,0.35)] transition-colors hover:bg-[#006cbe] sm:hidden" aria-label="Create new server">
-          <Plus className="w-5 h-5" />
-        </Link>
-      ) : null}
+      {/* Mobile FAB handled by context-aware FloatingActionButton in layout */}
 
       <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
         <button onClick={() => setShowRoadmap((prev) => !prev)} className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left border-b border-[#1e1e1e]">

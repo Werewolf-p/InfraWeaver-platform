@@ -15,6 +15,23 @@ function pvcSuffixForMountPath(mountPath: string) {
   return (mountPath.split("/").filter(Boolean).pop() ?? "data").replace(/[^a-z0-9-]/g, "-") || "data";
 }
 
+/**
+ * Sanitize a value to be safe for use as a Kubernetes label value.
+ * Must match: (([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])? — max 63 chars.
+ */
+function sanitizeLabelValue(value: string): string {
+  // Replace anything not alphanumeric, hyphen, underscore, or dot with a hyphen
+  let sanitized = value.replace(/[^A-Za-z0-9\-_.]/g, "-");
+  // Collapse consecutive hyphens
+  sanitized = sanitized.replace(/-{2,}/g, "-");
+  // Strip leading/trailing non-alphanumeric characters
+  sanitized = sanitized.replace(/^[^A-Za-z0-9]+/, "").replace(/[^A-Za-z0-9]+$/, "");
+  // Truncate to 63 chars
+  sanitized = sanitized.slice(0, 63);
+  // If empty after sanitization, fall back to "unknown"
+  return sanitized || "unknown";
+}
+
 function quantityToString(value: string | number | null | undefined) {
   if (typeof value === "number") return String(value);
   const trimmed = value?.trim();
@@ -59,6 +76,8 @@ async function createServer(body: {
     : getEggForGameType(requestedGame);
   const customPorts = body.ports?.length ? body.ports : undefined;
   const eggId = requestedGame.startsWith("pelican:") ? baseEgg.id : (requestedGame || baseEgg.id);
+  // Safe label value — Pelican IDs can contain '/', '[', ']' etc. which K8s rejects
+  const eggLabel = sanitizeLabelValue(eggId);
   const egg = {
     ...baseEgg,
     id: eggId,
@@ -80,6 +99,8 @@ async function createServer(body: {
     "infraweaver.io/groups": (body.groups ?? []).join(","),
     "infraweaver.io/image-version": imageVersion.version,
     "infraweaver.io/last-started": new Date().toISOString(),
+    // Store the original unmodified egg ID in an annotation (no char restrictions)
+    "infraweaver.io/egg-id": eggId,
     ...(dnsHostname ? { "infraweaver.io/dns-hostname": dnsHostname } : {}),
     ...(requestedGame.startsWith("pelican:") ? { "infraweaver.io/egg-source": requestedGame } : {}),
   };
@@ -90,7 +111,7 @@ async function createServer(body: {
   await coreApi.createNamespacedPersistentVolumeClaim({
     namespace: GAME_HUB_NAMESPACE,
     body: {
-      metadata: { name: pvcName, namespace: GAME_HUB_NAMESPACE, labels: { app: slug, "infraweaver/game": "true", "infraweaver/egg": egg.id } },
+      metadata: { name: pvcName, namespace: GAME_HUB_NAMESPACE, labels: { app: slug, "infraweaver/game": "true", "infraweaver/egg": eggLabel } },
       spec: { accessModes: ["ReadWriteOnce"], storageClassName: storageClass, resources: { requests: { storage } } },
     },
   });
@@ -98,17 +119,17 @@ async function createServer(body: {
   await appsApi.createNamespacedDeployment({
     namespace: GAME_HUB_NAMESPACE,
     body: {
-      metadata: { name: slug, namespace: GAME_HUB_NAMESPACE, labels: { app: slug, "infraweaver/game": "true", "infraweaver/game-type": egg.id, "infraweaver/egg": egg.id }, annotations },
+      metadata: { name: slug, namespace: GAME_HUB_NAMESPACE, labels: { app: slug, "infraweaver/game": "true", "infraweaver/game-type": eggLabel, "infraweaver/egg": eggLabel }, annotations },
       spec: {
         replicas: 1,
         strategy: { type: "Recreate" },
         selector: { matchLabels: { app: slug } },
         template: {
-          metadata: { labels: { app: slug, "infraweaver/game": "true", "infraweaver/game-type": egg.id, "infraweaver/egg": egg.id }, annotations },
+          metadata: { labels: { app: slug, "infraweaver/game": "true", "infraweaver/game-type": eggLabel, "infraweaver/egg": eggLabel }, annotations },
           spec: {
             priorityClassName: "game-server",
             terminationGracePeriodSeconds: 60,
-            securityContext: egg.id === "valheim" ? { runAsUser: 0, runAsGroup: 0 } : { runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000 },
+            securityContext: eggLabel === "valheim" ? { runAsUser: 0, runAsGroup: 0 } : { runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000 },
             containers: [{
               name: slug,
               image: egg.dockerImage,
@@ -170,7 +191,7 @@ async function cloneServer(source: string, newName: string) {
   await coreApi.createNamespacedPersistentVolumeClaim({
     namespace: GAME_HUB_NAMESPACE,
     body: {
-      metadata: { name: pvcName, namespace: GAME_HUB_NAMESPACE, labels: { app: slug, "infraweaver/game": "true", "infraweaver/egg": sourceEgg.id } },
+      metadata: { name: pvcName, namespace: GAME_HUB_NAMESPACE, labels: { app: slug, "infraweaver/game": "true", "infraweaver/egg": sanitizeLabelValue(sourceEgg.id) } },
       spec: {
         accessModes: sourcePvc?.spec?.accessModes ?? ["ReadWriteOnce"],
         storageClassName: sourcePvc?.spec?.storageClassName ?? "longhorn",
