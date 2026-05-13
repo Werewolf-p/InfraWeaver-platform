@@ -123,9 +123,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add "${MANIFEST}"
-          git diff --cached --quiet || git commit -m "chore: deploy ${SHA_TAG} [skip ci]
-
-Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
+          git diff --cached --quiet || git commit -m "chore: deploy ${SHA_TAG} [skip ci]"
           git push origin HEAD:main || echo "Manifest push skipped (no change)"
 
       - name: Rollout restart console deployment
