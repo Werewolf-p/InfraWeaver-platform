@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -22,6 +22,7 @@ import {
   Line,
   LineChart,
   ResponsiveContainer,
+  ReferenceLine,
   Tooltip,
   XAxis,
   YAxis,
@@ -44,6 +45,28 @@ import { fetchJson } from "./utils";
 type MetricsQueryResponse =
   | MetricPoint[]
   | { error?: string; points?: MetricPoint[] };
+
+type NetworkStatsResponse =
+  | NetworkEntry[]
+  | { stats?: NetworkEntry[]; entries?: NetworkEntry[]; interfaces?: NetworkEntry[] };
+
+type TrendIndicator = {
+  direction: "up" | "down" | "flat";
+  icon: string;
+  className: string;
+};
+
+type NetworkSnapshot = {
+  timestamp: number;
+  rxBytes: number;
+  txBytes: number;
+};
+
+type NetworkThroughputPoint = {
+  t: string;
+  rx: number;
+  tx: number;
+};
 
 function Uptime({ startTime }: { startTime: string | null }) {
   const [elapsed, setElapsed] = useState(0);
@@ -101,6 +124,13 @@ function computeHealth(server: ServerDetail, hasOomKilled: boolean) {
 const CPU_ALERT_THRESHOLD = 85;
 const MEMORY_ALERT_THRESHOLD = 80;
 const RESTART_ALERT_THRESHOLD = 5;
+const NETWORK_POLL_INTERVAL_MS = 10000;
+const CHART_TOOLTIP_STYLE = {
+  background: "#111",
+  border: "1px solid #333",
+  borderRadius: "8px",
+  fontSize: "12px",
+};
 
 function formatBytes(value: number) {
   if (value >= 1024 ** 3) return `${(value / 1024 ** 3).toFixed(2)} GiB`;
@@ -123,6 +153,44 @@ function formatDateTime(value: string | null | undefined) {
   if (!value) return "—";
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? "—" : parsed.toLocaleString();
+}
+
+function normalizeNetworkStats(payload: NetworkStatsResponse) {
+  if (Array.isArray(payload)) return payload;
+  return payload.stats ?? payload.entries ?? payload.interfaces ?? [];
+}
+
+function computeTrendIndicator(values: number[]): TrendIndicator {
+  if (values.length < 4) {
+    return { direction: "flat", icon: "→", className: "text-[#888]" };
+  }
+
+  const latest = values[values.length - 1] ?? 0;
+  const previous = values.slice(-4, -1);
+  const previousAverage =
+    previous.reduce((sum, value) => sum + value, 0) / previous.length;
+
+  if (previousAverage <= 0) {
+    return latest > 0
+      ? { direction: "up", icon: "↑", className: "text-red-400" }
+      : { direction: "flat", icon: "→", className: "text-[#888]" };
+  }
+
+  if (latest > previousAverage * 1.05) {
+    return { direction: "up", icon: "↑", className: "text-red-400" };
+  }
+
+  if (latest < previousAverage * 0.95) {
+    return { direction: "down", icon: "↓", className: "text-green-400" };
+  }
+
+  return { direction: "flat", icon: "→", className: "text-[#888]" };
+}
+
+function truncateText(value: string, maxLength = 80) {
+  return value.length > maxLength
+    ? `${value.slice(0, Math.max(0, maxLength - 1))}…`
+    : value;
 }
 
 export function DashboardTab({
@@ -218,6 +286,88 @@ export function DashboardTab({
       ),
     enabled: false,
   });
+  const networkHistoryRef = useRef<NetworkSnapshot[]>([]);
+  const [networkThroughputData, setNetworkThroughputData] =
+    useState<NetworkThroughputPoint[]>([]);
+  const [networkThroughputError, setNetworkThroughputError] = useState<
+    string | null
+  >(null);
+  const isServerRunning = server.status === "running" || server.replicas > 0;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!isServerRunning) {
+      networkHistoryRef.current = [];
+      setNetworkThroughputData([]);
+      setNetworkThroughputError(null);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const pollNetworkThroughput = async () => {
+      try {
+        const payload = await fetchJson<NetworkStatsResponse>(
+          `/api/game-hub/servers/${name}/network-stats`,
+        );
+        if (cancelled) return;
+
+        const stats = normalizeNetworkStats(payload);
+        const nextSnapshot = {
+          timestamp: Date.now(),
+          rxBytes: stats.reduce((sum, row) => sum + (row.rxBytes ?? 0), 0),
+          txBytes: stats.reduce((sum, row) => sum + (row.txBytes ?? 0), 0),
+        };
+        const snapshots = [...networkHistoryRef.current, nextSnapshot].slice(-30);
+        networkHistoryRef.current = snapshots;
+
+        const throughputPoints = snapshots.slice(1).map((snapshot, index) => {
+          const previous = snapshots[index];
+          const intervalSeconds = Math.max(
+            (snapshot.timestamp - previous.timestamp) / 1000,
+            1,
+          );
+
+          return {
+            t: new Date(snapshot.timestamp).toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+            }),
+            rx: Math.max(
+              0,
+              (snapshot.rxBytes - previous.rxBytes) / intervalSeconds,
+            ),
+            tx: Math.max(
+              0,
+              (snapshot.txBytes - previous.txBytes) / intervalSeconds,
+            ),
+          };
+        });
+
+        setNetworkThroughputData(throughputPoints);
+        setNetworkThroughputError(null);
+      } catch (error) {
+        if (!cancelled) {
+          setNetworkThroughputError(
+            error instanceof Error
+              ? error.message
+              : "Unable to load network throughput.",
+          );
+        }
+      }
+    };
+
+    void pollNetworkThroughput();
+    const interval = window.setInterval(() => {
+      void pollNetworkThroughput();
+    }, NETWORK_POLL_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [isServerRunning, name]);
 
   const metrics = metricsResponse?.points ?? [];
   const metricsErrorMessage =
@@ -250,7 +400,10 @@ export function DashboardTab({
   const memoryBarWidth = memoryUsesPercent
     ? Math.min(memoryPct ?? 0, 100)
     : Math.min(((latest?.memoryRaw ?? 0) / memoryObservedMax) * 100, 100);
-  const oomEvent = (events?.events ?? []).find(
+  const eventFeed = server.events?.length
+    ? server.events
+    : (events?.events ?? []);
+  const oomEvent = eventFeed.find(
     (event) =>
       event.reason === "OOMKilled" ||
       event.reason === "OOMKilling" ||
@@ -283,27 +436,71 @@ export function DashboardTab({
             badge: "Unhealthy",
           };
 
-  const playerHistory = (players?.history ?? server.playerHistory ?? []).map(
-    (point) => ({
+  const playerHistory = (players?.history ?? server.playerHistory ?? [])
+    .slice(-100)
+    .map((point) => ({
       t: new Date(point.t).toLocaleTimeString([], {
         hour: "2-digit",
         minute: "2-digit",
       }),
       n: point.n,
-    }),
-  );
-  const chartData = metrics.map((point) => ({
+    }));
+  const metricWindow = metrics.slice(-20);
+  const cpuChartData = metricWindow.map((point) => ({
     t: new Date(point.timestamp).toLocaleTimeString([], {
       hour: "2-digit",
       minute: "2-digit",
     }),
-    cpu: point.cpuLimit
+    value: point.cpuLimit
       ? Number(((point.cpu / point.cpuLimit) * 100).toFixed(1))
       : point.cpuRaw,
-    memory: point.memoryLimit
+  }));
+  const memoryChartData = metricWindow.map((point) => ({
+    t: new Date(point.timestamp).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    }),
+    value: point.memoryLimit
       ? Number(((point.memory / point.memoryLimit) * 100).toFixed(1))
       : Number((point.memoryRaw / 1024 ** 2).toFixed(1)),
   }));
+  const cpuAverage = cpuChartData.length
+    ? cpuChartData.reduce((sum, point) => sum + point.value, 0) /
+      cpuChartData.length
+    : 0;
+  const memoryAverage = memoryChartData.length
+    ? memoryChartData.reduce((sum, point) => sum + point.value, 0) /
+      memoryChartData.length
+    : 0;
+  const cpuTrend = computeTrendIndicator(
+    cpuChartData.map((point) => point.value),
+  );
+  const memoryTrend = computeTrendIndicator(
+    memoryChartData.map((point) => point.value),
+  );
+  const latestNetworkThroughput =
+    networkThroughputData[networkThroughputData.length - 1];
+  const networkThroughputMessage = !isServerRunning
+    ? "Network throughput unavailable while the server is stopped."
+    : networkThroughputError
+      ? `Network stats unavailable: ${networkThroughputError}`
+      : networkThroughputData.length === 0
+        ? "Polling network throughput…"
+        : null;
+  const crashEvents = [...eventFeed]
+    .filter((event) => /OOMKill|CrashLoopBackOff|BackOff|Error|Failed/i.test(event.reason))
+    .sort((left, right) => {
+      const leftTime = left.timestamp ? new Date(left.timestamp).getTime() : 0;
+      const rightTime = right.timestamp ? new Date(right.timestamp).getTime() : 0;
+      return rightTime - leftTime;
+    })
+    .slice(0, 5);
+  const chartIdPrefix = name.replace(/[^a-zA-Z0-9_-]/g, "-");
+  const cpuGradientId = `${chartIdPrefix}-cpu-gradient`;
+  const memoryGradientId = `${chartIdPrefix}-memory-gradient`;
+  const networkRxGradientId = `${chartIdPrefix}-network-rx-gradient`;
+  const networkTxGradientId = `${chartIdPrefix}-network-tx-gradient`;
+  const playerGradientId = `${chartIdPrefix}-player-gradient`;
   const host = server.nodeIp ?? "Unavailable";
   const connectionRows = (
     server.allPorts.length
@@ -618,30 +815,90 @@ export function DashboardTab({
         </div>
       </div>
 
+      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4 space-y-3">
+        <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-[#888]">
+          <Activity className="w-4 h-4 text-[#f87171]" /> Crash History
+        </div>
+        {crashEvents.length === 0 ? (
+          <p className="text-xs text-[#666]">No crash events</p>
+        ) : (
+          <div className="space-y-3">
+            {crashEvents.map((event, index) => {
+              const isSevere = /OOMKill|CrashLoopBackOff/i.test(event.reason);
+              return (
+                <div key={`${event.reason}-${event.timestamp ?? index}`} className="flex gap-3">
+                  <div className="flex flex-col items-center pt-1">
+                    <span
+                      className={cn(
+                        "h-2.5 w-2.5 rounded-full",
+                        isSevere ? "bg-red-400" : "bg-orange-400",
+                      )}
+                    />
+                    {index < crashEvents.length - 1 && (
+                      <span className="mt-1 h-full w-px bg-[#2a2a2a]" />
+                    )}
+                  </div>
+                  <div className="min-w-0 pb-1">
+                    <p className="text-sm text-[#f2f2f2]">{event.reason}</p>
+                    <p className="mt-1 text-xs text-[#888]">
+                      {truncateText(event.message || "No event message")}
+                    </p>
+                    <p className="mt-1 text-[10px] text-[#555]">
+                      {formatDateTime(event.timestamp)}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
       <div className="grid lg:grid-cols-[2fr_1fr] gap-4">
         <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4">
-          <div className="flex items-center gap-2 mb-4 text-xs uppercase tracking-wide text-[#888]">
+          <div className="mb-4 flex items-center gap-2 text-xs uppercase tracking-wide text-[#888]">
             <Server className="w-4 h-4 text-[#38bdf8]" />
             Resource Metrics
           </div>
-          <div className="grid md:grid-cols-2 gap-3 mb-4">
+          <div className="mb-4 grid gap-3 md:grid-cols-2">
             <div className="rounded-lg border border-[#1e1e1e] bg-[#0d0d0d] p-3">
-              <div className="flex items-center justify-between gap-3">
-                <div>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
                   <p className="text-[10px] uppercase text-[#666]">CPU</p>
-                  <p className="text-2xl font-semibold text-[#f2f2f2] mt-1">
-                    {cpuMetricLabel}
+                  <div className="mt-1 flex items-center gap-2">
+                    <p className="text-2xl font-semibold text-[#f2f2f2]">
+                      {cpuMetricLabel}
+                    </p>
+                    <span className={cn("text-sm font-medium", cpuTrend.className)}>
+                      {cpuTrend.icon}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-[11px] text-[#666]">
+                    {latest
+                      ? cpuUsesPercent
+                        ? `${latest.cpu.toFixed(2)} / ${latest.cpuLimit.toFixed(2)} cores`
+                        : `${latest.cpuRaw.toFixed(0)}m total`
+                      : "No data"}
                   </p>
                 </div>
-                <p className="text-[11px] text-[#666] text-right">
-                  {latest
-                    ? cpuUsesPercent
-                      ? `${latest.cpu.toFixed(2)} / ${latest.cpuLimit.toFixed(2)} cores`
-                      : `${latest.cpuRaw.toFixed(0)}m total`
-                    : "No data"}
-                </p>
+                <div className="h-10 w-24 shrink-0">
+                  {cpuChartData.length > 1 ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={cpuChartData}>
+                        <Line
+                          type="monotone"
+                          dataKey="value"
+                          stroke="#38bdf8"
+                          strokeWidth={2}
+                          dot={false}
+                          isAnimationActive
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  ) : null}
+                </div>
               </div>
-              <div className="mt-3 h-2 rounded-full bg-[#1a1a1a] overflow-hidden">
+              <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#1a1a1a]">
                 <div
                   className={cn(
                     "h-full rounded-full",
@@ -656,22 +913,43 @@ export function DashboardTab({
               </div>
             </div>
             <div className="rounded-lg border border-[#1e1e1e] bg-[#0d0d0d] p-3">
-              <div className="flex items-center justify-between gap-3">
-                <div>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
                   <p className="text-[10px] uppercase text-[#666]">Memory</p>
-                  <p className="text-2xl font-semibold text-[#f2f2f2] mt-1">
-                    {memoryMetricLabel}
+                  <div className="mt-1 flex items-center gap-2">
+                    <p className="text-2xl font-semibold text-[#f2f2f2]">
+                      {memoryMetricLabel}
+                    </p>
+                    <span className={cn("text-sm font-medium", memoryTrend.className)}>
+                      {memoryTrend.icon}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-[11px] text-[#666]">
+                    {latest
+                      ? memoryUsesPercent
+                        ? `${formatBytes(latest.memory)} / ${formatBytes(latest.memoryLimit)}`
+                        : `${formatBytes(latest.memoryRaw)} total`
+                      : "No data"}
                   </p>
                 </div>
-                <p className="text-[11px] text-[#666] text-right">
-                  {latest
-                    ? memoryUsesPercent
-                      ? `${formatBytes(latest.memory)} / ${formatBytes(latest.memoryLimit)}`
-                      : `${formatBytes(latest.memoryRaw)} total`
-                    : "No data"}
-                </p>
+                <div className="h-10 w-24 shrink-0">
+                  {memoryChartData.length > 1 ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={memoryChartData}>
+                        <Line
+                          type="monotone"
+                          dataKey="value"
+                          stroke="#c084fc"
+                          strokeWidth={2}
+                          dot={false}
+                          isAnimationActive
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  ) : null}
+                </div>
               </div>
-              <div className="mt-3 h-2 rounded-full bg-[#1a1a1a] overflow-hidden">
+              <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#1a1a1a]">
                 <div
                   className={cn(
                     "h-full rounded-full",
@@ -686,62 +964,120 @@ export function DashboardTab({
               </div>
             </div>
           </div>
-          <div className="h-56 rounded-lg border border-[#1e1e1e] bg-[#0d0d0d] p-3">
-            {chartData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={chartData}>
-                  <CartesianGrid stroke="#222" vertical={false} />
-                  <XAxis dataKey="t" tick={{ fill: "#666", fontSize: 10 }} />
-                  <YAxis
-                    yAxisId="cpu"
-                    tick={{ fill: "#666", fontSize: 10 }}
-                    unit={cpuUsesPercent ? "%" : "m"}
-                    width={40}
-                  />
-                  <YAxis
-                    yAxisId="memory"
-                    orientation="right"
-                    tick={{ fill: "#666", fontSize: 10 }}
-                    unit={memoryUsesPercent ? "%" : "MiB"}
-                    width={48}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      background: "#111",
-                      border: "1px solid #333",
-                    }}
-                    formatter={(value, label) => {
-                      const numericValue = Number(value ?? 0);
-                      if (label === "cpu") {
-                        return cpuUsesPercent
-                          ? [`${numericValue.toFixed(1)}%`, "CPU"]
-                          : [`${numericValue.toFixed(0)}m`, "CPU"];
-                      }
-                      return memoryUsesPercent
-                        ? [`${numericValue.toFixed(1)}%`, "Memory"]
-                        : [`${numericValue.toFixed(1)} MiB`, "Memory"];
-                    }}
-                  />
-                  <Area
-                    yAxisId="cpu"
-                    dataKey="cpu"
-                    stroke="#38bdf8"
-                    fill="#38bdf833"
-                  />
-                  <Area
-                    yAxisId="memory"
-                    dataKey="memory"
-                    stroke="#c084fc"
-                    fill="#c084fc22"
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="h-full flex items-center justify-center text-sm text-[#666]">
-                {metricsMessage}
+          {cpuChartData.length > 0 && memoryChartData.length > 0 ? (
+            <div className="space-y-3">
+              <div className="rounded-lg border border-[#1e1e1e] bg-[#0d0d0d] p-3">
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <p className="text-xs uppercase tracking-wide text-[#888]">CPU</p>
+                  <p className="text-sm font-medium text-[#f2f2f2]">{cpuMetricLabel}</p>
+                </div>
+                <div className="h-[120px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={cpuChartData}>
+                      <defs>
+                        <linearGradient id={cpuGradientId} x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#38bdf8" stopOpacity={0.85} />
+                          <stop offset="100%" stopColor="#38bdf8" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid stroke="#222" vertical={false} />
+                      <XAxis dataKey="t" tick={{ fill: "#666", fontSize: 10 }} />
+                      <YAxis
+                        tick={{ fill: "#666", fontSize: 10 }}
+                        width={48}
+                        tickFormatter={(value) =>
+                          cpuUsesPercent ? `${value}%` : `${Math.round(Number(value))}m`
+                        }
+                      />
+                      <Tooltip
+                        isAnimationActive
+                        contentStyle={CHART_TOOLTIP_STYLE}
+                        formatter={(value) => {
+                          const numericValue = Number(value ?? 0);
+                          return cpuUsesPercent
+                            ? [`${numericValue.toFixed(1)}%`, "CPU"]
+                            : [`${numericValue.toFixed(0)}m`, "CPU"];
+                        }}
+                      />
+                      <ReferenceLine
+                        y={cpuAverage}
+                        stroke="#38bdf8"
+                        strokeDasharray="4 4"
+                        label={{ value: "avg", position: "insideTopRight", fill: "#888", fontSize: 10 }}
+                      />
+                      <Area
+                        type="monotone"
+                        dataKey="value"
+                        stroke="#38bdf8"
+                        strokeWidth={2}
+                        fill={`url(#${cpuGradientId})`}
+                        dot={false}
+                        isAnimationActive
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
               </div>
-            )}
-          </div>
+              <div className="rounded-lg border border-[#1e1e1e] bg-[#0d0d0d] p-3">
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <p className="text-xs uppercase tracking-wide text-[#888]">Memory</p>
+                  <p className="text-sm font-medium text-[#f2f2f2]">{memoryMetricLabel}</p>
+                </div>
+                <div className="h-[120px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={memoryChartData}>
+                      <defs>
+                        <linearGradient id={memoryGradientId} x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#c084fc" stopOpacity={0.85} />
+                          <stop offset="100%" stopColor="#c084fc" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid stroke="#222" vertical={false} />
+                      <XAxis dataKey="t" tick={{ fill: "#666", fontSize: 10 }} />
+                      <YAxis
+                        tick={{ fill: "#666", fontSize: 10 }}
+                        width={56}
+                        tickFormatter={(value) =>
+                          memoryUsesPercent
+                            ? `${value}%`
+                            : `${Number(value).toFixed(0)} MiB`
+                        }
+                      />
+                      <Tooltip
+                        isAnimationActive
+                        contentStyle={CHART_TOOLTIP_STYLE}
+                        formatter={(value) => {
+                          const numericValue = Number(value ?? 0);
+                          return memoryUsesPercent
+                            ? [`${numericValue.toFixed(1)}%`, "Memory"]
+                            : [`${numericValue.toFixed(1)} MiB`, "Memory"];
+                        }}
+                      />
+                      <ReferenceLine
+                        y={memoryAverage}
+                        stroke="#c084fc"
+                        strokeDasharray="4 4"
+                        label={{ value: "avg", position: "insideTopRight", fill: "#888", fontSize: 10 }}
+                      />
+                      <Area
+                        type="monotone"
+                        dataKey="value"
+                        stroke="#c084fc"
+                        strokeWidth={2}
+                        fill={`url(#${memoryGradientId})`}
+                        dot={false}
+                        isAnimationActive
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="flex h-[252px] items-center justify-center rounded-lg border border-[#1e1e1e] bg-[#0d0d0d] p-3 text-sm text-[#666]">
+              {metricsMessage}
+            </div>
+          )}
         </div>
 
         <div className="space-y-4">
@@ -775,7 +1111,7 @@ export function DashboardTab({
                 </span>
               </div>
             </div>
-            <div className="h-2 rounded-full bg-[#1a1a1a] overflow-hidden">
+            <div className="h-2 overflow-hidden rounded-full bg-[#1a1a1a]">
               <div
                 className={cn(
                   "h-full",
@@ -795,7 +1131,7 @@ export function DashboardTab({
                     key={`${entry.path}-${entry.size}`}
                     className="flex justify-between text-[10px] text-[#666]"
                   >
-                    <span className="truncate max-w-[120px] font-mono">
+                    <span className="max-w-[120px] truncate font-mono">
                       {entry.path}
                     </span>
                     <span className="text-[#888]">{entry.size}</span>
@@ -806,33 +1142,74 @@ export function DashboardTab({
           </div>
 
           <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4">
-            <div className="flex items-center gap-2 mb-2 text-xs uppercase tracking-wide text-[#888]">
-              <Users className="w-4 h-4 text-[#c084fc]" /> Player Timeline
-            </div>
-            <div className="h-24">
-              {playerHistory.length === 0 ? (
-                <div className="h-full flex items-center justify-center text-sm text-[#666]">
-                  No player history yet
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-[#888]">
+                <Network className="w-4 h-4 text-[#22d3ee]" /> Network Throughput
+              </div>
+              <div className="text-right text-[10px] text-[#666]">
+                <div>
+                  RX <span className="text-[#67e8f9]">{latestNetworkThroughput ? `${formatBytes(latestNetworkThroughput.rx)}/s` : "—"}</span>
                 </div>
-              ) : (
+                <div>
+                  TX <span className="text-[#fbbf24]">{latestNetworkThroughput ? `${formatBytes(latestNetworkThroughput.tx)}/s` : "—"}</span>
+                </div>
+              </div>
+            </div>
+            <div className="h-[140px] rounded-lg border border-[#1e1e1e] bg-[#0d0d0d] p-3">
+              {networkThroughputData.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={playerHistory}>
-                    <Line
-                      dataKey="n"
-                      stroke="#c084fc"
-                      dot={false}
-                      strokeWidth={2}
+                  <AreaChart data={networkThroughputData}>
+                    <defs>
+                      <linearGradient id={networkRxGradientId} x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#22d3ee" stopOpacity={0.75} />
+                        <stop offset="100%" stopColor="#22d3ee" stopOpacity={0} />
+                      </linearGradient>
+                      <linearGradient id={networkTxGradientId} x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#f59e0b" stopOpacity={0.75} />
+                        <stop offset="100%" stopColor="#f59e0b" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid stroke="#222" vertical={false} />
+                    <XAxis dataKey="t" tick={{ fill: "#666", fontSize: 10 }} />
+                    <YAxis
+                      tick={{ fill: "#666", fontSize: 10 }}
+                      width={58}
+                      tickFormatter={(value) => formatBytes(Number(value))}
                     />
-                    <XAxis hide dataKey="t" />
-                    <YAxis hide />
-                  </LineChart>
+                    <Tooltip
+                      isAnimationActive
+                      contentStyle={CHART_TOOLTIP_STYLE}
+                      formatter={(value, label) => [
+                        `${formatBytes(Number(value ?? 0))}/s`,
+                        label === "rx" ? "RX" : "TX",
+                      ]}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="rx"
+                      stroke="#22d3ee"
+                      strokeWidth={2}
+                      fill={`url(#${networkRxGradientId})`}
+                      dot={false}
+                      isAnimationActive
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="tx"
+                      stroke="#f59e0b"
+                      strokeWidth={2}
+                      fill={`url(#${networkTxGradientId})`}
+                      dot={false}
+                      isAnimationActive
+                    />
+                  </AreaChart>
                 </ResponsiveContainer>
+              ) : (
+                <div className="flex h-full items-center justify-center text-sm text-[#666]">
+                  {networkThroughputMessage}
+                </div>
               )}
             </div>
-            <p className="text-xs text-[#777] mt-2">
-              Current players:{" "}
-              <span className="text-[#f2f2f2]">{players?.count ?? 0}</span>
-            </p>
           </div>
         </div>
       </div>
@@ -1270,10 +1647,10 @@ export function DashboardTab({
           <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-[#888]">
             <Activity className="w-4 h-4 text-[#22c55e]" /> Recent Events
           </div>
-          {(events?.events ?? []).length === 0 ? (
+          {eventFeed.length === 0 ? (
             <p className="text-xs text-[#666]">No recent events</p>
           ) : (
-            (events?.events ?? []).slice(0, 5).map((event, index) => (
+            eventFeed.slice(0, 5).map((event, index) => (
               <div
                 key={`${event.reason}-${index}`}
                 className={cn(
@@ -1291,9 +1668,9 @@ export function DashboardTab({
                     </span>
                   )}
                 </div>
-                <p className="text-xs text-[#666] mt-1">{event.message}</p>
+                <p className="mt-1 text-xs text-[#666]">{event.message}</p>
                 {event.timestamp && (
-                  <p className="text-[10px] text-[#444] mt-0.5">
+                  <p className="mt-0.5 text-[10px] text-[#444]">
                     {formatDateTime(event.timestamp)}
                   </p>
                 )}
@@ -1305,13 +1682,19 @@ export function DashboardTab({
           <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-[#888]">
             <Users className="w-4 h-4 text-[#f59e0b]" /> Player Activity
           </div>
-          <p className="text-xs text-[#777]">
-            Unique today:{" "}
-            <span className="text-[#f2f2f2]">{stats?.uniqueToday ?? 0}</span>
-          </p>
-          <div className="grid md:grid-cols-2 gap-3 text-xs">
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-[#777]">
+            <p>
+              Unique today:{" "}
+              <span className="text-[#f2f2f2]">{stats?.uniqueToday ?? 0}</span>
+            </p>
+            <p>
+              Current players:{" "}
+              <span className="text-[#f2f2f2]">{players?.count ?? 0}</span>
+            </p>
+          </div>
+          <div className="grid gap-3 text-xs md:grid-cols-2">
             <div>
-              <p className="text-[#666] mb-2">Recent joins</p>
+              <p className="mb-2 text-[#666]">Recent joins</p>
               {(stats?.recentJoins ?? []).slice(0, 8).map((entry, index) => (
                 <div
                   key={`${entry.player}-${index}`}
@@ -1322,7 +1705,7 @@ export function DashboardTab({
               ))}
             </div>
             <div>
-              <p className="text-[#666] mb-2">Recent leaves</p>
+              <p className="mb-2 text-[#666]">Recent leaves</p>
               {(stats?.recentLeaves ?? []).slice(0, 8).map((entry, index) => (
                 <div
                   key={`${entry.player}-${index}`}
@@ -1331,6 +1714,53 @@ export function DashboardTab({
                   {entry.player}
                 </div>
               ))}
+            </div>
+          </div>
+          <div className="rounded-lg border border-[#1e1e1e] bg-[#0d0d0d] p-3">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <p className="text-xs uppercase tracking-wide text-[#888]">
+                Player count history
+              </p>
+              <p className="text-[11px] text-[#666]">Last {playerHistory.length} samples</p>
+            </div>
+            <div className="h-[180px]">
+              {playerHistory.length === 0 ? (
+                <div className="flex h-full items-center justify-center text-sm text-[#666]">
+                  No player history yet
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={playerHistory}>
+                    <defs>
+                      <linearGradient id={playerGradientId} x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#34d399" stopOpacity={0.8} />
+                        <stop offset="100%" stopColor="#34d399" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid stroke="#222" vertical={false} />
+                    <XAxis dataKey="t" tick={{ fill: "#666", fontSize: 10 }} />
+                    <YAxis
+                      tick={{ fill: "#666", fontSize: 10 }}
+                      allowDecimals={false}
+                      domain={[0, "auto"]}
+                    />
+                    <Tooltip
+                      isAnimationActive
+                      contentStyle={CHART_TOOLTIP_STYLE}
+                      formatter={(value) => [String(value ?? 0), "Players"]}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="n"
+                      stroke="#34d399"
+                      strokeWidth={2}
+                      fill={`url(#${playerGradientId})`}
+                      dot={false}
+                      isAnimationActive
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
             </div>
           </div>
         </div>

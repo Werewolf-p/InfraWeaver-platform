@@ -103,6 +103,7 @@ export interface ServerDetail {
   env: Array<{ name: string; value?: string; valueFrom?: unknown }>;
   createdAt: string | null;
   playerHistory?: Array<{ t: number; n: number }>;
+  events?: GameEvent[];
   pvc?: { name: string; size: string | null; storageClass: string | null; allowExpansion: boolean } | null;
   permissions?: { canConsole: boolean; canAdmin: boolean; canStart: boolean; canStop: boolean; canWriteFiles: boolean; readOnlyFiles: boolean };
   egg?: {
