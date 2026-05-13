@@ -15,21 +15,16 @@ import { cn, formatBytes, timeAgo } from "@/lib/utils";
 import { getEggForGameType } from "@/lib/game-eggs";
 import { toast } from "sonner";
 import Link from "next/link";
-import dynamic from "next/dynamic";
+// Note: previously used Monaco editor; replaced with styled <textarea> + <pre>
+// for instant load + no CDN dependency on Monaco worker scripts.
 import { DashboardTab as DashboardTabFeature } from "@/components/game-hub/server-detail/dashboard-tab";
 import { PlayersTab as PlayersTabFeature } from "@/components/game-hub/server-detail/players-tab";
 import { ActivityTab as ActivityTabFeature } from "@/components/game-hub/server-detail/activity-tab";
 import type { FileEntry, SavedCommand, ServerDetail } from "@/components/game-hub/server-detail/types";
 import { fetchJson } from "@/components/game-hub/server-detail/utils";
 
-const MonacoEditor = dynamic(() => import("@monaco-editor/react"), {
-  ssr: false,
-  loading: () => (
-    <div className="flex items-center justify-center h-full bg-[#1e1e1e]">
-      <Loader2 className="w-5 h-5 animate-spin text-[#555]" />
-    </div>
-  ),
-});
+// Note: previously used Monaco editor; replaced with styled <textarea> + <pre>
+// for instant load + no CDN dependency on Monaco worker scripts.
 
 type TabId = "dashboard" | "console" | "players" | "files" | "settings" | "activity";
 type RuntimeSavedCommand = SavedCommand & { id?: string; cmd?: string; command?: string; color?: string; description?: string };
@@ -484,19 +479,6 @@ function FilesTab({ name, status, mountPath }: { name: string; status: string; m
   const [currentPath, setCurrentPath] = useState(mountPath);
   const [selectedFile, setSelectedFile] = useState<FileEntry | null>(null);
 
-  // Configure Monaco to use stub blob workers so it doesn't hang loading CDN workers
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const w = window as Window & { MonacoEnvironment?: { getWorker: () => Worker } };
-    if (!w.MonacoEnvironment) {
-      w.MonacoEnvironment = {
-        getWorker(): Worker {
-          const blob = new Blob(["self.onmessage=function(){};"], { type: "application/javascript" });
-          return new Worker(URL.createObjectURL(blob));
-        },
-      };
-    }
-  }, []);
   const [fileContent, setFileContent] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [loadingContent, setLoadingContent] = useState(false);
@@ -781,7 +763,14 @@ function FilesTab({ name, status, mountPath }: { name: string; status: string; m
             ) : isImageFile ? (
               <div className="flex h-full items-center justify-center bg-[#0a0a0a] p-4"><img src={`/api/game-hub/servers/${name}/files/content?path=${encodeURIComponent(selectedFile.path)}&download=1`} alt={selectedFile.name} className="max-h-full max-w-full rounded border border-[#2a2a2a] object-contain" /></div>
             ) : (
-              <MonacoEditor height="100%" language={editorLang} value={fileContent ?? ""} onChange={(value) => setFileContent(value ?? "")} theme="vs-dark" loading={<div className="flex items-center justify-center h-full bg-[#1e1e1e]"><Loader2 className="w-5 h-5 animate-spin text-[#555]" /></div>} options={{ minimap: { enabled: false }, fontSize: 13, lineNumbers: "on", wordWrap: "on", scrollBeyondLastLine: false, padding: { top: 8 } }} />
+              <textarea
+                value={fileContent ?? ""}
+                onChange={(e) => setFileContent(e.target.value)}
+                spellCheck={false}
+                className="w-full h-full bg-[#1e1e1e] text-[#d4d4d4] font-mono text-[13px] leading-[1.5] p-3 resize-none focus:outline-none border-0"
+                style={{ tabSize: 2 }}
+                placeholder="Empty file"
+              />
             )}
           </div>
         </>
@@ -1401,7 +1390,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
 
       <div className="rounded-xl border border-red-500/20 bg-red-500/5 overflow-hidden"><div className="px-4 py-3 border-b border-red-500/20"><p className="text-xs font-medium text-red-400/80 uppercase tracking-wide">Danger Zone</p></div><div className="p-4 flex items-center justify-between gap-4"><div><p className="text-sm text-[#f2f2f2]">Delete this server</p><p className="text-xs text-[#666] mt-0.5">Permanently removes the deployment and all data. This cannot be undone.</p></div><button onClick={async () => { if (!confirm(`Permanently delete ${name} and all its data? This cannot be undone.`)) return; try { await fetchJson(`/api/game-hub/servers/${name}`, { method: "DELETE" }); toast.success(`${name} deleted`); window.location.href = "/game-hub"; } catch (error) { toast.error(String(error)); } }} className="flex-shrink-0 flex items-center gap-1.5 px-4 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/30 rounded-lg text-sm font-medium transition-colors"><Trash2 className="w-3.5 h-3.5" /> Delete</button></div></div>
 
-      <AnimatePresence>{yamlOpen && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"><motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }} className="w-full max-w-5xl bg-[#111] border border-[#2a2a2a] rounded-xl overflow-hidden shadow-2xl"><div className="flex items-center justify-between px-4 py-3 border-b border-[#1e1e1e]"><div><p className="text-sm font-medium text-[#f2f2f2]">Deployment YAML</p><p className="text-xs text-[#666]">Read-only deployment manifest</p></div><div className="flex items-center gap-2"><button onClick={() => { navigator.clipboard.writeText(yamlContent); toast.success("Copied"); }} className="px-3 py-1.5 rounded-lg bg-[#1a1a1a] border border-[#2a2a2a] text-xs text-[#d4d4d4]">Copy</button><button onClick={() => setYamlOpen(false)} className="p-2 text-[#777] hover:text-white"><X className="w-4 h-4" /></button></div></div><div className="h-[70vh]">{yamlLoading ? <div className="h-full flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-[#0078D4]" /></div> : <MonacoEditor height="100%" language="yaml" value={yamlContent} theme="vs-dark" options={{ readOnly: true, minimap: { enabled: false }, fontSize: 13, wordWrap: "on", scrollBeyondLastLine: false, padding: { top: 8 } }} />}</div></motion.div></div>}</AnimatePresence>
+      <AnimatePresence>{yamlOpen && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"><motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }} className="w-full max-w-5xl bg-[#111] border border-[#2a2a2a] rounded-xl overflow-hidden shadow-2xl"><div className="flex items-center justify-between px-4 py-3 border-b border-[#1e1e1e]"><div><p className="text-sm font-medium text-[#f2f2f2]">Deployment YAML</p><p className="text-xs text-[#666]">Read-only deployment manifest</p></div><div className="flex items-center gap-2"><button onClick={() => { navigator.clipboard.writeText(yamlContent); toast.success("Copied"); }} className="px-3 py-1.5 rounded-lg bg-[#1a1a1a] border border-[#2a2a2a] text-xs text-[#d4d4d4]">Copy</button><button onClick={() => setYamlOpen(false)} className="p-2 text-[#777] hover:text-white"><X className="w-4 h-4" /></button></div></div><div className="h-[70vh]">{yamlLoading ? <div className="h-full flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-[#0078D4]" /></div> : <pre className="h-full overflow-auto bg-[#1e1e1e] text-[#d4d4d4] font-mono text-[13px] leading-[1.5] p-3 m-0 whitespace-pre">{yamlContent}</pre>}</div></motion.div></div>}</AnimatePresence>
     </div>
   );
 }
@@ -1464,7 +1453,7 @@ export default function ServerDetailPage() {
   return (
     <div className="space-y-0 pb-2">
       <div className="sticky top-0 z-10 bg-[#0e0e0e]/95 backdrop-blur-sm border-b border-[#1e1e1e] -mx-4 px-4 pb-0 pt-0">
-        <div className="flex items-center gap-1 px-1 pt-2 text-[10px] text-[#666] overflow-x-auto scrollbar-none whitespace-nowrap">
+        <div className="hidden sm:flex items-center gap-1 px-1 pt-2 text-[10px] text-[#666] overflow-x-auto scrollbar-none whitespace-nowrap">
           <Link href="/game-hub" className="hover:text-white">Game Hub</Link>
           <ChevronRight className="w-3 h-3 flex-shrink-0" />
           <span className="text-[#9e9e9e] truncate">{name}</span>
@@ -1482,14 +1471,14 @@ export default function ServerDetailPage() {
                 <span className={cn("text-xs capitalize hidden sm:block", statusText)}>{status}</span>
               </div>
             </div>
-            <p className="text-[10px] text-[#555]">{server?.description || `${server?.gameType?.replace(/-/g, " ") ?? "Game"} Server`}</p>
+            <p className="hidden sm:block text-[10px] text-[#555]">{server?.description || `${server?.gameType?.replace(/-/g, " ") ?? "Game"} Server`}</p>
             <div className="mt-1 hidden sm:flex flex-wrap gap-1.5 text-[10px]">
               {server?.imageVersion && <span className="rounded-full border border-[#2a2a2a] bg-[#111] px-2 py-0.5 text-[#9e9e9e]">Version {server.imageVersion}</span>}
               {server && !server.imagePinned && <span className="rounded-full border border-yellow-500/30 bg-yellow-500/10 px-2 py-0.5 text-yellow-200">Using latest tag</span>}
               {(server?.groups ?? []).map((group) => <span key={group} className="rounded-full border border-[#0078D4]/20 bg-[#0078D4]/10 px-2 py-0.5 text-[#7cc2ff]">{group}</span>)}
             </div>
             {server?.podStartTime && <p className="hidden sm:block text-[10px] text-[#4db3ff] mt-0.5">Last restart {timeAgo(server.podStartTime)}</p>}
-            {status === "stopped" && <p className="text-[10px] text-amber-300 mt-0.5">Server is stopped. Use Start to bring it online.</p>}
+            {status === "stopped" && <p className="hidden sm:block text-[10px] text-amber-300 mt-0.5">Server is stopped. Use Start to bring it online.</p>}
           </div>
           {server && (
             <div className="flex items-center gap-1 flex-shrink-0">

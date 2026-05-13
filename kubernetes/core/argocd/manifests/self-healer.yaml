@@ -178,13 +178,13 @@ spec:
                   CONFIG_CM="self-healer-config"
 
                   # ── Alert thresholds ──────────────────────────────────────
-                  # Skip apps degraded < 10m (very transient: hook runs, init containers, etc.)
-                  FAST_SKIP_SECONDS=600
+                  # Skip apps degraded < 15m (very transient: hook runs, init containers, etc.)
+                  FAST_SKIP_SECONDS=900
                   # Shorter skip for apps whose name implies ExternalSecret dependency
                   # (ESO provisioning can take a few minutes after OpenBao unseal)
-                  ES_SKIP_SECONDS=300
-                  # Only alert when degradation has persisted > 30m (2 full healer cycles)
-                  ALERT_THRESHOLD_SECONDS=1800
+                  ES_SKIP_SECONDS=600
+                  # Only alert when degradation has persisted > 60m (4 full healer cycles)
+                  ALERT_THRESHOLD_SECONDS=3600
 
                   echo "[self-healer] $(date -u) — scanning ArgoCD apps in namespace: $NAMESPACE"
 
@@ -192,9 +192,19 @@ spec:
                   # bootstrap:              app-of-apps — inherits worst-child health
                   # core-argocd-manifests:  self-referential (manages this CronJob)
                   # core-external-secrets-manifests: health depends on OpenBao uptime
-                  SKIP_ALERT_APPS="bootstrap core-argocd-manifests core-external-secrets-manifests"
+                  # catalog-game-hub-*: game servers can be intentionally stopped (replicas=0)
+                  # catalog-infraweaver-console-manifests: rolling redeploys during active dev
+                  SKIP_ALERT_APPS="bootstrap core-argocd-manifests core-external-secrets-manifests catalog-infraweaver-console-manifests"
+                  # Wildcard pattern skip — any app whose name matches these globs is silenced
+                  SKIP_ALERT_PATTERNS="catalog-game-hub-* catalog-community-*"
                   is_skip_alert() {
-                    for s in $SKIP_ALERT_APPS; do [ "$1" = "$s" ] && return 0; done; return 1
+                    for s in $SKIP_ALERT_APPS; do [ "$1" = "$s" ] && return 0; done
+                    for p in $SKIP_ALERT_PATTERNS; do
+                      case "$1" in
+                        $p) return 0 ;;
+                      esac
+                    done
+                    return 1
                   }
                   # ExternalSecret-managing apps get a shorter skip threshold
                   is_es_app() {
