@@ -17,6 +17,7 @@ import {
   Check,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useRBAC } from "@/hooks/use-rbac";
 import { cn } from "@/lib/utils";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -185,6 +186,8 @@ interface UpdatePolicyModalProps {
 }
 
 export function UpdatePolicyModal({ appName, appSlug, imageRef, open, onClose }: UpdatePolicyModalProps) {
+  const { can } = useRBAC();
+  const canWritePolicy = can("apps:write");
   const [policy, setPolicy] = useState<UpdatePolicy>({ ...DEFAULT_POLICY, imageRef });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -218,6 +221,10 @@ export function UpdatePolicyModal({ appName, appSlug, imageRef, open, onClose }:
   }, [open, appSlug, imageRef]);
 
   const handleSave = async () => {
+    if (!canWritePolicy) {
+      toast.error("You do not have permission to update app policies");
+      return;
+    }
     setSaving(true);
     try {
       const res = await fetch("/api/apps/update-policy", {
@@ -506,7 +513,7 @@ export function UpdatePolicyModal({ appName, appSlug, imageRef, open, onClose }:
                     </button>
                     <button
                       onClick={() => void handleSave()}
-                      disabled={saving}
+                      disabled={saving || !canWritePolicy}
                       className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-[#0078D4] hover:bg-[#006CBE] disabled:opacity-60 text-white text-sm font-medium transition-colors min-h-[44px] touch-manipulation"
                     >
                       {saving ? (

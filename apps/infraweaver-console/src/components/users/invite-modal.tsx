@@ -4,6 +4,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import * as Select from "@radix-ui/react-select";
 import { X, Mail, Copy, Check, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
+import { useRBAC } from "@/hooks/use-rbac";
 
 interface Props {
   open: boolean;
@@ -21,6 +22,8 @@ const EXPIRY_OPTIONS = [
 const inputCls = "w-full rounded-xl border border-[#2a2a2a] bg-[#0d0d0d] px-3 py-2.5 text-sm text-[#f2f2f2] placeholder:text-[#444] focus:border-[#3b82f6] focus:outline-none focus:ring-1 focus:ring-[#3b82f6]";
 
 export function InviteModal({ open, onClose }: Props) {
+  const { canAny } = useRBAC();
+  const canManageUsers = canAny(["users:invite", "users:write", "rbac:admin"]);
   const [email, setEmail] = useState("");
   const [expiryHours, setExpiryHours] = useState(24);
   const [loading, setLoading] = useState(false);
@@ -29,6 +32,10 @@ export function InviteModal({ open, onClose }: Props) {
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
+    if (!canManageUsers) {
+      toast.error("You do not have permission to invite users");
+      return;
+    }
     setLoading(true);
     try {
       const response = await fetch("/api/users/invite", {
@@ -144,7 +151,7 @@ export function InviteModal({ open, onClose }: Props) {
                 </button>
                 <button
                   type="submit"
-                  disabled={loading || !email}
+                  disabled={loading || !email || !canManageUsers}
                   className="flex h-11 flex-1 items-center justify-center rounded-lg bg-[#3b82f6] px-4 text-sm font-medium text-white transition-colors hover:bg-[#2563eb] active:bg-[#1d4ed8] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {loading ? "Creating…" : "Create Invite"}

@@ -3,8 +3,7 @@ import { dump } from "js-yaml";
 import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
 import { loadKubeConfig } from "@/lib/k8s";
-import { getRole } from "@/lib/rbac";
-import { getSessionRBACContext, hasAnySessionPermission } from "@/lib/session-rbac";
+import { getSessionRBACContext, hasAnySessionPermission, hasSessionPermission } from "@/lib/session-rbac";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import * as k8s from "@kubernetes/client-node";
 
@@ -83,8 +82,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ nam
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ namespace: string; name: string }> }) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
-  if (getRole(groups) !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const access = await getSessionRBACContext(session, 60);
+  if (!hasSessionPermission(access, "cluster:admin")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   if (!checkRateLimit(rateLimitKey("pod-delete", req), 10, 60_000)) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
   const { namespace, name } = await params;
   try {

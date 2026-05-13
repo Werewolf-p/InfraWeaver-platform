@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
 import { toast } from "sonner";
 import { useSimpleMode } from "@/contexts/simple-mode-context";
+import { useRBAC } from "@/hooks/use-rbac";
 
 /** Renders children at document.body via a portal, bypassing overflow:hidden ancestors (iOS Safari fix). */
 function BodyPortal({ children }: { children: React.ReactNode }) {
@@ -296,6 +297,9 @@ function AddServerDrawer({
   onCreated: () => void;
   prefill?: GameHubServerSummary | null;
 }) {
+  const { can } = useRBAC();
+  const canManageServers = can("game-hub:write");
+  const canReadServers = can("game-hub:read");
   const { simpleMode, toggle: toggleSimpleMode } = useSimpleMode();
   const [step, setStep] = useState(1);
   const [gameType, setGameType] = useState("");
@@ -333,6 +337,10 @@ function AddServerDrawer({
     portsData?.conflicts?.some(c => c.ip === targetIP && c.port === port && c.protocol === protocol) ?? false;
 
   const detectMyIP = async () => {
+    if (!canReadServers) {
+      toast.error("You do not have permission to view game-hub network details");
+      return;
+    }
     setDetectingIP(true);
     try {
       const res = await fetch("/api/gameservers/detect-ip");
@@ -346,6 +354,10 @@ function AddServerDrawer({
   };
 
   const handleCreate = async () => {
+    if (!canManageServers) {
+      toast.error("You do not have permission to create game servers");
+      return;
+    }
     setCreating(true);
     // In simple mode, apply defaults
     const finalPorts = ports.length > 0 ? ports : (selectedType?.defaultPorts ?? []);
@@ -552,7 +564,7 @@ function AddServerDrawer({
                         className="flex-1 bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-white text-sm font-mono placeholder:text-slate-600 focus:outline-none focus:border-indigo-500"
                       />
                       <button
-                        onClick={detectMyIP} disabled={detectingIP}
+                        onClick={detectMyIP} disabled={detectingIP || !canReadServers}
                         className="px-3 py-2 rounded-lg border border-white/10 bg-white/5 text-xs text-slate-400 hover:text-white hover:bg-white/10 transition-colors whitespace-nowrap disabled:opacity-50"
                       >
                         {detectingIP ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Detect my IP"}
@@ -741,7 +753,7 @@ function AddServerDrawer({
                         className="flex-1 bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-white text-sm font-mono placeholder:text-slate-600 focus:outline-none focus:border-indigo-500"
                       />
                       <button
-                        onClick={detectMyIP} disabled={detectingIP}
+                        onClick={detectMyIP} disabled={detectingIP || !canReadServers}
                         className="px-3 py-2 rounded-lg border border-white/10 bg-white/5 text-xs text-slate-400 hover:text-white hover:bg-white/10 transition-colors whitespace-nowrap disabled:opacity-50"
                       >
                         {detectingIP ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Detect my IP"}
@@ -920,7 +932,7 @@ function AddServerDrawer({
               ) : (
                 <button
                   type="button"
-                  onClick={handleCreate} disabled={creating || !name || !targetIP}
+                  onClick={handleCreate} disabled={creating || !name || !targetIP || !canManageServers}
                   className="flex items-center gap-2 px-5 py-2 rounded-lg bg-green-600 hover:bg-green-500 text-white text-sm font-medium transition-colors disabled:opacity-50"
                 >
                   {creating ? <><Loader2 className="w-4 h-4 animate-spin" /> Creating...</> : <><Check className="w-4 h-4" /> Create Route</>}
@@ -937,11 +949,17 @@ function AddServerDrawer({
 }
 
 function DeleteConfirmDialog({ server, onClose, onDeleted }: { server: GameServer; onClose: () => void; onDeleted: () => void }) {
+  const { can } = useRBAC();
+  const canManageServers = can("game-hub:write");
   const [input, setInput] = useState("");
   const [deleting, setDeleting] = useState(false);
 
   const handleDelete = async () => {
     if (input !== server.name) return;
+    if (!canManageServers) {
+      toast.error("You do not have permission to delete game servers");
+      return;
+    }
     setDeleting(true);
     try {
       await fetch(`/api/gameservers/${server.name}`, { method: "DELETE" });
@@ -971,7 +989,7 @@ function DeleteConfirmDialog({ server, onClose, onDeleted }: { server: GameServe
         <div className="flex gap-3">
           <button onClick={onClose} className="flex-1 py-2 rounded-lg border border-white/10 text-slate-400 hover:text-white text-sm transition-colors">Cancel</button>
           <button
-            onClick={handleDelete} disabled={input !== server.name || deleting}
+            onClick={handleDelete} disabled={input !== server.name || deleting || !canManageServers}
             className="flex-1 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white text-sm font-medium transition-colors disabled:opacity-50"
           >
             {deleting ? "Deleting..." : "Delete Server"}
@@ -983,6 +1001,8 @@ function DeleteConfirmDialog({ server, onClose, onDeleted }: { server: GameServe
 }
 
 export default function GameServersPage() {
+  const { can } = useRBAC();
+  const canManageServers = can("game-hub:write");
   const queryClient = useQueryClient();
   const searchParams = useSearchParams();
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -1057,7 +1077,8 @@ export default function GameServersPage() {
           </button>
           <button
             onClick={() => setDrawerOpen(true)}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors"
+            disabled={!canManageServers}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors disabled:opacity-50"
           >
             <Plus className="w-4 h-4" /> Add Route
           </button>
@@ -1097,7 +1118,7 @@ export default function GameServersPage() {
             <Gamepad2 className="w-12 h-12 text-slate-700 mx-auto mb-4" />
             <h3 className="text-sm font-medium text-slate-400 mb-2">No routes configured</h3>
             <p className="text-xs text-slate-600 mb-4">Add your first port route to start DNS-based traffic routing</p>
-            <button onClick={() => setDrawerOpen(true)} className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm transition-colors">
+            <button onClick={() => setDrawerOpen(true)} disabled={!canManageServers} className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm transition-colors disabled:opacity-50">
               Add Route
             </button>
           </div>
@@ -1188,7 +1209,8 @@ export default function GameServersPage() {
                       <td className="px-4 py-3">
                         <button
                           onClick={e => { e.stopPropagation(); setDeleteTarget(server); }}
-                          className="p-1.5 rounded-lg text-slate-600 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                          disabled={!canManageServers}
+                          className="p-1.5 rounded-lg text-slate-600 hover:text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>

@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getARecord, createARecord, deleteARecord } from "@/lib/cloudflare";
+import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ name: string }> }) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const access = await getSessionRBACContext(session, 60);
+  if (!hasSessionPermission(access, "game-hub:read")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const { name } = await params;
 
   // Get target IPs from ConfigMap
@@ -36,6 +39,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ nam
 export async function POST(req: NextRequest, { params }: { params: Promise<{ name: string }> }) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const access = await getSessionRBACContext(session, 60);
+  if (!hasSessionPermission(access, "game-hub:write")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const { name } = await params;
   const { targetIP, internalIP, publicDns, internalDns } = await req.json() as { targetIP: string; internalIP?: string; publicDns: boolean; internalDns: boolean };
 

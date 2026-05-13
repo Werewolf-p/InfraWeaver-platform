@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 
 interface Silence {
   id: string;
@@ -13,15 +14,27 @@ interface Silence {
 
 const silences: Silence[] = [];
 
-export async function GET() {
+async function requireAccess(permission: "config:read" | "config:write") {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const access = await getSessionRBACContext(session, 60);
+  if (!hasSessionPermission(access, permission)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  return session;
+}
+
+export async function GET() {
+  const session = await requireAccess("config:read");
+  if (session instanceof NextResponse) return session;
   return NextResponse.json({ silences });
 }
 
 export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const session = await requireAccess("config:write");
+  if (session instanceof NextResponse) return session;
   const body = await req.json() as Partial<Silence>;
   const silence: Silence = {
     id: Date.now().toString(),
@@ -37,8 +50,8 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const session = await requireAccess("config:write");
+  if (session instanceof NextResponse) return session;
   const { searchParams } = req.nextUrl;
   const id = searchParams.get("id");
   const idx = silences.findIndex(s => s.id === id);

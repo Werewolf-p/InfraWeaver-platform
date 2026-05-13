@@ -32,6 +32,7 @@ import {
 } from "@/lib/dns";
 import { cn, timeAgo } from "@/lib/utils";
 import { toast } from "sonner";
+import { useRBAC } from "@/hooks/use-rbac";
 
 interface DnsResponse {
   records: ManagedDnsRecord[];
@@ -52,6 +53,8 @@ const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 type DnsTab = "internal" | "public";
 
 export default function DnsManagementPage() {
+  const { can } = useRBAC();
+  const canWriteDns = can("config:write");
   const [tab, setTab] = useState<DnsTab>(() => {
     if (typeof window === "undefined") return "internal";
     const stored = window.localStorage.getItem(TAB_STORAGE_KEY);
@@ -156,6 +159,10 @@ export default function DnsManagementPage() {
 
   async function deleteRecord() {
     if (!recordToDelete) return;
+    if (!canWriteDns) {
+      toast.error("You do not have permission to delete DNS records");
+      return;
+    }
     try {
       const res = await fetch(`/api/dns/${recordToDelete.id}`, { method: "DELETE" });
       const payload = await res.json() as { error?: string };
@@ -211,11 +218,13 @@ export default function DnsManagementPage() {
             </button>
             <button
               onClick={() => {
+                if (!canWriteDns) return;
                 setEditingRecord(null);
                 setDialogDefaults({ internal: tab === "internal", type: "A" });
                 setDialogOpen(true);
               }}
-              className="inline-flex items-center gap-2 rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-3 py-2 text-sm font-medium text-cyan-200 transition hover:bg-cyan-500/20"
+              disabled={!canWriteDns}
+              className="inline-flex items-center gap-2 rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-3 py-2 text-sm font-medium text-cyan-200 transition hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Plus className="h-4 w-4" />
               Add Record
@@ -345,14 +354,14 @@ export default function DnsManagementPage() {
               description={tab === "internal"
                 ? "Create VPN-only hostnames for machines, services, and game servers."
                 : "Create public hostnames that resolve through Cloudflare."}
-              action={{
+              action={canWriteDns ? {
                 label: "Add first record",
                 onClick: () => {
                   setEditingRecord(null);
                   setDialogDefaults({ internal: tab === "internal", type: "A" });
                   setDialogOpen(true);
                 },
-              }}
+              } : undefined}
             />
           ) : (
             <>
@@ -409,18 +418,21 @@ export default function DnsManagementPage() {
                           <div className="flex justify-end gap-2">
                             <button
                               onClick={() => {
+                                if (!canWriteDns) return;
                                 setEditingRecord(record);
                                 setDialogDefaults({});
                                 setDialogOpen(true);
                               }}
-                              className="rounded-lg border border-white/10 bg-slate-950 p-2 text-slate-300 transition hover:text-white"
+                              disabled={!canWriteDns}
+                              className="rounded-lg border border-white/10 bg-slate-950 p-2 text-slate-300 transition hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                               title={`Edit ${record.name}`}
                             >
                               <Pencil className="h-4 w-4" />
                             </button>
                             <button
-                              onClick={() => setRecordToDelete(record)}
-                              className="rounded-lg border border-red-500/20 bg-red-500/10 p-2 text-red-300 transition hover:bg-red-500/20"
+                              onClick={() => canWriteDns && setRecordToDelete(record)}
+                              disabled={!canWriteDns}
+                              className="rounded-lg border border-red-500/20 bg-red-500/10 p-2 text-red-300 transition hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50"
                               title={`Delete ${record.name}`}
                             >
                               <Trash2 className="h-4 w-4" />
@@ -485,11 +497,13 @@ export default function DnsManagementPage() {
                 <Link href={server.href ?? "/game-hub"} className="text-xs text-cyan-200 hover:text-white">Open details</Link>
                 <button
                   onClick={() => {
+                    if (!canWriteDns) return;
                     setEditingRecord(null);
                     setDialogDefaults({ name: server.label, value: server.value, type: "A", internal: true });
                     setDialogOpen(true);
                   }}
-                  className="rounded-lg border border-cyan-500/20 bg-cyan-500/10 px-2.5 py-1.5 text-xs text-cyan-100 transition hover:bg-cyan-500/20"
+                  disabled={!canWriteDns}
+                  className="rounded-lg border border-cyan-500/20 bg-cyan-500/10 px-2.5 py-1.5 text-xs text-cyan-100 transition hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   New DNS
                 </button>
@@ -511,6 +525,7 @@ export default function DnsManagementPage() {
           onSubmitted={async () => {
             await refetch();
           }}
+          canWrite={canWriteDns}
         />
       ) : null}
 

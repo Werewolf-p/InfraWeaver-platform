@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { createDnsRecord, listDnsRecords } from "@/lib/cloudflare";
+import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import {
   buildDnsName,
   isInternalDnsName,
@@ -36,16 +37,22 @@ function toManagedRecord(record: {
   };
 }
 
-async function requireSession() {
+async function requireAccess(permission: "config:read" | "config:write") {
   const session = await auth();
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  const access = await getSessionRBACContext(session, 60);
+  if (!hasSessionPermission(access, permission)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   return session;
 }
 
 export async function GET() {
-  const session = await requireSession();
+  const session = await requireAccess("config:read");
   if (session instanceof NextResponse) return session;
 
   try {
@@ -67,7 +74,7 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const session = await requireSession();
+  const session = await requireAccess("config:write");
   if (session instanceof NextResponse) return session;
 
   try {

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { getSessionRBACContext, hasAnySessionPermission, hasSessionPermission } from "@/lib/session-rbac";
 import { safeError } from "@/lib/utils";
 import * as k8s from "@kubernetes/client-node";
 
@@ -14,6 +15,10 @@ function makeClient() {
 export async function GET() {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const access = await getSessionRBACContext(session, 60);
+  if (!hasAnySessionPermission(access, ["cluster:read", "infra:read"])) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   try {
     const coreApi = makeClient();
@@ -48,6 +53,10 @@ export async function GET() {
 export async function DELETE(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const access = await getSessionRBACContext(session, 60);
+  if (!hasSessionPermission(access, "cluster:admin")) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   const body = await req.json() as { pvcs: Array<{ namespace: string; name: string }> };
   if (!Array.isArray(body.pvcs) || body.pvcs.length === 0) {

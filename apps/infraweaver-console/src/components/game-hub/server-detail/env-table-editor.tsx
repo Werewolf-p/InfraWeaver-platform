@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Download, Loader2, Plus, Save, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { fetchJson } from "./utils";
+import { useRBAC } from "@/hooks/use-rbac";
 
 interface EnvEntry {
   name: string;
@@ -42,6 +43,8 @@ function parseEnvText(content: string) {
 }
 
 export function EnvTableEditor({ serverName, env, onSave }: EnvTableEditorProps) {
+  const { can } = useRBAC();
+  const canWrite = can("game-hub:write", `/game-hub/servers/${serverName}`) || can("game-hub:admin", `/game-hub/servers/${serverName}`);
   const [rows, setRows] = useState<EnvRow[]>(() => env.map((entry) => createRow(entry.name, entry.value ?? "")));
   const [saving, setSaving] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -101,6 +104,10 @@ export function EnvTableEditor({ serverName, env, onSave }: EnvTableEditorProps)
   }
 
   async function saveAll() {
+    if (!canWrite) {
+      toast.error("You do not have permission to update environment variables");
+      return;
+    }
     setSaving(true);
     try {
       await fetchJson(`/api/game-hub/servers/${serverName}`, {
@@ -146,7 +153,7 @@ export function EnvTableEditor({ serverName, env, onSave }: EnvTableEditorProps)
           <button
             type="button"
             onClick={() => void saveAll()}
-            disabled={saving}
+            disabled={saving || !canWrite}
             className="inline-flex items-center gap-2 rounded-lg bg-[#0078D4] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
           >
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
@@ -206,6 +213,7 @@ export function EnvTableEditor({ serverName, env, onSave }: EnvTableEditorProps)
                     <input
                       value={row.name}
                       onChange={(event) => updateRow(row.id, "name", event.target.value)}
+                      disabled={!canWrite}
                       placeholder="KEY"
                       className="w-full rounded-md border border-transparent bg-transparent px-2 py-1 text-[#f2f2f2] focus:border-[#2a2a2a] focus:bg-[#111] focus:outline-none"
                     />
@@ -214,6 +222,7 @@ export function EnvTableEditor({ serverName, env, onSave }: EnvTableEditorProps)
                     <input
                       value={row.value}
                       onChange={(event) => updateRow(row.id, "value", event.target.value)}
+                      disabled={!canWrite}
                       placeholder="VALUE"
                       className="w-full rounded-md border border-transparent bg-transparent px-2 py-1 text-[#f2f2f2] focus:border-[#2a2a2a] focus:bg-[#111] focus:outline-none"
                     />
@@ -222,6 +231,7 @@ export function EnvTableEditor({ serverName, env, onSave }: EnvTableEditorProps)
                     <button
                       type="button"
                       onClick={() => deleteRow(row.id)}
+                      disabled={!canWrite}
                       className="rounded-lg p-2 text-[#888] transition hover:bg-red-500/10 hover:text-red-300"
                     >
                       <Trash2 className="h-4 w-4" />
@@ -237,6 +247,7 @@ export function EnvTableEditor({ serverName, env, onSave }: EnvTableEditorProps)
       <button
         type="button"
         onClick={addRow}
+        disabled={!canWrite}
         className="inline-flex items-center gap-2 rounded-lg border border-dashed border-[#2a2a2a] px-3 py-2 text-sm text-[#f2f2f2]"
       >
         <Plus className="h-4 w-4" /> Add row

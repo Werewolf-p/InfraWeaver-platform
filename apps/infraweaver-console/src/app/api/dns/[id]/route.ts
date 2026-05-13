@@ -1,13 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { deleteDnsRecordById, updateDnsRecord } from "@/lib/cloudflare";
+import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { safeError } from "@/lib/utils";
 
-async function requireSession() {
+async function requireAccess() {
   const session = await auth();
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  const access = await getSessionRBACContext(session, 60);
+  if (!hasSessionPermission(access, "config:write")) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   return session;
 }
 
@@ -15,7 +22,7 @@ export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const session = await requireSession();
+  const session = await requireAccess();
   if (session instanceof NextResponse) return session;
 
   try {
@@ -31,7 +38,7 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const session = await requireSession();
+  const session = await requireAccess();
   if (session instanceof NextResponse) return session;
 
   try {

@@ -13,6 +13,7 @@ import { MFAResetModal } from "./mfa-reset-modal";
 import { SessionsPanel } from "./sessions-panel";
 import { HistoryDrawer } from "./history-drawer";
 import { OffboardWizard } from "./offboard-wizard";
+import { useRBAC } from "@/hooks/use-rbac";
 
 interface Props {
   user: PlatformUser;
@@ -57,6 +58,9 @@ function SmallDialog({
 }
 
 export function UserActionsDropdown({ user, isSelf, isAdmin, onEdit, onDelete, onRefetch }: Props) {
+  const { canAny } = useRBAC();
+  const canViewUserData = isAdmin && canAny(["users:read", "users:write", "users:invite", "rbac:admin"]);
+  const canManageUsers = isAdmin && canAny(["users:write", "users:invite", "rbac:admin"]);
   const [showResetPassword, setShowResetPassword] = useState(false);
   const [showMFAReset, setShowMFAReset] = useState(false);
   const [showSessions, setShowSessions] = useState(false);
@@ -149,28 +153,28 @@ export function UserActionsDropdown({ user, isSelf, isAdmin, onEdit, onDelete, o
             sideOffset={5}
             align="end"
           >
-            {isAdmin ? (
+            {canManageUsers ? (
               <DropdownMenu.Item className={itemCls} onSelect={onEdit}>
                 <Pencil className="h-3.5 w-3.5" />
                 Edit User
               </DropdownMenu.Item>
             ) : null}
 
-            {isAdmin ? <DropdownMenu.Separator className="my-1 border-t border-[#2a2a2a]" /> : null}
+            {canManageUsers ? <DropdownMenu.Separator className="my-1 border-t border-[#2a2a2a]" /> : null}
 
-            {isAdmin && !isSelf ? (
+            {canManageUsers && !isSelf ? (
               <DropdownMenu.Item className={itemCls} onSelect={() => setShowResetPassword(true)}>
                 <KeyRound className="h-3.5 w-3.5" />
                 Reset Password
               </DropdownMenu.Item>
             ) : null}
-            {isAdmin ? (
+            {canManageUsers ? (
               <DropdownMenu.Item className={itemCls} onSelect={() => { setNewEmail(user.email); setShowChangeEmail(true); }}>
                 <Mail className="h-3.5 w-3.5" />
                 Change Email
               </DropdownMenu.Item>
             ) : null}
-            {isAdmin && !isSelf ? (
+            {canManageUsers && !isSelf ? (
               <DropdownMenu.Item
                 className={itemCls}
                 disabled={statusLoading}
@@ -184,40 +188,40 @@ export function UserActionsDropdown({ user, isSelf, isAdmin, onEdit, onDelete, o
                 Toggle Status
               </DropdownMenu.Item>
             ) : null}
-            {isAdmin ? (
+            {canManageUsers ? (
               <DropdownMenu.Item className={itemCls} onSelect={() => setShowMFAReset(true)}>
                 <ShieldOff className="h-3.5 w-3.5" />
                 Reset MFA
               </DropdownMenu.Item>
             ) : null}
-            {isAdmin ? (
+            {canViewUserData ? (
               <DropdownMenu.Item className={itemCls} onSelect={() => setShowSessions(true)}>
                 <MonitorSmartphone className="h-3.5 w-3.5" />
                 View Sessions
               </DropdownMenu.Item>
             ) : null}
-            {isAdmin ? (
+            {canViewUserData ? (
               <DropdownMenu.Item className={itemCls} onSelect={() => setShowHistory(true)}>
                 <History className="h-3.5 w-3.5" />
                 Login History
               </DropdownMenu.Item>
             ) : null}
-            {isAdmin && !isSelf ? (
+            {canManageUsers && !isSelf ? (
               <DropdownMenu.Item className={itemCls} onSelect={() => { setNewUsername(user.username); setShowChangeUsername(true); }}>
                 <UserCog className="h-3.5 w-3.5" />
                 Change Username
               </DropdownMenu.Item>
             ) : null}
 
-            {isAdmin && !isSelf ? <DropdownMenu.Separator className="my-1 border-t border-[#2a2a2a]" /> : null}
+            {canManageUsers && !isSelf ? <DropdownMenu.Separator className="my-1 border-t border-[#2a2a2a]" /> : null}
 
-            {isAdmin && !isSelf ? (
+            {canManageUsers && !isSelf ? (
               <DropdownMenu.Item className={destructiveCls} onSelect={() => setShowOffboard(true)}>
                 <UserX className="h-3.5 w-3.5" />
                 Offboard User
               </DropdownMenu.Item>
             ) : null}
-            {isAdmin && !isSelf ? (
+            {canManageUsers && !isSelf ? (
               <DropdownMenu.Item className={destructiveCls} onSelect={onDelete}>
                 <Trash2 className="h-3.5 w-3.5" />
                 Delete

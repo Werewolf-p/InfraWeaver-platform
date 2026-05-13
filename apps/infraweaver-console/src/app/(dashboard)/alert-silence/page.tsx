@@ -5,6 +5,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { BellOff, Plus, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
+import { useRBAC } from "@/hooks/use-rbac";
 
 interface Silence {
   id: string;
@@ -17,6 +18,8 @@ interface Silence {
 }
 
 export default function AlertSilencePage() {
+  const { can } = useRBAC();
+  const canManageSilences = can("config:write");
   const qc = useQueryClient();
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ name: "", matchers: "", comment: "", endsAt: new Date(Date.now() + 3600000).toISOString().slice(0, 16) });
@@ -34,6 +37,7 @@ export default function AlertSilencePage() {
 
   const createMutation = useMutation({
     mutationFn: async (body: typeof form) => {
+      if (!canManageSilences) throw new Error("Forbidden");
       const res = await fetch("/api/alerts/silence", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, endsAt: new Date(body.endsAt).toISOString() }) });
       if (!res.ok) throw new Error("Failed");
       return res.json();
@@ -44,6 +48,7 @@ export default function AlertSilencePage() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
+      if (!canManageSilences) throw new Error("Forbidden");
       const res = await fetch(`/api/alerts/silence?id=${id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Failed");
     },
@@ -60,7 +65,7 @@ export default function AlertSilencePage() {
           <h2 className="text-xl font-bold text-white flex items-center gap-2"><BellOff className="w-5 h-5 text-slate-400" />Alert Silencing</h2>
           <p className="text-sm text-slate-400">Manage alert silences and suppressions</p>
         </div>
-        <button onClick={() => setShowForm(v => !v)} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-500/20 border border-indigo-500/30 text-sm text-indigo-300 hover:bg-indigo-500/30 transition-colors">
+        <button onClick={() => canManageSilences && setShowForm(v => !v)} disabled={!canManageSilences} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-500/20 border border-indigo-500/30 text-sm text-indigo-300 hover:bg-indigo-500/30 transition-colors disabled:cursor-not-allowed disabled:opacity-50">
           <Plus className="w-4 h-4" />New Silence
         </button>
       </div>
@@ -75,7 +80,7 @@ export default function AlertSilencePage() {
             <label className="text-xs text-slate-400 mb-1 block">Ends At</label>
             <input type="datetime-local" value={form.endsAt} onChange={e => setForm(f => ({ ...f, endsAt: e.target.value }))} className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-white outline-none focus:border-indigo-500/50" />
           </div>
-          <button onClick={() => createMutation.mutate(form)} disabled={createMutation.isPending} className="w-full py-2 rounded-lg bg-indigo-500/20 border border-indigo-500/30 text-sm text-indigo-300 hover:bg-indigo-500/30 transition-colors disabled:opacity-50">
+          <button onClick={() => createMutation.mutate(form)} disabled={createMutation.isPending || !canManageSilences} className="w-full py-2 rounded-lg bg-indigo-500/20 border border-indigo-500/30 text-sm text-indigo-300 hover:bg-indigo-500/30 transition-colors disabled:opacity-50">
             {createMutation.isPending ? "Creating..." : "Create"}
           </button>
         </div>
@@ -91,7 +96,7 @@ export default function AlertSilencePage() {
               <p className="text-xs text-slate-500">Expires: {new Date(s.endsAt).toLocaleString()} · by {s.createdBy}</p>
               {s.comment && <p className="text-xs text-slate-500 italic">{s.comment}</p>}
             </div>
-            <button onClick={() => deleteMutation.mutate(s.id)} className="text-red-400 hover:text-red-300 transition-colors flex-shrink-0 ml-4">
+            <button onClick={() => deleteMutation.mutate(s.id)} disabled={!canManageSilences} className="text-red-400 hover:text-red-300 transition-colors flex-shrink-0 ml-4 disabled:opacity-50">
               <Trash2 className="w-4 h-4" />
             </button>
           </div>

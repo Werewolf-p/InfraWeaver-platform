@@ -29,6 +29,7 @@ function BodyPortal({ children }: { children: React.ReactNode }) {
 
 import { useSimpleMode } from "@/contexts/simple-mode-context";
 import { AppCardSkeleton, TableRowSkeleton } from "@/components/ui/skeleton-card";
+import { useRBAC } from "@/hooks/use-rbac";
 
 // ── Top-level tab types ────────────────────────────────────────────────────────
 type TopTab = "installed" | "catalog" | "community";
@@ -133,6 +134,8 @@ function SwipeableAppCard({
   onSync,
   onDelete,
   isOptimisticSyncing,
+  canSync,
+  canDelete,
 }: {
   row: AppRow;
   syncingApp: string | null;
@@ -140,6 +143,8 @@ function SwipeableAppCard({
   onSync: (name: string) => Promise<void>;
   onDelete: (name: string) => Promise<void>;
   isOptimisticSyncing?: boolean;
+  canSync: boolean;
+  canDelete: boolean;
 }) {
   const x = useMotionValue(0);
   const isCatalog = row.source === "Catalog";
@@ -148,10 +153,10 @@ function SwipeableAppCard({
   const deleteOpacity = useTransform(x, [-80, 0], [1, 0]);
 
   const handleDragEnd = (_: unknown, info: { offset: { x: number } }) => {
-    if (!isCatalog) return;
-    if (info.offset.x > 80) {
+    if (!isCatalog || (!canSync && !canDelete)) return;
+    if (info.offset.x > 80 && canSync) {
       void onSync(row.name);
-    } else if (info.offset.x < -80) {
+    } else if (info.offset.x < -80 && canDelete) {
       void onDelete(row.name);
     }
   };
@@ -181,7 +186,7 @@ function SwipeableAppCard({
       {/* Card */}
       <motion.div
         style={{ x }}
-        drag={isCatalog ? "x" : false}
+        drag={isCatalog && (canSync || canDelete) ? "x" : false}
         dragConstraints={{ left: -100, right: 100 }}
         dragElastic={0.1}
         onDragEnd={handleDragEnd}
@@ -210,7 +215,7 @@ function SwipeableAppCard({
           <div className="flex gap-2">
             <button
               onClick={() => void onSync(row.name)}
-              disabled={syncingApp === row.name}
+              disabled={syncingApp === row.name || !canSync}
               className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs border border-[#333] text-[#9e9e9e] hover:text-white hover:border-[#555] transition-colors min-h-[44px] disabled:opacity-50"
             >
               {syncingApp === row.name ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
@@ -218,7 +223,7 @@ function SwipeableAppCard({
             </button>
             <button
               onClick={() => void onDelete(row.name)}
-              disabled={deletingApp === row.name}
+              disabled={deletingApp === row.name || !canDelete}
               className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors min-h-[44px] disabled:opacity-50"
             >
               {deletingApp === row.name ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <X className="w-3.5 h-3.5" />}
@@ -232,6 +237,9 @@ function SwipeableAppCard({
 }
 
 function AllInstalledTab() {
+  const { can } = useRBAC();
+  const canSyncApps = can("apps:sync");
+  const canManageApps = can("apps:write");
   const { data: argoApps, isLoading: argoLoading, refetch } = useArgoApps();
   const [communityApps, setCommunityApps] = useState<InstalledCommunityApp[]>([]);
   const [communityLoading, setCommunityLoading] = useState(false);
@@ -285,6 +293,10 @@ function AllInstalledTab() {
   }, [allRows, search]);
 
   const handleSync = async (name: string) => {
+    if (!canSyncApps) {
+      toast.error("You do not have permission to sync apps");
+      return;
+    }
     setSyncingApp(name);
     setOptimisticSyncing(prev => new Set([...prev, name]));
     try {
@@ -301,6 +313,10 @@ function AllInstalledTab() {
   };
 
   const handleDelete = async (name: string) => {
+    if (!canSyncApps) {
+      toast.error("You do not have permission to delete apps");
+      return;
+    }
     if (!confirm(`Delete application "${name}"? This cannot be undone.`)) return;
     setDeletingApp(name);
     try {
@@ -316,6 +332,10 @@ function AllInstalledTab() {
   };
 
   const handleUninstallCommunity = async (slug: string) => {
+    if (!canManageApps) {
+      toast.error("You do not have permission to uninstall community apps");
+      return;
+    }
     if (!confirm(`Uninstall "${slug}"?\n\nThis removes the app from git. ArgoCD will clean up deployed resources within a few minutes.`)) return;
     setUninstallingApp(slug);
     try {
@@ -446,14 +466,15 @@ function AllInstalledTab() {
                           <PolicyBadge slug={row.name} />
                           <button
                             onClick={() => setUpdatePolicyApp({ name: row.name, slug: row.name })}
-                            className="flex items-center gap-1 px-2 py-1 rounded text-xs border border-[#2a2a2a] text-[#666] hover:text-[#0078D4] hover:border-[#0078D4]/40 transition-colors"
+                            disabled={!canManageApps}
+                            className="flex items-center gap-1 px-2 py-1 rounded text-xs border border-[#2a2a2a] text-[#666] hover:text-[#0078D4] hover:border-[#0078D4]/40 transition-colors disabled:opacity-50"
                             title="Update Policy"
                           >
                             <Settings2 className="w-3 h-3" />
                           </button>
                           <button
                             onClick={() => void handleSync(row.name)}
-                            disabled={syncingApp === row.name}
+                            disabled={syncingApp === row.name || !canSyncApps}
                             className="flex items-center gap-1 px-2 py-1 rounded text-xs border border-[#333] text-[#9e9e9e] hover:text-white hover:border-[#555] transition-colors disabled:opacity-50"
                           >
                             {syncingApp === row.name ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
@@ -461,7 +482,7 @@ function AllInstalledTab() {
                           </button>
                           <button
                             onClick={() => void handleDelete(row.name)}
-                            disabled={deletingApp === row.name}
+                            disabled={deletingApp === row.name || !canSyncApps}
                             className="flex items-center gap-1 px-2 py-1 rounded text-xs border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
                           >
                             {deletingApp === row.name ? <Loader2 className="w-3 h-3 animate-spin" /> : <X className="w-3 h-3" />}
@@ -472,7 +493,7 @@ function AllInstalledTab() {
                       {row.source === "Community" && (
                         <button
                           onClick={() => void handleUninstallCommunity(row.name)}
-                          disabled={uninstallingApp === row.name}
+                          disabled={uninstallingApp === row.name || !canManageApps}
                           className="flex items-center gap-1 px-2 py-1 rounded text-xs border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
                         >
                           {uninstallingApp === row.name ? <Loader2 className="w-3 h-3 animate-spin" /> : <X className="w-3 h-3" />}
@@ -505,13 +526,16 @@ function AllInstalledTab() {
                 onSync={handleSync}
                 onDelete={handleDelete}
                 isOptimisticSyncing={optimisticSyncing.has(row.name)}
+                canSync={canSyncApps}
+                canDelete={canSyncApps}
               />
               {row.source === "Catalog" && (
                 <div className="mt-2 flex flex-wrap items-center gap-2 px-1">
                   <PolicyBadge slug={row.name} />
                   <button
                     onClick={() => setUpdatePolicyApp({ name: row.name, slug: row.name })}
-                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs border border-[#2a2a2a] text-[#666] hover:text-[#0078D4] hover:border-[#0078D4]/40 transition-colors min-h-[36px]"
+                    disabled={!canManageApps}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs border border-[#2a2a2a] text-[#666] hover:text-[#0078D4] hover:border-[#0078D4]/40 transition-colors min-h-[36px] disabled:opacity-50"
                   >
                     <Settings2 className="w-3.5 h-3.5" /> Update Policy
                   </button>
@@ -632,10 +656,12 @@ function CatalogBrowseCard({
   app,
   installed,
   onInstall,
+  canInstall,
 }: {
   app: CatalogAppEntry;
   installed: boolean;
   onInstall: (app: CatalogAppEntry) => void;
+  canInstall: boolean;
 }) {
   const displayName = app.name.replace(/-/g, " ").replace(/\b\w/g, c => c.toUpperCase());
   return (
@@ -677,12 +703,14 @@ function CatalogBrowseCard({
       <div className="flex gap-2 mt-auto pt-1">
         <button
           onClick={() => onInstall(app)}
-          disabled={installed}
+          disabled={installed || !canInstall}
           className={cn(
             "flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors min-h-[36px]",
             installed
               ? "bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 cursor-default"
-              : "bg-[#0078D4] hover:bg-[#0066b8] text-white"
+              : canInstall
+                ? "bg-[#0078D4] hover:bg-[#0066b8] text-white"
+                : "bg-white/10 border border-white/10 text-white/40 cursor-not-allowed"
           )}
         >
           {installed ? <><Check className="w-3 h-3" /> Installed</> : <><Download className="w-3 h-3" /> Install</>}
@@ -697,10 +725,12 @@ function CatalogBrowseView({
   onInstall,
   onCustom,
   installedNames,
+  canInstall,
 }: {
   onInstall: (app: CatalogAppEntry) => void;
   onCustom: () => void;
   installedNames: Set<string>;
+  canInstall: boolean;
 }) {
   const [apps, setApps] = useState<CatalogAppEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -743,7 +773,8 @@ function CatalogBrowseView({
         </div>
         <button
           onClick={onCustom}
-          className="flex min-h-[40px] w-full items-center justify-center gap-1.5 rounded-lg border border-[#333] px-3 py-2 text-sm text-[#9e9e9e] transition-colors hover:border-[#555] hover:text-white sm:w-auto whitespace-nowrap"
+          disabled={!canInstall}
+          className="flex min-h-[40px] w-full items-center justify-center gap-1.5 rounded-lg border border-[#333] px-3 py-2 text-sm text-[#9e9e9e] transition-colors hover:border-[#555] hover:text-white sm:w-auto whitespace-nowrap disabled:opacity-50"
         >
           <PlusCircle className="w-4 h-4" />
           <span className="hidden sm:inline">Custom URL</span>
@@ -778,6 +809,7 @@ function CatalogBrowseView({
               app={app}
               installed={installedNames.has(app.name)}
               onInstall={onInstall}
+              canInstall={canInstall}
             />
           ))}
         </div>
@@ -788,6 +820,8 @@ function CatalogBrowseView({
 
 // ── Catalog Installer (browse + wizard) ───────────────────────────────────────
 function CatalogInstallerTab({ onInstalled }: { onInstalled?: () => void }) {
+  const { can } = useRBAC();
+  const canInstallCatalog = can("catalog:write");
   // "browse" = catalog grid, "wizard" = manual step wizard
   const [mode, setMode] = useState<"browse" | "wizard">("browse");
   const [step, setStep] = useState(1);
@@ -829,6 +863,10 @@ function CatalogInstallerTab({ onInstalled }: { onInstalled?: () => void }) {
 
   // Called when user clicks "Install" on a catalog browse card
   const handleCatalogInstall = (app: CatalogAppEntry) => {
+    if (!canInstallCatalog) {
+      toast.error("You do not have permission to install catalog apps");
+      return;
+    }
     setRawFields({
       appName: app.name,
       namespace: app.namespace || app.name,
@@ -842,6 +880,10 @@ function CatalogInstallerTab({ onInstalled }: { onInstalled?: () => void }) {
   };
 
   const handleInstall = async () => {
+    if (!canInstallCatalog) {
+      toast.error("You do not have permission to install catalog apps");
+      return;
+    }
     setInstalling(true);
     try {
       const body = appType === "helm"
@@ -872,6 +914,7 @@ function CatalogInstallerTab({ onInstalled }: { onInstalled?: () => void }) {
         onInstall={handleCatalogInstall}
         onCustom={() => { setAppType(null); setStep(1); setMode("wizard"); }}
         installedNames={installedNames}
+        canInstall={canInstallCatalog}
       />
     );
   }
@@ -1046,7 +1089,7 @@ function CatalogInstallerTab({ onInstalled }: { onInstalled?: () => void }) {
                   <button onClick={() => setStep(3)} className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-slate-300 text-sm font-medium hover:bg-white/10 transition-colors">
                     <ChevronLeft className="w-4 h-4" /> Back
                   </button>
-                  <button onClick={handleInstall} disabled={installing}
+                  <button onClick={handleInstall} disabled={installing || !canInstallCatalog}
                     className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 transition-colors disabled:opacity-50">
                     {installing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Package className="w-4 h-4" />}
                     {installing ? "Installing…" : "Install Application"}
@@ -1118,6 +1161,9 @@ function formatDownloads(n?: number): string {
 }
 
 function DeployModal({ app, onClose }: { app: AppSummary; onClose: () => void }) {
+  const { can } = useRBAC();
+  const canReadApps = can("apps:read");
+  const canDeployCommunity = can("catalog:write");
   const [step, setStep] = useState<"options" | "preview" | "deploying" | "done">("options");
   // NOTE: useTransition with async callbacks does NOT keep isPending=true for the
   // full duration of the await in React 18 — it only tracks the synchronous part.
@@ -1133,6 +1179,10 @@ function DeployModal({ app, onClose }: { app: AppSummary; onClose: () => void })
   const [deployResult, setDeployResult] = useState<{ paths: string[]; warnings: string[] } | null>(null);
 
   const handlePreview = async () => {
+    if (!canReadApps) {
+      toast.error("You do not have permission to preview community apps");
+      return;
+    }
     setIsPreviewLoading(true);
     try {
       const res = await fetch("/api/community-apps/convert", {
@@ -1151,6 +1201,10 @@ function DeployModal({ app, onClose }: { app: AppSummary; onClose: () => void })
   };
 
   const handleDeploy = async () => {
+    if (!canDeployCommunity) {
+      toast.error("You do not have permission to deploy community apps");
+      return;
+    }
     setIsDeployLoading(true);
     setStep("deploying");
     try {
@@ -1324,13 +1378,13 @@ function DeployModal({ app, onClose }: { app: AppSummary; onClose: () => void })
               </button>
             )}
             {step === "options" && (
-              <button onClick={handlePreview} disabled={isPending}
+              <button onClick={handlePreview} disabled={isPending || !canReadApps}
                 className="flex items-center gap-2 px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors disabled:opacity-50">
                 {isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Eye className="w-4 h-4" />} Preview YAML
               </button>
             )}
             {step === "preview" && (
-              <button onClick={handleDeploy} disabled={isPending}
+              <button onClick={handleDeploy} disabled={isPending || !canDeployCommunity}
                 className="flex items-center gap-2 px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium transition-colors disabled:opacity-50">
                 {isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Terminal className="w-4 h-4" />} Deploy to Cluster
               </button>
@@ -1348,7 +1402,7 @@ function DeployModal({ app, onClose }: { app: AppSummary; onClose: () => void })
   );
 }
 
-function AppCard({ app, onDeploy }: { app: AppSummary; onDeploy: (app: AppSummary) => void }) {
+function AppCard({ app, onDeploy, canDeploy }: { app: AppSummary; onDeploy: (app: AppSummary) => void; canDeploy: boolean }) {
   const tierCfg = TIER_CONFIG[app.tier];
   return (
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
@@ -1387,8 +1441,8 @@ function AppCard({ app, onDeploy }: { app: AppSummary; onDeploy: (app: AppSummar
             <ExternalLink className="w-3 h-3" /> Docs
           </a>
         )}
-        <button onClick={() => onDeploy(app)}
-          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-indigo-600/80 hover:bg-indigo-500 text-white transition-colors">
+        <button onClick={() => onDeploy(app)} disabled={!canDeploy}
+          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-indigo-600/80 hover:bg-indigo-500 text-white transition-colors disabled:opacity-50">
           <Globe className="w-3 h-3" /> Deploy
         </button>
       </div>
@@ -1397,6 +1451,8 @@ function AppCard({ app, onDeploy }: { app: AppSummary; onDeploy: (app: AppSummar
 }
 
 function CommunityStoreTab() {
+  const { can } = useRBAC();
+  const canDeployCommunity = can("catalog:write");
   const [storeTab, setStoreTab] = useState<"store" | "installed">("store");
   const [data, setData] = useState<FeedResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -1538,7 +1594,7 @@ function CommunityStoreTab() {
               </div>
               {loading && <div className="flex justify-center"><Loader2 className="w-6 h-6 text-indigo-400 animate-spin" /></div>}
               <div className={cn("grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 transition-opacity", loading && "opacity-50")}>
-                {data.apps.map(app => <AppCard key={app.slug + app.image} app={app} onDeploy={setDeployApp} />)}
+                {data.apps.map(app => <AppCard key={app.slug + app.image} app={app} onDeploy={setDeployApp} canDeploy={canDeployCommunity} />)}
               </div>
               {data.apps.length === 0 && !loading && (
                 <div className="text-center py-16 text-white/40">

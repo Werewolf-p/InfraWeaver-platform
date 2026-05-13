@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { createARecord, deleteARecord } from "@/lib/cloudflare";
+import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 
 const IP_REGEX = /^(\d{1,3}\.){3}\d{1,3}$/;
 const SLUG_REGEX = /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/;
@@ -8,6 +9,8 @@ const SLUG_REGEX = /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/;
 export async function GET() {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const access = await getSessionRBACContext(session, 60);
+  if (!hasSessionPermission(access, "game-hub:read")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   try {
     const k8s = await import("@kubernetes/client-node");
@@ -65,6 +68,8 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const access = await getSessionRBACContext(session, 60);
+  if (!hasSessionPermission(access, "game-hub:write")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const body = await req.json() as {
     name: string;

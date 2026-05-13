@@ -1,6 +1,3 @@
-// Disable TLS verification for in-cluster k8s API calls
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
-
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";

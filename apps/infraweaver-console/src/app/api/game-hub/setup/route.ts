@@ -1,10 +1,16 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { getSessionRBACContext, hasAnySessionPermission, hasSessionPermission } from "@/lib/session-rbac";
 import { safeError } from "@/lib/utils";
 
 export async function GET() {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const access = await getSessionRBACContext(session, 60);
+  if (!hasAnySessionPermission(access, ["cluster:read", "infra:read", "game-hub:read"])) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   try {
     const k8s = await import("@kubernetes/client-node");
@@ -57,6 +63,11 @@ export async function GET() {
 export async function POST() {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const access = await getSessionRBACContext(session, 60);
+  if (!hasSessionPermission(access, "cluster:admin")) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   const results: Array<{ resource: string; status: string; error?: string }> = [];
 

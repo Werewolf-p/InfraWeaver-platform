@@ -33,6 +33,7 @@ import {
 } from "recharts";
 import { toast } from "sonner";
 import { DnsRecordDialog } from "@/components/dns/dns-record-dialog";
+import { useRBAC } from "@/hooks/use-rbac";
 import { cn } from "@/lib/utils";
 import type {
   BackupEntry,
@@ -339,6 +340,8 @@ export function DashboardTab({
   server: ServerDetail;
   connectivity?: ConnectivityDetails;
 }) {
+  const { can } = useRBAC();
+  const canWriteDns = can("config:write");
   const queryClient = useQueryClient();
   const metricsHistoryKey = `metrics-history:${name}`;
   const [metricsHistory, setMetricsHistory] = useState<MetricsHistoryPoint[]>([]);
@@ -1710,6 +1713,7 @@ export function DashboardTab({
           onSubmitted={() => {
             void queryClient.invalidateQueries({ queryKey: ["dns", "records"] });
           }}
+          canWrite={canWriteDns}
         />
       ) : null}
 

@@ -3,6 +3,7 @@ import { useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { X, ShieldOff, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
+import { useRBAC } from "@/hooks/use-rbac";
 
 interface Props {
   username: string;
@@ -11,12 +12,18 @@ interface Props {
 }
 
 export function MFAResetModal({ username, open, onClose }: Props) {
+  const { canAny } = useRBAC();
+  const canManageUsers = canAny(["users:write", "users:invite", "rbac:admin"]);
   const [typed, setTyped] = useState("");
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
 
   async function handleDelete() {
     if (typed !== username) return;
+    if (!canManageUsers) {
+      toast.error("You do not have permission to reset MFA");
+      return;
+    }
     setLoading(true);
     try {
       const response = await fetch(`/api/users/${username}/mfa`, { method: "DELETE" });
@@ -95,7 +102,7 @@ export function MFAResetModal({ username, open, onClose }: Props) {
                 </button>
                 <button
                   onClick={handleDelete}
-                  disabled={typed !== username || loading}
+                  disabled={typed !== username || loading || !canManageUsers}
                   className="flex h-11 flex-1 items-center justify-center rounded-lg border border-red-500/20 bg-red-500/10 px-4 text-sm font-medium text-red-400 transition-colors hover:bg-red-500/20 active:bg-red-500/25 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {loading ? "Removing…" : "Reset MFA"}

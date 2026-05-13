@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Settings, Wrench} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
+import { useRBAC } from "@/hooks/use-rbac";
 
 interface MaintenanceEntry {
   id: string;
@@ -17,6 +18,8 @@ interface MaintenanceEntry {
 }
 
 export default function MaintenancePage() {
+  const { can } = useRBAC();
+  const canManageMaintenance = can("config:write");
   const qc = useQueryClient();
 
   const { data, isLoading } = useQuery({
@@ -30,6 +33,7 @@ export default function MaintenancePage() {
 
   const toggleMutation = useMutation({
     mutationFn: async ({ id, active }: { id: string; active: boolean }) => {
+      if (!canManageMaintenance) throw new Error("Forbidden");
       const res = await fetch("/api/apps/maintenance", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, active }) });
       if (!res.ok) throw new Error("Failed");
       return res.json();
@@ -74,7 +78,7 @@ export default function MaintenancePage() {
             </div>
             <button
               onClick={() => toggleMutation.mutate({ id: e.id, active: !e.active })}
-              disabled={toggleMutation.isPending}
+              disabled={toggleMutation.isPending || !canManageMaintenance}
               className={cn("px-4 py-2 rounded-lg text-sm font-medium border transition-colors disabled:opacity-50", e.active ? "bg-green-500/20 border-green-500/30 text-green-300 hover:bg-green-500/30" : "bg-yellow-500/20 border-yellow-500/30 text-yellow-300 hover:bg-yellow-500/30")}
             >
               {e.active ? "Disable" : "Enable"}

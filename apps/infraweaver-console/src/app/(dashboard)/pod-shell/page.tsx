@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { Terminal } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
+import { useRBAC } from "@/hooks/use-rbac";
 
 interface Pod {
   name: string;
@@ -17,6 +18,8 @@ interface Pod {
 const ALLOWED_COMMANDS = ["ls", "cat /etc/os-release", "env", "ps", "df", "free", "uname -a", "id", "pwd", "date", "ls -la", "ls -l", "df -h", "free -h", "ps aux"];
 
 export default function PodShellPage() {
+  const { can } = useRBAC();
+  const canExecPods = can("cluster:admin");
   const searchParams = useSearchParams();
   const [selectedNs, setSelectedNs] = useState(searchParams.get("namespace") ?? "default");
   const [selectedPod, setSelectedPod] = useState(searchParams.get("pod") ?? "");
@@ -44,6 +47,7 @@ export default function PodShellPage() {
 
   const handleExec = async () => {
     if (!selectedPod || !activeContainer || !command) { toast.error("Select pod, container and command"); return; }
+    if (!canExecPods) { toast.error("You do not have permission to execute commands in pods"); return; }
     setLoading(true);
     try {
       const res = await fetch("/api/pods/exec", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ namespace: selectedNs, pod: selectedPod, container: activeContainer, command }) });
@@ -94,7 +98,7 @@ export default function PodShellPage() {
           </select>
         </div>
         <div className="flex gap-2">
-          <button onClick={handleExec} disabled={loading} className="flex-1 py-2 rounded-lg bg-indigo-500/20 border border-indigo-500/30 text-sm text-indigo-300 hover:bg-indigo-500/30 transition-colors disabled:opacity-50">
+          <button onClick={handleExec} disabled={loading || !canExecPods} className="flex-1 py-2 rounded-lg bg-indigo-500/20 border border-indigo-500/30 text-sm text-indigo-300 hover:bg-indigo-500/30 transition-colors disabled:opacity-50">
             {loading ? "Running..." : "Execute"}
           </button>
           <button onClick={() => setOutput([])} className="px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-400 hover:text-white transition-colors">Clear</button>

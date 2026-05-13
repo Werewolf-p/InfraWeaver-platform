@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { buildScopes, scopeLabel, type RoleAssignment, type RoleDefinition } from "@/lib/rbac";
 import { cn, formatDate } from "@/lib/utils";
 import type { PlatformUser } from "@/hooks/use-users-config";
+import { useRBAC } from "@/hooks/use-rbac";
 
 interface Props {
   user: PlatformUser | null;
@@ -86,6 +87,9 @@ function AddAssignmentModal({
 }
 
 export function RoleAssignmentsPanel({ user, isAdmin }: Props) {
+  const { canAny } = useRBAC();
+  const canViewAssignments = canAny(["users:read", "users:write", "rbac:admin"]);
+  const canManageAssignments = isAdmin && canAny(["users:write", "rbac:admin"]);
   const [modalOpen, setModalOpen] = useState(false);
   const qc = useQueryClient();
 
@@ -101,7 +105,7 @@ export function RoleAssignmentsPanel({ user, isAdmin }: Props) {
 
   const assignmentsQuery = useQuery<{ role_assignments: RoleAssignment[] }>({
     queryKey: ["users-config", user?.username, "rbac"],
-    enabled: !!user,
+    enabled: !!user && canViewAssignments,
     queryFn: async () => {
       const res = await fetch(`/api/users-config/${user?.username}/rbac`);
       if (!res.ok) throw new Error("Failed to load assignments");
@@ -111,7 +115,7 @@ export function RoleAssignmentsPanel({ user, isAdmin }: Props) {
 
   const gameServersQuery = useQuery<{ servers: Array<{ name: string }> }>({
     queryKey: ["game-hub", "servers"],
-    enabled: isAdmin,
+    enabled: canManageAssignments,
     queryFn: async () => {
       const res = await fetch("/api/game-hub/servers");
       if (!res.ok) return { servers: [] };
@@ -172,7 +176,7 @@ export function RoleAssignmentsPanel({ user, isAdmin }: Props) {
           </h3>
           <p className="text-xs text-slate-400 mt-1">Scoped RBAC assignments stored in users.yaml.</p>
         </div>
-        {isAdmin && user && (
+        {canManageAssignments && user && (
           <button
             onClick={() => setModalOpen(true)}
             className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-indigo-500/20 border border-indigo-500/30 text-sm text-indigo-300 hover:bg-indigo-500/30"
@@ -184,6 +188,8 @@ export function RoleAssignmentsPanel({ user, isAdmin }: Props) {
 
       {!user ? (
         <div className="px-4 py-10 text-center text-sm text-slate-500">Select a user to manage role assignments.</div>
+      ) : !canViewAssignments ? (
+        <div className="px-4 py-10 text-center text-sm text-slate-500">You do not have permission to view role assignments.</div>
       ) : assignmentsQuery.isLoading || rolesQuery.isLoading ? (
         <div className="px-4 py-10 flex items-center justify-center text-slate-400"><Loader2 className="w-4 h-4 animate-spin" /></div>
       ) : assignments.length === 0 ? (
@@ -210,7 +216,7 @@ export function RoleAssignmentsPanel({ user, isAdmin }: Props) {
                   </div>
                   <p className="text-xs text-slate-500">Granted by {assignment.grantedBy} on {formatDate(assignment.grantedAt)}</p>
                 </div>
-                {isAdmin && (
+                {canManageAssignments && (
                   <button
                     onClick={() => removeMutation.mutate(assignment.id)}
                     disabled={removeMutation.isPending}
@@ -225,7 +231,7 @@ export function RoleAssignmentsPanel({ user, isAdmin }: Props) {
         </div>
       )}
 
-      {modalOpen && user && (
+      {modalOpen && user && canManageAssignments && (
         <AddAssignmentModal
           roles={roles}
           gameServers={gameServers}

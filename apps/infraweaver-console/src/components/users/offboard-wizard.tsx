@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import * as Dialog from "@radix-ui/react-dialog";
 import { X, AlertTriangle, CheckCircle2, XCircle, Loader2, UserX } from "lucide-react";
 import { toast } from "sonner";
+import { useRBAC } from "@/hooks/use-rbac";
 
 interface OffboardStep {
   name: string;
@@ -31,6 +32,8 @@ const variants = {
 };
 
 export function OffboardWizard({ username, open, onClose }: Props) {
+  const { canAny } = useRBAC();
+  const canManageUsers = canAny(["users:write", "users:invite", "rbac:admin"]);
   const [step, setStep] = useState(0);
   const [typed, setTyped] = useState("");
   const [results, setResults] = useState<OffboardStep[]>([]);
@@ -43,6 +46,10 @@ export function OffboardWizard({ username, open, onClose }: Props) {
   }
 
   async function handleExecute() {
+    if (!canManageUsers) {
+      toast.error("You do not have permission to offboard users");
+      return;
+    }
     setStep(2);
     try {
       const response = await fetch(`/api/users/${username}/offboard`, { method: "POST" });
@@ -100,7 +107,7 @@ export function OffboardWizard({ username, open, onClose }: Props) {
                     <button onClick={handleClose} className="flex h-11 flex-1 items-center justify-center rounded-lg border border-[#2a2a2a] bg-transparent px-4 text-sm text-[#d4d4d4] transition-colors hover:bg-[#1a1a1a] hover:text-[#f2f2f2] active:bg-[#1f1f1f]">Cancel</button>
                     <button
                       onClick={() => setStep(1)}
-                      disabled={typed !== username}
+                      disabled={typed !== username || !canManageUsers}
                       className="flex h-11 flex-1 items-center justify-center rounded-lg border border-red-500/20 bg-red-500/10 px-4 text-sm font-medium text-red-400 transition-colors hover:bg-red-500/20 active:bg-red-500/25 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Continue

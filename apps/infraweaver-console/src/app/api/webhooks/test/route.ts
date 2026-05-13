@@ -1,10 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { safeError } from "@/lib/utils";
 
 export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const access = await getSessionRBACContext(session, 60);
+  if (!hasSessionPermission(access, "config:write")) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
   const body = await req.json() as { url?: string; method?: string; headers?: Record<string, string>; body?: string };
   const { url, method = "GET", headers = {}, body: reqBody } = body;
   if (!url || !url.startsWith("http")) return NextResponse.json({ error: "Invalid URL" }, { status: 400 });

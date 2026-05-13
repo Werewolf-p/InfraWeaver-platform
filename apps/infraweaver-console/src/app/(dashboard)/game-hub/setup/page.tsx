@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
 import { toast } from "sonner";
 import Link from "next/link";
+import { useRBAC } from "@/hooks/use-rbac";
 
 interface SetupStatus {
   nsExists: boolean;
@@ -16,6 +17,9 @@ interface SetupStatus {
 }
 
 export default function GameHubSetupPage() {
+  const { can, canAny } = useRBAC();
+  const canViewSetup = canAny(["cluster:read", "infra:read", "game-hub:read"]);
+  const canApplySetup = can("cluster:admin");
   const queryClient = useQueryClient();
   const [applying, setApplying] = useState(false);
 
@@ -30,6 +34,10 @@ export default function GameHubSetupPage() {
   });
 
   async function applyResources() {
+    if (!canApplySetup) {
+      toast.error("You do not have permission to apply Game Hub resources");
+      return;
+    }
     setApplying(true);
     try {
       const res = await fetch("/api/game-hub/setup", { method: "POST" });
@@ -52,6 +60,10 @@ export default function GameHubSetupPage() {
     { label: "game-hub namespace", key: "nsExists" as keyof SetupStatus, description: "Kubernetes namespace for game servers" },
     { label: "GameServer CRD", key: "crdExists" as keyof SetupStatus, description: "Custom Resource Definition for game servers" },
   ];
+
+  if (!canViewSetup) {
+    return <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-4 text-sm text-red-200">You do not have permission to view Game Hub setup.</div>;
+  }
 
   return (
     <div className="max-w-lg mx-auto space-y-6">
@@ -114,7 +126,7 @@ export default function GameHubSetupPage() {
         ) : (
           <button
             onClick={applyResources}
-            disabled={applying || isLoading}
+            disabled={applying || isLoading || !canApplySetup}
             className="flex items-center gap-2 px-4 py-2 bg-[#0078D4] hover:bg-[#006cbe] text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
           >
             {applying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}

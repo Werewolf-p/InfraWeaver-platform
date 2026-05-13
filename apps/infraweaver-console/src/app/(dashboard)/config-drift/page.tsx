@@ -5,6 +5,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { AlertTriangle, Database, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
+import { useRBAC } from "@/hooks/use-rbac";
 
 interface DriftEntry {
   namespace: string;
@@ -19,6 +20,9 @@ interface DriftEntry {
 }
 
 export default function ConfigDriftPage() {
+  const { can, canAny } = useRBAC();
+  const canViewDrift = canAny(["cluster:read", "infra:read"]);
+  const canManageDrift = can("cluster:admin");
   const qc = useQueryClient();
   const [baselineCaptured, setBaselineCaptured] = useState(false);
 
@@ -38,6 +42,7 @@ export default function ConfigDriftPage() {
 
   const captureMutation = useMutation({
     mutationFn: async () => {
+      if (!canManageDrift) throw new Error("Forbidden");
       const res = await fetch("/api/cluster/config-drift", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "capture" }) });
       if (!res.ok) throw new Error("Failed");
       return res.json();
@@ -48,12 +53,14 @@ export default function ConfigDriftPage() {
 
   const clearMutation = useMutation({
     mutationFn: async () => {
+      if (!canManageDrift) throw new Error("Forbidden");
       const res = await fetch("/api/cluster/config-drift", { method: "DELETE" });
       if (!res.ok) throw new Error("Failed");
     },
     onSuccess: () => { toast.success("Baseline cleared"); setBaselineCaptured(false); void qc.invalidateQueries({ queryKey: ["config-drift"] }); },
   });
 
+  if (!canViewDrift) return <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-4 text-sm text-red-200">You do not have permission to view config drift.</div>;
   if (isLoading) return <div className="space-y-4">{[...Array(4)].map((_, i) => <div key={i} className="h-16 rounded-xl bg-white/5 animate-pulse" />)}</div>;
 
   return (
@@ -65,11 +72,11 @@ export default function ConfigDriftPage() {
           <p className="text-sm text-slate-400">Compare current state vs captured baseline</p>
         </div>
         <div className="flex gap-2">
-          <button onClick={() => captureMutation.mutate()} disabled={captureMutation.isPending} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-500/20 border border-indigo-500/30 text-sm text-indigo-300 hover:bg-indigo-500/30 transition-colors disabled:opacity-50">
+          <button onClick={() => captureMutation.mutate()} disabled={captureMutation.isPending || !canManageDrift} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-500/20 border border-indigo-500/30 text-sm text-indigo-300 hover:bg-indigo-500/30 transition-colors disabled:opacity-50">
             <Database className="w-4 h-4" />{captureMutation.isPending ? "Capturing..." : "Capture Baseline"}
           </button>
           {baselineCaptured && (
-            <button onClick={() => clearMutation.mutate()} disabled={clearMutation.isPending} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-500/20 border border-red-500/30 text-sm text-red-300 hover:bg-red-500/30 transition-colors">
+            <button onClick={() => clearMutation.mutate()} disabled={clearMutation.isPending || !canManageDrift} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-500/20 border border-red-500/30 text-sm text-red-300 hover:bg-red-500/30 transition-colors disabled:opacity-50">
               <Trash2 className="w-4 h-4" />Clear
             </button>
           )}

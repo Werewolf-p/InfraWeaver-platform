@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { getSessionRBACContext, hasAnySessionPermission, hasSessionPermission } from "@/lib/session-rbac";
 import * as k8s from "@kubernetes/client-node";
 
 interface BaselineEntry {
@@ -19,9 +20,33 @@ interface DriftEntry extends BaselineEntry {
 
 const baseline: BaselineEntry[] = [];
 
-export async function GET() {
+async function requireReadAccess() {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const access = await getSessionRBACContext(session, 60);
+  if (!hasAnySessionPermission(access, ["cluster:read", "infra:read"])) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  return session;
+}
+
+async function requireWriteAccess() {
+  const session = await auth();
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const access = await getSessionRBACContext(session, 60);
+  if (!hasSessionPermission(access, "cluster:admin")) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  return session;
+}
+
+export async function GET() {
+  const session = await requireReadAccess();
+  if (session instanceof NextResponse) return session;
   if (baseline.length === 0) {
     return NextResponse.json({ drift: [], baselineCaptured: false });
   }
@@ -56,8 +81,8 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const session = await requireWriteAccess();
+  if (session instanceof NextResponse) return session;
   const body = await req.json() as { action?: string };
   if (body.action !== "capture") return NextResponse.json({ error: "Invalid action" }, { status: 400 });
   try {
@@ -86,8 +111,8 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE() {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const session = await requireWriteAccess();
+  if (session instanceof NextResponse) return session;
   baseline.length = 0;
   return NextResponse.json({ ok: true });
 }

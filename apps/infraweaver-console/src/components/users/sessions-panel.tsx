@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { X, Trash2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useRBAC } from "@/hooks/use-rbac";
 
 interface TokenSession {
   identifier: string;
@@ -18,6 +19,8 @@ interface Props {
 }
 
 export function SessionsPanel({ username, open, onClose }: Props) {
+  const { canAny } = useRBAC();
+  const canManageSessions = canAny(["users:write", "users:invite", "rbac:admin"]);
   const [sessions, setSessions] = useState<TokenSession[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -40,6 +43,10 @@ export function SessionsPanel({ username, open, onClose }: Props) {
   }, [open, username]);
 
   async function revokeSession(tokenId: string) {
+    if (!canManageSessions) {
+      toast.error("You do not have permission to manage user sessions");
+      return;
+    }
     try {
       await fetch(`/api/users/${username}/sessions/${tokenId}`, { method: "DELETE" });
       setSessions((prev) => prev.filter((s) => s.identifier !== tokenId));
@@ -50,6 +57,10 @@ export function SessionsPanel({ username, open, onClose }: Props) {
   }
 
   async function revokeAll() {
+    if (!canManageSessions) {
+      toast.error("You do not have permission to manage user sessions");
+      return;
+    }
     for (const s of sessions) {
       await revokeSession(s.identifier);
     }
@@ -70,7 +81,8 @@ export function SessionsPanel({ username, open, onClose }: Props) {
             {sessions.length > 0 && (
               <button
                 onClick={revokeAll}
-                className="px-2.5 py-1.5 rounded-lg text-xs text-red-400 border border-red-500/20 bg-red-500/10 hover:bg-red-500/20 transition-colors"
+                disabled={!canManageSessions}
+                className="px-2.5 py-1.5 rounded-lg text-xs text-red-400 border border-red-500/20 bg-red-500/10 hover:bg-red-500/20 transition-colors disabled:opacity-50"
               >
                 Revoke All
               </button>
@@ -106,7 +118,8 @@ export function SessionsPanel({ username, open, onClose }: Props) {
                 </div>
                 <button
                   onClick={() => revokeSession(s.identifier)}
-                  className="ml-3 p-1.5 rounded-lg text-red-400 hover:bg-red-500/10 transition-colors flex-shrink-0"
+                  disabled={!canManageSessions}
+                  className="ml-3 p-1.5 rounded-lg text-red-400 hover:bg-red-500/10 transition-colors flex-shrink-0 disabled:opacity-50"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>

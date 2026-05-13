@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Loader2, Plus, X } from "lucide-react";
 import { toast } from "sonner";
 import { fetchJson } from "./utils";
+import { useRBAC } from "@/hooks/use-rbac";
 
 interface NotesTagsEditorProps {
   serverName: string;
@@ -18,6 +19,8 @@ export function NotesTagsEditor({
   tags,
   onSaved,
 }: NotesTagsEditorProps) {
+  const { can } = useRBAC();
+  const canWrite = can("game-hub:write", `/game-hub/servers/${serverName}`) || can("game-hub:admin", `/game-hub/servers/${serverName}`);
   const [notesValue, setNotesValue] = useState(notes);
   const [tagsValue, setTagsValue] = useState(tags);
   const [tagInput, setTagInput] = useState("");
@@ -33,6 +36,10 @@ export function NotesTagsEditor({
   }, [tags]);
 
   async function saveNotes(nextNotes: string) {
+    if (!canWrite) {
+      toast.error("You do not have permission to update server metadata");
+      return;
+    }
     setSavingNotes(true);
     try {
       await fetchJson(`/api/game-hub/servers/${serverName}`, {
@@ -50,6 +57,10 @@ export function NotesTagsEditor({
   }
 
   async function saveTags(nextTags: string[]) {
+    if (!canWrite) {
+      toast.error("You do not have permission to update server metadata");
+      return;
+    }
     setSavingTags(true);
     try {
       await fetchJson(`/api/game-hub/servers/${serverName}`, {
@@ -104,6 +115,7 @@ export function NotesTagsEditor({
         <textarea
           value={notesValue}
           onChange={(event) => setNotesValue(event.target.value)}
+          readOnly={!canWrite}
           onBlur={() => {
             if (notesValue !== notes) void saveNotes(notesValue);
           }}
@@ -138,7 +150,7 @@ export function NotesTagsEditor({
                   <button
                     type="button"
                     onClick={() => removeTag(tag)}
-                    disabled={savingTags}
+                    disabled={savingTags || !canWrite}
                     className="text-[#9dd4ff] transition hover:text-white disabled:opacity-50"
                   >
                     <X className="h-3 w-3" />
@@ -151,6 +163,7 @@ export function NotesTagsEditor({
             <input
               value={tagInput}
               onChange={(event) => setTagInput(event.target.value)}
+              disabled={!canWrite}
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
                   event.preventDefault();
@@ -163,7 +176,7 @@ export function NotesTagsEditor({
             <button
               type="button"
               onClick={addTag}
-              disabled={!tagInput.trim() || savingTags}
+              disabled={!tagInput.trim() || savingTags || !canWrite}
               className="inline-flex items-center gap-2 rounded-lg border border-[#2a2a2a] px-3 py-2 text-sm text-[#f2f2f2] disabled:opacity-50"
             >
               <Plus className="h-4 w-4" /> Add

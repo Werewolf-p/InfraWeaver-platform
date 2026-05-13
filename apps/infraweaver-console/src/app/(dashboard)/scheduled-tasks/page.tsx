@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Clock, Plus, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
+import { useRBAC } from "@/hooks/use-rbac";
 
 interface ScheduledTask {
   id: string;
@@ -20,6 +21,9 @@ interface ScheduledTask {
 }
 
 export default function ScheduledTasksPage() {
+  const { can, canAny } = useRBAC();
+  const canViewTasks = canAny(["cluster:read", "infra:read"]);
+  const canManageTasks = can("cluster:admin");
   const qc = useQueryClient();
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ name: "", namespace: "default", pod: "", schedule: "0 * * * *", command: "ls" });
@@ -37,6 +41,7 @@ export default function ScheduledTasksPage() {
 
   const createMutation = useMutation({
     mutationFn: async (body: typeof form) => {
+      if (!canManageTasks) throw new Error("Forbidden");
       const res = await fetch("/api/cluster/scheduled-tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       if (!res.ok) throw new Error("Failed");
       return res.json();
@@ -47,6 +52,7 @@ export default function ScheduledTasksPage() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
+      if (!canManageTasks) throw new Error("Forbidden");
       const res = await fetch(`/api/cluster/scheduled-tasks?id=${id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Failed");
     },
@@ -56,12 +62,14 @@ export default function ScheduledTasksPage() {
 
   const toggleMutation = useMutation({
     mutationFn: async ({ id, enabled }: { id: string; enabled: boolean }) => {
+      if (!canManageTasks) throw new Error("Forbidden");
       const res = await fetch("/api/cluster/scheduled-tasks", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, enabled }) });
       if (!res.ok) throw new Error("Failed");
     },
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["scheduled-tasks"] }),
   });
 
+  if (!canViewTasks) return <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-4 text-sm text-red-200">You do not have permission to view scheduled tasks.</div>;
   if (isLoading) return <div className="space-y-4">{[...Array(3)].map((_, i) => <div key={i} className="h-16 rounded-xl bg-white/5 animate-pulse" />)}</div>;
 
   return (
@@ -72,7 +80,7 @@ export default function ScheduledTasksPage() {
           <h2 className="text-xl font-bold text-white flex items-center gap-2"><Clock className="w-5 h-5 text-slate-400" />Scheduled Tasks</h2>
           <p className="text-sm text-slate-400">Pod restart and command scheduling</p>
         </div>
-        <button onClick={() => setShowForm(v => !v)} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-500/20 border border-indigo-500/30 text-sm text-indigo-300 hover:bg-indigo-500/30 transition-colors">
+        <button onClick={() => canManageTasks && setShowForm(v => !v)} disabled={!canManageTasks} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-500/20 border border-indigo-500/30 text-sm text-indigo-300 hover:bg-indigo-500/30 transition-colors disabled:cursor-not-allowed disabled:opacity-50">
           <Plus className="w-4 h-4" />Add Task
         </button>
       </div>
@@ -83,7 +91,7 @@ export default function ScheduledTasksPage() {
           {(["name", "namespace", "pod", "schedule", "command"] as const).map(field => (
             <input key={field} value={form[field]} onChange={e => setForm(f => ({ ...f, [field]: e.target.value }))} placeholder={field.charAt(0).toUpperCase() + field.slice(1)} className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-white placeholder:text-slate-500 outline-none focus:border-indigo-500/50" />
           ))}
-          <button onClick={() => createMutation.mutate(form)} disabled={createMutation.isPending} className="w-full py-2 rounded-lg bg-indigo-500/20 border border-indigo-500/30 text-sm text-indigo-300 hover:bg-indigo-500/30 transition-colors disabled:opacity-50">
+          <button onClick={() => createMutation.mutate(form)} disabled={createMutation.isPending || !canManageTasks} className="w-full py-2 rounded-lg bg-indigo-500/20 border border-indigo-500/30 text-sm text-indigo-300 hover:bg-indigo-500/30 transition-colors disabled:opacity-50">
             {createMutation.isPending ? "Creating..." : "Create Task"}
           </button>
         </div>
@@ -107,12 +115,12 @@ export default function ScheduledTasksPage() {
                 <td className="px-4 py-3 text-sm text-slate-400">{t.namespace}/{t.pod}</td>
                 <td className="px-4 py-3 text-sm text-slate-400 font-mono">{t.command}</td>
                 <td className="px-4 py-3 text-center">
-                  <button onClick={() => toggleMutation.mutate({ id: t.id, enabled: !t.enabled })} className={cn("w-8 h-4 rounded-full transition-colors relative", t.enabled ? "bg-indigo-500" : "bg-white/10")}>
+                  <button onClick={() => toggleMutation.mutate({ id: t.id, enabled: !t.enabled })} disabled={!canManageTasks} className={cn("w-8 h-4 rounded-full transition-colors relative disabled:opacity-50", t.enabled ? "bg-indigo-500" : "bg-white/10")}>
                     <span className={cn("absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all", t.enabled ? "left-4.5 left-[calc(100%-14px)]" : "left-0.5")} />
                   </button>
                 </td>
                 <td className="px-4 py-3">
-                  <button onClick={() => deleteMutation.mutate(t.id)} className="text-red-400 hover:text-red-300 transition-colors">
+                  <button onClick={() => deleteMutation.mutate(t.id)} disabled={!canManageTasks} className="text-red-400 hover:text-red-300 transition-colors disabled:opacity-50">
                     <Trash2 className="w-4 h-4" />
                   </button>
                 </td>

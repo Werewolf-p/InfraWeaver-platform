@@ -5,6 +5,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
+import { useRBAC } from "@/hooks/use-rbac";
 
 interface Pod {
   name: string;
@@ -22,6 +23,8 @@ interface NsStats {
 }
 
 export default function NamespaceCleanupPage() {
+  const { can } = useRBAC();
+  const canManageNamespaces = can("cluster:admin");
   const [preview, setPreview] = useState<string[] | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -48,6 +51,10 @@ export default function NamespaceCleanupPage() {
   const stats = Object.values(byNs);
 
   const handlePreview = async () => {
+    if (!canManageNamespaces) {
+      toast.error("You do not have permission to preview namespace cleanup");
+      return;
+    }
     setLoading(true);
     try {
       const res = await fetch("/api/cluster/namespace-cleanup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ preview: true }) });
@@ -71,7 +78,7 @@ export default function NamespaceCleanupPage() {
           <h2 className="text-xl font-bold text-white">Namespace Cleanup</h2>
           <p className="text-sm text-slate-400">Identify namespaces with failed/stale pods</p>
         </div>
-        <button onClick={handlePreview} disabled={loading} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-500/20 border border-red-500/30 text-sm text-red-300 hover:bg-red-500/30 transition-colors disabled:opacity-50">
+        <button onClick={handlePreview} disabled={loading || !canManageNamespaces} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-500/20 border border-red-500/30 text-sm text-red-300 hover:bg-red-500/30 transition-colors disabled:opacity-50">
           <Trash2 className="w-4 h-4" />
           {loading ? "Loading..." : "Preview Cleanup"}
         </button>

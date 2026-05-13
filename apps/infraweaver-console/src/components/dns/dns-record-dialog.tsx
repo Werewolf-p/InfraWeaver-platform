@@ -49,6 +49,7 @@ interface DnsRecordDialogProps {
   currentMachineTargets?: TemplateTarget[];
   gameServerTargets?: TemplateTarget[];
   onSubmitted?: () => void | Promise<void>;
+  canWrite: boolean;
 }
 
 const DEFAULT_FORM: FormState = {
@@ -82,6 +83,7 @@ export function DnsRecordDialog({
   currentMachineTargets = [],
   gameServerTargets = [],
   onSubmitted,
+  canWrite,
 }: DnsRecordDialogProps) {
   const isEditing = Boolean(record);
   const initialState = useMemo<FormState>(() => {
@@ -157,6 +159,10 @@ export function DnsRecordDialog({
   }
 
   async function handleSubmit() {
+    if (!canWrite) {
+      toast.error("You do not have permission to manage DNS records");
+      return;
+    }
     if (!validate()) return;
     setSubmitting(true);
 

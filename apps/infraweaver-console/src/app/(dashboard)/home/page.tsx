@@ -17,6 +17,7 @@ import { WidgetCard } from "@/components/ui/widget-card";
 import { useUserPreferences } from "@/hooks/use-user-preferences";
 import { useFavorites } from "@/hooks/use-favorites";
 import { useRecentPages } from "@/hooks/use-recent-pages";
+import { useRBAC } from "@/hooks/use-rbac";
 import { ALL_NAV_ITEMS } from "@/lib/nav-config";
 import Link from "next/link";
 import { Star } from "lucide-react";
@@ -287,9 +288,15 @@ function GroupSection({
 // ─── Quick Actions ───────────────────────────────────────────────────────────
 
 function QuickActions() {
+  const { can } = useRBAC();
+  const canSyncAll = can("apps:sync");
   const [syncing, setSyncing] = useState(false);
 
   const handleSyncAll = async () => {
+    if (!canSyncAll) {
+      toast.error("You do not have permission to sync apps");
+      return;
+    }
     setSyncing(true);
     try {
       const res = await fetch("/api/argocd/sync-all", { method: "POST" });
@@ -316,7 +323,7 @@ function QuickActions() {
     <div className="flex flex-wrap items-center gap-3">
       <button
         onClick={handleSyncAll}
-        disabled={syncing}
+        disabled={syncing || !canSyncAll}
         className="flex min-h-[40px] items-center gap-2 rounded-xl border border-[rgba(0,120,212,0.2)] bg-[rgba(0,120,212,0.1)] px-4 py-2 text-sm text-[#0078D4] transition-all hover:bg-[rgba(0,120,212,0.2)] disabled:cursor-not-allowed disabled:opacity-50"
       >
         {syncing ? (
