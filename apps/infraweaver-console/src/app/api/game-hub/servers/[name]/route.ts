@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
 import { buildEggConfigMap, getEggEnvironmentDefaults } from "@/lib/game-eggs";
 import { GAME_HUB_NAMESPACE, getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
-import { deleteGameServerManifest, generateGameServerManifest, parsePvcSizeGi, writeGameServerManifest } from "@/lib/game-hub-manifest";
+import { deleteServerManifest, writeServerManifest } from "@/lib/game-hub-manifest";
 import {
   appendServerAudit,
   checkPortReachable,
@@ -44,11 +44,32 @@ async function upsertEggConfigMap(
   }
 }
 
+const MANIFEST_SYNC_ACTIONS = new Set([
+  "sync-to-git",
+  "set-hpa",
+  "remove-hpa",
+  "update-env",
+  "set-restart-policy",
+  "update-resources",
+  "set-schedule",
+  "set-backup-schedule",
+  "set-backup-target",
+  "expand-pvc",
+  "update-image",
+  "update-pull-policy",
+  "update-strategy",
+  "update-identity",
+  "update-service-ports",
+  "set-scheduled-action",
+  "save-command",
+  "delete-saved-command",
+]);
+
 function actionPermission(action: string) {
   if (action === "start") return "game-hub:start" as const;
   if (action === "stop") return "game-hub:stop" as const;
   if (action === "scale") return "game-hub:scale" as const;
-  if (["set-hpa", "remove-hpa", "update-env", "set-restart-policy", "set-notes", "update-resources", "set-maintenance", "set-schedule", "set-backup-schedule", "set-backup-target", "expand-pvc"].includes(action)) {
+  if (["sync-to-git", "set-hpa", "remove-hpa", "update-env", "set-restart-policy", "set-notes", "update-resources", "set-maintenance", "set-schedule", "set-backup-schedule", "set-backup-target", "expand-pvc"].includes(action)) {
     return "game-hub:admin" as const;
   }
   if (["update-image", "update-pull-policy", "update-strategy", "update-identity", "update-service-ports", "set-scheduled-action", "save-command", "delete-saved-command"].includes(action)) {
@@ -350,7 +371,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ n
 
     // ── IaC write-back: remove manifest from git ──────────────────────────────
     try {
-      await deleteGameServerManifest(name);
+      await deleteServerManifest(name);
     } catch (gitErr) {
       console.error("Git delete failed (k8s delete succeeded):", gitErr);
     }
@@ -372,7 +393,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
 
   const { name } = await params;
   const body = await req.json() as {
-    action: "start" | "stop" | "restart" | "scale" | "set-hpa" | "remove-hpa" | "update-env" | "set-restart-policy" | "set-notes" | "update-resources" | "set-maintenance" | "set-schedule" | "set-backup-schedule" | "set-backup-target" | "expand-pvc" | "update-image" | "update-pull-policy" | "update-strategy" | "update-identity" | "update-service-ports" | "set-scheduled-action" | "save-command" | "delete-saved-command";
+    action: "start" | "stop" | "restart" | "scale" | "set-hpa" | "remove-hpa" | "update-env" | "set-restart-policy" | "set-notes" | "update-resources" | "set-maintenance" | "set-schedule" | "set-backup-schedule" | "set-backup-target" | "expand-pvc" | "update-image" | "update-pull-policy" | "update-strategy" | "update-identity" | "update-service-ports" | "set-scheduled-action" | "save-command" | "delete-saved-command" | "sync-to-git";
     replicas?: number;
     hpaMin?: number;
     hpaMax?: number;
@@ -621,68 +642,21 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
       if (!body.commandId) return NextResponse.json({ error: "commandId is required" }, { status: 400 });
       const existing = await readSavedCommands(clients.coreApi, name);
       await writeSavedCommands(clients.coreApi, name, existing.filter((c) => c.id !== body.commandId));
+    } else if (body.action === "sync-to-git") {
+      // Manifest sync is handled below.
     }
 
     await auditLog(`game-hub:${body.action}`, session.user?.email ?? "unknown", `${body.action} ${name}`);
     await appendServerAudit(clients.coreApi, name, { timestamp: new Date().toISOString(), user: session.user?.email ?? "unknown", action: body.action, details: JSON.stringify(body) });
 
     // ── IaC write-back for config-changing actions ────────────────────────────
-    // Runtime-only actions (start/stop/restart/scale/set-hpa/set-maintenance/
-    // set-notes/set-scheduled-action/save-command/delete-saved-command) are NOT
-    // written to git — only structural config changes are.
-    if (["update-env", "update-resources", "update-egg", "update-image", "update-pull-policy", "update-strategy", "update-identity", "update-service-ports"].includes(body.action)) {
+    // Runtime-only actions (start/stop/restart/scale/set-maintenance/set-notes)
+    // are intentionally excluded so git only tracks rebuildable server config.
+    if (MANIFEST_SYNC_ACTIONS.has(body.action)) {
       try {
-        const updatedDeployment = await getServerDeployment(clients.appsApi, name);
-        const updatedEgg = await readServerEgg(clients.coreApi, name, updatedDeployment);
-        const container = updatedDeployment.spec?.template?.spec?.containers?.[0];
-        const pvcClaimName =
-          updatedDeployment.spec?.template?.spec?.volumes
-            ?.find((v) => v.persistentVolumeClaim?.claimName)
-            ?.persistentVolumeClaim?.claimName ?? `${name}-data`;
-        const pvc = await clients.coreApi
-          .readNamespacedPersistentVolumeClaim({ name: pvcClaimName, namespace: GAME_HUB_NAMESPACE })
-          .catch(() => null);
-        const svc = await clients.coreApi
-          .readNamespacedService({ name, namespace: GAME_HUB_NAMESPACE })
-          .catch(() => null);
-        const ports = (svc?.spec?.ports ?? []).map((p) => p.port).filter((p): p is number => typeof p === "number");
-        const mountPath = container?.volumeMounts?.[0]?.mountPath ?? updatedEgg.mountPath ?? "/data";
-        const rawAnnotations = updatedDeployment.metadata?.annotations ?? {};
-        const infraAnnotations: Record<string, string> = {};
-        for (const [k, v] of Object.entries(rawAnnotations)) {
-          if (k.startsWith("infraweaver/") || k.startsWith("infraweaver.io/")) {
-            infraAnnotations[k] = v;
-          }
-        }
-        const manifest = generateGameServerManifest({
-          name,
-          namespace: GAME_HUB_NAMESPACE,
-          image: container?.image ?? updatedEgg.dockerImage,
-          replicas: updatedDeployment.spec?.replicas ?? 1,
-          resources: {
-            memory: (container?.resources?.limits?.memory as string | undefined) ?? updatedEgg.defaultMemory ?? "2Gi",
-            cpu: (container?.resources?.limits?.cpu as string | undefined) ?? updatedEgg.defaultCpu ?? "1",
-            memoryRequest: (container?.resources?.requests?.memory as string | undefined) ?? "512Mi",
-            cpuRequest: (container?.resources?.requests?.cpu as string | undefined) ?? "250m",
-          },
-          ports: ports.length > 0 ? ports : [updatedEgg.gamePort],
-          pvcSizeGi: parsePvcSizeGi(pvc?.spec?.resources?.requests?.storage ?? "10Gi"),
-          storageClass: pvc?.spec?.storageClassName ?? "longhorn",
-          mountPath,
-          env: Object.fromEntries((container?.env ?? []).map((e) => [e.name, e.value ?? ""])),
-          eggData: {
-            startup_command: updatedEgg.startupCommand,
-            stop_command: updatedEgg.stopCommand,
-            quick_commands: updatedEgg.quickCommands,
-            game_port: updatedEgg.gamePort,
-            query_port: updatedEgg.queryPort,
-          },
-          annotations: Object.keys(infraAnnotations).length > 0 ? infraAnnotations : undefined,
-        });
-        await writeGameServerManifest(name, manifest);
+        await writeServerManifest(name, clients);
       } catch (gitErr) {
-        console.error(`Git write-back failed for action ${body.action} on ${name}:`, gitErr);
-        // k8s patch succeeded — do not fail the response
+        console.warn(`writeServerManifest failed for action ${body.action} on ${name}`, gitErr);
       }
     }
 

@@ -78,6 +78,8 @@ export function makeGameHubClients() {
   };
 }
 
+export type GameHubClients = ReturnType<typeof makeGameHubClients>;
+
 export async function readServerEgg(
   coreApi: k8s.CoreV1Api,
   name: string,

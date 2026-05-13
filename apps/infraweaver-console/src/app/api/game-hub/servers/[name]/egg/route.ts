@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { buildEggConfigMap, getEggForGameType, type GameEgg } from "@/lib/game-eggs";
 import { GAME_HUB_NAMESPACE, getGameHubAccessContext, hasGameHubPermission, parseEggConfig } from "@/lib/game-hub";
-import { loadKubeConfig } from "@/lib/k8s";
+import { writeServerManifest } from "@/lib/game-hub-manifest";
+import { makeGameHubClients } from "@/lib/game-hub-server";
 import { safeError } from "@/lib/utils";
 
 function deploymentGameType(deployment: { metadata?: { labels?: Record<string, string> } } | null | undefined) {
@@ -28,10 +29,9 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ nam
   }
 
   try {
-    const k8s = await import("@kubernetes/client-node");
-    const kc = loadKubeConfig();
-    const appsApi = kc.makeApiClient(k8s.AppsV1Api);
-    const coreApi = kc.makeApiClient(k8s.CoreV1Api);
+    const clients = makeGameHubClients();
+    const appsApi = clients.appsApi;
+    const coreApi = clients.coreApi;
     let deployment = null;
     try {
       deployment = await appsApi.readNamespacedDeployment({ name, namespace: GAME_HUB_NAMESPACE });
@@ -55,10 +55,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
   if (!body.egg) return NextResponse.json({ error: "egg payload required" }, { status: 400 });
 
   try {
-    const k8s = await import("@kubernetes/client-node");
-    const kc = loadKubeConfig();
-    const appsApi = kc.makeApiClient(k8s.AppsV1Api);
-    const coreApi = kc.makeApiClient(k8s.CoreV1Api);
+    const clients = makeGameHubClients();
+    const appsApi = clients.appsApi;
+    const coreApi = clients.coreApi;
     let deployment = null;
     try {
       deployment = await appsApi.readNamespacedDeployment({ name, namespace: GAME_HUB_NAMESPACE });
@@ -78,6 +77,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
       await coreApi.replaceNamespacedConfigMap({ name: `gameserver-${name}-egg`, namespace: GAME_HUB_NAMESPACE, body: configMap });
     } catch {
       await coreApi.createNamespacedConfigMap({ namespace: GAME_HUB_NAMESPACE, body: configMap });
+    }
+
+    try {
+      await writeServerManifest(name, clients);
+    } catch (gitErr) {
+      console.warn(`writeServerManifest failed after egg update for ${name}`, gitErr);
     }
 
     return NextResponse.json({ ok: true, egg: mergedEgg });

@@ -4,7 +4,7 @@ import { auditLog } from "@/lib/audit-log";
 import { buildEggConfigMap, getEggEnvironmentDefaults, getEggForGameType, getEggPorts } from "@/lib/game-eggs";
 import { GAME_HUB_NAMESPACE, getGameHubAccessContext, getScopedGameServerNames, hasGameHubPermission } from "@/lib/game-hub";
 import { getServerDeployment, makeGameHubClients, normalizeServerName, parseImageVersion, parsePlayerHistory, readServerEgg } from "@/lib/game-hub-server";
-import { generateGameServerManifest, parsePvcSizeGi, writeGameServerManifest } from "@/lib/game-hub-manifest";
+import { readServerManifestSha, writeServerManifest } from "@/lib/game-hub-manifest";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { hasPermission } from "@/lib/rbac";
 import { safeError } from "@/lib/utils";
@@ -253,6 +253,10 @@ export async function GET() {
 
     const servers = await Promise.all(visibleDeployments.map(async (deployment) => {
       const name = deployment.metadata?.name ?? "";
+      const manifestShaPromise = readServerManifestSha(name).catch((error) => {
+        console.warn(`readServerManifestSha failed for ${name}`, error);
+        return null;
+      });
       const gameType = deployment.metadata?.labels?.["infraweaver/game-type"] ?? "unknown";
       const egg = getEggForGameType(gameType);
       const replicas = deployment.status?.replicas ?? 0;
@@ -321,6 +325,8 @@ export async function GET() {
       const image = deployment.spec?.template?.spec?.containers?.[0]?.image ?? egg.dockerImage;
       const parsedVersion = parseImageVersion(image);
 
+      const manifestSha = await manifestShaPromise;
+
       return {
         name,
         gameType,
@@ -350,6 +356,7 @@ export async function GET() {
         memoryUsage,
         cpuLimit,
         memoryLimit,
+        inGit: manifestSha !== null,
       };
     }));
 
@@ -398,54 +405,23 @@ export async function POST(req: NextRequest) {
       }
       const result = await cloneServer(body.source, body.newName);
       await auditLog("game-hub:clone", session.user?.email ?? "unknown", `${body.source} -> ${result.name}`);
+
+      try {
+        await writeServerManifest(result.name, makeGameHubClients());
+      } catch (gitErr) {
+        console.warn("writeServerManifest failed after clone", gitErr);
+      }
+
       return NextResponse.json(result, { status: 201 });
     }
 
     const result = await createServer(body);
     await auditLog("game-hub:create", session.user?.email ?? "unknown", `created ${result.name}`);
 
-    // ── IaC write-back: commit manifest to git ────────────────────────────────
     try {
-      const requestedGame = body.egg ?? body.game ?? "";
-      const baseEgg = getEggForGameType(requestedGame);
-      const customPorts = body.ports?.length ? body.ports : undefined;
-      const resolvedEgg = {
-        ...baseEgg,
-        id: requestedGame || baseEgg.id,
-        dockerImage: body.image ?? baseEgg.dockerImage,
-        gamePort: body.port ?? baseEgg.gamePort,
-        mountPath: body.mountPath ?? baseEgg.mountPath,
-        ports: customPorts ?? getEggPorts({ ...baseEgg, gamePort: body.port ?? baseEgg.gamePort }),
-      };
-      const env = { ...getEggEnvironmentDefaults(resolvedEgg), ...(body.env ?? {}) };
-      const memory = body.memory ?? resolvedEgg.defaultMemory ?? "2Gi";
-      const cpu = body.cpu ?? resolvedEgg.defaultCpu ?? "1";
-      const storage = body.storage ?? resolvedEgg.defaultStorage ?? "10Gi";
-      const storageClass = body.storageClass ?? "longhorn";
-      const ports = getEggPorts(resolvedEgg).map((p) => p.port);
-      const manifest = generateGameServerManifest({
-        name: result.name,
-        namespace: GAME_HUB_NAMESPACE,
-        image: resolvedEgg.dockerImage,
-        replicas: 1,
-        resources: { memory, cpu },
-        ports,
-        pvcSizeGi: parsePvcSizeGi(storage),
-        storageClass,
-        mountPath: resolvedEgg.mountPath,
-        env,
-        eggData: {
-          startup_command: resolvedEgg.startupCommand,
-          stop_command: resolvedEgg.stopCommand,
-          quick_commands: resolvedEgg.quickCommands,
-          game_port: resolvedEgg.gamePort,
-          query_port: resolvedEgg.queryPort,
-        },
-      });
-      await writeGameServerManifest(result.name, manifest);
+      await writeServerManifest(result.name, makeGameHubClients());
     } catch (gitErr) {
-      console.error("Git write-back failed (k8s create succeeded):", gitErr);
-      // k8s create succeeded — do not fail the response
+      console.warn("writeServerManifest failed after create", gitErr);
     }
 
     return NextResponse.json(result, { status: 201 });

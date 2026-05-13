@@ -36,6 +36,7 @@ interface GameServer {
   memoryUsage?: number | null;
   cpuLimit?: number | null;
   memoryLimit?: number | null;
+  inGit: boolean;
 }
 
 interface UnusedPVC {
@@ -490,18 +491,6 @@ export default function GameHubPage() {
     refetchInterval: 15000,
   });
 
-  const { data: iacData } = useQuery({
-    queryKey: ["game-hub", "iac-status"],
-    queryFn: async () => {
-      const res = await fetch("/api/game-hub/servers/iac-status");
-      if (!res.ok) return { servers: {} as Record<string, boolean> };
-      return res.json() as Promise<{ servers: Record<string, boolean> }>;
-    },
-    refetchInterval: 60000,
-    staleTime: 30000,
-  });
-  const iacStatus = iacData?.servers ?? {};
-
   const servers = data?.servers ?? [];
   const uniqueGameTypes = [...new Set(servers.map((server) => server.gameType))].sort();
   const allTags = [...new Set(servers.flatMap((server) => server.tags ?? []))].sort((a, b) => a.localeCompare(b));
@@ -539,7 +528,7 @@ export default function GameHubPage() {
           body: JSON.stringify({ action }),
         });
         if (!res.ok) throw new Error(`${action} failed`);
-        toast.success(`${name} ${action} successful`);
+        toast.success(action === "sync-to-git" ? `${name} synced to git` : `${name} ${action} successful`);
       }
       queryClient.invalidateQueries({ queryKey: ["game-hub", "servers"] });
     } catch (error) {
@@ -799,10 +788,23 @@ export default function GameHubPage() {
                         <span className={cn("text-[10px] font-medium rounded-full px-2 py-0.5 border capitalize", stoppedStyle)}>{server.status}</span>
                         <span className={cn("text-[10px] font-medium rounded-full px-2 py-0.5 border", health.className)}>{server.status === "stopped" ? "Stopped" : `Health ${health.label}`}</span>
                         {server.status === "stopped" && <span className="text-[10px] px-2 py-0.5 rounded-full border border-amber-500/30 bg-amber-500/10 text-amber-200">Stopped</span>}
-                        {server.name in iacStatus && (
-                          iacStatus[server.name]
-                            ? <span className="text-[10px] px-2 py-0.5 rounded-full border border-green-500/30 bg-green-500/10 text-green-300" title="Manifest committed to git — survives cluster rebuild">📝 In Git</span>
-                            : <span className="text-[10px] px-2 py-0.5 rounded-full border border-amber-500/30 bg-amber-500/10 text-amber-300" title="No manifest in git — will be lost on cluster rebuild">⚠️ Not in Git</span>
+                        {server.inGit ? (
+                          <span className="text-[10px] px-2 py-0.5 rounded-full border border-green-500/30 bg-green-500/10 text-green-300" title="Manifest committed to git — survives cluster rebuild">IaC ✓</span>
+                        ) : (
+                          <>
+                            <span className="text-[10px] px-2 py-0.5 rounded-full border border-[#444] bg-[#252525] text-[#b3b3b3]" title="No manifest in git — will be lost on cluster rebuild">Not in Git</span>
+                            <button
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void doAction(server.name, "sync-to-git");
+                              }}
+                              disabled={actionLoading[server.name] === "sync-to-git"}
+                              className="inline-flex items-center gap-1 rounded-full border border-[#2f6fa8] bg-[#0078D4]/10 px-2 py-0.5 text-[10px] font-medium text-[#7cc4ff] transition-colors hover:bg-[#0078D4]/20 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {actionLoading[server.name] === "sync-to-git" ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                              Sync
+                            </button>
+                          </>
                         )}
                       </div>
                       <p className="text-xs text-[#666] capitalize mt-0.5">{server.gameType.replace(/-/g, " ")}</p>
