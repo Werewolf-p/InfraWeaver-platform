@@ -27,6 +27,7 @@ const shortcutGroups: ShortcutGroup[] = [
       { keys: ["G", "K"], label: "Go to Cluster" },
       { keys: ["G", "S"], label: "Go to Storage" },
       { keys: ["G", "N"], label: "Go to Network" },
+      { keys: ["G", "Z"], label: "Go to DNS" },
       { keys: ["G", "L"], label: "Go to Logs" },
       { keys: ["G", "C"], label: "Go to Config" },
       { keys: ["G", "Y"], label: "Go to Security" },

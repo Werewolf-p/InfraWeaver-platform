@@ -11,6 +11,7 @@ import {
   HardDrive,
   Layers,
   Network,
+  Globe,
   RefreshCw,
   Search,
   Server,
@@ -31,6 +32,7 @@ import {
   YAxis,
 } from "recharts";
 import { toast } from "sonner";
+import { DnsRecordDialog } from "@/components/dns/dns-record-dialog";
 import { cn } from "@/lib/utils";
 import type {
   BackupEntry,
@@ -316,6 +318,7 @@ export function DashboardTab({
   );
   const [killingPid, setKillingPid] = useState<string | null>(null);
   const [testingConnectivity, setTestingConnectivity] = useState(false);
+  const [dnsDialogOpen, setDnsDialogOpen] = useState(false);
   const {
     data: metricsResponse,
     isLoading: metricsLoading,
@@ -1467,14 +1470,25 @@ export function DashboardTab({
               How to connect
             </p>
           </div>
-          <button
-            onClick={() => void refreshConnectivity()}
-            disabled={testingConnectivity}
-            className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border border-[#1e3a5f] bg-[#0d1b2a] px-3 py-1.5 text-xs text-[#9ccfff] hover:bg-[#10233a] disabled:opacity-50"
-          >
-            <RefreshCw className={cn("h-3.5 w-3.5", testingConnectivity && "animate-spin")} />
-            Test connectivity
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => setDnsDialogOpen(true)}
+              disabled={!server.nodeIp}
+              className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-1.5 text-xs text-cyan-100 transition hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+              title={server.nodeIp ? `Create DNS for ${name}` : "Node IP unavailable"}
+            >
+              <Globe className="h-3.5 w-3.5" />
+              Create DNS Record
+            </button>
+            <button
+              onClick={() => void refreshConnectivity()}
+              disabled={testingConnectivity}
+              className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border border-[#1e3a5f] bg-[#0d1b2a] px-3 py-1.5 text-xs text-[#9ccfff] hover:bg-[#10233a] disabled:opacity-50"
+            >
+              <RefreshCw className={cn("h-3.5 w-3.5", testingConnectivity && "animate-spin")} />
+              Test connectivity
+            </button>
+          </div>
         </div>
         <div className="grid gap-4 lg:grid-cols-[1.5fr_220px]">
           <div className="space-y-4">
@@ -1559,6 +1573,24 @@ export function DashboardTab({
           </div>
         </div>
       </div>
+
+      {dnsDialogOpen ? (
+        <DnsRecordDialog
+          open={dnsDialogOpen}
+          onOpenChange={setDnsDialogOpen}
+          defaultValues={{
+            name,
+            value: server.nodeIp ?? "",
+            type: "A",
+            internal: true,
+            ttl: 120,
+          }}
+          gameServerTargets={server.nodeIp ? [{ label: name, value: server.nodeIp, name, href: `/game-hub/${encodeURIComponent(name)}` }] : []}
+          onSubmitted={() => {
+            void queryClient.invalidateQueries({ queryKey: ["dns", "records"] });
+          }}
+        />
+      ) : null}
 
       {server.podName && server.allPorts.length > 0 && (
         <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4 space-y-2">

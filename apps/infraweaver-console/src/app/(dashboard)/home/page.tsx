@@ -6,7 +6,7 @@ import {
   GitBranch, Network, HardDrive, KeyRound, BarChart3, Activity,
   Shield, Wifi, BookOpen, HeartPulse, GitMerge, FileText, Package,
   Globe, ChevronDown, Search, RefreshCw, ExternalLink, Home,
-  Zap, CheckCircle2, AlertTriangle,
+  Zap, CheckCircle2, AlertTriangle, History, ListChecks,
 } from "lucide-react";
 import { cn, timeAgo } from "@/lib/utils";
 import { useSession } from "next-auth/react";
@@ -16,6 +16,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { WidgetCard } from "@/components/ui/widget-card";
 import { useUserPreferences } from "@/hooks/use-user-preferences";
 import { useFavorites } from "@/hooks/use-favorites";
+import { useRecentPages } from "@/hooks/use-recent-pages";
 import { ALL_NAV_ITEMS } from "@/lib/nav-config";
 import Link from "next/link";
 import { Star } from "lucide-react";
@@ -360,6 +361,16 @@ function QuickActions() {
 // ─── Page ────────────────────────────────────────────────────────────────────
 
 const ALL_CATEGORIES = ["All", ...SERVICE_GROUPS.map(g => g.label)];
+const CHECKLIST_STORAGE_KEY = "infraweaver:setup-checklist";
+
+function readChecklistState() {
+  if (typeof window === "undefined") return {} as Record<string, boolean>;
+  try {
+    return JSON.parse(localStorage.getItem(CHECKLIST_STORAGE_KEY) ?? "{}") as Record<string, boolean>;
+  } catch {
+    return {} as Record<string, boolean>;
+  }
+}
 
 function QuickStats() {
   const { data: pods } = useQuery({
@@ -457,11 +468,105 @@ function QuickStats() {
   );
 }
 
+function SetupChecklist({ recentPages }: { recentPages: Array<{ href: string; title: string; visitedAt: number }> }) {
+  const [manualChecks, setManualChecks] = useState<Record<string, boolean>>(() => readChecklistState());
+
+  const { data: dnsData } = useQuery({
+    queryKey: ["dns", "home-checklist"],
+    queryFn: async () => {
+      const res = await fetch("/api/dns", { cache: "no-store" });
+      if (!res.ok) return { records: [] as Array<unknown> };
+      return res.json() as Promise<{ records: Array<unknown> }>;
+    },
+    staleTime: 60000,
+  });
+
+  const { data: gameHubServers } = useQuery({
+    queryKey: ["game-hub", "servers", "home-checklist"],
+    queryFn: async () => {
+      const res = await fetch("/api/game-hub/servers", { cache: "no-store" });
+      if (!res.ok) return { servers: [] as Array<unknown> };
+      return res.json() as Promise<{ servers: Array<unknown> }>;
+    },
+    staleTime: 60000,
+  });
+
+  useEffect(() => {
+    localStorage.setItem(CHECKLIST_STORAGE_KEY, JSON.stringify(manualChecks));
+  }, [manualChecks]);
+
+  const items = [
+    {
+      id: "vpn",
+      title: "Verify VPN / network access",
+      description: "Open the network pages and confirm your internal routes are reachable.",
+      href: "/network",
+      complete: manualChecks.vpn || recentPages.some((page) => page.href.startsWith("/network")),
+    },
+    {
+      id: "server",
+      title: "Create your first game server",
+      description: "Use Game Hub to deploy a server with recommended defaults.",
+      href: "/game-hub/new",
+      complete: manualChecks.server || (gameHubServers?.servers?.length ?? 0) > 0,
+    },
+    {
+      id: "dns",
+      title: "Create a DNS record",
+      description: "Add an internal VPN name or public hostname in the new DNS Manager.",
+      href: "/dns",
+      complete: manualChecks.dns || (dnsData?.records?.length ?? 0) > 0,
+    },
+  ];
+
+  const completed = items.filter((item) => item.complete).length;
+
+  return (
+    <WidgetCard title="Setup Checklist" icon={ListChecks}>
+      <div className="p-4 space-y-3">
+        <div className="flex items-center justify-between text-sm">
+          <p className="text-slate-300">Recommended first steps for new operators.</p>
+          <span className="rounded-full border border-white/10 bg-[#141414] px-2 py-1 text-xs text-slate-400">
+            {completed}/{items.length} complete
+          </span>
+        </div>
+        {items.map((item) => (
+          <div key={item.id} className="flex items-start gap-3 rounded-xl border border-white/10 bg-[#141414] p-3">
+            <button
+              onClick={() => setManualChecks((current) => ({ ...current, [item.id]: !item.complete }))}
+              className={cn(
+                "mt-0.5 flex h-5 w-5 items-center justify-center rounded border transition",
+                item.complete
+                  ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-300"
+                  : "border-white/10 bg-black/20 text-slate-500 hover:text-white",
+              )}
+              title={item.complete ? "Mark incomplete" : "Mark complete"}
+            >
+              <CheckCircle2 className="h-3.5 w-3.5" />
+            </button>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className={cn("font-medium", item.complete ? "text-emerald-200" : "text-white")}>{item.title}</p>
+                {item.complete ? <span className="text-xs text-emerald-300">Done</span> : null}
+              </div>
+              <p className="mt-1 text-sm text-slate-500">{item.description}</p>
+            </div>
+            <Link href={item.href} className="rounded-lg border border-white/10 px-2.5 py-1.5 text-xs text-cyan-200 transition hover:text-white">
+              Open
+            </Link>
+          </div>
+        ))}
+      </div>
+    </WidgetCard>
+  );
+}
+
 export default function HomePortalPage() {
   const { data: session } = useSession();
   const [activeCategory, setActiveCategory] = useState("All");
   const { prefs } = useUserPreferences();
   const { favorites } = useFavorites();
+  const { recentPages } = useRecentPages();
   const favNavItems = ALL_NAV_ITEMS.filter(item => favorites.some(f => f.href === item.href));
 
   const { data: argoApps } = useQuery({
@@ -610,6 +715,44 @@ export default function HomePortalPage() {
 
       {/* Quick stats — pods, ArgoCD, cluster health */}
       <QuickStats />
+
+      <div className={cn("grid gap-4", recentPages.length > 0 ? "xl:grid-cols-[1.1fr_0.9fr]" : "") }>
+          {recentPages.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.12 }}
+              className="relative z-10"
+            >
+              <WidgetCard title="Recently Viewed" icon={History}>
+                <div className="p-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
+                  {recentPages.slice(0, 5).map((page) => (
+                    <Link
+                      key={`${page.href}-${page.visitedAt}`}
+                      href={page.href}
+                      className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-[#141414] px-3 py-3 text-sm transition hover:border-[rgba(0,120,212,0.3)] hover:bg-[rgba(0,120,212,0.05)]"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate font-medium text-white">{page.title}</p>
+                        <p className="mt-1 truncate text-xs text-slate-500">{page.href}</p>
+                      </div>
+                      <span className="shrink-0 text-xs text-slate-500">{timeAgo(new Date(page.visitedAt))}</span>
+                    </Link>
+                  ))}
+                </div>
+              </WidgetCard>
+            </motion.div>
+          )}
+
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.14 }}
+            className="relative z-10"
+          >
+            <SetupChecklist recentPages={recentPages} />
+          </motion.div>
+        </div>
 
       {/* Category filter bar */}
       <motion.div

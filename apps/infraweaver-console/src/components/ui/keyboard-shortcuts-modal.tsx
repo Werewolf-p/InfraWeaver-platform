@@ -16,6 +16,7 @@ const SHORTCUTS: Shortcut[] = [
   { keys: ["G", "A"], description: "Go to Apps", category: "Navigation" },
   { keys: ["G", "L"], description: "Go to Logs", category: "Navigation" },
   { keys: ["G", "S"], description: "Go to Settings", category: "Navigation" },
+  { keys: ["G", "Z"], description: "Go to DNS", category: "Navigation" },
   { keys: ["?"], description: "Show keyboard shortcuts", category: "Navigation" },
   { keys: ["R"], description: "Refresh current view", category: "Actions" },
   { keys: ["Esc"], description: "Close modal / panel", category: "Actions" },

@@ -194,6 +194,15 @@ export function LogStreamViewer({
     [logs]
   );
 
+  const latestErrorIndex = useMemo(() => {
+    for (let index = filteredLogs.length - 1; index >= 0; index -= 1) {
+      if (getLineLevel(filteredLogs[index] ?? "") === "ERROR") {
+        return index;
+      }
+    }
+    return -1;
+  }, [filteredLogs]);
+
   const handleDownload = () => {
     const blob = new Blob([filteredLogs.join("\n")], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
@@ -202,6 +211,14 @@ export function LogStreamViewer({
     anchor.download = `${pod ?? "pod"}-${container ?? "container"}.log`;
     anchor.click();
     URL.revokeObjectURL(url);
+  };
+
+  const jumpToLatestError = () => {
+    if (latestErrorIndex < 0 || !logsRef.current) return;
+    const node = logsRef.current.querySelector(`[data-log-index=\"${latestErrorIndex}\"]`);
+    if (node instanceof HTMLElement) {
+      node.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
   };
 
   if (!namespace || !pod) {
@@ -297,6 +314,16 @@ export function LogStreamViewer({
           Wrap
         </button>
 
+        <button
+          onClick={jumpToLatestError}
+          disabled={latestErrorIndex < 0}
+          className="inline-flex items-center gap-2 rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-sm text-amber-200 transition hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-40"
+          title={latestErrorIndex >= 0 ? "Jump to most recent error" : "No error lines available"}
+        >
+          <AlertCircle className="h-4 w-4" />
+          Jump to error
+        </button>
+
         <span className="text-xs text-slate-500">{filteredLogs.length} lines</span>
 
         {logs.length > 0 && (
@@ -341,6 +368,7 @@ export function LogStreamViewer({
               return (
                 <div
                   key={`${index}-${line.slice(0, 24)}`}
+                  data-log-index={index}
                   className={cn(
                     "group flex items-start gap-3 rounded-lg px-2 py-1 hover:bg-white/5",
                     level === "ERROR" && "text-red-300",

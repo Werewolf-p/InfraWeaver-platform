@@ -3,7 +3,8 @@ import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Activity, RefreshCw } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { AutoRefreshControl } from "@/components/ui/auto-refresh-control";
+import { cn, timeAgo } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
 
 interface ServiceStatus {
@@ -32,48 +33,61 @@ function serviceColor(status: string) {
 }
 
 export default function StatusPage() {
-  const [countdown, setCountdown] = useState(30);
+  const [refreshInterval, setRefreshInterval] = useState(30000);
+  const [now, setNow] = useState(() => Date.now());
 
-  const { data, isLoading, refetch } = useQuery({
+  const { data, isLoading, refetch, dataUpdatedAt } = useQuery({
     queryKey: ["platform", "status"],
     queryFn: async () => {
       const res = await fetch("/api/platform/status");
       if (!res.ok) throw new Error("Failed");
       return res.json() as Promise<PlatformStatus>;
     },
-    refetchInterval: 30000,
+    refetchInterval: refreshInterval || false,
   });
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setCountdown(c => {
-        if (c <= 1) { setCountdown(30); return 30; }
-        return c - 1;
-      });
-    }, 1000);
+    if (!refreshInterval) return;
+    const interval = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(interval);
-  }, []);
+  }, [refreshInterval]);
 
+  const countdown = refreshInterval
+    ? Math.max(0, Math.ceil((refreshInterval - ((now - dataUpdatedAt) % refreshInterval)) / 1000))
+    : 0;
   const banner = statusBanner(data?.status ?? "operational");
 
   if (isLoading) return <div className="space-y-4">{[...Array(4)].map((_, i) => <div key={i} className="h-20 rounded-xl bg-white/5 animate-pulse" />)}</div>;
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-      <PageHeader icon={Activity} title="Platform Status" subtitle="Live health of all platform services" />
-      <div className="flex items-center justify-between">
+      <PageHeader
+        icon={Activity}
+        title="Platform Status"
+        subtitle="Live health of all platform services"
+        actions={
+          <AutoRefreshControl
+            interval={refreshInterval}
+            onChange={setRefreshInterval}
+            onRefreshNow={() => void refetch()}
+          />
+        }
+      />
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-xl font-bold text-white flex items-center gap-2"><Activity className="w-5 h-5 text-slate-400" />Platform Status</h2>
-          <p className="text-sm text-slate-400">Real-time system status · auto-refresh {countdown}s</p>
+          <h2 className="flex items-center gap-2 text-xl font-bold text-white"><Activity className="w-5 h-5 text-slate-400" />Platform Status</h2>
+          <p className="text-sm text-slate-400">
+            {refreshInterval ? `Real-time system status · next auto-refresh in ${countdown}s` : "Auto-refresh paused"}
+          </p>
         </div>
-        <button onClick={() => void refetch()} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 hover:text-white transition-colors">
+        <button onClick={() => void refetch()} className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-300 transition-colors hover:text-white">
           <RefreshCw className="w-3.5 h-3.5" />Refresh
         </button>
       </div>
 
       <div className={cn("rounded-2xl border p-8 text-center", banner.bg)}>
         <p className={cn("text-3xl font-bold", banner.text)}>{banner.label}</p>
-        <p className="text-sm text-slate-400 mt-2">Last checked: {data?.checkedAt ? new Date(data.checkedAt).toLocaleTimeString() : "—"}</p>
+        <p className="mt-2 text-sm text-slate-400">Last checked: {data?.checkedAt ? `${timeAgo(data.checkedAt)} (${new Date(data.checkedAt).toLocaleTimeString()})` : "—"}</p>
       </div>
 
       <div className="grid grid-cols-3 gap-4">
@@ -89,7 +103,10 @@ export default function StatusPage() {
         ))}
       </div>
 
-      <div className="bg-slate-900/60 border border-white/10 rounded-xl backdrop-blur-sm p-4">
+      <div className="rounded-xl border border-white/10 bg-slate-900/60 p-4 backdrop-blur-sm">
+        <p className="mb-3 text-xs uppercase tracking-[0.2em] text-slate-500">
+          Last UI refresh {dataUpdatedAt ? timeAgo(new Date(dataUpdatedAt)) : "pending"}
+        </p>
         <h3 className="text-sm font-semibold text-white mb-4">Services</h3>
         <div className="grid grid-cols-2 gap-3">
           {(data?.services ?? []).map(s => (
