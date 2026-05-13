@@ -4923,7 +4923,7 @@ export default function ServerDetailPage() {
                   <span className="truncate">{connectionInfo}</span>
                 </button>
               )}
-              <div className="hidden items-center gap-2 sm:flex">
+              <div className="flex items-center gap-2">
                 {server.permissions?.canAdmin ? (
                   <button
                     onClick={() => void toggleMaintenanceMode()}
@@ -4933,7 +4933,7 @@ export default function ServerDetailPage() {
                         : "Enter Maintenance"
                     }
                     className={cn(
-                      "group flex min-h-[44px] items-center gap-1.5 rounded-xl border px-3 py-2 text-xs transition-all",
+                      "hidden sm:flex min-h-[44px] items-center gap-1.5 rounded-xl border px-3 py-2 text-xs transition-all",
                       server.maintenanceMode
                         ? "border-yellow-400/40 bg-yellow-500/20 text-yellow-100 shadow-[0_0_18px_rgba(250,204,21,0.22)]"
                         : "border-[#2a2a2a] bg-[#1a1a1a] text-[#888] hover:border-yellow-500/30 hover:bg-yellow-500/10 hover:text-yellow-200",
