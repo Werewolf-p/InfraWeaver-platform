@@ -1,0 +1,164 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: game-hub
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minecraft-server-data
+  namespace: game-hub
+  labels:
+    app: minecraft-server
+    infraweaver/game: 'true'
+  annotations:
+    argocd.argoproj.io/tracking-id: catalog-game-hub-servers:/PersistentVolumeClaim:game-hub/minecraft-server-data
+    pv.kubernetes.io/bind-completed: 'yes'
+    pv.kubernetes.io/bound-by-controller: 'yes'
+    volume.beta.kubernetes.io/storage-provisioner: driver.longhorn.io
+    volume.kubernetes.io/storage-provisioner: driver.longhorn.io
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: longhorn
+  volumeMode: Filesystem
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gameserver-minecraft-server-egg
+  namespace: game-hub
+  labels:
+    app: minecraft-server
+    infraweaver/game: 'true'
+    infraweaver/type: game-egg
+data:
+  saved-commands.json: |-
+    [
+      {
+        "id": "4c7c4c65-af67-4905-bba5-851062cfaa3e",
+        "label": "test",
+        "cmd": "test"
+      }
+    ]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minecraft-server
+  namespace: game-hub
+  labels:
+    app: minecraft-server
+    infraweaver/game: 'true'
+    infraweaver/game-type: minecraft
+  annotations:
+    argocd.argoproj.io/tracking-id: catalog-game-hub-servers:apps/Deployment:game-hub/minecraft-server
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: minecraft-server
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: minecraft-server
+        infraweaver/game: 'true'
+    spec:
+      containers:
+        - env:
+            - name: EULA
+              value: 'TRUE'
+            - name: TYPE
+              value: PAPER
+            - name: VERSION
+              value: LATEST
+            - name: MEMORY
+              value: 2048M
+            - name: MAX_PLAYERS
+              value: '20'
+            - name: SERVER_NAME
+              value: InfraWeaver Minecraft
+            - name: MOTD
+              value: A Minecraft Server - InfraWeaver
+          image: itzg/minecraft-server:latest
+          imagePullPolicy: Always
+          livenessProbe:
+            failureThreshold: 5
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            successThreshold: 1
+            tcpSocket:
+              port: 25565
+            timeoutSeconds: 1
+          name: minecraft
+          ports:
+            - containerPort: 25565
+              name: game
+              protocol: TCP
+          readinessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            successThreshold: 1
+            tcpSocket:
+              port: 25565
+            timeoutSeconds: 1
+          resources:
+            limits:
+              cpu: '2'
+              memory: 2560Mi
+            requests:
+              cpu: 500m
+              memory: 1Gi
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+            - mountPath: /data
+              name: data
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsUser: 1000
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: minecraft-server-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minecraft-server
+  namespace: game-hub
+  labels:
+    app: minecraft-server
+    infraweaver/game: 'true'
+  annotations:
+    argocd.argoproj.io/tracking-id: catalog-game-hub-servers:/Service:game-hub/minecraft-server
+spec:
+  externalTrafficPolicy: Cluster
+  internalTrafficPolicy: Cluster
+  ports:
+    - name: game
+      nodePort: 31261
+      port: 25565
+      protocol: TCP
+      targetPort: 25565
+  selector:
+    app: minecraft-server
+  sessionAffinity: None
+  type: NodePort
