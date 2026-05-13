@@ -210,7 +210,11 @@ function ConsoleTab({ name, status, server }: { name: string; status: string; se
       es.close();
       const delay = Math.min(2000 * 2 ** retryCountRef.current, 30000);
       retryCountRef.current += 1;
-      showBanner(`Disconnected — reconnecting in ${Math.round(delay / 1000)}s…`);
+      // Only show disconnect banner if we've been connected before AND delay is significant
+      // (first two retries at 2s/4s are silent — these are normal SSE keep-alive resets)
+      if (hasConnectedRef.current && delay >= 8000) {
+        showBanner(`Disconnected — reconnecting in ${Math.round(delay / 1000)}s…`);
+      }
       retryRef.current = setTimeout(() => connectRef.current(), delay);
     };
   }, [addLine, name, showBanner, status]);

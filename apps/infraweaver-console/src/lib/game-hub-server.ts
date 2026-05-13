@@ -438,7 +438,7 @@ export async function upsertCronJob(batchApi: k8s.BatchV1Api, name: string, sche
               containers: [{
                 name: "runner",
                 image: "bitnami/kubectl:latest",
-                command: ["/bin/sh", "-lc", command],
+                command: ["/bin/sh", "-c", command],
               }],
             },
           },

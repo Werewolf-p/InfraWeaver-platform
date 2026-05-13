@@ -180,11 +180,13 @@ async function buildResponse(name: string, limitedToken = false, access?: Awaite
   }
   const status = maintenanceMode
     ? "maintenance"
-    : (deployment.status?.readyReplicas ?? 0) > 0
-      ? "running"
-      : (deployment.status?.replicas ?? 0) > 0
-        ? "starting"
-        : "stopped";
+    : deployment.spec?.replicas === 0
+      ? "stopped"
+      : (deployment.status?.readyReplicas ?? 0) > 0
+        ? "running"
+        : (deployment.status?.replicas ?? 0) > 0
+          ? "starting"
+          : "stopped";
 
   if (limitedToken) {
     return {
