@@ -1,6 +1,6 @@
 "use client";
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import { ChevronLeft, ChevronRight, Check, Loader2, Gamepad2, Search } from "lucide-react";
@@ -82,14 +82,28 @@ function defaultDnsHostname(value: string) {
   return slug ? `${slug}.games.int.rlservers.com` : "";
 }
 
+type ServerTemplateConfig = {
+  gameType: string;
+  image?: string;
+  cpu?: string;
+  memory?: string;
+  port?: number | null;
+  env?: Record<string, string>;
+  egg?: string;
+  notes?: string;
+  tags?: string[];
+};
+
 export default function NewGameServerPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [step, setStep] = useState<StepId>("choose");
   const [selectedEgg, setSelectedEgg] = useState<GameEgg | null>(null);
   const [serverName, setServerName] = useState("");
   const [customImage, setCustomImage] = useState("");
   const [memory, setMemory] = useState("2Gi");
   const [cpu, setCpu] = useState("1");
+  const [customPort, setCustomPort] = useState<number | null>(null);
   const [storage, setStorage] = useState("10Gi");
   const [storageClass, setStorageClass] = useState("longhorn");
   const [dnsHostname, setDnsHostname] = useState("");
@@ -99,6 +113,7 @@ export default function NewGameServerPage() {
   const [deployed, setDeployed] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [eggSearch, setEggSearch] = useState("");
+  const [templateApplied, setTemplateApplied] = useState(false);
 
   const { data: eggsData } = useQuery({
     queryKey: ["game-hub", "eggs"],
@@ -129,6 +144,39 @@ export default function NewGameServerPage() {
     return true;
   });
 
+  useEffect(() => {
+    if (templateApplied || eggs.length === 0) return;
+    const rawTemplate = searchParams.get("template");
+    if (!rawTemplate) return;
+    try {
+      const template = JSON.parse(rawTemplate) as ServerTemplateConfig;
+      const templateEggId = template.egg ?? template.gameType;
+      const matchedEgg = eggs.find((egg) => egg.id === templateEggId || egg.id === template.gameType);
+      if (matchedEgg) {
+        setSelectedEgg(matchedEgg);
+        setStep("configure");
+        setMemory(template.memory ?? matchedEgg.defaultMemory ?? "2Gi");
+        setCpu(template.cpu ?? matchedEgg.defaultCpu ?? "1");
+        setCustomPort(template.port ?? matchedEgg.gamePort);
+        setStorage(matchedEgg.defaultStorage ?? "10Gi");
+        setCustomImage(template.image ?? matchedEgg.dockerImage);
+        setEnvValues(
+          Object.fromEntries(
+            eggEnvDefs(matchedEgg).map((envDef) => [
+              envDef.key,
+              template.env?.[envDef.key] ?? envDef.default,
+            ]),
+          ),
+        );
+        toast.success("Template loaded");
+      }
+    } catch {
+      toast.error("Unable to load the selected template");
+    } finally {
+      setTemplateApplied(true);
+    }
+  }, [eggs, searchParams, templateApplied]);
+
   function selectEgg(egg: GameEgg) {
     setSelectedEgg(egg);
     if (egg.id === "custom") {
@@ -136,6 +184,7 @@ export default function NewGameServerPage() {
     }
     setMemory(egg.defaultMemory ?? "2Gi");
     setCpu(egg.defaultCpu ?? "1");
+    setCustomPort(egg.gamePort);
     setStorage(egg.defaultStorage ?? "10Gi");
     setEnvValues(Object.fromEntries(eggEnvDefs(egg).map((envDef) => [envDef.key, envDef.default])));
     setStep("configure");
@@ -144,13 +193,18 @@ export default function NewGameServerPage() {
   function buildYamlPreview() {
     if (!selectedEgg) return "";
     const slug = normalizeServerNameInput(serverName);
-    const image = selectedEgg.id === "custom" ? customImage : selectedEgg.dockerImage;
+    const image = selectedEgg.id === "custom" ? customImage : (customImage || selectedEgg.dockerImage);
+    const effectivePort = customPort ?? selectedEgg.gamePort;
+    const effectivePorts = (selectedEgg.ports ?? []).map((port, index) => ({
+      ...port,
+      port: index === 0 ? effectivePort : port.port,
+    }));
     const env = eggEnvDefs(selectedEgg).map((envDef) => ({
       key: envDef.key,
       val: envValues[envDef.key] ?? envDef.default,
     }));
     const envLines = env.map(({ key, val }) => `    - name: ${key}\n      value: "${val}"`).join("\n");
-    const portsLines = (selectedEgg.ports ?? []).map((p) => `    - containerPort: ${p.port}\n      protocol: ${p.protocol}`).join("\n");
+    const portsLines = effectivePorts.map((p) => `    - containerPort: ${p.port}\n      protocol: ${p.protocol}`).join("\n");
     return `# ${selectedEgg.name} Server: ${slug}
 apiVersion: apps/v1
 kind: Deployment
@@ -196,7 +250,12 @@ spec:
     setDeploying(true);
     try {
       const slug = normalizeServerNameInput(serverName);
-      const image = selectedEgg.id === "custom" ? customImage : selectedEgg.dockerImage;
+      const image = selectedEgg.id === "custom" ? customImage : (customImage || selectedEgg.dockerImage);
+      const effectivePort = customPort ?? selectedEgg.gamePort;
+      const effectivePorts = (selectedEgg.ports ?? []).map((port, index) => ({
+        ...port,
+        port: index === 0 ? effectivePort : port.port,
+      }));
       const res = await fetch("/api/game-hub/servers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -208,7 +267,8 @@ spec:
           image,
           memory, cpu, storage, storageClass,
           env: envValues,
-          ports: selectedEgg.ports,
+          port: effectivePort,
+          ports: effectivePorts,
           mountPath: selectedEgg.mountPath,
         }),
       });
@@ -421,6 +481,7 @@ spec:
                 {[
                   { label: "Memory Limit", value: memory, onChange: setMemory, placeholder: "2Gi" },
                   { label: "CPU Limit", value: cpu, onChange: setCpu, placeholder: "1" },
+                  { label: "Game Port", value: String(customPort ?? selectedEgg.gamePort), onChange: (value: string) => setCustomPort(Number.parseInt(value, 10) || selectedEgg.gamePort), placeholder: String(selectedEgg.gamePort) },
                   { label: "Storage Size", value: storage, onChange: setStorage, placeholder: "10Gi" },
                 ].map(f => (
                   <div key={f.label} className="space-y-1.5">

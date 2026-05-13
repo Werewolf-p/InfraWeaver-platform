@@ -1,15 +1,18 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
+  ArrowUpDown,
   Copy,
   Download,
   HardDrive,
   Layers,
   Network,
+  RefreshCw,
+  Search,
   Server,
   Terminal,
   Users,
@@ -149,6 +152,21 @@ function formatCpuMilli(value: number | null | undefined) {
   return `${Math.round(value)}m CPU`;
 }
 
+function parseHumanStorageValue(value: string | null | undefined) {
+  const raw = (value ?? "").trim();
+  const match = raw.match(/^(\d+(?:\.\d+)?)([KMGTPE]?)(i?)B?$/i);
+  if (!match) return 0;
+  const amount = Number.parseFloat(match[1] ?? "0");
+  const unit = (match[2] ?? "").toUpperCase();
+  const base = match[3] ? 1024 : 1000;
+  const exponent = ["", "K", "M", "G", "T", "P", "E"].indexOf(unit);
+  return amount * base ** Math.max(exponent, 0);
+}
+
+function truncateCommand(value: string, max = 60) {
+  return value.length > max ? `${value.slice(0, max - 1)}…` : value;
+}
+
 function formatDateTime(value: string | null | undefined) {
   if (!value) return "—";
   const parsed = new Date(value);
@@ -200,6 +218,19 @@ export function DashboardTab({
   name: string;
   server: ServerDetail;
 }) {
+  const queryClient = useQueryClient();
+  const [storageHistory, setStorageHistory] = useState<
+    Array<{ t: number; used: number; total: number }>
+  >([]);
+  const [processSearch, setProcessSearch] = useState("");
+  const [processSortKey, setProcessSortKey] = useState<
+    "pid" | "cpu" | "mem" | "command"
+  >("cpu");
+  const [processSortDirection, setProcessSortDirection] = useState<"asc" | "desc">(
+    "desc",
+  );
+  const [killingPid, setKillingPid] = useState<string | null>(null);
+  const [testingConnectivity, setTestingConnectivity] = useState(false);
   const {
     data: metricsResponse,
     isLoading: metricsLoading,
@@ -287,6 +318,30 @@ export function DashboardTab({
     enabled: false,
   });
   const networkHistoryRef = useRef<NetworkSnapshot[]>([]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const stored = JSON.parse(
+        localStorage.getItem(`storage-history:${name}`) ?? "[]",
+      ) as Array<{ t: number; used: number; total: number }>;
+      setStorageHistory(stored.slice(-50));
+    } catch {
+      setStorageHistory([]);
+    }
+  }, [name]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !disk?.filesystem) return;
+    const used = parseHumanStorageValue(disk.filesystem.used);
+    const total = parseHumanStorageValue(disk.filesystem.total);
+    if (!used || !total) return;
+    setStorageHistory((current) => {
+      const next = [...current, { t: Date.now(), used, total }].slice(-50);
+      localStorage.setItem(`storage-history:${name}`, JSON.stringify(next));
+      return next;
+    });
+  }, [disk?.filesystem.percent, disk?.filesystem.total, disk?.filesystem.used, name]);
   const [networkThroughputData, setNetworkThroughputData] =
     useState<NetworkThroughputPoint[]>([]);
   const [networkThroughputError, setNetworkThroughputError] = useState<
@@ -532,11 +587,32 @@ export function DashboardTab({
           : `${host}:${port.nodePort ?? port.port}`,
     }));
   const primaryAddress = connectionRows[0]?.address ?? host;
+  const connectionHost = server.dnsHostname || server.nodeIp || host;
+  const connectionString = `${connectionHost}:${connectionRows[0]?.nodePort ?? server.nodePort ?? connectionRows[0]?.servicePort ?? server.port ?? "?"}`;
   const connectHint =
     server.egg?.connectionHint ??
     "Use the address below with your game client.";
-  const processRows = processes?.processes ?? [];
+  const rawProcessRows = processes?.processes ?? [];
+  const processRows = useMemo(() => {
+    const filtered = rawProcessRows.filter((row) =>
+      row.command.toLowerCase().includes(processSearch.toLowerCase()),
+    );
+    return [...filtered].sort((left, right) => {
+      const direction = processSortDirection === "asc" ? 1 : -1;
+      if (processSortKey === "pid") {
+        return direction * ((Number(left.pid) || 0) - (Number(right.pid) || 0));
+      }
+      if (processSortKey === "command") {
+        return direction * left.command.localeCompare(right.command);
+      }
+      return direction * ((left[processSortKey] ?? 0) - (right[processSortKey] ?? 0));
+    });
+  }, [processSearch, processSortDirection, processSortKey, rawProcessRows]);
   const networkRows = network?.stats ?? [];
+  const storageChartData = storageHistory.map((point) => ({
+    t: point.t,
+    pct: point.total > 0 ? Number(((point.used / point.total) * 100).toFixed(1)) : 0,
+  }));
   const metricsMessage =
     server.replicas === 0
       ? "No data while the server is stopped."
@@ -621,6 +697,45 @@ export function DashboardTab({
     } catch (error) {
       toast.error(String(error));
     }
+  }
+
+  async function killProcess(pid: string) {
+    setKillingPid(pid);
+    try {
+      await fetchJson(`/api/game-hub/servers/${name}/exec`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ command: `kill -SIGTERM ${pid}` }),
+      });
+      toast.success(`SIGTERM sent to ${pid}`);
+      void refetchProcesses();
+    } catch (error) {
+      toast.error(String(error));
+    } finally {
+      setKillingPid(null);
+    }
+  }
+
+  async function refreshConnectivity() {
+    setTestingConnectivity(true);
+    try {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["game-hub", "server", name] }),
+        queryClient.invalidateQueries({ queryKey: ["game-hub", "connectivity", name] }),
+      ]);
+      toast.success("Connectivity check refreshed");
+    } finally {
+      setTestingConnectivity(false);
+    }
+  }
+
+  function toggleProcessSort(key: "pid" | "cpu" | "mem" | "command") {
+    if (processSortKey === key) {
+      setProcessSortDirection((current) => (current === "asc" ? "desc" : "asc"));
+      return;
+    }
+    setProcessSortKey(key);
+    setProcessSortDirection(key === "command" || key === "pid" ? "asc" : "desc");
   }
 
   function copyValue(value: string, label = "Copied") {
@@ -1081,34 +1196,26 @@ export function DashboardTab({
         </div>
 
         <div className="space-y-4">
-          <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4 space-y-2">
+          <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4 space-y-3">
             <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-[#888]">
               <HardDrive className="w-4 h-4 text-[#34d399]" /> Storage
             </div>
             <div className="text-xs text-[#777] space-y-1">
               <div className="flex justify-between">
                 <span>PVC</span>
-                <span className="text-[#d4d4d4]">
-                  {server.pvc?.name ?? "—"}
-                </span>
+                <span className="text-[#d4d4d4]">{server.pvc?.name ?? "—"}</span>
               </div>
               <div className="flex justify-between">
                 <span>Capacity</span>
-                <span className="text-[#d4d4d4]">
-                  {server.pvc?.size ?? "—"}
-                </span>
+                <span className="text-[#d4d4d4]">{server.pvc?.size ?? "—"}</span>
               </div>
               <div className="flex justify-between">
                 <span>Used</span>
-                <span className="text-[#d4d4d4]">
-                  {disk?.filesystem.used ?? "—"}
-                </span>
+                <span className="text-[#d4d4d4]">{disk?.filesystem.used ?? "—"}</span>
               </div>
               <div className="flex justify-between">
                 <span>Available</span>
-                <span className="text-[#d4d4d4]">
-                  {disk?.filesystem.available ?? "—"}
-                </span>
+                <span className="text-[#d4d4d4]">{disk?.filesystem.available ?? "—"}</span>
               </div>
             </div>
             <div className="h-2 overflow-hidden rounded-full bg-[#1a1a1a]">
@@ -1124,6 +1231,32 @@ export function DashboardTab({
                 style={{ width: `${disk?.filesystem.percent ?? 0}%` }}
               />
             </div>
+            <div className="rounded-lg border border-[#1e1e1e] bg-[#0d0d0d] p-2">
+              <div className="mb-1 flex items-center justify-between text-[10px] text-[#666]">
+                <span>Usage trend</span>
+                <span>{disk?.filesystem.percent ?? 0}%</span>
+              </div>
+              <div className="h-[60px]">
+                {storageChartData.length > 1 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={storageChartData}>
+                      <Line type="monotone" dataKey="pct" stroke="#34d399" strokeWidth={2} dot={false} />
+                      <XAxis hide dataKey="t" />
+                      <YAxis hide />
+                      <Tooltip
+                        contentStyle={CHART_TOOLTIP_STYLE}
+                        formatter={(value) => [`${Number(value ?? 0).toFixed(1)}%`, "Usage"]}
+                        labelFormatter={(value) => new Date(Number(value)).toLocaleTimeString()}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="flex h-full items-center justify-center text-[10px] text-[#555]">
+                    Waiting for more storage samples…
+                  </div>
+                )}
+              </div>
+            </div>
             {disk?.topDirs?.length ? (
               <div className="space-y-1 pt-1">
                 {disk.topDirs.slice(0, 6).map((entry) => (
@@ -1131,9 +1264,7 @@ export function DashboardTab({
                     key={`${entry.path}-${entry.size}`}
                     className="flex justify-between text-[10px] text-[#666]"
                   >
-                    <span className="max-w-[120px] truncate font-mono">
-                      {entry.path}
-                    </span>
+                    <span className="max-w-[120px] truncate font-mono">{entry.path}</span>
                     <span className="text-[#888]">{entry.size}</span>
                   </div>
                 ))}
@@ -1215,108 +1346,116 @@ export function DashboardTab({
       </div>
 
       <div className="rounded-xl border border-[#1e3a5f] bg-[#0a1929] p-4 space-y-4">
-        <div className="flex items-center gap-2">
-          <Wifi className="w-4 h-4 text-[#0078D4]" />
-          <p className="text-xs font-semibold text-[#4fc3f7] uppercase tracking-wide">
-            How to connect
-          </p>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Wifi className="w-4 h-4 text-[#0078D4]" />
+            <p className="text-xs font-semibold text-[#4fc3f7] uppercase tracking-wide">
+              How to connect
+            </p>
+          </div>
+          <button
+            onClick={() => void refreshConnectivity()}
+            disabled={testingConnectivity}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-[#1e3a5f] bg-[#0d1b2a] px-3 py-1.5 text-xs text-[#9ccfff] hover:bg-[#10233a] disabled:opacity-50"
+          >
+            <RefreshCw className={cn("h-3.5 w-3.5", testingConnectivity && "animate-spin")} />
+            Test connectivity
+          </button>
         </div>
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <div className="rounded-lg border border-[#1e3a5f] bg-[#0d1b2a] p-3">
-            <p className="text-[10px] uppercase text-[#4a6fa5]">Host</p>
-            <p className="mt-1 font-mono text-sm text-[#e0e0e0] break-all">
-              {host}
-            </p>
-          </div>
-          <div className="rounded-lg border border-[#1e3a5f] bg-[#0d1b2a] p-3">
-            <p className="text-[10px] uppercase text-[#4a6fa5]">
-              Primary address
-            </p>
-            <div className="mt-1 flex items-center gap-2">
-              <p className="min-w-0 flex-1 truncate font-mono text-sm text-[#e0e0e0]">
-                {primaryAddress}
-              </p>
-              <button
-                onClick={() => copyValue(primaryAddress)}
-                className="flex-shrink-0 rounded-md border border-[#1e3a5f] p-1.5 text-[#4fc3f7] hover:bg-[#0d2137]"
-              >
-                <Copy className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
-          <div className="rounded-lg border border-[#1e3a5f] bg-[#0d1b2a] p-3">
-            <p className="text-[10px] uppercase text-[#4a6fa5]">Game port</p>
-            <p className="mt-1 font-mono text-sm text-[#e0e0e0]">
-              {connectionRows[0]?.servicePort ?? server.port ?? "—"}
-            </p>
-          </div>
-          <div className="rounded-lg border border-[#1e3a5f] bg-[#0d1b2a] p-3">
-            <p className="text-[10px] uppercase text-[#4a6fa5]">NodePort</p>
-            <p className="mt-1 font-mono text-sm text-[#e0e0e0]">
-              {connectionRows[0]?.nodePort ?? "—"}
-            </p>
-          </div>
-        </div>
-        {server.nodeIp && server.nodePort && (
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#1e3a5f] bg-[#0d1b2a] px-3 py-2 text-xs text-[#9ccfff]">
-            <div>
-              <span className="text-[#4a6fa5]">External:</span>{" "}
-              <span className="font-mono text-[#e0e0e0]">
-                {server.nodeIp}:{server.nodePort}
-              </span>
-            </div>
-            <Link
-              href={`/gameservers?new=1&target=${encodeURIComponent(name)}&port=${server.nodePort}`}
-              className="text-[#60a5fa] hover:text-[#93c5fd]"
-            >
-              Create Port Route →
-            </Link>
-          </div>
-        )}
-        <div className="space-y-2">
-          {connectionRows.length === 0 ? (
-            <p className="text-xs text-[#4a6fa5]">
-              No exposed ports configured.
-            </p>
-          ) : (
-            connectionRows.map((port) => (
-              <div
-                key={port.id}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#1e3a5f] bg-[#0d1b2a] px-3 py-2 text-xs text-[#9ccfff]"
-              >
-                <div className="flex min-w-0 items-center gap-2">
-                  <span
-                    className={cn(
-                      "rounded border px-1.5 py-0.5 text-[10px] font-mono",
-                      port.protocol === "UDP"
-                        ? "border-purple-500/30 bg-purple-500/10 text-purple-200"
-                        : "border-blue-500/30 bg-blue-500/10 text-blue-200",
-                    )}
-                  >
-                    {port.protocol}
-                  </span>
-                  <span className="capitalize">{port.label}</span>
-                  <span className="font-mono text-[#e0e0e0] truncate">
-                    {port.address}
-                  </span>
-                  <span className="text-[#4a6fa5]">svc {port.servicePort}</span>
-                  {port.nodePort && (
-                    <span className="text-[#4a6fa5]">node {port.nodePort}</span>
-                  )}
-                </div>
+        <div className="grid gap-4 lg:grid-cols-[1.5fr_220px]">
+          <div className="space-y-4">
+            <div className="rounded-lg border border-[#1e3a5f] bg-[#0d1b2a] p-4">
+              <p className="text-[10px] uppercase text-[#4a6fa5]">Connection string</p>
+              <div className="mt-2 flex flex-wrap items-center gap-3">
+                <code className="min-w-0 flex-1 break-all rounded-lg border border-[#1e3a5f] bg-[#10233a] px-3 py-2 text-base text-[#e0e0e0]">
+                  {connectionString}
+                </code>
                 <button
-                  onClick={() => copyValue(port.address)}
-                  className="flex-shrink-0 rounded-md border border-[#1e3a5f] p-1.5 text-[#4fc3f7] hover:bg-[#0d2137]"
+                  onClick={() => copyValue(connectionString, "Connection string copied")}
+                  className="inline-flex items-center gap-2 rounded-lg border border-[#1e3a5f] bg-[#10233a] px-3 py-2 text-sm text-[#9ccfff] hover:bg-[#12304b]"
                 >
-                  <Copy className="w-3 h-3" />
+                  <Copy className="h-3.5 w-3.5" />
+                  Copy
                 </button>
               </div>
-            ))
-          )}
+            </div>
+            <div className="overflow-x-auto rounded-lg border border-[#1e3a5f] bg-[#0d1b2a]">
+              <table className="w-full text-xs text-[#9ccfff]">
+                <thead className="bg-[#10233a] text-[10px] uppercase text-[#4a6fa5]">
+                  <tr>
+                    <th className="px-3 py-2 text-left">Port Name</th>
+                    <th className="px-3 py-2 text-left">Container Port</th>
+                    <th className="px-3 py-2 text-left">NodePort</th>
+                    <th className="px-3 py-2 text-left">Protocol</th>
+                    <th className="px-3 py-2 text-left">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {connectionRows.map((port, index) => {
+                    const externalReady = index === 0 ? server.portReachable : null;
+                    return (
+                      <tr key={port.id} className="border-t border-[#1e3a5f]">
+                        <td className="px-3 py-2 capitalize text-[#e0e0e0]">{port.label}</td>
+                        <td className="px-3 py-2 font-mono">{port.servicePort}</td>
+                        <td className="px-3 py-2 font-mono">{port.nodePort ?? "—"}</td>
+                        <td className="px-3 py-2">{port.protocol}</td>
+                        <td className="px-3 py-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] text-emerald-200">
+                              <span className="h-2 w-2 rounded-full bg-emerald-400" /> Internal
+                            </span>
+                            <span
+                              className={cn(
+                                "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px]",
+                                externalReady === true
+                                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
+                                  : externalReady === false
+                                    ? "border-red-500/30 bg-red-500/10 text-red-200"
+                                    : "border-[#1e3a5f] bg-[#10233a] text-[#7aa8da]",
+                              )}
+                            >
+                              <span
+                                className={cn(
+                                  "h-2 w-2 rounded-full",
+                                  externalReady === true
+                                    ? "bg-emerald-400"
+                                    : externalReady === false
+                                      ? "bg-red-400"
+                                      : "bg-[#4a6fa5]",
+                                )}
+                              />
+                              External {externalReady === true ? "open" : externalReady === false ? "closed" : "unknown"}
+                            </span>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-[11px] text-[#4a6fa5] leading-relaxed">{connectHint}</p>
+          </div>
+          <div className="space-y-3 rounded-lg border border-[#1e3a5f] bg-[#0d1b2a] p-4">
+            <div>
+              <p className="text-[10px] uppercase text-[#4a6fa5]">Primary host</p>
+              <p className="mt-1 break-all font-mono text-sm text-[#e0e0e0]">{connectionHost}</p>
+            </div>
+            <img
+              src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(connectionString)}`}
+              alt={`QR code for ${connectionString}`}
+              className="h-[120px] w-[120px] rounded-lg border border-[#1e3a5f] bg-white p-1"
+            />
+            {server.nodePort ? (
+              <Link
+                href={`/gameservers?new=1&target=${encodeURIComponent(name)}&port=${server.nodePort}`}
+                className="text-xs text-[#60a5fa] hover:text-[#93c5fd]"
+              >
+                Create Port Route →
+              </Link>
+            ) : null}
+          </div>
         </div>
-        <p className="text-[11px] text-[#4a6fa5] leading-relaxed">
-          {connectHint}
-        </p>
       </div>
 
       {server.podName && server.allPorts.length > 0 && (
@@ -1399,7 +1538,7 @@ export function DashboardTab({
       {server.replicas > 0 && (
         <div className="grid lg:grid-cols-2 gap-4">
           <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4 space-y-3">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-[#888]">
                 <Terminal className="w-4 h-4 text-[#22d3ee]" /> Live Processes
               </div>
@@ -1410,23 +1549,40 @@ export function DashboardTab({
                 disabled={loadingProcesses}
                 className="text-xs px-3 py-1.5 rounded-lg bg-[#1e1e1e] hover:bg-[#2a2a2a] text-[#888] hover:text-[#ccc] border border-[#2a2a2a] transition-colors disabled:opacity-50"
               >
-                {loadingProcesses
-                  ? "Loading…"
-                  : processRows.length
-                    ? "Refresh"
-                    : "Load"}
+                {loadingProcesses ? "Loading…" : rawProcessRows.length ? "Refresh" : "Load"}
               </button>
             </div>
-            {processRows.length ? (
+            <div className="flex items-center gap-2 rounded-lg border border-[#2a2a2a] bg-[#0d0d0d] px-3 py-2">
+              <Search className="h-3.5 w-3.5 text-[#666]" />
+              <input
+                value={processSearch}
+                onChange={(event) => setProcessSearch(event.target.value)}
+                placeholder="Search processes…"
+                className="flex-1 bg-transparent text-sm text-[#f2f2f2] outline-none"
+              />
+            </div>
+            {rawProcessRows.length ? (
               <div className="overflow-x-auto max-h-64 overflow-y-auto">
                 <table className="w-full text-[11px] font-mono">
-                  <thead className="text-[#555] text-[10px] uppercase sticky top-0 bg-[#111]">
+                  <thead className="sticky top-0 bg-[#111] text-[#555] text-[10px] uppercase">
                     <tr>
-                      <th className="text-left pb-1 pr-3">User</th>
-                      <th className="text-left pb-1 pr-3">PID</th>
-                      <th className="text-left pb-1 pr-3">CPU%</th>
-                      <th className="text-left pb-1 pr-3">MEM%</th>
-                      <th className="text-left pb-1">Command</th>
+                      {[
+                        ["pid", "PID"],
+                        ["cpu", "CPU%"],
+                        ["mem", "MEM%"],
+                        ["command", "Command"],
+                      ].map(([key, label]) => (
+                        <th key={key} className="pb-1 pr-3 text-left">
+                          <button
+                            onClick={() => toggleProcessSort(key as "pid" | "cpu" | "mem" | "command")}
+                            className="inline-flex items-center gap-1 hover:text-[#ccc]"
+                          >
+                            {label}
+                            <ArrowUpDown className="h-3 w-3" />
+                          </button>
+                        </th>
+                      ))}
+                      <th className="pb-1 text-right">&nbsp;</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1435,12 +1591,21 @@ export function DashboardTab({
                         key={`${row.pid}-${row.command}`}
                         className="border-t border-[#1a1a1a] text-[#9e9e9e]"
                       >
-                        <td className="py-0.5 pr-3 text-[#666]">{row.user}</td>
-                        <td className="py-0.5 pr-3">{row.pid}</td>
-                        <td className="py-0.5 pr-3">{row.cpu.toFixed(1)}</td>
-                        <td className="py-0.5 pr-3">{row.mem.toFixed(1)}</td>
-                        <td className="py-0.5 text-[#d4d4d4] truncate max-w-[240px]">
-                          {row.command}
+                        <td className="py-1 pr-3">{row.pid}</td>
+                        <td className="py-1 pr-3">{row.cpu.toFixed(1)}</td>
+                        <td className="py-1 pr-3">{row.mem.toFixed(1)}</td>
+                        <td className="py-1 pr-3 text-[#d4d4d4]" title={row.command}>
+                          {truncateCommand(row.command)}
+                        </td>
+                        <td className="py-1 text-right">
+                          <button
+                            onClick={() => void killProcess(row.pid)}
+                            disabled={killingPid === row.pid || !server.permissions?.canConsole}
+                            className="rounded-md border border-red-500/30 bg-red-500/10 px-2 py-1 text-[10px] text-red-200 hover:bg-red-500/15 disabled:opacity-50"
+                            title={server.permissions?.canConsole ? `Send SIGTERM to ${row.pid}` : "Console permission required"}
+                          >
+                            {killingPid === row.pid ? "Killing…" : "Kill"}
+                          </button>
                         </td>
                       </tr>
                     ))}

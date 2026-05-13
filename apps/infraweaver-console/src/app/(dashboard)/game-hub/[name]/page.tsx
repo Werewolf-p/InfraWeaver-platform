@@ -14,6 +14,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Play,
   Square,
   RotateCcw,
@@ -54,9 +55,18 @@ import { toast } from "sonner";
 import Link from "next/link";
 // Note: previously used Monaco editor; replaced with styled <textarea> + <pre>
 // for instant load + no CDN dependency on Monaco worker scripts.
-import { DashboardTab as DashboardTabFeature } from "@/components/game-hub/server-detail/dashboard-tab";
-import { PlayersTab as PlayersTabFeature } from "@/components/game-hub/server-detail/players-tab";
 import { ActivityTab as ActivityTabFeature } from "@/components/game-hub/server-detail/activity-tab";
+import { BanList } from "@/components/game-hub/server-detail/ban-list";
+import { ConfigEditor } from "@/components/game-hub/server-detail/config-editor";
+import { DashboardTab as DashboardTabFeature } from "@/components/game-hub/server-detail/dashboard-tab";
+import { EnvTableEditor } from "@/components/game-hub/server-detail/env-table-editor";
+import { MiniOverviewDrawer } from "@/components/game-hub/server-detail/mini-overview-drawer";
+import { NotesTagsEditor } from "@/components/game-hub/server-detail/notes-tags-editor";
+import { OpsManager } from "@/components/game-hub/server-detail/ops-manager";
+import { PlayersTab as PlayersTabFeature } from "@/components/game-hub/server-detail/players-tab";
+import { RconPanel } from "@/components/game-hub/server-detail/rcon-panel";
+import { WhitelistManager } from "@/components/game-hub/server-detail/whitelist-manager";
+import { WorldInfo } from "@/components/game-hub/server-detail/world-info";
 import type {
   FileEntry,
   PowerSchedule,
@@ -278,6 +288,189 @@ function formatDateTime(value: string | null | undefined) {
   return Number.isNaN(parsed.getTime()) ? "—" : parsed.toLocaleString();
 }
 
+function clampNumber(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function parseCpuMillicores(value: string | null | undefined) {
+  const trimmed = (value ?? "").trim().toLowerCase();
+  if (!trimmed) return 1000;
+  if (trimmed.endsWith("m")) {
+    return clampNumber(Number.parseInt(trimmed.slice(0, -1), 10) || 1000, 100, 4000);
+  }
+  return clampNumber(Math.round((Number.parseFloat(trimmed) || 1) * 1000), 100, 4000);
+}
+
+function parseMemoryMi(value: string | null | undefined) {
+  const trimmed = (value ?? "").trim().toLowerCase();
+  if (!trimmed) return 2048;
+  const numeric = Number.parseFloat(trimmed.replace(/[^\d.]/g, "")) || 2048;
+  if (trimmed.endsWith("gi") || trimmed.endsWith("g")) {
+    return clampNumber(Math.round(numeric * 1024), 256, 8192);
+  }
+  if (trimmed.endsWith("ki") || trimmed.endsWith("k")) {
+    return clampNumber(Math.round(numeric / 1024), 256, 8192);
+  }
+  return clampNumber(Math.round(numeric), 256, 8192);
+}
+
+function sliderTrackStyle(value: number, min: number, max: number) {
+  const percent = ((clampNumber(value, min, max) - min) / Math.max(max - min, 1)) * 100;
+  return {
+    background: `linear-gradient(90deg, #34d399 0%, #facc15 70%, #f87171 100%), linear-gradient(90deg, #34d399 0%, #34d399 ${percent}%, #1a1a1a ${percent}%, #1a1a1a 100%)`,
+    backgroundBlendMode: "screen, normal",
+  } as const;
+}
+
+function thresholdTone(value: number, max: number) {
+  const ratio = max > 0 ? value / max : 0;
+  if (ratio >= 0.85) return { color: "#f87171", text: "text-red-300", bg: "bg-red-500/10" };
+  if (ratio >= 0.6) return { color: "#facc15", text: "text-yellow-300", bg: "bg-yellow-500/10" };
+  return { color: "#34d399", text: "text-emerald-300", bg: "bg-emerald-500/10" };
+}
+
+function ThresholdPreview({
+  label,
+  value,
+  max,
+  suffix,
+}: {
+  label: string;
+  value: number;
+  max: number;
+  suffix: string;
+}) {
+  const percent = clampNumber((value / Math.max(max, 1)) * 100, 0, 100);
+  const tone = thresholdTone(value, max);
+  return (
+    <div className={cn("rounded-xl border border-[#2a2a2a] bg-[#0d0d0d] p-3", tone.bg)}>
+      <div className="flex items-center gap-3">
+        <div
+          className="relative flex h-14 w-14 items-center justify-center rounded-full"
+          style={{
+            background: `conic-gradient(${tone.color} 0 ${percent}%, #1f1f1f ${percent}% 100%)`,
+          }}
+        >
+          <div className="absolute inset-[5px] rounded-full bg-[#111]" />
+          <span className={cn("relative text-xs font-semibold", tone.text)}>
+            {value}
+            {suffix}
+          </span>
+        </div>
+        <div>
+          <p className="text-xs font-medium text-[#f2f2f2]">{label}</p>
+          <p className="text-[10px] text-[#666]">Preview trigger ring</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function isSensitiveEnvName(name: string) {
+  return /pass|secret|token|key|pwd|credential/i.test(name);
+}
+
+type BackupSchedulePreset = "disabled" | "hourly" | "every-6h" | "daily" | "weekly" | "custom";
+
+const BACKUP_SCHEDULE_PRESETS: Array<{ id: BackupSchedulePreset; label: string; cron: string }> = [
+  { id: "disabled", label: "Disabled", cron: "" },
+  { id: "hourly", label: "Hourly", cron: "0 * * * *" },
+  { id: "every-6h", label: "Every 6h", cron: "0 */6 * * *" },
+  { id: "daily", label: "Daily", cron: "0 4 * * *" },
+  { id: "weekly", label: "Weekly", cron: "0 4 * * 0" },
+  { id: "custom", label: "Custom", cron: "" },
+];
+
+function detectBackupSchedulePreset(value: string | null | undefined): BackupSchedulePreset {
+  const cron = (value ?? "").trim();
+  if (!cron) return "disabled";
+  if (cron === "0 * * * *") return "hourly";
+  if (cron === "0 */6 * * *") return "every-6h";
+  if (cron === "0 4 * * *") return "daily";
+  if (cron === "0 4 * * 0") return "weekly";
+  return "custom";
+}
+
+function parseCronPart(part: string, min: number, max: number) {
+  const values = new Set<number>();
+  if (part === "*") {
+    for (let value = min; value <= max; value += 1) values.add(value);
+    return values;
+  }
+  for (const token of part.split(",")) {
+    const [rangePart, stepPart] = token.split("/");
+    const step = Math.max(1, Number.parseInt(stepPart ?? "1", 10) || 1);
+    if (rangePart === "*") {
+      for (let value = min; value <= max; value += step) values.add(value);
+      continue;
+    }
+    const [startRaw, endRaw] = rangePart.split("-");
+    const start = clampNumber(Number.parseInt(startRaw, 10) || min, min, max);
+    const end = clampNumber(Number.parseInt(endRaw ?? startRaw, 10) || start, min, max);
+    for (let value = start; value <= end; value += step) values.add(value);
+  }
+  return values;
+}
+
+function matchesCronDate(date: Date, cronExpr: string) {
+  const parts = cronExpr.trim().split(/\s+/);
+  if (parts.length !== 5) return false;
+  const [minute, hour, dayOfMonth, month, dayOfWeek] = parts;
+  return (
+    parseCronPart(minute, 0, 59).has(date.getMinutes()) &&
+    parseCronPart(hour, 0, 23).has(date.getHours()) &&
+    parseCronPart(dayOfMonth, 1, 31).has(date.getDate()) &&
+    parseCronPart(month, 1, 12).has(date.getMonth() + 1) &&
+    parseCronPart(dayOfWeek, 0, 6).has(date.getDay())
+  );
+}
+
+function nextCronRuns(cronExpr: string, count = 3) {
+  const runs: Date[] = [];
+  const expr = cronExpr.trim();
+  if (!expr || expr.split(/\s+/).length !== 5) return runs;
+  const cursor = new Date();
+  cursor.setSeconds(0, 0);
+  cursor.setMinutes(cursor.getMinutes() + 1);
+  let attempts = 0;
+  while (runs.length < count && attempts < 525600) {
+    if (matchesCronDate(cursor, expr)) {
+      runs.push(new Date(cursor));
+    }
+    cursor.setMinutes(cursor.getMinutes() + 1);
+    attempts += 1;
+  }
+  return runs;
+}
+
+function highlightLogMatch(text: string, query: string) {
+  if (!query.trim()) return text;
+  const lowerText = text.toLowerCase();
+  const lowerQuery = query.toLowerCase();
+  const parts: React.ReactNode[] = [];
+  let start = 0;
+  let index = lowerText.indexOf(lowerQuery);
+  while (index >= 0) {
+    if (index > start) {
+      parts.push(text.slice(start, index));
+    }
+    parts.push(
+      <mark
+        key={`${index}-${start}`}
+        className="rounded-sm bg-yellow-500/30 text-yellow-200"
+      >
+        {text.slice(index, index + lowerQuery.length)}
+      </mark>,
+    );
+    start = index + lowerQuery.length;
+    index = lowerText.indexOf(lowerQuery, start);
+  }
+  if (start < text.length) {
+    parts.push(text.slice(start));
+  }
+  return parts;
+}
+
 type DiffLine = {
   type: "context" | "added" | "removed";
   value: string;
@@ -361,9 +554,8 @@ function ConsoleTab({
   const [sending, setSending] = useState(false);
   const [connected, setConnected] = useState(false);
   const [podLabel, setPodLabel] = useState("");
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [matchIndex, setMatchIndex] = useState(0);
+  const [logSearch, setLogSearch] = useState("");
+  const [logFilterMode, setLogFilterMode] = useState(true);
   const [history, setHistory] = useState<string[]>(() =>
     readConsoleHistory(name),
   );
@@ -574,10 +766,12 @@ function ConsoleTab({
     const onKey = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f") {
         event.preventDefault();
-        setSearchOpen(true);
         setTimeout(() => searchRef.current?.focus(), 0);
       }
-      if (event.key === "Escape") setSearchOpen(false);
+      if (event.key === "Escape" && document.activeElement === searchRef.current) {
+        setLogSearch("");
+        searchRef.current?.blur();
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -733,14 +927,6 @@ function ConsoleTab({
     },
     [showTimestamps],
   );
-  const searchRegex = useMemo(() => {
-    if (!regexMode || !searchTerm.trim()) return null;
-    try {
-      return new RegExp(searchTerm, "i");
-    } catch {
-      return null;
-    }
-  }, [regexMode, searchTerm]);
   const visibleLogLines = useMemo(
     () =>
       logLines.filter((entry) => {
@@ -749,27 +935,27 @@ function ConsoleTab({
       }),
     [detectLogLevel, levelFilter, logLines],
   );
+  const normalizedLogSearch = logSearch.trim().toLowerCase();
   const lineMatchesSearch = useCallback(
     (entry: { line: string; timestamp?: string | null }) => {
-      if (!searchTerm.trim()) return false;
-      const value = renderedLine(entry);
-      return searchRegex
-        ? searchRegex.test(value)
-        : value.toLowerCase().includes(searchTerm.toLowerCase());
+      if (!normalizedLogSearch) return false;
+      return renderedLine(entry).toLowerCase().includes(normalizedLogSearch);
     },
-    [renderedLine, searchRegex, searchTerm],
+    [normalizedLogSearch, renderedLine],
   );
-  const matches = searchTerm
-    ? visibleLogLines
-        .filter((line) => lineMatchesSearch(line))
-        .map((line) => line.id)
-    : [];
-  const jumpToMatch = (direction: 1 | -1) => {
-    if (matches.length === 0) return;
-    const next = (matchIndex + direction + matches.length) % matches.length;
-    setMatchIndex(next);
-    lineRefs.current[matches[next]]?.scrollIntoView({ block: "center" });
-  };
+  const matchingLineIds = useMemo(
+    () =>
+      normalizedLogSearch
+        ? visibleLogLines
+            .filter((line) => lineMatchesSearch(line))
+            .map((line) => line.id)
+        : [],
+    [lineMatchesSearch, normalizedLogSearch, visibleLogLines],
+  );
+  const displayedLogLines = useMemo(() => {
+    if (!normalizedLogSearch || !logFilterMode) return visibleLogLines;
+    return visibleLogLines.filter((line) => lineMatchesSearch(line));
+  }, [lineMatchesSearch, logFilterMode, normalizedLogSearch, visibleLogLines]);
   const handleConsoleScroll = () => {
     const element = consoleRef.current;
     if (!element) return;
@@ -869,10 +1055,7 @@ function ConsoleTab({
             <option value="7d">7d history</option>
           </select>
           <button
-            onClick={() => {
-              setSearchOpen((prev) => !prev);
-              setTimeout(() => searchRef.current?.focus(), 0);
-            }}
+            onClick={() => searchRef.current?.focus()}
             className="p-1.5 text-[#444] hover:text-[#888] hover:bg-[#1e1e1e] rounded transition-colors"
           >
             <Search className="w-3.5 h-3.5" />
@@ -889,7 +1072,7 @@ function ConsoleTab({
                 label: "Copy all",
                 action: () => {
                   navigator.clipboard.writeText(
-                    visibleLogLines
+                    displayedLogLines
                       .map((line) => renderedLine(line))
                       .join("\n"),
                   );
@@ -902,7 +1085,7 @@ function ConsoleTab({
                 action: () =>
                   downloadTextFile(
                     `${name}-console-${new Date().toISOString().slice(0, 10)}.txt`,
-                    visibleLogLines
+                    displayedLogLines
                       .map((line) => renderedLine(line))
                       .join("\n"),
                   ),
@@ -921,72 +1104,55 @@ function ConsoleTab({
         </div>
       </div>
 
-      {searchOpen && (
-        <div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b border-[#1e1e1e] bg-[#101010]">
-          <Search className="w-3.5 h-3.5 text-[#666]" />
+      <div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b border-[#1e1e1e] bg-[#101010]">
+        <div className="flex min-w-[220px] flex-1 items-center gap-2 rounded-lg border border-[#2a2a2a] bg-[#0d0d0d] px-3 py-2">
+          <Search className="h-3.5 w-3.5 text-[#666]" />
           <input
             ref={searchRef}
-            value={searchTerm}
-            onChange={(event) => {
-              setSearchTerm(event.target.value);
-              setMatchIndex(0);
-            }}
-            placeholder={
-              regexMode ? "Search console regex..." : "Search console..."
-            }
-            className="min-w-[180px] flex-1 bg-transparent text-sm text-[#f2f2f2] outline-none"
+            value={logSearch}
+            onChange={(event) => setLogSearch(event.target.value)}
+            placeholder="Search logs…"
+            className="min-w-[160px] flex-1 bg-transparent text-sm text-[#f2f2f2] outline-none"
           />
-          <select
-            value={levelFilter}
-            onChange={(event) =>
-              setLevelFilter(
-                event.target.value as "all" | "error" | "warn" | "info",
-              )
-            }
-            className="rounded border border-[#2a2a2a] bg-[#0d0d0d] px-2 py-1 text-[10px] text-[#bbb] focus:outline-none"
-          >
-            <option value="all">All levels</option>
-            <option value="error">ERROR</option>
-            <option value="warn">WARN</option>
-            <option value="info">INFO</option>
-          </select>
-          <button
-            onClick={() => setRegexMode((value) => !value)}
-            className={cn(
-              "rounded border px-2 py-1 text-[10px]",
-              regexMode
-                ? "border-[#0078D4]/30 bg-[#0078D4]/10 text-[#4db3ff]"
-                : "border-[#2a2a2a] text-[#777]",
-            )}
-          >
-            Regex
-          </button>
-          <span className="text-xs text-[#666]">
-            {matches.length === 0 ? "0" : `${matchIndex + 1}/${matches.length}`}
-          </span>
-          <button
-            onClick={() => jumpToMatch(-1)}
-            className="text-xs text-[#0078D4]"
-          >
-            Prev
-          </button>
-          <button
-            onClick={() => jumpToMatch(1)}
-            className="text-xs text-[#0078D4]"
-          >
-            Next
-          </button>
-          <button
-            onClick={() => setSearchOpen(false)}
-            className="text-xs text-[#666]"
-          >
-            Esc
-          </button>
-          {regexMode && searchTerm && !searchRegex && (
-            <span className="text-[10px] text-red-300">Invalid regex</span>
+          {logSearch && (
+            <button
+              onClick={() => setLogSearch("")}
+              className="rounded p-1 text-[#666] hover:bg-[#1a1a1a] hover:text-[#f2f2f2]"
+              aria-label="Clear search"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
           )}
         </div>
-      )}
+        <span className="rounded-full border border-[#2a2a2a] bg-[#0d0d0d] px-2.5 py-1 text-[11px] text-[#bbb]">
+          {matchingLineIds.length} matches
+        </span>
+        <button
+          onClick={() => setLogFilterMode((value) => !value)}
+          className={cn(
+            "rounded-lg border px-3 py-1.5 text-[11px] transition-colors",
+            logFilterMode
+              ? "border-[#0078D4]/30 bg-[#0078D4]/10 text-[#4db3ff]"
+              : "border-[#2a2a2a] bg-[#0d0d0d] text-[#888]",
+          )}
+        >
+          {logFilterMode ? "Filter mode" : "Dim mode"}
+        </button>
+        <select
+          value={levelFilter}
+          onChange={(event) =>
+            setLevelFilter(
+              event.target.value as "all" | "error" | "warn" | "info",
+            )
+          }
+          className="rounded border border-[#2a2a2a] bg-[#0d0d0d] px-2 py-1.5 text-[10px] text-[#bbb] focus:outline-none"
+        >
+          <option value="all">All levels</option>
+          <option value="error">ERROR</option>
+          <option value="warn">WARN</option>
+          <option value="info">INFO</option>
+        </select>
+      </div>
 
       {reconnectBanner && status !== "stopped" && (
         <div className="px-4 py-1.5 border-b border-[#1e1e1e] bg-[#111827] text-[11px] text-[#93c5fd]">
@@ -1037,7 +1203,7 @@ function ConsoleTab({
               )}
             </div>
           </div>
-        ) : visibleLogLines.length === 0 ? (
+        ) : displayedLogLines.length === 0 ? (
           <div className="flex items-center gap-2 text-[#444] pt-1">
             <Loader2 className="w-3.5 h-3.5 animate-spin" />
             <span>
@@ -1047,7 +1213,7 @@ function ConsoleTab({
             </span>
           </div>
         ) : (
-          visibleLogLines.map((entry) => (
+          displayedLogLines.map((entry) => (
             <div
               key={entry.id}
               ref={(element) => {
@@ -1057,12 +1223,11 @@ function ConsoleTab({
                 wordWrap ? "whitespace-pre-wrap break-all" : "whitespace-pre",
                 "px-1 rounded min-w-fit transition-opacity",
                 lineColor(entry.type),
-                searchTerm && !matches.includes(entry.id) && "opacity-35",
-                matches.includes(entry.id) && "bg-yellow-400/10",
-                matches[matchIndex] === entry.id && "ring-1 ring-yellow-400/40",
+                normalizedLogSearch && !logFilterMode && !matchingLineIds.includes(entry.id) && "opacity-35",
+                matchingLineIds.includes(entry.id) && "bg-yellow-400/10",
               )}
             >
-              {renderedLine(entry)}
+              {highlightLogMatch(renderedLine(entry), logSearch)}
             </div>
           ))
         )}
@@ -2421,6 +2586,37 @@ function ServerRbacPanel({
   );
 }
 
+function SettingsAccordion({
+  title,
+  description,
+  children,
+  defaultOpen = false,
+}: {
+  title: string;
+  description?: string;
+  children: import("react").ReactNode;
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+
+  return (
+    <details
+      open={open}
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+      className="group overflow-hidden rounded-xl border border-[#2a2a2a] bg-[#111]"
+    >
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3">
+        <div>
+          <p className="text-sm font-medium text-[#f2f2f2]">{title}</p>
+          {description ? <p className="text-xs text-[#888]">{description}</p> : null}
+        </div>
+        <ChevronDown className="h-4 w-4 text-[#555] transition-transform group-open:rotate-180" />
+      </summary>
+      <div className="border-t border-[#1e1e1e] p-4">{children}</div>
+    </details>
+  );
+}
+
 function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
   const queryClient = useQueryClient();
   const envImportRef = useRef<HTMLInputElement>(null);
@@ -2479,8 +2675,8 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
   const [savingRestart, setSavingRestart] = useState(false);
   const [notes, setNotes] = useState(server.notes ?? "");
   const [savingNotes, setSavingNotes] = useState(false);
-  const [memLimit, setMemLimit] = useState(server.memory ?? "");
-  const [cpuLimit, setCpuLimit] = useState(server.cpu ?? "");
+  const [memLimit, setMemLimit] = useState(parseMemoryMi(server.memory));
+  const [cpuLimit, setCpuLimit] = useState(parseCpuMillicores(server.cpu));
   const [savingResources, setSavingResources] = useState(false);
   const [editingEnv, setEditingEnv] = useState(false);
   const [envStr, setEnvStr] = useState(stringifyEnv(server.env));
@@ -2541,6 +2737,16 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
     server.alertRestarts ?? 5,
   );
   const [savingThresholds, setSavingThresholds] = useState(false);
+  const [backupSchedulePreset, setBackupSchedulePreset] = useState<BackupSchedulePreset>(
+    detectBackupSchedulePreset(server.backupSchedule),
+  );
+  const [backupCronExpr, setBackupCronExpr] = useState(
+    (server.backupSchedule ?? "").trim(),
+  );
+  const [backupRetention, setBackupRetention] = useState(
+    server.backupRetention ?? 7,
+  );
+  const [savingBackupSchedule, setSavingBackupSchedule] = useState(false);
   const [testingWebhook, setTestingWebhook] = useState(false);
   const [commandLabel, setCommandLabel] = useState("");
   const [commandText, setCommandText] = useState("");
@@ -2548,6 +2754,13 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
   const [appliedUnsetEnv, setAppliedUnsetEnv] = useState<Record<string, string>>({});
   const [unsetEditValues, setUnsetEditValues] = useState<Record<string, string>>({});
   const isServerStopped = server.replicas === 0 || server.status === "stopped";
+  const mountPath = server.egg?.mountPath ?? "/data";
+  const isMinecraft = server.gameType.toLowerCase().includes("minecraft");
+  const refreshServerDetails = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ["game-hub", "server", name] });
+    queryClient.invalidateQueries({ queryKey: ["game-hub", "servers"] });
+    queryClient.invalidateQueries({ queryKey: ["game-hub", "connectivity", name] });
+  }, [name, queryClient]);
   const effectiveEnv = { ...currentEnv, ...appliedUnsetEnv };
   const unsetRecommendedEnvVars = eggEnvVars.filter((entry) => {
     const currentValue = effectiveEnv[entry.name]?.trim();
@@ -2555,6 +2768,28 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
   });
 
   const savedCommands = normalizeSavedCommands(server.savedCommands);
+  const templateConfig = useMemo(
+    () => ({
+      gameType: server.gameType,
+      image: server.image ?? "",
+      cpu: server.cpu,
+      memory: server.memory,
+      port: server.port,
+      env: Object.fromEntries(
+        server.env
+          .filter((entry) => !isSensitiveEnvName(entry.name))
+          .map((entry) => [entry.name, entry.value ?? ""]),
+      ),
+      egg: server.gameType,
+      notes: server.notes ?? "",
+      tags: server.tags ?? [],
+    }),
+    [server],
+  );
+  const nextBackupRuns = useMemo(
+    () => nextCronRuns(backupCronExpr, 3),
+    [backupCronExpr],
+  );
   const {
     data: snapshotsData,
     refetch: refetchSnapshots,
@@ -2582,7 +2817,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
       body: JSON.stringify(body),
     });
     toast.success(successMessage);
-    queryClient.invalidateQueries({ queryKey: ["game-hub", "server", name] });
+    refreshServerDetails();
   }
 
   async function saveReplicas() {
@@ -2636,17 +2871,13 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
   }
 
   async function saveResources() {
-    if (!memLimit.trim() || !cpuLimit.trim()) {
-      toast.error("Memory and CPU limits are required");
-      return;
-    }
     setSavingResources(true);
     try {
       await patchServer(
         {
           action: "update-resources",
-          memory: memLimit.trim(),
-          cpu: cpuLimit.trim(),
+          memory: `${memLimit}Mi`,
+          cpu: `${cpuLimit}m`,
         },
         "Resource limits updated",
       );
@@ -2713,6 +2944,29 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
       toast.error(String(error));
     } finally {
       setSavingThresholds(false);
+    }
+  }
+
+  async function saveBackupSchedule() {
+    setSavingBackupSchedule(true);
+    try {
+      await patchServer(
+        {
+          action: "set-backup-schedule",
+          cronExpr:
+            backupSchedulePreset === "disabled"
+              ? ""
+              : backupSchedulePreset === "custom"
+                ? backupCronExpr.trim()
+                : backupCronExpr,
+          retention: clampNumber(Math.round(backupRetention), 1, 365),
+        },
+        "Backup schedule saved",
+      );
+    } catch (error) {
+      toast.error(String(error));
+    } finally {
+      setSavingBackupSchedule(false);
     }
   }
 
@@ -3011,36 +3265,19 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
     }
   }
 
-  async function exportServer() {
-    try {
-      const result = await fetchJson<ServerDetail>(
-        `/api/game-hub/servers/${name}`,
-      );
-      downloadTextFile(
-        `${name}-config.json`,
-        JSON.stringify(
-          {
-            name: result.name,
-            gameType: result.gameType,
-            dockerImage: result.image,
-            env: Object.fromEntries(
-              result.env.map((entry) => [entry.name, entry.value ?? ""]),
-            ),
-            ports: result.allPorts,
-            resources: { cpu: result.cpu, memory: result.memory },
-            replicas: result.replicas,
-            pvcSize: result.pvc?.size ?? null,
-            egg: result.egg,
-          },
-          null,
-          2,
-        ),
-        "application/json",
-      );
-      toast.success("Server export downloaded");
-    } catch (error) {
-      toast.error(String(error));
-    }
+  function exportServer() {
+    downloadTextFile(
+      `${name}-config.json`,
+      JSON.stringify(templateConfig, null, 2),
+      "application/json",
+    );
+    toast.success("Server export downloaded");
+  }
+
+  function cloneServerFromTemplate() {
+    window.location.href = `/game-hub/create?template=${encodeURIComponent(
+      JSON.stringify(templateConfig),
+    )}`;
   }
 
   return (
@@ -3397,63 +3634,101 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
           </p>
         </div>
         <div className="p-4 space-y-4">
-          <div className="grid gap-3 md:grid-cols-3">
-            <div>
-              <label className="block text-[10px] text-[#666] mb-1">CPU warning at</label>
-              <div className="flex items-center rounded border border-[#2a2a2a] bg-[#0a0a0a] px-3 py-2">
+          <div className="grid gap-3 xl:grid-cols-3">
+            <div className="rounded-xl border border-[#2a2a2a] bg-[#0d0d0d] p-3 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <label className="text-[10px] uppercase tracking-wide text-[#666]">CPU threshold</label>
+                <span className="text-xs text-[#f2f2f2]">{alertCpu}%</span>
+              </div>
+              <div className="flex items-center gap-3">
                 <input
-                  type="number"
+                  type="range"
                   min={0}
                   max={100}
+                  step={1}
                   value={alertCpu}
-                  onChange={(event) =>
-                    setAlertCpu(
-                      Math.min(100, Math.max(0, parseInt(event.target.value, 10) || 0)),
-                    )
-                  }
-                  className="w-full bg-transparent text-sm text-[#f2f2f2] focus:outline-none"
+                  onChange={(event) => setAlertCpu(clampNumber(Number.parseInt(event.target.value, 10) || 0, 0, 100))}
+                  style={sliderTrackStyle(alertCpu, 0, 100)}
+                  className="h-2 flex-1 cursor-pointer appearance-none rounded-full bg-[#1a1a1a]"
                 />
-                <span className="text-xs text-[#666]">%</span>
+                <div className="flex items-center gap-1 rounded-lg border border-[#2a2a2a] bg-[#111] px-2.5 py-1.5">
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={alertCpu}
+                    onChange={(event) => setAlertCpu(clampNumber(Number.parseInt(event.target.value, 10) || 0, 0, 100))}
+                    className="w-12 bg-transparent text-right text-sm text-[#f2f2f2] outline-none"
+                  />
+                  <span className="text-xs text-[#666]">%</span>
+                </div>
               </div>
+              <ThresholdPreview label="CPU preview" value={alertCpu} max={100} suffix="%" />
             </div>
-            <div>
-              <label className="block text-[10px] text-[#666] mb-1">Memory warning at</label>
-              <div className="flex items-center rounded border border-[#2a2a2a] bg-[#0a0a0a] px-3 py-2">
+            <div className="rounded-xl border border-[#2a2a2a] bg-[#0d0d0d] p-3 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <label className="text-[10px] uppercase tracking-wide text-[#666]">Memory threshold</label>
+                <span className="text-xs text-[#f2f2f2]">{alertMemory}%</span>
+              </div>
+              <div className="flex items-center gap-3">
                 <input
-                  type="number"
+                  type="range"
                   min={0}
                   max={100}
+                  step={1}
                   value={alertMemory}
-                  onChange={(event) =>
-                    setAlertMemory(
-                      Math.min(100, Math.max(0, parseInt(event.target.value, 10) || 0)),
-                    )
-                  }
-                  className="w-full bg-transparent text-sm text-[#f2f2f2] focus:outline-none"
+                  onChange={(event) => setAlertMemory(clampNumber(Number.parseInt(event.target.value, 10) || 0, 0, 100))}
+                  style={sliderTrackStyle(alertMemory, 0, 100)}
+                  className="h-2 flex-1 cursor-pointer appearance-none rounded-full bg-[#1a1a1a]"
                 />
-                <span className="text-xs text-[#666]">%</span>
+                <div className="flex items-center gap-1 rounded-lg border border-[#2a2a2a] bg-[#111] px-2.5 py-1.5">
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={alertMemory}
+                    onChange={(event) => setAlertMemory(clampNumber(Number.parseInt(event.target.value, 10) || 0, 0, 100))}
+                    className="w-12 bg-transparent text-right text-sm text-[#f2f2f2] outline-none"
+                  />
+                  <span className="text-xs text-[#666]">%</span>
+                </div>
               </div>
+              <ThresholdPreview label="Memory preview" value={alertMemory} max={100} suffix="%" />
             </div>
-            <div>
-              <label className="block text-[10px] text-[#666] mb-1">Max restart count</label>
-              <input
-                type="number"
-                min={1}
-                max={20}
-                value={alertRestarts}
-                onChange={(event) =>
-                  setAlertRestarts(
-                    Math.min(20, Math.max(1, parseInt(event.target.value, 10) || 1)),
-                  )
-                }
-                className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
-              />
+            <div className="rounded-xl border border-[#2a2a2a] bg-[#0d0d0d] p-3 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <label className="text-[10px] uppercase tracking-wide text-[#666]">Restart threshold</label>
+                <span className="text-xs text-[#f2f2f2]">{alertRestarts}</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <input
+                  type="range"
+                  min={0}
+                  max={20}
+                  step={1}
+                  value={alertRestarts}
+                  onChange={(event) => setAlertRestarts(clampNumber(Number.parseInt(event.target.value, 10) || 0, 0, 20))}
+                  style={sliderTrackStyle(alertRestarts, 0, 20)}
+                  className="h-2 flex-1 cursor-pointer appearance-none rounded-full bg-[#1a1a1a]"
+                />
+                <div className="rounded-lg border border-[#2a2a2a] bg-[#111] px-2.5 py-1.5">
+                  <input
+                    type="number"
+                    min={0}
+                    max={20}
+                    value={alertRestarts}
+                    onChange={(event) => setAlertRestarts(clampNumber(Number.parseInt(event.target.value, 10) || 0, 0, 20))}
+                    className="w-12 bg-transparent text-right text-sm text-[#f2f2f2] outline-none"
+                  />
+                </div>
+              </div>
+              <ThresholdPreview label="Restart preview" value={alertRestarts} max={20} suffix="" />
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
             <button
               onClick={saveAlertThresholds}
-              disabled={savingThresholds}
+              disabled={savingThresholds || !server.permissions?.canAdmin}
               className="flex items-center gap-1.5 px-4 py-2 bg-[#0078D4] hover:bg-[#0065B3] disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors"
             >
               {savingThresholds ? (
@@ -3479,179 +3754,107 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
         </div>
       </div>
 
-      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-[#1e1e1e]">
-          <div className="flex items-center gap-2">
-            <FileText className="w-3.5 h-3.5 text-[#555]" />
+      {server.permissions?.canAdmin && (
+        <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
+          <div className="flex items-center gap-2 px-4 py-3 border-b border-[#1e1e1e]">
+            <Cpu className="w-3.5 h-3.5 text-[#555]" />
             <p className="text-xs font-medium text-[#888] uppercase tracking-wide">
-              Server Notes
+              Resource Limits
             </p>
           </div>
-          <button
-            onClick={saveNotes}
-            disabled={savingNotes}
-            className="text-xs text-[#0078D4] hover:underline"
-          >
-            {savingNotes ? "Saving..." : "Save"}
-          </button>
-        </div>
-        <div className="p-4">
-          <textarea
-            value={notes}
-            onChange={(event) => setNotes(event.target.value)}
-            rows={4}
-            placeholder="Add notes about this server, connection info, admin contacts..."
-            className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded-lg p-3 text-sm text-[#f2f2f2] resize-y focus:outline-none focus:border-[#0078D4] placeholder:text-[#333]"
-          />
-        </div>
-      </div>
-
-      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-[#1e1e1e]">
-          <Cpu className="w-3.5 h-3.5 text-[#555]" />
-          <p className="text-xs font-medium text-[#888] uppercase tracking-wide">
-            Resource Limits
-          </p>
-        </div>
-        <div className="p-4 space-y-3">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-[10px] text-[#666] mb-1">
-                Memory limit
-              </label>
-              <input
-                value={memLimit}
-                onChange={(event) => setMemLimit(event.target.value)}
-                placeholder="e.g. 2Gi, 512Mi"
-                className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded px-2 py-1.5 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
-              />
+          <div className="p-4 space-y-4">
+            <p className="text-xs text-[#666]">
+              Current applied limits: <span className="text-[#f2f2f2]">{server.cpu}</span> CPU and <span className="text-[#f2f2f2]">{server.memory}</span> memory.
+            </p>
+            <div className="space-y-3">
+              <div className="rounded-xl border border-[#2a2a2a] bg-[#0d0d0d] p-3 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <label className="text-[10px] uppercase tracking-wide text-[#666]">CPU</label>
+                  <span className="text-sm text-[#f2f2f2]">{cpuLimit}m</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="range"
+                    min={100}
+                    max={4000}
+                    step={100}
+                    value={cpuLimit}
+                    onChange={(event) => setCpuLimit(clampNumber(Number.parseInt(event.target.value, 10) || 100, 100, 4000))}
+                    style={sliderTrackStyle(cpuLimit, 100, 4000)}
+                    className="h-2 flex-1 cursor-pointer appearance-none rounded-full bg-[#1a1a1a]"
+                  />
+                  <div className="flex items-center gap-1 rounded-lg border border-[#2a2a2a] bg-[#111] px-2.5 py-1.5">
+                    <input
+                      type="number"
+                      min={100}
+                      max={4000}
+                      step={100}
+                      value={cpuLimit}
+                      onChange={(event) => setCpuLimit(clampNumber(Number.parseInt(event.target.value, 10) || 100, 100, 4000))}
+                      className="w-16 bg-transparent text-right text-sm text-[#f2f2f2] outline-none"
+                    />
+                    <span className="text-xs text-[#666]">m</span>
+                  </div>
+                </div>
+              </div>
+              <div className="rounded-xl border border-[#2a2a2a] bg-[#0d0d0d] p-3 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <label className="text-[10px] uppercase tracking-wide text-[#666]">Memory</label>
+                  <span className="text-sm text-[#f2f2f2]">{memLimit} MB</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="range"
+                    min={256}
+                    max={8192}
+                    step={256}
+                    value={memLimit}
+                    onChange={(event) => setMemLimit(clampNumber(Number.parseInt(event.target.value, 10) || 256, 256, 8192))}
+                    style={sliderTrackStyle(memLimit, 256, 8192)}
+                    className="h-2 flex-1 cursor-pointer appearance-none rounded-full bg-[#1a1a1a]"
+                  />
+                  <div className="flex items-center gap-1 rounded-lg border border-[#2a2a2a] bg-[#111] px-2.5 py-1.5">
+                    <input
+                      type="number"
+                      min={256}
+                      max={8192}
+                      step={256}
+                      value={memLimit}
+                      onChange={(event) => setMemLimit(clampNumber(Number.parseInt(event.target.value, 10) || 256, 256, 8192))}
+                      className="w-16 bg-transparent text-right text-sm text-[#f2f2f2] outline-none"
+                    />
+                    <span className="text-xs text-[#666]">MB</span>
+                  </div>
+                </div>
+              </div>
             </div>
-            <div>
-              <label className="block text-[10px] text-[#666] mb-1">
-                CPU limit
-              </label>
-              <input
-                value={cpuLimit}
-                onChange={(event) => setCpuLimit(event.target.value)}
-                placeholder="e.g. 1, 500m"
-                className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded px-2 py-1.5 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
-              />
-            </div>
+            <button
+              onClick={saveResources}
+              disabled={savingResources}
+              className="flex items-center gap-1.5 px-4 py-2 bg-[#0078D4] hover:bg-[#0065B3] disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors"
+            >
+              {savingResources ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Save className="w-3.5 h-3.5" />
+              )}
+              Save Resource Limits
+            </button>
           </div>
-          <button
-            onClick={saveResources}
-            disabled={savingResources}
-            className="flex items-center gap-1.5 px-4 py-2 bg-[#0078D4] hover:bg-[#0065B3] disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors"
-          >
-            {savingResources ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            ) : (
-              <Save className="w-3.5 h-3.5" />
-            )}{" "}
-            Apply limits
-          </button>
         </div>
-      </div>
+      )}
 
-      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-[#1e1e1e]">
-          <div className="flex items-center gap-2">
+      <div className="space-y-4">
+        <EnvTableEditor serverName={name} env={server.env} onSave={refreshServerDetails} />
+
+        <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
+          <div className="flex items-center gap-2 px-4 py-3 border-b border-[#1e1e1e]">
             <Shield className="w-3.5 h-3.5 text-[#555]" />
             <p className="text-xs font-medium text-[#888] uppercase tracking-wide">
-              Environment Variables
-            </p>
-          </div>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={exportEnv}
-              className="text-xs text-[#9e9e9e] hover:text-white"
-            >
-              Export .env
-            </button>
-            <button
-              onClick={() => envImportRef.current?.click()}
-              className="text-xs text-[#9e9e9e] hover:text-white"
-            >
-              Import .env
-            </button>
-            <button
-              onClick={() => setEditingEnv((prev) => !prev)}
-              className="text-xs text-[#0078D4] hover:underline"
-            >
-              {editingEnv ? "Cancel" : "Edit"}
-            </button>
-          </div>
-        </div>
-        <input
-          ref={envImportRef}
-          type="file"
-          accept=".env,text/plain"
-          className="hidden"
-          onChange={importEnvFile}
-        />
-        <div className="p-4 space-y-4">
-          {editingEnv ? (
-            <div className="space-y-3">
-              <p className="text-xs text-[#555]">
-                One <code className="text-[#888]">KEY=VALUE</code> per line.
-                Sensitive values are hidden in display mode.
-              </p>
-              <textarea
-                value={envStr}
-                onChange={(event) => setEnvStr(event.target.value)}
-                rows={12}
-                className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded-lg p-3 text-sm font-mono text-[#f2f2f2] resize-y focus:outline-none focus:border-[#0078D4] leading-relaxed"
-              />
-              <button
-                onClick={saveEnv}
-                disabled={savingEnv}
-                className="flex items-center gap-1.5 px-4 py-2 bg-[#0078D4] text-white rounded-lg text-sm font-medium disabled:opacity-50"
-              >
-                {savingEnv ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <Save className="w-3.5 h-3.5" />
-                )}{" "}
-                Save changes
-              </button>
-            </div>
-          ) : (
-            <div className="space-y-2 max-h-72 overflow-y-auto">
-              {server.env.length === 0 ? (
-                <p className="text-xs text-[#555]">
-                  No environment variables set.
-                </p>
-              ) : (
-                server.env.map((entry) => (
-                  <div
-                    key={entry.name}
-                    className="flex items-start gap-2 text-xs py-0.5"
-                  >
-                    <span className="font-mono text-[#0078D4] flex-shrink-0 w-24 sm:min-w-[120px] break-all">
-                      {entry.name}
-                    </span>
-                    <span className="text-[#444]">=</span>
-                    <span
-                      className={cn(
-                        "font-mono break-all",
-                        entry.name.match(/PASS|SECRET|KEY|TOKEN/i)
-                          ? "text-[#444] italic"
-                          : "text-[#9e9e9e]",
-                      )}
-                    >
-                      {entry.name.match(/PASS|SECRET|KEY|TOKEN/i)
-                        ? "••••••••"
-                        : (entry.value ?? "<from secret>")}
-                    </span>
-                  </div>
-                ))
-              )}
-            </div>
-          )}
-          <div className="rounded-lg border border-[#2a2a2a] bg-[#0d0d0d] p-3">
-            <p className="text-[11px] uppercase tracking-wide text-[#666] mb-2">
               Config Diff vs Egg Defaults
             </p>
+          </div>
+          <div className="p-4">
             {envDiff.length === 0 ? (
               <p className="text-xs text-[#555]">
                 No differences from the egg defaults.
@@ -3689,6 +3892,53 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
             )}
           </div>
         </div>
+
+        {isMinecraft ? (
+          <div className="space-y-4">
+            <SettingsAccordion
+              title="World Info"
+              description="Seed, world name, and key gameplay settings."
+              defaultOpen
+            >
+              <WorldInfo serverName={name} mountPath={mountPath} gameType={server.gameType} />
+            </SettingsAccordion>
+            <SettingsAccordion
+              title="RCON Console"
+              description="Run remote console commands for the server."
+            >
+              <RconPanel serverName={name} gameType={server.gameType} permissions={server.permissions} />
+            </SettingsAccordion>
+            <SettingsAccordion
+              title="Whitelist"
+              description="Add or remove allowed players."
+            >
+              <WhitelistManager serverName={name} mountPath={mountPath} />
+            </SettingsAccordion>
+            <SettingsAccordion
+              title="Operators"
+              description="Manage Minecraft op levels and bypass permissions."
+            >
+              <OpsManager serverName={name} mountPath={mountPath} />
+            </SettingsAccordion>
+            <SettingsAccordion
+              title="Ban List"
+              description="Review banned players and IP addresses."
+            >
+              <BanList serverName={name} mountPath={mountPath} />
+            </SettingsAccordion>
+            <SettingsAccordion
+              title="server.properties"
+              description="Edit the main Minecraft server configuration file."
+            >
+              <ConfigEditor
+                serverName={name}
+                filePath={`${mountPath}/server.properties`}
+                title="server.properties"
+                gameType={server.gameType}
+              />
+            </SettingsAccordion>
+          </div>
+        ) : null}
       </div>
 
       <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
@@ -3727,53 +3977,6 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
                   {emoji}
                 </button>
               ))}
-            </div>
-          </div>
-          <div>
-            <label className="block text-[10px] text-[#666] mb-1">Tags</label>
-            <div className="rounded-lg border border-[#2a2a2a] bg-[#0a0a0a] p-3 space-y-3">
-              <div className="flex flex-wrap gap-2">
-                {tags.length === 0 ? (
-                  <span className="text-xs text-[#555]">No tags yet.</span>
-                ) : (
-                  tags.map((tag) => (
-                    <span
-                      key={tag}
-                      className="inline-flex items-center gap-1 rounded-full border border-[#0078D4]/30 bg-[#0078D4]/10 px-2.5 py-1 text-xs text-[#7cc2ff]"
-                    >
-                      {tag}
-                      <button
-                        onClick={() => removeTag(tag)}
-                        disabled={savingTags}
-                        className="text-[#9dd4ff] hover:text-white disabled:opacity-40"
-                      >
-                        ×
-                      </button>
-                    </span>
-                  ))
-                )}
-              </div>
-              <div className="flex gap-2">
-                <input
-                  value={tagInput}
-                  onChange={(event) => setTagInput(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      event.preventDefault();
-                      addTag();
-                    }
-                  }}
-                  placeholder="Add a tag"
-                  className="flex-1 bg-[#111] border border-[#2a2a2a] rounded px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
-                />
-                <button
-                  onClick={addTag}
-                  disabled={!tagInput.trim() || savingTags}
-                  className="px-3 py-2 rounded-lg bg-[#1a1a1a] border border-[#2a2a2a] text-xs text-[#d4d4d4] disabled:opacity-40"
-                >
-                  {savingTags ? "Saving..." : "Add tag"}
-                </button>
-              </div>
             </div>
           </div>
           <div>
@@ -4016,6 +4219,93 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
         <div className="flex items-center gap-2 px-4 py-3 border-b border-[#1e1e1e]">
           <HardDrive className="w-3.5 h-3.5 text-[#555]" />
           <p className="text-xs font-medium text-[#888] uppercase tracking-wide">
+            Backup Scheduler
+          </p>
+        </div>
+        <div className="p-4 space-y-4">
+          <div className="flex flex-wrap gap-2">
+            {BACKUP_SCHEDULE_PRESETS.map((preset) => {
+              const active = backupSchedulePreset === preset.id;
+              return (
+                <button
+                  key={preset.id}
+                  onClick={() => {
+                    setBackupSchedulePreset(preset.id);
+                    if (preset.id === "custom") {
+                      setBackupCronExpr((current) => current || "0 4 * * *");
+                    } else {
+                      setBackupCronExpr(preset.cron);
+                    }
+                  }}
+                  className={cn(
+                    "rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors",
+                    active
+                      ? "border-[#0078D4]/40 bg-[#0078D4]/15 text-[#7cc2ff]"
+                      : "border-[#2a2a2a] bg-[#0a0a0a] text-[#888] hover:text-[#f2f2f2]",
+                  )}
+                >
+                  {preset.label}
+                </button>
+              );
+            })}
+          </div>
+          {backupSchedulePreset === "custom" && (
+            <div className="space-y-2 rounded-xl border border-[#2a2a2a] bg-[#0d0d0d] p-3">
+              <label className="block text-[10px] uppercase tracking-wide text-[#666]">Cron expression</label>
+              <input
+                value={backupCronExpr}
+                onChange={(event) => setBackupCronExpr(event.target.value)}
+                placeholder="0 4 * * *"
+                className="w-full rounded-lg border border-[#2a2a2a] bg-[#111] px-3 py-2 text-sm font-mono text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
+              />
+              <p className="text-[10px] text-[#555]">Use a standard 5-field cron: minute hour day month weekday.</p>
+            </div>
+          )}
+          <div className="grid gap-3 md:grid-cols-[1fr_180px]">
+            <div className="rounded-xl border border-[#2a2a2a] bg-[#0d0d0d] p-3">
+              <p className="text-[10px] uppercase tracking-wide text-[#666]">Next 3 run times</p>
+              <div className="mt-2 space-y-1 text-sm text-[#f2f2f2]">
+                {backupSchedulePreset === "disabled" ? (
+                  <p className="text-xs text-[#666]">Backups are disabled.</p>
+                ) : nextBackupRuns.length > 0 ? (
+                  nextBackupRuns.map((runAt) => (
+                    <div key={runAt.toISOString()} className="rounded-lg border border-[#1f1f1f] bg-[#111] px-3 py-2 text-xs">
+                      {runAt.toLocaleString()}
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-xs text-yellow-200">Unable to calculate runs for this cron expression.</p>
+                )}
+              </div>
+            </div>
+            <div className="rounded-xl border border-[#2a2a2a] bg-[#0d0d0d] p-3 space-y-2">
+              <label className="block text-[10px] uppercase tracking-wide text-[#666]">Retention (days)</label>
+              <input
+                type="number"
+                min={1}
+                max={365}
+                value={backupRetention}
+                onChange={(event) => setBackupRetention(clampNumber(Number.parseInt(event.target.value, 10) || 1, 1, 365))}
+                className="w-full rounded-lg border border-[#2a2a2a] bg-[#111] px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
+              />
+              <p className="text-[10px] text-[#555]">Keep backups for this many days.</p>
+            </div>
+          </div>
+          <button
+            onClick={saveBackupSchedule}
+            disabled={savingBackupSchedule || !server.permissions?.canAdmin}
+            className="flex items-center gap-1.5 rounded-lg bg-[#0078D4] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#0065B3] disabled:opacity-50"
+          >
+            {savingBackupSchedule ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+            Save Backup Schedule
+          </button>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-[#1e1e1e]">
+          <HardDrive className="w-3.5 h-3.5 text-[#555]" />
+          <p className="text-xs font-medium text-[#888] uppercase tracking-wide">
             PVC Snapshots
           </p>
         </div>
@@ -4139,16 +4429,27 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
         <div className="flex items-center gap-2 px-4 py-3 border-b border-[#1e1e1e]">
           <Download className="w-3.5 h-3.5 text-[#555]" />
           <p className="text-xs font-medium text-[#888] uppercase tracking-wide">
-            Server Export
+            Export / Clone
           </p>
         </div>
-        <div className="p-4">
-          <button
-            onClick={exportServer}
-            className="px-3 py-2 rounded-lg bg-[#0078D4] text-white text-xs"
-          >
-            Export Config
-          </button>
+        <div className="p-4 space-y-3">
+          <p className="text-xs text-[#666]">
+            Export a reusable JSON template or open the create flow with this server pre-filled.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={exportServer}
+              className="px-3 py-2 rounded-lg bg-[#0078D4] text-white text-xs"
+            >
+              Export Config
+            </button>
+            <button
+              onClick={cloneServerFromTemplate}
+              className="px-3 py-2 rounded-lg border border-[#2a2a2a] bg-[#1a1a1a] text-[#f2f2f2] text-xs hover:bg-[#222]"
+            >
+              Clone Server
+            </button>
+          </div>
         </div>
       </div>
 
@@ -4194,6 +4495,13 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
       <ServerRbacPanel
         serverName={name}
         canEdit={Boolean(server.permissions?.canAdmin)}
+      />
+
+      <NotesTagsEditor
+        serverName={name}
+        notes={server.notes ?? ""}
+        tags={server.tags ?? []}
+        onSaved={refreshServerDetails}
       />
 
       <AnimatePresence>
@@ -4279,7 +4587,7 @@ export default function ServerDetailPage() {
     refetchInterval: 30000,
   });
 
-  async function doAction(action: string) {
+  async function doAction(action: string, successMessage?: string) {
     setActionLoading(action);
     try {
       await fetchJson(`/api/game-hub/servers/${name}`, {
@@ -4287,8 +4595,9 @@ export default function ServerDetailPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action }),
       });
-      toast.success(`${action} successful`);
+      toast.success(successMessage ?? `${action} successful`);
       queryClient.invalidateQueries({ queryKey: ["game-hub", "server", name] });
+      queryClient.invalidateQueries({ queryKey: ["game-hub", "servers"] });
     } catch (error) {
       toast.error(String(error));
     } finally {
@@ -4402,10 +4711,37 @@ export default function ServerDetailPage() {
                   Version {server.imageVersion}
                 </span>
               )}
-              {server && !server.imagePinned && (
+              {server?.imagePinned ? (
+                <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-emerald-200">
+                  ✓ Pinned to {server.imageVersion}
+                </span>
+              ) : server ? (
                 <span className="rounded-full border border-yellow-500/30 bg-yellow-500/10 px-2 py-0.5 text-yellow-200">
                   Using latest tag
                 </span>
+              ) : null}
+              {server?.permissions?.canAdmin && server?.imageVersion && (
+                <button
+                  onClick={() =>
+                    void doAction(
+                      server.imagePinned ? "unpin-image-version" : "pin-image-version",
+                      server.imagePinned
+                        ? "Using latest image tag"
+                        : `Pinned to ${server.imageVersion}`,
+                    )
+                  }
+                  disabled={
+                    actionLoading === "pin-image-version" ||
+                    actionLoading === "unpin-image-version"
+                  }
+                  className="rounded-full border border-[#2a2a2a] bg-[#1a1a1a] px-2 py-0.5 text-[#d4d4d4] transition-colors hover:bg-[#222] disabled:opacity-50"
+                >
+                  {actionLoading === "pin-image-version" || actionLoading === "unpin-image-version"
+                    ? "Saving…"
+                    : server.imagePinned
+                      ? "Unpin (use latest)"
+                      : "Pin to current version"}
+                </button>
               )}
               {(server?.groups ?? []).map((group) => (
                 <span
@@ -4642,7 +4978,19 @@ export default function ServerDetailPage() {
               transition={{ duration: 0.12 }}
             >
               {activeTab === "dashboard" && (
-                <DashboardTab server={server} name={name} />
+                <div className="space-y-4">
+                  <DashboardTab server={server} name={name} />
+                  {server.gameType.toLowerCase().includes("minecraft") ? (
+                    <div className="grid gap-4 xl:grid-cols-2">
+                      <WorldInfo serverName={name} mountPath={mountPath} gameType={server.gameType} />
+                      <RconPanel
+                        serverName={name}
+                        gameType={server.gameType}
+                        permissions={server.permissions}
+                      />
+                    </div>
+                  ) : null}
+                </div>
               )}
               {activeTab === "console" && (
                 <ConsoleTab name={name} status={status} server={server} />
@@ -4661,6 +5009,7 @@ export default function ServerDetailPage() {
           </AnimatePresence>
         )}
       </div>
+      <MiniOverviewDrawer currentServerName={name} />
     </div>
   );
 }

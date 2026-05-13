@@ -59,9 +59,12 @@ const MANIFEST_SYNC_ACTIONS = new Set([
   "set-alert-thresholds",
   "expand-pvc",
   "update-image",
+  "pin-image-version",
+  "unpin-image-version",
   "update-pull-policy",
   "update-strategy",
   "update-identity",
+  "update-tags",
   "update-service-ports",
   "set-scheduled-action",
   "save-command",
@@ -72,10 +75,10 @@ function actionPermission(action: string) {
   if (action === "start") return "game-hub:start" as const;
   if (action === "stop") return "game-hub:stop" as const;
   if (action === "scale") return "game-hub:scale" as const;
-  if (["sync-to-git", "set-hpa", "remove-hpa", "update-env", "set-restart-policy", "set-notes", "update-resources", "set-maintenance", "set-schedule", "set-backup-schedule", "set-backup-target", "set-alert-thresholds", "expand-pvc"].includes(action)) {
+  if (["sync-to-git", "set-hpa", "remove-hpa", "update-env", "set-restart-policy", "set-notes", "update-notes", "update-resources", "set-maintenance", "set-schedule", "set-backup-schedule", "set-backup-target", "set-alert-thresholds", "expand-pvc"].includes(action)) {
     return "game-hub:admin" as const;
   }
-  if (["update-image", "update-pull-policy", "update-strategy", "update-identity", "update-service-ports", "set-scheduled-action", "save-command", "delete-saved-command"].includes(action)) {
+  if (["update-image", "pin-image-version", "unpin-image-version", "update-pull-policy", "update-strategy", "update-identity", "update-tags", "update-service-ports", "set-scheduled-action", "save-command", "delete-saved-command"].includes(action)) {
     return "game-hub:admin" as const;
   }
   return "game-hub:write" as const;
@@ -88,6 +91,16 @@ async function currentRestartSchedule(batchApi: import("@kubernetes/client-node"
   } catch {
     return null;
   }
+}
+
+function replaceImageTag(image: string, nextTag: string) {
+  const base = image.includes("@") ? image.split("@")[0] ?? image : image;
+  const lastColon = base.lastIndexOf(":");
+  const lastSlash = base.lastIndexOf("/");
+  if (lastColon > lastSlash) {
+    return `${base.slice(0, lastColon)}:${nextTag}`;
+  }
+  return `${base}:${nextTag}`;
 }
 
 async function buildResponse(name: string, limitedToken = false, access?: Awaited<ReturnType<typeof getGameHubAccessContext>>, includeYaml = false) {
@@ -426,12 +439,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
 
   const { name } = await params;
   const body = await req.json() as {
-    action: "start" | "stop" | "restart" | "scale" | "set-hpa" | "remove-hpa" | "update-env" | "set-restart-policy" | "set-notes" | "update-resources" | "set-maintenance" | "set-schedule" | "set-backup-schedule" | "set-backup-target" | "set-alert-thresholds" | "expand-pvc" | "update-image" | "update-pull-policy" | "update-strategy" | "update-identity" | "update-service-ports" | "set-scheduled-action" | "save-command" | "delete-saved-command" | "sync-to-git";
+    action: "start" | "stop" | "restart" | "scale" | "set-hpa" | "remove-hpa" | "update-env" | "set-restart-policy" | "set-notes" | "update-notes" | "update-resources" | "set-maintenance" | "set-schedule" | "set-backup-schedule" | "set-backup-target" | "set-alert-thresholds" | "expand-pvc" | "update-image" | "pin-image-version" | "unpin-image-version" | "update-pull-policy" | "update-strategy" | "update-identity" | "update-tags" | "update-service-ports" | "set-scheduled-action" | "save-command" | "delete-saved-command" | "sync-to-git";
     replicas?: number;
     hpaMin?: number;
     hpaMax?: number;
     hpaCpuTarget?: number;
     env?: Record<string, string>;
+    replaceEnv?: boolean;
     restartPolicy?: boolean;
     notes?: string;
     memory?: string;
@@ -518,8 +532,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
       await clients.autoscalingApi.deleteNamespacedHorizontalPodAutoscaler({ name, namespace: GAME_HUB_NAMESPACE }).catch(() => undefined);
     } else if (body.action === "update-env") {
       const currentEnv = Object.fromEntries((deployment.spec?.template?.spec?.containers?.[0]?.env ?? []).map((entry) => [entry.name, entry.value ?? ""]));
-      const mergedEnv = { ...currentEnv, ...(body.env ?? {}) };
-      const envVars = Object.entries(mergedEnv).map(([key, value]) => ({ name: key, value }));
+      const nextEnv = body.replaceEnv ? (body.env ?? {}) : { ...currentEnv, ...(body.env ?? {}) };
+      const envVars = Object.entries(nextEnv).map(([key, value]) => ({ name: key, value }));
       const containerName = deployment.spec?.template?.spec?.containers?.[0]?.name ?? name;
       await clients.appsApi.patchNamespacedDeployment({
         name,
@@ -528,11 +542,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
         force: true,
         fieldManager: "infraweaver",
       });
-      await upsertEggConfigMap(clients.coreApi, name, egg, mergedEnv);
+      await upsertEggConfigMap(clients.coreApi, name, egg, nextEnv);
     } else if (body.action === "set-restart-policy") {
       const policy = body.restartPolicy === true ? "Always" : "OnFailure";
       await clients.appsApi.patchNamespacedDeployment({ name, namespace: GAME_HUB_NAMESPACE, body: { spec: { template: { spec: { restartPolicy: policy } } } }, force: true, fieldManager: "infraweaver" });
-    } else if (body.action === "set-notes") {
+    } else if (body.action === "set-notes" || body.action === "update-notes") {
       await clients.appsApi.patchNamespacedDeployment({ name, namespace: GAME_HUB_NAMESPACE, body: { metadata: { annotations: { "infraweaver/notes": body.notes ?? "" } } }, force: true, fieldManager: "infraweaver" });
     } else if (body.action === "update-resources") {
       const containerName = deployment.spec?.template?.spec?.containers?.[0]?.name ?? name;
@@ -654,6 +668,38 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
         force: true,
         fieldManager: "infraweaver",
       });
+    } else if (body.action === "pin-image-version") {
+      const containerName = deployment.spec?.template?.spec?.containers?.[0]?.name ?? name;
+      const currentImage = deployment.spec?.template?.spec?.containers?.[0]?.image ?? egg.dockerImage;
+      const currentVersion = deployment.metadata?.annotations?.["infraweaver.io/image-version"] ?? parseImageVersion(currentImage).version;
+      if (!currentVersion || currentVersion === "unknown" || currentVersion === "latest" || currentVersion === "sha256") {
+        return NextResponse.json({ error: "No concrete image version available to pin" }, { status: 400 });
+      }
+      const pinnedImage = replaceImageTag(currentImage, currentVersion);
+      await clients.appsApi.patchNamespacedDeployment({
+        name,
+        namespace: GAME_HUB_NAMESPACE,
+        body: {
+          metadata: { annotations: { "infraweaver.io/image-version": currentVersion } },
+          spec: { template: { metadata: { annotations: { "infraweaver.io/image-version": currentVersion } }, spec: { containers: [{ name: containerName, image: pinnedImage }] } } },
+        },
+        force: true,
+        fieldManager: "infraweaver",
+      });
+    } else if (body.action === "unpin-image-version") {
+      const containerName = deployment.spec?.template?.spec?.containers?.[0]?.name ?? name;
+      const currentImage = deployment.spec?.template?.spec?.containers?.[0]?.image ?? egg.dockerImage;
+      const latestImage = replaceImageTag(currentImage, "latest");
+      await clients.appsApi.patchNamespacedDeployment({
+        name,
+        namespace: GAME_HUB_NAMESPACE,
+        body: {
+          metadata: { annotations: { "infraweaver.io/image-version": "latest" } },
+          spec: { template: { metadata: { annotations: { "infraweaver.io/image-version": "latest" } }, spec: { containers: [{ name: containerName, image: latestImage }] } } },
+        },
+        force: true,
+        fieldManager: "infraweaver",
+      });
     } else if (body.action === "update-pull-policy") {
       if (!body.pullPolicy) return NextResponse.json({ error: "pullPolicy is required" }, { status: 400 });
       const containerName = deployment.spec?.template?.spec?.containers?.[0]?.name ?? name;
@@ -673,7 +719,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
         force: true,
         fieldManager: "infraweaver",
       });
-    } else if (body.action === "update-identity") {
+    } else if (body.action === "update-identity" || body.action === "update-tags") {
       const annotations: Record<string, string> = {};
       if (body.description !== undefined) annotations["infraweaver.io/description"] = body.description;
       if (body.icon !== undefined) annotations["infraweaver.io/icon"] = body.icon;
