@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { ADDONS, setAddonEnabled } from "@/lib/addons";
+import { ADDONS } from "@/lib/addons";
+import { setAddonEnabled } from "@/lib/addons-server";
 import { getRole } from "@/lib/rbac";
 
 function getErrorMessage(error: unknown) {

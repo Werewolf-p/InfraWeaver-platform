@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { getEnabledAddons } from "@/lib/addons";
+import { getEnabledAddons } from "@/lib/addons-server";
 
 function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Failed to load addons";
