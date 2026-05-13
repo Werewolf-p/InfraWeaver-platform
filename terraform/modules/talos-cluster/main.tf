@@ -427,6 +427,15 @@ data "talos_machine_configuration" "this" {
             }
           }
         } : null
+        kubelet = {
+          extraArgs = {
+            kube-reserved               = "memory=512Mi,cpu=500m"
+            system-reserved             = "memory=512Mi,cpu=500m"
+            eviction-hard               = "memory.available<500Mi,nodefs.available<10%"
+            eviction-soft               = "memory.available<1Gi,nodefs.available<15%"
+            eviction-soft-grace-period  = "memory.available=2m,nodefs.available=5m"
+          }
+        }
       }
       # Allow pods to schedule on control-plane nodes.
       # Required for all-control-plane HA clusters (no separate worker nodes).

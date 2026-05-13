@@ -1,5 +1,6 @@
 loki:
   enabled: true
+  priorityClassName: platform-standard
   persistence:
     enabled: true
     size: 10Gi
@@ -15,6 +16,7 @@ loki:
 
 promtail:
   enabled: true
+  priorityClassName: platform-standard
   config:
     clients:
       - url: http://loki:3100/loki/api/v1/push

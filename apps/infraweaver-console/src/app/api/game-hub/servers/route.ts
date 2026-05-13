@@ -15,6 +15,27 @@ function pvcSuffixForMountPath(mountPath: string) {
   return (mountPath.split("/").filter(Boolean).pop() ?? "data").replace(/[^a-z0-9-]/g, "-") || "data";
 }
 
+function quantityToString(value: string | number | null | undefined) {
+  if (typeof value === "number") return String(value);
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function buildGameServerResources(memory: string | number | null | undefined, cpu: string | number | null | undefined) {
+  const memoryValue = quantityToString(memory) ?? "2Gi";
+  const cpuValue = quantityToString(cpu) ?? "1";
+  return {
+    requests: {
+      memory: memoryValue,
+      cpu: cpuValue,
+    },
+    limits: {
+      memory: memoryValue,
+      cpu: cpuValue,
+    },
+  };
+}
+
 async function createServer(body: {
   egg?: string;
   game?: string;
@@ -63,6 +84,7 @@ async function createServer(body: {
     ...(requestedGame.startsWith("pelican:") ? { "infraweaver.io/egg-source": requestedGame } : {}),
   };
 
+  const resources = buildGameServerResources(memory, cpu);
   const { appsApi, coreApi } = makeGameHubClients();
 
   await coreApi.createNamespacedPersistentVolumeClaim({
@@ -79,17 +101,21 @@ async function createServer(body: {
       metadata: { name: slug, namespace: GAME_HUB_NAMESPACE, labels: { app: slug, "infraweaver/game": "true", "infraweaver/game-type": egg.id, "infraweaver/egg": egg.id }, annotations },
       spec: {
         replicas: 1,
+        strategy: { type: "Recreate" },
         selector: { matchLabels: { app: slug } },
         template: {
           metadata: { labels: { app: slug, "infraweaver/game": "true", "infraweaver/game-type": egg.id, "infraweaver/egg": egg.id }, annotations },
           spec: {
-            securityContext: egg.id === "valheim" ? { runAsUser: 0 } : { runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000 },
+            priorityClassName: "game-server",
+            terminationGracePeriodSeconds: 60,
+            securityContext: egg.id === "valheim" ? { runAsUser: 0, runAsGroup: 0 } : { runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000 },
             containers: [{
               name: slug,
               image: egg.dockerImage,
+              imagePullPolicy: "IfNotPresent",
               ports: getEggPorts(egg).map((port) => ({ containerPort: port.port, protocol: port.protocol })),
               env: Object.entries(env).map(([key, value]) => ({ name: key, value })),
-              resources: { requests: { memory: "512Mi", cpu: "250m" }, limits: { memory, cpu } },
+              resources,
               volumeMounts: [{ name: "data", mountPath: egg.mountPath }],
               ...buildUniversalGameServerProbes(),
             }],
@@ -154,6 +180,10 @@ async function cloneServer(source: string, newName: string) {
   });
 
   const volumeMount = container?.volumeMounts?.[0];
+  const resources = buildGameServerResources(
+    quantityToString(container?.resources?.limits?.memory) ?? quantityToString(container?.resources?.requests?.memory) ?? sourceEgg.defaultMemory ?? "2Gi",
+    quantityToString(container?.resources?.limits?.cpu) ?? quantityToString(container?.resources?.requests?.cpu) ?? sourceEgg.defaultCpu ?? "1",
+  );
   await appsApi.createNamespacedDeployment({
     namespace: GAME_HUB_NAMESPACE,
     body: {
@@ -171,6 +201,7 @@ async function cloneServer(source: string, newName: string) {
       },
       spec: {
         replicas: sourceDeployment.spec?.replicas ?? 1,
+        strategy: { type: "Recreate" },
         selector: { matchLabels: { app: slug } },
         template: {
           metadata: {
@@ -183,13 +214,16 @@ async function cloneServer(source: string, newName: string) {
             },
           },
           spec: {
+            priorityClassName: "game-server",
+            terminationGracePeriodSeconds: 60,
             securityContext: sourceDeployment.spec?.template?.spec?.securityContext,
             containers: [{
               name: slug,
               image: container?.image ?? sourceEgg.dockerImage,
+              imagePullPolicy: "IfNotPresent",
               env: (container?.env ?? []).map((entry) => ({ name: entry.name, value: entry.value ?? "" })),
               ports: (container?.ports ?? []).map((port) => ({ containerPort: port.containerPort, protocol: port.protocol })),
-              resources: container?.resources,
+              resources,
               volumeMounts: [{ name: "data", mountPath: volumeMount?.mountPath ?? sourceEgg.mountPath }],
               ...buildUniversalGameServerProbes(),
             }],

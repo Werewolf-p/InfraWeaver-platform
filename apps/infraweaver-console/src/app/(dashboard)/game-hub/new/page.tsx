@@ -97,6 +97,37 @@ function sliderTrackStyle(value: number, min: number, max: number) {
   } as const;
 }
 
+type GameHubCapacityNode = {
+  name: string;
+  ready: boolean;
+  requestMemoryPct: number;
+  limitMemoryPct: number;
+  usageMemoryPct: number | null;
+};
+
+type GameHubCapacity = {
+  nodes: GameHubCapacityNode[];
+  gameHubUsage: {
+    requestedMemoryBytes: number;
+    quota: {
+      requestsMemoryBytes: number;
+    };
+  };
+  summary: {
+    maxRequestMemoryPct: number;
+    maxLimitMemoryPct: number;
+    maxUsageMemoryPct: number | null;
+    projectedWorstNodeRequestMemoryPct: number;
+  };
+  canSafelyDeploy: boolean;
+  warnings: string[];
+};
+
+function formatBytesGi(bytes: number | null | undefined) {
+  if (!bytes) return "—";
+  return `${(bytes / 1024 ** 3).toFixed(1)} Gi`;
+}
+
 export default function NewGameServerPage() {
   const router = useRouter();
   const [step, setStep] = useState(1);
@@ -138,6 +169,18 @@ export default function NewGameServerPage() {
     },
   });
 
+  const { data: capacityData } = useQuery({
+    queryKey: ["game-hub", "capacity", memoryMi, cpuCores, selectedBuiltInId, selectedRemoteEntry?.id],
+    enabled: Boolean(selectedBuiltInId || selectedRemoteEntry),
+    refetchInterval: 30_000,
+    queryFn: async () => {
+      const params = new URLSearchParams({ memory: formatMemory(memoryMi), cpu: formatCpu(cpuCores) });
+      const response = await fetch(`/api/game-hub/capacity?${params.toString()}`);
+      if (!response.ok) throw new Error("Failed to load cluster capacity");
+      return response.json() as Promise<GameHubCapacity>;
+    },
+  });
+
   const remoteEggPath = selectedRemoteEntry?.path ?? null;
   const { data: remoteEggData, isLoading: remoteEggLoading, error: remoteEggError } = useQuery({
     queryKey: ["game-hub", "pelican-egg", remoteEggPath],
@@ -159,6 +202,11 @@ export default function NewGameServerPage() {
     ? BUILT_IN_EGGS.find((egg) => egg.id === selectedBuiltInId) ?? null
     : remoteEggData?.egg ?? null;
   const activeEggKey = sourceTab === "built-in" ? selectedBuiltInId : selectedRemoteEntry?.id ?? null;
+  const highestPressureNode = capacityData?.nodes.reduce<GameHubCapacityNode | null>((worst, node) => {
+    if (!node.ready) return worst;
+    if (!worst || node.requestMemoryPct > worst.requestMemoryPct) return node;
+    return worst;
+  }, null) ?? null;
 
   useEffect(() => {
     if (!activeEgg || !activeEggKey) return;
@@ -230,6 +278,10 @@ export default function NewGameServerPage() {
         dnsHostname: dnsHostname.trim() || undefined,
       };
 
+      if (capacityData && !capacityData.canSafelyDeploy) {
+        toast.error("Cluster memory pressure is high — deploying this server may cause service disruption");
+      }
+
       const response = await fetch("/api/game-hub/servers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -261,6 +313,9 @@ export default function NewGameServerPage() {
     { label: "Memory", value: formatMemory(memoryMi) },
     { label: "CPU", value: `${formatCpu(cpuCores)} cores` },
     { label: "Storage", value: `${storageGi}Gi (${storageClass})` },
+    { label: "Pod resources", value: `${formatMemory(memoryMi)} request/limit • ${formatCpu(cpuCores)} CPU request/limit` },
+    { label: "Priority Class", value: "game-server" },
+    { label: "Rollout Strategy", value: "Recreate" },
     { label: "Game Port", value: activeEgg ? `${activeEgg.gamePort}/${activeEgg.protocol ?? "TCP"}` : "—" },
   ];
 
@@ -676,6 +731,58 @@ export default function NewGameServerPage() {
                 </div>
               </div>
 
+              {capacityData ? (
+                <div className={cn(
+                  "rounded-2xl border p-5",
+                  capacityData.canSafelyDeploy ? "border-green-500/30 bg-green-500/5" : "border-amber-500/40 bg-amber-500/10"
+                )}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-semibold text-[#f2f2f2]">Cluster capacity</h3>
+                      <p className="mt-1 text-sm text-[#777]">Live safety check before this server is deployed.</p>
+                    </div>
+                    <span className={cn(
+                      "rounded-full px-2 py-1 text-[11px] font-medium",
+                      capacityData.canSafelyDeploy ? "bg-green-500/15 text-green-300" : "bg-amber-500/15 text-amber-300"
+                    )}>
+                      {capacityData.canSafelyDeploy ? "Safe" : "Warning"}
+                    </span>
+                  </div>
+                  <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4 text-xs">
+                    <div className="rounded-xl bg-black/20 p-3">
+                      <p className="text-[#777]">Highest node requests</p>
+                      <p className="mt-1 text-base font-semibold text-[#f2f2f2]">{capacityData.summary.maxRequestMemoryPct.toFixed(1)}%</p>
+                      <p className="text-[#666]">{highestPressureNode?.name ?? "No ready nodes"}</p>
+                    </div>
+                    <div className="rounded-xl bg-black/20 p-3">
+                      <p className="text-[#777]">Highest node limits</p>
+                      <p className="mt-1 text-base font-semibold text-[#f2f2f2]">{capacityData.summary.maxLimitMemoryPct.toFixed(1)}%</p>
+                      <p className="text-[#666]">Current overcommit</p>
+                    </div>
+                    <div className="rounded-xl bg-black/20 p-3">
+                      <p className="text-[#777]">Projected worst-case requests</p>
+                      <p className="mt-1 text-base font-semibold text-[#f2f2f2]">{capacityData.summary.projectedWorstNodeRequestMemoryPct.toFixed(1)}%</p>
+                      <p className="text-[#666]">After this deploy</p>
+                    </div>
+                    <div className="rounded-xl bg-black/20 p-3">
+                      <p className="text-[#777]">Game Hub request budget</p>
+                      <p className="mt-1 text-base font-semibold text-[#f2f2f2]">{formatBytesGi(capacityData.gameHubUsage.requestedMemoryBytes)}</p>
+                      <p className="text-[#666]">of {formatBytesGi(capacityData.gameHubUsage.quota.requestsMemoryBytes)}</p>
+                    </div>
+                  </div>
+                  {capacityData.summary.maxUsageMemoryPct != null ? (
+                    <p className="mt-3 text-xs text-[#777]">Observed node memory usage is {capacityData.summary.maxUsageMemoryPct.toFixed(1)}%.</p>
+                  ) : null}
+                  {capacityData.warnings.length > 0 ? (
+                    <ul className="mt-3 list-disc space-y-1 pl-4 text-xs text-amber-200">
+                      {capacityData.warnings.map((warning) => (
+                        <li key={warning}>{warning}</li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
+              ) : null}
+
               <div className="flex items-center justify-between gap-3">
                 <button
                   onClick={() => setStep(2)}
@@ -699,6 +806,13 @@ export default function NewGameServerPage() {
                 <h2 className="text-lg font-semibold text-[#f2f2f2]">Review and deploy</h2>
                 <p className="text-sm text-[#777]">Double-check the server settings before creating Kubernetes resources.</p>
               </div>
+
+              {capacityData && !capacityData.canSafelyDeploy ? (
+                <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-100">
+                  <p className="font-medium">⚠ Cluster memory pressure is already high.</p>
+                  <p className="mt-1 text-xs text-amber-200">Projected worst-case node requests: {capacityData.summary.projectedWorstNodeRequestMemoryPct.toFixed(1)}% • current node limits: {capacityData.summary.maxLimitMemoryPct.toFixed(1)}%</p>
+                </div>
+              ) : null}
 
               <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
                 <div className="rounded-2xl border border-[#2a2a2a] bg-[#111] p-5">
@@ -752,12 +866,18 @@ export default function NewGameServerPage() {
                 <button
                   onClick={() => void deployServer()}
                   disabled={deploying}
-                  className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-green-500 disabled:cursor-not-allowed disabled:opacity-50"
+                  className={cn(
+                    "inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                    capacityData && !capacityData.canSafelyDeploy ? "bg-amber-600 hover:bg-amber-500" : "bg-green-600 hover:bg-green-500"
+                  )}
                 >
                   {deploying ? <Loader2 className="h-4 w-4 animate-spin" /> : <ServerCrash className="h-4 w-4" />}
-                  Deploy Server
+                  {capacityData && !capacityData.canSafelyDeploy ? "Deploy Anyway" : "Deploy Server"}
                 </button>
               </div>
+              {capacityData && !capacityData.canSafelyDeploy ? (
+                <p className="text-xs text-amber-200">This does not block deployment, but it signals elevated outage risk unless node pressure is reduced first.</p>
+              ) : null}
             </div>
           )}
         </motion.div>

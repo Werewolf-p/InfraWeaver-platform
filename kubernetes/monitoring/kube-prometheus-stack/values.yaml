@@ -4,6 +4,7 @@ fullnameOverride: kube-prometheus-stack
 # Disable admission webhook (its cert-patch Job has hook-delete-policy:
 # hook-succeeded which causes ArgoCD to wait forever after the Job self-deletes)
 prometheusOperator:
+  priorityClassName: platform-standard
   admissionWebhooks:
     enabled: false
   tls:
@@ -12,6 +13,7 @@ prometheusOperator:
 # ── Grafana ───────────────────────────────────────────────────────────────────
 grafana:
   enabled: true
+  priorityClassName: platform-standard
   # Admin credentials from OpenBao via ExternalSecret in monitoring namespace
   # grafana-admin-secret provides both admin-user and admin-password keys
   admin:
@@ -93,6 +95,7 @@ grafana:
 prometheus:
   enabled: true
   prometheusSpec:
+    priorityClassName: platform-standard
     retention: 3d
     retentionSize: 8GB
     # Reduce scrape load to ease memory pressure on 8GB nodes
@@ -171,6 +174,7 @@ prometheus:
 alertmanager:
   enabled: true
   alertmanagerSpec:
+    priorityClassName: platform-standard
     storage:
       volumeClaimTemplate:
         spec:
@@ -248,7 +252,9 @@ alertmanager:
 # ── Node Exporter ─────────────────────────────────────────────────────────────
 nodeExporter:
   enabled: true
+  priorityClassName: platform-standard
 
 # ── kube-state-metrics ───────────────────────────────────────────────────────
 kubeStateMetrics:
   enabled: true
+  priorityClassName: platform-standard

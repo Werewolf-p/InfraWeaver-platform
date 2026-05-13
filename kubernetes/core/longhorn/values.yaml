@@ -9,9 +9,16 @@ defaultSettings:
   defaultReplicaCount: 3
   # Allow scheduling on control-plane nodes (no workers in this cluster)
   taintToleration: "node-role.kubernetes.io/control-plane:NoSchedule"
+  # Give Longhorn itself platform-standard priority so storage stays online
+  # without out-prioritising ingress/DNS/control-plane components.
+  priorityClass: platform-standard
   # Storage reserved per node (don't use all disk space)
-  storageMinimalAvailablePercentage: 10
-  storageOverProvisioningPercentage: 400
+  storageMinimalAvailablePercentage: 15
+  storageOverProvisioningPercentage: 200
+  # Reserve CPU for Longhorn instance managers so replica rebuilds do not starve.
+  guaranteedInstanceManagerCPU: 12
+  # Limit concurrent rebuild pressure during volume creation/recovery storms.
+  concurrentReplicaRebuildPerNodeLimit: 1
   # Reserve 15% of disk for system use (reduced from 30% default to allow more scheduling headroom)
   storageReservedPercentageForDefaultDisk: 15
   # Auto-balance replicas when nodes have unequal replica counts
@@ -30,6 +37,7 @@ defaultSettings:
 
 longhornUI:
   enabled: true
+  priorityClass: "platform-standard"
 
 ingress:
   enabled: true
@@ -54,11 +62,20 @@ longhornManager:
     - key: "node-role.kubernetes.io/control-plane"
       operator: "Exists"
       effect: "NoSchedule"
-  priorityClass: "longhorn-critical"
+  priorityClass: "platform-standard"
 
 longhornDriver:
   tolerations:
     - key: "node-role.kubernetes.io/control-plane"
       operator: "Exists"
       effect: "NoSchedule"
-  priorityClass: "longhorn-critical"
+  priorityClass: "platform-standard"
+
+longhornAdmissionWebhook:
+  priorityClass: "platform-standard"
+
+longhornConversionWebhook:
+  priorityClass: "platform-standard"
+
+longhornRecoveryBackend:
+  priorityClass: "platform-standard"
