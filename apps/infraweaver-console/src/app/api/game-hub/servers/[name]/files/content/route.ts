@@ -87,3 +87,5 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ name
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
 }
+
+export { PUT as POST };
