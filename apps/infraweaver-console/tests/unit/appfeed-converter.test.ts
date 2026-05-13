@@ -3,13 +3,26 @@ import { convertAppFeedEntry, type AppFeedEntry } from "@/lib/appfeed-converter"
 
 type ParsedDoc = { kind?: string };
 type ParsedDeployment = ParsedDoc & {
-  spec: { template: { spec: { containers: Array<{ image: string; args?: string[] }> } } };
+  spec: {
+    template: {
+      spec: {
+        containers: Array<{
+          image: string;
+          args?: string[];
+          env?: Array<{ name: string; value?: string }>;
+        }>;
+      };
+    };
+  };
 };
 type ParsedIngressRoute = ParsedDoc & {
   spec: { routes: Array<{ services: Array<{ port: number }> }> };
 };
 type ParsedService = ParsedDoc & {
   spec: { ports: Array<{ name: string }> };
+};
+type ParsedPvc = ParsedDoc & {
+  spec: { storageClassName?: string };
 };
 
 describe("convertAppFeedEntry", () => {
@@ -94,6 +107,48 @@ describe("convertAppFeedEntry", () => {
     const docs = loadAll(result.combinedYaml) as ParsedDoc[];
     const service = docs.find(doc => doc.kind === "Service") as ParsedService;
     expect(service.spec.ports[0].name).toBe("port-9090");
+  });
+
+  it("prefers config defaults when AppFeed values are blank", () => {
+    const result = convertAppFeedEntry({
+      Name: "Defaulted Env App",
+      Repository: "ghcr.io/example/defaulted-env:1.0",
+      Config: {
+        "@attributes": {
+          Name: "Mode",
+          Target: "MODE",
+          Default: "standalone",
+          Type: "Variable",
+        },
+        value: "",
+      },
+    });
+
+    const docs = loadAll(result.combinedYaml) as ParsedDoc[];
+    const deployment = docs[0] as ParsedDeployment;
+    expect(deployment.spec.template.spec.containers[0].env).toEqual([
+      { name: "MODE", value: "standalone" },
+    ]);
+  });
+
+  it("defaults PVCs to the longhorn-game storage class", () => {
+    const result = convertAppFeedEntry({
+      Name: "PVC App",
+      Repository: "ghcr.io/example/pvc-app:1.0",
+      Config: {
+        "@attributes": {
+          Name: "AppData",
+          Target: "/config",
+          Default: "/mnt/user/appdata/pvc-app",
+          Required: "true",
+          Type: "Path",
+        },
+      },
+    });
+
+    const docs = loadAll(result.combinedYaml) as ParsedDoc[];
+    const pvc = docs.find(doc => doc.kind === "PersistentVolumeClaim") as ParsedPvc;
+    expect(pvc.spec.storageClassName).toBe("longhorn-game");
   });
 
   it("rejects apps without an image", () => {

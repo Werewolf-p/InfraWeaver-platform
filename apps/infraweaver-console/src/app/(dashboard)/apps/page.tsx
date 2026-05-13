@@ -261,27 +261,39 @@ function AllInstalledTab() {
   }, []);
 
   const allRows = useMemo(() => {
-    const argo = (argoApps ?? []).map(app => ({
-      id: app.metadata?.name ?? "",
-      name: app.metadata?.name ?? "",
-      namespace: app.spec?.destination?.namespace ?? "",
-      health: toHealthStatus(app.status?.health?.status ?? "Unknown"),
-      syncStatus: toHealthStatus(app.status?.sync?.status ?? "Unknown"),
-      source: "Catalog" as const,
-      lastSync: app.status?.reconciledAt ?? "",
-      sourceType: (app.spec?.source?.repoURL?.includes("charts") ? "Helm" : "Git") as "Helm" | "Git",
-    }));
+    const argoByName = new Map((argoApps ?? []).map(app => [app.metadata?.name ?? "", app]));
+    const communityArgoNames = new Set(communityApps.map(app => app.argoAppName));
 
-    const community = communityApps.map(app => ({
-      id: `community-${app.slug}`,
-      name: app.slug,
-      namespace: app.namespace,
-      health: "progressing" as AppHealthStatus,
-      syncStatus: "progressing" as AppHealthStatus,
-      source: "Community" as const,
-      lastSync: app.installedAt,
-      sourceType: "Community" as const,
-    }));
+    const argo = (argoApps ?? [])
+      .filter(app => !communityArgoNames.has(app.metadata?.name ?? ""))
+      .map(app => ({
+        id: app.metadata?.name ?? "",
+        name: app.metadata?.name ?? "",
+        namespace: app.spec?.destination?.namespace ?? "",
+        health: toHealthStatus(app.status?.health?.status ?? "Unknown"),
+        syncStatus: toHealthStatus(app.status?.sync?.status ?? "Unknown"),
+        source: "Catalog" as const,
+        lastSync: app.status?.reconciledAt ?? "",
+        sourceType: (app.spec?.source?.repoURL?.includes("charts") ? "Helm" : "Git") as "Helm" | "Git",
+      }));
+
+    const community = communityApps.map(app => {
+      const argoApp = argoByName.get(app.argoAppName);
+      return {
+        id: `community-${app.slug}`,
+        name: app.slug,
+        namespace: app.namespace,
+        health: argoApp
+          ? toHealthStatus(argoApp.status?.health?.status ?? "Unknown")
+          : "progressing" as AppHealthStatus,
+        syncStatus: argoApp
+          ? toHealthStatus(argoApp.status?.sync?.status ?? "Unknown")
+          : "progressing" as AppHealthStatus,
+        source: "Community" as const,
+        lastSync: argoApp?.status?.reconciledAt ?? app.installedAt,
+        sourceType: "Community" as const,
+      };
+    });
 
     return [...argo, ...community];
   }, [argoApps, communityApps]);

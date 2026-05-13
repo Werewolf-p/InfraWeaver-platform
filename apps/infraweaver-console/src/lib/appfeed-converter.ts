@@ -163,7 +163,7 @@ function buildEnvVars(configs: AppFeedConfig[]): string[] {
     .filter(c => c["@attributes"]?.Type === "Variable")
     .map(c => {
       const attrs = c["@attributes"];
-      const value = c.value ?? attrs.Default ?? "";
+      const value = c.value?.trim() ? c.value : (attrs.Default ?? "");
       const masked = attrs.Mask === "true";
       return [
         `            - name: ${attrs.Target}`,
@@ -333,7 +333,7 @@ export function convertAppFeedEntry(
   const slug = toSlug(appName);
   const namespace = options.namespace?.trim() || slug;
   const pvcSizeGi = options.pvcSizeGi ?? 10;
-  const storageClass = options.storageClass?.trim() || "longhorn";
+  const storageClass = options.storageClass?.trim() || "longhorn-game";
   const tier = detectTier(app);
 
   const warnings: string[] = [];

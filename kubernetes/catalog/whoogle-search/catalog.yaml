@@ -1,0 +1,14 @@
+# Community app installed from Unraid AppFeed
+# Source: benbusby/whoogle-search
+name: whoogle-search
+description: "Get Google search results, but without any ads, javascript, AMP links, cookies, or IP address tracking. Also includes a dark mode. Refer to the project page for additional configura"
+namespace: whoogle
+source: community-apps
+tier: simple
+image: benbusby/whoogle-search
+categories:
+  - "Cloud"
+  - "Network-Web"
+ingressroute:
+  host: whoogle.int.rlservers.com
+installed_at: 2026-05-13T19:33:16.570Z

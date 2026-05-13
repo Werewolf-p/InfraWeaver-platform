@@ -37,6 +37,15 @@ interface GitHubFile {
   sha?: string;
 }
 
+function sanitizeKubernetesName(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 63)
+    .replace(/-+$/g, "") || "app";
+}
+
 async function ghGet(path: string): Promise<GitHubFile | null> {
   const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/contents/${path}`, {
     headers: {
@@ -99,8 +108,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `App "${appName}" not found in AppFeed` }, { status: 404 });
   }
 
-  const slug = app.Name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 63);
-  const ns = namespace ?? slug;
+  const slug = sanitizeKubernetesName(app.Name);
+  const ns = sanitizeKubernetesName(namespace ?? slug);
 
   let result: ReturnType<typeof convertAppFeedEntry>;
   try {
@@ -119,6 +128,11 @@ export async function POST(req: NextRequest) {
   }
 
   const baseDir = `kubernetes/catalog/${slug}/manifests`;
+  const appDescription = (app.Overview ?? "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 200)
+    .replace(/"/g, "'");
 
   // ArgoCD Application manifest (same pattern as catalog-*-manifests.yaml in bootstrap/)
   const argoAppYaml = `---
@@ -167,7 +181,7 @@ spec:
   const catalogYaml = `# Community app installed from Unraid AppFeed
 # Source: ${app.Repository}
 name: ${slug}
-description: "${(app.Overview ?? "").slice(0, 200).replace(/"/g, "'")}"
+description: "${appDescription}"
 namespace: ${ns}
 source: community-apps
 tier: ${result.tier}

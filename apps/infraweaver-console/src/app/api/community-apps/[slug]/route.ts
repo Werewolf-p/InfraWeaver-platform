@@ -13,6 +13,8 @@ import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac"
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN ?? "";
 const GITHUB_REPO = process.env.GITHUB_REPO ?? "Werewolf-p/InfraWeaver-platform";
 const GH_API = `https://api.github.com/repos/${GITHUB_REPO}`;
+const ARGOCD_URL = process.env.ARGOCD_URL ?? "https://argocd.int.rlservers.com";
+const ARGOCD_TOKEN = process.env.ARGOCD_TOKEN ?? "";
 
 interface GHFileContent {
   sha: string;
@@ -62,6 +64,37 @@ async function ghListDir(dirPath: string): Promise<GHTreeItem[]> {
 
 function slugIsValid(slug: string): boolean {
   return /^[a-z0-9-]+$/.test(slug) && slug.length > 0 && slug.length < 64;
+}
+
+async function cleanupArgoApplication(argoAppName: string): Promise<void> {
+  if (!ARGOCD_TOKEN) return;
+
+  const appName = encodeURIComponent(argoAppName);
+  const headers = {
+    Authorization: `Bearer ${ARGOCD_TOKEN}`,
+  };
+
+  const patchRes = await fetch(`${ARGOCD_URL}/api/v1/applications/${appName}`, {
+    method: "PATCH",
+    headers: {
+      ...headers,
+      "Content-Type": "application/merge-patch+json",
+    },
+    body: JSON.stringify({ metadata: { finalizers: [] } }),
+  });
+
+  if (!patchRes.ok && patchRes.status !== 404) {
+    throw new Error(`Failed to remove ArgoCD finalizer: ${patchRes.status}`);
+  }
+
+  const deleteRes = await fetch(`${ARGOCD_URL}/api/v1/applications/${appName}?cascade=true`, {
+    method: "DELETE",
+    headers,
+  });
+
+  if (!deleteRes.ok && deleteRes.status !== 404) {
+    throw new Error(`Failed to delete ArgoCD application: ${deleteRes.status}`);
+  }
 }
 
 export async function DELETE(
@@ -128,6 +161,12 @@ export async function DELETE(
         }
       }
     }
+  }
+
+  try {
+    await cleanupArgoApplication(`catalog-${slug}-manifests`);
+  } catch (error) {
+    errors.push(error instanceof Error ? error.message : "Failed to clean up ArgoCD application");
   }
 
   if (errors.length > 0 && deleted.length === 0) {
