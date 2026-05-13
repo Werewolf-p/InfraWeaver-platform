@@ -28,24 +28,24 @@ spec:
         - name: esphome-enhanced
           image: heffneil/esphome-enhanced-dashboard
           env:
-        - name: ESPHOME_DASHBOARD_USE_PING
-          value: ""
-        - name: ESPHOME_DATA_DIR
-          value: ""
+            - name: ESPHOME_DASHBOARD_USE_PING
+              value: ""
+            - name: ESPHOME_DATA_DIR
+              value: ""
           ports:
-        - containerPort: 6052
-          protocol: TCP
-          name: webui
+            - containerPort: 6052
+              protocol: TCP
+              name: webui
           volumeMounts:
-        - name: esphome-enhanced-data-0
-          mountPath: "/config"
-        - name: esphome-enhanced-data-1
-          mountPath: "/data"
-        - name: esphome-enhanced-data-2
-          mountPath: "/cache"
+            - name: esphome-enhanced-data-0
+              mountPath: "/config"
+            - name: esphome-enhanced-data-1
+              mountPath: "/data"
+            - name: esphome-enhanced-data-2
+              mountPath: "/cache"
           securityContext:
-        runAsNonRoot: false
-        allowPrivilegeEscalation: false
+            runAsNonRoot: false
+            allowPrivilegeEscalation: false
           resources:
             requests:
               memory: "128Mi"

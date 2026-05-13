@@ -476,13 +476,13 @@ function ConsoleTab({
     esRef.current?.close();
 
     const params = new URLSearchParams();
+    const depth = depthOverride ?? historyDepth;
+    const capLines = HISTORY_DEPTH_MAX_LINES[depth] ?? 500;
+    params.set("tail", String(capLines));
     if (lastLogTimestampRef.current)
       params.set("sinceTime", lastLogTimestampRef.current);
     else
-      params.set(
-        "sinceTime",
-        depthToSinceTime(depthOverride ?? historyDepth),
-      );
+      params.set("sinceTime", depthToSinceTime(depth));
 
     const es = new EventSource(
       `/api/game-hub/servers/${name}/logs?${params.toString()}`,
@@ -1209,6 +1209,7 @@ function FilesTab({
   const [selectedFile, setSelectedFile] = useState<FileEntry | null>(null);
 
   const [fileContent, setFileContent] = useState<string | null>(null);
+  const [fileTooLarge, setFileTooLarge] = useState<{ size: number } | null>(null);
   const [saving, setSaving] = useState(false);
   const [loadingContent, setLoadingContent] = useState(false);
   const [pathHistory, setPathHistory] = useState<string[]>([mountPath]);
@@ -1322,6 +1323,7 @@ function FilesTab({
       setDiffOpen(false);
       setSelectedFile(null);
       setFileContent(null);
+      setFileTooLarge(null);
       originalContentRef.current = null;
       return;
     }
@@ -1329,6 +1331,7 @@ function FilesTab({
     setDiffOpen(false);
     setSelectedFile(entry);
     setFileContent(null);
+    setFileTooLarge(null);
     originalContentRef.current = null;
     setLoadingContent(
       !["png", "jpg", "jpeg", "gif", "webp", "svg"].includes(
@@ -1351,10 +1354,22 @@ function FilesTab({
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 15000);
     try {
-      const result = await fetchJson<{ content: string }>(
+      const res = await fetch(
         `/api/game-hub/servers/${name}/files/content?path=${encodeURIComponent(entry.path)}`,
         { signal: controller.signal },
       );
+      if (res.status === 413) {
+        const body = await res.json().catch(() => ({})) as { size?: number };
+        setFileTooLarge({ size: body.size ?? 0 });
+        setLoadingContent(false);
+        clearTimeout(timer);
+        return;
+      }
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({})) as { error?: string };
+        throw new Error(body.error ?? `HTTP ${res.status}`);
+      }
+      const result = await res.json() as { content: string };
       setFileContent(result.content);
       originalContentRef.current = result.content;
     } catch (error) {
@@ -1763,6 +1778,21 @@ function FilesTab({
             {loadingContent ? (
               <div className="flex items-center justify-center h-full">
                 <Loader2 className="w-5 h-5 animate-spin text-[#555]" />
+              </div>
+            ) : fileTooLarge ? (
+              <div className="flex flex-col items-center justify-center h-full gap-4 bg-[#0a0a0a] p-4">
+                <FileText className="w-10 h-10 text-[#444]" />
+                <div className="text-center">
+                  <p className="text-sm font-medium text-[#d4d4d4] mb-1">File too large to edit in browser</p>
+                  <p className="text-xs text-[#555]">{fileTooLarge.size > 0 ? `${(fileTooLarge.size / 1024 / 1024).toFixed(1)} MB` : "Size unknown"} — max 50 MB for inline editing</p>
+                </div>
+                <a
+                  href={`/api/game-hub/servers/${name}/files/content?path=${encodeURIComponent(selectedFile.path)}&download=1`}
+                  download={selectedFile.name}
+                  className="flex items-center gap-2 px-4 py-2 bg-[#0078D4] hover:bg-[#0065B3] text-white rounded-lg text-sm font-medium transition-colors"
+                >
+                  <Download className="w-4 h-4" /> Download File
+                </a>
               </div>
             ) : isImageFile ? (
               <div className="flex h-full items-center justify-center bg-[#0a0a0a] p-4">
@@ -2516,6 +2546,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
   const [commandText, setCommandText] = useState("");
   const [unsetApplyState, setUnsetApplyState] = useState<Record<string, "loading" | "done" | undefined>>({});
   const [appliedUnsetEnv, setAppliedUnsetEnv] = useState<Record<string, string>>({});
+  const [unsetEditValues, setUnsetEditValues] = useState<Record<string, string>>({});
   const isServerStopped = server.replicas === 0 || server.status === "stopped";
   const effectiveEnv = { ...currentEnv, ...appliedUnsetEnv };
   const unsetRecommendedEnvVars = eggEnvVars.filter((entry) => {
@@ -2722,17 +2753,18 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
     }
   }
 
-  async function applyUnsetEnvVar(entry: { name: string; defaultValue: string }) {
+  async function applyUnsetEnvVar(entry: { name: string; defaultValue: string }, customValue?: string) {
+    const valueToApply = customValue ?? entry.defaultValue;
     setUnsetApplyState((prev) => ({ ...prev, [entry.name]: "loading" }));
     try {
       await fetchJson(`/api/game-hub/servers/${name}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "update-env", env: { [entry.name]: entry.defaultValue } }),
+        body: JSON.stringify({ action: "update-env", env: { [entry.name]: valueToApply } }),
       });
       setUnsetApplyState((prev) => ({ ...prev, [entry.name]: "done" }));
       setTimeout(() => {
-        setAppliedUnsetEnv((prev) => ({ ...prev, [entry.name]: entry.defaultValue }));
+        setAppliedUnsetEnv((prev) => ({ ...prev, [entry.name]: valueToApply }));
         setUnsetApplyState((prev) => {
           const next = { ...prev };
           delete next[entry.name];
@@ -3022,20 +3054,31 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
           <div className="space-y-2">
             {unsetRecommendedEnvVars.map((entry) => {
               const state = unsetApplyState[entry.name];
+              const editVal = unsetEditValues[entry.name] ?? entry.defaultValue;
               return (
-                <div key={entry.name} className="flex flex-wrap items-center gap-3 rounded-lg border border-yellow-500/10 bg-[#111] px-3 py-2">
-                  <span className="rounded border border-yellow-500/20 bg-yellow-500/10 px-2 py-0.5 font-mono text-[10px] text-yellow-100">{entry.name}</span>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm text-[#f2f2f2]">{entry.description || "Recommended setting"}</p>
-                    {entry.defaultValue && <p className="text-[11px] text-yellow-200/70">default: {entry.defaultValue}</p>}
+                <div key={entry.name} className="rounded-lg border border-yellow-500/10 bg-[#111] px-3 py-2 space-y-2">
+                  <div className="flex flex-wrap items-start gap-2">
+                    <span className="rounded border border-yellow-500/20 bg-yellow-500/10 px-2 py-0.5 font-mono text-[10px] text-yellow-100 mt-0.5">{entry.name}</span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm text-[#f2f2f2]">{entry.description || "Recommended setting"}</p>
+                    </div>
                   </div>
-                  <button
-                    onClick={() => void applyUnsetEnvVar(entry)}
-                    disabled={state === "loading"}
-                    className="inline-flex items-center gap-1 rounded-md border border-green-500/30 bg-green-500/15 px-2.5 py-1 text-[11px] text-green-200 transition-colors hover:bg-green-500/20 disabled:opacity-60"
-                  >
-                    {state === "loading" ? <Loader2 className="h-3 w-3 animate-spin" /> : <span>{state === "done" ? "✓ Applied" : "✓ Apply"}</span>}
-                  </button>
+                  <div className="flex gap-2 items-center">
+                    <input
+                      type={/password|secret|token|key/i.test(entry.name) ? "password" : "text"}
+                      value={editVal}
+                      onChange={(e) => setUnsetEditValues((prev) => ({ ...prev, [entry.name]: e.target.value }))}
+                      placeholder={entry.defaultValue || "Enter value…"}
+                      className="flex-1 min-w-0 rounded-md bg-[#1a1a1a] border border-[#2a2a2a] px-2.5 py-1 text-xs text-[#d4d4d4] font-mono focus:outline-none focus:border-yellow-500/40 placeholder-[#444]"
+                    />
+                    <button
+                      onClick={() => void applyUnsetEnvVar(entry, editVal)}
+                      disabled={state === "loading" || !editVal}
+                      className="inline-flex items-center gap-1 rounded-md border border-green-500/30 bg-green-500/15 px-2.5 py-1 text-[11px] text-green-200 transition-colors hover:bg-green-500/20 disabled:opacity-60 flex-shrink-0"
+                    >
+                      {state === "loading" ? <Loader2 className="h-3 w-3 animate-spin" /> : <span>{state === "done" ? "✓ Applied" : "✓ Apply"}</span>}
+                    </button>
+                  </div>
                 </div>
               );
             })}

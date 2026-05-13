@@ -49,6 +49,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ name
 
         if (sinceTime && !isNaN(sinceTime.getTime())) {
           logOptions.sinceTime = sinceTime;
+          // Always cap with tailLines so initial connection doesn't stream gigabytes
+          logOptions.tailLines = tail;
         } else {
           logOptions.tailLines = tail;
         }

@@ -166,10 +166,10 @@ function buildEnvVars(configs: AppFeedConfig[]): string[] {
       const value = c.value ?? attrs.Default ?? "";
       const masked = attrs.Mask === "true";
       return [
-        `        - name: ${attrs.Target}`,
+        `            - name: ${attrs.Target}`,
         masked
-          ? `          valueFrom:\n            secretKeyRef:\n              name: ${toSlug(attrs.Name)}-secret\n              key: value`
-          : `          value: ${yamlString(value)}`,
+          ? `              valueFrom:\n                secretKeyRef:\n                  name: ${toSlug(attrs.Name)}-secret\n                  key: value`
+          : `              value: ${yamlString(value)}`,
       ].join("\n");
     });
 }
@@ -183,9 +183,9 @@ function buildContainerPorts(configs: AppFeedConfig[]): string[] {
       const containerPort = parseInt(attrs.Target, 10);
       if (isNaN(containerPort)) return "";
       return [
-        `        - containerPort: ${containerPort}`,
-        `          protocol: ${proto}`,
-        `          name: ${portName(attrs.Name, containerPort)}`,
+        `            - containerPort: ${containerPort}`,
+        `              protocol: ${proto}`,
+        `              name: ${portName(attrs.Name, containerPort)}`,
       ].join("\n");
     })
     .filter(Boolean);
@@ -199,8 +199,8 @@ function buildVolumeMounts(configs: AppFeedConfig[], slug: string): string[] {
       const mountPath = attrs.Target;
       const pvcName = `${slug}-data-${i}`;
       return [
-        `        - name: ${pvcName}`,
-        `          mountPath: ${yamlString(mountPath)}`,
+        `            - name: ${pvcName}`,
+        `              mountPath: ${yamlString(mountPath)}`,
       ].join("\n");
     });
 }
