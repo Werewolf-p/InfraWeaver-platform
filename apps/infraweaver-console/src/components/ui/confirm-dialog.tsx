@@ -60,7 +60,7 @@ export function ConfirmDialog({
     <Dialog.Root open={open} onOpenChange={handleOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-[61] w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-[#2a2a2a] bg-[#111] p-6 text-[#f2f2f2] shadow-2xl focus:outline-none">
+        <Dialog.Content className="fixed inset-x-0 bottom-0 top-0 z-[61] w-full overflow-y-auto bg-[#111] p-4 pb-[calc(env(safe-area-inset-bottom,0px)+1.25rem)] pt-[calc(env(safe-area-inset-top,0px)+1rem)] text-[#f2f2f2] shadow-2xl focus:outline-none sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-full sm:max-w-md sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:border sm:border-[#2a2a2a] sm:p-6 sm:pt-6 sm:pb-6">
           <div className="flex items-start gap-4">
             {danger ? (
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-red-500/20 bg-red-500/10">
@@ -111,10 +111,10 @@ export function ConfirmDialog({
             ) : null}
           </AnimatePresence>
 
-          <div className="mt-6 flex flex-wrap justify-end gap-3">
+          <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:flex-wrap sm:justify-end">
             <button
               onClick={onCancel}
-              className="inline-flex h-9 cursor-pointer items-center rounded-lg border border-[#2a2a2a] bg-transparent px-4 text-sm text-[#d4d4d4] transition-colors hover:bg-[#1a1a1a] hover:text-[#f2f2f2] active:bg-[#1f1f1f]"
+              className="inline-flex min-h-[44px] cursor-pointer items-center justify-center rounded-lg border border-[#2a2a2a] bg-transparent px-4 text-sm text-[#d4d4d4] transition-colors hover:bg-[#1a1a1a] hover:text-[#f2f2f2] active:bg-[#1f1f1f]"
             >
               Cancel
             </button>
@@ -122,7 +122,7 @@ export function ConfirmDialog({
               onClick={handleConfirmClick}
               disabled={!isTypingMatch}
               className={cn(
-                "inline-flex h-9 items-center rounded-lg px-4 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                "inline-flex min-h-[44px] items-center justify-center rounded-lg px-4 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
                 danger
                   ? "border border-red-500/20 bg-red-500/10 text-red-400 hover:bg-red-500/20 active:bg-red-500/25"
                   : "bg-[#3b82f6] text-white hover:bg-[#2563eb] active:bg-[#1d4ed8]",

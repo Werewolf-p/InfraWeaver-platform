@@ -36,18 +36,18 @@ export function TopBar({ onMenuClick, onSearchClick }: { title?: string; onMenuC
   }, []);
 
   return (
-    <header className="h-12 border-b border-[#2a2a2a] bg-[#141414] flex items-center justify-between px-4 flex-shrink-0">
+    <header className="flex min-h-14 flex-shrink-0 items-center justify-between border-b border-[#2a2a2a] bg-[#141414] px-3 sm:h-12 sm:min-h-12 sm:px-4">
       <div className="flex items-center gap-3 flex-1">
         <button
           onClick={onMenuClick}
-          className="hidden sm:flex md:hidden w-8 h-8 rounded items-center justify-center text-[#9e9e9e] hover:text-[#f2f2f2] hover:bg-[#2a2a2a] transition-colors"
+          className="inline-flex h-11 w-11 items-center justify-center rounded-xl text-[#9e9e9e] transition-colors hover:bg-[#2a2a2a] hover:text-[#f2f2f2] md:hidden"
           aria-label="Open menu"
         >
           <Menu className="w-4 h-4" />
         </button>
         <button
           onClick={onSearchClick}
-          className="md:hidden w-8 h-8 rounded flex items-center justify-center text-[#9e9e9e] hover:text-[#f2f2f2] hover:bg-[#2a2a2a] transition-colors"
+          className="inline-flex h-11 w-11 items-center justify-center rounded-xl text-[#9e9e9e] transition-colors hover:bg-[#2a2a2a] hover:text-[#f2f2f2] md:hidden"
           aria-label="Search"
         >
           <Search className="w-4 h-4" />
@@ -95,7 +95,7 @@ export function TopBar({ onMenuClick, onSearchClick }: { title?: string; onMenuC
             try { localStorage.setItem("infraweaver:last-seen-version", appVersion); } catch {}
             setShowChangelogDot(false);
           }}
-          className="flex items-center gap-2 border-l border-[#2a2a2a] pl-3"
+          className="flex items-center gap-2 border-l border-[#2a2a2a] pl-2.5 sm:pl-3"
           title="What’s new"
         >
           <div className="relative w-7 h-7 rounded-full bg-[#0078D4] flex items-center justify-center text-xs font-bold text-white">

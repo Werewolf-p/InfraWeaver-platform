@@ -38,7 +38,7 @@ export default function AppGraphPage() {
   const apps = data ?? [];
   const selectedApp = apps.find(a => a.metadata.name === selected);
 
-  if (isLoading) return <div className="grid grid-cols-3 gap-4">{[...Array(9)].map((_, i) => <div key={i} className="h-24 rounded-xl bg-white/5 animate-pulse" />)}</div>;
+  if (isLoading) return <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">{[...Array(9)].map((_, i) => <div key={i} className="h-24 rounded-xl bg-white/5 animate-pulse" />)}</div>;
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
@@ -47,9 +47,9 @@ export default function AppGraphPage() {
         <h2 className="text-xl font-bold text-white flex items-center gap-2"><Network className="w-5 h-5 text-slate-400" />App Dependency Graph</h2>
         <p className="text-sm text-slate-400">ArgoCD application health overview</p>
       </div>
-      <div className="grid grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
         <div>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {apps.map(app => (
               <button
                 key={app.metadata.name}

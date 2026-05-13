@@ -37,7 +37,7 @@ export default function StorageTimelinePage() {
         <h2 className="text-xl font-bold text-white flex items-center gap-2"><HardDrive className="w-5 h-5 text-slate-400" />Storage Timeline</h2>
         <p className="text-sm text-slate-400">Longhorn volume usage overview</p>
       </div>
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {[
           { label: "Total Capacity", value: `${totalGi.toFixed(1)} GiB`, color: "text-white" },
           { label: "Used", value: `${usedGi.toFixed(1)} GiB`, color: "text-indigo-400" },

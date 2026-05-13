@@ -210,8 +210,8 @@ export function DnsRecordDialog({
       <Dialog.Root open={open} onOpenChange={(nextOpen) => (nextOpen ? onOpenChange(true) : requestClose())}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 z-[70] bg-black/70 backdrop-blur-sm" />
-          <Dialog.Content className="fixed left-1/2 top-1/2 z-[71] w-[calc(100vw-2rem)] max-w-2xl -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-[#2a2a2a] bg-[#111] text-[#f2f2f2] shadow-2xl focus:outline-none">
-            <div className="flex items-start justify-between gap-4 border-b border-[#2a2a2a] px-6 py-5">
+          <Dialog.Content className="fixed inset-x-0 bottom-0 top-0 z-[71] flex w-full flex-col overflow-hidden bg-[#111] text-[#f2f2f2] shadow-2xl focus:outline-none sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-[calc(100vw-2rem)] sm:max-w-2xl sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:border sm:border-[#2a2a2a]">
+            <div className="flex items-start justify-between gap-4 border-b border-[#2a2a2a] px-4 py-4 pt-[calc(env(safe-area-inset-top,0px)+1rem)] sm:px-6 sm:py-5 sm:pt-5">
               <div>
                 <Dialog.Title className="text-lg font-semibold text-[#f2f2f2]">
                   {isEditing ? "Edit DNS Record" : "Add DNS Record"}
@@ -222,7 +222,7 @@ export function DnsRecordDialog({
               </div>
               <button
                 onClick={requestClose}
-                className="rounded-lg p-2 text-[#888] transition hover:bg-[#1a1a1a] hover:text-[#f2f2f2]"
+                className="inline-flex h-11 w-11 items-center justify-center rounded-xl text-[#888] transition hover:bg-[#1a1a1a] hover:text-[#f2f2f2]"
                 aria-label="Close DNS dialog"
                 title="Close"
               >
@@ -230,7 +230,7 @@ export function DnsRecordDialog({
               </button>
             </div>
 
-            <div className="max-h-[75vh] space-y-5 overflow-y-auto px-6 py-5">
+            <div className="flex-1 space-y-5 overflow-y-auto px-4 py-4 sm:max-h-[75vh] sm:px-6 sm:py-5">
               {!isEditing && (
                 <div className="grid gap-4 lg:grid-cols-2">
                   <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-4">
@@ -408,11 +408,11 @@ export function DnsRecordDialog({
               </div>
             </div>
 
-            <div className="flex items-center justify-between gap-3 border-t border-[#2a2a2a] px-6 py-4">
+            <div className="flex flex-col gap-3 border-t border-[#2a2a2a] px-4 py-4 pb-[calc(env(safe-area-inset-bottom,0px)+1rem)] sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:pb-4">
               <div className="text-xs text-[#888]">
                 {isEditing ? "Editing updates value + TTL on the existing Cloudflare record." : "Drafts auto-save every 30 seconds while you edit."}
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex w-full flex-col-reverse gap-3 sm:w-auto sm:flex-row sm:items-center">
                 {showSavedState ? (
                   <div className="inline-flex items-center gap-2 text-sm text-emerald-400">
                     <CheckCircle2 className="h-4 w-4 animate-pulse" /> Saved
@@ -420,14 +420,14 @@ export function DnsRecordDialog({
                 ) : null}
                 <button
                   onClick={requestClose}
-                  className="rounded-xl border border-[#2a2a2a] px-4 py-2 text-sm text-[#d4d4d4] transition hover:bg-[#1a1a1a] hover:text-[#f2f2f2]"
+                  className="min-h-[44px] rounded-xl border border-[#2a2a2a] px-4 py-2.5 text-sm text-[#d4d4d4] transition hover:bg-[#1a1a1a] hover:text-[#f2f2f2]"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={() => void handleSubmit()}
                   disabled={submitting}
-                  className="rounded-xl bg-[#3b82f6] px-4 py-2 text-sm font-medium text-white transition hover:bg-[#2563eb] disabled:cursor-not-allowed disabled:opacity-60"
+                  className="min-h-[44px] rounded-xl bg-[#3b82f6] px-4 py-2.5 text-sm font-medium text-white transition hover:bg-[#2563eb] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {submitting ? "Saving…" : isEditing ? "Save changes" : "Create record"}
                 </button>

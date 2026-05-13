@@ -19,9 +19,9 @@ interface PageHeaderProps {
 
 export function PageHeader({ icon: Icon, title, subtitle, actions, badge, breadcrumb }: PageHeaderProps) {
   return (
-    <div className="mb-6 flex-shrink-0 border-b border-[#2a2a2a] pb-4">
+    <div className="mb-4 flex-shrink-0 border-b border-[#2a2a2a] pb-3 sm:mb-6 sm:pb-4">
       {breadcrumb && breadcrumb.length > 0 ? (
-        <nav className="mb-2 flex items-center gap-1 text-xs text-[#888]">
+        <nav className="mb-1.5 flex items-center gap-1 overflow-x-auto whitespace-nowrap text-[11px] text-[#888] scrollbar-none sm:mb-2 sm:text-xs">
           {breadcrumb.map((crumb, i) => (
             <React.Fragment key={i}>
               {i > 0 ? <ChevronRight className="h-3 w-3" /> : null}
@@ -34,18 +34,18 @@ export function PageHeader({ icon: Icon, title, subtitle, actions, badge, breadc
           ))}
         </nav>
       ) : null}
-      <div className="flex flex-wrap items-center gap-3">
-        {Icon ? <Icon className="h-6 w-6 shrink-0 text-[#3b82f6]" /> : null}
-        <h1 className="text-xl font-semibold text-[#f2f2f2]">{title}</h1>
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+        {Icon ? <Icon className="h-5 w-5 shrink-0 text-[#3b82f6] sm:h-6 sm:w-6" /> : null}
+        <h1 className="text-lg font-semibold text-[#f2f2f2] sm:text-xl">{title}</h1>
         {badge ? (
           <span className="rounded-full border border-[#2a2a2a] bg-[#0d0d0d] px-2 py-0.5 font-mono text-xs text-[#888]">
             {badge}
           </span>
         ) : null}
         <div className="flex-1" />
-        {actions ? <div className="flex items-center gap-2">{actions}</div> : null}
+        {actions ? <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">{actions}</div> : null}
       </div>
-      {subtitle ? <p className="mt-1 text-sm text-[#d4d4d4]">{subtitle}</p> : null}
+      {subtitle ? <p className="mt-1 text-xs text-[#d4d4d4] sm:text-sm">{subtitle}</p> : null}
     </div>
   );
 }

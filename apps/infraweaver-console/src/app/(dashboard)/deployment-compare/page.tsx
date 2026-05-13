@@ -37,7 +37,7 @@ export default function DeploymentComparePage() {
         <p className="text-sm text-slate-400">Compare two deployments side-by-side</p>
       </div>
       <div className="bg-slate-900/60 border border-white/10 rounded-xl backdrop-blur-sm p-4">
-        <div className="grid grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
           <div className="space-y-3">
             <h3 className="text-sm font-semibold text-white">Deployment A</h3>
             <input value={ns1} onChange={e => setNs1(e.target.value)} placeholder="Namespace" className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-white placeholder:text-slate-500 outline-none focus:border-indigo-500/50" />

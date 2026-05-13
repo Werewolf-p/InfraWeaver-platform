@@ -260,6 +260,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const previousOverflow = document.body.style.overflow;
+    if (mobileOpen || moreOpen || searchOpen) {
+      document.body.style.overflow = "hidden";
+    }
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [mobileOpen, moreOpen, searchOpen]);
+
   if (status === "loading") {
     return (
       <div className="flex h-screen bg-[#0f0f0f]">
@@ -280,7 +291,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <SimpleModeProvider>
-    <div className="flex h-screen overflow-hidden overflow-x-hidden">
+    <div className="flex h-screen overflow-hidden overflow-x-hidden bg-[#0f0f0f]">
       <OfflineIndicator />
       {/* Desktop Sidebar */}
       <Sidebar />
@@ -294,7 +305,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 z-40 bg-black/70 hidden sm:block md:hidden"
+              className="fixed inset-0 z-40 bg-black/70 md:hidden"
               style={{ touchAction: "pan-y" }}
               onClick={() => { setMobileOpen(false); setDrawerSearch(""); }}
             />
@@ -311,7 +322,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               onDragEnd={(_, info) => {
                 if (info.offset.x < -60 || info.velocity.x < -300) { setMobileOpen(false); setDrawerSearch(""); }
               }}
-              className="fixed left-0 top-0 bottom-0 z-50 hidden sm:flex md:hidden w-[300px] bg-[#111] border-r border-[#222] flex-col flex-shrink-0 overflow-hidden"
+              className="fixed left-0 top-0 bottom-0 z-50 flex w-[min(86vw,320px)] flex-col overflow-hidden border-r border-[#222] bg-[#111] md:hidden"
               style={{ touchAction: "pan-y" }}
             >
               {/* ── ITER 1: Header with branding + cluster health dot ── */}
@@ -328,7 +339,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 </div>
                 <button
                   onClick={() => { setMobileOpen(false); setDrawerSearch(""); }}
-                  className="w-8 h-8 flex items-center justify-center rounded-lg text-[#666] hover:text-white hover:bg-[#2a2a2a] transition-colors touch-manipulation"
+                  className="flex h-11 w-11 items-center justify-center rounded-xl text-[#666] transition-colors hover:bg-[#2a2a2a] hover:text-white touch-manipulation"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -566,12 +577,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         )}
       </AnimatePresence>
 
-      <div className="flex-1 flex flex-col overflow-hidden overflow-x-hidden relative z-10">
+      <div className="relative z-10 flex min-w-0 flex-1 flex-col overflow-hidden overflow-x-hidden">
         <TopBar onMenuClick={() => setMobileOpen(true)} onSearchClick={() => setSearchOpen(true)} />
         <StatusBar />
         <Breadcrumb />
         <main
-          className="flex-1 overflow-y-auto overflow-x-hidden p-4 pb-24 sm:pb-4 md:p-6 md:pb-6"
+          className="flex-1 overflow-y-auto overflow-x-hidden p-3 pb-28 sm:p-4 sm:pb-4 md:p-6 md:pb-6"
         >
           <AnimatePresence mode="wait">
             <motion.div
@@ -580,6 +591,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
               transition={{ duration: 0.2, ease: "easeOut" }}
+            className="min-w-0"
             >
               {children}
             </motion.div>
@@ -592,7 +604,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       {/* Bottom mobile nav — Home | Apps | Game Hub | Pods | Menu */}
       <nav
-        className="fixed bottom-0 left-0 right-0 z-50 flex border-t border-[#2a2a2a] bg-[#141414]/95 backdrop-blur sm:hidden landscape-hide pb-safe"
+        className="fixed bottom-0 left-0 right-0 z-50 flex gap-1 border-t border-[#2a2a2a] bg-[#141414]/95 px-2 pt-2 pb-[env(safe-area-inset-bottom)] backdrop-blur sm:hidden"
         style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 8px)" }}
       >
         {mobileNavItems.map(item => {
@@ -603,10 +615,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               href={item.href}
               onClick={() => { if (typeof navigator !== "undefined") navigator.vibrate?.(10); setMoreOpen(false); }}
               className={cn(
-                "flex-1 flex min-h-[56px] flex-col items-center justify-center gap-1 px-2 py-2 text-[11px] transition-colors touch-manipulation",
-                isActive ? "text-[#0078D4]" : "text-[#666] hover:text-[#9e9e9e]"
+                "relative flex-1 rounded-2xl flex min-h-[56px] flex-col items-center justify-center gap-1 px-2 py-2 text-[11px] transition-colors touch-manipulation",
+                isActive ? "bg-[#0078D4]/10 text-[#4db3ff]" : "text-[#666] hover:bg-white/5 hover:text-[#9e9e9e]"
               )}
             >
+              {isActive ? <span className="absolute inset-x-4 top-1 h-0.5 rounded-full bg-[#0078D4]" /> : null}
               <item.icon className="h-5 w-5 min-[380px]:h-4 min-[380px]:w-4" />
               <span className="hidden min-[380px]:block">{item.label}</span>
             </Link>
@@ -615,10 +628,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <button
           onClick={() => { if (typeof navigator !== "undefined") navigator.vibrate?.(10); setMoreOpen(true); }}
           className={cn(
-            "flex-1 flex min-h-[56px] flex-col items-center justify-center gap-1 px-2 py-2 text-[11px] transition-colors touch-manipulation",
-            moreOpen ? "text-[#0078D4]" : "text-[#666] hover:text-[#9e9e9e]"
+            "relative flex-1 rounded-2xl flex min-h-[56px] flex-col items-center justify-center gap-1 px-2 py-2 text-[11px] transition-colors touch-manipulation",
+            moreOpen ? "bg-[#0078D4]/10 text-[#4db3ff]" : "text-[#666] hover:bg-white/5 hover:text-[#9e9e9e]"
           )}
         >
+          {moreOpen ? <span className="absolute inset-x-4 top-1 h-0.5 rounded-full bg-[#0078D4]" /> : null}
           <MoreHorizontal className="h-5 w-5 min-[380px]:h-4 min-[380px]:w-4" />
           <span className="hidden min-[380px]:block">More</span>
         </button>
@@ -661,7 +675,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 </div>
                 <button
                   onClick={() => { setMoreOpen(false); setMoreSearch(""); setMoreCategory("all"); }}
-                  className="w-8 h-8 flex items-center justify-center rounded-xl bg-[#1e1e1e] text-[#666] hover:text-white hover:bg-[#2a2a2a] transition-colors touch-manipulation"
+                  className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#1e1e1e] text-[#666] transition-colors hover:bg-[#2a2a2a] hover:text-white touch-manipulation"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -732,7 +746,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                               <button
                                 onClick={() => moveMobileFavorite(item.href, -1)}
                                 disabled={favoriteIndex === 0}
-                                className="flex h-9 w-9 items-center justify-center rounded-lg border border-[#2a2a2a] bg-[#111] text-[#888] transition-colors hover:text-white disabled:opacity-40"
+                                className="flex h-11 w-11 items-center justify-center rounded-lg border border-[#2a2a2a] bg-[#111] text-[#888] transition-colors hover:text-white disabled:opacity-40"
                                 aria-label={`Move ${item.label} up`}
                               >
                                 <ArrowUp className="h-3.5 w-3.5" />
@@ -740,7 +754,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                               <button
                                 onClick={() => moveMobileFavorite(item.href, 1)}
                                 disabled={favoriteIndex === mobileFavorites.length - 1}
-                                className="flex h-9 w-9 items-center justify-center rounded-lg border border-[#2a2a2a] bg-[#111] text-[#888] transition-colors hover:text-white disabled:opacity-40"
+                                className="flex h-11 w-11 items-center justify-center rounded-lg border border-[#2a2a2a] bg-[#111] text-[#888] transition-colors hover:text-white disabled:opacity-40"
                                 aria-label={`Move ${item.label} down`}
                               >
                                 <ArrowDown className="h-3.5 w-3.5" />
@@ -921,7 +935,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[9999] flex items-center justify-center px-4"
+            className="fixed inset-0 z-[9999] flex items-end justify-center px-0 sm:items-center sm:px-4"
           >
             <div className="absolute inset-0 bg-black/60 backdrop-blur-md" />
             <motion.div
@@ -929,22 +943,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 8 }}
               transition={{ duration: 0.15 }}
-              className="relative w-full max-w-sm bg-[#1a1a1a] border border-[#333] rounded-xl shadow-2xl p-6 text-center"
+              className="relative w-full rounded-t-2xl border border-[#333] bg-[#1a1a1a] px-5 pt-5 pb-[calc(env(safe-area-inset-bottom,0px)+1.25rem)] text-center shadow-2xl sm:max-w-sm sm:rounded-xl sm:p-6"
             >
-              <div className="w-12 h-12 rounded-full bg-yellow-500/10 border border-yellow-500/20 flex items-center justify-center mx-auto mb-4">
-                <AlertTriangle className="w-6 h-6 text-yellow-400" />
+              <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full border border-yellow-500/20 bg-yellow-500/10">
+                <AlertTriangle className="h-6 w-6 text-yellow-400" />
               </div>
-              <h2 className="text-lg font-semibold text-white mb-1">Session expiring soon</h2>
-              <p className="text-sm text-slate-400 mb-4">
+              <h2 className="mb-1 text-lg font-semibold text-white">Session expiring soon</h2>
+              <p className="mb-4 text-sm text-slate-400">
                 Your session will expire in{" "}
                 <span className="font-mono text-yellow-400">
                   {Math.floor(countdown / 60)}:{String(countdown % 60).padStart(2, "0")}
                 </span>
               </p>
-              {/* Countdown ring */}
-              <div className="flex justify-center mb-6">
-                <div className="relative w-16 h-16">
-                  <svg className="w-16 h-16 -rotate-90" viewBox="0 0 64 64">
+              <div className="mb-6 flex justify-center">
+                <div className="relative h-16 w-16">
+                  <svg className="h-16 w-16 -rotate-90" viewBox="0 0 64 64">
                     <circle cx="32" cy="32" r="28" stroke="currentColor" strokeWidth="4" fill="none" className="text-slate-800" />
                     <circle
                       cx="32" cy="32" r="28"
@@ -960,21 +973,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   </span>
                 </div>
               </div>
-              <div className="flex gap-3">
+              <div className="flex flex-col-reverse gap-3 sm:flex-row">
+                <button
+                  onClick={() => signOut({ callbackUrl: "/auth/signin" })}
+                  className="inline-flex h-11 flex-1 items-center justify-center rounded-lg border border-[#333] bg-[#2a2a2a] px-4 text-sm font-medium text-[#9e9e9e] transition-colors hover:bg-[#333]"
+                >
+                  Sign Out
+                </button>
                 <button
                   onClick={async () => {
                     await fetch("/api/auth/session");
                     setSessionWarning(false);
                   }}
-                  className="flex-1 py-2 px-4 rounded-lg bg-[#0078D4] hover:bg-[#1a86d9] text-white text-sm font-medium transition-colors"
+                  className="inline-flex h-11 flex-1 items-center justify-center rounded-lg bg-[#0078D4] px-4 text-sm font-medium text-white transition-colors hover:bg-[#1a86d9]"
                 >
                   Extend Session
-                </button>
-                <button
-                  onClick={() => signOut({ callbackUrl: "/auth/signin" })}
-                  className="flex-1 py-2 px-4 rounded-lg bg-[#2a2a2a] hover:bg-[#333] text-[#9e9e9e] text-sm font-medium transition-colors border border-[#333]"
-                >
-                  Sign Out
                 </button>
               </div>
             </motion.div>

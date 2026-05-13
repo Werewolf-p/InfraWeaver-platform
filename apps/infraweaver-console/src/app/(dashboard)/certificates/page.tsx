@@ -84,7 +84,7 @@ export default function CertificatesPage() {
       <motion.div
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
-        className="flex items-center justify-between"
+        className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
       >
         <div>
           <h1 className="text-2xl font-bold text-white flex items-center gap-2">
@@ -113,7 +113,7 @@ export default function CertificatesPage() {
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.05 }}
-        className="grid grid-cols-3 gap-4"
+        className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
       >
         <div className="bg-white/5 border border-white/10 rounded-xl p-4 text-center">
           <div className="text-3xl font-bold text-white tabular-nums">{certs.length}</div>

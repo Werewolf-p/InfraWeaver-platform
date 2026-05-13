@@ -1357,7 +1357,7 @@ function ConsoleTab({
           <button
             type="submit"
             disabled={!isConnected || sending || !command.trim()}
-            className="flex items-center justify-center w-[50px] min-h-[46px] bg-[#0078D4] hover:bg-[#0065B3] disabled:opacity-25 text-white rounded-lg transition-colors touch-manipulation flex-shrink-0"
+            className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-[#0078D4] text-white transition-colors touch-manipulation hover:bg-[#0065B3] disabled:opacity-25"
           >
             {sending ? (
               <Loader2 className="w-4 h-4 animate-spin" />
@@ -3358,7 +3358,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
               Server is stopped. Use Start/Stop to control server state.
             </p>
           )}
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {(["static", "dynamic"] as const).map((mode) => (
               <button
                 key={mode}
@@ -3386,11 +3386,11 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
                       setStaticCount((count) => Math.max(1, count - 1))
                     }
                     disabled={isServerStopped}
-                    className="w-7 h-7 rounded bg-[#1e1e1e] hover:bg-[#2a2a2a] disabled:opacity-40 text-[#888] text-sm font-bold flex items-center justify-center"
+                    className="flex h-11 w-11 items-center justify-center rounded bg-[#1e1e1e] text-sm font-bold text-[#888] hover:bg-[#2a2a2a] disabled:opacity-40"
                   >
                     −
                   </button>
-                  <span className="min-w-[92px] text-center text-sm font-mono text-[#f2f2f2]">
+                  <span className="min-w-[72px] text-center text-sm font-mono text-[#f2f2f2] sm:min-w-[92px]">
                     {isServerStopped ? "0 (stopped)" : staticCount}
                   </span>
                   <button
@@ -3398,7 +3398,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
                       setStaticCount((count) => Math.min(10, count + 1))
                     }
                     disabled={isServerStopped}
-                    className="w-7 h-7 rounded bg-[#1e1e1e] hover:bg-[#2a2a2a] disabled:opacity-40 text-[#888] text-sm font-bold flex items-center justify-center"
+                    className="flex h-11 w-11 items-center justify-center rounded bg-[#1e1e1e] text-sm font-bold text-[#888] hover:bg-[#2a2a2a] disabled:opacity-40"
                   >
                     +
                   </button>
@@ -4026,7 +4026,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
         <div className="p-4 space-y-4">
           <div>
             <label className="block text-[10px] text-[#666] mb-1">Image</label>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <input
                 value={image}
                 onChange={(event) => setImage(event.target.value)}
@@ -4045,7 +4045,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
               <label className="block text-[10px] text-[#666] mb-1">
                 Image pull policy
               </label>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <select
                   value={imagePullPolicy}
                   onChange={(event) => setImagePullPolicy(event.target.value)}
@@ -4067,7 +4067,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
               <label className="block text-[10px] text-[#666] mb-1">
                 Deployment strategy
               </label>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <select
                   value={deploymentStrategy}
                   onChange={(event) =>
@@ -4116,7 +4116,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
             {servicePorts.map((port) => (
               <div
                 key={port.id}
-                className="grid grid-cols-[1fr_110px_110px_110px_auto] gap-2 items-center"
+                className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_110px_110px_110px_auto] sm:items-center"
               >
                 <input
                   value={port.name}
@@ -4164,14 +4164,14 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
                 <button
                   onClick={() => removePortRow(port.id)}
                   disabled={servicePorts.length <= 1}
-                  className="p-2 rounded-lg border border-[#2a2a2a] text-[#777] hover:text-red-300 disabled:opacity-40"
+                  className="min-h-[44px] min-w-[44px] rounded-lg border border-[#2a2a2a] p-2 text-[#777] hover:text-red-300 disabled:opacity-40"
                 >
                   ✕
                 </button>
               </div>
             ))}
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <button
               onClick={addPortRow}
               className="px-3 py-2 rounded-lg bg-[#1a1a1a] border border-[#2a2a2a] text-xs text-[#d4d4d4] flex items-center gap-1.5"
@@ -4704,8 +4704,8 @@ export default function ServerDetailPage() {
   }, [name, resolvedActiveTab]);
 
   return (
-    <div className="space-y-0 pb-2">
-      <div className="sticky top-0 z-10 bg-[#0e0e0e]/95 backdrop-blur-sm border-b border-[#1e1e1e] -mx-4 px-4 pb-0 pt-0">
+    <div className="space-y-0 overflow-x-hidden pb-2">
+      <div className="sticky top-[env(safe-area-inset-top,0px)] z-10 -mx-3 border-b border-[#1e1e1e] bg-[#0e0e0e]/95 px-3 pb-0 pt-0 backdrop-blur-sm sm:-mx-4 sm:px-4 md:-mx-6 md:px-6">
         <div className="hidden sm:flex items-center gap-1 px-1 pt-2 text-[10px] text-[#666] overflow-x-auto scrollbar-none whitespace-nowrap">
           <Link href="/game-hub" className="hover:text-white">
             Game Hub
@@ -4716,14 +4716,14 @@ export default function ServerDetailPage() {
         <div className="flex flex-wrap items-start gap-2 py-2 sm:py-3">
           <Link
             href="/game-hub"
-            className="flex-shrink-0 rounded-lg p-1.5 text-[#555] transition-colors hover:bg-[#1e1e1e] hover:text-[#9e9e9e]"
+            className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl text-[#555] transition-colors hover:bg-[#1e1e1e] hover:text-[#9e9e9e]"
           >
             <ChevronLeft className="w-5 h-5" />
           </Link>
-          <span className="text-xl flex-shrink-0">{server?.icon ?? "🎮"}</span>
+          <span className="text-2xl flex-shrink-0">{server?.icon ?? "🎮"}</span>
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <h1 className="min-w-0 flex-1 truncate text-sm font-semibold text-[#f2f2f2] sm:flex-none">
+              <h1 className="min-w-0 flex-1 truncate text-lg font-semibold text-[#f2f2f2] sm:flex-none sm:text-xl">
                 {name}
               </h1>
               {primaryTag && (
@@ -4767,7 +4767,7 @@ export default function ServerDetailPage() {
               {server?.description ||
                 `${server?.gameType?.replace(/-/g, " ") ?? "Game"} Server`}
             </p>
-            <div className="mt-1 flex flex-wrap gap-1.5 text-[10px]">
+            <div className="mt-1 flex flex-wrap gap-2 text-[10px]">
               {server?.imageVersion && (
                 <span className="rounded-full border border-[#2a2a2a] bg-[#111] px-2 py-0.5 text-[#9e9e9e]">
                   Version {server.imageVersion}
@@ -4796,7 +4796,7 @@ export default function ServerDetailPage() {
                     actionLoading === "pin-image-version" ||
                     actionLoading === "unpin-image-version"
                   }
-                  className="min-h-[36px] rounded-full border border-[#2a2a2a] bg-[#1a1a1a] px-2 py-0.5 text-[#d4d4d4] transition-colors hover:bg-[#222] disabled:opacity-50"
+                  className="min-h-[44px] rounded-full border border-[#2a2a2a] bg-[#1a1a1a] px-3 py-1 text-[#d4d4d4] transition-colors hover:bg-[#222] disabled:opacity-50"
                 >
                   {actionLoading === "pin-image-version" || actionLoading === "unpin-image-version"
                     ? "Saving…"
@@ -4822,7 +4822,7 @@ export default function ServerDetailPage() {
               </p>
             )}
             {connectivity && (
-              <div className="mt-1 flex flex-wrap gap-1.5 text-[10px]">
+              <div className="mt-1 flex flex-wrap gap-2 text-[10px]">
                 <span
                   className={cn(
                     "rounded-full border px-2 py-0.5",
@@ -4855,7 +4855,7 @@ export default function ServerDetailPage() {
             )}
           </div>
           {server && (
-            <div className="flex w-full flex-wrap items-center justify-end gap-1 sm:w-auto sm:justify-start">
+            <div className="flex w-full flex-wrap items-center justify-start gap-2 sm:w-auto sm:justify-end">
               {connectionInfo && (
                 <button
                   onClick={() => {
@@ -4863,7 +4863,7 @@ export default function ServerDetailPage() {
                     toast.success("Connection info copied");
                   }}
                   title={connectionInfo}
-                  className="flex min-h-[40px] max-w-full items-center rounded-lg bg-[#1a1a1a] px-2 py-2 text-xs text-[#888] transition-colors hover:bg-[#222] sm:max-w-[140px]"
+                  className="flex min-h-[44px] w-full items-center rounded-xl bg-[#1a1a1a] px-3 py-2 text-xs text-[#888] transition-colors hover:bg-[#222] sm:w-auto sm:max-w-[180px]"
                 >
                   <span className="truncate">{connectionInfo}</span>
                 </button>
@@ -4901,7 +4901,7 @@ export default function ServerDetailPage() {
                       : "Enter Maintenance"
                   }
                   className={cn(
-                    "group flex min-h-[40px] items-center gap-1.5 rounded-lg border px-2.5 py-2 text-xs transition-all",
+                    "group flex min-h-[44px] items-center gap-1.5 rounded-xl border px-3 py-2 text-xs transition-all",
                     server.maintenanceMode
                       ? "border-yellow-400/40 bg-yellow-500/20 text-yellow-100 shadow-[0_0_18px_rgba(250,204,21,0.22)]"
                       : "border-[#2a2a2a] bg-[#1a1a1a] text-[#888] hover:border-yellow-500/30 hover:bg-yellow-500/10 hover:text-yellow-200",
@@ -4934,7 +4934,7 @@ export default function ServerDetailPage() {
                       toast.error(String(error));
                     }
                   }}
-                  className="hidden min-h-[40px] rounded-lg bg-[#1a1a1a] px-3 py-2 text-xs text-[#888] transition-colors hover:bg-[#222] sm:flex"
+                  className="hidden min-h-[44px] rounded-xl bg-[#1a1a1a] px-3 py-2 text-xs text-[#888] transition-colors hover:bg-[#222] sm:flex"
                 >
                   Clone
                 </button>
@@ -4944,7 +4944,7 @@ export default function ServerDetailPage() {
                   <button
                     onClick={() => doAction("start")}
                     disabled={!!actionLoading}
-                    className="flex min-h-[40px] items-center gap-1.5 rounded-lg border border-green-500/30 bg-green-500/20 px-3 py-2 text-xs font-medium text-green-300 disabled:opacity-50 touch-manipulation hover:bg-green-500/30"
+                    className="flex min-h-[44px] items-center gap-1.5 rounded-xl border border-green-500/30 bg-green-500/20 px-3 py-2 text-xs font-medium text-green-300 disabled:opacity-50 touch-manipulation hover:bg-green-500/30"
                   >
                     {actionLoading === "start" ? (
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -4961,7 +4961,7 @@ export default function ServerDetailPage() {
                       onClick={() => doAction("restart")}
                       disabled={!!actionLoading}
                       title="Quick restart"
-                      className="flex min-h-[40px] min-w-[40px] items-center justify-center rounded-lg bg-[#1a1a1a] p-2 text-[#888] transition-colors disabled:opacity-50 touch-manipulation hover:bg-[#222]"
+                      className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl bg-[#1a1a1a] p-2 text-[#888] transition-colors disabled:opacity-50 touch-manipulation hover:bg-[#222]"
                     >
                       {actionLoading === "restart" ? (
                         <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -4975,7 +4975,7 @@ export default function ServerDetailPage() {
                       onClick={() => doAction("stop")}
                       disabled={!!actionLoading}
                       title="Stop"
-                      className="flex min-h-[40px] min-w-[40px] items-center justify-center rounded-lg bg-[#1a1a1a] p-2 text-[#888] transition-colors disabled:opacity-50 touch-manipulation hover:bg-[#222]"
+                      className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl bg-[#1a1a1a] p-2 text-[#888] transition-colors disabled:opacity-50 touch-manipulation hover:bg-[#222]"
                     >
                       {actionLoading === "stop" ? (
                         <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -4990,16 +4990,16 @@ export default function ServerDetailPage() {
           )}
         </div>
 
-        <div className="flex gap-0 overflow-x-auto scrollbar-none touch-pan-x pb-1">
+        <div className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1 scrollbar-none touch-pan-x">
           {tabs.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
               onClick={() => setActiveTab(id)}
               className={cn(
-                "flex min-h-[40px] items-center gap-1.5 border-b-2 px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap -mb-px flex-shrink-0 touch-manipulation sm:px-4 sm:py-2.5",
+                "-mb-px flex min-h-[44px] flex-shrink-0 items-center gap-1.5 rounded-t-xl border-b-2 px-3 py-2 text-xs font-medium whitespace-nowrap transition-colors touch-manipulation sm:px-4 sm:py-2.5",
                 resolvedActiveTab === id
-                  ? "border-[#0078D4] text-[#0078D4] bg-[#0078D4]/5"
-                  : "border-transparent text-[#555] hover:text-[#888]",
+                  ? "border-[#0078D4] bg-[#0078D4]/10 text-[#4db3ff] shadow-[inset_0_1px_0_rgba(77,179,255,0.2)]"
+                  : "border-transparent text-[#555] hover:bg-white/5 hover:text-[#888]",
               )}
             >
               <Icon className="w-3.5 h-3.5" />
@@ -5009,7 +5009,7 @@ export default function ServerDetailPage() {
         </div>
       </div>
 
-      <div className="pt-4">
+      <div className="pt-3 sm:pt-4">
         {isLoading && (
           <div className="flex flex-col items-center justify-center h-48 gap-3">
             <Loader2 className="w-6 h-6 text-[#0078D4] animate-spin" />

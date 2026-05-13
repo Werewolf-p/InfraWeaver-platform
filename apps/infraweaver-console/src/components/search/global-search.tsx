@@ -1,7 +1,7 @@
 "use client";
 
 import * as Dialog from "@radix-ui/react-dialog";
-import { Compass, Gamepad2, Loader2, Package, Search as SearchIcon, Settings2 } from "lucide-react";
+import { Compass, Gamepad2, Loader2, Package, Search as SearchIcon, Settings2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -112,13 +112,13 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
     <Dialog.Root open={open} onOpenChange={handleOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-[500] bg-black/70 backdrop-blur-sm" />
-        <Dialog.Content className="fixed left-1/2 top-[14vh] z-[501] w-[min(92vw,40rem)] -translate-x-1/2 overflow-hidden rounded-2xl border border-[#2a2a2a] bg-[#111] p-0 shadow-2xl outline-none">
+        <Dialog.Content className="fixed inset-x-0 bottom-0 top-0 z-[501] overflow-hidden bg-[#111] p-0 shadow-2xl outline-none sm:inset-x-auto sm:left-1/2 sm:top-[14vh] sm:w-[min(92vw,40rem)] sm:-translate-x-1/2 sm:rounded-2xl sm:border sm:border-[#2a2a2a]">
           <Dialog.Title className="sr-only">Global search</Dialog.Title>
-          <div className="flex items-center border-b border-[#2a2a2a] px-4">
+          <div className="flex items-center border-b border-[#2a2a2a] px-4 pt-[calc(env(safe-area-inset-top,0px)+0.75rem)] sm:pt-0">
             <SearchIcon className="mr-2 h-4 w-4 shrink-0 text-[#666]" />
             <input
               ref={inputRef}
-              className="flex-1 bg-transparent py-3 text-sm text-[#f2f2f2] outline-none placeholder:text-[#444]"
+              className="flex-1 bg-transparent py-3.5 text-base text-[#f2f2f2] outline-none placeholder:text-[#444] sm:text-sm"
               placeholder="Search pods, servers, apps..."
               value={query}
               onChange={(event) => setQuery(event.target.value)}
@@ -130,9 +130,17 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
               }}
             />
             {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin text-[#666]" /> : null}
-            <kbd className="rounded border border-[#333] px-1 text-xs text-[#444]">ESC</kbd>
+            <kbd className="hidden rounded border border-[#333] px-1 text-xs text-[#444] sm:inline-flex">ESC</kbd>
+            <button
+              type="button"
+              onClick={() => handleOpenChange(false)}
+              className="ml-1 inline-flex h-11 w-11 items-center justify-center rounded-xl text-[#666] transition-colors hover:bg-[#1a1a1a] hover:text-[#f2f2f2] sm:hidden"
+              aria-label="Close search"
+            >
+              <X className="h-4 w-4" />
+            </button>
           </div>
-          <div className="max-h-80 overflow-y-auto py-2">
+          <div className="max-h-[calc(100dvh-5rem)] overflow-y-auto py-2 pb-[calc(env(safe-area-inset-bottom,0px)+1rem)] sm:max-h-80 sm:pb-2">
             {groupedResults.map(([key, entries]) => {
               const category = key === "gameServers"
                 ? "game-server"

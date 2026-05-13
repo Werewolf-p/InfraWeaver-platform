@@ -1526,7 +1526,7 @@ export function DashboardTab({
             <button
               onClick={() => setDnsDialogOpen(true)}
               disabled={!server.nodeIp}
-              className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-1.5 text-xs text-cyan-100 transition hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-1.5 text-xs text-cyan-100 transition hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:opacity-50"
               title={server.nodeIp ? `Create DNS for ${name}` : "Node IP unavailable"}
             >
               <Globe className="h-3.5 w-3.5" />
@@ -1535,7 +1535,7 @@ export function DashboardTab({
             <button
               onClick={() => void refreshConnectivity()}
               disabled={testingConnectivity}
-              className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border border-[#1e3a5f] bg-[#0d1b2a] px-3 py-1.5 text-xs text-[#9ccfff] hover:bg-[#10233a] disabled:opacity-50"
+              className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-[#1e3a5f] bg-[#0d1b2a] px-3 py-1.5 text-xs text-[#9ccfff] hover:bg-[#10233a] disabled:opacity-50"
             >
               <RefreshCw className={cn("h-3.5 w-3.5", testingConnectivity && "animate-spin")} />
               Test connectivity
@@ -1552,55 +1552,98 @@ export function DashboardTab({
                 </code>
                 <button
                   onClick={() => copyValue(connectionString, "Connection string copied")}
-                  className="inline-flex min-h-[40px] items-center gap-2 rounded-lg border border-[#1e3a5f] bg-[#10233a] px-3 py-2 text-sm text-[#9ccfff] hover:bg-[#12304b]"
+                  className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-[#1e3a5f] bg-[#10233a] px-3 py-2 text-sm text-[#9ccfff] hover:bg-[#12304b]"
                 >
                   <Copy className="h-3.5 w-3.5" />
                   Copy
                 </button>
               </div>
             </div>
-            <div className="overflow-x-auto touch-pan-x rounded-lg border border-[#1e3a5f] bg-[#0d1b2a]">
-              <table className="min-w-[580px] w-full text-xs text-[#9ccfff]">
-                <thead className="bg-[#10233a] text-[10px] uppercase text-[#4a6fa5]">
-                  <tr>
-                    <th className="px-3 py-2 text-left">Port Name</th>
-                    <th className="px-3 py-2 text-left">Container Port</th>
-                    <th className="px-3 py-2 text-left">NodePort</th>
-                    <th className="px-3 py-2 text-left">Protocol</th>
-                    <th className="px-3 py-2 text-left">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {connectionRows.map((port) => {
-                    const externalTone = getConnectivityTone(port.externalStatus);
-                    return (
-                      <tr key={port.id} className="border-t border-[#1e3a5f]">
-                        <td className="px-3 py-2 capitalize text-[#e0e0e0]">{port.label}</td>
-                        <td className="px-3 py-2 font-mono">{port.servicePort}</td>
-                        <td className="px-3 py-2 font-mono">{port.nodePort ?? "—"}</td>
-                        <td className="px-3 py-2">{port.protocol}</td>
-                        <td className="px-3 py-2">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] text-emerald-200">
-                              <span className="h-2 w-2 rounded-full bg-emerald-400" /> Internal
-                            </span>
-                            <span
-                              className={cn(
-                                "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px]",
-                                externalTone.badge,
-                              )}
-                            >
-                              <span className={cn("h-2 w-2 rounded-full", externalTone.dot)} />
-                              {getConnectivityBadgeLabel(port.externalStatus, port.protocol)}
-                              {typeof port.latencyMs === "number" ? ` · ${port.latencyMs}ms` : ""}
-                            </span>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+            <div className="space-y-3">
+              <div className="space-y-2 sm:hidden">
+                {connectionRows.map((port) => {
+                  const externalTone = getConnectivityTone(port.externalStatus);
+                  return (
+                    <div key={port.id} className="rounded-xl border border-[#1e3a5f] bg-[#10233a] p-3 text-xs text-[#9ccfff]">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-[10px] uppercase text-[#4a6fa5]">Port</p>
+                          <p className="mt-1 capitalize text-[#e0e0e0]">{port.label}</p>
+                        </div>
+                        <span className="rounded-full border border-[#1e3a5f] bg-[#0d1b2a] px-2 py-0.5 font-mono">{port.protocol}</span>
+                      </div>
+                      <dl className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
+                        <div>
+                          <dt className="text-[#4a6fa5]">Container</dt>
+                          <dd className="mt-1 font-mono text-[#e0e0e0]">{port.servicePort}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-[#4a6fa5]">NodePort</dt>
+                          <dd className="mt-1 font-mono text-[#e0e0e0]">{port.nodePort ?? "—"}</dd>
+                        </div>
+                      </dl>
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] text-emerald-200">
+                          <span className="h-2 w-2 rounded-full bg-emerald-400" /> Internal
+                        </span>
+                        <span
+                          className={cn(
+                            "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px]",
+                            externalTone.badge,
+                          )}
+                        >
+                          <span className={cn("h-2 w-2 rounded-full", externalTone.dot)} />
+                          {getConnectivityBadgeLabel(port.externalStatus, port.protocol)}
+                          {typeof port.latencyMs === "number" ? ` · ${port.latencyMs}ms` : ""}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="hidden overflow-x-auto touch-pan-x rounded-lg border border-[#1e3a5f] bg-[#0d1b2a] sm:block">
+                <table className="w-full min-w-[580px] text-xs text-[#9ccfff]">
+                  <thead className="bg-[#10233a] text-[10px] uppercase text-[#4a6fa5]">
+                    <tr>
+                      <th className="px-3 py-2 text-left">Port Name</th>
+                      <th className="px-3 py-2 text-left">Container Port</th>
+                      <th className="px-3 py-2 text-left">NodePort</th>
+                      <th className="px-3 py-2 text-left">Protocol</th>
+                      <th className="px-3 py-2 text-left">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {connectionRows.map((port) => {
+                      const externalTone = getConnectivityTone(port.externalStatus);
+                      return (
+                        <tr key={port.id} className="border-t border-[#1e3a5f]">
+                          <td className="px-3 py-2 capitalize text-[#e0e0e0]">{port.label}</td>
+                          <td className="px-3 py-2 font-mono">{port.servicePort}</td>
+                          <td className="px-3 py-2 font-mono">{port.nodePort ?? "—"}</td>
+                          <td className="px-3 py-2">{port.protocol}</td>
+                          <td className="px-3 py-2">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] text-emerald-200">
+                                <span className="h-2 w-2 rounded-full bg-emerald-400" /> Internal
+                              </span>
+                              <span
+                                className={cn(
+                                  "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px]",
+                                  externalTone.badge,
+                                )}
+                              >
+                                <span className={cn("h-2 w-2 rounded-full", externalTone.dot)} />
+                                {getConnectivityBadgeLabel(port.externalStatus, port.protocol)}
+                                {typeof port.latencyMs === "number" ? ` · ${port.latencyMs}ms` : ""}
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
             <p className="text-[11px] text-[#4a6fa5] leading-relaxed">{connectHint}</p>
           </div>
@@ -1664,7 +1707,7 @@ export function DashboardTab({
                   </code>
                   <button
                     onClick={() => copyValue(snippet)}
-                    className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded text-[#444] transition-colors hover:text-[#888]"
+                    className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded text-[#444] transition-colors hover:text-[#888]"
                   >
                     <Copy className="w-3 h-3" />
                   </button>
@@ -1680,45 +1723,66 @@ export function DashboardTab({
           <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-[#888]">
             <Layers className="w-4 h-4 text-[#f59e0b]" /> Volume Mounts
           </div>
-          <div className="overflow-x-auto touch-pan-x">
-            <table className="min-w-[560px] w-full text-xs text-[#888]">
-            <thead>
-              <tr className="text-[#555] text-[10px] uppercase">
-                <th className="text-left py-1 pr-3">Name</th>
-                <th className="text-left py-1 pr-3">Mount Path</th>
-                <th className="text-left py-1 pr-3">Read Only</th>
-                <th className="text-left py-1">Size</th>
-              </tr>
-            </thead>
-            <tbody>
+          <div className="space-y-2">
+            <div className="space-y-2 sm:hidden">
               {(server.volumeMounts ?? []).map((mount, index) => {
-                const volume = (server.volumes ?? []).find(
-                  (entry) => entry.name === mount.name,
-                );
+                const volume = (server.volumes ?? []).find((entry) => entry.name === mount.name);
                 return (
-                  <tr
-                    key={`${mount.name}-${index}`}
-                    className="border-t border-[#1a1a1a]"
-                  >
-                    <td className="py-1 pr-3 font-mono text-[#d4d4d4]">
-                      {mount.name}
-                    </td>
-                    <td className="py-1 pr-3 font-mono text-[#9e9e9e]">
-                      {mount.mountPath}
-                    </td>
-                    <td className="py-1 pr-3">
-                      {mount.readOnly ? (
-                        <span className="text-yellow-400">Yes</span>
-                      ) : (
-                        <span className="text-[#555]">No</span>
-                      )}
-                    </td>
-                    <td className="py-1">{volume?.pvcSize ?? "—"}</td>
-                  </tr>
+                  <div key={`${mount.name}-${index}`} className="rounded-xl border border-[#1a1a1a] bg-[#0d0d0d] p-3 text-xs">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-mono text-[#d4d4d4]">{mount.name}</p>
+                        <p className="mt-1 break-all font-mono text-[11px] text-[#9e9e9e]">{mount.mountPath}</p>
+                      </div>
+                      <span className={mount.readOnly ? "text-yellow-400" : "text-[#555]"}>
+                        {mount.readOnly ? "Read only" : "Writable"}
+                      </span>
+                    </div>
+                    <p className="mt-3 text-[11px] text-[#777]">Size: <span className="text-[#d4d4d4]">{volume?.pvcSize ?? "—"}</span></p>
+                  </div>
                 );
               })}
-            </tbody>
-          </table>
+            </div>
+            <div className="hidden overflow-x-auto touch-pan-x sm:block">
+              <table className="w-full min-w-[560px] text-xs text-[#888]">
+                <thead>
+                  <tr className="text-[#555] text-[10px] uppercase">
+                    <th className="text-left py-1 pr-3">Name</th>
+                    <th className="text-left py-1 pr-3">Mount Path</th>
+                    <th className="text-left py-1 pr-3">Read Only</th>
+                    <th className="text-left py-1">Size</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(server.volumeMounts ?? []).map((mount, index) => {
+                    const volume = (server.volumes ?? []).find(
+                      (entry) => entry.name === mount.name,
+                    );
+                    return (
+                      <tr
+                        key={`${mount.name}-${index}`}
+                        className="border-t border-[#1a1a1a]"
+                      >
+                        <td className="py-1 pr-3 font-mono text-[#d4d4d4]">
+                          {mount.name}
+                        </td>
+                        <td className="py-1 pr-3 font-mono text-[#9e9e9e]">
+                          {mount.mountPath}
+                        </td>
+                        <td className="py-1 pr-3">
+                          {mount.readOnly ? (
+                            <span className="text-yellow-400">Yes</span>
+                          ) : (
+                            <span className="text-[#555]">No</span>
+                          )}
+                        </td>
+                        <td className="py-1">{volume?.pvcSize ?? "—"}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       ) : null}
@@ -1750,55 +1814,88 @@ export function DashboardTab({
               />
             </div>
             {rawProcessRows.length ? (
-              <div className="overflow-x-auto touch-pan-x max-h-64 overflow-y-auto">
-                <table className="min-w-[420px] w-full text-[11px] font-mono">
-                  <thead className="sticky top-0 bg-[#111] text-[#555] text-[10px] uppercase">
-                    <tr>
-                      {[
-                        ["pid", "PID"],
-                        ["cpu", "CPU%"],
-                        ["mem", "MEM%"],
-                        ["command", "Command"],
-                      ].map(([key, label]) => (
-                        <th key={key} className="pb-1 pr-3 text-left">
-                          <button
-                            onClick={() => toggleProcessSort(key as "pid" | "cpu" | "mem" | "command")}
-                            className="inline-flex items-center gap-1 hover:text-[#ccc]"
-                          >
-                            {label}
-                            <ArrowUpDown className="h-3 w-3" />
-                          </button>
-                        </th>
-                      ))}
-                      <th className="pb-1 text-right">&nbsp;</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {processRows.map((row) => (
-                      <tr
-                        key={`${row.pid}-${row.command}`}
-                        className="border-t border-[#1a1a1a] text-[#9e9e9e]"
-                      >
-                        <td className="py-1 pr-3">{row.pid}</td>
-                        <td className="py-1 pr-3">{row.cpu.toFixed(1)}</td>
-                        <td className="py-1 pr-3">{row.mem.toFixed(1)}</td>
-                        <td className="py-1 pr-3 text-[#d4d4d4]" title={row.command}>
-                          {truncateCommand(row.command)}
-                        </td>
-                        <td className="py-1 text-right">
-                          <button
-                            onClick={() => void killProcess(row.pid)}
-                            disabled={killingPid === row.pid || !server.permissions?.canConsole}
-                            className="min-h-[36px] rounded-md border border-red-500/30 bg-red-500/10 px-2 py-1 text-[10px] text-red-200 hover:bg-red-500/15 disabled:opacity-50"
-                            title={server.permissions?.canConsole ? `Send SIGTERM to ${row.pid}` : "Console permission required"}
-                          >
-                            {killingPid === row.pid ? "Killing…" : "Kill"}
-                          </button>
-                        </td>
+              <div className="space-y-2">
+                <div className="space-y-2 sm:hidden">
+                  {processRows.map((row) => (
+                    <div key={`${row.pid}-${row.command}`} className="rounded-xl border border-[#1a1a1a] bg-[#0d0d0d] p-3 text-xs text-[#9e9e9e]">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-[10px] uppercase text-[#555]">PID</p>
+                          <p className="mt-1 font-mono text-[#f2f2f2]">{row.pid}</p>
+                        </div>
+                        <button
+                          onClick={() => void killProcess(row.pid)}
+                          disabled={killingPid === row.pid || !server.permissions?.canConsole}
+                          className="min-h-[44px] rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-[10px] text-red-200 hover:bg-red-500/15 disabled:opacity-50"
+                          title={server.permissions?.canConsole ? `Send SIGTERM to ${row.pid}` : "Console permission required"}
+                        >
+                          {killingPid === row.pid ? "Killing…" : "Kill"}
+                        </button>
+                      </div>
+                      <div className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
+                        <div>
+                          <p className="text-[#555]">CPU</p>
+                          <p className="mt-1">{row.cpu.toFixed(1)}%</p>
+                        </div>
+                        <div>
+                          <p className="text-[#555]">Memory</p>
+                          <p className="mt-1">{row.mem.toFixed(1)}%</p>
+                        </div>
+                      </div>
+                      <p className="mt-3 break-all font-mono text-[11px] text-[#d4d4d4]">{row.command}</p>
+                    </div>
+                  ))}
+                </div>
+                <div className="hidden max-h-64 overflow-x-auto overflow-y-auto touch-pan-x sm:block">
+                  <table className="w-full min-w-[420px] text-[11px] font-mono">
+                    <thead className="sticky top-0 bg-[#111] text-[#555] text-[10px] uppercase">
+                      <tr>
+                        {[
+                          ["pid", "PID"],
+                          ["cpu", "CPU%"],
+                          ["mem", "MEM%"],
+                          ["command", "Command"],
+                        ].map(([key, label]) => (
+                          <th key={key} className="pb-1 pr-3 text-left">
+                            <button
+                              onClick={() => toggleProcessSort(key as "pid" | "cpu" | "mem" | "command")}
+                              className="inline-flex items-center gap-1 hover:text-[#ccc]"
+                            >
+                              {label}
+                              <ArrowUpDown className="h-3 w-3" />
+                            </button>
+                          </th>
+                        ))}
+                        <th className="pb-1 text-right">&nbsp;</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {processRows.map((row) => (
+                        <tr
+                          key={`${row.pid}-${row.command}`}
+                          className="border-t border-[#1a1a1a] text-[#9e9e9e]"
+                        >
+                          <td className="py-1 pr-3">{row.pid}</td>
+                          <td className="py-1 pr-3">{row.cpu.toFixed(1)}</td>
+                          <td className="py-1 pr-3">{row.mem.toFixed(1)}</td>
+                          <td className="py-1 pr-3 text-[#d4d4d4]" title={row.command}>
+                            {truncateCommand(row.command)}
+                          </td>
+                          <td className="py-1 text-right">
+                            <button
+                              onClick={() => void killProcess(row.pid)}
+                              disabled={killingPid === row.pid || !server.permissions?.canConsole}
+                              className="min-h-[36px] rounded-md border border-red-500/30 bg-red-500/10 px-2 py-1 text-[10px] text-red-200 hover:bg-red-500/15 disabled:opacity-50"
+                              title={server.permissions?.canConsole ? `Send SIGTERM to ${row.pid}` : "Console permission required"}
+                            >
+                              {killingPid === row.pid ? "Killing…" : "Kill"}
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             ) : (
               <p className="text-xs text-[#555]">
@@ -1827,38 +1924,68 @@ export function DashboardTab({
               </button>
             </div>
             {networkRows.length ? (
-              <div className="overflow-x-auto touch-pan-x max-h-64 overflow-y-auto">
-                <table className="min-w-[520px] w-full text-[11px] font-mono">
-                  <thead className="text-[#555] text-[10px] uppercase sticky top-0 bg-[#111]">
-                    <tr>
-                      <th className="text-left pb-1 pr-3">Iface</th>
-                      <th className="text-left pb-1 pr-3">RX</th>
-                      <th className="text-left pb-1 pr-3">RX pkt</th>
-                      <th className="text-left pb-1 pr-3">TX</th>
-                      <th className="text-left pb-1">TX pkt</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {networkRows.map((row) => (
-                      <tr
-                        key={row.iface}
-                        className="border-t border-[#1a1a1a] text-[#9e9e9e]"
-                      >
-                        <td className="py-0.5 pr-3 text-[#d4d4d4]">
-                          {row.iface}
-                        </td>
-                        <td className="py-0.5 pr-3">
-                          {formatBytes(row.rxBytes)}
-                        </td>
-                        <td className="py-0.5 pr-3">{row.rxPackets}</td>
-                        <td className="py-0.5 pr-3">
-                          {formatBytes(row.txBytes)}
-                        </td>
-                        <td className="py-0.5">{row.txPackets}</td>
+              <div className="space-y-2">
+                <div className="space-y-2 sm:hidden">
+                  {networkRows.map((row) => (
+                    <div key={row.iface} className="rounded-xl border border-[#1a1a1a] bg-[#0d0d0d] p-3 text-xs text-[#9e9e9e]">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="font-mono text-[#d4d4d4]">{row.iface}</p>
+                        <span className="rounded-full border border-[#2a2a2a] px-2 py-0.5 text-[10px] text-[#888]">iface</span>
+                      </div>
+                      <dl className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
+                        <div>
+                          <dt className="text-[#555]">RX</dt>
+                          <dd className="mt-1">{formatBytes(row.rxBytes)}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-[#555]">RX pkt</dt>
+                          <dd className="mt-1">{row.rxPackets}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-[#555]">TX</dt>
+                          <dd className="mt-1">{formatBytes(row.txBytes)}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-[#555]">TX pkt</dt>
+                          <dd className="mt-1">{row.txPackets}</dd>
+                        </div>
+                      </dl>
+                    </div>
+                  ))}
+                </div>
+                <div className="hidden max-h-64 overflow-x-auto overflow-y-auto touch-pan-x sm:block">
+                  <table className="w-full min-w-[520px] text-[11px] font-mono">
+                    <thead className="text-[#555] text-[10px] uppercase sticky top-0 bg-[#111]">
+                      <tr>
+                        <th className="text-left pb-1 pr-3">Iface</th>
+                        <th className="text-left pb-1 pr-3">RX</th>
+                        <th className="text-left pb-1 pr-3">RX pkt</th>
+                        <th className="text-left pb-1 pr-3">TX</th>
+                        <th className="text-left pb-1">TX pkt</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {networkRows.map((row) => (
+                        <tr
+                          key={row.iface}
+                          className="border-t border-[#1a1a1a] text-[#9e9e9e]"
+                        >
+                          <td className="py-0.5 pr-3 text-[#d4d4d4]">
+                            {row.iface}
+                          </td>
+                          <td className="py-0.5 pr-3">
+                            {formatBytes(row.rxBytes)}
+                          </td>
+                          <td className="py-0.5 pr-3">{row.rxPackets}</td>
+                          <td className="py-0.5 pr-3">
+                            {formatBytes(row.txBytes)}
+                          </td>
+                          <td className="py-0.5">{row.txPackets}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             ) : (
               <p className="text-xs text-[#555]">
@@ -1885,71 +2012,124 @@ export function DashboardTab({
           {(backups?.backups ?? []).length === 0 ? (
             <p className="text-xs text-[#666]">No backups found</p>
           ) : (
-            <div className="overflow-x-auto touch-pan-x max-h-64 overflow-y-auto rounded-lg border border-[#1a1a1a]">
-              <table className="min-w-[720px] w-full text-[11px]">
-                <thead className="sticky top-0 bg-[#0d0d0d] text-[#666]">
-                  <tr>
-                    <th className="px-3 py-2 text-left">Backup</th>
-                    <th className="px-3 py-2 text-left">Size</th>
-                    <th className="px-3 py-2 text-left">Date</th>
-                    <th className="px-3 py-2 text-left">Status</th>
-                    <th className="px-3 py-2 text-left">SHA256</th>
-                    <th className="px-3 py-2 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(backups?.backups ?? []).map((backup) => (
-                    <tr
-                      key={backup.filename}
-                      className="border-t border-[#1a1a1a] text-[#9e9e9e]"
-                    >
-                      <td className="px-3 py-2 font-mono text-[#d4d4d4]">
-                        {backup.filename}
-                      </td>
-                      <td className="px-3 py-2">{backup.size}</td>
-                      <td className="px-3 py-2">
-                        {formatDateTime(backup.createdAt)}
-                      </td>
-                      <td className="px-3 py-2">
-                        {backup.status === "warning" ? (
-                          <span className="rounded-full border border-yellow-500/30 bg-yellow-500/10 px-2 py-0.5 text-yellow-200">
-                            Small / check
-                          </span>
-                        ) : (
-                          <span className="rounded-full border border-green-500/30 bg-green-500/10 px-2 py-0.5 text-green-200">
-                            Verified
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-3 py-2 font-mono text-[10px]">
-                        {backup.checksum?.slice(0, 10) ?? "—"}
-                      </td>
-                      <td className="px-3 py-2">
-                        <div className="flex items-center justify-end gap-3">
-                          <a
-                            href={`/api/game-hub/servers/${name}/files/content?path=${encodeURIComponent(backup.path ?? `/tmp/${backup.filename}`)}&download=1`}
-                            className="text-[#60a5fa] hover:underline"
-                          >
-                            Download
-                          </a>
-                          <button
-                            onClick={() => restoreBackup(backup.filename)}
-                            className="text-green-300 hover:text-green-200"
-                          >
-                            Restore
-                          </button>
-                          <button
-                            onClick={() => deleteBackup(backup.filename)}
-                            className="text-red-400 hover:text-red-300"
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      </td>
+            <div className="space-y-2">
+              <div className="space-y-2 sm:hidden">
+                {(backups?.backups ?? []).map((backup) => (
+                  <div key={backup.filename} className="rounded-xl border border-[#1a1a1a] bg-[#0d0d0d] p-3 text-xs text-[#9e9e9e]">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="break-all font-mono text-[#d4d4d4]">{backup.filename}</p>
+                        <p className="mt-1 text-[11px] text-[#666]">{formatDateTime(backup.createdAt)}</p>
+                      </div>
+                      {backup.status === "warning" ? (
+                        <span className="rounded-full border border-yellow-500/30 bg-yellow-500/10 px-2 py-0.5 text-yellow-200">
+                          Small / check
+                        </span>
+                      ) : (
+                        <span className="rounded-full border border-green-500/30 bg-green-500/10 px-2 py-0.5 text-green-200">
+                          Verified
+                        </span>
+                      )}
+                    </div>
+                    <dl className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
+                      <div>
+                        <dt className="text-[#555]">Size</dt>
+                        <dd className="mt-1 text-[#d4d4d4]">{backup.size}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-[#555]">SHA256</dt>
+                        <dd className="mt-1 font-mono text-[#d4d4d4]">{backup.checksum?.slice(0, 10) ?? "—"}</dd>
+                      </div>
+                    </dl>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <a
+                        href={`/api/game-hub/servers/${name}/files/content?path=${encodeURIComponent(backup.path ?? `/tmp/${backup.filename}`)}&download=1`}
+                        className="inline-flex min-h-[44px] items-center rounded-lg border border-[#1f3c5c] bg-[#10233a] px-3 py-2 text-[#60a5fa]"
+                      >
+                        Download
+                      </a>
+                      <button
+                        onClick={() => restoreBackup(backup.filename)}
+                        className="min-h-[44px] rounded-lg border border-green-500/30 bg-green-500/10 px-3 py-2 text-green-300"
+                      >
+                        Restore
+                      </button>
+                      <button
+                        onClick={() => deleteBackup(backup.filename)}
+                        className="min-h-[44px] rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-red-400"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="hidden max-h-64 overflow-x-auto overflow-y-auto touch-pan-x rounded-lg border border-[#1a1a1a] sm:block">
+                <table className="w-full min-w-[720px] text-[11px]">
+                  <thead className="sticky top-0 bg-[#0d0d0d] text-[#666]">
+                    <tr>
+                      <th className="px-3 py-2 text-left">Backup</th>
+                      <th className="px-3 py-2 text-left">Size</th>
+                      <th className="px-3 py-2 text-left">Date</th>
+                      <th className="px-3 py-2 text-left">Status</th>
+                      <th className="px-3 py-2 text-left">SHA256</th>
+                      <th className="px-3 py-2 text-right">Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {(backups?.backups ?? []).map((backup) => (
+                      <tr
+                        key={backup.filename}
+                        className="border-t border-[#1a1a1a] text-[#9e9e9e]"
+                      >
+                        <td className="px-3 py-2 font-mono text-[#d4d4d4]">
+                          {backup.filename}
+                        </td>
+                        <td className="px-3 py-2">{backup.size}</td>
+                        <td className="px-3 py-2">
+                          {formatDateTime(backup.createdAt)}
+                        </td>
+                        <td className="px-3 py-2">
+                          {backup.status === "warning" ? (
+                            <span className="rounded-full border border-yellow-500/30 bg-yellow-500/10 px-2 py-0.5 text-yellow-200">
+                              Small / check
+                            </span>
+                          ) : (
+                            <span className="rounded-full border border-green-500/30 bg-green-500/10 px-2 py-0.5 text-green-200">
+                              Verified
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 font-mono text-[10px]">
+                          {backup.checksum?.slice(0, 10) ?? "—"}
+                        </td>
+                        <td className="px-3 py-2">
+                          <div className="flex items-center justify-end gap-3">
+                            <a
+                              href={`/api/game-hub/servers/${name}/files/content?path=${encodeURIComponent(backup.path ?? `/tmp/${backup.filename}`)}&download=1`}
+                              className="text-[#60a5fa] hover:underline"
+                            >
+                              Download
+                            </a>
+                            <button
+                              onClick={() => restoreBackup(backup.filename)}
+                              className="text-green-300 hover:text-green-200"
+                            >
+                              Restore
+                            </button>
+                            <button
+                              onClick={() => deleteBackup(backup.filename)}
+                              className="text-red-400 hover:text-red-300"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </div>

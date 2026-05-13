@@ -122,7 +122,7 @@ export default function UptimePage() {
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.05 }}
-        className="grid grid-cols-3 gap-4"
+        className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
       >
         <div className="bg-white/5 border border-white/10 rounded-xl p-4 text-center">
           <div className="text-3xl font-bold text-white tabular-nums">{endpoints.length}</div>

@@ -51,7 +51,7 @@ export default function ResourceOptimizerPage() {
         <h2 className="text-xl font-bold text-white flex items-center gap-2"><Activity className="w-5 h-5 text-slate-400" />Resource Optimizer</h2>
         <p className="text-sm text-slate-400">Request vs limit recommendations</p>
       </div>
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {[
           { label: "Pods Analyzed", value: recs.length, color: "text-white" },
           { label: "Over-provisioned", value: overProvisioned, color: overProvisioned > 0 ? "text-yellow-400" : "text-green-400" },

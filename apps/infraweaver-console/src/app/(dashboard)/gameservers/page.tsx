@@ -1205,7 +1205,7 @@ export default function GameServersPage() {
               const effectiveIntIP = server.internalIP || server.targetIP;
               return (
                 <div className="border-t border-indigo-500/20 bg-slate-900/50 px-4 py-4">
-                  <div className="grid grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                     <div>
                       <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Connection Info</p>
                       <div className="space-y-1">

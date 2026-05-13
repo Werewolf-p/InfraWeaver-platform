@@ -41,7 +41,7 @@ export function PlayersTab({ name, server }: { name: string; server: ServerDetai
   const recentLeaves = stats?.recentLeaves ?? [];
 
   return (
-    <div className="grid xl:grid-cols-[1.3fr_1fr] gap-4">
+    <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.3fr_1fr]">
       <div className="space-y-4">
         <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4">
           <div className="flex items-center justify-between mb-3">
@@ -55,7 +55,7 @@ export function PlayersTab({ name, server }: { name: string; server: ServerDetai
             {onlinePlayers.length === 0 ? (
               <p className="text-sm text-[#666]">No players online</p>
             ) : onlinePlayers.map((player) => (
-              <div key={player.name} className="rounded-lg border border-[#222] px-3 py-2 flex items-center gap-2 text-sm">
+              <div key={player.name} className="rounded-lg border border-[#222] px-3 py-3 flex flex-col gap-3 text-sm sm:flex-row sm:items-center">
                 <span className="text-base flex-shrink-0">{countryFlag(player.countryCode)}</span>
                 <div className="flex-1 min-w-0">
                   <p className="text-[#f2f2f2] truncate font-medium">{player.name}</p>
@@ -63,20 +63,22 @@ export function PlayersTab({ name, server }: { name: string; server: ServerDetai
                     {player.ip ?? "—"} · <span className="text-[#999]">{player.group}</span>
                   </p>
                 </div>
-                <button
-                  onClick={() => doAction("kick", player.name)}
-                  className="text-xs text-yellow-300 hover:text-yellow-200 px-2 py-1 rounded hover:bg-yellow-500/10 transition-colors"
-                >
-                  Disconnect
-                </button>
-                <button
-                  onClick={() => {
-                    if (confirm(`Block ${player.name}?`)) doAction("ban", player.name);
-                  }}
-                  className="text-xs text-red-300 hover:text-red-200 px-2 py-1 rounded hover:bg-red-500/10 transition-colors"
-                >
-                  Block
-                </button>
+                <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end">
+                  <button
+                    onClick={() => doAction("kick", player.name)}
+                    className="min-h-[44px] rounded-lg px-3 py-2 text-xs text-yellow-300 transition-colors hover:bg-yellow-500/10 hover:text-yellow-200"
+                  >
+                    Disconnect
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (confirm(`Block ${player.name}?`)) doAction("ban", player.name);
+                    }}
+                    className="min-h-[44px] rounded-lg px-3 py-2 text-xs text-red-300 transition-colors hover:bg-red-500/10 hover:text-red-200"
+                  >
+                    Block
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -91,7 +93,7 @@ export function PlayersTab({ name, server }: { name: string; server: ServerDetai
           <p className="text-xs text-[#666] mb-2">
             Unique today: <span className="text-[#f2f2f2]">{stats?.uniqueToday ?? 0}</span>
           </p>
-          <div className="grid grid-cols-2 gap-3 text-xs">
+          <div className="grid grid-cols-1 gap-3 text-xs sm:grid-cols-2">
             <div>
               <p className="text-[#555] mb-2 uppercase tracking-wide text-[10px]">Recent Joins</p>
               <div className="space-y-1">

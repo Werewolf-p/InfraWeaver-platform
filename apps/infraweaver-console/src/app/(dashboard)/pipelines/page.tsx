@@ -111,7 +111,7 @@ export default function PipelinesPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-3 mb-6">
+      <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {[
           { label: "Passing", value: successCount, color: "text-emerald-400", bg: "bg-emerald-500/10 border-emerald-500/20" },
           { label: "Failing", value: failCount, color: "text-red-400", bg: "bg-red-500/10 border-red-500/20" },

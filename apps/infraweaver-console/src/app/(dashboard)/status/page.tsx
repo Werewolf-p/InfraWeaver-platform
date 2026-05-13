@@ -90,7 +90,7 @@ export default function StatusPage() {
         <p className="mt-2 text-sm text-slate-400">Last checked: {data?.checkedAt ? `${timeAgo(data.checkedAt)} (${new Date(data.checkedAt).toLocaleTimeString()})` : "—"}</p>
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {[
           { label: "Total Nodes", value: data?.metrics.totalNodes ?? 0, color: "text-white" },
           { label: "Ready Nodes", value: data?.metrics.readyNodes ?? 0, color: "text-green-400" },

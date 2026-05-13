@@ -174,7 +174,7 @@ function UptimeBadge({ pct }: { pct: number }) {
 function SLASection({ data }: { data: SLAData }) {
   return (
     <CollapsibleSection title="SLA / Uptime" storageKey="health-sla" badge={<Shield className="w-4 h-4 text-emerald-400 flex-shrink-0" />}>
-      <div className="mb-4 grid grid-cols-3 gap-3">
+      <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {[
           { label: "24h Overall", value: data.overall.uptime24h },
           { label: "7d Overall", value: data.overall.uptime7d },
