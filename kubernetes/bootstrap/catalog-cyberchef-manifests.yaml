@@ -1,11 +1,11 @@
 ---
-# catalog-whoogle-search-manifests.yaml — deployed by InfraWeaver Community Apps
-# Source: benbusby/whoogle-search
-# Installed: 2026-05-13T19:33:16.570Z
+# catalog-cyberchef-manifests.yaml — deployed by InfraWeaver Community Apps
+# Source: mpepping/cyberchef:latest
+# Installed: 2026-05-13T19:45:10.245Z
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: catalog-whoogle-search-manifests
+  name: catalog-cyberchef-manifests
   namespace: argocd
   labels:
     infraweaver.io/type: catalog-app
@@ -17,10 +17,10 @@ spec:
   source:
     repoURL: https://github.com/Werewolf-p/InfraWeaver-platform.git
     targetRevision: HEAD
-    path: kubernetes/catalog/whoogle-search/manifests
+    path: kubernetes/catalog/cyberchef/manifests
   destination:
     server: https://kubernetes.default.svc
-    namespace: whoogle
+    namespace: cyberchef
   syncPolicy:
     automated:
       prune: true
