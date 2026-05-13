@@ -1,76 +1,45 @@
-# =============================================================================
-# Platform Users Configuration
-# =============================================================================
-#
-# This file documents all platform users and their access levels.
-# It is the human-readable source of truth — the actual users are created
-# via Authentik blueprints (kubernetes/platform/authentik/manifests/blueprint-users.yaml)
-# and passwords are stored in OpenBao (secret/platform/authentik).
-#
-# Access levels:
-#   admin        → all services (openbao, argocd, grafana, longhorn, netbird, homepage, wiki)
-#   platform-user → homepage, netbird (VPN access), argocd (read-only)
-#
-# Wiki.js roles (wiki_role):
-#   admin   → full admin access (manage users, settings, all pages)
-#   editor  → create + edit all pages, cannot manage settings
-#   reader  → read-only access to wiki pages
-#
-# To add a new user:
-#   1. Add an entry to this file (documentation + sync driver)
-#   2. Add a user entry to blueprint-users.yaml
-#   3. Add their password field to seed-openbao-authentik.sh
-#   4. Add their password to externalsecret.yaml + authentik/values.yaml env vars
-#   5. Commit + push → apply-changes.yml auto-syncs groups + generates recovery email
-#
-# Group sync is fully dynamic — no hardcoded user lists in workflow scripts.
-# Recovery links are generated for all users with send_recovery_email: true.
-#
-# =============================================================================
-
 users:
-
   remon:
-    name: "Remon Hulst"
-    email: "remonhulst@gmail.com"
+    name: Remon Hulst
+    email: remonhulst@gmail.com
     access_level: admin
     authentik_groups:
       - platform-admins
-      - authentik Admins       # Authentik superuser (admin UI access)
+      - authentik Admins
       - platform-users
-      - wiki-admins            # Full Wiki.js admin access
-    argocd_role: admin         # Full ArgoCD access
-    openbao_policy: default    # OpenBao OIDC role maps to default policy
-    wiki_role: admin           # Full wiki administration (manage users, settings, all content)
+      - wiki-admins
+    argocd_role: admin
+    openbao_policy: default
+    wiki_role: admin
     send_recovery_email: true
-    notes: "Platform owner — full access to everything"
-
+    notes: Platform owner — full access to everything
+    role_assignments:
+      - id: 899eed00-2428-4267-adfd-3ad1d14a1a30
+        roleId: platform-owner
+        scope: /
+        principalType: user
+        principalId: remon
+        grantedBy: remonhulst@gmail.com
+        grantedAt: '2026-05-13T12:57:04.676Z'
   ardaty:
-    name: "Ardaty"
-    email: "ardaty@rlservers.com"   # ← update with real email if needed
+    name: Ardaty
+    email: ardaty@rlservers.com
     access_level: platform-user
     authentik_groups:
       - platform-users
-      - wiki-readers           # Read-only wiki access
-    argocd_role: readonly           # Can view ArgoCD apps but cannot sync/delete
-    openbao_policy: null            # No direct OpenBao access
-    wiki_role: reader          # Read-only wiki access
+      - wiki-readers
+    argocd_role: readonly
+    openbao_policy: null
+    wiki_role: reader
     send_recovery_email: true
-    notes: "Platform user — homepage, VPN, ArgoCD (read-only), wiki (read-only)"
-    # NetBird access: enroll device with the key matching the desired group.
-    # For Proxmox access (10.25.0.3:8006), use proxmox-client-key.
-    # Multiple devices can use different keys for different access levels.
-    netbird_setup_key: proxmox-client-key   # grants proxmox-users group → TCP 8006 to Proxmox
-    # ── Platform RBAC role assignments (managed by InfraWeaver Console → Settings → Access Control)
-    # Scoped assignments: / = global, /game-hub/ = all game servers, /game-hub/servers/<name> = one server
+    notes: Platform user — homepage, VPN, ArgoCD (read-only), wiki (read-only)
+    netbird_setup_key: proxmox-client-key
     role_assignments:
-      - id: "ra-ardaty-terraria-reader"
-        roleId: "game-hub-server-reader"
-        scope: "/game-hub/servers/terraria-server"
-        grantedBy: "remonhulst@gmail.com"
-        grantedAt: "2026-05-12T15:00:00Z"
-    # NAS share assignments — managed via InfraWeaver console → Users → Storage Access
-    # K8s manifests auto-generated in kubernetes/catalog/nas-shares/
+      - id: ra-ardaty-terraria-reader
+        roleId: game-hub-server-reader
+        scope: /game-hub/servers/terraria-server
+        grantedBy: remonhulst@gmail.com
+        grantedAt: '2026-05-12T15:00:00Z'
     nas_shares:
       - provider: synology
         share: Mediaserver
@@ -78,28 +47,4 @@ users:
         access: readwrite
         pvc_namespace: plex
         pvc_name: ardaty-media
-        created_at: "2025-05-10"
-
-# =============================================================================
-# Access Matrix
-# =============================================================================
-#
-#  Service          │ remon (admin) │ ardaty (user)
-#  ─────────────────┼───────────────┼──────────────
-#  auth.rlservers.com│ ✅ admin      │ ✅ login only
-#  home.int.*       │ ✅            │ ✅ (via VPN)
-#  argocd.int.*     │ ✅ admin      │ ✅ read-only
-#  openbao.int.*    │ ✅ admin      │ ❌ blocked
-#  grafana.int.*    │ ✅            │ ❌ blocked
-#  longhorn.prod.*  │ ✅            │ ❌ blocked
-#  netbird.*        │ ✅ admin      │ ✅ user
-#  wiki.int.*       │ ✅ admin      │ ✅ read-only
-#
-# NetBird (VPN): both users can connect — access to internal networks
-# is determined by the routes they can use (currently: all peers get all routes).
-#
-# Wiki.js auth flow:
-#   - Users log in via Authentik SSO (OIDC/OAuth2)
-#   - Authentik group membership (wiki-admins/wiki-editors/wiki-readers) maps to Wiki.js roles
-#   - Local admin account kept in OpenBao as emergency fallback
-# =============================================================================
+        created_at: '2025-05-10'
