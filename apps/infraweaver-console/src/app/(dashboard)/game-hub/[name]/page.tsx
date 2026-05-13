@@ -22,7 +22,14 @@ import { ActivityTab as ActivityTabFeature } from "@/components/game-hub/server-
 import type { FileEntry, SavedCommand, ServerDetail } from "@/components/game-hub/server-detail/types";
 import { fetchJson } from "@/components/game-hub/server-detail/utils";
 
-const MonacoEditor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
+const MonacoEditor = dynamic(() => import("@monaco-editor/react"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex items-center justify-center h-full bg-[#1e1e1e]">
+      <Loader2 className="w-5 h-5 animate-spin text-[#555]" />
+    </div>
+  ),
+});
 
 type TabId = "dashboard" | "console" | "players" | "files" | "settings" | "activity";
 type RuntimeSavedCommand = SavedCommand & { id?: string; cmd?: string; command?: string; color?: string; description?: string };
@@ -476,6 +483,20 @@ function PlayersTab({ name, server }: { name: string; server: ServerDetail }) {
 function FilesTab({ name, status, mountPath }: { name: string; status: string; mountPath: string }) {
   const [currentPath, setCurrentPath] = useState(mountPath);
   const [selectedFile, setSelectedFile] = useState<FileEntry | null>(null);
+
+  // Configure Monaco to use stub blob workers so it doesn't hang loading CDN workers
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const w = window as Window & { MonacoEnvironment?: { getWorker: () => Worker } };
+    if (!w.MonacoEnvironment) {
+      w.MonacoEnvironment = {
+        getWorker(): Worker {
+          const blob = new Blob(["self.onmessage=function(){};"], { type: "application/javascript" });
+          return new Worker(URL.createObjectURL(blob));
+        },
+      };
+    }
+  }, []);
   const [fileContent, setFileContent] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [loadingContent, setLoadingContent] = useState(false);
@@ -760,7 +781,7 @@ function FilesTab({ name, status, mountPath }: { name: string; status: string; m
             ) : isImageFile ? (
               <div className="flex h-full items-center justify-center bg-[#0a0a0a] p-4"><img src={`/api/game-hub/servers/${name}/files/content?path=${encodeURIComponent(selectedFile.path)}&download=1`} alt={selectedFile.name} className="max-h-full max-w-full rounded border border-[#2a2a2a] object-contain" /></div>
             ) : (
-              <MonacoEditor height="100%" language={editorLang} value={fileContent ?? ""} onChange={(value) => setFileContent(value ?? "")} theme="vs-dark" options={{ minimap: { enabled: false }, fontSize: 13, lineNumbers: "on", wordWrap: "on", scrollBeyondLastLine: false, padding: { top: 8 } }} />
+              <MonacoEditor height="100%" language={editorLang} value={fileContent ?? ""} onChange={(value) => setFileContent(value ?? "")} theme="vs-dark" loading={<div className="flex items-center justify-center h-full bg-[#1e1e1e]"><Loader2 className="w-5 h-5 animate-spin text-[#555]" /></div>} options={{ minimap: { enabled: false }, fontSize: 13, lineNumbers: "on", wordWrap: "on", scrollBeyondLastLine: false, padding: { top: 8 } }} />
             )}
           </div>
         </>
@@ -1448,7 +1469,7 @@ export default function ServerDetailPage() {
           <ChevronRight className="w-3 h-3 flex-shrink-0" />
           <span className="text-[#9e9e9e] truncate">{name}</span>
         </div>
-        <div className="flex items-center gap-2 py-3">
+        <div className="flex items-center gap-2 py-2 sm:py-3">
           <Link href="/game-hub" className="p-1.5 rounded-lg text-[#555] hover:text-[#9e9e9e] hover:bg-[#1e1e1e] transition-colors flex-shrink-0">
             <ChevronLeft className="w-5 h-5" />
           </Link>
@@ -1462,18 +1483,18 @@ export default function ServerDetailPage() {
               </div>
             </div>
             <p className="text-[10px] text-[#555]">{server?.description || `${server?.gameType?.replace(/-/g, " ") ?? "Game"} Server`}</p>
-            <div className="mt-1 flex flex-wrap gap-1.5 text-[10px]">
+            <div className="mt-1 hidden sm:flex flex-wrap gap-1.5 text-[10px]">
               {server?.imageVersion && <span className="rounded-full border border-[#2a2a2a] bg-[#111] px-2 py-0.5 text-[#9e9e9e]">Version {server.imageVersion}</span>}
               {server && !server.imagePinned && <span className="rounded-full border border-yellow-500/30 bg-yellow-500/10 px-2 py-0.5 text-yellow-200">Using latest tag</span>}
               {(server?.groups ?? []).map((group) => <span key={group} className="rounded-full border border-[#0078D4]/20 bg-[#0078D4]/10 px-2 py-0.5 text-[#7cc2ff]">{group}</span>)}
             </div>
-            {server?.podStartTime && <p className="text-[10px] text-[#4db3ff] mt-0.5">Last restart {timeAgo(server.podStartTime)}</p>}
+            {server?.podStartTime && <p className="hidden sm:block text-[10px] text-[#4db3ff] mt-0.5">Last restart {timeAgo(server.podStartTime)}</p>}
             {status === "stopped" && <p className="text-[10px] text-amber-300 mt-0.5">Server is stopped. Use Start to bring it online.</p>}
           </div>
           {server && (
             <div className="flex items-center gap-1 flex-shrink-0">
               {connectionInfo && (
-                <button onClick={() => { navigator.clipboard.writeText(connectionInfo); toast.success("Connection info copied"); }} title={connectionInfo} className="px-2 py-2 min-h-[38px] bg-[#1a1a1a] hover:bg-[#222] text-[#888] rounded-lg text-xs transition-colors max-w-[140px] truncate">
+                <button onClick={() => { navigator.clipboard.writeText(connectionInfo); toast.success("Connection info copied"); }} title={connectionInfo} className="hidden sm:flex px-2 py-2 min-h-[38px] bg-[#1a1a1a] hover:bg-[#222] text-[#888] rounded-lg text-xs transition-colors max-w-[140px] truncate">
                   {connectionInfo}
                 </button>
               )}
@@ -1490,7 +1511,7 @@ export default function ServerDetailPage() {
                 } catch (error) {
                   toast.error(String(error));
                 }
-              }} className={cn("px-3 py-2 min-h-[38px] rounded-lg text-xs transition-colors border", server.maintenanceMode ? "bg-yellow-500/20 border-yellow-500/30 text-yellow-200" : "bg-[#1a1a1a] border-[#2a2a2a] hover:bg-[#222] text-[#888]")}>Maintenance</button>
+              }} className={cn("hidden sm:flex px-3 py-2 min-h-[38px] rounded-lg text-xs transition-colors border", server.maintenanceMode ? "bg-yellow-500/20 border-yellow-500/30 text-yellow-200" : "bg-[#1a1a1a] border-[#2a2a2a] hover:bg-[#222] text-[#888]")}>Maintenance</button>
               <button onClick={async () => {
                 const newName = prompt("Clone server as", `${name}-copy`);
                 if (!newName) return;
@@ -1501,7 +1522,7 @@ export default function ServerDetailPage() {
                 } catch (error) {
                   toast.error(String(error));
                 }
-              }} className="px-3 py-2 min-h-[38px] bg-[#1a1a1a] hover:bg-[#222] text-[#888] rounded-lg text-xs transition-colors">Clone</button>
+              }} className="hidden sm:flex px-3 py-2 min-h-[38px] bg-[#1a1a1a] hover:bg-[#222] text-[#888] rounded-lg text-xs transition-colors">Clone</button>
               {status === "stopped" ? (
                 <button onClick={() => doAction("start")} disabled={!!actionLoading} className="flex items-center gap-1.5 px-3 py-2 min-h-[38px] bg-green-500/20 hover:bg-green-500/30 text-green-300 border border-green-500/30 rounded-lg text-xs font-medium disabled:opacity-50 touch-manipulation">
                   {actionLoading === "start" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />} Start
@@ -1522,7 +1543,7 @@ export default function ServerDetailPage() {
 
         <div className="flex gap-0 overflow-x-auto scrollbar-none touch-pan-x pb-1">
           {tabs.map(({ id, label, icon: Icon }) => (
-            <button key={id} onClick={() => setActiveTab(id)} className={cn("flex items-center gap-1.5 px-4 py-2.5 text-xs font-medium transition-colors border-b-2 -mb-px whitespace-nowrap flex-shrink-0 touch-manipulation", activeTab === id ? "border-[#0078D4] text-[#0078D4] bg-[#0078D4]/5" : "border-transparent text-[#555] hover:text-[#888]")}>
+            <button key={id} onClick={() => setActiveTab(id)} className={cn("flex items-center gap-1.5 px-3 sm:px-4 py-1.5 sm:py-2.5 text-xs font-medium transition-colors border-b-2 -mb-px whitespace-nowrap flex-shrink-0 touch-manipulation", activeTab === id ? "border-[#0078D4] text-[#0078D4] bg-[#0078D4]/5" : "border-transparent text-[#555] hover:text-[#888]")}>
               <Icon className="w-3.5 h-3.5" />
               {label}
             </button>

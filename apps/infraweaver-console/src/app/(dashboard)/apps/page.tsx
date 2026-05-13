@@ -237,6 +237,7 @@ function AllInstalledTab() {
   const [search, setSearch] = useState("");
   const [syncingApp, setSyncingApp] = useState<string | null>(null);
   const [deletingApp, setDeletingApp] = useState<string | null>(null);
+  const [uninstallingApp, setUninstallingApp] = useState<string | null>(null);
   const [optimisticSyncing, setOptimisticSyncing] = useState<Set<string>>(new Set());
   const [updatePolicyApp, setUpdatePolicyApp] = useState<{ name: string; slug: string } | null>(null);
 
@@ -264,10 +265,10 @@ function AllInstalledTab() {
 
     const community = communityApps.map(app => ({
       id: `community-${app.slug}`,
-      name: app.name,
+      name: app.slug,
       namespace: app.namespace,
-      health: "unknown" as AppHealthStatus,
-      syncStatus: "unknown" as AppHealthStatus,
+      health: "progressing" as AppHealthStatus,
+      syncStatus: "progressing" as AppHealthStatus,
       source: "Community" as const,
       lastSync: app.installedAt,
       sourceType: "Community" as const,
@@ -310,6 +311,22 @@ function AllInstalledTab() {
       toast.error(`Failed to delete ${name}`);
     } finally {
       setDeletingApp(null);
+    }
+  };
+
+  const handleUninstallCommunity = async (slug: string) => {
+    if (!confirm(`Uninstall "${slug}"?\n\nThis removes the app from git. ArgoCD will clean up deployed resources within a few minutes.`)) return;
+    setUninstallingApp(slug);
+    try {
+      const res = await fetch(`/api/community-apps/${encodeURIComponent(slug)}`, { method: "DELETE" });
+      const data = (await res.json()) as { message?: string; error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Uninstall failed");
+      toast.success(data.message ?? `${slug} scheduled for removal`);
+      setCommunityApps(prev => prev.filter(a => a.slug !== slug));
+    } catch (e) {
+      toast.error(String(e));
+    } finally {
+      setUninstallingApp(null);
     }
   };
 
@@ -446,6 +463,16 @@ function AllInstalledTab() {
                             Delete
                           </button>
                         </>
+                      )}
+                      {row.source === "Community" && (
+                        <button
+                          onClick={() => void handleUninstallCommunity(row.name)}
+                          disabled={uninstallingApp === row.name}
+                          className="flex items-center gap-1 px-2 py-1 rounded text-xs border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                        >
+                          {uninstallingApp === row.name ? <Loader2 className="w-3 h-3 animate-spin" /> : <X className="w-3 h-3" />}
+                          Uninstall
+                        </button>
                       )}
                     </div>
                   </td>
