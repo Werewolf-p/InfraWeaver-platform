@@ -126,7 +126,7 @@ jobs:
             echo "blueprints=false" >> $GITHUB_OUTPUT
           fi
 
-          if echo "$CHANGED" | grep -qE "^\.github/scripts/seed-openbao-authentik\.sh$|^kubernetes/platform/authentik/values\.yaml$|^kubernetes/platform/authentik/manifests/externalsecret\.yaml$"; then
+          if echo "$CHANGED" | grep -qE "^\.github/scripts/seed-openbao-authentik\.sh$|^kubernetes/platform/authentik/manifests/externalsecret\.yaml$"; then
             echo "openbao_seed=true"  >> $GITHUB_OUTPUT
           else
             echo "openbao_seed=false" >> $GITHUB_OUTPUT
@@ -296,24 +296,59 @@ jobs:
           ENV_NAME="${{ env.ENV_NAME }}" \
             bash scripts/deploy/seed-user-secrets.sh
       - name: Wait for Authentik worker
+        if: needs.detect.outputs.user_config == 'true'
         run: |
           KB=~/.kube/config-platform-${{ env.ENV_NAME }}
           KT="kubectl --kubeconfig $KB --insecure-skip-tls-verify"
+          # Wait for at least 1 ready replica AND full rollout stability
           for i in $(seq 1 60); do
             READY=$($KT get deployment/authentik-worker -n authentik -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
-            if [ "${READY:-0}" -ge 1 ]; then echo "Authentik worker ready"; break; fi
-            echo "  [${i}/60] Waiting for authentik-worker (ready=${READY:-0})..."
+            DESIRED=$($KT get deployment/authentik-worker -n authentik -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "1")
+            UPDATED=$($KT get deployment/authentik-worker -n authentik -o jsonpath='{.status.updatedReplicas}' 2>/dev/null || echo "0")
+            if [ "${READY:-0}" -ge 1 ] && [ "${UPDATED:-0}" -ge "${DESIRED:-1}" ]; then
+              echo "Authentik worker ready and stable (ready=${READY}, updated=${UPDATED}/${DESIRED})"
+              break
+            fi
+            echo "  [${i}/60] Waiting for authentik-worker stable (ready=${READY:-0}, updated=${UPDATED:-0}/${DESIRED:-1})..."
             sleep 5
           done
 
       - name: Sync group memberships from users.yaml
+        if: needs.detect.outputs.user_config == 'true'
         run: |
           KB=~/.kube/config-platform-${{ env.ENV_NAME }}
           KT="kubectl --kubeconfig $KB --insecure-skip-tls-verify"
 
-          python3 .github/scripts/sync-authentik-users.py > /tmp/ak-group-sync.py
-          # Use deploy/ target — avoids stale pod name issues on rolling updates
-          cat /tmp/ak-group-sync.py | $KT exec -i -n authentik deploy/authentik-worker -c worker -- ak shell
+          # Prefer REST API when Authentik is already running — avoids kubectl exec
+          # during rolling restarts and is more reliable for incremental syncs.
+          AK_TOKEN=$($KT get secret -n authentik authentik-secrets \
+            -o jsonpath='{.data.bootstrap-token}' 2>/dev/null | base64 -d || echo "")
+          AK_URL="https://auth.rlservers.com"
+
+          if [ -n "$AK_TOKEN" ]; then
+            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+              -H "Authorization: Bearer $AK_TOKEN" \
+              "${AK_URL}/api/v3/core/users/?page_size=1" 2>/dev/null || echo "0")
+          else
+            HTTP_STATUS="0"
+          fi
+
+          if [ "$HTTP_STATUS" = "200" ]; then
+            echo "==> Authentik API reachable (HTTP $HTTP_STATUS) — using REST API for group sync"
+            AK_TOKEN="$AK_TOKEN" AK_URL="$AK_URL" python3 .github/scripts/sync-authentik-users-api.py
+          else
+            echo "==> Authentik API not reachable (HTTP $HTTP_STATUS) — falling back to kubectl exec"
+            python3 .github/scripts/sync-authentik-users.py > /tmp/ak-group-sync.py
+            # Retry up to 3 times to handle transient pod restarts
+            for attempt in 1 2 3; do
+              if cat /tmp/ak-group-sync.py | $KT exec -i -n authentik deploy/authentik-worker -c worker -- ak shell; then
+                echo "✅ kubectl exec sync succeeded on attempt $attempt"
+                break
+              fi
+              echo "⚠️  Attempt $attempt failed — waiting 15s before retry"
+              sleep 15
+            done
+          fi
           echo "✅ Group memberships synced from users.yaml" >> $GITHUB_STEP_SUMMARY
 
       - name: Force-create new users and set passwords from K8s secret

@@ -205,17 +205,22 @@ function SwipeableAppCard({
             <Link href={`/apps/${encodeURIComponent(row.name)}`} className="block truncate text-sm font-medium text-[#f2f2f2] transition hover:text-[#7cb9ff]">{row.name}</Link>
             <p className="text-xs text-[#9e9e9e] font-mono truncate mt-0.5">{row.namespace}</p>
             {row.ingressHost && (
-              <a
-                href={`https://${row.ingressHost}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                title={row.ingressHost.includes(".int.") ? "Requires NetBird VPN" : "Public URL"}
-                className="flex items-center gap-1 text-xs text-[#555] hover:text-[#7cb9ff] transition-colors mt-1"
-                onClick={e => e.stopPropagation()}
-              >
-                <ExternalLink className="w-3 h-3 flex-shrink-0" />
-                <span className="truncate">{row.ingressHost}</span>
-              </a>
+              <div className="flex items-center gap-1.5 mt-1">
+                <a
+                  href={`https://${row.ingressHost}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={row.ingressHost.includes(".int.") ? `${row.ingressHost} — requires NetBird VPN` : row.ingressHost}
+                  className="flex items-center gap-1 text-xs text-[#4a9eff] hover:text-[#7cb9ff] transition-colors"
+                  onClick={e => e.stopPropagation()}
+                >
+                  <ExternalLink className="w-3 h-3 flex-shrink-0" />
+                  <span className="truncate font-mono">{row.ingressHost}</span>
+                </a>
+                {row.ingressHost.includes(".int.") && (
+                  <span className="text-[10px] px-1 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/20 font-medium shrink-0">VPN</span>
+                )}
+              </div>
             )}
           </div>
           <StatusBadge status={isOptimisticSyncing ? "syncing" : row.health} />
@@ -279,6 +284,9 @@ function AllInstalledTab() {
   const [uninstallingApp, setUninstallingApp] = useState<string | null>(null);
   const [optimisticSyncing, setOptimisticSyncing] = useState<Set<string>>(new Set());
   const [updatePolicyApp, setUpdatePolicyApp] = useState<{ name: string; slug: string } | null>(null);
+  // Track recently uninstalled ArgoCD app names so they don't re-appear in catalog rows
+  // while ArgoCD is still pruning them from the cluster.
+  const [recentlyUninstalled, setRecentlyUninstalled] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -296,6 +304,8 @@ function AllInstalledTab() {
 
     const argo = (argoApps ?? [])
       .filter(app => !communityArgoNames.has(app.metadata?.name ?? ""))
+      // Hide recently-uninstalled community apps that ArgoCD hasn't pruned yet
+      .filter(app => !recentlyUninstalled.has(app.metadata?.name ?? ""))
       .map(app => ({
         id: app.metadata?.name ?? "",
         name: app.metadata?.name ?? "",
@@ -328,7 +338,7 @@ function AllInstalledTab() {
     });
 
     return [...argo, ...community];
-  }, [argoApps, communityApps]);
+  }, [argoApps, communityApps, recentlyUninstalled]);
 
   const filtered = useMemo(() => {
     if (!search.trim()) return allRows;
@@ -384,10 +394,13 @@ function AllInstalledTab() {
     setUninstallingApp(slug);
     try {
       const res = await fetch(`/api/community-apps/${encodeURIComponent(slug)}`, { method: "DELETE" });
-      const data = (await res.json()) as { message?: string; error?: string };
+      const data = (await res.json()) as { message?: string; error?: string; details?: string[] };
       if (!res.ok) throw new Error(data.error ?? "Uninstall failed");
       toast.success(data.message ?? `${slug} scheduled for removal`);
+      // Remove from community list immediately
       setCommunityApps(prev => prev.filter(a => a.slug !== slug));
+      // Also hide the ArgoCD Application row while ArgoCD prunes it (~3-5 min)
+      setRecentlyUninstalled(prev => new Set([...prev, `catalog-${slug}-manifests`]));
     } catch (e) {
       toast.error(String(e));
     } finally {
@@ -494,8 +507,8 @@ function AllInstalledTab() {
                           href={`https://${row.ingressHost}`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          title={`Open ${row.ingressHost} (requires NetBird VPN for .int. URLs)`}
-                          className="text-[#444] hover:text-[#7cb9ff] transition-colors"
+                          title={row.ingressHost.includes(".int.") ? `${row.ingressHost} — requires NetBird VPN` : row.ingressHost}
+                          className="text-[#4a9eff] hover:text-[#7cb9ff] transition-colors"
                           onClick={e => e.stopPropagation()}
                         >
                           <ExternalLink className="w-3 h-3" />
@@ -503,7 +516,12 @@ function AllInstalledTab() {
                       )}
                     </div>
                     {row.ingressHost && (
-                      <p className="text-xs text-[#555] font-mono mt-0.5 truncate max-w-[240px]">{row.ingressHost}</p>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <p className="text-xs text-[#4a9eff] font-mono truncate max-w-[200px]">{row.ingressHost}</p>
+                        {row.ingressHost.includes(".int.") && (
+                          <span className="text-[10px] px-1 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/20 font-medium shrink-0">VPN</span>
+                        )}
+                      </div>
                     )}
                   </td>
                   {!simpleMode && <td className="py-2.5 px-3 font-mono text-xs text-[#9e9e9e]">{row.namespace}</td>}
