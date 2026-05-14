@@ -91,18 +91,6 @@ data:
           - type: discord
             description: "NetBird VPN management API unreachable"
 
-      - name: Homepage Dashboard
-        url: https://home.int.rlservers.com
-        interval: 120s
-        group: platform
-        client:
-          insecure: true
-        conditions:
-          - "[STATUS] == 200"
-        alerts:
-          - type: discord
-            description: "Homepage dashboard is unreachable"
-
       - name: Grafana
         url: https://grafana.int.rlservers.com/api/health
         interval: 60s
@@ -134,18 +122,6 @@ data:
         alerts:
           - type: discord
             description: "Loki is unreachable — log aggregation stopped"
-
-      - name: Wiki.js
-        url: https://wiki.int.rlservers.com
-        interval: 120s
-        group: catalog
-        client:
-          insecure: true
-        conditions:
-          - "[STATUS] == 200"
-        alerts:
-          - type: discord
-            description: "Wiki.js is unreachable"
 
       - name: Stirling PDF
         url: https://stirling-pdf.int.rlservers.com
