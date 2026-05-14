@@ -10,7 +10,7 @@ import {
   Terminal, Download, RefreshCw, LayoutGrid, Layers, Settings2,
 } from "lucide-react";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
+import { cn, timeAgo } from "@/lib/utils";
 import dynamic from "next/dynamic";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
@@ -127,6 +127,38 @@ interface AppRow {
   lastSync: string;
   sourceType: "Helm" | "Git" | "Community";
   ingressHost?: string;
+  urls?: string[];
+}
+
+type AppHealthFilter = "all" | "healthy" | "degraded" | "syncing" | "unknown";
+type AppSortOption = "name-asc" | "name-desc" | "last-synced" | "health";
+
+const APP_HEALTH_FILTERS: Array<{ value: AppHealthFilter; label: string }> = [
+  { value: "all", label: "All" },
+  { value: "healthy", label: "Healthy" },
+  { value: "degraded", label: "Degraded" },
+  { value: "syncing", label: "Syncing" },
+  { value: "unknown", label: "Unknown" },
+];
+
+function healthBucket(status: AppHealthStatus): AppHealthFilter {
+  if (status === "healthy" || status === "synced") return "healthy";
+  if (status === "degraded" || status === "outOfSync") return "degraded";
+  if (status === "syncing" || status === "progressing") return "syncing";
+  return "unknown";
+}
+
+function healthSortValue(status: AppHealthStatus): number {
+  const bucket = healthBucket(status);
+  return bucket === "degraded" ? 0 : bucket === "syncing" ? 1 : bucket === "unknown" ? 2 : 3;
+}
+
+function primaryAppUrl(row: AppRow): string | null {
+  return row.urls?.[0] ?? (row.ingressHost ? `https://${row.ingressHost}` : null);
+}
+
+function argocdAppUrl(row: AppRow): string {
+  return `https://argocd.int.rlservers.com/applications/${encodeURIComponent(row.namespace)}/${encodeURIComponent(row.name)}`;
 }
 
 function SwipeableAppCard({
@@ -156,6 +188,8 @@ function SwipeableAppCard({
 }) {
   const x = useMotionValue(0);
   const isCatalog = row.source === "Catalog";
+  const quickUrl = primaryAppUrl(row);
+  const argocdUrl = argocdAppUrl(row);
 
   const syncOpacity = useTransform(x, [0, 80], [0, 1]);
   const deleteOpacity = useTransform(x, [-80, 0], [1, 0]);
@@ -224,7 +258,41 @@ function SwipeableAppCard({
               </div>
             )}
           </div>
-          <StatusBadge status={isOptimisticSyncing ? "syncing" : row.health} />
+          <div className="flex items-center gap-2">
+            {quickUrl && (
+              <a
+                href={quickUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Open app URL"
+                onClick={(event) => event.stopPropagation()}
+                className="inline-flex min-h-[36px] min-w-[36px] items-center justify-center rounded-lg border border-white/10 bg-white/5 text-slate-400 transition hover:text-white"
+              >
+                <Globe className="h-3.5 w-3.5" />
+              </a>
+            )}
+            <a
+              href={argocdUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Open in ArgoCD"
+              onClick={(event) => event.stopPropagation()}
+              className="inline-flex min-h-[36px] min-w-[36px] items-center justify-center rounded-lg border border-white/10 bg-white/5 text-slate-400 transition hover:text-white"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+            </a>
+            {isCatalog && canSync && (
+              <button
+                onClick={() => void onSync(row.name)}
+                disabled={syncingApp === row.name}
+                title="Force sync"
+                className="inline-flex min-h-[36px] min-w-[36px] items-center justify-center rounded-lg border border-indigo-500/30 bg-indigo-500/10 text-indigo-300 transition hover:bg-indigo-500/20 disabled:opacity-50"
+              >
+                {syncingApp === row.name ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+              </button>
+            )}
+            <StatusBadge status={isOptimisticSyncing ? "syncing" : row.health} />
+          </div>
         </div>
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <StatusBadge status={row.syncStatus} />
@@ -236,6 +304,9 @@ function SwipeableAppCard({
           )}>
             {row.source}
           </span>
+          <span className="text-[11px] text-slate-500" title={row.lastSync ? new Date(row.lastSync).toLocaleString() : "Never synced"}>
+            {row.lastSync ? timeAgo(row.lastSync) : "Never synced"}
+          </span>
         </div>
         {isCatalog && (
           <div className="flex gap-2">
@@ -245,7 +316,7 @@ function SwipeableAppCard({
               className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs border border-[#333] text-[#9e9e9e] hover:text-white hover:border-[#555] transition-colors min-h-[44px] disabled:opacity-50"
             >
               {syncingApp === row.name ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-              Sync
+              Force Sync
             </button>
             <button
               onClick={() => void onDelete(row.name)}
@@ -280,6 +351,8 @@ function AllInstalledTab() {
   const [communityApps, setCommunityApps] = useState<InstalledCommunityApp[]>([]);
   const [communityLoading, setCommunityLoading] = useState(false);
   const [search, setSearch] = useState("");
+  const [healthFilter, setHealthFilter] = useState<AppHealthFilter>("all");
+  const [sortOption, setSortOption] = useState<AppSortOption>("name-asc");
   const [syncingApp, setSyncingApp] = useState<string | null>(null);
   const [deletingApp, setDeletingApp] = useState<string | null>(null);
   const [uninstallingApp, setUninstallingApp] = useState<string | null>(null);
@@ -324,6 +397,7 @@ function AllInstalledTab() {
         lastSync: app.status?.reconciledAt ?? "",
         sourceType: (app.spec?.source?.repoURL?.includes("charts") ? "Helm" : "Git") as "Helm" | "Git",
         ingressHost: undefined as string | undefined,
+        urls: app.status?.summary?.externalURLs ?? [],
       }));
 
     const community = communityApps.map(app => {
@@ -342,6 +416,7 @@ function AllInstalledTab() {
         lastSync: argoApp?.status?.reconciledAt ?? app.installedAt,
         sourceType: "Community" as const,
         ingressHost: app.ingressHost,
+        urls: argoApp?.status?.summary?.externalURLs ?? (app.ingressHost ? [`https://${app.ingressHost}`] : []),
       };
     });
 
@@ -349,10 +424,23 @@ function AllInstalledTab() {
   }, [argoApps, communityApps, recentlyUninstalled]);
 
   const filtered = useMemo(() => {
-    if (!search.trim()) return allRows;
-    const q = search.toLowerCase();
-    return allRows.filter(r => r.name.toLowerCase().includes(q) || r.namespace.toLowerCase().includes(q));
-  }, [allRows, search]);
+    const q = search.trim().toLowerCase();
+    return [...allRows]
+      .filter((row) => {
+        const matchesSearch = !q || row.name.toLowerCase().includes(q) || row.namespace.toLowerCase().includes(q);
+        const matchesHealth = healthFilter === "all" || healthBucket(row.health) === healthFilter;
+        return matchesSearch && matchesHealth;
+      })
+      .sort((a, b) => {
+        if (sortOption === "name-desc") return b.name.localeCompare(a.name);
+        if (sortOption === "last-synced") return new Date(b.lastSync || 0).getTime() - new Date(a.lastSync || 0).getTime();
+        if (sortOption === "health") {
+          const diff = healthSortValue(a.health) - healthSortValue(b.health);
+          return diff !== 0 ? diff : a.name.localeCompare(b.name);
+        }
+        return a.name.localeCompare(b.name);
+      });
+  }, [allRows, healthFilter, search, sortOption]);
 
   const handleSync = async (name: string) => {
     if (!canSyncApps) {
@@ -446,38 +534,75 @@ function AllInstalledTab() {
 
   const loading = argoLoading || communityLoading;
   const { simpleMode, toggle } = useSimpleMode();
+  const hasActiveFilters = Boolean(search.trim()) || healthFilter !== "all";
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="relative w-full sm:flex-1 sm:max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#555]" />
-          <input
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Search apps…"
-            className="w-full bg-[#0f0f0f] border border-[#333] rounded-lg pl-9 pr-3 py-2 text-sm text-[#f2f2f2] placeholder:text-[#555] focus:outline-none focus:border-[#0078D4]/50"
-          />
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative w-full sm:flex-1 sm:max-w-sm">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#555]" />
+            <input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search apps…"
+              className="w-full bg-[#0f0f0f] border border-[#333] rounded-lg pl-9 pr-3 py-2 text-sm text-[#f2f2f2] placeholder:text-[#555] focus:outline-none focus:border-[#0078D4]/50"
+            />
+          </div>
+          <select
+            value={sortOption}
+            onChange={(event) => setSortOption(event.target.value as AppSortOption)}
+            className="min-h-[40px] rounded-lg border border-[#333] bg-[#0f0f0f] px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]/50"
+          >
+            <option value="name-asc">Name A-Z</option>
+            <option value="name-desc">Name Z-A</option>
+            <option value="last-synced">Last Synced</option>
+            <option value="health">Health Status</option>
+          </select>
+          <button
+            onClick={toggle}
+            className={cn(
+              "flex min-h-[40px] items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium transition-colors",
+              simpleMode
+                ? "border-indigo-500/30 bg-indigo-500/10 text-indigo-400"
+                : "border-[#333] text-[#666] hover:text-[#9e9e9e]"
+            )}
+          >
+            {simpleMode ? "Simple" : "Advanced"}
+          </button>
+          <button
+            onClick={() => void refetch()}
+            className="flex min-h-[40px] items-center gap-2 rounded-lg border border-[#333] px-3 py-2 text-sm text-[#9e9e9e] transition-colors hover:border-[#555] hover:text-white"
+          >
+            <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
+            <span className="hidden sm:inline">Refresh</span>
+          </button>
+          <span className="w-full text-xs text-[#666] sm:w-auto sm:text-sm">{filtered.length} of {allRows.length} apps</span>
         </div>
-        <button
-          onClick={toggle}
-          className={cn(
-            "flex min-h-[40px] items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium transition-colors",
-            simpleMode
-              ? "border-indigo-500/30 bg-indigo-500/10 text-indigo-400"
-              : "border-[#333] text-[#666] hover:text-[#9e9e9e]"
+        <div className="flex flex-wrap gap-2">
+          {APP_HEALTH_FILTERS.map((option) => (
+            <button
+              key={option.value}
+              onClick={() => setHealthFilter(option.value)}
+              className={cn(
+                "min-h-[40px] rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+                healthFilter === option.value
+                  ? "border-indigo-500/30 bg-indigo-500/15 text-indigo-300"
+                  : "border-white/10 bg-white/5 text-slate-400 hover:text-white"
+              )}
+            >
+              {option.label}
+            </button>
+          ))}
+          {hasActiveFilters && (
+            <button
+              onClick={() => { setSearch(""); setHealthFilter("all"); }}
+              className="min-h-[40px] rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-400 transition-colors hover:text-white"
+            >
+              Clear filter
+            </button>
           )}
-        >
-          {simpleMode ? "Simple" : "Advanced"}
-        </button>
-        <button
-          onClick={() => void refetch()}
-          className="flex min-h-[40px] items-center gap-2 rounded-lg border border-[#333] px-3 py-2 text-sm text-[#9e9e9e] transition-colors hover:border-[#555] hover:text-white"
-        >
-          <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
-          <span className="hidden sm:inline">Refresh</span>
-        </button>
-        <span className="w-full text-xs text-[#666] sm:w-auto sm:text-sm">{allRows.length} apps</span>
+        </div>
       </div>
 
       {loading && filtered.length === 0 && (
@@ -509,10 +634,17 @@ function AllInstalledTab() {
       )}
 
       {!loading && filtered.length === 0 && (
-        <div className="text-center py-16 text-[#555]">
-          <Layers className="w-12 h-12 mx-auto mb-3 opacity-30" />
-          <p className="text-sm">No applications found</p>
-        </div>
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="rounded-xl border border-white/10 bg-white/5 px-6 py-16 text-center text-[#555]">
+          <Layers className="mx-auto mb-3 h-12 w-12 opacity-30" />
+          <p className="text-sm text-white/80">No apps match this filter</p>
+          <p className="mt-1 text-xs text-slate-500">Try another health status or clear your search.</p>
+          <button
+            onClick={() => { setSearch(""); setHealthFilter("all"); }}
+            className="mx-auto mt-4 inline-flex min-h-[40px] items-center justify-center rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-300 transition hover:text-white"
+          >
+            Clear filter
+          </button>
+        </motion.div>
       )}
 
       {/* Desktop table */}
@@ -538,18 +670,28 @@ function AllInstalledTab() {
                       <Link href={`/apps/${encodeURIComponent(row.name)}`} className="transition hover:text-[#7cb9ff]">
                         {row.name}
                       </Link>
-                      {row.ingressHost && (
+                      {primaryAppUrl(row) && (
                         <a
-                          href={`https://${row.ingressHost}`}
+                          href={primaryAppUrl(row) ?? undefined}
                           target="_blank"
                           rel="noopener noreferrer"
-                          title={row.ingressHost.includes(".int.") ? `${row.ingressHost} — requires NetBird VPN` : row.ingressHost}
+                          title="Open app URL"
                           className="text-[#4a9eff] hover:text-[#7cb9ff] transition-colors"
                           onClick={e => e.stopPropagation()}
                         >
-                          <ExternalLink className="w-3 h-3" />
+                          <Globe className="w-3 h-3" />
                         </a>
                       )}
+                      <a
+                        href={argocdAppUrl(row)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="Open in ArgoCD"
+                        className="text-slate-500 hover:text-white transition-colors"
+                        onClick={e => e.stopPropagation()}
+                      >
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
                     </div>
                     {row.ingressHost && (
                       <div className="flex items-center gap-1.5 mt-0.5">
@@ -573,9 +715,33 @@ function AllInstalledTab() {
                       {row.source}
                     </span>
                   </td>
-                  {!simpleMode && <td className="py-2.5 px-3 text-xs text-[#666]">{row.lastSync ? new Date(row.lastSync).toLocaleString() : "—"}</td>}
+                  {!simpleMode && (
+                    <td className="py-2.5 px-3 text-xs text-[#666]" title={row.lastSync ? new Date(row.lastSync).toLocaleString() : "Never synced"}>
+                      {row.lastSync ? timeAgo(row.lastSync) : "—"}
+                    </td>
+                  )}
                   <td className="py-2.5 px-3 text-right">
                     <div className="flex items-center justify-end gap-2">
+                      {primaryAppUrl(row) && (
+                        <a
+                          href={primaryAppUrl(row) ?? undefined}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title="Open app URL"
+                          className="inline-flex items-center gap-1 rounded border border-[#2a2a2a] px-2 py-1 text-xs text-[#666] transition-colors hover:text-white"
+                        >
+                          <Globe className="w-3 h-3" />
+                        </a>
+                      )}
+                      <a
+                        href={argocdAppUrl(row)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="Open in ArgoCD"
+                        className="inline-flex items-center gap-1 rounded border border-[#2a2a2a] px-2 py-1 text-xs text-[#666] transition-colors hover:text-white"
+                      >
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
                       {row.source === "Catalog" && (
                         <>
                           <PolicyBadge slug={row.name} />
@@ -593,7 +759,7 @@ function AllInstalledTab() {
                             className="flex items-center gap-1 px-2 py-1 rounded text-xs border border-[#333] text-[#9e9e9e] hover:text-white hover:border-[#555] transition-colors disabled:opacity-50"
                           >
                             {syncingApp === row.name ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
-                            Sync
+                            Force Sync
                           </button>
                           <button
                             onClick={() => void handleDelete(row.name)}
