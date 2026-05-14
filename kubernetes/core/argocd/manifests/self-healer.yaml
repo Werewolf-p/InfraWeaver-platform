@@ -1,20 +1,7 @@
 ---
 # Self-Healer — automatic ArgoCD OutOfSync recovery
-#
-# Runs every 5 minutes and finds apps that are:
-#   Health=Healthy  + Sync=OutOfSync  (safe to re-sync, workloads are fine)
-#   Health=Unknown  + Sync=OutOfSync  (stale refresh — trigger hard-refresh)
-#
-# Strategy: patch argocd.argoproj.io/refresh=hard annotation first, then
-# wait 15 s for ArgoCD to re-compute the diff. If the app is still OutOfSync
-# AFTER the refresh, trigger a sync operation. This avoids syncing apps whose
-# "OutOfSync" was a stale cache entry that resolves on refresh alone.
-#
-# Apps that are Degraded, Progressing or have a running Operation are skipped —
-# they need human review, not an automated sync.
-#
-# RBAC: ServiceAccount + ClusterRole limited to argoproj.io/applications
-# (get, list, patch). No cluster-admin, no secrets access.
+# Runs every 5 minutes. Features: time-based grace periods, maintenance mode,
+# notification deduplication, wildcard skip patterns, degraded-app alerting.
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -30,6 +17,9 @@ rules:
   - apiGroups: ["argoproj.io"]
     resources: ["applications"]
     verbs: ["get", "list", "patch"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "create", "update", "patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -44,64 +34,6 @@ subjects:
     name: argocd-self-healer
     namespace: argocd
 ---
-# Namespace-scoped Role for reading/writing self-healer state ConfigMaps.
-# Intentionally separate from the ClusterRole (which only needs application CRD access).
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: argocd-self-healer-state
-  namespace: argocd
-rules:
-  - apiGroups: [""]
-    resources: ["configmaps"]
-    resourceNames: ["self-healer-state", "self-healer-config"]
-    verbs: ["get", "create", "patch"]
-  # Allow create on any configmap name (needed for initial creation via kubectl create)
-  - apiGroups: [""]
-    resources: ["configmaps"]
-    verbs: ["create"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: argocd-self-healer-state
-  namespace: argocd
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: argocd-self-healer-state
-subjects:
-  - kind: ServiceAccount
-    name: argocd-self-healer
-    namespace: argocd
----
-# State ConfigMap — written by the healer at runtime.
-# Keys:
-#   degraded-<appname>   unix epoch of first observation as Degraded
-#   last-degraded-apps   comma-separated sorted list from the last sent alert
-#   alerted-apps         comma-separated sorted list currently acknowledged in Discord
-#   last-alert-time      RFC3339 timestamp of the last sent Degraded alert
-#   last-sync-apps       comma-separated sorted list of apps synced in last notification
-#   last-sync-time       RFC3339 timestamp of the last sent sync notification
-# Config ConfigMap — human-editable operational controls.
-# Set maintenance-until to an RFC3339 timestamp (preferred) or unix epoch to
-# suppress Degraded alerts during planned maintenance. Leave empty ("") or
-# remove the key to disable.
-# Create once: kubectl create configmap self-healer-config -n argocd \
-#   --from-literal=maintenance-until="2024-01-01T00:00:00Z"
-# Update: kubectl patch cm self-healer-config -n argocd \
-#   --type=merge -p '{"data":{"maintenance-until":"2024-01-01T00:00:00Z"}}'
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: self-healer-config
-  namespace: argocd
-  labels:
-    app.kubernetes.io/name: argocd-self-healer
-    app.kubernetes.io/component: config
-data:
-  maintenance-until: ""
----
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -114,8 +46,6 @@ spec:
   schedule: "*/5 * * * *"
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 2
-  # Keep 0 failed jobs — ArgoCD marks a CronJob Degraded when failed job pods exist in history.
-  # Setting to 0 prevents the self-healer from causing core-argocd-manifests to appear Degraded.
   failedJobsHistoryLimit: 0
   jobTemplate:
     spec:
@@ -134,8 +64,6 @@ spec:
               type: RuntimeDefault
           containers:
             - name: healer
-              # bitnami/kubectl — has bash + kubectl, works with in-cluster SA token
-              # bitnami/kubectl only publishes 'latest' on Docker Hub (no minor-version tags).
               image: bitnami/kubectl:latest
               securityContext:
                 allowPrivilegeEscalation: false
@@ -147,7 +75,7 @@ spec:
                     secretKeyRef:
                       name: argocd-discord-secret
                       key: webhook-url
-                      optional: true   # don't fail if secret not yet created
+                      optional: true
               resources:
                 requests:
                   cpu: 50m
@@ -159,13 +87,13 @@ spec:
               args:
                 - |
                   set -euo pipefail
-
+                  
                   NAMESPACE="argocd"
                   DISCORD_WEBHOOK="${DISCORD_WEBHOOK_URL:-}"
                   NOW_EPOCH=$(date -u +%s)
                   STATE_CM="self-healer-state"
                   CONFIG_CM="self-healer-config"
-
+                  
                   # ── Alert thresholds ──────────────────────────────────────
                   # Skip apps degraded < 15m (very transient: hook runs, init containers, etc.)
                   FAST_SKIP_SECONDS=900
@@ -174,16 +102,16 @@ spec:
                   ES_SKIP_SECONDS=600
                   # Only alert when degradation has persisted > 60m (12 full healer cycles)
                   ALERT_THRESHOLD_SECONDS=3600
-
+                  
                   echo "[self-healer] $(date -u) — scanning ArgoCD apps in namespace: $NAMESPACE"
-
+                  
                   # ── Static alert exclusions ──────────────────────────────
                   # bootstrap:              app-of-apps — inherits worst-child health
                   # core-argocd-manifests:  self-referential (manages this CronJob)
                   # core-external-secrets-manifests: health depends on OpenBao uptime
                   # catalog-game-hub-*: game servers can be intentionally stopped (replicas=0)
                   # catalog-infraweaver-console-manifests: rolling redeploys during active dev
-                  SKIP_ALERT_APPS="bootstrap core-argocd-manifests core-external-secrets-manifests catalog-infraweaver-console-manifests"
+                  SKIP_ALERT_APPS="bootstrap core-argocd-manifests core-external-secrets-manifests catalog-infraweaver-console-manifests core-priority-classes"
                   # Wildcard pattern skip — any app whose name matches these globs is silenced
                   SKIP_ALERT_PATTERNS="catalog-game-hub-* catalog-community-*"
                   is_skip_alert() {
@@ -199,7 +127,7 @@ spec:
                   is_es_app() {
                     case "$1" in *external-secret* | *externalsecret*) return 0 ;; esac; return 1
                   }
-
+                  
                   # ── Maintenance mode check ───────────────────────────────
                   IN_MAINTENANCE=false
                   MAINT_UNTIL_RAW=$(kubectl get configmap "$CONFIG_CM" -n "$NAMESPACE" \
@@ -216,13 +144,13 @@ spec:
                     echo "[self-healer] MAINTENANCE MODE until $(date -u -d "@$MAINT_UNTIL_EPOCH" 2>/dev/null || echo "$MAINT_UNTIL_RAW")"
                     IN_MAINTENANCE=true
                   fi
-
+                  
                   # ── Load state ConfigMap (single read) ───────────────────
                   # Ensure CM exists; create if absent (idempotent on repeat)
                   kubectl get configmap "$STATE_CM" -n "$NAMESPACE" --ignore-not-found -o name \
                     | grep -q "configmap/" \
                     || kubectl create configmap "$STATE_CM" -n "$NAMESPACE" >/dev/null 2>&1 || true
-
+                  
                   # Load all state as KEY=VALUE lines (one kubectl call)
                   STATE_DATA=$(kubectl get configmap "$STATE_CM" -n "$NAMESPACE" --ignore-not-found \
                     -o go-template='{{range $k,$v := .data}}{{$k}}={{$v}}{{"\n"}}{{end}}' \
@@ -235,7 +163,7 @@ spec:
                   LAST_SYNC_TIME_RAW=$(echo "$STATE_DATA" | grep '^last-sync-time=' | cut -d= -f2- | head -1 || echo "")
                   # Sync notification cooldown: 30 minutes — avoids spam when same apps cycle repeatedly
                   SYNC_COOLDOWN_SECONDS=1800
-
+                  
                   # Helpers — read/write per-key without re-loading full CM
                   get_first_seen() {
                     echo "$STATE_DATA" | grep "^degraded-${1}=" | cut -d= -f2 | head -1 || echo ""
@@ -249,7 +177,7 @@ spec:
                       --type=json -p "[{\"op\":\"remove\",\"path\":\"/data/${1}\"}]" \
                       >/dev/null 2>&1 || true
                   }
-
+                  
                   # ── Discord helper ───────────────────────────────────────
                   notify_discord() {
                     local title="$1" color="$2" body="$3"
@@ -259,44 +187,44 @@ spec:
                       -d "{\"embeds\":[{\"title\":\"$title\",\"color\":$color,\"description\":\"$body\"}]}" \
                       >/dev/null 2>&1 || true
                   }
-
+                  
                   # ── Collect all apps with annotations ────────────────────
                   APPS=$(kubectl get applications -n "$NAMESPACE" \
                     -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.health.status}{"\t"}{.status.sync.status}{"\t"}{.status.operationState.phase}{"\t"}{.metadata.annotations.infraweaver\.io/transient}{"\t"}{.status.health.message}{"\n"}{end}' \
                     2>/dev/null || true)
-
+                  
                   REFRESHED=0 SYNCED=0 SKIPPED=0
                   SYNCED_APPS="" DEGRADED_ALERT_CANDIDATES="" DEGRADED_REFRESH_LIST=""
-
+                  
                   # ── Pass 1: categorize + hard-refresh ────────────────────
                   while IFS=$'\t' read -r APP HEALTH SYNC OP_PHASE TRANSIENT HEALTH_MESSAGE; do
                     [ -z "$APP" ] && continue
-
+                  
                     # Skip apps with a running sync/delete operation
                     if [ "$OP_PHASE" = "Running" ] || [ "$OP_PHASE" = "Terminating" ]; then
                       echo "  SKIP  $APP — operation in progress"
                       SKIPPED=$((SKIPPED+1)); continue
                     fi
-
+                  
                     # Skip intentionally suspended apps (user-paused)
                     if [ "$HEALTH" = "Suspended" ]; then
                       echo "  SKIP  $APP — Suspended"
                       SKIPPED=$((SKIPPED+1)); continue
                     fi
-
+                  
                     if [ "$HEALTH" = "Degraded" ]; then
                       # Skip Degraded+Progressing — health message still indicates startup/rollout work
                       if echo "${HEALTH_MESSAGE:-}" | grep -qi 'progressing'; then
                         echo "  SKIP  $APP — Degraded+Progressing (still starting up)"
                         SKIPPED=$((SKIPPED+1)); continue
                       fi
-
+                  
                       # Skip apps annotated infraweaver.io/transient=true
                       if [ "${TRANSIENT:-}" = "true" ]; then
                         echo "  SKIP  $APP — infraweaver.io/transient=true"
                         SKIPPED=$((SKIPPED+1)); continue
                       fi
-
+                  
                       # Skip static exclusion list; still hard-refresh if OutOfSync
                       if is_skip_alert "$APP"; then
                         echo "  SKIP-ALERT  $APP — static exclusion (structural/inherited health)"
@@ -308,11 +236,11 @@ spec:
                         fi
                         SKIPPED=$((SKIPPED+1)); continue
                       fi
-
+                  
                       # Determine skip threshold; ES-related apps get a shorter one
                       THRESH=$FAST_SKIP_SECONDS
                       is_es_app "$APP" && THRESH=$ES_SKIP_SECONDS
-
+                  
                       # Get (or record) first-seen timestamp from ConfigMap
                       FIRST_SEEN=$(get_first_seen "$APP")
                       if [ -z "$FIRST_SEEN" ]; then
@@ -324,9 +252,9 @@ spec:
                           >/dev/null 2>&1 || true
                         REFRESHED=$((REFRESHED+1)); SKIPPED=$((SKIPPED+1)); continue
                       fi
-
+                  
                       DEGRADED_SECS=$(( NOW_EPOCH - FIRST_SEEN ))
-
+                  
                       # Fast-skip: very recent degradation (transient)
                       if [ "$DEGRADED_SECS" -lt "$THRESH" ]; then
                         echo "  SKIP  $APP — Degraded ${DEGRADED_SECS}s < ${THRESH}s threshold (transient)"
@@ -335,7 +263,7 @@ spec:
                           >/dev/null 2>&1 || true
                         REFRESHED=$((REFRESHED+1)); SKIPPED=$((SKIPPED+1)); continue
                       fi
-
+                  
                       # Grace period: being watched, not yet alerting
                       if [ "$DEGRADED_SECS" -lt "$ALERT_THRESHOLD_SECONDS" ]; then
                         MINS=$(( DEGRADED_SECS / 60 ))
@@ -346,7 +274,7 @@ spec:
                         DEGRADED_REFRESH_LIST="${DEGRADED_REFRESH_LIST} $APP"
                         REFRESHED=$((REFRESHED+1)); SKIPPED=$((SKIPPED+1)); continue
                       fi
-
+                  
                       # Persistent degradation (>30m) — queue as alert candidate
                       MINS=$(( DEGRADED_SECS / 60 ))
                       echo "  ALERT-CANDIDATE  $APP — Degraded ${MINS}m (exceeds $(( ALERT_THRESHOLD_SECONDS / 60 ))m threshold)"
@@ -357,7 +285,7 @@ spec:
                       DEGRADED_REFRESH_LIST="${DEGRADED_REFRESH_LIST} $APP"
                       REFRESHED=$((REFRESHED+1)); continue
                     fi
-
+                  
                     # Non-Degraded apps: refresh OutOfSync/Unknown (stale cache)
                     if [ "$SYNC" != "OutOfSync" ] && [ "$SYNC" != "Unknown" ]; then continue; fi
                     echo "  REFRESH  $APP [health=$HEALTH sync=$SYNC]"
@@ -366,18 +294,18 @@ spec:
                       >/dev/null 2>&1 || true
                     REFRESHED=$((REFRESHED+1))
                   done < <(echo "$APPS")
-
+                  
                   # Wait for refreshes to propagate
                   if [ "$REFRESHED" -gt 0 ]; then
                     echo "[self-healer] Waiting 20s for $REFRESHED refresh(es) to propagate..."
                     sleep 20
                   fi
-
+                  
                   # ── Pass 2: sync OutOfSync + build final alert list ───────
                   APPS2=$(kubectl get applications -n "$NAMESPACE" \
                     -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.health.status}{"\t"}{.status.sync.status}{"\t"}{.status.operationState.phase}{"\n"}{end}' \
                     2>/dev/null || true)
-
+                  
                   while IFS=$'\t' read -r APP HEALTH SYNC OP_PHASE; do
                     [ -z "$APP" ] && continue
                     [ "$OP_PHASE" = "Running" ] && continue
@@ -389,7 +317,7 @@ spec:
                     SYNCED_APPS="${SYNCED_APPS}• \`${APP}\`\n"
                     SYNCED=$((SYNCED+1))
                   done < <(echo "$APPS2")
-
+                  
                   # Build final alert list — only apps still Degraded after hard-refresh
                   # and confirmed to have been degraded > ALERT_THRESHOLD_SECONDS
                   DEGRADED_ALERT_APPS=""
@@ -410,7 +338,7 @@ spec:
                     fi
                   done
                   ALERT_APP_CSV=$(echo "${ALERT_APP_LIST%,}" | tr ',' '\n' | sort | tr '\n' ',' | sed 's/,$//')
-
+                  
                   # ── Clean up state for recovered apps ─────────────────────
                   while IFS=$'\t' read -r APP HEALTH SYNC OP_PHASE TRANSIENT HEALTH_MESSAGE; do
                     [ -z "$APP" ] && continue
@@ -426,14 +354,14 @@ spec:
                       fi
                     fi
                   done < <(echo "$APPS")
-
+                  
                   echo "[self-healer] Done. refreshed=$REFRESHED synced=$SYNCED skipped=$SKIPPED"
-
+                  
                   # ── Notifications ─────────────────────────────────────────
                   if [ "$SYNCED" -gt 0 ]; then
                     # Build sorted CSV of synced app names for deduplication
                     SYNCED_APP_CSV=$(echo "$SYNCED_APPS" | grep -oP '`\K[^`]+' | sort | tr '\n' ',' | sed 's/,$//')
-
+                  
                     # Calculate seconds since last sync notification
                     LAST_SYNC_EPOCH=""
                     if [ -n "$LAST_SYNC_TIME_RAW" ]; then
@@ -443,7 +371,7 @@ spec:
                     if [ -n "$LAST_SYNC_EPOCH" ]; then
                       SECS_SINCE_SYNC=$(( NOW_EPOCH - LAST_SYNC_EPOCH ))
                     fi
-
+                  
                     # Subset dedup: suppress notification if ALL synced apps are already in
                     # the last-notified set AND within the cooldown window. This stops spam
                     # when the same recurring apps appear in varying combinations each run
@@ -458,7 +386,7 @@ spec:
                     else
                       IS_SUBSET=false
                     fi
-
+                  
                     if [ "$IS_SUBSET" = "true" ]; then
                       MINS_AGO=$(( SECS_SINCE_SYNC / 60 ))
                       echo "[self-healer] Sync dedup — all synced apps ($SYNCED_APP_CSV) are subset of last notification (${LAST_SYNC_APPS}) ${MINS_AGO}m ago, skipping notification"
@@ -482,7 +410,7 @@ spec:
                       update_state_key "last-sync-time" "$CURRENT_SYNC_TIME"
                     fi
                   fi
-
+                  
                   if [ -n "$DEGRADED_ALERT_APPS" ]; then
                     if [ "$IN_MAINTENANCE" = "true" ]; then
                       echo "[self-healer] Maintenance mode — suppressing Degraded alert for: $ALERT_APP_CSV"
@@ -510,3 +438,4 @@ spec:
                       update_state_key "last-alert" ""
                     fi
                   fi
+                  

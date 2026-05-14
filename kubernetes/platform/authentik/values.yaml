@@ -118,7 +118,7 @@ postgresql:
       limits:
         cpu: 500m
         memory: 512Mi
-    # Avoid cp3: Longhorn manager on cp3 is unstable, causing volume I/O errors
+    # Prefer CP1/CP3 for PostgreSQL stability (CP2 has historically higher restart rate)
     affinity:
       nodeAffinity:
         preferredDuringSchedulingIgnoredDuringExecution:
@@ -129,7 +129,7 @@ postgresql:
               operator: In
               values:
               - talos-prod-cp1
-              - talos-prod-cp2
+              - talos-prod-cp3
 
 redis:
   enabled: true
