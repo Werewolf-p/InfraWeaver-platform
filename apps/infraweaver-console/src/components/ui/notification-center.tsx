@@ -1,55 +1,26 @@
 "use client";
-import { useState, useCallback } from "react";
-import { Bell, X, CheckCheck } from "lucide-react";
+import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { Bell, X, CheckCheck, Info, AlertTriangle, XCircle, CheckCircle, Trash2 } from "lucide-react";
+import { useNotifications, type NotificationLevel } from "@/hooks/use-notifications";
 import { cn } from "@/lib/utils";
 
-export type NotificationLevel = "info" | "warning" | "error" | "success";
-
-export interface Notification {
-  id: string;
-  title: string;
-  body?: string;
-  level: NotificationLevel;
-  timestamp: Date;
-  read: boolean;
+function formatRelativeTime(timestamp: number): string {
+  const diff = Date.now() - timestamp;
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
 }
 
-const levelStyles: Record<NotificationLevel, string> = {
-  info: "border-blue-500/40 bg-blue-500/10 text-blue-400",
-  warning: "border-yellow-500/40 bg-yellow-500/10 text-yellow-400",
-  error: "border-red-500/40 bg-red-500/10 text-red-400",
-  success: "border-green-500/40 bg-green-500/10 text-green-400",
+const levelConfig: Record<NotificationLevel, { icon: React.ElementType; color: string; bg: string }> = {
+  info: { icon: Info, color: "text-blue-400", bg: "bg-blue-500/10" },
+  warning: { icon: AlertTriangle, color: "text-yellow-400", bg: "bg-yellow-500/10" },
+  error: { icon: XCircle, color: "text-red-400", bg: "bg-red-500/10" },
+  success: { icon: CheckCircle, color: "text-emerald-400", bg: "bg-emerald-500/10" },
 };
-
-let _addNotification: ((n: Omit<Notification, "id" | "timestamp" | "read">) => void) | null = null;
-
-export function pushNotification(n: Omit<Notification, "id" | "timestamp" | "read">) {
-  _addNotification?.(n);
-}
-
-export function useNotifications() {
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-
-  const add = useCallback((n: Omit<Notification, "id" | "timestamp" | "read">) => {
-    const entry: Notification = { ...n, id: crypto.randomUUID(), timestamp: new Date(), read: false };
-    setNotifications(prev => [entry, ...prev].slice(0, 50));
-  }, []);
-
-  _addNotification = add;
-
-  const markAllRead = useCallback(() => {
-    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
-  }, []);
-
-  const dismiss = useCallback((id: string) => {
-    setNotifications(prev => prev.filter(n => n.id !== id));
-  }, []);
-
-  const unreadCount = notifications.filter(n => !n.read).length;
-
-  return { notifications, add, markAllRead, dismiss, unreadCount };
-}
 
 interface NotificationCenterProps {
   className?: string;
@@ -57,58 +28,135 @@ interface NotificationCenterProps {
 
 export function NotificationCenter({ className }: NotificationCenterProps) {
   const [open, setOpen] = useState(false);
-  const { notifications, markAllRead, dismiss, unreadCount } = useNotifications();
+  const panelRef = useRef<HTMLDivElement>(null);
+  const { notifications, unreadCount, markAllRead, markRead, dismiss, clearAll } = useNotifications();
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    if (open) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [open]);
 
   return (
-    <div className={cn("relative", className)}>
+    <div className={cn("relative", className)} ref={panelRef}>
       <button
-        onClick={() => { setOpen(o => !o); if (!open) markAllRead(); }}
-        className="relative flex items-center justify-center w-9 h-9 rounded-lg hover:bg-white/10 transition-colors"
+        onClick={() => setOpen((prev) => !prev)}
+        className="relative flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-white/10 hover:text-white"
         aria-label="Notifications"
       >
-        <Bell className="w-4 h-4 text-white/70" />
-        {unreadCount > 0 && (
-          <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-red-500" />
-        )}
+        <Bell className="h-4 w-4" />
+        <AnimatePresence>
+          {unreadCount > 0 && (
+            <motion.span
+              initial={{ scale: 0 }}
+              animate={{ scale: 1 }}
+              exit={{ scale: 0 }}
+              transition={{ type: "spring", stiffness: 500, damping: 20 }}
+              className="absolute -right-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white"
+            >
+              {unreadCount > 9 ? "9+" : unreadCount}
+            </motion.span>
+          )}
+        </AnimatePresence>
       </button>
 
       <AnimatePresence>
         {open && (
-          <>
-            <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
-            <motion.div
-              initial={{ opacity: 0, y: -8, scale: 0.95 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -8, scale: 0.95 }}
-              transition={{ duration: 0.15 }}
-              className="absolute right-0 top-11 z-40 w-80 rounded-xl border border-white/10 bg-neutral-900 shadow-2xl"
-            >
-              <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
-                <span className="text-sm font-semibold text-white">Notifications</span>
-                <button onClick={markAllRead} className="text-xs text-white/40 hover:text-white/70 flex items-center gap-1">
-                  <CheckCheck className="w-3 h-3" /> Mark all read
-                </button>
-              </div>
-              <div className="max-h-96 overflow-y-auto divide-y divide-white/5">
-                {notifications.length === 0 ? (
-                  <p className="px-4 py-8 text-center text-sm text-white/30">No notifications</p>
-                ) : (
-                  notifications.map(n => (
-                    <div key={n.id} className={cn("px-4 py-3 flex gap-3", !n.read && "bg-white/5")}>
-                      <div className={cn("flex-1 min-w-0 rounded-md border px-2 py-1.5", levelStyles[n.level])}>
-                        <p className="text-xs font-medium">{n.title}</p>
-                        {n.body && <p className="text-xs opacity-70 mt-0.5">{n.body}</p>}
-                        <p className="text-[10px] opacity-50 mt-1">{n.timestamp.toLocaleTimeString()}</p>
-                      </div>
-                      <button onClick={() => dismiss(n.id)} className="shrink-0 text-white/30 hover:text-white/60">
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ))
+          <motion.div
+            initial={{ opacity: 0, y: -8, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -8, scale: 0.97 }}
+            transition={{ duration: 0.15, ease: "easeOut" }}
+            className="absolute right-0 top-full z-[100] mt-2 w-80 overflow-hidden rounded-xl border border-white/10 bg-slate-900/95 shadow-2xl backdrop-blur-xl"
+          >
+            <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+              <div className="flex items-center gap-2">
+                <Bell className="h-3.5 w-3.5 text-slate-400" />
+                <h3 className="text-sm font-semibold text-white">Notifications</h3>
+                {unreadCount > 0 && (
+                  <span className="rounded-full border border-indigo-500/30 bg-indigo-500/20 px-1.5 py-0.5 text-[10px] text-indigo-400">
+                    {unreadCount} new
+                  </span>
                 )}
               </div>
-            </motion.div>
-          </>
+              <div className="flex items-center gap-2">
+                {unreadCount > 0 && (
+                  <button onClick={markAllRead} className="flex items-center gap-1 text-[11px] text-slate-500 transition-colors hover:text-slate-300">
+                    <CheckCheck className="h-3 w-3" />
+                    Read all
+                  </button>
+                )}
+                {notifications.length > 0 && (
+                  <button onClick={clearAll} className="flex items-center gap-1 text-[11px] text-slate-500 transition-colors hover:text-slate-300">
+                    <Trash2 className="h-3 w-3" />
+                    Clear
+                  </button>
+                )}
+                <button onClick={() => setOpen(false)} className="text-slate-500 transition-colors hover:text-white">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+
+            <div className="max-h-80 overflow-y-auto">
+              {notifications.length === 0 ? (
+                <div className="py-10 text-center">
+                  <Bell className="mx-auto mb-2 h-6 w-6 text-slate-700" />
+                  <p className="text-sm text-slate-600">No notifications yet</p>
+                  <p className="mt-1 text-[11px] text-slate-700">Alerts, sync results, and system messages will appear here.</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-white/5">
+                  {notifications.map((notification) => {
+                    const config = levelConfig[notification.level];
+                    const Icon = config.icon;
+                    return (
+                      <motion.div
+                        key={notification.id}
+                        layout
+                        initial={{ opacity: 0, x: -4 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        exit={{ opacity: 0, x: 4 }}
+                        className={cn(
+                          "flex cursor-default gap-3 px-4 py-3 transition-colors hover:bg-white/5",
+                          !notification.read && "bg-white/[0.02]"
+                        )}
+                        onClick={() => markRead(notification.id)}
+                      >
+                        <div className={cn("mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg", config.bg)}>
+                          <Icon className={cn("h-3.5 w-3.5", config.color)} />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-start justify-between gap-2">
+                            <p className={cn("text-sm font-medium", notification.read ? "text-slate-400" : "text-white")}>
+                              {notification.title}
+                            </p>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); dismiss(notification.id); }}
+                              className="mt-0.5 flex-shrink-0 text-slate-600 transition-colors hover:text-slate-400"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </div>
+                          {notification.body && <p className="mt-0.5 line-clamp-2 text-[11px] text-slate-500">{notification.body}</p>}
+                          <div className="mt-1 flex items-center gap-2">
+                            <span className="text-[10px] text-slate-600">{formatRelativeTime(notification.timestamp)}</span>
+                            {!notification.read && <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-indigo-500" />}
+                          </div>
+                        </div>
+                      </motion.div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>

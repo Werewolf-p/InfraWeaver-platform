@@ -5,16 +5,15 @@ import { FloatingActionButton } from "@/components/floating-action-button";
 import { Breadcrumb, titleForPathname } from "@/components/ui/breadcrumb";
 import { useSession, signOut } from "next-auth/react";
 import { useRouter, usePathname } from "next/navigation";
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import Link from "next/link";
 import {
   X, AlertTriangle, MoreHorizontal, Search, Clock,
-  ChevronDown, ChevronRight, Settings, LogOut,
+  ChevronDown, ChevronRight, ChevronUp, Settings, LogOut,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
-import { KeyboardShortcutsProvider } from "@/components/keyboard-shortcuts-modal";
 import { SimpleModeProvider } from "@/contexts/simple-mode-context";
 import { NAV_GROUPS } from "@/lib/nav-config";
 import { OfflineIndicator } from "@/components/ui/offline-indicator";
@@ -139,6 +138,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [sessionWarning, setSessionWarning] = useState(false);
   const [countdown, setCountdown] = useState(300);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [showBackToTop, setShowBackToTop] = useState(false);
+  const mainRef = useRef<HTMLElement | null>(null);
   const { recentPages } = useRecentPages();
   const flatNavItems = useMemo(
     () => filteredNavGroups.flatMap((group) => group.items),
@@ -236,6 +237,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       document.body.style.overflow = previousOverflow;
     };
   }, [mobileOpen, moreOpen, searchOpen]);
+
+  useEffect(() => {
+    const main = mainRef.current;
+    if (!main) return;
+    const handleScroll = () => setShowBackToTop(main.scrollTop > 320);
+    handleScroll();
+    main.addEventListener("scroll", handleScroll, { passive: true });
+    return () => main.removeEventListener("scroll", handleScroll);
+  }, [pathname]);
 
   if (status === "loading") {
     return (
@@ -548,6 +558,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <StatusBar />
         <Breadcrumb className="hidden sm:flex" />
         <main
+          ref={mainRef}
           className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-4 pb-28 sm:px-4 sm:py-4 sm:pb-4 md:p-6 md:pb-6"
         >
           <AnimatePresence mode="wait">
@@ -564,6 +575,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </AnimatePresence>
         </main>
       </div>
+
+      <AnimatePresence>
+        {showBackToTop && (
+          <motion.button
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 16 }}
+            onClick={() => mainRef.current?.scrollTo({ top: 0, behavior: "smooth" })}
+            className="fixed bottom-24 right-4 z-40 inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-[#141414]/95 text-white shadow-lg backdrop-blur transition-colors hover:bg-[#1c1c1c] sm:bottom-6"
+            aria-label="Back to top"
+          >
+            <ChevronUp className="h-4 w-4" />
+          </motion.button>
+        )}
+      </AnimatePresence>
 
       {/* Floating Action Button (mobile) */}
       <FloatingActionButton />
@@ -786,9 +812,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </AnimatePresence>
 
       <GlobalSearch open={searchOpen} onOpenChange={setSearchOpen} />
-
-      {/* Keyboard shortcuts */}
-      <KeyboardShortcutsProvider />
 
       {/* Session timeout warning modal */}
       <AnimatePresence>

@@ -78,7 +78,12 @@ export function useNotifications() {
     });
   }, []);
 
+  const clearAll = useCallback(() => {
+    save([]);
+    setNotifications([]);
+  }, []);
+
   const unreadCount = notifications.filter(n => !n.read).length;
 
-  return { notifications, addNotification, markRead, markAllRead, dismiss, unreadCount };
+  return { notifications, addNotification, markRead, markAllRead, dismiss, clearAll, unreadCount };
 }
