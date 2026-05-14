@@ -5,7 +5,7 @@
 This document catalogs all root causes of instability incidents that have occurred on the
 InfraWeaver platform, along with prevention mechanisms now in place to prevent recurrence.
 
-**Last updated:** 2026-05 (post-stability-overhaul)
+**Last updated:** 2026-05 (post-stability-overhaul, post-CP2-crash-recovery 2026-05-14)
 
 ---
 
@@ -292,3 +292,132 @@ ignoreDifferences:
     kind: PodDisruptionBudget
     jqPathExpressions: [.status]
 ```
+
+---
+
+## Root Cause #11: Authentik PostgreSQL TOAST Table Corruption
+
+**Symptom:** Authentik worker crashlooping with `InternalError: missing chunk number 0 for
+toast value 1335340 in pg_toast_18279`. Worker had 14+ restarts. `clean_expired_models` task
+kept crashing.
+
+**Root Cause:** CP2 rebooted mid-write, causing dirty pages in the TOAST (The Oversized-Attribute
+Storage Technique) table for `authentik_core_session` (OID 18279). The toast table had corrupt
+chunk references.
+
+**Fix applied (2026-05-14):**
+```bash
+PGPASSWORD=$(kubectl get secret authentik-secrets -n authentik -o jsonpath='{.data.postgresql-password}' | base64 -d)
+kubectl exec -n authentik $(kubectl get pod -n authentik -l app.kubernetes.io/name=postgresql -o jsonpath='{.items[0].metadata.name}') -- \
+  env PGPASSWORD=$PGPASSWORD psql -U authentik -d authentik -c \
+  "TRUNCATE authentik_core_session CASCADE; VACUUM FULL authentik_core_authenticatedsession; VACUUM FULL authentik_providers_oauth2_accesstoken;"
+```
+- CASCADE handles FK chain: `authentik_core_authenticatedsession` → `authentik_providers_oauth2_accesstoken`
+- Users lose active sessions but reconnect immediately; all functionality restored
+
+**Prevention:**
+- Authentik PostgreSQL nodeAffinity: prefer CP1/CP3, avoid CP2 (the OOM-prone node)
+- File: `kubernetes/platform/authentik/values.yaml`
+
+---
+
+## Root Cause #12: ESPhome PodSecurity Violations Blocking Pods + Longhorn Replicas
+
+**Symptom:** ESPhome pods stuck at 0 replicas for 28h+. 6 Longhorn replicas in "stopped" state
+on CP1/CP3, contributing to storageScheduled inflation and disk pressure.
+
+**Root Cause:** ESPhome requires `hostNetwork: true` for mDNS discovery of ESP devices on LAN.
+Kubernetes `baseline` PodSecurity policy blocks `hostNetwork` and any `hostPort`.
+
+**Fix applied (2026-05-14):**
+```bash
+kubectl label namespace esphome pod-security.kubernetes.io/enforce=privileged \
+  pod-security.kubernetes.io/audit=privileged pod-security.kubernetes.io/warn=privileged --overwrite
+kubectl label namespace esphome-enhanced pod-security.kubernetes.io/enforce=privileged \
+  pod-security.kubernetes.io/audit=privileged pod-security.kubernetes.io/warn=privileged --overwrite
+```
+
+**Prevention:**
+- ESPhome REQUIRES `privileged` PodSecurity — non-negotiable due to hostNetwork requirement
+- ESPhome is NOT managed by ArgoCD — namespace labels persist in etcd
+- If ESPhome is ever re-deployed, re-apply the namespace labels
+
+---
+
+## Root Cause #13: Longhorn Disk Pressure — storageReserved Static Field Not Auto-Updated
+
+**Symptom:** CP1 and CP3 showing `Schedulable: False` for 24+ hours. 18 faulted volumes unable
+to rebuild. Apps stuck in ContainerCreating.
+
+**Root Cause:**
+1. `spec.disks.default-disk-fd0500000000.storageReserved` on each node.longhorn.io is STATIC.
+   It was set to 63GB (30% of disk) at creation and does NOT auto-update when global settings change.
+2. Global settings at 15%+15% = 63GB required reserved, leaving CP1/CP3 "not schedulable".
+3. Disk condition `lastTransitionTime` stuck at 2026-05-13 — hadn't been re-evaluated.
+
+**Fix applied (2026-05-14):**
+```bash
+# 1. Update values.yaml (kubernetes/core/longhorn/values.yaml):
+#    storageMinimalAvailablePercentage: 5  (was 15)
+#    storageReservedPercentageForDefaultDisk: 5  (was 15)
+
+# 2. Patch storageReserved on each node (MUST be done manually — doesn't auto-update):
+NEW_RESERVED=10517604249  # 5% of 210GB total disk
+for node in talos-prod-cp1 talos-prod-cp2 talos-prod-cp3; do
+  kubectl patch node.longhorn.io $node -n longhorn-system --type=json \
+    -p "[{\"op\": \"replace\", \"path\": \"/spec/disks/default-disk-fd0500000000/storageReserved\", \"value\": $NEW_RESERVED}]"
+done
+
+# 3. Salvage faulted volumes (clear failedAt on replicas with healthyAt set):
+kubectl get replica.longhorn.io -n longhorn-system -o json | python3 -c "
+import sys, json
+reps = json.load(sys.stdin)
+for r in reps['items']:
+    if r['spec'].get('failedAt') and r['spec'].get('healthyAt'):
+        name = r['metadata']['name']
+        # kubectl patch to clear failedAt and lastFailedAt
+"
+
+# 4. Mark never-healthy CP2 replicas as failed (healthyAt=NONE) to trigger rebuild
+# 5. Speed up temporarily:
+kubectl patch setting.longhorn.io concurrent-replica-rebuild-per-node-limit -n longhorn-system --type=merge -p '{"value":"2"}'
+kubectl patch setting.longhorn.io replica-replenishment-wait-interval -n longhorn-system --type=merge -p '{"value":"30"}'
+# 6. After recovery, restore:
+kubectl patch setting.longhorn.io concurrent-replica-rebuild-per-node-limit -n longhorn-system --type=merge -p '{"value":"1"}'
+kubectl patch setting.longhorn.io replica-replenishment-wait-interval -n longhorn-system --type=merge -p '{"value":"600"}'
+```
+
+**Prevention:**
+- `storageMinimalAvailablePercentage: 5` committed to git (kubernetes/core/longhorn/values.yaml)
+- `storageReservedPercentageForDefaultDisk: 5` committed to git
+- The node.longhorn.io storageReserved must be manually patched on fresh cluster setup
+
+---
+
+## Root Cause #14: CP2 Node Chronic OOM / Replica Concentration
+
+**Symptom:** CP2 accumulated 200+ pod restarts. When CP2 OOM-restarts, ALL its Longhorn replicas
+fail → mass faulted volumes → apps stuck → cluster appears "down".
+
+**Root Cause:** Proxmox VM for CP2 is under-resourced. OOM kills cause node restart.
+
+**Mitigations applied:**
+- Authentik PostgreSQL: nodeAffinity prefers CP1/CP3
+- Console deployment: `maxUnavailable: 0`
+- Self-healer: core-priority-classes in SKIP_ALERT_APPS
+
+**Permanent fix needed:**
+- Increase RAM allocation for CP2 VM in Proxmox (root cause = OOM)
+
+---
+
+## Root Cause #15: Self-Healer Script Version Drift
+
+**Symptom:** Self-healer in cluster (352 lines, `*/5` schedule) diverged from git (258 lines,
+`*/15` schedule). ArgoCD would have reverted to old version on sync.
+
+**Fix applied (2026-05-14):**
+- Updated git to match cluster's advanced version + added `core-priority-classes` to SKIP_ALERT_APPS
+- File: `kubernetes/core/argocd/manifests/self-healer.yaml`
+
+---
