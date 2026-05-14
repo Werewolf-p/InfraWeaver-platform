@@ -100,15 +100,6 @@ APP_ENDPOINT_MAP = {
         "conditions": ["[STATUS] < 500"],
         "alerts": [{"type": "discord", "description": "NetBird VPN management API unreachable"}],
     },
-    "homepage": {
-        "name": "Homepage Dashboard",
-        "url": "https://home.int.rlservers.com",
-        "interval": "120s",
-        "group": "platform",
-        "client": {"insecure": True},
-        "conditions": ["[STATUS] == 200"],
-        "alerts": [{"type": "discord", "description": "Homepage dashboard is unreachable"}],
-    },
     "grafana": {
         "name": "Grafana",
         "url": "https://grafana.int.rlservers.com/api/health",
