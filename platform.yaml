@@ -118,7 +118,6 @@ catalog:
   #   immich           — Photo backup & management             (immich.int.rlservers.com)
   #   outline          — Team knowledge base (OIDC)            (outline.int.rlservers.com)
   enabled:
-    - wiki
     - gatus
     - stirling-pdf
     - onedev
@@ -130,8 +129,6 @@ catalog:
   # Set replicas: N to run N pods. Default is 1.
   # Only effective for apps whose Helm chart supports replicaCount.
   ha:
-    wiki:
-      replicas: 1
     gatus:
       replicas: 1
     stirling-pdf:
