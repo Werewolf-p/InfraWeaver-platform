@@ -159,7 +159,7 @@ generate_manifests_bootstrap() {
   eval "$(python3 - << PYEOF2
 import yaml
 d = yaml.safe_load(open('$catalog_yaml'))
-ns = d.get('namespace', app)
+ns = d.get('namespace', '$app')
 desc = d.get('description', '').replace("'", "\\'")
 print(f"APP_NS=\'{ns}\'")
 print(f"APP_DESC=\'{desc}\'")
