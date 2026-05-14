@@ -12,8 +12,11 @@ defaultSettings:
   # Give Longhorn itself platform-standard priority so storage stays online
   # without out-prioritising ingress/DNS/control-plane components.
   priorityClass: platform-standard
-  # Storage reserved per node (don't use all disk space)
-  storageMinimalAvailablePercentage: 15
+  # Storage reserved per node — 5% minimal ensures CP1/CP3 remain schedulable
+  # with ~134GB available and 299GB scheduled at 200% overprovisioning (299 < 390).
+  # At 15% the condition would require 63GB reserved which pushes CP1/CP3 to
+  # "not schedulable" even though overprovisioning headroom is fine.
+  storageMinimalAvailablePercentage: 5
   storageOverProvisioningPercentage: 200
   # Reserve CPU for Longhorn instance managers so replica rebuilds do not starve.
   guaranteedInstanceManagerCPU: 12
@@ -27,8 +30,9 @@ defaultSettings:
   snapshotDataIntegrity: disabled
   # Auto-clean orphaned replicas left behind after PVC deletion (prevents disk fill).
   orphanAutoDeletion: true
-  # Reserve 15% of disk for system use (reduced from 30% default to allow more scheduling headroom)
-  storageReservedPercentageForDefaultDisk: 15
+  # Reserve 5% of disk for system use (reduced from 15% to keep CP1/CP3 schedulable
+  # given current 299GB storageScheduled at 200% overprovisioning on 195GB disks)
+  storageReservedPercentageForDefaultDisk: 5
   # Auto-balance replicas when nodes have unequal replica counts
   replicaAutoBalance: least-effort
   # Delete PVCs when PV is deleted
