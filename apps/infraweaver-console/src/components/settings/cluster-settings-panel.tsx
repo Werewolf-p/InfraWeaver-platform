@@ -12,6 +12,8 @@ import {
   RotateCcw,
   Save,
   Server,
+  Settings2,
+  Workflow,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -29,6 +31,28 @@ interface NodeMetric {
   memPct: number;
   cpuMillicores: number;
   memKi: number;
+}
+
+interface NodeSpec {
+  name: string;
+  cpu: number;
+  memory_mb: number;
+  disk_gb: number;
+  ip: string;
+  vm_id: number;
+  proxmox_node: string;
+  controlplane: boolean;
+}
+
+interface NodeSpecsResponse {
+  nodes: NodeSpec[];
+  sha: string;
+}
+
+interface NodeSpecsResult {
+  ok: boolean;
+  changedNodes: string[];
+  workflowDispatched: string;
 }
 
 interface ResourceSettingDef {
@@ -169,6 +193,294 @@ function NodeOverview() {
       </div>
     </div>
   );
+}
+
+// ── Node Specs Editor ──────────────────────────────────────────────────────────
+
+interface LocalNodeSpec {
+  cpu: number;
+  memory_mb: number;
+}
+
+function fmtMemMb(mb: number) {
+  if (mb >= 1024) return `${(mb / 1024).toFixed(1)} GiB`;
+  return `${mb} MiB`;
+}
+
+function NodeSpecCard({
+  spec,
+  local,
+  onChange,
+  disabled,
+}: {
+  spec: NodeSpec;
+  local: LocalNodeSpec;
+  onChange: (name: string, field: keyof LocalNodeSpec, value: number) => void;
+  disabled: boolean;
+}) {
+  const cpuDirty = local.cpu !== spec.cpu;
+  const memDirty = local.memory_mb !== spec.memory_mb;
+  const anyDirty = cpuDirty || memDirty;
+  const shortName = spec.name.replace("talos-prod-", "");
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      className={cn(
+        "rounded-xl border bg-[#111] p-5 space-y-4 transition-colors",
+        anyDirty ? "border-amber-500/30" : "border-[#2a2a2a]",
+      )}
+    >
+      <div className="flex items-center gap-3">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#3b82f6]/15 text-[#60a5fa]">
+          <Server className="h-4 w-4" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-[#f2f2f2] capitalize">{shortName}</p>
+          <p className="text-xs text-[#555]">{spec.ip} · VM {spec.vm_id}</p>
+        </div>
+        {anyDirty && (
+          <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-400">
+            changed
+          </span>
+        )}
+      </div>
+
+      {/* CPU */}
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <Cpu className="h-3.5 w-3.5 text-[#888]" />
+            <span className="text-xs text-[#888]">vCPU cores</span>
+          </div>
+          {cpuDirty && (
+            <span className="text-[10px] text-amber-400">{spec.cpu} → {local.cpu}</span>
+          )}
+        </div>
+        <input
+          type="number"
+          min={1}
+          max={64}
+          value={local.cpu}
+          onChange={(e) => onChange(spec.name, "cpu", Math.max(1, Math.min(64, parseInt(e.target.value) || 1)))}
+          disabled={disabled}
+          className="w-full rounded-lg border border-[#2a2a2a] bg-[#0d0d0d] px-3 py-2 text-sm text-[#f2f2f2] focus:border-[#3b82f6] focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+        />
+      </div>
+
+      {/* Memory */}
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <MemoryStick className="h-3.5 w-3.5 text-[#888]" />
+            <span className="text-xs text-[#888]">Memory (MB)</span>
+          </div>
+          {memDirty ? (
+            <span className="text-[10px] text-amber-400">
+              {fmtMemMb(spec.memory_mb)} → {fmtMemMb(local.memory_mb)}
+            </span>
+          ) : (
+            <span className="text-[10px] text-[#555]">{fmtMemMb(local.memory_mb)}</span>
+          )}
+        </div>
+        <input
+          type="number"
+          min={512}
+          max={131072}
+          step={512}
+          value={local.memory_mb}
+          onChange={(e) => {
+            const raw = parseInt(e.target.value) || 512;
+            // Snap to nearest 512 MB
+            const snapped = Math.round(raw / 512) * 512;
+            onChange(spec.name, "memory_mb", Math.max(512, Math.min(131072, snapped)));
+          }}
+          disabled={disabled}
+          className="w-full rounded-lg border border-[#2a2a2a] bg-[#0d0d0d] px-3 py-2 text-sm text-[#f2f2f2] focus:border-[#3b82f6] focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+        />
+        <p className="text-[11px] text-[#555]">Must be a multiple of 512 MB · {spec.disk_gb} GB disk (read-only)</p>
+      </div>
+    </motion.div>
+  );
+}
+
+function NodeSpecsEditorContent({ data, canWrite }: { data: NodeSpecsResponse; canWrite: boolean }) {
+  const queryClient = useQueryClient();
+
+  const [local, setLocal] = useState<Record<string, LocalNodeSpec>>(() =>
+    Object.fromEntries(data.nodes.map((n) => [n.name, { cpu: n.cpu, memory_mb: n.memory_mb }])),
+  );
+
+  useEffect(() => {
+    setLocal(Object.fromEntries(data.nodes.map((n) => [n.name, { cpu: n.cpu, memory_mb: n.memory_mb }])));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
+  const [showConfirm, setShowConfirm] = useState(false);
+
+  const dirtyNodes = useMemo(
+    () =>
+      data.nodes.filter(
+        (n) => local[n.name]?.cpu !== n.cpu || local[n.name]?.memory_mb !== n.memory_mb,
+      ),
+    [data.nodes, local],
+  );
+
+  const handleChange = useCallback((name: string, field: keyof LocalNodeSpec, value: number) => {
+    setLocal((prev) => ({ ...prev, [name]: { ...prev[name], [field]: value } }));
+  }, []);
+
+  const handleReset = useCallback(() => {
+    setLocal(Object.fromEntries(data.nodes.map((n) => [n.name, { cpu: n.cpu, memory_mb: n.memory_mb }])));
+  }, [data]);
+
+  const saveMutation = useMutation<NodeSpecsResult, Error>({
+    mutationFn: async () => {
+      const changes = dirtyNodes.map((n) => ({
+        name: n.name,
+        cpu: local[n.name].cpu,
+        memory_mb: local[n.name].memory_mb,
+      }));
+      const res = await fetch("/api/cluster/nodes/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ changes }),
+      });
+      const payload = (await res.json()) as NodeSpecsResult & { error?: string };
+      if (!res.ok) throw new Error(payload.error ?? "Failed to save");
+      return payload;
+    },
+    onSuccess: (result) => {
+      toast.success(
+        `Node specs committed · rolling update workflow dispatched for: ${result.changedNodes.join(", ")}`,
+        { duration: 8000 },
+      );
+      void queryClient.invalidateQueries({ queryKey: ["cluster", "node-specs"] });
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center gap-2">
+        <Settings2 className="h-4 w-4 text-[#888]" />
+        <h3 className="text-sm font-medium text-[#ccc]">Node Specs (CPU / Memory)</h3>
+        <span className="ml-auto text-xs text-[#555]">Changes drain → resize → uncordon each node</span>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-3">
+        {data.nodes.map((spec) => (
+          <NodeSpecCard
+            key={spec.name}
+            spec={spec}
+            local={local[spec.name] ?? { cpu: spec.cpu, memory_mb: spec.memory_mb }}
+            onChange={handleChange}
+            disabled={!canWrite || saveMutation.isPending}
+          />
+        ))}
+      </div>
+
+      {dirtyNodes.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4"
+        >
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <p className="text-sm font-semibold text-[#f2f2f2]">
+                {dirtyNodes.length} node{dirtyNodes.length > 1 ? "s" : ""} to update
+              </p>
+              <p className="mt-1 text-xs text-[#888]">
+                Commits changes to git and dispatches a GitHub Actions workflow that drains, resizes (Proxmox), and uncordons each node one at a time. Expect 5–10 min per node.
+              </p>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {dirtyNodes.map((n) => (
+                  <span key={n.name} className="rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-[11px] text-[#d4d4d4]">
+                    {n.name.replace("talos-prod-", "")}
+                  </span>
+                ))}
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={handleReset}
+                disabled={saveMutation.isPending}
+                className="inline-flex min-h-[40px] items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-4 text-sm font-medium text-[#d4d4d4] hover:bg-white/10 disabled:opacity-60"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                Reset
+              </button>
+              <button
+                onClick={() => setShowConfirm(true)}
+                disabled={!canWrite || saveMutation.isPending}
+                className="inline-flex min-h-[40px] items-center gap-2 rounded-lg bg-[#3b82f6] px-4 text-sm font-medium text-white hover:bg-[#2563eb] disabled:opacity-60"
+              >
+                {saveMutation.isPending ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Workflow className="h-3.5 w-3.5" />
+                )}
+                Apply & Rolling Update
+              </button>
+            </div>
+          </div>
+        </motion.div>
+      )}
+
+      {!canWrite && (
+        <p className="text-xs text-[#555]">
+          <AlertCircle className="mr-1 inline h-3.5 w-3.5" />
+          Config write permission required to resize nodes.
+        </p>
+      )}
+
+      <ConfirmDialog
+        open={showConfirm}
+        onCancel={() => setShowConfirm(false)}
+        onConfirm={() => { setShowConfirm(false); saveMutation.mutate(); }}
+        title="Apply node spec changes?"
+        description={`This commits changes to git and dispatches a rolling-update workflow. Each node (${dirtyNodes.map((n) => n.name.replace("talos-prod-", "")).join(", ")}) will be drained, resized in Proxmox, then uncordoned — one at a time. Expect 5–10 min per node.`}
+        confirmText="Drain & resize"
+      />
+    </div>
+  );
+}
+
+function NodeSpecsEditor({ canWrite }: { canWrite: boolean }) {
+  const { data, isLoading, error, refetch } = useQuery<NodeSpecsResponse, Error>({
+    queryKey: ["cluster", "node-specs"],
+    queryFn: async () => {
+      const res = await fetch("/api/cluster/nodes/settings");
+      const payload = (await res.json()) as NodeSpecsResponse & { error?: string };
+      if (!res.ok) throw new Error(payload.error ?? "Failed to load node specs");
+      return payload;
+    },
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="grid gap-4 sm:grid-cols-3">
+        {[0, 1, 2].map((i) => <SkeletonCard key={i} />)}
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-4 text-sm">
+        <AlertCircle className="mr-2 inline h-4 w-4 text-red-400" />
+        <span className="text-red-200">{error.message}</span>
+        <button onClick={() => void refetch()} className="ml-3 underline text-red-300 hover:text-red-100">Retry</button>
+      </div>
+    );
+  }
+
+  if (!data) return null;
+  return <NodeSpecsEditorContent data={data} canWrite={canWrite} />;
 }
 
 // ── Resource Editor ─────────────────────────────────────────────────────────────
@@ -521,6 +833,9 @@ export function ClusterSettingsPanel() {
 
       {/* Live node overview */}
       <NodeOverview />
+
+      {/* Node Specs editor — CPU / Memory resize with rolling update workflow */}
+      <NodeSpecsEditor canWrite={canWrite} />
 
       {/* Resource limits editor */}
       <ResourceEditor canWrite={canWrite} />

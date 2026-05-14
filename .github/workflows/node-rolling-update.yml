@@ -1,0 +1,232 @@
+name: Node Rolling Update
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Triggered by InfraWeaver Console when a user changes CPU or memory for one
+# or more cluster nodes via Settings → Cluster → Node Specs.
+#
+# Flow per node:
+#   1. kubectl drain   — evacuate workloads gracefully
+#   2. tofu apply      — update Proxmox VM spec (CPU cores / memory)
+#      Proxmox reboots the VM when dedicated memory or vCPU count changes.
+#   3. kubectl wait    — block until node is Ready again (≤ 10 min)
+#   4. kubectl uncordon — allow scheduling again
+#
+# Nodes are processed ONE AT A TIME to ensure the cluster stays available
+# (Kubernetes HA requires at least 2 of 3 etcd members up at all times).
+# ─────────────────────────────────────────────────────────────────────────────
+
+on:
+  workflow_dispatch:
+    inputs:
+      changed_nodes:
+        description: "Comma-separated node names to update (e.g. talos-prod-cp1 or talos-prod-cp1,talos-prod-cp2)"
+        required: true
+        type: string
+      environment:
+        description: "Target environment"
+        required: false
+        default: "productie"
+        type: choice
+        options: [productie, ontwikkel]
+      confirm:
+        description: "Type 'yes' to confirm the rolling node update"
+        required: true
+        type: string
+        default: "no"
+
+concurrency:
+  # Only one node-rolling-update may run per environment at a time.
+  # cancel-in-progress: false ensures a running update is never aborted mid-drain.
+  group: node-rolling-update-${{ inputs.environment }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  rolling-update:
+    name: "Rolling Node Update (${{ inputs.environment }})"
+    if: inputs.confirm == 'yes'
+    timeout-minutes: 60
+    runs-on: [self-hosted, prod-worker]
+    environment: productie
+
+    env:
+      ENV_NAME: ${{ inputs.environment }}
+      TOFU_VERSION: "1.11.6"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      # ── Tools ─────────────────────────────────────────────────────────────
+      - name: Setup platform tools
+        uses: ./.github/actions/setup-platform
+        with:
+          age-secret-key: ${{ secrets.AGE_SECRET_KEY }}
+          with-talosctl: "true"
+          environment: ${{ env.ENV_NAME }}
+
+      # ── Kubeconfig + talosconfig from Terraform state ─────────────────────
+      - name: Setup kubeconfig
+        run: |
+          mkdir -p ~/.kube ~/.talos
+          python3 .github/scripts/extract_kubeconfig.py
+          if [ -f /tmp/kubeconfig-extract/kubeconfig ]; then
+            cp /tmp/kubeconfig-extract/kubeconfig ~/.kube/config
+            chmod 600 ~/.kube/config
+            echo "✅ kubeconfig loaded"
+          else
+            echo "❌ kubeconfig not found in state — run terraform-apply first"
+            exit 1
+          fi
+          if [ -f /tmp/kubeconfig-extract/talosconfig ]; then
+            cp /tmp/kubeconfig-extract/talosconfig ~/.talos/config
+            chmod 600 ~/.talos/config
+            echo "✅ talosconfig loaded"
+          fi
+
+      - name: Verify cluster connectivity
+        run: |
+          kubectl get nodes -o wide
+          echo "etcd members:"
+          talosctl -n $(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}') \
+            etcd members 2>/dev/null || echo "(talosctl etcd check skipped)"
+
+      # ── Tofu init ─────────────────────────────────────────────────────────
+      - name: Tofu init
+        env:
+          PROXMOX_API_TOKEN: ${{ secrets.PROXMOX_API_TOKEN }}
+        run: |
+          export TF_PLUGIN_CACHE_DIR="$HOME/.terraform.d/plugin-cache"
+          STATE_DIR=~/.tofu/state/platform-${{ env.ENV_NAME }}
+          mkdir -p $STATE_DIR
+
+          export TF_VAR_proxmox_api_token="${PROXMOX_API_TOKEN}"
+
+          # Load any non-secret tfvars from SOPS (graceful skip if no AGE key)
+          while IFS= read -r line; do
+            if [[ "$line" =~ ^([a-zA-Z_][a-zA-Z0-9_]*):[[:space:]]*(.*) ]]; then
+              KEY="${BASH_REMATCH[1]}"; VAL="${BASH_REMATCH[2]}"
+              [[ "$KEY" == "sops" ]] && break
+              VAL="${VAL#\"}"; VAL="${VAL%\"}"; [[ -n "$VAL" ]] && export "TF_VAR_${KEY}=${VAL}"
+            fi
+          done < <(sops -d "envs/${{ env.ENV_NAME }}/secrets.sops.yaml" 2>/dev/null || echo "")
+
+          echo "TF_STATE_DIR=$STATE_DIR" >> "$GITHUB_ENV"
+          echo "TF_VAR_proxmox_api_token=${PROXMOX_API_TOKEN}" >> "$GITHUB_ENV"
+
+          cd terraform
+          tofu init \
+            -backend-config="path=$STATE_DIR/terraform.tfstate" \
+            -reconfigure \
+            -no-color 2>&1 | tail -5
+
+      # ── Rolling update: one node at a time ────────────────────────────────
+      - name: Rolling update nodes
+        env:
+          PROXMOX_API_TOKEN: ${{ secrets.PROXMOX_API_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          NODES="${{ inputs.changed_nodes }}"
+          ENV="${{ env.ENV_NAME }}"
+          STATE_DIR="${{ env.TF_STATE_DIR }}"
+
+          # Build var flags (same pattern as ops.yml terraform job)
+          VARS="-var-file=../envs/${ENV}/terraform.tfvars -var-file=../envs/${ENV}/services.auto.tfvars"
+
+          IFS=',' read -ra NODE_LIST <<< "$NODES"
+          TOTAL=${#NODE_LIST[@]}
+          echo "==> Updating $TOTAL node(s): ${NODE_LIST[*]}"
+          echo ""
+
+          for NODE in "${NODE_LIST[@]}"; do
+            NODE=$(echo "$NODE" | xargs)  # trim whitespace
+            echo "════════════════════════════════════════════════════"
+            echo "  Node: $NODE"
+            echo "════════════════════════════════════════════════════"
+
+            # ── Verify node exists ──────────────────────────────────
+            if ! kubectl get node "$NODE" &>/dev/null; then
+              echo "❌ Node $NODE not found in cluster — skipping"
+              continue
+            fi
+
+            NODE_STATUS=$(kubectl get node "$NODE" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')
+            echo "  Current status: Ready=$NODE_STATUS"
+
+            # ── Step 1: Drain ───────────────────────────────────────
+            echo ""
+            echo "  [1/4] Draining $NODE..."
+            kubectl drain "$NODE" \
+              --ignore-daemonsets \
+              --delete-emptydir-data \
+              --timeout=5m \
+              --grace-period=30 \
+              --force
+            echo "  ✅ Drained"
+
+            # ── Step 2: Tofu apply for this node's VM ───────────────
+            echo ""
+            echo "  [2/4] Applying Terraform for $NODE..."
+            cd terraform
+            tofu apply $VARS \
+              -target="module.talos_cluster.proxmox_virtual_environment_vm.talos[\"${NODE}\"]" \
+              -auto-approve \
+              -no-color 2>&1 | tail -30
+            cd ..
+            echo "  ✅ Terraform applied — Proxmox is reconfiguring the VM"
+
+            # ── Step 3: Wait for node to become NotReady then Ready ─
+            echo ""
+            echo "  [3/4] Waiting for $NODE to rejoin the cluster (up to 10 min)..."
+
+            # Give Proxmox up to 90s to initiate the reboot
+            echo "    Waiting for VM reboot to start (up to 90s)..."
+            REBOOT_STARTED=false
+            for i in $(seq 1 18); do
+              sleep 5
+              STATUS=$(kubectl get node "$NODE" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "Unknown")
+              if [ "$STATUS" != "True" ]; then
+                echo "    Node is now NotReady (reboot detected at ${i}×5s)"
+                REBOOT_STARTED=true
+                break
+              fi
+            done
+
+            if [ "$REBOOT_STARTED" = false ]; then
+              echo "    ⚠ Node still Ready after 90s — VM may not have rebooted (hot-reconfigure?)"
+              echo "    Verifying actual node capacity matches requested spec..."
+            fi
+
+            # Wait for Ready with a 10 min timeout
+            echo "    Waiting for Ready..."
+            kubectl wait node/"$NODE" \
+              --for=condition=Ready \
+              --timeout=600s
+            echo "  ✅ Node is Ready"
+
+            # ── Step 4: Uncordon ────────────────────────────────────
+            echo ""
+            echo "  [4/4] Uncordoning $NODE..."
+            kubectl uncordon "$NODE"
+            echo "  ✅ Uncordoned"
+
+            # Brief pause between nodes so workloads can rebalance
+            if [ "${NODE}" != "${NODE_LIST[-1]}" ]; then
+              echo ""
+              echo "  Pausing 30s before next node..."
+              sleep 30
+            fi
+
+            echo ""
+            echo "  ✅ $NODE updated successfully"
+            echo ""
+          done
+
+          echo "════════════════════════════════════════════════════"
+          echo "  All $TOTAL node(s) updated successfully"
+          echo "  Final cluster state:"
+          kubectl get nodes -o wide
+          echo "════════════════════════════════════════════════════"

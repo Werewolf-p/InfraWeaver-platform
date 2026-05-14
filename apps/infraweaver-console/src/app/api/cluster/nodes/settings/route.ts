@@ -1,0 +1,230 @@
+import { NextRequest, NextResponse } from "next/server";
+import * as jsYaml from "js-yaml";
+import { auth } from "@/lib/auth";
+import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
+import { hasPermission } from "@/lib/rbac";
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+interface NodeSpec {
+  name: string;
+  cpu: number;
+  memory_mb: number;
+  disk_gb: number;
+  ip: string;
+  vm_id: number;
+  proxmox_node: string;
+  controlplane: boolean;
+}
+
+interface NodeChange {
+  name: string;
+  cpu?: number;
+  memory_mb?: number;
+}
+
+interface GitHubFileResponse {
+  content: string;
+  sha: string;
+}
+
+interface ClusterYaml {
+  nodes: Record<
+    string,
+    {
+      cpu?: number;
+      memory_mb?: number;
+      disk_gb?: number;
+      ip?: string;
+      vm_id?: number;
+      proxmox_node?: string;
+      controlplane?: boolean;
+      mac_address?: string;
+      datastore?: string;
+    }
+  >;
+  [key: string]: unknown;
+}
+
+// ── Config ────────────────────────────────────────────────────────────────────
+
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN ?? "";
+const GITHUB_REPO = process.env.GITHUB_REPO ?? "Werewolf-p/InfraWeaver-platform";
+const CLUSTER_YAML_PATH = "envs/productie/cluster.yaml";
+
+// Workflow file that handles the rolling node update via Terraform + kubectl drain/uncordon
+const NODE_UPDATE_WORKFLOW = "node-rolling-update.yml";
+
+// ── GitHub helpers ────────────────────────────────────────────────────────────
+
+async function getFileFromGitHub(filePath: string): Promise<GitHubFileResponse> {
+  const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/contents/${filePath}`, {
+    headers: {
+      Authorization: `Bearer ${GITHUB_TOKEN}`,
+      Accept: "application/vnd.github.v3+json",
+      "X-GitHub-Api-Version": "2022-11-28",
+    },
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`GitHub API ${res.status} for ${filePath}`);
+  return res.json() as Promise<GitHubFileResponse>;
+}
+
+async function commitFileToGitHub(filePath: string, content: string, sha: string, message: string) {
+  const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/contents/${filePath}`, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${GITHUB_TOKEN}`,
+      Accept: "application/vnd.github.v3+json",
+      "X-GitHub-Api-Version": "2022-11-28",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      message,
+      content: Buffer.from(content).toString("base64"),
+      sha,
+      committer: { name: "InfraWeaver Console", email: "console@infraweaver.internal" },
+    }),
+  });
+  if (!res.ok) throw new Error(`GitHub commit failed: ${res.status}`);
+}
+
+async function dispatchWorkflow(workflowFile: string, inputs: Record<string, string>) {
+  const res = await fetch(
+    `https://api.github.com/repos/${GITHUB_REPO}/actions/workflows/${workflowFile}/dispatches`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${GITHUB_TOKEN}`,
+        Accept: "application/vnd.github.v3+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ ref: "main", inputs }),
+    },
+  );
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Workflow dispatch failed: ${res.status} — ${body}`);
+  }
+}
+
+// ── GET — return current node specs ──────────────────────────────────────────
+
+export async function GET() {
+  const session = await auth();
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
+  if (!hasPermission(groups, "config:read")) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+  if (!GITHUB_TOKEN) return NextResponse.json({ error: "Missing GITHUB_TOKEN" }, { status: 503 });
+
+  try {
+    const file = await getFileFromGitHub(CLUSTER_YAML_PATH);
+    const raw = Buffer.from(file.content, "base64").toString("utf-8");
+    const parsed = jsYaml.load(raw) as ClusterYaml;
+
+    const nodes: NodeSpec[] = Object.entries(parsed.nodes ?? {}).map(([name, cfg]) => ({
+      name,
+      cpu: cfg.cpu ?? 0,
+      memory_mb: cfg.memory_mb ?? 0,
+      disk_gb: cfg.disk_gb ?? 0,
+      ip: cfg.ip ?? "",
+      vm_id: cfg.vm_id ?? 0,
+      proxmox_node: cfg.proxmox_node ?? "",
+      controlplane: cfg.controlplane ?? false,
+    }));
+
+    // Sort deterministically: cp1, cp2, cp3
+    nodes.sort((a, b) => a.name.localeCompare(b.name));
+
+    return NextResponse.json({ nodes, sha: file.sha });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to load node specs";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+// ── PUT — commit changes + dispatch rolling-update workflow ───────────────────
+
+export async function PUT(req: NextRequest) {
+  const session = await auth();
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const access = await getSessionRBACContext(session, 60);
+  if (!hasSessionPermission(access, "config:write")) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+  if (!GITHUB_TOKEN) return NextResponse.json({ error: "Missing GITHUB_TOKEN" }, { status: 503 });
+
+  try {
+    const body = (await req.json()) as { changes?: NodeChange[] };
+    if (!Array.isArray(body.changes) || body.changes.length === 0) {
+      return NextResponse.json({ error: "No changes provided" }, { status: 400 });
+    }
+
+    // Validate changes
+    for (const change of body.changes) {
+      if (!change.name?.trim()) {
+        return NextResponse.json({ error: "Each change must have a node name" }, { status: 400 });
+      }
+      if (change.cpu !== undefined) {
+        if (!Number.isInteger(change.cpu) || change.cpu < 1 || change.cpu > 64) {
+          return NextResponse.json({ error: `cpu for ${change.name} must be 1–64` }, { status: 400 });
+        }
+      }
+      if (change.memory_mb !== undefined) {
+        if (!Number.isInteger(change.memory_mb) || change.memory_mb < 512 || change.memory_mb > 131072) {
+          return NextResponse.json({ error: `memory_mb for ${change.name} must be 512–131072` }, { status: 400 });
+        }
+        // Enforce 512 MB alignment
+        if (change.memory_mb % 512 !== 0) {
+          return NextResponse.json({ error: `memory_mb for ${change.name} must be a multiple of 512` }, { status: 400 });
+        }
+      }
+    }
+
+    // Read current cluster.yaml
+    const file = await getFileFromGitHub(CLUSTER_YAML_PATH);
+    const raw = Buffer.from(file.content, "base64").toString("utf-8");
+    const parsed = jsYaml.load(raw) as ClusterYaml;
+
+    if (!parsed.nodes) {
+      return NextResponse.json({ error: "cluster.yaml has no nodes section" }, { status: 500 });
+    }
+
+    // Apply changes
+    const changedNodeNames: string[] = [];
+    for (const change of body.changes) {
+      const nodeCfg = parsed.nodes[change.name];
+      if (!nodeCfg) {
+        return NextResponse.json({ error: `Node ${change.name} not found in cluster.yaml` }, { status: 400 });
+      }
+      if (change.cpu !== undefined) nodeCfg.cpu = change.cpu;
+      if (change.memory_mb !== undefined) nodeCfg.memory_mb = change.memory_mb;
+      changedNodeNames.push(change.name);
+    }
+
+    // Commit to git
+    const nodesSummary = changedNodeNames.join(", ");
+    const commitMsg = `feat(cluster): update node specs for ${nodesSummary} via InfraWeaver Console\n\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>`;
+    const updatedYaml = jsYaml.dump(parsed, { lineWidth: -1, indent: 2 });
+    await commitFileToGitHub(CLUSTER_YAML_PATH, updatedYaml, file.sha, commitMsg);
+
+    // Dispatch the rolling-update workflow
+    await dispatchWorkflow(NODE_UPDATE_WORKFLOW, {
+      changed_nodes: changedNodeNames.join(","),
+      environment: "productie",
+      confirm: "yes",
+    });
+
+    return NextResponse.json({
+      ok: true,
+      changedNodes: changedNodeNames,
+      workflowDispatched: NODE_UPDATE_WORKFLOW,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to apply node changes";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
