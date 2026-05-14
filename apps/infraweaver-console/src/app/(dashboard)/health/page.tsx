@@ -1,12 +1,13 @@
 "use client";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
-import { CheckCircle2, XCircle, RefreshCw, ChevronDown, ChevronUp, Shield, Activity } from "lucide-react";
+import { CheckCircle2, XCircle, RefreshCw, ChevronDown, ChevronUp, Shield, Activity, Search } from "lucide-react";
 import { cn, timeAgo } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
 import { useState, useCallback } from "react";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import { HealthTimeline } from "@/components/ui/health-timeline";
+import { RefreshCountdown } from "@/components/ui/refresh-countdown";
 
 interface EndpointResult {
   success: boolean;
@@ -203,6 +204,8 @@ function SLASection({ data }: { data: SLAData }) {
 }
 
 export default function HealthPage() {
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "up" | "down">("all");
   const { data: health, isLoading, refetch, dataUpdatedAt } = useQuery({
     queryKey: ["health"],
     queryFn: async () => {
@@ -244,7 +247,14 @@ export default function HealthPage() {
     setPullY(0);
   }, [pullRefreshing, refetch]);
 
-  const grouped = health?.endpoints ? groupByCategory(health.endpoints) : new Map<string, Endpoint[]>();
+  const filteredEndpoints = (health?.endpoints ?? []).filter((endpoint) => {
+    const name = endpoint.name.toLowerCase();
+    const isUp = endpoint.results?.[0]?.success === true;
+    const matchesSearch = !search || name.includes(search.toLowerCase());
+    const matchesStatus = statusFilter === "all" || (statusFilter === "up" ? isUp : !isUp);
+    return matchesSearch && matchesStatus;
+  });
+  const grouped = filteredEndpoints.length ? groupByCategory(filteredEndpoints) : new Map<string, Endpoint[]>();
   const allEndpoints = health?.endpoints ?? [];
   const upCount = allEndpoints.filter(ep => ep.results?.[0]?.success === true).length;
   const downCount = allEndpoints.filter(ep => ep.results?.[0]?.success === false).length;
@@ -286,13 +296,37 @@ export default function HealthPage() {
           <h2 className="text-xl font-bold text-white">Platform Health</h2>
           <p className="text-sm text-slate-400">Gatus endpoint monitoring status</p>
         </div>
-        <button
-          onClick={() => refetch()}
-          className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 hover:text-white hover:bg-white/10 transition-colors touch-manipulation active:scale-95"
-        >
-          <RefreshCw className="w-3.5 h-3.5" />
-          Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <RefreshCountdown intervalSeconds={30} resetKey={dataUpdatedAt} />
+          <button
+            onClick={() => refetch()}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 hover:text-white hover:bg-white/10 transition-colors touch-manipulation active:scale-95"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <div className="relative min-w-[220px] flex-1 max-w-sm">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
+          <input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search endpoints..."
+            className="w-full rounded-lg border border-white/10 bg-white/5 py-2 pl-9 pr-3 text-sm text-white placeholder:text-slate-500 outline-none focus:border-indigo-500/50"
+          />
+        </div>
+        {(["all", "up", "down"] as const).map((value) => (
+          <button
+            key={value}
+            onClick={() => setStatusFilter(value)}
+            className={cn("rounded-full border px-3 py-1 text-xs font-medium capitalize transition-colors", statusFilter === value ? "border-indigo-500/40 bg-indigo-500/15 text-indigo-300" : "border-white/10 bg-white/5 text-slate-400 hover:text-white")}
+          >
+            {value}
+          </button>
+        ))}
       </div>
 
       {/* Summary stats bar */}

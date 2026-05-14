@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import Link from "next/link";
 import { MetricAreaChart } from "@/components/charts/AreaChart";
 import { ClusterSettingsPanel } from "@/components/settings/cluster-settings-panel";
+import { RefreshCountdown } from "@/components/ui/refresh-countdown";
 
 interface Node {
   name: string;
@@ -60,7 +61,7 @@ function heatBarColor(pct: number): string {
 function CopyBtn({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   return (
-    <button onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000); }} className="ml-2 text-slate-500 hover:text-slate-300 transition-colors flex-shrink-0">
+    <button onClick={() => { void navigator.clipboard.writeText(text); toast.success("Copied"); setCopied(true); setTimeout(() => setCopied(false), 2000); }} className="ml-2 text-slate-500 hover:text-slate-300 transition-colors flex-shrink-0">
       {copied ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
     </button>
   );
@@ -197,6 +198,8 @@ export default function ClusterPage() {
   const [syncing, setSyncing] = useState(false);
   const [rolling, setRolling] = useState(false);
   const [newIp, setNewIp] = useState("10.10.0.93");
+  const [metricsRefreshSeconds, setMetricsRefreshSeconds] = useState(15);
+  const [cordoningNode, setCordoningNode] = useState<string | null>(null);
 
   const [cpuHistory, setCpuHistory] = useState<DataPoint[]>([]);
   const [memHistory, setMemHistory] = useState<DataPoint[]>([]);
@@ -212,13 +215,13 @@ export default function ClusterPage() {
   });
 
   const { data: metricsData, refetch: refetchMetrics } = useQuery<{ metrics: NodeMetric[]; timestamp: string }>({
-    queryKey: ["cluster", "metrics"],
+    queryKey: ["cluster", "metrics", metricsRefreshSeconds],
     queryFn: async () => {
       const res = await fetch("/api/cluster/metrics");
       return res.json();
     },
     staleTime: 10000,
-    refetchInterval: 15000,
+    refetchInterval: metricsRefreshSeconds * 1000,
   });
 
   const { data: hpaData, refetch: refetchHpa } = useQuery<{ hpas: HPA[] }>({
@@ -281,6 +284,25 @@ export default function ClusterPage() {
     }
   };
 
+  const handleToggleCordon = async (node: Node) => {
+    setCordoningNode(node.name);
+    try {
+      const res = await fetch("/api/cluster/cordon", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ node: node.name, cordon: !node.unschedulable }),
+      });
+      const result = await res.json() as { error?: string };
+      if (!res.ok) throw new Error(result.error ?? "Failed to update node scheduling");
+      toast.success(node.unschedulable ? `Uncordoned ${node.name}` : `Cordoned ${node.name}`);
+      await refetch();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to update node scheduling");
+    } finally {
+      setCordoningNode(null);
+    }
+  };
+
   const handleExportYaml = () => {
     window.location.href = "/api/cluster/export";
   };
@@ -310,6 +332,18 @@ export default function ClusterPage() {
               <Download className="w-3.5 h-3.5" />
               Export YAML
             </button>
+            <div className="flex min-h-[44px] items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-300">
+              <span className="text-xs text-slate-400">Metrics</span>
+              <select
+                value={metricsRefreshSeconds}
+                onChange={(event) => setMetricsRefreshSeconds(Number(event.target.value))}
+                className="bg-transparent text-sm text-white focus:outline-none"
+              >
+                {[15, 30, 60].map((seconds) => (
+                  <option key={seconds} value={seconds} className="bg-slate-900">{seconds}s</option>
+                ))}
+              </select>
+            </div>
             <button onClick={() => { void refetch(); void refetchMetrics(); void refetchHpa(); }} className="flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-300 transition-colors hover:bg-white/10 hover:text-white active:scale-95 touch-manipulation sm:flex-none">
               <RefreshCw className="w-3.5 h-3.5" />
               Refresh
@@ -331,6 +365,10 @@ export default function ClusterPage() {
 
         {(cpuHistory.length > 1 || memHistory.length > 1) && (
           <CollapsibleSection title="Live Metrics" storageKey="cluster-live-metrics" badge={<Activity className="w-4 h-4 text-emerald-400 flex-shrink-0" />}>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs text-slate-500">Metrics refresh interval: every {metricsRefreshSeconds}s</p>
+              <RefreshCountdown intervalSeconds={metricsRefreshSeconds} resetKey={metricsData?.timestamp ?? metricsRefreshSeconds} />
+            </div>
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <MetricAreaChart data={cpuHistory} label="Average Cluster CPU" unit="%" color="emerald" warnAt={70} critAt={90} />
               <MetricAreaChart data={memHistory} label="Average Cluster Memory" unit="%" color="indigo" warnAt={70} critAt={90} />
@@ -369,13 +407,28 @@ export default function ClusterPage() {
                       {node.unschedulable && <span className="text-xs text-orange-400 bg-orange-500/10 px-1.5 py-0.5 rounded">Cordoned</span>}
                     </div>
                     <div className="space-y-1 text-xs">
-                      <div className="flex justify-between"><span className="text-slate-500">IP</span><span className="text-slate-300 font-mono">{node.ip}</span></div>
+                      <div className="flex items-center justify-between gap-2"><span className="text-slate-500">IP</span><span className="flex items-center text-slate-300 font-mono">{node.ip}<CopyBtn text={node.ip} /></span></div>
                       <div className="flex justify-between"><span className="text-slate-500">Role</span><span className="text-slate-300">{node.roles.join(", ") || "worker"}</span></div>
                       <div className="flex justify-between"><span className="text-slate-500">Version</span><span className="text-slate-300 font-mono">{node.version}</span></div>
                       <div className="flex justify-between"><span className="text-slate-500">CPU</span><span className="text-slate-300">{node.cpu} cores {metricsMap[node.name] ? `(${metricsMap[node.name].cpuPct}% used)` : ""}</span></div>
                       <div className="flex justify-between"><span className="text-slate-500">Memory</span><span className="text-slate-300">{node.memory} {metricsMap[node.name] ? `(${metricsMap[node.name].memPct}%)` : ""}</span></div>
-                      {node.age && <div className="flex justify-between"><span className="text-slate-500">Age</span><span className="text-slate-300">{timeAgo(node.age)}</span></div>}
+                      {node.age && <div className="flex justify-between"><span className="text-slate-500">Uptime</span><span className="text-slate-300">{timeAgo(node.age)}</span></div>}
                     </div>
+                    {isAdmin && (
+                      <button
+                        onClick={() => void handleToggleCordon(node)}
+                        disabled={cordoningNode === node.name}
+                        className={cn(
+                          "mt-3 w-full rounded-lg border px-3 py-2 text-xs font-medium transition-colors",
+                          node.unschedulable
+                            ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/15"
+                            : "border-amber-500/30 bg-amber-500/10 text-amber-300 hover:bg-amber-500/15",
+                          cordoningNode === node.name && "opacity-60"
+                        )}
+                      >
+                        {cordoningNode === node.name ? "Updating..." : node.unschedulable ? "Uncordon node" : "Cordon node"}
+                      </button>
+                    )}
                   </motion.div>
                 ))}
               </div>

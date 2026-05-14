@@ -10,6 +10,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { useRBAC } from "@/hooks/use-rbac";
 import { toast } from "sonner";
 import Link from "next/link";
+import { RefreshCountdown } from "@/components/ui/refresh-countdown";
 
 interface GameServer {
   name: string;
@@ -495,7 +496,7 @@ export default function GameHubPage() {
     }
   }, [viewMode]);
 
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, error, dataUpdatedAt } = useQuery({
     queryKey: ["game-hub", "servers"],
     queryFn: async () => {
       const res = await fetch("/api/game-hub/servers");
@@ -657,6 +658,7 @@ export default function GameHubPage() {
         icon={Gamepad2}
         actions={
           <div className="flex items-center gap-2">
+            <RefreshCountdown intervalSeconds={15} resetKey={dataUpdatedAt} className="hidden sm:inline-flex" />
             {canManageGameHub ? (
               <button onClick={() => setShowPVCCleanup(true)} className="flex min-h-[44px] items-center gap-2 rounded-lg border border-[#2a2a2a] bg-[#252525] px-3 py-2 text-sm font-medium text-[#9e9e9e] transition-colors hover:bg-[#2a2a2a] hover:text-[#f2f2f2]">
                 <HardDrive className="w-4 h-4" />
