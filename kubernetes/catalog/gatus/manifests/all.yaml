@@ -30,7 +30,7 @@ data:
         default-alert:
           description: "InfraWeaver platform health alert"
           send-on-resolved: true
-          failure-threshold: 3
+          failure-threshold: 5
           success-threshold: 2
 
     endpoints:
@@ -49,7 +49,7 @@ data:
 
       - name: Traefik
         url: http://traefik-dashboard.traefik.svc.cluster.local:8080/ping
-        interval: 30s
+        interval: 60s
         group: core
         conditions:
           - "[STATUS] == 200"
@@ -73,7 +73,7 @@ data:
 
       - name: Authentik SSO
         url: https://auth.rlservers.com/-/health/ready/
-        interval: 30s
+        interval: 60s
         group: platform
         conditions:
           - "[STATUS] == 200"
@@ -90,6 +90,18 @@ data:
         alerts:
           - type: discord
             description: "NetBird VPN management API unreachable"
+
+      - name: Homepage Dashboard
+        url: https://home.int.rlservers.com
+        interval: 120s
+        group: platform
+        client:
+          insecure: true
+        conditions:
+          - "[STATUS] == 200"
+        alerts:
+          - type: discord
+            description: "Homepage dashboard is unreachable"
 
       - name: Grafana
         url: https://grafana.int.rlservers.com/api/health
@@ -146,13 +158,14 @@ data:
             description: "OneDev is unreachable"
 
       - name: InfraWeaver Console
-        url: https://infraweaver.int.rlservers.com/
+        url: https://infraweaver.int.rlservers.com/api/ping
         interval: 60s
         group: catalog
         client:
           insecure: true
         conditions:
           - "[STATUS] == 200"
+          - "[BODY].status == ok"
         alerts:
           - type: discord
             description: "InfraWeaver Console is unreachable"
@@ -272,11 +285,8 @@ spec:
             periodSeconds: 30
           resources:
             requests:
-              cpu: 25m
-              memory: 32Mi
-            limits:
-              cpu: 200m
-              memory: 128Mi
+              cpu: 50m
+              memory: 64Mi
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -315,17 +325,15 @@ spec:
     - match: Host(`status.int.rlservers.com`)
       kind: Rule
       middlewares:
-        - name: netbird-vpn-only
-          namespace: traefik
-        - name: forward-auth
-          namespace: traefik
-        - name: secure-headers
+        - name: authentik-forward-auth
+          namespace: authentik
+        - name: security-headers
           namespace: traefik
       services:
         - name: gatus
           port: 8080
   tls:
-    secretName: int-rlservers-com-tls
+    secretName: platform-wildcard-int-tls
 ---
 # NetworkPolicy for Gatus
 apiVersion: networking.k8s.io/v1

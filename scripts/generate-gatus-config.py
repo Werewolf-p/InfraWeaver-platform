@@ -44,7 +44,7 @@ CORE_ENDPOINTS = [
         "name": "Traefik",
         # Internal K8s service URL — uses the traefik entrypoint (port 8080).
         "url": "http://traefik-dashboard.traefik.svc.cluster.local:8080/ping",
-        "interval": "30s",
+        "interval": "60s",
         "group": "core",
         "conditions": ["[STATUS] == 200"],
         "alerts": [{"type": "discord", "description": "Traefik ingress is unreachable — all internal services affected"}],
@@ -87,7 +87,7 @@ APP_ENDPOINT_MAP = {
     "authentik": {
         "name": "Authentik SSO",
         "url": "https://auth.rlservers.com/-/health/ready/",
-        "interval": "30s",
+        "interval": "60s",
         "group": "platform",
         "conditions": ["[STATUS] == 200"],
         "alerts": [{"type": "discord", "description": "Authentik SSO is down — all platform logins affected"}],
@@ -297,7 +297,7 @@ data:
         default-alert:
           description: "InfraWeaver platform health alert"
           send-on-resolved: true
-          failure-threshold: 3
+          failure-threshold: 5
           success-threshold: 2
 
     endpoints:
