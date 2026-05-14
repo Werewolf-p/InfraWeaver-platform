@@ -83,22 +83,6 @@ subjects:
 #   last-alert-time      RFC3339 timestamp of the last sent Degraded alert
 #   last-sync-apps       comma-separated sorted list of apps synced in last notification
 #   last-sync-time       RFC3339 timestamp of the last sent sync notification
-# Do NOT edit manually; it is managed exclusively by the self-healer CronJob.
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: self-healer-state
-  namespace: argocd
-  labels:
-    app.kubernetes.io/name: argocd-self-healer
-    app.kubernetes.io/component: state
-data:
-  last-degraded-apps: ""
-  alerted-apps: ""
-  last-alert-time: ""
-  last-sync-apps: ""
-  last-sync-time: ""
----
 # Config ConfigMap — human-editable operational controls.
 # Set maintenance-until to an RFC3339 timestamp (preferred) or unix epoch to
 # suppress Degraded alerts during planned maintenance. Leave empty ("") or

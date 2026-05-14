@@ -375,25 +375,44 @@ function AllInstalledTab() {
   };
 
   const handleDelete = async (name: string) => {
-    if (!canSyncApps) {
+    if (!canManageApps) {
       toast.error("You do not have permission to delete apps");
       return;
     }
+
+    // Protect core infrastructure from accidental deletion
+    const isCoreApp = name.startsWith("core-") || name === "bootstrap" || name.startsWith("appset-") || name === "catalog-infraweaver-console-manifests";
+    if (isCoreApp) {
+      toast.error(`"${name}" is core infrastructure and cannot be removed from the console.`);
+      return;
+    }
+
+    const isCatalogOrPlatform = name.startsWith("catalog-") || name.startsWith("platform-");
+    const description = isCatalogOrPlatform
+      ? "This removes the app's git files and ArgoCD application. Deployed resources will be cleaned up by ArgoCD. This cannot be undone."
+      : "This permanently removes the ArgoCD application and cannot be undone. Deployed resources will be cleaned up automatically.";
+
     setConfirmDialog({
       open: true,
-      title: `Delete "${name}"?`,
-      description: "This permanently removes the ArgoCD application and cannot be undone. Deployed resources will be cleaned up automatically.",
+      title: `Remove "${name}"?`,
+      description,
       danger: true,
       onConfirm: () => {
         setConfirmDialog(d => ({ ...d, open: false }));
         setDeletingApp(name);
-        fetch(`/api/argocd/apps/${encodeURIComponent(name)}/delete`, { method: "DELETE" })
-          .then(res => {
-            if (!res.ok) throw new Error("Delete failed");
-            toast.success(`Deleted ${name}`);
+
+        const endpoint = isCatalogOrPlatform
+          ? `/api/apps/${encodeURIComponent(name)}/uninstall`
+          : `/api/argocd/apps/${encodeURIComponent(name)}/delete`;
+
+        fetch(endpoint, { method: "DELETE" })
+          .then(res => res.json().then(data => ({ ok: res.ok, data })))
+          .then(({ ok, data }: { ok: boolean; data: { message?: string; error?: string } }) => {
+            if (!ok) throw new Error((data as { error?: string }).error ?? "Remove failed");
+            toast.success((data as { message?: string }).message ?? `Removed ${name}`);
             void refetch();
           })
-          .catch(() => toast.error(`Failed to delete ${name}`))
+          .catch((e: unknown) => toast.error(e instanceof Error ? e.message : `Failed to remove ${name}`))
           .finally(() => setDeletingApp(null));
       },
     });

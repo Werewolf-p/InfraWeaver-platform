@@ -63,7 +63,7 @@ export default function SettingsPage() {
       <PageHeader icon={Settings} title="Settings" subtitle="Console and platform settings" />
 
       {/* Tabs */}
-      <div className="mb-6 flex gap-2">
+      <div className="mb-6 flex flex-wrap gap-2">
         {([
           { id: "general", label: "General", icon: Settings },
           { id: "platform", label: "Platform", icon: Sliders },
