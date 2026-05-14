@@ -1,6 +1,6 @@
 "use client";
 import { motion } from "framer-motion";
-import { RefreshCw, Layout, Filter, CheckCircle2, XCircle, Loader2, Sun, AlignJustify, Zap, Settings } from "lucide-react";
+import { RefreshCw, Layout, Filter, CheckCircle2, XCircle, Loader2, Sun, AlignJustify, Zap, Settings, Sliders } from "lucide-react";
 import { useSettingsContext, type RefreshInterval } from "@/contexts/settings-context";
 import { useSimpleMode } from "@/contexts/simple-mode-context";
 import { useQuery } from "@tanstack/react-query";
@@ -10,6 +10,7 @@ import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { PageHeader } from "@/components/ui/page-header";
 import { DensityToggle } from "@/components/ui/density-toggle";
 import { ClusterSettingsPanel } from "@/components/settings/cluster-settings-panel";
+import { PlatformEditorPanel } from "@/components/settings/platform-editor-panel";
 
 const REFRESH_OPTIONS: { label: string; value: RefreshInterval }[] = [
   { label: "15s", value: 15000 },
@@ -45,7 +46,7 @@ function ConnectionStatus({ label, queryFn }: { label: string; queryFn: () => Pr
 export default function SettingsPage() {
   const { settings, updateSetting, mounted } = useSettingsContext();
   const { simpleMode, setSimpleMode } = useSimpleMode();
-  const [activeTab, setActiveTab] = useState<"general" | "cluster">("general");
+  const [activeTab, setActiveTab] = useState<"general" | "platform" | "cluster">("general");
 
   if (!mounted) {
     return (
@@ -62,19 +63,24 @@ export default function SettingsPage() {
       <PageHeader icon={Settings} title="Settings" subtitle="Console and platform settings" />
 
       {/* Tabs */}
-      <div className="flex gap-2 mb-6">
-        {(["general", "cluster"] as const).map(tab => (
+      <div className="mb-6 flex gap-2">
+        {([
+          { id: "general", label: "General", icon: Settings },
+          { id: "platform", label: "Platform", icon: Sliders },
+          { id: "cluster", label: "Cluster", icon: Layout },
+        ] as const).map(({ id, label, icon: Icon }) => (
           <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
+            key={id}
+            onClick={() => setActiveTab(id)}
             className={cn(
-              "px-4 py-2 rounded-lg text-sm font-medium capitalize transition-colors",
-              activeTab === tab
-                ? "bg-indigo-500/20 border border-indigo-500/30 text-indigo-300"
-                : "bg-white/5 border border-white/10 text-slate-400 hover:text-white"
+              "flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors",
+              activeTab === id
+                ? "border border-indigo-500/30 bg-indigo-500/20 text-indigo-300"
+                : "border border-white/10 bg-white/5 text-slate-400 hover:text-white"
             )}
           >
-            {tab}
+            <Icon className="h-4 w-4" />
+            {label}
           </button>
         ))}
       </div>
@@ -276,6 +282,10 @@ export default function SettingsPage() {
           </div>
         </motion.div>
       </div>
+      )}
+
+      {activeTab === "platform" && (
+        <PlatformEditorPanel />
       )}
 
       {activeTab === "cluster" && (
