@@ -3,11 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
+  ArrowDown,
   Check,
   Copy,
   Download,
-  Pause,
-  Play,
   RefreshCw,
   Search,
   TerminalSquare,
@@ -15,14 +14,16 @@ import {
   WrapText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
-export type LogLevel = "ALL" | "ERROR" | "WARN" | "INFO";
+export type LogLevel = "ALL" | "ERROR" | "WARN" | "INFO" | "DEBUG";
 
 function getLineLevel(line: string): LogLevel {
   const value = line.toLowerCase();
   if (value.includes("error") || value.includes("fatal") || value.includes("critical")) return "ERROR";
   if (value.includes("warn") || value.includes("warning")) return "WARN";
-  if (value.includes("info") || value.includes("debug")) return "INFO";
+  if (value.includes("debug") || value.includes("trace")) return "DEBUG";
+  if (value.includes("info")) return "INFO";
   return "ALL";
 }
 
@@ -33,6 +34,7 @@ function CopyLineButton({ line }: { line: string }) {
     <button
       onClick={() => {
         void navigator.clipboard.writeText(line);
+        toast.success("Copied!");
         setCopied(true);
         window.setTimeout(() => setCopied(false), 1500);
       }}
@@ -67,12 +69,15 @@ export function LogStreamViewer({
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [filter, setFilter] = useState("");
-  const [follow, setFollow] = useState(true);
+  const [autoScroll, setAutoScroll] = useState(true);
   const [wrap, setWrap] = useState(false);
   const [levelFilter, setLevelFilter] = useState<LogLevel>("ALL");
   const [refreshToken, setRefreshToken] = useState(0);
+  const [isAtBottom, setIsAtBottom] = useState(true);
+  const [pendingLines, setPendingLines] = useState(0);
   const logsRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const previousLogCountRef = useRef(0);
 
   const closeStream = useCallback(() => {
     eventSourceRef.current?.close();
@@ -100,6 +105,7 @@ export function LogStreamViewer({
         const text = await response.text();
         if (!signal.aborted) {
           setLogs(text.split("\n").filter(Boolean));
+          setPendingLines(0);
         }
       } catch (fetchError) {
         if (!signal.aborted) {
@@ -130,7 +136,7 @@ export function LogStreamViewer({
 
     const load = async () => {
       await fetchInitialLogs(controller.signal);
-      if (disposed || controller.signal.aborted || !follow) {
+      if (disposed || controller.signal.aborted) {
         return;
       }
 
@@ -167,13 +173,32 @@ export function LogStreamViewer({
       controller.abort();
       closeStream();
     };
-  }, [container, namespace, pod, follow, refreshToken, fetchInitialLogs, closeStream]);
+  }, [container, namespace, pod, refreshToken, fetchInitialLogs, closeStream]);
 
   useEffect(() => {
-    if (follow && logsRef.current) {
-      logsRef.current.scrollTop = logsRef.current.scrollHeight;
+    const containerEl = logsRef.current;
+    if (!containerEl) return;
+
+    if (autoScroll) {
+      containerEl.scrollTop = containerEl.scrollHeight;
+      setPendingLines(0);
+      setIsAtBottom(true);
+      previousLogCountRef.current = logs.length;
+      return;
     }
-  }, [follow, logs]);
+
+    const addedLines = logs.length - previousLogCountRef.current;
+    const atBottomNow = containerEl.scrollHeight - containerEl.scrollTop - containerEl.clientHeight < 24;
+    setIsAtBottom(atBottomNow);
+
+    if (atBottomNow) {
+      setPendingLines(0);
+    } else if (addedLines > 0) {
+      setPendingLines((current) => current + addedLines);
+    }
+
+    previousLogCountRef.current = logs.length;
+  }, [autoScroll, logs]);
 
   const filteredLogs = useMemo(
     () =>
@@ -190,6 +215,7 @@ export function LogStreamViewer({
       ERROR: logs.filter((line) => getLineLevel(line) === "ERROR").length,
       WARN: logs.filter((line) => getLineLevel(line) === "WARN").length,
       INFO: logs.filter((line) => getLineLevel(line) === "INFO").length,
+      DEBUG: logs.filter((line) => getLineLevel(line) === "DEBUG").length,
     }),
     [logs]
   );
@@ -219,6 +245,41 @@ export function LogStreamViewer({
     if (node instanceof HTMLElement) {
       node.scrollIntoView({ behavior: "smooth", block: "center" });
     }
+  };
+
+  const jumpToBottom = () => {
+    if (!logsRef.current) return;
+    logsRef.current.scrollTo({ top: logsRef.current.scrollHeight, behavior: "smooth" });
+    setPendingLines(0);
+    setIsAtBottom(true);
+  };
+
+  const handleScroll = () => {
+    const containerEl = logsRef.current;
+    if (!containerEl) return;
+    const atBottom = containerEl.scrollHeight - containerEl.scrollTop - containerEl.clientHeight < 24;
+    setIsAtBottom(atBottom);
+    if (atBottom) {
+      setPendingLines(0);
+    }
+  };
+
+  const copyRecentLogs = async () => {
+    const text = filteredLogs.slice(-100).join("\n");
+    if (!text) {
+      toast.error("No logs to copy");
+      return;
+    }
+    await navigator.clipboard.writeText(text);
+    toast.success("Copied!");
+  };
+
+  const handleContextCopy = async (event: React.MouseEvent<HTMLDivElement>) => {
+    const selection = window.getSelection()?.toString().trim();
+    if (!selection) return;
+    event.preventDefault();
+    await navigator.clipboard.writeText(selection);
+    toast.success("Copied!");
   };
 
   if (!namespace || !pod) {
@@ -268,7 +329,7 @@ export function LogStreamViewer({
         </div>
 
         <div className="flex items-center gap-1 rounded-lg border border-white/10 bg-slate-950/70 p-1">
-          {(["ALL", "ERROR", "WARN", "INFO"] as LogLevel[]).map((entry) => {
+          {(["ALL", "ERROR", "WARN", "INFO", "DEBUG"] as LogLevel[]).map((entry) => {
             const count = entry === "ALL" ? logs.length : levelCounts[entry];
             return (
               <button
@@ -289,16 +350,16 @@ export function LogStreamViewer({
         </div>
 
         <button
-          onClick={() => setFollow((current) => !current)}
+          onClick={() => setAutoScroll((current) => !current)}
           className={cn(
             "inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition",
-            follow
+            autoScroll
               ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
               : "border-white/10 bg-slate-950 text-slate-400 hover:text-white"
           )}
         >
-          {follow ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
-          Follow
+          <ArrowDown className="h-4 w-4" />
+          {autoScroll ? "Auto-scroll" : "Manual scroll"}
         </button>
 
         <button
@@ -329,6 +390,13 @@ export function LogStreamViewer({
         {logs.length > 0 && (
           <>
             <button
+              onClick={copyRecentLogs}
+              className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-slate-300 transition hover:text-white"
+            >
+              <Copy className="h-4 w-4" />
+              Copy last 100
+            </button>
+            <button
               onClick={handleDownload}
               className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-slate-300 transition hover:text-white"
             >
@@ -336,7 +404,7 @@ export function LogStreamViewer({
               Download
             </button>
             <button
-              onClick={() => setLogs([])}
+              onClick={() => { setLogs([]); setPendingLines(0); }}
               className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-slate-300 transition hover:text-white"
             >
               <Trash2 className="h-4 w-4" />
@@ -353,8 +421,19 @@ export function LogStreamViewer({
         </div>
       ) : null}
 
+      {!autoScroll && pendingLines > 0 ? (
+        <button
+          onClick={jumpToBottom}
+          className="self-end rounded-full border border-indigo-500/30 bg-indigo-500/10 px-3 py-1 text-xs text-indigo-300 transition hover:bg-indigo-500/20"
+        >
+          Jump to bottom · {pendingLines} new
+        </button>
+      ) : null}
+
       <div
         ref={logsRef}
+        onScroll={handleScroll}
+        onContextMenu={(event) => { void handleContextCopy(event); }}
         className="min-h-[420px] flex-1 overflow-auto rounded-2xl border border-white/10 bg-slate-950 p-4 font-mono text-xs leading-relaxed text-slate-200"
       >
         {filteredLogs.length === 0 ? (
@@ -373,7 +452,8 @@ export function LogStreamViewer({
                     "group flex items-start gap-3 rounded-lg px-2 py-1 hover:bg-white/5",
                     level === "ERROR" && "text-red-300",
                     level === "WARN" && "text-amber-300",
-                    level === "INFO" && "text-sky-300"
+                    level === "INFO" && "text-sky-300",
+                    level === "DEBUG" && "text-slate-400"
                   )}
                 >
                   <span className="w-10 shrink-0 text-right text-slate-600">{String(index + 1).padStart(4, "0")}</span>
