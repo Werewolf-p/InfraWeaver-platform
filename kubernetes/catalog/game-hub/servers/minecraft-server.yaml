@@ -12,12 +12,6 @@ metadata:
   labels:
     app: minecraft-server
     infraweaver/game: 'true'
-  annotations:
-    argocd.argoproj.io/tracking-id: catalog-game-hub-servers:/PersistentVolumeClaim:game-hub/minecraft-server-data
-    pv.kubernetes.io/bind-completed: 'yes'
-    pv.kubernetes.io/bound-by-controller: 'yes'
-    volume.beta.kubernetes.io/storage-provisioner: driver.longhorn.io
-    volume.kubernetes.io/storage-provisioner: driver.longhorn.io
 spec:
   accessModes:
     - ReadWriteOnce

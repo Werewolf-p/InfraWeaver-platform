@@ -48,3 +48,11 @@ spec:
       jsonPointers:
         - /spec/clusterIP   # assigned by k8s, not in manifest
         - /spec/clusterIPs
+    - group: ""
+      kind: PersistentVolumeClaim
+      jsonPointers:
+        - /metadata/annotations/pv.kubernetes.io~1bind-completed
+        - /metadata/annotations/pv.kubernetes.io~1bound-by-controller
+        - /metadata/annotations/volume.beta.kubernetes.io~1storage-provisioner
+        - /metadata/annotations/volume.kubernetes.io~1storage-provisioner
+        - /metadata/annotations/argocd.argoproj.io~1tracking-id

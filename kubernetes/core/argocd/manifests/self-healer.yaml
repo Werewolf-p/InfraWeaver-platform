@@ -460,17 +460,41 @@ spec:
                       SECS_SINCE_SYNC=$(( NOW_EPOCH - LAST_SYNC_EPOCH ))
                     fi
 
-                    # Deduplicate: same apps + within cooldown window → silent sync (still heals, no notification)
-                    if [ "$SYNCED_APP_CSV" = "$LAST_SYNC_APPS" ] && [ "$SECS_SINCE_SYNC" -lt "$SYNC_COOLDOWN_SECONDS" ]; then
+                    # Subset dedup: suppress notification if ALL synced apps are already in
+                    # the last-notified set AND within the cooldown window. This stops spam
+                    # when the same recurring apps appear in varying combinations each run
+                    # (e.g. bootstrap sometimes joins core-priority-classes + game-hub-servers).
+                    IS_SUBSET=true
+                    if [ "$SECS_SINCE_SYNC" -lt "$SYNC_COOLDOWN_SECONDS" ] && [ -n "$LAST_SYNC_APPS" ]; then
+                      for _APP in $(echo "$SYNCED_APP_CSV" | tr ',' ' '); do
+                        if ! echo ",$LAST_SYNC_APPS," | grep -q ",$_APP,"; then
+                          IS_SUBSET=false; break
+                        fi
+                      done
+                    else
+                      IS_SUBSET=false
+                    fi
+
+                    if [ "$IS_SUBSET" = "true" ]; then
                       MINS_AGO=$(( SECS_SINCE_SYNC / 60 ))
-                      echo "[self-healer] Sync deduplication — same apps ($SYNCED_APP_CSV) synced ${MINS_AGO}m ago (cooldown ${SYNC_COOLDOWN_SECONDS}s), skipping notification"
+                      echo "[self-healer] Sync dedup — all synced apps ($SYNCED_APP_CSV) are subset of last notification (${LAST_SYNC_APPS}) ${MINS_AGO}m ago, skipping notification"
                     else
                       notify_discord \
                         ":wrench: Self-Healer Auto-Synced $SYNCED App(s)" \
                         "3066993" \
                         "The ArgoCD self-healer triggered sync for:\n${SYNCED_APPS}\nThese apps were OutOfSync after a hard-refresh."
                       CURRENT_SYNC_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-                      update_state_key "last-sync-apps" "$SYNCED_APP_CSV"
+                      # Store the UNION of current + last so future subsets still match
+                      UNION_APPS="$SYNCED_APP_CSV"
+                      if [ -n "$LAST_SYNC_APPS" ] && [ "$SECS_SINCE_SYNC" -lt "$SYNC_COOLDOWN_SECONDS" ]; then
+                        for _APP in $(echo "$LAST_SYNC_APPS" | tr ',' ' '); do
+                          if ! echo ",$UNION_APPS," | grep -q ",$_APP,"; then
+                            UNION_APPS="${UNION_APPS},${_APP}"
+                          fi
+                        done
+                        UNION_APPS=$(echo "$UNION_APPS" | tr ',' '\n' | sort | tr '\n' ',' | sed 's/,$//')
+                      fi
+                      update_state_key "last-sync-apps" "$UNION_APPS"
                       update_state_key "last-sync-time" "$CURRENT_SYNC_TIME"
                     fi
                   fi

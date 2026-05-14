@@ -31,3 +31,10 @@ spec:
     syncOptions:
       - CreateNamespace=false
       - Replace=true
+      - RespectIgnoreDifferences=true
+  ignoreDifferences:
+    - group: scheduling.k8s.io
+      kind: PriorityClass
+      jsonPointers:
+        - /metadata/annotations
+        - /preemptionPolicy

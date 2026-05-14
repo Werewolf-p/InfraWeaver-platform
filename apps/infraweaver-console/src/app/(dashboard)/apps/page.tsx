@@ -18,6 +18,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { useArgoApps } from "@/hooks/use-argocd";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { UpdatePolicyModal } from "@/components/apps/update-policy-modal";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 
 
@@ -287,6 +288,13 @@ function AllInstalledTab() {
   // Track recently uninstalled ArgoCD app names so they don't re-appear in catalog rows
   // while ArgoCD is still pruning them from the cluster.
   const [recentlyUninstalled, setRecentlyUninstalled] = useState<Set<string>>(new Set());
+  const [confirmDialog, setConfirmDialog] = useState<{
+    open: boolean;
+    title: string;
+    description?: string;
+    onConfirm: () => void;
+    danger?: boolean;
+  }>({ open: false, title: "", onConfirm: () => {} });
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -371,18 +379,24 @@ function AllInstalledTab() {
       toast.error("You do not have permission to delete apps");
       return;
     }
-    if (!confirm(`Delete application "${name}"? This cannot be undone.`)) return;
-    setDeletingApp(name);
-    try {
-      const res = await fetch(`/api/argocd/apps/${encodeURIComponent(name)}/delete`, { method: "DELETE" });
-      if (!res.ok) throw new Error("Delete failed");
-      toast.success(`Deleted ${name}`);
-      void refetch();
-    } catch {
-      toast.error(`Failed to delete ${name}`);
-    } finally {
-      setDeletingApp(null);
-    }
+    setConfirmDialog({
+      open: true,
+      title: `Delete "${name}"?`,
+      description: "This permanently removes the ArgoCD application and cannot be undone. Deployed resources will be cleaned up automatically.",
+      danger: true,
+      onConfirm: () => {
+        setConfirmDialog(d => ({ ...d, open: false }));
+        setDeletingApp(name);
+        fetch(`/api/argocd/apps/${encodeURIComponent(name)}/delete`, { method: "DELETE" })
+          .then(res => {
+            if (!res.ok) throw new Error("Delete failed");
+            toast.success(`Deleted ${name}`);
+            void refetch();
+          })
+          .catch(() => toast.error(`Failed to delete ${name}`))
+          .finally(() => setDeletingApp(null));
+      },
+    });
   };
 
   const handleUninstallCommunity = async (slug: string) => {
@@ -390,22 +404,25 @@ function AllInstalledTab() {
       toast.error("You do not have permission to uninstall community apps");
       return;
     }
-    if (!confirm(`Uninstall "${slug}"?\n\nThis removes the app from git. ArgoCD will clean up deployed resources within a few minutes.`)) return;
-    setUninstallingApp(slug);
-    try {
-      const res = await fetch(`/api/community-apps/${encodeURIComponent(slug)}`, { method: "DELETE" });
-      const data = (await res.json()) as { message?: string; error?: string; details?: string[] };
-      if (!res.ok) throw new Error(data.error ?? "Uninstall failed");
-      toast.success(data.message ?? `${slug} scheduled for removal`);
-      // Remove from community list immediately
-      setCommunityApps(prev => prev.filter(a => a.slug !== slug));
-      // Also hide the ArgoCD Application row while ArgoCD prunes it (~3-5 min)
-      setRecentlyUninstalled(prev => new Set([...prev, `catalog-${slug}-manifests`]));
-    } catch (e) {
-      toast.error(String(e));
-    } finally {
-      setUninstallingApp(null);
-    }
+    setConfirmDialog({
+      open: true,
+      title: `Uninstall "${slug}"?`,
+      description: "This removes the app from git. ArgoCD will clean up deployed resources within a few minutes.",
+      danger: true,
+      onConfirm: () => {
+        setConfirmDialog(d => ({ ...d, open: false }));
+        setUninstallingApp(slug);
+        fetch(`/api/community-apps/${encodeURIComponent(slug)}`, { method: "DELETE" })
+          .then(r => r.json())
+          .then((data: { message?: string; error?: string; details?: string[] }) => {
+            toast.success(data.message ?? `${slug} scheduled for removal`);
+            setCommunityApps(prev => prev.filter(a => a.slug !== slug));
+            setRecentlyUninstalled(prev => new Set([...prev, `catalog-${slug}-manifests`]));
+          })
+          .catch(e => toast.error(String(e)))
+          .finally(() => setUninstallingApp(null));
+      },
+    });
   };
 
   const loading = argoLoading || communityLoading;
@@ -651,6 +668,17 @@ function AllInstalledTab() {
           onClose={() => setUpdatePolicyApp(null)}
         />
       )}
+
+      {/* Confirm dialog — works on mobile, replaces browser confirm() */}
+      <ConfirmDialog
+        open={confirmDialog.open}
+        title={confirmDialog.title}
+        description={confirmDialog.description}
+        danger={confirmDialog.danger}
+        confirmText="Yes, proceed"
+        onConfirm={confirmDialog.onConfirm}
+        onCancel={() => setConfirmDialog(prev => ({ ...prev, open: false }))}
+      />
     </div>
   );
 }

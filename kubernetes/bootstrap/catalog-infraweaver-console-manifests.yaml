@@ -50,6 +50,10 @@ spec:
       kind: PushSecret
       jqPathExpressions:
         - '.spec.data[].match.remoteRef.conversionStrategy'
+        - '.spec.data[].match.remoteRef.decodingStrategy'
+        - '.spec.data[].match.remoteRef.metadataPolicy'
       jsonPointers:
         - /spec/deletionPolicy
         - /spec/updatePolicy
+        - /spec/template
+        - /spec/selector
