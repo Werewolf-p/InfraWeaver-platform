@@ -131,7 +131,7 @@ describe("convertAppFeedEntry", () => {
     ]);
   });
 
-  it("defaults PVCs to the longhorn-game storage class", () => {
+  it("defaults PVCs to the longhorn storage class", () => {
     const result = convertAppFeedEntry({
       Name: "PVC App",
       Repository: "ghcr.io/example/pvc-app:1.0",
@@ -148,7 +148,7 @@ describe("convertAppFeedEntry", () => {
 
     const docs = loadAll(result.combinedYaml) as ParsedDoc[];
     const pvc = docs.find(doc => doc.kind === "PersistentVolumeClaim") as ParsedPvc;
-    expect(pvc.spec.storageClassName).toBe("longhorn-game");
+    expect(pvc.spec.storageClassName).toBe("longhorn");
   });
 
   it("rejects apps without an image", () => {
