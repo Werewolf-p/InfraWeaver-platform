@@ -9,7 +9,6 @@ import { useState } from "react";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { PageHeader } from "@/components/ui/page-header";
 import { DensityToggle } from "@/components/ui/density-toggle";
-import { ClusterSettingsPanel } from "@/components/settings/cluster-settings-panel";
 import { PlatformEditorPanel } from "@/components/settings/platform-editor-panel";
 
 const REFRESH_OPTIONS: { label: string; value: RefreshInterval }[] = [
@@ -46,7 +45,7 @@ function ConnectionStatus({ label, queryFn }: { label: string; queryFn: () => Pr
 export default function SettingsPage() {
   const { settings, updateSetting, mounted } = useSettingsContext();
   const { simpleMode, setSimpleMode } = useSimpleMode();
-  const [activeTab, setActiveTab] = useState<"general" | "platform" | "cluster">("general");
+  const [activeTab, setActiveTab] = useState<"general" | "platform">("general");
 
   if (!mounted) {
     return (
@@ -67,7 +66,6 @@ export default function SettingsPage() {
         {([
           { id: "general", label: "General", icon: Settings },
           { id: "platform", label: "Platform", icon: Sliders },
-          { id: "cluster", label: "Cluster", icon: Layout },
         ] as const).map(({ id, label, icon: Icon }) => (
           <button
             key={id}
@@ -286,10 +284,6 @@ export default function SettingsPage() {
 
       {activeTab === "platform" && (
         <PlatformEditorPanel />
-      )}
-
-      {activeTab === "cluster" && (
-        <ClusterSettingsPanel />
       )}
     </div>
   );

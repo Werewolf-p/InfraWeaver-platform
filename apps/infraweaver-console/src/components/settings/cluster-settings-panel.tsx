@@ -804,7 +804,7 @@ function ResourceEditor({ canWrite }: { canWrite: boolean }) {
 
 // ── Main Panel ──────────────────────────────────────────────────────────────────
 
-export function ClusterSettingsPanel() {
+export function ClusterSettingsPanel({ embedded = false }: { embedded?: boolean }) {
   const { can } = useRBAC();
   const canWrite = can("config:write");
   const [savedBanner, setSavedBanner] = useState(false);
@@ -817,8 +817,8 @@ export function ClusterSettingsPanel() {
     }
   }, [savedBanner]);
 
-  return (
-    <div className="max-w-screen-xl space-y-8">
+  const content = (
+    <>
       {savedBanner && (
         <motion.div
           initial={{ opacity: 0, y: -8 }}
@@ -831,14 +831,15 @@ export function ClusterSettingsPanel() {
         </motion.div>
       )}
 
-      {/* Live node overview */}
       <NodeOverview />
-
-      {/* Node Specs editor — CPU / Memory resize with rolling update workflow */}
       <NodeSpecsEditor canWrite={canWrite} />
-
-      {/* Resource limits editor */}
       <ResourceEditor canWrite={canWrite} />
-    </div>
+    </>
   );
+
+  if (embedded) {
+    return <div className="space-y-8">{content}</div>;
+  }
+
+  return <div className="max-w-screen-xl space-y-8">{content}</div>;
 }

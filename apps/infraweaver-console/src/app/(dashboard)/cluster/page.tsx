@@ -2,7 +2,7 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
-import { Server, Plus, RefreshCw, Zap, Link2, Loader2, Copy, Check, ChevronDown, Activity, Layers, BarChart2, GitBranch, Pencil, Save, X, Download } from "lucide-react";
+import { Server, Plus, RefreshCw, Zap, Link2, Loader2, Copy, Check, ChevronDown, Activity, Layers, BarChart2, GitBranch, Pencil, Save, X, Download, Settings2 } from "lucide-react";
 import { useRBAC } from "@/hooks/use-rbac";
 import { cn, timeAgo } from "@/lib/utils";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -11,6 +11,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { toast } from "sonner";
 import Link from "next/link";
 import { MetricAreaChart } from "@/components/charts/AreaChart";
+import { ClusterSettingsPanel } from "@/components/settings/cluster-settings-panel";
 
 interface Node {
   name: string;
@@ -395,6 +396,17 @@ export default function ClusterPage() {
                 <HPARow key={`${hpa.namespace}/${hpa.name}`} hpa={hpa} isAdmin={isAdmin} onSaved={() => { void refetchHpa(); }} />
               ))}
             </div>
+          </CollapsibleSection>
+        )}
+
+        {isAdmin && (
+          <CollapsibleSection
+            title="Node & Service Configuration"
+            storageKey="cluster-config-panel"
+            badge={<Settings2 className="w-4 h-4 text-purple-400 flex-shrink-0" />}
+            defaultOpen
+          >
+            <ClusterSettingsPanel embedded />
           </CollapsibleSection>
         )}
 
