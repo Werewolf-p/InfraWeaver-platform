@@ -72,7 +72,7 @@ spec:
               memory: 1500Mi
               cpu: "1"
             limits:
-              memory: 1500Mi
+              memory: 2560Mi
               cpu: "1"
           volumeMounts:
             - name: data
