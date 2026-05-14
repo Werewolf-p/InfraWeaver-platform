@@ -118,7 +118,7 @@ postgresql:
       limits:
         cpu: 500m
         memory: 512Mi
-    # Prefer CP1/CP3 for PostgreSQL stability (CP2 has historically higher restart rate)
+    # Avoid CP2 (chronically OOM-killed) — PostgreSQL must NOT land on unstable node
     affinity:
       nodeAffinity:
         preferredDuringSchedulingIgnoredDuringExecution:
@@ -126,10 +126,9 @@ postgresql:
           preference:
             matchExpressions:
             - key: kubernetes.io/hostname
-              operator: In
+              operator: NotIn
               values:
-              - talos-prod-cp1
-              - talos-prod-cp3
+              - talos-prod-cp2
 
 redis:
   enabled: true
@@ -190,16 +189,15 @@ server:
                 app.kubernetes.io/name: authentik
                 app.kubernetes.io/component: server
             topologyKey: kubernetes.io/hostname
-    # Avoid cp3: Flannel/CNI unstable on cp3, causes pod sandbox failures
+    # Avoid CP2 (chronically OOM-killed) — spread across CP1/CP3 for HA
     nodeAffinity:
       preferredDuringSchedulingIgnoredDuringExecution:
         - weight: 100
           preference:
             matchExpressions:
               - key: kubernetes.io/hostname
-                operator: In
+                operator: NotIn
                 values:
-                  - talos-prod-cp1
                   - talos-prod-cp2
   resources:
     requests:
@@ -229,16 +227,15 @@ worker:
                 app.kubernetes.io/name: authentik
                 app.kubernetes.io/component: worker
             topologyKey: kubernetes.io/hostname
-    # Avoid cp3: Flannel/CNI unstable on cp3, causes pod sandbox failures
+    # Avoid CP2 (chronically OOM-killed) — spread across CP1/CP3 for HA
     nodeAffinity:
       preferredDuringSchedulingIgnoredDuringExecution:
         - weight: 100
           preference:
             matchExpressions:
               - key: kubernetes.io/hostname
-                operator: In
+                operator: NotIn
                 values:
-                  - talos-prod-cp1
                   - talos-prod-cp2
   # Give enough time for Django migrations on a fresh DB (292+ migrations)
   # NOTE: Authentik chart does NOT support livenessProbe.enabled field — use raw k8s probe fields only

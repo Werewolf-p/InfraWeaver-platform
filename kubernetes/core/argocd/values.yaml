@@ -7,7 +7,7 @@ controller:
     requests:
       cpu: 250m
       memory: 512Mi
-  # Prefer cp2/cp3 to keep cp1 free for prometheus (PV-pinned) + control-plane components
+  # Avoid CP2 — it was chronically OOM-killing; prefer CP1/CP3 for all ArgoCD components
   affinity:
     nodeAffinity:
       preferredDuringSchedulingIgnoredDuringExecution:
@@ -15,10 +15,9 @@ controller:
         preference:
           matchExpressions:
           - key: kubernetes.io/hostname
-            operator: In
+            operator: NotIn
             values:
             - talos-prod-cp2
-            - talos-prod-cp3
 
 server:
   replicas: 2  # HA: 2 replicas spread across nodes
@@ -28,12 +27,12 @@ server:
   affinity:
     nodeAffinity:
       preferredDuringSchedulingIgnoredDuringExecution:
-        - weight: 80
+        - weight: 100
           preference:
             matchExpressions:
               - key: kubernetes.io/hostname
-                operator: In
-                values: [talos-prod-cp2, talos-prod-cp3]
+                operator: NotIn
+                values: [talos-prod-cp2]
     podAntiAffinity:
       preferredDuringSchedulingIgnoredDuringExecution:
         - weight: 100
@@ -54,12 +53,12 @@ repoServer:
   affinity:
     nodeAffinity:
       preferredDuringSchedulingIgnoredDuringExecution:
-        - weight: 80
+        - weight: 100
           preference:
             matchExpressions:
               - key: kubernetes.io/hostname
-                operator: In
-                values: [talos-prod-cp2, talos-prod-cp3]
+                operator: NotIn
+                values: [talos-prod-cp2]
     podAntiAffinity:
       preferredDuringSchedulingIgnoredDuringExecution:
         - weight: 100
@@ -74,12 +73,12 @@ applicationSet:
   affinity:
     nodeAffinity:
       preferredDuringSchedulingIgnoredDuringExecution:
-        - weight: 80
+        - weight: 100
           preference:
             matchExpressions:
               - key: kubernetes.io/hostname
-                operator: In
-                values: [talos-prod-cp2, talos-prod-cp3]
+                operator: NotIn
+                values: [talos-prod-cp2]
     podAntiAffinity:
       preferredDuringSchedulingIgnoredDuringExecution:
         - weight: 100

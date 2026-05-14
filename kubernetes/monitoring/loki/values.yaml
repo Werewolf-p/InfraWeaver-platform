@@ -1,6 +1,15 @@
 loki:
   enabled: true
   priorityClassName: platform-standard
+  affinity:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        preference:
+          matchExpressions:
+          - key: kubernetes.io/hostname
+            operator: NotIn
+            values: [talos-prod-cp2]
   persistence:
     enabled: true
     size: 10Gi

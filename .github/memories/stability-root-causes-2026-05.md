@@ -421,3 +421,42 @@ fail → mass faulted volumes → apps stuck → cluster appears "down".
 - File: `kubernetes/core/argocd/manifests/self-healer.yaml`
 
 ---
+
+## Root Cause #16: CP2 OOM — Critical Workload Concentration (RESOLVED 2026-05-14)
+
+**Symptom:** CP2 was OOM-killing every ~13 minutes. Each crash: 30 pods restart simultaneously
+→ Longhorn volumes fail → Gatus fires. Kyverno had 261 restarts, ArgoCD had 36+, Grafana 105+.
+
+**Root Cause:**
+- CP2 ran ALL critical workloads: ArgoCD (4 pods), Kyverno (4 pods), cert-manager (3 pods),
+  Grafana, Loki, Authentik-server+LDAP, image-updater, InfraWeaver-console, Terraria
+- Total ~4GB memory requests / ~9GB limits on a 12GB node (game servers pushed it over)
+- CP2 was preferred by ArgoCD affinity rules (values.yaml said `prefer [CP2, CP3]`)
+
+**Fix (2026-05-14):**
+```bash
+# 1. Cordon CP2 (permanent until RAM increased in Proxmox)
+kubectl --kubeconfig ~/.kube/config-platform-productie-cp3 --insecure-skip-tls-verify cordon talos-prod-cp2
+# 2. Delete all non-DaemonSet pods on CP2 (they reschedule on CP1/CP3)
+# 3. Grafana + Loki had local-path PVCs pinned to CP2 — delete PVCs, recreate on CP1/CP3
+kubectl scale statefulset loki -n monitoring --replicas=0
+kubectl delete pvc storage-loki-0 -n monitoring
+kubectl scale statefulset loki -n monitoring --replicas=1
+kubectl delete pod -n monitoring -l app.kubernetes.io/name=grafana
+kubectl delete pvc kube-prometheus-stack-grafana -n monitoring
+```
+
+**Prevention committed to git (2026-05-14):**
+- ArgoCD values: `operator: NotIn, values: [talos-prod-cp2]` for ALL components
+- Authentik values: `NotIn CP2` for server, worker, worker, PostgreSQL
+- Kyverno values: `NotIn CP2` for all 4 controllers
+- cert-manager values: `NotIn CP2` global affinity
+- Loki values: `NotIn CP2` affinity
+- kube-prometheus-stack: Grafana `NotIn CP2` (removed grafana-eligible label requirement)
+
+**Node state:**
+- CP2 remains cordoned (node.spec.unschedulable=true in etcd)
+- To uncordon: `kubectl uncordon talos-prod-cp2` (only do after Proxmox RAM increase)
+- CP2 RAM allocation should be increased from ~12GB to ~16GB in Proxmox before uncordon
+
+---

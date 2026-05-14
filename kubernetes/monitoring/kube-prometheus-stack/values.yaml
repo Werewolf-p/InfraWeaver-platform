@@ -33,18 +33,17 @@ grafana:
     enabled: true
     size: 5Gi
 
-  # Schedule Grafana only on nodes with the 'grafana-eligible' label.
-  # Label nodes with: kubectl label node <node> grafana-eligible=true
-  # Nodes with Docker Hub connectivity issues can be excluded by omitting the label.
+  # Avoid CP2 (chronically OOM-killed); CP3/CP1 preferred
   affinity:
     nodeAffinity:
-      requiredDuringSchedulingIgnoredDuringExecution:
-        nodeSelectorTerms:
-          - matchExpressions:
-              - key: grafana-eligible
-                operator: In
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          preference:
+            matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: NotIn
                 values:
-                  - "true"
+                  - talos-prod-cp2
 
   ingress:
     enabled: true
