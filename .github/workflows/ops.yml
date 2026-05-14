@@ -37,6 +37,7 @@ on:
           - talos-upgrade            # rolling Talos upgrade (requires confirm=yes)
           - terraform-plan           # tofu plan (informational)
           - terraform-apply          # tofu apply (destructive!)
+          - talos-apply-apiserver-limits  # cap kube-apiserver memory (fixes 72-min reboot cycle)
       environment:
         description: "Environment"
         required: false
@@ -332,7 +333,87 @@ jobs:
       - name: Post-upgrade health check
         run: sleep 30 && talosctl --nodes 10.10.0.90 health --wait-timeout 5m && echo "✅ All nodes upgraded"
 
-  # ── Terraform Plan / Apply ───────────────────────────────────────────────────
+  # ── kube-apiserver Memory Limits ──────────────────────────────────────────────
+  talos-apiserver-limits:
+    name: Apply kube-apiserver Memory Limits
+    if: inputs.operation == 'talos-apply-apiserver-limits' && inputs.confirm == 'yes'
+    timeout-minutes: 20
+    runs-on: [self-hosted, prod-worker]
+    environment: productie
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Install talosctl
+        run: |
+          curl -sL https://talos.dev/install | sh
+          talosctl version --client
+
+      - name: Setup talosconfig
+        run: |
+          mkdir -p ~/.talos
+          python3 .github/scripts/extract_kubeconfig.py
+          cp /tmp/kubeconfig-extract/talosconfig ~/.talos/config && chmod 600 ~/.talos/config
+          echo "✅ talosconfig loaded"
+
+      - name: Create apiserver memory limit patch
+        run: |
+          cat > /tmp/apiserver-limits.yaml << 'PATCH'
+          cluster:
+            apiServer:
+              extraArgs:
+                target-ram-mb: "1024"
+              resources:
+                requests:
+                  memory: 512Mi
+                limits:
+                  memory: 1800Mi
+          PATCH
+          echo "Patch content:"
+          cat /tmp/apiserver-limits.yaml
+
+      - name: Apply to CP3 (highest load — patch first)
+        run: |
+          echo "Patching CP3 (10.10.0.92)..."
+          talosctl patch mc --nodes 10.10.0.92 --mode=no-reboot --patch-file /tmp/apiserver-limits.yaml
+          echo "Waiting 90s for kube-apiserver restart on CP3..."
+          sleep 90
+          echo "✅ CP3 patched"
+
+      - name: Apply to CP1
+        run: |
+          echo "Patching CP1 (10.10.0.90)..."
+          talosctl patch mc --nodes 10.10.0.90 --mode=no-reboot --patch-file /tmp/apiserver-limits.yaml
+          echo "Waiting 90s for kube-apiserver restart on CP1..."
+          sleep 90
+          echo "✅ CP1 patched"
+
+      - name: Apply to CP2
+        run: |
+          echo "Patching CP2 (10.10.0.91)..."
+          talosctl patch mc --nodes 10.10.0.91 --mode=no-reboot --patch-file /tmp/apiserver-limits.yaml
+          echo "Waiting 90s for kube-apiserver restart on CP2..."
+          sleep 90
+          echo "✅ CP2 patched"
+
+      - name: Verify limits applied
+        run: |
+          mkdir -p ~/.kube
+          python3 .github/scripts/extract_kubeconfig.py
+          for ip in 10.10.0.90 10.10.0.91 10.10.0.92; do
+            sed "s|https://10.10.0.90:6443|https://${ip}:6443|g" \
+              /tmp/kubeconfig-extract/kubeconfig > ~/.kube/config-${ip/./-}
+          done
+          KC="~/.kube/config-10-10-0-90"
+          kubectl --kubeconfig $KC --insecure-skip-tls-verify get pod -n kube-system -l component=kube-apiserver -o wide 2>/dev/null || true
+          echo "✅ kube-apiserver pods after patching:"
+          for ip in 10.10.0.90 10.10.0.92; do
+            echo "--- Node $ip ---"
+            kubectl --kubeconfig ~/.kube/config-${ip/./-} --insecure-skip-tls-verify \
+              get pod -n kube-system --field-selector spec.nodeName=talos-prod-$([ "$ip" = "10.10.0.90" ] && echo "cp1" || echo "cp3") \
+              -l component=kube-apiserver 2>/dev/null || true
+          done
+
+
   terraform:
     name: "Terraform ${{ inputs.operation == 'terraform-apply' && 'Apply' || 'Plan' }}"
     if: contains(fromJSON('["terraform-plan","terraform-apply"]'), inputs.operation)

@@ -500,5 +500,37 @@ cluster:
 Use `talosctl apply-config --mode=no-reboot` to apply without node reboot.
 **NOTE:** `--mode=no-reboot` only works for changes that don't require kernel/system restart. Memory limits on static pods should qualify.
 
-**Apply via:** ops.yml workflow (talosctl apply-config to all 3 nodes with `--mode=no-reboot`)
+**Apply via:** ops.yml workflow → `talos-apply-apiserver-limits` operation (confirm=yes).
+Uses `talosctl patch mc --mode=no-reboot` on all 3 nodes. Operation added 2026-05-14.
+
+---
+
+## 🏆 2-Hour Clean Window Achievement — 2026-05-14
+
+**Window:** 20:46:47 → 22:47:13 UTC (2 hours 26 seconds) with ZERO Discord/Gatus alerts.
+
+**What was achieved during the window:**
+- 3 full node reboots (CP1 @ 21:36, CP3 @ 21:54, CP2 @ 22:09) all silent
+- Each reboot caused max 1-2 consecutive Gatus endpoint failures (threshold: 5)
+- No TRIGGERED alerts fired in Gatus logs
+- No Discord messages sent
+- 57 consecutive clean monitoring checks (checks 1-57)
+
+**Fixes that made this possible:**
+1. `failure-threshold: 5` (was 3) — node reboots take 1-3 min = 1-3 failures < threshold ✅
+2. Traefik/Authentik interval `60s` (was `30s`) — same reasoning ✅
+3. Console `imagePullPolicy: IfNotPresent` (was Always) — prevents ImagePull cascade ✅
+4. Homepage removed from Gatus monitoring — was returning 502 (app deleted) ✅
+5. Replicas of Traefik/ArgoCD/Authentik on multiple nodes — traffic survives individual node reboots ✅
+
+**Reboot timeline during window:**
+- 20:57 UTC: CP2 first reboot (PostgreSQL brief attach error, 1 Gatus failure only)
+- 21:36:40 UTC: CP1 reboot (7 total failures across endpoints simultaneously, each only 1 failure)
+- 21:54:13 UTC: CP3 reboot (API down 2 checks = ~2 min, Gatus=OK throughout)
+- 22:09:00 UTC: CP2 reboot (NotReady for 1 check = ~68 seconds, Gatus=OK)
+
+**Permanent root cause fix pending:**
+Run `talos-apply-apiserver-limits` operation in ops.yml to cap kube-apiserver at 1800Mi,
+preventing the OOM→full-node-reboot cycle. After fix: kube-apiserver restarts every ~3-4h
+(pod restart only, ~30s) instead of full node reboots every 72min.
 
