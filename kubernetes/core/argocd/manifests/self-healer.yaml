@@ -81,6 +81,8 @@ subjects:
 #   last-degraded-apps   comma-separated sorted list from the last sent alert
 #   alerted-apps         comma-separated sorted list currently acknowledged in Discord
 #   last-alert-time      RFC3339 timestamp of the last sent Degraded alert
+#   last-sync-apps       comma-separated sorted list of apps synced in last notification
+#   last-sync-time       RFC3339 timestamp of the last sent sync notification
 # Do NOT edit manually; it is managed exclusively by the self-healer CronJob.
 apiVersion: v1
 kind: ConfigMap
@@ -94,6 +96,8 @@ data:
   last-degraded-apps: ""
   alerted-apps: ""
   last-alert-time: ""
+  last-sync-apps: ""
+  last-sync-time: ""
 ---
 # Config ConfigMap — human-editable operational controls.
 # Set maintenance-until to an RFC3339 timestamp (preferred) or unix epoch to
@@ -243,6 +247,10 @@ spec:
                   [ -z "$LAST_DEGRADED_APPS" ] && LAST_DEGRADED_APPS=$(echo "$STATE_DATA" | grep '^last-alert=' | cut -d= -f2- | head -1 || echo "")
                   ALERTED_APPS=$(echo "$STATE_DATA" | grep '^alerted-apps=' | cut -d= -f2- | head -1 || echo "")
                   LAST_ALERT_TIME=$(echo "$STATE_DATA" | grep '^last-alert-time=' | cut -d= -f2- | head -1 || echo "")
+                  LAST_SYNC_APPS=$(echo "$STATE_DATA" | grep '^last-sync-apps=' | cut -d= -f2- | head -1 || echo "")
+                  LAST_SYNC_TIME_RAW=$(echo "$STATE_DATA" | grep '^last-sync-time=' | cut -d= -f2- | head -1 || echo "")
+                  # Sync notification cooldown: 30 minutes — avoids spam when same apps cycle repeatedly
+                  SYNC_COOLDOWN_SECONDS=1800
 
                   # Helpers — read/write per-key without re-loading full CM
                   get_first_seen() {
@@ -439,10 +447,32 @@ spec:
 
                   # ── Notifications ─────────────────────────────────────────
                   if [ "$SYNCED" -gt 0 ]; then
-                    notify_discord \
-                      ":wrench: Self-Healer Auto-Synced $SYNCED App(s)" \
-                      "3066993" \
-                      "The ArgoCD self-healer triggered sync for:\n${SYNCED_APPS}\nThese apps were OutOfSync after a hard-refresh."
+                    # Build sorted CSV of synced app names for deduplication
+                    SYNCED_APP_CSV=$(echo "$SYNCED_APPS" | grep -oP '`\K[^`]+' | sort | tr '\n' ',' | sed 's/,$//')
+
+                    # Calculate seconds since last sync notification
+                    LAST_SYNC_EPOCH=""
+                    if [ -n "$LAST_SYNC_TIME_RAW" ]; then
+                      LAST_SYNC_EPOCH=$(date -u -d "$LAST_SYNC_TIME_RAW" +%s 2>/dev/null || echo "")
+                    fi
+                    SECS_SINCE_SYNC=99999
+                    if [ -n "$LAST_SYNC_EPOCH" ]; then
+                      SECS_SINCE_SYNC=$(( NOW_EPOCH - LAST_SYNC_EPOCH ))
+                    fi
+
+                    # Deduplicate: same apps + within cooldown window → silent sync (still heals, no notification)
+                    if [ "$SYNCED_APP_CSV" = "$LAST_SYNC_APPS" ] && [ "$SECS_SINCE_SYNC" -lt "$SYNC_COOLDOWN_SECONDS" ]; then
+                      MINS_AGO=$(( SECS_SINCE_SYNC / 60 ))
+                      echo "[self-healer] Sync deduplication — same apps ($SYNCED_APP_CSV) synced ${MINS_AGO}m ago (cooldown ${SYNC_COOLDOWN_SECONDS}s), skipping notification"
+                    else
+                      notify_discord \
+                        ":wrench: Self-Healer Auto-Synced $SYNCED App(s)" \
+                        "3066993" \
+                        "The ArgoCD self-healer triggered sync for:\n${SYNCED_APPS}\nThese apps were OutOfSync after a hard-refresh."
+                      CURRENT_SYNC_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+                      update_state_key "last-sync-apps" "$SYNCED_APP_CSV"
+                      update_state_key "last-sync-time" "$CURRENT_SYNC_TIME"
+                    fi
                   fi
 
                   if [ -n "$DEGRADED_ALERT_APPS" ]; then
