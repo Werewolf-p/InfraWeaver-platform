@@ -460,3 +460,45 @@ kubectl delete pvc kube-prometheus-stack-grafana -n monitoring
 - CP2 RAM allocation should be increased from ~12GB to ~16GB in Proxmox before uncordon
 
 ---
+
+---
+
+## Root Cause #17 — kube-apiserver OOM Causes Node Reboots (2026-05-14)
+
+**Symptom:** All 3 control plane nodes reboot every ~72 minutes in a staggered pattern (CP3 first → CP2 +15min → CP1 +38min). These are FULL OS reboots (boot_id changes), not just process restarts.
+
+**Root Cause:** `kube-apiserver` has NO memory limit. It grows at ~5-17Mi/min due to watch clients (ArgoCD 52 apps, Prometheus, Kyverno, all pods on same node connecting to local apiserver). After ~72 minutes it reaches 1800-1845Mi and is OOMKilled. Talos Linux `machined` detects the kube-apiserver crash and triggers a full node reboot as a recovery action.
+
+**Why staggered:**
+- All ArgoCD components land on CP3 (anti-CP2 affinity) → CP3 apiserver gets the most watch clients
+- CP3 apiserver grows fastest and OOMs first
+- CP2 has fewer dedicated workloads → slower growth
+- CP1 is intermediate
+
+**Evidence:**
+- `kubectl get events --field-selector='reason=Rebooted'` shows boot_id changes every ~72 min
+- kube-apiserver growing from ~580Mi to 1845Mi before OOM
+- No system-upgrade-controller, no CI/CD workflow running at reboot times
+
+**Mitigation Applied:**
+- Increased Gatus `failure-threshold: 3→5`, intervals `30s→60s`
+- Brief reboots (1-3 min) no longer trigger Discord alerts with new thresholds
+
+**Permanent Fix Required:**
+Apply Talos machine config patch to add kube-apiserver memory limit:
+```yaml
+cluster:
+  apiServer:
+    extraArgs:
+      target-ram-mb: "1024"
+    resources:
+      requests:
+        memory: 512Mi
+      limits:
+        memory: 1800Mi
+```
+Use `talosctl apply-config --mode=no-reboot` to apply without node reboot.
+**NOTE:** `--mode=no-reboot` only works for changes that don't require kernel/system restart. Memory limits on static pods should qualify.
+
+**Apply via:** ops.yml workflow (talosctl apply-config to all 3 nodes with `--mode=no-reboot`)
+
