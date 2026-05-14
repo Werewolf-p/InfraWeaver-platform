@@ -1446,20 +1446,28 @@ const TIER_CONFIG: Record<Tier, { label: string; color: string; icon: React.Reac
   complex: { label: "Privileged", color: "text-red-400 bg-red-400/10 border-red-400/30", icon: <Shield className="w-3 h-3" />, description: "Requires privileged mode or host devices — review carefully" },
 };
 
-const QUICK_CATEGORIES = [
-  { value: "", label: "All" },
-  { value: "MediaServer", label: "Media Servers" },
-  { value: "MediaApp", label: "Media Apps" },
-  { value: "Downloaders", label: "Downloaders" },
-  { value: "Network", label: "Network" },
-  { value: "Productivity", label: "Productivity" },
-  { value: "Tools", label: "Tools" },
-  { value: "AI", label: "AI" },
-  { value: "HomeAutomation", label: "Home Automation" },
-  { value: "Security", label: "Security" },
-  { value: "Backup", label: "Backup" },
-  { value: "GameServers", label: "Game Servers" },
-];
+const COMMUNITY_CATEGORY_TABS = [
+  { value: "all", label: "All" },
+  { value: "monitoring", label: "Monitoring" },
+  { value: "media", label: "Media" },
+  { value: "games", label: "Games" },
+  { value: "tools", label: "Tools" },
+  { value: "security", label: "Security" },
+  { value: "storage", label: "Storage" },
+] as const;
+
+type CommunityCategory = (typeof COMMUNITY_CATEGORY_TABS)[number]["value"];
+
+function detectCommunityCategory(app: Pick<AppSummary, "name" | "categories" | "overview">): CommunityCategory {
+  const haystack = [app.name, ...(app.categories ?? []), app.overview ?? ""].join(" ").toLowerCase();
+  if (haystack.includes("grafana") || haystack.includes("prometheus") || haystack.includes("monitor") || haystack.includes("gatus")) return "monitoring";
+  if (haystack.includes("plex") || haystack.includes("media") || haystack.includes("sonarr") || haystack.includes("radarr") || haystack.includes("jellyfin")) return "media";
+  if (haystack.includes("game") || haystack.includes("minecraft") || haystack.includes("steam") || haystack.includes("server")) return "games";
+  if (haystack.includes("security") || haystack.includes("auth") || haystack.includes("vault") || haystack.includes("firewall")) return "security";
+  if (haystack.includes("storage") || haystack.includes("backup") || haystack.includes("s3") || haystack.includes("nas") || haystack.includes("disk")) return "storage";
+  if (haystack.includes("tool") || haystack.includes("utility") || haystack.includes("dns") || haystack.includes("proxy") || haystack.includes("cloud") || haystack.includes("db") || haystack.includes("database")) return "tools";
+  return "all";
+}
 
 function formatDownloads(n?: number): string {
   if (!n) return "";
@@ -1486,6 +1494,14 @@ function DeployModal({ app, onClose }: { app: AppSummary; onClose: () => void })
   });
   const [preview, setPreview] = useState<ConversionResult | null>(null);
   const [deployResult, setDeployResult] = useState<{ paths: string[]; warnings: string[] } | null>(null);
+  const [deployProgressStep, setDeployProgressStep] = useState(0);
+
+  useEffect(() => {
+    if (step !== "deploying") return;
+    setDeployProgressStep(0);
+    const timer = window.setTimeout(() => setDeployProgressStep(1), 900);
+    return () => window.clearTimeout(timer);
+  }, [step]);
 
   const handlePreview = async () => {
     if (!canReadApps) {
@@ -1515,6 +1531,7 @@ function DeployModal({ app, onClose }: { app: AppSummary; onClose: () => void })
       return;
     }
     setIsDeployLoading(true);
+    setDeployProgressStep(0);
     setStep("deploying");
     try {
       const res = await fetch("/api/community-apps/deploy", {
@@ -1524,6 +1541,7 @@ function DeployModal({ app, onClose }: { app: AppSummary; onClose: () => void })
       const data = await res.json() as { ok?: boolean; paths?: string[]; warnings?: string[]; error?: string };
       if (!res.ok) { toast.error(data.error ?? "Deploy failed"); setStep("preview"); return; }
       setDeployResult({ paths: data.paths ?? [], warnings: data.warnings ?? [] });
+      setDeployProgressStep(2);
       setStep("done");
       toast.success(`${app.name} deployed! ArgoCD will sync in ~2 minutes. If it doesn't appear, the bootstrap file has been committed to git.`);
     } catch {
@@ -1581,6 +1599,29 @@ function DeployModal({ app, onClose }: { app: AppSummary; onClose: () => void })
             </div>
           )}
 
+          {(step === "deploying" || step === "done") && (
+            <div className="mb-4 rounded-xl border border-indigo-500/20 bg-indigo-500/5 p-4">
+              <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-indigo-200/80">Install progress</p>
+              <div className="space-y-2">
+                {["Committing to git...", "ArgoCD syncing...", "Deployed!"].map((label, index) => {
+                  const complete = deployProgressStep > index || (step === "done" && index <= 2);
+                  const active = deployProgressStep === index && step !== "done";
+                  return (
+                    <div key={label} className="flex items-center gap-2 text-sm text-white/70">
+                      <span className={cn(
+                        "flex h-5 w-5 items-center justify-center rounded-full border text-[10px]",
+                        complete ? "border-emerald-400 bg-emerald-400/20 text-emerald-300" : active ? "border-indigo-400 bg-indigo-400/20 text-indigo-200" : "border-white/15 text-white/40"
+                      )}>
+                        {complete ? <Check className="h-3 w-3" /> : index + 1}
+                      </span>
+                      <span className={cn(complete ? "text-emerald-300" : active ? "text-indigo-200" : "text-white/50")}>{label}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {step === "options" && !isPreviewLoading && (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
@@ -1618,6 +1659,24 @@ function DeployModal({ app, onClose }: { app: AppSummary; onClose: () => void })
                   <p className="text-white/40 text-xs mt-1">Will be VPN-only via netbird-vpn-only middleware</p>
                 </div>
               )}
+              <div className="rounded-lg border border-white/10 bg-white/5 p-4 text-sm text-white/70 space-y-2">
+                <div className="flex items-center gap-2 text-white">
+                  <Globe className="h-4 w-4 text-indigo-300" />
+                  <span className="font-medium">Connect</span>
+                </div>
+                {options.createIngress ? (
+                  <p>
+                    InfraWeaver will expose this app at <code className="rounded bg-white/10 px-1.5 py-0.5 text-xs">https://{options.ingressHost}</code>
+                  </p>
+                ) : (
+                  <p className="text-white/50">Ingress is disabled. You can enable it now or connect later from the generated manifests.</p>
+                )}
+                {app.webUI && (
+                  <p className="text-white/50">
+                    Original app WebUI hint: <code className="rounded bg-white/10 px-1.5 py-0.5 text-xs">{app.webUI}</code>
+                  </p>
+                )}
+              </div>
               {app.tier !== "simple" && (
                 <div className={cn("flex gap-2 p-3 rounded-lg border text-sm", TIER_CONFIG[app.tier].color)}>
                   <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
@@ -1711,11 +1770,16 @@ function DeployModal({ app, onClose }: { app: AppSummary; onClose: () => void })
   );
 }
 
-function AppCard({ app, onDeploy, canDeploy }: { app: AppSummary; onDeploy: (app: AppSummary) => void; canDeploy: boolean }) {
+function AppCard({ app, onDeploy, canDeploy, installed }: { app: AppSummary; onDeploy: (app: AppSummary) => void; canDeploy: boolean; installed: boolean }) {
   const tierCfg = TIER_CONFIG[app.tier];
   return (
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-      className="group bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.07] hover:border-white/20 rounded-xl p-4 transition-all duration-200 flex flex-col gap-3">
+      className="group relative bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.07] hover:border-white/20 rounded-xl p-4 transition-all duration-200 flex flex-col gap-3">
+      {installed && (
+        <span className="absolute right-3 top-3 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-300">
+          Installed
+        </span>
+      )}
       <div className="flex items-start gap-3">
         <div className="w-10 h-10 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center flex-shrink-0 overflow-hidden">
           {app.icon ? (
@@ -1752,7 +1816,7 @@ function AppCard({ app, onDeploy, canDeploy }: { app: AppSummary; onDeploy: (app
         )}
         <button onClick={() => onDeploy(app)} disabled={!canDeploy}
           className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-indigo-600/80 hover:bg-indigo-500 text-white transition-colors disabled:opacity-50">
-          <Globe className="w-3 h-3" /> Deploy
+          <Globe className="w-3 h-3" /> {installed ? "Reconfigure" : "Deploy"}
         </button>
       </div>
     </motion.div>
@@ -1762,6 +1826,7 @@ function AppCard({ app, onDeploy, canDeploy }: { app: AppSummary; onDeploy: (app
 function CommunityStoreTab() {
   const { can } = useRBAC();
   const canDeployCommunity = can("catalog:write");
+  const { data: argoApps } = useArgoApps();
   const [storeTab, setStoreTab] = useState<"store" | "installed">("store");
   const [data, setData] = useState<FeedResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -1769,7 +1834,7 @@ function CommunityStoreTab() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [category, setCategory] = useState("");
+  const [category, setCategory] = useState<CommunityCategory>("all");
   const [tier, setTier] = useState("");
   const [deployApp, setDeployApp] = useState<AppSummary | null>(null);
   const [searchTimeout, setSearchTimeout] = useState<ReturnType<typeof setTimeout> | null>(null);
@@ -1784,7 +1849,6 @@ function CommunityStoreTab() {
       const params = new URLSearchParams({
         page: String(opts.page), limit: "24",
         ...(opts.search ? { search: opts.search } : {}),
-        ...(opts.category ? { category: opts.category } : {}),
         ...(opts.tier ? { tier: opts.tier } : {}),
       });
       const res = await fetch(`/api/community-apps?${params}`);
@@ -1813,7 +1877,7 @@ function CommunityStoreTab() {
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    void fetchApps({ page: 1, search: "", category: "", tier: "" });
+    void fetchApps({ page: 1, search: "", category: "all", tier: "" });
   }, [fetchApps]);
   useEffect(() => {
     if (storeTab === "installed" && !installed) {
@@ -1825,13 +1889,28 @@ function CommunityStoreTab() {
   const handleSearch = (value: string) => {
     setSearch(value);
     if (searchTimeout) clearTimeout(searchTimeout);
-    const t = setTimeout(() => { setDebouncedSearch(value); setPage(1); void fetchApps({ page: 1, search: value, category, tier }); }, 400);
+    const t = setTimeout(() => { setDebouncedSearch(value); setPage(1); void fetchApps({ page: 1, search: value, category, tier }); }, 300);
     setSearchTimeout(t);
   };
 
-  const handleCategory = (cat: string) => { setCategory(cat); setPage(1); void fetchApps({ page: 1, search: debouncedSearch, category: cat, tier }); };
+  const handleCategory = (cat: CommunityCategory) => { setCategory(cat); setPage(1); void fetchApps({ page: 1, search: debouncedSearch, category: cat, tier }); };
   const handleTier = (t: string) => { setTier(t); setPage(1); void fetchApps({ page: 1, search: debouncedSearch, category, tier: t }); };
   const handlePage = (p: number) => { setPage(p); void fetchApps({ page: p, search: debouncedSearch, category, tier }); };
+
+  const installedSlugs = useMemo(() => {
+    const fromArgo = new Set(
+      (argoApps ?? [])
+        .map((app) => app.metadata?.name ?? "")
+        .map((name) => name.match(/^catalog-(.+)-manifests$/)?.[1] ?? "")
+        .filter(Boolean)
+    );
+    for (const app of installed?.apps ?? []) {
+      fromArgo.add(app.slug);
+    }
+    return fromArgo;
+  }, [argoApps, installed]);
+
+  const storeApps = (data?.apps ?? []).filter((app) => category === "all" || detectCommunityCategory(app) === category);
 
   return (
     <div className="space-y-5">
@@ -1885,7 +1964,7 @@ function CommunityStoreTab() {
             </div>
           </div>
           <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
-            {QUICK_CATEGORIES.map(cat => (
+            {COMMUNITY_CATEGORY_TABS.map((cat) => (
               <button key={cat.value} onClick={() => handleCategory(cat.value)}
                 className={cn("flex-shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-all border",
                   category === cat.value ? "bg-indigo-600 text-white border-indigo-500" : "text-white/50 border-white/10 hover:border-white/30 hover:text-white/80")}>
@@ -1898,14 +1977,22 @@ function CommunityStoreTab() {
           {data && (
             <>
               <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-white/40">
-                <span>{data.total.toLocaleString()} apps{debouncedSearch ? ` matching "${debouncedSearch}"` : ""}</span>
+                <span>{storeApps.length.toLocaleString()} apps{debouncedSearch ? ` matching "${debouncedSearch}"` : ""}</span>
                 <span>Page {data.page} of {data.pages}</span>
               </div>
               {loading && <div className="flex justify-center"><Loader2 className="w-6 h-6 text-indigo-400 animate-spin" /></div>}
               <div className={cn("grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 transition-opacity", loading && "opacity-50")}>
-                {data.apps.map(app => <AppCard key={app.slug + app.image} app={app} onDeploy={setDeployApp} canDeploy={canDeployCommunity} />)}
+                {storeApps.map((app) => (
+                  <AppCard
+                    key={app.slug + app.image}
+                    app={app}
+                    onDeploy={setDeployApp}
+                    canDeploy={canDeployCommunity}
+                    installed={installedSlugs.has(app.slug)}
+                  />
+                ))}
               </div>
-              {data.apps.length === 0 && !loading && (
+              {storeApps.length === 0 && !loading && (
                 <div className="text-center py-16 text-white/40">
                   <Package className="w-12 h-12 mx-auto mb-3 opacity-30" />
                   <p>No apps found. Try adjusting your search or filters.</p>
