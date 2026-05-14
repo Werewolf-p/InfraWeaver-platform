@@ -534,3 +534,22 @@ Run `talos-apply-apiserver-limits` operation in ops.yml to cap kube-apiserver at
 preventing the OOM→full-node-reboot cycle. After fix: kube-apiserver restarts every ~3-4h
 (pod restart only, ~30s) instead of full node reboots every 72min.
 
+
+## POST-FIX OUTAGE 2026-05-14 22:52 UTC — ops.yml Bug
+
+### Root Cause
+The `talos-apply-apiserver-limits` workflow added `extraArgs.target-ram-mb: "1024"` to the kube-apiserver machine config. However, **`--target-ram-mb` was removed from kube-apiserver in v1.35+** (deprecated since v1.21, removed ~v1.31). This caused ALL kube-apiservers to crash immediately on restart with `Error: unknown flag: --target-ram-mb`. Additionally, CP2's etcd got a WAL CRC mismatch corruption from the concurrent node reboots during the patch.
+
+### Recovery Steps (Executed)
+1. **Identified crash**: `talosctl read /var/log/pods/kube-system_kube-apiserver-.../kube-apiserver/8.log` → `Error: unknown flag: --target-ram-mb`
+2. **Fixed machine config**: Python script to extract MC YAML → remove `target-ram-mb` key → `talosctl apply-config --mode=no-reboot`
+   - NOTE: `talosctl patch mc` CANNOT remove keys. Use `apply-config` with a fully-modified config.
+3. **Fixed etcd WAL corruption on CP2**: Created privileged pod on CP2 to delete corrupt WAL file `0000000000000140-*.wal` and subsequent segment `0000000000000141-*.wal`. etcd recovered from snapshot.
+4. **Fixed ops.yml**: Removed `target-ram-mb` from patch, raised limit from 1800Mi → 2200Mi.
+
+### Key Learnings
+- **`--target-ram-mb` is REMOVED in kube-apiserver v1.35+** — never use it
+- **`talosctl patch mc` cannot DELETE keys** — use `talosctl apply-config` with a Python-extracted+modified YAML to remove keys
+- **Concurrent kube-apiserver OOM reboots can corrupt etcd WAL** — the OOM reboot cycle is the root cause of the WAL corruption
+- **Memory limit should be 2200Mi** (not 1800Mi — too tight for startup spike)
+- **2200Mi gives safe headroom** while still preventing unbounded growth to 1845Mi OOM

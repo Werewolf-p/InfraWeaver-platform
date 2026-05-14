@@ -357,16 +357,16 @@ jobs:
 
       - name: Create apiserver memory limit patch
         run: |
+          # NOTE: --target-ram-mb was removed in kube-apiserver v1.35+, do NOT add it here
+          # Use only GC tuning flags and memory limit
           cat > /tmp/apiserver-limits.yaml << 'PATCH'
           cluster:
             apiServer:
-              extraArgs:
-                target-ram-mb: "1024"
               resources:
                 requests:
                   memory: 512Mi
                 limits:
-                  memory: 1800Mi
+                  memory: 2200Mi
           PATCH
           echo "Patch content:"
           cat /tmp/apiserver-limits.yaml
