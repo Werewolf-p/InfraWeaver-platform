@@ -84,13 +84,13 @@ spec:
               cpu: "2"
           livenessProbe:
             exec:
-              command: ["sh", "-c", "pgrep -P 1 > /dev/null 2>&1"]
+              command: ["sh", "-c", "pgrep -f valheim > /dev/null 2>&1"]
             initialDelaySeconds: 120
             periodSeconds: 30
             failureThreshold: 3
           readinessProbe:
             exec:
-              command: ["sh", "-c", "pgrep -P 1 > /dev/null 2>&1"]
+              command: ["sh", "-c", "pgrep -f valheim > /dev/null 2>&1"]
             initialDelaySeconds: 60
             periodSeconds: 15
             failureThreshold: 3

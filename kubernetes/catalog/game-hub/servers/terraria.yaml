@@ -78,14 +78,14 @@ spec:
             - name: data
               mountPath: /world
           livenessProbe:
-            exec:
-              command: ["sh", "-c", "pgrep -P 1 > /dev/null 2>&1"]
+            tcpSocket:
+              port: 7777
             initialDelaySeconds: 120
             periodSeconds: 30
             failureThreshold: 3
           readinessProbe:
-            exec:
-              command: ["sh", "-c", "pgrep -P 1 > /dev/null 2>&1"]
+            tcpSocket:
+              port: 7777
             initialDelaySeconds: 60
             periodSeconds: 15
             failureThreshold: 3
