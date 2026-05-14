@@ -56,6 +56,7 @@ spec:
         - /status
         - /metadata/finalizers
         - /metadata/annotations/kubectl.kubernetes.io~1last-applied-configuration
+        - /metadata/annotations/reconcile
         - /spec/deletionPolicy
         - /spec/updatePolicy
         - /spec/template
