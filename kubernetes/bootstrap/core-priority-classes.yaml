@@ -30,4 +30,4 @@ spec:
         maxDuration: 3m
     syncOptions:
       - CreateNamespace=false
-      - ServerSideApply=true
+      - Replace=true

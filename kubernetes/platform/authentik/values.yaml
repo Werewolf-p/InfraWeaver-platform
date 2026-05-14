@@ -158,9 +158,9 @@ server:
     periodSeconds: 10
     failureThreshold: 30
   readinessProbe:
-    initialDelaySeconds: 120
+    initialDelaySeconds: 60
     periodSeconds: 10
-    failureThreshold: 30
+    failureThreshold: 6
   topologySpreadConstraints:
     - maxSkew: 1
       topologyKey: kubernetes.io/hostname
@@ -179,6 +179,17 @@ server:
                 app.kubernetes.io/name: authentik
                 app.kubernetes.io/component: server
             topologyKey: kubernetes.io/hostname
+    # Avoid cp3: Flannel/CNI unstable on cp3, causes pod sandbox failures
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          preference:
+            matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: In
+                values:
+                  - talos-prod-cp1
+                  - talos-prod-cp2
   resources:
     requests:
       cpu: 200m
@@ -207,6 +218,17 @@ worker:
                 app.kubernetes.io/name: authentik
                 app.kubernetes.io/component: worker
             topologyKey: kubernetes.io/hostname
+    # Avoid cp3: Flannel/CNI unstable on cp3, causes pod sandbox failures
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          preference:
+            matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: In
+                values:
+                  - talos-prod-cp1
+                  - talos-prod-cp2
   # Give enough time for Django migrations on a fresh DB (292+ migrations)
   # NOTE: Authentik chart does NOT support livenessProbe.enabled field — use raw k8s probe fields only
   livenessProbe:
@@ -214,9 +236,9 @@ worker:
     periodSeconds: 10
     failureThreshold: 30
   readinessProbe:
-    initialDelaySeconds: 120
+    initialDelaySeconds: 60
     periodSeconds: 10
-    failureThreshold: 30
+    failureThreshold: 6
   resources:
     requests:
       cpu: 100m

@@ -46,3 +46,10 @@ spec:
         - '.spec.data[].remoteRef.conversionStrategy'
         - '.spec.data[].remoteRef.decodingStrategy'
         - '.spec.data[].remoteRef.metadataPolicy'
+    - group: external-secrets.io
+      kind: PushSecret
+      jqPathExpressions:
+        - '.spec.data[].match.remoteRef.conversionStrategy'
+      jsonPointers:
+        - /spec/deletionPolicy
+        - /spec/updatePolicy
