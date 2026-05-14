@@ -53,6 +53,9 @@ spec:
         - '.spec.data[].match.remoteRef.decodingStrategy'
         - '.spec.data[].match.remoteRef.metadataPolicy'
       jsonPointers:
+        - /status
+        - /metadata/finalizers
+        - /metadata/annotations/kubectl.kubernetes.io~1last-applied-configuration
         - /spec/deletionPolicy
         - /spec/updatePolicy
         - /spec/template
