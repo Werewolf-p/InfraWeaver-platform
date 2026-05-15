@@ -16,10 +16,14 @@ interface EmptyStateProps {
   className?: string;
 }
 
+function isActionConfig(action: EmptyStateProps["action"]): action is EmptyStateAction {
+  return !!action && typeof action === "object" && !React.isValidElement(action) && "label" in action && "onClick" in action;
+}
+
 export function EmptyState({ icon: Icon, title, description, action, className }: EmptyStateProps) {
   const renderedAction = React.isValidElement(action) ? (
     action
-  ) : action ? (
+  ) : isActionConfig(action) ? (
     <button
       type="button"
       onClick={action.onClick}

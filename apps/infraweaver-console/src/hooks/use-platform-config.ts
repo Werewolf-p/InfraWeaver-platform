@@ -1,46 +1,31 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { queryStaleTimes } from "@/lib/query-defaults";
 import { queryKeys } from "@/lib/query-keys";
-import type { CatalogApp, PlatformConfigResponse } from "@/types/api";
+import type { CatalogApp, PlatformConfigResponse } from "@/types";
+import { useApiMutation, useApiQuery } from "./use-api-query";
 
 export function usePlatformConfig() {
-  return useQuery<PlatformConfigResponse>({
+  return useApiQuery<PlatformConfigResponse>({
     queryKey: queryKeys.config.platform(),
-    queryFn: async () => {
-      const response = await fetch("/api/config/platform");
-      if (!response.ok) throw new Error("Failed to fetch platform config");
-      return response.json();
-    },
-    staleTime: 30_000,
+    path: "/api/config/platform",
+    staleTime: queryStaleTimes.short,
   });
 }
 
 export function useCatalogApps() {
-  return useQuery<CatalogApp[]>({
+  return useApiQuery<CatalogApp[]>({
     queryKey: queryKeys.config.catalogApps(),
-    queryFn: async () => {
-      const response = await fetch("/api/config/catalog-apps");
-      if (!response.ok) throw new Error("Failed to fetch catalog apps");
-      return response.json();
-    },
-    staleTime: 30_000,
+    path: "/api/config/catalog-apps",
+    staleTime: queryStaleTimes.short,
   });
 }
 
 export function useSavePlatformConfig() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (data: { yamlContent: string; commitMessage?: string }) => {
-      const response = await fetch("/api/config/platform", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      });
-      if (!response.ok) throw new Error("Failed to save platform config");
-      return response.json();
-    },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.config.platform() }),
+  return useApiMutation<PlatformConfigResponse, { yamlContent: string; commitMessage?: string }>({
+    path: "/api/config/platform",
+    method: "PUT",
+    invalidateQueryKeys: [queryKeys.config.platform()],
+    errorMessage: "Failed to save platform config",
   });
 }

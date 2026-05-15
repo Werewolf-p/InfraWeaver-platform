@@ -1,3 +1,23 @@
+export interface ApiResponseMeta {
+  timestamp?: string;
+  requestId?: string;
+  path?: string;
+  [key: string]: unknown;
+}
+
+export interface ApiSuccessEnvelope<T> {
+  data: T;
+  meta?: ApiResponseMeta;
+}
+
+export interface ApiErrorResponse {
+  error: string;
+  meta?: ApiResponseMeta;
+  details?: unknown;
+}
+
+export type ApiEnvelope<T> = ApiSuccessEnvelope<T> | ApiErrorResponse;
+
 export interface MutationResponse {
   ok?: boolean;
   error?: string;

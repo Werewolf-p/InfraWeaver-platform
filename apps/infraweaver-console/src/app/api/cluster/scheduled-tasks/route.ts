@@ -1,57 +1,32 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { getSessionRBACContext, hasAnySessionPermission, hasSessionPermission } from "@/lib/session-rbac";
-
-interface ScheduledTask {
-  id: string;
-  name: string;
-  namespace: string;
-  pod: string;
-  schedule: string;
-  command: string;
-  enabled: boolean;
-  lastRun?: string;
-  createdAt: string;
-}
+import type { ScheduledTask } from "@/types";
+import { apiError, apiSuccess, parseJsonBody, requireRoutePermissions } from "@/lib/route-utils";
 
 const tasks: ScheduledTask[] = [
-  { id: "1", name: "Daily Cache Flush", namespace: "default", pod: "cache-pod", schedule: "0 2 * * *", command: "ls", enabled: true, createdAt: new Date().toISOString() },
+  {
+    id: "1",
+    name: "Daily Cache Flush",
+    namespace: "default",
+    pod: "cache-pod",
+    schedule: "0 2 * * *",
+    command: "ls",
+    enabled: true,
+    createdAt: new Date().toISOString(),
+  },
 ];
 
-async function requireReadAccess() {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const access = await getSessionRBACContext(session, 60);
-  if (!hasAnySessionPermission(access, ["cluster:read", "infra:read"])) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
-  return session;
-}
-
-async function requireWriteAccess() {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const access = await getSessionRBACContext(session, 60);
-  if (!hasSessionPermission(access, "cluster:admin")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
-  return session;
-}
-
 export async function GET() {
-  const session = await requireReadAccess();
+  const session = await requireRoutePermissions({ any: ["cluster:read", "infra:read"] });
   if (session instanceof NextResponse) return session;
-  return NextResponse.json({ tasks });
+
+  return apiSuccess({ tasks });
 }
 
-export async function POST(req: NextRequest) {
-  const session = await requireWriteAccess();
+export async function POST(request: NextRequest) {
+  const session = await requireRoutePermissions({ all: ["cluster:admin"] });
   if (session instanceof NextResponse) return session;
-  const body = await req.json() as Partial<ScheduledTask>;
+
+  const body = await parseJsonBody<Partial<ScheduledTask>>(request);
   const task: ScheduledTask = {
     id: Date.now().toString(),
     name: body.name ?? "New Task",
@@ -62,27 +37,38 @@ export async function POST(req: NextRequest) {
     enabled: body.enabled ?? true,
     createdAt: new Date().toISOString(),
   };
+
   tasks.push(task);
-  return NextResponse.json({ task });
+  return apiSuccess({ task }, { status: 201 });
 }
 
-export async function PATCH(req: NextRequest) {
-  const session = await requireWriteAccess();
+export async function PATCH(request: NextRequest) {
+  const session = await requireRoutePermissions({ all: ["cluster:admin"] });
   if (session instanceof NextResponse) return session;
-  const body = await req.json() as { id?: string; enabled?: boolean };
-  const task = tasks.find(t => t.id === body.id);
-  if (!task) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  if (body.enabled !== undefined) task.enabled = body.enabled;
-  return NextResponse.json({ task });
+
+  const body = await parseJsonBody<{ id?: string; enabled?: boolean }>(request);
+  const task = tasks.find((entry) => entry.id === body.id);
+  if (!task) {
+    return apiError("Not found", { status: 404 });
+  }
+
+  if (body.enabled !== undefined) {
+    task.enabled = body.enabled;
+  }
+
+  return apiSuccess({ task });
 }
 
-export async function DELETE(req: NextRequest) {
-  const session = await requireWriteAccess();
+export async function DELETE(request: NextRequest) {
+  const session = await requireRoutePermissions({ all: ["cluster:admin"] });
   if (session instanceof NextResponse) return session;
-  const { searchParams } = req.nextUrl;
-  const id = searchParams.get("id");
-  const idx = tasks.findIndex(t => t.id === id);
-  if (idx === -1) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  tasks.splice(idx, 1);
-  return NextResponse.json({ ok: true });
+
+  const id = request.nextUrl.searchParams.get("id");
+  const taskIndex = tasks.findIndex((entry) => entry.id === id);
+  if (taskIndex === -1) {
+    return apiError("Not found", { status: 404 });
+  }
+
+  tasks.splice(taskIndex, 1);
+  return apiSuccess({ ok: true });
 }

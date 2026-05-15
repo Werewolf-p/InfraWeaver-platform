@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { queryRefetchIntervals, queryStaleTimes } from "@/lib/query-defaults";
 import { queryKeys } from "@/lib/query-keys";
 import type {
   ClusterNode,
@@ -8,56 +8,41 @@ import type {
   ClusterNodeMetric,
   ClusterNodePodInfo,
   HorizontalPodAutoscalerSummary,
-} from "@/types/cluster";
+} from "@/types";
+import { useApiQuery } from "./use-api-query";
 
 export function useClusterNodes() {
-  return useQuery<{ nodes: ClusterNode[] }>({
+  return useApiQuery<{ nodes: ClusterNode[] }>({
     queryKey: queryKeys.cluster.nodes(),
-    queryFn: async () => {
-      const response = await fetch("/api/cluster/nodes");
-      if (!response.ok) throw new Error("Failed to fetch cluster nodes");
-      return response.json();
-    },
-    staleTime: 30_000,
-    refetchInterval: 60_000,
+    path: "/api/cluster/nodes",
+    staleTime: queryStaleTimes.short,
+    refetchInterval: queryRefetchIntervals.minute,
   });
 }
 
 export function useClusterMetrics(refreshSeconds = 15) {
-  return useQuery<{ metrics: ClusterNodeMetric[]; timestamp: string }>({
+  return useApiQuery<{ metrics: ClusterNodeMetric[]; timestamp: string }>({
     queryKey: queryKeys.cluster.metrics(refreshSeconds),
-    queryFn: async () => {
-      const response = await fetch("/api/cluster/metrics");
-      if (!response.ok) throw new Error("Failed to fetch cluster metrics");
-      return response.json();
-    },
-    staleTime: 10_000,
+    path: "/api/cluster/metrics",
+    staleTime: queryStaleTimes.live,
     refetchInterval: refreshSeconds * 1000,
   });
 }
 
 export function useClusterHpas() {
-  return useQuery<{ hpas: HorizontalPodAutoscalerSummary[] }>({
+  return useApiQuery<{ hpas: HorizontalPodAutoscalerSummary[] }>({
     queryKey: queryKeys.cluster.hpa(),
-    queryFn: async () => {
-      const response = await fetch("/api/cluster/hpa");
-      if (!response.ok) throw new Error("Failed to fetch HPAs");
-      return response.json();
-    },
-    staleTime: 30_000,
-    refetchInterval: 60_000,
+    path: "/api/cluster/hpa",
+    staleTime: queryStaleTimes.short,
+    refetchInterval: queryRefetchIntervals.minute,
   });
 }
 
 export function useClusterNodePods() {
-  return useQuery<{ nodes: ClusterNodeCapacityInfo[]; pods: ClusterNodePodInfo[] }>({
+  return useApiQuery<{ nodes: ClusterNodeCapacityInfo[]; pods: ClusterNodePodInfo[] }>({
     queryKey: queryKeys.cluster.nodePods(),
-    queryFn: async () => {
-      const response = await fetch("/api/cluster/node-pods");
-      if (!response.ok) throw new Error("Failed to fetch node pod placement");
-      return response.json();
-    },
+    path: "/api/cluster/node-pods",
     staleTime: 20_000,
-    refetchInterval: 30_000,
+    refetchInterval: queryRefetchIntervals.standard,
   });
 }

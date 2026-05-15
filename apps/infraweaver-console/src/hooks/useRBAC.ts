@@ -1,7 +1,7 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
+import { queryStaleTimes } from "@/lib/query-defaults";
 import { queryKeys } from "@/lib/query-keys";
 import {
   getRole,
@@ -10,6 +10,7 @@ import {
   type Permission,
   type RoleAssignment,
 } from "@/lib/rbac";
+import { useApiQuery } from "./use-api-query";
 
 interface MyPermissions {
   email: string;
@@ -59,14 +60,10 @@ export function useRBAC() {
   const groups: string[] = (session?.user as { groups?: string[] } | undefined)?.groups ?? [];
   const legacyRole = getRole(groups);
 
-  const { data, isLoading } = useQuery<MyPermissions>({
+  const { data, isLoading } = useApiQuery<MyPermissions>({
     queryKey: queryKeys.rbac.myPermissions(),
-    queryFn: async () => {
-      const response = await fetch("/api/rbac/my-permissions");
-      if (!response.ok) throw new Error("Failed to load permissions");
-      return response.json();
-    },
-    staleTime: 60_000,
+    path: "/api/rbac/my-permissions",
+    staleTime: queryStaleTimes.minute,
   });
 
   const permissions = data?.permissions ?? FALLBACK_PERMISSIONS.filter((permission) => hasPermission(groups, permission));

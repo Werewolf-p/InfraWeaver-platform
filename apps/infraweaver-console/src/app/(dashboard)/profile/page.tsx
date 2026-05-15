@@ -1,26 +1,17 @@
 "use client";
-import { useState, useEffect } from "react";
+
+import { useState } from "react";
 import { motion } from "framer-motion";
 import { useSession } from "next-auth/react";
-import { toast } from "sonner";
-import { Pencil, Check, X, RefreshCw, CheckCircle2, XCircle, UserCircle} from "lucide-react";
-import { Skeleton } from "@/components/ui/skeleton";
-import { useUsersConfig } from "@/hooks/use-users-config";
-import { PageHeader } from "@/components/ui/page-header";
+import { Check, Pencil, RefreshCw, UserCircle, X } from "lucide-react";
+import { PageScaffold, SettingsCard, Skeleton } from "@/components/ui";
+import { useApiMutation, useApiQuery, useUsersConfig } from "@/hooks";
+import { queryStaleTimes } from "@/lib/query-defaults";
+import { queryKeys } from "@/lib/query-keys";
+import { requirePageConfig } from "@/lib/page-registry";
+import type { AuthentikSession, LoginEvent, ProfileActivityResponse, ProfileSessionsResponse, ProfileSummary } from "@/types";
 
-interface AuthentikSession {
-  identifier: string;
-  created: string;
-  expires?: string;
-  description?: string;
-}
-
-interface LoginEvent {
-  pk: string;
-  created: string;
-  action: string;
-  context?: { result?: string };
-}
+const page = requirePageConfig("/profile");
 
 function InlineEdit({
   value,
@@ -29,7 +20,7 @@ function InlineEdit({
   placeholder,
 }: {
   value: string;
-  onSave: (v: string) => Promise<void>;
+  onSave: (value: string) => Promise<void>;
   type?: string;
   placeholder?: string;
 }) {
@@ -50,24 +41,32 @@ function InlineEdit({
   if (editing) {
     return (
       <div className="flex items-center gap-2">
-      <PageHeader icon={UserCircle} title="My Profile" />
         <input
           type={type}
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={(event) => setDraft(event.target.value)}
           placeholder={placeholder}
-          className="bg-white/5 border border-indigo-500/50 rounded-lg px-2.5 py-1.5 text-sm text-white focus:outline-none"
-          onKeyDown={(e) => {
-            if (e.key === "Enter") save();
-            if (e.key === "Escape") setEditing(false);
+          className="rounded-lg border border-indigo-500/50 bg-white/5 px-2.5 py-1.5 text-sm text-white focus:outline-none"
+          onKeyDown={(event) => {
+            if (event.key === "Enter") void save();
+            if (event.key === "Escape") {
+              setDraft(value);
+              setEditing(false);
+            }
           }}
           autoFocus
         />
-        <button onClick={save} disabled={loading} className="p-1 text-green-400 hover:text-green-300">
-          <Check className="w-4 h-4" />
+        <button onClick={() => void save()} disabled={loading} className="p-1 text-green-400 hover:text-green-300 disabled:opacity-50">
+          <Check className="h-4 w-4" />
         </button>
-        <button onClick={() => { setDraft(value); setEditing(false); }} className="p-1 text-slate-400 hover:text-white">
-          <X className="w-4 h-4" />
+        <button
+          onClick={() => {
+            setDraft(value);
+            setEditing(false);
+          }}
+          className="p-1 text-slate-400 hover:text-white"
+        >
+          <X className="h-4 w-4" />
         </button>
       </div>
     );
@@ -75,11 +74,14 @@ function InlineEdit({
 
   return (
     <button
-      onClick={() => { setDraft(value); setEditing(true); }}
-      className="flex items-center gap-2 text-white hover:text-indigo-300 transition-colors group"
+      onClick={() => {
+        setDraft(value);
+        setEditing(true);
+      }}
+      className="group flex items-center gap-2 text-white transition-colors hover:text-indigo-300"
     >
       <span>{value || placeholder}</span>
-      <Pencil className="w-3.5 h-3.5 text-slate-500 group-hover:text-indigo-400 transition-colors" />
+      <Pencil className="h-3.5 w-3.5 text-slate-500 transition-colors group-hover:text-indigo-400" />
     </button>
   );
 }
@@ -88,215 +90,194 @@ export default function ProfilePage() {
   const { data: session } = useSession();
   const { data: usersData } = useUsersConfig();
   const [activeTab, setActiveTab] = useState<"sessions" | "activity">("sessions");
-  const [sessions, setSessions] = useState<AuthentikSession[]>([]);
-  const [events, setEvents] = useState<LoginEvent[]>([]);
-  const [sessionsLoading, setSessionsLoading] = useState(false);
-  const [eventsLoading, setEventsLoading] = useState(false);
-  const [profile, setProfile] = useState<{ name: string; email: string; groups: string[] } | null>(null);
+  const [profileOverride, setProfileOverride] = useState<Partial<ProfileSummary>>({});
 
-  const email = (session?.user as { email?: string })?.email ?? "";
-  const allUsers = usersData?.users ?? [];
-  const selfUser = allUsers.find((u) => u.email === email);
+  const email = (session?.user as { email?: string } | undefined)?.email ?? "";
+  const selfUser = (usersData?.users ?? []).find((user) => user.email === email);
   const nasShares = selfUser?.nas_shares ?? [];
+
+  const profileQuery = useApiQuery<ProfileSummary>({
+    queryKey: queryKeys.profile.summary(),
+    path: "/api/profile",
+    staleTime: queryStaleTimes.minute,
+  });
+
+  const sessionsQuery = useApiQuery<ProfileSessionsResponse>({
+    queryKey: queryKeys.profile.sessions(),
+    path: "/api/profile/sessions",
+    staleTime: queryStaleTimes.minute,
+    enabled: activeTab === "sessions",
+  });
+
+  const activityQuery = useApiQuery<ProfileActivityResponse>({
+    queryKey: queryKeys.profile.activity(),
+    path: "/api/profile/activity",
+    staleTime: queryStaleTimes.minute,
+    enabled: activeTab === "activity",
+  });
+
+  const updateName = useApiMutation<{ ok: boolean }, { newName: string }>({
+    path: "/api/profile/name",
+    method: "PATCH",
+    invalidateQueryKeys: [queryKeys.profile.summary()],
+    successMessage: "Name updated",
+    errorMessage: "Failed to update name",
+    onSuccess: async (_, variables) => {
+      setProfileOverride((current) => ({ ...current, name: variables.newName }));
+    },
+  });
+
+  const updateEmail = useApiMutation<{ ok: boolean }, { newEmail: string }>({
+    path: "/api/profile/email",
+    method: "PATCH",
+    invalidateQueryKeys: [queryKeys.profile.summary()],
+    successMessage: "Email updated — re-login may be required",
+    errorMessage: "Failed to update email",
+    onSuccess: async (_, variables) => {
+      setProfileOverride((current) => ({ ...current, email: variables.newEmail }));
+    },
+  });
+
+  const profile = profileQuery.data ? { ...profileQuery.data, ...profileOverride } : null;
+  const sessions: AuthentikSession[] = sessionsQuery.data?.sessions ?? [];
+  const events: LoginEvent[] = activityQuery.data?.events ?? [];
   const initials = (profile?.name || session?.user?.name || email || "?")
     .split(" ")
-    .map((w) => w[0])
+    .map((segment) => segment[0])
     .join("")
     .toUpperCase()
     .slice(0, 2);
 
-  useEffect(() => {
-    fetch("/api/profile")
-      .then((r) => r.json())
-      .then((d) => setProfile(d))
-      .catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    if (activeTab === "sessions") {
-      setSessionsLoading(true);
-      fetch("/api/profile/sessions")
-        .then((r) => r.json())
-        .then((d) => setSessions(d.sessions ?? []))
-        .catch(() => {})
-        .finally(() => setSessionsLoading(false));
-    } else {
-      setEventsLoading(true);
-      fetch("/api/profile/activity")
-        .then((r) => r.json())
-        .then((d) => setEvents(d.events ?? []))
-        .catch(() => {})
-        .finally(() => setEventsLoading(false));
-    }
-  }, [activeTab]);
-
-  async function saveName(newName: string) {
-    const r = await fetch("/api/profile/name", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ newName }),
-    });
-    const data = await r.json();
-    if (!r.ok) { toast.error(data.error ?? "Failed"); throw new Error(data.error); }
-    setProfile((prev) => prev ? { ...prev, name: newName } : prev);
-    toast.success("Name updated");
-  }
-
-  async function saveEmail(newEmail: string) {
-    const r = await fetch("/api/profile/email", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ newEmail }),
-    });
-    const data = await r.json();
-    if (!r.ok) { toast.error(data.error ?? "Failed"); throw new Error(data.error); }
-    setProfile((prev) => prev ? { ...prev, email: newEmail } : prev);
-    toast.success("Email updated — re-login may be required");
-  }
-
   return (
-    <div className="space-y-6 max-w-3xl">
-      {/* Header Card */}
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="bg-white/5 border border-white/10 rounded-2xl p-6"
-      >
-        <div className="flex items-start gap-5">
-          <div className="w-16 h-16 rounded-2xl bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-xl font-bold text-indigo-300 flex-shrink-0">
-            {initials}
+    <PageScaffold
+      icon={page.icon}
+      title={page.pageTitle ?? page.label}
+      description={page.pageDescription ?? page.description}
+      loading={profileQuery.isLoading && !profileQuery.data}
+      className="max-w-4xl space-y-6"
+    >
+      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
+        <SettingsCard title="Profile" description="Manage your display information and access groups" icon={page.icon}>
+          <div className="flex items-start gap-5">
+            <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-2xl border border-indigo-500/30 bg-indigo-500/20 text-xl font-bold text-indigo-300">
+              {initials}
+            </div>
+            <div className="min-w-0 flex-1 space-y-2">
+              <div>
+                <p className="mb-1 text-xs text-slate-500">Display name</p>
+                {profile ? (
+                  <InlineEdit key={`name-${profile.name}`} value={profile.name} onSave={async (newName) => { await updateName.mutateAsync({ newName }); }} placeholder="Your name" />
+                ) : (
+                  <Skeleton className="h-6 w-40" />
+                )}
+              </div>
+              <div>
+                <p className="mb-1 text-xs text-slate-500">Email</p>
+                {profile ? (
+                  <InlineEdit key={`email-${profile.email}`} value={profile.email} onSave={async (newEmail) => { await updateEmail.mutateAsync({ newEmail }); }} type="email" placeholder="your@email.com" />
+                ) : (
+                  <Skeleton className="h-6 w-56" />
+                )}
+              </div>
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {(profile?.groups ?? []).map((group) => (
+                  <span key={group} className="rounded-full border border-indigo-500/20 bg-indigo-500/10 px-2 py-0.5 text-xs text-indigo-400">
+                    {group}
+                  </span>
+                ))}
+              </div>
+            </div>
           </div>
-          <div className="flex-1 min-w-0 space-y-2">
-            <div>
-              <p className="text-xs text-slate-500 mb-1">Display name</p>
-              {profile ? (
-                <InlineEdit value={profile.name} onSave={saveName} placeholder="Your name" />
-              ) : (
-                <Skeleton className="h-6 w-40" />
-              )}
-            </div>
-            <div>
-              <p className="text-xs text-slate-500 mb-1">Email</p>
-              {profile ? (
-                <InlineEdit value={profile.email} onSave={saveEmail} type="email" placeholder="your@email.com" />
-              ) : (
-                <Skeleton className="h-6 w-56" />
-              )}
-            </div>
-            <div className="flex flex-wrap gap-1.5 pt-1">
-              {profile?.groups.map((g) => (
-                <span key={g} className="text-xs px-2 py-0.5 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-400">
-                  {g}
-                </span>
-              ))}
-            </div>
-          </div>
-        </div>
+        </SettingsCard>
       </motion.div>
 
-      {/* NAS Shares */}
-      {nasShares.length > 0 && (
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.05 }}
-          className="bg-white/5 border border-white/10 rounded-2xl p-5"
-        >
-          <h2 className="text-sm font-semibold text-white mb-3">My NAS Shares</h2>
-          <div className="space-y-2">
-            {nasShares.map((share, i) => (
-              <div key={i} className="flex items-center gap-3 px-3 py-2 rounded-xl bg-white/5 border border-white/10">
-                <div className="w-2 h-2 rounded-full bg-indigo-400 flex-shrink-0" />
-                <span className="text-sm text-slate-300">{typeof share === "string" ? share : JSON.stringify(share)}</span>
-              </div>
+      {nasShares.length > 0 ? (
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
+          <SettingsCard title="My NAS Shares" description="Storage access mapped to your account" icon={UserCircle}>
+            <div className="space-y-2">
+              {nasShares.map((share, index) => (
+                <div key={`${share.provider}-${share.share}-${index}`} className="rounded-xl border border-white/10 bg-white/5 px-3 py-2">
+                  <div className="text-sm text-slate-200">
+                    {share.provider}:{share.share}{share.subfolder ? `/${share.subfolder}` : ""}
+                  </div>
+                  <div className="text-xs text-slate-500">
+                    {share.access}
+                    {share.pvc_namespace && share.pvc_name ? ` · PVC ${share.pvc_namespace}/${share.pvc_name}` : ""}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </SettingsCard>
+        </motion.div>
+      ) : null}
+
+      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
+        <SettingsCard title="Session Activity" description="Review active sessions and recent login events" icon={RefreshCw}>
+          <div className="mb-4 flex border-b border-white/10">
+            {([
+              { id: "sessions", label: "Sessions" },
+              { id: "activity", label: "Login Activity" },
+            ] as const).map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`px-5 py-3 text-sm font-medium transition-colors ${
+                  activeTab === tab.id
+                    ? "-mb-px border-b-2 border-indigo-500 text-white"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                {tab.label}
+              </button>
             ))}
           </div>
-        </motion.div>
-      )}
 
-      {/* Tabs */}
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.1 }}
-        className="bg-white/5 border border-white/10 rounded-2xl overflow-hidden"
-      >
-        <div className="flex border-b border-white/10">
-          {(["sessions", "activity"] as const).map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`px-5 py-3 text-sm font-medium capitalize transition-colors ${
-                activeTab === tab
-                  ? "text-white border-b-2 border-indigo-500 -mb-px"
-                  : "text-slate-400 hover:text-white"
-              }`}
-            >
-              {tab === "sessions" ? "Sessions" : "Login Activity"}
-            </button>
-          ))}
-        </div>
-
-        <div className="p-5">
-          {activeTab === "sessions" && (
-            sessionsLoading ? (
-              <div className="space-y-2">{[...Array(3)].map((_, i) => <Skeleton key={i} className="h-14" />)}</div>
+          {activeTab === "sessions" ? (
+            sessionsQuery.isLoading ? (
+              <div className="space-y-2">{Array.from({ length: 3 }, (_, index) => <Skeleton key={index} className="h-14" />)}</div>
             ) : sessions.length === 0 ? (
-              <p className="text-sm text-slate-500 py-6 text-center">No active sessions</p>
+              <p className="py-6 text-center text-sm text-slate-500">No active sessions</p>
             ) : (
               <div className="space-y-2">
-                {sessions.map((s) => (
-                  <div key={s.identifier} className="flex items-center justify-between px-4 py-3 rounded-xl bg-white/5 border border-white/10">
+                {sessions.map((authentikSession) => (
+                  <div key={authentikSession.identifier} className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3">
                     <div>
-                      <p className="text-sm text-white">{s.description || s.identifier}</p>
-                      <p className="text-xs text-slate-500 mt-0.5">
-                        {s.created ? new Date(s.created).toLocaleString() : "—"}
-                        {s.expires ? ` · expires ${new Date(s.expires).toLocaleString()}` : ""}
+                      <p className="text-sm text-white">{authentikSession.description || authentikSession.identifier}</p>
+                      <p className="mt-0.5 text-xs text-slate-500">
+                        {authentikSession.created ? new Date(authentikSession.created).toLocaleString() : "—"}
+                        {authentikSession.expires ? ` · expires ${new Date(authentikSession.expires).toLocaleString()}` : ""}
                       </p>
                     </div>
-                    <RefreshCw className="w-3.5 h-3.5 text-slate-500" />
+                    <RefreshCw className="h-3.5 w-3.5 text-slate-500" />
                   </div>
                 ))}
               </div>
             )
+          ) : activityQuery.isLoading ? (
+            <div className="space-y-2">{Array.from({ length: 4 }, (_, index) => <Skeleton key={index} className="h-12" />)}</div>
+          ) : events.length === 0 ? (
+            <p className="py-6 text-center text-sm text-slate-500">No login activity</p>
+          ) : (
+            <div className="relative space-y-3 pl-6">
+              <div className="absolute bottom-0 left-2.5 top-0 w-px bg-white/10" />
+              {events.map((event) => {
+                const success = event.context?.result !== "denied";
+                return (
+                  <div key={event.pk} className="relative rounded-xl border border-white/10 bg-white/5 px-4 py-3">
+                    <div
+                      className={`absolute -left-3.5 top-4 h-2.5 w-2.5 rounded-full border-2 ${
+                        success ? "border-green-400 bg-green-500" : "border-red-400 bg-red-500"
+                      }`}
+                    />
+                    <div className="text-sm text-white">{event.action}</div>
+                    <div className="mt-0.5 text-xs text-slate-500">{new Date(event.created).toLocaleString()}</div>
+                  </div>
+                );
+              })}
+            </div>
           )}
-
-          {activeTab === "activity" && (
-            eventsLoading ? (
-              <div className="space-y-2">{[...Array(4)].map((_, i) => <Skeleton key={i} className="h-12" />)}</div>
-            ) : events.length === 0 ? (
-              <p className="text-sm text-slate-500 py-6 text-center">No login activity</p>
-            ) : (
-              <div className="relative pl-6 space-y-3">
-                <div className="absolute left-2.5 top-0 bottom-0 w-px bg-white/10" />
-                {events.map((evt) => {
-                  const success = evt.context?.result !== "denied";
-                  return (
-                    <div key={evt.pk} className="relative">
-                      <div
-                        className={`absolute -left-3.5 top-2 w-2.5 h-2.5 rounded-full border-2 ${
-                          success ? "bg-green-500 border-green-400" : "bg-red-500 border-red-400"
-                        }`}
-                      />
-                      <div className="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-white/5 border border-white/10">
-                        {success ? (
-                          <CheckCircle2 className="w-4 h-4 text-green-400 flex-shrink-0" />
-                        ) : (
-                          <XCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
-                        )}
-                        <div className="min-w-0">
-                          <p className="text-sm text-white">{success ? "Login success" : "Login failed"}</p>
-                          <p className="text-xs text-slate-500">{new Date(evt.created).toLocaleString()}</p>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )
-          )}
-        </div>
+        </SettingsCard>
       </motion.div>
-    </div>
+    </PageScaffold>
   );
 }

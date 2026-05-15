@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { getSessionRBACContext, hasAnySessionPermission, hasSessionPermission } from "@/lib/session-rbac";
-import * as k8s from "@kubernetes/client-node";
+import type { V1Deployment } from "@kubernetes/client-node";
+import type { ConfigDriftEntry } from "@/types";
+import { makeAppsApi } from "@/lib/kube-client";
+import { apiError, apiSuccess, parseJsonBody, requireRoutePermissions } from "@/lib/route-utils";
 
 interface BaselineEntry {
   namespace: string;
@@ -12,107 +13,88 @@ interface BaselineEntry {
   capturedAt: string;
 }
 
-interface DriftEntry extends BaselineEntry {
-  currentReplicas: number;
-  currentImage: string;
-  drifted: boolean;
-}
-
 const baseline: BaselineEntry[] = [];
 
-async function requireReadAccess() {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const access = await getSessionRBACContext(session, 60);
-  if (!hasAnySessionPermission(access, ["cluster:read", "infra:read"])) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
-  return session;
+function toBaselineEntry(deployment: V1Deployment, capturedAt = new Date().toISOString()): BaselineEntry {
+  return {
+    namespace: deployment.metadata?.namespace ?? "",
+    name: deployment.metadata?.name ?? "",
+    kind: deployment.kind ?? "Deployment",
+    replicas: deployment.spec?.replicas ?? 0,
+    image: deployment.spec?.template?.spec?.containers?.[0]?.image ?? "",
+    capturedAt,
+  };
 }
 
-async function requireWriteAccess() {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+async function listBaselineEntries() {
+  const response = await makeAppsApi().listDeploymentForAllNamespaces();
+  const capturedAt = new Date().toISOString();
 
-  const access = await getSessionRBACContext(session, 60);
-  if (!hasSessionPermission(access, "cluster:admin")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  return response.items.map((deployment) => toBaselineEntry(deployment, capturedAt));
+}
 
-  return session;
+function toDriftEntry(entry: BaselineEntry, current?: BaselineEntry): ConfigDriftEntry {
+  return {
+    ...entry,
+    currentReplicas: current?.replicas ?? -1,
+    currentImage: current?.image ?? "not found",
+    drifted: !current || current.replicas !== entry.replicas || current.image !== entry.image,
+  };
 }
 
 export async function GET() {
-  const session = await requireReadAccess();
+  const session = await requireRoutePermissions({ any: ["cluster:read", "infra:read"] });
   if (session instanceof NextResponse) return session;
+
   if (baseline.length === 0) {
-    return NextResponse.json({ drift: [], baselineCaptured: false });
+    return apiSuccess({ drift: [], baselineCaptured: false });
   }
+
   try {
-    const kc = new k8s.KubeConfig();
-    if (process.env.KUBECONFIG) { kc.loadFromFile(process.env.KUBECONFIG); }
-    else { try { kc.loadFromCluster(); } catch { kc.loadFromDefault(); } }
-    const appsApi = kc.makeApiClient(k8s.AppsV1Api);
-    const res = await appsApi.listDeploymentForAllNamespaces();
-    const current = (res.items as unknown[]).map(item => {
-      const d = item as { metadata?: { namespace?: string; name?: string }; spec?: { replicas?: number; template?: { spec?: { containers?: { image?: string }[] } } } };
-      return {
-        namespace: d.metadata?.namespace ?? "",
-        name: d.metadata?.name ?? "",
-        replicas: d.spec?.replicas ?? 0,
-        image: d.spec?.template?.spec?.containers?.[0]?.image ?? "",
-      };
-    });
-    const drift: DriftEntry[] = baseline.map(b => {
-      const cur = current.find(c => c.namespace === b.namespace && c.name === b.name);
-      return {
-        ...b,
-        currentReplicas: cur?.replicas ?? -1,
-        currentImage: cur?.image ?? "not found",
-        drifted: !cur || cur.replicas !== b.replicas || cur.image !== b.image,
-      };
-    });
-    return NextResponse.json({ drift, baselineCaptured: true });
+    const currentEntries = await listBaselineEntries();
+    const currentByKey = new Map(currentEntries.map((entry) => [`${entry.namespace}/${entry.name}`, entry] as const));
+    const drift = baseline.map((entry) => toDriftEntry(entry, currentByKey.get(`${entry.namespace}/${entry.name}`)));
+
+    return apiSuccess({ drift, baselineCaptured: true });
   } catch {
-    return NextResponse.json({ drift: baseline.map(b => ({ ...b, currentReplicas: b.replicas, currentImage: b.image, drifted: false })), baselineCaptured: true });
+    return apiSuccess({
+      drift: baseline.map((entry) => ({ ...entry, currentReplicas: entry.replicas, currentImage: entry.image, drifted: false })),
+      baselineCaptured: true,
+    });
   }
 }
 
-export async function POST(req: NextRequest) {
-  const session = await requireWriteAccess();
+export async function POST(request: NextRequest) {
+  const session = await requireRoutePermissions({ all: ["cluster:admin"] });
   if (session instanceof NextResponse) return session;
-  const body = await req.json() as { action?: string };
-  if (body.action !== "capture") return NextResponse.json({ error: "Invalid action" }, { status: 400 });
+
+  const body = await parseJsonBody<{ action?: string }>(request);
+  if (body.action !== "capture") {
+    return apiError("Invalid action", { status: 400 });
+  }
+
   try {
-    const kc = new k8s.KubeConfig();
-    if (process.env.KUBECONFIG) { kc.loadFromFile(process.env.KUBECONFIG); }
-    else { try { kc.loadFromCluster(); } catch { kc.loadFromDefault(); } }
-    const appsApi = kc.makeApiClient(k8s.AppsV1Api);
-    const res = await appsApi.listDeploymentForAllNamespaces();
-    baseline.length = 0;
-    for (const item of res.items as unknown[]) {
-      const d = item as { metadata?: { namespace?: string; name?: string }; spec?: { replicas?: number; template?: { spec?: { containers?: { image?: string }[] } } } };
-      baseline.push({
-        namespace: d.metadata?.namespace ?? "",
-        name: d.metadata?.name ?? "",
-        kind: "Deployment",
-        replicas: d.spec?.replicas ?? 0,
-        image: d.spec?.template?.spec?.containers?.[0]?.image ?? "",
-        capturedAt: new Date().toISOString(),
-      });
-    }
-    return NextResponse.json({ ok: true, count: baseline.length });
+    const currentEntries = await listBaselineEntries();
+    baseline.splice(0, baseline.length, ...currentEntries);
+    return apiSuccess({ ok: true, count: baseline.length });
   } catch {
-    baseline.push({ namespace: "default", name: "my-app", kind: "Deployment", replicas: 2, image: "nginx:1.25", capturedAt: new Date().toISOString() });
-    return NextResponse.json({ ok: true, count: baseline.length });
+    baseline.splice(0, baseline.length, {
+      namespace: "default",
+      name: "my-app",
+      kind: "Deployment",
+      replicas: 2,
+      image: "nginx:1.25",
+      capturedAt: new Date().toISOString(),
+    });
+
+    return apiSuccess({ ok: true, count: baseline.length });
   }
 }
 
 export async function DELETE() {
-  const session = await requireWriteAccess();
+  const session = await requireRoutePermissions({ all: ["cluster:admin"] });
   if (session instanceof NextResponse) return session;
+
   baseline.length = 0;
-  return NextResponse.json({ ok: true });
+  return apiSuccess({ ok: true });
 }
