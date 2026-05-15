@@ -8,6 +8,8 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { summarizeApp, type AppFeedConfig, type AppFeedEntry } from "@/lib/appfeed-converter";
+import { getAppFeed } from "@/lib/appfeed-cache";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { safeError } from "@/lib/utils";
@@ -66,6 +68,75 @@ async function ghListDir(dirPath: string): Promise<GHTreeItem[]> {
 
 function slugIsValid(slug: string): boolean {
   return /^[a-z0-9-]+$/.test(slug) && slug.length > 0 && slug.length < 64;
+}
+
+function getAppConfigs(app: AppFeedEntry): AppFeedConfig[] {
+  if (!app.Config) return [];
+  return Array.isArray(app.Config) ? app.Config : [app.Config];
+}
+
+export async function GET(
+  _req: NextRequest,
+  { params }: { params: Promise<{ slug: string }> }
+) {
+  const { slug } = await params;
+
+  if (!slugIsValid(slug)) {
+    return NextResponse.json({ error: "Invalid slug" }, { status: 400 });
+  }
+
+  const session = await auth();
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const access = await getSessionRBACContext(session, 60);
+  if (!hasSessionPermission(access, "apps:read")) {
+    return NextResponse.json({ error: "Forbidden — requires apps:read" }, { status: 403 });
+  }
+
+  try {
+    const feed = await getAppFeed();
+    const app = (feed.applist ?? []).find((entry): entry is AppFeedEntry => {
+      const candidate = entry as AppFeedEntry;
+      return typeof candidate.Name === "string"
+        && typeof candidate.Repository === "string"
+        && summarizeApp(candidate).slug === slug;
+    });
+
+    if (!app) {
+      return NextResponse.json({ error: "App not found" }, { status: 404 });
+    }
+
+    const summary = summarizeApp(app);
+    return NextResponse.json({
+      ...summary,
+      repository: app.Repository,
+      registry: app.Registry,
+      project: app.Project,
+      templateUrl: app.TemplateURL,
+      network: app.Network,
+      shell: app.Shell,
+      privileged: String(app.Privileged ?? "").toLowerCase() === "true",
+      extraParams: app.ExtraParams,
+      postArgs: app.PostArgs,
+      requires: app.Requires,
+      configs: getAppConfigs(app).map((config) => {
+        const attrs = config["@attributes"];
+        return {
+          name: attrs.Name,
+          target: attrs.Target,
+          type: attrs.Type,
+          defaultValue: attrs.Default,
+          description: attrs.Description,
+          display: attrs.Display,
+          mode: attrs.Mode,
+          required: attrs.Required === "true",
+          masked: attrs.Mask === "true",
+        };
+      }),
+    });
+  } catch (error) {
+    return NextResponse.json({ error: safeError(error) }, { status: 502 });
+  }
 }
 
 async function cleanupArgoApplication(argoAppName: string): Promise<void> {

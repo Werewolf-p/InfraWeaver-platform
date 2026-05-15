@@ -16,6 +16,11 @@ function isNotFoundError(error: unknown) {
   return /404|not\s*found/i.test(msg);
 }
 
+function isForbiddenError(error: unknown) {
+  const msg = error instanceof Error ? error.message : String(error);
+  return /403|forbidden/i.test(msg);
+}
+
 async function readAddonConfigMap(): Promise<AddonConfigMap | null> {
   const { makeCoreApi } = await import("@/lib/kube-client");
   const coreApi = makeCoreApi();
@@ -25,7 +30,7 @@ async function readAddonConfigMap(): Promise<AddonConfigMap | null> {
       namespace: CONSOLE_NAMESPACE,
     })) as AddonConfigMap;
   } catch (error) {
-    if (isNotFoundError(error)) return null;
+    if (isNotFoundError(error) || isForbiddenError(error)) return null;
     throw error;
   }
 }

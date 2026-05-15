@@ -22,6 +22,11 @@ function isNotFoundError(error: unknown) {
   return /404|not\s*found/i.test(message);
 }
 
+function isForbiddenError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /403|forbidden/i.test(message);
+}
+
 function safeParseJson<T>(value: string | undefined): T | undefined {
   if (!value) return undefined;
   try {
@@ -56,6 +61,7 @@ function parseConfigMapPreferences(configMap: PreferencesConfigMap | null): User
     pinnedApps: safeParseJson(configMap?.data?.pinnedApps),
     theme: configMap?.data?.theme,
     recentlyVisited: safeParseJson(configMap?.data?.recentlyVisited),
+    recentSearches: safeParseJson(configMap?.data?.recentSearches),
   });
 }
 
@@ -67,7 +73,7 @@ async function readPreferencesConfigMap(name: string): Promise<PreferencesConfig
       namespace: CONSOLE_NAMESPACE,
     })) as PreferencesConfigMap;
   } catch (error) {
-    if (isNotFoundError(error)) return null;
+    if (isNotFoundError(error) || isForbiddenError(error)) return null;
     throw error;
   }
 }
@@ -125,22 +131,29 @@ export async function updateUserPreferences(session: Session, update: UserPrefer
       pinnedApps: JSON.stringify(nextPreferences.pinnedApps),
       theme: nextPreferences.theme,
       recentlyVisited: JSON.stringify(nextPreferences.recentlyVisited),
+      recentSearches: JSON.stringify(nextPreferences.recentSearches),
       preferences: JSON.stringify(nextPreferences),
       updatedAt,
     },
   };
 
-  if (current.resourceVersion) {
-    await coreApi.replaceNamespacedConfigMap({
-      name: current.configMapName,
-      namespace: CONSOLE_NAMESPACE,
-      body,
-    });
-  } else {
-    await coreApi.createNamespacedConfigMap({
-      namespace: CONSOLE_NAMESPACE,
-      body,
-    });
+  try {
+    if (current.resourceVersion) {
+      await coreApi.replaceNamespacedConfigMap({
+        name: current.configMapName,
+        namespace: CONSOLE_NAMESPACE,
+        body,
+      });
+    } else {
+      await coreApi.createNamespacedConfigMap({
+        namespace: CONSOLE_NAMESPACE,
+        body,
+      });
+    }
+  } catch (error) {
+    if (!isForbiddenError(error)) {
+      throw error;
+    }
   }
 
   return {

@@ -23,7 +23,7 @@ export async function GET() {
   try {
     const res = await fetch(`https://${REGISTRY_HOST}/v2/_catalog`, {
       headers: { ...getAuthHeader(), Accept: "application/json" },
-      signal: AbortSignal.timeout(5000),
+      signal: AbortSignal.timeout(3500),
     });
     if (!res.ok) throw new Error(`Registry error: ${res.status}`);
     const data = await res.json() as { repositories: string[] };

@@ -65,6 +65,14 @@ async function truenasListShares(): Promise<Array<{ name: string; path: string }
   }
 }
 
+async function listSharesForProvider(provider: "synology" | "truenas") {
+  if (provider === "synology") {
+    return (await synologyListShares()).map((share) => ({ ...share, provider }));
+  }
+
+  return (await truenasListShares()).map((share) => ({ ...share, provider }));
+}
+
 export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -75,8 +83,15 @@ export async function GET(req: NextRequest) {
   }
 
   const provider = req.nextUrl.searchParams.get("provider");
-  if (!provider) return NextResponse.json({ error: "provider param required" }, { status: 400 });
-  if (provider === "synology") return NextResponse.json({ shares: await synologyListShares() });
-  if (provider === "truenas") return NextResponse.json({ shares: await truenasListShares() });
+  if (!provider) {
+    const [synology, truenas] = await Promise.all([
+      listSharesForProvider("synology"),
+      listSharesForProvider("truenas"),
+    ]);
+    return NextResponse.json({ shares: [...synology, ...truenas] });
+  }
+  if (provider === "synology" || provider === "truenas") {
+    return NextResponse.json({ shares: await listSharesForProvider(provider) });
+  }
   return NextResponse.json({ error: "Unknown provider" }, { status: 400 });
 }

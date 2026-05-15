@@ -1,12 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { ADDONS } from "@/lib/addons";
-import { setAddonEnabled } from "@/lib/addons-server";
+import { getEnabledAddons, setAddonEnabled } from "@/lib/addons-server";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { safeError } from "@/lib/utils";
 
 function getErrorMessage(error: unknown) {
   return safeError(error);
+}
+
+export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const session = await auth();
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const { id } = await params;
+
+  try {
+    const addon = (await getEnabledAddons()).find((entry) => entry.id === id);
+    if (!addon) {
+      return NextResponse.json({ error: "Addon not found" }, { status: 404 });
+    }
+    return NextResponse.json(addon);
+  } catch (error) {
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
+  }
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {

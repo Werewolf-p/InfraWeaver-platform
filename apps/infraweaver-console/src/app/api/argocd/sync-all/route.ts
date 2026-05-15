@@ -27,8 +27,13 @@ export async function POST(req: NextRequest) {
         "Content-Type": "application/json",
       },
       cache: "no-store",
+      signal: AbortSignal.timeout(4000),
     });
-    if (!listRes.ok) throw new Error("Failed to list apps");
+    if (!listRes.ok) {
+      const error = `Failed to list apps: ${listRes.status}`;
+      await auditLog("argocd:sync-all", session.user?.email ?? "unknown", `synced=0 errors=1 fallback=${error}`);
+      return NextResponse.json({ synced: [], errors: [error], total: 0, mock: true });
+    }
     const data = await listRes.json() as { items?: Array<{ metadata: { name: string }; status: { sync: { status: string } } }> };
     const apps = data.items ?? [];
     const outOfSync = apps.filter(a => a.status.sync.status === "OutOfSync");
@@ -48,6 +53,7 @@ export async function POST(req: NextRequest) {
                 "Content-Type": "application/json",
               },
               body: JSON.stringify({}),
+              signal: AbortSignal.timeout(5000),
             }
           );
           if (!syncRes.ok) throw new Error(`Sync failed: ${syncRes.status}`);
