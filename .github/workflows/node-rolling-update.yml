@@ -172,6 +172,44 @@ jobs:
               --disable-eviction
             echo "  ✅ Drained"
 
+            # ── Failover kubeconfig if this node IS the API endpoint ──
+            # In a Talos HA cluster each CP node runs kube-apiserver, but the
+            # kubeconfig points to a single node IP. If we are draining that
+            # specific node, kubectl loses connection the moment it reboots.
+            # Fix: temporarily repoint the kubeconfig at another ready CP node.
+            NODE_IP=$(kubectl get node "$NODE" \
+              -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null)
+            CURRENT_SERVER=$(kubectl config view --minify \
+              -o jsonpath='{.clusters[0].cluster.server}' 2>/dev/null)
+            ORIGINAL_SERVER="$CURRENT_SERVER"
+
+            if echo "$CURRENT_SERVER" | grep -q "$NODE_IP"; then
+              echo "  ⚠ Kubeconfig points to this node ($NODE_IP) — switching to alternate CP..."
+              # Pick any other Ready CP node
+              ALT_IP=$(kubectl get nodes -o json 2>/dev/null | python3 -c "
+import json,sys
+nodes = json.load(sys.stdin)['items']
+for n in nodes:
+    if n['metadata']['name'] != '${NODE}':
+        cond = [c for c in n.get('status',{}).get('conditions',[]) if c.get('type')=='Ready']
+        if cond and cond[0].get('status')=='True':
+            for a in n['status'].get('addresses',[]):
+                if a['type'] == 'InternalIP':
+                    print(a['address'])
+                    break
+            break
+")
+              if [ -n "$ALT_IP" ]; then
+                ALT_SERVER="https://${ALT_IP}:6443"
+                kubectl config set-cluster "$(kubectl config view --minify \
+                  -o jsonpath='{.clusters[0].name}')" \
+                  --server="$ALT_SERVER" 2>/dev/null
+                echo "  ✅ Kubeconfig now uses $ALT_SERVER"
+              else
+                echo "  ⚠ Could not find alternate CP — proceeding anyway"
+              fi
+            fi
+
             # ── Step 2: Tofu apply for this node's VM ───────────────
             echo ""
             echo "  [2/4] Applying Terraform for $NODE..."
@@ -187,12 +225,14 @@ jobs:
             echo ""
             echo "  [3/4] Waiting for $NODE to rejoin the cluster (up to 10 min)..."
 
-            # Give Proxmox up to 90s to initiate the reboot
-            echo "    Waiting for VM reboot to start (up to 90s)..."
+            # Give Proxmox up to 120s to initiate the reboot
+            echo "    Waiting for VM reboot to start (up to 120s)..."
             REBOOT_STARTED=false
-            for i in $(seq 1 18); do
+            for i in $(seq 1 24); do
               sleep 5
-              STATUS=$(kubectl get node "$NODE" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "Unknown")
+              STATUS=$(kubectl get node "$NODE" \
+                -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' \
+                2>/dev/null || echo "Unknown")
               if [ "$STATUS" != "True" ]; then
                 echo "    Node is now NotReady (reboot detected at ${i}×5s)"
                 REBOOT_STARTED=true
@@ -201,8 +241,7 @@ jobs:
             done
 
             if [ "$REBOOT_STARTED" = false ]; then
-              echo "    ⚠ Node still Ready after 90s — VM may not have rebooted (hot-reconfigure?)"
-              echo "    Verifying actual node capacity matches requested spec..."
+              echo "    ⚠ Node still Ready after 120s — VM may not have rebooted"
             fi
 
             # Wait for Ready with a 10 min timeout
@@ -211,6 +250,15 @@ jobs:
               --for=condition=Ready \
               --timeout=600s
             echo "  ✅ Node is Ready"
+
+            # Restore original kubeconfig server if we changed it
+            if [ "$ORIGINAL_SERVER" != "$(kubectl config view --minify \
+              -o jsonpath='{.clusters[0].cluster.server}' 2>/dev/null)" ]; then
+              kubectl config set-cluster "$(kubectl config view --minify \
+                -o jsonpath='{.clusters[0].name}')" \
+                --server="$ORIGINAL_SERVER" 2>/dev/null
+              echo "  ✅ Kubeconfig restored to $ORIGINAL_SERVER"
+            fi
 
             # ── Step 4: Uncordon ────────────────────────────────────
             echo ""
