@@ -123,6 +123,7 @@ catalog:
     - onedev
     - infraweaver-console
     - infraweaver-api
+    - infraweaver-node
     - registry
     - plex
 
