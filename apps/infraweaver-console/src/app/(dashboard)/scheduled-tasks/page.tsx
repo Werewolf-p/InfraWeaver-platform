@@ -215,6 +215,8 @@ export default function ScheduledTasksPage() {
       </div>
 
       <ResourceTable
+        tableId="scheduled-tasks-table"
+        caption="Scheduled tasks table"
         columns={columns}
         data={filteredTasks}
         loading={isLoading}

@@ -165,6 +165,8 @@ export default function ConfigDriftPage() {
           </div>
 
           <ResourceTable
+            tableId="config-drift-workloads"
+            caption="Config drift workloads table"
             columns={columns}
             data={filteredEntries}
             loading={isLoading}

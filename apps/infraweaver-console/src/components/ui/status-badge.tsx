@@ -34,6 +34,7 @@ type BadgeSize = "sm" | "md" | "lg";
 export interface StatusBadgeProps {
   status: StatusType | string;
   label?: string;
+  description?: string;
   variant?: BadgeVariant;
   size?: BadgeSize;
   showIcon?: boolean;
@@ -145,25 +146,26 @@ const SIZE_CONFIG: Record<BadgeSize, { text: string; px: string; icon: string }>
 export function normalizeStatus(status: string): StatusType {
   const normalized = status.replace(/\s+/g, "").toLowerCase();
 
-  if (normalized.includes("outofsync")) return "outOfSync";
-  if (normalized.includes("synced")) return "synced";
-  if (normalized.includes("degraded")) return "degraded";
-  if (normalized.includes("progressing")) return "progressing";
+  if (["outofsync", "drifted"].some((token) => normalized.includes(token))) return "outOfSync";
+  if (["synced", "insync", "completed", "success"].some((token) => normalized.includes(token))) return "synced";
+  if (["degraded", "unhealthy"].some((token) => normalized.includes(token))) return "degraded";
+  if (["progressing", "terminating", "restarting"].some((token) => normalized.includes(token))) return "progressing";
   if (normalized.includes("syncing")) return "syncing";
-  if (normalized.includes("processing")) return "processing";
-  if (normalized.includes("warning") || normalized.includes("backoff")) return "warning";
-  if (normalized.includes("offline")) return "offline";
-  if (normalized.includes("online")) return "online";
-  if (normalized.includes("failed") || normalized.includes("error") || normalized.includes("notready")) return "failed";
-  if (normalized.includes("pending") || normalized.includes("creating")) return "pending";
+  if (["processing", "creating", "starting"].some((token) => normalized.includes(token))) return "processing";
+  if (["warning", "backoff", "throttled"].some((token) => normalized.includes(token))) return "warning";
+  if (["offline", "disabled"].some((token) => normalized.includes(token))) return "offline";
+  if (["online", "enabled"].some((token) => normalized.includes(token))) return "online";
+  if (["failed", "error", "notready", "crash", "denied"].some((token) => normalized.includes(token))) return "failed";
+  if (normalized.includes("pending")) return "pending";
   if (normalized.includes("running")) return "running";
-  if (normalized.includes("healthy") || normalized.includes("ready")) return "healthy";
+  if (["healthy", "ready", "available"].some((token) => normalized.includes(token))) return "healthy";
   return "unknown";
 }
 
 export function StatusBadge({
   status,
   label,
+  description,
   variant = "pill",
   size = "md",
   showIcon = false,
@@ -175,19 +177,21 @@ export function StatusBadge({
   const sz = SIZE_CONFIG[size];
   const displayLabel = label ?? config.label;
   const Icon = config.icon;
+  const title = description ? `${displayLabel} — ${description}` : displayLabel;
 
   if (variant === "card") {
     return (
-      <div className={cn("flex items-center gap-2.5 rounded-xl border p-3", config.colors.bg, config.colors.border, className)}>
+      <div title={title} className={cn("flex items-center gap-2.5 rounded-xl border p-3", config.colors.bg, config.colors.border, className)}>
         <div className={cn("relative flex-shrink-0", config.colors.text)}>
           <Icon className="h-4 w-4" />
         </div>
-        <div>
+        <div className="min-w-0">
           <p className={cn("text-sm font-semibold", config.colors.text)}>{displayLabel}</p>
+          {description ? <p className="mt-0.5 text-xs text-slate-400">{description}</p> : null}
         </div>
         {config.pulse && (
           <div className="relative ml-auto flex-shrink-0">
-            <span className={cn("absolute inset-0 rounded-full opacity-60 animate-ping", config.colors.dot)} />
+            <span className={cn("absolute inset-0 rounded-full animate-ping opacity-60", config.colors.dot)} />
             <span className={cn("relative block h-2 w-2 rounded-full", config.colors.dot)} />
           </div>
         )}
@@ -197,6 +201,7 @@ export function StatusBadge({
 
   return (
     <span
+      title={title}
       className={cn(
         "inline-flex items-center gap-1.5 rounded-full border font-medium",
         config.colors.bg,
@@ -211,7 +216,7 @@ export function StatusBadge({
         <span className="relative flex h-2 w-2 flex-shrink-0 items-center justify-center">
           {config.pulse ? (
             <>
-              <span className={cn("absolute inset-0 rounded-full opacity-60 animate-ping", config.colors.dot)} />
+              <span className={cn("absolute inset-0 rounded-full animate-ping opacity-60", config.colors.dot)} />
               <span className={cn("relative h-full w-full rounded-full", config.colors.dot)} />
             </>
           ) : (

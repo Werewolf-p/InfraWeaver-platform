@@ -84,7 +84,14 @@ function NavItemRow({ item, isActive, collapsed }: { item: NavItem; isActive: bo
 }
 
 export function Sidebar() {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return localStorage.getItem("infraweaver_sidebar_collapsed") === "true";
+    } catch {
+      return false;
+    }
+  });
   const [search, setSearch] = useState("");
   const [openSections, setOpenSections] = useState<Record<string, boolean>>(() => {
     if (typeof window === "undefined") return { overview: true, apps: true, compute: false, infrastructure: false, operations: false, monitoring: false, documentation: false, services: false, tools: false };
@@ -119,6 +126,14 @@ export function Sidebar() {
       return next;
     });
   };
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("infraweaver_sidebar_collapsed", String(collapsed));
+    } catch {
+      /* ignore */
+    }
+  }, [collapsed]);
 
   useEffect(() => {
     const match = visibleNavItems.find((item) =>
