@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
+import { queryKeys } from "@/lib/query-keys";
 import {
   getRole,
   hasAssignedPermissionForScope,
@@ -59,11 +60,11 @@ export function useRBAC() {
   const legacyRole = getRole(groups);
 
   const { data, isLoading } = useQuery<MyPermissions>({
-    queryKey: ["rbac", "my-permissions"],
+    queryKey: queryKeys.rbac.myPermissions(),
     queryFn: async () => {
-      const res = await fetch("/api/rbac/my-permissions");
-      if (!res.ok) throw new Error("Failed to load permissions");
-      return res.json();
+      const response = await fetch("/api/rbac/my-permissions");
+      if (!response.ok) throw new Error("Failed to load permissions");
+      return response.json();
     },
     staleTime: 60_000,
   });

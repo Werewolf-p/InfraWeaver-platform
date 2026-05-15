@@ -1,5 +1,24 @@
 import type { ComponentType } from "react";
 
+export type { CatalogApp, MutationResponse, PlatformConfigResponse, UsersConfigResponse } from "./api";
+export type {
+  ClusterDataPoint,
+  ClusterNode,
+  ClusterNodeCapacityInfo,
+  ClusterNodeMetric,
+  ClusterNodePodInfo,
+  ConfigDriftEntry,
+  HorizontalPodAutoscalerSummary,
+  ScheduledTask,
+} from "./cluster";
+export type {
+  KubernetesCertificate as Certificate,
+  KubernetesDeployment as Deployment,
+  KubernetesPod as Pod,
+  KubernetesService as Service,
+  KubernetesVolume as Volume,
+} from "./kubernetes";
+
 export interface ArgoApp {
   metadata: { name: string; namespace: string; labels?: Record<string, string> };
   spec: {
@@ -44,15 +63,6 @@ export interface RegistryRepo {
   name: string;
   tags?: RegistryTag[];
   tagCount?: number;
-}
-
-export interface Pod {
-  name: string;
-  namespace: string;
-  status: string;
-  containers: string[];
-  nodeName?: string;
-  createdAt: string;
 }
 
 export interface ClusterHealth {

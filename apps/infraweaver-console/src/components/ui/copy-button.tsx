@@ -1,7 +1,7 @@
 "use client";
-import { useState } from "react";
-import { Copy, Check } from "lucide-react";
-import { toast } from "sonner";
+
+import { Check, Copy } from "lucide-react";
+import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { cn } from "@/lib/utils";
 
 interface CopyButtonProps {
@@ -11,22 +11,13 @@ interface CopyButtonProps {
 }
 
 export function CopyButton({ text, label, className }: CopyButtonProps) {
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      toast.success(label ? `${label} copied` : "Copied to clipboard");
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      toast.error("Failed to copy");
-    }
-  };
+  const { copy, isCopied } = useCopyToClipboard();
+  const copied = isCopied(text);
 
   return (
     <button
-      onClick={handleCopy}
+      type="button"
+      onClick={() => void copy(text, { successMessage: label ? `${label} copied` : "Copied to clipboard" })}
       className={cn(
         "inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-[#2a2a2a] bg-[#0d0d0d] px-2.5 text-xs text-[#888] transition-colors hover:bg-[#1a1a1a] hover:text-[#f2f2f2] active:bg-[#1f1f1f] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3b82f6] focus-visible:ring-offset-1 focus-visible:ring-offset-[#111]",
         className,

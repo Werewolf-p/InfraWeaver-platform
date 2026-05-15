@@ -1,135 +1,299 @@
 "use client";
-import { motion } from "framer-motion";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
-import { toast } from "sonner";
-import { Clock, Plus, Trash2 } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { PageHeader } from "@/components/ui/page-header";
-import { useRBAC } from "@/hooks/use-rbac";
 
-interface ScheduledTask {
-  id: string;
-  name: string;
-  namespace: string;
-  pod: string;
-  schedule: string;
-  command: string;
-  enabled: boolean;
-  lastRun?: string;
-  createdAt: string;
-}
+import { motion } from "framer-motion";
+import { Clock, Lock, Plus, Trash2 } from "lucide-react";
+import { useMemo, useState } from "react";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { DataCard } from "@/components/ui/data-card";
+import { EmptyState } from "@/components/ui/empty-state";
+import { PageHeader } from "@/components/ui/page-header";
+import { ResourceTable, type Column } from "@/components/ui/resource-table";
+import { SearchInput } from "@/components/ui/search-input";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { useDebounce } from "@/hooks/use-debounce";
+import { useLocalStorage } from "@/hooks/use-local-storage";
+import { usePermissions } from "@/hooks/use-permissions";
+import { useRefetchInterval } from "@/hooks/use-refetch-interval";
+import { useScheduledTasks, type ScheduledTaskFormValues } from "@/hooks/use-scheduled-tasks";
+import { cn, timeAgo } from "@/lib/utils";
+import type { ScheduledTask } from "@/types/cluster";
+
+const DEFAULT_FORM: ScheduledTaskFormValues = {
+  name: "",
+  namespace: "default",
+  pod: "",
+  schedule: "0 * * * *",
+  command: "ls",
+};
 
 export default function ScheduledTasksPage() {
-  const { can, canAny } = useRBAC();
+  const { can, canAny } = usePermissions();
   const canViewTasks = canAny(["cluster:read", "infra:read"]);
   const canManageTasks = can("cluster:admin");
-  const qc = useQueryClient();
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ name: "", namespace: "default", pod: "", schedule: "0 * * * *", command: "ls" });
+  const [pendingDelete, setPendingDelete] = useState<ScheduledTask | null>(null);
+  const [form, setForm] = useState<ScheduledTaskFormValues>(DEFAULT_FORM);
+  const [search, setSearch] = useLocalStorage("scheduled-tasks-search", "");
+  const debouncedSearch = useDebounce(search, 200);
+  const { tasks, isLoading, refetch, createTask, deleteTask, toggleTask } = useScheduledTasks();
 
-  const { data, isLoading } = useQuery({
-    queryKey: ["scheduled-tasks"],
-    queryFn: async () => {
-      const res = await fetch("/api/cluster/scheduled-tasks");
-      if (!res.ok) throw new Error("Failed");
-      return res.json() as Promise<{ tasks: ScheduledTask[] }>;
-    },
-  });
+  useRefetchInterval(() => refetch(), 30_000, canViewTasks);
 
-  const tasks = data?.tasks ?? [];
+  const filteredTasks = useMemo(() => {
+    const query = debouncedSearch.trim().toLowerCase();
+    if (!query) return tasks;
 
-  const createMutation = useMutation({
-    mutationFn: async (body: typeof form) => {
-      if (!canManageTasks) throw new Error("Forbidden");
-      const res = await fetch("/api/cluster/scheduled-tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      if (!res.ok) throw new Error("Failed");
-      return res.json();
-    },
-    onSuccess: () => { toast.success("Task created"); void qc.invalidateQueries({ queryKey: ["scheduled-tasks"] }); setShowForm(false); },
-    onError: () => toast.error("Failed to create task"),
-  });
+    return tasks.filter((task) =>
+      [task.name, task.namespace, task.pod, task.schedule, task.command].some((value) =>
+        value.toLowerCase().includes(query),
+      ),
+    );
+  }, [debouncedSearch, tasks]);
 
-  const deleteMutation = useMutation({
-    mutationFn: async (id: string) => {
-      if (!canManageTasks) throw new Error("Forbidden");
-      const res = await fetch(`/api/cluster/scheduled-tasks?id=${id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error("Failed");
-    },
-    onSuccess: () => { toast.success("Task deleted"); void qc.invalidateQueries({ queryKey: ["scheduled-tasks"] }); },
-    onError: () => toast.error("Failed to delete"),
-  });
+  const columns: Column<ScheduledTask>[] = useMemo(
+    () => [
+      {
+        key: "name",
+        label: "Name",
+        sortable: true,
+        render: (task) => (
+          <div>
+            <p className="font-medium text-white">{task.name}</p>
+            <p className="text-xs text-slate-500">Created {timeAgo(task.createdAt)}</p>
+          </div>
+        ),
+      },
+      {
+        key: "schedule",
+        label: "Schedule",
+        sortable: true,
+        render: (task) => <span className="font-mono text-xs text-slate-300">{task.schedule}</span>,
+      },
+      {
+        key: "pod",
+        label: "Target",
+        sortable: true,
+        render: (task) => <span className="text-sm text-slate-400">{task.namespace}/{task.pod}</span>,
+      },
+      {
+        key: "command",
+        label: "Command",
+        render: (task) => <span className="font-mono text-xs text-slate-400">{task.command}</span>,
+      },
+      {
+        key: "enabled",
+        label: "Status",
+        sortable: true,
+        render: (task) => (
+          <StatusBadge
+            status={task.enabled ? "healthy" : "unknown"}
+            label={task.enabled ? "Enabled" : "Disabled"}
+            size="sm"
+          />
+        ),
+      },
+      {
+        key: "actions",
+        label: "Actions",
+        className: "text-right",
+        render: (task) => (
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => toggleTask.mutate({ id: task.id, enabled: !task.enabled })}
+              disabled={!canManageTasks || toggleTask.isPending}
+              className={cn(
+                "rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                task.enabled
+                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                  : "border-slate-500/30 bg-slate-500/10 text-slate-300",
+              )}
+            >
+              {task.enabled ? "Disable" : "Enable"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setPendingDelete(task)}
+              disabled={!canManageTasks || deleteTask.isPending}
+              className="text-red-400 transition-colors hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-50"
+              aria-label={`Delete ${task.name}`}
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </div>
+        ),
+      },
+    ],
+    [canManageTasks, deleteTask.isPending, toggleTask],
+  );
 
-  const toggleMutation = useMutation({
-    mutationFn: async ({ id, enabled }: { id: string; enabled: boolean }) => {
-      if (!canManageTasks) throw new Error("Forbidden");
-      const res = await fetch("/api/cluster/scheduled-tasks", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, enabled }) });
-      if (!res.ok) throw new Error("Failed");
-    },
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["scheduled-tasks"] }),
-  });
+  const handleCreateTask = async () => {
+    await createTask.mutateAsync(form);
+    setForm(DEFAULT_FORM);
+    setShowForm(false);
+  };
 
-  if (!canViewTasks) return <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-4 text-sm text-red-200">You do not have permission to view scheduled tasks.</div>;
-  if (isLoading) return <div className="space-y-4">{[...Array(3)].map((_, i) => <div key={i} className="h-16 rounded-xl bg-white/5 animate-pulse" />)}</div>;
+  if (!canViewTasks) {
+    return (
+      <EmptyState
+        icon={Lock}
+        title="Scheduled tasks are restricted"
+        description="You do not have permission to view scheduled task automation."
+      />
+    );
+  }
+
+  const enabledCount = tasks.filter((task) => task.enabled).length;
+  const disabledCount = tasks.length - enabledCount;
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-      <PageHeader icon={Clock} title="Scheduled Tasks" />
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-bold text-white flex items-center gap-2"><Clock className="w-5 h-5 text-slate-400" />Scheduled Tasks</h2>
-          <p className="text-sm text-slate-400">Pod restart and command scheduling</p>
-        </div>
-        <button onClick={() => canManageTasks && setShowForm(v => !v)} disabled={!canManageTasks} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-500/20 border border-indigo-500/30 text-sm text-indigo-300 hover:bg-indigo-500/30 transition-colors disabled:cursor-not-allowed disabled:opacity-50">
-          <Plus className="w-4 h-4" />Add Task
-        </button>
-      </div>
-
-      {showForm && (
-        <div className="bg-slate-900/60 border border-white/10 rounded-xl backdrop-blur-sm p-4 space-y-3">
-          <h3 className="text-sm font-semibold text-white">New Task</h3>
-          {(["name", "namespace", "pod", "schedule", "command"] as const).map(field => (
-            <input key={field} value={form[field]} onChange={e => setForm(f => ({ ...f, [field]: e.target.value }))} placeholder={field.charAt(0).toUpperCase() + field.slice(1)} className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-white placeholder:text-slate-500 outline-none focus:border-indigo-500/50" />
-          ))}
-          <button onClick={() => createMutation.mutate(form)} disabled={createMutation.isPending || !canManageTasks} className="w-full py-2 rounded-lg bg-indigo-500/20 border border-indigo-500/30 text-sm text-indigo-300 hover:bg-indigo-500/30 transition-colors disabled:opacity-50">
-            {createMutation.isPending ? "Creating..." : "Create Task"}
+      <PageHeader
+        icon={Clock}
+        title="Scheduled Tasks"
+        description="Pod restart and command scheduling"
+        badge={`${tasks.length} total`}
+        actions={
+          <button
+            type="button"
+            onClick={() => canManageTasks && setShowForm((open) => !open)}
+            disabled={!canManageTasks}
+            className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-4 py-2 text-sm font-medium text-indigo-300 transition-colors hover:bg-indigo-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Plus className="h-4 w-4" />
+            {showForm ? "Hide Form" : "Add Task"}
           </button>
-        </div>
-      )}
+        }
+      />
 
-      <div className="bg-slate-900/60 border border-white/10 rounded-xl backdrop-blur-sm overflow-hidden">
-        <table className="w-full">
-          <thead><tr className="border-b border-white/10">
-            <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400">Name</th>
-            <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400">Schedule</th>
-            <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400">Pod</th>
-            <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400">Command</th>
-            <th className="px-4 py-3 text-xs font-semibold text-slate-400">Enabled</th>
-            <th className="px-4 py-3"></th>
-          </tr></thead>
-          <tbody>
-            {tasks.map(t => (
-              <tr key={t.id} className="border-b border-white/5 hover:bg-white/5 transition-colors">
-                <td className="px-4 py-3 text-sm text-white font-medium">{t.name}</td>
-                <td className="px-4 py-3 text-sm text-slate-300 font-mono">{t.schedule}</td>
-                <td className="px-4 py-3 text-sm text-slate-400">{t.namespace}/{t.pod}</td>
-                <td className="px-4 py-3 text-sm text-slate-400 font-mono">{t.command}</td>
-                <td className="px-4 py-3 text-center">
-                  <button onClick={() => toggleMutation.mutate({ id: t.id, enabled: !t.enabled })} disabled={!canManageTasks} className={cn("w-8 h-4 rounded-full transition-colors relative disabled:opacity-50", t.enabled ? "bg-indigo-500" : "bg-white/10")}>
-                    <span className={cn("absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all", t.enabled ? "left-4.5 left-[calc(100%-14px)]" : "left-0.5")} />
-                  </button>
-                </td>
-                <td className="px-4 py-3">
-                  <button onClick={() => deleteMutation.mutate(t.id)} disabled={!canManageTasks} className="text-red-400 hover:text-red-300 transition-colors disabled:opacity-50">
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {tasks.length === 0 && <div className="py-12 text-center text-slate-500 text-sm">No scheduled tasks</div>}
+      <div className="grid gap-3 md:grid-cols-3">
+        <DataCard title="Total Tasks" value={tasks.length} subtitle="Automation jobs configured" />
+        <DataCard title="Enabled" value={enabledCount} subtitle="Tasks currently running" trend="up" />
+        <DataCard title="Disabled" value={disabledCount} subtitle="Paused automation jobs" trend={disabledCount > 0 ? "down" : undefined} />
       </div>
+
+      {showForm ? (
+        <div className="space-y-3 rounded-xl border border-white/10 bg-slate-900/60 p-4 backdrop-blur-sm">
+          <h2 className="text-sm font-semibold text-white">Create scheduled task</h2>
+          <div className="grid gap-3 md:grid-cols-2">
+            {(["name", "namespace", "pod", "schedule", "command"] as const).map((field) => (
+              <input
+                key={field}
+                value={form[field]}
+                onChange={(event) => setForm((current) => ({ ...current, [field]: event.target.value }))}
+                placeholder={field.charAt(0).toUpperCase() + field.slice(1)}
+                className="min-h-[44px] rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500 focus:border-indigo-500/50"
+              />
+            ))}
+          </div>
+          <div className="flex flex-wrap justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setForm(DEFAULT_FORM);
+                setShowForm(false);
+              }}
+              className="inline-flex min-h-[44px] items-center rounded-lg border border-white/10 px-4 py-2 text-sm text-slate-300 transition-colors hover:bg-white/5 hover:text-white"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleCreateTask()}
+              disabled={createTask.isPending || !canManageTasks}
+              className="inline-flex min-h-[44px] items-center rounded-lg border border-indigo-500/30 bg-indigo-500/15 px-4 py-2 text-sm font-medium text-indigo-300 transition-colors hover:bg-indigo-500/25 disabled:opacity-50"
+            >
+              {createTask.isPending ? "Creating..." : "Create Task"}
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <SearchInput placeholder="Search tasks, namespaces, pods, or commands" value={search} onChange={setSearch} className="sm:max-w-md" />
+        <p className="text-sm text-slate-500">Showing {filteredTasks.length} of {tasks.length} tasks</p>
+      </div>
+
+      <ResourceTable
+        columns={columns}
+        data={filteredTasks}
+        loading={isLoading}
+        getRowKey={(task) => task.id}
+        empty={
+          <EmptyState
+            icon={Clock}
+            title={tasks.length === 0 ? "No scheduled tasks yet" : "No tasks match your search"}
+            description={
+              tasks.length === 0
+                ? "Create a shared task once, then reuse the same workflow whenever you need pod automation."
+                : "Try a different name, namespace, pod, or command filter."
+            }
+            action={
+              tasks.length === 0 && canManageTasks
+                ? { label: "Create task", onClick: () => setShowForm(true) }
+                : undefined
+            }
+          />
+        }
+        mobileCardRender={(task) => (
+          <div className="space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="font-medium text-white">{task.name}</p>
+                <p className="text-xs text-slate-500">{task.namespace}/{task.pod}</p>
+              </div>
+              <StatusBadge
+                status={task.enabled ? "healthy" : "unknown"}
+                label={task.enabled ? "Enabled" : "Disabled"}
+                size="sm"
+              />
+            </div>
+            <div className="space-y-1 text-xs text-slate-400">
+              <p><span className="text-slate-500">Schedule:</span> <span className="font-mono">{task.schedule}</span></p>
+              <p><span className="text-slate-500">Command:</span> <span className="font-mono">{task.command}</span></p>
+              <p><span className="text-slate-500">Last run:</span> {task.lastRun ? timeAgo(task.lastRun) : "Never"}</p>
+            </div>
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => toggleTask.mutate({ id: task.id, enabled: !task.enabled })}
+                disabled={!canManageTasks || toggleTask.isPending}
+                className={cn(
+                  "rounded-lg border px-3 py-2 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                  task.enabled
+                    ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                    : "border-slate-500/30 bg-slate-500/10 text-slate-300",
+                )}
+              >
+                {task.enabled ? "Disable" : "Enable"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setPendingDelete(task)}
+                disabled={!canManageTasks || deleteTask.isPending}
+                className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-medium text-red-300 transition-colors hover:bg-red-500/20 disabled:opacity-50"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        )}
+      />
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        onCancel={() => setPendingDelete(null)}
+        onConfirm={() => {
+          if (!pendingDelete) return;
+          deleteTask.mutate(pendingDelete.id, {
+            onSuccess: () => setPendingDelete(null),
+          });
+        }}
+        title={pendingDelete ? `Delete ${pendingDelete.name}?` : "Delete task?"}
+        description="This removes the scheduled task definition but does not change any existing pods."
+        confirmText="Delete"
+        danger
+      />
     </motion.div>
   );
 }

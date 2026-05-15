@@ -1,30 +1,46 @@
 "use client";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "@/lib/query-keys";
+import type { CatalogApp, PlatformConfigResponse } from "@/types/api";
 
 export function usePlatformConfig() {
-  return useQuery({
-    queryKey: ["config", "platform"],
+  return useQuery<PlatformConfigResponse>({
+    queryKey: queryKeys.config.platform(),
     queryFn: async () => {
-      const res = await fetch("/api/config/platform");
-      if (!res.ok) throw new Error("Failed to fetch platform config");
-      return res.json() as Promise<{ raw: string; sha: string; catalog: Record<string, unknown>; groups: Record<string, unknown> }>;
+      const response = await fetch("/api/config/platform");
+      if (!response.ok) throw new Error("Failed to fetch platform config");
+      return response.json();
     },
-    staleTime: 30000,
+    staleTime: 30_000,
+  });
+}
+
+export function useCatalogApps() {
+  return useQuery<CatalogApp[]>({
+    queryKey: queryKeys.config.catalogApps(),
+    queryFn: async () => {
+      const response = await fetch("/api/config/catalog-apps");
+      if (!response.ok) throw new Error("Failed to fetch catalog apps");
+      return response.json();
+    },
+    staleTime: 30_000,
   });
 }
 
 export function useSavePlatformConfig() {
-  const qc = useQueryClient();
+  const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: async (data: { yamlContent: string; commitMessage?: string }) => {
-      const res = await fetch("/api/config/platform", {
+      const response = await fetch("/api/config/platform", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
       });
-      if (!res.ok) throw new Error("Failed to save platform config");
-      return res.json();
+      if (!response.ok) throw new Error("Failed to save platform config");
+      return response.json();
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["config", "platform"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.config.platform() }),
   });
 }

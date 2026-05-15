@@ -1,6 +1,9 @@
 "use client";
+
 import { useQuery } from "@tanstack/react-query";
+import { queryKeys } from "@/lib/query-keys";
 import { cn } from "@/lib/utils";
+import { ResourceBar } from "@/components/ui/resource-bar";
 
 interface NamespaceUsageItem {
   namespace: string;
@@ -12,29 +15,19 @@ interface NamespaceUsageItem {
   memLimit: number;
 }
 
-function UsageBar({ value, max, className }: { value: number; max: number; className?: string }) {
-  const pct = max > 0 ? Math.min((value / max) * 100, 100) : 0;
-  const color = pct >= 90 ? "bg-red-500" : pct >= 70 ? "bg-yellow-500" : "bg-emerald-500";
-  return (
-    <div className={cn("h-1.5 rounded-full bg-white/10 overflow-hidden", className)}>
-      <div className={cn("h-full rounded-full transition-all", color)} style={{ width: `${pct}%` }} />
-    </div>
-  );
-}
-
 interface NamespaceUsageProps {
   className?: string;
 }
 
 export function NamespaceUsage({ className }: NamespaceUsageProps) {
   const { data, isLoading, error } = useQuery<{ namespaces: NamespaceUsageItem[] }>({
-    queryKey: ["namespace-usage"],
+    queryKey: queryKeys.cluster.namespaceUsage(),
     queryFn: async () => {
-      const res = await fetch("/api/cluster/namespace-usage");
-      if (!res.ok) return { namespaces: MOCK_DATA };
-      return res.json() as Promise<{ namespaces: NamespaceUsageItem[] }>;
+      const response = await fetch("/api/cluster/namespace-usage");
+      if (!response.ok) return { namespaces: MOCK_DATA };
+      return response.json() as Promise<{ namespaces: NamespaceUsageItem[] }>;
     },
-    refetchInterval: 30000,
+    refetchInterval: 30_000,
     placeholderData: { namespaces: MOCK_DATA },
   });
 
@@ -62,13 +55,13 @@ export function NamespaceUsage({ className }: NamespaceUsageProps) {
                   <div className="flex justify-between text-[10px] text-white/30 mb-0.5">
                     <span>CPU</span><span>{item.cpuUsed}m/{item.cpuLimit}m</span>
                   </div>
-                  <UsageBar value={item.cpuUsed} max={item.cpuLimit} />
+                  <ResourceBar value={item.cpuUsed} max={item.cpuLimit} valueFormatter={(value, max) => `${value}m/${max}m`} />
                 </div>
                 <div>
                   <div className="flex justify-between text-[10px] text-white/30 mb-0.5">
                     <span>MEM</span><span>{item.memUsed}Mi/{item.memLimit}Mi</span>
                   </div>
-                  <UsageBar value={item.memUsed} max={item.memLimit} />
+                  <ResourceBar value={item.memUsed} max={item.memLimit} valueFormatter={(value, max) => `${value}Mi/${max}Mi`} />
                 </div>
               </div>
             </div>

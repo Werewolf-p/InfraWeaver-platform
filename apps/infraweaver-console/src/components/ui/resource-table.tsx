@@ -1,6 +1,7 @@
 "use client";
-import React, { useState, useMemo } from "react";
-import { ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
+
+import React, { useMemo, useState } from "react";
+import { SortableHeader } from "@/components/ui/sortable-header";
 import { cn } from "@/lib/utils";
 
 export interface Column<T> {
@@ -47,7 +48,12 @@ export function ResourceTable<T extends Record<string, unknown>>({
   }, [data, sortKey, sortDir]);
 
   const toggleSelect = (key: string) => {
-    setSelected(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
   };
 
   if (loading) {
@@ -83,16 +89,19 @@ export function ResourceTable<T extends Record<string, unknown>>({
           <thead>
             <tr className="bg-[#141414] border-b border-[#2a2a2a]">
               {selectable && <th className="w-10 px-3 py-2.5"><input type="checkbox" className="rounded border-[#333]" onChange={e => setSelected(e.target.checked ? new Set(sorted.map((r, i) => getRowKey ? getRowKey(r) : String(i))) : new Set())} /></th>}
-              {columns.map(col => (
-                <th key={col.key} className={cn("px-3 py-2.5 text-left text-[10px] text-[#9e9e9e] uppercase tracking-wider font-semibold", col.sortable && "cursor-pointer hover:text-[#f2f2f2]", col.className)} onClick={() => col.sortable && handleSort(col.key)}>
-                  <span className="inline-flex items-center gap-1">
-                    {col.label}
-                    {col.sortable && (
-                      sortKey === col.key
-                        ? sortDir === "asc" ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
-                        : <ChevronsUpDown className="w-3 h-3 opacity-40" />
-                    )}
-                  </span>
+              {columns.map((col) => (
+                <th key={col.key} className={cn("px-3 py-2.5 text-left text-[10px] uppercase tracking-wider font-semibold text-[#9e9e9e]", col.className)}>
+                  {col.sortable ? (
+                    <SortableHeader
+                      label={col.label}
+                      sortKey={col.key}
+                      activeKey={sortKey}
+                      direction={sortDir}
+                      onSort={handleSort}
+                    />
+                  ) : (
+                    <span>{col.label}</span>
+                  )}
                 </th>
               ))}
             </tr>

@@ -1,123 +1,207 @@
 "use client";
-import { motion } from "framer-motion";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
-import { toast } from "sonner";
-import { AlertTriangle, Database, Trash2 } from "lucide-react";
-import { PageHeader } from "@/components/ui/page-header";
-import { useRBAC } from "@/hooks/use-rbac";
 
-interface DriftEntry {
-  namespace: string;
-  name: string;
-  kind: string;
-  replicas: number;
-  image: string;
-  capturedAt: string;
-  currentReplicas: number;
-  currentImage: string;
-  drifted: boolean;
-}
+import { motion } from "framer-motion";
+import { AlertTriangle, Database, Lock, Trash2 } from "lucide-react";
+import { useMemo } from "react";
+import { DataCard } from "@/components/ui/data-card";
+import { EmptyState } from "@/components/ui/empty-state";
+import { PageHeader } from "@/components/ui/page-header";
+import { ResourceBar } from "@/components/ui/resource-bar";
+import { ResourceTable, type Column } from "@/components/ui/resource-table";
+import { SearchInput } from "@/components/ui/search-input";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { useConfigDrift } from "@/hooks/use-config-drift";
+import { useDebounce } from "@/hooks/use-debounce";
+import { useLocalStorage } from "@/hooks/use-local-storage";
+import { usePermissions } from "@/hooks/use-permissions";
+import { useRefetchInterval } from "@/hooks/use-refetch-interval";
+import type { ConfigDriftEntry } from "@/types/cluster";
 
 export default function ConfigDriftPage() {
-  const { can, canAny } = useRBAC();
+  const { can, canAny } = usePermissions();
   const canViewDrift = canAny(["cluster:read", "infra:read"]);
   const canManageDrift = can("cluster:admin");
-  const qc = useQueryClient();
-  const [baselineCaptured, setBaselineCaptured] = useState(false);
+  const [search, setSearch] = useLocalStorage("config-drift-search", "");
+  const debouncedSearch = useDebounce(search, 200);
+  const { drift, baselineCaptured, isLoading, refetch, captureBaseline, clearBaseline } = useConfigDrift();
 
-  const { data, isLoading } = useQuery({
-    queryKey: ["config-drift"],
-    queryFn: async () => {
-      const res = await fetch("/api/cluster/config-drift");
-      if (!res.ok) throw new Error("Failed");
-      const d = await res.json() as { drift: DriftEntry[]; baselineCaptured: boolean };
-      setBaselineCaptured(d.baselineCaptured);
-      return d;
-    },
-  });
+  useRefetchInterval(() => refetch(), 60_000, canViewDrift);
 
-  const drift = data?.drift ?? [];
-  const drifted = drift.filter(d => d.drifted);
+  const driftedEntries = drift.filter((entry) => entry.drifted);
+  const filteredEntries = useMemo(() => {
+    const query = debouncedSearch.trim().toLowerCase();
+    if (!query) return drift;
 
-  const captureMutation = useMutation({
-    mutationFn: async () => {
-      if (!canManageDrift) throw new Error("Forbidden");
-      const res = await fetch("/api/cluster/config-drift", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "capture" }) });
-      if (!res.ok) throw new Error("Failed");
-      return res.json();
-    },
-    onSuccess: () => { toast.success("Baseline captured"); void qc.invalidateQueries({ queryKey: ["config-drift"] }); },
-    onError: () => toast.error("Failed to capture baseline"),
-  });
+    return drift.filter((entry) =>
+      [entry.name, entry.namespace, entry.kind, entry.image, entry.currentImage].some((value) =>
+        value.toLowerCase().includes(query),
+      ),
+    );
+  }, [debouncedSearch, drift]);
 
-  const clearMutation = useMutation({
-    mutationFn: async () => {
-      if (!canManageDrift) throw new Error("Forbidden");
-      const res = await fetch("/api/cluster/config-drift", { method: "DELETE" });
-      if (!res.ok) throw new Error("Failed");
-    },
-    onSuccess: () => { toast.success("Baseline cleared"); setBaselineCaptured(false); void qc.invalidateQueries({ queryKey: ["config-drift"] }); },
-  });
+  const columns: Column<ConfigDriftEntry>[] = useMemo(
+    () => [
+      {
+        key: "name",
+        label: "Name",
+        sortable: true,
+        render: (entry) => (
+          <div>
+            <p className="font-medium text-white">{entry.name}</p>
+            <p className="text-xs text-slate-500">{entry.kind}</p>
+          </div>
+        ),
+      },
+      {
+        key: "namespace",
+        label: "Namespace",
+        sortable: true,
+        render: (entry) => <span className="text-sm text-slate-400">{entry.namespace}</span>,
+      },
+      {
+        key: "drifted",
+        label: "Status",
+        sortable: true,
+        render: (entry) => (
+          <StatusBadge
+            status={entry.drifted ? "outOfSync" : "synced"}
+            label={entry.drifted ? "Drifted" : "In Sync"}
+            size="sm"
+          />
+        ),
+      },
+      {
+        key: "image",
+        label: "Baseline Image",
+        render: (entry) => <span className="font-mono text-xs text-slate-300">{entry.image}</span>,
+      },
+      {
+        key: "currentImage",
+        label: "Current Image",
+        render: (entry) => (
+          <span className={entry.drifted ? "font-mono text-xs text-red-400" : "font-mono text-xs text-slate-300"}>
+            {entry.currentImage}
+          </span>
+        ),
+      },
+      {
+        key: "replicas",
+        label: "Replicas",
+        sortable: true,
+        render: (entry) => (
+          <span className={entry.replicas !== entry.currentReplicas ? "text-sm text-red-400" : "text-sm text-slate-300"}>
+            {entry.replicas} → {entry.currentReplicas}
+          </span>
+        ),
+      },
+    ],
+    [],
+  );
 
-  if (!canViewDrift) return <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-4 text-sm text-red-200">You do not have permission to view config drift.</div>;
-  if (isLoading) return <div className="space-y-4">{[...Array(4)].map((_, i) => <div key={i} className="h-16 rounded-xl bg-white/5 animate-pulse" />)}</div>;
+  if (!canViewDrift) {
+    return (
+      <EmptyState
+        icon={Lock}
+        title="Config drift is restricted"
+        description="You do not have permission to inspect baseline drift for cluster workloads."
+      />
+    );
+  }
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-      <PageHeader icon={AlertTriangle} title="Config Drift" />
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-bold text-white flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-slate-400" />Config Drift Detector</h2>
-          <p className="text-sm text-slate-400">Compare current state vs captured baseline</p>
-        </div>
-        <div className="flex gap-2">
-          <button onClick={() => captureMutation.mutate()} disabled={captureMutation.isPending || !canManageDrift} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-500/20 border border-indigo-500/30 text-sm text-indigo-300 hover:bg-indigo-500/30 transition-colors disabled:opacity-50">
-            <Database className="w-4 h-4" />{captureMutation.isPending ? "Capturing..." : "Capture Baseline"}
-          </button>
-          {baselineCaptured && (
-            <button onClick={() => clearMutation.mutate()} disabled={clearMutation.isPending || !canManageDrift} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-500/20 border border-red-500/30 text-sm text-red-300 hover:bg-red-500/30 transition-colors disabled:opacity-50">
-              <Trash2 className="w-4 h-4" />Clear
+      <PageHeader
+        icon={AlertTriangle}
+        title="Config Drift"
+        description="Compare current workload state against the saved baseline"
+        badge={baselineCaptured ? "Baseline active" : "Baseline missing"}
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => captureBaseline.mutate()}
+              disabled={captureBaseline.isPending || !canManageDrift}
+              className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-4 py-2 text-sm font-medium text-indigo-300 transition-colors hover:bg-indigo-500/20 disabled:opacity-50"
+            >
+              <Database className="h-4 w-4" />
+              {captureBaseline.isPending ? "Capturing..." : baselineCaptured ? "Refresh Baseline" : "Capture Baseline"}
             </button>
-          )}
+            {baselineCaptured ? (
+              <button
+                type="button"
+                onClick={() => clearBaseline.mutate()}
+                disabled={clearBaseline.isPending || !canManageDrift}
+                className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-2 text-sm font-medium text-red-300 transition-colors hover:bg-red-500/20 disabled:opacity-50"
+              >
+                <Trash2 className="h-4 w-4" />
+                Clear Baseline
+              </button>
+            ) : null}
+          </div>
+        }
+      />
+
+      <div className="grid gap-3 md:grid-cols-3">
+        <DataCard title="Tracked Workloads" value={drift.length} subtitle="Resources currently compared" />
+        <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4">
+          <DataCard title="Drifted" value={driftedEntries.length} subtitle="Resources requiring attention" trend={driftedEntries.length > 0 ? "down" : undefined} className="border-0 bg-transparent p-0" />
+          <ResourceBar value={driftedEntries.length} max={drift.length || 1} label="Drift share" valueFormatter={(_, __, percentage) => `${percentage}%`} tone={driftedEntries.length > 0 ? "red" : "emerald"} className="mt-4" />
         </div>
+        <DataCard title="Baseline" value={baselineCaptured ? "Ready" : "Missing"} subtitle="Saved comparison source" trend={baselineCaptured ? "up" : "down"} />
       </div>
 
       {!baselineCaptured ? (
-        <div className="py-16 text-center text-slate-500">
-          <Database className="w-12 h-12 mx-auto mb-3 opacity-30" />
-          <p className="text-sm">No baseline captured yet. Click "Capture Baseline" to start monitoring drift.</p>
-        </div>
-      ) : drifted.length === 0 ? (
-        <div className="py-16 text-center text-green-400">
-          <p className="text-lg font-semibold">✓ No drift detected</p>
-          <p className="text-sm text-slate-400 mt-1">All deployments match the baseline</p>
-        </div>
+        <EmptyState
+          icon={Database}
+          title="No baseline captured yet"
+          description="Capture a baseline once, then compare live workloads against that known-good state."
+          action={canManageDrift ? { label: "Capture baseline", onClick: () => captureBaseline.mutate() } : undefined}
+        />
       ) : (
-        <div className="bg-slate-900/60 border border-white/10 rounded-xl backdrop-blur-sm overflow-hidden">
-          <table className="w-full">
-            <thead><tr className="border-b border-white/10">
-              <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400">Name</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400">Namespace</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400">Baseline Image</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400">Current Image</th>
-              <th className="text-center px-4 py-3 text-xs font-semibold text-slate-400">Replicas</th>
-            </tr></thead>
-            <tbody>
-              {drifted.map(d => (
-                <tr key={`${d.namespace}/${d.name}`} className="border-b border-white/5 bg-red-500/5">
-                  <td className="px-4 py-3 text-sm text-white font-medium">{d.name}</td>
-                  <td className="px-4 py-3 text-sm text-slate-400">{d.namespace}</td>
-                  <td className="px-4 py-3 text-xs text-slate-300 font-mono">{d.image}</td>
-                  <td className="px-4 py-3 text-xs text-red-400 font-mono">{d.currentImage}</td>
-                  <td className="px-4 py-3 text-sm text-center">
-                    <span className={d.replicas !== d.currentReplicas ? "text-red-400" : "text-slate-300"}>{d.replicas} → {d.currentReplicas}</span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <SearchInput placeholder="Search names, namespaces, kinds, or images" value={search} onChange={setSearch} className="sm:max-w-md" />
+            <p className="text-sm text-slate-500">Showing {filteredEntries.length} of {drift.length} workloads</p>
+          </div>
+
+          <ResourceTable
+            columns={columns}
+            data={filteredEntries}
+            loading={isLoading}
+            getRowKey={(entry) => `${entry.namespace}/${entry.name}`}
+            empty={
+              <EmptyState
+                icon={AlertTriangle}
+                title={drift.length === 0 ? "No workloads captured" : "No workloads match your search"}
+                description={
+                  drift.length === 0
+                    ? "Capture a baseline again to refresh the tracked workload list."
+                    : "Try a different filter to inspect drift in another namespace or workload."
+                }
+              />
+            }
+            mobileCardRender={(entry) => (
+              <div className="space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="font-medium text-white">{entry.name}</p>
+                    <p className="text-xs text-slate-500">{entry.namespace} · {entry.kind}</p>
+                  </div>
+                  <StatusBadge
+                    status={entry.drifted ? "outOfSync" : "synced"}
+                    label={entry.drifted ? "Drifted" : "In Sync"}
+                    size="sm"
+                  />
+                </div>
+                <div className="space-y-1 text-xs text-slate-400">
+                  <p><span className="text-slate-500">Baseline:</span> <span className="font-mono">{entry.image}</span></p>
+                  <p><span className="text-slate-500">Current:</span> <span className={entry.drifted ? "font-mono text-red-400" : "font-mono"}>{entry.currentImage}</span></p>
+                  <p><span className="text-slate-500">Replicas:</span> {entry.replicas} → {entry.currentReplicas}</p>
+                </div>
+              </div>
+            )}
+          />
+        </>
       )}
     </motion.div>
   );

@@ -1,5 +1,8 @@
 "use client";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "@/lib/query-keys";
+import type { UsersConfigResponse } from "@/types/api";
 
 export interface NasShareAssignment {
   provider: "synology" | "truenas";
@@ -33,14 +36,14 @@ export interface PlatformUser {
 }
 
 export function useUsersConfig() {
-  return useQuery({
-    queryKey: ["config", "users"],
+  return useQuery<UsersConfigResponse<PlatformUser>>({
+    queryKey: queryKeys.config.users(),
     queryFn: async () => {
-      const res = await fetch("/api/users-config");
-      if (!res.ok) throw new Error("Failed to fetch users");
-      return res.json() as Promise<{ users: PlatformUser[]; sha: string; raw: string }>;
+      const response = await fetch("/api/users-config");
+      if (!response.ok) throw new Error("Failed to fetch users");
+      return response.json();
     },
-    staleTime: 30000,
+    staleTime: 30_000,
   });
 }
 
@@ -48,14 +51,14 @@ export function useSaveUsersConfig() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (data: { users: PlatformUser[]; commitMessage?: string; sha?: string }) => {
-      const res = await fetch("/api/users-config", {
+      const response = await fetch("/api/users-config", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
       });
-      if (!res.ok) throw new Error("Failed to save users");
-      return res.json();
+      if (!response.ok) throw new Error("Failed to save users");
+      return response.json();
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["config", "users"] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.config.users() }),
   });
 }
