@@ -641,7 +641,7 @@ function AllInstalledTab() {
           .then(r => r.json())
           .then((data: { message?: string; error?: string; details?: string[] }) => {
             toast.success(data.message ?? `${slug} scheduled for removal`);
-            setCommunityApps(prev => prev.filter(a => a.slug !== slug));
+            void communityAppsQuery.refetch();
             setRecentlyUninstalled(prev => new Set([...prev, `catalog-${slug}-manifests`]));
           })
           .catch(e => toast.error(String(e)))

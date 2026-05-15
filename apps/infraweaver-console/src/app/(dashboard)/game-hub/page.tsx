@@ -621,7 +621,7 @@ export default function GameHubPage() {
   });
   const [now, setNow] = useState(0);
   const [activeActionServerName, setActiveActionServerName] = useState<string | null>(null);
-  const longPressTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const longPressTimerRef = useRef<number | null>(null);
   const longPressTriggeredRef = useRef(false);
 
   useEffect(() => {
