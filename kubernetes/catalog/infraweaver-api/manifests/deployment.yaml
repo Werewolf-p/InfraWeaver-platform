@@ -63,18 +63,29 @@ spec:
             limits:
               cpu: 500m
               memory: 512Mi
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 3001
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 18
           readinessProbe:
             httpGet:
               path: /health
               port: 3001
-            initialDelaySeconds: 5
+            initialDelaySeconds: 10
             periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
           livenessProbe:
             httpGet:
               path: /health
               port: 3001
-            initialDelaySeconds: 15
+            initialDelaySeconds: 30
             periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:

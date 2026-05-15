@@ -40,7 +40,7 @@ spec:
         namespace: "{{ .namespace }}"
       syncPolicy:
         automated:
-          prune: false
+          prune: true
           selfHeal: true
         retry:
           limit: 5
@@ -52,7 +52,6 @@ spec:
           - CreateNamespace=true
           - '{{ if eq (default "true" .serverSideApply) "false" }}ServerSideApply=false{{ else }}ServerSideApply=true{{ end }}'
           - RespectIgnoreDifferences=true
-          - Replace=true   # Required for large Prometheus CRDs that exceed 262144-byte annotation limit
       ignoreDifferences:
         - kind: Secret
           jqPathExpressions:

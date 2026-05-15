@@ -164,15 +164,19 @@ server:
       maxSurge: 1
   # Give enough time for Django migrations on a fresh DB (292+ migrations)
   # NOTE: Authentik chart does NOT support livenessProbe.enabled field — use raw k8s probe fields only
+  startupProbe:
+    timeoutSeconds: 10
   livenessProbe:
     initialDelaySeconds: 120
     periodSeconds: 10
+    timeoutSeconds: 10
     failureThreshold: 30
   readinessProbe:
     # 30s is enough: Authentik static responses are available well before all migrations complete.
     # Reduced from 60s so rolling updates complete faster (old pod released sooner).
     initialDelaySeconds: 30
     periodSeconds: 10
+    timeoutSeconds: 10
     failureThreshold: 6
   topologySpreadConstraints:
     - maxSkew: 1
@@ -243,13 +247,17 @@ worker:
                   - talos-prod-cp2
   # Give enough time for Django migrations on a fresh DB (292+ migrations)
   # NOTE: Authentik chart does NOT support livenessProbe.enabled field — use raw k8s probe fields only
+  startupProbe:
+    timeoutSeconds: 10
   livenessProbe:
     initialDelaySeconds: 120
     periodSeconds: 10
+    timeoutSeconds: 10
     failureThreshold: 30
   readinessProbe:
     initialDelaySeconds: 60
     periodSeconds: 10
+    timeoutSeconds: 10
     failureThreshold: 6
   resources:
     requests:
