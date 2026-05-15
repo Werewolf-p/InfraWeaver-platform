@@ -47,14 +47,14 @@ spec:
             - name: LANGS
               value: "en_GB"
             - name: JAVA_TOOL_OPTIONS
-              value: "-XX:MaxMetaspaceSize=200m -XX:+UseContainerSupport -XX:MaxRAMPercentage=60.0"
+              value: "-XX:MaxMetaspaceSize=300m -XX:+UseContainerSupport -XX:MaxRAMPercentage=55.0"
           resources:
             requests:
               cpu: 100m
               memory: 256Mi
             limits:
               cpu: 800m
-              memory: 1000Mi  # 1000Mi * 60% = 600Mi heap + 200Mi metaspace = ~800Mi total JVM
+              memory: 1100Mi  # 1100Mi * 55% = 605Mi heap + 300Mi metaspace = ~905Mi JVM
           readinessProbe:
             httpGet:
               path: /actuator/health
