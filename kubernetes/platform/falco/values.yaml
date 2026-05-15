@@ -65,7 +65,7 @@ falcoctl:
 
 falcosidekick:
   enabled: true
-  replicaCount: 1
+  replicaCount: 0  # Suspended: falco DaemonSet is also suspended (no eBPF driver for Talos 6.18.24)
 
   config:
     discord:
