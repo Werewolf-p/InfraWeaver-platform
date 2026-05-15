@@ -2,6 +2,7 @@ import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { broadcastModeChange, setupWebSocketServer } from './lib/agent-registry.js';
+import { bootstrapConsoleSecret } from './lib/bootstrap.js';
 import { initLocalCluster } from './lib/cluster-registry.js';
 import { registerBroadcastFn } from './lib/mode.js';
 import { authMiddleware } from './middleware/auth.js';
@@ -19,8 +20,6 @@ import { podsRoute } from './routes/pods.js';
 import { modeRoute } from './routes/mode.js';
 import { rbacSyncRoute } from './routes/rbac-sync.js';
 import type { AppBindings } from './types/index.js';
-
-registerBroadcastFn(broadcastModeChange);
 
 const app = new Hono<AppBindings>();
 
@@ -61,15 +60,28 @@ app.onError((err, c) => {
   return c.json({ error: 'Internal server error' }, 500);
 });
 
-initLocalCluster().catch((error) => {
-  console.error('[infraweaver-api] Failed to initialize local cluster', error);
+async function main() {
+  await bootstrapConsoleSecret().catch((error) => {
+    console.warn('[bootstrap] Could not auto-bootstrap secret (running outside cluster?):', error.message);
+  });
+
+  registerBroadcastFn(broadcastModeChange);
+
+  initLocalCluster().catch((error) => {
+    console.error('[infraweaver-api] Failed to initialize local cluster', error);
+  });
+
+  const port = Number.parseInt(process.env.PORT ?? '3001', 10);
+  console.log(`[infraweaver-api] Starting on port ${port}`);
+
+  const server = serve({ fetch: app.fetch, port }, (info) => {
+    console.log(`[infraweaver-api] Listening on port ${info.port}`);
+  });
+
+  setupWebSocketServer(server as Parameters<typeof setupWebSocketServer>[0]);
+}
+
+main().catch((error) => {
+  console.error('[infraweaver-api] Fatal error', error);
+  process.exit(1);
 });
-
-const port = Number.parseInt(process.env.PORT ?? '3001', 10);
-console.log(`[infraweaver-api] Starting on port ${port}`);
-
-const server = serve({ fetch: app.fetch, port }, (info) => {
-  console.log(`[infraweaver-api] Listening on port ${info.port}`);
-});
-
-setupWebSocketServer(server as Parameters<typeof setupWebSocketServer>[0]);

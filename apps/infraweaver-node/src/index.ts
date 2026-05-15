@@ -3,6 +3,7 @@ import { createPrivateKey } from 'node:crypto'
 import { dispatchCommand } from './commands/index.js'
 import { importPublicKey } from './lib/crypto.js'
 import { HubClient } from './lib/hub-client.js'
+import { discover } from './lib/discover.js'
 import { register } from './lib/registration.js'
 import { loadState } from './lib/state.js'
 
@@ -30,14 +31,15 @@ async function main() {
   let state = await loadState()
 
   if (!state) {
-    if (!REGISTRATION_TOKEN) {
-      console.error('[infraweaver-node] No state found and no REGISTRATION_TOKEN set. Cannot start.')
-      process.exit(1)
+    if (REGISTRATION_TOKEN) {
+      console.log('[infraweaver-node] No state found. Starting token registration...')
+      state = await register({ hubUrl: HUB_URL, token: REGISTRATION_TOKEN })
+      console.log(`[infraweaver-node] Registered as cluster: ${state.clusterId}`)
+    } else {
+      console.log('[infraweaver-node] No token set — entering discovery mode. Waiting for admin approval...')
+      state = await discover({ hubUrl: HUB_URL })
+      console.log(`[infraweaver-node] Approved as cluster: ${state.clusterId}`)
     }
-
-    console.log('[infraweaver-node] No state found. Starting registration...')
-    state = await register({ hubUrl: HUB_URL, token: REGISTRATION_TOKEN })
-    console.log(`[infraweaver-node] Registered as cluster: ${state.clusterId}`)
   }
 
   const privateKey = createPrivateKey({ key: state.agentPrivateKeyPem, format: 'pem' })

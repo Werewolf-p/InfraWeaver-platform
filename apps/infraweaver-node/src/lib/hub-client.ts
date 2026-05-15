@@ -49,7 +49,7 @@ export class HubClient extends EventEmitter {
       return
     }
 
-    const outgoingFrame = { ...(frame as Record<string, unknown>) } as SignedFrame
+    const outgoingFrame = { ...(frame as Record<string, unknown>) } as unknown as SignedFrame
 
     if (typeof outgoingFrame.type !== 'string') {
       throw new Error('Cannot send frame without a type')

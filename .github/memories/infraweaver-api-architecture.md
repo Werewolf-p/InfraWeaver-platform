@@ -138,3 +138,55 @@ Frontend RBAC is UX only (grey out buttons). API is the security layer.
 - `apps/infraweaver-console/src/lib/infraweaver-api-client.ts` — NEW: console→API HMAC client
 - `kubernetes/catalog/infraweaver-console/manifests/rbac.yaml` — will be narrowed in Phase 3
 - `.github/memories/security-assessment-2026-05.md` — security findings that motivated this API layer
+
+---
+
+## Zero-Config Extensions (2026-05-15)
+
+### Agent Discovery Mode (tokenless onboarding)
+
+The minimal agent manifest only needs ONE env var:
+```yaml
+env:
+  - name: HUB_URL
+    value: "wss://api.int.rlservers.com"
+  # No REGISTRATION_TOKEN needed!
+```
+
+Flow:
+1. Agent starts without state and without `REGISTRATION_TOKEN`
+2. Enters **discovery mode**: connects to `wss://HUB_URL/v1/ws/discover`
+3. Sends `hello` frame: `{ type, agentId, clusterName, publicKey, clusterCaFingerprint }`
+4. Hub stores in `_pendingDiscovery` map, sends `{ type: "ack", status: "pending_approval" }`
+5. WS stays open — agent waits (up to 5 min)
+6. Console shows notification badge: "🔔 homelab-dev wants to connect (3 nodes) [Approve] [Deny]"
+7. Admin approves + assigns cluster ID/name → Hub sends `{ type: "approved", clusterId, hubPublicKey }`
+8. Agent saves state to k8s Secret, switches to normal operation
+
+vs. token flow (still supported):
+- `REGISTRATION_TOKEN` set → uses old token registration path (instant, no admin action needed)
+- No token → discovery mode (admin approval required)
+
+Hub API endpoints added:
+- `GET /v1/agents/pending` — list discovery requests
+- `POST /v1/agents/pending/:agentId/approve` — approve + assign cluster ID
+- `POST /v1/agents/pending/:agentId/reject` — reject
+
+### Hub Auto-Bootstrap (zero-config same-cluster install)
+
+If `CONSOLE_API_SECRET` is not set as env var:
+1. Hub tries to read from k8s Secret `infraweaver-api-console-secret` key `CONSOLE_API_SECRET`
+2. If Secret exists → use it
+3. If Secret doesn't exist → generate `randomBytes(32).toString('hex')`, create Secret
+4. Sets `process.env.CONSOLE_API_SECRET` for all subsequent requests
+
+The console reads the same Secret via ExternalSecret / direct mount → same key, zero manual config.
+Works perfectly for same-cluster installs (Hub + Console in same namespace).
+
+**File:** `apps/infraweaver-api/src/lib/bootstrap.ts`
+
+### Security properties preserved:
+- Discovery mode: agent generates fresh ECDSA keypair per discovery session
+- Hub verifies approved agent's public key before sending commands
+- Bootstrap secret: generated with `crypto.randomBytes(32)` (256 bits entropy)
+- Both token and discovery modes end up with the same ECDSA mutual-auth state

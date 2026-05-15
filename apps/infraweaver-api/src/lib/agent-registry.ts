@@ -1,4 +1,4 @@
-import { createPublicKey, generateKeyPairSync, randomBytes, type KeyObject } from 'node:crypto';
+import { createPublicKey, createSign, generateKeyPairSync, randomBytes, type KeyObject } from 'node:crypto';
 import type { IncomingMessage, Server } from 'node:http';
 import { WebSocket, WebSocketServer } from 'ws';
 import type { ApiMode } from './mode.js';
@@ -19,8 +19,18 @@ export interface PendingRegistration {
   expiresAt: Date;
 }
 
+export interface DiscoveryRequest {
+  agentId: string;
+  clusterName: string;
+  publicKeyBase64: string;
+  clusterCaFingerprint: string;
+  receivedAt: Date;
+  ws: WebSocket;
+}
+
 const _agents = new Map<string, AgentConnection>();
 const _pending = new Map<string, PendingRegistration>();
+const _pendingDiscovery = new Map<string, DiscoveryRequest>();
 const _registeredKeys = new Map<string, KeyObject>();
 
 let _hubKeyPair: { privateKey: KeyObject; publicKey: KeyObject } | null = null;
@@ -46,6 +56,17 @@ export function getHubPublicKeyBase64(): string {
   return (kp.publicKey.export({ type: 'spki', format: 'der' }) as Buffer).toString('base64');
 }
 
+function signFrame(message: string): string {
+  const sign = createSign('SHA256');
+  sign.update(message);
+  sign.end();
+  return sign.sign(getHubKeyPair().privateKey, 'base64');
+}
+
+function getRegisteredSignaturePayload(frame: { type: 'registered'; clusterId: string; hubPublicKey: string; ts: number }): string {
+  return [frame.type, frame.ts, frame.clusterId, frame.hubPublicKey].join(':');
+}
+
 export function createPendingRegistration(clusterId: string, clusterName: string): string {
   const token = randomBytes(32).toString('hex');
   _pending.set(token, {
@@ -63,6 +84,45 @@ export function getConnectedAgents(): AgentConnection[] {
 
 export function getAgent(clusterId: string): AgentConnection | undefined {
   return _agents.get(clusterId);
+}
+
+export function getPendingDiscoveries(): Omit<DiscoveryRequest, 'ws'>[] {
+  return Array.from(_pendingDiscovery.values()).map(({ ws, ...rest }) => rest);
+}
+
+export function approveDiscovery(agentId: string, clusterId: string, clusterName: string): boolean {
+  const req = _pendingDiscovery.get(agentId);
+  if (!req) {
+    return false;
+  }
+
+  const pubKey = importPublicKey(req.publicKeyBase64);
+  _registeredKeys.set(clusterId, pubKey);
+
+  req.ws.send(JSON.stringify({
+    type: 'approved',
+    clusterId,
+    hubPublicKey: getHubPublicKeyBase64(),
+    ts: Date.now(),
+  }));
+
+  setTimeout(() => req.ws.close(1000, 'approved'), 500);
+  _pendingDiscovery.delete(agentId);
+  console.log(`[agent-registry] Approved discovery request: ${agentId} -> ${clusterId} (${clusterName})`);
+  return true;
+}
+
+export function rejectDiscovery(agentId: string, reason: string): boolean {
+  const req = _pendingDiscovery.get(agentId);
+  if (!req) {
+    return false;
+  }
+
+  req.ws.send(JSON.stringify({ type: 'rejected', reason, ts: Date.now() }));
+  setTimeout(() => req.ws.close(1000, 'rejected'), 500);
+  _pendingDiscovery.delete(agentId);
+  console.log(`[agent-registry] Rejected discovery request: ${agentId}`);
+  return true;
 }
 
 export function broadcastToAgents(frame: object) {
@@ -96,6 +156,11 @@ export function setupWebSocketServer(server: Server) {
 
     if (url.startsWith('/v1/ws/register')) {
       wss.handleUpgrade(req, socket, head, (ws) => handleRegister(ws));
+      return;
+    }
+
+    if (url.startsWith('/v1/ws/discover')) {
+      wss.handleUpgrade(req, socket, head, (ws) => handleDiscover(ws, req));
       return;
     }
 
@@ -137,11 +202,16 @@ function handleRegister(ws: WebSocket) {
       _pending.delete(msg.token);
       _registeredKeys.set(pending.clusterId, agentPublicKey);
 
-      ws.send(JSON.stringify({
-        type: 'registered',
+      const registeredFrame = {
+        type: 'registered' as const,
         clusterId: pending.clusterId,
         hubPublicKey: getHubPublicKeyBase64(),
         ts: Date.now(),
+      };
+
+      ws.send(JSON.stringify({
+        ...registeredFrame,
+        sig: signFrame(getRegisteredSignaturePayload(registeredFrame)),
       }));
       ws.close();
 
@@ -149,6 +219,52 @@ function handleRegister(ws: WebSocket) {
     } catch (error) {
       console.error('[agent-registry] Registration error:', error);
       ws.close(4000, 'Registration failed');
+    }
+  });
+}
+
+function handleDiscover(ws: WebSocket, _req: IncomingMessage) {
+  ws.once('message', (raw) => {
+    try {
+      const frame = JSON.parse(raw.toString()) as {
+        type?: string;
+        agentId?: string;
+        clusterName?: string;
+        publicKey?: string;
+        clusterCaFingerprint?: string;
+      };
+
+      if (frame.type !== 'hello') {
+        ws.close(4001, 'Expected hello frame');
+        return;
+      }
+
+      const { agentId, clusterName, publicKey, clusterCaFingerprint } = frame;
+      if (!agentId || !clusterName || !publicKey) {
+        ws.close(4001, 'Missing required fields');
+        return;
+      }
+
+      const request: DiscoveryRequest = {
+        agentId,
+        clusterName,
+        publicKeyBase64: publicKey,
+        clusterCaFingerprint: clusterCaFingerprint ?? 'unknown',
+        receivedAt: new Date(),
+        ws,
+      };
+
+      _pendingDiscovery.set(agentId, request);
+      console.log(`[agent-registry] New discovery request from: ${clusterName} (${agentId})`);
+      ws.send(JSON.stringify({ type: 'ack', status: 'pending_approval', ts: Date.now() }));
+
+      ws.on('close', () => {
+        _pendingDiscovery.delete(agentId);
+        console.log(`[agent-registry] Discovery disconnected: ${agentId}`);
+      });
+    } catch (error) {
+      console.error('[agent-registry] Discovery error:', error);
+      ws.close(4000, 'Discovery failed');
     }
   });
 }

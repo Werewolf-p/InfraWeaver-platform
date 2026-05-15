@@ -2,9 +2,12 @@ import { zValidator } from '@hono/zod-validator';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import {
+  approveDiscovery,
   createPendingRegistration,
   getConnectedAgents,
   getHubPublicKeyBase64,
+  getPendingDiscoveries,
+  rejectDiscovery,
 } from '../lib/agent-registry.js';
 import { hasPermission } from '../lib/rbac.js';
 import type { AppBindings } from '../types/index.js';
@@ -29,6 +32,55 @@ agentsRoute.get('/', async (c) => {
       status: agent.status,
     })),
   });
+});
+
+agentsRoute.get('/pending', async (c) => {
+  const user = c.get('user');
+  if (!hasPermission(user, 'cluster:admin')) {
+    return c.json({ error: 'Forbidden' }, 403);
+  }
+
+  return c.json({ pending: getPendingDiscoveries() });
+});
+
+agentsRoute.post(
+  '/pending/:agentId/approve',
+  zValidator('json', z.object({
+    clusterId: z.string().min(1).max(64).regex(/^[a-z0-9-]+$/),
+    clusterName: z.string().min(1).max(128).optional(),
+    environment: z.enum(['production', 'staging', 'development']).default('development'),
+  })),
+  async (c) => {
+    const user = c.get('user');
+    if (!hasPermission(user, 'cluster:admin')) {
+      return c.json({ error: 'Forbidden' }, 403);
+    }
+
+    const agentId = c.req.param('agentId');
+    const { clusterId, clusterName, environment } = c.req.valid('json');
+    const ok = approveDiscovery(agentId, clusterId, clusterName ?? clusterId);
+    if (!ok) {
+      return c.json({ error: 'Discovery request not found or already processed' }, 404);
+    }
+
+    return c.json({ approved: true, clusterId, environment });
+  },
+);
+
+agentsRoute.post('/pending/:agentId/reject', async (c) => {
+  const user = c.get('user');
+  if (!hasPermission(user, 'cluster:admin')) {
+    return c.json({ error: 'Forbidden' }, 403);
+  }
+
+  const agentId = c.req.param('agentId');
+  const body = await c.req.json().catch(() => ({})) as { reason?: string };
+  const ok = rejectDiscovery(agentId, body.reason ?? 'Rejected by admin');
+  if (!ok) {
+    return c.json({ error: 'Discovery request not found' }, 404);
+  }
+
+  return c.json({ rejected: true });
 });
 
 agentsRoute.post(
@@ -176,6 +228,10 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
+            - name: CLUSTER_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName  # uses the k8s node name as default cluster name
             - name: REGISTRATION_TOKEN
               valueFrom:
                 secretKeyRef:
