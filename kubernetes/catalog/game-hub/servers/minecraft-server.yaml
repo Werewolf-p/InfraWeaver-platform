@@ -61,15 +61,14 @@ spec:
         infraweaver/game: 'true'
     spec:
       priorityClassName: game-server
-      affinity:
-        nodeAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-            - weight: 80
-              preference:
-                matchExpressions:
-                  - key: kubernetes.io/hostname
-                    operator: In
-                    values: ["talos-prod-cp2"]
+      # Spread game servers so no two land on the same node (prevents memory overload on single node)
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              infraweaver/game: "true"
       containers:
         - env:
             - name: EULA

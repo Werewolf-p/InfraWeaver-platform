@@ -37,11 +37,11 @@ spec:
         infraweaver/game: "true"
     spec:
       priorityClassName: game-server
-      # Spread game servers across nodes so one node failure doesn't take down all games
+      # Hard-spread game servers: no two on same node (prevents memory overload)
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: kubernetes.io/hostname
-          whenUnsatisfiable: ScheduleAnyway
+          whenUnsatisfiable: DoNotSchedule
           labelSelector:
             matchLabels:
               infraweaver/game: "true"

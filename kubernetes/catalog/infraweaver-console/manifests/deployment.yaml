@@ -7,6 +7,9 @@ metadata:
     app: infraweaver-console
 spec:
   replicas: 2
+  # minReadySeconds ensures a new pod must be stable for 30s before old pod terminates.
+  # This prevents silent startup failures from causing a brief outage.
+  minReadySeconds: 30
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -169,6 +172,12 @@ spec:
             port: 3000
           initialDelaySeconds: 30
           periodSeconds: 30
+        volumeMounts:
+        # Next.js needs a writable cache dir at runtime (readOnlyRootFilesystem prevents direct writes)
+        - name: nextjs-cache
+          mountPath: /app/.next/cache
+        - name: tmp
+          mountPath: /tmp
         securityContext:
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: true
@@ -179,3 +188,8 @@ spec:
           runAsUser: 1000
           seccompProfile:
             type: RuntimeDefault
+      volumes:
+      - name: nextjs-cache
+        emptyDir: {}
+      - name: tmp
+        emptyDir: {}
