@@ -1,0 +1,126 @@
+# Falco runtime security — Helm values
+#
+# Falco is a Cloud Native Runtime Security tool that detects:
+#   - container escapes (privileged exec, namespace breakouts)
+#   - anomalous process spawning (shells in web servers, crypto miners)
+#   - sensitive file reads (/etc/shadow, /proc/*/mem, docker.sock)
+#   - network anomalies (unexpected connections, data exfiltration)
+#   - K8s API abuse (SA token theft, unauthorized kubectl exec)
+#
+# Architecture:
+#   - falco DaemonSet: reads kernel events via eBPF (modern_ebpf driver — no kernel module needed)
+#   - falcosidekick: forwards alerts to Discord and Alertmanager
+#
+# eBPF modern_ebpf driver is preferred for Talos Linux — it does not require
+# kernel module compilation and works on Talos's read-only immutable OS.
+# Talos must have CONFIG_DEBUG_INFO_BTF=y in the kernel (confirmed in Talos 1.5+).
+#
+# Bootstrap: add this to kubernetes/bootstrap/ as app-falco.yaml and deploy.
+# Secrets: store Discord webhook URL in OpenBao at:
+#   bao kv put secret/platform/falco discord_webhook="https://discord.com/api/webhooks/..."
+
+driver:
+  kind: modern_ebpf   # No kernel module needed — works on Talos immutable OS
+
+ebpf:
+  enabled: true
+
+falco:
+  # Minimal ruleset for homelab — add custom rules in falco.rules below
+  rules_file:
+    - /etc/falco/falco_rules.yaml
+    - /etc/falco/falco_rules.local.yaml
+    - /etc/falco/rules.d
+
+  # Alert output: JSON to stdout (falcosidekick reads this)
+  json_output: true
+  json_include_output_property: true
+
+  # Priority threshold: WARNING and above (INFO is very noisy)
+  priority: warning
+
+  # K8s metadata enrichment — falco calls the local API for pod labels/names
+  metadata_download:
+    enabled: true
+    max_wait_time: 1000
+    chunk_wait_time: 1000
+
+  syscall_event_drops:
+    actions:
+      - log
+      - alert
+
+  # Custom rules: add homelab-specific detections
+  rules_files:
+    - /etc/falco/falco_rules.yaml
+    - /etc/falco/falco_rules.local.yaml
+
+  # Output channels: send to falcosidekick via gRPC
+  grpc:
+    enabled: true
+    bind_address: "unix:///run/falco/falco.sock"
+    threadiness: 8
+
+  grpc_output:
+    enabled: true
+
+falcoctl:
+  artifact:
+    install:
+      enabled: true
+    follow:
+      enabled: true
+
+falcosidekick:
+  enabled: true
+  replicaCount: 1
+
+  config:
+    discord:
+      webhookurl: ""   # Set via ExternalSecret (see externalsecret.yaml)
+      minimumpriority: "warning"
+
+    alertmanager:
+      hostport: "http://kube-prometheus-stack-alertmanager.monitoring.svc.cluster.local:9093"
+      minimumpriority: "warning"
+
+    # Webhook to Discord for critical alerts
+    webhook:
+      address: ""   # Optionally add a custom webhook
+
+  resources:
+    requests:
+      memory: 32Mi
+      cpu: 10m
+    limits:
+      memory: 64Mi
+      cpu: 100m
+
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1234
+    seccompProfile:
+      type: RuntimeDefault
+
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
+
+resources:
+  requests:
+    memory: 256Mi
+    cpu: 100m
+  limits:
+    memory: 1024Mi
+    cpu: 1000m
+
+tolerations:
+  # Run on control plane nodes too — detect threats across all nodes
+  - key: "node-role.kubernetes.io/control-plane"
+    operator: "Exists"
+    effect: "NoSchedule"
+
+priorityClassName: platform-critical
