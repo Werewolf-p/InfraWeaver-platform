@@ -80,7 +80,6 @@ async function fetchApps(clusterId: string): Promise<unknown[]> {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
-      cache: 'no-store',
       signal: AbortSignal.timeout(5000),
     });
 

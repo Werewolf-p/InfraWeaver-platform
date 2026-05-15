@@ -25,5 +25,6 @@ export interface ApiRequest {
 export interface AppBindings {
   Variables: {
     user: UserContext;
+    requestId: string;
   };
 }

@@ -1,8 +1,14 @@
+import { randomUUID } from 'node:crypto';
 import { createMiddleware } from 'hono/factory';
-import { verifyHmac } from '../lib/hmac.js';
+import { signHmac, verifyHmac } from '../lib/hmac.js';
 import type { AppBindings } from '../types/index.js';
 
 export const authMiddleware = createMiddleware<AppBindings>(async (c, next) => {
+  if (c.req.method === 'GET' && c.req.path.startsWith('/v1/agents/install/')) {
+    await next();
+    return;
+  }
+
   const sig = c.req.header('x-console-sig');
   const ts = c.req.header('x-console-ts');
   const userId = c.req.header('x-user-id');
@@ -36,5 +42,15 @@ export const authMiddleware = createMiddleware<AppBindings>(async (c, next) => {
 
   const roles = rolesHeader ? rolesHeader.split(',').filter(Boolean) : [];
   c.set('user', { id: userId, roles, clusterId: c.req.header('x-cluster-id') ?? 'local' });
+
+  const requestId = c.req.header('x-request-id') ?? randomUUID();
+  c.set('requestId', requestId);
+
   await next();
+
+  const responseTs = Date.now().toString();
+  const responseSig = signHmac(`${c.res.status}:${requestId}:${responseTs}`, secret);
+  c.header('X-Api-Sig', responseSig);
+  c.header('X-Request-Id', requestId);
+  c.header('X-Api-Ts', responseTs);
 });
