@@ -10,6 +10,15 @@ global:
     enabled: true
   priorityClassName: platform-critical
 
+# Memory limits prevent unbounded growth and cascading OOM node reboots
+resources:
+  requests:
+    cpu: 20m
+    memory: 64Mi
+  limits:
+    cpu: 250m
+    memory: 256Mi
+
 # Avoid CP2 (chronically OOM-killed) — prefer CP1/CP3
 affinity:
   nodeAffinity:
@@ -39,6 +48,13 @@ webhook:
     - key: "node-role.kubernetes.io/control-plane"
       operator: "Exists"
       effect: "NoSchedule"
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
 
 cainjector:
   replicaCount: 2
@@ -46,6 +62,13 @@ cainjector:
     - key: "node-role.kubernetes.io/control-plane"
       operator: "Exists"
       effect: "NoSchedule"
+  resources:
+    requests:
+      cpu: 20m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
 
 prometheus:
   enabled: true

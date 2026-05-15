@@ -114,6 +114,18 @@ spec:
                   SKIP_ALERT_APPS="bootstrap core-argocd-manifests core-external-secrets-manifests catalog-infraweaver-console-manifests core-priority-classes"
                   # Wildcard pattern skip — any app whose name matches these globs is silenced
                   SKIP_ALERT_PATTERNS="catalog-game-hub-* catalog-community-*"
+                  # Quiet sync: apps that are auto-synced silently (no Discord notification).
+                  # These apps routinely drift after node events or CI deploys — syncing is
+                  # correct but noisy. They are still synced; Discord just won't mention them.
+                  QUIET_SYNC_APPS="core-priority-classes catalog-infraweaver-console-manifests bootstrap catalog-game-hub-servers catalog-game-hub-servers-persistent"
+                  QUIET_SYNC_PATTERNS="catalog-game-hub-* catalog-community-*"
+                  is_quiet_sync() {
+                    for s in $QUIET_SYNC_APPS; do [ "$1" = "$s" ] && return 0; done
+                    for p in $QUIET_SYNC_PATTERNS; do
+                      case "$1" in $p) return 0 ;; esac
+                    done
+                    return 1
+                  }
                   is_skip_alert() {
                     for s in $SKIP_ALERT_APPS; do [ "$1" = "$s" ] && return 0; done
                     for p in $SKIP_ALERT_PATTERNS; do
@@ -161,8 +173,8 @@ spec:
                   LAST_ALERT_TIME=$(echo "$STATE_DATA" | grep '^last-alert-time=' | cut -d= -f2- | head -1 || echo "")
                   LAST_SYNC_APPS=$(echo "$STATE_DATA" | grep '^last-sync-apps=' | cut -d= -f2- | head -1 || echo "")
                   LAST_SYNC_TIME_RAW=$(echo "$STATE_DATA" | grep '^last-sync-time=' | cut -d= -f2- | head -1 || echo "")
-                  # Sync notification cooldown: 30 minutes — avoids spam when same apps cycle repeatedly
-                  SYNC_COOLDOWN_SECONDS=1800
+                  # Sync notification cooldown: 60 minutes — avoids spam when same apps cycle repeatedly
+                  SYNC_COOLDOWN_SECONDS=3600
                   
                   # Helpers — read/write per-key without re-loading full CM
                   get_first_seen() {
@@ -314,8 +326,13 @@ spec:
                     kubectl patch application "$APP" -n "$NAMESPACE" --type=merge \
                       -p '{"operation":{"sync":{"revision":"HEAD","syncStrategy":{"hook":{"force":false}}}}}' \
                       >/dev/null 2>&1 || echo "  WARN  $APP — sync patch failed"
-                    SYNCED_APPS="${SYNCED_APPS}• \`${APP}\`\n"
-                    SYNCED=$((SYNCED+1))
+                    # Quiet sync apps are still synced but excluded from Discord notification
+                    if ! is_quiet_sync "$APP"; then
+                      SYNCED_APPS="${SYNCED_APPS}• \`${APP}\`\n"
+                      SYNCED=$((SYNCED+1))
+                    else
+                      echo "  QUIET  $APP — synced silently (expected-drift app)"
+                    fi
                   done < <(echo "$APPS2")
                   
                   # Build final alert list — only apps still Degraded after hard-refresh

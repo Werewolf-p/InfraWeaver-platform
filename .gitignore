@@ -88,3 +88,14 @@ terraform/backend.hcl
 
 # Local development environment (contains real secrets — never commit)
 .env
+
+# ---------------------------------------------------------------------------
+# Node.js / NPM
+# ---------------------------------------------------------------------------
+node_modules/
+**/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+*.tsbuildinfo

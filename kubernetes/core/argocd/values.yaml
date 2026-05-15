@@ -7,6 +7,9 @@ controller:
     requests:
       cpu: 250m
       memory: 512Mi
+    limits:
+      cpu: 1500m
+      memory: 1500Mi
   # Avoid CP2 — it was chronically OOM-killing; prefer CP1/CP3 for all ArgoCD components
   affinity:
     nodeAffinity:
@@ -47,6 +50,13 @@ server:
     # (kubernetes/platform/external-routes/manifests/10-routes-vpn-only.yaml → argocd-int)
     # which uses argocd.int.rlservers.com with netbird-vpn-only middleware.
     enabled: false
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
 
 repoServer:
   replicas: 2  # HA: 2 replicas spread across nodes
@@ -67,6 +77,13 @@ repoServer:
               matchLabels:
                 app.kubernetes.io/name: argocd-repo-server
             topologyKey: kubernetes.io/hostname
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
 
 applicationSet:
   replicas: 2  # HA: 2 replicas spread across nodes
@@ -87,6 +104,13 @@ applicationSet:
               matchLabels:
                 app.kubernetes.io/name: argocd-applicationset-controller
             topologyKey: kubernetes.io/hostname
+  resources:
+    requests:
+      cpu: 20m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
 
 configs:
   cm:
@@ -188,12 +212,26 @@ redis:
   # The Job has hook-delete-policy: hook-succeeded which causes ArgoCD to wait
   # indefinitely after the Job self-deletes on success.
   existingSecret: argocd-redis
+  resources:
+    requests:
+      cpu: 20m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
 
 redis-ha:
   enabled: false  # enable for productie HA
 
 notifications:
   enabled: true
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
   # Discord notifications for important ArgoCD events
   # Webhook URL is pulled from argocd-discord-secret (ExternalSecret in this namespace)
   # RBAC grant is in kubernetes/core/argocd/manifests/notifications-rbac.yaml
