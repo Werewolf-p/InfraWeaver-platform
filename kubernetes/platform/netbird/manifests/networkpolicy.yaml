@@ -182,3 +182,110 @@ spec:
           port: 9090
         - protocol: TCP
           port: 8080
+---
+# ── Default deny all egress ───────────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-egress
+  namespace: netbird
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+
+---
+# ── Allow NetBird egress: cluster DNS ─────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-dns
+  namespace: netbird
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+---
+# ── Allow NetBird egress: in-namespace service traffic ────────────────────────
+# Needed for dashboard → management and bootstrap job → management communication.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-intra-namespace
+  namespace: netbird
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 80
+        - protocol: TCP
+          port: 33073
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 10000
+
+---
+# ── Allow NetBird egress: Kubernetes API for bootstrap job ────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-k8s-api
+  namespace: netbird
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 10.25.0.0/24
+      ports:
+        - protocol: TCP
+          port: 6443
+    - to:
+        - ipBlock:
+            cidr: 10.96.0.1/32
+      ports:
+        - protocol: TCP
+          port: 443
+
+---
+# ── Allow NetBird egress: external HTTPS ──────────────────────────────────────
+# Required for Authentik OIDC discovery, setup bootstrap downloads, and package fetches.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-external-https
+  namespace: netbird
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443

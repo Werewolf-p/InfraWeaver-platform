@@ -90,6 +90,7 @@ spec:
       labels:
         app: netbird-management
     spec:
+      automountServiceAccountToken: false
       terminationGracePeriodSeconds: 30
       initContainers:
         # Wait for Authentik OIDC endpoint before starting management.
@@ -153,7 +154,7 @@ spec:
               memory: 32Mi
       containers:
         - name: management
-          image: netbirdio/management:0.70.4
+          image: "netbirdio/management:0.70.4@sha256:d50bc24d772d2cdfcb95a6f281182611a24ac3e0c096d07da98d70d4fb40a416"
           imagePullPolicy: IfNotPresent
           args:
             - --port=80
@@ -252,10 +253,11 @@ spec:
       labels:
         app: netbird-dashboard
     spec:
+      automountServiceAccountToken: false
       terminationGracePeriodSeconds: 30
       containers:
       - name: dashboard
-        image: netbirdio/dashboard:v2.36.0
+        image: "netbirdio/dashboard:v2.36.0@sha256:0def57db6bbd4ab1559554e161e9e05e066f5411db7885b52e81bddb9791cad2"
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 80

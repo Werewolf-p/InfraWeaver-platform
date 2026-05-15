@@ -163,3 +163,61 @@ spec:
       ports:
         - protocol: TCP
           port: 8200
+---
+# ── Default deny all egress ───────────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-egress
+  namespace: openbao
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+
+---
+# ── Allow OpenBao egress: cluster DNS ─────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-dns
+  namespace: openbao
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+---
+# ── Allow OpenBao egress: Kubernetes API ──────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-k8s-api
+  namespace: openbao
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 10.25.0.0/24
+      ports:
+        - protocol: TCP
+          port: 6443
+    - to:
+        - ipBlock:
+            cidr: 10.96.0.1/32
+      ports:
+        - protocol: TCP
+          port: 443

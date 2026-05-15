@@ -20,10 +20,11 @@ spec:
       labels:
         app: netbird-signal
     spec:
+      automountServiceAccountToken: false
       terminationGracePeriodSeconds: 30
       containers:
         - name: signal
-          image: netbirdio/signal:0.70.4
+          image: "netbirdio/signal:0.70.4@sha256:f2ffaf0b184f5fd403d7f65e768778e39dd11c561b60cacb7fefc4c9eb0feffd"
           imagePullPolicy: IfNotPresent
           args:
             - --port=10000

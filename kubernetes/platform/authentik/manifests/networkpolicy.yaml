@@ -75,3 +75,111 @@ spec:
   ingress:
     - from:
         - podSelector: {}   # all pods within authentik namespace
+---
+# ── Default deny all egress ───────────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-egress
+  namespace: authentik
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+
+---
+# ── Allow Authentik egress: cluster DNS ───────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-dns
+  namespace: authentik
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+---
+# ── Allow Authentik egress: in-namespace services ─────────────────────────────
+# Needed for server/worker ↔ server, ldap-outpost ↔ server, and other local service traffic.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-intra-namespace
+  namespace: authentik
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 80
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 389
+        - protocol: TCP
+          port: 636
+        - protocol: TCP
+          port: 9300
+
+---
+# ── Allow Authentik egress: PostgreSQL ────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-postgresql
+  namespace: authentik
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: primary
+              app.kubernetes.io/instance: authentik
+              app.kubernetes.io/name: postgresql
+      ports:
+        - protocol: TCP
+          port: 5432
+
+---
+# ── Allow Authentik egress: external SMTP/HTTPS ───────────────────────────────
+# SMTP is needed for login emails; HTTPS covers upstream IdPs and outbound callbacks.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-external-tls
+  namespace: authentik
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 587
