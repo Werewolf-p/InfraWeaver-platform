@@ -20,10 +20,7 @@
 #   bao kv put secret/platform/falco discord_webhook="https://discord.com/api/webhooks/..."
 
 driver:
-  kind: modern_ebpf   # No kernel module needed — works on Talos immutable OS
-
-ebpf:
-  enabled: true
+  kind: ebpf   # Use classic eBPF probe — modern_ebpf scap_init fails on Talos 6.18.x
 
 falco:
   # Minimal ruleset for homelab — add custom rules in falco.rules below
@@ -38,12 +35,6 @@ falco:
 
   # Priority threshold: WARNING and above (INFO is very noisy)
   priority: warning
-
-  # K8s metadata enrichment — falco calls the local API for pod labels/names
-  metadata_download:
-    enabled: true
-    max_wait_time: 1000
-    chunk_wait_time: 1000
 
   syscall_event_drops:
     actions:
