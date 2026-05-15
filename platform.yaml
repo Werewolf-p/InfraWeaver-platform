@@ -122,6 +122,7 @@ catalog:
     - stirling-pdf
     - onedev
     - infraweaver-console
+    - infraweaver-api
     - registry
     - plex
 

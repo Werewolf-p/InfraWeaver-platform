@@ -26,4 +26,11 @@ spec:
         - port: 3000
           protocol: TCP
   egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: infraweaver-api
+      ports:
+        - port: 3001
+          protocol: TCP
     - {}

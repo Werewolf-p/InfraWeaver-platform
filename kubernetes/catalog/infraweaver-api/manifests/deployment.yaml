@@ -1,0 +1,81 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: infraweaver-api
+  namespace: infraweaver-console
+  labels:
+    app: infraweaver-api
+    app.kubernetes.io/name: infraweaver-api
+    app.kubernetes.io/component: api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: infraweaver-api
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: infraweaver-api
+    spec:
+      serviceAccountName: infraweaver-api
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: api
+          image: onedev.rlservers.com/infraweaver/infraweaver-api:main
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3001
+              name: http
+          env:
+            - name: PORT
+              value: "3001"
+            - name: NODE_ENV
+              value: "production"
+            - name: CONSOLE_URL
+              value: "https://infraweaver.int.rlservers.com"
+            - name: ARGOCD_SERVER
+              value: "http://argocd-server.argocd.svc.cluster.local:80"
+            - name: CONSOLE_API_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: infraweaver-api-console-secret
+                  key: CONSOLE_API_SECRET
+          envFrom:
+            - secretRef:
+                name: infraweaver-api-argocd-token
+                optional: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3001
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3001
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+      terminationGracePeriodSeconds: 30

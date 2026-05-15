@@ -1,18 +1,18 @@
-name: Build InfraWeaver Console
+name: Build InfraWeaver API
 
 on:
   push:
     branches: [main]
     paths:
-      - 'apps/infraweaver-console/**'
+      - 'apps/infraweaver-api/**'
   workflow_dispatch:
 
 env:
   REGISTRY: onedev.rlservers.com
-  IMAGE_NAME: infraweaver/infraweaver-console
+  IMAGE_NAME: infraweaver/infraweaver-api
 
 concurrency:
-  group: build-infraweaver-console
+  group: build-infraweaver-api
   cancel-in-progress: false
 
 jobs:
@@ -22,17 +22,17 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: "npm"
-          cache-dependency-path: apps/infraweaver-console/package-lock.json
+          cache-dependency-path: apps/infraweaver-api/package-lock.json
       - name: Install dependencies
-        working-directory: apps/infraweaver-console
+        working-directory: apps/infraweaver-api
         run: npm ci
       - name: TypeScript check
-        working-directory: apps/infraweaver-console
+        working-directory: apps/infraweaver-api
         run: npx tsc --noEmit
       - name: Unit tests
-        working-directory: apps/infraweaver-console
+        working-directory: apps/infraweaver-api
         run: npm test -- --passWithNoTests
 
   build:
@@ -45,23 +45,13 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
 
-      - name: Free disk space (aggressive cleanup)
+      - name: Free disk space
         run: |
-          df -h /
-          # Remove all stopped containers, dangling images, unused networks, build cache
           docker system prune -f || true
-          # Remove unused images older than 24h (keeps the base layers we need cached)
           docker image prune -a --filter "until=24h" -f || true
-          # Remove stale buildx cache
           docker buildx prune --filter "until=24h" -f || true
-          rm -rf /tmp/.buildx-cache-console-new || true
-          # Clean up runner diagnostic logs older than 1 day
+          rm -rf /tmp/.buildx-cache-api-new || true
           find /opt/platform-runner/_diag -name "*.log" -mtime +1 -delete 2>/dev/null || true
-          find /opt/platform-runner/_work/_temp -mindepth 1 -maxdepth 1 -mtime +1 -exec rm -rf {} + 2>/dev/null || true
-          # Clean npm cache if >5GB
-          NPM_CACHE_SIZE=$(du -sb ~/.npm 2>/dev/null | cut -f1 || echo 0)
-          if [ "$NPM_CACHE_SIZE" -gt 5368709120 ]; then npm cache clean --force || true; fi
-          df -h /
 
       - name: Build and push Docker image
         env:
@@ -75,7 +65,6 @@ jobs:
           SHA_TAG="${GITHUB_REF_NAME}-${SHORT_SHA}"
           IMAGE_BASE="${REGISTRY}/${IMAGE_NAME}"
 
-          # Wait for registry to be reachable (handles node disruptions)
           echo "==> Waiting for registry to be reachable..."
           for i in $(seq 1 12); do
             if curl -sf --max-time 5 "https://${REGISTRY}/v2/" >/dev/null 2>&1 || \
@@ -94,37 +83,34 @@ jobs:
             sleep 20
           done
 
-          CACHE_DIR="/tmp/.buildx-cache-console"
-          CACHE_NEW_DIR="/tmp/.buildx-cache-console-new"
+          CACHE_DIR="/tmp/.buildx-cache-api"
+          CACHE_NEW_DIR="/tmp/.buildx-cache-api-new"
 
           echo "==> Building image..."
           docker buildx build \
             --platform linux/amd64 \
             --build-arg CACHEBUST="${GITHUB_SHA}" \
-            --build-arg APP_VERSION="${SHORT_SHA}" \
             --cache-from "type=local,src=${CACHE_DIR}" \
             --cache-to "type=local,dest=${CACHE_NEW_DIR},mode=max" \
             --tag "${IMAGE_BASE}:${BRANCH_TAG}" \
             --tag "${IMAGE_BASE}:${SHA_TAG}" \
             --push \
-            apps/infraweaver-console
+            apps/infraweaver-api
 
-          echo "✅ Built and pushed to OneDev registry:" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Built and pushed:" >> $GITHUB_STEP_SUMMARY
           echo "- ${IMAGE_BASE}:${BRANCH_TAG}" >> $GITHUB_STEP_SUMMARY
           echo "- ${IMAGE_BASE}:${SHA_TAG}" >> $GITHUB_STEP_SUMMARY
 
-          # Rotate cache atomically to prevent unlimited growth
           rm -rf "${CACHE_DIR}"
           mv "${CACHE_NEW_DIR}" "${CACHE_DIR}" 2>/dev/null || true
 
-          # Update deployment manifest to the exact SHA tag (GitOps source-of-truth)
-          MANIFEST="kubernetes/catalog/infraweaver-console/manifests/deployment.yaml"
+          # Update deployment manifest (GitOps source-of-truth)
+          MANIFEST="kubernetes/catalog/infraweaver-api/manifests/deployment.yaml"
           sed -i "s|image: ${REGISTRY}/${IMAGE_NAME}:.*|image: ${REGISTRY}/${IMAGE_NAME}:${SHA_TAG}|g" "${MANIFEST}"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add "${MANIFEST}"
-          git diff --cached --quiet || git commit -m "chore: deploy ${SHA_TAG} [skip ci]"
-          # Retry push with rebase to handle concurrent commits from parallel builds
+          git diff --cached --quiet || git commit -m "chore: deploy infraweaver-api ${SHA_TAG} [skip ci]"
           for attempt in 1 2 3; do
             if git push origin HEAD:main; then
               echo "Manifest pushed on attempt $attempt"
@@ -153,7 +139,7 @@ jobs:
                --from-literal=mode=deployment 2>/dev/null || true
           echo "🚀 API set to deployment mode" >> $GITHUB_STEP_SUMMARY
 
-      - name: Rollout restart console deployment
+      - name: Rollout restart API deployment
         env:
           KUBECONFIG_B64: ${{ secrets.KUBECONFIG_PRODUCTIE }}
         run: |
@@ -162,7 +148,6 @@ jobs:
           echo "${KUBECONFIG_B64}" | base64 -d > ~/.kube/config
           chmod 600 ~/.kube/config
 
-          # Heal kubeconfig to a reachable API server
           for ip in 10.10.0.90 10.10.0.91 10.10.0.92; do
             if curl -sk --max-time 3 "https://$ip:6443/healthz" >/dev/null 2>&1; then
               sed -i "s|server: https://[0-9.]*:6443|server: https://$ip:6443|g" ~/.kube/config
@@ -171,8 +156,8 @@ jobs:
             fi
           done
 
-          kubectl rollout restart deployment/infraweaver-console -n infraweaver-console
-          kubectl rollout status deployment/infraweaver-console -n infraweaver-console --timeout=180s
+          kubectl rollout restart deployment/infraweaver-api -n infraweaver-console
+          kubectl rollout status deployment/infraweaver-api -n infraweaver-console --timeout=180s
           echo "✅ Deployment rolled out successfully" >> $GITHUB_STEP_SUMMARY
 
       - name: Restore live mode

@@ -1,0 +1,120 @@
+name: Build InfraWeaver Node Agent
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/infraweaver-node/**'
+  workflow_dispatch:
+
+env:
+  REGISTRY: onedev.rlservers.com
+  IMAGE_NAME: infraweaver/infraweaver-node
+
+concurrency:
+  group: build-infraweaver-node
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: [self-hosted, prod-worker]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: apps/infraweaver-node/package-lock.json
+      - name: Install dependencies
+        working-directory: apps/infraweaver-node
+        run: npm ci
+      - name: TypeScript check
+        working-directory: apps/infraweaver-node
+        run: npx tsc --noEmit
+
+  build:
+    needs: [test]
+    runs-on: [self-hosted, prod-worker]
+    timeout-minutes: 30
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - name: Free disk space
+        run: |
+          docker system prune -f || true
+          docker image prune -a --filter "until=24h" -f || true
+          rm -rf /tmp/.buildx-cache-node-new || true
+
+      - name: Build and push Docker image
+        env:
+          ONEDEV_USER: ${{ secrets.ONEDEV_REGISTRY_USER }}
+          ONEDEV_PASS: ${{ secrets.ONEDEV_REGISTRY_PASS }}
+        run: |
+          set -euo pipefail
+
+          SHORT_SHA=$(echo "$GITHUB_SHA" | cut -c1-7)
+          BRANCH_TAG="${GITHUB_REF_NAME}"
+          SHA_TAG="${GITHUB_REF_NAME}-${SHORT_SHA}"
+          IMAGE_BASE="${REGISTRY}/${IMAGE_NAME}"
+
+          echo "==> Waiting for registry to be reachable..."
+          for i in $(seq 1 12); do
+            if curl -sf --max-time 5 "https://${REGISTRY}/v2/" >/dev/null 2>&1 || \
+               curl -sf --max-time 5 "https://${REGISTRY}/v2/" -o /dev/null -w "%{http_code}" 2>/dev/null | grep -qE "200|401"; then
+              echo "Registry reachable after ${i} attempt(s)"
+              break
+            fi
+            echo "  Registry not ready (attempt $i/12), waiting 30s..."
+            sleep 30
+          done
+
+          echo "==> Logging in to OneDev registry..."
+          for i in 1 2 3; do
+            echo "${ONEDEV_PASS}" | docker login "${REGISTRY}" -u "${ONEDEV_USER}" --password-stdin && break
+            echo "  Login failed (attempt $i/3), retrying in 20s..."
+            sleep 20
+          done
+
+          CACHE_DIR="/tmp/.buildx-cache-node"
+          CACHE_NEW_DIR="/tmp/.buildx-cache-node-new"
+
+          echo "==> Building image..."
+          docker buildx build \
+            --platform linux/amd64 \
+            --build-arg CACHEBUST="${GITHUB_SHA}" \
+            --cache-from "type=local,src=${CACHE_DIR}" \
+            --cache-to "type=local,dest=${CACHE_NEW_DIR},mode=max" \
+            --tag "${IMAGE_BASE}:${BRANCH_TAG}" \
+            --tag "${IMAGE_BASE}:${SHA_TAG}" \
+            --push \
+            apps/infraweaver-node
+
+          echo "✅ Built and pushed:" >> $GITHUB_STEP_SUMMARY
+          echo "- ${IMAGE_BASE}:${BRANCH_TAG}" >> $GITHUB_STEP_SUMMARY
+          echo "- ${IMAGE_BASE}:${SHA_TAG}" >> $GITHUB_STEP_SUMMARY
+
+          rm -rf "${CACHE_DIR}"
+          mv "${CACHE_NEW_DIR}" "${CACHE_DIR}" 2>/dev/null || true
+
+          # Update deployment manifest (GitOps source-of-truth)
+          # Note: infraweaver-node is deployed to individual clusters, not the central hub.
+          # The manifest here is the template; actual per-cluster deploys use the install URL.
+          MANIFEST="kubernetes/catalog/infraweaver-node/manifests/deployment.yaml"
+          if [ -f "${MANIFEST}" ]; then
+            sed -i "s|image: ${REGISTRY}/${IMAGE_NAME}:.*|image: ${REGISTRY}/${IMAGE_NAME}:${SHA_TAG}|g" "${MANIFEST}"
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add "${MANIFEST}"
+            git diff --cached --quiet || git commit -m "chore: deploy infraweaver-node ${SHA_TAG} [skip ci]"
+            for attempt in 1 2 3; do
+              if git push origin HEAD:main; then
+                echo "Manifest pushed on attempt $attempt"
+                break
+              fi
+              echo "Push failed (attempt $attempt), rebasing..."
+              git pull --rebase origin main
+            done
+          fi
