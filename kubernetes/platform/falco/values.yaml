@@ -27,7 +27,7 @@ ebpf:
 
 falco:
   # Minimal ruleset for homelab — add custom rules in falco.rules below
-  rules_file:
+  rules_files:
     - /etc/falco/falco_rules.yaml
     - /etc/falco/falco_rules.local.yaml
     - /etc/falco/rules.d
@@ -49,11 +49,6 @@ falco:
     actions:
       - log
       - alert
-
-  # Custom rules: add homelab-specific detections
-  rules_files:
-    - /etc/falco/falco_rules.yaml
-    - /etc/falco/falco_rules.local.yaml
 
   # Output channels: send to falcosidekick via gRPC
   grpc:
