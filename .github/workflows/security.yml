@@ -27,7 +27,7 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/dependency-review-action@v4
+      - uses: actions/dependency-review-action@v5
 
   app-security:
     strategy:
@@ -45,8 +45,8 @@ jobs:
             lockfile: apps/infraweaver-node/package-lock.json
     runs-on: [self-hosted, prod-worker]
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: actions/setup-node@v6
         with:
           node-version: "22"
           cache: npm
@@ -110,7 +110,7 @@ jobs:
           fi
       - name: Upload SBOM artifact
         if: github.ref == 'refs/heads/main'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: sbom-${{ matrix.app }}-${{ github.run_id }}
           path: |
@@ -122,7 +122,7 @@ jobs:
   secret-scan:
     runs-on: [self-hosted, prod-worker]
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           fetch-depth: 0
       - name: Scan for secrets with gitleaks
