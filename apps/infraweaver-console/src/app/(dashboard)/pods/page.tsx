@@ -56,6 +56,101 @@ function restartColor(restarts: number) {
   return "text-slate-300";
 }
 
+function PodMobileCard({
+  pod,
+  simpleMode,
+  isAdmin,
+  restartingPod,
+  onRestart,
+  onCopy,
+}: {
+  pod: Pod;
+  simpleMode: boolean;
+  isAdmin: boolean;
+  restartingPod: string | null;
+  onRestart: (namespace: string, name: string) => void;
+  onCopy: (name: string) => void;
+}) {
+  const key = `${pod.namespace}/${pod.name}`;
+  const restartCount = pod.restartCount ?? 0;
+
+  return (
+    <div className="rounded-xl border border-white/10 bg-slate-900/60 p-4 shadow-sm">
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start gap-2">
+            <Link
+              href={`/pods/${encodeURIComponent(pod.namespace)}/${encodeURIComponent(pod.name)}`}
+              className="min-w-0 flex-1 truncate text-base font-semibold text-white transition hover:text-indigo-300"
+            >
+              {pod.name}
+            </Link>
+            <button
+              onClick={() => onCopy(pod.name)}
+              className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-slate-400 transition hover:bg-white/10 hover:text-white"
+              title="Copy pod name"
+            >
+              <Copy className="h-4 w-4" />
+            </button>
+          </div>
+          <p className="mt-1 text-sm text-slate-400">{pod.namespace}</p>
+        </div>
+        <span className={cn("inline-flex min-h-[32px] items-center rounded-full border px-2.5 py-1 text-sm font-medium", statusColor(pod.status))}>
+          {pod.status}
+        </span>
+      </div>
+
+      <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
+        <div>
+          <dt className="text-slate-500">Age</dt>
+          <dd className="mt-1 text-slate-200" title={pod.createdAt ? new Date(pod.createdAt).toLocaleString() : "Unknown age"}>
+            {pod.createdAt ? timeAgo(pod.createdAt) : "—"}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-slate-500">Restarts</dt>
+          <dd className={cn("mt-1 font-medium", restartColor(restartCount))}>{restartCount}</dd>
+        </div>
+        {!simpleMode && (
+          <>
+            <div>
+              <dt className="text-slate-500">Node</dt>
+              <dd className="mt-1 truncate text-slate-300">{pod.nodeName || "—"}</dd>
+            </div>
+            <div>
+              <dt className="text-slate-500">Containers</dt>
+              <dd className="mt-1 text-slate-300">{Array.isArray(pod.containers) ? pod.containers.length : 0}</dd>
+            </div>
+          </>
+        )}
+      </dl>
+
+      {!simpleMode && Array.isArray(pod.containers) && pod.containers.length > 0 && (
+        <p className="mt-3 text-sm text-slate-400">{pod.containers.join(", ")}</p>
+      )}
+
+      <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+        <Link
+          href={`/pods/${encodeURIComponent(pod.namespace)}/${encodeURIComponent(pod.name)}`}
+          className="inline-flex min-h-[44px] items-center justify-center rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-slate-200 transition hover:bg-white/10 hover:text-white"
+        >
+          View details
+        </Link>
+        {isAdmin && (
+          <button
+            onClick={() => onRestart(pod.namespace, pod.name)}
+            disabled={restartingPod === key}
+            className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-4 py-2 text-sm font-medium text-indigo-300 transition hover:bg-indigo-500/20 disabled:opacity-50"
+          >
+            <RotateCcw className={cn("h-4 w-4", restartingPod === key && "animate-spin")} />
+            Restart
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function PodsPage() {
   const { isAdmin } = useRBAC();
   const [nsFilter, setNsFilter] = useState("all");
@@ -108,10 +203,15 @@ export default function PodsPage() {
 
   if (isLoading) {
     return (
-      <div className="rounded-xl border border-white/10 bg-slate-900/60 overflow-hidden">
-        <table className="w-full">
-          <tbody>{[...Array(6)].map((_, i) => <PodRowSkeleton key={i} />)}</tbody>
-        </table>
+      <div className="space-y-3">
+        <div className="space-y-3 md:hidden">
+          {[...Array(4)].map((_, i) => <div key={i} className="h-44 rounded-xl border border-white/10 bg-slate-900/60 animate-pulse" />)}
+        </div>
+        <div className="hidden overflow-hidden rounded-xl border border-white/10 bg-slate-900/60 md:block">
+          <table className="w-full">
+            <tbody>{[...Array(6)].map((_, i) => <PodRowSkeleton key={i} />)}</tbody>
+          </table>
+        </div>
       </div>
     );
   }
@@ -122,15 +222,15 @@ export default function PodsPage() {
       <CommandBar
         actions={[{ label: "Refresh", icon: RefreshCw, onClick: () => void refetch() }]}
         filter={
-          <div className="flex flex-wrap items-center gap-2">
-            <select value={nsFilter} onChange={(e) => setNsFilter(e.target.value)} className="min-h-[44px] rounded-lg bg-[#0f0f0f] border border-[#333] px-3 py-2 text-sm text-[#f2f2f2] outline-none focus:border-[#0078D4]/50">
+          <div className="grid w-full grid-cols-1 gap-2 sm:flex sm:flex-wrap sm:items-center">
+            <select value={nsFilter} onChange={(e) => setNsFilter(e.target.value)} className="min-h-[44px] rounded-lg border border-[#333] bg-[#0f0f0f] px-3 py-2 text-sm text-[#f2f2f2] outline-none focus:border-[#0078D4]/50 sm:min-w-[180px]">
               {namespaces.map((namespace) => <option key={namespace} value={namespace}>{namespace === "all" ? "All Namespaces" : namespace}</option>)}
             </select>
-            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search pods..." className="min-h-[44px] w-48 rounded-lg bg-[#0f0f0f] border border-[#333] px-3 py-2 text-sm text-[#f2f2f2] placeholder:text-[#555] outline-none focus:border-[#0078D4]/50" />
+            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search pods..." className="min-h-[44px] w-full rounded-lg border border-[#333] bg-[#0f0f0f] px-3 py-2 text-base text-[#f2f2f2] placeholder:text-[#555] outline-none focus:border-[#0078D4]/50 sm:w-56 sm:text-sm" />
             <button
               onClick={toggle}
               className={cn(
-                "flex min-h-[44px] items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium transition-colors",
+                "flex min-h-[44px] w-full items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-colors sm:w-auto",
                 simpleMode ? "border-indigo-500/30 bg-indigo-500/10 text-indigo-400" : "border-[#333] text-[#666] hover:text-[#9e9e9e]"
               )}
             >
@@ -140,27 +240,44 @@ export default function PodsPage() {
         }
       />
 
-      <div className="flex flex-wrap items-center justify-between gap-3 px-4">
-        <div className="flex flex-wrap gap-2">
-          {STATUS_FILTERS.map((filterOption) => (
-            <button
-              key={filterOption.value}
-              onClick={() => setStatusFilter(filterOption.value)}
-              className={cn(
-                "min-h-[40px] rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
-                statusFilter === filterOption.value
-                  ? "border-indigo-500/30 bg-indigo-500/15 text-indigo-300"
-                  : "border-white/10 bg-white/5 text-slate-400 hover:text-white"
-              )}
-            >
-              {filterOption.label}
-            </button>
-          ))}
+      <div className="space-y-3 px-4">
+        <div className="-mx-4 overflow-x-auto px-4" style={{ WebkitOverflowScrolling: "touch" }}>
+          <div className="flex min-w-max gap-2">
+            {STATUS_FILTERS.map((filterOption) => (
+              <button
+                key={filterOption.value}
+                onClick={() => setStatusFilter(filterOption.value)}
+                className={cn(
+                  "min-h-[44px] rounded-full border px-4 py-2 text-sm font-medium transition-colors touch-manipulation",
+                  statusFilter === filterOption.value
+                    ? "border-indigo-500/30 bg-indigo-500/15 text-indigo-300"
+                    : "border-white/10 bg-white/5 text-slate-400 hover:text-white"
+                )}
+              >
+                {filterOption.label}
+              </button>
+            ))}
+          </div>
         </div>
-        <p className="text-sm text-[#9e9e9e]">{filtered.length} / {pods.length} pods</p>
+        <p className="text-sm text-[#9e9e9e]">Showing {filtered.length} of {pods.length} pods</p>
       </div>
 
-      <div className="rounded-xl border border-white/10 bg-slate-900/60 backdrop-blur-sm overflow-hidden">
+      <div className="space-y-3 md:hidden">
+        {filtered.map((pod) => (
+          <PodMobileCard
+            key={`${pod.namespace}/${pod.name}`}
+            pod={pod}
+            simpleMode={simpleMode}
+            isAdmin={isAdmin}
+            restartingPod={restartingPod}
+            onRestart={(namespace, name) => void handleRestart(namespace, name)}
+            onCopy={(name) => void handleCopy(name)}
+          />
+        ))}
+        {filtered.length === 0 && <div className="rounded-xl border border-white/10 bg-slate-900/60 py-12 text-center text-sm text-slate-500">No pods match filters</div>}
+      </div>
+
+      <div className="hidden overflow-hidden rounded-xl border border-white/10 bg-slate-900/60 backdrop-blur-sm md:block">
         <table className="w-full">
           <thead>
             <tr className="border-b border-white/10">
@@ -185,14 +302,14 @@ export default function PodsPage() {
                       <Link href={`/pods/${encodeURIComponent(pod.namespace)}/${encodeURIComponent(pod.name)}`} className="truncate transition hover:text-indigo-300">
                         {pod.name}
                       </Link>
-                      <button onClick={() => void handleCopy(pod.name)} className="text-slate-500 transition hover:text-white" title="Copy pod name">
-                        <Copy className="h-3.5 w-3.5" />
+                      <button onClick={() => void handleCopy(pod.name)} className="flex h-11 w-11 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-slate-500 transition hover:bg-white/10 hover:text-white" title="Copy pod name">
+                        <Copy className="h-4 w-4" />
                       </button>
                     </div>
                   </td>
                   <td className="px-4 py-3 text-sm text-slate-400">{pod.namespace}</td>
                   <td className="px-4 py-3 text-center">
-                    <span className={cn("rounded-full border px-2 py-0.5 text-xs", statusColor(pod.status))}>{pod.status}</span>
+                    <span className={cn("inline-flex min-h-[32px] items-center rounded-full border px-2.5 py-1 text-xs", statusColor(pod.status))}>{pod.status}</span>
                   </td>
                   <td className="px-4 py-3 text-xs text-slate-400" title={pod.createdAt ? new Date(pod.createdAt).toLocaleString() : "Unknown age"}>
                     {pod.createdAt ? timeAgo(pod.createdAt) : "—"}
@@ -205,7 +322,7 @@ export default function PodsPage() {
                       <button
                         onClick={() => void handleRestart(pod.namespace, pod.name)}
                         disabled={restartingPod === key}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-3 py-1.5 text-xs text-indigo-300 transition hover:bg-indigo-500/20 disabled:opacity-50"
+                        className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-3 py-2 text-xs text-indigo-300 transition hover:bg-indigo-500/20 disabled:opacity-50"
                       >
                         <RotateCcw className={cn("h-3.5 w-3.5", restartingPod === key && "animate-spin")} />
                         Restart

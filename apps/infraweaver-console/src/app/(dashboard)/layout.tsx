@@ -38,6 +38,11 @@ const GROUP_ACCENT: Record<string, string> = {
   settings: "bg-[#555]",
 };
 
+function isTypingTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  return target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
+}
+
 function StatusBar() {
   const [time, setTime] = useState(new Date());
 
@@ -220,12 +225,36 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
         setSearchOpen(true);
+        return;
+      }
+
+      if (!event.metaKey && !event.ctrlKey && !event.altKey && event.key === "/" && !isTypingTarget(event.target)) {
+        event.preventDefault();
+        setSearchOpen(true);
+        return;
+      }
+
+      if (event.key === "Escape") {
+        if (searchOpen) {
+          setSearchOpen(false);
+          return;
+        }
+        if (moreOpen) {
+          setMoreOpen(false);
+          setMoreSearch("");
+          setMoreCategory("all");
+          return;
+        }
+        if (mobileOpen) {
+          setMobileOpen(false);
+          setDrawerSearch("");
+        }
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [mobileOpen, moreOpen, searchOpen]);
 
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -267,6 +296,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <SimpleModeProvider>
+    <a
+      href="#dashboard-main"
+      className="sr-only fixed left-4 top-4 z-[9999] rounded-lg bg-[#0078D4] px-3 py-2 text-sm font-medium text-white focus:not-sr-only"
+    >
+      Skip to content
+    </a>
     <div className="flex h-screen overflow-hidden overflow-x-hidden bg-[#0f0f0f]">
       <OfflineIndicator />
       {/* Desktop Sidebar */}
@@ -557,7 +592,34 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <TopBar onMenuClick={() => setMobileOpen(true)} onSearchClick={() => setSearchOpen(true)} />
         <StatusBar />
         <Breadcrumb className="hidden sm:flex" />
+        <div className="hidden xl:flex items-center justify-between gap-3 border-b border-[#1e1e1e] bg-[#101010] px-6 py-2">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#555]">Recent</span>
+            {recentPages.length > 0 ? (
+              recentPages.slice(0, 4).map((page) => (
+                <Link
+                  key={`${page.href}-${page.visitedAt}`}
+                  href={page.href}
+                  className="truncate rounded-full border border-[#2a2a2a] bg-[#141414] px-3 py-1 text-xs text-[#9e9e9e] transition-colors hover:border-[#0078D4]/40 hover:text-white"
+                >
+                  {page.title}
+                </Link>
+              ))
+            ) : (
+              <span className="text-xs text-[#666]">Use quick search to jump between dashboards and operator tools.</span>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => setSearchOpen(true)}
+            className="inline-flex items-center gap-2 rounded-full border border-[#2a2a2a] bg-[#141414] px-3 py-1.5 text-xs text-[#9e9e9e] transition-colors hover:border-[#0078D4]/40 hover:text-white"
+          >
+            Quick search
+            <span className="rounded-md border border-[#2a2a2a] bg-[#0d0d0d] px-1.5 py-0.5 font-mono text-[10px] text-[#666]">/</span>
+          </button>
+        </div>
         <main
+          id="dashboard-main"
           ref={mainRef}
           className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-4 pb-28 sm:px-4 sm:py-4 sm:pb-4 md:p-6 md:pb-6"
         >

@@ -27,7 +27,7 @@ function ConnectionStatus({ label, queryFn }: { label: string; queryFn: () => Pr
     staleTime: 30000,
   });
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex min-h-[44px] items-center gap-2 rounded-lg bg-white/5 px-3 py-2 sm:min-h-0 sm:bg-transparent sm:px-0 sm:py-0">
       {isLoading ? (
         <Loader2 className="w-3.5 h-3.5 text-slate-400 animate-spin" />
       ) : isError || !data ? (
@@ -35,7 +35,7 @@ function ConnectionStatus({ label, queryFn }: { label: string; queryFn: () => Pr
       ) : (
         <CheckCircle2 className="w-3.5 h-3.5 text-green-400" />
       )}
-      <span className={cn("text-xs font-medium", isLoading ? "text-slate-400" : isError ? "text-red-400" : "text-green-400")}>
+      <span className={cn("text-sm font-medium sm:text-xs", isLoading ? "text-slate-400" : isError ? "text-red-400" : "text-green-400")}>
         {label}: {isLoading ? "Checking..." : isError ? "Disconnected" : "Connected"}
       </span>
     </div>
@@ -49,7 +49,7 @@ export default function SettingsPage() {
 
   if (!mounted) {
     return (
-      <div className="max-w-2xl space-y-4">
+      <div className="max-w-3xl space-y-4 sm:space-y-5">
         {[...Array(4)].map((_, i) => (
           <div key={i} className="h-20 rounded-xl bg-white/5 animate-pulse" />
         ))}
@@ -58,11 +58,11 @@ export default function SettingsPage() {
   }
 
   return (
-    <div>
+    <div className="space-y-6">
       <PageHeader icon={Settings} title="Settings" subtitle="Console and platform settings" />
 
       {/* Tabs */}
-      <div className="mb-6 flex flex-wrap gap-2">
+      <div className="mb-6 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
         {([
           { id: "general", label: "General", icon: Settings },
           { id: "platform", label: "Platform", icon: Sliders },
@@ -71,7 +71,7 @@ export default function SettingsPage() {
             key={id}
             onClick={() => setActiveTab(id)}
             className={cn(
-              "flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors",
+              "flex min-h-[44px] items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors touch-manipulation",
               activeTab === id
                 ? "border border-indigo-500/30 bg-indigo-500/20 text-indigo-300"
                 : "border border-white/10 bg-white/5 text-slate-400 hover:text-white"
@@ -84,29 +84,29 @@ export default function SettingsPage() {
       </div>
 
       {activeTab === "general" && (
-      <div className="max-w-2xl space-y-4">
+      <div className="max-w-3xl space-y-4 sm:space-y-5">
         {/* Refresh Interval */}
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="bg-white/5 border border-white/10 rounded-xl p-5"
+          className="rounded-xl border border-white/10 bg-white/5 p-4 sm:p-5"
         >
           <div className="flex items-center gap-3 mb-4">
             <div className="w-9 h-9 rounded-lg bg-indigo-500/20 flex items-center justify-center">
               <RefreshCw className="w-4 h-4 text-indigo-400" />
             </div>
             <div>
-              <p className="text-sm font-medium text-white">Refresh Interval</p>
-              <p className="text-xs text-slate-400">How often to poll cluster data</p>
+              <p className="text-base font-medium text-white sm:text-sm">Refresh Interval</p>
+              <p className="text-sm text-slate-400 sm:text-xs">How often to poll cluster data</p>
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="grid grid-cols-2 gap-2 sm:flex">
             {REFRESH_OPTIONS.map(opt => (
               <button
                 key={opt.value}
                 onClick={() => updateSetting("refreshInterval", opt.value)}
                 className={cn(
-                  "px-4 py-2 rounded-lg text-sm font-medium transition-colors",
+                  "flex min-h-[44px] items-center justify-center rounded-lg px-4 py-2 text-sm font-medium transition-colors touch-manipulation",
                   settings.refreshInterval === opt.value
                     ? "bg-indigo-500/20 border border-indigo-500/30 text-indigo-300"
                     : "bg-white/5 border border-white/10 text-slate-400 hover:text-white"
@@ -123,28 +123,28 @@ export default function SettingsPage() {
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.05 }}
-          className="bg-white/5 border border-white/10 rounded-xl p-5 flex items-center justify-between"
+          className="flex flex-col gap-4 rounded-xl border border-white/10 bg-white/5 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5"
         >
-          <div className="flex items-center gap-3">
+          <div className="flex min-w-0 items-center gap-3">
             <div className="w-9 h-9 rounded-lg bg-indigo-500/20 flex items-center justify-center">
               <Layout className="w-4 h-4 text-indigo-400" />
             </div>
             <div>
-              <p className="text-sm font-medium text-white">Compact Mode</p>
-              <p className="text-xs text-slate-400">Reduce padding in cards for denser view</p>
+              <p className="text-base font-medium text-white sm:text-sm">Compact Mode</p>
+              <p className="text-sm text-slate-400 sm:text-xs">Reduce padding in cards for denser view</p>
             </div>
           </div>
           <button
             onClick={() => updateSetting("compactMode", !settings.compactMode)}
             className={cn(
-              "relative w-11 h-6 rounded-full transition-colors",
+              "relative flex h-11 w-14 items-center rounded-full transition-colors touch-manipulation",
               settings.compactMode ? "bg-indigo-500" : "bg-slate-700"
             )}
           >
             <span
               className={cn(
-                "absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform",
-                settings.compactMode ? "translate-x-5" : "translate-x-0"
+                "absolute left-1.5 top-1.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
+                settings.compactMode ? "translate-x-6" : "translate-x-0"
               )}
             />
           </button>
@@ -155,28 +155,28 @@ export default function SettingsPage() {
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
-          className="bg-white/5 border border-white/10 rounded-xl p-5 flex items-center justify-between"
+          className="flex flex-col gap-4 rounded-xl border border-white/10 bg-white/5 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5"
         >
-          <div className="flex items-center gap-3">
+          <div className="flex min-w-0 items-center gap-3">
             <div className="w-9 h-9 rounded-lg bg-indigo-500/20 flex items-center justify-center">
               <Filter className="w-4 h-4 text-indigo-400" />
             </div>
             <div>
-              <p className="text-sm font-medium text-white">Show System Apps</p>
-              <p className="text-xs text-slate-400">Include core-*, bootstrap-*, platform-* in apps view</p>
+              <p className="text-base font-medium text-white sm:text-sm">Show System Apps</p>
+              <p className="text-sm text-slate-400 sm:text-xs">Include core-*, bootstrap-*, platform-* in apps view</p>
             </div>
           </div>
           <button
             onClick={() => updateSetting("showSystemApps", !settings.showSystemApps)}
             className={cn(
-              "relative w-11 h-6 rounded-full transition-colors",
+              "relative flex h-11 w-14 items-center rounded-full transition-colors touch-manipulation",
               settings.showSystemApps ? "bg-indigo-500" : "bg-slate-700"
             )}
           >
             <span
               className={cn(
-                "absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform",
-                settings.showSystemApps ? "translate-x-5" : "translate-x-0"
+                "absolute left-1.5 top-1.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
+                settings.showSystemApps ? "translate-x-6" : "translate-x-0"
               )}
             />
           </button>
@@ -187,15 +187,15 @@ export default function SettingsPage() {
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.12 }}
-          className="bg-white/5 border border-white/10 rounded-xl p-5"
+          className="rounded-xl border border-white/10 bg-white/5 p-4 sm:p-5"
         >
           <div className="flex items-center gap-3 mb-4">
             <div className="w-9 h-9 rounded-lg bg-indigo-500/20 flex items-center justify-center">
               <Sun className="w-4 h-4 text-indigo-400" />
             </div>
             <div>
-              <p className="text-sm font-medium text-white">Theme</p>
-              <p className="text-xs text-slate-400">Light, Dark, or follow System preference</p>
+              <p className="text-base font-medium text-white sm:text-sm">Theme</p>
+              <p className="text-sm text-slate-400 sm:text-xs">Light, Dark, or follow System preference</p>
             </div>
           </div>
           <ThemeToggle />
@@ -206,15 +206,15 @@ export default function SettingsPage() {
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.14 }}
-          className="bg-white/5 border border-white/10 rounded-xl p-5"
+          className="rounded-xl border border-white/10 bg-white/5 p-4 sm:p-5"
         >
           <div className="flex items-center gap-3 mb-4">
             <div className="w-9 h-9 rounded-lg bg-indigo-500/20 flex items-center justify-center">
               <AlignJustify className="w-4 h-4 text-indigo-400" />
             </div>
             <div>
-              <p className="text-sm font-medium text-white">Display Density</p>
-              <p className="text-xs text-slate-400">Control spacing and padding in the UI</p>
+              <p className="text-base font-medium text-white sm:text-sm">Display Density</p>
+              <p className="text-sm text-slate-400 sm:text-xs">Control spacing and padding in the UI</p>
             </div>
           </div>
           <DensityToggle />
@@ -225,28 +225,28 @@ export default function SettingsPage() {
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.14 }}
-          className="bg-white/5 border border-white/10 rounded-xl p-5 flex items-center justify-between"
+          className="flex flex-col gap-4 rounded-xl border border-white/10 bg-white/5 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5"
         >
-          <div className="flex items-center gap-3">
+          <div className="flex min-w-0 items-center gap-3">
             <div className="w-9 h-9 rounded-lg bg-indigo-500/20 flex items-center justify-center">
               <Zap className="w-4 h-4 text-indigo-400" />
             </div>
             <div>
-              <p className="text-sm font-medium text-white">Simple Mode</p>
-              <p className="text-xs text-slate-400">Hide advanced fields in forms across the console</p>
+              <p className="text-base font-medium text-white sm:text-sm">Simple Mode</p>
+              <p className="text-sm text-slate-400 sm:text-xs">Hide advanced fields in forms across the console</p>
             </div>
           </div>
           <button
             onClick={() => setSimpleMode(!simpleMode)}
             className={cn(
-              "relative w-11 h-6 rounded-full transition-colors",
+              "relative flex h-11 w-14 items-center rounded-full transition-colors touch-manipulation",
               simpleMode ? "bg-indigo-500" : "bg-slate-700"
             )}
           >
             <span
               className={cn(
-                "absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform",
-                simpleMode ? "translate-x-5" : "translate-x-0"
+                "absolute left-1.5 top-1.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
+                simpleMode ? "translate-x-6" : "translate-x-0"
               )}
             />
           </button>
@@ -257,10 +257,10 @@ export default function SettingsPage() {
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.15 }}
-          className="bg-white/5 border border-white/10 rounded-xl p-5"
+          className="rounded-xl border border-white/10 bg-white/5 p-4 sm:p-5"
         >
-          <p className="text-sm font-medium text-white mb-3">Connection Status</p>
-          <div className="space-y-2">
+          <p className="mb-3 text-base font-medium text-white sm:text-sm">Connection Status</p>
+          <div className="grid gap-2 sm:grid-cols-2">
             <ConnectionStatus
               label="ArgoCD"
               queryFn={async () => {

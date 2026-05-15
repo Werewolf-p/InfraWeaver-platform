@@ -52,14 +52,14 @@ function TopologyMap({ data }: { data: TopologyData }) {
     if (layer <= 3) layers[layer].push(n);
   }
 
-  const NODE_W = 100;
-  const NODE_H = 36;
-  const H_GAP = 20;
-  const V_GAP = 48;
+  const NODE_W = 92;
+  const NODE_H = 40;
+  const H_GAP = 16;
+  const V_GAP = 44;
   const LAYER_LABEL_W = 0;
 
   const maxPerLayer = Math.max(...Object.values(layers).map(l => l.length), 1);
-  const svgW = Math.max(maxPerLayer * (NODE_W + H_GAP) + LAYER_LABEL_W, 400);
+  const svgW = Math.max(maxPerLayer * (NODE_W + H_GAP) + LAYER_LABEL_W, 360);
   const svgH = 4 * (NODE_H + V_GAP) + V_GAP;
 
   const positions: Record<string, { x: number; y: number }> = {};
@@ -74,8 +74,8 @@ function TopologyMap({ data }: { data: TopologyData }) {
   }
 
   return (
-    <div className="overflow-x-auto">
-      <svg width={svgW} height={svgH} className="min-w-full">
+    <div className="overflow-x-auto rounded-xl border border-white/10 bg-[#0f0f0f]/60 p-3" style={{ WebkitOverflowScrolling: "touch" }}>
+      <svg width={svgW} height={svgH} className="min-w-[420px] sm:min-w-full">
         {data.edges.map((e, i) => {
           const src = positions[e.source];
           const tgt = positions[e.target];
@@ -104,10 +104,10 @@ function TopologyMap({ data }: { data: TopologyData }) {
             <g key={n.id} transform={`translate(${pos.x},${pos.y})`}>
               <rect width={NODE_W} height={NODE_H} rx={6} fill={`${color}22`} stroke={ring} strokeWidth={1.5} />
               <circle cx={10} cy={NODE_H / 2} r={4} fill={ring} />
-              <text x={18} y={NODE_H / 2 + 1} fontSize={9} fill="#e2e8f0" dominantBaseline="middle" className="font-mono">
+              <text x={18} y={NODE_H / 2 + 1} fontSize={10} fill="#e2e8f0" dominantBaseline="middle" className="font-mono">
                 {n.name.length > 12 ? n.name.slice(0, 12) + "…" : n.name}
               </text>
-              <text x={18} y={NODE_H / 2 + 11} fontSize={8} fill="#64748b" dominantBaseline="middle">
+              <text x={18} y={NODE_H / 2 + 12} fontSize={9} fill="#64748b" dominantBaseline="middle">
                 {n.namespace}
               </text>
             </g>
@@ -177,7 +177,7 @@ export default function NetworkPage() {
       <PageHeader icon={Network} title="Network" subtitle="Services, ingress, and network topology" />
       <div className="relative rounded-xl overflow-hidden mb-6">
         <div className="absolute inset-0 page-gradient-network pointer-events-none" />
-        <div className="relative flex items-center justify-between p-5">
+        <div className="relative flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
         <div>
           <h2 className="text-xl font-bold text-white flex items-center gap-2">
             <Network className="w-5 h-5 text-emerald-400" />
@@ -189,7 +189,7 @@ export default function NetworkPage() {
           href="https://netbird.int.rlservers.com"
           target="_blank"
           rel="noopener noreferrer"
-          className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 hover:text-white hover:bg-white/10 transition-colors active:scale-95 touch-manipulation"
+          className="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-300 transition-colors hover:bg-white/10 hover:text-white active:scale-95 touch-manipulation sm:w-auto"
         >
           <ExternalLink className="w-3.5 h-3.5" />
           Open NetBird Dashboard
@@ -198,7 +198,7 @@ export default function NetworkPage() {
       </div>
 
       {/* NetBird Deployment Status from ArgoCD */}
-      <div className="bg-white/5 border border-white/10 rounded-xl p-4 mb-4 flex items-center justify-between">
+      <div className="mb-4 flex flex-col gap-4 rounded-xl border border-white/10 bg-white/5 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-lg bg-blue-500/20 flex items-center justify-center">
             <Network className="w-4 h-4 text-blue-400" />
@@ -208,7 +208,7 @@ export default function NetworkPage() {
             <p className="text-xs text-slate-400">ArgoCD managed deployment status</p>
           </div>
         </div>
-        <div className={cn("flex items-center gap-1.5 text-xs px-3 py-1 rounded-full font-medium border", deploymentStatus.colorClass)}>
+        <div className={cn("inline-flex min-h-[44px] items-center gap-1.5 self-start rounded-full border px-3 py-2 text-sm font-medium sm:self-auto sm:text-xs", deploymentStatus.colorClass)}>
           {deploymentStatus.pulse && (
             <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse flex-shrink-0" />
           )}
@@ -217,7 +217,7 @@ export default function NetworkPage() {
       </div>
 
       {!isLoading && totalCount > 0 && (
-        <div className="bg-white/5 border border-white/10 rounded-xl p-4 mb-5 flex items-center justify-between">
+        <div className="mb-5 flex flex-col gap-4 rounded-xl border border-white/10 bg-white/5 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-lg bg-green-500/20 flex items-center justify-center">
               <Network className="w-4 h-4 text-green-400" />
@@ -228,7 +228,7 @@ export default function NetworkPage() {
             </div>
           </div>
           <div className={cn(
-            "text-xs px-3 py-1 rounded-full font-medium",
+            "inline-flex min-h-[44px] items-center rounded-full px-3 py-2 text-sm font-medium sm:text-xs",
             connectedCount === totalCount ? "bg-green-500/10 text-green-400" : "bg-yellow-500/10 text-yellow-400"
           )}>
             {connectedCount === totalCount ? "All Online" : `${totalCount - connectedCount} Offline`}
@@ -240,9 +240,9 @@ export default function NetworkPage() {
         <div className="mb-5">
           <CollapsibleSection title="Service Topology" storageKey="network-topology" badge={<Network className="w-4 h-4 text-indigo-400 flex-shrink-0" />}>
             <TopologyMap data={topoData} />
-            <div className="flex items-center gap-4 mt-3 flex-wrap">
+            <div className="mt-3 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center sm:gap-4">
               {Object.entries(TYPE_COLORS).map(([type, color]) => (
-                <div key={type} className="flex items-center gap-1.5 text-xs text-slate-400">
+                <div key={type} className="flex min-h-[32px] items-center gap-1.5 text-sm text-slate-400 sm:text-xs">
                   <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ backgroundColor: color + "44", border: `1px solid ${color}` }} />
                   {type}
                 </div>
@@ -263,7 +263,7 @@ export default function NetworkPage() {
               key={peer.id}
               whileHover={{ scale: 1.01 }}
               whileTap={{ scale: 0.98 }}
-              className="bg-white/5 border border-white/10 rounded-xl p-3 md:p-4 touch-manipulation"
+              className="rounded-xl border border-white/10 bg-white/5 p-4 touch-manipulation sm:p-5"
             >
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
@@ -272,13 +272,13 @@ export default function NetworkPage() {
                   ) : (
                     <WifiOff className="w-4 h-4 text-slate-500" />
                   )}
-                  <span className="text-sm font-medium text-white">{peer.name}</span>
+                  <span className="text-base font-medium text-white sm:text-sm">{peer.name}</span>
                 </div>
-                <span className={cn("text-xs px-2 py-0.5 rounded-full font-medium", peer.connected ? "bg-green-500/10 text-green-400" : "bg-slate-500/10 text-slate-500")}>
+                <span className={cn("inline-flex min-h-[32px] items-center rounded-full px-2.5 py-1 text-sm font-medium sm:text-xs", peer.connected ? "bg-green-500/10 text-green-400" : "bg-slate-500/10 text-slate-500")}>
                   {peer.connected ? "Connected" : "Offline"}
                 </span>
               </div>
-              <div className="space-y-1 text-xs text-slate-400">
+              <div className="grid grid-cols-1 gap-2 text-sm text-slate-400 sm:grid-cols-2 sm:text-xs">
                 <div className="flex justify-between">
                   <span>IP</span>
                   <span className="font-mono text-slate-300">{peer.ip}</span>
@@ -290,7 +290,7 @@ export default function NetworkPage() {
                 {peer.groups && peer.groups.length > 0 && (
                   <div className="flex justify-between">
                     <span>Groups</span>
-                    <span>{peer.groups.join(", ")}</span>
+                    <div className="flex flex-wrap justify-end gap-1">{peer.groups.map((group) => <span key={group} className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] text-slate-300">{group}</span>)}</div>
                   </div>
                 )}
               </div>
