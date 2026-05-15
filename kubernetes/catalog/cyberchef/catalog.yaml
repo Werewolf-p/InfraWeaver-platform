@@ -1,0 +1,11 @@
+name: CyberChef
+description: "The Cyber Swiss Army Knife — a web app for encryption, encoding, compression and data analysis"
+icon: "🔐"
+category: utilities
+tags:
+  - security
+  - crypto
+  - encoding
+  - tools
+url: "https://cyberchef.int.rlservers.com"
+auth: vpn+proxy

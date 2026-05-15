@@ -429,11 +429,19 @@ data "talos_machine_configuration" "this" {
         } : null
         kubelet = {
           extraArgs = {
-            kube-reserved               = "memory=512Mi,cpu=500m"
-            system-reserved             = "memory=512Mi,cpu=500m"
-            eviction-hard               = "memory.available<500Mi,nodefs.available<10%"
-            eviction-soft               = "memory.available<1Gi,nodefs.available<15%"
+            # kube-reserved accounts for static control-plane pods (kube-apiserver ~1.6Gi,
+            # etcd ~300Mi, kube-scheduler, kube-controller-manager) + kubelet + containerd.
+            # These run outside the pod cgroup so must be reserved explicitly.
+            kube-reserved               = "memory=2Gi,cpu=500m"
+            # system-reserved covers Talos OS, kernel, and system daemons (iscsid, etc.)
+            system-reserved             = "memory=512Mi,cpu=200m"
+            # Hard eviction: kubelet force-kills pods at 800Mi available to prevent kernel OOM.
+            # Soft eviction: graceful 2-minute window starts at 1.5Gi to avoid abrupt kills.
+            eviction-hard               = "memory.available<800Mi,nodefs.available<10%"
+            eviction-soft               = "memory.available<1.5Gi,nodefs.available<15%"
             eviction-soft-grace-period  = "memory.available=2m,nodefs.available=5m"
+            # Enforce reserved memory via cgroups so pods cannot consume system memory.
+            enforce-node-allocatable    = "pods"
           }
         }
       }

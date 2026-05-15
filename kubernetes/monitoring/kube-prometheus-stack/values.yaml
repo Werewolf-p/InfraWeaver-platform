@@ -33,17 +33,18 @@ grafana:
     enabled: true
     size: 5Gi
 
-  # Avoid CP2 (chronically OOM-killed); CP3/CP1 preferred
+  # Prefer CP2/CP3 — keep heavy monitoring off CP1 (kube-apiserver lives there)
   affinity:
     nodeAffinity:
       preferredDuringSchedulingIgnoredDuringExecution:
-        - weight: 100
+        - weight: 80
           preference:
             matchExpressions:
               - key: kubernetes.io/hostname
-                operator: NotIn
+                operator: In
                 values:
                   - talos-prod-cp2
+                  - talos-prod-cp3
 
   ingress:
     enabled: true
@@ -157,6 +158,17 @@ prometheus:
           resources:
             requests:
               storage: 20Gi
+    # Prefer CP3 to stay off CP1 (kube-apiserver + etcd heavy), and off CP2 (Minecraft)
+    affinity:
+      nodeAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 80
+            preference:
+              matchExpressions:
+                - key: kubernetes.io/hostname
+                  operator: In
+                  values:
+                    - talos-prod-cp3
 
     resources:
       requests:

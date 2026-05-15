@@ -37,6 +37,15 @@ spec:
         infraweaver/game: "true"
     spec:
       priorityClassName: game-server
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 80
+              preference:
+                matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values: ["talos-prod-cp3"]
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: kubernetes.io/hostname

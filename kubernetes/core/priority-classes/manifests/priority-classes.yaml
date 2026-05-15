@@ -7,6 +7,8 @@
 # Hierarchy:
 #   platform-critical (1000000) — core infra that must never be evicted
 #     → traefik, argocd, cert-manager, openbao, external-secrets, metallb, coredns
+#   platform-high (750000) — auth / SSO — must survive node pressure (all logins depend on it)
+#     → authentik server, worker, postgresql, redis
 #   platform-standard (500000) — platform services that should survive user workloads
 #     → longhorn, monitoring, alerting, shared platform components
 #   platform-default (100000, global default) — normal workloads
@@ -25,6 +27,17 @@ value: 1000000
 globalDefault: false
 preemptionPolicy: PreemptLowerPriority
 description: "Core infrastructure components — traefik, argocd, cert-manager, openbao, external-secrets, metallb, and coredns. Never evict these under resource pressure."
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: platform-high
+  labels:
+    infraweaver.io/managed: "true"
+value: 750000
+globalDefault: false
+preemptionPolicy: PreemptLowerPriority
+description: "High-priority platform services such as Authentik SSO. All user logins depend on these — they must survive memory pressure and be evicted after critical infra only."
 ---
 apiVersion: scheduling.k8s.io/v1
 kind: PriorityClass

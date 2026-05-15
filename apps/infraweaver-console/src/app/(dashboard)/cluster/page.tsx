@@ -1,8 +1,8 @@
 "use client";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState, useEffect } from "react";
-import { Server, Plus, RefreshCw, Zap, Link2, Loader2, Copy, Check, ChevronDown, Activity, Layers, BarChart2, GitBranch, Pencil, Save, X, Download, Settings2 } from "lucide-react";
+import { useState, useEffect, useMemo } from "react";
+import { Server, Plus, RefreshCw, Zap, Link2, Loader2, Copy, Check, ChevronDown, Activity, Layers, BarChart2, GitBranch, Pencil, Save, X, Download, Settings2, ArrowRightLeft, MemoryStick, AlertTriangle } from "lucide-react";
 import { useRBAC } from "@/hooks/use-rbac";
 import { cn, timeAgo } from "@/lib/utils";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -44,7 +44,291 @@ interface HPA {
   targetCpuPct: number;
 }
 
+interface NodePodInfo {
+  name: string;
+  namespace: string;
+  node: string;
+  cpuMillicores: number;
+  memoryMi: number;
+  ownerKind: string | null;
+  ownerName: string | null;
+  status: string;
+  canMigrate: boolean;
+}
+
+interface NodeCapacityInfo {
+  name: string;
+  allocatableMi: number;
+  usedMi: number;
+  availableMi: number;
+  usedPct: number;
+  status: "Ready" | "NotReady";
+}
+
 interface DataPoint { time: string; value: number; }
+
+// ── Pod Migration Modal ───────────────────────────────────────────────────────
+
+function MigratePodModal({
+  pod,
+  nodes,
+  onClose,
+  onMigrated,
+}: {
+  pod: NodePodInfo;
+  nodes: NodeCapacityInfo[];
+  onClose: () => void;
+  onMigrated: () => void;
+}) {
+  const [targetNode, setTargetNode] = useState<string>("");
+  const [migrating, setMigrating] = useState(false);
+
+  const eligibleNodes = nodes.filter(n => n.name !== pod.node && n.status === "Ready");
+
+  const willFit = (node: NodeCapacityInfo) =>
+    node.availableMi >= pod.memoryMi + 512;
+
+  const handleMigrate = async () => {
+    if (!targetNode) return;
+    setMigrating(true);
+    try {
+      const res = await fetch("/api/cluster/migrate-pod", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ namespace: pod.namespace, podName: pod.name, targetNode }),
+      });
+      const result = await res.json() as { ok?: boolean; error?: string; movedTo?: string; availableMi?: number; neededMi?: number };
+      if (!res.ok) throw new Error(result.error ?? "Migration failed");
+      toast.success(`Moved ${pod.name} → ${targetNode}`);
+      onMigrated();
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Migration failed");
+    } finally {
+      setMigrating(false);
+    }
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ scale: 0.95, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        onClick={e => e.stopPropagation()}
+        className="w-full max-w-md bg-slate-900 border border-white/10 rounded-xl shadow-2xl overflow-hidden"
+      >
+        <div className="p-5 border-b border-white/10">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <ArrowRightLeft className="w-4 h-4 text-indigo-400" />
+              <h3 className="text-base font-semibold text-white">Migrate Pod</h3>
+            </div>
+            <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors"><X className="w-4 h-4" /></button>
+          </div>
+          <p className="text-xs text-slate-400 mt-1 font-mono">{pod.namespace}/{pod.name}</p>
+        </div>
+
+        <div className="p-5 space-y-4">
+          <div className="bg-white/5 rounded-lg p-3 space-y-1.5 text-xs">
+            <div className="flex justify-between">
+              <span className="text-slate-400">Current node</span>
+              <span className="text-white font-mono">{pod.node}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-400">Pod memory usage</span>
+              <span className="text-white">{pod.memoryMi > 0 ? `~${pod.memoryMi} Mi` : "unknown"}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-400">Owner</span>
+              <span className="text-slate-300">{pod.ownerKind}: {pod.ownerName}</span>
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-slate-300 mb-2 block">Target node</label>
+            <div className="space-y-2">
+              {eligibleNodes.length === 0 && (
+                <p className="text-xs text-slate-500 text-center py-3">No other Ready nodes available</p>
+              )}
+              {eligibleNodes.map(node => {
+                const fits = willFit(node);
+                const pctAfter = node.allocatableMi > 0
+                  ? Math.round(((node.usedMi + pod.memoryMi) / node.allocatableMi) * 100)
+                  : 0;
+                return (
+                  <button
+                    key={node.name}
+                    disabled={!fits}
+                    onClick={() => setTargetNode(node.name)}
+                    className={cn(
+                      "w-full flex items-center justify-between p-3 rounded-lg border text-left transition-all",
+                      targetNode === node.name
+                        ? "border-indigo-500/60 bg-indigo-500/15"
+                        : fits
+                          ? "border-white/10 bg-white/5 hover:border-white/20 hover:bg-white/8"
+                          : "border-red-500/20 bg-red-500/5 opacity-60 cursor-not-allowed",
+                    )}
+                  >
+                    <div>
+                      <p className="text-sm font-medium text-white">{node.name.replace("talos-", "")}</p>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        {node.availableMi} Mi free of {node.allocatableMi} Mi allocatable
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      {fits ? (
+                        <span className={cn("text-xs px-2 py-0.5 rounded",
+                          pctAfter >= 85 ? "bg-amber-500/20 text-amber-300" : "bg-emerald-500/15 text-emerald-400"
+                        )}>
+                          → {pctAfter}% after
+                        </span>
+                      ) : (
+                        <span className="text-xs flex items-center gap-1 text-red-400">
+                          <AlertTriangle className="w-3 h-3" />
+                          Not enough RAM
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        <div className="p-5 pt-0 flex gap-3">
+          <button
+            onClick={handleMigrate}
+            disabled={!targetNode || migrating}
+            className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium text-white transition-colors"
+          >
+            {migrating ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRightLeft className="w-4 h-4" />}
+            {migrating ? "Migrating…" : "Migrate Pod"}
+          </button>
+          <button onClick={onClose} className="px-4 py-2.5 rounded-lg border border-white/10 text-sm text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+            Cancel
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+// ── Node Pod List ─────────────────────────────────────────────────────────────
+
+function NodePodSection({
+  nodeCapacity,
+  pods,
+  allNodes,
+  isAdmin,
+  onMigrated,
+}: {
+  nodeCapacity: NodeCapacityInfo;
+  pods: NodePodInfo[];
+  allNodes: NodeCapacityInfo[];
+  isAdmin: boolean;
+  onMigrated: () => void;
+}) {
+  const [migrating, setMigrating] = useState<NodePodInfo | null>(null);
+  const [showAll, setShowAll] = useState(false);
+  const PAGE = 5;
+
+  const movable = pods.filter(p => p.canMigrate);
+  const displayed = showAll ? pods : pods.slice(0, PAGE);
+  const pct = nodeCapacity.usedPct;
+
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/5 overflow-hidden">
+      <div className="flex items-center justify-between p-3 border-b border-white/10">
+        <div className="flex items-center gap-2">
+          <span className={cn("w-2 h-2 rounded-full flex-shrink-0", nodeCapacity.status === "Ready" ? "bg-green-500" : "bg-red-500")} />
+          <span className="text-sm font-semibold text-white">{nodeCapacity.name.replace("talos-", "")}</span>
+          <span className="text-xs text-slate-500">{pods.length} pods</span>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5 text-xs text-slate-400">
+            <MemoryStick className="w-3 h-3" />
+            <span>{nodeCapacity.usedMi} / {nodeCapacity.allocatableMi} Mi</span>
+            <span className={cn("px-1.5 py-0.5 rounded font-medium",
+              pct >= 85 ? "bg-red-500/20 text-red-300" :
+              pct >= 70 ? "bg-amber-500/20 text-amber-300" :
+              "bg-emerald-500/15 text-emerald-400"
+            )}>
+              {pct}%
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div className="divide-y divide-white/5">
+        {displayed.map(pod => (
+          <div key={`${pod.namespace}/${pod.name}`} className="flex items-center gap-3 px-3 py-2 hover:bg-white/5 transition-colors">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-white font-mono truncate">{pod.name}</span>
+              </div>
+              <span className="text-[11px] text-slate-500">{pod.namespace}</span>
+            </div>
+            <div className="flex items-center gap-2 text-xs text-slate-400 flex-shrink-0">
+              {pod.memoryMi > 0 && (
+                <span className="bg-slate-800 px-1.5 py-0.5 rounded">{pod.memoryMi} Mi</span>
+              )}
+              {pod.cpuMillicores > 0 && (
+                <span className="bg-slate-800 px-1.5 py-0.5 rounded">{pod.cpuMillicores}m</span>
+              )}
+              {isAdmin && pod.canMigrate && (
+                <button
+                  onClick={() => setMigrating(pod)}
+                  className="flex items-center gap-1 px-2 py-1 rounded-lg border border-indigo-500/30 bg-indigo-500/10 text-indigo-300 hover:bg-indigo-500/20 transition-colors"
+                >
+                  <ArrowRightLeft className="w-3 h-3" />
+                  Move
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
+        {pods.length === 0 && (
+          <p className="text-xs text-slate-500 text-center py-4">No running pods</p>
+        )}
+      </div>
+
+      {pods.length > PAGE && (
+        <button
+          onClick={() => setShowAll(v => !v)}
+          className="w-full flex items-center justify-center gap-1 py-2 text-xs text-slate-500 hover:text-white hover:bg-white/5 transition-colors border-t border-white/10"
+        >
+          <ChevronDown className={cn("w-3.5 h-3.5 transition-transform", showAll && "rotate-180")} />
+          {showAll ? `Show fewer` : `${pods.length - PAGE} more pods`}
+        </button>
+      )}
+
+      {movable.length > 0 && !showAll && pods.length <= PAGE && (
+        <div className="px-3 py-2 border-t border-white/10">
+          <p className="text-[11px] text-slate-500">{movable.length} pod{movable.length !== 1 ? "s" : ""} can be migrated</p>
+        </div>
+      )}
+
+      <AnimatePresence>
+        {migrating && (
+          <MigratePodModal
+            pod={migrating}
+            nodes={allNodes}
+            onClose={() => setMigrating(null)}
+            onMigrated={onMigrated}
+          />
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 
 function heatColor(pct: number): string {
   if (pct >= 80) return "bg-red-500/30 border-red-500/40";
@@ -214,6 +498,19 @@ export default function ClusterPage() {
     refetchInterval: 60000,
   });
 
+  const { data: nodePodData, refetch: refetchNodePods } = useQuery<{
+    nodes: NodeCapacityInfo[];
+    pods: NodePodInfo[];
+  }>({
+    queryKey: ["cluster", "node-pods"],
+    queryFn: async () => {
+      const res = await fetch("/api/cluster/node-pods");
+      return res.json();
+    },
+    staleTime: 20000,
+    refetchInterval: 30000,
+  });
+
   const { data: metricsData, refetch: refetchMetrics } = useQuery<{ metrics: NodeMetric[]; timestamp: string }>({
     queryKey: ["cluster", "metrics", metricsRefreshSeconds],
     queryFn: async () => {
@@ -251,6 +548,16 @@ export default function ClusterPage() {
   const displayNodes = showAllNodes ? nodes : nodes.slice(0, NODE_PAGE_SIZE);
 
   const metricsMap = Object.fromEntries(metrics.map(m => [m.name, m]));
+
+  // Group pods by node for the migration view
+  const podsByNode = useMemo(() => {
+    const map: Record<string, NodePodInfo[]> = {};
+    for (const pod of nodePodData?.pods ?? []) {
+      if (!map[pod.node]) map[pod.node] = [];
+      map[pod.node].push(pod);
+    }
+    return map;
+  }, [nodePodData?.pods]);
 
   const handleSyncAll = async () => {
     setSyncing(true);
@@ -344,7 +651,7 @@ export default function ClusterPage() {
                 ))}
               </select>
             </div>
-            <button onClick={() => { void refetch(); void refetchMetrics(); void refetchHpa(); }} className="flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-300 transition-colors hover:bg-white/10 hover:text-white active:scale-95 touch-manipulation sm:flex-none">
+            <button onClick={() => { void refetch(); void refetchMetrics(); void refetchHpa(); void refetchNodePods(); }} className="flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-300 transition-colors hover:bg-white/10 hover:text-white active:scale-95 touch-manipulation sm:flex-none">
               <RefreshCw className="w-3.5 h-3.5" />
               Refresh
             </button>
@@ -447,6 +754,33 @@ export default function ClusterPage() {
             <div className="space-y-2">
               {hpas.map(hpa => (
                 <HPARow key={`${hpa.namespace}/${hpa.name}`} hpa={hpa} isAdmin={isAdmin} onSaved={() => { void refetchHpa(); }} />
+              ))}
+            </div>
+          </CollapsibleSection>
+        )}
+
+        {/* Pod Migration — visible to all, but Move button only for admins */}
+        {(nodePodData?.nodes?.length ?? 0) > 0 && (
+          <CollapsibleSection
+            title="Pod Migration"
+            storageKey="cluster-pod-migration"
+            badge={<ArrowRightLeft className="w-4 h-4 text-cyan-400 flex-shrink-0" />}
+            count={(nodePodData?.pods ?? []).filter(p => p.canMigrate).length}
+          >
+            <p className="text-xs text-slate-500 mb-3">
+              Move workloads between nodes. RAM is validated before migration — moves that would exceed node capacity are blocked.
+              Kubernetes re-schedules the pod on the target node; Longhorn storage follows automatically.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {(nodePodData?.nodes ?? []).sort((a, b) => a.name.localeCompare(b.name)).map(nodeCapacity => (
+                <NodePodSection
+                  key={nodeCapacity.name}
+                  nodeCapacity={nodeCapacity}
+                  pods={(podsByNode[nodeCapacity.name] ?? []).sort((a, b) => b.memoryMi - a.memoryMi)}
+                  allNodes={nodePodData?.nodes ?? []}
+                  isAdmin={isAdmin}
+                  onMigrated={() => { void refetchNodePods(); void refetchMetrics(); }}
+                />
               ))}
             </div>
           </CollapsibleSection>

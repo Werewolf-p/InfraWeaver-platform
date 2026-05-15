@@ -43,6 +43,7 @@ spec:
       kind: Deployment
       jsonPointers:
         - /spec/replicas    # don't revert scale operations done from the UI
+        - /spec/template/spec/affinity  # allow console pod-migration to patch affinity live
     - group: ""
       kind: Service
       jsonPointers:

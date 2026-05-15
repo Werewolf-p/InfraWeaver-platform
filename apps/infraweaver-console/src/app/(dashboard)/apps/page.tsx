@@ -284,6 +284,7 @@ function SwipeableAppCard({
             {isCatalog && canSync && (
               <button
                 onClick={() => void onSync(row.name)}
+                onPointerDown={e => e.stopPropagation()}
                 disabled={syncingApp === row.name}
                 title="Force sync"
                 className="inline-flex min-h-[36px] min-w-[36px] items-center justify-center rounded-lg border border-indigo-500/30 bg-indigo-500/10 text-indigo-300 transition hover:bg-indigo-500/20 disabled:opacity-50"
@@ -312,6 +313,7 @@ function SwipeableAppCard({
           <div className="flex gap-2">
             <button
               onClick={() => void onSync(row.name)}
+              onPointerDown={e => e.stopPropagation()}
               disabled={syncingApp === row.name || !canSync}
               className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs border border-[#333] text-[#9e9e9e] hover:text-white hover:border-[#555] transition-colors min-h-[44px] disabled:opacity-50"
             >
@@ -320,6 +322,7 @@ function SwipeableAppCard({
             </button>
             <button
               onClick={() => void onDelete(row.name)}
+              onPointerDown={e => e.stopPropagation()}
               disabled={deletingApp === row.name || !canDelete}
               className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors min-h-[44px] disabled:opacity-50"
             >
@@ -331,6 +334,7 @@ function SwipeableAppCard({
         {!isCatalog && onUninstall && (
           <button
             onClick={() => void onUninstall(row.name)}
+            onPointerDown={e => e.stopPropagation()}
             disabled={uninstallingApp === row.name || !canManageApps}
             className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors min-h-[44px] disabled:opacity-50"
           >

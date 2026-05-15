@@ -13,7 +13,10 @@ nodes:
     vm_id: 9310
     controlplane: true
     cpu: 8
-    memory_mb: 12288
+    # Safe max: 62.7 GiB host - 4 GiB Proxmox OS - 8 GiB TrueNAS - 8 GiB github-runner
+    # - 1 GiB netbird = 41.7 GiB for 3 nodes → ~13 GiB/node (round to 13312 MB).
+    # Apply via console Settings → Cluster → Nodes to trigger rolling Proxmox update.
+    memory_mb: 13312
     disk_gb: 200
     datastore: "lvm-proxmox"
   talos-prod-cp2:
@@ -23,7 +26,7 @@ nodes:
     vm_id: 9311
     controlplane: true
     cpu: 8
-    memory_mb: 12288
+    memory_mb: 13312
     disk_gb: 200
     datastore: "lvm-proxmox"
   talos-prod-cp3:
@@ -33,7 +36,7 @@ nodes:
     vm_id: 9312
     controlplane: true
     cpu: 8
-    memory_mb: 12288
+    memory_mb: 13312
     disk_gb: 200
     datastore: "lvm-proxmox"
 
