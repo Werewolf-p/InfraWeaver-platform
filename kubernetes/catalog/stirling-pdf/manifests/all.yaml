@@ -47,14 +47,14 @@ spec:
             - name: LANGS
               value: "en_GB"
             - name: JAVA_TOOL_OPTIONS
-              value: "-XX:+UseContainerSupport -XX:MaxRAMPercentage=70.0"
+              value: "-XX:MaxMetaspaceSize=256m -XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0"
           resources:
             requests:
               cpu: 100m
-              memory: 256Mi
+              memory: 512Mi
             limits:
               cpu: 800m
-              memory: 1200Mi  # Original: no metaspace cap, JVM self-manages up to 70% = 840Mi heap
+              memory: 1200Mi  # Original stable config: 782Mi actual usage
           readinessProbe:
             httpGet:
               path: /actuator/health
