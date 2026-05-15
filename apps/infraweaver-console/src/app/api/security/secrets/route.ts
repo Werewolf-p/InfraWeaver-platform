@@ -1,10 +1,15 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { getSessionRBACContext, hasAnySessionPermission } from "@/lib/session-rbac";
 import * as k8s from "@kubernetes/client-node";
 
 export async function GET() {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const access = await getSessionRBACContext(session, 60);
+  if (!hasAnySessionPermission(access, ["security:read"])) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
   try {
     const kc = new k8s.KubeConfig();
     if (process.env.KUBECONFIG) { kc.loadFromFile(process.env.KUBECONFIG); }

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { hasPermission } from "@/lib/rbac";
+import { getSessionRBACContext, hasAnySessionPermission } from "@/lib/session-rbac";
 import fs from "node:fs";
 
 interface AuthEvent {
@@ -11,19 +11,6 @@ interface AuthEvent {
   ip: string;
   success: boolean;
   details?: string;
-}
-
-function generateMockEvents(): AuthEvent[] {
-  const now = Date.now();
-  return [
-    { id: "evt-1", timestamp: new Date(now - 120000).toISOString(), action: "login", user: "admin@infraweaver.local", ip: "10.0.1.42", success: true, details: "OIDC login via Authentik" },
-    { id: "evt-2", timestamp: new Date(now - 340000).toISOString(), action: "login", user: "unknown@example.com", ip: "185.220.101.5", success: false, details: "Invalid credentials" },
-    { id: "evt-3", timestamp: new Date(now - 600000).toISOString(), action: "login", user: "operator@infraweaver.local", ip: "10.0.1.55", success: true, details: "OIDC login via Authentik" },
-    { id: "evt-4", timestamp: new Date(now - 900000).toISOString(), action: "token_refresh", user: "admin@infraweaver.local", ip: "10.0.1.42", success: true },
-    { id: "evt-5", timestamp: new Date(now - 1200000).toISOString(), action: "login", user: "root", ip: "185.220.101.6", success: false, details: "Brute force attempt" },
-    { id: "evt-6", timestamp: new Date(now - 1800000).toISOString(), action: "logout", user: "operator@infraweaver.local", ip: "10.0.1.55", success: true },
-    { id: "evt-7", timestamp: new Date(now - 2700000).toISOString(), action: "login", user: "admin@infraweaver.local", ip: "10.0.1.42", success: true, details: "OIDC login via Authentik" },
-  ];
 }
 
 async function fetchAuthentikEvents(): Promise<AuthEvent[] | null> {
@@ -89,21 +76,20 @@ function readAuditLog(): AuthEvent[] {
 export async function GET() {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
-  if (!hasPermission(groups, "config:read")) {
+  const access = await getSessionRBACContext(session, 60);
+  if (!hasAnySessionPermission(access, ["security:read"])) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  // Try Authentik API first, then audit log, then mock
   const authentikEvents = await fetchAuthentikEvents();
   if (authentikEvents && authentikEvents.length > 0) {
-    return NextResponse.json({ events: authentikEvents, source: "authentik" });
+    return NextResponse.json({ events: authentikEvents, source: "authentik" }, {
+      headers: { "Cache-Control": "no-store" },
+    });
   }
 
   const logEvents = readAuditLog();
-  if (logEvents.length > 0) {
-    return NextResponse.json({ events: logEvents, source: "audit-log" });
-  }
-
-  return NextResponse.json({ events: generateMockEvents(), source: "mock" });
+  return NextResponse.json({ events: logEvents, source: logEvents.length ? "audit-log" : "unavailable" }, {
+    headers: { "Cache-Control": "no-store" },
+  });
 }

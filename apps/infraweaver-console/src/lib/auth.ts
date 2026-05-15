@@ -10,12 +10,19 @@ interface AuthentikProfile {
 const SESSION_MAX_AGE = 60 * 60 * 8;
 const authUrl = process.env.AUTH_URL ?? process.env.NEXTAUTH_URL;
 const useSecureCookies = process.env.NODE_ENV === "production" || authUrl?.startsWith("https://");
-const secureCookieName = (name: string) => (useSecureCookies ? `__Secure-${name}` : name);
+const secureCookieName = (name: string, hostOnly = false) => {
+  if (!useSecureCookies) return name;
+  return `${hostOnly ? "__Host-" : "__Secure-"}${name}`;
+};
 const secureCookieOptions = {
   httpOnly: true,
   sameSite: "lax" as const,
   path: "/",
   secure: useSecureCookies,
+};
+const sessionCookieOptions = {
+  ...secureCookieOptions,
+  sameSite: "strict" as const,
 };
 
 export const authConfig: NextAuthConfig = {
@@ -40,8 +47,8 @@ export const authConfig: NextAuthConfig = {
   useSecureCookies,
   cookies: {
     sessionToken: {
-      name: secureCookieName("authjs.session-token"),
-      options: secureCookieOptions,
+      name: secureCookieName("authjs.session-token", true),
+      options: sessionCookieOptions,
     },
     state: {
       name: secureCookieName("authjs.state"),
