@@ -157,6 +157,8 @@ spec:
       kind: PersistentVolumeClaim
       metadata:
         name: wazuh-indexer-data
+        annotations:
+          recurring-job-group.longhorn.io/truenas-backup: "enabled"
       spec:
         accessModes: ["ReadWriteOnce"]
         storageClassName: longhorn-retain

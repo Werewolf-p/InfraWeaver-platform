@@ -48,6 +48,8 @@ kind: PersistentVolumeClaim
 metadata:
   name: plex-config
   namespace: plex
+  annotations:
+    recurring-job-group.longhorn.io/truenas-backup: "enabled"
 spec:
   accessModes:
     - ReadWriteOnce

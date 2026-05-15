@@ -110,6 +110,8 @@ postgresql:
   primary:
     priorityClassName: platform-high
     persistence:
+      annotations:
+        recurring-job-group.longhorn.io/truenas-backup: "enabled"
       storageClass: longhorn-retain   # HA: 3 replicas across nodes (critical user data)
       size: 2Gi
     resources:

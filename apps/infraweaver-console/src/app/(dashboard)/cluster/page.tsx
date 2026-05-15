@@ -90,6 +90,18 @@ interface ClusterEvent {
   involvedObject: { kind: string; name: string };
 }
 
+interface PodDisruptionBudgetSummary {
+  name: string;
+  namespace: string;
+  minAvailable: string | number | null;
+  maxUnavailable: string | number | null;
+  currentHealthy: number;
+  desiredHealthy: number;
+  expectedPods: number;
+  disruptionsAllowed: number;
+  selector: Record<string, string>;
+}
+
 function parseQuotaValue(val: string): number {
   if (!val) return 0;
   if (val.endsWith("m")) return parseFloat(val) / 1000;
@@ -606,6 +618,17 @@ export default function ClusterPage() {
     refetchInterval: 30000,
   });
 
+  const { data: pdbData, refetch: refetchPdbs } = useQuery<{ pdbs: PodDisruptionBudgetSummary[] }>({
+    queryKey: ["cluster", "pdbs"],
+    queryFn: async () => {
+      const res = await fetch("/api/cluster/pdbs");
+      if (!res.ok) throw new Error("Failed to fetch PodDisruptionBudgets");
+      return res.json();
+    },
+    staleTime: 30000,
+    refetchInterval: 60000,
+  });
+
   const nodes = useMemo(() => data?.nodes ?? [], [data?.nodes]);
   const metrics = useMemo(() => metricsData?.metrics ?? [], [metricsData?.metrics]);
   const hpas = useMemo(() => hpaData?.hpas ?? [], [hpaData?.hpas]);
@@ -689,6 +712,10 @@ export default function ClusterPage() {
     .sort((a, b) => b.peak - a.peak)
     .slice(0, 4);
   const recentEvents = (eventData?.events ?? []).slice(0, 6);
+  const pdbs = useMemo(() => pdbData?.pdbs ?? [], [pdbData?.pdbs]);
+  const protectedPdbs = pdbs.filter((pdb) => pdb.disruptionsAllowed > 0).length;
+  const blockedPdbs = pdbs.filter((pdb) => pdb.disruptionsAllowed === 0).length;
+  const pdbsAtRisk = pdbs.filter((pdb) => pdb.currentHealthy < pdb.desiredHealthy).length;
 
   const handleSyncAll = async () => {
     setSyncing(true);
@@ -836,7 +863,7 @@ export default function ClusterPage() {
                 ))}
               </select>
             </div>
-            <button onClick={() => { void refetch(); void refetchMetrics(); void refetchHpa(); void refetchNodePods(); }} className="flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-300 transition-colors hover:bg-white/10 hover:text-white active:scale-95 touch-manipulation sm:flex-none">
+            <button onClick={() => { void refetch(); void refetchMetrics(); void refetchHpa(); void refetchNodePods(); void refetchQuota(); void refetchEvents(); void refetchPdbs(); }} className="flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-300 transition-colors hover:bg-white/10 hover:text-white active:scale-95 touch-manipulation sm:flex-none">
               <RefreshCw className="w-3.5 h-3.5" />
               Refresh
             </button>
@@ -858,7 +885,7 @@ export default function ClusterPage() {
                 <p className="text-sm font-semibold text-white">Node capacity distribution</p>
                 <p className="text-xs text-slate-500">Healthy, cordoned, and high-pressure nodes grouped into one quick view.</p>
               </div>
-              <button onClick={() => { void refetch(); void refetchMetrics(); void refetchHpa(); void refetchNodePods(); void refetchQuota(); void refetchEvents(); }} className="inline-flex items-center gap-2 rounded-lg border border-[#2a2a2a] px-3 py-1.5 text-xs text-[#9e9e9e] transition hover:text-white">
+              <button onClick={() => { void refetch(); void refetchMetrics(); void refetchHpa(); void refetchNodePods(); void refetchQuota(); void refetchEvents(); void refetchPdbs(); }} className="inline-flex items-center gap-2 rounded-lg border border-[#2a2a2a] px-3 py-1.5 text-xs text-[#9e9e9e] transition hover:text-white">
                 <RefreshCw className="h-3.5 w-3.5" /> Refresh all
               </button>
             </div>
@@ -1057,6 +1084,64 @@ export default function ClusterPage() {
             </>
           )}
         </CollapsibleSection>
+
+        {pdbs.length > 0 && (
+          <CollapsibleSection title="Disruption budgets" count={pdbs.length} storageKey="cluster-pdbs" badge={<AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0" />}>
+            <div className="mb-4 grid gap-3 md:grid-cols-3">
+              <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-3">
+                <p className="text-[11px] uppercase tracking-[0.18em] text-[#666]">Protected services</p>
+                <p className="mt-2 text-2xl font-semibold text-white">{pdbs.length}</p>
+                <p className="mt-1 text-sm text-[#888]">{protectedPdbs} currently allow at least one voluntary disruption.</p>
+              </div>
+              <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-3">
+                <p className="text-[11px] uppercase tracking-[0.18em] text-[#666]">Zero-disruption budgets</p>
+                <p className="mt-2 text-2xl font-semibold text-white">{blockedPdbs}</p>
+                <p className="mt-1 text-sm text-[#888]">Single-replica platform services are expected here during maintenance windows.</p>
+              </div>
+              <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-3">
+                <p className="text-[11px] uppercase tracking-[0.18em] text-[#666]">At-risk budgets</p>
+                <p className="mt-2 text-2xl font-semibold text-white">{pdbsAtRisk}</p>
+                <p className="mt-1 text-sm text-[#888]">Budgets where currentHealthy is below desiredHealthy and disruption safety is already reduced.</p>
+              </div>
+            </div>
+            <div className="overflow-x-auto rounded-xl border border-[#2a2a2a] bg-[#111]">
+              <table className="w-full min-w-[760px] text-sm">
+                <thead className="bg-[#0d0d0d] text-xs uppercase tracking-[0.16em] text-slate-500">
+                  <tr>
+                    <th className="px-4 py-3 text-left font-medium">Budget</th>
+                    <th className="px-4 py-3 text-left font-medium">Policy</th>
+                    <th className="px-4 py-3 text-left font-medium">Selector</th>
+                    <th className="px-4 py-3 text-left font-medium">Healthy</th>
+                    <th className="px-4 py-3 text-left font-medium">Disruptions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pdbs.map((pdb) => {
+                    const selector = Object.entries(pdb.selector).map(([key, value]) => `${key}=${value}`).join(", ") || "Selector unavailable";
+                    const policy = pdb.minAvailable !== null ? `minAvailable ${pdb.minAvailable}` : pdb.maxUnavailable !== null ? `maxUnavailable ${pdb.maxUnavailable}` : "No policy";
+                    const isHealthy = pdb.currentHealthy >= pdb.desiredHealthy;
+                    return (
+                      <tr key={`${pdb.namespace}/${pdb.name}`} className="border-t border-[#1c1c1c] align-top text-slate-300">
+                        <td className="px-4 py-4">
+                          <p className="font-medium text-white">{pdb.name}</p>
+                          <p className="mt-1 text-xs text-slate-500">{pdb.namespace}</p>
+                        </td>
+                        <td className="px-4 py-4 text-slate-300">{policy}</td>
+                        <td className="px-4 py-4 text-xs text-slate-400">{selector}</td>
+                        <td className="px-4 py-4">
+                          <span className={cn("rounded-full px-2 py-1 text-xs font-medium", isHealthy ? "bg-emerald-500/10 text-emerald-300" : "bg-red-500/10 text-red-300")}>{pdb.currentHealthy}/{pdb.expectedPods || pdb.desiredHealthy}</span>
+                        </td>
+                        <td className="px-4 py-4">
+                          <span className={cn("rounded-full px-2 py-1 text-xs font-medium", pdb.disruptionsAllowed > 0 ? "bg-emerald-500/10 text-emerald-300" : "bg-red-500/10 text-red-300")}>{pdb.disruptionsAllowed} allowed</span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </CollapsibleSection>
+        )}
 
         {hpas.length > 0 && (
           <CollapsibleSection title="Horizontal Pod Autoscalers" count={hpas.length} storageKey="cluster-hpa" badge={<Layers className="w-4 h-4 text-violet-400 flex-shrink-0" />}>
