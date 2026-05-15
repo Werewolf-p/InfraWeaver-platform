@@ -159,12 +159,17 @@ jobs:
             # ── Step 1: Drain ───────────────────────────────────────
             echo ""
             echo "  [1/4] Draining $NODE..."
+            # --disable-eviction: bypasses PodDisruptionBudgets (required for Longhorn
+            # instance-manager pods whose PDB sets minAvailable=1 with only 1 replica).
+            # Safe here because the VM will be rebooted by Proxmox after tofu apply
+            # anyway — all pods are killed by the reboot regardless.
             kubectl drain "$NODE" \
               --ignore-daemonsets \
               --delete-emptydir-data \
-              --timeout=5m \
+              --timeout=8m \
               --grace-period=30 \
-              --force
+              --force \
+              --disable-eviction
             echo "  ✅ Drained"
 
             # ── Step 2: Tofu apply for this node's VM ───────────────
