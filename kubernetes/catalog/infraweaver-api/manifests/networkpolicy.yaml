@@ -26,5 +26,45 @@ spec:
       ports:
         - port: 3001
   egress:
-    # Allow all outbound (needs to reach k8s API, ArgoCD, Longhorn, etc.)
-    - {}
+    # DNS resolution
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # Kubernetes API server (cluster management operations)
+    - to:
+        - ipBlock:
+            cidr: 10.25.0.0/24
+      ports:
+        - port: 6443
+          protocol: TCP
+    - to:
+        - ipBlock:
+            cidr: 10.96.0.1/32
+      ports:
+        - port: 443
+          protocol: TCP
+    # ArgoCD server (application sync/diff/status)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: argocd
+      ports:
+        - port: 80
+          protocol: TCP
+    # External HTTPS (GitHub API, upstream services)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - port: 443
+          protocol: TCP

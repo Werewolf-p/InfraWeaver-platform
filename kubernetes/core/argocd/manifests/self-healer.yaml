@@ -64,7 +64,7 @@ spec:
               type: RuntimeDefault
           containers:
             - name: healer
-              image: bitnami/kubectl:latest
+              image: "bitnami/kubectl:1.35.4@sha256:e2b97dde9666986c61c56d49aae85a714b89b69392baa531438e74ec34096fb4"
               securityContext:
                 allowPrivilegeEscalation: false
                 capabilities:
