@@ -13,7 +13,7 @@ export interface Column<T> {
   mobileHide?: boolean;
 }
 
-interface ResourceTableProps<T extends Record<string, unknown>> {
+interface ResourceTableProps<T extends object> {
   columns: Column<T>[];
   data: T[];
   loading?: boolean;
@@ -25,7 +25,7 @@ interface ResourceTableProps<T extends Record<string, unknown>> {
   className?: string;
 }
 
-export function ResourceTable<T extends Record<string, unknown>>({
+export function ResourceTable<T extends object>({
   columns, data, loading, empty, onRowClick, selectable, getRowKey, mobileCardRender, className,
 }: ResourceTableProps<T>) {
   const [sortKey, setSortKey] = useState<string | null>(null);
@@ -40,7 +40,7 @@ export function ResourceTable<T extends Record<string, unknown>>({
   const sorted = useMemo(() => {
     if (!sortKey) return data;
     return [...data].sort((a, b) => {
-      const av = a[sortKey]; const bv = b[sortKey];
+      const av = (a as Record<string, unknown>)[sortKey]; const bv = (b as Record<string, unknown>)[sortKey];
       if (av == null) return 1; if (bv == null) return -1;
       const cmp = String(av) < String(bv) ? -1 : String(av) > String(bv) ? 1 : 0;
       return sortDir === "asc" ? cmp : -cmp;
@@ -117,7 +117,7 @@ export function ResourceTable<T extends Record<string, unknown>>({
                   {selectable && <td className="px-3 py-2.5" onClick={e => e.stopPropagation()}><input type="checkbox" checked={selected.has(key)} onChange={() => toggleSelect(key)} className="rounded border-[#333]" /></td>}
                   {columns.map(col => (
                     <td key={col.key} className={cn("px-3 py-2.5 text-[#f2f2f2]", col.className)}>
-                      {col.render ? col.render(row) : String(row[col.key] ?? "")}
+                      {col.render ? col.render(row) : String((row as Record<string, unknown>)[col.key] ?? "")}
                     </td>
                   ))}
                 </tr>

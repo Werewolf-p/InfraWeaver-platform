@@ -39,6 +39,11 @@ interface SafeExternalRequestOptions {
   timeoutMs?: number;
 }
 
+interface DnsLookupRecord {
+  address: string;
+  family: number;
+}
+
 function isPrivateIpv4(address: string) {
   const parts = address.split(".").map((part) => Number.parseInt(part, 10));
   if (parts.length !== 4 || parts.some((part) => Number.isNaN(part) || part < 0 || part > 255)) return true;
@@ -107,8 +112,8 @@ async function resolveSafeExternalUrl(rawUrl: string | URL): Promise<ResolvedExt
   const url = await parseSafeExternalUrl(rawUrl);
   if (!url) return null;
 
-  const resolved = await dns.lookup(url.hostname, { all: true, verbatim: true }).catch(() => [] as dns.LookupAddress[]);
-  const safeRecord = resolved.find((record): record is dns.LookupAddress & { family: 4 | 6 } => {
+  const resolved = await dns.lookup(url.hostname, { all: true, verbatim: true }).catch(() => [] as DnsLookupRecord[]);
+  const safeRecord = resolved.find((record): record is DnsLookupRecord & { family: 4 | 6 } => {
     return (record.family === 4 || record.family === 6) && !isBlockedOutboundHost(record.address);
   });
   if (!safeRecord) return null;
@@ -131,7 +136,7 @@ export async function requestSafeExternalUrl(
   const body = typeof options.body === "string" ? Buffer.from(options.body) : options.body;
   const timeoutMs = options.timeoutMs ?? 8_000;
   const maxResponseBytes = options.maxResponseBytes ?? 1_000_000;
-  const headers = {
+  const headers: Record<string, string> = {
     ...(options.headers ?? {}),
     Host: resolved.url.host,
   };

@@ -2,7 +2,7 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect, useMemo, useRef } from "react";
-import { Server, Plus, RefreshCw, Zap, Link2, Loader2, Copy, Check, ChevronDown, Activity, Layers, BarChart2, GitBranch, Pencil, Save, X, Download, Settings2, ArrowRightLeft, MemoryStick, AlertTriangle } from "lucide-react";
+import { Server, Plus, RefreshCw, Zap, Link2, Loader2, Copy, Check, ChevronDown, Activity, Layers, BarChart2, GitBranch, Pencil, Save, X, Download, Settings2, ArrowRightLeft, MemoryStick, AlertTriangle, Bell } from "lucide-react";
 import { useRBAC } from "@/hooks/use-rbac";
 import { cn, timeAgo } from "@/lib/utils";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -1077,7 +1077,7 @@ export default function ClusterPage() {
                         <span className={cn("rounded-full px-2 py-1 text-[11px] font-medium", event.type === "Warning" ? "bg-red-500/10 text-red-300" : "bg-emerald-500/10 text-emerald-300")}>{event.type}</span>
                       </div>
                       <p className="mt-2 text-sm text-[#b8b8b8]">{event.message}</p>
-                      <p className="mt-2 text-xs text-[#666]">Last seen {timeAgo(event.lastTimestamp)}</p>
+                      <p className="mt-2 text-xs text-[#666]">Last seen {timeAgo(event.lastTimestamp ?? new Date())}</p>
                     </div>
                   ))}
                 </div>
