@@ -132,3 +132,12 @@ ui:
 
 # Self-healing: ensure OpenBao (secrets engine) is never evicted
 priorityClassName: platform-critical
+
+# Memory limit: OpenBao uses ~56Mi at rest, 256Mi gives 4.5x headroom
+resources:
+  requests:
+    memory: 64Mi
+    cpu: 25m
+  limits:
+    memory: 256Mi
+    cpu: 500m

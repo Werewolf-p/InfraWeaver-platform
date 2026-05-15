@@ -77,10 +77,10 @@ spec:
               value: ""
           resources:
             requests:
-              memory: 4Gi
+              memory: 2500Mi
               cpu: "2"
             limits:
-              memory: 4Gi
+              memory: 2500Mi
               cpu: "2"
           livenessProbe:
             exec:
