@@ -196,13 +196,7 @@ notifications:
   enabled: true
   # Discord notifications for important ArgoCD events
   # Webhook URL is pulled from argocd-discord-secret (ExternalSecret in this namespace)
-  # The notifications controller needs explicit RBAC to read this secret (its default role
-  # only allows reading argocd-notifications-secret).
-  extraRules:
-    - apiGroups: [""]
-      resources: ["secrets"]
-      resourceNames: ["argocd-discord-secret"]
-      verbs: ["get"]
+  # RBAC grant is in kubernetes/core/argocd/manifests/notifications-rbac.yaml
   notifiers:
     service.webhook.discord: |
       url: $argocd-discord-secret:webhook-url
@@ -255,8 +249,8 @@ notifications:
 
   triggers:
     trigger.on-sync-failed: |
-      - when: app.status?.operationState.phase in ['Error', 'Failed']
-        oncePer: app.status?.operationState.startedAt
+      - when: app.status.operationState != nil && app.status.operationState.phase in ['Error', 'Failed']
+        oncePer: app.status.operationState.startedAt
         send: [app-sync-failed]
     # Fires once per Degraded episode, but only after the app has remained
     # Degraded for its minimum duration gate.
