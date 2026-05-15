@@ -15,8 +15,8 @@ export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const access = await getSessionRBACContext(session, 60);
-  if (!hasSessionPermission(access, "infra:write")) {
-    return NextResponse.json({ error: "Forbidden — requires infra:write" }, { status: 403 });
+  if (!hasSessionPermission(access, "cluster:admin")) {
+    return NextResponse.json({ error: "Forbidden — requires cluster:admin" }, { status: 403 });
   }
 
   const body = (await req.json()) as {
