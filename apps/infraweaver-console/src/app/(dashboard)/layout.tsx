@@ -344,8 +344,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-500 border-2 border-[#111]" />
                   </div>
                   <div>
-                    <div className="font-semibold text-white text-[13px] leading-tight">InfraWeaver</div>
-                    <div className="text-[9px] text-[#555] leading-tight">Management Console</div>
+                    <div className="text-base font-semibold leading-tight text-white">InfraWeaver</div>
+                    <div className="text-sm leading-tight text-[#777]">Management Console</div>
                   </div>
                 </div>
                 <button

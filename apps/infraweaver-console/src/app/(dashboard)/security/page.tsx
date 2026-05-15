@@ -17,6 +17,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { PostureGauge } from "@/components/security/posture-gauge";
 import { AuditLogTable } from "@/components/security/audit-log-table";
 import { useAuditLog } from "@/hooks/use-audit-log";
+import { HorizontalScrollHint } from "@/components/ui/horizontal-scroll-hint";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -228,10 +229,16 @@ export default function SecurityPage() {
   const [authTimeFilter, setAuthTimeFilter] = useState<"24h" | "7d" | "30d">("7d");
   const [expandedNs, setExpandedNs] = useState<Set<string>>(new Set());
   const [renewingCert, setRenewingCert] = useState<string | null>(null);
+  const [currentTimestamp, setCurrentTimestamp] = useState(() => Date.now());
 
   useEffect(() => {
     if (!isAdmin) router.push("/apps");
   }, [isAdmin, router]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setCurrentTimestamp(Date.now()), 60000);
+    return () => window.clearInterval(interval);
+  }, []);
 
   const { data: pods, isLoading: podsLoading, refetch: refetchPods } = useQuery<Array<{
     name: string; namespace: string; status: string;
@@ -282,21 +289,23 @@ export default function SecurityPage() {
 
   const { data: auditLogData, isLoading: auditLogLoading } = useAuditLog();
 
-  // Derive pod issues from /api/pods
-  const podIssues: Array<{ pod: string; namespace: string; severity: "Critical" | "Warning" | "Info"; issue: string }> = [];
-  (pods ?? []).forEach(pod => {
-    if (pod.hostNetwork) {
-      podIssues.push({ pod: pod.name, namespace: pod.namespace, severity: "Critical", issue: "Uses hostNetwork: true" });
-    }
-    (pod.containers ?? []).forEach(c => {
-      if (c.securityContext?.privileged) podIssues.push({ pod: pod.name, namespace: pod.namespace, severity: "Critical", issue: "Privileged container" });
-      if (!c.resources?.limits) podIssues.push({ pod: pod.name, namespace: pod.namespace, severity: "Warning", issue: "Missing resource limits" });
-      if (c.securityContext?.runAsNonRoot === false) podIssues.push({ pod: pod.name, namespace: pod.namespace, severity: "Warning", issue: "Container runs as root" });
+  const podIssues = useMemo<Array<{ pod: string; namespace: string; severity: "Critical" | "Warning" | "Info"; issue: string }>>(() => {
+    const issues: Array<{ pod: string; namespace: string; severity: "Critical" | "Warning" | "Info"; issue: string }> = [];
+    (pods ?? []).forEach(pod => {
+      if (pod.hostNetwork) {
+        issues.push({ pod: pod.name, namespace: pod.namespace, severity: "Critical", issue: "Uses hostNetwork: true" });
+      }
+      (pod.containers ?? []).forEach(c => {
+        if (c.securityContext?.privileged) issues.push({ pod: pod.name, namespace: pod.namespace, severity: "Critical", issue: "Privileged container" });
+        if (!c.resources?.limits) issues.push({ pod: pod.name, namespace: pod.namespace, severity: "Warning", issue: "Missing resource limits" });
+        if (c.securityContext?.runAsNonRoot === false) issues.push({ pod: pod.name, namespace: pod.namespace, severity: "Warning", issue: "Container runs as root" });
+      });
+      if (!pod.containers || pod.containers.length === 0) {
+        issues.push({ pod: pod.name, namespace: pod.namespace, severity: "Warning", issue: "Missing resource limits" });
+      }
     });
-    if (!pod.containers || pod.containers.length === 0) {
-      podIssues.push({ pod: pod.name, namespace: pod.namespace, severity: "Warning", issue: "Missing resource limits" });
-    }
-  });
+    return issues;
+  }, [pods]);
 
   const isLoading = podsLoading || certsLoading || rbacLoading || enhancedLoading;
 
@@ -304,6 +313,12 @@ export default function SecurityPage() {
     refetchPods(); refetchCerts(); refetchRbac(); refetchEnhanced(); refetchAuthEvents();
     refetchPosture(); refetchKyverno();
   }, [refetchPods, refetchCerts, refetchRbac, refetchEnhanced, refetchAuthEvents, refetchPosture, refetchKyverno]);
+
+  useEffect(() => {
+    const handleFabScan = () => handleRescan();
+    window.addEventListener("fab:security:scan", handleFabScan);
+    return () => window.removeEventListener("fab:security:scan", handleFabScan);
+  }, [handleRescan]);
 
   const sortedCerts = [...(certsData?.certs ?? [])].sort((a, b) => (a.daysLeft ?? 9999) - (b.daysLeft ?? 9999));
   const expiringThisMonth = sortedCerts.filter(c => c.daysLeft !== null && c.daysLeft <= 30).length;
@@ -330,11 +345,10 @@ export default function SecurityPage() {
 
   // Auth events time filter
   const filteredAuthEvents = useMemo(() => {
-    const now = Date.now();
-    const cutoffs = { "24h": now - 86400000, "7d": now - 604800000, "30d": now - 2592000000 };
+    const cutoffs = { "24h": currentTimestamp - 86400000, "7d": currentTimestamp - 604800000, "30d": currentTimestamp - 2592000000 };
     const cutoff = cutoffs[authTimeFilter];
     return (authEvents?.events ?? []).filter(e => new Date(e.timestamp).getTime() >= cutoff);
-  }, [authEvents, authTimeFilter]);
+  }, [authEvents, authTimeFilter, currentTimestamp]);
 
   // Kyverno violations from new endpoint
   const allKyvernoViolations = kyvernoData?.violations ?? [];
@@ -408,7 +422,7 @@ export default function SecurityPage() {
           <button
             onClick={handleRescan}
             disabled={isLoading}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 hover:text-white hover:bg-white/10 transition-colors disabled:opacity-50"
+            className="flex min-h-[44px] items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 text-sm text-slate-300 transition-colors hover:bg-white/10 hover:text-white disabled:opacity-50"
           >
             {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
             Re-scan
@@ -596,22 +610,24 @@ export default function SecurityPage() {
           >
             <div className="space-y-3">
               {/* Severity filter */}
-              <div className="flex items-center gap-2 flex-wrap">
-                <Filter className="w-3.5 h-3.5 text-slate-500" />
-                {["all", "high", "medium", "low"].map(sev => (
-                  <button
-                    key={sev}
-                    onClick={() => setKyvernoSevFilter(sev)}
-                    className={cn("px-2.5 py-0.5 rounded-full text-xs font-semibold border transition-colors", kyvernoSevFilter === sev
-                      ? "bg-indigo-500/30 text-indigo-300 border-indigo-500/50"
-                      : "bg-white/5 text-slate-400 border-white/10 hover:bg-white/10"
-                    )}
-                  >
-                    {sev.charAt(0).toUpperCase() + sev.slice(1)}
-                  </button>
-                ))}
-                <span className="ml-auto text-xs text-slate-500">{filteredKyvernoViolations.length} violations</span>
-              </div>
+              <HorizontalScrollHint hint="Swipe severities">
+                <div className="flex items-center gap-2 overflow-x-auto pb-2 flex-nowrap">
+                  <Filter className="h-4 w-4 flex-shrink-0 text-slate-500" />
+                  {["all", "high", "medium", "low"].map(sev => (
+                    <button
+                      key={sev}
+                      onClick={() => setKyvernoSevFilter(sev)}
+                      className={cn("min-h-[44px] rounded-full border px-4 py-2 text-sm font-semibold transition-colors whitespace-nowrap", kyvernoSevFilter === sev
+                        ? "bg-indigo-500/30 text-indigo-300 border-indigo-500/50"
+                        : "bg-white/5 text-slate-400 border-white/10 hover:bg-white/10"
+                      )}
+                    >
+                      {sev.charAt(0).toUpperCase() + sev.slice(1)}
+                    </button>
+                  ))}
+                  <span className="ml-auto text-sm text-slate-500 whitespace-nowrap">{filteredKyvernoViolations.length} violations</span>
+                </div>
+              </HorizontalScrollHint>
               
               {kyvernoLoading ? <Shimmer rows={4} /> : filteredKyvernoViolations.length === 0 ? (
                 <div className="text-center py-8">
@@ -619,15 +635,46 @@ export default function SecurityPage() {
                   <p className="text-sm text-slate-400">No policy violations detected</p>
                 </div>
               ) : (
-                <div className="overflow-x-auto -mx-1">
-                  <table className="w-full text-xs">
+                <>
+                  <div className="space-y-3 sm:hidden">
+                  {filteredKyvernoViolations.map((v, i) => (
+                    <div key={`card-${i}`} className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate font-mono text-base font-semibold text-slate-100">{v.policy}</p>
+                          <p className="mt-1 text-sm text-slate-400">{v.namespace} · {v.kind}</p>
+                        </div>
+                        <SeverityBadge severity={v.severity} />
+                      </div>
+                      <p className="mt-3 text-sm text-slate-300">{v.resource}</p>
+                      <p className="mt-2 text-sm text-slate-500">{v.message}</p>
+                      <button
+                        type="button"
+                        onClick={() => setExpandedKyverno(expandedKyverno === i ? null : i)}
+                        className="mt-3 inline-flex min-h-[44px] items-center gap-2 rounded-2xl border border-white/10 px-4 text-sm text-slate-300"
+                      >
+                        {expandedKyverno === i ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                        {expandedKyverno === i ? "Hide remediation" : "Show remediation"}
+                      </button>
+                      {expandedKyverno === i ? (
+                        <div className="mt-3 rounded-2xl border border-white/10 bg-[#0f1115] p-4 text-sm text-slate-300">
+                          <p><span className="text-slate-500">Category:</span> {v.category}</p>
+                          <p className="mt-1"><span className="text-slate-500">Kind:</span> {v.kind}</p>
+                          <p className="mt-3 text-indigo-300">Review the Kyverno policy <code className="rounded bg-white/10 px-1 font-mono">{v.policy}</code> and update the resource spec to comply.</p>
+                        </div>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+                <div className="hidden overflow-x-auto -mx-1 sm:block">
+                  <table className="w-full text-sm">
                     <thead>
-                      <tr className="text-slate-500 border-b border-white/5">
-                        <th className="text-left pb-2 font-medium px-1">Policy</th>
-                        <th className="text-left pb-2 font-medium px-1">Resource</th>
-                        <th className="text-left pb-2 font-medium px-1 hidden sm:table-cell">Namespace</th>
-                        <th className="text-left pb-2 font-medium px-1">Severity</th>
-                        <th className="text-left pb-2 font-medium px-1 hidden md:table-cell">Message</th>
+                      <tr className="border-b border-white/5 text-slate-500">
+                        <th className="px-1 pb-2 text-left font-medium">Policy</th>
+                        <th className="px-1 pb-2 text-left font-medium">Resource</th>
+                        <th className="hidden px-1 pb-2 text-left font-medium sm:table-cell">Namespace</th>
+                        <th className="px-1 pb-2 text-left font-medium">Severity</th>
+                        <th className="hidden px-1 pb-2 text-left font-medium md:table-cell">Message</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-white/5">
@@ -636,22 +683,22 @@ export default function SecurityPage() {
                           <tr
                             key={`row-${i}`}
                             onClick={() => setExpandedKyverno(expandedKyverno === i ? null : i)}
-                            className="cursor-pointer hover:bg-white/5 transition-colors"
+                            className="cursor-pointer transition-colors hover:bg-white/5"
                           >
-                            <td className="py-2 px-1 text-slate-200 font-medium font-mono truncate max-w-[120px]">{v.policy}</td>
-                            <td className="py-2 px-1 text-slate-400 truncate max-w-[100px]">{v.resource}</td>
-                            <td className="py-2 px-1 text-slate-400 hidden sm:table-cell">{v.namespace}</td>
-                            <td className="py-2 px-1"><SeverityBadge severity={v.severity} /></td>
-                            <td className="py-2 px-1 text-slate-500 truncate max-w-[200px] hidden md:table-cell">{v.message}</td>
+                            <td className="max-w-[120px] truncate px-1 py-2 font-mono text-slate-200">{v.policy}</td>
+                            <td className="max-w-[100px] truncate px-1 py-2 text-slate-400">{v.resource}</td>
+                            <td className="hidden px-1 py-2 text-slate-400 sm:table-cell">{v.namespace}</td>
+                            <td className="px-1 py-2"><SeverityBadge severity={v.severity} /></td>
+                            <td className="hidden max-w-[200px] truncate px-1 py-2 text-slate-500 md:table-cell">{v.message}</td>
                           </tr>
                           {expandedKyverno === i && (
                             <tr key={`exp-${i}`}>
                               <td colSpan={5} className="px-1 pb-2">
-                                <div className="p-3 bg-white/5 border border-white/5 rounded-lg text-xs text-slate-400 space-y-1">
+                                <div className="space-y-1 rounded-lg border border-white/5 bg-white/5 p-3 text-sm text-slate-400">
                                   <p><span className="text-slate-500">Category:</span> {v.category}</p>
                                   <p><span className="text-slate-500">Kind:</span> {v.kind}</p>
                                   <p><span className="text-slate-500">Message:</span> {v.message}</p>
-                                  <p className="text-indigo-400 mt-2">💡 Remediation: Review the Kyverno policy <code className="font-mono bg-white/10 px-1 rounded">{v.policy}</code> and update the resource spec to comply.</p>
+                                  <p className="mt-2 text-indigo-400">💡 Remediation: Review the Kyverno policy <code className="rounded bg-white/10 px-1 font-mono">{v.policy}</code> and update the resource spec to comply.</p>
                                 </div>
                               </td>
                             </tr>
@@ -661,6 +708,7 @@ export default function SecurityPage() {
                     </tbody>
                   </table>
                 </div>
+                </>
               )}
             </div>
           </CollapsibleSection>
@@ -829,21 +877,23 @@ export default function SecurityPage() {
           >
             <div className="space-y-3">
               {/* Time filter */}
-              <div className="flex items-center gap-2">
-                {(["24h", "7d", "30d"] as const).map(tf => (
-                  <button
-                    key={tf}
-                    onClick={() => setAuthTimeFilter(tf)}
-                    className={cn("px-2.5 py-0.5 rounded-full text-xs font-semibold border transition-colors", authTimeFilter === tf
-                      ? "bg-rose-500/30 text-rose-300 border-rose-500/50"
-                      : "bg-white/5 text-slate-400 border-white/10 hover:bg-white/10"
-                    )}
-                  >
-                    Last {tf}
-                  </button>
-                ))}
-                <span className="ml-auto text-xs text-slate-500 italic">{authEvents?.source ?? "loading"}</span>
-              </div>
+              <HorizontalScrollHint hint="Swipe time ranges">
+                <div className="flex items-center gap-2 overflow-x-auto pb-2 flex-nowrap">
+                  {(["24h", "7d", "30d"] as const).map(tf => (
+                    <button
+                      key={tf}
+                      onClick={() => setAuthTimeFilter(tf)}
+                      className={cn("min-h-[44px] rounded-full border px-4 py-2 text-sm font-semibold transition-colors whitespace-nowrap", authTimeFilter === tf
+                        ? "bg-rose-500/30 text-rose-300 border-rose-500/50"
+                        : "bg-white/5 text-slate-400 border-white/10 hover:bg-white/10"
+                      )}
+                    >
+                      Last {tf}
+                    </button>
+                  ))}
+                  <span className="ml-auto whitespace-nowrap text-sm italic text-slate-500">{authEvents?.source ?? "loading"}</span>
+                </div>
+              </HorizontalScrollHint>
               {authEventsLoading ? <Shimmer rows={4} /> : (
                 <div className="space-y-2">
                   {filteredAuthEvents.map((evt, i) => {
@@ -908,32 +958,50 @@ export default function SecurityPage() {
             )}
           </h3>
           {rbacLoading ? <Shimmer rows={4} /> : (
-            <div className="overflow-x-auto -mx-3 px-3 md:-mx-5 md:px-5">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="text-slate-500 border-b border-white/5">
-                    <th className="text-left pb-2 font-medium">Service Account</th>
-                    <th className="text-left pb-2 font-medium">Namespace</th>
-                    <th className="text-left pb-2 font-medium">Bindings</th>
-                    <th className="text-left pb-2 font-medium">Risk</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-white/5">
-                  {(rbacData?.serviceAccounts ?? []).filter(sa => sa.bindings.length > 0).map((sa, i) => (
-                    <tr key={i} className={cn("transition-colors", (sa.isClusterAdmin || sa.hasWildcard) && "bg-red-500/5")}>
-                      <td className="py-2 text-slate-200 font-medium">{sa.name}</td>
-                      <td className="py-2 text-slate-400">{sa.namespace}</td>
-                      <td className="py-2 text-slate-400 max-w-xs truncate">{sa.bindings.join(", ")}</td>
-                      <td className="py-2">
-                        {sa.isClusterAdmin && <SeverityBadge severity="Critical" />}
-                        {!sa.isClusterAdmin && sa.hasWildcard && <SeverityBadge severity="Warning" />}
-                      </td>
+            <div className="space-y-3">
+              <div className="space-y-3 sm:hidden">
+                {(rbacData?.serviceAccounts ?? []).filter(sa => sa.bindings.length > 0).map((sa, i) => (
+                  <div key={i} className={cn("rounded-2xl border p-4", (sa.isClusterAdmin || sa.hasWildcard) ? "border-red-500/20 bg-red-500/5" : "border-white/10 bg-white/5")}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-base font-semibold text-white">{sa.name}</p>
+                        <p className="mt-1 text-sm text-slate-400">{sa.namespace}</p>
+                      </div>
+                      {sa.isClusterAdmin && <SeverityBadge severity="Critical" />}
+                      {!sa.isClusterAdmin && sa.hasWildcard && <SeverityBadge severity="Warning" />}
+                    </div>
+                    <p className="mt-3 text-sm text-slate-500">Bindings</p>
+                    <p className="mt-1 text-sm text-slate-300">{sa.bindings.join(", ")}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="hidden overflow-x-auto -mx-3 px-3 md:-mx-5 md:px-5 sm:block">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-white/5 text-slate-500">
+                      <th className="text-left pb-2 font-medium">Service Account</th>
+                      <th className="text-left pb-2 font-medium">Namespace</th>
+                      <th className="text-left pb-2 font-medium">Bindings</th>
+                      <th className="text-left pb-2 font-medium">Risk</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-white/5">
+                    {(rbacData?.serviceAccounts ?? []).filter(sa => sa.bindings.length > 0).map((sa, i) => (
+                      <tr key={i} className={cn("transition-colors", (sa.isClusterAdmin || sa.hasWildcard) && "bg-red-500/5")}>
+                        <td className="py-2 font-medium text-slate-200">{sa.name}</td>
+                        <td className="py-2 text-slate-400">{sa.namespace}</td>
+                        <td className="max-w-xs truncate py-2 text-slate-400">{sa.bindings.join(", ")}</td>
+                        <td className="py-2">
+                          {sa.isClusterAdmin && <SeverityBadge severity="Critical" />}
+                          {!sa.isClusterAdmin && sa.hasWildcard && <SeverityBadge severity="Warning" />}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
               {!rbacData?.serviceAccounts?.filter(sa => sa.bindings.length > 0).length && (
-                <p className="text-sm text-slate-500 text-center py-4">No bound service accounts found</p>
+                <p className="py-4 text-center text-sm text-slate-500">No bound service accounts found</p>
               )}
             </div>
           )}
@@ -951,40 +1019,67 @@ export default function SecurityPage() {
           {enhancedLoading ? <Shimmer rows={3} /> : (enhanced?.pdbList ?? []).length === 0 ? (
             <p className="text-sm text-slate-500 text-center py-4">No PodDisruptionBudgets found</p>
           ) : (
-            <div className="overflow-x-auto -mx-3 px-3 md:-mx-5 md:px-5">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="text-slate-500 border-b border-white/5">
-                    <th className="text-left pb-2 font-medium">Name</th>
-                    <th className="text-left pb-2 font-medium">Namespace</th>
-                    <th className="text-left pb-2 font-medium">Min/Max</th>
-                    <th className="text-left pb-2 font-medium">Healthy</th>
-                    <th className="text-left pb-2 font-medium">Disruptions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-white/5">
-                  {(enhanced?.pdbList ?? []).map((pdb, i) => (
-                    <tr key={i} className={cn("transition-colors", pdb.disruptionsAllowed === 0 && "bg-orange-500/5")}>
-                      <td className="py-2 text-slate-200 font-medium">{pdb.name}</td>
-                      <td className="py-2 text-slate-400">{pdb.namespace}</td>
-                      <td className="py-2 text-slate-400">
-                        {pdb.minAvailable !== undefined ? `min:${pdb.minAvailable}` : ""}
-                        {pdb.maxUnavailable !== undefined ? `max:${pdb.maxUnavailable}` : ""}
-                      </td>
-                      <td className="py-2">
-                        <span className={cn("font-semibold", pdb.currentHealthy >= pdb.desiredHealthy ? "text-green-400" : "text-red-400")}>
-                          {pdb.currentHealthy}/{pdb.expectedPods}
-                        </span>
-                      </td>
-                      <td className="py-2">
-                        <span className={cn("font-semibold", pdb.disruptionsAllowed > 0 ? "text-green-400" : "text-orange-400")}>
-                          {pdb.disruptionsAllowed}
-                        </span>
-                      </td>
+            <div className="space-y-3">
+              <div className="space-y-3 sm:hidden">
+                {(enhanced?.pdbList ?? []).map((pdb, i) => (
+                  <div key={i} className={cn("rounded-2xl border p-4", pdb.disruptionsAllowed === 0 ? "border-orange-500/20 bg-orange-500/5" : "border-white/10 bg-white/5")}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-base font-semibold text-white">{pdb.name}</p>
+                        <p className="mt-1 text-sm text-slate-400">{pdb.namespace}</p>
+                      </div>
+                      <span className={cn("text-sm font-semibold", pdb.disruptionsAllowed > 0 ? "text-green-400" : "text-orange-400")}>
+                        {pdb.disruptionsAllowed} disruptions
+                      </span>
+                    </div>
+                    <dl className="mt-3 grid grid-cols-2 gap-3 text-sm">
+                      <div>
+                        <dt className="text-slate-500">Policy</dt>
+                        <dd className="mt-1 text-white">{pdb.minAvailable !== undefined ? `min:${pdb.minAvailable}` : pdb.maxUnavailable !== undefined ? `max:${pdb.maxUnavailable}` : "—"}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-slate-500">Healthy</dt>
+                        <dd className={cn("mt-1 font-semibold", pdb.currentHealthy >= pdb.desiredHealthy ? "text-green-400" : "text-red-400")}>{pdb.currentHealthy}/{pdb.expectedPods}</dd>
+                      </div>
+                    </dl>
+                  </div>
+                ))}
+              </div>
+              <div className="hidden overflow-x-auto -mx-3 px-3 md:-mx-5 md:px-5 sm:block">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-white/5 text-slate-500">
+                      <th className="text-left pb-2 font-medium">Name</th>
+                      <th className="text-left pb-2 font-medium">Namespace</th>
+                      <th className="text-left pb-2 font-medium">Min/Max</th>
+                      <th className="text-left pb-2 font-medium">Healthy</th>
+                      <th className="text-left pb-2 font-medium">Disruptions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-white/5">
+                    {(enhanced?.pdbList ?? []).map((pdb, i) => (
+                      <tr key={i} className={cn("transition-colors", pdb.disruptionsAllowed === 0 && "bg-orange-500/5")}>
+                        <td className="py-2 font-medium text-slate-200">{pdb.name}</td>
+                        <td className="py-2 text-slate-400">{pdb.namespace}</td>
+                        <td className="py-2 text-slate-400">
+                          {pdb.minAvailable !== undefined ? `min:${pdb.minAvailable}` : ""}
+                          {pdb.maxUnavailable !== undefined ? `max:${pdb.maxUnavailable}` : ""}
+                        </td>
+                        <td className="py-2">
+                          <span className={cn("font-semibold", pdb.currentHealthy >= pdb.desiredHealthy ? "text-green-400" : "text-red-400")}>
+                            {pdb.currentHealthy}/{pdb.expectedPods}
+                          </span>
+                        </td>
+                        <td className="py-2">
+                          <span className={cn("font-semibold", pdb.disruptionsAllowed > 0 ? "text-green-400" : "text-orange-400")}>
+                            {pdb.disruptionsAllowed}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </SectionCard>

@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Users, Plus, Pencil, Trash2, Search, Save, X, ChevronDown,
+  Users, Plus, Pencil, Trash2, Search, Save, ChevronDown,
   Shield, Eye, User, CheckCircle2, XCircle, AlertTriangle, ChevronRight,
   Info, Lock, HardDrive, Mail, Zap,
 } from "lucide-react";
@@ -14,6 +14,8 @@ import { useRBAC } from "@/hooks/use-rbac";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/ui/page-header";
 import { CopyButton } from "@/components/ui/copy-button";
+import { ResponsiveSheet } from "@/components/ui/responsive-sheet";
+import { HorizontalScrollHint } from "@/components/ui/horizontal-scroll-hint";
 import { cn } from "@/lib/utils";
 import { useSession } from "next-auth/react";
 import { StorageTab } from "@/components/users/storage-tab";
@@ -87,12 +89,12 @@ const defaultUser: PlatformUser = {
 function AccessBadge({ level }: { level: string }) {
   const cfg = ROLE_CONFIG[level as keyof typeof ROLE_CONFIG];
   if (!cfg) return (
-    <span className="text-[11px] px-2 py-0.5 rounded-full border font-medium bg-slate-500/10 border-slate-500/20 text-slate-400">
+    <span className="rounded-full border border-slate-500/20 bg-slate-500/10 px-2.5 py-1 text-xs font-medium text-slate-400 sm:text-[11px]">
       {level}
     </span>
   );
   return (
-    <span className={cn("text-[11px] px-2 py-0.5 rounded-full border font-medium", cfg.badgeBg)}>
+    <span className={cn("rounded-full border px-2.5 py-1 text-xs font-medium sm:text-[11px]", cfg.badgeBg)}>
       {cfg.label}
     </span>
   );
@@ -114,7 +116,7 @@ function RoleCard({
       type="button"
       onClick={onSelect}
       className={cn(
-        "relative flex-1 min-w-0 p-3 rounded-xl border-2 text-left transition-all",
+        "relative flex min-h-[124px] flex-1 min-w-0 rounded-2xl border-2 p-4 text-left transition-all",
         cfg.bg,
         selected ? cfg.selectedBorder : cfg.border,
         "hover:border-opacity-60"
@@ -127,7 +129,7 @@ function RoleCard({
       )}
       <Icon className={cn("w-5 h-5 mb-1.5", cfg.color)} />
       <p className={cn("text-sm font-semibold", cfg.color)}>{cfg.label}</p>
-      <p className="text-[11px] text-slate-500 mt-0.5 leading-tight">{cfg.description}</p>
+      <p className="mt-1 text-sm leading-tight text-slate-400">{cfg.description}</p>
     </button>
   );
 }
@@ -151,9 +153,6 @@ function UserFormModal({
 }) {
   const [form, setForm] = useState<PlatformUser>(initialUser);
   const [loading, setLoading] = useState(false);
-
-  // Reset form when initialUser changes
-  useState(() => { setForm(initialUser); });
 
   if (!open) return null;
 
@@ -197,143 +196,167 @@ function UserFormModal({
     }
   };
 
+  const formId = isNew ? "user-form-new" : `user-form-${initialUser.username}`;
+
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <motion.div
-        initial={{ opacity: 0, y: 40 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: 40 }}
-        className="relative w-full max-w-lg bg-slate-900 border border-white/10 rounded-t-2xl sm:rounded-2xl shadow-2xl z-10 overflow-y-auto max-h-[90vh]"
-      >
-        <div className="flex items-center justify-between p-5 border-b border-white/5">
-          <h2 className="font-semibold text-white">
-            {isNew ? "Add User" : `Edit ${initialUser.username}`}
-          </h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors active:scale-95">
-            <X className="w-5 h-5" />
+    <ResponsiveSheet
+      open={open}
+      onClose={onClose}
+      size="lg"
+      title={isNew ? "Add User" : `Edit ${initialUser.username}`}
+      description="Large tap targets, helper text under every field, and a swipe-to-dismiss mobile editor."
+      footer={
+        <div className="grid grid-cols-1 gap-3 sm:flex sm:justify-end">
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex min-h-[48px] items-center justify-center rounded-2xl border border-white/10 bg-white/5 px-4 text-sm font-medium text-slate-300 transition-colors hover:text-white"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            form={formId}
+            disabled={!isValid || loading}
+            className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-2xl border border-indigo-500/30 bg-indigo-500/20 px-4 text-sm font-semibold text-indigo-300 transition-colors hover:bg-indigo-500/30 disabled:opacity-50"
+          >
+            {loading ? (
+              <motion.div
+                animate={{ rotate: 360 }}
+                transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                className="h-4 w-4 rounded-full border-2 border-indigo-400 border-t-transparent"
+              />
+            ) : (
+              <Save className="h-4 w-4" />
+            )}
+            {isNew ? "Add User" : "Save Changes"}
           </button>
         </div>
+      }
+    >
+      <form
+        id={formId}
+        className="space-y-5"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void handleSubmit();
+        }}
+      >
+        <div>
+          <label className="mb-2 block text-sm font-medium text-slate-300">Full Name *</label>
+          <input
+            autoFocus
+            value={form.name}
+            onChange={e => {
+              const name = e.target.value;
+              setForm(prev => ({
+                ...prev,
+                name,
+                username: isNew ? autoUsername(name) : prev.username,
+              }));
+            }}
+            className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-base text-white placeholder-slate-500 focus:border-indigo-500/50 focus:outline-none"
+            placeholder="John Doe"
+          />
+          <p className="mt-2 text-sm text-slate-500">Shown in approvals, activity history, and role assignments.</p>
+          {!form.name.trim() && <p className="mt-2 text-sm text-red-300">Full name is required.</p>}
+        </div>
 
-        <form
-          className="p-5 space-y-5"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void handleSubmit();
-          }}
-        >
-          {/* Basic fields */}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
-            <label className="text-xs text-slate-400 mb-1 block">Full Name *</label>
+            <label className="mb-2 block text-sm font-medium text-slate-300">Username *</label>
             <input
-              autoFocus
-              value={form.name}
-              onChange={e => {
-                const name = e.target.value;
-                setForm(prev => ({
-                  ...prev,
-                  name,
-                  username: isNew ? autoUsername(name) : prev.username,
-                }));
-              }}
-              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-base md:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50"
-              placeholder="John Doe"
+              value={form.username}
+              onChange={e => setForm(prev => ({ ...prev, username: e.target.value }))}
+              disabled={!isNew}
+              className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-base text-white placeholder-slate-500 focus:border-indigo-500/50 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+              placeholder="jdoe"
             />
-            {!form.name.trim() && <p className="mt-1 text-[11px] text-red-300">Full name is required.</p>}
+            <p className="mt-2 text-sm text-slate-500">Auto-generated for new users. Keep it short for CLI and audit logs.</p>
+            {!usernameValid && <p className="mt-2 text-sm text-red-300">Use 3-32 lowercase letters, numbers, dots, or dashes.</p>}
           </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="text-xs text-slate-400 mb-1 block">Username *</label>
-              <input
-                value={form.username}
-                onChange={e => setForm(prev => ({ ...prev, username: e.target.value }))}
-                disabled={!isNew}
-                className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-base md:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50 disabled:opacity-50 disabled:cursor-not-allowed"
-                placeholder="jdoe"
-              />
-              {!usernameValid && <p className="mt-1 text-[11px] text-red-300">Use 3-32 lowercase letters, numbers, dots, or dashes.</p>}
-            </div>
-            <div>
-              <label className="text-xs text-slate-400 mb-1 block">Email *</label>
-              <input
-                type="email"
-                value={form.email}
-                onChange={e => setForm(prev => ({ ...prev, email: e.target.value }))}
-                className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-base md:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50"
-                placeholder="jdoe@example.com"
-              />
-              {form.email.trim() && !emailValid && <p className="mt-1 text-[11px] text-red-300">Enter a valid email address.</p>}
-            </div>
-          </div>
-
-          {/* Role radio cards */}
           <div>
-            <label className="text-xs text-slate-400 mb-2 block font-medium">Role</label>
-            {isSelf && (
-              <div className="flex items-center gap-2 p-2.5 mb-3 bg-amber-500/10 border border-amber-500/20 rounded-lg text-xs text-amber-400">
-                <Lock className="w-3.5 h-3.5 flex-shrink-0" />
-                Cannot change your own role to prevent self-lockout
-              </div>
-            )}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-              {ACCESS_LEVELS.map(level => (
-                <RoleCard
-                  key={level}
-                  level={level}
-                  selected={form.access_level === level}
-                  onSelect={() => !isSelf && setForm(prev => ({ ...prev, access_level: level }))}
-                />
-              ))}
-            </div>
-            {roleWarning && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: "auto" }}
-                className="flex items-start gap-2 mt-2 p-2.5 bg-red-500/10 border border-red-500/20 rounded-lg text-xs text-red-400"
-              >
-                <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
-                {roleWarning}
-              </motion.div>
-            )}
+            <label className="mb-2 block text-sm font-medium text-slate-300">Email *</label>
+            <input
+              type="email"
+              value={form.email}
+              onChange={e => setForm(prev => ({ ...prev, email: e.target.value }))}
+              className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-base text-white placeholder-slate-500 focus:border-indigo-500/50 focus:outline-none"
+              placeholder="jdoe@example.com"
+            />
+            <p className="mt-2 text-sm text-slate-500">Used for login, invites, password resets, and MFA recovery.</p>
+            {form.email.trim() && !emailValid && <p className="mt-2 text-sm text-red-300">Enter a valid email address.</p>}
           </div>
+        </div>
 
-          {/* Additional fields — hidden in simple mode */}
-          {simpleMode && (
-            <div className="flex items-center gap-2 p-2.5 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-xs text-indigo-400">
-              <Zap className="w-3.5 h-3.5 flex-shrink-0" />
-              ⚡ Simple mode — advanced settings hidden (wiki role, ArgoCD role, groups are auto-set)
+        <div>
+          <label className="mb-2 block text-sm font-medium text-slate-300">Role</label>
+          {isSelf && (
+            <div className="mb-3 flex items-center gap-2 rounded-2xl border border-amber-500/20 bg-amber-500/10 p-3 text-sm text-amber-300">
+              <Lock className="h-4 w-4 flex-shrink-0" />
+              Cannot change your own role to prevent self-lockout.
             </div>
           )}
-          {/* Additional fields */}
-          {!simpleMode && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            {ACCESS_LEVELS.map(level => (
+              <RoleCard
+                key={level}
+                level={level}
+                selected={form.access_level === level}
+                onSelect={() => !isSelf && setForm(prev => ({ ...prev, access_level: level }))}
+              />
+            ))}
+          </div>
+          {roleWarning && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              className="mt-3 flex items-start gap-2 rounded-2xl border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-300"
+            >
+              <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+              {roleWarning}
+            </motion.div>
+          )}
+        </div>
+
+        {simpleMode && (
+          <div className="flex items-center gap-2 rounded-2xl border border-indigo-500/20 bg-indigo-500/10 p-3 text-sm text-indigo-300">
+            <Zap className="h-4 w-4 flex-shrink-0" />
+            Simple mode hides advanced fields and auto-fills wiki, ArgoCD, and group defaults.
+          </div>
+        )}
+
+        {!simpleMode && (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <label className="text-xs text-slate-400 mb-1 block">Wiki Role</label>
+              <label className="mb-2 block text-sm font-medium text-slate-300">Wiki Role</label>
               <select
                 value={form.wiki_role ?? "reader"}
                 onChange={e => setForm(prev => ({ ...prev, wiki_role: e.target.value }))}
-                className="w-full bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500/50"
+                className="w-full rounded-2xl border border-white/10 bg-slate-800 px-4 py-3 text-base text-white focus:border-indigo-500/50 focus:outline-none"
               >
                 {WIKI_ROLES.map(r => <option key={r} value={r}>{r}</option>)}
               </select>
+              <p className="mt-2 text-sm text-slate-500">Controls wiki editing, publishing, and admin access.</p>
             </div>
             <div>
-              <label className="text-xs text-slate-400 mb-1 block">ArgoCD Role</label>
+              <label className="mb-2 block text-sm font-medium text-slate-300">ArgoCD Role</label>
               <select
                 value={form.argocd_role ?? ""}
                 onChange={e => setForm(prev => ({ ...prev, argocd_role: e.target.value }))}
-                className="w-full bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500/50"
+                className="w-full rounded-2xl border border-white/10 bg-slate-800 px-4 py-3 text-base text-white focus:border-indigo-500/50 focus:outline-none"
               >
                 {ARGOCD_ROLES.map(r => <option key={r} value={r}>{r || "(none)"}</option>)}
               </select>
+              <p className="mt-2 text-sm text-slate-500">Maps app sync and deployment privileges in ArgoCD.</p>
             </div>
           </div>
-          )}
+        )}
 
-          {!simpleMode && (
+        {!simpleMode && (
           <div>
-            <label className="text-xs text-slate-400 mb-2 block">Authentik Groups</label>
+            <label className="mb-2 block text-sm font-medium text-slate-300">Authentik Groups</label>
+            <p className="mb-3 text-sm text-slate-500">Groups control SSO defaults and operator access across the console.</p>
             <div className="flex flex-wrap gap-2">
               {COMMON_GROUPS.map(g => (
                 <button
@@ -341,10 +364,10 @@ function UserFormModal({
                   type="button"
                   onClick={() => toggleGroup(g)}
                   className={cn(
-                    "px-2.5 py-1 rounded-full text-xs border transition-colors active:scale-95",
+                    "min-h-[44px] rounded-full border px-4 py-2 text-sm transition-colors active:scale-95",
                     (form.authentik_groups ?? []).includes(g)
-                      ? "bg-indigo-500/20 border-indigo-500/30 text-indigo-300"
-                      : "bg-white/5 border-white/10 text-slate-400 hover:text-white"
+                      ? "border-indigo-500/30 bg-indigo-500/20 text-indigo-300"
+                      : "border-white/10 bg-white/5 text-slate-400 hover:text-white"
                   )}
                 >
                   {g}
@@ -352,36 +375,9 @@ function UserFormModal({
               ))}
             </div>
           </div>
-          )}
-
-        <div className="flex flex-col-reverse sm:flex-row gap-3 p-5 border-t border-white/5 sm:justify-end">
-          <button
-            type="button"
-            onClick={onClose}
-            className="w-full sm:w-auto px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 hover:text-white transition-colors active:scale-95 touch-manipulation"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={!isValid || loading}
-            className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-indigo-500/20 border border-indigo-500/30 text-sm text-indigo-300 hover:bg-indigo-500/30 transition-colors disabled:opacity-50 active:scale-95 touch-manipulation"
-          >
-            {loading ? (
-              <motion.div
-                animate={{ rotate: 360 }}
-                transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                className="w-4 h-4 border-2 border-indigo-400 border-t-transparent rounded-full"
-              />
-            ) : (
-              <Save className="w-4 h-4" />
-            )}
-            {isNew ? "Add User" : "Save Changes"}
-          </button>
-        </div>
-        </form>
-      </motion.div>
-    </div>
+        )}
+      </form>
+    </ResponsiveSheet>
   );
 }
 
@@ -405,61 +401,59 @@ function DeleteConfirmModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onCancel} />
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.95 }}
-        className="relative w-full max-w-md bg-slate-900 border border-red-500/20 rounded-2xl shadow-2xl z-10 p-6"
-      >
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center">
-            <Trash2 className="w-5 h-5 text-red-400" />
-          </div>
-          <div>
-            <h2 className="font-semibold text-white">Delete User</h2>
-            <p className="text-xs text-slate-500">This action cannot be undone</p>
-          </div>
-        </div>
-        <p className="text-sm text-slate-400 mb-4">
-          This will permanently remove <span className="text-white font-medium">@{user.username}</span> from the platform.
-          Type the username to confirm:
-        </p>
-        <input
-          autoFocus
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          placeholder={user.username}
-          onKeyDown={(event) => { if (event.key === "Enter" && matches) void handleConfirm(); }}
-          className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-red-500/50 mb-4 font-mono"
-        />
-        <div className="flex gap-3 justify-end">
+    <ResponsiveSheet
+      open
+      onClose={onCancel}
+      size="sm"
+      title="Delete User"
+      description="This action cannot be undone. Type the username below to confirm removal."
+      footer={
+        <div className="grid grid-cols-1 gap-3 sm:flex sm:justify-end">
           <button
+            type="button"
             onClick={onCancel}
-            className="px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 hover:text-white transition-colors active:scale-95"
+            className="inline-flex min-h-[48px] items-center justify-center rounded-2xl border border-white/10 bg-white/5 px-4 text-sm font-medium text-slate-300 transition-colors hover:text-white"
           >
             Cancel
           </button>
           <button
-            onClick={handleConfirm}
+            type="button"
+            onClick={() => void handleConfirm()}
             disabled={!matches || loading}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-500/20 border border-red-500/30 text-sm text-red-300 hover:bg-red-500/30 transition-colors disabled:opacity-40 active:scale-95"
+            className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-2xl border border-red-500/30 bg-red-500/20 px-4 text-sm font-semibold text-red-200 transition-colors hover:bg-red-500/30 disabled:opacity-40"
           >
             {loading ? (
               <motion.div
                 animate={{ rotate: 360 }}
                 transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                className="w-4 h-4 border-2 border-red-400 border-t-transparent rounded-full"
+                className="h-4 w-4 rounded-full border-2 border-red-400 border-t-transparent"
               />
             ) : (
-              <Trash2 className="w-4 h-4" />
+              <Trash2 className="h-4 w-4" />
             )}
             Delete User
           </button>
         </div>
-      </motion.div>
-    </div>
+      }
+    >
+      <div className="space-y-4">
+        <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-100">
+          This will permanently remove <span className="font-semibold">@{user.username}</span> from the platform, revoke related access, and remove their saved assignments.
+        </div>
+        <div>
+          <label className="mb-2 block text-sm font-medium text-slate-300">Confirm username</label>
+          <input
+            autoFocus
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            placeholder={user.username}
+            onKeyDown={(event) => { if (event.key === "Enter" && matches) void handleConfirm(); }}
+            className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 font-mono text-base text-white placeholder-slate-500 focus:border-red-500/50 focus:outline-none"
+          />
+          <p className="mt-2 text-sm text-slate-500">Enter <span className="font-mono text-slate-300">{user.username}</span> exactly to unlock the delete button.</p>
+        </div>
+      </div>
+    </ResponsiveSheet>
   );
 }
 
@@ -654,6 +648,22 @@ export default function UsersPage() {
 
   const selfUser = users.find(u => u.email === currentEmail);
   const currentUsername = selfUser?.username;
+  const roleCounts = useMemo(() => ({
+    total: users.length,
+    admin: users.filter((user) => user.access_level === "admin").length,
+    platformUser: users.filter((user) => user.access_level === "platform-user").length,
+    viewer: users.filter((user) => user.access_level === "viewer").length,
+  }), [users]);
+
+  useEffect(() => {
+    const handleFabInvite = () => {
+      setActiveTab("users");
+      setInviteOpen(true);
+    };
+
+    window.addEventListener("fab:users:invite", handleFabInvite);
+    return () => window.removeEventListener("fab:users:invite", handleFabInvite);
+  }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedSearch(search.trim().toLowerCase()), 300);
@@ -771,32 +781,47 @@ export default function UsersPage() {
         </div>
       </div>
 
-      {/* Tab bar */}
-      <div className="flex gap-1 bg-white/5 border border-white/10 rounded-lg p-1 w-fit">
-        <button
-          onClick={() => setActiveTab("users")}
-          className={cn(
-            "flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all",
-            activeTab === "users"
-              ? "bg-white/10 text-white"
-              : "text-slate-400 hover:text-white"
-          )}
-        >
-          <Users className="w-4 h-4" />
-          Users
-        </button>
-        <button
-          onClick={() => setActiveTab("storage")}
-          className={cn(
-            "flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all",
-            activeTab === "storage"
-              ? "bg-white/10 text-white"
-              : "text-slate-400 hover:text-white"
-          )}
-        >
-          <HardDrive className="w-4 h-4" />
-          Storage Access
-        </button>
+      <HorizontalScrollHint className="-mx-1" contentClassName="px-1" hint="Swipe tabs">
+        <div className="flex w-max gap-2 rounded-2xl border border-white/10 bg-white/5 p-1">
+          <button
+            onClick={() => setActiveTab("users")}
+            className={cn(
+              "inline-flex min-h-[44px] items-center gap-2 rounded-2xl px-4 text-sm font-medium transition-all",
+              activeTab === "users"
+                ? "bg-white/10 text-white"
+                : "text-slate-400 hover:text-white"
+            )}
+          >
+            <Users className="h-4 w-4" />
+            Users
+          </button>
+          <button
+            onClick={() => setActiveTab("storage")}
+            className={cn(
+              "inline-flex min-h-[44px] items-center gap-2 rounded-2xl px-4 text-sm font-medium transition-all",
+              activeTab === "storage"
+                ? "bg-white/10 text-white"
+                : "text-slate-400 hover:text-white"
+            )}
+          >
+            <HardDrive className="h-4 w-4" />
+            Storage Access
+          </button>
+        </div>
+      </HorizontalScrollHint>
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {[
+          { label: "Total users", value: roleCounts.total, accent: "text-white" },
+          { label: "Admins", value: roleCounts.admin, accent: "text-red-300" },
+          { label: "Platform users", value: roleCounts.platformUser, accent: "text-blue-300" },
+          { label: "Viewers", value: roleCounts.viewer, accent: "text-slate-300" },
+        ].map((item) => (
+          <div key={item.label} className="rounded-2xl border border-white/10 bg-white/5 p-4">
+            <p className="text-sm text-slate-400">{item.label}</p>
+            <p className={cn("mt-1 text-2xl font-semibold", item.accent)}>{item.value}</p>
+          </div>
+        ))}
       </div>
 
       {activeTab === "storage" && (
@@ -805,22 +830,24 @@ export default function UsersPage() {
 
       {activeTab === "users" && (
         <>
-      {/* Search */}
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="relative min-w-0 flex-1 max-w-full sm:max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-          <input
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Search users..."
-            className="w-full bg-white/5 border border-white/10 rounded-lg pl-9 pr-3 py-2.5 text-base md:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50"
-          />
+      <div className="space-y-3 rounded-2xl border border-white/10 bg-white/5 p-3 sm:border-0 sm:bg-transparent sm:p-0">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative min-w-0 flex-1 max-w-full sm:max-w-sm">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search users by name, username, or email"
+              className="w-full rounded-2xl border border-white/10 bg-white/5 pl-10 pr-4 py-3 text-base text-white placeholder-slate-500 focus:border-indigo-500/50 focus:outline-none"
+            />
+            <p className="mt-2 text-sm text-slate-500">Helper text stays visible on mobile so you never rely on placeholder-only inputs.</p>
+          </div>
+          <select value={sortBy} onChange={(event) => setSortBy(event.target.value as "name" | "username" | "role")} className="min-h-[48px] rounded-2xl border border-white/10 bg-white/5 px-4 text-base text-white focus:border-indigo-500/50 focus:outline-none sm:text-sm">
+            <option value="name">Sort by name</option>
+            <option value="username">Sort by username</option>
+            <option value="role">Sort by role</option>
+          </select>
         </div>
-        <select value={sortBy} onChange={(event) => setSortBy(event.target.value as "name" | "username" | "role")} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500/50">
-          <option value="name">Sort by name</option>
-          <option value="username">Sort by username</option>
-          <option value="role">Sort by role</option>
-        </select>
       </div>
 
       {isLoading ? (
@@ -953,6 +980,7 @@ export default function UsersPage() {
       <AnimatePresence>
         {modalOpen && (
           <UserFormModal
+            key={editUser?.username ?? "new-user"}
             open={modalOpen}
             onClose={() => { setModalOpen(false); setEditUser(null); }}
             onSave={handleSave}

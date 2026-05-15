@@ -1,16 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, Gamepad2, Play, Square, RotateCcw, Trash2, Terminal, Loader2, AlertTriangle, HardDrive, X, CheckSquare, Square as SquareIcon, Search, ChevronDown, ChevronUp, BarChart2, BookOpen, Star, LayoutGrid, Rows3 } from "lucide-react";
+import { Plus, Gamepad2, Play, Square, RotateCcw, Trash2, Terminal, Loader2, AlertTriangle, HardDrive, CheckSquare, Square as SquareIcon, Search, ChevronDown, ChevronUp, BarChart2, BookOpen, Star, LayoutGrid, Rows3, MoreVertical } from "lucide-react";
 import { cn, timeAgo } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
 import { useRBAC } from "@/hooks/use-rbac";
 import { toast } from "sonner";
 import Link from "next/link";
 import { RefreshCountdown } from "@/components/ui/refresh-countdown";
+import { HorizontalScrollHint } from "@/components/ui/horizontal-scroll-hint";
+import { ResponsiveSheet } from "@/components/ui/responsive-sheet";
 
 interface GameServer {
   name: string;
@@ -278,81 +280,95 @@ function PVCCleanupModal({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <motion.div initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }} className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl w-full max-w-lg max-h-[80vh] flex flex-col shadow-2xl">
-        <div className="flex items-center justify-between p-5 border-b border-[#2a2a2a]">
-          <div className="flex items-center gap-3">
-            <HardDrive className="w-5 h-5 text-[#0078D4]" />
+    <ResponsiveSheet
+      open
+      onClose={onClose}
+      size="lg"
+      title="PVC Cleanup"
+      description="Review unused volumes, select what to remove, and swipe down when you are done."
+      footer={!isLoading && unused.length > 0 ? (
+        <div className="space-y-3 sm:flex sm:items-center sm:justify-between sm:gap-4 sm:space-y-0">
+          <p className="text-sm text-[#888]">{checked.size} of {unused.length} selected</p>
+          <div className="grid grid-cols-1 gap-3 sm:flex sm:gap-2">
+            <button onClick={onClose} className="inline-flex min-h-[48px] items-center justify-center rounded-2xl border border-[#2a2a2a] bg-[#161616] px-4 text-sm font-medium text-[#d4d4d4] transition-colors hover:border-[#3a3a3a] hover:text-white">Cancel</button>
+            <button onClick={doCleanup} disabled={checked.size === 0 || deleting} className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-2xl bg-red-500/20 px-4 text-sm font-semibold text-red-200 transition-colors hover:bg-red-500/30 disabled:cursor-not-allowed disabled:opacity-50">
+              {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />} Delete {checked.size > 0 ? `${checked.size} PVC${checked.size !== 1 ? "s" : ""}` : "selected PVCs"}
+            </button>
+          </div>
+        </div>
+      ) : undefined}
+    >
+      {isLoading && (
+        <div className="space-y-3">
+          {Array.from({ length: 3 }).map((_, index) => (
+            <div key={index} className="h-24 rounded-2xl border border-[#2a2a2a] bg-[#161616] animate-pulse" />
+          ))}
+        </div>
+      )}
+      {error && (
+        <div className="flex items-start gap-3 rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-200">
+          <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0" />
+          <div>
+            <p className="font-medium text-red-100">PVC scan failed</p>
+            <p className="mt-1">{String(error)}</p>
+          </div>
+        </div>
+      )}
+      {!isLoading && !error && unused.length === 0 && (
+        <div className="flex min-h-[240px] flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-[#2a2a2a] bg-[#161616] p-6 text-center">
+          <div className="text-4xl">✅</div>
+          <p className="text-base font-semibold text-[#f2f2f2]">No unused PVCs found</p>
+          <p className="text-sm text-[#888]">All PersistentVolumeClaims are currently bound and in use.</p>
+        </div>
+      )}
+      {!isLoading && unused.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex flex-col gap-3 rounded-2xl border border-[#2a2a2a] bg-[#161616] p-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h2 className="text-sm font-semibold text-[#f2f2f2]">PVC Cleanup</h2>
-              <p className="text-xs text-[#666] mt-0.5">Remove unused PersistentVolumeClaims</p>
+              <p className="text-base font-semibold text-white">{unused.length} unused PVC{unused.length !== 1 ? "s" : ""}</p>
+              <p className="mt-1 text-sm text-[#888]">Select the volumes you want to remove. Destructive actions stay in the bottom footer for thumb reach.</p>
             </div>
+            <button onClick={toggleAll} className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-2xl border border-[#2a2a2a] bg-[#111] px-4 text-sm font-medium text-[#9ecfff] transition-colors hover:border-[#3a3a3a] hover:text-white">
+              {checked.size === unused.length ? <SquareIcon className="h-4 w-4" /> : <CheckSquare className="h-4 w-4" />}
+              {checked.size === unused.length ? "Deselect all" : "Select all"}
+            </button>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-[#252525] text-[#666] hover:text-[#f2f2f2] transition-colors">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-        <div className="flex-1 overflow-y-auto p-5">
-          {isLoading && (
-            <div className="flex items-center justify-center h-32 gap-2 text-[#666]">
-              <Loader2 className="w-5 h-5 animate-spin" />
-              <span className="text-sm">Scanning PVCs...</span>
-            </div>
-          )}
-          {error && (
-            <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-300 text-sm">
-              <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-              {String(error)}
-            </div>
-          )}
-          {!isLoading && !error && unused.length === 0 && (
-            <div className="flex flex-col items-center justify-center h-32 text-center gap-2">
-              <div className="text-3xl">✅</div>
-              <p className="text-sm text-[#f2f2f2] font-medium">No unused PVCs found</p>
-              <p className="text-xs text-[#666]">All PersistentVolumeClaims are bound and in use</p>
-            </div>
-          )}
-          {!isLoading && unused.length > 0 && (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-xs text-[#666]">{unused.length} unused PVC{unused.length !== 1 ? "s" : ""} found</p>
-                <button onClick={toggleAll} className="text-xs text-[#0078D4] hover:underline flex items-center gap-1">
-                  {checked.size === unused.length ? <SquareIcon className="w-3 h-3" /> : <CheckSquare className="w-3 h-3" />}
-                  {checked.size === unused.length ? "Deselect all" : "Select all"}
-                </button>
-              </div>
-              {unused.map((pvc) => {
-                const key = `${pvc.namespace}/${pvc.name}`;
-                const isChecked = checked.has(key);
-                return (
-                  <button key={key} onClick={() => toggle(key)} className={cn("w-full flex items-start gap-3 p-3 rounded-lg border text-left transition-colors", isChecked ? "bg-red-500/10 border-red-500/30 hover:bg-red-500/15" : "bg-[#252525] border-[#2a2a2a] hover:bg-[#2a2a2a]")}>
-                    <div className={cn("mt-0.5 w-4 h-4 rounded border flex-shrink-0 flex items-center justify-center", isChecked ? "bg-red-500 border-red-500" : "border-[#444]")}>{isChecked && <span className="text-white text-[10px] font-bold">✓</span>}</div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-medium text-[#f2f2f2] truncate">{pvc.name}</span>
-                        <span className={cn("text-[10px] px-1.5 py-0.5 rounded-full border flex-shrink-0", pvc.status === "Released" ? "bg-yellow-500/20 text-yellow-300 border-yellow-500/30" : pvc.status === "Lost" ? "bg-red-500/20 text-red-300 border-red-500/30" : "bg-[#333] text-[#999] border-[#444]")}>{pvc.status}</span>
+          <div className="space-y-3">
+            {unused.map((pvc) => {
+              const key = `${pvc.namespace}/${pvc.name}`;
+              const isChecked = checked.has(key);
+              return (
+                <button key={key} onClick={() => toggle(key)} className={cn("w-full rounded-2xl border p-4 text-left transition-colors", isChecked ? "border-red-500/30 bg-red-500/10 hover:bg-red-500/15" : "border-[#2a2a2a] bg-[#161616] hover:border-[#3a3a3a]")}>
+                  <div className="flex items-start gap-3">
+                    <div className={cn("mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md border", isChecked ? "border-red-500 bg-red-500" : "border-[#555]")}>{isChecked ? <span className="text-sm font-bold text-white">✓</span> : null}</div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="truncate text-base font-semibold text-[#f2f2f2]">{pvc.name}</span>
+                        <span className={cn("rounded-full border px-3 py-1 text-sm font-medium", pvc.status === "Released" ? "border-yellow-500/30 bg-yellow-500/20 text-yellow-200" : pvc.status === "Lost" ? "border-red-500/30 bg-red-500/20 text-red-200" : "border-[#444] bg-[#252525] text-[#b3b3b3]")}>{pvc.status}</span>
                       </div>
-                      <p className="text-[11px] text-[#666] mt-0.5">{pvc.namespace} · {pvc.storageClass || "default"} · {pvc.capacity || "unknown size"}</p>
+                      <div className="mt-3 grid grid-cols-2 gap-3 text-sm text-[#b3b3b3] sm:grid-cols-3">
+                        <div>
+                          <p className="text-[#777]">Namespace</p>
+                          <p className="mt-1 text-white">{pvc.namespace}</p>
+                        </div>
+                        <div>
+                          <p className="text-[#777]">Storage class</p>
+                          <p className="mt-1 text-white">{pvc.storageClass || "default"}</p>
+                        </div>
+                        <div>
+                          <p className="text-[#777]">Capacity</p>
+                          <p className="mt-1 text-white">{pvc.capacity || "unknown size"}</p>
+                        </div>
+                      </div>
                     </div>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
-        {!isLoading && unused.length > 0 && (
-          <div className="flex items-center justify-between gap-3 p-5 border-t border-[#2a2a2a]">
-            <p className="text-xs text-[#666]">{checked.size} of {unused.length} selected</p>
-            <div className="flex gap-2">
-              <button onClick={onClose} className="px-4 py-2 rounded-lg bg-[#252525] hover:bg-[#2a2a2a] text-[#9e9e9e] text-sm font-medium transition-colors">Cancel</button>
-              <button onClick={doCleanup} disabled={checked.size === 0 || deleting} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-300 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-                {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />} Delete {checked.size > 0 ? `${checked.size} PVC${checked.size !== 1 ? "s" : ""}` : ""}
-              </button>
-            </div>
+                  </div>
+                </button>
+              );
+            })}
           </div>
-        )}
-      </motion.div>
-    </div>
+        </div>
+      )}
+    </ResponsiveSheet>
   );
 }
 
@@ -402,6 +418,154 @@ function formatUptime(startTime: string | null | undefined, now: number) {
   if (diff < 3600) return `${Math.floor(diff / 60)}m ${diff % 60}s`;
   if (diff < 86400) return `${Math.floor(diff / 3600)}h ${Math.floor((diff % 3600) / 60)}m`;
   return `${Math.floor(diff / 86400)}d ${Math.floor((diff % 86400) / 3600)}h`;
+}
+
+function ServerActionSheet({
+  server,
+  open,
+  onClose,
+  actionLoading,
+  onAction,
+  onClone,
+  onToggleFavorite,
+  onToggleSelected,
+  onToggleCompare,
+  isFavorite,
+  isSelected,
+  compareSelected,
+  now,
+}: {
+  server: GameServer | null;
+  open: boolean;
+  onClose: () => void;
+  actionLoading?: string;
+  onAction: (action: string) => Promise<void>;
+  onClone: () => Promise<void>;
+  onToggleFavorite: () => void;
+  onToggleSelected: () => void;
+  onToggleCompare: () => void;
+  isFavorite: boolean;
+  isSelected: boolean;
+  compareSelected: boolean;
+  now: number;
+}) {
+  if (!server) return null;
+
+  const metrics = [
+    { label: "Players", value: String(server.playerCount ?? 0) },
+    { label: "CPU", value: formatUsage(server.cpuUsage, server.cpuLimit, "cpu") },
+    { label: "Memory", value: formatUsage(server.memoryUsage, server.memoryLimit, "memory") },
+    { label: "Uptime", value: formatUptime(server.podStartTime, now) },
+  ];
+
+  return (
+    <ResponsiveSheet
+      open={open}
+      onClose={onClose}
+      title={<span>{server.icon ?? server.gameType[0]?.toUpperCase() ?? "🎮"} {server.name}</span>}
+      description="Thumb-friendly actions, swipe-to-dismiss, and live server health in one place."
+      footer={
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Link
+            href={`/game-hub/${server.name}`}
+            onClick={onClose}
+            className="inline-flex min-h-[48px] items-center justify-center rounded-2xl bg-[#0078D4] px-4 text-sm font-semibold text-white transition-colors hover:bg-[#006cbe]"
+          >
+            {server.permissions?.canConsole ? "Open Console" : "Open Details"}
+          </Link>
+          <button
+            type="button"
+            onClick={() => {
+              onToggleSelected();
+              onClose();
+            }}
+            className="inline-flex min-h-[48px] items-center justify-center rounded-2xl border border-[#2a2a2a] bg-[#161616] px-4 text-sm font-medium text-[#d4d4d4] transition-colors hover:border-[#3a3a3a] hover:text-white"
+          >
+            {isSelected ? "Selected for bulk actions" : "Select for bulk actions"}
+          </button>
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-3">
+          {metrics.map((metric) => (
+            <div key={metric.label} className="rounded-2xl border border-[#2a2a2a] bg-[#161616] p-3">
+              <p className="text-sm text-[#888]">{metric.label}</p>
+              <p className="mt-1 text-base font-semibold text-white">{metric.value}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="rounded-2xl border border-[#2a2a2a] bg-[#161616] p-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={cn("rounded-full border px-3 py-1 text-sm font-medium capitalize", STATUS_COLORS[server.status] ?? STATUS_COLORS.stopped)}>{server.status}</span>
+            <span className={cn("rounded-full border px-3 py-1 text-sm font-medium", healthBadge(server).className)}>
+              {server.status === "stopped" ? "Stopped" : `Health ${healthBadge(server).label}`}
+            </span>
+            <span className={cn("rounded-full border px-3 py-1 text-sm font-medium", server.inGit ? "border-green-500/30 bg-green-500/10 text-green-300" : "border-[#444] bg-[#252525] text-[#b3b3b3]")}>{server.inGit ? "IaC tracked" : "Cluster-only"}</span>
+          </div>
+          <p className="mt-3 text-sm text-[#b3b3b3]">{server.description ?? "Use the action sheet for quick lifecycle operations without leaving the list."}</p>
+        </div>
+
+        <div className="space-y-2">
+          {(server.status === "stopped" && server.permissions?.canStart) ? (
+            <button type="button" onClick={() => void onAction("start")} disabled={!!actionLoading} className="flex min-h-[52px] w-full items-center justify-between rounded-2xl border border-green-500/30 bg-green-500/15 px-4 text-left text-sm font-medium text-green-200 transition-colors hover:bg-green-500/25 disabled:opacity-50">
+              <span className="flex items-center gap-3"><Play className="h-4 w-4" /> Start server</span>
+              {actionLoading === "start" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            </button>
+          ) : null}
+          {(server.status !== "stopped" && server.permissions?.canAdmin) ? (
+            <button type="button" onClick={() => void onAction("restart")} disabled={!!actionLoading} className="flex min-h-[52px] w-full items-center justify-between rounded-2xl border border-[#2a2a2a] bg-[#161616] px-4 text-left text-sm font-medium text-[#d4d4d4] transition-colors hover:border-[#3a3a3a] hover:text-white disabled:opacity-50">
+              <span className="flex items-center gap-3"><RotateCcw className="h-4 w-4" /> Restart server</span>
+              {actionLoading === "restart" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            </button>
+          ) : null}
+          {(server.status !== "stopped" && server.permissions?.canStop) ? (
+            <button type="button" onClick={() => void onAction("stop")} disabled={!!actionLoading} className="flex min-h-[52px] w-full items-center justify-between rounded-2xl border border-[#2a2a2a] bg-[#161616] px-4 text-left text-sm font-medium text-[#d4d4d4] transition-colors hover:border-red-500/30 hover:text-red-300 disabled:opacity-50">
+              <span className="flex items-center gap-3"><Square className="h-4 w-4" /> Stop server</span>
+              {actionLoading === "stop" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            </button>
+          ) : null}
+          {server.permissions?.canAdmin ? (
+            <button type="button" onClick={() => void onClone()} className="flex min-h-[52px] w-full items-center gap-3 rounded-2xl border border-[#2a2a2a] bg-[#161616] px-4 text-left text-sm font-medium text-[#d4d4d4] transition-colors hover:border-[#3a3a3a] hover:text-white">
+              <Plus className="h-4 w-4" /> Clone server
+            </button>
+          ) : null}
+          {!server.inGit && server.permissions?.canAdmin ? (
+            <button type="button" onClick={() => void onAction("sync-to-git")} disabled={!!actionLoading} className="flex min-h-[52px] w-full items-center justify-between rounded-2xl border border-[#2f6fa8] bg-[#0078D4]/10 px-4 text-left text-sm font-medium text-[#7cc4ff] transition-colors hover:bg-[#0078D4]/20 disabled:opacity-50">
+              <span>Sync manifest to Git</span>
+              {actionLoading === "sync-to-git" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            </button>
+          ) : null}
+          <button type="button" onClick={() => { onToggleFavorite(); onClose(); }} className="flex min-h-[52px] w-full items-center gap-3 rounded-2xl border border-[#2a2a2a] bg-[#161616] px-4 text-left text-sm font-medium text-[#d4d4d4] transition-colors hover:border-[#3a3a3a] hover:text-white">
+            <Star className={cn("h-4 w-4", isFavorite && "fill-yellow-300 text-yellow-300")} />
+            {isFavorite ? "Remove favorite" : "Add to favorites"}
+          </button>
+          <button type="button" onClick={() => { onToggleCompare(); onClose(); }} className="flex min-h-[52px] w-full items-center gap-3 rounded-2xl border border-[#2a2a2a] bg-[#161616] px-4 text-left text-sm font-medium text-[#d4d4d4] transition-colors hover:border-[#3a3a3a] hover:text-white">
+            <BarChart2 className="h-4 w-4" />
+            {compareSelected ? "Remove from compare" : "Add to compare"}
+          </button>
+          {server.permissions?.canAdmin ? (
+            <button
+              type="button"
+              onClick={() => {
+                if (confirm(`Delete ${server.name}? This will remove the server and its data.`)) {
+                  void onAction("delete");
+                }
+              }}
+              disabled={!!actionLoading}
+              className="flex min-h-[52px] w-full items-center justify-between rounded-2xl border border-red-500/25 bg-red-500/10 px-4 text-left text-sm font-medium text-red-300 transition-colors hover:bg-red-500/20 disabled:opacity-50"
+            >
+              <span className="flex items-center gap-3"><Trash2 className="h-4 w-4" /> Delete server</span>
+              {actionLoading === "delete" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            </button>
+          ) : null}
+        </div>
+
+        <p className="text-sm text-[#777]">Tip: long-press any server card to open this action sheet without aiming for the menu button.</p>
+      </div>
+    </ResponsiveSheet>
+  );
 }
 
 export default function GameHubPage() {
@@ -456,6 +620,9 @@ export default function GameHubPage() {
     }
   });
   const [now, setNow] = useState(0);
+  const [activeActionServerName, setActiveActionServerName] = useState<string | null>(null);
+  const longPressTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const longPressTriggeredRef = useRef(false);
 
   useEffect(() => {
     const tick = () => setNow(Date.now());
@@ -466,6 +633,24 @@ export default function GameHubPage() {
       clearInterval(interval);
     };
   }, []);
+
+  function clearLongPress() {
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  }
+
+  function startLongPress(name: string) {
+    if (compareMode || typeof window === "undefined") return;
+    clearLongPress();
+    longPressTriggeredRef.current = false;
+    longPressTimerRef.current = window.setTimeout(() => {
+      longPressTriggeredRef.current = true;
+      navigator.vibrate?.(10);
+      setActiveActionServerName(name);
+    }, 450);
+  }
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 300);
@@ -495,6 +680,8 @@ export default function GameHubPage() {
       // ignore
     }
   }, [viewMode]);
+
+  useEffect(() => () => clearLongPress(), []);
 
   const { data, isLoading, error, dataUpdatedAt } = useQuery({
     queryKey: ["game-hub", "servers"],
@@ -529,6 +716,7 @@ export default function GameHubPage() {
   });
   const comparedServers = [...compareSet].map((name) => servers.find((server) => server.name === name)).filter((server): server is GameServer => Boolean(server));
   const selectedServers = filteredServers.filter((server) => selected.has(server.name));
+  const activeActionServer = activeActionServerName ? servers.find((server) => server.name === activeActionServerName) ?? null : null;
   const canBulkStart = selectedServers.some((server) => server.permissions?.canStart);
   const canBulkStop = selectedServers.some((server) => server.permissions?.canStop);
   const canBulkRestart = selectedServers.some((server) => server.permissions?.canAdmin);
@@ -637,6 +825,11 @@ export default function GameHubPage() {
     });
   }
 
+  function openServerActions(name: string) {
+    clearLongPress();
+    setActiveActionServerName(name);
+  }
+
   function resetFilters() {
     setSearch("");
     setDebouncedSearch("");
@@ -646,11 +839,36 @@ export default function GameHubPage() {
     setFilterGroup("");
   }
 
+  async function handleActionFromSheet(action: string) {
+    if (!activeActionServer) return;
+    await doAction(activeActionServer.name, action);
+    setActiveActionServerName(null);
+  }
+
   return (
     <div className="space-y-6">
       <AnimatePresence>
         {showPVCCleanup && <PVCCleanupModal onClose={() => setShowPVCCleanup(false)} />}
       </AnimatePresence>
+      <ServerActionSheet
+        server={activeActionServer}
+        open={Boolean(activeActionServer)}
+        onClose={() => setActiveActionServerName(null)}
+        actionLoading={activeActionServer ? actionLoading[activeActionServer.name] : undefined}
+        onAction={handleActionFromSheet}
+        onClone={async () => {
+          if (!activeActionServer) return;
+          await cloneServer(activeActionServer.name);
+          setActiveActionServerName(null);
+        }}
+        onToggleFavorite={() => { if (activeActionServer) toggleFavorite(activeActionServer.name); }}
+        onToggleSelected={() => { if (activeActionServer) toggleSelected(activeActionServer.name); }}
+        onToggleCompare={() => { if (activeActionServer) toggleCompare(activeActionServer.name); }}
+        isFavorite={activeActionServer ? favorites.has(activeActionServer.name) : false}
+        isSelected={activeActionServer ? selected.has(activeActionServer.name) : false}
+        compareSelected={activeActionServer ? compareSet.has(activeActionServer.name) : false}
+        now={now}
+      />
 
       <PageHeader
         title="Game Hub"
@@ -687,97 +905,114 @@ export default function GameHubPage() {
         }
       />
 
-      <div className="space-y-3">
+      <div className="space-y-3 rounded-2xl border border-[#2a2a2a] bg-[#111] p-3 sm:border-0 sm:bg-transparent sm:p-0">
         <div className="flex items-center gap-2 sm:hidden">
           <button
             onClick={() => setMobileSearchOpen((value) => !value)}
-            className={cn("flex h-11 w-11 items-center justify-center rounded-xl border border-[#2a2a2a] bg-[#111] text-[#888] transition-colors", mobileSearchOpen && "border-[#0078D4]/30 bg-[#0078D4]/10 text-[#4db3ff]")}
+            className={cn("flex h-11 w-11 items-center justify-center rounded-2xl border border-[#2a2a2a] bg-[#161616] text-[#888] transition-colors", mobileSearchOpen && "border-[#0078D4]/30 bg-[#0078D4]/10 text-[#4db3ff]")}
             aria-label="Toggle search"
           >
-            <Search className="w-4 h-4" />
+            <Search className="h-4 w-4" />
           </button>
           <button
             onClick={() => setMobileFiltersOpen((value) => !value)}
-            className={cn("inline-flex min-h-[44px] items-center gap-2 rounded-xl border border-[#2a2a2a] bg-[#111] px-3 text-sm text-[#888] transition-colors", mobileFiltersOpen && "border-[#0078D4]/30 bg-[#0078D4]/10 text-[#4db3ff]")}
+            className={cn("inline-flex min-h-[44px] items-center gap-2 rounded-2xl border border-[#2a2a2a] bg-[#161616] px-4 text-sm text-[#888] transition-colors", mobileFiltersOpen && "border-[#0078D4]/30 bg-[#0078D4]/10 text-[#4db3ff]")}
           >
             Filters
-            <ChevronDown className={cn("w-4 h-4 transition-transform", mobileFiltersOpen && "rotate-180")} />
+            <ChevronDown className={cn("h-4 w-4 transition-transform", mobileFiltersOpen && "rotate-180")} />
           </button>
-          <div className="ml-auto flex items-center rounded-lg border border-[#2a2a2a] bg-[#111] p-1">
-            <button onClick={() => setViewMode("detailed")} className={cn("rounded px-2 py-1 text-xs transition-colors", viewMode === "detailed" ? "bg-[#0078D4]/15 text-[#4db3ff]" : "text-[#666]")} title="Detailed cards"><LayoutGrid className="w-3.5 h-3.5" /></button>
-            <button onClick={() => setViewMode("compact")} className={cn("rounded px-2 py-1 text-xs transition-colors", viewMode === "compact" ? "bg-[#0078D4]/15 text-[#4db3ff]" : "text-[#666]")} title="Compact list"><Rows3 className="w-3.5 h-3.5" /></button>
+          <div className="ml-auto flex items-center rounded-2xl border border-[#2a2a2a] bg-[#161616] p-1">
+            <button onClick={() => setViewMode("detailed")} className={cn("min-h-[44px] min-w-[44px] rounded-xl px-2 py-1 text-sm transition-colors", viewMode === "detailed" ? "bg-[#0078D4]/15 text-[#4db3ff]" : "text-[#666]")} title="Detailed cards"><LayoutGrid className="h-4 w-4" /></button>
+            <button onClick={() => setViewMode("compact")} className={cn("min-h-[44px] min-w-[44px] rounded-xl px-2 py-1 text-sm transition-colors", viewMode === "compact" ? "bg-[#0078D4]/15 text-[#4db3ff]" : "text-[#666]")} title="Compact list"><Rows3 className="h-4 w-4" /></button>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div className={cn("relative min-w-0 flex-1", mobileSearchOpen ? "block" : "hidden sm:block", "sm:min-w-[220px] sm:max-w-xs")}>
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#555]" />
-            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search servers..." className="min-h-[44px] w-full rounded-xl border border-[#2a2a2a] bg-[#111] pl-8 pr-3 text-sm text-[#f2f2f2] placeholder:text-[#444] focus:outline-none focus:border-[#0078D4]/50" />
+          <div className={cn("relative min-w-0 flex-1", mobileSearchOpen ? "block" : "hidden sm:block", "sm:min-w-[260px] sm:max-w-sm")}>
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#555]" />
+            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search servers, tags, or groups" className="min-h-[48px] w-full rounded-2xl border border-[#2a2a2a] bg-[#161616] pl-10 pr-4 text-base text-[#f2f2f2] placeholder:text-[#555] focus:border-[#0078D4]/50 focus:outline-none" />
+            <p className="mt-2 text-sm text-[#777]">Search by server name, game type, tag, or group.</p>
           </div>
-          <div className={cn("w-full flex-wrap items-center gap-2", mobileFiltersOpen ? "flex" : "hidden sm:flex", "sm:w-auto")}>
-            {["all", "running", "starting", "stopped"].map((status) => (
-              <button key={status} onClick={() => setFilterStatus(status)} className={cn("min-h-[44px] rounded-xl border px-3 py-1.5 text-xs font-medium capitalize transition-colors", filterStatus === status ? "bg-[#0078D4]/20 border-[#0078D4]/40 text-[#0078D4]" : "bg-[#111] border-[#2a2a2a] text-[#666] hover:text-[#999]")}>{status}</button>
-            ))}
-            {uniqueGameTypes.length > 1 && (
-              <select value={filterType} onChange={(event) => setFilterType(event.target.value)} className="min-h-[44px] rounded-xl border border-[#2a2a2a] bg-[#111] px-3 py-1.5 text-xs text-[#666] focus:outline-none focus:border-[#0078D4]/50">
-                <option value="">All types</option>
-                {uniqueGameTypes.map((type) => <option key={type} value={type}>{type}</option>)}
+          <div className={cn("w-full space-y-3", mobileFiltersOpen ? "block" : "hidden sm:block", "sm:w-auto sm:space-y-2")}>
+            <HorizontalScrollHint hint="Swipe filters">
+              <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-none">
+                {["all", "running", "starting", "stopped"].map((status) => (
+                  <button key={status} onClick={() => setFilterStatus(status)} className={cn("min-h-[44px] rounded-full border px-4 py-2 text-sm font-medium capitalize transition-colors whitespace-nowrap", filterStatus === status ? "border-[#0078D4]/40 bg-[#0078D4]/20 text-[#4db3ff]" : "border-[#2a2a2a] bg-[#161616] text-[#888] hover:text-white")}>{status}</button>
+                ))}
+              </div>
+            </HorizontalScrollHint>
+            <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-wrap sm:items-center">
+              {uniqueGameTypes.length > 1 && (
+                <select value={filterType} onChange={(event) => setFilterType(event.target.value)} className="min-h-[48px] rounded-2xl border border-[#2a2a2a] bg-[#161616] px-4 text-base text-[#d4d4d4] focus:border-[#0078D4]/50 focus:outline-none sm:text-sm">
+                  <option value="">All game types</option>
+                  {uniqueGameTypes.map((type) => <option key={type} value={type}>{type}</option>)}
+                </select>
+              )}
+              {allGroups.length > 0 && (
+                <select value={filterGroup} onChange={(event) => setFilterGroup(event.target.value)} className="min-h-[48px] rounded-2xl border border-[#2a2a2a] bg-[#161616] px-4 text-base text-[#d4d4d4] focus:border-[#0078D4]/50 focus:outline-none sm:text-sm">
+                  <option value="">All groups</option>
+                  {allGroups.map((group) => <option key={group} value={group}>{group}</option>)}
+                </select>
+              )}
+              <select value={sortKey} onChange={(event) => setSort(event.target.value as ServerSortKey)} className="min-h-[48px] rounded-2xl border border-[#2a2a2a] bg-[#161616] px-4 text-base text-[#d4d4d4] focus:border-[#0078D4]/50 focus:outline-none sm:text-sm">
+                <option value="health">Sort by health</option>
+                <option value="name">Sort by name</option>
+                <option value="status">Sort by status</option>
+                <option value="cpu">Sort by CPU usage</option>
+                <option value="players">Sort by players</option>
+                <option value="started">Sort by last started</option>
               </select>
-            )}
-            {allGroups.length > 0 && (
-              <select value={filterGroup} onChange={(event) => setFilterGroup(event.target.value)} className="min-h-[44px] rounded-xl border border-[#2a2a2a] bg-[#111] px-3 py-1.5 text-xs text-[#666] focus:outline-none focus:border-[#0078D4]/50">
-                <option value="">All groups</option>
-                {allGroups.map((group) => <option key={group} value={group}>{group}</option>)}
-              </select>
-            )}
-            <select value={sortKey} onChange={(event) => setSort(event.target.value as ServerSortKey)} className="min-h-[44px] rounded-xl border border-[#2a2a2a] bg-[#111] px-3 py-1.5 text-xs text-[#666] focus:outline-none focus:border-[#0078D4]/50">
-              <option value="health">Sort by health</option>
-              <option value="name">Sort by name</option>
-              <option value="status">Sort by status</option>
-              <option value="cpu">Sort by CPU usage</option>
-              <option value="players">Sort by players</option>
-              <option value="started">Sort by last started</option>
-            </select>
-            <div className="hidden items-center rounded-lg border border-[#2a2a2a] bg-[#111] p-1 sm:flex">
-              <button onClick={() => setViewMode("detailed")} className={cn("rounded px-2 py-1 text-xs transition-colors", viewMode === "detailed" ? "bg-[#0078D4]/15 text-[#4db3ff]" : "text-[#666]")} title="Detailed cards"><LayoutGrid className="w-3.5 h-3.5" /></button>
-              <button onClick={() => setViewMode("compact")} className={cn("rounded px-2 py-1 text-xs transition-colors", viewMode === "compact" ? "bg-[#0078D4]/15 text-[#4db3ff]" : "text-[#666]")} title="Compact list"><Rows3 className="w-3.5 h-3.5" /></button>
+              <div className="hidden items-center rounded-2xl border border-[#2a2a2a] bg-[#161616] p-1 sm:flex">
+                <button onClick={() => setViewMode("detailed")} className={cn("min-h-[44px] min-w-[44px] rounded-xl px-2 py-1 text-sm transition-colors", viewMode === "detailed" ? "bg-[#0078D4]/15 text-[#4db3ff]" : "text-[#666]")} title="Detailed cards"><LayoutGrid className="h-4 w-4" /></button>
+                <button onClick={() => setViewMode("compact")} className={cn("min-h-[44px] min-w-[44px] rounded-xl px-2 py-1 text-sm transition-colors", viewMode === "compact" ? "bg-[#0078D4]/15 text-[#4db3ff]" : "text-[#666]")} title="Compact list"><Rows3 className="h-4 w-4" /></button>
+              </div>
+              {(search || filterType || filterTag || filterGroup || filterStatus !== "all") && (
+                <button onClick={resetFilters} className="min-h-[48px] rounded-2xl border border-[#2a2a2a] bg-[#161616] px-4 text-sm font-medium text-[#d4d4d4] transition-colors hover:border-[#3a3a3a] hover:text-white">Reset filters</button>
+              )}
             </div>
-            {(search || filterType || filterTag || filterGroup || filterStatus !== "all") && (
-              <button onClick={resetFilters} className="min-h-[44px] rounded-xl border border-[#2a2a2a] bg-[#111] px-3 py-1.5 text-xs text-[#888] hover:text-white hover:border-[#3a3a3a]">Reset</button>
-            )}
           </div>
         </div>
       </div>
 
       {allTags.length > 0 && (
-        <div className={cn("flex flex-wrap gap-2", mobileFiltersOpen ? "flex" : "hidden sm:flex")}>
-          <button onClick={() => setFilterTag("")} className={cn("px-2.5 py-1 rounded-full border text-[11px] transition-colors", !filterTag ? "border-[#0078D4]/30 bg-[#0078D4]/15 text-[#4db3ff]" : "border-[#2a2a2a] bg-[#111] text-[#777] hover:text-[#ccc]")}>All tags</button>
-          {allTags.map((tag) => (
-            <button key={tag} onClick={() => setFilterTag((prev) => prev === tag ? "" : tag)} className={cn("px-2.5 py-1 rounded-full border text-[11px] transition-colors", filterTag === tag ? "border-[#0078D4]/30 bg-[#0078D4]/15 text-[#4db3ff]" : "border-[#2a2a2a] bg-[#111] text-[#777] hover:text-[#ccc]")}>#{tag}</button>
-          ))}
-          {allGroups.map((group) => (
-            <button key={`group-${group}`} onClick={() => setFilterGroup((prev) => prev === group ? "" : group)} className={cn("px-2.5 py-1 rounded-full border text-[11px] transition-colors", filterGroup === group ? "border-green-500/30 bg-green-500/15 text-green-300" : "border-[#2a2a2a] bg-[#111] text-[#777] hover:text-[#ccc]")}>@{group}</button>
-          ))}
-        </div>
+        <HorizontalScrollHint className={cn(mobileFiltersOpen ? "block" : "hidden sm:block")} hint="Swipe tags and groups">
+          <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-none">
+            <button onClick={() => setFilterTag("")} className={cn("min-h-[44px] rounded-full border px-4 py-2 text-sm transition-colors whitespace-nowrap", !filterTag ? "border-[#0078D4]/30 bg-[#0078D4]/15 text-[#4db3ff]" : "border-[#2a2a2a] bg-[#111] text-[#777] hover:text-[#ccc]")}>All tags</button>
+            {allTags.map((tag) => (
+              <button key={tag} onClick={() => setFilterTag((prev) => prev === tag ? "" : tag)} className={cn("min-h-[44px] rounded-full border px-4 py-2 text-sm transition-colors whitespace-nowrap", filterTag === tag ? "border-[#0078D4]/30 bg-[#0078D4]/15 text-[#4db3ff]" : "border-[#2a2a2a] bg-[#111] text-[#777] hover:text-[#ccc]")}>#{tag}</button>
+            ))}
+            {allGroups.map((group) => (
+              <button key={`group-${group}`} onClick={() => setFilterGroup((prev) => prev === group ? "" : group)} className={cn("min-h-[44px] rounded-full border px-4 py-2 text-sm transition-colors whitespace-nowrap", filterGroup === group ? "border-green-500/30 bg-green-500/15 text-green-300" : "border-[#2a2a2a] bg-[#111] text-[#777] hover:text-[#ccc]")}>@{group}</button>
+            ))}
+          </div>
+        </HorizontalScrollHint>
       )}
 
       {selected.size > 0 && (canBulkStart || canBulkStop || canBulkRestart) && (
-        <div className="sticky top-16 z-10 flex flex-wrap items-center gap-2 rounded-xl border border-[#0078D4]/30 bg-[#0b1a2a] px-4 py-3">
-          <span className="text-sm text-[#d4e7ff]">{selected.size} selected</span>
-          {canBulkStart ? <button onClick={() => doBulkAction("start")} className="px-3 py-1.5 rounded-lg bg-green-500/20 text-green-300 text-xs">Start All</button> : null}
-          {canBulkStop ? <button onClick={() => doBulkAction("stop")} className="px-3 py-1.5 rounded-lg bg-[#252525] text-[#d4d4d4] text-xs">Stop All</button> : null}
-          {canBulkRestart ? <button onClick={() => doBulkAction("restart")} className="px-3 py-1.5 rounded-lg bg-[#252525] text-[#d4d4d4] text-xs">Restart All</button> : null}
-          <button onClick={() => setSelected(new Set())} className="ml-auto text-xs text-[#0078D4]">Deselect</button>
+        <div className="fixed inset-x-4 bottom-[calc(env(safe-area-inset-bottom,0px)+5.5rem)] z-40 rounded-3xl border border-[#0078D4]/30 bg-[#0b1a2a]/95 p-4 shadow-2xl backdrop-blur sm:sticky sm:top-16 sm:bottom-auto sm:inset-x-auto sm:rounded-xl">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-medium text-[#d4e7ff]">{selected.size} selected</span>
+            {canBulkStart ? <button onClick={() => doBulkAction("start")} className="min-h-[44px] rounded-2xl bg-green-500/20 px-4 text-sm font-medium text-green-300">Start all</button> : null}
+            {canBulkStop ? <button onClick={() => doBulkAction("stop")} className="min-h-[44px] rounded-2xl bg-[#252525] px-4 text-sm font-medium text-[#d4d4d4]">Stop all</button> : null}
+            {canBulkRestart ? <button onClick={() => doBulkAction("restart")} className="min-h-[44px] rounded-2xl bg-[#252525] px-4 text-sm font-medium text-[#d4d4d4]">Restart all</button> : null}
+            <button onClick={() => setSelected(new Set())} className="ml-auto min-h-[44px] rounded-2xl px-3 text-sm font-medium text-[#7cc4ff]">Clear selection</button>
+          </div>
         </div>
       )}
 
-      {isLoading && <div className="flex items-center justify-center h-40"><Loader2 className="w-6 h-6 text-[#0078D4] animate-spin" /></div>}
+      {isLoading && (
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, index) => (
+            <div key={index} className="h-56 rounded-2xl border border-[#2a2a2a] bg-[#161616] animate-pulse" />
+          ))}
+        </div>
+      )}
 
       {error && (
         <div className="flex items-center gap-3 p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-300">
           <AlertTriangle className="w-5 h-5 flex-shrink-0" />
           <div>
             <p className="text-sm font-medium">Failed to load servers</p>
-            <p className="text-xs text-red-400 mt-0.5">Is the game-hub namespace set up? <Link href="/game-hub/setup" className="underline">Run setup</Link></p>
+            <p className="mt-1 text-sm text-red-200">Is the game-hub namespace set up? <Link href="/game-hub/setup" className="underline">Run setup</Link></p>
           </div>
         </div>
       )}
@@ -787,7 +1022,7 @@ export default function GameHubPage() {
           <div className="text-5xl">🎮</div>
           <div className="text-center">
             <p className="text-[#f2f2f2] font-medium">No game servers yet</p>
-            <p className="text-[#666] text-sm mt-1">Deploy your first server to get started</p>
+            <p className="mt-1 text-sm text-[#888]">Deploy your first server to get started.</p>
           </div>
           {canManageGameHub ? (
             <Link href="/game-hub/new" className="flex items-center gap-2 px-4 py-2 bg-[#0078D4] hover:bg-[#006cbe] text-white rounded-lg text-sm font-medium transition-colors">
@@ -818,142 +1053,134 @@ export default function GameHubPage() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.95 }}
                 transition={{ delay: index * 0.05 }}
-                className={cn("flex flex-col rounded-xl border bg-[#1a1a1a] transition-colors", viewMode === "compact" ? "gap-3 p-3 sm:p-4" : "gap-3 p-3 sm:gap-4 sm:p-5", compareMode ? "cursor-pointer" : "cursor-pointer hover:border-[#3a3a3a]", compareSet.has(server.name) ? "border-[#0078D4] ring-1 ring-[#0078D4]/40" : "border-[#2a2a2a]")}
-                onClick={() => compareMode ? toggleCompare(server.name) : router.push(`/game-hub/${server.name}`)}
+                className={cn("flex flex-col rounded-2xl border bg-[#1a1a1a] transition-colors", viewMode === "compact" ? "gap-3 p-3 sm:p-4" : "gap-3 p-3 sm:gap-4 sm:p-5", compareMode ? "cursor-pointer" : "cursor-pointer hover:border-[#3a3a3a]", compareSet.has(server.name) ? "border-[#0078D4] ring-1 ring-[#0078D4]/40" : "border-[#2a2a2a]")}
+                onPointerDown={() => startLongPress(server.name)}
+                onPointerUp={clearLongPress}
+                onPointerLeave={clearLongPress}
+                onPointerCancel={clearLongPress}
+                onClick={() => {
+                  if (longPressTriggeredRef.current) {
+                    longPressTriggeredRef.current = false;
+                    return;
+                  }
+                  if (compareMode) toggleCompare(server.name);
+                  else router.push(`/game-hub/${server.name}`);
+                }}
               >
-                <div className="flex items-start justify-between gap-2">
-                  {/* ── Quick power controls — always visible top-right ── */}
-                  <div className="order-last flex flex-shrink-0 items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex min-w-0 items-start gap-3">
+                    <div className="flex flex-col items-center gap-2 pt-1">
+                      <button onClick={(event) => { event.stopPropagation(); toggleFavorite(server.name); }} className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-[#2a2a2a] bg-[#111] text-[#666] transition-colors hover:border-[#3a3a3a] hover:text-yellow-300" title={favorites.has(server.name) ? "Remove favorite" : "Favorite server"}>
+                        <Star className={cn("h-4 w-4", favorites.has(server.name) && "fill-yellow-300 text-yellow-300")} />
+                      </button>
+                      <button onClick={(event) => { event.stopPropagation(); toggleSelected(server.name); }} className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-[#2a2a2a] bg-[#111] text-[#666] transition-colors hover:border-[#3a3a3a] hover:text-white">
+                        {selected.has(server.name) ? <CheckSquare className="h-4 w-4 text-[#0078D4]" /> : <SquareIcon className="h-4 w-4 text-[#666]" />}
+                      </button>
+                    </div>
+                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#252525] text-2xl flex-shrink-0">{cardIcon}</div>
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="truncate text-base font-semibold text-[#f2f2f2]">{server.name}</p>
+                        <span className={cn("rounded-full border px-3 py-1 text-sm font-medium capitalize", stoppedStyle)}>{server.status}</span>
+                        <span className={cn("rounded-full border px-3 py-1 text-sm font-medium", health.className)}>{server.status === "stopped" ? "Stopped" : `Health ${health.label}`}</span>
+                        <span className={cn("rounded-full border px-3 py-1 text-sm font-medium", server.inGit ? "border-green-500/30 bg-green-500/10 text-green-300" : "border-[#444] bg-[#252525] text-[#b3b3b3]")}>{server.inGit ? "IaC tracked" : "Cluster-only"}</span>
+                      </div>
+                      <p className="mt-1 text-sm capitalize text-[#888]">{server.gameType.replace(/-/g, " ")}</p>
+                      {server.description ? <p className="mt-2 text-sm text-[#b3b3b3] line-clamp-2">{server.description}</p> : null}
+                      {((server.tags ?? []).length > 0 || (server.groups ?? []).length > 0 || server.imageVersion) && (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {(server.tags ?? []).map((tag) => <span key={tag} className="rounded-full border border-[#2a2a2a] bg-[#111] px-3 py-1 text-sm text-[#9e9e9e] sm:text-xs">#{tag}</span>)}
+                          {(server.groups ?? []).map((group) => <span key={group} className="rounded-full border border-green-500/20 bg-green-500/10 px-3 py-1 text-sm text-green-300 sm:text-xs">@{group}</span>)}
+                          {server.imageVersion && <span className={cn("rounded-full border px-3 py-1 text-sm sm:text-xs", server.imagePinned ? "bg-[#111] border-[#2a2a2a] text-[#9e9e9e]" : "bg-yellow-500/10 border-yellow-500/20 text-yellow-200")}>{server.imagePinned ? `v${server.imageVersion}` : `latest (${server.imageVersion})`}</span>}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="hidden flex-shrink-0 items-center gap-1 sm:flex" onClick={(e) => e.stopPropagation()}>
                     {server.status === "stopped" ? (
                       server.permissions?.canStart ? (
-                        <button
-                          onClick={() => doAction(server.name, "start")}
-                          disabled={!!actionLoading[server.name]}
-                          title="Start server"
-                          className="flex min-h-[36px] items-center gap-1 rounded-lg border border-green-500/30 bg-green-500/15 px-2.5 py-1.5 text-[11px] font-medium text-green-300 transition-colors hover:bg-green-500/25 disabled:opacity-50 sm:px-3"
-                        >
-                          {actionLoading[server.name] === "start" ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
+                        <button onClick={() => void doAction(server.name, "start")} disabled={!!actionLoading[server.name]} title="Start server" className="flex min-h-[44px] items-center gap-2 rounded-xl border border-green-500/30 bg-green-500/15 px-3 text-sm font-medium text-green-300 transition-colors hover:bg-green-500/25 disabled:opacity-50">
+                          {actionLoading[server.name] === "start" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
                           <span>Start</span>
                         </button>
                       ) : null
                     ) : (
                       <>
                         {server.permissions?.canAdmin ? (
-                          <button
-                            onClick={() => doAction(server.name, "restart")}
-                            disabled={!!actionLoading[server.name]}
-                            title="Restart"
-                            className="flex min-h-[36px] items-center gap-1 rounded-lg bg-[#222] px-2 py-1.5 text-[#888] transition-colors hover:bg-[#2a2a2a] hover:text-[#bbb] disabled:opacity-50"
-                          >
-                            {actionLoading[server.name] === "restart" ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />}
-                            <span className="text-[11px]">Restart</span>
+                          <button onClick={() => void doAction(server.name, "restart")} disabled={!!actionLoading[server.name]} title="Restart" className="flex min-h-[44px] items-center gap-2 rounded-xl bg-[#222] px-3 text-sm text-[#888] transition-colors hover:bg-[#2a2a2a] hover:text-[#bbb] disabled:opacity-50">
+                            {actionLoading[server.name] === "restart" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+                            <span>Restart</span>
                           </button>
                         ) : null}
                         {server.permissions?.canStop ? (
-                          <button
-                            onClick={() => doAction(server.name, "stop")}
-                            disabled={!!actionLoading[server.name]}
-                            title="Stop"
-                            className="flex min-h-[36px] items-center gap-1 rounded-lg bg-[#222] px-2 py-1.5 text-[#888] transition-colors hover:bg-red-500/15 hover:text-red-300 disabled:opacity-50"
-                          >
-                            {actionLoading[server.name] === "stop" ? <Loader2 className="w-3 h-3 animate-spin" /> : <Square className="w-3 h-3" />}
-                            <span className="text-[11px]">Stop</span>
+                          <button onClick={() => void doAction(server.name, "stop")} disabled={!!actionLoading[server.name]} title="Stop" className="flex min-h-[44px] items-center gap-2 rounded-xl bg-[#222] px-3 text-sm text-[#888] transition-colors hover:bg-red-500/15 hover:text-red-300 disabled:opacity-50">
+                            {actionLoading[server.name] === "stop" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Square className="h-4 w-4" />}
+                            <span>Stop</span>
                           </button>
                         ) : null}
                       </>
                     )}
                   </div>
-                  <div className="flex items-start gap-3 min-w-0">
-                    <div className="flex flex-col items-center gap-2 pt-1">
-                      <button onClick={(event) => { event.stopPropagation(); toggleFavorite(server.name); }} className="text-[#666] hover:text-yellow-300 transition-colors" title={favorites.has(server.name) ? "Remove favorite" : "Favorite server"}>
-                        <Star className={cn("w-4 h-4", favorites.has(server.name) && "fill-yellow-300 text-yellow-300")} />
-                      </button>
-                      <button onClick={(event) => { event.stopPropagation(); toggleSelected(server.name); }}>
-                        {selected.has(server.name) ? <CheckSquare className="w-4 h-4 text-[#0078D4]" /> : <SquareIcon className="w-4 h-4 text-[#666]" />}
-                      </button>
+                </div>
+                <div className="grid grid-cols-2 gap-3 sm:hidden">
+                  {[
+                    { label: "Players", value: String(server.playerCount ?? 0) },
+                    { label: "CPU", value: formatUsage(server.cpuUsage, server.cpuLimit, "cpu") },
+                    { label: "Memory", value: formatUsage(server.memoryUsage, server.memoryLimit, "memory") },
+                    { label: "Replicas", value: replicaSummary(server) },
+                  ].map((metric) => (
+                    <div key={metric.label} className="rounded-2xl border border-[#2a2a2a] bg-[#111] p-3">
+                      <p className="text-sm text-[#777]">{metric.label}</p>
+                      <p className="mt-1 text-base font-semibold text-white">{metric.value}</p>
                     </div>
-                    <div className="w-10 h-10 rounded-lg bg-[#252525] flex items-center justify-center text-xl flex-shrink-0">{cardIcon}</div>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <p className="font-medium text-sm text-[#f2f2f2] truncate">{server.name}</p>
-                        <span className={cn("text-[10px] font-medium rounded-full px-2 py-0.5 border capitalize", stoppedStyle)}>{server.status}</span>
-                        <span className={cn("text-[10px] font-medium rounded-full px-2 py-0.5 border", health.className)}>{server.status === "stopped" ? "Stopped" : `Health ${health.label}`}</span>
-                        {server.status === "stopped" && <span className="text-[10px] px-2 py-0.5 rounded-full border border-amber-500/30 bg-amber-500/10 text-amber-200">Stopped</span>}
-                        {server.inGit ? (
-                          <span className="text-[10px] px-2 py-0.5 rounded-full border border-green-500/30 bg-green-500/10 text-green-300" title="Manifest committed to git — survives cluster rebuild">IaC ✓</span>
-                        ) : (
-                          <>
-                            <span className="text-[10px] px-2 py-0.5 rounded-full border border-[#444] bg-[#252525] text-[#b3b3b3]" title="No manifest in git — will be lost on cluster rebuild">Not in Git</span>
-                            {server.permissions?.canAdmin ? (
-                              <button
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  void doAction(server.name, "sync-to-git");
-                                }}
-                                disabled={actionLoading[server.name] === "sync-to-git"}
-                                className="inline-flex items-center gap-1 rounded-full border border-[#2f6fa8] bg-[#0078D4]/10 px-2 py-0.5 text-[10px] font-medium text-[#7cc4ff] transition-colors hover:bg-[#0078D4]/20 disabled:cursor-not-allowed disabled:opacity-50"
-                              >
-                                {actionLoading[server.name] === "sync-to-git" ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
-                                Sync
-                              </button>
-                            ) : null}
-                          </>
-                        )}
-                      </div>
-                      <p className="mt-0.5 text-xs capitalize text-[#666]">{server.gameType.replace(/-/g, " ")}</p>
-                      {server.description && <p className="mt-1 hidden text-[11px] text-[#777] line-clamp-2 sm:block">{server.description}</p>}
-                      {((server.tags ?? []).length > 0 || (server.groups ?? []).length > 0 || server.imageVersion) && (
-                        <div className="flex flex-wrap gap-1 mt-2">
-                          {(server.tags ?? []).map((tag) => <span key={tag} className="px-1.5 py-0.5 rounded-full bg-[#111] border border-[#2a2a2a] text-[10px] text-[#9e9e9e]">#{tag}</span>)}
-                          {(server.groups ?? []).map((group) => <span key={group} className="px-1.5 py-0.5 rounded-full bg-green-500/10 border border-green-500/20 text-[10px] text-green-300">@{group}</span>)}
-                          {server.imageVersion && <span className={cn("px-1.5 py-0.5 rounded-full border text-[10px]", server.imagePinned ? "bg-[#111] border-[#2a2a2a] text-[#9e9e9e]" : "bg-yellow-500/10 border-yellow-500/20 text-yellow-200")}>{server.imagePinned ? `v${server.imageVersion}` : `latest (${server.imageVersion})`}</span>}
-                        </div>
-                      )}
-                    </div>
-                  </div>
+                  ))}
                 </div>
-                <div className="grid grid-cols-2 gap-2 text-xs text-[#666] sm:hidden">
-                  <div>Status: <span className="text-[#9e9e9e] capitalize">{server.status}</span></div>
-                  <div>Players: <span className="text-[#9e9e9e]">{server.playerCount ?? 0}</span></div>
+                <div className={cn("hidden gap-2 text-sm text-[#888] sm:grid", viewMode === "compact" ? "sm:grid-cols-2 lg:grid-cols-5" : "sm:grid-cols-2")}>
+                  <div>Port: <span className="text-[#d4d4d4]">{server.nodePort || server.port || "—"}</span></div>
+                  <div>Memory: <span className="text-[#d4d4d4]">{server.memory || "—"}</span></div>
+                  <div>CPU: <span className="text-[#d4d4d4]">{server.cpu || "—"}</span></div>
+                  <div>Players: <span className="text-[#d4d4d4]">{server.playerCount ?? 0}</span></div>
+                  <div>Last restart: <span className="text-[#d4d4d4]">{server.podStartTime ? timeAgo(server.podStartTime) : "—"}</span></div>
+                  <div>Replicas: <span className="text-[#d4d4d4]">{replicaSummary(server)}</span></div>
                 </div>
-                <div className={cn("hidden gap-2 text-xs text-[#666] sm:grid", viewMode === "compact" ? "sm:grid-cols-2 lg:grid-cols-5" : "sm:grid-cols-2")}>
-                  <div>Port: <span className="text-[#9e9e9e]">{server.nodePort || server.port || "—"}</span></div>
-                  <div>Memory: <span className="text-[#9e9e9e]">{server.memory || "—"}</span></div>
-                  <div>CPU: <span className="text-[#9e9e9e]">{server.cpu || "—"}</span></div>
-                  <div>Players: <span className="text-[#9e9e9e]">{server.playerCount ?? 0}</span></div>
-                  <div>Last restart: <span className="text-[#9e9e9e]">{server.podStartTime ? timeAgo(server.podStartTime) : "—"}</span></div>
-                  <div>Replicas: <span className="text-[#9e9e9e]">{replicaSummary(server)}</span></div>
+                <div className="grid grid-cols-2 gap-2 sm:hidden" onClick={(event) => event.stopPropagation()}>
+                  <Link href={`/game-hub/${server.name}`} className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-2xl bg-[rgba(0,120,212,0.15)] px-4 text-sm font-semibold text-[#4db3ff] transition-colors hover:bg-[rgba(0,120,212,0.25)]">
+                    <Terminal className="h-4 w-4" /> {server.permissions?.canConsole ? "Console" : "Details"}
+                  </Link>
+                  <button onClick={() => openServerActions(server.name)} className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-2xl border border-[#2a2a2a] bg-[#111] px-4 text-sm font-medium text-[#d4d4d4] transition-colors hover:border-[#3a3a3a] hover:text-white">
+                    <MoreVertical className="h-4 w-4" /> Actions
+                  </button>
                 </div>
-                <div className="flex items-center gap-2 flex-wrap" onClick={(event) => event.stopPropagation()}>
+                <div className="hidden items-center gap-2 flex-wrap sm:flex" onClick={(event) => event.stopPropagation()}>
                   {server.status === "stopped" ? (
                     server.permissions?.canStart ? (
-                      <button onClick={() => doAction(server.name, "start")} disabled={!!actionLoading[server.name]} className="flex items-center gap-1.5 px-3 py-1.5 bg-green-500/20 hover:bg-green-500/30 text-green-300 rounded-lg text-xs font-medium transition-colors disabled:opacity-50">
-                        {actionLoading[server.name] === "start" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />} Start
+                      <button onClick={() => void doAction(server.name, "start")} disabled={!!actionLoading[server.name]} className="flex min-h-[44px] items-center gap-2 rounded-xl bg-green-500/20 px-4 text-sm font-medium text-green-300 transition-colors hover:bg-green-500/30 disabled:opacity-50">
+                        {actionLoading[server.name] === "start" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />} Start
                       </button>
                     ) : null
                   ) : (
                     <>
                       {server.permissions?.canStop ? (
-                        <button onClick={() => doAction(server.name, "stop")} disabled={!!actionLoading[server.name]} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#252525] hover:bg-[#2a2a2a] text-[#9e9e9e] rounded-lg text-xs font-medium transition-colors disabled:opacity-50">
-                          {actionLoading[server.name] === "stop" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Square className="w-3.5 h-3.5" />} Stop
+                        <button onClick={() => void doAction(server.name, "stop")} disabled={!!actionLoading[server.name]} className="flex min-h-[44px] items-center gap-2 rounded-xl bg-[#252525] px-4 text-sm font-medium text-[#9e9e9e] transition-colors hover:bg-[#2a2a2a] disabled:opacity-50">
+                          {actionLoading[server.name] === "stop" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Square className="h-4 w-4" />} Stop
                         </button>
                       ) : null}
                       {server.permissions?.canAdmin ? (
-                        <button onClick={() => doAction(server.name, "restart")} disabled={!!actionLoading[server.name]} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#252525] hover:bg-[#2a2a2a] text-[#9e9e9e] rounded-lg text-xs font-medium transition-colors disabled:opacity-50">
-                          {actionLoading[server.name] === "restart" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />} Restart
+                        <button onClick={() => void doAction(server.name, "restart")} disabled={!!actionLoading[server.name]} className="flex min-h-[44px] items-center gap-2 rounded-xl bg-[#252525] px-4 text-sm font-medium text-[#9e9e9e] transition-colors hover:bg-[#2a2a2a] disabled:opacity-50">
+                          {actionLoading[server.name] === "restart" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />} Restart
                         </button>
                       ) : null}
                     </>
                   )}
                   {server.permissions?.canAdmin ? (
-                    <button onClick={() => cloneServer(server.name)} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#252525] hover:bg-[#2a2a2a] text-[#9e9e9e] rounded-lg text-xs font-medium transition-colors">Clone</button>
+                    <button onClick={() => void cloneServer(server.name)} className="flex min-h-[44px] items-center gap-2 rounded-xl bg-[#252525] px-4 text-sm font-medium text-[#9e9e9e] transition-colors hover:bg-[#2a2a2a]">Clone</button>
                   ) : null}
-                  <Link href={`/game-hub/${server.name}`} className="flex items-center gap-1.5 px-3 py-1.5 bg-[rgba(0,120,212,0.15)] hover:bg-[rgba(0,120,212,0.25)] text-[#0078D4] rounded-lg text-xs font-medium transition-colors">
-                    <Terminal className="w-3.5 h-3.5" /> {server.permissions?.canConsole ? "Console" : "View"}
+                  <Link href={`/game-hub/${server.name}`} className="flex min-h-[44px] items-center gap-2 rounded-xl bg-[rgba(0,120,212,0.15)] px-4 text-sm font-medium text-[#0078D4] transition-colors hover:bg-[rgba(0,120,212,0.25)]">
+                    <Terminal className="h-4 w-4" /> {server.permissions?.canConsole ? "Console" : "View"}
                   </Link>
                   {server.permissions?.canAdmin ? (
-                    <button onClick={() => { if (confirm(`Delete ${server.name}? This will remove the server and its data.`)) doAction(server.name, "delete"); }} disabled={!!actionLoading[server.name]} className="ml-auto flex items-center gap-1.5 px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg text-xs font-medium transition-colors disabled:opacity-50">
-                      {actionLoading[server.name] === "delete" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />} Delete
+                    <button onClick={() => { if (confirm(`Delete ${server.name}? This will remove the server and its data.`)) void doAction(server.name, "delete"); }} disabled={!!actionLoading[server.name]} className="ml-auto flex min-h-[44px] items-center gap-2 rounded-xl bg-red-500/10 px-4 text-sm font-medium text-red-400 transition-colors hover:bg-red-500/20 disabled:opacity-50">
+                      {actionLoading[server.name] === "delete" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />} Delete
                     </button>
                   ) : null}
                 </div>
@@ -977,9 +1204,9 @@ export default function GameHubPage() {
               <div key={server.name} className="rounded-xl border border-[#1e1e1e] bg-[#0d0d0d] p-3 text-sm text-[#d4d4d4]">
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <p className="font-medium text-[#f2f2f2]">{server.icon ?? server.gameType[0]?.toUpperCase() ?? "🎮"} {server.name}</p>
-                  <span className="rounded-full border border-[#2a2a2a] px-2 py-0.5 text-[10px] uppercase text-[#888]">{server.status}</span>
+                  <span className="rounded-full border border-[#2a2a2a] px-3 py-1 text-sm uppercase text-[#888]">{server.status}</span>
                 </div>
-                <dl className="grid grid-cols-2 gap-2 text-[11px]">
+                <dl className="grid grid-cols-2 gap-3 text-sm">
                   <div><dt className="text-[#666]">Game</dt><dd className="mt-1">{server.gameType}</dd></div>
                   <div><dt className="text-[#666]">Players</dt><dd className="mt-1">{server.playerCount ?? 0}</dd></div>
                   <div><dt className="text-[#666]">Replicas</dt><dd className="mt-1">{replicaSummary(server)}</dd></div>

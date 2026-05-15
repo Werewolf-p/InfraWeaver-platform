@@ -19,7 +19,7 @@ const EXPIRY_OPTIONS = [
   { label: "7 days", value: 168 },
 ];
 
-const inputCls = "w-full rounded-xl border border-[#2a2a2a] bg-[#0d0d0d] px-3 py-2.5 text-sm text-[#f2f2f2] placeholder:text-[#444] focus:border-[#3b82f6] focus:outline-none focus:ring-1 focus:ring-[#3b82f6]";
+const inputCls = "w-full rounded-2xl border border-[#2a2a2a] bg-[#0d0d0d] px-4 py-3 text-base text-[#f2f2f2] placeholder:text-[#444] focus:border-[#3b82f6] focus:outline-none focus:ring-1 focus:ring-[#3b82f6] sm:text-sm";
 
 export function InviteModal({ open, onClose }: Props) {
   const { canAny } = useRBAC();
@@ -72,7 +72,7 @@ export function InviteModal({ open, onClose }: Props) {
   return (
     <Dialog.Root open={open} onOpenChange={(nextOpen) => !nextOpen && handleClose()}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm" />
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/70" />
         <Dialog.Content className="fixed inset-x-0 bottom-0 top-0 z-50 w-full overflow-y-auto bg-[#111] p-4 pt-[calc(env(safe-area-inset-top,0px)+1rem)] pb-[calc(env(safe-area-inset-bottom,0px)+1.25rem)] text-[#f2f2f2] shadow-2xl focus:outline-none sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-full sm:max-w-md sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:border sm:border-[#2a2a2a] sm:p-6 sm:pt-6 sm:pb-6">
           <div className="mb-5 flex items-center justify-between gap-3">
             <Dialog.Title className="flex items-center gap-2 text-base font-semibold text-[#f2f2f2]">
@@ -106,7 +106,7 @@ export function InviteModal({ open, onClose }: Props) {
           ) : (
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="mb-2 block text-xs text-[#888]">Email address</label>
+                <label className="mb-2 block text-sm font-medium text-[#d4d4d4]">Email address</label>
                 <input
                   autoFocus
                   type="email"
@@ -118,9 +118,10 @@ export function InviteModal({ open, onClose }: Props) {
                 />
               </div>
               <div>
-                <label className="mb-2 block text-xs text-[#888]">Link expiry</label>
+                <p className="mt-2 text-sm text-[#666]">The invite link stays below the input on mobile so expiry is never hidden behind the keyboard.</p>
+                <label className="mb-2 mt-3 block text-sm font-medium text-[#d4d4d4]">Link expiry</label>
                 <Select.Root value={String(expiryHours)} onValueChange={(value) => setExpiryHours(Number(value))}>
-                  <Select.Trigger className="flex w-full items-center justify-between rounded-xl border border-[#2a2a2a] bg-[#0d0d0d] px-3 py-2.5 text-sm text-[#f2f2f2] focus:border-[#3b82f6] focus:outline-none focus:ring-1 focus:ring-[#3b82f6]">
+                  <Select.Trigger className="flex min-h-[48px] w-full items-center justify-between rounded-2xl border border-[#2a2a2a] bg-[#0d0d0d] px-4 text-base text-[#f2f2f2] focus:border-[#3b82f6] focus:outline-none focus:ring-1 focus:ring-[#3b82f6] sm:text-sm">
                     <Select.Value />
                     <ChevronDown className="h-4 w-4 text-[#888]" />
                   </Select.Trigger>
@@ -145,14 +146,14 @@ export function InviteModal({ open, onClose }: Props) {
                 <button
                   type="button"
                   onClick={handleClose}
-                  className="flex h-11 flex-1 items-center justify-center rounded-lg border border-[#2a2a2a] bg-transparent px-4 text-sm text-[#d4d4d4] transition-colors hover:bg-[#1a1a1a] hover:text-[#f2f2f2] active:bg-[#1f1f1f]"
+                  className="flex min-h-[48px] flex-1 items-center justify-center rounded-2xl border border-[#2a2a2a] bg-transparent px-4 text-sm text-[#d4d4d4] transition-colors hover:bg-[#1a1a1a] hover:text-[#f2f2f2] active:bg-[#1f1f1f]"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={loading || !email || !canManageUsers}
-                  className="flex h-11 flex-1 items-center justify-center rounded-lg bg-[#3b82f6] px-4 text-sm font-medium text-white transition-colors hover:bg-[#2563eb] active:bg-[#1d4ed8] disabled:cursor-not-allowed disabled:opacity-50"
+                  className="flex min-h-[48px] flex-1 items-center justify-center rounded-2xl bg-[#3b82f6] px-4 text-sm font-medium text-white transition-colors hover:bg-[#2563eb] active:bg-[#1d4ed8] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {loading ? "Creating…" : "Create Invite"}
                 </button>

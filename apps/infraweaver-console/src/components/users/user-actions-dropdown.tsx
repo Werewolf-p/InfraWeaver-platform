@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { type PlatformUser } from "@/hooks/use-users-config";
+import { ResponsiveSheet } from "@/components/ui/responsive-sheet";
 import { ResetPasswordModal } from "./reset-password-modal";
 import { MFAResetModal } from "./mfa-reset-modal";
 import { SessionsPanel } from "./sessions-panel";
@@ -24,9 +25,9 @@ interface Props {
   onRefetch: () => void;
 }
 
-const inputCls = "w-full rounded-xl border border-[#2a2a2a] bg-[#0d0d0d] px-3 py-2.5 text-sm text-[#f2f2f2] placeholder:text-[#444] focus:border-[#3b82f6] focus:outline-none focus:ring-1 focus:ring-[#3b82f6]";
-const ghostButtonCls = "inline-flex h-11 items-center justify-center rounded-lg border border-[#2a2a2a] bg-transparent px-4 text-sm text-[#d4d4d4] transition-colors hover:bg-[#1a1a1a] hover:text-[#f2f2f2] active:bg-[#1f1f1f]";
-const primaryButtonCls = "inline-flex h-11 items-center justify-center rounded-lg bg-[#3b82f6] px-4 text-sm font-medium text-white transition-colors hover:bg-[#2563eb] active:bg-[#1d4ed8]";
+const inputCls = "w-full rounded-2xl border border-[#2a2a2a] bg-[#0d0d0d] px-4 py-3 text-base text-[#f2f2f2] placeholder:text-[#444] focus:border-[#3b82f6] focus:outline-none focus:ring-1 focus:ring-[#3b82f6] sm:text-sm";
+const ghostButtonCls = "inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-[#2a2a2a] bg-transparent px-4 text-sm text-[#d4d4d4] transition-colors hover:bg-[#1a1a1a] hover:text-[#f2f2f2] active:bg-[#1f1f1f]";
+const primaryButtonCls = "inline-flex min-h-[44px] items-center justify-center rounded-2xl bg-[#3b82f6] px-4 text-sm font-medium text-white transition-colors hover:bg-[#2563eb] active:bg-[#1d4ed8]";
 
 function SmallDialog({
   open,
@@ -42,11 +43,11 @@ function SmallDialog({
   return (
     <Dialog.Root open={open} onOpenChange={(nextOpen) => !nextOpen && onClose()}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm" />
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/70" />
         <Dialog.Content className="fixed inset-x-0 bottom-0 top-0 z-50 w-full overflow-y-auto bg-[#111] p-4 pt-[calc(env(safe-area-inset-top,0px)+1rem)] pb-[calc(env(safe-area-inset-bottom,0px)+1.25rem)] text-[#f2f2f2] shadow-2xl focus:outline-none sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-full sm:max-w-sm sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:border sm:border-[#2a2a2a] sm:p-5 sm:pt-5 sm:pb-5">
           <div className="mb-4 flex items-center justify-between gap-3">
-            <Dialog.Title className="text-sm font-semibold text-[#f2f2f2]">{title}</Dialog.Title>
-            <button onClick={onClose} className="rounded-lg p-1.5 text-[#888] transition-colors hover:bg-[#1a1a1a] hover:text-[#f2f2f2]">
+            <Dialog.Title className="text-base font-semibold text-[#f2f2f2]">{title}</Dialog.Title>
+            <button onClick={onClose} className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-[#888] transition-colors hover:bg-[#1a1a1a] hover:text-[#f2f2f2]">
               <X className="h-4 w-4" />
             </button>
           </div>
@@ -68,6 +69,7 @@ export function UserActionsDropdown({ user, isSelf, isAdmin, onEdit, onDelete, o
   const [showOffboard, setShowOffboard] = useState(false);
   const [showChangeEmail, setShowChangeEmail] = useState(false);
   const [showChangeUsername, setShowChangeUsername] = useState(false);
+  const [showMobileActions, setShowMobileActions] = useState(false);
   const [newEmail, setNewEmail] = useState("");
   const [newUsername, setNewUsername] = useState("");
   const [statusLoading, setStatusLoading] = useState(false);
@@ -138,13 +140,35 @@ export function UserActionsDropdown({ user, isSelf, isAdmin, onEdit, onDelete, o
 
   const itemCls = "flex cursor-pointer select-none items-center gap-2 rounded-lg px-3 py-2 text-sm text-[#f2f2f2] outline-none transition-colors data-[disabled]:pointer-events-none data-[disabled]:opacity-50 data-[highlighted]:bg-[#1a1a1a] data-[highlighted]:text-[#f2f2f2]";
   const destructiveCls = "flex cursor-pointer select-none items-center gap-2 rounded-lg px-3 py-2 text-sm text-red-400 outline-none transition-colors data-[disabled]:pointer-events-none data-[disabled]:opacity-50 data-[highlighted]:bg-red-500/10 data-[highlighted]:text-red-300";
+  const primaryActions = [
+    canManageUsers ? { label: "Edit User", icon: Pencil, onSelect: onEdit } : null,
+    canManageUsers && !isSelf ? { label: "Reset Password", icon: KeyRound, onSelect: () => setShowResetPassword(true) } : null,
+    canManageUsers ? { label: "Change Email", icon: Mail, onSelect: () => { setNewEmail(user.email); setShowChangeEmail(true); } } : null,
+    canManageUsers && !isSelf ? { label: statusLoading ? "Updating status…" : "Toggle Status", icon: statusLoading ? PowerOff : PowerIcon, onSelect: () => { void handleToggleStatus(); }, disabled: statusLoading } : null,
+    canManageUsers ? { label: "Reset MFA", icon: ShieldOff, onSelect: () => setShowMFAReset(true) } : null,
+    canViewUserData ? { label: "View Sessions", icon: MonitorSmartphone, onSelect: () => setShowSessions(true) } : null,
+    canViewUserData ? { label: "Login History", icon: History, onSelect: () => setShowHistory(true) } : null,
+    canManageUsers && !isSelf ? { label: "Change Username", icon: UserCog, onSelect: () => { setNewUsername(user.username); setShowChangeUsername(true); } } : null,
+  ].filter(Boolean) as Array<{ label: string; icon: typeof Pencil; onSelect: () => void; disabled?: boolean }>;
+  const dangerActions = [
+    canManageUsers && !isSelf ? { label: "Offboard User", icon: UserX, onSelect: () => setShowOffboard(true) } : null,
+    canManageUsers && !isSelf ? { label: "Delete", icon: Trash2, onSelect: onDelete } : null,
+  ].filter(Boolean) as Array<{ label: string; icon: typeof Pencil; onSelect: () => void; disabled?: boolean }>;
 
   return (
     <>
+      <button
+        type="button"
+        onClick={() => setShowMobileActions(true)}
+        className="inline-flex min-h-[48px] flex-1 items-center justify-center gap-2 rounded-2xl border border-[#2a2a2a] bg-[#0d0d0d] px-4 text-sm font-medium text-[#d4d4d4] transition-colors hover:bg-[#1a1a1a] hover:text-[#f2f2f2] sm:hidden"
+      >
+        <MoreVertical className="h-4 w-4" />
+        Actions
+      </button>
       <DropdownMenu.Root>
         <DropdownMenu.Trigger asChild>
-          <button className="rounded-lg border border-[#2a2a2a] bg-[#0d0d0d] p-1.5 text-[#888] transition-colors hover:bg-[#1a1a1a] hover:text-[#f2f2f2] active:scale-95">
-            <MoreVertical className="h-3.5 w-3.5" />
+          <button className="hidden min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-[#2a2a2a] bg-[#0d0d0d] text-[#888] transition-colors hover:bg-[#1a1a1a] hover:text-[#f2f2f2] active:scale-95 sm:inline-flex">
+            <MoreVertical className="h-4 w-4" />
           </button>
         </DropdownMenu.Trigger>
         <DropdownMenu.Portal>
@@ -230,6 +254,47 @@ export function UserActionsDropdown({ user, isSelf, isAdmin, onEdit, onDelete, o
           </DropdownMenu.Content>
         </DropdownMenu.Portal>
       </DropdownMenu.Root>
+
+      <ResponsiveSheet
+        open={showMobileActions}
+        onClose={() => setShowMobileActions(false)}
+        size="sm"
+        title={`Actions for @${user.username}`}
+        description="Large mobile actions replace tiny dropdown targets on phones."
+      >
+        <div className="space-y-2">
+          {primaryActions.map((action) => (
+            <button
+              key={action.label}
+              type="button"
+              disabled={action.disabled}
+              onClick={() => {
+                setShowMobileActions(false);
+                action.onSelect();
+              }}
+              className="flex min-h-[52px] w-full items-center gap-3 rounded-2xl border border-[#2a2a2a] bg-[#161616] px-4 text-left text-sm font-medium text-[#f2f2f2] transition-colors hover:border-[#3a3a3a] hover:text-white disabled:opacity-50"
+            >
+              <action.icon className="h-4 w-4" />
+              {action.label}
+            </button>
+          ))}
+          {dangerActions.length > 0 ? <div className="pt-2 text-sm text-[#666]">Destructive actions</div> : null}
+          {dangerActions.map((action) => (
+            <button
+              key={action.label}
+              type="button"
+              onClick={() => {
+                setShowMobileActions(false);
+                action.onSelect();
+              }}
+              className="flex min-h-[52px] w-full items-center gap-3 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 text-left text-sm font-medium text-red-300 transition-colors hover:bg-red-500/20"
+            >
+              <action.icon className="h-4 w-4" />
+              {action.label}
+            </button>
+          ))}
+        </div>
+      </ResponsiveSheet>
 
       <ResetPasswordModal
         open={showResetPassword}
