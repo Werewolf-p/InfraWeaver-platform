@@ -61,7 +61,6 @@ export async function GET() {
     return NextResponse.json(apps);
   } catch {
     return NextResponse.json([
-      { name: "wiki", description: "Wiki.js documentation", host: "wiki.int.rlservers.com", namespace: "wiki" },
       { name: "gatus", description: "Status monitoring", host: "gatus.int.rlservers.com", namespace: "gatus" },
       { name: "stirling-pdf", description: "PDF tools", host: "stirling-pdf.int.rlservers.com", namespace: "stirling-pdf" },
       { name: "onedev", description: "Git forge + CI", host: "onedev.rlservers.com", namespace: "onedev" },

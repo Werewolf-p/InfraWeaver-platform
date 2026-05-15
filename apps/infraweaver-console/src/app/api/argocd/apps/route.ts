@@ -51,9 +51,7 @@ function getMockApps() {
     { name: "platform-authentik", namespace: "authentik", project: "platform", health: "Healthy", sync: "Synced" },
     { name: "platform-netbird", namespace: "netbird", project: "platform", health: "Healthy", sync: "Synced" },
     { name: "apps-netbird", namespace: "netbird", project: "platform", health: "Healthy", sync: "Synced" },
-    { name: "platform-homepage", namespace: "homepage", project: "platform", health: "Healthy", sync: "Synced" },
     { name: "platform-grafana", namespace: "grafana", project: "platform", health: "Healthy", sync: "Synced" },
-    { name: "catalog-wiki-manifests", namespace: "wiki", project: "platform", health: "Healthy", sync: "Synced" },
     { name: "catalog-gatus-manifests", namespace: "gatus", project: "platform", health: "Healthy", sync: "Synced" },
   ];
   return apps.map(a => ({

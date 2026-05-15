@@ -767,7 +767,7 @@ function AllInstalledTab() {
                           </button>
                           <button
                             onClick={() => void handleDelete(row.name)}
-                            disabled={deletingApp === row.name || !canSyncApps}
+                            disabled={deletingApp === row.name || !canManageApps}
                             className="flex items-center gap-1 px-2 py-1 rounded text-xs border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
                           >
                             {deletingApp === row.name ? <Loader2 className="w-3 h-3 animate-spin" /> : <X className="w-3 h-3" />}
@@ -828,7 +828,7 @@ function AllInstalledTab() {
                 uninstallingApp={uninstallingApp}
                 isOptimisticSyncing={optimisticSyncing.has(row.name)}
                 canSync={canSyncApps}
-                canDelete={canSyncApps}
+                canDelete={canManageApps}
                 canManageApps={canManageApps}
               />
               {row.source === "Catalog" && (

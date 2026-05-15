@@ -660,6 +660,17 @@ export default function ClusterPage() {
       </div>
 
       <div className="space-y-4 sm:space-y-6">
+        {isAdmin && (
+          <CollapsibleSection
+            title="⚙️ Node Hardware Editor"
+            storageKey="cluster-node-editor"
+            badge={<Settings2 className="w-4 h-4 text-purple-400 flex-shrink-0" />}
+            defaultOpen
+          >
+            <ClusterSettingsPanel embedded />
+          </CollapsibleSection>
+        )}
+
         {metrics.length > 0 && (
           <CollapsibleSection title="Node Resource Heatmap" storageKey="cluster-heatmap" badge={<BarChart2 className="w-4 h-4 text-indigo-400 flex-shrink-0" />}>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
@@ -783,17 +794,6 @@ export default function ClusterPage() {
                 />
               ))}
             </div>
-          </CollapsibleSection>
-        )}
-
-        {isAdmin && (
-          <CollapsibleSection
-            title="Node & Service Configuration"
-            storageKey="cluster-config-panel"
-            badge={<Settings2 className="w-4 h-4 text-purple-400 flex-shrink-0" />}
-            defaultOpen
-          >
-            <ClusterSettingsPanel embedded />
           </CollapsibleSection>
         )}
 
