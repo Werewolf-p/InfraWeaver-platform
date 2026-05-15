@@ -473,9 +473,8 @@ kind: Job
 metadata:
   name: netbird-db-bootstrap
   namespace: netbird
-  annotations:
-    argocd.argoproj.io/hook: PostSync
-    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+  # Removed PostSync hook — managed as a regular Job so ArgoCD applies git diffs
+  # (PostSync hooks reuse the revision from the last sync op, ignoring newer commits)
 spec:
   ttlSecondsAfterFinished: 3600
   backoffLimit: 10
