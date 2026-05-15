@@ -15,6 +15,7 @@ import { SegmentedBar } from "@/components/ui/segmented-bar";
 import { toast } from "sonner";
 import Link from "next/link";
 import { MetricAreaChart } from "@/components/charts/AreaChart";
+import { MetricSparkline, type SparklinePoint } from "@/components/charts/sparkline";
 import { ClusterSettingsPanel } from "@/components/settings/cluster-settings-panel";
 import { RefreshCountdown } from "@/components/ui/refresh-countdown";
 
@@ -530,6 +531,7 @@ export default function ClusterPage() {
 
   const [cpuHistory, setCpuHistory] = useState<DataPoint[]>([]);
   const [memHistory, setMemHistory] = useState<DataPoint[]>([]);
+  const [nodeHistory, setNodeHistory] = useState<Record<string, { cpu: SparklinePoint[]; memory: SparklinePoint[] }>>({});
 
   const { data, isLoading, refetch } = useQuery<{ nodes: Node[] }>({
     queryKey: ["cluster", "nodes"],
@@ -611,6 +613,25 @@ export default function ClusterPage() {
   const [showAllNodes, setShowAllNodes] = useState(false);
 
   const metricsMap = Object.fromEntries(metrics.map(m => [m.name, m]));
+
+  useEffect(() => {
+    if (!metricsData?.metrics?.length) return;
+    const label = new Date(metricsData.timestamp).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+    const frame = window.requestAnimationFrame(() => {
+      setNodeHistory((prev) => {
+        const next = { ...prev };
+        for (const metric of metricsData.metrics) {
+          const current = next[metric.name] ?? { cpu: [], memory: [] };
+          next[metric.name] = {
+            cpu: [...current.cpu.slice(-11), { label, value: metric.cpuPct }],
+            memory: [...current.memory.slice(-11), { label, value: metric.memPct }],
+          };
+        }
+        return next;
+      });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [metricsData]);
 
   // Group pods by node for the migration view
   const podsByNode = useMemo(() => {
@@ -826,10 +847,10 @@ export default function ClusterPage() {
       <DashboardPanel title="Cluster posture" description="Critical node health, resource pressure, and migration capacity before the detailed sections." icon={Server}>
         <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-2">
-            <DashboardStatCard label="Nodes" value={nodes.length} icon={Server} tone="info" description="Total nodes currently registered in the cluster." footer={<span>{readyNodesCount} ready · {nodes.filter(node => node.unschedulable).length} cordoned</span>} />
-            <DashboardStatCard label="CPU pressure" value={`${avgCpu}%`} icon={Activity} tone={avgCpu >= 70 ? "warning" : "success"} description="Average CPU utilization across visible nodes." footer={<span>Search filter targets high-pressure nodes too</span>} />
-            <DashboardStatCard label="Memory pressure" value={`${avgMem}%`} icon={MemoryStick} tone={avgMem >= 70 ? "warning" : "success"} description="Average memory usage across node metrics." footer={<span>{totalMigratablePods} migratable pod(s) available</span>} />
-            <DashboardStatCard label="Quota hotspots" value={hotQuotas.length} icon={BarChart2} tone={hotQuotas.some(quota => quota.peak >= 85) ? "danger" : "neutral"} description="Namespaces close to quota exhaustion." footer={<span>{recentEvents.filter(event => event.type === "Warning").length} recent warning event(s)</span>} />
+            <DashboardStatCard label="Nodes" value={nodes.length} icon={Server} tone="info" description="Total nodes currently registered in the cluster." trendData={cpuHistory.map((point) => ({ label: point.time, value: Math.min(nodes.length, readyNodesCount) }))} trendTone="blue" trendLabel="Cluster node availability trend" footer={<span>{readyNodesCount} ready · {nodes.filter(node => node.unschedulable).length} cordoned</span>} />
+            <DashboardStatCard label="CPU pressure" value={`${avgCpu}%`} icon={Activity} tone={avgCpu >= 70 ? "warning" : "success"} description="Average CPU utilization across visible nodes." trendData={cpuHistory.map((point) => ({ label: point.time, value: point.value }))} trendTone={avgCpu >= 70 ? "amber" : "emerald"} trendLabel="Cluster CPU pressure trend" footer={<span>Search filter targets high-pressure nodes too</span>} />
+            <DashboardStatCard label="Memory pressure" value={`${avgMem}%`} icon={MemoryStick} tone={avgMem >= 70 ? "warning" : "success"} description="Average memory usage across node metrics." trendData={memHistory.map((point) => ({ label: point.time, value: point.value }))} trendTone={avgMem >= 70 ? "amber" : "emerald"} trendLabel="Cluster memory pressure trend" footer={<span>{totalMigratablePods} migratable pod(s) available</span>} />
+            <DashboardStatCard label="Quota hotspots" value={hotQuotas.length} icon={BarChart2} tone={hotQuotas.some(quota => quota.peak >= 85) ? "danger" : "neutral"} description="Namespaces close to quota exhaustion." trendData={memHistory.map((point) => ({ label: point.time, value: hotQuotas.length }))} trendTone={hotQuotas.some(quota => quota.peak >= 85) ? "red" : "slate"} trendLabel="Quota hotspot count trend" footer={<span>{recentEvents.filter(event => event.type === "Warning").length} recent warning event(s)</span>} />
           </div>
           <div className="rounded-2xl border border-[#2a2a2a] bg-[#141414] p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -979,6 +1000,24 @@ export default function ClusterPage() {
                       <div className="flex justify-between"><span className="text-slate-500">Memory</span><span className="text-slate-300">{node.memory} {metricsMap[node.name] ? `(${metricsMap[node.name].memPct}%)` : ""}</span></div>
                       {node.age && <div className="flex justify-between"><span className="text-slate-500">Uptime</span><span className="text-slate-300">{timeAgo(node.age)}</span></div>}
                     </div>
+                    {nodeHistory[node.name] && (nodeHistory[node.name].cpu.length > 1 || nodeHistory[node.name].memory.length > 1) ? (
+                      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                        <div className="rounded-xl border border-white/10 bg-white/5 px-2 py-2">
+                          <div className="mb-1 flex items-center justify-between text-[10px] uppercase tracking-[0.18em] text-slate-500">
+                            <span>CPU</span>
+                            <span>{metricsMap[node.name]?.cpuPct ?? 0}%</span>
+                          </div>
+                          <MetricSparkline data={nodeHistory[node.name].cpu} color={(metricsMap[node.name]?.cpuPct ?? 0) >= 70 ? "amber" : "emerald"} height={34} className="h-8" ariaLabel={`${node.name} CPU trend`} />
+                        </div>
+                        <div className="rounded-xl border border-white/10 bg-white/5 px-2 py-2">
+                          <div className="mb-1 flex items-center justify-between text-[10px] uppercase tracking-[0.18em] text-slate-500">
+                            <span>Memory</span>
+                            <span>{metricsMap[node.name]?.memPct ?? 0}%</span>
+                          </div>
+                          <MetricSparkline data={nodeHistory[node.name].memory} color={(metricsMap[node.name]?.memPct ?? 0) >= 70 ? "amber" : "blue"} height={34} className="h-8" ariaLabel={`${node.name} memory trend`} />
+                        </div>
+                      </div>
+                    ) : null}
                     {isAdmin && (
                       <div className="mt-3 grid gap-2 sm:grid-cols-2">
                         <button

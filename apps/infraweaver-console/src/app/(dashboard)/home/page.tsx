@@ -21,6 +21,7 @@ import { AutoRefreshControl } from "@/components/ui/auto-refresh-control";
 import { RefreshCountdown } from "@/components/ui/refresh-countdown";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SegmentedBar } from "@/components/ui/segmented-bar";
+import type { SparklinePoint } from "@/components/charts/sparkline";
 import { useUserPreferences } from "@/hooks/use-user-preferences";
 import { useFavorites } from "@/hooks/use-favorites";
 import { useRecentPages } from "@/hooks/use-recent-pages";
@@ -581,6 +582,12 @@ export default function HomePortalPage() {
   const [serviceQuery, setServiceQuery] = useState("");
   const [serviceStateFilter, setServiceStateFilter] = useState<"all" | "healthy" | "degraded" | "offline">("all");
   const [refreshInterval, setRefreshInterval] = useState(30000);
+  const [summaryHistory, setSummaryHistory] = useState<{
+    services: SparklinePoint[];
+    argoApps: SparklinePoint[];
+    warnings: SparklinePoint[];
+    readiness: SparklinePoint[];
+  }>({ services: [], argoApps: [], warnings: [], readiness: [] });
   const searchRef = useRef<HTMLInputElement>(null);
   const { prefs } = useUserPreferences();
   const { favorites } = useFavorites();
@@ -680,6 +687,27 @@ export default function HomePortalPage() {
     ? new Date(healthQuery.dataUpdatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })
     : null;
   const warningEvents = (eventsQuery.data?.events ?? []).filter(event => event.type === "Warning").slice(0, 5);
+
+  useEffect(() => {
+    if (!healthQuery.dataUpdatedAt && !statusQuery.dataUpdatedAt && !eventsQuery.dataUpdatedAt && !argoApps) return;
+
+    const label = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+    const nextServices = statusCounts.healthy;
+    const nextArgoApps = argoApps?.healthy ?? 0;
+    const nextWarnings = warningEvents.length;
+    const nextReadiness = statusQuery.data?.metrics.readyNodes ?? 0;
+
+    const frame = window.requestAnimationFrame(() => {
+      setSummaryHistory((prev) => ({
+        services: [...prev.services.slice(-11), { label, value: nextServices }],
+        argoApps: [...prev.argoApps.slice(-11), { label, value: nextArgoApps }],
+        warnings: [...prev.warnings.slice(-11), { label, value: nextWarnings }],
+        readiness: [...prev.readiness.slice(-11), { label, value: nextReadiness }],
+      }));
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [argoApps, eventsQuery.dataUpdatedAt, healthQuery.dataUpdatedAt, statusCounts.healthy, statusQuery.data?.metrics.readyNodes, statusQuery.dataUpdatedAt, warningEvents.length]);
 
   const greeting = useCallback(() => {
     const h = new Date().getHours();
@@ -813,6 +841,9 @@ export default function HomePortalPage() {
               icon={Activity}
               tone={statusCounts.offline > 0 ? "warning" : "success"}
               description="Healthy services across the full portal catalog."
+              trendData={summaryHistory.services}
+              trendTone={statusCounts.offline > 0 ? "amber" : "emerald"}
+              trendLabel="Platform services trend"
               footer={<span>{statusCounts.degraded} degraded · {statusCounts.offline} offline</span>}
             />
             <DashboardStatCard
@@ -821,6 +852,9 @@ export default function HomePortalPage() {
               icon={GitBranch}
               tone={(argoApps?.issues ?? 0) > 0 ? "warning" : "info"}
               description="GitOps applications reporting healthy status."
+              trendData={summaryHistory.argoApps}
+              trendTone={(argoApps?.issues ?? 0) > 0 ? "amber" : "blue"}
+              trendLabel="Argo application health trend"
               footer={<span>{argoApps?.issues ?? 0} issue(s) currently flagged</span>}
             />
             <DashboardStatCard
@@ -829,6 +863,9 @@ export default function HomePortalPage() {
               icon={AlertTriangle}
               tone={warningEvents.length > 0 ? "danger" : "success"}
               description="Latest warning-level cluster events surfaced from the activity feed."
+              trendData={summaryHistory.warnings}
+              trendTone={warningEvents.length > 0 ? "red" : "emerald"}
+              trendLabel="Recent warnings trend"
               footer={<span>{eventsQuery.data?.events?.length ?? 0} recent events fetched</span>}
             />
             <DashboardStatCard
@@ -837,6 +874,9 @@ export default function HomePortalPage() {
               icon={Package}
               tone={statusQuery.data?.status === "operational" ? "success" : "warning"}
               description={`Platform status is ${statusQuery.data?.status ?? "updating"}.`}
+              trendData={summaryHistory.readiness}
+              trendTone={statusQuery.data?.status === "operational" ? "emerald" : "amber"}
+              trendLabel="Cluster readiness trend"
               footer={<span>Reported uptime {statusQuery.data?.metrics.uptime ?? "—"}</span>}
             />
           </div>
