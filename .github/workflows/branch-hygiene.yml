@@ -1,0 +1,94 @@
+name: Branch Hygiene
+
+on:
+  schedule:
+    - cron: "30 7 * * 0"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Preview deletions without removing branches"
+        required: false
+        default: "true"
+        type: choice
+        options: ["true", "false"]
+      stale_days:
+        description: "Delete merged branches older than this many days"
+        required: false
+        default: "21"
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: branch-hygiene
+  cancel-in-progress: false
+
+jobs:
+  prune-merged-branches:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+
+      - name: Delete merged stale branches
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'true' }}
+          STALE_DAYS: ${{ github.event.inputs.stale_days || '21' }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          git fetch --prune origin '+refs/heads/*:refs/remotes/origin/*'
+
+          cutoff_epoch=$(date -u -d "${STALE_DAYS} days ago" +%s)
+          deleted=0
+          skipped=0
+
+          protect_branch() {
+            case "$1" in
+              "$DEFAULT_BRANCH"|develop|ontwikkel|feat/automation)
+                return 0
+                ;;
+            esac
+            return 1
+          }
+
+          while read -r branch; do
+            [ -z "$branch" ] && continue
+            protect_branch "$branch" && { echo "Skipping protected branch $branch"; skipped=$((skipped + 1)); continue; }
+
+            last_commit=$(git log -1 --format=%ct "origin/${branch}" 2>/dev/null || echo 0)
+            if [ "$last_commit" -gt "$cutoff_epoch" ]; then
+              echo "Skipping recent branch $branch"
+              skipped=$((skipped + 1))
+              continue
+            fi
+
+            open_prs=$(gh pr list --head "$branch" --state open --json number --jq 'length')
+            if [ "$open_prs" != "0" ]; then
+              echo "Skipping branch with open PR: $branch"
+              skipped=$((skipped + 1))
+              continue
+            fi
+
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "[dry-run] Would delete merged branch origin/${branch}"
+              deleted=$((deleted + 1))
+              continue
+            fi
+
+            gh api -X DELETE "repos/${GITHUB_REPOSITORY}/git/refs/heads/${branch}"
+            echo "Deleted origin/${branch}"
+            deleted=$((deleted + 1))
+          done < <(git branch -r --merged "origin/${DEFAULT_BRANCH}" | sed 's#^[ *]*origin/##' | grep -v '^HEAD$' | sort -u)
+
+          {
+            echo "## Branch hygiene"
+            echo "- Dry run: \`${DRY_RUN}\`"
+            echo "- Stale threshold: \`${STALE_DAYS} days\`"
+            echo "- Candidate branches: \`${deleted}\`"
+            echo "- Skipped branches: \`${skipped}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

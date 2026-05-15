@@ -2,9 +2,18 @@ name: Security Scan
 on:
   push:
     branches: [main]
-    paths: ['apps/infraweaver-console/**', '.github/workflows/**']
+    paths:
+      - 'apps/infraweaver-console/**'
+      - 'apps/infraweaver-api/**'
+      - 'apps/infraweaver-node/**'
+      - '.github/workflows/**'
   pull_request:
     branches: [main]
+    paths:
+      - 'apps/infraweaver-console/**'
+      - 'apps/infraweaver-api/**'
+      - 'apps/infraweaver-node/**'
+      - '.github/workflows/**'
 
 permissions:
   contents: read
@@ -20,23 +29,95 @@ jobs:
     steps:
       - uses: actions/dependency-review-action@v4
 
-  dependency-audit:
+  app-security:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - app: console
+            path: apps/infraweaver-console
+            lockfile: apps/infraweaver-console/package-lock.json
+          - app: api
+            path: apps/infraweaver-api
+            lockfile: apps/infraweaver-api/package-lock.json
+          - app: node
+            path: apps/infraweaver-node
+            lockfile: apps/infraweaver-node/package-lock.json
     runs-on: [self-hosted, prod-worker]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-      - name: npm audit
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: ${{ matrix.lockfile }}
+      - name: Install dependencies
+        working-directory: ${{ matrix.path }}
+        run: npm ci
+      - name: Dependency audit
+        working-directory: ${{ matrix.path }}
         run: |
-          cd apps/infraweaver-console
           npm audit --audit-level=high 2>&1 || true
-      - name: Check for known vulnerabilities
-        run: |
-          cd apps/infraweaver-console
           AUDIT_OUT=$(npm audit --json 2>/dev/null || true)
-          CRITICAL=$(echo "$AUDIT_OUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('metadata',{}).get('vulnerabilities',{}).get('critical',0))" 2>/dev/null || echo "0")
-          HIGH=$(echo "$AUDIT_OUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('metadata',{}).get('vulnerabilities',{}).get('high',0))" 2>/dev/null || echo "0")
-          echo "Critical: $CRITICAL, High: $HIGH"
-          if [ "${CRITICAL:-0}" -gt 0 ] 2>/dev/null; then echo "ERROR: Critical vulnerabilities found"; exit 1; fi
-          echo "No critical vulnerabilities detected"
+          export AUDIT_OUT
+          python3 - <<'PY'
+          import json, os, sys
+          raw = os.environ.get('AUDIT_OUT', '').strip()
+          critical = 0
+          if raw:
+            try:
+              data = json.loads(raw)
+              vulns = data.get('metadata', {}).get('vulnerabilities', {})
+              critical = int(vulns.get('critical', 0) or 0)
+              high = int(vulns.get('high', 0) or 0)
+              print(f"Critical: {critical}, High: {high}")
+            except Exception:
+              print('Unable to parse npm audit JSON output')
+          if critical > 0:
+            sys.exit(1)
+          PY
+      - name: TypeScript check
+        working-directory: ${{ matrix.path }}
+        run: npx tsc --noEmit
+      - name: Dockerfile scan
+        working-directory: ${{ matrix.path }}
+        run: |
+          if [ ! -f Dockerfile ]; then
+            echo "No Dockerfile in ${{ matrix.path }}"
+            exit 0
+          fi
+          if command -v hadolint >/dev/null 2>&1; then
+            hadolint Dockerfile
+          elif docker run --rm -i hadolint/hadolint hadolint - < Dockerfile; then
+            echo "Dockerfile lint complete"
+          else
+            echo "Hadolint unavailable; running fallback checks"
+            if grep -q '^FROM.*:latest' Dockerfile; then
+              echo 'WARNING: using latest tag in Dockerfile'
+            fi
+            if ! grep -q '^USER ' Dockerfile; then
+              echo 'WARNING: Dockerfile has no USER instruction'
+            fi
+          fi
+      - name: Generate SBOM
+        if: github.ref == 'refs/heads/main'
+        working-directory: ${{ matrix.path }}
+        run: |
+          if command -v cyclonedx-npm >/dev/null 2>&1; then
+            cyclonedx-npm --output-file sbom.json
+          else
+            npm list --json > sbom-basic.json || true
+          fi
+      - name: Upload SBOM artifact
+        if: github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sbom-${{ matrix.app }}-${{ github.run_id }}
+          path: |
+            ${{ matrix.path }}/sbom.json
+            ${{ matrix.path }}/sbom-basic.json
+          if-no-files-found: ignore
+          retention-days: 14
 
   secret-scan:
     runs-on: [self-hosted, prod-worker]
@@ -47,7 +128,7 @@ jobs:
       - name: Scan for secrets with gitleaks
         run: |
           if command -v gitleaks >/dev/null 2>&1; then
-            gitleaks detect --source . --no-git --redact 2>/dev/null || echo "Gitleaks scan complete"
+            gitleaks detect --source . --no-git --redact
           else
             echo "gitleaks not available on runner, skipping"
           fi
@@ -55,63 +136,15 @@ jobs:
         run: |
           echo "==> Scanning for potential secrets..."
           for pattern in 'password\s*=\s*"[^"]{8,}"' 'api_key\s*=\s*"[^"]{16,}"' 'secret\s*=\s*"[^"]{16,}"' 'token\s*=\s*"[^"]{16,}"'; do
-            hits=$(grep -rEi "$pattern" apps/infraweaver-console/src/ --include="*.ts" --include="*.tsx" -l 2>/dev/null | grep -v ".test." | grep -v "mock" | grep -v "__tests__") || true
+            hits=$(grep -rEi "$pattern" apps/infraweaver-console/src/ apps/infraweaver-api/src/ apps/infraweaver-node/src/ --include="*.ts" --include="*.tsx" -l 2>/dev/null | grep -v '.test.' | grep -v 'mock' | grep -v '__tests__') || true
             if [ -n "$hits" ]; then
               echo "WARNING: Potential secret pattern '$pattern' found in: $hits"
             fi
           done
-          echo "==> Environment variable usage check PASSED"
-          exit 0
-
-  dockerfile-lint:
-    runs-on: [self-hosted, prod-worker]
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-      - name: Lint Dockerfile with hadolint
-        run: |
-          if command -v hadolint >/dev/null 2>&1; then
-            hadolint apps/infraweaver-console/Dockerfile 2>&1 || echo "Hadolint check complete"
-          elif docker run --rm -i hadolint/hadolint hadolint - < apps/infraweaver-console/Dockerfile 2>&1; then
-            echo "Dockerfile linting complete"
-          else
-            echo "Hadolint not available, checking manually..."
-            if grep -q "^FROM.*:latest" apps/infraweaver-console/Dockerfile 2>/dev/null; then
-              echo "WARNING: Using :latest tag in Dockerfile"
-            fi
-            if ! grep -q "^USER " apps/infraweaver-console/Dockerfile 2>/dev/null; then
-              echo "WARNING: No USER instruction - runs as root"
-            fi
-          fi
-
-  typescript-check:
-    runs-on: [self-hosted, prod-worker]
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-      - name: TypeScript type check
-        run: |
-          cd apps/infraweaver-console
-          npm ci --legacy-peer-deps 2>/dev/null || npm install --legacy-peer-deps
-          npx tsc --noEmit 2>&1 | tail -20 || true
-
-  sbom:
-    runs-on: [self-hosted, prod-worker]
-    if: github.ref == 'refs/heads/main'
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-      - name: Generate SBOM
-        run: |
-          cd apps/infraweaver-console
-          if command -v cyclonedx-npm >/dev/null 2>&1; then
-            cyclonedx-npm --output-file sbom.json 2>/dev/null
-            echo "SBOM generated"
-          else
-            npm list --json 2>/dev/null > sbom-basic.json || true
-            echo "Basic dependency list generated"
-          fi
-          echo "SBOM generation complete" >> "$GITHUB_STEP_SUMMARY"
+          echo "==> Environment variable usage check complete"
 
   security-summary:
-    needs: [dependency-review, dependency-audit, secret-scan, dockerfile-lint, typescript-check]
+    needs: [dependency-review, app-security, secret-scan]
     runs-on: [self-hosted, prod-worker]
     if: always()
     steps:
@@ -122,8 +155,6 @@ jobs:
             echo "| Check | Status |"
             echo "|---|---|"
             echo "| Dependency Review | ${{ needs.dependency-review.result }} |"
-            echo "| Dependency Audit | ${{ needs.dependency-audit.result }} |"
+            echo "| App Security Matrix | ${{ needs.app-security.result }} |"
             echo "| Secret Scan | ${{ needs.secret-scan.result }} |"
-            echo "| Dockerfile Lint | ${{ needs.dockerfile-lint.result }} |"
-            echo "| TypeScript Check | ${{ needs.typescript-check.result }} |"
           } >> "$GITHUB_STEP_SUMMARY"
