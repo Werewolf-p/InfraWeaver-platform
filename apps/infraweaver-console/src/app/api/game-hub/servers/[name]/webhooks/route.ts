@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
 import { getServerDeployment, makeGameHubClients, parseDiscordWebhookConfig, sendDiscordWebhook } from "@/lib/game-hub-server";
+import { parseSafeExternalUrl } from "@/lib/outbound-url";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { safeError } from "@/lib/utils";
 
@@ -42,11 +43,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ nam
   }
 
   const body = await req.json() as { action?: "save" | "test"; url?: string; events?: string[] };
+  const validatedUrl = body.url ? await parseSafeExternalUrl(body.url) : null;
+  if (body.url && !validatedUrl) {
+    return NextResponse.json({ error: "Invalid webhook URL" }, { status: 400 });
+  }
 
   try {
     const clients = makeGameHubClients();
     if (body.action === "test") {
-      const config = body.url ? { url: body.url, events: Array.isArray(body.events) ? body.events : [] } : await readConfig(name);
+      const config = validatedUrl
+        ? { url: validatedUrl.toString(), events: Array.isArray(body.events) ? body.events : [] }
+        : await readConfig(name);
       if (!config?.url) {
         return NextResponse.json({ error: "No Discord webhook configured" }, { status: 400 });
       }
@@ -54,7 +61,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ nam
       return NextResponse.json({ ok: true });
     }
 
-    const payload = JSON.stringify({ url: body.url ?? "", events: Array.isArray(body.events) ? body.events : [] });
+    const payload = JSON.stringify({ url: validatedUrl?.toString() ?? "", events: Array.isArray(body.events) ? body.events : [] });
     await clients.appsApi.patchNamespacedDeployment({
       name,
       namespace: "game-hub",

@@ -1,4 +1,6 @@
 const KNOWN_INTERNAL_HOSTS = new Set([
+  "10.25.0.21",
+  "10.25.0.135",
   "argocd-server.argocd.svc.cluster.local",
   "argocd.int.rlservers.com",
   "grafana.monitoring.svc.cluster.local",

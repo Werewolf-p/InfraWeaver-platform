@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { hasPermission } from "@/lib/rbac";
-import { fetchInsecure } from "@/lib/insecure-fetch";
+import { fetchInternalService } from "@/lib/insecure-fetch";
+import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
+import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 
 async function synologyLogin(): Promise<string | null> {
   const host = process.env.SYNOLOGY_HOST ?? "10.25.0.21";
@@ -11,7 +12,11 @@ async function synologyLogin(): Promise<string | null> {
   if (!user || !pass) return null;
 
   try {
-    const res = await fetchInsecure(`https://${host}:${port}/webapi/auth.cgi?api=SYNO.API.Auth&version=3&method=login&account=${user}&passwd=${pass}&session=FileStation&format=sid`);
+    const res = await fetchInternalService(
+      `https://${host}:${port}/webapi/auth.cgi?api=SYNO.API.Auth&version=3&method=login&account=${user}&passwd=${pass}&session=FileStation&format=sid`,
+      {},
+      { allowInsecureTls: true },
+    );
     const data = await res.json() as { success: boolean; data?: { sid: string } };
     return data.success ? data.data?.sid ?? null : null;
   } catch {
@@ -22,8 +27,11 @@ async function synologyLogin(): Promise<string | null> {
 export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
-  if (!hasPermission(groups, "users:read")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const access = await getSessionRBACContext(session, 60);
+  if (!hasSessionPermission(access, "nas:read")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!checkRateLimit(rateLimitKey("nas-folders", req), 30, 60_000)) {
+    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
+  }
 
   const provider = req.nextUrl.searchParams.get("provider");
   const share = req.nextUrl.searchParams.get("share");
@@ -37,7 +45,11 @@ export async function GET(req: NextRequest) {
 
     try {
       const folderPath = encodeURIComponent(`/${share}`);
-      const res = await fetchInsecure(`https://${host}:${port}/webapi/entry.cgi?api=SYNO.FileStation.List&version=2&method=list&folder_path=${folderPath}&filetype=dir&SID=${sid}`);
+      const res = await fetchInternalService(
+        `https://${host}:${port}/webapi/entry.cgi?api=SYNO.FileStation.List&version=2&method=list&folder_path=${folderPath}&filetype=dir&SID=${sid}`,
+        {},
+        { allowInsecureTls: true },
+      );
       const data = await res.json() as { success: boolean; data?: { files: Array<{ name: string; path: string }> } };
       if (!data.success) return NextResponse.json({ folders: [] });
       return NextResponse.json({ folders: (data.data?.files ?? []).map((file) => ({ name: file.name, path: file.path })) });
@@ -52,9 +64,9 @@ export async function GET(req: NextRequest) {
     if (!apiKey) return NextResponse.json({ folders: [] });
 
     try {
-      const res = await fetchInsecure(`https://${host}/api/v2/pool/dataset?type=FILESYSTEM&limit=50`, {
+      const res = await fetchInternalService(`https://${host}/api/v2/pool/dataset?type=FILESYSTEM&limit=50`, {
         headers: { Authorization: `Bearer ${apiKey}` },
-      });
+      }, { allowInsecureTls: true });
       if (!res.ok) return NextResponse.json({ folders: [] });
       const datasets = await res.json() as Array<{ name: string; mountpoint?: { value?: string } }>;
       const folders = datasets

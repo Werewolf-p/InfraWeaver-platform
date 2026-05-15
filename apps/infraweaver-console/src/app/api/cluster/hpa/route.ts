@@ -1,8 +1,21 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { hasPermission } from "@/lib/rbac";
+import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
+import { getSessionRBACContext, hasAnySessionPermission } from "@/lib/session-rbac";
 import { safeError } from "@/lib/utils";
+import { isValidK8sName, isValidNamespace } from "@/lib/validate";
 import * as k8s from "@kubernetes/client-node";
+import { z } from "zod";
+
+const HPA_PATCH_SCHEMA = z.object({
+  name: z.string().min(1).max(253),
+  namespace: z.string().min(1).max(63),
+  minReplicas: z.number().int().min(1).max(100),
+  maxReplicas: z.number().int().min(1).max(100),
+}).refine((value) => value.maxReplicas >= value.minReplicas, {
+  message: "maxReplicas must be greater than or equal to minReplicas",
+  path: ["maxReplicas"],
+});
 
 function makeKc() {
   const kc = new k8s.KubeConfig();
@@ -17,8 +30,8 @@ function makeKc() {
 export async function GET() {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
-  if (!hasPermission(groups, "config:read")) {
+  const access = await getSessionRBACContext(session, 60);
+  if (!hasAnySessionPermission(access, ["cluster:read", "infra:read"])) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   try {
@@ -53,17 +66,26 @@ export async function GET() {
   }
 }
 
-export async function PATCH(request: Request) {
+export async function PATCH(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
-  if (!hasPermission(groups, "config:write")) {
+  const access = await getSessionRBACContext(session, 60);
+  if (!hasAnySessionPermission(access, ["cluster:scale", "cluster:admin"])) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+  if (!checkRateLimit(rateLimitKey("cluster-hpa-patch", req), 10, 60_000)) {
+    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
+  }
+
   try {
-    const { name, namespace, minReplicas, maxReplicas } = await request.json() as {
-      name: string; namespace: string; minReplicas: number; maxReplicas: number;
-    };
+    const result = HPA_PATCH_SCHEMA.safeParse(await req.json());
+    if (!result.success) {
+      return NextResponse.json({ error: result.error.flatten() }, { status: 400 });
+    }
+    const { name, namespace, minReplicas, maxReplicas } = result.data;
+    if (!isValidNamespace(namespace) || !isValidK8sName(name)) {
+      return NextResponse.json({ error: "Invalid HPA name" }, { status: 400 });
+    }
     const kc = makeKc();
     const server = kc.getCurrentCluster()?.server ?? "https://localhost:6443";
     const opts: Record<string, unknown> = {};

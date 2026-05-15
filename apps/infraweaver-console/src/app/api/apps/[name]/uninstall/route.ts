@@ -20,8 +20,9 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { auditLog } from "@/lib/audit-log";
+import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
+import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN ?? "";
 const GITHUB_REPO = process.env.GITHUB_REPO ?? "Werewolf-p/InfraWeaver-platform";
@@ -138,6 +139,9 @@ export async function DELETE(
   if (!hasSessionPermission(access, "apps:write")) {
     return NextResponse.json({ error: "Forbidden — requires apps:write" }, { status: 403 });
   }
+  if (!checkRateLimit(rateLimitKey("apps-uninstall", req), 5, 60_000)) {
+    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
+  }
 
   const { name } = await params;
   if (!SAFE_NAME_RE.test(name)) {
@@ -157,7 +161,7 @@ export async function DELETE(
   // ── CATALOG APP ──────────────────────────────────────────────────────────────
   if (name.startsWith("catalog-")) {
     // Normalise: catalog-wiki-manifests → wiki, catalog-wiki → wiki
-    let slug = name.replace(/^catalog-/, "").replace(/-manifests$/, "");
+    const slug = name.replace(/^catalog-/, "").replace(/-manifests$/, "");
 
     // 1. Remove bootstrap files for this slug
     for (const bsFile of [

@@ -6,8 +6,9 @@
  * deployed resources once it detects the Application is gone.
  */
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { safeError } from "@/lib/utils";
 
@@ -99,7 +100,7 @@ async function cleanupArgoApplication(argoAppName: string): Promise<void> {
 }
 
 export async function DELETE(
-  _req: Request,
+  req: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
 ) {
   const { slug } = await params;
@@ -114,6 +115,9 @@ export async function DELETE(
   const access = await getSessionRBACContext(session, 60);
   if (!hasSessionPermission(access, "apps:write")) {
     return NextResponse.json({ error: "Forbidden — requires apps:write" }, { status: 403 });
+  }
+  if (!checkRateLimit(rateLimitKey("community-apps-delete", req), 5, 60_000)) {
+    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
   }
 
   const errors: string[] = [];

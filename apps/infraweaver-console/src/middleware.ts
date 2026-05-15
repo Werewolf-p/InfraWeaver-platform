@@ -21,6 +21,7 @@ const RATE_LIMIT_EXEMPT_PATHS = new Set([
   "/api/game-hub/public-status",
 ]);
 const PUBLIC_FILE_RE = /\.[a-z0-9]+$/i;
+const AUTHENTICATED_MUTATION_RATE_LIMIT = { max: 30, windowMs: 60_000 };
 
 function isPublicPath(pathname: string) {
   return PUBLIC_EXACT_PATHS.has(pathname) || PUBLIC_PREFIXES.some((entry) => pathname.startsWith(entry)) || PUBLIC_FILE_RE.test(pathname);
@@ -65,6 +66,12 @@ export default auth(async (req) => {
   if (isApiRoute && MUTATION_METHODS.has(req.method) && !pathname.startsWith("/api/auth") && !checkSameOrigin(req)) {
     await auditUnauthorizedAccess("security:csrf-rejected", req, req.auth?.user?.email ?? "anonymous", `${req.method} ${pathname}`);
     return NextResponse.json({ error: "Cross-origin request rejected" }, { status: 403 });
+  }
+
+  if (isLoggedIn && isApiRoute && MUTATION_METHODS.has(req.method) && !pathname.startsWith("/api/auth")) {
+    if (!checkRateLimit(rateLimitKey(`mutation:${pathname}`, req), AUTHENTICATED_MUTATION_RATE_LIMIT.max, AUTHENTICATED_MUTATION_RATE_LIMIT.windowMs)) {
+      return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
+    }
   }
 
   if (!isLoggedIn && !isPublic) {

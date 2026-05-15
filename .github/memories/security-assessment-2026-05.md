@@ -35,3 +35,10 @@
 - `apps/infraweaver-console/src/app/api/catalog-install/route.ts`
 - `apps/infraweaver-console/src/app/api/logs/**`
 - `apps/infraweaver-console/src/app/api/game-hub/**`
+
+## Additional API hardening — 2026-05 follow-up
+- Added a middleware-level authenticated mutation throttle so POST/PUT/PATCH/DELETE API calls now have a default per-route rate limit even when handlers forgot endpoint-specific throttles.
+- Reworked NAS API access to require `nas:read`/`nas:write` instead of broad `users:*` permissions, added route throttles, and constrained NAS HTTP calls to allowlisted internal hosts only.
+- Introduced pinned outbound HTTPS validation helpers for user-supplied webhook/plugin URLs; unsafe/private/internal destinations are rejected and outbound requests now resolve-and-connect using the validated IP.
+- Hardened game-hub webhook sending and plugin installation so they no longer execute arbitrary pod-side downloads or server-side webhook probes against internal targets.
+- Tightened ArgoCD diff access back to operator-level (`apps:sync`) and added missing route-specific throttles plus Kubernetes name validation on rollback, hard-refresh, uninstall, HPA, PVC cleanup, restart-app, migrate-pod, scale, and test-alert flows.

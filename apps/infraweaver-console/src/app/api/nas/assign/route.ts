@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { hasPermission } from "@/lib/rbac";
+import { parseAllowedInternalUrl } from "@/lib/internal-url-allowlist";
+import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
+import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { safeError } from "@/lib/utils";
 import { z } from "zod";
 
@@ -156,8 +158,11 @@ function generateK8sManifest(
 export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
-  if (!hasPermission(groups, "users:write")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const access = await getSessionRBACContext(session, 60);
+  if (!hasSessionPermission(access, "nas:write")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!checkRateLimit(rateLimitKey("nas-assign-post", req), 10, 60_000)) {
+    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
+  }
 
   try {
     const parsed = AssignBody.safeParse(await req.json());
@@ -179,7 +184,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: `Invalid ${field}` }, { status: 400 });
       }
     }
-    if (!SAFE_HOST.test(host) || !isSafeYamlScalar(host)) {
+    if (!SAFE_HOST.test(host) || !isSafeYamlScalar(host) || !parseAllowedInternalUrl(`https://${host}`)) {
       return NextResponse.json({ error: "Invalid host" }, { status: 400 });
     }
 
@@ -215,8 +220,11 @@ export async function POST(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
-  if (!hasPermission(groups, "users:write")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const access = await getSessionRBACContext(session, 60);
+  if (!hasSessionPermission(access, "nas:write")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!checkRateLimit(rateLimitKey("nas-assign-delete", req), 10, 60_000)) {
+    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
+  }
 
   try {
     const parsed = DeleteBody.safeParse(await req.json());

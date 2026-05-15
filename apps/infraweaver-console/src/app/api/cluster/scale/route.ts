@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { getSessionRBACContext, hasAnySessionPermission, hasSessionPermission } from "@/lib/session-rbac";
 import { auditLog } from "@/lib/audit-log";
 import { loadKubeConfig } from "@/lib/k8s";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
+import { getSessionRBACContext, hasAnySessionPermission, hasSessionPermission } from "@/lib/session-rbac";
+import { isValidK8sName, isValidNamespace } from "@/lib/validate";
 import { z } from "zod";
 import * as k8s from "@kubernetes/client-node";
 
@@ -28,6 +29,9 @@ export async function PATCH(req: NextRequest) {
   if (!result.success) return NextResponse.json({ error: result.error.flatten() }, { status: 400 });
 
   const { namespace, deployment, replicas } = result.data;
+  if (!isValidNamespace(namespace) || !isValidK8sName(deployment)) {
+    return NextResponse.json({ error: "Invalid deployment name" }, { status: 400 });
+  }
   try {
     const appsApi = makeKc().makeApiClient(k8s.AppsV1Api);
     await appsApi.patchNamespacedDeployment({ name: deployment, namespace, body: { spec: { replicas } } });
@@ -48,6 +52,9 @@ export async function GET(req: NextRequest) {
   const namespace = req.nextUrl.searchParams.get("namespace") ?? "";
   const deployment = req.nextUrl.searchParams.get("deployment") ?? "";
   if (!namespace || !deployment) return NextResponse.json({ error: "namespace and deployment required" }, { status: 400 });
+  if (!isValidNamespace(namespace) || !isValidK8sName(deployment)) {
+    return NextResponse.json({ error: "Invalid deployment name" }, { status: 400 });
+  }
 
   try {
     const appsApi = makeKc().makeApiClient(k8s.AppsV1Api);

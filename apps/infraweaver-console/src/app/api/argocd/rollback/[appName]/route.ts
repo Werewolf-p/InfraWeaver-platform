@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { auditLog } from "@/lib/audit-log";
+import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
+import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
+import { isValidK8sName } from "@/lib/validate";
 import { z } from "zod";
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ appName: string }> }) {
@@ -9,7 +11,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ app
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const access = await getSessionRBACContext(session, 60);
   if (!hasSessionPermission(access, "apps:sync")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!checkRateLimit(rateLimitKey("argocd-rollback", req), 5, 60_000)) {
+    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
+  }
   const { appName } = await params;
+  if (!isValidK8sName(appName)) return NextResponse.json({ error: "Invalid app name" }, { status: 400 });
   const RollbackBody = z.object({ revision: z.number().int().min(0) });
   const result = RollbackBody.safeParse(await req.json());
   if (!result.success) return NextResponse.json({ error: result.error.flatten() }, { status: 400 });

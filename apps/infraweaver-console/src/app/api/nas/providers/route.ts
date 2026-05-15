@@ -1,22 +1,26 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { hasPermission } from "@/lib/rbac";
-import { fetchInsecure } from "@/lib/insecure-fetch";
+import { fetchInternalService } from "@/lib/insecure-fetch";
+import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
+import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 
 async function checkReachable(url: string): Promise<boolean> {
   try {
-    const res = await fetchInsecure(url, { signal: AbortSignal.timeout(2000) });
+    const res = await fetchInternalService(url, { signal: AbortSignal.timeout(2000) }, { allowInsecureTls: true });
     return res.ok || res.status < 500;
   } catch {
     return false;
   }
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
-  if (!hasPermission(groups, "users:read")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const access = await getSessionRBACContext(session, 60);
+  if (!hasSessionPermission(access, "nas:read")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!checkRateLimit(rateLimitKey("nas-providers", req), 30, 60_000)) {
+    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
+  }
 
   const synoHost = process.env.SYNOLOGY_HOST ?? "10.25.0.21";
   const synoPort = process.env.SYNOLOGY_PORT ?? "5001";

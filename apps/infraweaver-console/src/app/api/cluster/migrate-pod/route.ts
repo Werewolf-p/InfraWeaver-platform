@@ -1,12 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { safeError } from "@/lib/utils";
+import { isValidK8sName, isValidNamespace } from "@/lib/validate";
 import * as k8s from "@kubernetes/client-node";
+import { z } from "zod";
 
-// POST /api/cluster/migrate-pod
-// Migrates a Deployment/StatefulSet pod to a target node.
-// Validates that target node has enough available memory before moving.
+const MIGRATE_POD_SCHEMA = z.object({
+  namespace: z.string().min(1).max(63),
+  podName: z.string().min(1).max(253),
+  targetNode: z.string().min(1).max(253),
+});
 
 function kiToMi(kiStr: string): number {
   return Math.round(parseInt(kiStr.replace("Ki", "")) / 1024);
@@ -19,16 +24,17 @@ export async function POST(req: NextRequest) {
   if (!hasSessionPermission(access, "cluster:admin")) {
     return NextResponse.json({ error: "Forbidden — requires cluster:admin" }, { status: 403 });
   }
+  if (!checkRateLimit(rateLimitKey("cluster-migrate-pod", req), 5, 60_000)) {
+    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
+  }
 
-  const body = (await req.json()) as {
-    namespace?: string;
-    podName?: string;
-    targetNode?: string;
-  };
-
-  const { namespace, podName, targetNode } = body;
-  if (!namespace || !podName || !targetNode) {
-    return NextResponse.json({ error: "namespace, podName, and targetNode are required" }, { status: 400 });
+  const parsed = MIGRATE_POD_SCHEMA.safeParse(await req.json());
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+  }
+  const { namespace, podName, targetNode } = parsed.data;
+  if (!isValidNamespace(namespace) || !isValidK8sName(podName) || !isValidK8sName(targetNode)) {
+    return NextResponse.json({ error: "Invalid pod or node name" }, { status: 400 });
   }
 
   const kc = new k8s.KubeConfig();
@@ -43,7 +49,6 @@ export async function POST(req: NextRequest) {
   const metricsApi = kc.makeApiClient(k8s.CustomObjectsApi);
 
   try {
-    // ── 1. Get the pod to find its owner and resource usage ──────────────────
     const pod = await coreApi.readNamespacedPod({ name: podName, namespace });
     const podSpec = (pod as { spec?: { nodeName?: string }; metadata?: { ownerReferences?: Array<{ kind: string; name: string }> } });
     const currentNode = podSpec.spec?.nodeName;
@@ -51,7 +56,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Pod is already on that node" }, { status: 400 });
     }
 
-    // Find owner (Deployment or StatefulSet)
     const owners = podSpec.metadata?.ownerReferences ?? [];
     const rsOwner = owners.find(o => o.kind === "ReplicaSet");
     const stsOwner = owners.find(o => o.kind === "StatefulSet");
@@ -59,7 +63,6 @@ export async function POST(req: NextRequest) {
     let statefulSetName: string | null = null;
 
     if (rsOwner) {
-      // ReplicaSet → find parent Deployment
       const rs = await appsApi.readNamespacedReplicaSet({ name: rsOwner.name, namespace });
       const rsOwners = (rs as { metadata?: { ownerReferences?: Array<{ kind: string; name: string }> } }).metadata?.ownerReferences ?? [];
       const depOwner = rsOwners.find(o => o.kind === "Deployment");
@@ -72,8 +75,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Pod is not managed by a Deployment or StatefulSet — cannot migrate" }, { status: 400 });
     }
 
-    // ── 2. Get pod's current memory usage ────────────────────────────────────
-    let podMemoryMi = 256; // fallback estimate
+    let podMemoryMi = 256;
     try {
       const podMetrics = await metricsApi.listNamespacedCustomObject({
         group: "metrics.k8s.io",
@@ -89,9 +91,8 @@ export async function POST(req: NextRequest) {
         }, 0);
         podMemoryMi = Math.round(totalMemKi / 1024);
       }
-    } catch { /* metrics not available, use fallback */ }
+    } catch {}
 
-    // ── 3. Validate target node has enough available memory ───────────────────
     const nodesResp = await coreApi.listNode();
     const nodes = (nodesResp as { items?: unknown[] }).items ?? [];
     const targetNodeObj = nodes.find((n: unknown) => {
@@ -107,10 +108,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `Target node ${targetNode} is not Ready` }, { status: 400 });
     }
 
-    // Get allocatable memory on target node
     const allocatableMi = kiToMi(targetNodeObj.status?.allocatable?.memory ?? "0Ki");
 
-    // Get current pod usage on target node
     let targetNodeUsedMi = 0;
     try {
       const nodeMetrics = await metricsApi.listClusterCustomObject({
@@ -120,10 +119,10 @@ export async function POST(req: NextRequest) {
       }) as { items?: Array<{ metadata?: { name?: string }; usage?: { memory?: string } }> };
       const nm = (nodeMetrics.items ?? []).find(m => m.metadata?.name === targetNode);
       if (nm) targetNodeUsedMi = kiToMi(nm.usage?.memory ?? "0Ki");
-    } catch { /* fallback */ }
+    } catch {}
 
     const availableAfterMove = allocatableMi - targetNodeUsedMi - podMemoryMi;
-    const bufferMi = 512; // require 512 Mi buffer after move
+    const bufferMi = 512;
     if (availableAfterMove < bufferMi) {
       return NextResponse.json({
         error: `Not enough memory on ${targetNode}. Available: ${allocatableMi - targetNodeUsedMi} Mi, needed: ${podMemoryMi + bufferMi} Mi (pod ${podMemoryMi} Mi + ${bufferMi} Mi buffer)`,
@@ -132,7 +131,6 @@ export async function POST(req: NextRequest) {
       }, { status: 409 });
     }
 
-    // ── 4. Apply nodeAffinity to prefer target node ───────────────────────────
     const affinityPatch = {
       spec: {
         template: {
@@ -174,7 +172,6 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // ── 5. Delete pod to trigger reschedule on target node ────────────────────
     await coreApi.deleteNamespacedPod({ name: podName, namespace });
 
     return NextResponse.json({

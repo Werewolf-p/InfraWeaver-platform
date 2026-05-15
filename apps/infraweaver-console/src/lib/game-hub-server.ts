@@ -5,6 +5,7 @@ import { Writable } from "stream";
 import { getEggForGameType, type GameEgg, type SavedCommand } from "@/lib/game-eggs";
 import { GAME_HUB_NAMESPACE, parseEggConfig } from "@/lib/game-hub";
 import { loadKubeConfig } from "@/lib/k8s";
+import { parseSafeExternalUrl, requestSafeExternalUrl } from "@/lib/outbound-url";
 
 export const GAME_HUB_NS = GAME_HUB_NAMESPACE;
 const AUDIT_CONFIG_MAP_KEY = "entries.json";
@@ -533,10 +534,14 @@ export function parseDiscordWebhookConfig(raw: string | undefined | null): Disco
 export async function sendDiscordWebhook(config: DiscordWebhookConfig | null, event: string, content: string) {
   if (!config?.url) return;
   if (config.events.length > 0 && !config.events.includes(event)) return;
-  await fetch(config.url, {
+  const url = await parseSafeExternalUrl(config.url);
+  if (!url) return;
+  await requestSafeExternalUrl(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ content }),
+    maxResponseBytes: 64_000,
+    timeoutMs: 8_000,
   }).catch(() => undefined);
 }
 

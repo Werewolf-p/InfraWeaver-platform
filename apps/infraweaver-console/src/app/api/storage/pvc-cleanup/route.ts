@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { getSessionRBACContext, hasAnySessionPermission, hasSessionPermission } from "@/lib/session-rbac";
 import { safeError } from "@/lib/utils";
+import { isValidK8sName, isValidNamespace } from "@/lib/validate";
 import * as k8s from "@kubernetes/client-node";
 
 function makeClient() {
@@ -11,7 +13,6 @@ function makeClient() {
   return kc.makeApiClient(k8s.CoreV1Api);
 }
 
-// GET — list all PVCs that are not Bound (Released, Pending, Lost, or no phase)
 export async function GET() {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -25,12 +26,7 @@ export async function GET() {
     const res = await coreApi.listPersistentVolumeClaimForAllNamespaces();
 
     const unused = res.items
-      .filter(pvc => {
-        const phase = pvc.status?.phase ?? "";
-        // Released = PV exists but PVC is gone; Pending = never bound; Lost = PV gone
-        // Also include PVCs in Bound state if their PV is released (shouldn't happen but defensive)
-        return phase !== "Bound";
-      })
+      .filter(pvc => (pvc.status?.phase ?? "") !== "Bound")
       .map(pvc => ({
         namespace: pvc.metadata?.namespace ?? "",
         name: pvc.metadata?.name ?? "",
@@ -49,7 +45,6 @@ export async function GET() {
   }
 }
 
-// DELETE — delete selected PVCs
 export async function DELETE(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -57,10 +52,16 @@ export async function DELETE(req: NextRequest) {
   if (!hasSessionPermission(access, "cluster:admin")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+  if (!checkRateLimit(rateLimitKey("storage-pvc-cleanup", req), 10, 60_000)) {
+    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
+  }
 
   const body = await req.json() as { pvcs: Array<{ namespace: string; name: string }> };
   if (!Array.isArray(body.pvcs) || body.pvcs.length === 0) {
     return NextResponse.json({ error: "No PVCs specified" }, { status: 400 });
+  }
+  if (body.pvcs.some((pvc) => !isValidNamespace(pvc.namespace) || !isValidK8sName(pvc.name))) {
+    return NextResponse.json({ error: "Invalid PVC name" }, { status: 400 });
   }
 
   const coreApi = makeClient();
