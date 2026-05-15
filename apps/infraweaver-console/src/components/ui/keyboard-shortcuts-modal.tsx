@@ -11,13 +11,16 @@ interface Shortcut {
 }
 
 const SHORTCUTS: Shortcut[] = [
-  { keys: ["Ctrl", "K"], description: "Open command palette", category: "Navigation" },
+  { keys: ["Ctrl", "K"], description: "Open global search", category: "Navigation" },
+  { keys: ["/"], description: "Focus global search", category: "Navigation" },
   { keys: ["G", "H"], description: "Go to Home", category: "Navigation" },
   { keys: ["G", "A"], description: "Go to Apps", category: "Navigation" },
   { keys: ["G", "L"], description: "Go to Logs", category: "Navigation" },
   { keys: ["G", "S"], description: "Go to Settings", category: "Navigation" },
   { keys: ["G", "Z"], description: "Go to DNS", category: "Navigation" },
   { keys: ["?"], description: "Show keyboard shortcuts", category: "Navigation" },
+  { keys: ["↑", "↓"], description: "Move through search results", category: "Actions" },
+  { keys: ["Enter"], description: "Open highlighted result", category: "Actions" },
   { keys: ["R"], description: "Refresh current view", category: "Actions" },
   { keys: ["Esc"], description: "Close modal / panel", category: "Actions" },
   { keys: ["Ctrl", "Shift", "D"], description: "Toggle density", category: "Actions" },

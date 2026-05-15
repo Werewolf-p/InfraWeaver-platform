@@ -1,8 +1,11 @@
 "use client";
 
+import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, Home } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Home, Sparkles } from "lucide-react";
+import { useRecentPages } from "@/hooks/use-recent-pages";
+import { NAV_GROUPS } from "@/lib/nav-config";
 import { cn } from "@/lib/utils";
 
 export const ROUTE_LABELS: Record<string, string> = {
@@ -47,6 +50,11 @@ function labelForSegment(segment: string) {
   return ROUTE_LABELS[segment] ?? decodeURIComponent(segment);
 }
 
+function matchesPath(pathname: string, href: string) {
+  if (href === "/") return pathname === "/";
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
 export function titleForPathname(pathname: string) {
   const segments = pathname.split("/").filter(Boolean);
   if (segments.length === 0) return "Dashboard";
@@ -65,7 +73,44 @@ function breadcrumbItems(pathname: string) {
 export function Breadcrumb({ className }: { className?: string }) {
   const pathname = usePathname();
   const router = useRouter();
+  const { recentPages } = useRecentPages();
+  const [jumpOpen, setJumpOpen] = useState(false);
+  const jumpRef = useRef<HTMLDivElement>(null);
   const crumbs = breadcrumbItems(pathname);
+
+  const jumpItems = useMemo(() => {
+    const currentGroup = NAV_GROUPS.find((group) => group.items.some((item) => matchesPath(pathname, item.href)));
+    const items = [
+      ...(currentGroup?.items.map((item) => ({ href: item.href, label: item.label, subtitle: currentGroup.label })) ?? []),
+      ...recentPages.map((page) => ({ href: page.href, label: page.title, subtitle: "Recent" })),
+    ];
+
+    const seen = new Set<string>();
+    return items.filter((item) => {
+      if (matchesPath(pathname, item.href)) return false;
+      if (seen.has(item.href)) return false;
+      seen.add(item.href);
+      return true;
+    }).slice(0, 8);
+  }, [pathname, recentPages]);
+
+  useEffect(() => {
+    if (!jumpOpen) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!jumpRef.current?.contains(event.target as Node)) {
+        setJumpOpen(false);
+      }
+    };
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setJumpOpen(false);
+    };
+    document.addEventListener("mousedown", handlePointerDown);
+    window.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, [jumpOpen]);
 
   if (crumbs.length === 0) return null;
 
@@ -82,7 +127,7 @@ export function Breadcrumb({ className }: { className?: string }) {
           Back
         </button>
       ) : null}
-      <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 overflow-x-auto whitespace-nowrap scrollbar-none">
+      <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1.5 overflow-x-auto whitespace-nowrap scrollbar-none">
         <Link href="/" className="flex items-center rounded-md p-1 transition-colors hover:text-[#f2f2f2]">
           <Home className="h-3 w-3" />
         </Link>
@@ -97,6 +142,44 @@ export function Breadcrumb({ className }: { className?: string }) {
           </span>
         ))}
       </nav>
+      {jumpItems.length > 0 ? (
+        <div className="relative ml-auto" ref={jumpRef}>
+          <button
+            type="button"
+            onClick={() => setJumpOpen((open) => !open)}
+            className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-[#2a2a2a] bg-[#0d0d0d] px-2 text-[#888] transition-colors hover:bg-[#1a1a1a] hover:text-[#f2f2f2]"
+            aria-haspopup="menu"
+            aria-expanded={jumpOpen}
+          >
+            <Sparkles className="h-3 w-3" />
+            Jump
+            <ChevronDown className={cn("h-3 w-3 transition-transform", jumpOpen && "rotate-180")} />
+          </button>
+          {jumpOpen ? (
+            <div className="absolute right-0 top-full z-20 mt-2 min-w-[14rem] overflow-hidden rounded-xl border border-[#2a2a2a] bg-[#111] shadow-2xl">
+              <div className="border-b border-[#2a2a2a] px-3 py-2">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-[#888]">Quick jump</p>
+                <p className="mt-1 text-[11px] text-[#666]">Sibling pages and recent destinations.</p>
+              </div>
+              <div className="py-1">
+                {jumpItems.map((item) => (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className="flex items-center justify-between gap-3 px-3 py-2.5 transition-colors hover:bg-[#1a1a1a]"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm text-[#f2f2f2]">{item.label}</p>
+                      <p className="truncate text-[11px] text-[#666]">{item.subtitle}</p>
+                    </div>
+                    <ChevronRight className="h-3.5 w-3.5 flex-shrink-0 text-[#555]" />
+                  </Link>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }

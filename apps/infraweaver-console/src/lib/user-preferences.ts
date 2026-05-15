@@ -14,11 +14,17 @@ export interface RecentlyVisitedPage {
   visitedAt: number;
 }
 
+export interface RecentSearchEntry {
+  query: string;
+  usedAt: number;
+}
+
 export interface UserPreferencesPayload {
   dashboardLayout: DashboardLayoutPreferences;
   pinnedApps: string[];
   theme: ThemePreference;
   recentlyVisited: RecentlyVisitedPage[];
+  recentSearches: RecentSearchEntry[];
 }
 
 export interface UserPreferencesUpdate {
@@ -29,6 +35,7 @@ export interface UserPreferencesUpdate {
   pinnedApps?: string[];
   theme?: ThemePreference;
   recentlyVisited?: RecentlyVisitedPage[];
+  recentSearches?: RecentSearchEntry[];
 }
 
 export const USER_PREFERENCES_QUERY_KEY = ["user", "preferences"] as const;
@@ -37,11 +44,13 @@ export const USER_PREFERENCES_STORAGE_KEYS = {
   dashboardLayout: "infraweaver_prefs",
   pinnedApps: "infraweaver:favorites",
   recentlyVisited: "infraweaver:recent-pages",
+  recentSearches: "infraweaver:recent-searches",
   theme: "theme",
   legacyTheme: "iw-theme",
 } as const;
 
 export const MAX_RECENTLY_VISITED = 10;
+export const MAX_RECENT_SEARCHES = 8;
 
 export const DEFAULT_DASHBOARD_LAYOUT: DashboardLayoutPreferences = {
   widgets: {
@@ -60,6 +69,7 @@ export const DEFAULT_USER_PREFERENCES: UserPreferencesPayload = {
   pinnedApps: [],
   theme: "system",
   recentlyVisited: [],
+  recentSearches: [],
 };
 
 export function isThemePreference(value: unknown): value is ThemePreference {
@@ -99,6 +109,34 @@ export function normalizeRecentlyVisited(value: unknown): RecentlyVisitedPage[] 
     .slice(0, MAX_RECENTLY_VISITED);
 }
 
+export function normalizeRecentSearches(value: unknown): RecentSearchEntry[] {
+  if (!Array.isArray(value)) return [];
+
+  const entries = value
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") return null;
+      const candidate = entry as Partial<RecentSearchEntry>;
+      if (typeof candidate.query !== "string" || candidate.query.trim().length === 0) return null;
+      const usedAt = Number.isFinite(candidate.usedAt) ? Math.max(0, Math.trunc(candidate.usedAt ?? 0)) : Date.now();
+      return {
+        query: candidate.query.trim(),
+        usedAt,
+      } satisfies RecentSearchEntry;
+    })
+    .filter((entry): entry is RecentSearchEntry => Boolean(entry));
+
+  const seen = new Set<string>();
+  return entries
+    .sort((a, b) => b.usedAt - a.usedAt)
+    .filter((entry) => {
+      const key = entry.query.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, MAX_RECENT_SEARCHES);
+}
+
 export function mergeDashboardLayout(
   base: DashboardLayoutPreferences,
   update?: Partial<DashboardLayoutPreferences> & {
@@ -129,6 +167,9 @@ export function mergeUserPreferences(
     recentlyVisited: update.recentlyVisited
       ? normalizeRecentlyVisited(update.recentlyVisited)
       : base.recentlyVisited,
+    recentSearches: update.recentSearches
+      ? normalizeRecentSearches(update.recentSearches)
+      : base.recentSearches,
   };
 }
 
@@ -143,5 +184,6 @@ export function normalizeUserPreferences(value: unknown): UserPreferencesPayload
     pinnedApps: normalizePinnedApps(candidate.pinnedApps),
     theme: isThemePreference(candidate.theme) ? candidate.theme : undefined,
     recentlyVisited: normalizeRecentlyVisited(candidate.recentlyVisited),
+    recentSearches: normalizeRecentSearches(candidate.recentSearches),
   });
 }

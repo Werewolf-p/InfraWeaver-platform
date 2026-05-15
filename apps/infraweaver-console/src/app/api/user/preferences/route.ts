@@ -18,11 +18,17 @@ const recentlyVisitedSchema = z.object({
   visitedAt: z.number().int().nonnegative(),
 });
 
+const recentSearchSchema = z.object({
+  query: z.string().min(1),
+  usedAt: z.number().int().nonnegative(),
+});
+
 const updatePreferencesSchema = z.object({
   dashboardLayout: dashboardLayoutSchema.optional(),
   pinnedApps: z.array(z.string().min(1)).optional(),
   theme: z.enum(["light", "dark", "system"]).optional(),
   recentlyVisited: z.array(recentlyVisitedSchema).max(10).optional(),
+  recentSearches: z.array(recentSearchSchema).max(8).optional(),
 }).refine((value) => Object.keys(value).length > 0, {
   message: "No preferences provided",
 });

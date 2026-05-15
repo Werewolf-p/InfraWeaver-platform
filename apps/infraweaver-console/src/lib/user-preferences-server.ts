@@ -56,6 +56,7 @@ function parseConfigMapPreferences(configMap: PreferencesConfigMap | null): User
     pinnedApps: safeParseJson(configMap?.data?.pinnedApps),
     theme: configMap?.data?.theme,
     recentlyVisited: safeParseJson(configMap?.data?.recentlyVisited),
+    recentSearches: safeParseJson(configMap?.data?.recentSearches),
   });
 }
 
@@ -125,6 +126,7 @@ export async function updateUserPreferences(session: Session, update: UserPrefer
       pinnedApps: JSON.stringify(nextPreferences.pinnedApps),
       theme: nextPreferences.theme,
       recentlyVisited: JSON.stringify(nextPreferences.recentlyVisited),
+      recentSearches: JSON.stringify(nextPreferences.recentSearches),
       preferences: JSON.stringify(nextPreferences),
       updatedAt,
     },
