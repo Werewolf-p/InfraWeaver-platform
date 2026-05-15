@@ -186,19 +186,7 @@ jobs:
             if echo "$CURRENT_SERVER" | grep -q "$NODE_IP"; then
               echo "  ⚠ Kubeconfig points to this node ($NODE_IP) — switching to alternate CP..."
               # Pick any other Ready CP node
-              ALT_IP=$(kubectl get nodes -o json 2>/dev/null | python3 -c "
-import json,sys
-nodes = json.load(sys.stdin)['items']
-for n in nodes:
-    if n['metadata']['name'] != '${NODE}':
-        cond = [c for c in n.get('status',{}).get('conditions',[]) if c.get('type')=='Ready']
-        if cond and cond[0].get('status')=='True':
-            for a in n['status'].get('addresses',[]):
-                if a['type'] == 'InternalIP':
-                    print(a['address'])
-                    break
-            break
-")
+              ALT_IP=$(kubectl get nodes -o json 2>/dev/null | python3 -c "import json,sys,os; nodes=json.load(sys.stdin)['items']; [print(a['address']) for n in nodes if n['metadata']['name']!=os.environ.get('NODE','') for c in [next((c for c in n.get('status',{}).get('conditions',[]) if c['type']=='Ready'),None)] if c and c.get('status')=='True' for a in n['status'].get('addresses',[]) if a['type']=='InternalIP']" 2>/dev/null | head -1)
               if [ -n "$ALT_IP" ]; then
                 ALT_SERVER="https://${ALT_IP}:6443"
                 kubectl config set-cluster "$(kubectl config view --minify \
