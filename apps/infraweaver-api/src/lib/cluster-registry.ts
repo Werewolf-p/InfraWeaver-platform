@@ -31,26 +31,39 @@ function getStatusCode(error: unknown): number | undefined {
   }
 
   const candidate = error as {
+    code?: unknown;
+    status?: unknown;
     statusCode?: unknown;
-    response?: { statusCode?: unknown };
+    message?: unknown;
+    response?: { status?: unknown; statusCode?: unknown };
     body?: { code?: unknown };
   };
 
-  if (typeof candidate.statusCode === 'number') {
-    return candidate.statusCode;
+  for (const value of [candidate.statusCode, candidate.response?.statusCode, candidate.status, candidate.response?.status, candidate.body?.code, candidate.code]) {
+    if (typeof value === 'number') {
+      return value;
+    }
+    if (typeof value === 'string' && /^\d+$/.test(value)) {
+      return Number.parseInt(value, 10);
+    }
   }
-  if (typeof candidate.response?.statusCode === 'number') {
-    return candidate.response.statusCode;
-  }
-  if (typeof candidate.body?.code === 'number') {
-    return candidate.body.code;
+
+  if (typeof candidate.message === 'string') {
+    const match = candidate.message.match(/\b(4\d\d|5\d\d)\b/);
+    if (match) {
+      return Number.parseInt(match[1], 10);
+    }
   }
 
   return undefined;
 }
 
 function isNotFound(error: unknown): boolean {
-  return getStatusCode(error) === 404;
+  if (getStatusCode(error) === 404) {
+    return true;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return /\b404\b|not\s*found/i.test(message);
 }
 
 function encodeSecretValue(value: string): string {

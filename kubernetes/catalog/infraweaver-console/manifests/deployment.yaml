@@ -51,6 +51,7 @@ spec:
       - name: console
         image: onedev.rlservers.com/infraweaver/infraweaver-console:main-629a02d
         imagePullPolicy: IfNotPresent
+        command: ["sh", "-c", "HOSTNAME=0.0.0.0 node server.js"]
         ports:
         - containerPort: 3000
           name: http

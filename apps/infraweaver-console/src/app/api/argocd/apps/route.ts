@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { loadKubeConfig } from "@/lib/k8s";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
+import * as k8s from "@kubernetes/client-node";
 
 const ARGOCD_SERVER = process.env.ARGOCD_SERVER ?? "http://argocd-server.argocd.svc.cluster.local:80";
 const ARGOCD_TOKEN = process.env.ARGOCD_TOKEN ?? "";
@@ -8,6 +10,21 @@ const ARGOCD_TOKEN = process.env.ARGOCD_TOKEN ?? "";
 // In-memory cache: survives ArgoCD brief outages during Flannel disruptions
 let _lastKnownApps: unknown[] | null = null;
 let _lastFetchTime = 0;
+
+async function listApplicationCrds() {
+  try {
+    const customObjectsApi = loadKubeConfig().makeApiClient(k8s.CustomObjectsApi);
+    const response = await customObjectsApi.listNamespacedCustomObject({
+      group: "argoproj.io",
+      version: "v1alpha1",
+      namespace: "argocd",
+      plural: "applications",
+    }) as { items?: unknown[] };
+    return Array.isArray(response.items) ? response.items : [];
+  } catch {
+    return null;
+  }
+}
 
 export async function GET() {
   const session = await auth();
@@ -25,19 +42,25 @@ export async function GET() {
       cache: "no-store",
       signal: AbortSignal.timeout(5000),
     });
-    if (!res.ok) {
-      // Use cached real data if available (< 10 min old), else fall back to mock
-      if (_lastKnownApps && Date.now() - _lastFetchTime < 600_000) return NextResponse.json(_lastKnownApps);
-      return NextResponse.json(getMockApps());
+    if (res.ok) {
+      const data = await res.json();
+      _lastKnownApps = data.items ?? [];
+      _lastFetchTime = Date.now();
+      return NextResponse.json(_lastKnownApps);
     }
-    const data = await res.json();
-    _lastKnownApps = data.items ?? [];
-    _lastFetchTime = Date.now();
-    return NextResponse.json(_lastKnownApps);
   } catch {
-    if (_lastKnownApps && Date.now() - _lastFetchTime < 600_000) return NextResponse.json(_lastKnownApps);
-    return NextResponse.json(getMockApps());
+    // Fall back to the Application CRD list below.
   }
+
+  const crdItems = await listApplicationCrds();
+  if (crdItems) {
+    _lastKnownApps = crdItems;
+    _lastFetchTime = Date.now();
+    return NextResponse.json(crdItems);
+  }
+
+  if (_lastKnownApps && Date.now() - _lastFetchTime < 600_000) return NextResponse.json(_lastKnownApps);
+  return NextResponse.json(getMockApps());
 }
 
 function getMockApps() {
