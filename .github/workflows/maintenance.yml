@@ -24,6 +24,8 @@ on:
     - cron: "0 5 1,15 * *" # 1st and 15th of month — ESO token renewal
     - cron: "*/10 * * * *" # Every 10 min — etcd alarm check
     - cron: "*/15 * * * *" # Every 15 min — OpenBao/ESO recovery
+    - cron: "30 8 * * *" # Daily 08:30 UTC — certificate expiry check
+    - cron: "45 */6 * * *" # Every 6 hours — Velero backup verification
   workflow_dispatch:
     inputs:
       task:
@@ -43,6 +45,8 @@ on:
           - self-heal           # auto-recover stuck pods + OutOfSync apps
           - etcd-alarm-check    # fix etcd CORRUPT alarm if detected
           - openbao-eso-recovery # validate OpenBao store + refresh failed ExternalSecrets
+          - cert-expiry-check
+          - velero-backup-verify
       environment:
         description: "Environment (for drift detection)"
         required: false
@@ -771,3 +775,136 @@ jobs:
           else
             echo "✅ OpenBao healthy, all ExternalSecrets synced — nothing to recover"
           fi
+
+  cert-expiry-check:
+    name: Certificate Expiry Check
+    runs-on: [self-hosted, prod-worker]
+    if: >-
+      (github.event_name == 'schedule' && github.event.schedule == '30 8 * * *') ||
+      (github.event_name == 'workflow_dispatch' && inputs.task == 'cert-expiry-check')
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG_PRODUCTIE }}" | base64 -d > ~/.kube/config-platform-productie
+          chmod 600 ~/.kube/config-platform-productie
+
+      - name: Check certificate expiry windows
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL || secrets.DISCORD_WEBHOOK }}
+        run: |
+          KB=~/.kube/config-platform-productie
+          export KB
+          python3 - <<'PY'
+          import json
+          import os
+          import subprocess
+          import sys
+          import urllib.request
+          from datetime import datetime, timezone
+
+          kb = os.environ['KB']
+          summary_file = os.environ['GITHUB_STEP_SUMMARY']
+          webhook = os.environ.get('DISCORD_WEBHOOK_URL', '').strip()
+          cmd = ['kubectl', '--kubeconfig', kb, '--insecure-skip-tls-verify', 'get', 'certificates.cert-manager.io', '-A', '-o', 'json']
+          data = json.loads(subprocess.check_output(cmd, text=True))
+          now = datetime.now(timezone.utc)
+          warnings = []
+          urgent = []
+          for item in data.get('items', []):
+            status = item.get('status') or {}
+            not_after = status.get('notAfter')
+            if not not_after:
+              continue
+            expiry = datetime.fromisoformat(not_after.replace('Z', '+00:00')).astimezone(timezone.utc)
+            days_left = int((expiry - now).total_seconds() // 86400)
+            entry = f"{item['metadata']['namespace']}/{item['metadata']['name']} expires in {days_left}d"
+            if days_left <= 14:
+              warnings.append(entry)
+            if days_left <= 7:
+              urgent.append(entry)
+          with open(summary_file, 'a', encoding='utf-8') as handle:
+            handle.write('## Certificate expiry check\n')
+            if warnings:
+              for entry in warnings:
+                handle.write(f'- {entry}\n')
+            else:
+              handle.write('- All cert-manager certificates have >14d remaining\n')
+          if urgent and webhook:
+            try:
+              payload = json.dumps({'content': '⚠️ **Certificate expiry check**\n' + '\n'.join(f'- {entry}' for entry in urgent)}).encode()
+              req = urllib.request.Request(webhook, data=payload, headers={'Content-Type': 'application/json'})
+              urllib.request.urlopen(req, timeout=10).read()
+            except Exception:
+              pass
+          if urgent:
+            sys.exit(1)
+          PY
+
+  velero-backup-verify:
+    name: Velero Backup Verify
+    runs-on: [self-hosted, prod-worker]
+    if: >-
+      (github.event_name == 'schedule' && github.event.schedule == '45 */6 * * *') ||
+      (github.event_name == 'workflow_dispatch' && inputs.task == 'velero-backup-verify')
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG_PRODUCTIE }}" | base64 -d > ~/.kube/config-platform-productie
+          chmod 600 ~/.kube/config-platform-productie
+
+      - name: Verify recent Velero backups
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL || secrets.DISCORD_WEBHOOK }}
+        run: |
+          KB=~/.kube/config-platform-productie
+          export KB
+          python3 - <<'PY'
+          import json
+          import os
+          import subprocess
+          import sys
+          import urllib.request
+          from datetime import datetime, timezone
+
+          kb = os.environ['KB']
+          summary_file = os.environ['GITHUB_STEP_SUMMARY']
+          webhook = os.environ.get('DISCORD_WEBHOOK_URL', '').strip()
+          cmd = ['kubectl', '--kubeconfig', kb, '--insecure-skip-tls-verify', '-n', 'velero', 'get', 'backups.velero.io', '-o', 'json']
+          data = json.loads(subprocess.check_output(cmd, text=True))
+          now = datetime.now(timezone.utc)
+          completed = []
+          for item in data.get('items', []):
+            status = item.get('status') or {}
+            if status.get('phase') != 'Completed':
+              continue
+            completed_at = status.get('completionTimestamp') or status.get('startTimestamp')
+            if not completed_at:
+              continue
+            timestamp = datetime.fromisoformat(completed_at.replace('Z', '+00:00')).astimezone(timezone.utc)
+            completed.append(((now - timestamp).total_seconds() / 3600, item['metadata']['name']))
+          freshest = min(completed, default=None)
+          with open(summary_file, 'a', encoding='utf-8') as handle:
+            handle.write('## Velero backup verification\n')
+            if freshest is None:
+              handle.write('- No completed Velero backups found\n')
+            else:
+              handle.write(f'- Freshest completed backup: {freshest[1]} ({freshest[0]:.1f}h ago)\n')
+          stale = freshest is None or freshest[0] > 36
+          if stale and webhook:
+            try:
+              payload = json.dumps({'content': '⚠️ **Velero backup verification** found no completed backup within the last 36h.'}).encode()
+              req = urllib.request.Request(webhook, data=payload, headers={'Content-Type': 'application/json'})
+              urllib.request.urlopen(req, timeout=10).read()
+            except Exception:
+              pass
+          if stale:
+            sys.exit(1)
+          PY
