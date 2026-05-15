@@ -23,6 +23,8 @@ spec:
         app: infraweaver-api
     spec:
       serviceAccountName: infraweaver-api
+      imagePullSecrets:
+        - name: onedev-pull-secret
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
