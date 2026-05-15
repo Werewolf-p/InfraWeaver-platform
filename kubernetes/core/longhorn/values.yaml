@@ -22,8 +22,9 @@ defaultSettings:
   guaranteedInstanceManagerCPU: 12
   # Limit concurrent rebuild pressure during volume creation/recovery storms.
   concurrentReplicaRebuildPerNodeLimit: 1
-  # Wait before replenishing a failed replica — avoids immediate rebuild storms on node flap.
-  replicaReplenishmentWaitInterval: 600
+  # Wait before replenishing a failed replica — 30 min gives rebooting nodes time to return
+  # and reuse existing replicas (delta-resync only) instead of triggering a full rebuild storm.
+  replicaReplenishmentWaitInterval: 1800
   # Limit concurrent engine upgrades per node so upgrades don't cause I/O storms.
   concurrentAutomaticEngineUpgradePerNodeLimit: 1
   # Disable periodic snapshot integrity checks — reduces background I/O on small cluster.
