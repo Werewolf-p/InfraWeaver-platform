@@ -524,10 +524,10 @@ spec:
           resources:
             requests:
               cpu: 10m
-              memory: 16Mi
+              memory: 64Mi
             limits:
               cpu: 50m
-              memory: 32Mi
+              memory: 128Mi
       containers:
         - name: fix-db
           image: python:3.12-alpine
