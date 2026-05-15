@@ -41,6 +41,7 @@ export const ROUTE_LABELS: Record<string, string> = {
   "all-services": "All Services",
   "network-policies": "Network Policies",
   "secret-expiry": "Secret Expiry",
+  automations: "Automation Hub",
 };
 
 function labelForSegment(segment: string) {

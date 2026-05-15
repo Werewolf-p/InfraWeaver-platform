@@ -228,3 +228,36 @@ spec:
           annotations:
             summary: "ExternalSecret {{ $labels.namespace }}/{{ $labels.name }} not synced"
             description: "ExternalSecret has not synced for > 15 minutes. Check OpenBao connectivity."
+
+    # ── Automation health ───────────────────────────────────────────────────────
+    - name: automation.health
+      rules:
+        - alert: ClusterAutomationCronJobMissedSuccess
+          expr: |
+            time() - kube_cronjob_status_last_successful_time{namespace=~"argocd|longhorn-system",cronjob=~"argocd-self-healer|node-notready-remediator|node-memory-rebalancer|workload-janitor|longhorn-replica-guardian"} > 7200
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Automation CronJob {{ $labels.namespace }}/{{ $labels.cronjob }} has not succeeded recently"
+            description: "Cluster automation CronJob {{ $labels.cronjob }} has not reported a successful run within the last 2 hours."
+
+        - alert: LonghornBackupVerifierMissedSuccess
+          expr: |
+            time() - kube_cronjob_status_last_successful_time{namespace="longhorn-system",cronjob="longhorn-backup-verifier"} > 172800
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Longhorn backup verifier has not succeeded in 48h"
+            description: "The longhorn-backup-verifier CronJob has not recorded a successful run within the last 48 hours."
+
+        - alert: ClusterAutomationCronJobSuspended
+          expr: |
+            kube_cronjob_spec_suspend{namespace=~"argocd|longhorn-system",cronjob=~"argocd-self-healer|node-notready-remediator|node-memory-rebalancer|workload-janitor|longhorn-backup-verifier|longhorn-replica-guardian"} == 1
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Automation CronJob {{ $labels.namespace }}/{{ $labels.cronjob }} is suspended"
+            description: "Automation CronJob {{ $labels.cronjob }} is suspended and will not run until resumed."

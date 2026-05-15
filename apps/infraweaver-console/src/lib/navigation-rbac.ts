@@ -51,6 +51,7 @@ const NAV_REQUIREMENTS: Record<string, NavRequirement> = {
   "/cost": { any: ["infra:read"] },
   "/storage-timeline": { any: ["infra:read"] },
   "/scheduled-tasks": { any: ["config:write"] },
+  "/automations": { any: ["cluster:read", "infra:read"] },
   "/tests": { any: ["infra:read"] },
   "/self-test": { any: ["infra:read"] },
   "/users": { any: ["users:read", "rbac:admin"] },

@@ -161,6 +161,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/cost", icon: DollarSign, label: "Cost Estimate", description: "Estimated resource cost breakdown" },
       { href: "/storage-timeline", icon: HardDrive, label: "Storage Timeline", description: "Historical storage usage charts" },
       { href: "/scheduled-tasks", icon: Calendar, label: "Scheduled Tasks", description: "View and manage scheduled operations" },
+      { href: "/automations", icon: Sparkles, label: "Automation Hub", description: "Track self-healing jobs and workflow automations" },
       { href: "/tests", icon: Activity, label: "Platform Tests", description: "Interactive platform test suite", pinnable: true },
       { href: "/self-test", icon: TestTube2, label: "Self Test", description: "Verify console SA connectivity to the Kubernetes API" },
     ],
