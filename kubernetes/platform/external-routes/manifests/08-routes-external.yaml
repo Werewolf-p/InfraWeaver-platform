@@ -13,6 +13,9 @@ spec:
   routes:
     - match: Host(`rlservers.com`) || Host(`www.rlservers.com`)
       kind: Rule
+      middlewares:
+        - name: secure-headers
+          namespace: traefik
       services:
         - name: bm-wp-rlservers
           port: 443
@@ -96,6 +99,9 @@ spec:
   routes:
     - match: Host(`keycloak.rlservers.com`)
       kind: Rule
+      middlewares:
+        - name: secure-headers
+          namespace: traefik
       services:
         - name: bm-keycloak
           port: 7080
@@ -114,6 +120,9 @@ spec:
   routes:
     - match: Host(`awx.rlservers.com`)
       kind: Rule
+      middlewares:
+        - name: secure-headers
+          namespace: traefik
       services:
         - name: bm-awx
           port: 30750
@@ -132,6 +141,9 @@ spec:
   routes:
     - match: Host(`bitwarden.rlservers.com`)
       kind: Rule
+      middlewares:
+        - name: secure-headers
+          namespace: traefik
       services:
         - name: bm-bitwarden
           port: 30032
@@ -150,6 +162,9 @@ spec:
   routes:
     - match: Host(`gitlab.rlservers.com`)
       kind: Rule
+      middlewares:
+        - name: secure-headers
+          namespace: traefik
       services:
         - name: bm-gitlab
           port: 80
@@ -186,6 +201,9 @@ spec:
   routes:
     - match: Host(`cloud.rlservers.com`)
       kind: Rule
+      middlewares:
+        - name: secure-headers
+          namespace: traefik
       services:
         - name: bm-cloud
           port: 30027
@@ -206,6 +224,9 @@ spec:
   routes:
     - match: Host(`teleport.rlservers.com`)
       kind: Rule
+      middlewares:
+        - name: secure-headers
+          namespace: traefik
       services:
         - name: bm-teleport
           port: 3080
@@ -265,6 +286,8 @@ spec:
     - match: Host(`ot.yonavaarwater.nl`)
       kind: Rule
       middlewares:
+        - name: secure-headers
+          namespace: traefik
         - name: forward-auth
           namespace: traefik
       services:

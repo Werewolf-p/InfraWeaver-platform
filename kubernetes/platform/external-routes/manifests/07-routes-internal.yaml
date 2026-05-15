@@ -1,6 +1,6 @@
 ---
 # IngressRoutes for internal bare-metal services (homelab LAN + VPN only)
-# All use internal-only middleware.
+# All use internal-only middleware + secure-headers for browser security hardening.
 
 # ── AdGuard ───────────────────────────────────────────────────────────────────
 apiVersion: traefik.io/v1alpha1
@@ -15,6 +15,8 @@ spec:
     - match: Host(`adguard.int.rlservers.com`)
       kind: Rule
       middlewares:
+        - name: secure-headers
+          namespace: traefik
         - name: internal-only
           namespace: traefik
       services:
@@ -36,6 +38,8 @@ spec:
     - match: Host(`ansible.int.rlservers.com`)
       kind: Rule
       middlewares:
+        - name: secure-headers
+          namespace: traefik
         - name: internal-only
           namespace: traefik
       services:
@@ -45,6 +49,9 @@ spec:
     secretName: platform-wildcard-int-tls
 ---
 # ── Traefik Dashboard ─────────────────────────────────────────────────────────
+# Security: forward-auth added — the Traefik dashboard has no built-in
+# authentication. Without forward-auth, any user on the LAN/VPN can view all
+# routing rules, middleware config, and backend IPs. Authentik login is required.
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
@@ -57,7 +64,11 @@ spec:
     - match: Host(`traefik.int.rlservers.com`)
       kind: Rule
       middlewares:
+        - name: secure-headers
+          namespace: traefik
         - name: internal-only
+          namespace: traefik
+        - name: forward-auth
           namespace: traefik
       services:
         - name: traefik-dashboard
@@ -78,6 +89,8 @@ spec:
     - match: Host(`proxmox.int.rlservers.com`)
       kind: Rule
       middlewares:
+        - name: secure-headers
+          namespace: traefik
         - name: internal-only
           namespace: traefik
       services:
@@ -101,6 +114,8 @@ spec:
     - match: Host(`portainer.int.rlservers.com`)
       kind: Rule
       middlewares:
+        - name: secure-headers
+          namespace: traefik
         - name: internal-only
           namespace: traefik
       services:
@@ -124,6 +139,8 @@ spec:
     - match: Host(`portainer2.int.rlservers.com`)
       kind: Rule
       middlewares:
+        - name: secure-headers
+          namespace: traefik
         - name: internal-only
           namespace: traefik
       services:
@@ -147,6 +164,8 @@ spec:
     - match: Host(`truenas.rlservers.com`)
       kind: Rule
       middlewares:
+        - name: secure-headers
+          namespace: traefik
         - name: internal-only
           namespace: traefik
       services:
@@ -170,6 +189,8 @@ spec:
     - match: Host(`vault1.int.rlservers.com`)
       kind: Rule
       middlewares:
+        - name: secure-headers
+          namespace: traefik
         - name: internal-only
           namespace: traefik
       services:
