@@ -23,7 +23,7 @@ controller:
             - talos-prod-cp2
 
 server:
-  replicas: 2  # HA: 2 replicas spread across nodes
+  replicas: 1  # Memory-optimised: 3-node homelab, single replica is sufficient
   extraArgs:
     - --insecure  # TLS terminated at ingress
 
@@ -59,7 +59,7 @@ server:
       memory: 512Mi
 
 repoServer:
-  replicas: 2  # HA: 2 replicas spread across nodes
+  replicas: 1  # Memory-optimised: single replica saves ~160Mi
   affinity:
     nodeAffinity:
       preferredDuringSchedulingIgnoredDuringExecution:
@@ -86,7 +86,7 @@ repoServer:
       memory: 512Mi
 
 applicationSet:
-  replicas: 2  # HA: 2 replicas spread across nodes
+  replicas: 1  # Memory-optimised: single replica saves ~100Mi
   affinity:
     nodeAffinity:
       preferredDuringSchedulingIgnoredDuringExecution:

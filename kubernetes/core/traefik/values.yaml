@@ -1,8 +1,7 @@
 deployment:
-  replicas: 2
+  replicas: 1  # Memory-optimised: single replica saves ~125Mi; homelab doesn't need ingress HA
 
-# Spread the 2 Traefik replicas across different nodes so a single node
-# Flannel restart doesn't take down the entire ingress layer.
+# Single replica: remove topology spread that required 2 nodes
 topologySpreadConstraints:
   - maxSkew: 1
     topologyKey: kubernetes.io/hostname

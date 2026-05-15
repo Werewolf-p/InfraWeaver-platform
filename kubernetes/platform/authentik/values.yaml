@@ -149,7 +149,7 @@ redis:
         memory: 128Mi
 
 server:
-  replicas: 2
+  replicas: 1  # Memory-optimised: single replica saves ~800Mi; requiredAntiAffinity is trivially satisfied
   priorityClassName: platform-high
   ingress:
     enabled: false
@@ -216,7 +216,7 @@ server:
       memory: 1500Mi
 
 worker:
-  replicas: 2
+  replicas: 1  # Memory-optimised: single worker saves ~500Mi
   priorityClassName: platform-high
   topologySpreadConstraints:
     - maxSkew: 1
