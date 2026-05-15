@@ -3,6 +3,7 @@ import { Menu, Search, Plus, ExternalLink } from "lucide-react";
 import { NotificationCenter } from "@/components/ui/notification-center";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { titleForPathname } from "@/components/ui/breadcrumb";
+import { ClusterSelector } from "@/components/layout/cluster-selector";
 import { useSession } from "next-auth/react";
 import { usePathname } from "next/navigation";
 import { useState, useRef, useEffect } from "react";
@@ -101,6 +102,9 @@ export function TopBar({ onMenuClick, onSearchClick }: { title?: string; onMenuC
         </div>
         <div className="hidden md:block">
           <ThemeToggle compact />
+        </div>
+        <div className="hidden md:block">
+          <ClusterSelector />
         </div>
         <NotificationCenter />
         <Link
