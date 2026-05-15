@@ -553,3 +553,41 @@ The `talos-apply-apiserver-limits` workflow added `extraArgs.target-ram-mb: "102
 - **Concurrent kube-apiserver OOM reboots can corrupt etcd WAL** — the OOM reboot cycle is the root cause of the WAL corruption
 - **Memory limit should be 2200Mi** (not 1800Mi — too tight for startup spike)
 - **2200Mi gives safe headroom** while still preventing unbounded growth to 1845Mi OOM
+
+
+## SECOND OOM INCIDENT 2026-05-15 04:46–07:02 UTC — 2200Mi Still Too Low
+
+### Root Cause
+After the 2200Mi fix was applied, kube-apiserver still grew past the container cgroup limit.
+At 07:02:38 UTC, CP1 kube-apiserver was OOM-killed by the container cgroup with:
+```
+anon-rss:2244676kB (~2192MB), total-vm:3930940kB, oom_score_adj:958
+constraint=CONSTRAINT_MEMCG
+```
+The limit was `2200Mi = 2243MB`. The RSS hit `2192MB` — just 51MB under the limit — before
+the GC could reclaim memory, causing the cgroup to trigger the OOM kill.
+
+This invalidated the "2-hour stability window" as nodes CP1/CP2/CP3 rebooted in sequence:
+- CP1: rebooted at 04:46 UTC (first OOM cycle after recovery)
+- CP3: rebooted at 05:05 UTC
+- CP2: rebooted at 06:30 UTC
+- CP1: OOM-killed at 07:02 UTC (second cycle)
+
+### Fix Applied (2026-05-15 07:xx UTC)
+Raised memory limit from `2200Mi → 4500Mi` on all 3 nodes via direct `talosctl apply-config`
+(Python extraction method — same as previous fix). Updated `ops.yml` to use 4500Mi.
+
+**Why 4500Mi:**
+- Observed peak at OOM kill: 2192MB anon-rss
+- 4500Mi = 4608MB gives 2416MB headroom above observed peak
+- kube-apiserver in steady state uses 1.2–1.3GB; peak during activity is ~2.2GB
+- Go GC will reclaim memory between peaks; 4500Mi ensures we never hit the cgroup OOM
+
+**Why GOMEMLIMIT was NOT used:**
+- `cluster.apiServer.extraEnv` is not supported in this Talos version
+- The container memory limit alone (4500Mi) is sufficient given the 2.3GB headroom
+
+### Key Learnings
+- **2200Mi is NOT enough for kube-apiserver on an active cluster with this many resources**
+- **Minimum safe limit = observed peak × 2.0** (to account for startup spikes and GC lag)
+- **4500Mi is the correct production value** for this cluster
