@@ -1,13 +1,17 @@
 "use client";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Server, Plus, RefreshCw, Zap, Link2, Loader2, Copy, Check, ChevronDown, Activity, Layers, BarChart2, GitBranch, Pencil, Save, X, Download, Settings2, ArrowRightLeft, MemoryStick, AlertTriangle } from "lucide-react";
 import { useRBAC } from "@/hooks/use-rbac";
 import { cn, timeAgo } from "@/lib/utils";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import { PageHeader } from "@/components/ui/page-header";
+import { DashboardPanel } from "@/components/ui/dashboard-panel";
+import { DashboardStatCard } from "@/components/ui/dashboard-stat-card";
+import { ToolbarSearchInput } from "@/components/ui/toolbar-search-input";
+import { SegmentedBar } from "@/components/ui/segmented-bar";
 import { toast } from "sonner";
 import Link from "next/link";
 import { MetricAreaChart } from "@/components/charts/AreaChart";
@@ -66,6 +70,40 @@ interface NodeCapacityInfo {
 }
 
 interface DataPoint { time: string; value: number; }
+
+interface Quota {
+  namespace: string;
+  name: string;
+  hard: Record<string, string>;
+  used: Record<string, string>;
+}
+
+interface ClusterEvent {
+  name: string;
+  namespace: string;
+  reason: string;
+  message: string;
+  type: string;
+  count: number;
+  lastTimestamp: string | null;
+  involvedObject: { kind: string; name: string };
+}
+
+function parseQuotaValue(val: string): number {
+  if (!val) return 0;
+  if (val.endsWith("m")) return parseFloat(val) / 1000;
+  if (val.endsWith("Ki")) return parseFloat(val) / (1024 * 1024);
+  if (val.endsWith("Mi")) return parseFloat(val) / 1024;
+  if (val.endsWith("Gi")) return parseFloat(val);
+  return parseFloat(val);
+}
+
+function quotaPct(used: string, hard: string): number {
+  const u = parseQuotaValue(used);
+  const h = parseQuotaValue(hard);
+  if (h === 0) return 0;
+  return Math.min(100, Math.round((u / h) * 100));
+}
 
 // ── Pod Migration Modal ───────────────────────────────────────────────────────
 
@@ -484,6 +522,11 @@ export default function ClusterPage() {
   const [newIp, setNewIp] = useState("10.10.0.93");
   const [metricsRefreshSeconds, setMetricsRefreshSeconds] = useState(15);
   const [cordoningNode, setCordoningNode] = useState<string | null>(null);
+  const [drainingNode, setDrainingNode] = useState<string | null>(null);
+  const [drainTarget, setDrainTarget] = useState<Node | null>(null);
+  const [nodeSearch, setNodeSearch] = useState("");
+  const [nodeFilter, setNodeFilter] = useState<"all" | "ready" | "cordoned" | "pressure">("all");
+  const searchRef = useRef<HTMLInputElement>(null);
 
   const [cpuHistory, setCpuHistory] = useState<DataPoint[]>([]);
   const [memHistory, setMemHistory] = useState<DataPoint[]>([]);
@@ -515,7 +558,15 @@ export default function ClusterPage() {
     queryKey: ["cluster", "metrics", metricsRefreshSeconds],
     queryFn: async () => {
       const res = await fetch("/api/cluster/metrics");
-      return res.json();
+      const payload = await res.json() as { metrics: NodeMetric[]; timestamp: string };
+      if (payload.metrics?.length) {
+        const avgCpuValue = Math.round(payload.metrics.reduce((a, m) => a + m.cpuPct, 0) / payload.metrics.length);
+        const avgMemValue = Math.round(payload.metrics.reduce((a, m) => a + m.memPct, 0) / payload.metrics.length);
+        const time = new Date(payload.timestamp).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+        setCpuHistory(prev => [...prev.slice(-19), { time, value: avgCpuValue }]);
+        setMemHistory(prev => [...prev.slice(-19), { time, value: avgMemValue }]);
+      }
+      return payload;
     },
     staleTime: 10000,
     refetchInterval: metricsRefreshSeconds * 1000,
@@ -531,21 +582,33 @@ export default function ClusterPage() {
     refetchInterval: 60000,
   });
 
-  useEffect(() => {
-    if (!metricsData?.metrics?.length) return;
-    const avgCpu = Math.round(metricsData.metrics.reduce((a, m) => a + m.cpuPct, 0) / metricsData.metrics.length);
-    const avgMem = Math.round(metricsData.metrics.reduce((a, m) => a + m.memPct, 0) / metricsData.metrics.length);
-    const time = new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
-    setCpuHistory(prev => [...prev.slice(-19), { time, value: avgCpu }]);
-    setMemHistory(prev => [...prev.slice(-19), { time, value: avgMem }]);
-  }, [metricsData]);
+  const { data: quotaData, refetch: refetchQuota } = useQuery<{ quotas: Quota[] }>({
+    queryKey: ["cluster", "quota", "cluster-page"],
+    queryFn: async () => {
+      const res = await fetch("/api/cluster/quota");
+      if (!res.ok) throw new Error("Failed to fetch cluster quotas");
+      return res.json();
+    },
+    staleTime: 30000,
+    refetchInterval: 60000,
+  });
 
-  const nodes = data?.nodes ?? [];
-  const metrics = metricsData?.metrics ?? [];
-  const hpas = hpaData?.hpas ?? [];
+  const { data: eventData, refetch: refetchEvents } = useQuery<{ events: ClusterEvent[] }>({
+    queryKey: ["cluster", "events", "cluster-page"],
+    queryFn: async () => {
+      const res = await fetch("/api/events");
+      if (!res.ok) throw new Error("Failed to fetch recent events");
+      return res.json();
+    },
+    staleTime: 15000,
+    refetchInterval: 30000,
+  });
+
+  const nodes = useMemo(() => data?.nodes ?? [], [data?.nodes]);
+  const metrics = useMemo(() => metricsData?.metrics ?? [], [metricsData?.metrics]);
+  const hpas = useMemo(() => hpaData?.hpas ?? [], [hpaData?.hpas]);
   const NODE_PAGE_SIZE = 5;
   const [showAllNodes, setShowAllNodes] = useState(false);
-  const displayNodes = showAllNodes ? nodes : nodes.slice(0, NODE_PAGE_SIZE);
 
   const metricsMap = Object.fromEntries(metrics.map(m => [m.name, m]));
 
@@ -558,6 +621,53 @@ export default function ClusterPage() {
     }
     return map;
   }, [nodePodData?.pods]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const isTypingTarget = target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
+      if (event.key === "/" && !isTypingTarget) {
+        event.preventDefault();
+        searchRef.current?.focus();
+      }
+      if (event.key === "Escape") {
+        setNodeSearch("");
+        setNodeFilter("all");
+        setShowAddNode(false);
+        setDrainTarget(null);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  const filteredNodes = useMemo(() => {
+    const query = nodeSearch.trim().toLowerCase();
+    return nodes.filter((node) => {
+      const metric = metricsMap[node.name];
+      const pressure = Math.max(metric?.cpuPct ?? 0, metric?.memPct ?? 0);
+      const matchesQuery = !query || node.name.toLowerCase().includes(query) || node.ip.toLowerCase().includes(query) || node.roles.join(" ").toLowerCase().includes(query);
+      const matchesFilter = nodeFilter === "all"
+        || (nodeFilter === "ready" && node.status === "Ready")
+        || (nodeFilter === "cordoned" && node.unschedulable)
+        || (nodeFilter === "pressure" && pressure >= 70);
+      return matchesQuery && matchesFilter;
+    });
+  }, [metricsMap, nodeFilter, nodeSearch, nodes]);
+
+  const displayNodes = showAllNodes ? filteredNodes : filteredNodes.slice(0, NODE_PAGE_SIZE);
+  const totalMigratablePods = (nodePodData?.pods ?? []).filter(p => p.canMigrate).length;
+  const readyNodesCount = nodes.filter(node => node.status === "Ready").length;
+  const avgCpu = metrics.length > 0 ? Math.round(metrics.reduce((sum, metric) => sum + metric.cpuPct, 0) / metrics.length) : 0;
+  const avgMem = metrics.length > 0 ? Math.round(metrics.reduce((sum, metric) => sum + metric.memPct, 0) / metrics.length) : 0;
+  const hotQuotas = (quotaData?.quotas ?? [])
+    .map((quota) => {
+      const peak = Math.max(...Object.keys(quota.hard).map(key => quotaPct(quota.used[key] ?? "0", quota.hard[key])), 0);
+      return { ...quota, peak };
+    })
+    .sort((a, b) => b.peak - a.peak)
+    .slice(0, 4);
+  const recentEvents = (eventData?.events ?? []).slice(0, 6);
 
   const handleSyncAll = async () => {
     setSyncing(true);
@@ -610,6 +720,60 @@ export default function ClusterPage() {
     }
   };
 
+  const handleDrainNode = async (node: Node) => {
+    if (!isAdmin || !nodePodData) return;
+    setDrainingNode(node.name);
+    try {
+      if (!node.unschedulable) {
+        const cordonRes = await fetch("/api/cluster/cordon", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ node: node.name, cordon: true }),
+        });
+        if (!cordonRes.ok) throw new Error("Failed to cordon node before drain");
+      }
+
+      const movablePods = (podsByNode[node.name] ?? []).filter(pod => pod.canMigrate).sort((a, b) => b.memoryMi - a.memoryMi);
+      const capacityMap = new Map((nodePodData.nodes ?? []).map(entry => [entry.name, { ...entry }]));
+      let moved = 0;
+      let skipped = 0;
+
+      for (const pod of movablePods) {
+        const targets = [...capacityMap.values()]
+          .filter(target => target.name !== node.name && target.status === "Ready" && target.availableMi >= pod.memoryMi + 256)
+          .sort((a, b) => b.availableMi - a.availableMi);
+        const target = targets[0];
+        if (!target) {
+          skipped += 1;
+          continue;
+        }
+        const res = await fetch("/api/cluster/migrate-pod", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ namespace: pod.namespace, podName: pod.name, targetNode: target.name }),
+        });
+        if (res.ok) {
+          moved += 1;
+          const current = capacityMap.get(target.name);
+          if (current) {
+            current.availableMi = Math.max(0, current.availableMi - pod.memoryMi);
+            current.usedMi += pod.memoryMi;
+          }
+        } else {
+          skipped += 1;
+        }
+      }
+
+      toast.success(`Drain queued for ${node.name}: moved ${moved}, skipped ${skipped}`);
+      await Promise.all([refetch(), refetchNodePods(), refetchMetrics()]);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to drain node");
+    } finally {
+      setDrainingNode(null);
+      setDrainTarget(null);
+    }
+  };
+
   const handleExportYaml = () => {
     window.location.href = "/api/cluster/export";
   };
@@ -659,6 +823,81 @@ export default function ClusterPage() {
         </div>
       </div>
 
+      <DashboardPanel title="Cluster posture" description="Critical node health, resource pressure, and migration capacity before the detailed sections." icon={Server}>
+        <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-2">
+            <DashboardStatCard label="Nodes" value={nodes.length} icon={Server} tone="info" description="Total nodes currently registered in the cluster." footer={<span>{readyNodesCount} ready · {nodes.filter(node => node.unschedulable).length} cordoned</span>} />
+            <DashboardStatCard label="CPU pressure" value={`${avgCpu}%`} icon={Activity} tone={avgCpu >= 70 ? "warning" : "success"} description="Average CPU utilization across visible nodes." footer={<span>Search filter targets high-pressure nodes too</span>} />
+            <DashboardStatCard label="Memory pressure" value={`${avgMem}%`} icon={MemoryStick} tone={avgMem >= 70 ? "warning" : "success"} description="Average memory usage across node metrics." footer={<span>{totalMigratablePods} migratable pod(s) available</span>} />
+            <DashboardStatCard label="Quota hotspots" value={hotQuotas.length} icon={BarChart2} tone={hotQuotas.some(quota => quota.peak >= 85) ? "danger" : "neutral"} description="Namespaces close to quota exhaustion." footer={<span>{recentEvents.filter(event => event.type === "Warning").length} recent warning event(s)</span>} />
+          </div>
+          <div className="rounded-2xl border border-[#2a2a2a] bg-[#141414] p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold text-white">Node capacity distribution</p>
+                <p className="text-xs text-slate-500">Healthy, cordoned, and high-pressure nodes grouped into one quick view.</p>
+              </div>
+              <button onClick={() => { void refetch(); void refetchMetrics(); void refetchHpa(); void refetchNodePods(); void refetchQuota(); void refetchEvents(); }} className="inline-flex items-center gap-2 rounded-lg border border-[#2a2a2a] px-3 py-1.5 text-xs text-[#9e9e9e] transition hover:text-white">
+                <RefreshCw className="h-3.5 w-3.5" /> Refresh all
+              </button>
+            </div>
+            <div className="mt-4 space-y-3">
+              <SegmentedBar
+                segments={[
+                  { label: "Ready", value: nodes.filter(node => node.status === "Ready" && !node.unschedulable).length, className: "bg-emerald-500" },
+                  { label: "Cordoned", value: nodes.filter(node => node.unschedulable).length, className: "bg-amber-500" },
+                  { label: "Pressure", value: nodes.filter(node => Math.max(metricsMap[node.name]?.cpuPct ?? 0, metricsMap[node.name]?.memPct ?? 0) >= 70).length, className: "bg-red-500" },
+                ]}
+              />
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-3">
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-[#666]">Search & filters</p>
+                  <p className="mt-2 text-sm text-[#b8b8b8]">Use <span className="text-white">/</span> to focus the node search. <span className="text-white">Esc</span> clears filters and closes dialogs.</p>
+                </div>
+                <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-3">
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-[#666]">Events in scope</p>
+                  <p className="mt-2 text-sm text-[#b8b8b8]">{recentEvents.length} recent event(s) loaded · {hotQuotas.length} quota hotspot(s) highlighted below.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </DashboardPanel>
+
+      <DashboardPanel title="Node search & maintenance" description="Filter the node cards, then take quick cordon or smart-drain actions without leaving the page." icon={Activity}>
+        <div className="space-y-4">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
+            <ToolbarSearchInput ref={searchRef} value={nodeSearch} onChange={setNodeSearch} placeholder="Search node name, IP, or role…" className="flex-1" />
+            <div className="flex flex-wrap gap-2">
+              {([
+                { value: "all", label: "All nodes" },
+                { value: "ready", label: "Ready" },
+                { value: "cordoned", label: "Cordoned" },
+                { value: "pressure", label: "High pressure" },
+              ] as const).map((option) => (
+                <button
+                  key={option.value}
+                  onClick={() => setNodeFilter(option.value)}
+                  className={cn(
+                    "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+                    nodeFilter === option.value
+                      ? "border-[#0078D4]/40 bg-[rgba(0,120,212,0.15)] text-[#9dcbff]"
+                      : "border-[#2a2a2a] bg-[#111] text-[#888] hover:text-white"
+                  )}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-3 text-sm text-[#888]">
+            <span>{filteredNodes.length} of {nodes.length} node(s) shown</span>
+            <RefreshCountdown intervalSeconds={metricsRefreshSeconds} resetKey={metricsData?.timestamp ?? metricsRefreshSeconds} />
+            <span>{totalMigratablePods} migratable pod(s)</span>
+          </div>
+        </div>
+      </DashboardPanel>
+
       <div className="space-y-4 sm:space-y-6">
         {isAdmin && (
           <CollapsibleSection
@@ -696,17 +935,25 @@ export default function ClusterPage() {
 
         <CollapsibleSection
           title="Cluster Nodes"
-          count={nodes.length}
+          count={filteredNodes.length}
           storageKey="cluster-nodes"
           badge={<Server className="w-4 h-4 text-indigo-400 flex-shrink-0" />}
         >
           {isLoading ? (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
               {[...Array(3)].map((_, i) => <div key={i} className="h-36 rounded-xl shimmer-bg" />)}
+            </div>
+          ) : filteredNodes.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-[#2a2a2a] bg-[#111] px-5 py-8 text-center">
+              <p className="text-sm font-medium text-white">No nodes match the current filters</p>
+              <p className="mt-2 text-sm text-[#888]">Clear the search or switch filters to inspect the full cluster again.</p>
+              <button onClick={() => { setNodeSearch(""); setNodeFilter("all"); }} className="mt-4 rounded-lg border border-[#2a2a2a] px-3 py-2 text-xs text-[#b8b8b8] transition hover:text-white">
+                Reset filters
+              </button>
             </div>
           ) : (
             <>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3">
                 {displayNodes.map((node, i) => (
                   <motion.div
                     key={node.name}
@@ -714,46 +961,58 @@ export default function ClusterPage() {
                     animate={{ opacity: 1, scale: 1 }}
                     transition={{ delay: i * 0.08 }}
                     className={cn(
-                      "p-3 md:p-4 rounded-xl border touch-manipulation active:scale-95 transition-transform",
-                      node.status === "Ready" ? "bg-green-500/5 border-green-500/20" : "bg-red-500/5 border-red-500/20",
-                      node.unschedulable && "opacity-60"
+                      "rounded-xl border p-3 transition-transform active:scale-95 touch-manipulation md:p-4",
+                      node.status === "Ready" ? "border-green-500/20 bg-green-500/5" : "border-red-500/20 bg-red-500/5",
+                      node.unschedulable && "opacity-75"
                     )}
                   >
-                    <div className="flex items-center gap-2 mb-3">
-                      <span className={cn("w-2 h-2 rounded-full flex-shrink-0", node.status === "Ready" ? "bg-green-500" : "bg-red-500")} />
-                      <span className="text-sm font-semibold text-white truncate">{node.name}</span>
-                      {node.unschedulable && <span className="text-xs text-orange-400 bg-orange-500/10 px-1.5 py-0.5 rounded">Cordoned</span>}
+                    <div className="mb-3 flex items-center gap-2">
+                      <span className={cn("h-2 w-2 flex-shrink-0 rounded-full", node.status === "Ready" ? "bg-green-500" : "bg-red-500")} />
+                      <span className="truncate text-sm font-semibold text-white">{node.name}</span>
+                      {node.unschedulable && <span className="rounded bg-orange-500/10 px-1.5 py-0.5 text-xs text-orange-400">Cordoned</span>}
                     </div>
                     <div className="space-y-1 text-xs">
-                      <div className="flex items-center justify-between gap-2"><span className="text-slate-500">IP</span><span className="flex items-center text-slate-300 font-mono">{node.ip}<CopyBtn text={node.ip} /></span></div>
+                      <div className="flex items-center justify-between gap-2"><span className="text-slate-500">IP</span><span className="flex items-center font-mono text-slate-300">{node.ip}<CopyBtn text={node.ip} /></span></div>
                       <div className="flex justify-between"><span className="text-slate-500">Role</span><span className="text-slate-300">{node.roles.join(", ") || "worker"}</span></div>
-                      <div className="flex justify-between"><span className="text-slate-500">Version</span><span className="text-slate-300 font-mono">{node.version}</span></div>
+                      <div className="flex justify-between"><span className="text-slate-500">Version</span><span className="font-mono text-slate-300">{node.version}</span></div>
                       <div className="flex justify-between"><span className="text-slate-500">CPU</span><span className="text-slate-300">{node.cpu} cores {metricsMap[node.name] ? `(${metricsMap[node.name].cpuPct}% used)` : ""}</span></div>
                       <div className="flex justify-between"><span className="text-slate-500">Memory</span><span className="text-slate-300">{node.memory} {metricsMap[node.name] ? `(${metricsMap[node.name].memPct}%)` : ""}</span></div>
                       {node.age && <div className="flex justify-between"><span className="text-slate-500">Uptime</span><span className="text-slate-300">{timeAgo(node.age)}</span></div>}
                     </div>
                     {isAdmin && (
-                      <button
-                        onClick={() => void handleToggleCordon(node)}
-                        disabled={cordoningNode === node.name}
-                        className={cn(
-                          "mt-3 w-full rounded-lg border px-3 py-2 text-xs font-medium transition-colors",
-                          node.unschedulable
-                            ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/15"
-                            : "border-amber-500/30 bg-amber-500/10 text-amber-300 hover:bg-amber-500/15",
-                          cordoningNode === node.name && "opacity-60"
-                        )}
-                      >
-                        {cordoningNode === node.name ? "Updating..." : node.unschedulable ? "Uncordon node" : "Cordon node"}
-                      </button>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                        <button
+                          onClick={() => void handleToggleCordon(node)}
+                          disabled={cordoningNode === node.name}
+                          className={cn(
+                            "rounded-lg border px-3 py-2 text-xs font-medium transition-colors",
+                            node.unschedulable
+                              ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/15"
+                              : "border-amber-500/30 bg-amber-500/10 text-amber-300 hover:bg-amber-500/15",
+                            cordoningNode === node.name && "opacity-60"
+                          )}
+                        >
+                          {cordoningNode === node.name ? "Updating..." : node.unschedulable ? "Uncordon" : "Cordon"}
+                        </button>
+                        <button
+                          onClick={() => setDrainTarget(node)}
+                          disabled={drainingNode === node.name}
+                          className={cn(
+                            "rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-2 text-xs font-medium text-cyan-300 transition-colors hover:bg-cyan-500/15",
+                            drainingNode === node.name && "opacity-60"
+                          )}
+                        >
+                          {drainingNode === node.name ? "Draining..." : "Smart drain"}
+                        </button>
+                      </div>
                     )}
                   </motion.div>
                 ))}
               </div>
-              {nodes.length > NODE_PAGE_SIZE && (
-                <button onClick={() => setShowAllNodes(v => !v)} className="mt-3 w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-white/5 border border-white/10 text-xs text-slate-400 hover:text-white hover:bg-white/8 transition-colors">
-                  <ChevronDown className={cn("w-3.5 h-3.5 transition-transform", showAllNodes && "rotate-180")} />
-                  {showAllNodes ? "Show fewer" : `Show ${nodes.length - NODE_PAGE_SIZE} more node${nodes.length - NODE_PAGE_SIZE !== 1 ? "s" : ""}`}
+              {filteredNodes.length > NODE_PAGE_SIZE && (
+                <button onClick={() => setShowAllNodes(v => !v)} className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/5 py-2 text-xs text-slate-400 transition-colors hover:bg-white/8 hover:text-white">
+                  <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", showAllNodes && "rotate-180")} />
+                  {showAllNodes ? "Show fewer" : `Show ${filteredNodes.length - NODE_PAGE_SIZE} more node${filteredNodes.length - NODE_PAGE_SIZE !== 1 ? "s" : ""}`}
                 </button>
               )}
             </>
@@ -768,6 +1027,63 @@ export default function ClusterPage() {
               ))}
             </div>
           </CollapsibleSection>
+        )}
+
+        {(hotQuotas.length > 0 || recentEvents.length > 0) && (
+          <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+            {hotQuotas.length > 0 && (
+              <DashboardPanel title="Quota hotspots" description="Namespaces approaching their hard limits." icon={BarChart2}>
+                <div className="space-y-3">
+                  {hotQuotas.map((quota) => (
+                    <div key={`${quota.namespace}-${quota.name}`} className="rounded-xl border border-[#2a2a2a] bg-[#111] p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold text-white">{quota.namespace}</p>
+                          <p className="text-xs text-[#666]">{quota.name}</p>
+                        </div>
+                        <span className={cn("rounded-full px-2 py-1 text-xs font-medium", quota.peak >= 90 ? "bg-red-500/10 text-red-300" : "bg-amber-500/10 text-amber-300")}>{quota.peak}% used</span>
+                      </div>
+                      <div className="mt-3 space-y-2">
+                        {Object.keys(quota.hard).slice(0, 3).map((resource) => {
+                          const pct = quotaPct(quota.used[resource] ?? "0", quota.hard[resource]);
+                          return (
+                            <div key={resource}>
+                              <div className="mb-1 flex items-center justify-between text-xs text-[#888]">
+                                <span>{resource}</span>
+                                <span>{quota.used[resource] ?? "0"} / {quota.hard[resource]}</span>
+                              </div>
+                              <div className="h-2 overflow-hidden rounded-full bg-[#1a1a1a]">
+                                <div className={cn("h-full rounded-full", pct >= 90 ? "bg-red-500" : pct >= 70 ? "bg-amber-500" : "bg-emerald-500")} style={{ width: `${Math.min(100, pct)}%` }} />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </DashboardPanel>
+            )}
+            {recentEvents.length > 0 && (
+              <DashboardPanel title="Recent cluster events" description="Warnings and scheduling activity pulled from the shared event stream." icon={Bell}>
+                <div className="space-y-3">
+                  {recentEvents.map((event) => (
+                    <div key={`${event.namespace}-${event.name}-${event.lastTimestamp}`} className="rounded-xl border border-[#2a2a2a] bg-[#111] p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold text-white">{event.reason}</p>
+                          <p className="mt-1 text-xs text-[#888]">{event.namespace} · {event.involvedObject.kind}/{event.involvedObject.name}</p>
+                        </div>
+                        <span className={cn("rounded-full px-2 py-1 text-[11px] font-medium", event.type === "Warning" ? "bg-red-500/10 text-red-300" : "bg-emerald-500/10 text-emerald-300")}>{event.type}</span>
+                      </div>
+                      <p className="mt-2 text-sm text-[#b8b8b8]">{event.message}</p>
+                      <p className="mt-2 text-xs text-[#666]">Last seen {timeAgo(event.lastTimestamp)}</p>
+                    </div>
+                  ))}
+                </div>
+              </DashboardPanel>
+            )}
+          </div>
         )}
 
         {/* Pod Migration — visible to all, but Move button only for admins */}
@@ -858,6 +1174,15 @@ export default function ClusterPage() {
 
       <ConfirmDialog open={showSyncConfirm} onConfirm={handleSyncAll} onCancel={() => setShowSyncConfirm(false)} title="Sync All ArgoCD Apps?" description="This will trigger a sync for all ArgoCD applications." confirmText="Sync All" />
       <ConfirmDialog open={showRolloutConfirm} onConfirm={handleRollout} onCancel={() => setShowRolloutConfirm(false)} title="Force Redeploy InfraWeaver?" description="This will restart all InfraWeaver console pods. The console will be briefly unavailable." confirmText="REDEPLOY" danger requireTyping="REDEPLOY" />
+      <ConfirmDialog
+        open={Boolean(drainTarget)}
+        onConfirm={() => drainTarget && void handleDrainNode(drainTarget)}
+        onCancel={() => setDrainTarget(null)}
+        title={drainTarget ? `Smart drain ${drainTarget.name}?` : "Smart drain node?"}
+        description="This cordons the node if needed, then migrates eligible pods to the healthiest destination with available memory headroom."
+        confirmText={drainingNode ? "Draining..." : "Drain node"}
+        danger
+      />
     </div>
   );
 }

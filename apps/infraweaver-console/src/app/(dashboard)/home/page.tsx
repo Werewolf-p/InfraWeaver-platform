@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -14,6 +14,13 @@ import { toast } from "sonner";
 import { AnimatedNumber } from "@/components/ui/animated-number";
 import { PageHeader } from "@/components/ui/page-header";
 import { WidgetCard } from "@/components/ui/widget-card";
+import { DashboardPanel } from "@/components/ui/dashboard-panel";
+import { DashboardStatCard } from "@/components/ui/dashboard-stat-card";
+import { ToolbarSearchInput } from "@/components/ui/toolbar-search-input";
+import { AutoRefreshControl } from "@/components/ui/auto-refresh-control";
+import { RefreshCountdown } from "@/components/ui/refresh-countdown";
+import { EmptyState } from "@/components/ui/empty-state";
+import { SegmentedBar } from "@/components/ui/segmented-bar";
 import { useUserPreferences } from "@/hooks/use-user-preferences";
 import { useFavorites } from "@/hooks/use-favorites";
 import { useRecentPages } from "@/hooks/use-recent-pages";
@@ -571,10 +578,31 @@ function SetupChecklist({ recentPages }: { recentPages: Array<{ href: string; ti
 export default function HomePortalPage() {
   const { data: session } = useSession();
   const [activeCategory, setActiveCategory] = useState("All");
+  const [serviceQuery, setServiceQuery] = useState("");
+  const [serviceStateFilter, setServiceStateFilter] = useState<"all" | "healthy" | "degraded" | "offline">("all");
+  const [refreshInterval, setRefreshInterval] = useState(30000);
+  const searchRef = useRef<HTMLInputElement>(null);
   const { prefs } = useUserPreferences();
   const { favorites } = useFavorites();
   const { recentPages } = useRecentPages();
   const favNavItems = ALL_NAV_ITEMS.filter(item => favorites.some(f => f.href === item.href));
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const isTypingTarget = target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
+      if (event.key === "/" && !isTypingTarget) {
+        event.preventDefault();
+        searchRef.current?.focus();
+      }
+      if (event.key === "Escape") {
+        setServiceQuery("");
+        setServiceStateFilter("all");
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   const { data: argoApps } = useQuery({
     queryKey: ["argocd", "apps", "home-portal"],
@@ -586,30 +614,72 @@ export default function HomePortalPage() {
       const issues = apps.filter(a => ["Degraded", "Failed", "Missing"].includes(a.status?.health?.status ?? "")).length;
       return { healthy, total: apps.length, issues };
     },
-    refetchInterval: 60000,
-    staleTime: 50000,
+    refetchInterval: refreshInterval || false,
+    staleTime: 15000,
   });
 
-  const { data: healthData, isLoading: healthLoading, dataUpdatedAt, refetch } = useQuery({
+  const healthQuery = useQuery({
     queryKey: ["homepage-health"],
     queryFn: async () => {
       const res = await fetch("/api/homepage-health");
-      if (!res.ok) return {} as Record<string, HealthStatus>;
+      if (!res.ok) throw new Error("Failed to load homepage service health");
       return res.json() as Promise<Record<string, HealthStatus>>;
     },
-    refetchInterval: 30000,
-    staleTime: 25000,
+    refetchInterval: refreshInterval || false,
+    staleTime: 15000,
   });
 
-  const onlineCount = healthData
-    ? Object.values(healthData).filter((value) => value.status === "healthy").length
-    : 0;
-  const totalPingable = Object.keys(healthData ?? {}).length;
-  const totalServices = SERVICE_GROUPS.flatMap(g => g.services).length;
+  const statusQuery = useQuery({
+    queryKey: ["platform", "status", "home"],
+    queryFn: async () => {
+      const res = await fetch("/api/platform/status");
+      if (!res.ok) throw new Error("Failed to load platform status");
+      return res.json() as Promise<{ status: string; metrics: { totalNodes: number; readyNodes: number; uptime: string } }>;
+    },
+    refetchInterval: refreshInterval || false,
+    staleTime: 15000,
+  });
 
-  const lastUpdated = dataUpdatedAt
-    ? new Date(dataUpdatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })
+  const eventsQuery = useQuery({
+    queryKey: ["events", "home"],
+    queryFn: async () => {
+      const res = await fetch("/api/events");
+      if (!res.ok) throw new Error("Failed to load recent activity");
+      return res.json() as Promise<{
+        events: Array<{
+          name: string;
+          namespace: string;
+          reason: string;
+          message: string;
+          type: string;
+          count: number;
+          lastTimestamp: string | null;
+          involvedObject: { kind: string; name: string };
+        }>;
+      }>;
+    },
+    refetchInterval: refreshInterval || false,
+    staleTime: 15000,
+  });
+
+  const healthData = useMemo(() => healthQuery.data ?? {}, [healthQuery.data]);
+  const statusCounts = useMemo(() => {
+    const counts = { healthy: 0, degraded: 0, offline: 0 };
+    for (const service of SERVICE_GROUPS.flatMap(group => group.services)) {
+      const status = healthData[service.name]?.status ?? "offline";
+      if (status === "healthy") counts.healthy += 1;
+      else if (status === "degraded") counts.degraded += 1;
+      else counts.offline += 1;
+    }
+    return counts;
+  }, [healthData]);
+
+  const onlineCount = statusCounts.healthy;
+  const totalServices = SERVICE_GROUPS.flatMap(g => g.services).length;
+  const lastUpdated = healthQuery.dataUpdatedAt
+    ? new Date(healthQuery.dataUpdatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })
     : null;
+  const warningEvents = (eventsQuery.data?.events ?? []).filter(event => event.type === "Warning").slice(0, 5);
 
   const greeting = useCallback(() => {
     const h = new Date().getHours();
@@ -618,15 +688,41 @@ export default function HomePortalPage() {
     return "Good evening";
   }, []);
 
-  const filteredGroups = activeCategory === "All"
-    ? SERVICE_GROUPS
-    : SERVICE_GROUPS.filter(g => g.label === activeCategory);
+  const filteredGroups = useMemo(() => {
+    const query = serviceQuery.trim().toLowerCase();
+    const groups = activeCategory === "All"
+      ? SERVICE_GROUPS
+      : SERVICE_GROUPS.filter(g => g.label === activeCategory);
+
+    return groups
+      .map(group => ({
+        ...group,
+        services: group.services.filter((service) => {
+          const status = healthData[service.name]?.status ?? "offline";
+          const matchesQuery = !query || service.name.toLowerCase().includes(query) || service.description.toLowerCase().includes(query);
+          const matchesState = serviceStateFilter === "all" || status === serviceStateFilter;
+          return matchesQuery && matchesState;
+        }),
+      }))
+      .filter(group => group.services.length > 0);
+  }, [activeCategory, healthData, serviceQuery, serviceStateFilter]);
+
+  const quickActionCards = [
+    { href: "/monitoring", icon: HeartPulse, title: "Monitoring", description: "Open alert summary, charts, and SLA.", tone: "border-rose-500/20 bg-rose-500/10 text-rose-200" },
+    { href: "/apps", icon: GitBranch, title: "Apps", description: "Review sync drift and app health fast.", tone: "border-indigo-500/20 bg-indigo-500/10 text-indigo-200" },
+    { href: "/cluster", icon: Activity, title: "Cluster", description: "Inspect nodes, quotas, and maintenance actions.", tone: "border-emerald-500/20 bg-emerald-500/10 text-emerald-200" },
+    { href: "/events", icon: History, title: "Recent Activity", description: "See the latest warning and sync events.", tone: "border-amber-500/20 bg-amber-500/10 text-amber-200" },
+  ];
 
   return (
     <div className="mx-auto max-w-screen-2xl space-y-4 sm:space-y-6">
-      <PageHeader icon={Home} title="Home" subtitle="Platform services and quick access" />
+      <PageHeader
+        icon={Home}
+        title="Home"
+        subtitle="Platform services, health, and quick operator actions"
+        actions={<AutoRefreshControl interval={refreshInterval} onChange={setRefreshInterval} onRefreshNow={() => { void healthQuery.refetch(); void eventsQuery.refetch(); void statusQuery.refetch(); }} />}
+      />
 
-      {/* Mobile alert banner */}
       {argoApps && argoApps.issues > 0 && (
         <motion.div
           initial={{ opacity: 0, y: -8 }}
@@ -639,7 +735,6 @@ export default function HomePortalPage() {
         </motion.div>
       )}
 
-      {/* Hero section */}
       <motion.div
         initial={{ opacity: 0, y: -12 }}
         animate={{ opacity: 1, y: 0 }}
@@ -647,7 +742,7 @@ export default function HomePortalPage() {
         className="relative z-10"
       >
         <div className="rounded-xl border border-[#2a2a2a] bg-[#1a1a1a] p-4 sm:p-6">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
             <div className="space-y-1">
               <h1 className="text-xl sm:text-3xl font-extrabold tracking-tight gradient-text">
                 InfraWeaver Platform
@@ -655,62 +750,162 @@ export default function HomePortalPage() {
               <p className="text-sm text-[#9e9e9e]">
                 {greeting()}, <span className="text-[#f2f2f2] font-medium">{session?.user?.name?.split(" ")[0] ?? "there"}</span> 👋
               </p>
+              <p className="max-w-2xl text-sm text-[#888]">
+                Real-time desktop landing zone for service health, operator tasks, and the latest cluster activity.
+              </p>
             </div>
 
-            {/* Animated stats */}
-            <div className="flex w-full items-center justify-between gap-3 sm:w-auto sm:justify-start sm:gap-6">
-              <div className="text-center">
-                <div className="text-xl font-bold text-[#f2f2f2] tabular-nums sm:text-2xl">
-                  <AnimatedNumber value={onlineCount} duration={800} />
-                  <span className="text-[#666] text-lg">/{totalPingable}</span>
+            <div className="flex w-full flex-col gap-4 xl:max-w-xl">
+              <div className="grid grid-cols-3 gap-3">
+                <div className="rounded-2xl border border-[#2a2a2a] bg-[#141414] px-4 py-3 text-center">
+                  <div className="text-xl font-bold text-[#f2f2f2] tabular-nums sm:text-2xl">
+                    <AnimatedNumber value={onlineCount} duration={800} />
+                    <span className="text-[#666] text-lg">/{totalServices}</span>
+                  </div>
+                  <p className="mt-1 text-[10px] uppercase tracking-[0.2em] text-[#666]">Healthy services</p>
                 </div>
-                <p className="text-[10px] text-[#666] uppercase tracking-wider mt-0.5">Online</p>
-              </div>
-              <div className="w-px h-10 bg-[#333]" />
-              <div className="text-center">
-                <div className="text-xl font-bold text-[#f2f2f2] tabular-nums sm:text-2xl">
-                  <AnimatedNumber value={totalServices} duration={600} />
+                <div className="rounded-2xl border border-[#2a2a2a] bg-[#141414] px-4 py-3 text-center">
+                  <div className="text-xl font-bold text-[#f2f2f2] tabular-nums sm:text-2xl">
+                    <AnimatedNumber value={warningEvents.length} duration={600} />
+                  </div>
+                  <p className="mt-1 text-[10px] uppercase tracking-[0.2em] text-[#666]">Warnings</p>
                 </div>
-                <p className="text-[10px] text-[#666] uppercase tracking-wider mt-0.5">Services</p>
-              </div>
-              <div className="w-px h-10 bg-[#333]" />
-              <div className="text-center">
-                <div className="text-xl font-bold tabular-nums sm:text-2xl">
-                  <AnimatedNumber
-                    value={totalPingable > 0 ? Math.round((onlineCount / totalPingable) * 100) : 0}
-                    duration={900}
-                    suffix="%"
-                    className={onlineCount === totalPingable && totalPingable > 0 ? "text-emerald-400" : "text-amber-400"}
-                  />
+                <div className="rounded-2xl border border-[#2a2a2a] bg-[#141414] px-4 py-3 text-center">
+                  <div className="text-xl font-bold tabular-nums sm:text-2xl">
+                    <AnimatedNumber
+                      value={totalServices > 0 ? Math.round((statusCounts.healthy / totalServices) * 100) : 0}
+                      duration={900}
+                      suffix="%"
+                      className={statusCounts.offline === 0 ? "text-emerald-400" : "text-amber-400"}
+                    />
+                  </div>
+                  <p className="mt-1 text-[10px] uppercase tracking-[0.2em] text-[#666]">Availability</p>
                 </div>
-                <p className="text-[10px] text-[#666] uppercase tracking-wider mt-0.5">Uptime</p>
               </div>
-            </div>
 
-            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 w-full sm:w-auto">
-              <SearchBar />
-              <div className="flex w-full items-center justify-between gap-3 sm:w-auto sm:justify-start">
-                <button
-                  onClick={() => refetch()}
-                  className="min-h-[40px] rounded-lg border border-[#333] bg-[#2a2a2a] p-2 text-[#9e9e9e] transition-all hover:bg-[#333] hover:text-[#f2f2f2]"
-                  title="Refresh ping status"
-                >
-                  <RefreshCw className={cn("w-4 h-4", healthLoading && "animate-spin")} />
-                </button>
-                <Clock />
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <SearchBar />
+                <div className="flex items-center justify-between gap-3 rounded-2xl border border-[#2a2a2a] bg-[#141414] px-3 py-2 sm:min-w-[220px]">
+                  <div>
+                    <p className="text-[11px] uppercase tracking-[0.18em] text-[#666]">Live status</p>
+                    <p className="text-sm text-[#d4d4d4]">{statusQuery.data?.status ?? "checking"}</p>
+                  </div>
+                  <Clock />
+                </div>
               </div>
             </div>
           </div>
 
-          {lastUpdated && (
-            <p className="text-[10px] text-[#555] mt-3">
-              Last updated: {lastUpdated}
-            </p>
-          )}
+          <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-[#666]">
+            {lastUpdated ? <span>Last service refresh: {lastUpdated}</span> : null}
+            <RefreshCountdown intervalSeconds={Math.max(15, Math.round((refreshInterval || 30000) / 1000))} resetKey={healthQuery.dataUpdatedAt} />
+            <span>{statusQuery.data ? `${statusQuery.data.metrics.readyNodes}/${statusQuery.data.metrics.totalNodes} nodes ready` : "Checking nodes"}</span>
+          </div>
         </div>
       </motion.div>
 
-      {/* Quick actions */}
+      <DashboardPanel title="System health summary" description="Most important platform signals above the fold, with service distribution and follow-up hints." icon={Activity}>
+        <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-2">
+            <DashboardStatCard
+              label="Platform services"
+              value={`${statusCounts.healthy}/${totalServices}`}
+              icon={Activity}
+              tone={statusCounts.offline > 0 ? "warning" : "success"}
+              description="Healthy services across the full portal catalog."
+              footer={<span>{statusCounts.degraded} degraded · {statusCounts.offline} offline</span>}
+            />
+            <DashboardStatCard
+              label="ArgoCD apps"
+              value={argoApps ? `${argoApps.healthy}/${argoApps.total}` : "—"}
+              icon={GitBranch}
+              tone={(argoApps?.issues ?? 0) > 0 ? "warning" : "info"}
+              description="GitOps applications reporting healthy status."
+              footer={<span>{argoApps?.issues ?? 0} issue(s) currently flagged</span>}
+            />
+            <DashboardStatCard
+              label="Recent warnings"
+              value={warningEvents.length}
+              icon={AlertTriangle}
+              tone={warningEvents.length > 0 ? "danger" : "success"}
+              description="Latest warning-level cluster events surfaced from the activity feed."
+              footer={<span>{eventsQuery.data?.events?.length ?? 0} recent events fetched</span>}
+            />
+            <DashboardStatCard
+              label="Cluster readiness"
+              value={statusQuery.data ? `${statusQuery.data.metrics.readyNodes}/${statusQuery.data.metrics.totalNodes}` : "—"}
+              icon={Package}
+              tone={statusQuery.data?.status === "operational" ? "success" : "warning"}
+              description={`Platform status is ${statusQuery.data?.status ?? "updating"}.`}
+              footer={<span>Reported uptime {statusQuery.data?.metrics.uptime ?? "—"}</span>}
+            />
+          </div>
+
+          <div className="rounded-2xl border border-[#2a2a2a] bg-[#141414] p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold text-[#f2f2f2]">Service distribution</p>
+                <p className="text-xs text-[#888]">Healthy, degraded, and offline services update with the same auto-refresh cadence as the page.</p>
+              </div>
+              <Link href="/monitoring" className="rounded-lg border border-[#2a2a2a] px-3 py-1.5 text-xs text-[#9e9e9e] transition hover:text-white">
+                Open monitoring
+              </Link>
+            </div>
+            <div className="mt-4">
+              <SegmentedBar
+                segments={[
+                  { label: "Healthy", value: statusCounts.healthy, className: "bg-emerald-500" },
+                  { label: "Degraded", value: statusCounts.degraded, className: "bg-amber-500" },
+                  { label: "Offline", value: statusCounts.offline, className: "bg-red-500" },
+                ]}
+              />
+              <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                {[
+                  { label: "Healthy", value: statusCounts.healthy, tone: "text-emerald-300" },
+                  { label: "Degraded", value: statusCounts.degraded, tone: "text-amber-300" },
+                  { label: "Offline", value: statusCounts.offline, tone: "text-red-300" },
+                ].map(item => (
+                  <div key={item.label} className="rounded-xl border border-[#2a2a2a] bg-[#111] p-3">
+                    <p className="text-[11px] uppercase tracking-[0.18em] text-[#666]">{item.label}</p>
+                    <p className={`mt-2 text-2xl font-semibold ${item.tone}`}>{item.value}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-4 rounded-xl border border-[#2a2a2a] bg-[#111] p-3 text-sm text-[#b8b8b8]">
+                <p className="font-medium text-white">Operator shortcuts</p>
+                <ul className="mt-2 space-y-1.5 text-sm text-[#888]">
+                  <li><span className="text-white">/</span> focuses service search.</li>
+                  <li><span className="text-white">Esc</span> clears local service filters.</li>
+                  <li>Use the quick action cards to jump straight into the right workflow.</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      </DashboardPanel>
+
+      <DashboardPanel title="Quick action cards" description="One-click operator paths for the most common desktop workflows." icon={Zap}>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {quickActionCards.map((card) => (
+            <Link
+              key={card.href}
+              href={card.href}
+              className={cn("rounded-2xl border p-4 transition hover:border-white/20 hover:-translate-y-0.5", card.tone)}
+            >
+              <div className="flex items-center gap-3">
+                <div className="rounded-xl border border-white/10 bg-black/20 p-2">
+                  <card.icon className="h-4 w-4" />
+                </div>
+                <div>
+                  <p className="font-semibold text-white">{card.title}</p>
+                  <p className="mt-1 text-sm text-[#b8b8b8]">{card.description}</p>
+                </div>
+              </div>
+            </Link>
+          ))}
+        </div>
+      </DashboardPanel>
+
       <motion.div
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
@@ -720,17 +915,46 @@ export default function HomePortalPage() {
         <QuickActions />
       </motion.div>
 
-      {/* Quick stats — pods, ArgoCD, cluster health */}
       <QuickStats />
 
-      <div className={cn("grid gap-4", recentPages.length > 0 ? "xl:grid-cols-[1.1fr_0.9fr]" : "") }>
-          {recentPages.length > 0 && (
-            <motion.div
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.12 }}
-              className="relative z-10"
-            >
+      <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
+        <DashboardPanel title="Recent activity" description="Latest warning and normal events pulled into the landing page so you do not have to open the full activity log first." icon={History}>
+          {eventsQuery.isLoading ? (
+            <div className="space-y-3">{[0, 1, 2, 3].map(index => <div key={index} className="h-20 animate-pulse rounded-2xl bg-[#111]" />)}</div>
+          ) : warningEvents.length === 0 && (eventsQuery.data?.events?.length ?? 0) === 0 ? (
+            <EmptyState icon={History} title="No recent activity" description="The cluster event feed is quiet right now." className="py-10" />
+          ) : (
+            <div className="space-y-3">
+              {(eventsQuery.data?.events ?? []).slice(0, 5).map(event => (
+                <div key={`${event.namespace}-${event.name}-${event.lastTimestamp}`} className="rounded-2xl border border-[#2a2a2a] bg-[#141414] p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className={cn("rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.18em]", event.type === "Warning" ? "bg-amber-500/15 text-amber-200" : "bg-[#0d0d0d] text-[#888]")}>{event.reason}</span>
+                        <span className="text-xs text-[#888]">{event.namespace}</span>
+                        <span className="text-xs text-[#666]">{event.involvedObject.kind}/{event.involvedObject.name}</span>
+                      </div>
+                      <p className="mt-2 text-sm text-[#f2f2f2]">{event.message}</p>
+                    </div>
+                    <div className="text-right text-xs text-[#888]">
+                      <p>x{event.count}</p>
+                      <p>{event.lastTimestamp ? timeAgo(event.lastTimestamp) : "now"}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </DashboardPanel>
+
+        <div className={cn("grid gap-4", recentPages.length > 0 ? "xl:grid-cols-[1.1fr_0.9fr]" : "") }>
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.12 }}
+            className="relative z-10"
+          >
+            {recentPages.length > 0 ? (
               <WidgetCard title="Recently Viewed" icon={History}>
                 <div className="p-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
                   {recentPages.slice(0, 5).map((page) => (
@@ -748,8 +972,12 @@ export default function HomePortalPage() {
                   ))}
                 </div>
               </WidgetCard>
-            </motion.div>
-          )}
+            ) : (
+              <DashboardPanel title="Recently viewed" description="Your navigation history will populate this card as you move through the console." icon={History}>
+                <EmptyState icon={History} title="No recent pages yet" description="Visit an application, cluster, or monitoring screen to start building your operator trail." className="py-10" />
+              </DashboardPanel>
+            )}
+          </motion.div>
 
           <motion.div
             initial={{ opacity: 0, y: 8 }}
@@ -760,86 +988,147 @@ export default function HomePortalPage() {
             <SetupChecklist recentPages={recentPages} />
           </motion.div>
         </div>
+      </div>
 
-      {/* Category filter bar */}
-      <motion.div
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.15 }}
-        className="relative z-10 flex items-center gap-2 flex-wrap"
-      >
-        {ALL_CATEGORIES.map(cat => (
-          <button
-            key={cat}
-            onClick={() => setActiveCategory(cat)}
-            className={cn(
-              "min-h-[44px] rounded-lg px-3 py-1.5 text-xs font-medium transition-all",
-              activeCategory === cat
-                ? "bg-[rgba(0,120,212,0.15)] border border-[rgba(0,120,212,0.2)] text-[#0078D4]"
-                : "bg-[#2a2a2a] border border-[#2a2a2a] text-[#9e9e9e] hover:text-[#f2f2f2] hover:bg-[#2a2a2a]"
-            )}
-          >
-            {cat}
-          </button>
-        ))}
-      </motion.div>
-
-      {/* Service groups */}
-      {prefs.widgets["platform-services"] && (
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 0.2 }}
-        className="relative z-10 space-y-4 sm:space-y-6"
-      >
-        <WidgetCard title="Platform Services">
-        <div className="p-3 sm:p-4">
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={activeCategory}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
-            transition={{ duration: 0.15 }}
-            className="space-y-6"
-          >
-            {filteredGroups.map(group => (
-              <GroupSection
-                key={group.label}
-                group={group}
-                healthData={healthData ?? {}}
-                isLoading={healthLoading && !healthData}
+      <DashboardPanel title="Service explorer" description="Filter by category, health state, or search query without leaving the portal overview." icon={HeartPulse}>
+        <div className="space-y-4">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+            <div className="flex flex-1 flex-col gap-3 md:flex-row md:items-center">
+              <ToolbarSearchInput
+                ref={searchRef}
+                value={serviceQuery}
+                onChange={setServiceQuery}
+                placeholder="Search service cards by name or description…"
+                className="flex-1"
               />
+              <div className="flex flex-wrap gap-2">
+                {([
+                  { value: "all", label: "All" },
+                  { value: "healthy", label: "Healthy" },
+                  { value: "degraded", label: "Degraded" },
+                  { value: "offline", label: "Offline" },
+                ] as const).map((option) => (
+                  <button
+                    key={option.value}
+                    onClick={() => setServiceStateFilter(option.value)}
+                    className={cn(
+                      "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+                      serviceStateFilter === option.value
+                        ? "border-[#0078D4]/40 bg-[rgba(0,120,212,0.15)] text-[#9dcbff]"
+                        : "border-[#2a2a2a] bg-[#111] text-[#888] hover:text-[#f2f2f2]"
+                    )}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <RefreshCountdown intervalSeconds={Math.max(15, Math.round((refreshInterval || 30000) / 1000))} resetKey={healthQuery.dataUpdatedAt} />
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            {ALL_CATEGORIES.map(cat => (
+              <button
+                key={cat}
+                onClick={() => setActiveCategory(cat)}
+                className={cn(
+                  "min-h-[40px] rounded-lg px-3 py-1.5 text-xs font-medium transition-all",
+                  activeCategory === cat
+                    ? "bg-[rgba(0,120,212,0.15)] border border-[rgba(0,120,212,0.2)] text-[#0078D4]"
+                    : "bg-[#2a2a2a] border border-[#2a2a2a] text-[#9e9e9e] hover:text-[#f2f2f2] hover:bg-[#2a2a2a]"
+                )}
+              >
+                {cat}
+              </button>
             ))}
-          </motion.div>
-        </AnimatePresence>
+          </div>
+
+          {healthQuery.isError ? (
+            <EmptyState
+              icon={AlertTriangle}
+              title="Service health failed to load"
+              description={healthQuery.error instanceof Error ? healthQuery.error.message : "Try refreshing the page."}
+              action={{ label: "Retry", onClick: () => void healthQuery.refetch() }}
+              className="py-10"
+            />
+          ) : null}
         </div>
-        </WidgetCard>
-      </motion.div>
+      </DashboardPanel>
+
+      {prefs.widgets["platform-services"] && !healthQuery.isError && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.2 }}
+          className="relative z-10 space-y-4 sm:space-y-6"
+        >
+          <WidgetCard title="Platform Services">
+            <div className="p-3 sm:p-4">
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={`${activeCategory}-${serviceStateFilter}-${serviceQuery}`}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  transition={{ duration: 0.15 }}
+                  className="space-y-6"
+                >
+                  {healthQuery.isLoading && !healthQuery.data ? (
+                    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                      {[0, 1, 2, 3, 4, 5].map((item) => <SkeletonCard key={item} index={item} />)}
+                    </div>
+                  ) : filteredGroups.length > 0 ? (
+                    filteredGroups.map(group => (
+                      <GroupSection
+                        key={group.label}
+                        group={group}
+                        healthData={healthData}
+                        isLoading={healthQuery.isLoading && !healthQuery.data}
+                      />
+                    ))
+                  ) : (
+                    <EmptyState
+                      icon={HeartPulse}
+                      title="No services match these filters"
+                      description="Clear your search or change the health-state filter to show more services."
+                      action={{ label: "Reset filters", onClick: () => { setServiceQuery(""); setServiceStateFilter("all"); setActiveCategory("All"); } }}
+                      className="py-10"
+                    />
+                  )}
+                </motion.div>
+              </AnimatePresence>
+            </div>
+          </WidgetCard>
+        </motion.div>
       )}
 
-      {/* Quick links from favorites */}
-      {prefs.widgets["quick-links"] && favNavItems.length > 0 && (
+      {prefs.widgets["quick-links"] && (
         <motion.div
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.25 }}
           className="relative z-10"
         >
-          <WidgetCard title="Pinned Pages" icon={Star}>
-            <div className="grid grid-cols-2 gap-2 p-3 sm:grid-cols-3 sm:p-4 lg:grid-cols-4">
-              {favNavItems.map(item => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className="flex items-center gap-2 p-2.5 rounded-lg bg-[#141414] border border-[#2a2a2a] hover:border-[rgba(0,120,212,0.3)] hover:bg-[rgba(0,120,212,0.05)] transition-all text-sm text-[#9e9e9e] hover:text-[#f2f2f2]"
-                >
-                  <item.icon className="w-4 h-4 flex-shrink-0 text-[#0078D4]" />
-                  <span className="truncate">{item.label}</span>
-                </Link>
-              ))}
-            </div>
-          </WidgetCard>
+          {favNavItems.length > 0 ? (
+            <WidgetCard title="Pinned Pages" icon={Star}>
+              <div className="grid grid-cols-2 gap-2 p-3 sm:grid-cols-3 sm:p-4 lg:grid-cols-4">
+                {favNavItems.map(item => (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className="flex items-center gap-2 p-2.5 rounded-lg bg-[#141414] border border-[#2a2a2a] hover:border-[rgba(0,120,212,0.3)] hover:bg-[rgba(0,120,212,0.05)] transition-all text-sm text-[#9e9e9e] hover:text-[#f2f2f2]"
+                  >
+                    <item.icon className="w-4 h-4 flex-shrink-0 text-[#0078D4]" />
+                    <span className="truncate">{item.label}</span>
+                  </Link>
+                ))}
+              </div>
+            </WidgetCard>
+          ) : (
+            <DashboardPanel title="Pinned pages" description="Pin important screens from the sidebar to keep them here on the home portal." icon={Star}>
+              <EmptyState icon={Star} title="No pinned pages yet" description="Use the star icon in the sidebar to pin apps, cluster, or monitoring pages here." className="py-10" />
+            </DashboardPanel>
+          )}
         </motion.div>
       )}
     </div>

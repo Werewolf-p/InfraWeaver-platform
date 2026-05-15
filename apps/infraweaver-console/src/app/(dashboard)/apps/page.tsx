@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useCallback, useEffect, useMemo } from "react";
+import React, { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence, useMotionValue, useTransform } from "framer-motion";
 import {
@@ -11,10 +11,18 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn, timeAgo } from "@/lib/utils";
-import dynamic from "next/dynamic";
 import { useSearchParams, useRouter } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { PageHeader } from "@/components/ui/page-header";
+import { DashboardPanel } from "@/components/ui/dashboard-panel";
+import { DashboardStatCard } from "@/components/ui/dashboard-stat-card";
+import { ToolbarSearchInput } from "@/components/ui/toolbar-search-input";
+import { RefreshCountdown } from "@/components/ui/refresh-countdown";
+import { ExportButton } from "@/components/ui/export-button";
+import { EmptyState } from "@/components/ui/empty-state";
+import { SegmentedBar } from "@/components/ui/segmented-bar";
+import { CopyButton } from "@/components/ui/copy-button";
 import { useArgoApps } from "@/hooks/use-argocd";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { UpdatePolicyModal } from "@/components/apps/update-policy-modal";
@@ -125,12 +133,15 @@ interface AppRow {
   syncStatus: AppHealthStatus;
   source: "Catalog" | "Community";
   lastSync: string;
+  createdAt?: string;
   sourceType: "Helm" | "Git" | "Community";
   ingressHost?: string;
   urls?: string[];
 }
 
 type AppHealthFilter = "all" | "healthy" | "degraded" | "syncing" | "unknown";
+type AppSyncFilter = "all" | "synced" | "outOfSync" | "syncing";
+type AppSourceFilter = "all" | "Catalog" | "Community";
 type AppSortOption = "name-asc" | "name-desc" | "last-synced" | "health";
 
 const APP_HEALTH_FILTERS: Array<{ value: AppHealthFilter; label: string }> = [
@@ -139,6 +150,19 @@ const APP_HEALTH_FILTERS: Array<{ value: AppHealthFilter; label: string }> = [
   { value: "degraded", label: "Degraded" },
   { value: "syncing", label: "Syncing" },
   { value: "unknown", label: "Unknown" },
+];
+
+const APP_SYNC_FILTERS: Array<{ value: AppSyncFilter; label: string }> = [
+  { value: "all", label: "Any sync" },
+  { value: "synced", label: "Synced" },
+  { value: "outOfSync", label: "Out of sync" },
+  { value: "syncing", label: "Syncing" },
+];
+
+const APP_SOURCE_FILTERS: Array<{ value: AppSourceFilter; label: string }> = [
+  { value: "all", label: "All sources" },
+  { value: "Catalog", label: "Catalog" },
+  { value: "Community", label: "Community" },
 ];
 
 function healthBucket(status: AppHealthStatus): AppHealthFilter {
@@ -351,19 +375,21 @@ function AllInstalledTab() {
   const { can } = useRBAC();
   const canSyncApps = can("apps:sync");
   const canManageApps = can("apps:write");
-  const { data: argoApps, isLoading: argoLoading, refetch } = useArgoApps();
-  const [communityApps, setCommunityApps] = useState<InstalledCommunityApp[]>([]);
-  const [communityLoading, setCommunityLoading] = useState(false);
+  const { data: argoApps, isLoading: argoLoading, isFetching: argoFetching, refetch, dataUpdatedAt, error: argoError } = useArgoApps();
+  const searchRef = useRef<HTMLInputElement>(null);
   const [search, setSearch] = useState("");
   const [healthFilter, setHealthFilter] = useState<AppHealthFilter>("all");
-  const [sortOption, setSortOption] = useState<AppSortOption>("name-asc");
+  const [syncFilter, setSyncFilter] = useState<AppSyncFilter>("all");
+  const [sourceFilter, setSourceFilter] = useState<AppSourceFilter>("all");
+  const [namespaceFilter, setNamespaceFilter] = useState("all");
+  const [sortOption, setSortOption] = useState<AppSortOption>("health");
   const [syncingApp, setSyncingApp] = useState<string | null>(null);
   const [deletingApp, setDeletingApp] = useState<string | null>(null);
   const [uninstallingApp, setUninstallingApp] = useState<string | null>(null);
+  const [bulkSyncing, setBulkSyncing] = useState(false);
   const [optimisticSyncing, setOptimisticSyncing] = useState<Set<string>>(new Set());
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [updatePolicyApp, setUpdatePolicyApp] = useState<{ name: string; slug: string } | null>(null);
-  // Track recently uninstalled ArgoCD app names so they don't re-appear in catalog rows
-  // while ArgoCD is still pruning them from the cluster.
   const [recentlyUninstalled, setRecentlyUninstalled] = useState<Set<string>>(new Set());
   const [confirmDialog, setConfirmDialog] = useState<{
     open: boolean;
@@ -374,14 +400,37 @@ function AllInstalledTab() {
   }>({ open: false, title: "", onConfirm: () => {} });
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setCommunityLoading(true);
-    fetch("/api/community-apps/installed")
-      .then(r => r.ok ? r.json() : { apps: [] })
-      .then((d: { apps?: InstalledCommunityApp[] }) => setCommunityApps(d.apps ?? []))
-      .catch(() => setCommunityApps([]))
-      .finally(() => setCommunityLoading(false));
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const isTypingTarget = target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
+      if (event.key === "/" && !isTypingTarget) {
+        event.preventDefault();
+        searchRef.current?.focus();
+      }
+      if (event.key === "Escape") {
+        setSearch("");
+        setHealthFilter("all");
+        setSyncFilter("all");
+        setSourceFilter("all");
+        setNamespaceFilter("all");
+        setSelectedIds(new Set());
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
+
+  const communityAppsQuery = useQuery<{ apps?: InstalledCommunityApp[] }>({
+    queryKey: ["community-installed-apps"],
+    queryFn: async () => {
+      const response = await fetch("/api/community-apps/installed");
+      return response.ok ? response.json() : { apps: [] };
+    },
+    staleTime: 30_000,
+  });
+
+  const communityApps = useMemo(() => communityAppsQuery.data?.apps ?? [], [communityAppsQuery.data?.apps]);
+  const communityLoading = communityAppsQuery.isLoading;
 
   const allRows = useMemo(() => {
     const argoByName = new Map((argoApps ?? []).map(app => [app.metadata?.name ?? "", app]));
@@ -389,7 +438,6 @@ function AllInstalledTab() {
 
     const argo = (argoApps ?? [])
       .filter(app => !communityArgoNames.has(app.metadata?.name ?? ""))
-      // Hide recently-uninstalled community apps that ArgoCD hasn't pruned yet
       .filter(app => !recentlyUninstalled.has(app.metadata?.name ?? ""))
       .map(app => ({
         id: app.metadata?.name ?? "",
@@ -399,6 +447,7 @@ function AllInstalledTab() {
         syncStatus: toHealthStatus(app.status?.sync?.status ?? "Unknown"),
         source: "Catalog" as const,
         lastSync: app.status?.reconciledAt ?? "",
+        createdAt: app.metadata?.creationTimestamp ?? "",
         sourceType: (app.spec?.source?.repoURL?.includes("charts") ? "Helm" : "Git") as "Helm" | "Git",
         ingressHost: undefined as string | undefined,
         urls: app.status?.summary?.externalURLs ?? [],
@@ -418,6 +467,7 @@ function AllInstalledTab() {
           : "progressing" as AppHealthStatus,
         source: "Community" as const,
         lastSync: argoApp?.status?.reconciledAt ?? app.installedAt,
+        createdAt: app.installedAt,
         sourceType: "Community" as const,
         ingressHost: app.ingressHost,
         urls: argoApp?.status?.summary?.externalURLs ?? (app.ingressHost ? [`https://${app.ingressHost}`] : []),
@@ -427,13 +477,24 @@ function AllInstalledTab() {
     return [...argo, ...community];
   }, [argoApps, communityApps, recentlyUninstalled]);
 
+  const namespaceOptions = useMemo(
+    () => Array.from(new Set(allRows.map(row => row.namespace).filter(Boolean))).sort((a, b) => a.localeCompare(b)),
+    [allRows],
+  );
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return [...allRows]
       .filter((row) => {
-        const matchesSearch = !q || row.name.toLowerCase().includes(q) || row.namespace.toLowerCase().includes(q);
+        const matchesSearch = !q || row.name.toLowerCase().includes(q) || row.namespace.toLowerCase().includes(q) || row.ingressHost?.toLowerCase().includes(q);
         const matchesHealth = healthFilter === "all" || healthBucket(row.health) === healthFilter;
-        return matchesSearch && matchesHealth;
+        const matchesSync = syncFilter === "all"
+          || (syncFilter === "synced" && row.syncStatus === "synced")
+          || (syncFilter === "outOfSync" && row.syncStatus === "outOfSync")
+          || (syncFilter === "syncing" && ["syncing", "progressing"].includes(row.syncStatus));
+        const matchesSource = sourceFilter === "all" || row.source === sourceFilter;
+        const matchesNamespace = namespaceFilter === "all" || row.namespace === namespaceFilter;
+        return matchesSearch && matchesHealth && matchesSync && matchesSource && matchesNamespace;
       })
       .sort((a, b) => {
         if (sortOption === "name-desc") return b.name.localeCompare(a.name);
@@ -444,7 +505,35 @@ function AllInstalledTab() {
         }
         return a.name.localeCompare(b.name);
       });
-  }, [allRows, healthFilter, search, sortOption]);
+  }, [allRows, healthFilter, namespaceFilter, search, sortOption, sourceFilter, syncFilter]);
+
+  const activeSelectedIds = useMemo(
+    () => new Set([...selectedIds].filter(id => allRows.some(row => row.id === id))),
+    [allRows, selectedIds],
+  );
+
+  const selectedRows = useMemo(
+    () => filtered.filter(row => activeSelectedIds.has(row.id)),
+    [activeSelectedIds, filtered],
+  );
+
+  const summary = useMemo(() => ({
+    total: allRows.length,
+    healthy: allRows.filter(row => healthBucket(row.health) === "healthy").length,
+    degraded: allRows.filter(row => healthBucket(row.health) === "degraded").length,
+    syncing: allRows.filter(row => ["syncing", "progressing"].includes(row.syncStatus)).length,
+    outOfSync: allRows.filter(row => row.syncStatus === "outOfSync").length,
+    catalog: allRows.filter(row => row.source === "Catalog").length,
+    community: allRows.filter(row => row.source === "Community").length,
+  }), [allRows]);
+
+  const loading = argoLoading || communityLoading;
+  const hasActiveFilters = Boolean(search.trim()) || healthFilter !== "all" || syncFilter !== "all" || sourceFilter !== "all" || namespaceFilter !== "all";
+
+  const syncOne = async (name: string) => {
+    const res = await fetch(`/api/argocd/apps/${encodeURIComponent(name)}/sync`, { method: "POST" });
+    if (!res.ok) throw new Error("Sync failed");
+  };
 
   const handleSync = async (name: string) => {
     if (!canSyncApps) {
@@ -454,8 +543,7 @@ function AllInstalledTab() {
     setSyncingApp(name);
     setOptimisticSyncing(prev => new Set([...prev, name]));
     try {
-      const res = await fetch(`/api/argocd/apps/${encodeURIComponent(name)}/sync`, { method: "POST" });
-      if (!res.ok) throw new Error("Sync failed");
+      await syncOne(name);
       toast.success(`Syncing ${name}…`);
       setTimeout(() => void refetch(), 2000);
     } catch {
@@ -466,13 +554,39 @@ function AllInstalledTab() {
     }
   };
 
+  const handleBulkSync = async () => {
+    if (!canSyncApps) {
+      toast.error("You do not have permission to sync apps");
+      return;
+    }
+    const targets = selectedRows.filter(row => row.source === "Catalog");
+    if (targets.length === 0) {
+      toast.error("Select at least one catalog app to bulk sync");
+      return;
+    }
+    setBulkSyncing(true);
+    setOptimisticSyncing(prev => new Set([...prev, ...targets.map(target => target.name)]));
+    const results = await Promise.allSettled(targets.map(target => syncOne(target.name)));
+    const ok = results.filter(result => result.status === "fulfilled").length;
+    const failed = results.length - ok;
+    if (ok > 0) toast.success(`Queued sync for ${ok} app${ok === 1 ? "" : "s"}`);
+    if (failed > 0) toast.error(`${failed} app${failed === 1 ? "" : "s"} failed to sync`);
+    setBulkSyncing(false);
+    setSelectedIds(new Set());
+    setOptimisticSyncing(prev => {
+      const next = new Set(prev);
+      for (const target of targets) next.delete(target.name);
+      return next;
+    });
+    void refetch();
+  };
+
   const handleDelete = async (name: string) => {
     if (!canManageApps) {
       toast.error("You do not have permission to delete apps");
       return;
     }
 
-    // Protect core infrastructure from accidental deletion
     const isCoreApp = name.startsWith("core-") || name === "bootstrap" || name.startsWith("appset-") || name === "catalog-infraweaver-console-manifests";
     if (isCoreApp) {
       toast.error(`"${name}" is core infrastructure and cannot be removed from the console.`);
@@ -500,8 +614,8 @@ function AllInstalledTab() {
         fetch(endpoint, { method: "DELETE" })
           .then(res => res.json().then(data => ({ ok: res.ok, data })))
           .then(({ ok, data }: { ok: boolean; data: { message?: string; error?: string } }) => {
-            if (!ok) throw new Error((data as { error?: string }).error ?? "Remove failed");
-            toast.success((data as { message?: string }).message ?? `Removed ${name}`);
+            if (!ok) throw new Error(data.error ?? "Remove failed");
+            toast.success(data.message ?? `Removed ${name}`);
             void refetch();
           })
           .catch((e: unknown) => toast.error(e instanceof Error ? e.message : `Failed to remove ${name}`))
@@ -536,92 +650,242 @@ function AllInstalledTab() {
     });
   };
 
-  const loading = argoLoading || communityLoading;
+  const exportRows = async (format: "csv" | "json" | "yaml") => {
+    const rows = filtered.map((row) => ({
+      name: row.name,
+      namespace: row.namespace,
+      source: row.source,
+      health: row.health,
+      syncStatus: row.syncStatus,
+      lastSync: row.lastSync || "",
+      createdAt: row.createdAt || "",
+      ingressHost: row.ingressHost || "",
+    }));
+    if (format === "json") return JSON.stringify(rows, null, 2);
+    const headers = ["name", "namespace", "source", "health", "syncStatus", "lastSync", "createdAt", "ingressHost"];
+    const csv = [headers.join(","), ...rows.map(row => headers.map(key => JSON.stringify(row[key as keyof typeof row] ?? "")).join(","))].join("\n");
+    if (format === "yaml") {
+      return rows.map(row => `- name: ${row.name}\n  namespace: ${row.namespace}\n  source: ${row.source}\n  health: ${row.health}\n  syncStatus: ${row.syncStatus}\n  lastSync: ${row.lastSync}\n  createdAt: ${row.createdAt}\n  ingressHost: ${row.ingressHost}`).join("\n");
+    }
+    return csv;
+  };
+
+  const toggleSelected = (id: string) => {
+    setSelectedIds(current => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const selectAllVisible = () => {
+    if (filtered.length === 0) return;
+    const allSelected = filtered.every(row => selectedIds.has(row.id));
+    setSelectedIds(allSelected ? new Set() : new Set(filtered.map(row => row.id)));
+  };
+
   const { simpleMode, toggle } = useSimpleMode();
-  const hasActiveFilters = Boolean(search.trim()) || healthFilter !== "all";
 
   return (
-    <div className="space-y-4">
-      <div className="space-y-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="relative w-full sm:flex-1 sm:max-w-sm">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#555]" />
-            <input
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Search apps…"
-              className="w-full bg-[#0f0f0f] border border-[#333] rounded-lg pl-9 pr-3 py-2 text-sm text-[#f2f2f2] placeholder:text-[#555] focus:outline-none focus:border-[#0078D4]/50"
-            />
+    <div className="space-y-5">
+      <DashboardPanel
+        title="Application health overview"
+        description="Prioritized health, sync drift, and deployment freshness before the full table."
+        icon={LayoutGrid}
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <ExportButton getData={exportRows} filename="apps-overview" formats={["csv", "json"]} />
+            <RefreshCountdown intervalSeconds={30} resetKey={dataUpdatedAt} />
           </div>
-          <select
-            value={sortOption}
-            onChange={(event) => setSortOption(event.target.value as AppSortOption)}
-            className="min-h-[40px] rounded-lg border border-[#333] bg-[#0f0f0f] px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]/50"
-          >
-            <option value="name-asc">Name A-Z</option>
-            <option value="name-desc">Name Z-A</option>
-            <option value="last-synced">Last Synced</option>
-            <option value="health">Health Status</option>
-          </select>
-          <button
-            onClick={toggle}
-            className={cn(
-              "flex min-h-[40px] items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium transition-colors",
-              simpleMode
-                ? "border-indigo-500/30 bg-indigo-500/10 text-indigo-400"
-                : "border-[#333] text-[#666] hover:text-[#9e9e9e]"
-            )}
-          >
-            {simpleMode ? "Simple" : "Advanced"}
-          </button>
-          <button
-            onClick={() => void refetch()}
-            className="flex min-h-[40px] items-center gap-2 rounded-lg border border-[#333] px-3 py-2 text-sm text-[#9e9e9e] transition-colors hover:border-[#555] hover:text-white"
-          >
-            <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
-            <span className="hidden sm:inline">Refresh</span>
-          </button>
-          <span className="w-full text-xs text-[#666] sm:w-auto sm:text-sm">{filtered.length} of {allRows.length} apps</span>
+        }
+      >
+        <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-2">
+            <DashboardStatCard label="Installed apps" value={summary.total} icon={Layers} tone="info" description="Catalog and community apps currently visible to the operator." footer={<span>{summary.catalog} catalog · {summary.community} community</span>} />
+            <DashboardStatCard label="Healthy" value={summary.healthy} icon={CheckCircle} tone={summary.degraded > 0 ? "warning" : "success"} description="Apps reporting healthy/synced state." footer={<span>{summary.degraded} degraded or out-of-sync</span>} />
+            <DashboardStatCard label="Syncing" value={summary.syncing} icon={RefreshCw} tone={summary.syncing > 0 ? "warning" : "neutral"} description="Applications actively progressing or syncing." footer={<span>{summary.outOfSync} out of sync</span>} />
+            <DashboardStatCard label="Selected" value={activeSelectedIds.size} icon={Package} tone={activeSelectedIds.size > 0 ? "info" : "neutral"} description="Desktop bulk actions work on the current filtered result set." footer={<span>{selectedRows.filter(row => row.source === "Catalog").length} catalog app(s) ready for bulk sync</span>} />
+          </div>
+          <div className="rounded-2xl border border-[#2a2a2a] bg-[#141414] p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-[#f2f2f2]">Health distribution</p>
+                <p className="text-xs text-[#888]">Quick read of app health without scanning the whole table.</p>
+              </div>
+              <button
+                onClick={() => void refetch()}
+                className="inline-flex items-center gap-2 rounded-lg border border-[#2a2a2a] px-3 py-1.5 text-xs text-[#9e9e9e] transition hover:text-white"
+              >
+                <RefreshCw className={cn("h-3.5 w-3.5", (loading || argoFetching) && "animate-spin")} />
+                Refresh
+              </button>
+            </div>
+            <div className="mt-4 space-y-3">
+              <SegmentedBar
+                segments={[
+                  { label: "Healthy", value: summary.healthy, className: "bg-emerald-500" },
+                  { label: "Degraded", value: summary.degraded, className: "bg-amber-500" },
+                  { label: "Syncing", value: summary.syncing, className: "bg-blue-500" },
+                ]}
+              />
+              <div className="grid gap-3 sm:grid-cols-3">
+                {[
+                  { label: "Healthy", value: summary.healthy, tone: "text-emerald-300" },
+                  { label: "Degraded", value: summary.degraded, tone: "text-amber-300" },
+                  { label: "Syncing", value: summary.syncing, tone: "text-blue-300" },
+                ].map(item => (
+                  <div key={item.label} className="rounded-xl border border-[#2a2a2a] bg-[#111] p-3">
+                    <p className="text-[11px] uppercase tracking-[0.18em] text-[#666]">{item.label}</p>
+                    <p className={`mt-2 text-2xl font-semibold ${item.tone}`}>{item.value}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          {APP_HEALTH_FILTERS.map((option) => (
+      </DashboardPanel>
+
+      <DashboardPanel title="Search, filters & bulk actions" description="Namespace, health, sync, and source filters tuned for dense desktop triage." icon={Search}>
+        <div className="space-y-4">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
+            <ToolbarSearchInput
+              ref={searchRef}
+              value={search}
+              onChange={setSearch}
+              placeholder="Search app name, namespace, or ingress host…"
+              className="flex-1"
+            />
+            <select
+              value={namespaceFilter}
+              onChange={(event) => setNamespaceFilter(event.target.value)}
+              className="h-11 rounded-xl border border-[#2a2a2a] bg-[#111] px-3 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]/50"
+            >
+              <option value="all">All namespaces</option>
+              {namespaceOptions.map((namespace) => <option key={namespace} value={namespace}>{namespace}</option>)}
+            </select>
+            <select
+              value={sortOption}
+              onChange={(event) => setSortOption(event.target.value as AppSortOption)}
+              className="h-11 rounded-xl border border-[#2a2a2a] bg-[#111] px-3 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]/50"
+            >
+              <option value="health">Health status</option>
+              <option value="last-synced">Last synced</option>
+              <option value="name-asc">Name A-Z</option>
+              <option value="name-desc">Name Z-A</option>
+            </select>
             <button
-              key={option.value}
-              onClick={() => setHealthFilter(option.value)}
+              onClick={toggle}
               className={cn(
-                "min-h-[40px] rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
-                healthFilter === option.value
-                  ? "border-indigo-500/30 bg-indigo-500/15 text-indigo-300"
-                  : "border-white/10 bg-white/5 text-slate-400 hover:text-white"
+                "flex h-11 items-center gap-1.5 rounded-xl border px-4 text-xs font-medium transition-colors",
+                simpleMode
+                  ? "border-indigo-500/30 bg-indigo-500/10 text-indigo-400"
+                  : "border-[#2a2a2a] bg-[#111] text-[#888] hover:text-[#f2f2f2]"
               )}
             >
-              {option.label}
+              {simpleMode ? "Simple" : "Advanced"}
             </button>
-          ))}
-          {hasActiveFilters && (
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {APP_HEALTH_FILTERS.map((option) => (
+              <button
+                key={option.value}
+                onClick={() => setHealthFilter(option.value)}
+                className={cn(
+                  "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+                  healthFilter === option.value
+                    ? "border-indigo-500/30 bg-indigo-500/15 text-indigo-300"
+                    : "border-white/10 bg-white/5 text-slate-400 hover:text-white"
+                )}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {APP_SYNC_FILTERS.map((option) => (
+              <button
+                key={option.value}
+                onClick={() => setSyncFilter(option.value)}
+                className={cn(
+                  "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+                  syncFilter === option.value
+                    ? "border-blue-500/30 bg-blue-500/15 text-blue-200"
+                    : "border-white/10 bg-white/5 text-slate-400 hover:text-white"
+                )}
+              >
+                {option.label}
+              </button>
+            ))}
+            {APP_SOURCE_FILTERS.map((option) => (
+              <button
+                key={option.value}
+                onClick={() => setSourceFilter(option.value)}
+                className={cn(
+                  "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+                  sourceFilter === option.value
+                    ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-200"
+                    : "border-white/10 bg-white/5 text-slate-400 hover:text-white"
+                )}
+              >
+                {option.label}
+              </button>
+            ))}
+            {hasActiveFilters && (
+              <button
+                onClick={() => { setSearch(""); setHealthFilter("all"); setSyncFilter("all"); setSourceFilter("all"); setNamespaceFilter("all"); }}
+                className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-400 transition-colors hover:text-white"
+              >
+                Clear filters
+              </button>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-[#2a2a2a] bg-[#111] p-3 text-sm text-[#9e9e9e]">
+            <span>{filtered.length} of {allRows.length} app(s) shown</span>
+            <div className="h-4 w-px bg-[#2a2a2a]" />
+            <button onClick={selectAllVisible} className="text-[#9dcbff] transition hover:text-white">
+              {filtered.length > 0 && filtered.every(row => selectedIds.has(row.id)) ? "Clear visible selection" : "Select visible"}
+            </button>
+            <div className="h-4 w-px bg-[#2a2a2a]" />
+            <span>{activeSelectedIds.size} selected</span>
+            <button onClick={() => setSelectedIds(new Set())} className="text-slate-400 transition hover:text-white">Reset selection</button>
             <button
-              onClick={() => { setSearch(""); setHealthFilter("all"); }}
-              className="min-h-[40px] rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-400 transition-colors hover:text-white"
+              onClick={() => void handleBulkSync()}
+              disabled={bulkSyncing || selectedRows.filter(row => row.source === "Catalog").length === 0}
+              className="ml-auto inline-flex items-center gap-2 rounded-xl border border-indigo-500/30 bg-indigo-500/10 px-4 py-2 text-sm text-indigo-200 transition hover:bg-indigo-500/20 disabled:opacity-50"
             >
-              Clear filter
+              {bulkSyncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              Bulk sync selected catalog apps
             </button>
-          )}
+          </div>
         </div>
-      </div>
+      </DashboardPanel>
+
+      {argoError ? (
+        <EmptyState
+          icon={AlertTriangle}
+          title="Apps could not be loaded"
+          description={argoError instanceof Error ? argoError.message : "Try refreshing the Apps page."}
+          action={{ label: "Retry", onClick: () => void refetch() }}
+          className="py-10"
+        />
+      ) : null}
 
       {loading && filtered.length === 0 && (
         <>
-          {/* Desktop skeleton */}
           <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-[#2a2a2a] text-[#666] text-xs">
+                  <th className="w-10 py-2 px-3" />
                   <th className="text-left py-2 px-3 font-medium">Name</th>
                   {!simpleMode && <th className="text-left py-2 px-3 font-medium">Namespace</th>}
                   <th className="text-left py-2 px-3 font-medium">Health</th>
                   <th className="text-left py-2 px-3 font-medium">Sync</th>
                   <th className="text-left py-2 px-3 font-medium">Source</th>
-                  {!simpleMode && <th className="text-left py-2 px-3 font-medium">Last Sync</th>}
+                  {!simpleMode && <th className="text-left py-2 px-3 font-medium">Timing</th>}
                   <th className="text-right py-2 px-3 font-medium">Actions</th>
                 </tr>
               </thead>
@@ -630,7 +894,6 @@ function AllInstalledTab() {
               </tbody>
             </table>
           </div>
-          {/* Mobile skeleton */}
           <div className="md:hidden space-y-3">
             {[...Array(4)].map((_, i) => <AppCardSkeleton key={i} />)}
           </div>
@@ -638,138 +901,88 @@ function AllInstalledTab() {
       )}
 
       {!loading && filtered.length === 0 && (
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="rounded-xl border border-white/10 bg-white/5 px-6 py-16 text-center text-[#555]">
-          <Layers className="mx-auto mb-3 h-12 w-12 opacity-30" />
-          <p className="text-sm text-white/80">No apps match this filter</p>
-          <p className="mt-1 text-xs text-slate-500">Try another health status or clear your search.</p>
-          <button
-            onClick={() => { setSearch(""); setHealthFilter("all"); }}
-            className="mx-auto mt-4 inline-flex min-h-[40px] items-center justify-center rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-300 transition hover:text-white"
-          >
-            Clear filter
-          </button>
-        </motion.div>
+        <EmptyState
+          icon={Layers}
+          title="No apps match the current filters"
+          description="Adjust the namespace, sync, or health filters to bring apps back into view."
+          action={{ label: "Reset filters", onClick: () => { setSearch(""); setHealthFilter("all"); setSyncFilter("all"); setSourceFilter("all"); setNamespaceFilter("all"); } }}
+          className="py-12"
+        />
       )}
 
-      {/* Desktop table */}
       <div className="hidden md:block overflow-x-auto">
         {filtered.length > 0 && (
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-[#2a2a2a] text-[#666] text-xs">
+                <th className="w-10 py-2 px-3">
+                  <input type="checkbox" checked={filtered.length > 0 && filtered.every(row => selectedIds.has(row.id))} onChange={selectAllVisible} />
+                </th>
                 <th className="text-left py-2 px-3 font-medium">Name</th>
                 {!simpleMode && <th className="text-left py-2 px-3 font-medium">Namespace</th>}
                 <th className="text-left py-2 px-3 font-medium">Health</th>
                 <th className="text-left py-2 px-3 font-medium">Sync</th>
                 <th className="text-left py-2 px-3 font-medium">Source</th>
-                {!simpleMode && <th className="text-left py-2 px-3 font-medium">Last Sync</th>}
+                {!simpleMode && <th className="text-left py-2 px-3 font-medium">Timing</th>}
                 <th className="text-right py-2 px-3 font-medium">Actions</th>
               </tr>
             </thead>
             <tbody>
               {filtered.map(row => (
-                <tr key={row.id} className="border-b border-[#1e1e1e] hover:bg-[#1a1a1a] transition-colors">
-                  <td className="py-2.5 px-3 font-medium text-[#f2f2f2]">
+                <tr key={row.id} className={cn("border-b border-[#1e1e1e] transition-colors", selectedIds.has(row.id) ? "bg-[rgba(0,120,212,0.06)]" : "hover:bg-[#1a1a1a]")}>
+                  <td className="py-2.5 px-3 align-top">
+                    <input type="checkbox" checked={selectedIds.has(row.id)} onChange={() => toggleSelected(row.id)} />
+                  </td>
+                  <td className="py-2.5 px-3 font-medium text-[#f2f2f2] align-top">
                     <div className="flex items-center gap-2">
-                      <Link href={`/apps/${encodeURIComponent(row.name)}`} className="transition hover:text-[#7cb9ff]">
-                        {row.name}
-                      </Link>
+                      <Link href={`/apps/${encodeURIComponent(row.name)}`} className="transition hover:text-[#7cb9ff]">{row.name}</Link>
+                      <CopyButton text={row.name} className="h-7 px-2 text-[11px]" />
                       {primaryAppUrl(row) && (
-                        <a
-                          href={primaryAppUrl(row) ?? undefined}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          title="Open app URL"
-                          className="text-[#4a9eff] hover:text-[#7cb9ff] transition-colors"
-                          onClick={e => e.stopPropagation()}
-                        >
+                        <a href={primaryAppUrl(row) ?? undefined} target="_blank" rel="noopener noreferrer" title="Open app URL" className="text-[#4a9eff] hover:text-[#7cb9ff] transition-colors" onClick={e => e.stopPropagation()}>
                           <Globe className="w-3 h-3" />
                         </a>
                       )}
-                      <a
-                        href={argocdAppUrl(row)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        title="Open in ArgoCD"
-                        className="text-slate-500 hover:text-white transition-colors"
-                        onClick={e => e.stopPropagation()}
-                      >
+                      <a href={argocdAppUrl(row)} target="_blank" rel="noopener noreferrer" title="Open in ArgoCD" className="text-slate-500 hover:text-white transition-colors" onClick={e => e.stopPropagation()}>
                         <ExternalLink className="w-3 h-3" />
                       </a>
                     </div>
-                    {row.ingressHost && (
-                      <div className="flex items-center gap-1.5 mt-0.5">
-                        <p className="text-xs text-[#4a9eff] font-mono truncate max-w-[200px]">{row.ingressHost}</p>
-                        {row.ingressHost.includes(".int.") && (
-                          <span className="text-[10px] px-1 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/20 font-medium shrink-0">VPN</span>
-                        )}
-                      </div>
-                    )}
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                      {row.ingressHost && <p className="text-xs text-[#4a9eff] font-mono truncate max-w-[240px]">{row.ingressHost}</p>}
+                      {row.ingressHost?.includes(".int.") && <span className="text-[10px] px-1 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/20 font-medium shrink-0">VPN</span>}
+                      {row.createdAt && <span className="text-xs text-[#666]">Age {timeAgo(row.createdAt)}</span>}
+                    </div>
                   </td>
-                  {!simpleMode && <td className="py-2.5 px-3 font-mono text-xs text-[#9e9e9e]">{row.namespace}</td>}
-                  <td className="py-2.5 px-3"><StatusBadge status={optimisticSyncing.has(row.name) ? "syncing" : row.health} /></td>
-                  <td className="py-2.5 px-3"><StatusBadge status={row.syncStatus} /></td>
-                  <td className="py-2.5 px-3">
-                    <span className={cn(
-                      "px-2 py-0.5 rounded text-xs font-medium",
-                      row.source === "Catalog"
-                        ? "bg-blue-500/10 text-blue-400 border border-blue-500/20"
-                        : "bg-purple-500/10 text-purple-400 border border-purple-500/20"
-                    )}>
-                      {row.source}
-                    </span>
-                  </td>
+                  {!simpleMode && <td className="py-2.5 px-3 align-top"><div className="flex items-center gap-2"><span className="font-mono text-xs text-[#9e9e9e]">{row.namespace}</span><CopyButton text={row.namespace} className="h-7 px-2 text-[11px]" /></div></td>}
+                  <td className="py-2.5 px-3 align-top"><StatusBadge status={optimisticSyncing.has(row.name) ? "syncing" : row.health} /></td>
+                  <td className="py-2.5 px-3 align-top"><StatusBadge status={row.syncStatus} /></td>
+                  <td className="py-2.5 px-3 align-top"><span className={cn("px-2 py-0.5 rounded text-xs font-medium", row.source === "Catalog" ? "bg-blue-500/10 text-blue-400 border border-blue-500/20" : "bg-purple-500/10 text-purple-400 border border-purple-500/20")}>{row.source}</span></td>
                   {!simpleMode && (
-                    <td className="py-2.5 px-3 text-xs text-[#666]" title={row.lastSync ? new Date(row.lastSync).toLocaleString() : "Never synced"}>
-                      {row.lastSync ? timeAgo(row.lastSync) : "—"}
+                    <td className="py-2.5 px-3 align-top text-xs text-[#666]">
+                      <div>{row.lastSync ? `Last sync ${timeAgo(row.lastSync)}` : "Never synced"}</div>
+                      <div className="mt-1">{row.lastSync ? new Date(row.lastSync).toLocaleString() : "—"}</div>
                     </td>
                   )}
-                  <td className="py-2.5 px-3 text-right">
-                    <div className="flex items-center justify-end gap-2">
+                  <td className="py-2.5 px-3 text-right align-top">
+                    <div className="flex items-center justify-end gap-2 flex-wrap">
                       {primaryAppUrl(row) && (
-                        <a
-                          href={primaryAppUrl(row) ?? undefined}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          title="Open app URL"
-                          className="inline-flex items-center gap-1 rounded border border-[#2a2a2a] px-2 py-1 text-xs text-[#666] transition-colors hover:text-white"
-                        >
+                        <a href={primaryAppUrl(row) ?? undefined} target="_blank" rel="noopener noreferrer" title="Open app URL" className="inline-flex items-center gap-1 rounded border border-[#2a2a2a] px-2 py-1 text-xs text-[#666] transition-colors hover:text-white">
                           <Globe className="w-3 h-3" />
                         </a>
                       )}
-                      <a
-                        href={argocdAppUrl(row)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        title="Open in ArgoCD"
-                        className="inline-flex items-center gap-1 rounded border border-[#2a2a2a] px-2 py-1 text-xs text-[#666] transition-colors hover:text-white"
-                      >
+                      <a href={argocdAppUrl(row)} target="_blank" rel="noopener noreferrer" title="Open in ArgoCD" className="inline-flex items-center gap-1 rounded border border-[#2a2a2a] px-2 py-1 text-xs text-[#666] transition-colors hover:text-white">
                         <ExternalLink className="w-3 h-3" />
                       </a>
                       {row.source === "Catalog" && (
                         <>
                           <PolicyBadge slug={row.name} />
-                          <button
-                            onClick={() => setUpdatePolicyApp({ name: row.name, slug: row.name })}
-                            disabled={!canManageApps}
-                            className="flex items-center gap-1 px-2 py-1 rounded text-xs border border-[#2a2a2a] text-[#666] hover:text-[#0078D4] hover:border-[#0078D4]/40 transition-colors disabled:opacity-50"
-                            title="Update Policy"
-                          >
+                          <button onClick={() => setUpdatePolicyApp({ name: row.name, slug: row.name })} disabled={!canManageApps} className="flex items-center gap-1 px-2 py-1 rounded text-xs border border-[#2a2a2a] text-[#666] hover:text-[#0078D4] hover:border-[#0078D4]/40 transition-colors disabled:opacity-50" title="Update Policy">
                             <Settings2 className="w-3 h-3" />
                           </button>
-                          <button
-                            onClick={() => void handleSync(row.name)}
-                            disabled={syncingApp === row.name || !canSyncApps}
-                            className="flex items-center gap-1 px-2 py-1 rounded text-xs border border-[#333] text-[#9e9e9e] hover:text-white hover:border-[#555] transition-colors disabled:opacity-50"
-                          >
+                          <button onClick={() => void handleSync(row.name)} disabled={syncingApp === row.name || !canSyncApps} className="flex items-center gap-1 px-2 py-1 rounded text-xs border border-[#333] text-[#9e9e9e] hover:text-white hover:border-[#555] transition-colors disabled:opacity-50">
                             {syncingApp === row.name ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
                             Force Sync
                           </button>
-                          <button
-                            onClick={() => void handleDelete(row.name)}
-                            disabled={deletingApp === row.name || !canManageApps}
-                            className="flex items-center gap-1 px-2 py-1 rounded text-xs border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
-                          >
+                          <button onClick={() => void handleDelete(row.name)} disabled={deletingApp === row.name || !canManageApps} className="flex items-center gap-1 px-2 py-1 rounded text-xs border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50">
                             {deletingApp === row.name ? <Loader2 className="w-3 h-3 animate-spin" /> : <X className="w-3 h-3" />}
                             Delete
                           </button>
@@ -778,22 +991,11 @@ function AllInstalledTab() {
                       {row.source === "Community" && (
                         <div className="flex items-center gap-2">
                           {row.ingressHost && (
-                            <a
-                              href={`https://${row.ingressHost}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              title={row.ingressHost.includes(".int.") ? `${row.ingressHost} — requires NetBird VPN` : row.ingressHost}
-                              className="flex items-center gap-1 px-2 py-1 rounded text-xs border border-[#2a2a2a] text-[#555] hover:text-[#7cb9ff] hover:border-[#7cb9ff]/40 transition-colors"
-                            >
-                              <ExternalLink className="w-3 h-3" />
-                              Open
+                            <a href={`https://${row.ingressHost}`} target="_blank" rel="noopener noreferrer" title={row.ingressHost.includes(".int.") ? `${row.ingressHost} — requires NetBird VPN` : row.ingressHost} className="flex items-center gap-1 px-2 py-1 rounded text-xs border border-[#2a2a2a] text-[#555] hover:text-[#7cb9ff] hover:border-[#7cb9ff]/40 transition-colors">
+                              <ExternalLink className="w-3 h-3" /> Open
                             </a>
                           )}
-                          <button
-                            onClick={() => void handleUninstallCommunity(row.name)}
-                            disabled={uninstallingApp === row.name || !canManageApps}
-                            className="flex items-center gap-1 px-2 py-1 rounded text-xs border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
-                          >
+                          <button onClick={() => void handleUninstallCommunity(row.name)} disabled={uninstallingApp === row.name || !canManageApps} className="flex items-center gap-1 px-2 py-1 rounded text-xs border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50">
                             {uninstallingApp === row.name ? <Loader2 className="w-3 h-3 animate-spin" /> : <X className="w-3 h-3" />}
                             Uninstall
                           </button>
@@ -808,16 +1010,16 @@ function AllInstalledTab() {
         )}
       </div>
 
-      {/* Mobile cards */}
       <div className="md:hidden space-y-3">
         <AnimatePresence>
           {filtered.map((row, index) => (
-            <motion.div
-              key={row.id}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: Math.min(index * 0.05, 0.25), duration: 0.2 }}
-            >
+            <motion.div key={row.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(index * 0.05, 0.25), duration: 0.2 }}>
+              <div className="mb-2 flex items-center justify-between rounded-xl border border-[#2a2a2a] bg-[#111] px-3 py-2 text-xs text-[#888]">
+                <button onClick={() => toggleSelected(row.id)} className={cn("rounded-full border px-2 py-1 transition-colors", selectedIds.has(row.id) ? "border-[#0078D4]/40 bg-[rgba(0,120,212,0.15)] text-[#9dcbff]" : "border-[#2a2a2a]")}>
+                  {selectedIds.has(row.id) ? "Selected" : "Select"}
+                </button>
+                <span>{row.createdAt ? `Age ${timeAgo(row.createdAt)}` : "Age unavailable"}</span>
+              </div>
               <SwipeableAppCard
                 row={row}
                 syncingApp={syncingApp}
@@ -834,11 +1036,7 @@ function AllInstalledTab() {
               {row.source === "Catalog" && (
                 <div className="mt-2 flex flex-wrap items-center gap-2 px-1">
                   <PolicyBadge slug={row.name} />
-                  <button
-                    onClick={() => setUpdatePolicyApp({ name: row.name, slug: row.name })}
-                    disabled={!canManageApps}
-                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs border border-[#2a2a2a] text-[#666] hover:text-[#0078D4] hover:border-[#0078D4]/40 transition-colors min-h-[36px] disabled:opacity-50"
-                  >
+                  <button onClick={() => setUpdatePolicyApp({ name: row.name, slug: row.name })} disabled={!canManageApps} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs border border-[#2a2a2a] text-[#666] hover:text-[#0078D4] hover:border-[#0078D4]/40 transition-colors min-h-[36px] disabled:opacity-50">
                     <Settings2 className="w-3.5 h-3.5" /> Update Policy
                   </button>
                 </div>
@@ -848,7 +1046,6 @@ function AllInstalledTab() {
         </AnimatePresence>
       </div>
 
-      {/* Update Policy Modal */}
       {updatePolicyApp && (
         <UpdatePolicyModal
           appName={updatePolicyApp.name}
@@ -858,7 +1055,6 @@ function AllInstalledTab() {
         />
       )}
 
-      {/* Confirm dialog — works on mobile, replaces browser confirm() */}
       <ConfirmDialog
         open={confirmDialog.open}
         title={confirmDialog.title}
@@ -1500,13 +1696,6 @@ function DeployModal({ app, onClose }: { app: AppSummary; onClose: () => void })
   const [deployResult, setDeployResult] = useState<{ paths: string[]; warnings: string[] } | null>(null);
   const [deployProgressStep, setDeployProgressStep] = useState(0);
 
-  useEffect(() => {
-    if (step !== "deploying") return;
-    setDeployProgressStep(0);
-    const timer = window.setTimeout(() => setDeployProgressStep(1), 900);
-    return () => window.clearTimeout(timer);
-  }, [step]);
-
   const handlePreview = async () => {
     if (!canReadApps) {
       toast.error("You do not have permission to preview community apps");
@@ -1537,6 +1726,7 @@ function DeployModal({ app, onClose }: { app: AppSummary; onClose: () => void })
     setIsDeployLoading(true);
     setDeployProgressStep(0);
     setStep("deploying");
+    const timer = window.setTimeout(() => setDeployProgressStep(1), 900);
     try {
       const res = await fetch("/api/community-apps/deploy", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -1552,6 +1742,7 @@ function DeployModal({ app, onClose }: { app: AppSummary; onClose: () => void })
       toast.error("Deploy request failed");
       setStep("preview");
     } finally {
+      window.clearTimeout(timer);
       setIsDeployLoading(false);
     }
   };
