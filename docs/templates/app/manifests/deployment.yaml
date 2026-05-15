@@ -9,6 +9,13 @@ metadata:
 spec:
   replicas: 1
   revisionHistoryLimit: 3
+  progressDeadlineSeconds: 300
+  minReadySeconds: 10
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   selector:
     matchLabels:
       app: APP_NAME
@@ -19,6 +26,7 @@ spec:
     spec:
       serviceAccountName: APP_NAME
       automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
       # Run as non-root (UID 1000 is a safe default; adjust if your image requires a different UID)
       securityContext:
         runAsNonRoot: true
@@ -56,6 +64,10 @@ spec:
               port: 8080
             initialDelaySeconds: 15
             periodSeconds: 20
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sh", "-c", "sleep 10"]
           # If your app writes to disk (logs, tmp), add an emptyDir volume:
           # volumeMounts:
           #   - name: tmp

@@ -9,6 +9,9 @@ metadata:
     app.kubernetes.io/component: agent
 spec:
   replicas: 0
+  revisionHistoryLimit: 3
+  progressDeadlineSeconds: 300
+  minReadySeconds: 10
   selector:
     matchLabels:
       app: infraweaver-node
@@ -23,7 +26,7 @@ spec:
         app: infraweaver-node
     spec:
       serviceAccountName: infraweaver-node
-      terminationGracePeriodSeconds: 30
+      terminationGracePeriodSeconds: 60
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
@@ -35,7 +38,12 @@ spec:
         - name: infraweaver-node
           image: onedev.rlservers.com/infraweaver/infraweaver-node:main-3400e2b
           imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3001
+              name: health
           env:
+            - name: PORT
+              value: "3001"
             - name: NODE_ENV
               value: production
             - name: HUB_URL
@@ -65,6 +73,22 @@ spec:
             limits:
               cpu: 250m
               memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 3001
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3001
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sh", "-c", "sleep 10"]
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

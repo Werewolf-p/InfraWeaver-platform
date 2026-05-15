@@ -44,6 +44,10 @@ export class HubClient extends EventEmitter {
     this.ws = null
   }
 
+  isConnected(): boolean {
+    return this.ws?.readyState === WebSocket.OPEN
+  }
+
   send(frame: object): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       return

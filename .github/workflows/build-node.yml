@@ -49,6 +49,7 @@ jobs:
           rm -rf /tmp/.buildx-cache-node-new || true
 
       - name: Build and push Docker image
+        id: build_image
         env:
           ONEDEV_USER: ${{ secrets.ONEDEV_REGISTRY_USER }}
           ONEDEV_PASS: ${{ secrets.ONEDEV_REGISTRY_PASS }}
@@ -59,6 +60,9 @@ jobs:
           BRANCH_TAG="${GITHUB_REF_NAME}"
           SHA_TAG="${GITHUB_REF_NAME}-${SHORT_SHA}"
           IMAGE_BASE="${REGISTRY}/${IMAGE_NAME}"
+
+          echo "sha_tag=${SHA_TAG}" >> "$GITHUB_OUTPUT"
+          echo "image_ref=${IMAGE_BASE}:${SHA_TAG}" >> "$GITHUB_OUTPUT"
 
           echo "==> Waiting for registry to be reachable..."
           for i in $(seq 1 12); do
@@ -92,29 +96,101 @@ jobs:
             --push \
             apps/infraweaver-node
 
-          echo "✅ Built and pushed:" >> $GITHUB_STEP_SUMMARY
-          echo "- ${IMAGE_BASE}:${BRANCH_TAG}" >> $GITHUB_STEP_SUMMARY
-          echo "- ${IMAGE_BASE}:${SHA_TAG}" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Built and pushed:" >> "$GITHUB_STEP_SUMMARY"
+          echo "- ${IMAGE_BASE}:${BRANCH_TAG}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- ${IMAGE_BASE}:${SHA_TAG}" >> "$GITHUB_STEP_SUMMARY"
 
           rm -rf "${CACHE_DIR}"
           mv "${CACHE_NEW_DIR}" "${CACHE_DIR}" 2>/dev/null || true
 
-          # Update deployment manifest (GitOps source-of-truth)
-          # Note: infraweaver-node is deployed to individual clusters, not the central hub.
-          # The manifest here is the template; actual per-cluster deploys use the install URL.
+      - name: Install Trivy
+        run: |
+          if command -v trivy >/dev/null 2>&1; then
+            exit 0
+          fi
+          TRIVY_VERSION="v0.70.0"
+          mkdir -p "$HOME/bin"
+          curl -fsSL "https://github.com/aquasecurity/trivy/releases/download/${TRIVY_VERSION}/trivy_0.70.0_Linux-64bit.tar.gz" \
+            | tar -xzf - -C "$HOME/bin" trivy
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+
+      - name: Scan built image for CRITICAL CVEs
+        run: |
+          trivy image --severity CRITICAL --exit-code 1 --no-progress --quiet "${{ steps.build_image.outputs.image_ref }}"
+
+      - name: Update deployment manifest
+        run: |
+          set -euo pipefail
           MANIFEST="kubernetes/catalog/infraweaver-node/manifests/deployment.yaml"
-          if [ -f "${MANIFEST}" ]; then
-            sed -i "s|image: ${REGISTRY}/${IMAGE_NAME}:.*|image: ${REGISTRY}/${IMAGE_NAME}:${SHA_TAG}|g" "${MANIFEST}"
+          SHA_TAG="${{ steps.build_image.outputs.sha_tag }}"
+          if [ -f "$MANIFEST" ]; then
+            sed -i "s|image: ${REGISTRY}/${IMAGE_NAME}:.*|image: ${REGISTRY}/${IMAGE_NAME}:${SHA_TAG}|g" "$MANIFEST"
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add "${MANIFEST}"
-            git diff --cached --quiet || git commit -m "chore: deploy infraweaver-node ${SHA_TAG} [skip ci]"
+            git add "$MANIFEST"
+            if ! git diff --cached --quiet; then
+              git commit -m $'chore: deploy infraweaver-node '"${SHA_TAG}"$' [skip ci]\n\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>'
+            else
+              echo "Manifest already updated for ${SHA_TAG}"
+            fi
+            PUSHED=false
             for attempt in 1 2 3; do
               if git push origin HEAD:main; then
                 echo "Manifest pushed on attempt $attempt"
+                PUSHED=true
                 break
               fi
               echo "Push failed (attempt $attempt), rebasing..."
               git pull --rebase origin main
             done
+            if [ "$PUSHED" != true ]; then
+              echo "❌ Failed to push deployment manifest after 3 attempts" >&2
+              exit 1
+            fi
+            echo "✅ Deployment manifest updated to ${SHA_TAG}" >> "$GITHUB_STEP_SUMMARY"
           fi
+
+      - name: Setup kubeconfig
+        env:
+          KUBECONFIG_B64: ${{ secrets.KUBECONFIG_PRODUCTIE }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.kube
+          echo "${KUBECONFIG_B64}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+          for ip in 10.10.0.90 10.10.0.91 10.10.0.92; do
+            if curl -sk --max-time 3 "https://$ip:6443/healthz" >/dev/null 2>&1; then
+              sed -i "s|server: https://[0-9.]*:6443|server: https://$ip:6443|g" ~/.kube/config
+              echo "Using API server: $ip"
+              break
+            fi
+          done
+
+      - name: Force ArgoCD sync for node template
+        env:
+          KUBECONFIG: ~/.kube/config
+          APP_NAME: catalog-infraweaver-node-manifests
+          SYNC_TIMEOUT_SECONDS: "300"
+        run: bash scripts/deploy/sync-argocd-app.sh
+
+      - name: Notify Discord on success
+        if: success()
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL || secrets.DISCORD_WEBHOOK }}
+          DISCORD_TITLE: "✅ InfraWeaver Node image published"
+          DISCORD_DESCRIPTION: "ArgoCD synced the infraweaver-node template after the image build passed."
+          DISCORD_COLOR: "3066993"
+          DISCORD_FIELDS_JSON: >-
+            [{"name":"Image","value":"`${{ steps.build_image.outputs.image_ref }}`","inline":false},{"name":"Environment","value":"`productie`","inline":true},{"name":"Logs","value":"[View run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})","inline":false}]
+        run: bash scripts/deploy/notify-discord.sh
+
+      - name: Notify Discord on failure
+        if: failure()
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL || secrets.DISCORD_WEBHOOK }}
+          DISCORD_TITLE: "❌ InfraWeaver Node image publish failed"
+          DISCORD_DESCRIPTION: "The infraweaver-node build pipeline failed before publishing a healthy template update."
+          DISCORD_COLOR: "15158332"
+          DISCORD_FIELDS_JSON: >-
+            [{"name":"Ref","value":"`${{ github.ref_name }}`","inline":true},{"name":"Actor","value":"`${{ github.actor }}`","inline":true},{"name":"Logs","value":"[View run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})","inline":false}]
+        run: bash scripts/deploy/notify-discord.sh

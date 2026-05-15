@@ -1,0 +1,148 @@
+name: Rollback Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      app:
+        description: "App to roll back (supports infraweaver-console/api/node or ArgoCD app name)"
+        required: true
+        type: string
+      image_tag:
+        description: "Previously known-good image tag (for example: main-abcdef1)"
+        required: true
+        type: string
+
+concurrency:
+  group: rollback-${{ inputs.app }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  rollback:
+    name: "Rollback ${{ inputs.app }}"
+    runs-on: [self-hosted, prod-worker]
+    timeout-minutes: 30
+    environment: productie
+    env:
+      REGISTRY: onedev.rlservers.com
+      ENV_NAME: productie
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - name: Resolve rollback target
+        id: target
+        run: |
+          set -euo pipefail
+          case "${{ inputs.app }}" in
+            infraweaver-console|catalog-infraweaver-console-manifests)
+              echo "display_name=infraweaver-console" >> "$GITHUB_OUTPUT"
+              echo "argocd_app=catalog-infraweaver-console-manifests" >> "$GITHUB_OUTPUT"
+              echo "manifest=kubernetes/catalog/infraweaver-console/manifests/deployment.yaml" >> "$GITHUB_OUTPUT"
+              echo "deployment=infraweaver-console" >> "$GITHUB_OUTPUT"
+              echo "namespace=infraweaver-console" >> "$GITHUB_OUTPUT"
+              echo "image_repo=${REGISTRY}/infraweaver/infraweaver-console" >> "$GITHUB_OUTPUT"
+              echo "smoke_url=https://infraweaver.int.rlservers.com/api/health" >> "$GITHUB_OUTPUT"
+              ;;
+            infraweaver-api|catalog-infraweaver-api-manifests)
+              echo "display_name=infraweaver-api" >> "$GITHUB_OUTPUT"
+              echo "argocd_app=catalog-infraweaver-api-manifests" >> "$GITHUB_OUTPUT"
+              echo "manifest=kubernetes/catalog/infraweaver-api/manifests/deployment.yaml" >> "$GITHUB_OUTPUT"
+              echo "deployment=infraweaver-api" >> "$GITHUB_OUTPUT"
+              echo "namespace=infraweaver-console" >> "$GITHUB_OUTPUT"
+              echo "image_repo=${REGISTRY}/infraweaver/infraweaver-api" >> "$GITHUB_OUTPUT"
+              echo "smoke_url=https://api.int.rlservers.com/health" >> "$GITHUB_OUTPUT"
+              ;;
+            infraweaver-node|catalog-infraweaver-node-manifests)
+              echo "display_name=infraweaver-node" >> "$GITHUB_OUTPUT"
+              echo "argocd_app=catalog-infraweaver-node-manifests" >> "$GITHUB_OUTPUT"
+              echo "manifest=kubernetes/catalog/infraweaver-node/manifests/deployment.yaml" >> "$GITHUB_OUTPUT"
+              echo "deployment=infraweaver-node" >> "$GITHUB_OUTPUT"
+              echo "namespace=infraweaver-system" >> "$GITHUB_OUTPUT"
+              echo "image_repo=${REGISTRY}/infraweaver/infraweaver-node" >> "$GITHUB_OUTPUT"
+              echo "smoke_url=" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "Unsupported rollback target: ${{ inputs.app }}" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Patch manifest to rollback tag
+        run: |
+          set -euo pipefail
+          MANIFEST="${{ steps.target.outputs.manifest }}"
+          IMAGE_REPO="${{ steps.target.outputs.image_repo }}"
+          sed -i "s|image: ${IMAGE_REPO}:.*|image: ${IMAGE_REPO}:${{ inputs.image_tag }}|g" "$MANIFEST"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$MANIFEST"
+          if ! git diff --cached --quiet; then
+            git commit -m $'chore: rollback ${{ steps.target.outputs.display_name }} to ${{ inputs.image_tag }} [skip ci]\n\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>'
+          else
+            echo "Manifest already points at requested image tag"
+          fi
+          PUSHED=false
+          for attempt in 1 2 3; do
+            if git push origin HEAD:main; then
+              echo "Rollback manifest pushed on attempt $attempt"
+              PUSHED=true
+              break
+            fi
+            echo "Push failed (attempt $attempt), rebasing..."
+            git pull --rebase origin main
+          done
+          if [ "$PUSHED" != true ]; then
+            echo "❌ Failed to push rollback manifest after 3 attempts" >&2
+            exit 1
+          fi
+
+      - name: Setup kubeconfig
+        env:
+          KUBECONFIG_B64: ${{ secrets.KUBECONFIG_PRODUCTIE }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.kube
+          echo "$KUBECONFIG_B64" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+          for ip in 10.10.0.90 10.10.0.91 10.10.0.92; do
+            if curl -sk --max-time 3 "https://$ip:6443/healthz" >/dev/null 2>&1; then
+              sed -i "s|server: https://[0-9.]*:6443|server: https://$ip:6443|g" ~/.kube/config
+              echo "Using API server: $ip"
+              break
+            fi
+          done
+
+      - name: Force ArgoCD sync for rollback
+        env:
+          KUBECONFIG: ~/.kube/config
+          APP_NAME: ${{ steps.target.outputs.argocd_app }}
+          DEPLOYMENT_NAME: ${{ steps.target.outputs.deployment }}
+          DEPLOYMENT_NAMESPACE: ${{ steps.target.outputs.namespace }}
+          SYNC_TIMEOUT_SECONDS: "300"
+          ROLLOUT_TIMEOUT_SECONDS: "300"
+        run: bash scripts/deploy/sync-argocd-app.sh
+
+      - name: Smoke test rollback
+        if: steps.target.outputs.smoke_url != ''
+        env:
+          SMOKE_URL: ${{ steps.target.outputs.smoke_url }}
+          SMOKE_TIMEOUT_SECONDS: "180"
+        run: bash scripts/deploy/smoke-test-url.sh
+
+      - name: Check platform health after rollback
+        env:
+          ENV_NAME: productie
+        run: WAIT_MINUTES=5 bash scripts/deploy/check-argocd-health.sh
+
+      - name: Rollback summary
+        run: |
+          {
+            echo "## Rollback complete"
+            echo "- App: \`${{ steps.target.outputs.display_name }}\`"
+            echo "- ArgoCD app: \`${{ steps.target.outputs.argocd_app }}\`"
+            echo "- Image tag: \`${{ inputs.image_tag }}\`"
+            echo "- Manifest: \`${{ steps.target.outputs.manifest }}\`"
+            echo "- Next step: verify service behavior in ArgoCD and the app UI."
+          } >> "$GITHUB_STEP_SUMMARY"

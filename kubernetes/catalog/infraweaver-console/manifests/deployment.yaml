@@ -7,6 +7,8 @@ metadata:
     app: infraweaver-console
 spec:
   replicas: 2
+  revisionHistoryLimit: 3
+  progressDeadlineSeconds: 300
   # minReadySeconds ensures a new pod must be stable for 30s before old pod terminates.
   # This prevents silent startup failures from causing a brief outage.
   minReadySeconds: 30
@@ -23,6 +25,7 @@ spec:
       labels:
         app: infraweaver-console
     spec:
+      terminationGracePeriodSeconds: 60
       serviceAccountName: infraweaver-console
       imagePullSecrets:
       - name: onedev-pull-secret
@@ -172,6 +175,10 @@ spec:
             port: 3000
           initialDelaySeconds: 30
           periodSeconds: 30
+        lifecycle:
+          preStop:
+            exec:
+              command: ["sh", "-c", "sleep 10"]
         volumeMounts:
         # Next.js needs a writable cache dir at runtime (readOnlyRootFilesystem prevents direct writes)
         - name: nextjs-cache

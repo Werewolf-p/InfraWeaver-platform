@@ -9,6 +9,9 @@ metadata:
     app.kubernetes.io/component: api
 spec:
   replicas: 2
+  revisionHistoryLimit: 3
+  progressDeadlineSeconds: 300
+  minReadySeconds: 30
   selector:
     matchLabels:
       app: infraweaver-api
@@ -22,6 +25,7 @@ spec:
       labels:
         app: infraweaver-api
     spec:
+      terminationGracePeriodSeconds: 60
       serviceAccountName: infraweaver-api
       imagePullSecrets:
         - name: onedev-pull-secret
@@ -86,9 +90,12 @@ spec:
             periodSeconds: 30
             timeoutSeconds: 5
             failureThreshold: 5
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sh", "-c", "sleep 10"]
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
             readOnlyRootFilesystem: true
-      terminationGracePeriodSeconds: 30

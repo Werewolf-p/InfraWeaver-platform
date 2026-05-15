@@ -94,7 +94,7 @@ jobs:
 
       - name: Defrag etcd on all nodes
         run: |
-          DISCORD_WEBHOOK="${{ secrets.DISCORD_WEBHOOK }}"
+          DISCORD_WEBHOOK="${{ secrets.DISCORD_WEBHOOK_URL || secrets.DISCORD_WEBHOOK }}"
           BEFORE_SIZES=""
           AFTER_SIZES=""
 

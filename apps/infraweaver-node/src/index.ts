@@ -1,4 +1,5 @@
 import { createPrivateKey } from 'node:crypto'
+import { createServer } from 'node:http'
 
 import { dispatchCommand } from './commands/index.js'
 import { importPublicKey } from './lib/crypto.js'
@@ -9,6 +10,7 @@ import { loadState } from './lib/state.js'
 
 const HUB_URL = process.env.HUB_URL ?? 'wss://api.int.rlservers.com'
 const REGISTRATION_TOKEN = process.env.REGISTRATION_TOKEN
+const HEALTH_PORT = Number.parseInt(process.env.PORT ?? '3001', 10)
 
 function buildClusterWebSocketUrl(hubUrl: string, clusterId: string): string {
   const url = new URL(hubUrl)
@@ -60,11 +62,40 @@ async function main() {
   client.on('connected', () => console.log('[infraweaver-node] Connected to Hub'))
   client.on('disconnected', () => console.log('[infraweaver-node] Disconnected from Hub, reconnecting...'))
 
+  let shuttingDown = false
+  const healthServer = createServer((req, res) => {
+    const path = req.url?.split('?')[0] ?? '/'
+    const connected = client.isConnected()
+
+    if (path === '/health') {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ status: 'ok', connected }))
+      return
+    }
+
+    if (path === '/ready') {
+      const ready = connected && !shuttingDown
+      res.writeHead(ready ? 200 : 503, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ status: ready ? 'ready' : 'not-ready', connected }))
+      return
+    }
+
+    res.writeHead(404, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ error: 'not-found' }))
+  })
+
+  await new Promise<void>((resolve) => {
+    healthServer.listen(HEALTH_PORT, resolve)
+  })
+  console.log(`[infraweaver-node] Health server listening on :${HEALTH_PORT}`)
+
   client.connect()
 
   const shutdown = () => {
+    shuttingDown = true
     client.disconnect()
-    process.exit(0)
+    healthServer.close(() => process.exit(0))
+    setTimeout(() => process.exit(0), 5_000).unref()
   }
 
   process.on('SIGTERM', shutdown)
