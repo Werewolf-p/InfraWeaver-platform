@@ -1,10 +1,13 @@
 import Link from "next/link";
-import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { BookOpen, Code2, ArrowRight } from "lucide-react";
-import { WikiLayout } from "@/components/wiki/WikiLayout";
+import { ArrowRight, BookOpen, Code2 } from "lucide-react";
 import { WikiContent } from "@/components/wiki/WikiContent";
+import { WikiLayout } from "@/components/wiki/WikiLayout";
+import { auth } from "@/lib/auth";
+import { requirePageConfig } from "@/lib/page-registry";
 import { extractWikiHeadings, getAllWikiSearchDocuments, getWikiSections } from "@/lib/wiki";
+
+const page = requirePageConfig("/wiki");
 
 const HOME_CONTENT = `
 ## What lives in the wiki
@@ -43,8 +46,8 @@ export default async function WikiHomePage() {
 
   return (
     <WikiLayout
-      title="InfraWeaver Wiki"
-      description="User manuals, developer docs, runbooks, and reference material for the console."
+      title={page.pageTitle ?? page.label}
+      description={page.pageDescription ?? page.description ?? ""}
       breadcrumb={[{ label: "Wiki" }]}
       sections={sections}
       toc={toc}

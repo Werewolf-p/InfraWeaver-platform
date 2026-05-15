@@ -1,15 +1,31 @@
 "use client";
+
 import { motion } from "framer-motion";
-import { RefreshCw, Layout, Filter, CheckCircle2, XCircle, Loader2, Sun, AlignJustify, Zap, Settings, Sliders } from "lucide-react";
+import { useState } from "react";
+import {
+  AlignJustify,
+  CheckCircle2,
+  Filter,
+  Layout,
+  Loader2,
+  RefreshCw,
+  Settings as SettingsIcon,
+  Sliders,
+  Sun,
+  XCircle,
+  Zap,
+} from "lucide-react";
+import { PlatformEditorPanel } from "@/components/settings/platform-editor-panel";
+import { DensityToggle, PageScaffold, SettingsCard, ThemeToggle } from "@/components/ui";
 import { useSettingsContext, type RefreshInterval } from "@/contexts/settings-context";
 import { useSimpleMode } from "@/contexts/simple-mode-context";
-import { useQuery } from "@tanstack/react-query";
+import { useApiQuery } from "@/hooks";
+import { queryRefetchIntervals, queryStaleTimes } from "@/lib/query-defaults";
+import { queryKeys } from "@/lib/query-keys";
+import { requirePageConfig } from "@/lib/page-registry";
 import { cn } from "@/lib/utils";
-import { useState } from "react";
-import { ThemeToggle } from "@/components/ui/theme-toggle";
-import { PageHeader } from "@/components/ui/page-header";
-import { DensityToggle } from "@/components/ui/density-toggle";
-import { PlatformEditorPanel } from "@/components/settings/platform-editor-panel";
+
+const page = requirePageConfig("/settings");
 
 const REFRESH_OPTIONS: { label: string; value: RefreshInterval }[] = [
   { label: "15s", value: 15000 },
@@ -18,22 +34,42 @@ const REFRESH_OPTIONS: { label: string; value: RefreshInterval }[] = [
   { label: "5m", value: 300000 },
 ];
 
-function ConnectionStatus({ label, queryFn }: { label: string; queryFn: () => Promise<unknown> }) {
-  const { data, isLoading, isError } = useQuery({
-    queryKey: ["status", label],
-    queryFn,
+function ToggleButton({ enabled, onClick }: { enabled: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        "relative flex h-11 w-14 items-center rounded-full transition-colors touch-manipulation",
+        enabled ? "bg-indigo-500" : "bg-slate-700",
+      )}
+    >
+      <span
+        className={cn(
+          "absolute left-1.5 top-1.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
+          enabled ? "translate-x-6" : "translate-x-0",
+        )}
+      />
+    </button>
+  );
+}
+
+function ConnectionStatus({ label, path }: { label: string; path: string }) {
+  const { data, isLoading, isError } = useApiQuery<unknown>({
+    queryKey: queryKeys.settings.connection(label),
+    path,
     retry: 1,
-    refetchInterval: 60000,
-    staleTime: 30000,
+    refetchInterval: queryRefetchIntervals.minute,
+    staleTime: queryStaleTimes.short,
   });
+
   return (
     <div className="flex min-h-[44px] items-center gap-2 rounded-lg bg-white/5 px-3 py-2 sm:min-h-0 sm:bg-transparent sm:px-0 sm:py-0">
       {isLoading ? (
-        <Loader2 className="w-3.5 h-3.5 text-slate-400 animate-spin" />
+        <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" />
       ) : isError || !data ? (
-        <XCircle className="w-3.5 h-3.5 text-red-400" />
+        <XCircle className="h-3.5 w-3.5 text-red-400" />
       ) : (
-        <CheckCircle2 className="w-3.5 h-3.5 text-green-400" />
+        <CheckCircle2 className="h-3.5 w-3.5 text-green-400" />
       )}
       <span className={cn("text-sm font-medium sm:text-xs", isLoading ? "text-slate-400" : isError ? "text-red-400" : "text-green-400")}>
         {label}: {isLoading ? "Checking..." : isError ? "Disconnected" : "Connected"}
@@ -47,244 +83,111 @@ export default function SettingsPage() {
   const { simpleMode, setSimpleMode } = useSimpleMode();
   const [activeTab, setActiveTab] = useState<"general" | "platform">("general");
 
-  if (!mounted) {
-    return (
-      <div className="max-w-3xl space-y-4 sm:space-y-5">
-        {[...Array(4)].map((_, i) => (
-          <div key={i} className="h-20 rounded-xl bg-white/5 animate-pulse" />
-        ))}
-      </div>
-    );
-  }
-
   return (
-    <div className="space-y-6">
-      <PageHeader icon={Settings} title="Settings" subtitle="Console and platform settings" />
+    <PageScaffold
+      icon={page.icon}
+      title={page.pageTitle ?? page.label}
+      description={page.pageDescription ?? page.description}
+      loading={!mounted}
+      className="space-y-6"
+    >
+      <div className="space-y-6">
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+          {([
+            { id: "general", label: "General", icon: SettingsIcon },
+            { id: "platform", label: "Platform", icon: Sliders },
+          ] as const).map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              onClick={() => setActiveTab(id)}
+              className={cn(
+                "flex min-h-[44px] items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors touch-manipulation",
+                activeTab === id
+                  ? "border border-indigo-500/30 bg-indigo-500/20 text-indigo-300"
+                  : "border border-white/10 bg-white/5 text-slate-400 hover:text-white",
+              )}
+            >
+              <Icon className="h-4 w-4" />
+              {label}
+            </button>
+          ))}
+        </div>
 
-      {/* Tabs */}
-      <div className="mb-6 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
-        {([
-          { id: "general", label: "General", icon: Settings },
-          { id: "platform", label: "Platform", icon: Sliders },
-        ] as const).map(({ id, label, icon: Icon }) => (
-          <button
-            key={id}
-            onClick={() => setActiveTab(id)}
-            className={cn(
-              "flex min-h-[44px] items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors touch-manipulation",
-              activeTab === id
-                ? "border border-indigo-500/30 bg-indigo-500/20 text-indigo-300"
-                : "border border-white/10 bg-white/5 text-slate-400 hover:text-white"
-            )}
-          >
-            <Icon className="h-4 w-4" />
-            {label}
-          </button>
-        ))}
+        {activeTab === "general" ? (
+          <div className="max-w-3xl space-y-4 sm:space-y-5">
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+              <SettingsCard title="Refresh Interval" description="How often to poll cluster data" icon={RefreshCw}>
+                <div className="grid grid-cols-2 gap-2 sm:flex">
+                  {REFRESH_OPTIONS.map((option) => (
+                    <button
+                      key={option.value}
+                      onClick={() => updateSetting("refreshInterval", option.value)}
+                      className={cn(
+                        "flex min-h-[44px] items-center justify-center rounded-lg px-4 py-2 text-sm font-medium transition-colors touch-manipulation",
+                        settings.refreshInterval === option.value
+                          ? "border border-indigo-500/30 bg-indigo-500/20 text-indigo-300"
+                          : "border border-white/10 bg-white/5 text-slate-400 hover:text-white",
+                      )}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </SettingsCard>
+            </motion.div>
+
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.03 }}>
+              <SettingsCard
+                title="Compact Mode"
+                description="Reduce padding in cards for denser view"
+                icon={Layout}
+                action={<ToggleButton enabled={settings.compactMode} onClick={() => updateSetting("compactMode", !settings.compactMode)} />}
+              />
+            </motion.div>
+
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.06 }}>
+              <SettingsCard
+                title="Show System Apps"
+                description="Include core-*, bootstrap-*, and platform-* apps in application views"
+                icon={Filter}
+                action={<ToggleButton enabled={settings.showSystemApps} onClick={() => updateSetting("showSystemApps", !settings.showSystemApps)} />}
+              />
+            </motion.div>
+
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.09 }}>
+              <SettingsCard title="Theme" description="Light, Dark, or follow the system preference" icon={Sun}>
+                <ThemeToggle />
+              </SettingsCard>
+            </motion.div>
+
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.12 }}>
+              <SettingsCard title="Display Density" description="Control spacing and padding in the UI" icon={AlignJustify}>
+                <DensityToggle />
+              </SettingsCard>
+            </motion.div>
+
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
+              <SettingsCard
+                title="Simple Mode"
+                description="Hide advanced form fields across the console"
+                icon={Zap}
+                action={<ToggleButton enabled={simpleMode} onClick={() => setSimpleMode(!simpleMode)} />}
+              />
+            </motion.div>
+
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.18 }}>
+              <SettingsCard title="Connection Status" description="Quick connectivity checks for core control-plane dependencies" icon={Sliders}>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <ConnectionStatus label="ArgoCD" path="/api/argocd/apps" />
+                  <ConnectionStatus label="GitHub" path="/api/config/platform" />
+                </div>
+              </SettingsCard>
+            </motion.div>
+          </div>
+        ) : (
+          <PlatformEditorPanel />
+        )}
       </div>
-
-      {activeTab === "general" && (
-      <div className="max-w-3xl space-y-4 sm:space-y-5">
-        {/* Refresh Interval */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="rounded-xl border border-white/10 bg-white/5 p-4 sm:p-5"
-        >
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-9 h-9 rounded-lg bg-indigo-500/20 flex items-center justify-center">
-              <RefreshCw className="w-4 h-4 text-indigo-400" />
-            </div>
-            <div>
-              <p className="text-base font-medium text-white sm:text-sm">Refresh Interval</p>
-              <p className="text-sm text-slate-400 sm:text-xs">How often to poll cluster data</p>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-2 sm:flex">
-            {REFRESH_OPTIONS.map(opt => (
-              <button
-                key={opt.value}
-                onClick={() => updateSetting("refreshInterval", opt.value)}
-                className={cn(
-                  "flex min-h-[44px] items-center justify-center rounded-lg px-4 py-2 text-sm font-medium transition-colors touch-manipulation",
-                  settings.refreshInterval === opt.value
-                    ? "bg-indigo-500/20 border border-indigo-500/30 text-indigo-300"
-                    : "bg-white/5 border border-white/10 text-slate-400 hover:text-white"
-                )}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-        </motion.div>
-
-        {/* Compact Mode */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.05 }}
-          className="flex flex-col gap-4 rounded-xl border border-white/10 bg-white/5 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5"
-        >
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-indigo-500/20 flex items-center justify-center">
-              <Layout className="w-4 h-4 text-indigo-400" />
-            </div>
-            <div>
-              <p className="text-base font-medium text-white sm:text-sm">Compact Mode</p>
-              <p className="text-sm text-slate-400 sm:text-xs">Reduce padding in cards for denser view</p>
-            </div>
-          </div>
-          <button
-            onClick={() => updateSetting("compactMode", !settings.compactMode)}
-            className={cn(
-              "relative flex h-11 w-14 items-center rounded-full transition-colors touch-manipulation",
-              settings.compactMode ? "bg-indigo-500" : "bg-slate-700"
-            )}
-          >
-            <span
-              className={cn(
-                "absolute left-1.5 top-1.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
-                settings.compactMode ? "translate-x-6" : "translate-x-0"
-              )}
-            />
-          </button>
-        </motion.div>
-
-        {/* Show System Apps */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          className="flex flex-col gap-4 rounded-xl border border-white/10 bg-white/5 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5"
-        >
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-indigo-500/20 flex items-center justify-center">
-              <Filter className="w-4 h-4 text-indigo-400" />
-            </div>
-            <div>
-              <p className="text-base font-medium text-white sm:text-sm">Show System Apps</p>
-              <p className="text-sm text-slate-400 sm:text-xs">Include core-*, bootstrap-*, platform-* in apps view</p>
-            </div>
-          </div>
-          <button
-            onClick={() => updateSetting("showSystemApps", !settings.showSystemApps)}
-            className={cn(
-              "relative flex h-11 w-14 items-center rounded-full transition-colors touch-manipulation",
-              settings.showSystemApps ? "bg-indigo-500" : "bg-slate-700"
-            )}
-          >
-            <span
-              className={cn(
-                "absolute left-1.5 top-1.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
-                settings.showSystemApps ? "translate-x-6" : "translate-x-0"
-              )}
-            />
-          </button>
-        </motion.div>
-
-        {/* Theme */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.12 }}
-          className="rounded-xl border border-white/10 bg-white/5 p-4 sm:p-5"
-        >
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-9 h-9 rounded-lg bg-indigo-500/20 flex items-center justify-center">
-              <Sun className="w-4 h-4 text-indigo-400" />
-            </div>
-            <div>
-              <p className="text-base font-medium text-white sm:text-sm">Theme</p>
-              <p className="text-sm text-slate-400 sm:text-xs">Light, Dark, or follow System preference</p>
-            </div>
-          </div>
-          <ThemeToggle />
-        </motion.div>
-
-        {/* Density */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.14 }}
-          className="rounded-xl border border-white/10 bg-white/5 p-4 sm:p-5"
-        >
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-9 h-9 rounded-lg bg-indigo-500/20 flex items-center justify-center">
-              <AlignJustify className="w-4 h-4 text-indigo-400" />
-            </div>
-            <div>
-              <p className="text-base font-medium text-white sm:text-sm">Display Density</p>
-              <p className="text-sm text-slate-400 sm:text-xs">Control spacing and padding in the UI</p>
-            </div>
-          </div>
-          <DensityToggle />
-        </motion.div>
-
-        {/* Simple Mode */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.14 }}
-          className="flex flex-col gap-4 rounded-xl border border-white/10 bg-white/5 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5"
-        >
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-indigo-500/20 flex items-center justify-center">
-              <Zap className="w-4 h-4 text-indigo-400" />
-            </div>
-            <div>
-              <p className="text-base font-medium text-white sm:text-sm">Simple Mode</p>
-              <p className="text-sm text-slate-400 sm:text-xs">Hide advanced fields in forms across the console</p>
-            </div>
-          </div>
-          <button
-            onClick={() => setSimpleMode(!simpleMode)}
-            className={cn(
-              "relative flex h-11 w-14 items-center rounded-full transition-colors touch-manipulation",
-              simpleMode ? "bg-indigo-500" : "bg-slate-700"
-            )}
-          >
-            <span
-              className={cn(
-                "absolute left-1.5 top-1.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
-                simpleMode ? "translate-x-6" : "translate-x-0"
-              )}
-            />
-          </button>
-        </motion.div>
-
-        {/* Connection Status */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.15 }}
-          className="rounded-xl border border-white/10 bg-white/5 p-4 sm:p-5"
-        >
-          <p className="mb-3 text-base font-medium text-white sm:text-sm">Connection Status</p>
-          <div className="grid gap-2 sm:grid-cols-2">
-            <ConnectionStatus
-              label="ArgoCD"
-              queryFn={async () => {
-                const res = await fetch("/api/argocd/apps");
-                if (!res.ok) throw new Error("ArgoCD unreachable");
-                return res.json();
-              }}
-            />
-            <ConnectionStatus
-              label="GitHub"
-              queryFn={async () => {
-                const res = await fetch("/api/config/platform");
-                if (!res.ok) throw new Error("GitHub unreachable");
-                return res.json();
-              }}
-            />
-          </div>
-        </motion.div>
-      </div>
-      )}
-
-      {activeTab === "platform" && (
-        <PlatformEditorPanel />
-      )}
-    </div>
+    </PageScaffold>
   );
 }

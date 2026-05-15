@@ -1,77 +1,43 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
+import { queryStaleTimes } from "@/lib/query-defaults";
 import { queryKeys } from "@/lib/query-keys";
-import type { ScheduledTask } from "@/types/cluster";
+import type { ScheduledTask, ScheduledTaskFormValues, ScheduledTasksResponse } from "@/types";
+import { useApiMutation, useApiQuery } from "./use-api-query";
 
-export interface ScheduledTaskFormValues {
-  name: string;
-  namespace: string;
-  pod: string;
-  schedule: string;
-  command: string;
-}
+export type { ScheduledTaskFormValues } from "@/types";
+
+const scheduledTaskQueryKeys = [queryKeys.cluster.scheduledTasks()];
 
 export function useScheduledTasks() {
-  const queryClient = useQueryClient();
-
-  const query = useQuery<{ tasks: ScheduledTask[] }>({
+  const query = useApiQuery<ScheduledTasksResponse>({
     queryKey: queryKeys.cluster.scheduledTasks(),
-    queryFn: async () => {
-      const response = await fetch("/api/cluster/scheduled-tasks");
-      if (!response.ok) throw new Error("Failed to load scheduled tasks");
-      return response.json();
-    },
-    staleTime: 30_000,
+    path: "/api/cluster/scheduled-tasks",
+    staleTime: queryStaleTimes.short,
   });
 
-  const invalidate = async () => {
-    await queryClient.invalidateQueries({ queryKey: queryKeys.cluster.scheduledTasks() });
-  };
-
-  const createTask = useMutation({
-    mutationFn: async (body: ScheduledTaskFormValues) => {
-      const response = await fetch("/api/cluster/scheduled-tasks", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!response.ok) throw new Error("Failed to create task");
-      return response.json();
-    },
-    onSuccess: async () => {
-      toast.success("Task created");
-      await invalidate();
-    },
-    onError: () => toast.error("Failed to create task"),
+  const createTask = useApiMutation<{ task: ScheduledTask }, ScheduledTaskFormValues>({
+    path: "/api/cluster/scheduled-tasks",
+    method: "POST",
+    invalidateQueryKeys: scheduledTaskQueryKeys,
+    successMessage: "Task created",
+    errorMessage: "Failed to create task",
   });
 
-  const deleteTask = useMutation({
-    mutationFn: async (id: string) => {
-      const response = await fetch(`/api/cluster/scheduled-tasks?id=${id}`, { method: "DELETE" });
-      if (!response.ok) throw new Error("Failed to delete task");
-    },
-    onSuccess: async () => {
-      toast.success("Task deleted");
-      await invalidate();
-    },
-    onError: () => toast.error("Failed to delete task"),
+  const deleteTask = useApiMutation<{ ok: boolean }, string>({
+    path: "/api/cluster/scheduled-tasks",
+    method: "DELETE",
+    request: (id) => ({ query: { id } }),
+    invalidateQueryKeys: scheduledTaskQueryKeys,
+    successMessage: "Task deleted",
+    errorMessage: "Failed to delete task",
   });
 
-  const toggleTask = useMutation({
-    mutationFn: async ({ id, enabled }: { id: string; enabled: boolean }) => {
-      const response = await fetch("/api/cluster/scheduled-tasks", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, enabled }),
-      });
-      if (!response.ok) throw new Error("Failed to update task");
-    },
-    onSuccess: async () => {
-      await invalidate();
-    },
-    onError: () => toast.error("Failed to update task"),
+  const toggleTask = useApiMutation<{ task: ScheduledTask }, { id: string; enabled: boolean }>({
+    path: "/api/cluster/scheduled-tasks",
+    method: "PATCH",
+    invalidateQueryKeys: scheduledTaskQueryKeys,
+    errorMessage: "Failed to update task",
   });
 
   return {

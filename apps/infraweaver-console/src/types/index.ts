@@ -1,16 +1,39 @@
 import type { ComponentType } from "react";
 
-export type { CatalogApp, MutationResponse, PlatformConfigResponse, UsersConfigResponse } from "./api";
 export type {
+  ApiEnvelope,
+  ApiErrorResponse,
+  ApiResponseMeta,
+  ApiSuccessEnvelope,
+  CatalogApp,
+  MutationResponse,
+  PlatformConfigResponse,
+  UsersConfigResponse,
+} from "./api";
+export type {
+  ClusterCostResponse,
   ClusterDataPoint,
   ClusterNode,
   ClusterNodeCapacityInfo,
   ClusterNodeMetric,
   ClusterNodePodInfo,
+  ClusterQuotaResponse,
   ConfigDriftEntry,
+  ConfigDriftResponse,
   HorizontalPodAutoscalerSummary,
+  NamespaceCost,
+  NamespaceQuota,
   ScheduledTask,
+  ScheduledTaskFormValues,
+  ScheduledTasksResponse,
 } from "./cluster";
+export type {
+  AuthentikSession,
+  LoginEvent,
+  ProfileActivityResponse,
+  ProfileSessionsResponse,
+  ProfileSummary,
+} from "./profile";
 export type {
   KubernetesCertificate as Certificate,
   KubernetesDeployment as Deployment,
@@ -42,6 +65,27 @@ export interface ArgoApp {
   };
 }
 
+export interface NasShareAssignment {
+  provider: "synology" | "truenas";
+  share: string;
+  subfolder?: string;
+  access: "readonly" | "readwrite";
+  pvc_namespace?: string;
+  pvc_name?: string;
+  created_at?: string;
+}
+
+export interface PlatformUserRoleAssignment {
+  id: string;
+  roleId: string;
+  scope: string;
+  principalType?: "user" | "group";
+  principalId?: string;
+  grantedBy: string;
+  grantedAt: string;
+  expiresAt?: string;
+}
+
 export interface PlatformUser {
   username: string;
   name: string;
@@ -50,6 +94,8 @@ export interface PlatformUser {
   wiki_role?: string;
   authentik_groups?: string[];
   argocd_role?: string;
+  nas_shares?: NasShareAssignment[];
+  role_assignments?: PlatformUserRoleAssignment[];
 }
 
 export interface RegistryTag {

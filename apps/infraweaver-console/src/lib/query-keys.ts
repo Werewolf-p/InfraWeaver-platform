@@ -2,6 +2,7 @@ export const queryKeys = {
   argocd: {
     all: () => ["argocd"] as const,
     apps: () => ["argocd", "apps"] as const,
+    app: (name: string) => ["argocd", "apps", name] as const,
   },
   security: {
     all: () => ["security"] as const,
@@ -14,6 +15,7 @@ export const queryKeys = {
   pods: {
     all: () => ["pods"] as const,
     list: (namespace?: string) => (namespace ? (["pods", namespace] as const) : (["pods"] as const)),
+    detail: (namespace: string, name: string) => ["pods", namespace, name] as const,
   },
   config: {
     all: () => ["config"] as const,
@@ -31,5 +33,21 @@ export const queryKeys = {
     namespaceUsage: () => ["cluster", "namespace-usage"] as const,
     scheduledTasks: () => ["cluster", "scheduled-tasks"] as const,
     configDrift: () => ["cluster", "config-drift"] as const,
+    quota: () => ["cluster", "quota"] as const,
+    cost: () => ["cluster", "cost"] as const,
+  },
+  profile: {
+    all: () => ["profile"] as const,
+    summary: () => ["profile", "summary"] as const,
+    sessions: () => ["profile", "sessions"] as const,
+    activity: () => ["profile", "activity"] as const,
+  },
+  settings: {
+    all: () => ["settings"] as const,
+    connection: (label: string) => ["settings", "connection", label.toLowerCase()] as const,
+  },
+  wiki: {
+    all: () => ["wiki"] as const,
+    search: () => ["wiki", "search"] as const,
   },
 } as const;

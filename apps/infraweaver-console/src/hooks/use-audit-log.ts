@@ -1,7 +1,8 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { queryRefetchIntervals, queryStaleTimes } from "@/lib/query-defaults";
 import { queryKeys } from "@/lib/query-keys";
+import { useApiMutation, useApiQuery } from "./use-api-query";
 
 export interface AuditEntry {
   timestamp: string;
@@ -14,32 +15,19 @@ export interface AuditEntry {
 }
 
 export function useAuditLog() {
-  return useQuery<{ entries: AuditEntry[] }>({
+  return useApiQuery<{ entries: AuditEntry[] }>({
     queryKey: queryKeys.security.auditLog(),
-    queryFn: async () => {
-      const response = await fetch("/api/security/audit-log");
-      if (!response.ok) throw new Error("Failed to fetch audit log");
-      return response.json();
-    },
-    staleTime: 30_000,
-    refetchInterval: 30_000,
+    path: "/api/security/audit-log",
+    staleTime: queryStaleTimes.short,
+    refetchInterval: queryRefetchIntervals.standard,
   });
 }
 
 export function useLogAction() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (entry: Partial<AuditEntry>) => {
-      const response = await fetch("/api/security/audit-log", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(entry),
-      });
-      if (!response.ok) throw new Error("Failed to log audit entry");
-      return response.json();
-    },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.security.auditLog() });
-    },
+  return useApiMutation<{ ok: boolean }, Partial<AuditEntry>>({
+    path: "/api/security/audit-log",
+    method: "POST",
+    invalidateQueryKeys: [queryKeys.security.auditLog()],
+    errorMessage: "Failed to log audit entry",
   });
 }

@@ -1,88 +1,88 @@
 "use client";
-import { BarChart2 } from "lucide-react";
+
 import { motion } from "framer-motion";
-import { useQuery } from "@tanstack/react-query";
-import { PageHeader } from "@/components/ui/page-header";
+import { DashboardPanel, PageScaffold } from "@/components/ui";
+import { useApiQuery } from "@/hooks";
+import { queryStaleTimes } from "@/lib/query-defaults";
+import { queryKeys } from "@/lib/query-keys";
+import { requirePageConfig } from "@/lib/page-registry";
+import type { ClusterQuotaResponse, NamespaceQuota } from "@/types";
 
-interface Quota {
-  namespace: string;
-  name: string;
-  hard: Record<string, string>;
-  used: Record<string, string>;
+const page = requirePageConfig("/quota");
+
+function parseValue(value: string): number {
+  if (!value) return 0;
+  if (value.endsWith("m")) return parseFloat(value) / 1000;
+  if (value.endsWith("Ki")) return parseFloat(value) / (1024 * 1024);
+  if (value.endsWith("Mi")) return parseFloat(value) / 1024;
+  if (value.endsWith("Gi")) return parseFloat(value);
+  return parseFloat(value);
 }
 
-function parseValue(val: string): number {
-  if (!val) return 0;
-  if (val.endsWith("m")) return parseFloat(val) / 1000;
-  if (val.endsWith("Ki")) return parseFloat(val) / (1024 * 1024);
-  if (val.endsWith("Mi")) return parseFloat(val) / 1024;
-  if (val.endsWith("Gi")) return parseFloat(val);
-  return parseFloat(val);
+function percentageUsed(used: string, hard: string): number {
+  const usedValue = parseValue(used);
+  const hardValue = parseValue(hard);
+  if (hardValue === 0) return 0;
+  return Math.min(100, Math.round((usedValue / hardValue) * 100));
 }
 
-function pct(used: string, hard: string): number {
-  const u = parseValue(used);
-  const h = parseValue(hard);
-  if (h === 0) return 0;
-  return Math.min(100, Math.round((u / h) * 100));
-}
-
-function barColor(p: number) {
-  if (p >= 90) return "bg-red-500";
-  if (p >= 70) return "bg-yellow-500";
+function barColor(percentage: number) {
+  if (percentage >= 90) return "bg-red-500";
+  if (percentage >= 70) return "bg-yellow-500";
   return "bg-indigo-500";
 }
 
+function QuotaCard({ quota }: { quota: NamespaceQuota }) {
+  return (
+    <DashboardPanel title={quota.namespace} description={quota.name} className="bg-slate-900/60 backdrop-blur-sm" contentClassName="space-y-3">
+      {Object.keys(quota.hard).map((resourceKey) => {
+        const used = quota.used[resourceKey] ?? "0";
+        const hard = quota.hard[resourceKey];
+        const percentage = percentageUsed(used, hard);
+
+        return (
+          <div key={resourceKey}>
+            <div className="mb-1 flex items-center justify-between text-xs">
+              <span className="text-slate-400">{resourceKey}</span>
+              <span className="text-slate-300">{used} / {hard}</span>
+            </div>
+            <div className="h-2 overflow-hidden rounded-full bg-white/10">
+              <div className={`h-full rounded-full transition-all ${barColor(percentage)}`} style={{ width: `${percentage}%` }} />
+            </div>
+            <div className="mt-0.5 text-right text-[10px] text-slate-500">{percentage}%</div>
+          </div>
+        );
+      })}
+    </DashboardPanel>
+  );
+}
+
 export default function QuotaPage() {
-  const { data, isLoading } = useQuery({
-    queryKey: ["cluster", "quota"],
-    queryFn: async () => {
-      const res = await fetch("/api/cluster/quota");
-      if (!res.ok) throw new Error("Failed");
-      return res.json() as Promise<{ quotas: Quota[] }>;
-    },
+  const { data, isLoading } = useApiQuery<ClusterQuotaResponse>({
+    queryKey: queryKeys.cluster.quota(),
+    path: page.apiBase ?? "/api/cluster/quota",
+    staleTime: queryStaleTimes.short,
   });
   const quotas = data?.quotas ?? [];
 
-  if (isLoading) return <div className="space-y-4">{[...Array(4)].map((_, i) => <div key={i} className="h-32 rounded-xl bg-white/5 animate-pulse" />)}</div>;
-
   return (
-    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-      <PageHeader icon={BarChart2} title="Resource Quotas" />
-      <div>
-        <h2 className="text-xl font-bold text-white">Resource Quotas</h2>
-        <p className="text-sm text-slate-400">Namespace resource usage vs limits</p>
-      </div>
-      {quotas.map(q => (
-        <div key={`${q.namespace}/${q.name}`} className="bg-slate-900/60 border border-white/10 rounded-xl backdrop-blur-sm p-4">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <span className="text-white font-semibold">{q.namespace}</span>
-              <span className="text-slate-500 text-xs ml-2">{q.name}</span>
-            </div>
-          </div>
-          <div className="space-y-3">
-            {Object.keys(q.hard).map(key => {
-              const p = pct(q.used[key] ?? "0", q.hard[key]);
-              return (
-                <div key={key}>
-                  <div className="flex items-center justify-between text-xs mb-1">
-                    <span className="text-slate-400">{key}</span>
-                    <span className="text-slate-300">{q.used[key] ?? "0"} / {q.hard[key]}</span>
-                  </div>
-                  <div className="h-2 bg-white/10 rounded-full overflow-hidden">
-                    <div className={`h-full rounded-full transition-all ${barColor(p)}`} style={{ width: `${p}%` }} />
-                  </div>
-                  <div className="text-right text-[10px] text-slate-500 mt-0.5">{p}%</div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      ))}
-      {quotas.length === 0 && (
-        <div className="text-center py-16 text-slate-500 text-sm">No resource quotas found</div>
-      )}
-    </motion.div>
+    <PageScaffold
+      icon={page.icon}
+      title={page.pageTitle ?? page.label}
+      description={page.pageDescription ?? page.description}
+      loading={isLoading}
+      isEmpty={!isLoading && quotas.length === 0}
+      emptyState={{
+        icon: page.icon,
+        title: "No resource quotas found",
+        description: "Create a ResourceQuota to start tracking per-namespace limits and usage.",
+      }}
+    >
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
+        {quotas.map((quota) => (
+          <QuotaCard key={`${quota.namespace}/${quota.name}`} quota={quota} />
+        ))}
+      </motion.div>
+    </PageScaffold>
   );
 }

@@ -2,10 +2,11 @@ import {
   LayoutDashboard, Box, Settings, Users, HardDrive,
   Network, Activity, Terminal, History, Cog,
   Package, FileText, ShieldCheck, Server,
-  Sparkles, Home, UserCircle, BarChart2, Trash2, GitBranch,
-  DollarSign, Globe, BellOff, Shield, AlertTriangle, HeartPulse,
+  Sparkles, Home, Trash2, GitBranch,
+  Globe, BellOff, Shield, AlertTriangle, HeartPulse,
   Calendar, TrendingUp, Gamepad2, Search, LayoutGrid, TestTube2, Puzzle, BookOpen,
 } from "lucide-react";
+import { mergeRegisteredPages, navItemFromPage } from "@/lib/page-registry";
 
 export interface NavItem {
   href: string;
@@ -26,7 +27,7 @@ export interface NavGroup {
   items: NavItem[];
 }
 
-export const NAV_GROUPS: NavGroup[] = [
+export const NAV_GROUPS: NavGroup[] = mergeRegisteredPages([
   {
     id: "overview",
     label: "Overview",
@@ -59,7 +60,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/pods", icon: Server, label: "Pods", description: "All pods with live status" },
       { href: "/cluster", icon: Server, label: "Cluster Nodes", shortcut: "G K", description: "Node management and cluster overview" },
-      { href: "/quota", icon: BarChart2, label: "Resource Quotas", description: "Namespace resource limits and usage" },
+      navItemFromPage("/quota"),
       { href: "/node-top", icon: Activity, label: "Node Metrics", description: "Live node CPU and memory usage" },
     ],
   },
@@ -125,7 +126,7 @@ export const NAV_GROUPS: NavGroup[] = [
     icon: BookOpen,
     defaultOpen: false,
     items: [
-      { href: "/wiki", icon: BookOpen, label: "Wiki", shortcut: "G W", description: "Interactive user and developer documentation", pinnable: true },
+      navItemFromPage("/wiki"),
     ],
   },
   {
@@ -158,7 +159,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/deployment-compare", icon: GitBranch, label: "Deploy Compare", description: "Diff current vs previous deployment" },
       { href: "/namespace-cleanup", icon: Trash2, label: "NS Cleanup", description: "Find and remove stale namespaces" },
       { href: "/pv-browser", icon: HardDrive, label: "PV Browser", description: "Browse persistent volume contents" },
-      { href: "/cost", icon: DollarSign, label: "Cost Estimate", description: "Estimated resource cost breakdown" },
+      navItemFromPage("/cost"),
       { href: "/storage-timeline", icon: HardDrive, label: "Storage Timeline", description: "Historical storage usage charts" },
       { href: "/scheduled-tasks", icon: Calendar, label: "Scheduled Tasks", description: "View and manage scheduled operations" },
       { href: "/tests", icon: Activity, label: "Platform Tests", description: "Interactive platform test suite", pinnable: true },
@@ -174,15 +175,15 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/users", icon: Users, label: "User Management", shortcut: "G M", description: "Manage users, groups, and SSO", pinnable: true },
       { href: "/registry", icon: Package, label: "Registry", shortcut: "G R", description: "Container image registry browser" },
-      { href: "/settings", icon: Settings, label: "Settings", description: "Console preferences and configuration" },
-      { href: "/settings/infrastructure", icon: Server, label: "Infrastructure", description: "Read-only cluster configuration and infrastructure status" },
+      navItemFromPage("/settings"),
+      navItemFromPage("/settings/infrastructure"),
       { href: "/settings/addons", icon: Puzzle, label: "Addons", description: "Enable/disable platform addons and features" },
       { href: "/settings/rbac", icon: Shield, label: "RBAC", description: "Manage role assignments and permissions (RBAC)" },
-      { href: "/profile", icon: UserCircle, label: "My Profile", description: "Your profile and session info" },
+      navItemFromPage("/profile"),
       { href: "/changelog", icon: Sparkles, label: "What's New", description: "Recent platform updates" },
     ],
   },
-];
+]);
 
 // Flat list of all items for search/command palette
 export const ALL_NAV_ITEMS: NavItem[] = NAV_GROUPS.flatMap(g => g.items);

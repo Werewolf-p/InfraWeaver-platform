@@ -1,59 +1,34 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
+import { queryStaleTimes } from "@/lib/query-defaults";
 import { queryKeys } from "@/lib/query-keys";
-import type { ConfigDriftEntry } from "@/types/cluster";
+import type { ConfigDriftResponse } from "@/types";
+import { useApiMutation, useApiQuery } from "./use-api-query";
 
-interface ConfigDriftResponse {
-  drift: ConfigDriftEntry[];
-  baselineCaptured: boolean;
-}
+const configDriftQueryKeys = [queryKeys.cluster.configDrift()];
 
 export function useConfigDrift() {
-  const queryClient = useQueryClient();
-
-  const query = useQuery<ConfigDriftResponse>({
+  const query = useApiQuery<ConfigDriftResponse>({
     queryKey: queryKeys.cluster.configDrift(),
-    queryFn: async () => {
-      const response = await fetch("/api/cluster/config-drift");
-      if (!response.ok) throw new Error("Failed to load config drift");
-      return response.json();
-    },
-    staleTime: 30_000,
+    path: "/api/cluster/config-drift",
+    staleTime: queryStaleTimes.short,
   });
 
-  const invalidate = async () => {
-    await queryClient.invalidateQueries({ queryKey: queryKeys.cluster.configDrift() });
-  };
-
-  const captureBaseline = useMutation({
-    mutationFn: async () => {
-      const response = await fetch("/api/cluster/config-drift", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "capture" }),
-      });
-      if (!response.ok) throw new Error("Failed to capture baseline");
-      return response.json();
-    },
-    onSuccess: async () => {
-      toast.success("Baseline captured");
-      await invalidate();
-    },
-    onError: () => toast.error("Failed to capture baseline"),
+  const captureBaseline = useApiMutation<{ ok: boolean; count: number }, void>({
+    path: "/api/cluster/config-drift",
+    method: "POST",
+    request: { json: { action: "capture" } },
+    invalidateQueryKeys: configDriftQueryKeys,
+    successMessage: "Baseline captured",
+    errorMessage: "Failed to capture baseline",
   });
 
-  const clearBaseline = useMutation({
-    mutationFn: async () => {
-      const response = await fetch("/api/cluster/config-drift", { method: "DELETE" });
-      if (!response.ok) throw new Error("Failed to clear baseline");
-    },
-    onSuccess: async () => {
-      toast.success("Baseline cleared");
-      await invalidate();
-    },
-    onError: () => toast.error("Failed to clear baseline"),
+  const clearBaseline = useApiMutation<{ ok: boolean }, void>({
+    path: "/api/cluster/config-drift",
+    method: "DELETE",
+    invalidateQueryKeys: configDriftQueryKeys,
+    successMessage: "Baseline cleared",
+    errorMessage: "Failed to clear baseline",
   });
 
   return {

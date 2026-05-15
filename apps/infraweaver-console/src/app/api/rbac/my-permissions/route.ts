@@ -1,19 +1,17 @@
-import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { getBuiltInRoles, getEffectivePermissions, getRole } from "@/lib/rbac";
-import { safeError } from "@/lib/utils";
+import { apiSuccess, requireRoutePermissions, routeErrorResponse } from "@/lib/route-utils";
 import { getRoleAssignmentsForSession } from "@/lib/users-config";
 
 export async function GET() {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const session = await requireRoutePermissions();
+  if (session instanceof Response) return session;
 
   try {
     const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
     const { username, roleAssignments } = await getRoleAssignmentsForSession(session, 60);
     const permissions = [...getEffectivePermissions(groups, username, roleAssignments, "/")];
 
-    return NextResponse.json({
+    return apiSuccess({
       email: session.user?.email ?? "",
       legacyRole: getRole(groups),
       assignments: roleAssignments,
@@ -22,6 +20,6 @@ export async function GET() {
       isAdmin: permissions.includes("*"),
     });
   } catch (error) {
-    return NextResponse.json({ error: safeError(error) }, { status: 500 });
+    return routeErrorResponse(error);
   }
 }

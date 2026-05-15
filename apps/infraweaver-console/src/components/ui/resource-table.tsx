@@ -13,7 +13,7 @@ export interface Column<T> {
   mobileHide?: boolean;
 }
 
-interface ResourceTableProps<T extends Record<string, unknown>> {
+interface ResourceTableProps<T extends object> {
   columns: Column<T>[];
   data: T[];
   loading?: boolean;
@@ -25,7 +25,7 @@ interface ResourceTableProps<T extends Record<string, unknown>> {
   className?: string;
 }
 
-export function ResourceTable<T extends Record<string, unknown>>({
+export function ResourceTable<T extends object>({
   columns, data, loading, empty, onRowClick, selectable, getRowKey, mobileCardRender, className,
 }: ResourceTableProps<T>) {
   const [sortKey, setSortKey] = useState<string | null>(null);
@@ -40,8 +40,12 @@ export function ResourceTable<T extends Record<string, unknown>>({
   const sorted = useMemo(() => {
     if (!sortKey) return data;
     return [...data].sort((a, b) => {
-      const av = a[sortKey]; const bv = b[sortKey];
-      if (av == null) return 1; if (bv == null) return -1;
+      const left = a as Record<string, unknown>;
+      const right = b as Record<string, unknown>;
+      const av = left[sortKey];
+      const bv = right[sortKey];
+      if (av == null) return 1;
+      if (bv == null) return -1;
       const cmp = String(av) < String(bv) ? -1 : String(av) > String(bv) ? 1 : 0;
       return sortDir === "asc" ? cmp : -cmp;
     });
@@ -115,11 +119,14 @@ export function ResourceTable<T extends Record<string, unknown>>({
                   className={cn("border-b border-[#2a2a2a] transition-colors last:border-0", onRowClick && "cursor-pointer hover:bg-[#2a2a2a]", selected.has(key) && "bg-[rgba(0,120,212,0.05)]")}
                 >
                   {selectable && <td className="px-3 py-2.5" onClick={e => e.stopPropagation()}><input type="checkbox" checked={selected.has(key)} onChange={() => toggleSelect(key)} className="rounded border-[#333]" /></td>}
-                  {columns.map(col => (
-                    <td key={col.key} className={cn("px-3 py-2.5 text-[#f2f2f2]", col.className)}>
-                      {col.render ? col.render(row) : String(row[col.key] ?? "")}
-                    </td>
-                  ))}
+                  {columns.map(col => {
+                    const cellRow = row as Record<string, unknown>;
+                    return (
+                      <td key={col.key} className={cn("px-3 py-2.5 text-[#f2f2f2]", col.className)}>
+                        {col.render ? col.render(row) : String(cellRow[col.key] ?? "")}
+                      </td>
+                    );
+                  })}
                 </tr>
               );
             })}
