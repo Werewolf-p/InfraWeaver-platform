@@ -70,5 +70,7 @@ spec:
           kind: StatefulSet
           jsonPointers:
             - /spec/persistentVolumeClaimRetentionPolicy
+            - /spec/selector
+            - /spec/volumeClaimTemplates
           managedFieldsManagers:
             - kube-controller-manager
