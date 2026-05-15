@@ -196,6 +196,13 @@ notifications:
   enabled: true
   # Discord notifications for important ArgoCD events
   # Webhook URL is pulled from argocd-discord-secret (ExternalSecret in this namespace)
+  # The notifications controller needs explicit RBAC to read this secret (its default role
+  # only allows reading argocd-notifications-secret).
+  extraRules:
+    - apiGroups: [""]
+      resources: ["secrets"]
+      resourceNames: ["argocd-discord-secret"]
+      verbs: ["get"]
   notifiers:
     service.webhook.discord: |
       url: $argocd-discord-secret:webhook-url
@@ -216,7 +223,7 @@ notifications:
                 "fields": [
                   {"name": "Health", "value": "{{ .app.status.health.status }}", "inline": true},
                   {"name": "Sync", "value": "{{ .app.status.sync.status }}", "inline": true},
-                  {"name": "Message", "value": "{{ trunc 200 (default \"(no message)\" .app.status.operationState.message) }}"},
+                  {"name": "Message", "value": "{{ trunc 200 (default `(no message)` .app.status.operationState.message) }}"},
                   {"name": "Action", "value": "Self-healer will retry. If repeated, check ArgoCD UI.", "inline": false}
                 ],
                 "url": "{{ .context.argocdUrl }}/applications/{{ .app.metadata.name }}"
@@ -235,7 +242,7 @@ notifications:
               "embeds": [{
                 "title": ":warning: Persistent App Degraded — {{ .app.metadata.name }}",
                 "color": 15105570,
-                "description": "{{ default \"(no health message)\" .app.status.health.message }}",
+                "description": "{{ default `(no health message)` .app.status.health.message }}",
                 "fields": [
                   {"name": "Health", "value": "{{ .app.status.health.status }}", "inline": true},
                   {"name": "Sync", "value": "{{ .app.status.sync.status }}", "inline": true},
