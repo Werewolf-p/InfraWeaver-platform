@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { deleteARecord } from "@/lib/cloudflare";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
+import { safeError } from "@/lib/utils";
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ name: string }> }) {
   const session = await auth();
@@ -48,7 +49,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ nam
       ...serviceInfo,
     });
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 500 });
+    return NextResponse.json({ error: safeError(e) }, { status: 500 });
   }
 }
 
@@ -88,6 +89,6 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
 
     return NextResponse.json({ success: true });
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 500 });
+    return NextResponse.json({ error: safeError(e) }, { status: 500 });
   }
 }

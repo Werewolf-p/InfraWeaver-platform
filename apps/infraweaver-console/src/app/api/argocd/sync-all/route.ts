@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { hasPermission } from "@/lib/rbac";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { auditLog } from "@/lib/audit-log";
+import { safeError } from "@/lib/utils";
 
 const ARGOCD_SERVER = process.env.ARGOCD_SERVER ?? "http://argocd-server.argocd.svc.cluster.local:80";
 const ARGOCD_TOKEN = process.env.ARGOCD_TOKEN ?? "";
@@ -52,7 +53,7 @@ export async function POST(req: NextRequest) {
           if (!syncRes.ok) throw new Error(`Sync failed: ${syncRes.status}`);
           synced.push(app.metadata.name);
         } catch (e) {
-          errors.push(`${app.metadata.name}: ${String(e)}`);
+          errors.push(`${app.metadata.name}: ${safeError(e)}`);
         }
       })
     );
@@ -64,6 +65,6 @@ export async function POST(req: NextRequest) {
     );
     return NextResponse.json({ synced, errors, total: outOfSync.length });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
 }

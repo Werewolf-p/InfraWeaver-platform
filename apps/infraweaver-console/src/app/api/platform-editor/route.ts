@@ -3,6 +3,7 @@ import * as jsYaml from "js-yaml";
 import { auth } from "@/lib/auth";
 import { hasPermission } from "@/lib/rbac";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
+import { safeError } from "@/lib/utils";
 
 type SettingType = "number" | "string" | "select";
 
@@ -372,8 +373,7 @@ export async function GET() {
       files,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to load platform settings";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
 }
 
@@ -441,7 +441,6 @@ export async function PUT(req: NextRequest) {
       affectedApps: Array.from(new Set(normalizedChanges.map((change) => change.definition.argoApp))),
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to save platform settings";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
+import { safeError } from "@/lib/utils";
 import * as net from "net";
 
 async function tcpCheck(host: string, port: number, timeout = 3000): Promise<{ open: boolean; latencyMs: number }> {
@@ -48,6 +49,6 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ nam
     const { open, latencyMs } = await tcpCheck(targetIP, tcpPorts[0].port);
     return NextResponse.json({ online: open, latencyMs, checkedAt: new Date().toISOString() });
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 500 });
+    return NextResponse.json({ error: safeError(e) }, { status: 500 });
   }
 }

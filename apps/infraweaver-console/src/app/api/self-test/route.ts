@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { readFileSync } from "fs";
 import { auth } from "@/lib/auth";
+import { safeError } from "@/lib/utils";
 
 const K8S_API = "https://kubernetes.default.svc";
 const SA_TOKEN_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/token";
@@ -55,7 +56,7 @@ export async function GET() {
   } catch (err) {
     return NextResponse.json({
       healthy: false,
-      error: err instanceof Error ? err.message : "Unknown error",
+      error: safeError(err),
     });
   }
 }

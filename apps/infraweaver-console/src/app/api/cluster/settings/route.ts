@@ -3,6 +3,7 @@ import * as jsYaml from "js-yaml";
 import { auth } from "@/lib/auth";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { hasPermission } from "@/lib/rbac";
+import { safeError } from "@/lib/utils";
 
 type SettingType = "string" | "number" | "select";
 
@@ -275,8 +276,7 @@ export async function GET() {
     const files = Object.fromEntries(uniqueFiles.map((f) => [f, filesByPath[f].sha]));
     return NextResponse.json({ schema: RESOURCE_DEFS, values, files });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to load resource settings";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
 }
 
@@ -345,7 +345,6 @@ export async function PUT(req: NextRequest) {
       affectedApps: [...new Set(validChanges.map((c) => c.def.argoApp))],
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to save resource settings";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
 }

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
+import { safeError } from "@/lib/utils";
 
 export async function GET() {
   const session = await auth();
@@ -52,6 +53,6 @@ export async function GET() {
 
     return NextResponse.json({ servers, conflicts });
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 500 });
+    return NextResponse.json({ error: safeError(e) }, { status: 500 });
   }
 }

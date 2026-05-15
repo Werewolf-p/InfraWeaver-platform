@@ -3,6 +3,7 @@ import * as jsYaml from "js-yaml";
 import { auth } from "@/lib/auth";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { hasPermission } from "@/lib/rbac";
+import { safeError } from "@/lib/utils";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -141,8 +142,7 @@ export async function GET() {
 
     return NextResponse.json({ nodes, sha: file.sha });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to load node specs";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: safeError(err) }, { status: 500 });
   }
 }
 
@@ -224,7 +224,6 @@ export async function PUT(req: NextRequest) {
       workflowDispatched: NODE_UPDATE_WORKFLOW,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to apply node changes";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: safeError(err) }, { status: 500 });
   }
 }

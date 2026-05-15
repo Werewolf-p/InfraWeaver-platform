@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
+import { safeError } from "@/lib/utils";
 import * as k8s from "@kubernetes/client-node";
 
 // POST /api/cluster/migrate-pod
@@ -186,7 +187,6 @@ export async function POST(req: NextRequest) {
       targetAvailableMi: allocatableMi - targetNodeUsedMi,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Migration failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: safeError(err) }, { status: 500 });
   }
 }

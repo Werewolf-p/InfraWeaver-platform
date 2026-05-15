@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { getSessionRBACContext, hasAnySessionPermission } from "@/lib/session-rbac";
 import { findUserByUsername, authentikFetch } from "@/lib/authentik";
 import { auditLog } from "@/lib/audit-log";
+import { safeError } from "@/lib/utils";
 
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN ?? "";
 const GITHUB_REPO = process.env.GITHUB_REPO ?? "Werewolf-p/InfraWeaver-platform";
@@ -87,7 +88,7 @@ export async function POST(
     });
     steps.push({ name: "Disable account", success: r.ok, message: r.ok ? "Account disabled" : `HTTP ${r.status}` });
   } catch (e) {
-    steps.push({ name: "Disable account", success: false, message: String(e) });
+    steps.push({ name: "Disable account", success: false, message: safeError(e) });
   }
 
   // Step 2: Revoke tokens
@@ -100,7 +101,7 @@ export async function POST(
     }
     steps.push({ name: "Revoke tokens", success: true, message: `Revoked ${tokens.length} token(s)` });
   } catch (e) {
-    steps.push({ name: "Revoke tokens", success: false, message: String(e) });
+    steps.push({ name: "Revoke tokens", success: false, message: safeError(e) });
   }
 
   // Step 3: Remove from groups
@@ -116,7 +117,7 @@ export async function POST(
     }
     steps.push({ name: "Remove from groups", success: true, message: `Removed from ${groups.length} group(s)` });
   } catch (e) {
-    steps.push({ name: "Remove from groups", success: false, message: String(e) });
+    steps.push({ name: "Remove from groups", success: false, message: safeError(e) });
   }
 
   // Step 4: Remove from users.yaml
@@ -135,7 +136,7 @@ export async function POST(
       steps.push({ name: "Remove from users.yaml", success: true, message: "User not in config (skipped)" });
     }
   } catch (e) {
-    steps.push({ name: "Remove from users.yaml", success: false, message: String(e) });
+    steps.push({ name: "Remove from users.yaml", success: false, message: safeError(e) });
   }
 
   await auditLog("users:offboard", session.user?.email ?? "unknown", `Offboarded ${username}`);

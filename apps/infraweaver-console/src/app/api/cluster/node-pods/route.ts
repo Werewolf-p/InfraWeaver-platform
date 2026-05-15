@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getSessionRBACContext, hasAnySessionPermission } from "@/lib/session-rbac";
+import { safeError } from "@/lib/utils";
 import * as k8s from "@kubernetes/client-node";
 
 // GET /api/cluster/node-pods
@@ -172,7 +173,6 @@ export async function GET() {
 
     return NextResponse.json({ nodes, pods });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to fetch node pods";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: safeError(err) }, { status: 500 });
   }
 }

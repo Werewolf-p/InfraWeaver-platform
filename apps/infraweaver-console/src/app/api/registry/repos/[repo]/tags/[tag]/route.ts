@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
+import { safeError } from "@/lib/utils";
 
 const REGISTRY_HOST = process.env.REGISTRY_HOST ?? "registry.int.rlservers.com";
 const REGISTRY_USERNAME = process.env.REGISTRY_USERNAME ?? "";
@@ -62,6 +63,6 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ r
     }
     return NextResponse.json({ ok: true });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
 }

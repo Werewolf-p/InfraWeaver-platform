@@ -1,5 +1,6 @@
 import { makeCustomApi } from "@/lib/kube-client";
 import { HOMEPAGE_SERVICE_APP_MAP, type HomepageServiceHealth } from "@/lib/homepage-service-config";
+import { safeError } from "@/lib/utils";
 
 interface ArgoApplication {
   metadata?: { name?: string };
@@ -14,7 +15,7 @@ let cachedAt = 0;
 const CACHE_TTL_MS = 30_000;
 
 function getErrorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
+  return safeError(error);
 }
 
 function buildServiceHealth(name: string, appName: string, app?: ArgoApplication): HomepageServiceHealth {

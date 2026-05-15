@@ -9,6 +9,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
+import { safeError } from "@/lib/utils";
 
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN ?? "";
 const GITHUB_REPO = process.env.GITHUB_REPO ?? "Werewolf-p/InfraWeaver-platform";
@@ -166,7 +167,7 @@ export async function DELETE(
   try {
     await cleanupArgoApplication(`catalog-${slug}-manifests`);
   } catch (error) {
-    errors.push(error instanceof Error ? error.message : "Failed to clean up ArgoCD application");
+    errors.push(safeError(error));
   }
 
   if (errors.length > 0 && deleted.length === 0) {

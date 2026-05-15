@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { hasPermission } from "@/lib/rbac";
 import { auditLog } from "@/lib/audit-log";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
+import { safeError } from "@/lib/utils";
 
 // Authentik username: alphanumeric, dots, hyphens, underscores, @-sign
 const SAFE_USERNAME_RE = /^[\w.@+-]{1,150}$/;
@@ -111,7 +112,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ user
 
     return NextResponse.json({ ok: true });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
 }
 
@@ -170,6 +171,6 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ u
 
     return NextResponse.json({ ok: true });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
 }

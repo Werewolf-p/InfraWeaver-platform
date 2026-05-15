@@ -112,6 +112,39 @@ ardaty's `users.yaml` entry documents: `netbird_setup_key: proxmox-client-key`
 
 ---
 
+## Implemented Security Controls — Round 2 (2026-06)
+
+### ✅ New Network Policies
+
+| Namespace | File | Coverage |
+|-----------|------|----------|
+| kyverno | `kubernetes/core/kyverno/manifests/networkpolicy.yaml` | default-deny + allow webhook (API server) + allow Prometheus scrape + allow intra-ns |
+
+**Critical note for kyverno webhook NetworkPolicy:** The API server webhook allow rule uses NO `from:` selector
+(allows any source on port 9443) — same pattern as cert-manager. This is intentional: in Talos, the kube-apiserver
+runs as a static pod and its traffic source IP is not reliably matchable via namespaceSelector.
+Do NOT add a restrictive `from:` selector to the kyverno webhook allow rule or pod admission will fail cluster-wide.
+
+### ✅ New Kyverno Policies
+
+| Policy | File | Mode | Scope |
+|--------|------|------|-------|
+| `require-seccomp-profile` | `seccomp-policy.yaml` | Audit | catalog-* and apps-* pods |
+| `warn-automount-service-account-token` | `seccomp-policy.yaml` | Audit | catalog-* pods |
+
+### ✅ Route Security Hardening
+
+**Internal bare-metal routes (`07-routes-internal.yaml`):**
+- Added `secure-headers` middleware to: adguard, ansible, traefik-dashboard, proxmox, portainer, portainer2, truenas, vault1
+- Added `forward-auth` middleware to `traefik-dashboard` — Traefik dashboard has no built-in auth;
+  any VPN user could view all routing rules and backend IPs without this
+
+**Public external routes (`08-routes-external.yaml`):**
+- Added `secure-headers` middleware to: wp-rlservers, keycloak, awx, bitwarden, gitlab, nextcloud, teleport
+- Added `secure-headers` prepended to: yonavaarwater-ot (already had forward-auth)
+
+---
+
 ## Remaining Gaps (future work)
 
 | Gap | Priority | Notes |
@@ -120,7 +153,8 @@ ardaty's `users.yaml` entry documents: `netbird_setup_key: proxmox-client-key`
 | Runtime security (Falco) | Low | Would detect container escapes, unusual syscalls |
 | Container image signing (Cosign) | Low | SLSA supply chain hardening |
 | Resource Quotas per namespace | Low | Blast radius limiting |
-| Seccomp RuntimeDefault on all pods | Medium | Blocks kernel exploit attempts |
+| Seccomp RuntimeDefault enforcement | Low | Policy added as Audit; raise to Enforce when all pods comply |
+| automount SA token enforcement | Low | Policy added as Audit; disable in apps that don't need K8s API access |
 | OPA Gatekeeper policies | Low | Enforce security policies at admission |
 | Network Policy for longhorn-system | Medium | Complex — needs careful testing |
 | Network Policy for metallb-system | Low | Infrastructure component |

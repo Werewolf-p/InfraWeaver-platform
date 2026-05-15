@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { createARecord, deleteARecord } from "@/lib/cloudflare";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
+import { safeError } from "@/lib/utils";
 
 const IP_REGEX = /^(\d{1,3}\.){3}\d{1,3}$/;
 const SLUG_REGEX = /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/;
@@ -61,7 +62,7 @@ export async function GET() {
 
     return NextResponse.json(servers);
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 500 });
+    return NextResponse.json({ error: safeError(e) }, { status: 500 });
   }
 }
 
@@ -171,6 +172,6 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true, name });
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 500 });
+    return NextResponse.json({ error: safeError(e) }, { status: 500 });
   }
 }

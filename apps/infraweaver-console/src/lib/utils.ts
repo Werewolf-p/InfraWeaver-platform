@@ -74,7 +74,9 @@ const SAFE_ERROR_SUBSTRINGS = [
 
 function redactErrorMessage(message: string) {
   return message
-    .replace(/https?:\/\/[^\s]+/g, "[internal]")
+    .replace(/https?:\/\/[^\s]+/gi, "[internal]")
+    .replace(/\b(?:localhost|(?:[a-z0-9-]+\.)+(?:svc(?:\.cluster\.local)?|cluster\.local|int\.rlservers\.com))(?::\d{1,5})?\b/gi, "[internal]")
+    .replace(/\b(?:10(?:\.\d{1,3}){3}|192\.168(?:\.\d{1,3}){2}|172\.(?:1[6-9]|2\d|3[0-1])(?:\.\d{1,3}){2})(?::\d{1,5})?\b/g, "[internal]")
     .replace(/\b(?:[A-Z]:\\|\/)[\w./\\-]+/g, "[path]")
     .replace(/\s+at\s+[^\n]+/g, "")
     .trim();
