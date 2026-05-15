@@ -51,10 +51,10 @@ spec:
           resources:
             requests:
               cpu: 200m
-              memory: 1Gi   # Actual usage ~1Gi (Java PDF processing); raised from 512Mi
+              memory: 512Mi
             limits:
               cpu: 1000m
-              memory: 2Gi
+              memory: 1200Mi  # actual ~789Mi; MaxRAMPercentage=75 targets ~900Mi of 1200Mi cap
           readinessProbe:
             httpGet:
               path: /actuator/health
