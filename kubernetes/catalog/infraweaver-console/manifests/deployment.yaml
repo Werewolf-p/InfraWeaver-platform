@@ -43,7 +43,7 @@ spec:
               topologyKey: kubernetes.io/hostname
       containers:
       - name: console
-        image: onedev.rlservers.com/infraweaver/infraweaver-console:main-71b7315
+        image: onedev.rlservers.com/infraweaver/infraweaver-console:main-01818c0
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3000
