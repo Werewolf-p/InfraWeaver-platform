@@ -25,6 +25,26 @@ interface Volume {
   numberOfReplicas: number;
 }
 
+interface BackupVolume {
+  name: string;
+  lastBackupAt: string | null;
+  backupCount: number;
+  lastBackupState: "Completed" | "Error" | "InProgress" | null;
+  ageHours: number | null;
+  status: "healthy" | "stale" | "missing";
+}
+
+interface BackupStatusResponse {
+  volumes: BackupVolume[];
+  summary: {
+    total: number;
+    healthy: number;
+    stale: number;
+    missing: number;
+  };
+  maxAgeHours: number;
+}
+
 type SortBy = "usage" | "name" | "size" | "replicas" | "health";
 type HealthFilter = "all" | "healthy" | "attention" | "critical";
 
@@ -65,6 +85,14 @@ function healthRank(volume: Volume) {
   return bucket === "critical" ? 0 : bucket === "attention" ? 1 : 2;
 }
 
+function formatBackupAge(ageHours: number | null) {
+  if (ageHours === null) return "Never";
+  if (ageHours < 1) return "<1h";
+  if (ageHours < 24) return `${Math.round(ageHours)}h ago`;
+  const days = ageHours / 24;
+  return `${days >= 10 ? Math.round(days) : days.toFixed(1)}d ago`;
+}
+
 function sortVolumes(volumes: Volume[], sortBy: SortBy) {
   return [...volumes].sort((left, right) => {
     if (sortBy === "name") return left.name.localeCompare(right.name);
@@ -91,6 +119,17 @@ export default function StoragePage() {
       return res.json();
     },
     refetchInterval: 60000,
+  });
+
+  const { data: backupData } = useQuery<BackupStatusResponse>({
+    queryKey: ["longhorn", "backup-status"],
+    queryFn: async () => {
+      const res = await fetch("/api/longhorn/backup-status");
+      if (!res.ok) throw new Error("Failed to fetch Longhorn backup status");
+      return res.json();
+    },
+    staleTime: 60000,
+    refetchInterval: 120000,
   });
 
   const { data: breakdownData } = useQuery<{ breakdown: BreakdownEntry[] }>({
@@ -136,6 +175,8 @@ export default function StoragePage() {
     () => (breakdownData?.breakdown ?? []).reduce((total, item) => total + item.totalGi, 0),
     [breakdownData],
   );
+  const backupVolumes = backupData?.volumes ?? [];
+  const backupSummary = backupData?.summary ?? { total: 0, healthy: 0, stale: 0, missing: 0 };
 
   const filteredVolumes = useMemo(() => {
     const filtered = (volumes ?? []).filter((volume) => {
@@ -155,7 +196,7 @@ export default function StoragePage() {
       <div className="flex flex-wrap items-start justify-between gap-4 rounded-xl border border-[#2a2a2a] bg-[#111] p-4 sm:p-5">
         <div>
           <h2 className="text-xl font-semibold text-white">Storage workspace</h2>
-          <p className="mt-1 text-sm text-slate-400">Desktop-optimized visibility into Longhorn usage, hot volumes, and storage class distribution.</p>
+          <p className="mt-1 text-sm text-slate-400">Desktop-optimized visibility into Longhorn usage, hot volumes, storage class distribution, and backup freshness.</p>
         </div>
         <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400">
           <span className="rounded-full border border-[#2a2a2a] bg-[#0d0d0d] px-3 py-1.5">Press / to search volumes</span>
@@ -288,6 +329,62 @@ export default function StoragePage() {
                 </div>
               ))}
             </div>
+          </div>
+        </CollapsibleSection>
+      )}
+
+      {backupVolumes.length > 0 && (
+        <CollapsibleSection title="Backup status" count={backupSummary.total} storageKey="storage-backup-status">
+          <div className="mb-4 grid gap-3 md:grid-cols-4">
+            <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Protected volumes</p>
+              <p className="mt-2 text-lg font-semibold text-white">{backupSummary.total}</p>
+              <p className="mt-1 text-sm text-slate-400">Longhorn backup volumes detected on the TrueNAS target.</p>
+            </div>
+            <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Current backups</p>
+              <p className="mt-2 text-lg font-semibold text-white">{backupSummary.healthy}</p>
+              <p className="mt-1 text-sm text-slate-400">Recovered within the {backupData?.maxAgeHours ?? 36}h freshness window.</p>
+            </div>
+            <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Stale backups</p>
+              <p className="mt-2 text-lg font-semibold text-white">{backupSummary.stale}</p>
+              <p className="mt-1 text-sm text-slate-400">Backups that are too old or ended in an error state.</p>
+            </div>
+            <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Missing backups</p>
+              <p className="mt-2 text-lg font-semibold text-white">{backupSummary.missing}</p>
+              <p className="mt-1 text-sm text-slate-400">Volumes that have never produced a remote backup yet.</p>
+            </div>
+          </div>
+          <div className="overflow-x-auto rounded-xl border border-[#2a2a2a] bg-[#111]">
+            <table className="w-full min-w-[720px] text-sm">
+              <thead className="bg-[#0d0d0d] text-xs uppercase tracking-[0.16em] text-slate-500">
+                <tr>
+                  <th className="px-4 py-3 text-left font-medium">Volume</th>
+                  <th className="px-4 py-3 text-left font-medium">Status</th>
+                  <th className="px-4 py-3 text-left font-medium">Last backup</th>
+                  <th className="px-4 py-3 text-left font-medium">Age</th>
+                  <th className="px-4 py-3 text-left font-medium">Count</th>
+                </tr>
+              </thead>
+              <tbody>
+                {backupVolumes.map((volume) => (
+                  <tr key={volume.name} className="border-t border-[#1c1c1c] text-slate-300">
+                    <td className="px-4 py-4">
+                      <p className="font-medium text-white">{volume.name}</p>
+                      <p className="mt-1 text-xs text-slate-500">{volume.lastBackupState ?? "No backup yet"}</p>
+                    </td>
+                    <td className="px-4 py-4">
+                      <span className={cn("rounded-full px-2 py-1 text-xs font-medium", volume.status === "healthy" ? "bg-emerald-500/10 text-emerald-300" : volume.status === "stale" ? "bg-amber-500/10 text-amber-300" : "bg-red-500/10 text-red-300")}>{volume.status}</span>
+                    </td>
+                    <td className="px-4 py-4 text-slate-300">{volume.lastBackupAt ? new Date(volume.lastBackupAt).toLocaleString() : "Never"}</td>
+                    <td className="px-4 py-4 text-slate-300">{formatBackupAge(volume.ageHours)}</td>
+                    <td className="px-4 py-4 text-slate-300">{volume.backupCount}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </CollapsibleSection>
       )}

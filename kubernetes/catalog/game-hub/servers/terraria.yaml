@@ -37,6 +37,17 @@ spec:
         infraweaver/game: "true"
     spec:
       priorityClassName: game-server
+      # Prefer the node platform services bias away from so game workloads stop contending with ArgoCD/Auth.
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values:
+                      - talos-prod-cp2
       # Hard-spread game servers: no two on same node (prevents memory overload)
       topologySpreadConstraints:
         - maxSkew: 1

@@ -63,6 +63,8 @@ server:
   dataStorage:
     enabled: true
     size: 5Gi
+    annotations:
+      recurring-job-group.longhorn.io/truenas-backup: "enabled"
     storageClass: longhorn-retain   # HA: 3 replicas across nodes via Longhorn
     accessMode: ReadWriteOnce
 
