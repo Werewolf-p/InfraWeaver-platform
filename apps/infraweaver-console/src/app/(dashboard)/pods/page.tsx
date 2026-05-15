@@ -2,7 +2,7 @@
 
 import { motion } from "framer-motion";
 import Link from "next/link";
-import { RefreshCw, RotateCcw, Server } from "lucide-react";
+import { CheckSquare, Copy, FileText, RefreshCw, RotateCcw, Server, Square } from "lucide-react";
 import { useMemo, useState } from "react";
 import { CommandBar } from "@/components/ui/command-bar";
 import { CopyButton } from "@/components/ui/copy-button";
@@ -46,25 +46,44 @@ function restartColor(restarts: number) {
   return "text-slate-300";
 }
 
+function podKey(pod: Pick<Pod, "namespace" | "name">) {
+  return `${pod.namespace}/${pod.name}`;
+}
+
 function PodMobileCard({
   pod,
   simpleMode,
   isAdmin,
   restartingPod,
+  selected,
+  selectionBusy,
   onRestart,
+  onToggleSelection,
 }: {
   pod: Pod;
   simpleMode: boolean;
   isAdmin: boolean;
   restartingPod: string | null;
+  selected: boolean;
+  selectionBusy: boolean;
   onRestart: (namespace: string, name: string) => void;
+  onToggleSelection: (pod: Pod) => void;
 }) {
-  const key = `${pod.namespace}/${pod.name}`;
+  const key = podKey(pod);
   const restartCount = pod.restartCount ?? 0;
 
   return (
-    <div className="rounded-xl border border-white/10 bg-slate-900/60 p-4 shadow-sm">
+    <div className={cn("rounded-xl border bg-slate-900/60 p-4 shadow-sm transition-colors", selected ? "border-indigo-500/40" : "border-white/10")}>
       <div className="flex items-start gap-3">
+        <button
+          type="button"
+          onClick={() => onToggleSelection(pod)}
+          disabled={selectionBusy}
+          className="mt-0.5 inline-flex h-11 w-11 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-slate-300 transition hover:text-white disabled:opacity-50"
+          aria-label={selected ? `Deselect ${pod.name}` : `Select ${pod.name}`}
+        >
+          {selected ? <CheckSquare className="h-4 w-4 text-indigo-300" /> : <Square className="h-4 w-4" />}
+        </button>
         <div className="min-w-0 flex-1">
           <div className="flex items-start gap-2">
             <Link
@@ -73,7 +92,7 @@ function PodMobileCard({
             >
               {pod.name}
             </Link>
-            <CopyButton text={pod.name} className="h-11 w-11 justify-center px-0" />
+            <CopyButton text={pod.name} label="Pod" className="h-11" />
           </div>
           <p className="mt-1 text-sm text-slate-400">{pod.namespace}</p>
         </div>
@@ -109,18 +128,25 @@ function PodMobileCard({
         <p className="mt-3 text-sm text-slate-400">{pod.containers.join(", ")}</p>
       ) : null}
 
-      <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+      <div className="mt-4 grid gap-2 sm:grid-cols-3">
         <Link
           href={`/pods/${encodeURIComponent(pod.namespace)}/${encodeURIComponent(pod.name)}`}
           className="inline-flex min-h-[44px] items-center justify-center rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-slate-200 transition hover:bg-white/10 hover:text-white"
         >
           View details
         </Link>
+        <Link
+          href={`/logs?namespace=${encodeURIComponent(pod.namespace)}&pod=${encodeURIComponent(pod.name)}`}
+          className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg border border-sky-500/20 bg-sky-500/10 px-4 py-2 text-sm font-medium text-sky-200 transition hover:bg-sky-500/20"
+        >
+          <FileText className="h-4 w-4" />
+          Logs
+        </Link>
         {isAdmin ? (
           <button
             type="button"
             onClick={() => onRestart(pod.namespace, pod.name)}
-            disabled={restartingPod === key}
+            disabled={restartingPod === key || selectionBusy}
             className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-4 py-2 text-sm font-medium text-indigo-300 transition hover:bg-indigo-500/20 disabled:opacity-50"
           >
             <RotateCcw className={cn("h-4 w-4", restartingPod === key && "animate-spin")} />
@@ -138,6 +164,8 @@ export default function PodsPage() {
   const [statusFilter, setStatusFilter] = useLocalStorage<PodStatusFilter>("pods-status-filter", "all");
   const [search, setSearch] = useLocalStorage("pods-search", "");
   const [restartingPod, setRestartingPod] = useState<string | null>(null);
+  const [bulkRestarting, setBulkRestarting] = useState(false);
+  const [selectedPods, setSelectedPods] = useState<Set<string>>(new Set());
   const debouncedSearch = useDebounce(search, 200);
   const { simpleMode, toggle } = useSimpleMode();
   const { data: pods = [], isLoading, refetch } = usePods();
@@ -152,12 +180,19 @@ export default function PodsPage() {
     );
   }, [debouncedSearch, nsFilter, pods, statusFilter]);
 
+  const visiblePodKeys = useMemo(() => filteredPods.map((pod) => podKey(pod)), [filteredPods]);
+  const selectedVisiblePods = useMemo(
+    () => filteredPods.filter((pod) => selectedPods.has(podKey(pod))),
+    [filteredPods, selectedPods],
+  );
+
   const namespaces = useMemo(() => ["all", ...new Set(pods.map((pod) => pod.namespace))], [pods]);
   const runningCount = pods.filter((pod) => normalizedStatus(pod.status) === "running").length;
   const unhealthyCount = pods.filter((pod) => {
     const status = normalizedStatus(pod.status);
     return status === "failed" || status === "crashloopbackoff";
   }).length;
+  const allVisibleSelected = visiblePodKeys.length > 0 && visiblePodKeys.every((key) => selectedPods.has(key));
 
   async function handleRestart(namespace: string, name: string) {
     setRestartingPod(`${namespace}/${name}`);
@@ -177,6 +212,64 @@ export default function PodsPage() {
     }
   }
 
+  async function handleBulkRestart() {
+    if (selectedVisiblePods.length === 0) return;
+    setBulkRestarting(true);
+    try {
+      const response = await fetch("/api/pods/bulk-restart", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          pods: selectedVisiblePods.map((pod) => ({ namespace: pod.namespace, name: pod.name })),
+        }),
+      });
+      const payload = await response.json().catch(() => ({})) as { restartedCount?: number; total?: number; failures?: Array<{ name: string }> ; error?: string };
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Failed to restart selected pods");
+      }
+      const failures = payload.failures?.length ?? 0;
+      if (failures > 0) {
+        toast.warning(`Restarted ${payload.restartedCount ?? 0} of ${payload.total ?? selectedVisiblePods.length} pods`);
+      } else {
+        toast.success(`Restarting ${payload.restartedCount ?? selectedVisiblePods.length} pods`);
+      }
+      setSelectedPods(new Set());
+      await refetch();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to restart selected pods");
+    } finally {
+      setBulkRestarting(false);
+    }
+  }
+
+  async function copySelection() {
+    if (selectedVisiblePods.length === 0) return;
+    try {
+      await navigator.clipboard.writeText(selectedVisiblePods.map((pod) => podKey(pod)).join("\n"));
+      toast.success(`Copied ${selectedVisiblePods.length} pod names`);
+    } catch {
+      toast.error("Failed to copy selected pods");
+    }
+  }
+
+  function togglePodSelection(pod: Pod) {
+    const key = podKey(pod);
+    setSelectedPods((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  function toggleVisibleSelection() {
+    if (allVisibleSelected) {
+      setSelectedPods(new Set());
+      return;
+    }
+    setSelectedPods(new Set(visiblePodKeys));
+  }
+
   if (isLoading) {
     return (
       <div className="space-y-3">
@@ -194,7 +287,7 @@ export default function PodsPage() {
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-      <PageHeader icon={Server} title="Pods" description="All pods with live status" badge={`${pods.length} total`} />
+      <PageHeader icon={Server} title="Pods" description="Live pod inventory with bulk triage and direct log jumps" badge={`${pods.length} total`} />
 
       <div className="grid gap-3 md:grid-cols-3">
         <DataCard title="Total Pods" value={pods.length} subtitle="Current pod inventory" />
@@ -209,7 +302,19 @@ export default function PodsPage() {
       </div>
 
       <CommandBar
-        actions={[{ label: "Refresh", icon: RefreshCw, onClick: () => void refetch() }]}
+        primary={
+          <div className="flex items-center gap-2 text-sm text-slate-300">
+            <span className="rounded-full border border-[#2a2a2a] bg-[#0d0d0d] px-2 py-1 text-xs font-medium text-[#d4d4d4]">
+              {selectedVisiblePods.length} selected
+            </span>
+          </div>
+        }
+        actions={[
+          { label: "Refresh", icon: RefreshCw, onClick: () => void refetch(), disabled: bulkRestarting },
+          { label: allVisibleSelected ? "Clear visible" : "Select visible", icon: allVisibleSelected ? Square : CheckSquare, onClick: toggleVisibleSelection, disabled: filteredPods.length === 0 || bulkRestarting },
+          { label: "Copy selection", icon: Copy, onClick: () => void copySelection(), disabled: selectedVisiblePods.length === 0 || bulkRestarting },
+          ...(isAdmin ? [{ label: bulkRestarting ? "Restarting…" : "Restart selected", icon: RotateCcw, onClick: () => void handleBulkRestart(), disabled: selectedVisiblePods.length === 0 || bulkRestarting, variant: "primary" as const }] : []),
+        ]}
         filter={
           <div className="grid w-full grid-cols-1 gap-2 sm:flex sm:flex-wrap sm:items-center">
             <select
@@ -276,12 +381,15 @@ export default function PodsPage() {
           <div className="space-y-3 md:hidden">
             {filteredPods.map((pod) => (
               <PodMobileCard
-                key={`${pod.namespace}/${pod.name}`}
+                key={podKey(pod)}
                 pod={pod}
                 simpleMode={simpleMode}
                 isAdmin={isAdmin}
                 restartingPod={restartingPod}
+                selected={selectedPods.has(podKey(pod))}
+                selectionBusy={bulkRestarting}
                 onRestart={(namespace, name) => void handleRestart(namespace, name)}
+                onToggleSelection={togglePodSelection}
               />
             ))}
           </div>
@@ -290,6 +398,16 @@ export default function PodsPage() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-white/10">
+                  <th className="w-14 px-4 py-3 text-left text-xs font-semibold text-slate-400">
+                    <button
+                      type="button"
+                      onClick={toggleVisibleSelection}
+                      className="inline-flex items-center gap-1 text-slate-400 transition hover:text-white"
+                      aria-label={allVisibleSelected ? "Clear visible pod selection" : "Select all visible pods"}
+                    >
+                      {allVisibleSelected ? <CheckSquare className="h-4 w-4 text-indigo-300" /> : <Square className="h-4 w-4" />}
+                    </button>
+                  </th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400">Name</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400">Namespace</th>
                   <th className="px-4 py-3 text-center text-xs font-semibold text-slate-400">Status</th>
@@ -302,16 +420,28 @@ export default function PodsPage() {
               </thead>
               <tbody>
                 {filteredPods.map((pod) => {
-                  const key = `${pod.namespace}/${pod.name}`;
+                  const key = podKey(pod);
                   const restartCount = pod.restartCount ?? 0;
+                  const selected = selectedPods.has(key);
                   return (
-                    <tr key={key} className="border-b border-white/5 transition-colors hover:bg-white/5">
+                    <tr key={key} className={cn("border-b border-white/5 transition-colors hover:bg-white/5", selected && "bg-indigo-500/5") }>
+                      <td className="px-4 py-3">
+                        <button
+                          type="button"
+                          onClick={() => togglePodSelection(pod)}
+                          disabled={bulkRestarting}
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-slate-300 transition hover:text-white disabled:opacity-50"
+                          aria-label={selected ? `Deselect ${pod.name}` : `Select ${pod.name}`}
+                        >
+                          {selected ? <CheckSquare className="h-4 w-4 text-indigo-300" /> : <Square className="h-4 w-4" />}
+                        </button>
+                      </td>
                       <td className="max-w-xs px-4 py-3 text-sm font-medium text-white">
                         <div className="flex items-center gap-2">
                           <Link href={`/pods/${encodeURIComponent(pod.namespace)}/${encodeURIComponent(pod.name)}`} className="truncate transition hover:text-indigo-300">
                             {pod.name}
                           </Link>
-                          <CopyButton text={pod.name} className="h-11 w-11 justify-center px-0" />
+                          <CopyButton text={pod.name} label="Pod" className="h-9" />
                         </div>
                       </td>
                       <td className="px-4 py-3 text-sm text-slate-400">{pod.namespace}</td>
@@ -325,17 +455,26 @@ export default function PodsPage() {
                       {!simpleMode ? <td className="px-4 py-3 text-xs text-slate-500">{pod.nodeName}</td> : null}
                       {!simpleMode ? <td className="px-4 py-3 text-xs text-slate-400">{Array.isArray(pod.containers) ? pod.containers.join(", ") : ""}</td> : null}
                       <td className="px-4 py-3 text-right">
-                        {isAdmin ? (
-                          <button
-                            type="button"
-                            onClick={() => void handleRestart(pod.namespace, pod.name)}
-                            disabled={restartingPod === key}
-                            className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-3 py-2 text-xs text-indigo-300 transition hover:bg-indigo-500/20 disabled:opacity-50"
+                        <div className="flex justify-end gap-2">
+                          <Link
+                            href={`/logs?namespace=${encodeURIComponent(pod.namespace)}&pod=${encodeURIComponent(pod.name)}`}
+                            className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border border-sky-500/20 bg-sky-500/10 px-3 py-2 text-xs text-sky-200 transition hover:bg-sky-500/20"
                           >
-                            <RotateCcw className={cn("h-3.5 w-3.5", restartingPod === key && "animate-spin")} />
-                            Restart
-                          </button>
-                        ) : null}
+                            <FileText className="h-3.5 w-3.5" />
+                            Logs
+                          </Link>
+                          {isAdmin ? (
+                            <button
+                              type="button"
+                              onClick={() => void handleRestart(pod.namespace, pod.name)}
+                              disabled={restartingPod === key || bulkRestarting}
+                              className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-3 py-2 text-xs text-indigo-300 transition hover:bg-indigo-500/20 disabled:opacity-50"
+                            >
+                              <RotateCcw className={cn("h-3.5 w-3.5", restartingPod === key && "animate-spin")} />
+                              Restart
+                            </button>
+                          ) : null}
+                        </div>
                       </td>
                     </tr>
                   );

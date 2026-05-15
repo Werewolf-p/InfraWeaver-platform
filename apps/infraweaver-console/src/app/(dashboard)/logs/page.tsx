@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { AlertCircle, FileText, PanelLeftClose, PanelLeftOpen, Rows3 } from "lucide-react";
 import { Group as PanelGroup, Panel, Separator as PanelResizeHandle } from "react-resizable-panels";
 import { LogStreamViewer } from "@/components/logs/log-stream-viewer";
@@ -36,20 +37,52 @@ function loadStoredSelection(): StoredSelection {
   }
 }
 
+function podPriority(status: string) {
+  const value = status.toLowerCase();
+  if (value.includes("crashloop") || value.includes("backoff") || value.includes("failed") || value.includes("error")) return 0;
+  if (value.includes("pending") || value.includes("containercreating")) return 1;
+  if (value.includes("running")) return 2;
+  return 3;
+}
+
 export default function LogsPage() {
   const { canAny } = useRBAC();
   const { data: pods = [], isLoading } = usePods();
+  const searchParams = useSearchParams();
   const isMobile = useMediaQuery("(max-width: 1024px)");
   const [search, setSearch] = useState("");
   const [selectorOpen, setSelectorOpen] = useState(false);
   const [leftCollapsed, setLeftCollapsed] = useState(false);
-  const [selection, setSelection] = useState<StoredSelection>(() => loadStoredSelection());
 
-  const selectedPod = useMemo(
-    () => pods.find((pod) => pod.namespace === selection.namespace && pod.name === selection.pod) ?? null,
-    [pods, selection.namespace, selection.pod]
-  );
-  const activeContainer = selectedPod?.containers.includes(selection.container) ? selection.container : (selectedPod?.containers[0] ?? "");
+  const querySelection = useMemo(() => ({
+    namespace: searchParams.get("namespace") ?? "",
+    pod: searchParams.get("pod") ?? "",
+    container: searchParams.get("container") ?? "",
+  }), [searchParams]);
+  const [selection, setSelection] = useState<StoredSelection>(() => (
+    querySelection.namespace && querySelection.pod ? querySelection : loadStoredSelection()
+  ));
+
+  const selectedPod = useMemo(() => {
+    const currentSelection = pods.find((pod) => pod.namespace === selection.namespace && pod.name === selection.pod);
+    if (currentSelection) return currentSelection;
+
+    const queryPod = querySelection.namespace && querySelection.pod
+      ? pods.find((pod) => pod.namespace === querySelection.namespace && pod.name === querySelection.pod)
+      : null;
+    if (queryPod) return queryPod;
+
+    return [...pods].sort((left, right) => {
+      const priority = podPriority(left.status) - podPriority(right.status);
+      if (priority !== 0) return priority;
+      return new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime();
+    })[0] ?? null;
+  }, [pods, querySelection, selection.namespace, selection.pod]);
+  const activeContainer = selectedPod?.containers.includes(selection.container)
+    ? selection.container
+    : querySelection.container && selectedPod?.containers.includes(querySelection.container)
+      ? querySelection.container
+      : (selectedPod?.containers[0] ?? "");
 
   useEffect(() => {
     if (!selectedPod) return;
@@ -89,7 +122,7 @@ export default function LogsPage() {
       <PageHeader
         icon={FileText}
         title="Pod Logs"
-        subtitle="Split-view pod selector with live log streaming"
+        subtitle="Split-view pod selector with remembered filters and smart defaults"
         actions={
           <button
             onClick={() => (isMobile ? setSelectorOpen(true) : setLeftCollapsed((current) => !current))}
@@ -107,6 +140,7 @@ export default function LogsPage() {
           <p className="mt-1 text-sm text-white">
             {selectedPod ? `${selectedPod.namespace}/${selectedPod.name}` : "No pod selected"}
           </p>
+          {!selectedPod && !isLoading ? <p className="mt-1 text-xs text-slate-500">Pick a pod from the selector to start streaming.</p> : null}
         </div>
         {selectedPod ? <StatusBadge status={(selectedPod.status.toLowerCase() as "running" | "pending" | "failed" | "unknown") ?? "unknown"} /> : null}
       </div>
@@ -126,10 +160,7 @@ export default function LogsPage() {
           <PanelGroup orientation="horizontal">
             {!leftCollapsed && (
               <>
-                <Panel
-                  defaultSize={24}
-                  minSize={18}
-                >
+                <Panel defaultSize={24} minSize={18}>
                   <PodSelectorTree
                     pods={pods}
                     search={search}

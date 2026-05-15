@@ -18,6 +18,35 @@ import { toast } from "sonner";
 
 export type LogLevel = "ALL" | "ERROR" | "WARN" | "INFO" | "DEBUG";
 
+const PREFERENCES_KEY = "infraweaver:log-viewer-preferences";
+
+interface LogViewerPreferences {
+  filter: string;
+  autoScroll: boolean;
+  wrap: boolean;
+  levelFilter: LogLevel;
+}
+
+function loadViewerPreferences(): LogViewerPreferences {
+  if (typeof window === "undefined") {
+    return { filter: "", autoScroll: true, wrap: false, levelFilter: "ALL" };
+  }
+
+  try {
+    const parsed = JSON.parse(localStorage.getItem(PREFERENCES_KEY) ?? "null") as Partial<LogViewerPreferences> | null;
+    return {
+      filter: typeof parsed?.filter === "string" ? parsed.filter : "",
+      autoScroll: typeof parsed?.autoScroll === "boolean" ? parsed.autoScroll : true,
+      wrap: typeof parsed?.wrap === "boolean" ? parsed.wrap : false,
+      levelFilter: parsed?.levelFilter === "ERROR" || parsed?.levelFilter === "WARN" || parsed?.levelFilter === "INFO" || parsed?.levelFilter === "DEBUG" || parsed?.levelFilter === "ALL"
+        ? parsed.levelFilter
+        : "ALL",
+    };
+  } catch {
+    return { filter: "", autoScroll: true, wrap: false, levelFilter: "ALL" };
+  }
+}
+
 function getLineLevel(line: string): LogLevel {
   const value = line.toLowerCase();
   if (value.includes("error") || value.includes("fatal") || value.includes("critical")) return "ERROR";
@@ -68,16 +97,28 @@ export function LogStreamViewer({
   const [logs, setLogs] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [filter, setFilter] = useState("");
-  const [autoScroll, setAutoScroll] = useState(true);
-  const [wrap, setWrap] = useState(false);
-  const [levelFilter, setLevelFilter] = useState<LogLevel>("ALL");
+  const [preferences, setPreferences] = useState<LogViewerPreferences>(() => loadViewerPreferences());
   const [refreshToken, setRefreshToken] = useState(0);
-  const [isAtBottom, setIsAtBottom] = useState(true);
   const [pendingLines, setPendingLines] = useState(0);
   const logsRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
-  const previousLogCountRef = useRef(0);
+  const atBottomRef = useRef(true);
+  const autoScrollRef = useRef(true);
+
+  const { filter, autoScroll, wrap, levelFilter } = preferences;
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      localStorage.setItem(PREFERENCES_KEY, JSON.stringify(preferences));
+    } catch {
+      // ignore persistence failures
+    }
+  }, [preferences]);
+
+  useEffect(() => {
+    autoScrollRef.current = autoScroll;
+  }, [autoScroll]);
 
   const closeStream = useCallback(() => {
     eventSourceRef.current?.close();
@@ -150,6 +191,9 @@ export function LogStreamViewer({
         try {
           const line = JSON.parse(event.data) as string;
           setLogs((current) => [...current, line].slice(-2000));
+          if (!autoScrollRef.current && !atBottomRef.current) {
+            setPendingLines((current) => current + 1);
+          }
         } catch {
           // ignore malformed lines
         }
@@ -177,27 +221,9 @@ export function LogStreamViewer({
 
   useEffect(() => {
     const containerEl = logsRef.current;
-    if (!containerEl) return;
-
-    if (autoScroll) {
-      containerEl.scrollTop = containerEl.scrollHeight;
-      setPendingLines(0);
-      setIsAtBottom(true);
-      previousLogCountRef.current = logs.length;
-      return;
-    }
-
-    const addedLines = logs.length - previousLogCountRef.current;
-    const atBottomNow = containerEl.scrollHeight - containerEl.scrollTop - containerEl.clientHeight < 24;
-    setIsAtBottom(atBottomNow);
-
-    if (atBottomNow) {
-      setPendingLines(0);
-    } else if (addedLines > 0) {
-      setPendingLines((current) => current + addedLines);
-    }
-
-    previousLogCountRef.current = logs.length;
+    if (!containerEl || !autoScroll) return;
+    containerEl.scrollTop = containerEl.scrollHeight;
+    atBottomRef.current = true;
   }, [autoScroll, logs]);
 
   const filteredLogs = useMemo(
@@ -250,15 +276,15 @@ export function LogStreamViewer({
   const jumpToBottom = () => {
     if (!logsRef.current) return;
     logsRef.current.scrollTo({ top: logsRef.current.scrollHeight, behavior: "smooth" });
+    atBottomRef.current = true;
     setPendingLines(0);
-    setIsAtBottom(true);
   };
 
   const handleScroll = () => {
     const containerEl = logsRef.current;
     if (!containerEl) return;
     const atBottom = containerEl.scrollHeight - containerEl.scrollTop - containerEl.clientHeight < 24;
-    setIsAtBottom(atBottom);
+    atBottomRef.current = atBottom;
     if (atBottom) {
       setPendingLines(0);
     }
@@ -322,7 +348,7 @@ export function LogStreamViewer({
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
           <input
             value={filter}
-            onChange={(event) => setFilter(event.target.value)}
+            onChange={(event) => setPreferences((current) => ({ ...current, filter: event.target.value }))}
             placeholder="Filter logs..."
             className="w-full rounded-lg border border-white/10 bg-slate-950 py-2 pl-9 pr-3 text-sm text-white placeholder:text-slate-500 outline-none focus:border-indigo-500/50"
           />
@@ -334,7 +360,7 @@ export function LogStreamViewer({
             return (
               <button
                 key={entry}
-                onClick={() => setLevelFilter(entry)}
+                onClick={() => setPreferences((current) => ({ ...current, levelFilter: entry }))}
                 className={cn(
                   "rounded-md px-2.5 py-1 text-xs font-medium transition",
                   levelFilter === entry
@@ -350,7 +376,13 @@ export function LogStreamViewer({
         </div>
 
         <button
-          onClick={() => setAutoScroll((current) => !current)}
+          onClick={() => {
+            setPreferences((current) => ({ ...current, autoScroll: !current.autoScroll }));
+            if (autoScroll) {
+              return;
+            }
+            setPendingLines(0);
+          }}
           className={cn(
             "inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition",
             autoScroll
@@ -363,7 +395,7 @@ export function LogStreamViewer({
         </button>
 
         <button
-          onClick={() => setWrap((current) => !current)}
+          onClick={() => setPreferences((current) => ({ ...current, wrap: !current.wrap }))}
           className={cn(
             "inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition",
             wrap
