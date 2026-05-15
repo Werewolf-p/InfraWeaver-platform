@@ -77,8 +77,8 @@ spec:
               value: ""
           resources:
             requests:
-              memory: 2500Mi
-              cpu: "2"
+              memory: 1400Mi  # actual usage ~1200Mi; lower request lets scheduler place this on less-loaded nodes
+              cpu: "500m"
             limits:
               memory: 2500Mi
               cpu: "2"

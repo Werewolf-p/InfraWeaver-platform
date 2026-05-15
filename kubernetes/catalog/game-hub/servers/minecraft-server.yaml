@@ -109,8 +109,8 @@ spec:
               cpu: '2'
               memory: 2560Mi
             requests:
-              cpu: '2'
-              memory: 2560Mi
+              cpu: '500m'
+              memory: 2048Mi  # actual usage ~1574Mi; gives headroom while allowing better scheduling
           terminationMessagePath: /dev/termination-log
           terminationMessagePolicy: File
           volumeMounts:
