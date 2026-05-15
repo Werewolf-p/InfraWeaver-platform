@@ -1,5 +1,5 @@
 import { auth } from "@/lib/auth";
-import { checkSameOrigin } from "@/lib/api-helpers";
+import { checkSameOrigin, getRequestSizeViolation } from "@/lib/api-helpers";
 import { auditAuthFailure, auditUnauthorizedAccess } from "@/lib/audit-log";
 import { checkRateLimit, LOGIN_RATE_LIMIT, rateLimitKey, UNAUTHENTICATED_RATE_LIMIT } from "@/lib/rate-limit";
 import { NextResponse, type NextRequest } from "next/server";
@@ -60,6 +60,14 @@ export default auth(async (req) => {
       return isApiRoute
         ? NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
         : new NextResponse("Rate limit exceeded", { status: 429 });
+    }
+  }
+
+  if (isApiRoute && MUTATION_METHODS.has(req.method) && !pathname.startsWith("/api/auth")) {
+    const sizeViolation = getRequestSizeViolation(req, pathname);
+    if (sizeViolation) {
+      await auditUnauthorizedAccess("security:request-too-large", req, req.auth?.user?.email ?? "anonymous", `${req.method} ${pathname} — ${sizeViolation}`);
+      return NextResponse.json({ error: "Request body too large" }, { status: 413 });
     }
   }
 

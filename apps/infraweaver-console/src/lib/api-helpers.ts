@@ -1,4 +1,13 @@
 const SHELL_METACHARACTER_RE = /(^|\s)(?:&&|\|\||;|\|)(?=\s|$)/
+const DEFAULT_API_BODY_LIMIT = 512 * 1024
+const API_BODY_LIMIT_OVERRIDES = [
+  { prefix: "/api/platform-editor", bytes: 2 * 1024 * 1024 },
+  { prefix: "/api/config/platform", bytes: 2 * 1024 * 1024 },
+  { prefix: "/api/cluster/settings", bytes: 2 * 1024 * 1024 },
+  { prefix: "/api/cluster/nodes/settings", bytes: 2 * 1024 * 1024 },
+  { prefix: "/api/users-config", bytes: 2 * 1024 * 1024 },
+  { prefix: "/api/game-hub/servers/", bytes: 10 * 1024 * 1024 },
+]
 
 function matchesRequestHost(value: string, host: string) {
   try {
@@ -19,6 +28,24 @@ export function checkSameOrigin(req: Pick<Request, "headers">) {
   if (referer) return matchesRequestHost(referer, host)
 
   return true
+}
+
+export function getRequestBodyLimit(pathname: string) {
+  const override = API_BODY_LIMIT_OVERRIDES.find((entry) => pathname.startsWith(entry.prefix))
+  return override?.bytes ?? DEFAULT_API_BODY_LIMIT
+}
+
+export function getRequestSizeViolation(req: Pick<Request, "headers">, pathname: string) {
+  const rawLength = req.headers.get("content-length")
+  if (!rawLength) return null
+
+  const contentLength = Number(rawLength)
+  if (!Number.isFinite(contentLength) || contentLength < 0) return null
+
+  const limit = getRequestBodyLimit(pathname)
+  if (contentLength <= limit) return null
+
+  return `Request body too large (${contentLength} bytes > ${limit} bytes)`
 }
 
 export function sanitizeConsoleCommand(input: string) {

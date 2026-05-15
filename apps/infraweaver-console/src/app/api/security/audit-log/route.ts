@@ -1,11 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { hasPermission } from "@/lib/rbac";
+import { auditLog, redactAuditDetail } from "@/lib/audit-log";
+import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
+import { getSessionRBACContext, hasAnySessionPermission } from "@/lib/session-rbac";
+import { safeError } from "@/lib/utils";
 import * as k8s from "@kubernetes/client-node";
+import { z } from "zod";
 
 const NAMESPACE = "infraweaver-console";
 const CONFIGMAP_NAME = "infra-console-audit-log";
 const MAX_ENTRIES = 200;
+
+const CreateAuditEntryBody = z.object({
+  action: z.string().trim().min(3).max(128),
+  resource: z.string().trim().max(256).optional().default(""),
+  details: z.string().trim().max(4096).optional().default(""),
+  result: z.enum(["success", "failure"]).optional().default("success"),
+});
 
 export interface AuditEntry {
   timestamp: string;
@@ -15,6 +26,19 @@ export interface AuditEntry {
   details: string;
   result: "success" | "failure";
   ip?: string;
+  userAgent?: string;
+}
+
+function requestIp(req?: Pick<Request, "headers">) {
+  if (!req) return undefined;
+  const realIp = req.headers.get("x-real-ip");
+  if (realIp) return realIp.trim();
+  const forwarded = req.headers.get("x-forwarded-for");
+  return forwarded?.split(",")[0]?.trim() || undefined;
+}
+
+function requestUserAgent(req?: Pick<Request, "headers">) {
+  return req?.headers.get("user-agent")?.trim() || undefined;
 }
 
 function getKubeConfig() {
@@ -27,35 +51,89 @@ function getKubeConfig() {
   return kc;
 }
 
+function normalizeAuditEntry(entry: Partial<AuditEntry>): AuditEntry | null {
+  if (!entry.timestamp || !entry.action || !entry.user) return null;
+  return {
+    timestamp: entry.timestamp,
+    user: entry.user,
+    action: entry.action,
+    resource: entry.resource ?? "",
+    details: redactAuditDetail(entry.details ?? ""),
+    result: entry.result === "failure" ? "failure" : "success",
+    ip: entry.ip,
+    userAgent: entry.userAgent,
+  };
+}
+
+async function readStoredEntries() {
+  const kc = getKubeConfig();
+  const coreApi = kc.makeApiClient(k8s.CoreV1Api);
+  const cm = await coreApi.readNamespacedConfigMap({ name: CONFIGMAP_NAME, namespace: NAMESPACE });
+  const log = (cm as { data?: Record<string, string> }).data?.log ?? "";
+  return log
+    .split("\n")
+    .filter(Boolean)
+    .slice(-MAX_ENTRIES)
+    .map((line) => {
+      try {
+        return normalizeAuditEntry(JSON.parse(line) as Partial<AuditEntry>);
+      } catch {
+        return null;
+      }
+    })
+    .filter((entry): entry is AuditEntry => entry !== null)
+    .reverse();
+}
+
+async function appendAuditEntry(entry: AuditEntry) {
+  const kc = getKubeConfig();
+  const coreApi = kc.makeApiClient(k8s.CoreV1Api);
+
+  let existingLog = "";
+  try {
+    const cm = await coreApi.readNamespacedConfigMap({ name: CONFIGMAP_NAME, namespace: NAMESPACE });
+    existingLog = (cm as { data?: Record<string, string> }).data?.log ?? "";
+  } catch {
+    existingLog = "";
+  }
+
+  const lines = existingLog.split("\n").filter(Boolean);
+  lines.push(JSON.stringify(entry));
+  const newLog = `${lines.slice(-MAX_ENTRIES).join("\n")}\n`;
+
+  try {
+    await coreApi.patchNamespacedConfigMap({
+      name: CONFIGMAP_NAME,
+      namespace: NAMESPACE,
+      body: { data: { log: newLog } },
+    });
+  } catch {
+    await coreApi.createNamespacedConfigMap({
+      namespace: NAMESPACE,
+      body: {
+        metadata: { name: CONFIGMAP_NAME, namespace: NAMESPACE },
+        data: { log: newLog },
+      },
+    });
+  }
+}
+
 export async function GET() {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
-  if (!hasPermission(groups, "config:read")) {
+  const access = await getSessionRBACContext(session, 60);
+  if (!hasAnySessionPermission(access, ["security:read"])) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   try {
-    const kc = getKubeConfig();
-    const coreApi = kc.makeApiClient(k8s.CoreV1Api);
-    
-    const cm = await coreApi.readNamespacedConfigMap({ name: CONFIGMAP_NAME, namespace: NAMESPACE });
-    const log = (cm as { data?: Record<string, string> }).data?.log ?? "";
-    const entries = log.split("\n").filter(Boolean).slice(-MAX_ENTRIES).map(line => {
-      try { return JSON.parse(line) as AuditEntry; } catch { return null; }
-    }).filter((e): e is AuditEntry => e !== null).reverse();
-    
-    return NextResponse.json({ entries });
+    const entries = await readStoredEntries();
+    return NextResponse.json({ entries }, {
+      headers: { "Cache-Control": "no-store" },
+    });
   } catch {
-    // Return mock data when K8s unavailable
-    const now = Date.now();
-    return NextResponse.json({
-      entries: [
-        { timestamp: new Date(now - 60000).toISOString(), user: "admin@infraweaver.local", action: "cluster:restart-app", resource: "apps-grafana/grafana", details: "Deployment restarted", result: "success", ip: "10.0.1.42" },
-        { timestamp: new Date(now - 180000).toISOString(), user: "operator@infraweaver.local", action: "argocd:sync", resource: "app=monitoring", details: "Synced ArgoCD app", result: "success", ip: "10.0.1.55" },
-        { timestamp: new Date(now - 600000).toISOString(), user: "admin@infraweaver.local", action: "cluster:rollout", resource: "infraweaver-console", details: "Rollout restart triggered", result: "success", ip: "10.0.1.42" },
-        { timestamp: new Date(now - 900000).toISOString(), user: "unknown@example.com", action: "login", resource: "auth", details: "Login failed", result: "failure", ip: "185.220.101.5" },
-      ] as AuditEntry[],
+    return NextResponse.json({ entries: [] as AuditEntry[] }, {
+      headers: { "Cache-Control": "no-store" },
     });
   }
 }
@@ -63,55 +141,41 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const access = await getSessionRBACContext(session, 60);
+  if (!hasAnySessionPermission(access, ["security:write"])) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
-  const body = await req.json() as Partial<AuditEntry> & { user?: string };
+  if (!checkRateLimit(rateLimitKey("security-audit-log", req), 20, 60_000)) {
+    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
+  }
+
+  const parsed = CreateAuditEntryBody.safeParse(await req.json().catch(() => null));
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+  }
+
   const entry: AuditEntry = {
     timestamp: new Date().toISOString(),
-    user: body.user ?? session.user?.email ?? "unknown",
-    action: body.action ?? "unknown",
-    resource: body.resource ?? "",
-    details: body.details ?? "",
-    result: body.result ?? "success",
-    ip: body.ip,
+    user: session.user?.email ?? "unknown",
+    action: parsed.data.action,
+    resource: parsed.data.resource,
+    details: redactAuditDetail(parsed.data.details),
+    result: parsed.data.result,
+    ip: requestIp(req),
+    userAgent: requestUserAgent(req),
   };
 
   try {
-    const kc = getKubeConfig();
-    const coreApi = kc.makeApiClient(k8s.CoreV1Api);
-    
-    let existingLog = "";
-    try {
-      const cm = await coreApi.readNamespacedConfigMap({ name: CONFIGMAP_NAME, namespace: NAMESPACE });
-      existingLog = (cm as { data?: Record<string, string> }).data?.log ?? "";
-    } catch { /* ConfigMap may not exist yet */ }
-    
-    const lines = existingLog.split("\n").filter(Boolean);
-    lines.push(JSON.stringify(entry));
-    // Rotate to MAX_ENTRIES
-    const trimmed = lines.slice(-MAX_ENTRIES);
-    const newLog = trimmed.join("\n") + "\n";
-    
-    try {
-      await coreApi.patchNamespacedConfigMap({
-        name: CONFIGMAP_NAME,
-        namespace: NAMESPACE,
-        body: { data: { log: newLog } },
-      });
-    } catch {
-      // ConfigMap doesn't exist, create it
-      await coreApi.createNamespacedConfigMap({
-        namespace: NAMESPACE,
-        body: {
-          metadata: { name: CONFIGMAP_NAME, namespace: NAMESPACE },
-          data: { log: newLog },
-        },
-      });
-    }
-    
+    await appendAuditEntry(entry);
+    await auditLog(entry.action, entry.user, entry.details || `${entry.action} ${entry.resource}`.trim(), {
+      result: entry.result,
+      resource: entry.resource || undefined,
+      ip: entry.ip,
+      userAgent: entry.userAgent,
+    });
     return NextResponse.json({ ok: true });
-  } catch {
-    // Non-fatal: log to stdout
-    console.log("AUDIT:", JSON.stringify(entry));
-    return NextResponse.json({ ok: true, stored: false });
+  } catch (error) {
+    return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
 }
