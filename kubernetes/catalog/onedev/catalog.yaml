@@ -3,7 +3,7 @@
 # This file is read by scripts/sync-catalog.sh to generate ArgoCD Applications.
 #
 # Catalog app: OneDev — all-in-one DevOps platform (Git, CI/CD, Issue Tracker)
-# Access: onedev.int.rlservers.com (VPN-only)
+# Access: onedev.rlservers.com (public, app-level login via native Authentik OIDC)
 # SSO: Authentik OAuth2 (configured post-deploy via OneDev admin UI)
 # Storage: Single PVC on longhorn-retain (embedded H2 DB + repos in /opt/onedev)
 # Note: No Helm chart — pure manifests only.

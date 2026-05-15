@@ -7,6 +7,9 @@ metadata:
   labels:
     app.kubernetes.io/name: onedev
     infraweaver.io/type: catalog-app
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
 ---
 # ExternalSecret — OneDev initial admin credentials from OpenBao
 # Only used to pre-seed the admin password via environment variable on first boot.
@@ -89,6 +92,7 @@ spec:
         app.kubernetes.io/name: onedev
         app.kubernetes.io/component: server
     spec:
+      automountServiceAccountToken: false
       # Keep onedev away from registry — if they're on the same node and that node
       # has a Flannel disruption, both go down simultaneously causing image pull failures
       affinity:
@@ -188,6 +192,7 @@ spec:
       protocol: TCP
 ---
 # IngressRoute — public via Traefik (onedev.rlservers.com)
+# Native Authentik OIDC is configured in-app, so only security headers are added here.
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
@@ -201,6 +206,9 @@ spec:
   routes:
     - match: Host(`onedev.rlservers.com`)
       kind: Rule
+      middlewares:
+        - name: secure-headers
+          namespace: traefik
       services:
         - name: onedev
           port: 80

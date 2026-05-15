@@ -57,6 +57,7 @@ spec:
         app.kubernetes.io/name: onedev
         app.kubernetes.io/component: bootstrap
     spec:
+      automountServiceAccountToken: false
       restartPolicy: OnFailure
       containers:
         - name: bootstrap

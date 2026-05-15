@@ -24,9 +24,9 @@ spec:
         any:
           - resources:
               kinds: [Pod]
-              namespaces:
-                - "apps-*"
-                - "catalog-*"
+              namespaceSelector:
+                matchLabels:
+                  infraweaver.io/type: catalog-app
       validate:
         message: "Containers must set runAsNonRoot: true or runAsUser > 0."
         pattern:
@@ -61,9 +61,9 @@ spec:
         any:
           - resources:
               kinds: [Pod]
-              namespaces:
-                - "apps-*"
-                - "catalog-*"
+              namespaceSelector:
+                matchLabels:
+                  infraweaver.io/type: catalog-app
       validate:
         message: "Containers must define resource limits (cpu and memory)."
         pattern:
@@ -98,9 +98,9 @@ spec:
         any:
           - resources:
               kinds: [Pod]
-              namespaces:
-                - "apps-*"
-                - "catalog-*"
+              namespaceSelector:
+                matchLabels:
+                  infraweaver.io/type: catalog-app
       validate:
         message: "Containers must not set privileged: true."
         pattern:
@@ -135,9 +135,9 @@ spec:
         any:
           - resources:
               kinds: [Pod]
-              namespaces:
-                - "apps-*"
-                - "catalog-*"
+              namespaceSelector:
+                matchLabels:
+                  infraweaver.io/type: catalog-app
       validate:
         message: "Containers should drop ALL capabilities (securityContext.capabilities.drop: [ALL])."
         pattern:
@@ -171,9 +171,9 @@ spec:
         any:
           - resources:
               kinds: [Pod]
-              namespaces:
-                - "apps-*"
-                - "catalog-*"
+              namespaceSelector:
+                matchLabels:
+                  infraweaver.io/type: catalog-app
       validate:
         message: "Pods must not use hostPID, hostIPC, or hostNetwork."
         pattern:
@@ -181,3 +181,75 @@ spec:
             =(hostPID): "false"
             =(hostIPC): "false"
             =(hostNetwork): "false"
+---
+# Kyverno ClusterPolicy: disallow privilege escalation in catalog workloads
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: disallow-privilege-escalation
+  annotations:
+    policies.kyverno.io/title: Disallow Privilege Escalation
+    policies.kyverno.io/category: Pod Security Standards (Restricted)
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/description: >-
+      Containers should set allowPrivilegeEscalation: false so a compromised process
+      cannot gain additional privileges via setuid binaries or file capabilities.
+spec:
+  validationFailureAction: Audit
+  admission: true
+  background: true
+  rules:
+    - name: check-allow-privilege-escalation
+      skipBackgroundRequests: true
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaceSelector:
+                matchLabels:
+                  infraweaver.io/type: catalog-app
+      validate:
+        message: "Containers should set allowPrivilegeEscalation: false."
+        pattern:
+          spec:
+            =(initContainers):
+              - =(securityContext):
+                  =(allowPrivilegeEscalation): "false"
+            containers:
+              - name: "*"
+                =(securityContext):
+                  =(allowPrivilegeEscalation): "false"
+---
+# Kyverno ClusterPolicy: disallow hostPath volumes
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: disallow-hostpath-volumes
+  annotations:
+    policies.kyverno.io/title: Disallow hostPath Volumes
+    policies.kyverno.io/category: Pod Security Standards (Baseline)
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/description: >-
+      hostPath volumes expose node filesystems directly inside pods and are a common
+      container escape and node-compromise vector. This audit policy highlights any
+      catalog workload still relying on hostPath mounts.
+spec:
+  validationFailureAction: Audit
+  admission: true
+  background: true
+  rules:
+    - name: check-hostpath-volumes
+      skipBackgroundRequests: true
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaceSelector:
+                matchLabels:
+                  infraweaver.io/type: catalog-app
+      validate:
+        message: "Pods should not use hostPath volumes."
+        pattern:
+          spec:
+            =(volumes):
+              - X(hostPath): "null"

@@ -145,6 +145,30 @@ Do NOT add a restrictive `from:` selector to the kyverno webhook allow rule or p
 
 ---
 
+## Implemented Security Controls — Round 3 (2026-06)
+
+### ✅ New Network Policies
+
+| Namespace | File | Coverage |
+|-----------|------|----------|
+| onedev | `kubernetes/catalog/onedev/manifests/networkpolicy.yaml` | default-deny ingress + allow Traefik HTTP + allow intra-namespace traffic for bootstrap jobs |
+| infraweaver-console | `kubernetes/catalog/infraweaver-console/manifests/networkpolicy.yaml` | added namespace-wide default-deny ingress on top of existing app-specific allow rules |
+
+### ✅ Kyverno Policy Fixes + Additions
+
+| Policy | File | Mode | Scope |
+|--------|------|------|-------|
+| Existing pod security audit policies | `cluster-policies.yaml`, `seccomp-policy.yaml` | Audit | now match real `infraweaver.io/type=catalog-app` namespaces instead of unused `catalog-*`/`apps-*` namespace globs |
+| `disallow-privilege-escalation` | `cluster-policies.yaml` | Audit | catalog-app pods |
+| `disallow-hostpath-volumes` | `cluster-policies.yaml` | Audit | catalog-app pods |
+
+### ✅ Pod / Route Hardening
+
+- Added Pod Security Admission labels to `onedev` and `infraweaver-console` namespaces: `enforce=baseline`, `audit=restricted`, `warn=restricted`
+- Disabled automatic ServiceAccount token mounting for OneDev server pods and the OneDev bootstrap Job
+- Added `secure-headers` to the OneDev public route and remaining public website routes (`degoudentijd`, `feest`, `marcel`, `yonavaarwater`, `zonnevaarwater`, `waterdance`)
+- Improved `security.yml` with least-privilege workflow permissions, concurrency control, and PR dependency review
+
 ## Remaining Gaps (future work)
 
 | Gap | Priority | Notes |

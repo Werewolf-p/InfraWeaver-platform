@@ -33,9 +33,9 @@ spec:
         any:
           - resources:
               kinds: [Pod]
-              namespaces:
-                - "apps-*"
-                - "catalog-*"
+              namespaceSelector:
+                matchLabels:
+                  infraweaver.io/type: catalog-app
       validate:
         message: >-
           Pod "{{ request.object.metadata.name }}" should set
@@ -83,8 +83,9 @@ spec:
         any:
           - resources:
               kinds: [Pod]
-              namespaces:
-                - "catalog-*"
+              namespaceSelector:
+                matchLabels:
+                  infraweaver.io/type: catalog-app
       validate:
         message: >-
           Pod "{{ request.object.metadata.name }}" has automountServiceAccountToken enabled (default).

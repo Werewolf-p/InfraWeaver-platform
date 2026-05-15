@@ -37,6 +37,8 @@ spec:
     - match: Host(`degoudentijd.rlservers.com`) || Host(`www.degoudentijd.rlservers.com`)
       kind: Rule
       middlewares:
+        - name: secure-headers
+          namespace: traefik
         - name: add-https-headers
           namespace: traefik
       services:
@@ -58,6 +60,8 @@ spec:
     - match: Host(`feestinhetdonker.rlservers.com`)
       kind: Rule
       middlewares:
+        - name: secure-headers
+          namespace: traefik
         - name: add-https-headers
           namespace: traefik
       services:
@@ -79,6 +83,8 @@ spec:
     - match: Host(`marcel.rlservers.com`)
       kind: Rule
       middlewares:
+        - name: secure-headers
+          namespace: traefik
         - name: add-https-headers
           namespace: traefik
       services:
@@ -265,6 +271,8 @@ spec:
     - match: Host(`yonavaarwater.nl`) || Host(`www.yonavaarwater.nl`)
       kind: Rule
       middlewares:
+        - name: secure-headers
+          namespace: traefik
         - name: add-https-headers
           namespace: traefik
       services:
@@ -309,6 +317,8 @@ spec:
     - match: Host(`zonnevaarwater.nl`) || Host(`www.zonnevaarwater.nl`)
       kind: Rule
       middlewares:
+        - name: secure-headers
+          namespace: traefik
         - name: add-https-headers
           namespace: traefik
       services:
@@ -329,6 +339,9 @@ spec:
   routes:
     - match: Host(`waterdance.nl`)
       kind: Rule
+      middlewares:
+        - name: secure-headers
+          namespace: traefik
       services:
         - name: bm-waterdance
           port: 443

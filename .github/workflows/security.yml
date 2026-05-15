@@ -6,7 +6,20 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
 jobs:
+  dependency-review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/dependency-review-action@v4
+
   dependency-audit:
     runs-on: [self-hosted, prod-worker]
     steps:
@@ -95,10 +108,10 @@ jobs:
             npm list --json 2>/dev/null > sbom-basic.json || true
             echo "Basic dependency list generated"
           fi
-          echo "SBOM generation complete" >> $GITHUB_STEP_SUMMARY
+          echo "SBOM generation complete" >> "$GITHUB_STEP_SUMMARY"
 
   security-summary:
-    needs: [dependency-audit, secret-scan, dockerfile-lint, typescript-check]
+    needs: [dependency-review, dependency-audit, secret-scan, dockerfile-lint, typescript-check]
     runs-on: [self-hosted, prod-worker]
     if: always()
     steps:
@@ -108,8 +121,9 @@ jobs:
             echo "## Security Scan Summary"
             echo "| Check | Status |"
             echo "|---|---|"
+            echo "| Dependency Review | ${{ needs.dependency-review.result }} |"
             echo "| Dependency Audit | ${{ needs.dependency-audit.result }} |"
             echo "| Secret Scan | ${{ needs.secret-scan.result }} |"
             echo "| Dockerfile Lint | ${{ needs.dockerfile-lint.result }} |"
             echo "| TypeScript Check | ${{ needs.typescript-check.result }} |"
-          } >> $GITHUB_STEP_SUMMARY
+          } >> "$GITHUB_STEP_SUMMARY"
