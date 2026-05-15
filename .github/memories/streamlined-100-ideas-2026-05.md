@@ -48,9 +48,9 @@ Branch: `feat/streamlined`
 30. **Planned — Pod sorting controls** — Add explicit sort controls for age, restarts, and namespace in `src/app/(dashboard)/pods/page.tsx`, keeping mobile cards in the same order as the desktop table.
 31. **Planned — Compare two log streams side-by-side** — Extend `src/app/(dashboard)/logs/page.tsx` and `src/components/logs/log-stream-viewer.tsx` to support dual-pane viewing for canary vs stable pods.
 32. **Planned — Saved log queries per workload** — Store reusable filters like `error`, `timeout`, or namespace-specific patterns in user preferences and expose them beside the log filter input.
-33. **Planned — Jump to warning / jump to info** — Generalize the existing error-jump in `src/components/logs/log-stream-viewer.tsx` so operators can hop between WARN/INFO anchors too.
-34. **Planned — Pause live stream without reconnect** — Add a client-side pause toggle in `src/components/logs/log-stream-viewer.tsx` that buffers lines locally while keeping the SSE connection open.
-35. **Planned — Next/previous pod hotkeys** — Wire `src/app/(dashboard)/logs/page.tsx` to move through the current `PodSelectorTree` result set with keyboard shortcuts for rapid triage.
+33. **Implemented — Jump to warning / jump to info** — Generalize the existing error-jump in `src/components/logs/log-stream-viewer.tsx` so operators can hop between WARN/INFO anchors too.
+34. **Implemented — Pause live stream without reconnect** — Add a client-side pause toggle in `src/components/logs/log-stream-viewer.tsx` that buffers lines locally while keeping the SSE connection open.
+35. **Implemented — Next/previous pod hotkeys** — Wire `src/app/(dashboard)/logs/page.tsx` to move through the current `PodSelectorTree` result set with keyboard shortcuts for rapid triage.
 36. **Planned — Structured log export** — Let `src/components/logs/log-stream-viewer.tsx` export filtered logs as plain text, ndjson, or timestamped JSON so incidents can be shared fast.
 37. **Planned — Sticky log error summary** — Add an always-visible count of current error lines and last-seen error timestamp above the log stream.
 38. **Planned — Mobile log action bar** — Collapse filter, wrap, level, and download controls into a sticky bottom action tray on small screens using the existing mobile drawer patterns memory.
@@ -142,3 +142,6 @@ Branch: `feat/streamlined`
 - #12 Smart default log target
 - #13 Remembered log viewer preferences
 - #14 Updated keyboard-shortcut reference
+- #33 Jump to warning / jump to info
+- #34 Pause live stream without reconnect
+- #35 Next/previous pod hotkeys

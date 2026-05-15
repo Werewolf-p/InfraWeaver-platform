@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { AlertCircle, FileText, PanelLeftClose, PanelLeftOpen, Rows3 } from "lucide-react";
 import { Group as PanelGroup, Panel, Separator as PanelResizeHandle } from "react-resizable-panels";
@@ -45,6 +45,11 @@ function podPriority(status: string) {
   return 3;
 }
 
+function isTypingTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  return target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
+}
+
 export default function LogsPage() {
   const { canAny } = useRBAC();
   const { data: pods = [], isLoading } = usePods();
@@ -83,6 +88,25 @@ export default function LogsPage() {
     : querySelection.container && selectedPod?.containers.includes(querySelection.container)
       ? querySelection.container
       : (selectedPod?.containers[0] ?? "");
+  const visiblePods = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return [...pods]
+      .filter((pod) => (
+        !query ||
+        pod.name.toLowerCase().includes(query) ||
+        pod.namespace.toLowerCase().includes(query) ||
+        pod.status.toLowerCase().includes(query)
+      ))
+      .sort((left, right) => {
+        const namespaceOrder = left.namespace.localeCompare(right.namespace);
+        if (namespaceOrder !== 0) return namespaceOrder;
+        return left.name.localeCompare(right.name);
+      });
+  }, [pods, search]);
+  const selectedVisibleIndex = useMemo(
+    () => (selectedPod ? visiblePods.findIndex((pod) => pod.namespace === selectedPod.namespace && pod.name === selectedPod.name) : -1),
+    [selectedPod, visiblePods],
+  );
 
   useEffect(() => {
     if (!selectedPod) return;
@@ -96,7 +120,7 @@ export default function LogsPage() {
     );
   }, [activeContainer, selectedPod]);
 
-  const handleSelectPod = (pod: (typeof pods)[number]) => {
+  const handleSelectPod = useCallback((pod: (typeof pods)[number]) => {
     setSelection({
       namespace: pod.namespace,
       pod: pod.name,
@@ -105,7 +129,35 @@ export default function LogsPage() {
     if (isMobile) {
       setSelectorOpen(false);
     }
-  };
+  }, [isMobile]);
+
+  const moveSelection = useCallback((offset: number) => {
+    if (visiblePods.length === 0) return;
+    const fallbackIndex = selectedVisibleIndex >= 0 ? selectedVisibleIndex : 0;
+    const nextIndex = Math.min(visiblePods.length - 1, Math.max(0, fallbackIndex + offset));
+    const nextPod = visiblePods[nextIndex];
+    if (nextPod) {
+      handleSelectPod(nextPod);
+    }
+  }, [handleSelectPod, selectedVisibleIndex, visiblePods]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (isTypingTarget(event.target) || event.metaKey || event.ctrlKey || event.altKey) return;
+      if (event.key === "[") {
+        event.preventDefault();
+        moveSelection(-1);
+        return;
+      }
+      if (event.key === "]") {
+        event.preventDefault();
+        moveSelection(1);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [moveSelection]);
 
   if (!canAny(["cluster:read", "infra:read"])) {
     return (
@@ -140,6 +192,11 @@ export default function LogsPage() {
           <p className="mt-1 text-sm text-white">
             {selectedPod ? `${selectedPod.namespace}/${selectedPod.name}` : "No pod selected"}
           </p>
+          {selectedPod ? (
+            <p className="mt-1 text-xs text-slate-500">
+              {selectedVisibleIndex >= 0 ? `${selectedVisibleIndex + 1} of ${visiblePods.length} visible` : `${visiblePods.length} visible`} · press [ or ] to move between pods
+            </p>
+          ) : null}
           {!selectedPod && !isLoading ? <p className="mt-1 text-xs text-slate-500">Pick a pod from the selector to start streaming.</p> : null}
         </div>
         {selectedPod ? <StatusBadge status={(selectedPod.status.toLowerCase() as "running" | "pending" | "failed" | "unknown") ?? "unknown"} /> : null}

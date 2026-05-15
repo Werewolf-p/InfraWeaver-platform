@@ -3,10 +3,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
+  AlertTriangle,
   ArrowDown,
   Check,
   Copy,
   Download,
+  Info,
+  Pause,
+  Play,
   RefreshCw,
   Search,
   TerminalSquare,
@@ -56,6 +60,11 @@ function getLineLevel(line: string): LogLevel {
   return "ALL";
 }
 
+function isTypingTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  return target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
+}
+
 function CopyLineButton({ line }: { line: string }) {
   const [copied, setCopied] = useState(false);
 
@@ -100,10 +109,14 @@ export function LogStreamViewer({
   const [preferences, setPreferences] = useState<LogViewerPreferences>(() => loadViewerPreferences());
   const [refreshToken, setRefreshToken] = useState(0);
   const [pendingLines, setPendingLines] = useState(0);
+  const [isPaused, setIsPaused] = useState(false);
+  const [bufferedLines, setBufferedLines] = useState(0);
   const logsRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const atBottomRef = useRef(true);
   const autoScrollRef = useRef(true);
+  const pausedRef = useRef(false);
+  const pausedBufferRef = useRef<string[]>([]);
 
   const { filter, autoScroll, wrap, levelFilter } = preferences;
 
@@ -120,9 +133,21 @@ export function LogStreamViewer({
     autoScrollRef.current = autoScroll;
   }, [autoScroll]);
 
+  useEffect(() => {
+    pausedRef.current = isPaused;
+  }, [isPaused]);
+
   const closeStream = useCallback(() => {
     eventSourceRef.current?.close();
     eventSourceRef.current = null;
+  }, []);
+
+  const appendIncomingLines = useCallback((lines: string[]) => {
+    if (lines.length === 0) return;
+    setLogs((current) => [...current, ...lines].slice(-2000));
+    if (!autoScrollRef.current && !atBottomRef.current) {
+      setPendingLines((current) => current + lines.length);
+    }
   }, []);
 
   const fetchInitialLogs = useCallback(
@@ -132,6 +157,8 @@ export function LogStreamViewer({
         return;
       }
 
+      pausedBufferRef.current = [];
+      setBufferedLines(0);
       setIsLoading(true);
       setError("");
 
@@ -147,6 +174,7 @@ export function LogStreamViewer({
         if (!signal.aborted) {
           setLogs(text.split("\n").filter(Boolean));
           setPendingLines(0);
+          setBufferedLines(0);
         }
       } catch (fetchError) {
         if (!signal.aborted) {
@@ -190,10 +218,12 @@ export function LogStreamViewer({
         if (disposed) return;
         try {
           const line = JSON.parse(event.data) as string;
-          setLogs((current) => [...current, line].slice(-2000));
-          if (!autoScrollRef.current && !atBottomRef.current) {
-            setPendingLines((current) => current + 1);
+          if (pausedRef.current) {
+            pausedBufferRef.current = [...pausedBufferRef.current, line].slice(-500);
+            setBufferedLines(pausedBufferRef.current.length);
+            return;
           }
+          appendIncomingLines([line]);
         } catch {
           // ignore malformed lines
         }
@@ -217,7 +247,7 @@ export function LogStreamViewer({
       controller.abort();
       closeStream();
     };
-  }, [container, namespace, pod, refreshToken, fetchInitialLogs, closeStream]);
+  }, [appendIncomingLines, container, namespace, pod, refreshToken, fetchInitialLogs, closeStream]);
 
   useEffect(() => {
     const containerEl = logsRef.current;
@@ -246,13 +276,22 @@ export function LogStreamViewer({
     [logs]
   );
 
-  const latestErrorIndex = useMemo(() => {
+  const latestLevelIndexes = useMemo(() => {
+    const indexes = {
+      ERROR: -1,
+      WARN: -1,
+      INFO: -1,
+    };
+
     for (let index = filteredLogs.length - 1; index >= 0; index -= 1) {
-      if (getLineLevel(filteredLogs[index] ?? "") === "ERROR") {
-        return index;
-      }
+      const level = getLineLevel(filteredLogs[index] ?? "");
+      if (level === "ERROR" && indexes.ERROR < 0) indexes.ERROR = index;
+      if (level === "WARN" && indexes.WARN < 0) indexes.WARN = index;
+      if (level === "INFO" && indexes.INFO < 0) indexes.INFO = index;
+      if (indexes.ERROR >= 0 && indexes.WARN >= 0 && indexes.INFO >= 0) break;
     }
-    return -1;
+
+    return indexes;
   }, [filteredLogs]);
 
   const handleDownload = () => {
@@ -265,13 +304,17 @@ export function LogStreamViewer({
     URL.revokeObjectURL(url);
   };
 
-  const jumpToLatestError = () => {
-    if (latestErrorIndex < 0 || !logsRef.current) return;
-    const node = logsRef.current.querySelector(`[data-log-index=\"${latestErrorIndex}\"]`);
+  const jumpToIndex = useCallback((index: number) => {
+    if (index < 0 || !logsRef.current) return;
+    const node = logsRef.current.querySelector(`[data-log-index=\"${index}\"]`);
     if (node instanceof HTMLElement) {
       node.scrollIntoView({ behavior: "smooth", block: "center" });
     }
-  };
+  }, []);
+
+  const jumpToLatestLevel = useCallback((level: "ERROR" | "WARN" | "INFO") => {
+    jumpToIndex(latestLevelIndexes[level]);
+  }, [jumpToIndex, latestLevelIndexes]);
 
   const jumpToBottom = () => {
     if (!logsRef.current) return;
@@ -299,6 +342,48 @@ export function LogStreamViewer({
     await navigator.clipboard.writeText(text);
     toast.success("Copied!");
   };
+
+  const togglePause = useCallback(() => {
+    if (isPaused) {
+      const nextLines = pausedBufferRef.current;
+      pausedBufferRef.current = [];
+      setBufferedLines(0);
+      appendIncomingLines(nextLines);
+      setIsPaused(false);
+      return;
+    }
+
+    setIsPaused(true);
+  }, [appendIncomingLines, isPaused]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (isTypingTarget(event.target) || event.metaKey || event.ctrlKey || event.altKey || !event.shiftKey) return;
+      const key = event.key.toLowerCase();
+      if (key === "p") {
+        event.preventDefault();
+        togglePause();
+        return;
+      }
+      if (key === "e") {
+        event.preventDefault();
+        jumpToLatestLevel("ERROR");
+        return;
+      }
+      if (key === "w") {
+        event.preventDefault();
+        jumpToLatestLevel("WARN");
+        return;
+      }
+      if (key === "i") {
+        event.preventDefault();
+        jumpToLatestLevel("INFO");
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [jumpToLatestLevel, togglePause]);
 
   const handleContextCopy = async (event: React.MouseEvent<HTMLDivElement>) => {
     const selection = window.getSelection()?.toString().trim();
@@ -408,16 +493,63 @@ export function LogStreamViewer({
         </button>
 
         <button
-          onClick={jumpToLatestError}
-          disabled={latestErrorIndex < 0}
-          className="inline-flex items-center gap-2 rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-sm text-amber-200 transition hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-40"
-          title={latestErrorIndex >= 0 ? "Jump to most recent error" : "No error lines available"}
+          onClick={togglePause}
+          disabled={!container}
+          className={cn(
+            "inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition disabled:cursor-not-allowed disabled:opacity-40",
+            isPaused
+              ? "border-amber-500/30 bg-amber-500/10 text-amber-200 hover:bg-amber-500/20"
+              : "border-white/10 bg-slate-950 text-slate-300 hover:text-white"
+          )}
+          title={isPaused ? "Resume the live stream" : "Pause the live stream without disconnecting"}
         >
-          <AlertCircle className="h-4 w-4" />
-          Jump to error
+          {isPaused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
+          {isPaused ? `Resume${bufferedLines > 0 ? ` · ${bufferedLines}` : ""}` : "Pause"}
         </button>
 
-        <span className="text-xs text-slate-500">{filteredLogs.length} lines</span>
+        <div className="flex items-center gap-1 rounded-lg border border-white/10 bg-slate-950/70 p-1">
+          {[
+            {
+              level: "ERROR",
+              label: "Error",
+              icon: AlertCircle,
+              activeClass: "text-red-300 hover:bg-red-500/10",
+            },
+            {
+              level: "WARN",
+              label: "Warn",
+              icon: AlertTriangle,
+              activeClass: "text-amber-200 hover:bg-amber-500/10",
+            },
+            {
+              level: "INFO",
+              label: "Info",
+              icon: Info,
+              activeClass: "text-sky-300 hover:bg-sky-500/10",
+            },
+          ].map(({ level, label, icon: Icon, activeClass }) => {
+            const index = latestLevelIndexes[level as "ERROR" | "WARN" | "INFO"];
+            return (
+              <button
+                key={level}
+                onClick={() => jumpToLatestLevel(level as "ERROR" | "WARN" | "INFO")}
+                disabled={index < 0}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-40",
+                  index >= 0 ? activeClass : "text-slate-500"
+                )}
+                title={index >= 0 ? `Jump to latest ${label.toLowerCase()} line` : `No ${label.toLowerCase()} lines available`}
+              >
+                <Icon className="h-3.5 w-3.5" />
+                {label}
+              </button>
+            );
+          })}
+        </div>
+
+        <span className="text-xs text-slate-500">
+          {filteredLogs.length} lines{bufferedLines > 0 ? ` · ${bufferedLines} buffered` : ""}
+        </span>
 
         {logs.length > 0 && (
           <>
@@ -460,6 +592,15 @@ export function LogStreamViewer({
         >
           Jump to bottom · {pendingLines} new
         </button>
+      ) : null}
+
+      {isPaused ? (
+        <div className="flex items-center justify-between rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+          <span>Live stream paused{bufferedLines > 0 ? ` · ${bufferedLines} lines queued locally` : ""}</span>
+          <button onClick={togglePause} className="rounded-lg border border-amber-500/30 px-3 py-1 text-xs font-medium text-amber-100 transition hover:bg-amber-500/10">
+            Resume
+          </button>
+        </div>
       ) : null}
 
       <div
