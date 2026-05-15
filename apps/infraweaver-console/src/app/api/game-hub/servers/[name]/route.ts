@@ -396,6 +396,17 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ n
   }
 
   try {
+    // ── IaC write-back: remove manifest from git FIRST ────────────────────────
+    // CRITICAL: must run before deleting k8s resources. ArgoCD has selfHeal:true,
+    // so if we delete k8s resources first, ArgoCD immediately re-creates them from
+    // the git manifest. By deleting the manifest first, ArgoCD's desired state
+    // becomes "nothing here" → it won't re-create anything after k8s deletion.
+    try {
+      await deleteServerManifest(name);
+    } catch (gitErr) {
+      console.error("Git delete failed, continuing with k8s delete:", gitErr);
+    }
+
     const { appsApi, batchApi, coreApi } = makeGameHubClients();
     await appsApi.deleteNamespacedDeployment({ name, namespace: GAME_HUB_NAMESPACE }).catch(() => undefined);
     await coreApi.deleteNamespacedService({ name, namespace: GAME_HUB_NAMESPACE }).catch(() => undefined);
@@ -417,13 +428,6 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ n
     }
 
     await auditLog("game-hub:delete", session.user?.email ?? "unknown", `deleted ${name}`);
-
-    // ── IaC write-back: remove manifest from git ──────────────────────────────
-    try {
-      await deleteServerManifest(name);
-    } catch (gitErr) {
-      console.error("Git delete failed (k8s delete succeeded):", gitErr);
-    }
 
     return NextResponse.json({ deleted: true });
   } catch (error) {

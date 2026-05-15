@@ -11,8 +11,10 @@ prometheusOperator:
     enabled: false
 
 # ── Grafana ───────────────────────────────────────────────────────────────────
+# Disabled: standalone grafana (apps-grafana namespace, 69Mi) serves the UI instead.
+# The bundled Grafana was using 511Mi and is redundant.
 grafana:
-  enabled: true
+  enabled: false
   priorityClassName: platform-standard
   # Admin credentials from OpenBao via ExternalSecret in monitoring namespace
   # grafana-admin-secret provides both admin-user and admin-password keys
