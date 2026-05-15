@@ -22,6 +22,12 @@
 driver:
   kind: ebpf   # Use classic eBPF probe — modern_ebpf scap_init fails on Talos 6.18.x
 
+# Disable Falco DaemonSet on all nodes — no prebuilt eBPF driver available for
+# Talos kernel 6.18.24-talos. Pods crash with "unable to find a prebuilt driver".
+# Re-enable by removing this nodeSelector once driver issue is resolved.
+nodeSelector:
+  falco-enabled: "true"
+
 falco:
   # Minimal ruleset for homelab — add custom rules in falco.rules below
   rules_files:
