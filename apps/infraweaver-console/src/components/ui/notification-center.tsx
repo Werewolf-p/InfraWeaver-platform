@@ -1,5 +1,5 @@
 "use client";
-import { useState, useRef, useEffect } from "react";
+import { useMemo, useRef, useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Bell, X, CheckCheck, Info, AlertTriangle, XCircle, CheckCircle, Trash2 } from "lucide-react";
 import { useNotifications, type NotificationLevel } from "@/hooks/use-notifications";
@@ -30,6 +30,10 @@ export function NotificationCenter({ className }: NotificationCenterProps) {
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const { notifications, unreadCount, markAllRead, markRead, dismiss, clearAll } = useNotifications();
+  const counts = useMemo(() => ({
+    warning: notifications.filter((notification) => notification.level === "warning" && !notification.read).length,
+    error: notifications.filter((notification) => notification.level === "error" && !notification.read).length,
+  }), [notifications]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -58,7 +62,10 @@ export function NotificationCenter({ className }: NotificationCenterProps) {
               animate={{ scale: 1 }}
               exit={{ scale: 0 }}
               transition={{ type: "spring", stiffness: 500, damping: 20 }}
-              className="absolute -right-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white"
+              className={cn(
+                "absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[9px] font-bold text-white",
+                counts.error > 0 ? "bg-red-500" : "bg-amber-500"
+              )}
             >
               {unreadCount > 9 ? "9+" : unreadCount}
             </motion.span>
@@ -81,7 +88,7 @@ export function NotificationCenter({ className }: NotificationCenterProps) {
                 <h3 className="text-sm font-semibold text-white">Notifications</h3>
                 {unreadCount > 0 && (
                   <span className="rounded-full border border-indigo-500/30 bg-indigo-500/20 px-1.5 py-0.5 text-[10px] text-indigo-400">
-                    {unreadCount} new
+                    {unreadCount} open
                   </span>
                 )}
               </div>
@@ -104,12 +111,19 @@ export function NotificationCenter({ className }: NotificationCenterProps) {
               </div>
             </div>
 
+            {(counts.warning > 0 || counts.error > 0) && (
+              <div className="flex items-center gap-2 border-b border-white/5 px-4 py-2 text-[11px] text-slate-400">
+                {counts.error > 0 ? <span className="rounded-full border border-red-500/30 bg-red-500/10 px-2 py-0.5 text-red-300">{counts.error} errors</span> : null}
+                {counts.warning > 0 ? <span className="rounded-full border border-yellow-500/30 bg-yellow-500/10 px-2 py-0.5 text-yellow-300">{counts.warning} warnings</span> : null}
+              </div>
+            )}
+
             <div className="max-h-80 overflow-y-auto">
               {notifications.length === 0 ? (
                 <div className="py-10 text-center">
                   <Bell className="mx-auto mb-2 h-6 w-6 text-slate-700" />
                   <p className="text-sm text-slate-600">No notifications yet</p>
-                  <p className="mt-1 text-[11px] text-slate-700">Alerts, sync results, and system messages will appear here.</p>
+                  <p className="mt-1 text-[11px] text-slate-700">Cluster warnings and operator notices will appear here.</p>
                 </div>
               ) : (
                 <div className="divide-y divide-white/5">

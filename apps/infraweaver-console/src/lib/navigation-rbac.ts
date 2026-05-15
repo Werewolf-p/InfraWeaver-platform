@@ -19,6 +19,7 @@ const NAV_REQUIREMENTS: Record<string, NavRequirement> = {
   "/node-top": { any: ["infra:read"] },
   "/storage": { any: ["infra:read"] },
   "/network": { any: ["infra:read"] },
+  "/ingress": { any: ["infra:read"] },
   "/certificates": { any: ["security:read", "infra:read"] },
   "/network-policies": { any: ["infra:read"] },
   "/secret-expiry": { any: ["security:read", "infra:read"] },

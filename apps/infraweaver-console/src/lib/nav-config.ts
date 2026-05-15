@@ -3,7 +3,7 @@ import {
   Network, Activity, Terminal, History, Cog,
   Package, FileText, ShieldCheck, Server,
   Sparkles, Home, UserCircle, BarChart2, Trash2, GitBranch,
-  DollarSign, Globe, BellOff, Shield, AlertTriangle,
+  DollarSign, Globe, BellOff, Shield, AlertTriangle, HeartPulse,
   Calendar, TrendingUp, Gamepad2, Search, LayoutGrid, TestTube2, Puzzle, BookOpen,
 } from "lucide-react";
 
@@ -72,6 +72,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/storage", icon: HardDrive, label: "Storage", shortcut: "G S", description: "Persistent volumes and storage classes", pinnable: true },
       { href: "/network", icon: Network, label: "Network", shortcut: "G N", description: "Services, ingress, and network topology", pinnable: true },
+      { href: "/ingress", icon: Globe, label: "Ingress Routes", description: "Traefik hosts, auth, and TLS audit" },
       { href: "/dns", icon: Globe, label: "DNS", shortcut: "G Z", description: "Manage internal and public Cloudflare records", pinnable: true },
       { href: "/certificates", icon: ShieldCheck, label: "Certificates", description: "TLS certificate status and expiry" },
       { href: "/network-policies", icon: Network, label: "Net Policies", description: "Kubernetes NetworkPolicy rules" },
@@ -100,6 +101,7 @@ export const NAV_GROUPS: NavGroup[] = [
     icon: Activity,
     defaultOpen: false,
     items: [
+      { href: "/monitoring", icon: HeartPulse, label: "Monitoring", description: "Unified observability dashboard", pinnable: true },
       { href: "/health", icon: Activity, label: "Health", shortcut: "G H", description: "Node and cluster health checks", pinnable: true },
       { href: "/security", icon: ShieldCheck, label: "Security", shortcut: "G Y", description: "Security posture and vulnerability audit" },
       { href: "/uptime", icon: TrendingUp, label: "Uptime History", description: "Historical uptime for all services" },
@@ -208,6 +210,7 @@ export const MOBILE_DRAWER_NAV: NavItem[] = [
   { href: "/home", icon: Home, label: "Home Portal" },
   { href: "/", icon: LayoutDashboard, label: "Dashboard" },
   { href: "/apps", icon: LayoutGrid, label: "Apps" },
+  { href: "/monitoring", icon: HeartPulse, label: "Monitoring" },
   { href: "/health", icon: Activity, label: "Health" },
   { href: "/network", icon: Network, label: "Network" },
   { href: "/dns", icon: Globe, label: "DNS" },

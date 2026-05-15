@@ -16,6 +16,7 @@ export const ROUTE_LABELS: Record<string, string> = {
   security: "Security",
   storage: "Storage",
   network: "Network",
+  ingress: "Ingress",
   registry: "Registry",
   certificates: "Certificates",
   gameservers: "Port Routing",

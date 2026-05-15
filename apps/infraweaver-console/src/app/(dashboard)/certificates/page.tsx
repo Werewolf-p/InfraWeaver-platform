@@ -1,221 +1,212 @@
 "use client";
+
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { motion } from "framer-motion";
-import { ShieldCheck, RefreshCw, AlertTriangle, Clock, CheckCircle2, XCircle } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { RefreshCw, Search, ShieldCheck } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
+import { cn } from "@/lib/utils";
 
 interface Certificate {
+  id: string;
   name: string;
   namespace: string;
-  domain?: string;
-  expiresAt?: string;
-  daysLeft?: number | null;
+  secretName: string | null;
+  commonName: string | null;
+  dnsNames: string[];
+  issuerRef: string | null;
+  ready: boolean;
   valid: boolean;
+  status: string;
+  reason: string | null;
+  notAfter: string | null;
+  renewalTime: string | null;
+  daysLeft: number | null;
+  revision: number | null;
+  source: "cert-manager" | "tls-secret";
 }
 
-function ExpiryBadge({ days }: { days: number | null | undefined }) {
-  if (days == null) return <span className="text-xs px-2 py-0.5 rounded-full bg-slate-500/15 border border-slate-500/30 text-slate-400">Unknown</span>;
-  if (days < 0) return <span className="text-xs px-2 py-0.5 rounded-full bg-red-500/20 border border-red-500/40 text-red-300 font-medium">Expired</span>;
-  if (days < 15) return <span className="text-xs px-2 py-0.5 rounded-full bg-red-500/15 border border-red-500/30 text-red-400 font-semibold">{days}d left</span>;
-  if (days < 30) return <span className="text-xs px-2 py-0.5 rounded-full bg-orange-500/15 border border-orange-500/30 text-orange-400 font-medium">{days}d left</span>;
-  if (days < 60) return <span className="text-xs px-2 py-0.5 rounded-full bg-yellow-500/15 border border-yellow-500/30 text-yellow-400 font-medium">{days}d left</span>;
-  return <span className="text-xs px-2 py-0.5 rounded-full bg-green-500/15 border border-green-500/30 text-green-400">{days}d left</span>;
+interface CertificateResponse {
+  certs: Certificate[];
+  live: boolean;
+  summary: { total: number; ready: number; expiringSoon: number; renewalDue: number };
 }
 
-function ExpiryBar({ days }: { days: number | null | undefined }) {
-  if (days == null) return null;
-  const max = 365;
-  const clamped = Math.max(0, Math.min(days, max));
-  const pct = (clamped / max) * 100;
-  const color = days < 15 ? "bg-red-500" : days < 30 ? "bg-orange-500" : days < 60 ? "bg-yellow-500" : "bg-green-500";
-  return (
-    <div className="w-full h-1.5 rounded-full bg-white/10 overflow-hidden">
-      <div className={cn("h-full rounded-full transition-all", color)} style={{ width: `${pct}%` }} />
-    </div>
-  );
+function formatDateTime(value: string | null) {
+  if (!value) return "Unknown";
+  return new Date(value).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
-function SkeletonRow() {
-  return (
-    <div className="grid grid-cols-[auto_1fr_1fr_auto_auto] gap-4 items-center px-4 py-3.5 border-b border-white/5">
-      <div className="w-4 h-4 rounded-full bg-white/10 animate-pulse" />
-      <div className="space-y-1.5">
-        <div className="w-32 h-3.5 rounded bg-white/10 animate-pulse" />
-        <div className="w-20 h-3 rounded bg-white/5 animate-pulse" />
-      </div>
-      <div className="w-40 h-3.5 rounded bg-white/10 animate-pulse" />
-      <div className="w-20 h-5 rounded-full bg-white/10 animate-pulse" />
-      <div className="w-24 h-1.5 rounded-full bg-white/10 animate-pulse" />
-    </div>
-  );
+function statusClass(cert: Certificate) {
+  if (!cert.ready) return "border-red-500/30 bg-red-500/10 text-red-200";
+  if (cert.daysLeft !== null && cert.daysLeft <= 14) return "border-red-500/30 bg-red-500/10 text-red-200";
+  if (cert.daysLeft !== null && cert.daysLeft <= 30) return "border-yellow-500/30 bg-yellow-500/10 text-yellow-100";
+  return "border-emerald-500/30 bg-emerald-500/10 text-emerald-200";
 }
 
 export default function CertificatesPage() {
-  const { data, isLoading, dataUpdatedAt, refetch, isFetching } = useQuery<Certificate[]>({
+  const [search, setSearch] = useState("");
+  const [namespaceFilter, setNamespaceFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "expiring" | "renewal" | "not-ready">("all");
+  const [renewalCutoff] = useState(() => Date.now() + 7 * 86_400_000);
+
+  const { data, isLoading, isFetching, refetch } = useQuery<CertificateResponse>({
     queryKey: ["certificates"],
     queryFn: async () => {
-      const res = await fetch("/api/security/certs");
-      if (!res.ok) throw new Error("Failed to fetch certificates");
-      return res.json();
+      const response = await fetch("/api/certificates", { cache: "no-store" });
+      if (!response.ok) throw new Error("Failed to fetch certificates");
+      return response.json();
     },
-    refetchInterval: 120000,
-    staleTime: 60000,
+    refetchInterval: 120_000,
+    staleTime: 60_000,
   });
 
-  const certs = [...(data ?? [])].sort((a, b) => {
-    const da = a.daysLeft ?? 9999;
-    const db = b.daysLeft ?? 9999;
-    return da - db;
-  });
-
-  const lastUpdated = dataUpdatedAt
-    ? new Date(dataUpdatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })
-    : null;
-
-  const expiringSoon = certs.filter(c => c.daysLeft != null && c.daysLeft < 30).length;
-  const critical = certs.filter(c => c.daysLeft != null && c.daysLeft < 15).length;
-  const healthy = certs.filter(c => c.valid && (c.daysLeft == null || c.daysLeft >= 60)).length;
+  const certs = useMemo(() => data?.certs ?? [], [data?.certs]);
+  const namespaces = useMemo(() => Array.from(new Set(certs.map((cert) => cert.namespace))).sort(), [certs]);
+  const filtered = useMemo(() => certs.filter((cert) => {
+    const query = search.trim().toLowerCase();
+    const hostnames = [cert.commonName, ...cert.dnsNames].filter(Boolean).join(" ").toLowerCase();
+    const matchesSearch = !query
+      || cert.name.toLowerCase().includes(query)
+      || cert.namespace.toLowerCase().includes(query)
+      || hostnames.includes(query)
+      || (cert.secretName ?? "").toLowerCase().includes(query);
+    const matchesNamespace = namespaceFilter === "all" || cert.namespace === namespaceFilter;
+    const matchesStatus = statusFilter === "all"
+      || (statusFilter === "expiring" && cert.daysLeft !== null && cert.daysLeft <= 30)
+      || (statusFilter === "renewal" && cert.renewalTime !== null && new Date(cert.renewalTime).getTime() <= renewalCutoff)
+      || (statusFilter === "not-ready" && !cert.ready);
+    return matchesSearch && matchesNamespace && matchesStatus;
+  }), [certs, namespaceFilter, renewalCutoff, search, statusFilter]);
 
   return (
-    <div className="space-y-6 max-w-5xl mx-auto">
-      <PageHeader icon={ShieldCheck} title="Certificates" subtitle="TLS certificate status and expiry" />
-      {/* Header */}
-      <motion.div
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
-      >
-        <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-            <ShieldCheck className="w-6 h-6 text-indigo-400" />
-            Certificates
-          </h1>
-          <p className="text-sm text-slate-400 mt-0.5">TLS certificate expiry · cert-manager managed</p>
-        </div>
-        <div className="flex items-center gap-3">
-          {lastUpdated && (
-            <span className="text-xs text-slate-500 flex items-center gap-1.5">
-              <Clock className="w-3 h-3" /> {lastUpdated}
-            </span>
-          )}
+    <div className="space-y-6">
+      <PageHeader
+        icon={ShieldCheck}
+        title="Certificates"
+        subtitle="cert-manager certificate inventory with expiry, issuer, and renewal visibility"
+        badge={data?.live === false ? "mock" : "live"}
+        actions={
           <button
-            onClick={() => refetch()}
-            className="p-2 rounded-lg border border-white/10 text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+            onClick={() => void refetch()}
+            className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-300 transition hover:text-white"
           >
-            <RefreshCw className={cn("w-4 h-4", isFetching && "animate-spin")} />
+            <RefreshCw className={cn("h-4 w-4", isFetching && "animate-spin")} />
+            Refresh
           </button>
-        </div>
-      </motion.div>
+        }
+      />
 
-      {/* Summary cards */}
-      <motion.div
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.05 }}
-        className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
-      >
-        <div className="bg-white/5 border border-white/10 rounded-xl p-4 text-center">
-          <div className="text-3xl font-bold text-white tabular-nums">{certs.length}</div>
-          <p className="text-xs text-slate-500 uppercase tracking-wider mt-1">Total Certs</p>
+      {data?.live === false ? (
+        <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+          cert-manager data could not be reached, so the console is showing safe fallback certificate data.
         </div>
-        <div className={cn(
-          "border rounded-xl p-4 text-center",
-          critical > 0 ? "bg-red-500/10 border-red-500/30" : expiringSoon > 0 ? "bg-yellow-500/10 border-yellow-500/30" : "bg-white/5 border-white/10"
-        )}>
-          <div className={cn(
-            "text-3xl font-bold tabular-nums",
-            critical > 0 ? "text-red-400" : expiringSoon > 0 ? "text-yellow-400" : "text-slate-400"
-          )}>
-            {expiringSoon}
+      ) : null}
+
+      <div className="grid gap-4 md:grid-cols-4">
+        <div className="rounded-2xl border border-white/10 bg-slate-900/70 p-4">
+          <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Certificates</p>
+          <p className="mt-2 text-3xl font-semibold text-white">{data?.summary.total ?? 0}</p>
+        </div>
+        <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4">
+          <p className="text-xs uppercase tracking-[0.2em] text-emerald-100/80">Ready</p>
+          <p className="mt-2 text-3xl font-semibold text-emerald-300">{data?.summary.ready ?? 0}</p>
+        </div>
+        <div className="rounded-2xl border border-yellow-500/20 bg-yellow-500/10 p-4">
+          <p className="text-xs uppercase tracking-[0.2em] text-yellow-100/80">Expiring ≤30d</p>
+          <p className="mt-2 text-3xl font-semibold text-yellow-200">{data?.summary.expiringSoon ?? 0}</p>
+        </div>
+        <div className="rounded-2xl border border-indigo-500/20 bg-indigo-500/10 p-4">
+          <p className="text-xs uppercase tracking-[0.2em] text-indigo-100/80">Renewal due</p>
+          <p className="mt-2 text-3xl font-semibold text-indigo-200">{data?.summary.renewalDue ?? 0}</p>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-white/10 bg-slate-900/70 p-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+          <div className="relative flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search by host, namespace, certificate, or secret…"
+              className="w-full rounded-xl border border-white/10 bg-slate-950 py-2.5 pl-9 pr-3 text-sm text-white outline-none focus:border-indigo-500/50"
+            />
           </div>
-          <p className="text-xs text-slate-500 uppercase tracking-wider mt-1">Expiring &lt;30d</p>
+          <select
+            value={namespaceFilter}
+            onChange={(event) => setNamespaceFilter(event.target.value)}
+            className="rounded-xl border border-white/10 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none"
+          >
+            <option value="all">All namespaces</option>
+            {namespaces.map((namespace) => <option key={namespace} value={namespace}>{namespace}</option>)}
+          </select>
+          <select
+            value={statusFilter}
+            onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}
+            className="rounded-xl border border-white/10 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none"
+          >
+            <option value="all">All states</option>
+            <option value="expiring">Expiring soon</option>
+            <option value="renewal">Renewal due</option>
+            <option value="not-ready">Not ready</option>
+          </select>
         </div>
-        <div className="bg-green-500/10 border border-green-500/20 rounded-xl p-4 text-center">
-          <div className="text-3xl font-bold text-green-400 tabular-nums">{healthy}</div>
-          <p className="text-xs text-slate-500 uppercase tracking-wider mt-1">Healthy</p>
+      </div>
+
+      {isLoading ? (
+        <div className="grid gap-4 xl:grid-cols-2">{Array.from({ length: 4 }).map((_, index) => <div key={index} className="h-56 rounded-2xl bg-white/5 animate-pulse" />)}</div>
+      ) : filtered.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-white/10 bg-slate-950/40 py-16 text-center text-sm text-slate-500">
+          No certificates matched the current filters.
         </div>
-      </motion.div>
+      ) : (
+        <div className="grid gap-4 xl:grid-cols-2">
+          {filtered.map((cert) => (
+            <div key={cert.id} className="rounded-2xl border border-white/10 bg-slate-900/70 p-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="text-lg font-semibold text-white">{cert.name}</h2>
+                    <span className={cn("rounded-full border px-2.5 py-1 text-xs", statusClass(cert))}>{cert.status}</span>
+                  </div>
+                  <p className="mt-1 text-sm text-slate-400">{cert.namespace} · {cert.source === "cert-manager" ? "cert-manager" : "TLS secret scan"}</p>
+                </div>
+                <div className="text-right text-sm text-slate-400">
+                  <p className="font-medium text-white">{cert.daysLeft === null ? "Unknown" : `${cert.daysLeft} days`}</p>
+                  <p>Expires {formatDateTime(cert.notAfter)}</p>
+                </div>
+              </div>
 
-      {/* Certs table */}
-      <motion.div
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.1 }}
-        className="bg-white/5 border border-white/10 rounded-xl overflow-hidden"
-      >
-        <div className="grid grid-cols-[auto_1fr_1fr_auto_120px] gap-4 px-4 py-2.5 border-b border-white/5 bg-white/[0.02]">
-          <div />
-          <span className="text-xs text-slate-500 font-medium uppercase tracking-wide">Certificate</span>
-          <span className="text-xs text-slate-500 font-medium uppercase tracking-wide">Domain / Namespace</span>
-          <span className="text-xs text-slate-500 font-medium uppercase tracking-wide">Status</span>
-          <span className="text-xs text-slate-500 font-medium uppercase tracking-wide">Expiry</span>
+              <div className="mt-4 flex flex-wrap gap-2">
+                {(cert.dnsNames.length > 0 ? cert.dnsNames : [cert.commonName]).filter(Boolean).map((host) => (
+                  <span key={host} className="rounded-full border border-cyan-500/20 bg-cyan-500/10 px-2.5 py-1 text-xs text-cyan-200">{host}</span>
+                ))}
+              </div>
+
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <div className="rounded-xl border border-white/10 bg-slate-950/60 p-3">
+                  <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Issuer</p>
+                  <p className="mt-2 text-sm text-white">{cert.issuerRef ?? "Unknown"}</p>
+                </div>
+                <div className="rounded-xl border border-white/10 bg-slate-950/60 p-3">
+                  <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Secret</p>
+                  <p className="mt-2 text-sm text-white">{cert.secretName ?? "Unknown"}</p>
+                </div>
+                <div className="rounded-xl border border-white/10 bg-slate-950/60 p-3">
+                  <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Renewal time</p>
+                  <p className="mt-2 text-sm text-white">{formatDateTime(cert.renewalTime)}</p>
+                </div>
+                <div className="rounded-xl border border-white/10 bg-slate-950/60 p-3">
+                  <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Revision</p>
+                  <p className="mt-2 text-sm text-white">{cert.revision ?? "—"}</p>
+                </div>
+              </div>
+
+              {cert.reason ? <p className="mt-4 text-sm text-red-200">{cert.reason}</p> : null}
+            </div>
+          ))}
         </div>
-
-        {isLoading ? (
-          [...Array(5)].map((_, i) => <SkeletonRow key={i} />)
-        ) : certs.length === 0 ? (
-          <div className="py-16 text-center">
-            <AlertTriangle className="w-10 h-10 text-slate-600 mx-auto mb-3" />
-            <p className="text-slate-500 text-sm">No certificates found</p>
-            <p className="text-xs text-slate-600 mt-1">Requires cert-manager and cluster access</p>
-          </div>
-        ) : (
-          certs.map((cert, idx) => (
-            <motion.div
-              key={`${cert.namespace}/${cert.name}`}
-              initial={{ opacity: 0, y: 4 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: idx * 0.03 }}
-              className={cn(
-                "grid grid-cols-[auto_1fr_1fr_auto_120px] gap-4 items-center px-4 py-3.5 border-b border-white/5 last:border-0 hover:bg-white/[0.02] transition-colors",
-                cert.daysLeft != null && cert.daysLeft < 15 && "bg-red-500/5"
-              )}
-            >
-              {/* Status icon */}
-              <div>
-                {cert.valid ? (
-                  <CheckCircle2 className="w-4 h-4 text-green-400" />
-                ) : (
-                  <XCircle className="w-4 h-4 text-red-400" />
-                )}
-              </div>
-
-              {/* Name */}
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-white truncate">{cert.name}</p>
-                <p className="text-xs text-slate-500">{cert.namespace}</p>
-              </div>
-
-              {/* Domain */}
-              <div className="min-w-0">
-                <p className="text-sm text-slate-300 font-mono truncate">
-                  {cert.domain ?? <span className="text-slate-600">—</span>}
-                </p>
-                {cert.expiresAt && (
-                  <p className="text-xs text-slate-500">
-                    Expires {new Date(cert.expiresAt).toLocaleDateString([], { year: "numeric", month: "short", day: "numeric" })}
-                  </p>
-                )}
-              </div>
-
-              {/* Status badge */}
-              <div>
-                <ExpiryBadge days={cert.daysLeft} />
-              </div>
-
-              {/* Expiry bar */}
-              <div className="space-y-1">
-                <ExpiryBar days={cert.daysLeft} />
-              </div>
-            </motion.div>
-          ))
-        )}
-      </motion.div>
-
-      <p className="text-xs text-slate-600 text-center">
-        Certificates listed from <span className="font-mono">kubernetes.io/tls</span> secrets · sorted by soonest expiry
-      </p>
+      )}
     </div>
   );
 }
