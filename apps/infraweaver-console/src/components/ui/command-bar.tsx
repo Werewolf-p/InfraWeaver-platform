@@ -31,7 +31,9 @@ export function CommandBar({ primary, actions, search, filter, className }: Comm
         const Icon = action.icon;
         const variantCls = action.variant === "danger"
           ? "border-red-500/30 text-red-400 hover:bg-red-500/10"
-          : "border-[#333] text-[#f2f2f2] hover:bg-[#2a2a2a]";
+          : action.variant === "primary"
+            ? "border-indigo-500/30 bg-indigo-500/10 text-indigo-300 hover:bg-indigo-500/20"
+            : "border-[#333] text-[#f2f2f2] hover:bg-[#2a2a2a]";
         return (
           <button
             key={i}

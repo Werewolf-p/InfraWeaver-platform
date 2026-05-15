@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { AlertCircle, FileText, PanelLeftClose, PanelLeftOpen, Rows3 } from "lucide-react";
 import { Group as PanelGroup, Panel, Separator as PanelResizeHandle } from "react-resizable-panels";
 import { LogStreamViewer } from "@/components/logs/log-stream-viewer";
@@ -36,20 +37,76 @@ function loadStoredSelection(): StoredSelection {
   }
 }
 
+function podPriority(status: string) {
+  const value = status.toLowerCase();
+  if (value.includes("crashloop") || value.includes("backoff") || value.includes("failed") || value.includes("error")) return 0;
+  if (value.includes("pending") || value.includes("containercreating")) return 1;
+  if (value.includes("running")) return 2;
+  return 3;
+}
+
+function isTypingTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  return target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
+}
+
 export default function LogsPage() {
   const { canAny } = useRBAC();
   const { data: pods = [], isLoading } = usePods();
+  const searchParams = useSearchParams();
   const isMobile = useMediaQuery("(max-width: 1024px)");
   const [search, setSearch] = useState("");
   const [selectorOpen, setSelectorOpen] = useState(false);
   const [leftCollapsed, setLeftCollapsed] = useState(false);
-  const [selection, setSelection] = useState<StoredSelection>(() => loadStoredSelection());
 
-  const selectedPod = useMemo(
-    () => pods.find((pod) => pod.namespace === selection.namespace && pod.name === selection.pod) ?? null,
-    [pods, selection.namespace, selection.pod]
+  const querySelection = useMemo(() => ({
+    namespace: searchParams.get("namespace") ?? "",
+    pod: searchParams.get("pod") ?? "",
+    container: searchParams.get("container") ?? "",
+  }), [searchParams]);
+  const [selection, setSelection] = useState<StoredSelection>(() => (
+    querySelection.namespace && querySelection.pod ? querySelection : loadStoredSelection()
+  ));
+
+  const selectedPod = useMemo(() => {
+    const currentSelection = pods.find((pod) => pod.namespace === selection.namespace && pod.name === selection.pod);
+    if (currentSelection) return currentSelection;
+
+    const queryPod = querySelection.namespace && querySelection.pod
+      ? pods.find((pod) => pod.namespace === querySelection.namespace && pod.name === querySelection.pod)
+      : null;
+    if (queryPod) return queryPod;
+
+    return [...pods].sort((left, right) => {
+      const priority = podPriority(left.status) - podPriority(right.status);
+      if (priority !== 0) return priority;
+      return new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime();
+    })[0] ?? null;
+  }, [pods, querySelection, selection.namespace, selection.pod]);
+  const activeContainer = selectedPod?.containers.includes(selection.container)
+    ? selection.container
+    : querySelection.container && selectedPod?.containers.includes(querySelection.container)
+      ? querySelection.container
+      : (selectedPod?.containers[0] ?? "");
+  const visiblePods = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return [...pods]
+      .filter((pod) => (
+        !query ||
+        pod.name.toLowerCase().includes(query) ||
+        pod.namespace.toLowerCase().includes(query) ||
+        pod.status.toLowerCase().includes(query)
+      ))
+      .sort((left, right) => {
+        const namespaceOrder = left.namespace.localeCompare(right.namespace);
+        if (namespaceOrder !== 0) return namespaceOrder;
+        return left.name.localeCompare(right.name);
+      });
+  }, [pods, search]);
+  const selectedVisibleIndex = useMemo(
+    () => (selectedPod ? visiblePods.findIndex((pod) => pod.namespace === selectedPod.namespace && pod.name === selectedPod.name) : -1),
+    [selectedPod, visiblePods],
   );
-  const activeContainer = selectedPod?.containers.includes(selection.container) ? selection.container : (selectedPod?.containers[0] ?? "");
 
   useEffect(() => {
     if (!selectedPod) return;
@@ -63,7 +120,7 @@ export default function LogsPage() {
     );
   }, [activeContainer, selectedPod]);
 
-  const handleSelectPod = (pod: (typeof pods)[number]) => {
+  const handleSelectPod = useCallback((pod: (typeof pods)[number]) => {
     setSelection({
       namespace: pod.namespace,
       pod: pod.name,
@@ -72,7 +129,35 @@ export default function LogsPage() {
     if (isMobile) {
       setSelectorOpen(false);
     }
-  };
+  }, [isMobile]);
+
+  const moveSelection = useCallback((offset: number) => {
+    if (visiblePods.length === 0) return;
+    const fallbackIndex = selectedVisibleIndex >= 0 ? selectedVisibleIndex : 0;
+    const nextIndex = Math.min(visiblePods.length - 1, Math.max(0, fallbackIndex + offset));
+    const nextPod = visiblePods[nextIndex];
+    if (nextPod) {
+      handleSelectPod(nextPod);
+    }
+  }, [handleSelectPod, selectedVisibleIndex, visiblePods]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (isTypingTarget(event.target) || event.metaKey || event.ctrlKey || event.altKey) return;
+      if (event.key === "[") {
+        event.preventDefault();
+        moveSelection(-1);
+        return;
+      }
+      if (event.key === "]") {
+        event.preventDefault();
+        moveSelection(1);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [moveSelection]);
 
   if (!canAny(["cluster:read", "infra:read"])) {
     return (
@@ -89,7 +174,7 @@ export default function LogsPage() {
       <PageHeader
         icon={FileText}
         title="Pod Logs"
-        subtitle="Split-view pod selector with live log streaming"
+        subtitle="Split-view pod selector with remembered filters and smart defaults"
         actions={
           <button
             onClick={() => (isMobile ? setSelectorOpen(true) : setLeftCollapsed((current) => !current))}
@@ -107,6 +192,12 @@ export default function LogsPage() {
           <p className="mt-1 text-sm text-white">
             {selectedPod ? `${selectedPod.namespace}/${selectedPod.name}` : "No pod selected"}
           </p>
+          {selectedPod ? (
+            <p className="mt-1 text-xs text-slate-500">
+              {selectedVisibleIndex >= 0 ? `${selectedVisibleIndex + 1} of ${visiblePods.length} visible` : `${visiblePods.length} visible`} · press [ or ] to move between pods
+            </p>
+          ) : null}
+          {!selectedPod && !isLoading ? <p className="mt-1 text-xs text-slate-500">Pick a pod from the selector to start streaming.</p> : null}
         </div>
         {selectedPod ? <StatusBadge status={(selectedPod.status.toLowerCase() as "running" | "pending" | "failed" | "unknown") ?? "unknown"} /> : null}
       </div>
@@ -126,10 +217,7 @@ export default function LogsPage() {
           <PanelGroup orientation="horizontal">
             {!leftCollapsed && (
               <>
-                <Panel
-                  defaultSize={24}
-                  minSize={18}
-                >
+                <Panel defaultSize={24} minSize={18}>
                   <PodSelectorTree
                     pods={pods}
                     search={search}

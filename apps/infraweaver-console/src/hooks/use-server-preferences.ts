@@ -10,6 +10,7 @@ import {
   mergeDashboardLayout,
   mergeUserPreferences,
   normalizePinnedApps,
+  normalizeRecentSearches,
   normalizeRecentlyVisited,
   normalizeUserPreferences,
   isThemePreference,
@@ -59,6 +60,9 @@ export function loadLocalUserPreferences(): UserPreferencesPayload {
     recentlyVisited: normalizeRecentlyVisited(
       readStoredJson(USER_PREFERENCES_STORAGE_KEYS.recentlyVisited) ?? DEFAULT_USER_PREFERENCES.recentlyVisited
     ),
+    recentSearches: normalizeRecentSearches(
+      readStoredJson(USER_PREFERENCES_STORAGE_KEYS.recentSearches) ?? DEFAULT_USER_PREFERENCES.recentSearches
+    ),
   });
 }
 
@@ -76,6 +80,10 @@ export function persistLocalUserPreferences(preferences: UserPreferencesPayload)
     localStorage.setItem(
       USER_PREFERENCES_STORAGE_KEYS.recentlyVisited,
       JSON.stringify(preferences.recentlyVisited)
+    );
+    localStorage.setItem(
+      USER_PREFERENCES_STORAGE_KEYS.recentSearches,
+      JSON.stringify(preferences.recentSearches)
     );
     localStorage.setItem(USER_PREFERENCES_STORAGE_KEYS.theme, preferences.theme);
     localStorage.setItem(USER_PREFERENCES_STORAGE_KEYS.legacyTheme, preferences.theme);
