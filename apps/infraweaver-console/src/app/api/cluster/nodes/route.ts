@@ -49,9 +49,9 @@ export async function GET() {
   } catch {
     return NextResponse.json({
       nodes: [
-        { name: "talos-prod-cp1", status: "Ready", roles: ["control-plane"], version: "v1.35.4", ip: "10.10.0.90", cpu: "8", memory: "13257984Ki", unschedulable: false, age: null },
-        { name: "talos-prod-cp2", status: "Ready", roles: ["control-plane"], version: "v1.35.4", ip: "10.10.0.91", cpu: "8", memory: "13257988Ki", unschedulable: false, age: null },
-        { name: "talos-prod-cp3", status: "Ready", roles: ["control-plane"], version: "v1.35.4", ip: "10.10.0.92", cpu: "8", memory: "13257988Ki", unschedulable: false, age: null },
+        { name: "talos-prod-cp1", status: "Ready", roles: ["control-plane"], version: "v1.35.4", ip: "10.10.0.90", cpu: "8", memory: "14306560Ki", unschedulable: false, age: null },
+        { name: "talos-prod-cp2", status: "Ready", roles: ["control-plane"], version: "v1.35.4", ip: "10.10.0.91", cpu: "8", memory: "14306560Ki", unschedulable: false, age: null },
+        { name: "talos-prod-cp3", status: "Ready", roles: ["control-plane"], version: "v1.35.4", ip: "10.10.0.92", cpu: "8", memory: "14306560Ki", unschedulable: false, age: null },
       ]
     });
   }

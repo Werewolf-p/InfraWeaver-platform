@@ -55,7 +55,7 @@ export async function GET() {
       else if (memUsage.endsWith("Mi")) memKi = parseInt(memUsage) * 1024;
       else if (memUsage.endsWith("Gi")) memKi = parseInt(memUsage) * 1024 * 1024;
       else memKi = parseInt(memUsage) / 1024;
-      const cap = nodeCapMap[name] ?? { cpuCores: 8, memoryKi: 13_257_984, pods: 110 };
+      const cap = nodeCapMap[name] ?? { cpuCores: 8, memoryKi: 14_306_560, pods: 110 };
       const cpuPct = cap.cpuCores > 0 ? Math.round((cpuMillicores / (cap.cpuCores * 1000)) * 100) : 0;
       const memPct = cap.memoryKi > 0 ? Math.round((memKi / cap.memoryKi) * 100) : 0;
       return { name, cpuPct: Math.min(cpuPct, 100), memPct: Math.min(memPct, 100), cpuMillicores: Math.round(cpuMillicores), memKi };
