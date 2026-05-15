@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { GET as getGameHubServers } from "@/app/api/game-hub/servers/route";
 import { createARecord, deleteARecord } from "@/lib/cloudflare";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { safeError } from "@/lib/utils";
@@ -59,6 +60,10 @@ export async function GET() {
         serviceStatus,
       };
     }));
+
+    if (servers.length === 0) {
+      return getGameHubServers();
+    }
 
     return NextResponse.json(servers);
   } catch (e) {

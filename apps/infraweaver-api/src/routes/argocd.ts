@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { getCluster } from '../lib/cluster-registry.js';
+import { getCustomApiForCluster } from '../lib/k8s-client.js';
 import { hasPermission } from '../lib/rbac.js';
 import type { AppBindings } from '../types/index.js';
 
@@ -68,32 +69,51 @@ async function getArgoConfig(clusterId: string): Promise<{ server: string; token
   };
 }
 
+async function listApplicationCrds(clusterId: string): Promise<unknown[] | null> {
+  try {
+    const customApi = await getCustomApiForCluster(clusterId);
+    const response = await customApi.listNamespacedCustomObject({
+      group: 'argoproj.io',
+      version: 'v1alpha1',
+      namespace: 'argocd',
+      plural: 'applications',
+    }) as { items?: unknown[] };
+    return Array.isArray(response.items) ? response.items : [];
+  } catch {
+    return null;
+  }
+}
+
 async function fetchApps(clusterId: string): Promise<unknown[]> {
   const { server, token } = await getArgoConfig(clusterId);
-  if (!server || !token) {
-    return getCachedOrMock(clusterId);
-  }
+  if (server && token) {
+    try {
+      const response = await fetch(`${server}/api/v1/applications?limit=500`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        signal: AbortSignal.timeout(5000),
+      });
 
-  try {
-    const response = await fetch(`${server}/api/v1/applications?limit=500`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      signal: AbortSignal.timeout(5000),
-    });
-
-    if (!response.ok) {
-      return getCachedOrMock(clusterId);
+      if (response.ok) {
+        const data = await response.json() as { items?: unknown[] };
+        const items = Array.isArray(data.items) ? data.items : [];
+        _lastKnownApps.set(clusterId, { items, fetchedAt: Date.now() });
+        return items;
+      }
+    } catch {
+      // Fall through to Kubernetes CRD fallback.
     }
-
-    const data = await response.json() as { items?: unknown[] };
-    const items = Array.isArray(data.items) ? data.items : [];
-    _lastKnownApps.set(clusterId, { items, fetchedAt: Date.now() });
-    return items;
-  } catch {
-    return getCachedOrMock(clusterId);
   }
+
+  const crdItems = await listApplicationCrds(clusterId);
+  if (crdItems) {
+    _lastKnownApps.set(clusterId, { items: crdItems, fetchedAt: Date.now() });
+    return crdItems;
+  }
+
+  return getCachedOrMock(clusterId);
 }
 
 export const argocdRoute = new Hono<AppBindings>();

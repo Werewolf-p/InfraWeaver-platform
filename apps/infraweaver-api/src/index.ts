@@ -52,6 +52,8 @@ api.route('/rbac', rbacSyncRoute);
 api.route('/agents', agentsRoute);
 
 app.route('/v1', api);
+app.route('/api/v1', api);
+app.route('/api', api);
 
 app.notFound((c) => c.json({ error: 'Not found' }, 404));
 
