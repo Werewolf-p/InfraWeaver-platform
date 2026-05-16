@@ -23,8 +23,9 @@ spec:
       labels:
         app.kubernetes.io/name: filebrowser-pnp
     spec:
+      securityContext:
+        fsGroup: 1000
       containers:
-        - name: filebrowser-pnp
           image: filebrowser/filebrowser
           env:
             - name: FB_DATABASE

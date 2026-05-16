@@ -505,6 +505,8 @@ spec:
       labels:
         app.kubernetes.io/name: ${slug}
     spec:${isHostNetwork ? "\n      hostNetwork: true" : ""}
+      securityContext:
+        fsGroup: 1000
       containers:
         - name: ${slug}
           image: ${image}${argsYaml}
