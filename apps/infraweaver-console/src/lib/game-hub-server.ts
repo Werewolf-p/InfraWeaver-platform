@@ -341,25 +341,10 @@ export async function gracefulStopServer(
   clients: ReturnType<typeof makeGameHubClients>,
   name: string,
   stopCommand: string | null | undefined,
-  _timeoutMs = 30_000, // kept for API compat but no longer used for blocking wait
+  _timeoutMs = 30_000, // kept for API compat
 ) {
-  const pod = await getServerPod(clients.coreApi, name, true);
-  const containerName = getPrimaryContainerName(pod, name);
-  let stopCommandSent = false;
-
-  // Best-effort: send the game's graceful stop command so it can save state
-  // before SIGTERM arrives. We don't wait for the process to exit — Kubernetes
-  // handles termination via terminationGracePeriodSeconds on the pod spec.
-  if (pod?.metadata?.name && stopCommand?.trim()) {
-    try {
-      await execShell(clients.kc, pod.metadata.name, containerName, stopCommand.trim(), 5_000);
-      stopCommandSent = true;
-    } catch {
-      stopCommandSent = false;
-    }
-  }
-
-  // Scale to 0 immediately — k8s sends SIGTERM and waits the termination grace period
+  // Scale to 0 first — this prevents the deployment from restarting the pod
+  // after the game process exits. Without this the pod would just restart.
   await clients.appsApi.patchNamespacedDeployment({
     name,
     namespace: GAME_HUB_NS,
@@ -368,7 +353,40 @@ export async function gracefulStopServer(
     fieldManager: "infraweaver",
   });
 
-  return { stopCommandSent, exitedGracefully: stopCommandSent };
+  const pod = await getServerPod(clients.coreApi, name, true);
+  const containerName = getPrimaryContainerName(pod, name);
+  let stopCommandSent = false;
+
+  // Send the egg's stop command via RCON so the game can save state cleanly
+  // before the pod is terminated. execShell would run it as a shell command
+  // (wrong); runRconCommand uses rcon-cli, the same path as the console tab.
+  if (pod?.metadata?.name && stopCommand?.trim()) {
+    try {
+      await runRconCommand(clients.kc, pod.metadata.name, containerName, stopCommand.trim(), 8_000);
+      stopCommandSent = true;
+    } catch {
+      // RCON not available for this game type or server not ready — OK, the
+      // pod will be terminated via SIGTERM once replicas:0 is reconciled.
+      stopCommandSent = false;
+    }
+  }
+
+  // Brief grace window: let the game process exit on its own after the stop
+  // command. If it exits quickly, the pod is already gone when k8s reconciles.
+  // Total wait: up to 12s (6 × 2s polls) — well inside any proxy timeout.
+  let exitedGracefully = false;
+  if (stopCommandSent) {
+    for (let i = 0; i < 6; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 2_000));
+      const current = await getServerPod(clients.coreApi, name, true).catch(() => null);
+      if (!current?.metadata?.name) {
+        exitedGracefully = true;
+        break;
+      }
+    }
+  }
+
+  return { stopCommandSent, exitedGracefully };
 }
 
 function parseJsonValue<T>(raw: string | undefined | null, fallback: T): T {
