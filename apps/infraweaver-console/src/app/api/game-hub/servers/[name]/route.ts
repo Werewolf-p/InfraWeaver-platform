@@ -545,8 +545,6 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
         name,
         namespace: GAME_HUB_NAMESPACE,
         body: { spec: { replicas: 0 }, metadata: { annotations: { "infraweaver.io/last-stopped": new Date().toISOString() } } },
-        force: true,
-        fieldManager: "infraweaver",
       });
       await sendDiscordWebhook(webhookConfig, "stop", `🛑 ${name} force-stopped`);
     } else if (body.action === "restart") {

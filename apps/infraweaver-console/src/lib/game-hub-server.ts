@@ -349,8 +349,6 @@ export async function gracefulStopServer(
     name,
     namespace: GAME_HUB_NS,
     body: { spec: { replicas: 0 }, metadata: { annotations: { "infraweaver.io/last-stopped": new Date().toISOString() } } },
-    force: true,
-    fieldManager: "infraweaver",
   });
 
   const pod = await getServerPod(clients.coreApi, name, true);
