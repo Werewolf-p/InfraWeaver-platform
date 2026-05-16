@@ -1,0 +1,125 @@
+name: PR validation
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      console: ${{ steps.filter.outputs.console }}
+      api: ${{ steps.filter.outputs.api }}
+      node: ${{ steps.filter.outputs.node }}
+      docs: ${{ steps.filter.outputs.docs }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            console:
+              - 'apps/infraweaver-console/**'
+              - '.vscode/**'
+            api:
+              - 'apps/infraweaver-api/**'
+            node:
+              - 'apps/infraweaver-node/**'
+            docs:
+              - 'docs/**'
+              - 'README.md'
+              - 'CONTRIBUTING.md'
+              - '.env.example'
+              - 'CHANGELOG.md'
+
+  console:
+    needs: detect
+    if: needs.detect.outputs.console == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: apps/infraweaver-console/package-lock.json
+      - name: Install console dependencies
+        working-directory: apps/infraweaver-console
+        run: npm ci --legacy-peer-deps
+      - name: Lint changed console files
+        run: |
+          mapfile -t files < <(git diff --name-only origin/${{ github.base_ref }}...HEAD -- 'apps/infraweaver-console/**/*.{js,jsx,ts,tsx,mjs}' | sort)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "No changed console source files to lint"
+            exit 0
+          fi
+          npm --prefix apps/infraweaver-console exec eslint -- "${files[@]}"
+      - name: Run console unit tests
+        working-directory: apps/infraweaver-console
+        run: npm test -- --runInBand
+      - name: Build console
+        working-directory: apps/infraweaver-console
+        run: npm run build
+
+  api:
+    needs: detect
+    if: needs.detect.outputs.api == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/infraweaver-api/package-lock.json
+      - name: Install API dependencies
+        working-directory: apps/infraweaver-api
+        run: npm ci
+      - name: Run API tests
+        working-directory: apps/infraweaver-api
+        run: npm test
+      - name: Build API
+        working-directory: apps/infraweaver-api
+        run: npm run build
+      - name: Generate OpenAPI spec
+        working-directory: apps/infraweaver-api
+        run: npm run openapi:generate
+
+  node-agent:
+    needs: detect
+    if: needs.detect.outputs.node == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/infraweaver-node/package-lock.json
+      - name: Install node-agent dependencies
+        working-directory: apps/infraweaver-node
+        run: npm ci
+      - name: Run node-agent tests
+        working-directory: apps/infraweaver-node
+        run: npm test
+      - name: Build node-agent
+        working-directory: apps/infraweaver-node
+        run: npm run build
+
+  docs:
+    needs: detect
+    if: needs.detect.outputs.docs == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify docs exist
+        run: |
+          test -f docs/ARCHITECTURE.md
+          test -f docs/RUNBOOK.md
+          test -f docs/TROUBLESHOOTING.md
+          test -f CONTRIBUTING.md
+          test -f CHANGELOG.md

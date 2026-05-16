@@ -1,0 +1,73 @@
+name: infraweaver-dev
+
+services:
+  mock:
+    image: nginx:1.27-alpine
+    ports:
+      - "4010:80"
+    volumes:
+      - ./dev/mock:/usr/share/nginx/html:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost/health.json >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    image: node:22-alpine
+    working_dir: /workspace
+    command: sh -c "npm ci && npm run dev"
+    environment:
+      PORT: "3001"
+      CONSOLE_URL: http://localhost:3000
+      CONSOLE_API_SECRET: dev-console-secret
+      MODE_NAMESPACE: infraweaver-dev
+      SECRET_NAMESPACE: infraweaver-dev
+      HUB_URL: ws://mock
+      NODE_AGENT_IMAGE: infraweaver-node:dev
+      ARGOCD_SERVER: http://mock
+      ARGOCD_TOKEN: dev-argocd-token
+      CHOKIDAR_USEPOLLING: "true"
+    volumes:
+      - ./apps/infraweaver-api:/workspace
+      - infraweaver_api_node_modules:/workspace/node_modules
+    ports:
+      - "3001:3001"
+    depends_on:
+      mock:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/health >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  console:
+    image: node:20-alpine
+    working_dir: /workspace
+    command: sh -c "npm install --legacy-peer-deps && npm run dev -- --hostname 0.0.0.0 --port 3000"
+    environment:
+      NODE_ENV: development
+      AUTH_URL: http://localhost:3000
+      NEXTAUTH_URL: http://localhost:3000
+      AUTHENTIK_ISSUER: https://auth.dev.local/application/o/infraweaver/
+      AUTHENTIK_CLIENT_ID: infraweaver-dev
+      AUTHENTIK_CLIENT_SECRET: infraweaver-dev-secret
+      AUTHENTIK_URL: http://mock
+      AUTHENTIK_TOKEN: dev-auth-token
+      GATUS_URL: http://mock
+      INFRAWEAVER_API_URL: http://api:3001
+      NEXT_PUBLIC_APP_VERSION: dev-local
+      CHOKIDAR_USEPOLLING: "true"
+    volumes:
+      - ./apps/infraweaver-console:/workspace
+      - infraweaver_console_node_modules:/workspace/node_modules
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  infraweaver_api_node_modules:
+  infraweaver_console_node_modules:
