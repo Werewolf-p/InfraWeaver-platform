@@ -176,7 +176,7 @@ spec:
             cpu: 500m
         startupProbe:
           httpGet:
-            path: /api/health
+            path: /api/ping
             port: 3000
           failureThreshold: 30
           periodSeconds: 10
