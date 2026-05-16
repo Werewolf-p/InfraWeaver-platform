@@ -7,7 +7,9 @@ import { useRBAC } from "@/hooks/use-rbac";
 import { cn, timeAgo } from "@/lib/utils";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
+import { CopyButton } from "@/components/ui/copy-button";
 import { PageHeader } from "@/components/ui/page-header";
+import { RelativeTime } from "@/components/ui/relative-time";
 import { DashboardPanel } from "@/components/ui/dashboard-panel";
 import { DashboardStatCard } from "@/components/ui/dashboard-stat-card";
 import { ToolbarSearchInput } from "@/components/ui/toolbar-search-input";
@@ -536,6 +538,7 @@ export default function ClusterPage() {
   const [metricsRefreshSeconds, setMetricsRefreshSeconds] = useState(15);
   const [cordoningNode, setCordoningNode] = useState<string | null>(null);
   const [drainingNode, setDrainingNode] = useState<string | null>(null);
+  const [cordonTarget, setCordonTarget] = useState<Node | null>(null);
   const [drainTarget, setDrainTarget] = useState<Node | null>(null);
   const [nodeSearch, setNodeSearch] = useState("");
   const [nodeFilter, setNodeFilter] = useState<"all" | "ready" | "cordoned" | "pressure">("all");
@@ -678,6 +681,7 @@ export default function ClusterPage() {
         setNodeSearch("");
         setNodeFilter("all");
         setShowAddNode(false);
+        setCordonTarget(null);
         setDrainTarget(null);
       }
     };
@@ -1033,12 +1037,12 @@ export default function ClusterPage() {
                       {node.unschedulable && <span className="rounded bg-orange-500/10 px-1.5 py-0.5 text-xs text-orange-400">Maintenance</span>}
                     </div>
                     <div className="space-y-1 text-xs">
-                      <div className="flex items-center justify-between gap-2"><span className="text-slate-500">IP</span><span className="flex items-center font-mono text-slate-300">{node.ip}<CopyBtn text={node.ip} /></span></div>
+                      <div className="flex items-center justify-between gap-2"><span className="text-slate-500">IP</span><span className="flex items-center gap-2 font-mono text-slate-300"><span>{node.ip}</span><CopyButton text={node.ip} label="IP" className="h-7 px-2 text-[11px]" /></span></div>
                       <div className="flex justify-between"><span className="text-slate-500">Role</span><span className="text-slate-300">{node.roles.join(", ") || "worker"}</span></div>
                       <div className="flex justify-between"><span className="text-slate-500">Version</span><span className="font-mono text-slate-300">{node.version}</span></div>
                       <div className="flex justify-between"><span className="text-slate-500">CPU</span><span className="text-slate-300">{node.cpu} cores {metricsMap[node.name] ? `(${metricsMap[node.name].cpuPct}% used)` : ""}</span></div>
                       <div className="flex justify-between"><span className="text-slate-500">Memory</span><span className="text-slate-300">{node.memory} {metricsMap[node.name] ? `(${metricsMap[node.name].memPct}%)` : ""}</span></div>
-                      {node.age && <div className="flex justify-between"><span className="text-slate-500">Uptime</span><span className="text-slate-300">{timeAgo(node.age)}</span></div>}
+                      {node.age && <div className="flex justify-between"><span className="text-slate-500">Uptime</span><RelativeTime date={node.age} className="text-slate-300" /></div>}
                     </div>
                     {nodeHistory[node.name] && (nodeHistory[node.name].cpu.length > 1 || nodeHistory[node.name].memory.length > 1) ? (
                       <div className="mt-3 grid gap-2 sm:grid-cols-2">
@@ -1061,7 +1065,7 @@ export default function ClusterPage() {
                     {isAdmin && (
                       <div className="mt-3 grid gap-2 sm:grid-cols-2">
                         <button
-                          onClick={() => void handleToggleCordon(node)}
+                          onClick={() => setCordonTarget(node)}
                           disabled={cordoningNode === node.name}
                           className={cn(
                             "rounded-lg border px-3 py-2 text-xs font-medium transition-colors",
@@ -1311,6 +1315,17 @@ export default function ClusterPage() {
 
       <ConfirmDialog open={showSyncConfirm} onConfirm={handleSyncAll} onCancel={() => setShowSyncConfirm(false)} title="Sync All ArgoCD Apps?" description="This will trigger a sync for all ArgoCD applications." confirmText="Sync All" />
       <ConfirmDialog open={showRolloutConfirm} onConfirm={handleRollout} onCancel={() => setShowRolloutConfirm(false)} title="Force Redeploy InfraWeaver?" description="This will restart all InfraWeaver console pods. The console will be briefly unavailable." confirmText="REDEPLOY" danger requireTyping="REDEPLOY" />
+      <ConfirmDialog
+        open={Boolean(cordonTarget)}
+        onConfirm={() => cordonTarget && void handleToggleCordon(cordonTarget)}
+        onCancel={() => setCordonTarget(null)}
+        title={cordonTarget ? `${cordonTarget.unschedulable ? "Disable" : "Enable"} maintenance for ${cordonTarget.name}?` : "Update node maintenance?"}
+        description={cordonTarget?.unschedulable
+          ? "This makes the node schedulable again so Kubernetes can place new workloads on it."
+          : "This cordons the node so new workloads are not scheduled while maintenance is in progress."}
+        confirmText={cordoningNode ? "Updating..." : cordonTarget?.unschedulable ? "Disable maintenance" : "Enable maintenance"}
+        danger={!cordonTarget?.unschedulable}
+      />
       <ConfirmDialog
         open={Boolean(drainTarget)}
         onConfirm={() => drainTarget && void handleDrainNode(drainTarget)}

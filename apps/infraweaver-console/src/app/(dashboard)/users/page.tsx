@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Users, Plus, Pencil, Trash2, Search, Save, ChevronDown,
+  Users, Plus, Pencil, Trash2, Save, ChevronDown,
   Shield, Eye, User, CheckCircle2, XCircle, AlertTriangle, ChevronRight,
   Info, Lock, HardDrive, Mail, Zap,
 } from "lucide-react";
@@ -15,6 +15,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/ui/page-header";
 import { CopyButton } from "@/components/ui/copy-button";
 import { ResponsiveSheet } from "@/components/ui/responsive-sheet";
+import { SearchInput } from "@/components/ui/search-input";
 import { HorizontalScrollHint } from "@/components/ui/horizontal-scroll-hint";
 import { cn } from "@/lib/utils";
 import { useSession } from "next-auth/react";
@@ -832,13 +833,12 @@ export default function UsersPage() {
         <>
       <div className="space-y-3 rounded-2xl border border-white/10 bg-white/5 p-3 sm:border-0 sm:bg-transparent sm:p-0">
         <div className="flex flex-wrap items-center gap-3">
-          <div className="relative min-w-0 flex-1 max-w-full sm:max-w-sm">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <input
+          <div className="min-w-0 flex-1 max-w-full sm:max-w-sm">
+            <SearchInput
               value={search}
-              onChange={e => setSearch(e.target.value)}
+              onChange={setSearch}
               placeholder="Search users by name, username, or email"
-              className="w-full rounded-2xl border border-white/10 bg-white/5 pl-10 pr-4 py-3 text-base text-white placeholder-slate-500 focus:border-indigo-500/50 focus:outline-none"
+              className="rounded-2xl"
             />
             <p className="mt-2 text-sm text-slate-500">Helper text stays visible on mobile so you never rely on placeholder-only inputs.</p>
           </div>

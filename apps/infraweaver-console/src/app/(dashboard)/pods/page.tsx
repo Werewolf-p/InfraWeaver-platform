@@ -2,13 +2,15 @@
 
 import { motion } from "framer-motion";
 import Link from "next/link";
-import { CheckSquare, Copy, FileText, RefreshCw, RotateCcw, Server, Square } from "lucide-react";
+import { CheckSquare, Copy, FileText, RefreshCw, RotateCcw, Server, Square, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { CommandBar } from "@/components/ui/command-bar";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { CopyButton } from "@/components/ui/copy-button";
 import { DataCard } from "@/components/ui/data-card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
+import { RelativeTime } from "@/components/ui/relative-time";
 import { ResourceBar } from "@/components/ui/resource-bar";
 import { SearchInput } from "@/components/ui/search-input";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -18,7 +20,7 @@ import { useDebounce } from "@/hooks/use-debounce";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import { usePermissions } from "@/hooks/use-permissions";
 import { usePods, type Pod } from "@/hooks/use-pods";
-import { cn, timeAgo } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 type PodStatusFilter = "all" | "running" | "pending" | "failed" | "crashloopbackoff";
@@ -102,8 +104,8 @@ function PodMobileCard({
       <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
         <div>
           <dt className="text-slate-500">Age</dt>
-          <dd className="mt-1 text-slate-200" title={pod.createdAt ? new Date(pod.createdAt).toLocaleString() : "Unknown age"}>
-            {pod.createdAt ? timeAgo(pod.createdAt) : "—"}
+          <dd className="mt-1 text-slate-200">
+            <RelativeTime date={pod.createdAt} className="text-slate-200" />
           </dd>
         </div>
         <div>
@@ -165,7 +167,9 @@ export default function PodsPage() {
   const [search, setSearch] = useLocalStorage("pods-search", "");
   const [restartingPod, setRestartingPod] = useState<string | null>(null);
   const [bulkRestarting, setBulkRestarting] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   const [selectedPods, setSelectedPods] = useState<Set<string>>(new Set());
+  const [confirmAction, setConfirmAction] = useState<"restart" | "delete" | null>(null);
   const debouncedSearch = useDebounce(search, 200);
   const { simpleMode, toggle } = useSimpleMode();
   const { data: pods = [], isLoading, refetch } = usePods();
@@ -242,6 +246,37 @@ export default function PodsPage() {
     }
   }
 
+  async function handleBulkDelete() {
+    if (selectedVisiblePods.length === 0) return;
+    setBulkDeleting(true);
+    try {
+      const results = await Promise.allSettled(
+        selectedVisiblePods.map(async (pod) => {
+          const response = await fetch(`/api/pods/${encodeURIComponent(pod.namespace)}/${encodeURIComponent(pod.name)}`, {
+            method: "DELETE",
+          });
+          const payload = await response.json().catch(() => ({})) as { error?: string };
+          if (!response.ok) throw new Error(payload.error ?? `Failed to delete ${pod.name}`);
+          return pod;
+        }),
+      );
+
+      const deleted = results.filter((result) => result.status === "fulfilled").length;
+      const failed = results.length - deleted;
+      if (deleted > 0) {
+        toast.success(`Deleted ${deleted} pod${deleted === 1 ? "" : "s"}`);
+      }
+      if (failed > 0) {
+        toast.error(`${failed} pod${failed === 1 ? "" : "s"} failed to delete`);
+      }
+      setSelectedPods(new Set());
+      await refetch();
+    } finally {
+      setBulkDeleting(false);
+      setConfirmAction(null);
+    }
+  }
+
   async function copySelection() {
     if (selectedVisiblePods.length === 0) return;
     try {
@@ -310,10 +345,13 @@ export default function PodsPage() {
           </div>
         }
         actions={[
-          { label: "Refresh", icon: RefreshCw, onClick: () => void refetch(), disabled: bulkRestarting },
-          { label: allVisibleSelected ? "Clear visible" : "Select visible", icon: allVisibleSelected ? Square : CheckSquare, onClick: toggleVisibleSelection, disabled: filteredPods.length === 0 || bulkRestarting },
-          { label: "Copy selection", icon: Copy, onClick: () => void copySelection(), disabled: selectedVisiblePods.length === 0 || bulkRestarting },
-          ...(isAdmin ? [{ label: bulkRestarting ? "Restarting…" : "Restart selected", icon: RotateCcw, onClick: () => void handleBulkRestart(), disabled: selectedVisiblePods.length === 0 || bulkRestarting, variant: "primary" as const }] : []),
+          { label: "Refresh", icon: RefreshCw, onClick: () => void refetch(), disabled: bulkRestarting || bulkDeleting },
+          { label: allVisibleSelected ? "Clear visible" : "Select visible", icon: allVisibleSelected ? Square : CheckSquare, onClick: toggleVisibleSelection, disabled: filteredPods.length === 0 || bulkRestarting || bulkDeleting },
+          { label: "Copy selection", icon: Copy, onClick: () => void copySelection(), disabled: selectedVisiblePods.length === 0 || bulkRestarting || bulkDeleting },
+          ...(isAdmin ? [
+            { label: bulkRestarting ? "Restarting…" : "Restart selected", icon: RotateCcw, onClick: () => setConfirmAction("restart"), disabled: selectedVisiblePods.length === 0 || bulkRestarting || bulkDeleting, variant: "primary" as const },
+            { label: bulkDeleting ? "Deleting…" : "Delete selected", icon: Trash2, onClick: () => setConfirmAction("delete"), disabled: selectedVisiblePods.length === 0 || bulkRestarting || bulkDeleting, variant: "danger" as const },
+          ] : []),
         ]}
         filter={
           <div className="grid w-full grid-cols-1 gap-2 sm:flex sm:flex-wrap sm:items-center">
@@ -448,8 +486,8 @@ export default function PodsPage() {
                       <td className="px-4 py-3 text-center">
                         <StatusBadge status={pod.status} label={pod.status} size="sm" />
                       </td>
-                      <td className="px-4 py-3 text-xs text-slate-400" title={pod.createdAt ? new Date(pod.createdAt).toLocaleString() : "Unknown age"}>
-                        {pod.createdAt ? timeAgo(pod.createdAt) : "—"}
+                      <td className="px-4 py-3 text-xs text-slate-400">
+                        <RelativeTime date={pod.createdAt} className="text-xs text-slate-400" />
                       </td>
                       <td className={cn("px-4 py-3 text-xs font-medium", restartColor(restartCount))}>{restartCount}</td>
                       {!simpleMode ? <td className="px-4 py-3 text-xs text-slate-500">{pod.nodeName}</td> : null}
@@ -484,6 +522,26 @@ export default function PodsPage() {
           </div>
         </>
       )}
+      <ConfirmDialog
+        open={confirmAction !== null}
+        onConfirm={() => {
+          if (confirmAction === "restart") {
+            void handleBulkRestart();
+            setConfirmAction(null);
+            return;
+          }
+          void handleBulkDelete();
+        }}
+        onCancel={() => setConfirmAction(null)}
+        title={confirmAction === "delete" ? `Delete ${selectedVisiblePods.length} selected pod${selectedVisiblePods.length === 1 ? "" : "s"}?` : `Restart ${selectedVisiblePods.length} selected pod${selectedVisiblePods.length === 1 ? "" : "s"}?`}
+        description={confirmAction === "delete"
+          ? "This deletes the selected pods immediately. Kubernetes controllers may recreate them if they are managed workloads."
+          : "This triggers a restart for each selected pod. Use this when you need to force fresh scheduling or re-read config changes."}
+        confirmText={confirmAction === "delete"
+          ? (bulkDeleting ? "Deleting…" : "Delete selected")
+          : (bulkRestarting ? "Restarting…" : "Restart selected")}
+        danger={confirmAction === "delete"}
+      />
     </motion.div>
   );
 }

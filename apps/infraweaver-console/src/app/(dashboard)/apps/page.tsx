@@ -10,7 +10,7 @@ import {
   Terminal, Download, RefreshCw, LayoutGrid, Layers, Settings2,
 } from "lucide-react";
 import { toast } from "sonner";
-import { cn, timeAgo } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
@@ -22,8 +22,10 @@ import { RefreshCountdown } from "@/components/ui/refresh-countdown";
 import { ExportButton } from "@/components/ui/export-button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SegmentedBar } from "@/components/ui/segmented-bar";
+import { ActionsMenu, type ActionItem } from "@/components/ui/actions-menu";
 import { CopyButton } from "@/components/ui/copy-button";
 import { useArgoApps } from "@/hooks/use-argocd";
+import { RelativeTime } from "@/components/ui/relative-time";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { UpdatePolicyModal } from "@/components/apps/update-policy-modal";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -191,24 +193,20 @@ function SwipeableAppCard({
   deletingApp,
   onSync,
   onDelete,
-  onUninstall,
-  uninstallingApp,
   isOptimisticSyncing,
   canSync,
   canDelete,
-  canManageApps,
+  actions,
 }: {
   row: AppRow;
   syncingApp: string | null;
   deletingApp: string | null;
-  onSync: (name: string) => Promise<void>;
-  onDelete: (name: string) => Promise<void>;
-  onUninstall?: (name: string) => Promise<void>;
-  uninstallingApp?: string | null;
+  onSync: (name: string) => void;
+  onDelete: (name: string) => void;
   isOptimisticSyncing?: boolean;
   canSync: boolean;
   canDelete: boolean;
-  canManageApps?: boolean;
+  actions: ActionItem[];
 }) {
   const x = useMotionValue(0);
   const isCatalog = row.source === "Catalog";
@@ -305,17 +303,7 @@ function SwipeableAppCard({
             >
               <ExternalLink className="h-3.5 w-3.5" />
             </a>
-            {isCatalog && canSync && (
-              <button
-                onClick={() => void onSync(row.name)}
-                onPointerDown={e => e.stopPropagation()}
-                disabled={syncingApp === row.name}
-                title="Force sync"
-                className="inline-flex min-h-[36px] min-w-[36px] items-center justify-center rounded-lg border border-indigo-500/30 bg-indigo-500/10 text-indigo-300 transition hover:bg-indigo-500/20 disabled:opacity-50"
-              >
-                {syncingApp === row.name ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-              </button>
-            )}
+            <ActionsMenu actions={actions} className="shrink-0" />
             <StatusBadge status={isOptimisticSyncing ? "syncing" : row.health} />
           </div>
         </div>
@@ -329,43 +317,10 @@ function SwipeableAppCard({
           )}>
             {row.source}
           </span>
-          <span className="text-[11px] text-slate-500" title={row.lastSync ? new Date(row.lastSync).toLocaleString() : "Never synced"}>
-            {row.lastSync ? timeAgo(row.lastSync) : "Never synced"}
+          <span className="text-[11px] text-slate-500">
+            {row.lastSync ? <RelativeTime date={row.lastSync} className="text-[11px] text-slate-500" /> : "Never synced"}
           </span>
         </div>
-        {isCatalog && (
-          <div className="flex gap-2">
-            <button
-              onClick={() => void onSync(row.name)}
-              onPointerDown={e => e.stopPropagation()}
-              disabled={syncingApp === row.name || !canSync}
-              className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs border border-[#333] text-[#9e9e9e] hover:text-white hover:border-[#555] transition-colors min-h-[44px] disabled:opacity-50"
-            >
-              {syncingApp === row.name ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-              Force Sync
-            </button>
-            <button
-              onClick={() => void onDelete(row.name)}
-              onPointerDown={e => e.stopPropagation()}
-              disabled={deletingApp === row.name || !canDelete}
-              className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors min-h-[44px] disabled:opacity-50"
-            >
-              {deletingApp === row.name ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <X className="w-3.5 h-3.5" />}
-              Delete
-            </button>
-          </div>
-        )}
-        {!isCatalog && onUninstall && (
-          <button
-            onClick={() => void onUninstall(row.name)}
-            onPointerDown={e => e.stopPropagation()}
-            disabled={uninstallingApp === row.name || !canManageApps}
-            className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors min-h-[44px] disabled:opacity-50"
-          >
-            {uninstallingApp === row.name ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <X className="w-3.5 h-3.5" />}
-            Uninstall
-          </button>
-        )}
       </motion.div>
     </div>
   );
@@ -395,9 +350,10 @@ function AllInstalledTab() {
     open: boolean;
     title: string;
     description?: string;
+    confirmText?: string;
     onConfirm: () => void;
     danger?: boolean;
-  }>({ open: false, title: "", onConfirm: () => {} });
+  }>({ open: false, title: "", confirmText: "Yes, proceed", onConfirm: () => {} });
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -554,6 +510,23 @@ function AllInstalledTab() {
     }
   };
 
+  const requestSync = (name: string) => {
+    if (!canSyncApps) {
+      toast.error("You do not have permission to sync apps");
+      return;
+    }
+    setConfirmDialog({
+      open: true,
+      title: `Force sync "${name}"?`,
+      description: "This asks ArgoCD to reconcile the application immediately.",
+      confirmText: "Force sync",
+      onConfirm: () => {
+        setConfirmDialog(dialog => ({ ...dialog, open: false }));
+        void handleSync(name);
+      },
+    });
+  };
+
   const handleBulkSync = async () => {
     if (!canSyncApps) {
       toast.error("You do not have permission to sync apps");
@@ -581,6 +554,80 @@ function AllInstalledTab() {
     void refetch();
   };
 
+  const requestBulkSync = () => {
+    const targets = selectedRows.filter(row => row.source === "Catalog");
+    if (targets.length === 0) {
+      toast.error("Select at least one catalog app to bulk sync");
+      return;
+    }
+    setConfirmDialog({
+      open: true,
+      title: `Force sync ${targets.length} selected app${targets.length === 1 ? "" : "s"}?`,
+      description: "This queues an immediate sync for every selected catalog app.",
+      confirmText: "Sync selected apps",
+      onConfirm: () => {
+        setConfirmDialog(dialog => ({ ...dialog, open: false }));
+        void handleBulkSync();
+      },
+    });
+  };
+
+  const openExternal = (href: string) => {
+    window.open(href, "_blank", "noopener,noreferrer");
+  };
+
+  const buildRowActions = (row: AppRow): ActionItem[] => {
+    const actions: ActionItem[] = [];
+    const appUrl = primaryAppUrl(row);
+
+    if (appUrl) {
+      actions.push({
+        label: "Open app URL",
+        icon: <Globe className="h-4 w-4" />,
+        onClick: () => openExternal(appUrl),
+      });
+    }
+
+    actions.push({
+      label: "Open in ArgoCD",
+      icon: <ExternalLink className="h-4 w-4" />,
+      onClick: () => openExternal(argocdAppUrl(row)),
+    });
+
+    if (row.source === "Catalog") {
+      actions.push({
+        label: "Update policy",
+        icon: <Settings2 className="h-4 w-4" />,
+        onClick: () => setUpdatePolicyApp({ name: row.name, slug: row.name }),
+        disabled: !canManageApps,
+      });
+      actions.push({
+        label: syncingApp === row.name ? "Syncing…" : "Force sync",
+        icon: <RefreshCw className="h-4 w-4" />,
+        onClick: () => requestSync(row.name),
+        disabled: syncingApp === row.name || !canSyncApps,
+      });
+      actions.push({
+        label: deletingApp === row.name ? "Deleting…" : "Delete",
+        icon: <X className="h-4 w-4" />,
+        onClick: () => void handleDelete(row.name),
+        variant: "destructive",
+        disabled: deletingApp === row.name || !canManageApps,
+      });
+      return actions;
+    }
+
+    actions.push({
+      label: uninstallingApp === row.name ? "Uninstalling…" : "Uninstall",
+      icon: <X className="h-4 w-4" />,
+      onClick: () => void handleUninstallCommunity(row.name),
+      variant: "destructive",
+      disabled: uninstallingApp === row.name || !canManageApps,
+    });
+
+    return actions;
+  };
+
   const handleDelete = async (name: string) => {
     if (!canManageApps) {
       toast.error("You do not have permission to delete apps");
@@ -602,6 +649,7 @@ function AllInstalledTab() {
       open: true,
       title: `Remove "${name}"?`,
       description,
+      confirmText: "Delete app",
       danger: true,
       onConfirm: () => {
         setConfirmDialog(d => ({ ...d, open: false }));
@@ -633,6 +681,7 @@ function AllInstalledTab() {
       open: true,
       title: `Uninstall "${slug}"?`,
       description: "This removes the app from git. ArgoCD will clean up deployed resources within a few minutes.",
+      confirmText: "Uninstall app",
       danger: true,
       onConfirm: () => {
         setConfirmDialog(d => ({ ...d, open: false }));
@@ -852,7 +901,7 @@ function AllInstalledTab() {
             <span>{activeSelectedIds.size} selected</span>
             <button onClick={() => setSelectedIds(new Set())} className="text-slate-400 transition hover:text-white">Reset selection</button>
             <button
-              onClick={() => void handleBulkSync()}
+              onClick={requestBulkSync}
               disabled={bulkSyncing || selectedRows.filter(row => row.source === "Catalog").length === 0}
               className="ml-auto inline-flex items-center gap-2 rounded-xl border border-indigo-500/30 bg-indigo-500/10 px-4 py-2 text-sm text-indigo-200 transition hover:bg-indigo-500/20 disabled:opacity-50"
             >
@@ -949,7 +998,7 @@ function AllInstalledTab() {
                     <div className="mt-1 flex flex-wrap items-center gap-2">
                       {row.ingressHost && <p className="text-xs text-[#4a9eff] font-mono truncate max-w-[240px]">{row.ingressHost}</p>}
                       {row.ingressHost?.includes(".int.") && <span className="text-[10px] px-1 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/20 font-medium shrink-0">VPN</span>}
-                      {row.createdAt && <span className="text-xs text-[#666]">Age {timeAgo(row.createdAt)}</span>}
+                      {row.createdAt && <span className="text-xs text-[#666]"><RelativeTime date={row.createdAt} live={false} className="text-xs text-[#666]" /></span>}
                     </div>
                   </td>
                   {!simpleMode && <td className="py-2.5 px-3 align-top"><div className="flex items-center gap-2"><span className="font-mono text-xs text-[#9e9e9e]">{row.namespace}</span><CopyButton text={row.namespace} className="h-7 px-2 text-[11px]" /></div></td>}
@@ -958,49 +1007,14 @@ function AllInstalledTab() {
                   <td className="py-2.5 px-3 align-top"><span className={cn("px-2 py-0.5 rounded text-xs font-medium", row.source === "Catalog" ? "bg-blue-500/10 text-blue-400 border border-blue-500/20" : "bg-purple-500/10 text-purple-400 border border-purple-500/20")}>{row.source}</span></td>
                   {!simpleMode && (
                     <td className="py-2.5 px-3 align-top text-xs text-[#666]">
-                      <div>{row.lastSync ? `Last sync ${timeAgo(row.lastSync)}` : "Never synced"}</div>
+                      <div>{row.lastSync ? <RelativeTime date={row.lastSync} live={false} className="text-xs text-[#666]" /> : "Never synced"}</div>
                       <div className="mt-1">{row.lastSync ? new Date(row.lastSync).toLocaleString() : "—"}</div>
                     </td>
                   )}
                   <td className="py-2.5 px-3 text-right align-top">
                     <div className="flex items-center justify-end gap-2 flex-wrap">
-                      {primaryAppUrl(row) && (
-                        <a href={primaryAppUrl(row) ?? undefined} target="_blank" rel="noopener noreferrer" title="Open app URL" className="inline-flex items-center gap-1 rounded border border-[#2a2a2a] px-2 py-1 text-xs text-[#666] transition-colors hover:text-white">
-                          <Globe className="w-3 h-3" />
-                        </a>
-                      )}
-                      <a href={argocdAppUrl(row)} target="_blank" rel="noopener noreferrer" title="Open in ArgoCD" className="inline-flex items-center gap-1 rounded border border-[#2a2a2a] px-2 py-1 text-xs text-[#666] transition-colors hover:text-white">
-                        <ExternalLink className="w-3 h-3" />
-                      </a>
-                      {row.source === "Catalog" && (
-                        <>
-                          <PolicyBadge slug={row.name} />
-                          <button onClick={() => setUpdatePolicyApp({ name: row.name, slug: row.name })} disabled={!canManageApps} className="flex items-center gap-1 px-2 py-1 rounded text-xs border border-[#2a2a2a] text-[#666] hover:text-[#0078D4] hover:border-[#0078D4]/40 transition-colors disabled:opacity-50" title="Update Policy">
-                            <Settings2 className="w-3 h-3" />
-                          </button>
-                          <button onClick={() => void handleSync(row.name)} disabled={syncingApp === row.name || !canSyncApps} className="flex items-center gap-1 px-2 py-1 rounded text-xs border border-[#333] text-[#9e9e9e] hover:text-white hover:border-[#555] transition-colors disabled:opacity-50">
-                            {syncingApp === row.name ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
-                            Force Sync
-                          </button>
-                          <button onClick={() => void handleDelete(row.name)} disabled={deletingApp === row.name || !canManageApps} className="flex items-center gap-1 px-2 py-1 rounded text-xs border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50">
-                            {deletingApp === row.name ? <Loader2 className="w-3 h-3 animate-spin" /> : <X className="w-3 h-3" />}
-                            Delete
-                          </button>
-                        </>
-                      )}
-                      {row.source === "Community" && (
-                        <div className="flex items-center gap-2">
-                          {row.ingressHost && (
-                            <a href={`https://${row.ingressHost}`} target="_blank" rel="noopener noreferrer" title={row.ingressHost.includes(".int.") ? `${row.ingressHost} — requires NetBird VPN` : row.ingressHost} className="flex items-center gap-1 px-2 py-1 rounded text-xs border border-[#2a2a2a] text-[#555] hover:text-[#7cb9ff] hover:border-[#7cb9ff]/40 transition-colors">
-                              <ExternalLink className="w-3 h-3" /> Open
-                            </a>
-                          )}
-                          <button onClick={() => void handleUninstallCommunity(row.name)} disabled={uninstallingApp === row.name || !canManageApps} className="flex items-center gap-1 px-2 py-1 rounded text-xs border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50">
-                            {uninstallingApp === row.name ? <Loader2 className="w-3 h-3 animate-spin" /> : <X className="w-3 h-3" />}
-                            Uninstall
-                          </button>
-                        </div>
-                      )}
+                      {row.source === "Catalog" ? <PolicyBadge slug={row.name} /> : null}
+                      <ActionsMenu actions={buildRowActions(row)} />
                     </div>
                   </td>
                 </tr>
@@ -1018,20 +1032,18 @@ function AllInstalledTab() {
                 <button onClick={() => toggleSelected(row.id)} className={cn("rounded-full border px-2 py-1 transition-colors", selectedIds.has(row.id) ? "border-[#0078D4]/40 bg-[rgba(0,120,212,0.15)] text-[#9dcbff]" : "border-[#2a2a2a]")}>
                   {selectedIds.has(row.id) ? "Selected" : "Select"}
                 </button>
-                <span>{row.createdAt ? `Age ${timeAgo(row.createdAt)}` : "Age unavailable"}</span>
+                <span>{row.createdAt ? <RelativeTime date={row.createdAt} live={false} className="text-xs text-[#888]" /> : "Age unavailable"}</span>
               </div>
               <SwipeableAppCard
                 row={row}
                 syncingApp={syncingApp}
                 deletingApp={deletingApp}
-                onSync={handleSync}
+                onSync={requestSync}
                 onDelete={handleDelete}
-                onUninstall={handleUninstallCommunity}
-                uninstallingApp={uninstallingApp}
                 isOptimisticSyncing={optimisticSyncing.has(row.name)}
                 canSync={canSyncApps}
                 canDelete={canManageApps}
-                canManageApps={canManageApps}
+                actions={buildRowActions(row)}
               />
               {row.source === "Catalog" && (
                 <div className="mt-2 flex flex-wrap items-center gap-2 px-1">
@@ -1060,7 +1072,7 @@ function AllInstalledTab() {
         title={confirmDialog.title}
         description={confirmDialog.description}
         danger={confirmDialog.danger}
-        confirmText="Yes, proceed"
+        confirmText={confirmDialog.confirmText ?? "Yes, proceed"}
         onConfirm={confirmDialog.onConfirm}
         onCancel={() => setConfirmDialog(prev => ({ ...prev, open: false }))}
       />

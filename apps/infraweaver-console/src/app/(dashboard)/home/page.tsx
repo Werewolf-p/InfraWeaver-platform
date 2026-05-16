@@ -1,925 +1,543 @@
 "use client";
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { useQuery } from "@tanstack/react-query";
-import {
-  GitBranch, Network, HardDrive, KeyRound, BarChart3, Activity,
-  Shield, Wifi, BookOpen, HeartPulse, GitMerge, FileText, Package,
-  Globe, ChevronDown, Search, RefreshCw, ExternalLink, Home,
-  Zap, CheckCircle2, AlertTriangle, History, ListChecks,
-} from "lucide-react";
-import { cn, timeAgo } from "@/lib/utils";
-import { useSession } from "next-auth/react";
-import { toast } from "sonner";
-import { AnimatedNumber } from "@/components/ui/animated-number";
-import { PageHeader } from "@/components/ui/page-header";
-import { WidgetCard } from "@/components/ui/widget-card";
-import { DashboardPanel } from "@/components/ui/dashboard-panel";
-import { DashboardStatCard } from "@/components/ui/dashboard-stat-card";
-import { ToolbarSearchInput } from "@/components/ui/toolbar-search-input";
-import { AutoRefreshControl } from "@/components/ui/auto-refresh-control";
-import { RefreshCountdown } from "@/components/ui/refresh-countdown";
-import { EmptyState } from "@/components/ui/empty-state";
-import { SegmentedBar } from "@/components/ui/segmented-bar";
-import type { SparklinePoint } from "@/components/charts/sparkline";
-import { useUserPreferences } from "@/hooks/use-user-preferences";
-import { useFavorites } from "@/hooks/use-favorites";
-import { useRecentPages } from "@/hooks/use-recent-pages";
-import { useRBAC } from "@/hooks/use-rbac";
-import { ALL_NAV_ITEMS } from "@/lib/nav-config";
+
+import { useMemo } from "react";
 import Link from "next/link";
-import { Star } from "lucide-react";
-import type { HomepageServiceHealth } from "@/lib/homepage-service-config";
-import type { HomeDashboardSummary } from "@/lib/home-dashboard";
+import { useQuery } from "@tanstack/react-query";
+import type { ColumnDef } from "@tanstack/react-table";
+import {
+  Activity,
+  AlertTriangle,
+  ArrowRight,
+  CheckCircle2,
+  Clock3,
+  ExternalLink,
+  GitBranch,
+  Package,
+  RefreshCw,
+  Server,
+} from "lucide-react";
+import { PageShell } from "@/components/layout/page-shell";
+import { DashboardPanel } from "@/components/ui/dashboard-panel";
+import { DataTable } from "@/components/ui/data-table";
+import { EmptyState } from "@/components/ui/empty-state";
+import { MetricCard } from "@/components/ui/metric-card";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { cn, timeAgo } from "@/lib/utils";
+import type { ClusterEventPayload } from "@/lib/ops-data";
+import type { ArgoApp } from "@/types";
 
-// ─── Service definitions ────────────────────────────────────────────────────
+interface ClusterHealthResponse {
+  degraded: number;
+  healthy: number;
+  outOfSync: number;
+  progressing: number;
+  status: "healthy" | "degraded" | "progressing" | "unknown";
+  total: number;
+}
 
-interface Service {
+interface ClusterNode {
+  age: string | null;
+  cpu: string | undefined;
+  ip: string | undefined;
+  memory: string | undefined;
+  name: string | undefined;
+  os: string | undefined;
+  roles: string[];
+  status: string;
+  unschedulable: boolean;
+  version: string | undefined;
+}
+
+interface NodesResponse {
+  nodes: ClusterNode[];
+}
+
+interface PodItem {
+  containers: string[];
+  createdAt: string;
   name: string;
-  href: string;
-  icon: React.ElementType;
-  description: string;
-  color: string;
+  namespace: string;
+  nodeName: string;
+  restartCount: number;
+  status: string;
 }
 
-interface ServiceGroup {
-  label: string;
-  services: Service[];
+interface TopConsumersResponse {
+  cpu: Array<{
+    cpu_cores: number;
+    cpu_pct: number;
+    namespace: string;
+    node: string;
+    pod: string;
+  }>;
+  memory: Array<{
+    memory_mib: number;
+    memory_pct: number;
+    namespace: string;
+    node: string;
+    pod: string;
+  }>;
 }
 
-const SERVICE_GROUPS: ServiceGroup[] = [
-  {
-    label: "Platform Infrastructure",
-    services: [
-      { name: "ArgoCD", href: "https://argocd.int.rlservers.com", icon: GitBranch, description: "GitOps continuous delivery", color: "text-orange-400" },
-      { name: "Traefik", href: "https://traefik.int.rlservers.com", icon: Network, description: "Ingress & reverse proxy", color: "text-cyan-400" },
-      { name: "Longhorn", href: "https://longhorn.int.rlservers.com", icon: HardDrive, description: "Distributed block storage", color: "text-green-400" },
-      { name: "OpenBao", href: "https://openbao.int.rlservers.com", icon: KeyRound, description: "Secrets & key management", color: "text-yellow-400" },
-      { name: "Grafana", href: "https://grafana.int.rlservers.com", icon: BarChart3, description: "Metrics & dashboards", color: "text-orange-300" },
-      { name: "Prometheus", href: "https://prometheus.int.rlservers.com", icon: Activity, description: "Metrics collection & alerting", color: "text-red-400" },
-    ],
-  },
-  {
-    label: "Security & Identity",
-    services: [
-      { name: "Authentik", href: "https://auth.rlservers.com", icon: Shield, description: "Identity provider & SSO", color: "text-indigo-400" },
-      { name: "NetBird VPN", href: "https://netbird.int.rlservers.com", icon: Wifi, description: "Mesh VPN network", color: "text-blue-400" },
-    ],
-  },
-  {
-    label: "Catalog Apps",
-    services: [
-      { name: "InfraWeaver", href: "https://infraweaver.int.rlservers.com", icon: Home, description: "Infrastructure management console", color: "text-violet-400" },
-      { name: "Wiki.js", href: "https://wiki.int.rlservers.com", icon: BookOpen, description: "Documentation & knowledge base", color: "text-emerald-400" },
-      { name: "Gatus", href: "https://status.rlservers.com", icon: HeartPulse, description: "Uptime & status monitoring", color: "text-pink-400" },
-      { name: "OneDev", href: "https://onedev.int.rlservers.com", icon: GitMerge, description: "All-in-one DevOps platform", color: "text-sky-400" },
-      { name: "Stirling PDF", href: "https://stirling-pdf.int.rlservers.com", icon: FileText, description: "PDF manipulation toolkit", color: "text-amber-400" },
-      { name: "Container Registry", href: "https://registry.int.rlservers.com", icon: Package, description: "Private OCI image registry", color: "text-teal-400" },
-    ],
-  },
-  {
-    label: "Websites",
-    services: [
-      { name: "rlservers.com", href: "https://rlservers.com", icon: Globe, description: "Main website", color: "text-slate-400" },
-      { name: "degoudentijd", href: "https://degoudentijd.rlservers.com", icon: Globe, description: "De Gouden Tijd website", color: "text-slate-400" },
-      { name: "feestinhetdonker", href: "https://feestinhetdonker.rlservers.com", icon: Globe, description: "Feest in het Donker website", color: "text-slate-400" },
-      { name: "yonavaarwater.nl", href: "https://yonavaarwater.nl", icon: Globe, description: "Yona Vaarwater website", color: "text-slate-400" },
-      { name: "zonnevaarwater.nl", href: "https://zonnevaarwater.nl", icon: Globe, description: "Zonne Vaarwater website", color: "text-slate-400" },
-    ],
-  },
-];
-
-// ─── Sub-components ─────────────────────────────────────────────────────────
-
-function Clock() {
-  const [now, setNow] = useState(new Date());
-  useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(id);
-  }, []);
-
-  const time = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
-  const date = now.toLocaleDateString([], { weekday: "long", year: "numeric", month: "long", day: "numeric" });
-
-  return (
-    <div className="flex flex-col items-center sm:items-end">
-      <span className="text-2xl font-bold text-[#f2f2f2] tabular-nums tracking-tight">{time}</span>
-      <span className="text-xs text-[#9e9e9e]">{date}</span>
-    </div>
-  );
+interface AppUsageRow {
+  id: string;
+  name: string;
+  namespace: string;
+  health: string;
+  syncStatus: string;
+  cpuCores: number;
+  memoryMiB: number;
+  podCount: number;
+  restarts: number;
+  hotPod: string;
 }
 
-function SearchBar() {
-  const [query, setQuery] = useState("");
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (query.trim()) {
-      window.open(`https://www.google.com/search?q=${encodeURIComponent(query.trim())}`, "_blank");
-      setQuery("");
-    }
-  };
-
-  return (
-    <form onSubmit={handleSearch} className="relative w-full sm:flex-1 sm:max-w-md">
-      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" />
-      <input
-        type="text"
-        value={query}
-        onChange={e => setQuery(e.target.value)}
-        placeholder="Search Google…"
-        className="w-full pl-10 pr-4 py-2.5 bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl text-sm text-[#f2f2f2] placeholder-[#555] focus:outline-none focus:border-[#0078D4]/50 focus:bg-[#1a1a1a] transition-all"
-      />
-    </form>
-  );
-}
-
-type HealthStatus = HomepageServiceHealth;
-
-function getHealthTextClass(status: HomepageServiceHealth["status"]) {
-  if (status === "healthy") return "text-green-400";
-  if (status === "degraded") return "text-amber-400";
-  return "text-red-400";
-}
-
-function getHealthLabel(status: HealthStatus) {
-  if (status.status === "healthy") return "Healthy";
-  return status.reason ?? (status.status === "degraded" ? "Degraded" : "Offline");
-}
-
-function StatusDot({ status }: { status: HealthStatus | undefined | "loading" }) {
-  if (status === "loading") {
-    return <span className="w-2 h-2 rounded-full bg-slate-600 animate-pulse inline-block" />;
+async function fetchJson<T>(url: string): Promise<T> {
+  const response = await fetch(url, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error(`Failed to load ${url}`);
   }
-  if (!status) return <span className="w-2 h-2 rounded-full bg-slate-600 inline-block" />;
-  return (
-    <span className={cn(
-      "w-2 h-2 rounded-full inline-block",
-      status.status === "healthy"
-        ? "bg-green-500"
-        : status.status === "degraded"
-          ? "bg-amber-500"
-          : "bg-red-500"
-    )} />
-  );
+  return response.json() as Promise<T>;
 }
 
-function ServiceCard({
-  service,
-  healthStatus,
-  index,
-}: {
-  service: Service;
-  healthStatus: HealthStatus | undefined | "loading";
-  index: number;
-}) {
-  return (
-    <motion.a
-      href={service.href}
-      target="_blank"
-      rel="noopener noreferrer"
-      initial={{ opacity: 0, y: 16 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3, delay: index * 0.04, ease: "easeOut" }}
-      className="group block bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl flex flex-col gap-3 p-4 hover:border-[rgba(0,120,212,0.5)] transition-colors"
-    >
-      <div className="flex items-start justify-between gap-2">
-          <div className="flex items-center gap-3">
-            <div className={cn("p-2 rounded-lg bg-[#2a2a2a] border border-[#333] group-hover:border-[rgba(0,120,212,0.3)] transition-colors", service.color)}>
-              <service.icon className="w-4 h-4" />
-            </div>
-            <div className="min-w-0">
-              <p className="text-sm font-semibold text-[#f2f2f2] truncate">{service.name}</p>
-              <p className="text-xs text-[#666] truncate">{service.description}</p>
-            </div>
-          </div>
-          <ExternalLink className="w-3.5 h-3.5 text-[#555] group-hover:text-[#9e9e9e] flex-shrink-0 mt-0.5 transition-colors" />
-        </div>
-
-        {healthStatus !== undefined && (
-          <div className="flex items-center gap-2">
-            <StatusDot status={healthStatus} />
-            {healthStatus === "loading" ? (
-              <span className="text-xs text-[#666]">Checking…</span>
-            ) : healthStatus ? (
-              <span className={cn("text-xs", getHealthTextClass(healthStatus.status))}>
-                {getHealthLabel(healthStatus)}
-              </span>
-            ) : (
-              <span className="text-xs text-[#666]">—</span>
-            )}
-          </div>
-        )}
-    </motion.a>
-  );
+function getMetricDirection(isHealthy: boolean, isWarning = false): "up" | "down" | "flat" {
+  if (isWarning) return "down";
+  return isHealthy ? "up" : "flat";
 }
 
-function SkeletonCard({ index }: { index: number }) {
-  return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ delay: index * 0.03 }}
-      className="flex flex-col gap-3 p-4 bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl"
-    >
-      <div className="flex items-center gap-3">
-        <div className="w-8 h-8 rounded-lg bg-[#2a2a2a] animate-pulse" />
-        <div className="flex-1 space-y-1.5">
-          <div className="h-3 w-24 bg-[#2a2a2a] rounded animate-pulse" />
-          <div className="h-2.5 w-36 bg-[#1e1e1e] rounded animate-pulse" />
-        </div>
-      </div>
-      <div className="flex items-center gap-2">
-        <div className="w-2 h-2 rounded-full bg-[#2a2a2a] animate-pulse" />
-        <div className="h-2.5 w-12 bg-[#2a2a2a] rounded animate-pulse" />
-      </div>
-    </motion.div>
-  );
-}
-
-function GroupSection({
-  group,
-  healthData,
-  isLoading,
-}: {
-  group: ServiceGroup;
-  healthData: Record<string, HealthStatus>;
-  isLoading: boolean;
-}) {
-  const [open, setOpen] = useState(true);
-
-  return (
-    <div className="space-y-3">
-      <button
-        onClick={() => setOpen(o => !o)}
-        className="flex items-center gap-2 group w-full text-left"
-      >
-        <span className="text-xs font-semibold uppercase tracking-wider text-[#666] group-hover:text-[#9e9e9e] transition-colors">
-          {group.label}
-        </span>
-        <span className="text-[10px] font-mono text-[#555] bg-[#2a2a2a] px-1.5 py-0.5 rounded">
-          {group.services.length}
-        </span>
-        <div className="flex-1 h-px bg-[#2a2a2a]" />
-        <ChevronDown className={cn(
-          "w-3.5 h-3.5 text-[#555] group-hover:text-[#9e9e9e] transition-all duration-200",
-          open ? "" : "-rotate-90"
-        )} />
-      </button>
-
-      <AnimatePresence initial={false}>
-        {open && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2, ease: "easeInOut" }}
-            className="overflow-hidden"
-          >
-            <div className="grid grid-cols-2 gap-3 pb-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {isLoading
-                ? group.services.map((_, i) => <SkeletonCard key={i} index={i} />)
-                  : group.services.map((svc, i) => (
-                    <ServiceCard
-                      key={svc.name}
-                      service={svc}
-                      healthStatus={isLoading ? "loading" : healthData[svc.name]}
-                      index={i}
-                    />
-                  ))}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
-
-// ─── Quick Actions ───────────────────────────────────────────────────────────
-
-function QuickActions() {
-  const { can } = useRBAC();
-  const canSyncAll = can("apps:sync");
-  const [syncing, setSyncing] = useState(false);
-
-  const handleSyncAll = async () => {
-    if (!canSyncAll) {
-      toast.error("You do not have permission to sync apps");
-      return;
-    }
-    setSyncing(true);
-    try {
-      const res = await fetch("/api/argocd/sync-all", { method: "POST" });
-      if (res.ok) {
-        toast.success("Sync triggered for all ArgoCD apps");
-      } else {
-        toast.error("Failed to trigger sync");
-      }
-    } catch {
-      toast.error("Failed to trigger sync");
-    } finally {
-      setSyncing(false);
-    }
-  };
-
-  const quickLinks = [
-    { label: "ArgoCD", href: "https://argocd.int.rlservers.com", icon: GitBranch, color: "text-orange-400" },
-    { label: "Grafana", href: "https://grafana.int.rlservers.com", icon: BarChart3, color: "text-orange-300" },
-    { label: "Status", href: "https://status.rlservers.com", icon: HeartPulse, color: "text-pink-400" },
-    { label: "Longhorn", href: "https://longhorn.int.rlservers.com", icon: HardDrive, color: "text-green-400" },
-  ];
-
-  return (
-    <div className="flex flex-wrap items-center gap-3">
-      <button
-        onClick={handleSyncAll}
-        disabled={syncing || !canSyncAll}
-        className="flex min-h-[40px] items-center gap-2 rounded-xl border border-[rgba(0,120,212,0.2)] bg-[rgba(0,120,212,0.1)] px-4 py-2 text-sm text-[#0078D4] transition-all hover:bg-[rgba(0,120,212,0.2)] disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        {syncing ? (
-          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-        ) : (
-          <Zap className="w-3.5 h-3.5" />
-        )}
-        Sync All Apps
-      </button>
-
-      <a
-        href="/health"
-        className="flex min-h-[40px] items-center gap-2 rounded-xl border border-green-500/20 bg-green-500/10 px-4 py-2 text-sm text-green-400 transition-all hover:bg-green-500/20"
-      >
-        <CheckCircle2 className="w-3.5 h-3.5" />
-        Cluster Health
-      </a>
-
-      <div className="w-full overflow-x-auto scrollbar-none sm:ml-auto sm:w-auto">
-        <div className="flex w-max items-center gap-2 sm:w-auto">
-          {quickLinks.map(link => (
-            <a
-              key={link.label}
-              href={link.href}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={cn(
-                "flex min-h-[40px] items-center gap-1.5 rounded-lg border border-[#333] bg-[#2a2a2a] px-3 py-2 text-xs transition-all hover:bg-[#333]",
-                link.color
-              )}
-            >
-              <link.icon className="w-3.5 h-3.5" />
-              {link.label}
-            </a>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Page ────────────────────────────────────────────────────────────────────
-
-const ALL_CATEGORIES = ["All", ...SERVICE_GROUPS.map(g => g.label)];
-const CHECKLIST_STORAGE_KEY = "infraweaver:setup-checklist";
-
-function readChecklistState() {
-  if (typeof window === "undefined") return {} as Record<string, boolean>;
-  try {
-    return JSON.parse(localStorage.getItem(CHECKLIST_STORAGE_KEY) ?? "{}") as Record<string, boolean>;
-  } catch {
-    return {} as Record<string, boolean>;
-  }
-}
-
-function QuickStats({ summary }: { summary?: HomeDashboardSummary }) {
-  const argoApps = summary?.argocd ?? null;
-  const runningPods = summary?.pods.running ?? 0;
-  const totalPods = summary?.pods.total ?? 0;
-  const isHealthy = !summary?.clusterHealth || summary.clusterHealth.status === "healthy";
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: 0.08 }}
-      className="relative z-10 grid grid-cols-2 gap-3 sm:grid-cols-3"
-    >
-      <div className="col-span-1 flex items-center gap-3 rounded-xl border border-[#2a2a2a] bg-[#1a1a1a] p-3 sm:p-4">
-        <div className={cn(
-          "h-8 w-8 flex-shrink-0 rounded-lg flex items-center justify-center",
-          isHealthy ? "bg-green-500/15" : "bg-red-500/15"
-        )}>
-          <Activity className={cn("w-4 h-4", isHealthy ? "text-green-400" : "text-red-400")} />
-        </div>
-        <div>
-          <p className="text-xs text-[#666] uppercase tracking-wider">Cluster</p>
-          <p className={cn("text-sm font-semibold", isHealthy ? "text-green-400" : "text-red-400")}>
-            {isHealthy ? "Healthy" : "Degraded"}
-          </p>
-        </div>
-      </div>
-      <div className="col-span-1 flex items-center gap-3 rounded-xl border border-[#2a2a2a] bg-[#1a1a1a] p-3 sm:p-4">
-        <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-[rgba(0,120,212,0.1)]">
-          <Package className="w-4 h-4 text-[#0078D4]" />
-        </div>
-        <div>
-          <p className="text-xs text-[#666] uppercase tracking-wider">Pods</p>
-          <p className="text-sm font-semibold text-[#f2f2f2] tabular-nums">
-            {totalPods > 0 ? (
-              <>
-                <AnimatedNumber value={runningPods} duration={600} className="text-[#f2f2f2]" />
-                <span className="text-[#666]">/{totalPods}</span>
-              </>
-            ) : <span className="text-[#666]">—</span>}
-          </p>
-        </div>
-      </div>
-      <div className="col-span-2 flex items-center gap-3 rounded-xl border border-[#2a2a2a] bg-[#1a1a1a] p-3 sm:col-span-1 sm:p-4">
-        <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-orange-500/15">
-          <GitBranch className="w-4 h-4 text-orange-400" />
-        </div>
-        <div>
-          <p className="text-xs text-[#666] uppercase tracking-wider">ArgoCD Apps</p>
-          <p className="text-sm font-semibold text-[#f2f2f2] tabular-nums">
-            {argoApps ? (
-              <>
-                <AnimatedNumber value={argoApps.healthy} duration={600} className="text-green-400" />
-                <span className="text-[#666]">/{argoApps.total}</span>
-              </>
-            ) : <span className="text-[#666]">—</span>}
-          </p>
-        </div>
-      </div>
-    </motion.div>
-  );
-}
-
-function SetupChecklist({ recentPages }: { recentPages: Array<{ href: string; title: string; visitedAt: number }> }) {
-  const [manualChecks, setManualChecks] = useState<Record<string, boolean>>(() => readChecklistState());
-
-  const { data: dnsData } = useQuery({
-    queryKey: ["dns", "home-checklist"],
-    queryFn: async () => {
-      const res = await fetch("/api/dns", { cache: "no-store" });
-      if (!res.ok) return { records: [] as Array<unknown> };
-      return res.json() as Promise<{ records: Array<unknown> }>;
-    },
-    staleTime: 60000,
+export default function HomePage() {
+  const clusterQuery = useQuery<ClusterHealthResponse>({
+    queryKey: ["home", "cluster-health"],
+    queryFn: () => fetchJson<ClusterHealthResponse>("/api/health/cluster"),
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+  const appsQuery = useQuery<ArgoApp[]>({
+    queryKey: ["home", "apps"],
+    queryFn: () => fetchJson<ArgoApp[]>("/api/apps"),
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+  const nodesQuery = useQuery<NodesResponse>({
+    queryKey: ["home", "nodes"],
+    queryFn: () => fetchJson<NodesResponse>("/api/cluster/nodes"),
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+  const podsQuery = useQuery<PodItem[]>({
+    queryKey: ["home", "pods"],
+    queryFn: () => fetchJson<PodItem[]>("/api/pods"),
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+  const eventsQuery = useQuery<ClusterEventPayload>({
+    queryKey: ["home", "events"],
+    queryFn: () => fetchJson<ClusterEventPayload>("/api/cluster/events"),
+    staleTime: 20_000,
+    refetchInterval: 60_000,
+  });
+  const consumersQuery = useQuery<TopConsumersResponse>({
+    queryKey: ["home", "top-consumers"],
+    queryFn: () => fetchJson<TopConsumersResponse>("/api/cluster/top-consumers"),
+    staleTime: 20_000,
+    refetchInterval: 60_000,
   });
 
-  const { data: gameHubServers } = useQuery({
-    queryKey: ["game-hub", "servers", "home-checklist"],
-    queryFn: async () => {
-      const res = await fetch("/api/game-hub/servers", { cache: "no-store" });
-      if (!res.ok) return { servers: [] as Array<unknown> };
-      return res.json() as Promise<{ servers: Array<unknown> }>;
-    },
-    staleTime: 60000,
-  });
+  const apps = useMemo(() => appsQuery.data ?? [], [appsQuery.data]);
+  const nodes = useMemo(() => nodesQuery.data?.nodes ?? [], [nodesQuery.data?.nodes]);
+  const pods = useMemo(() => podsQuery.data ?? [], [podsQuery.data]);
+  const events = useMemo(() => eventsQuery.data?.events ?? [], [eventsQuery.data?.events]);
 
-  useEffect(() => {
-    localStorage.setItem(CHECKLIST_STORAGE_KEY, JSON.stringify(manualChecks));
-  }, [manualChecks]);
+  const readyNodes = nodes.filter((node) => node.status === "Ready").length;
+  const runningPods = pods.filter((pod) => pod.status === "Running").length;
+  const restartingPods = pods.filter((pod) => pod.restartCount > 0).length;
+  const healthyApps = apps.filter((app) => app.status.health.status === "Healthy").length;
+  const degradedApps = apps.filter((app) => app.status.health.status === "Degraded").length;
+  const syncedApps = apps.filter((app) => app.status.sync.status === "Synced").length;
+  const outOfSyncApps = apps.filter((app) => app.status.sync.status === "OutOfSync").length;
 
-  const items = [
+  const nodeHealthPercent = nodes.length ? Math.round((readyNodes / nodes.length) * 100) : 0;
+  const podHealthPercent = pods.length ? Math.round((runningPods / pods.length) * 100) : 0;
+  const appHealthPercent = apps.length ? Math.round((healthyApps / apps.length) * 100) : 0;
+  const syncPercent = apps.length ? Math.round((syncedApps / apps.length) * 100) : 0;
+
+  const metricCards = [
     {
-      id: "vpn",
-      title: "Verify VPN / network access",
-      description: "Open the network pages and confirm your internal routes are reachable.",
-      href: "/network",
-      complete: manualChecks.vpn || recentPages.some((page) => page.href.startsWith("/network")),
+      title: "Ready nodes",
+      value: readyNodes,
+      unit: `/ ${nodes.length || 0}`,
+      href: "/cluster",
+      variant: nodeHealthPercent === 100 ? "success" : nodeHealthPercent > 0 ? "warning" : "danger",
+      trend: { direction: getMetricDirection(nodeHealthPercent === 100, nodeHealthPercent < 100 && nodes.length > 0), percent: nodeHealthPercent },
+      sparklineData: nodes.map((node) => ({ value: node.status === "Ready" ? 100 : 35 })),
+      loading: nodesQuery.isLoading,
     },
     {
-      id: "server",
-      title: "Create your first game server",
-      description: "Use Game Hub to deploy a server with recommended defaults.",
-      href: "/game-hub/new",
-      complete: manualChecks.server || (gameHubServers?.servers?.length ?? 0) > 0,
+      title: "Healthy apps",
+      value: healthyApps,
+      unit: `/ ${apps.length || 0}`,
+      href: "/apps",
+      variant: degradedApps > 0 ? "warning" : "success",
+      trend: { direction: getMetricDirection(degradedApps === 0, degradedApps > 0), percent: appHealthPercent },
+      sparklineData: [healthyApps, degradedApps, outOfSyncApps || healthyApps, apps.length || healthyApps].map((value) => ({ value })),
+      loading: appsQuery.isLoading,
     },
     {
-      id: "dns",
-      title: "Create a DNS record",
-      description: "Add an internal VPN name or public hostname in the new DNS Manager.",
-      href: "/dns",
-      complete: manualChecks.dns || (dnsData?.records?.length ?? 0) > 0,
+      title: "Running pods",
+      value: runningPods,
+      unit: `/ ${pods.length || 0}`,
+      href: "/pods",
+      variant: podHealthPercent === 100 ? "success" : restartingPods > 0 ? "warning" : "default",
+      trend: { direction: getMetricDirection(podHealthPercent === 100, podHealthPercent < 100 && pods.length > 0), percent: podHealthPercent },
+      sparklineData: pods.slice(0, 12).map((pod) => ({ value: pod.status === "Running" ? 100 : Math.max(20, 100 - pod.restartCount * 8) })),
+      loading: podsQuery.isLoading,
     },
-  ];
+    {
+      title: "Sync compliance",
+      value: syncPercent,
+      unit: "% synced",
+      href: "/apps",
+      variant: outOfSyncApps > 0 ? "danger" : "success",
+      trend: { direction: getMetricDirection(outOfSyncApps === 0, outOfSyncApps > 0), percent: syncPercent },
+      sparklineData: [syncedApps, healthyApps, outOfSyncApps, apps.length].map((value) => ({ value })),
+      loading: appsQuery.isLoading,
+    },
+  ] as const;
 
-  const completed = items.filter((item) => item.complete).length;
-
-  return (
-    <WidgetCard title="Setup Checklist" icon={ListChecks}>
-      <div className="p-4 space-y-3">
-        <div className="flex items-center justify-between text-sm">
-          <p className="text-slate-300">Recommended first steps for new operators.</p>
-          <span className="rounded-full border border-white/10 bg-[#141414] px-2 py-1 text-xs text-slate-400">
-            {completed}/{items.length} complete
-          </span>
-        </div>
-        {items.map((item) => (
-          <div key={item.id} className="flex items-start gap-3 rounded-xl border border-white/10 bg-[#141414] p-3">
-            <button
-              onClick={() => setManualChecks((current) => ({ ...current, [item.id]: !item.complete }))}
-              className={cn(
-                "mt-0.5 flex h-5 w-5 items-center justify-center rounded border transition",
-                item.complete
-                  ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-300"
-                  : "border-white/10 bg-black/20 text-slate-500 hover:text-white",
-              )}
-              title={item.complete ? "Mark incomplete" : "Mark complete"}
-            >
-              <CheckCircle2 className="h-3.5 w-3.5" />
-            </button>
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <p className={cn("font-medium", item.complete ? "text-emerald-200" : "text-white")}>{item.title}</p>
-                {item.complete ? <span className="text-xs text-emerald-300">Done</span> : null}
-              </div>
-              <p className="mt-1 text-sm text-slate-500">{item.description}</p>
-            </div>
-            <Link href={item.href} className="rounded-lg border border-white/10 px-2.5 py-1.5 text-xs text-cyan-200 transition hover:text-white">
-              Open
-            </Link>
-          </div>
-        ))}
-      </div>
-    </WidgetCard>
-  );
-}
-
-export default function HomePortalPage() {
-  const { data: session } = useSession();
-  const [activeCategory, setActiveCategory] = useState("All");
-  const [serviceQuery, setServiceQuery] = useState("");
-  const [serviceStateFilter, setServiceStateFilter] = useState<"all" | "healthy" | "degraded" | "offline">("all");
-  const [refreshInterval, setRefreshInterval] = useState(30000);
-  const [summaryHistory, setSummaryHistory] = useState<{
-    services: SparklinePoint[];
-    argoApps: SparklinePoint[];
-    warnings: SparklinePoint[];
-    readiness: SparklinePoint[];
-  }>({ services: [], argoApps: [], warnings: [], readiness: [] });
-  const searchRef = useRef<HTMLInputElement>(null);
-  const { prefs } = useUserPreferences();
-  const { favorites } = useFavorites();
-  const { recentPages } = useRecentPages();
-  const favNavItems = ALL_NAV_ITEMS.filter(item => favorites.some(f => f.href === item.href));
-
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      const isTypingTarget = target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
-      if (event.key === "/" && !isTypingTarget) {
-        event.preventDefault();
-        searchRef.current?.focus();
+  const usageRows = useMemo<AppUsageRow[]>(() => {
+    const namespaceToApp = new Map<string, ArgoApp>();
+    for (const app of apps) {
+      const namespace = app.spec.destination.namespace || app.metadata.namespace;
+      if (namespace && !namespaceToApp.has(namespace)) {
+        namespaceToApp.set(namespace, app);
       }
-      if (event.key === "Escape") {
-        setServiceQuery("");
-        setServiceStateFilter("all");
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
-
-  const summaryQuery = useQuery<HomeDashboardSummary>({
-    queryKey: ["home", "summary"],
-    queryFn: async () => {
-      const res = await fetch("/api/home/summary", { cache: "no-store" });
-      if (!res.ok) throw new Error("Failed to load home summary");
-      return res.json() as Promise<HomeDashboardSummary>;
-    },
-    refetchInterval: refreshInterval || false,
-    staleTime: 15000,
-  });
-
-  const argoApps = summaryQuery.data?.argocd ?? null;
-  const healthQuery = {
-    data: summaryQuery.data?.homepageHealth,
-    dataUpdatedAt: summaryQuery.dataUpdatedAt,
-    isError: summaryQuery.isError,
-    isLoading: summaryQuery.isLoading,
-    error: summaryQuery.error,
-    refetch: summaryQuery.refetch,
-  };
-  const statusQuery = {
-    data: summaryQuery.data?.platformStatus,
-    dataUpdatedAt: summaryQuery.dataUpdatedAt,
-  };
-  const eventsQuery = {
-    data: summaryQuery.data?.events,
-    dataUpdatedAt: summaryQuery.dataUpdatedAt,
-    isLoading: summaryQuery.isLoading,
-    refetch: summaryQuery.refetch,
-  };
-
-  const healthData = useMemo(() => healthQuery.data ?? {}, [healthQuery.data]);
-  const statusCounts = useMemo(() => {
-    const counts = { healthy: 0, degraded: 0, offline: 0 };
-    for (const service of SERVICE_GROUPS.flatMap(group => group.services)) {
-      const status = healthData[service.name]?.status ?? "offline";
-      if (status === "healthy") counts.healthy += 1;
-      else if (status === "degraded") counts.degraded += 1;
-      else counts.offline += 1;
     }
-    return counts;
-  }, [healthData]);
 
-  const onlineCount = statusCounts.healthy;
-  const totalServices = SERVICE_GROUPS.flatMap(g => g.services).length;
-  const lastUpdated = healthQuery.dataUpdatedAt
-    ? new Date(healthQuery.dataUpdatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })
-    : null;
-  const warningEvents = (eventsQuery.data?.events ?? []).filter(event => event.type === "Warning").slice(0, 5);
+    const podUsage = new Map<string, { namespace: string; pod: string; cpuCores: number; memoryMiB: number }>();
+    for (const consumer of consumersQuery.data?.cpu ?? []) {
+      const key = `${consumer.namespace}/${consumer.pod}`;
+      podUsage.set(key, {
+        namespace: consumer.namespace,
+        pod: consumer.pod,
+        cpuCores: consumer.cpu_cores,
+        memoryMiB: podUsage.get(key)?.memoryMiB ?? 0,
+      });
+    }
+    for (const consumer of consumersQuery.data?.memory ?? []) {
+      const key = `${consumer.namespace}/${consumer.pod}`;
+      podUsage.set(key, {
+        namespace: consumer.namespace,
+        pod: consumer.pod,
+        cpuCores: podUsage.get(key)?.cpuCores ?? 0,
+        memoryMiB: consumer.memory_mib,
+      });
+    }
 
-  useEffect(() => {
-    if (!healthQuery.dataUpdatedAt && !statusQuery.dataUpdatedAt && !eventsQuery.dataUpdatedAt && !argoApps) return;
+    const podCounts = new Map<string, { count: number; restarts: number }>();
+    for (const pod of pods) {
+      const current = podCounts.get(pod.namespace) ?? { count: 0, restarts: 0 };
+      current.count += 1;
+      current.restarts += pod.restartCount;
+      podCounts.set(pod.namespace, current);
+    }
 
-    const label = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
-    const nextServices = statusCounts.healthy;
-    const nextArgoApps = argoApps?.healthy ?? 0;
-    const nextWarnings = warningEvents.length;
-    const nextReadiness = statusQuery.data?.metrics.readyNodes ?? 0;
+    const grouped = new Map<string, AppUsageRow>();
+    for (const entry of podUsage.values()) {
+      const app = namespaceToApp.get(entry.namespace);
+      const id = app?.metadata.name ?? entry.namespace;
+      const current = grouped.get(id) ?? {
+        id,
+        name: app?.metadata.name ?? entry.namespace,
+        namespace: entry.namespace,
+        health: app?.status.health.status ?? "Unknown",
+        syncStatus: app?.status.sync.status ?? "Unknown",
+        cpuCores: 0,
+        memoryMiB: 0,
+        podCount: podCounts.get(entry.namespace)?.count ?? 0,
+        restarts: podCounts.get(entry.namespace)?.restarts ?? 0,
+        hotPod: entry.pod,
+      };
+      current.cpuCores += entry.cpuCores;
+      current.memoryMiB += entry.memoryMiB;
+      if ((entry.cpuCores * 1000) + entry.memoryMiB > ((current.cpuCores * 1000) + current.memoryMiB)) {
+        current.hotPod = entry.pod;
+      }
+      grouped.set(id, current);
+    }
 
-    const frame = window.requestAnimationFrame(() => {
-      setSummaryHistory((prev) => ({
-        services: [...prev.services.slice(-11), { label, value: nextServices }],
-        argoApps: [...prev.argoApps.slice(-11), { label, value: nextArgoApps }],
-        warnings: [...prev.warnings.slice(-11), { label, value: nextWarnings }],
-        readiness: [...prev.readiness.slice(-11), { label, value: nextReadiness }],
-      }));
-    });
+    for (const [namespace, stats] of podCounts) {
+      const app = namespaceToApp.get(namespace);
+      const id = app?.metadata.name ?? namespace;
+      if (!grouped.has(id)) {
+        grouped.set(id, {
+          id,
+          name: app?.metadata.name ?? namespace,
+          namespace,
+          health: app?.status.health.status ?? "Unknown",
+          syncStatus: app?.status.sync.status ?? "Unknown",
+          cpuCores: 0,
+          memoryMiB: 0,
+          podCount: stats.count,
+          restarts: stats.restarts,
+          hotPod: pods.find((pod) => pod.namespace === namespace)?.name ?? "—",
+        });
+      }
+    }
 
-    return () => window.cancelAnimationFrame(frame);
-  }, [argoApps, eventsQuery.dataUpdatedAt, healthQuery.dataUpdatedAt, statusCounts.healthy, statusQuery.data?.metrics.readyNodes, statusQuery.dataUpdatedAt, warningEvents.length]);
+    return Array.from(grouped.values())
+      .sort((left, right) => right.memoryMiB - left.memoryMiB || right.cpuCores - left.cpuCores || right.podCount - left.podCount)
+      .slice(0, 8);
+  }, [apps, consumersQuery.data, pods]);
 
-  const greeting = useCallback(() => {
-    const h = new Date().getHours();
-    if (h < 12) return "Good morning";
-    if (h < 18) return "Good afternoon";
-    return "Good evening";
-  }, []);
-
-  const filteredGroups = useMemo(() => {
-    const query = serviceQuery.trim().toLowerCase();
-    const groups = activeCategory === "All"
-      ? SERVICE_GROUPS
-      : SERVICE_GROUPS.filter(g => g.label === activeCategory);
-
-    return groups
-      .map(group => ({
-        ...group,
-        services: group.services.filter((service) => {
-          const status = healthData[service.name]?.status ?? "offline";
-          const matchesQuery = !query || service.name.toLowerCase().includes(query) || service.description.toLowerCase().includes(query);
-          const matchesState = serviceStateFilter === "all" || status === serviceStateFilter;
-          return matchesQuery && matchesState;
-        }),
-      }))
-      .filter(group => group.services.length > 0);
-  }, [activeCategory, healthData, serviceQuery, serviceStateFilter]);
-
-  const quickActionCards = [
-    { href: "/monitoring", icon: HeartPulse, title: "Monitoring", description: "Open alert summary, charts, and SLA.", tone: "border-rose-500/20 bg-rose-500/10 text-rose-200" },
-    { href: "/apps", icon: GitBranch, title: "Apps", description: "Review sync drift and app health fast.", tone: "border-indigo-500/20 bg-indigo-500/10 text-indigo-200" },
-    { href: "/cluster", icon: Activity, title: "Cluster", description: "Inspect nodes, quotas, and maintenance actions.", tone: "border-emerald-500/20 bg-emerald-500/10 text-emerald-200" },
-    { href: "/events", icon: History, title: "Recent Activity", description: "See the latest warning and sync events.", tone: "border-amber-500/20 bg-amber-500/10 text-amber-200" },
-  ];
-
-  return (
-    <div className="mx-auto max-w-screen-2xl space-y-4 sm:space-y-6">
-      <PageHeader
-        icon={Home}
-        title="Home"
-        subtitle="Platform services, health, and quick operator actions"
-        actions={<AutoRefreshControl interval={refreshInterval} onChange={setRefreshInterval} onRefreshNow={() => { void summaryQuery.refetch(); }} />}
-      />
-
-      {argoApps && argoApps.issues > 0 && (
-        <motion.div
-          initial={{ opacity: 0, y: -8 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="md:hidden flex items-center gap-3 px-4 py-3 bg-red-500/10 border border-red-500/30 rounded-xl text-sm text-red-400"
+  const usageColumns = useMemo<ColumnDef<AppUsageRow>[]>(() => [
+    {
+      accessorKey: "name",
+      header: "Application",
+      cell: ({ row }) => (
+        <Link
+          href={`/apps/${encodeURIComponent(row.original.name)}`}
+          className="inline-flex items-center gap-2 font-medium text-[rgb(var(--color-text-primary))] transition-colors hover:text-[rgb(var(--color-brand-600))] dark:hover:text-[rgb(var(--color-brand-500))]"
         >
-          <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-          <span>{argoApps.issues} app{argoApps.issues > 1 ? "s" : ""} need attention</span>
-          <Link href="/apps" className="ml-auto text-xs underline">View</Link>
-        </motion.div>
+          <Package className="h-4 w-4 text-[rgb(var(--color-brand-500))]" />
+          <span className="truncate">{row.original.name}</span>
+        </Link>
+      ),
+    },
+    {
+      accessorKey: "namespace",
+      header: "Namespace",
+    },
+    {
+      accessorKey: "health",
+      header: "Health",
+      cell: ({ row }) => <StatusBadge status={row.original.health} size="sm" />,
+    },
+    {
+      accessorKey: "cpuCores",
+      header: "CPU",
+      cell: ({ row }) => <span className="font-mono">{row.original.cpuCores.toFixed(2)} cores</span>,
+    },
+    {
+      accessorKey: "memoryMiB",
+      header: "Memory",
+      cell: ({ row }) => <span className="font-mono">{row.original.memoryMiB.toFixed(1)} MiB</span>,
+    },
+    {
+      accessorKey: "podCount",
+      header: "Pods",
+      cell: ({ row }) => <span className="font-mono">{row.original.podCount}</span>,
+    },
+    {
+      accessorKey: "hotPod",
+      header: "Top pod",
+      cell: ({ row }) => <span className="block max-w-[16rem] truncate text-[rgb(var(--color-text-secondary))]">{row.original.hotPod}</span>,
+    },
+  ], []);
+
+  const warningEvents = events.filter((event) => event.type === "Warning").slice(0, 6);
+  const latestEvents = warningEvents.length > 0 ? warningEvents : events.slice(0, 6);
+  const isRefreshing = [
+    clusterQuery.isFetching,
+    appsQuery.isFetching,
+    nodesQuery.isFetching,
+    podsQuery.isFetching,
+    eventsQuery.isFetching,
+    consumersQuery.isFetching,
+  ].some(Boolean);
+
+  const refreshAll = () => {
+    void Promise.all([
+      clusterQuery.refetch(),
+      appsQuery.refetch(),
+      nodesQuery.refetch(),
+      podsQuery.refetch(),
+      eventsQuery.refetch(),
+      consumersQuery.refetch(),
+    ]);
+  };
+
+  return (
+    <PageShell
+      title="Home"
+      subtitle="Azure-quality operations center for live cluster health, workload pressure, and the latest platform activity."
+      actions={(
+        <>
+          <button
+            type="button"
+            onClick={refreshAll}
+            className="inline-flex h-10 items-center gap-2 rounded-xl border border-[rgb(var(--color-border))] bg-[rgb(var(--color-surface-base))] px-3 text-sm text-[rgb(var(--color-text-primary))] transition-colors hover:border-[rgb(var(--color-border-strong))]"
+          >
+            <RefreshCw className={cn("h-4 w-4", isRefreshing && "animate-spin")} />
+            Refresh
+          </button>
+          <Link
+            href="/apps"
+            className="inline-flex h-10 items-center gap-2 rounded-xl bg-[rgb(var(--color-brand-600))] px-3 text-sm font-medium text-white transition-colors hover:bg-[rgb(var(--color-brand-700))]"
+          >
+            Applications
+            <ArrowRight className="h-4 w-4" />
+          </Link>
+          <Link
+            href="/cluster"
+            className="inline-flex h-10 items-center gap-2 rounded-xl border border-[rgb(var(--color-border))] bg-[rgb(var(--color-surface-base))] px-3 text-sm text-[rgb(var(--color-text-primary))] transition-colors hover:border-[rgb(var(--color-border-strong))]"
+          >
+            Cluster
+            <ExternalLink className="h-4 w-4" />
+          </Link>
+        </>
       )}
+      breadcrumb={[{ label: "Overview", href: "/home" }, { label: "Home" }]}
+    >
+      <section className="grid gap-4 sm:grid-cols-2 2xl:grid-cols-4">
+        {metricCards.map((card) => (
+          <MetricCard key={card.title} {...card} />
+        ))}
+      </section>
 
-      <motion.div
-        initial={{ opacity: 0, y: -12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-        className="relative z-10"
-      >
-        <div className="rounded-xl border border-[#2a2a2a] bg-[#1a1a1a] p-4 sm:p-6">
-          <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-            <div className="space-y-1">
-              <h1 className="text-xl sm:text-3xl font-extrabold tracking-tight gradient-text">
-                InfraWeaver Platform
-              </h1>
-              <p className="text-sm text-[#9e9e9e]">
-                {greeting()}, <span className="text-[#f2f2f2] font-medium">{session?.user?.name?.split(" ")[0] ?? "there"}</span> 👋
-              </p>
-              <p className="max-w-2xl text-sm text-[#888]">
-                Real-time desktop landing zone for service health, operator tasks, and the latest cluster activity.
-              </p>
-            </div>
-
-            <div className="flex w-full flex-col gap-4 xl:max-w-xl">
-              <div className="grid grid-cols-3 gap-3">
-                <div className="rounded-2xl border border-[#2a2a2a] bg-[#141414] px-4 py-3 text-center">
-                  <div className="text-xl font-bold text-[#f2f2f2] tabular-nums sm:text-2xl">
-                    <AnimatedNumber value={onlineCount} duration={800} />
-                    <span className="text-[#666] text-lg">/{totalServices}</span>
-                  </div>
-                  <p className="mt-1 text-[10px] uppercase tracking-[0.2em] text-[#666]">Healthy services</p>
-                </div>
-                <div className="rounded-2xl border border-[#2a2a2a] bg-[#141414] px-4 py-3 text-center">
-                  <div className="text-xl font-bold text-[#f2f2f2] tabular-nums sm:text-2xl">
-                    <AnimatedNumber value={warningEvents.length} duration={600} />
-                  </div>
-                  <p className="mt-1 text-[10px] uppercase tracking-[0.2em] text-[#666]">Warnings</p>
-                </div>
-                <div className="rounded-2xl border border-[#2a2a2a] bg-[#141414] px-4 py-3 text-center">
-                  <div className="text-xl font-bold tabular-nums sm:text-2xl">
-                    <AnimatedNumber
-                      value={totalServices > 0 ? Math.round((statusCounts.healthy / totalServices) * 100) : 0}
-                      duration={900}
-                      suffix="%"
-                      className={statusCounts.offline === 0 ? "text-emerald-400" : "text-amber-400"}
-                    />
-                  </div>
-                  <p className="mt-1 text-[10px] uppercase tracking-[0.2em] text-[#666]">Availability</p>
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                <SearchBar />
-                <div className="flex items-center justify-between gap-3 rounded-2xl border border-[#2a2a2a] bg-[#141414] px-3 py-2 sm:min-w-[220px]">
-                  <div>
-                    <p className="text-[11px] uppercase tracking-[0.18em] text-[#666]">Live status</p>
-                    <p className="text-sm text-[#d4d4d4]">{statusQuery.data?.status ?? "checking"}</p>
-                  </div>
-                  <Clock />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-[#666]">
-            {lastUpdated ? <span>Last service refresh: {lastUpdated}</span> : null}
-            <RefreshCountdown intervalSeconds={Math.max(15, Math.round((refreshInterval || 30000) / 1000))} resetKey={healthQuery.dataUpdatedAt} />
-            <span>{statusQuery.data ? `${statusQuery.data.metrics.readyNodes}/${statusQuery.data.metrics.totalNodes} nodes ready` : "Checking nodes"}</span>
-          </div>
-        </div>
-      </motion.div>
-
-      <DashboardPanel title="System health summary" description="Most important platform signals above the fold, with service distribution and follow-up hints." icon={Activity}>
-        <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-2">
-            <DashboardStatCard
-              label="Platform services"
-              value={`${statusCounts.healthy}/${totalServices}`}
-              icon={Activity}
-              tone={statusCounts.offline > 0 ? "warning" : "success"}
-              description="Healthy services across the full portal catalog."
-              trendData={summaryHistory.services}
-              trendTone={statusCounts.offline > 0 ? "amber" : "emerald"}
-              trendLabel="Platform services trend"
-              footer={<span>{statusCounts.degraded} degraded · {statusCounts.offline} offline</span>}
-            />
-            <DashboardStatCard
-              label="ArgoCD apps"
-              value={argoApps ? `${argoApps.healthy}/${argoApps.total}` : "—"}
-              icon={GitBranch}
-              tone={(argoApps?.issues ?? 0) > 0 ? "warning" : "info"}
-              description="GitOps applications reporting healthy status."
-              trendData={summaryHistory.argoApps}
-              trendTone={(argoApps?.issues ?? 0) > 0 ? "amber" : "blue"}
-              trendLabel="Argo application health trend"
-              footer={<span>{argoApps?.issues ?? 0} issue(s) currently flagged</span>}
-            />
-            <DashboardStatCard
-              label="Recent warnings"
-              value={warningEvents.length}
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,1fr)]">
+        <DashboardPanel
+          title="Cluster health"
+          description="Node readiness, deployment state, and workload availability in one command surface."
+          icon={Activity}
+        >
+          {nodesQuery.isError && appsQuery.isError && podsQuery.isError ? (
+            <EmptyState
               icon={AlertTriangle}
-              tone={warningEvents.length > 0 ? "danger" : "success"}
-              description="Latest warning-level cluster events surfaced from the activity feed."
-              trendData={summaryHistory.warnings}
-              trendTone={warningEvents.length > 0 ? "red" : "emerald"}
-              trendLabel="Recent warnings trend"
-              footer={<span>{eventsQuery.data?.events?.length ?? 0} recent events fetched</span>}
+              title="Unable to load cluster health"
+              description="Health signals could not be loaded right now. Try refreshing the dashboard."
+              className="min-h-[320px]"
             />
-            <DashboardStatCard
-              label="Cluster readiness"
-              value={statusQuery.data ? `${statusQuery.data.metrics.readyNodes}/${statusQuery.data.metrics.totalNodes}` : "—"}
-              icon={Package}
-              tone={statusQuery.data?.status === "operational" ? "success" : "warning"}
-              description={`Platform status is ${statusQuery.data?.status ?? "updating"}.`}
-              trendData={summaryHistory.readiness}
-              trendTone={statusQuery.data?.status === "operational" ? "emerald" : "amber"}
-              trendLabel="Cluster readiness trend"
-              footer={<span>Reported uptime {statusQuery.data?.metrics.uptime ?? "—"}</span>}
-            />
-          </div>
-
-          <div className="rounded-2xl border border-[#2a2a2a] bg-[#141414] p-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <p className="text-sm font-semibold text-[#f2f2f2]">Service distribution</p>
-                <p className="text-xs text-[#888]">Healthy, degraded, and offline services update with the same auto-refresh cadence as the page.</p>
-              </div>
-              <Link href="/monitoring" className="rounded-lg border border-[#2a2a2a] px-3 py-1.5 text-xs text-[#9e9e9e] transition hover:text-white">
-                Open monitoring
-              </Link>
-            </div>
-            <div className="mt-4">
-              <SegmentedBar
-                segments={[
-                  { label: "Healthy", value: statusCounts.healthy, className: "bg-emerald-500" },
-                  { label: "Degraded", value: statusCounts.degraded, className: "bg-amber-500" },
-                  { label: "Offline", value: statusCounts.offline, className: "bg-red-500" },
-                ]}
-              />
-              <div className="mt-3 grid gap-3 sm:grid-cols-3">
-                {[
-                  { label: "Healthy", value: statusCounts.healthy, tone: "text-emerald-300" },
-                  { label: "Degraded", value: statusCounts.degraded, tone: "text-amber-300" },
-                  { label: "Offline", value: statusCounts.offline, tone: "text-red-300" },
-                ].map(item => (
-                  <div key={item.label} className="rounded-xl border border-[#2a2a2a] bg-[#111] p-3">
-                    <p className="text-[11px] uppercase tracking-[0.18em] text-[#666]">{item.label}</p>
-                    <p className={`mt-2 text-2xl font-semibold ${item.tone}`}>{item.value}</p>
-                  </div>
-                ))}
-              </div>
-              <div className="mt-4 rounded-xl border border-[#2a2a2a] bg-[#111] p-3 text-sm text-[#b8b8b8]">
-                <p className="font-medium text-white">Operator shortcuts</p>
-                <ul className="mt-2 space-y-1.5 text-sm text-[#888]">
-                  <li><span className="text-white">/</span> focuses service search.</li>
-                  <li><span className="text-white">Esc</span> clears local service filters.</li>
-                  <li>Use the quick action cards to jump straight into the right workflow.</li>
-                </ul>
-              </div>
-            </div>
-          </div>
-        </div>
-      </DashboardPanel>
-
-      <DashboardPanel title="Quick action cards" description="One-click operator paths for the most common desktop workflows." icon={Zap}>
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          {quickActionCards.map((card) => (
-            <Link
-              key={card.href}
-              href={card.href}
-              className={cn("rounded-2xl border p-4 transition hover:border-white/20 hover:-translate-y-0.5", card.tone)}
-            >
-              <div className="flex items-center gap-3">
-                <div className="rounded-xl border border-white/10 bg-black/20 p-2">
-                  <card.icon className="h-4 w-4" />
-                </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[rgb(var(--color-border))] bg-[rgb(var(--color-surface-raised))] p-4">
                 <div>
-                  <p className="font-semibold text-white">{card.title}</p>
-                  <p className="mt-1 text-sm text-[#b8b8b8]">{card.description}</p>
+                  <div className="flex items-center gap-2">
+                    <StatusBadge status={clusterQuery.data?.status ?? "unknown"} label={(clusterQuery.data?.status ?? "unknown").toUpperCase()} />
+                    <span className="text-sm text-[rgb(var(--color-text-secondary))]">
+                      {clusterQuery.data ? `${clusterQuery.data.healthy}/${clusterQuery.data.total} platform checks passing` : "Loading live checks…"}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-sm text-[rgb(var(--color-text-secondary))]">
+                    {clusterQuery.data?.status === "healthy"
+                      ? "All critical services are operating within expected thresholds."
+                      : "At least one signal is outside the expected operating window and needs review."}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-[rgb(var(--color-border))] bg-[rgb(var(--color-surface-base))] px-4 py-3 text-right">
+                  <p className="text-xs uppercase tracking-[0.18em] text-[rgb(var(--color-text-tertiary))]">Last update</p>
+                  <p className="mt-1 text-sm font-medium text-[rgb(var(--color-text-primary))]">
+                    {eventsQuery.dataUpdatedAt ? new Date(eventsQuery.dataUpdatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—"}
+                  </p>
                 </div>
               </div>
-            </Link>
-          ))}
-        </div>
-      </DashboardPanel>
 
-      <motion.div
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.1 }}
-        className="relative z-10 rounded-xl border border-[#2a2a2a] bg-[#1a1a1a] p-3 sm:p-4"
-      >
-        <QuickActions />
-      </motion.div>
+              <div className="grid gap-3 md:grid-cols-3">
+                <div className="rounded-2xl border border-[rgb(var(--color-border))] bg-[rgb(var(--color-surface-base))] p-4">
+                  <p className="text-xs uppercase tracking-[0.18em] text-[rgb(var(--color-text-tertiary))]">Nodes</p>
+                  <p className="mt-2 text-2xl font-semibold text-[rgb(var(--color-text-primary))]">{readyNodes}/{nodes.length || 0}</p>
+                  <p className="mt-1 text-sm text-[rgb(var(--color-text-secondary))]">ready across the active cluster pool</p>
+                </div>
+                <div className="rounded-2xl border border-[rgb(var(--color-border))] bg-[rgb(var(--color-surface-base))] p-4">
+                  <p className="text-xs uppercase tracking-[0.18em] text-[rgb(var(--color-text-tertiary))]">Applications</p>
+                  <p className="mt-2 text-2xl font-semibold text-[rgb(var(--color-text-primary))]">{healthyApps}/{apps.length || 0}</p>
+                  <p className="mt-1 text-sm text-[rgb(var(--color-text-secondary))]">healthy deployments tracked by GitOps</p>
+                </div>
+                <div className="rounded-2xl border border-[rgb(var(--color-border))] bg-[rgb(var(--color-surface-base))] p-4">
+                  <p className="text-xs uppercase tracking-[0.18em] text-[rgb(var(--color-text-tertiary))]">Workloads</p>
+                  <p className="mt-2 text-2xl font-semibold text-[rgb(var(--color-text-primary))]">{runningPods}/{pods.length || 0}</p>
+                  <p className="mt-1 text-sm text-[rgb(var(--color-text-secondary))]">running pods currently available</p>
+                </div>
+              </div>
 
-      <QuickStats summary={summaryQuery.data} />
+              <div className="space-y-3">
+                {nodes.length === 0 && nodesQuery.isLoading ? (
+                  <div className="grid gap-3 md:grid-cols-2">
+                    {Array.from({ length: 4 }).map((_, index) => (
+                      <div key={index} className="h-24 rounded-2xl shimmer-bg" />
+                    ))}
+                  </div>
+                ) : nodes.length === 0 ? (
+                  <EmptyState
+                    icon={Server}
+                    title="No nodes reported"
+                    description="The node inventory is empty right now."
+                    className="min-h-[220px]"
+                  />
+                ) : (
+                  <div className="grid gap-3 md:grid-cols-2">
+                    {nodes.map((node) => (
+                      <div key={node.name} className="rounded-2xl border border-[rgb(var(--color-border))] bg-[rgb(var(--color-surface-base))] p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <p className="truncate text-sm font-semibold text-[rgb(var(--color-text-primary))]">{node.name ?? "Unknown node"}</p>
+                              <StatusBadge status={node.status === "Ready" ? "healthy" : "failed"} size="sm" label={node.status} />
+                            </div>
+                            <p className="mt-1 text-xs text-[rgb(var(--color-text-secondary))]">
+                              {(node.roles.length > 0 ? node.roles.join(", ") : "worker")} • {node.version ?? "Unknown version"}
+                            </p>
+                          </div>
+                          {node.unschedulable ? <StatusBadge status="warning" size="sm" label="Cordoned" /> : null}
+                        </div>
+                        <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-[rgb(var(--color-text-secondary))]">
+                          <span>IP: {node.ip ?? "—"}</span>
+                          <span>CPU: {node.cpu ?? "—"}</span>
+                          <span>Memory: {node.memory ?? "—"}</span>
+                          <span>OS: {node.os ?? "—"}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </DashboardPanel>
 
-      <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
-        <DashboardPanel title="Recent activity" description="Latest warning and normal events pulled into the landing page so you do not have to open the full activity log first." icon={History}>
+        <DashboardPanel
+          title="Recent activity"
+          description="Warning-first operational feed sourced from the latest cluster events."
+          icon={Clock3}
+        >
           {eventsQuery.isLoading ? (
-            <div className="space-y-3">{[0, 1, 2, 3].map(index => <div key={index} className="h-20 animate-pulse rounded-2xl bg-[#111]" />)}</div>
-          ) : warningEvents.length === 0 && (eventsQuery.data?.events?.length ?? 0) === 0 ? (
-            <EmptyState icon={History} title="No recent activity" description="The cluster event feed is quiet right now." className="py-10" />
+            <div className="space-y-3">
+              {Array.from({ length: 6 }).map((_, index) => (
+                <div key={index} className="h-20 rounded-2xl shimmer-bg" />
+              ))}
+            </div>
+          ) : latestEvents.length === 0 ? (
+            <EmptyState
+              icon={CheckCircle2}
+              title="No recent activity"
+              description="The cluster event feed is quiet right now."
+              className="min-h-[320px]"
+            />
           ) : (
             <div className="space-y-3">
-              {(eventsQuery.data?.events ?? []).slice(0, 5).map(event => (
-                <div key={`${event.namespace}-${event.name}-${event.lastSeen}`} className="rounded-2xl border border-[#2a2a2a] bg-[#141414] p-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className={cn("rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.18em]", event.type === "Warning" ? "bg-amber-500/15 text-amber-200" : "bg-[#0d0d0d] text-[#888]")}>{event.reason}</span>
-                        <span className="text-xs text-[#888]">{event.namespace}</span>
-                        <span className="text-xs text-[#666]">{event.involvedObject.kind}/{event.involvedObject.name}</span>
-                      </div>
-                      <p className="mt-2 text-sm text-[#f2f2f2]">{event.message}</p>
+              {latestEvents.map((event) => (
+                <div key={event.id} className="rounded-2xl border border-[rgb(var(--color-border))] bg-[rgb(var(--color-surface-base))] p-4">
+                  <div className="flex items-start gap-3">
+                    <div
+                      className={cn(
+                        "mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl",
+                        event.type === "Warning"
+                          ? "bg-[rgb(var(--color-warning))]/15 text-[rgb(var(--color-warning))]"
+                          : "bg-[rgb(var(--color-success))]/15 text-[rgb(var(--color-success))]",
+                      )}
+                    >
+                      {event.type === "Warning" ? <AlertTriangle className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
                     </div>
-                    <div className="text-right text-xs text-[#888]">
-                      <p>x{event.count}</p>
-                      <p>{event.lastSeen ? timeAgo(event.lastSeen) : "now"}</p>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-sm font-semibold text-[rgb(var(--color-text-primary))]">{event.reason}</p>
+                        <StatusBadge status={event.type === "Warning" ? event.level : "healthy"} size="sm" label={event.type} />
+                      </div>
+                      <p className="mt-2 text-sm text-[rgb(var(--color-text-secondary))]">{event.message}</p>
+                      <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-[rgb(var(--color-text-tertiary))]">
+                        <span>{event.namespace}</span>
+                        <span>{event.involvedObject.kind}</span>
+                        <span>{timeAgo(event.lastSeen ?? event.firstSeen ?? new Date().toISOString())}</span>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -927,191 +545,37 @@ export default function HomePortalPage() {
             </div>
           )}
         </DashboardPanel>
+      </section>
 
-        <div className={cn("grid gap-4", recentPages.length > 0 ? "xl:grid-cols-[1.1fr_0.9fr]" : "") }>
-          <motion.div
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.12 }}
-            className="relative z-10"
-          >
-            {recentPages.length > 0 ? (
-              <WidgetCard title="Recently Viewed" icon={History}>
-                <div className="p-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
-                  {recentPages.slice(0, 5).map((page) => (
-                    <Link
-                      key={`${page.href}-${page.visitedAt}`}
-                      href={page.href}
-                      className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-[#141414] px-3 py-3 text-sm transition hover:border-[rgba(0,120,212,0.3)] hover:bg-[rgba(0,120,212,0.05)]"
-                    >
-                      <div className="min-w-0">
-                        <p className="truncate font-medium text-white">{page.title}</p>
-                        <p className="mt-1 truncate text-xs text-slate-500">{page.href}</p>
-                      </div>
-                      <span className="shrink-0 text-xs text-slate-500">{timeAgo(new Date(page.visitedAt))}</span>
-                    </Link>
-                  ))}
-                </div>
-              </WidgetCard>
-            ) : (
-              <DashboardPanel title="Recently viewed" description="Your navigation history will populate this card as you move through the console." icon={History}>
-                <EmptyState icon={History} title="No recent pages yet" description="Visit an application, cluster, or monitoring screen to start building your operator trail." className="py-10" />
-              </DashboardPanel>
-            )}
-          </motion.div>
-
-          <motion.div
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.14 }}
-            className="relative z-10"
-          >
-            <SetupChecklist recentPages={recentPages} />
-          </motion.div>
-        </div>
-      </div>
-
-      <DashboardPanel title="Service explorer" description="Filter by category, health state, or search query without leaving the portal overview." icon={HeartPulse}>
-        <div className="space-y-4">
-          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-            <div className="flex flex-1 flex-col gap-3 md:flex-row md:items-center">
-              <ToolbarSearchInput
-                ref={searchRef}
-                value={serviceQuery}
-                onChange={setServiceQuery}
-                placeholder="Search service cards by name or description…"
-                className="flex-1"
-              />
-              <div className="flex flex-wrap gap-2">
-                {([
-                  { value: "all", label: "All" },
-                  { value: "healthy", label: "Healthy" },
-                  { value: "degraded", label: "Degraded" },
-                  { value: "offline", label: "Offline" },
-                ] as const).map((option) => (
-                  <button
-                    key={option.value}
-                    onClick={() => setServiceStateFilter(option.value)}
-                    className={cn(
-                      "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
-                      serviceStateFilter === option.value
-                        ? "border-[#0078D4]/40 bg-[rgba(0,120,212,0.15)] text-[#9dcbff]"
-                        : "border-[#2a2a2a] bg-[#111] text-[#888] hover:text-[#f2f2f2]"
-                    )}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <RefreshCountdown intervalSeconds={Math.max(15, Math.round((refreshInterval || 30000) / 1000))} resetKey={healthQuery.dataUpdatedAt} />
-          </div>
-
-          <div className="flex items-center gap-2 flex-wrap">
-            {ALL_CATEGORIES.map(cat => (
-              <button
-                key={cat}
-                onClick={() => setActiveCategory(cat)}
-                className={cn(
-                  "min-h-[40px] rounded-lg px-3 py-1.5 text-xs font-medium transition-all",
-                  activeCategory === cat
-                    ? "bg-[rgba(0,120,212,0.15)] border border-[rgba(0,120,212,0.2)] text-[#0078D4]"
-                    : "bg-[#2a2a2a] border border-[#2a2a2a] text-[#9e9e9e] hover:text-[#f2f2f2] hover:bg-[#2a2a2a]"
-                )}
-              >
-                {cat}
-              </button>
-            ))}
-          </div>
-
-          {healthQuery.isError ? (
+      <DashboardPanel
+        title="Top apps by resource usage"
+        description="Aggregated from live top-consumer metrics and mapped back to deployed applications."
+        icon={GitBranch}
+        actions={
+          <Link href="/apps" className="inline-flex items-center gap-1 text-sm text-[rgb(var(--color-brand-600))] dark:text-[rgb(var(--color-brand-500))]">
+            View all apps
+            <ArrowRight className="h-4 w-4" />
+          </Link>
+        }
+      >
+        <DataTable
+          columns={usageColumns}
+          data={usageRows}
+          loading={consumersQuery.isLoading && usageRows.length === 0}
+          enableRowSelection={false}
+          filterColumn="name"
+          filterPlaceholder="Filter applications…"
+          exportFileName="infraweaver-top-app-resource-usage"
+          emptyState={
             <EmptyState
-              icon={AlertTriangle}
-              title="Service health failed to load"
-              description={healthQuery.error instanceof Error ? healthQuery.error.message : "Try refreshing the page."}
-              action={{ label: "Retry", onClick: () => void healthQuery.refetch() }}
-              className="py-10"
+              icon={Package}
+              title="No application usage data"
+              description="Live workload metrics are not available yet."
+              className="min-h-[260px]"
             />
-          ) : null}
-        </div>
+          }
+        />
       </DashboardPanel>
-
-      {prefs.widgets["platform-services"] && !healthQuery.isError && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.2 }}
-          className="relative z-10 space-y-4 sm:space-y-6"
-        >
-          <WidgetCard title="Platform Services">
-            <div className="p-3 sm:p-4">
-              <AnimatePresence mode="wait">
-                <motion.div
-                  key={`${activeCategory}-${serviceStateFilter}-${serviceQuery}`}
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -8 }}
-                  transition={{ duration: 0.15 }}
-                  className="space-y-6"
-                >
-                  {healthQuery.isLoading && !healthQuery.data ? (
-                    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-                      {[0, 1, 2, 3, 4, 5].map((item) => <SkeletonCard key={item} index={item} />)}
-                    </div>
-                  ) : filteredGroups.length > 0 ? (
-                    filteredGroups.map(group => (
-                      <GroupSection
-                        key={group.label}
-                        group={group}
-                        healthData={healthData}
-                        isLoading={healthQuery.isLoading && !healthQuery.data}
-                      />
-                    ))
-                  ) : (
-                    <EmptyState
-                      icon={HeartPulse}
-                      title="No services match these filters"
-                      description="Clear your search or change the health-state filter to show more services."
-                      action={{ label: "Reset filters", onClick: () => { setServiceQuery(""); setServiceStateFilter("all"); setActiveCategory("All"); } }}
-                      className="py-10"
-                    />
-                  )}
-                </motion.div>
-              </AnimatePresence>
-            </div>
-          </WidgetCard>
-        </motion.div>
-      )}
-
-      {prefs.widgets["quick-links"] && (
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.25 }}
-          className="relative z-10"
-        >
-          {favNavItems.length > 0 ? (
-            <WidgetCard title="Pinned Pages" icon={Star}>
-              <div className="grid grid-cols-2 gap-2 p-3 sm:grid-cols-3 sm:p-4 lg:grid-cols-4">
-                {favNavItems.map(item => (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className="flex items-center gap-2 p-2.5 rounded-lg bg-[#141414] border border-[#2a2a2a] hover:border-[rgba(0,120,212,0.3)] hover:bg-[rgba(0,120,212,0.05)] transition-all text-sm text-[#9e9e9e] hover:text-[#f2f2f2]"
-                  >
-                    <item.icon className="w-4 h-4 flex-shrink-0 text-[#0078D4]" />
-                    <span className="truncate">{item.label}</span>
-                  </Link>
-                ))}
-              </div>
-            </WidgetCard>
-          ) : (
-            <DashboardPanel title="Pinned pages" description="Pin important screens from the sidebar to keep them here on the home portal." icon={Star}>
-              <EmptyState icon={Star} title="No pinned pages yet" description="Use the star icon in the sidebar to pin apps, cluster, or monitoring pages here." className="py-10" />
-            </DashboardPanel>
-          )}
-        </motion.div>
-      )}
-    </div>
+    </PageShell>
   );
 }

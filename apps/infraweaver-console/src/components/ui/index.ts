@@ -46,7 +46,6 @@ export * from "./segmented-bar";
 export * from "./settings-card";
 export * from "./skeleton-card";
 export * from "./skeleton";
-export * from "./skeleton-table";
 export * from "./sortable-header";
 export * from "./spotlight-search";
 export * from "./status-badge";
