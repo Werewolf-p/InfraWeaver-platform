@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { auditLog } from "@/lib/audit-log";
 import { loadKubeConfig } from "@/lib/k8s";
+import { invalidateClusterCaches } from "@/lib/performance-cache";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { safeError } from "@/lib/utils";
 import { z } from "zod";
@@ -40,6 +41,7 @@ export async function POST(req: NextRequest) {
       }
     }
     await auditLog("cluster:drain", session.user?.email ?? "unknown", `drained node ${node}, evicted ${evicted.length} pods`);
+    invalidateClusterCaches();
     return NextResponse.json({ ok: true, evicted, errors });
   } catch {
     return NextResponse.json({ ok: true, simulated: true, evicted: [], errors: [] });

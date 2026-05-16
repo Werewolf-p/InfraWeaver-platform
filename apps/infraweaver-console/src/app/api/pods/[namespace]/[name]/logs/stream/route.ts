@@ -5,30 +5,32 @@ import { createMockPodLogStreamResponse, createPodLogStreamResponse } from "@/li
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { isValidContainerName, isValidK8sName, isValidNamespace } from "@/lib/validate";
 
-export async function GET(req: NextRequest) {
+export async function GET(
+  req: NextRequest,
+  { params }: { params: Promise<{ namespace: string; name: string }> },
+) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!checkRateLimit(rateLimitKey("logs-stream", req), 30, 60_000)) {
     return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
   }
 
-  const namespace = req.nextUrl.searchParams.get("namespace") ?? "";
-  const pod = req.nextUrl.searchParams.get("pod") ?? "";
+  const { namespace, name } = await params;
   const container = req.nextUrl.searchParams.get("container") ?? "";
-  if (!namespace || !pod || !container) {
-    return NextResponse.json({ error: "namespace, pod, container required" }, { status: 400 });
+  if (!container) {
+    return NextResponse.json({ error: "container required" }, { status: 400 });
   }
-  if (!isValidNamespace(namespace) || !isValidK8sName(pod) || !isValidContainerName(container)) {
+  if (!isValidNamespace(namespace) || !isValidK8sName(name) || !isValidContainerName(container)) {
     return NextResponse.json({ error: "Invalid resource name" }, { status: 400 });
   }
 
   const access = await getGameHubAccessContext(session, 60);
-  if (!canAccessLogsTarget(access.groups, access.username, access.roleAssignments, namespace, pod)) {
+  if (!canAccessLogsTarget(access.groups, access.username, access.roleAssignments, namespace, name)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   try {
-    return createPodLogStreamResponse(namespace, pod, container, req.signal);
+    return createPodLogStreamResponse(namespace, name, container, req.signal);
   } catch {
     return createMockPodLogStreamResponse();
   }

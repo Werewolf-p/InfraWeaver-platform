@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { getSessionRBACContext, hasAnySessionPermission } from "@/lib/session-rbac";
+import { invalidateClusterCaches } from "@/lib/performance-cache";
 import { safeError } from "@/lib/utils";
 import { isValidK8sName, isValidNamespace } from "@/lib/validate";
 import * as k8s from "@kubernetes/client-node";
@@ -102,6 +103,7 @@ export async function PATCH(req: NextRequest) {
       }
     );
     if (!res.ok) throw new Error(await res.text());
+    invalidateClusterCaches();
     return NextResponse.json({ ok: true });
   } catch (err) {
     return NextResponse.json({ error: safeError(err) }, { status: 500 });

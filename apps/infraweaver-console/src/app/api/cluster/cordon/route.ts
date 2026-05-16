@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { auditLog } from "@/lib/audit-log";
 import { loadKubeConfig } from "@/lib/k8s";
+import { invalidateClusterCaches } from "@/lib/performance-cache";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { z } from "zod";
 import * as k8s from "@kubernetes/client-node";
@@ -24,6 +25,7 @@ export async function POST(req: NextRequest) {
     const coreApi = loadKubeConfig().makeApiClient(k8s.CoreV1Api);
     await coreApi.patchNode({ name: node, body: { spec: { unschedulable: cordon } } });
     await auditLog(cordon ? "cluster:cordon" : "cluster:uncordon", session.user?.email ?? "unknown", `${cordon ? "cordoned" : "uncordoned"} node ${node}`);
+    invalidateClusterCaches();
     return NextResponse.json({ ok: true });
   } catch {
     return NextResponse.json({ ok: true, simulated: true });

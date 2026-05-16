@@ -4,6 +4,7 @@ import * as k8s from "@kubernetes/client-node";
 import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
 import { loadKubeConfig } from "@/lib/k8s";
+import { invalidatePodCaches } from "@/lib/performance-cache";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 
@@ -58,6 +59,7 @@ export async function POST(req: NextRequest) {
       session.user?.email ?? "unknown",
       `restarted ${restartedCount}/${uniquePods.length} pods`,
     );
+    if (restartedCount > 0) invalidatePodCaches();
 
     return NextResponse.json({
       ok: failures.length === 0,

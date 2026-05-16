@@ -30,6 +30,7 @@ import { ALL_NAV_ITEMS } from "@/lib/nav-config";
 import Link from "next/link";
 import { Star } from "lucide-react";
 import type { HomepageServiceHealth } from "@/lib/homepage-service-config";
+import type { HomeDashboardSummary } from "@/lib/home-dashboard";
 
 // ─── Service definitions ────────────────────────────────────────────────────
 
@@ -387,44 +388,11 @@ function readChecklistState() {
   }
 }
 
-function QuickStats() {
-  const { data: pods } = useQuery({
-    queryKey: ["pods", "home"],
-    queryFn: async () => {
-      const res = await fetch("/api/pods");
-      return res.json() as Promise<Array<{ status: string }>>;
-    },
-    refetchInterval: 60000,
-    staleTime: 50000,
-  });
-
-  const { data: argoApps } = useQuery({
-    queryKey: ["argocd", "apps", "home"],
-    queryFn: async () => {
-      const res = await fetch("/api/argocd/apps");
-      if (!res.ok) return null;
-      const apps = await res.json() as Array<{ status?: { health?: { status?: string } } }>;
-      const healthy = apps.filter(a => a.status?.health?.status === "Healthy").length;
-      const issues = apps.filter(a => ["Degraded", "Failed", "Missing"].includes(a.status?.health?.status ?? "")).length;
-      return { healthy, total: apps.length, issues };
-    },
-    refetchInterval: 60000,
-    staleTime: 50000,
-  });
-
-  const { data: cluster } = useQuery({
-    queryKey: ["health", "cluster", "home"],
-    queryFn: async () => {
-      const res = await fetch("/api/health/cluster");
-      return res.json() as Promise<{ status: string }>;
-    },
-    refetchInterval: 60000,
-    staleTime: 50000,
-  });
-
-  const runningPods = (pods ?? []).filter(p => p.status === "Running").length;
-  const totalPods = (pods ?? []).length;
-  const isHealthy = !cluster || cluster.status === "healthy";
+function QuickStats({ summary }: { summary?: HomeDashboardSummary }) {
+  const argoApps = summary?.argocd ?? null;
+  const runningPods = summary?.pods.running ?? 0;
+  const totalPods = summary?.pods.total ?? 0;
+  const isHealthy = !summary?.clusterHealth || summary.clusterHealth.status === "healthy";
 
   return (
     <motion.div
@@ -611,63 +579,36 @@ export default function HomePortalPage() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  const { data: argoApps } = useQuery({
-    queryKey: ["argocd", "apps", "home-portal"],
+  const summaryQuery = useQuery<HomeDashboardSummary>({
+    queryKey: ["home", "summary"],
     queryFn: async () => {
-      const res = await fetch("/api/argocd/apps");
-      if (!res.ok) return null;
-      const apps = await res.json() as Array<{ status?: { health?: { status?: string } } }>;
-      const healthy = apps.filter(a => a.status?.health?.status === "Healthy").length;
-      const issues = apps.filter(a => ["Degraded", "Failed", "Missing"].includes(a.status?.health?.status ?? "")).length;
-      return { healthy, total: apps.length, issues };
+      const res = await fetch("/api/home/summary", { cache: "no-store" });
+      if (!res.ok) throw new Error("Failed to load home summary");
+      return res.json() as Promise<HomeDashboardSummary>;
     },
     refetchInterval: refreshInterval || false,
     staleTime: 15000,
   });
 
-  const healthQuery = useQuery({
-    queryKey: ["homepage-health"],
-    queryFn: async () => {
-      const res = await fetch("/api/homepage-health");
-      if (!res.ok) throw new Error("Failed to load homepage service health");
-      return res.json() as Promise<Record<string, HealthStatus>>;
-    },
-    refetchInterval: refreshInterval || false,
-    staleTime: 15000,
-  });
-
-  const statusQuery = useQuery({
-    queryKey: ["platform", "status", "home"],
-    queryFn: async () => {
-      const res = await fetch("/api/platform/status");
-      if (!res.ok) throw new Error("Failed to load platform status");
-      return res.json() as Promise<{ status: string; metrics: { totalNodes: number; readyNodes: number; uptime: string } }>;
-    },
-    refetchInterval: refreshInterval || false,
-    staleTime: 15000,
-  });
-
-  const eventsQuery = useQuery({
-    queryKey: ["events", "home"],
-    queryFn: async () => {
-      const res = await fetch("/api/events");
-      if (!res.ok) throw new Error("Failed to load recent activity");
-      return res.json() as Promise<{
-        events: Array<{
-          name: string;
-          namespace: string;
-          reason: string;
-          message: string;
-          type: string;
-          count: number;
-          lastTimestamp: string | null;
-          involvedObject: { kind: string; name: string };
-        }>;
-      }>;
-    },
-    refetchInterval: refreshInterval || false,
-    staleTime: 15000,
-  });
+  const argoApps = summaryQuery.data?.argocd ?? null;
+  const healthQuery = {
+    data: summaryQuery.data?.homepageHealth,
+    dataUpdatedAt: summaryQuery.dataUpdatedAt,
+    isError: summaryQuery.isError,
+    isLoading: summaryQuery.isLoading,
+    error: summaryQuery.error,
+    refetch: summaryQuery.refetch,
+  };
+  const statusQuery = {
+    data: summaryQuery.data?.platformStatus,
+    dataUpdatedAt: summaryQuery.dataUpdatedAt,
+  };
+  const eventsQuery = {
+    data: summaryQuery.data?.events,
+    dataUpdatedAt: summaryQuery.dataUpdatedAt,
+    isLoading: summaryQuery.isLoading,
+    refetch: summaryQuery.refetch,
+  };
 
   const healthData = useMemo(() => healthQuery.data ?? {}, [healthQuery.data]);
   const statusCounts = useMemo(() => {
@@ -748,7 +689,7 @@ export default function HomePortalPage() {
         icon={Home}
         title="Home"
         subtitle="Platform services, health, and quick operator actions"
-        actions={<AutoRefreshControl interval={refreshInterval} onChange={setRefreshInterval} onRefreshNow={() => { void healthQuery.refetch(); void eventsQuery.refetch(); void statusQuery.refetch(); }} />}
+        actions={<AutoRefreshControl interval={refreshInterval} onChange={setRefreshInterval} onRefreshNow={() => { void summaryQuery.refetch(); }} />}
       />
 
       {argoApps && argoApps.issues > 0 && (
@@ -955,7 +896,7 @@ export default function HomePortalPage() {
         <QuickActions />
       </motion.div>
 
-      <QuickStats />
+      <QuickStats summary={summaryQuery.data} />
 
       <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
         <DashboardPanel title="Recent activity" description="Latest warning and normal events pulled into the landing page so you do not have to open the full activity log first." icon={History}>
@@ -966,7 +907,7 @@ export default function HomePortalPage() {
           ) : (
             <div className="space-y-3">
               {(eventsQuery.data?.events ?? []).slice(0, 5).map(event => (
-                <div key={`${event.namespace}-${event.name}-${event.lastTimestamp}`} className="rounded-2xl border border-[#2a2a2a] bg-[#141414] p-3">
+                <div key={`${event.namespace}-${event.name}-${event.lastSeen}`} className="rounded-2xl border border-[#2a2a2a] bg-[#141414] p-3">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
@@ -978,7 +919,7 @@ export default function HomePortalPage() {
                     </div>
                     <div className="text-right text-xs text-[#888]">
                       <p>x{event.count}</p>
-                      <p>{event.lastTimestamp ? timeAgo(event.lastTimestamp) : "now"}</p>
+                      <p>{event.lastSeen ? timeAgo(event.lastSeen) : "now"}</p>
                     </div>
                   </div>
                 </div>

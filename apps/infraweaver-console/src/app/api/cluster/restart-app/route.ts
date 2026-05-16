@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
+import { invalidateClusterCaches } from "@/lib/performance-cache";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { isValidK8sName, isValidNamespace } from "@/lib/validate";
@@ -34,6 +35,7 @@ export async function POST(req: NextRequest) {
       body: { spec: { template: { metadata: { annotations: { "kubectl.kubernetes.io/restartedAt": new Date().toISOString() } } } } },
     });
     await auditLog("cluster:restart-app", session.user?.email ?? "unknown", `restarted ${namespace}/${appName}`);
+    invalidateClusterCaches();
     return NextResponse.json({ ok: true });
   } catch {
     return NextResponse.json({ ok: true, simulated: true });

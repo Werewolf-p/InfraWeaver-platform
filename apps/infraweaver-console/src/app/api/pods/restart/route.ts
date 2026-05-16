@@ -4,6 +4,7 @@ import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac"
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { auditLog } from "@/lib/audit-log";
 import { loadKubeConfig } from "@/lib/k8s";
+import { invalidatePodCaches } from "@/lib/performance-cache";
 import { z } from "zod";
 import * as k8s from "@kubernetes/client-node";
 
@@ -36,6 +37,7 @@ export async function POST(req: NextRequest) {
     const coreApi = loadKubeConfig().makeApiClient(k8s.CoreV1Api);
     await coreApi.deleteNamespacedPod({ namespace, name });
     await auditLog("pod:restart", session.user?.email ?? "unknown", `restarted pod ${namespace}/${name}`);
+    invalidatePodCaches();
     return NextResponse.json({ ok: true });
   } catch {
     return NextResponse.json({ ok: true, simulated: true });

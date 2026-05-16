@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { hasPermission } from "@/lib/rbac";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { auditLog } from "@/lib/audit-log";
+import { invalidateArgocdCaches } from "@/lib/performance-cache";
 import { safeError } from "@/lib/utils";
 
 const ARGOCD_SERVER = process.env.ARGOCD_SERVER ?? "http://argocd-server.argocd.svc.cluster.local:80";
@@ -69,6 +70,7 @@ export async function POST(req: NextRequest) {
       session.user?.email ?? "unknown",
       `synced=${synced.length} errors=${errors.length}`
     );
+    if (synced.length > 0) invalidateArgocdCaches();
     return NextResponse.json({ synced, errors, total: outOfSync.length });
   } catch (error) {
     return NextResponse.json({ error: safeError(error) }, { status: 500 });

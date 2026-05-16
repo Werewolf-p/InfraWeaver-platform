@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { auditLog } from "@/lib/audit-log";
+import { invalidateArgocdCaches } from "@/lib/performance-cache";
 import { safeError } from "@/lib/utils";
 
 const ARGOCD_URL = process.env.ARGOCD_URL ?? "https://argocd.int.rlservers.com";
@@ -41,6 +42,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ n
       session.user?.email ?? "unknown",
       `app=${name}`
     );
+    invalidateArgocdCaches();
     return NextResponse.json({ ok: true });
   } catch (error) {
     return NextResponse.json({ error: safeError(error) }, { status: 500 });

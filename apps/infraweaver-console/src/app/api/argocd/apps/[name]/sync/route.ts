@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { hasPermission } from "@/lib/rbac";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { auditLog } from "@/lib/audit-log";
+import { invalidateArgocdCaches } from "@/lib/performance-cache";
 
 const ARGOCD_SERVER = process.env.ARGOCD_SERVER ?? "http://argocd-server.argocd.svc.cluster.local:80";
 const ARGOCD_TOKEN = process.env.ARGOCD_TOKEN ?? "";
@@ -45,6 +46,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ nam
       `app=${name} hard=${Boolean(hard)}`
     );
     if (!res.ok) return NextResponse.json({ ok: true, mock: true });
+    invalidateArgocdCaches();
     return NextResponse.json(await res.json());
   } catch {
     return NextResponse.json({ ok: true, mock: true });

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
 import { loadKubeConfig } from "@/lib/k8s";
+import { invalidateClusterCaches } from "@/lib/performance-cache";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { getSessionRBACContext, hasAnySessionPermission, hasSessionPermission } from "@/lib/session-rbac";
 import { isValidK8sName, isValidNamespace } from "@/lib/validate";
@@ -36,6 +37,7 @@ export async function PATCH(req: NextRequest) {
     const appsApi = makeKc().makeApiClient(k8s.AppsV1Api);
     await appsApi.patchNamespacedDeployment({ name: deployment, namespace, body: { spec: { replicas } } });
     await auditLog("cluster:scale", session.user?.email ?? "unknown", `scaled ${namespace}/${deployment} to ${replicas}`);
+    invalidateClusterCaches();
     return NextResponse.json({ ok: true, replicas });
   } catch {
     return NextResponse.json({ ok: true, simulated: true, replicas });

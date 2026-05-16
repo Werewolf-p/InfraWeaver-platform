@@ -3,6 +3,7 @@ import { dump } from "js-yaml";
 import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
 import { loadKubeConfig } from "@/lib/k8s";
+import { invalidatePodCaches } from "@/lib/performance-cache";
 import { getSessionRBACContext, hasAnySessionPermission, hasSessionPermission } from "@/lib/session-rbac";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import * as k8s from "@kubernetes/client-node";
@@ -100,6 +101,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ n
     const coreApi = kc.makeApiClient(k8s.CoreV1Api);
     await coreApi.deleteNamespacedPod({ name, namespace });
     await auditLog("pod:delete", session.user?.email ?? "unknown", `deleted pod ${namespace}/${name}`);
+    invalidatePodCaches();
     return NextResponse.json({ ok: true });
   } catch {
     return NextResponse.json({ ok: true, simulated: true });

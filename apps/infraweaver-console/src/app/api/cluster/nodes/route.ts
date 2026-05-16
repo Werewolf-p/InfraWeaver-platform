@@ -1,7 +1,58 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { getSessionRBACContext, hasAnySessionPermission } from "@/lib/session-rbac";
 import * as k8s from "@kubernetes/client-node";
+import { auth } from "@/lib/auth";
+import { apiCache } from "@/lib/api-cache";
+import { loadKubeConfig } from "@/lib/k8s";
+import { PERFORMANCE_CACHE_KEYS } from "@/lib/performance-cache";
+import { getSessionRBACContext, hasAnySessionPermission } from "@/lib/session-rbac";
+
+const NODES_CACHE_TTL_MS = 30_000;
+
+type NodesResponse = {
+  nodes: Array<{
+    age: string | null;
+    cpu: string | undefined;
+    ip: string | undefined;
+    memory: string | undefined;
+    name: string | undefined;
+    os: string | undefined;
+    roles: string[];
+    status: string;
+    unschedulable: boolean;
+    version: string | undefined;
+  }>;
+};
+
+async function loadNodes(): Promise<NodesResponse> {
+  try {
+    const coreApi = loadKubeConfig().makeApiClient(k8s.CoreV1Api);
+    const nodes = await coreApi.listNode();
+    return {
+      nodes: nodes.items.map((node) => ({
+        name: node.metadata?.name,
+        status: node.status?.conditions?.find((condition) => condition.type === "Ready")?.status === "True" ? "Ready" : "NotReady",
+        roles: Object.keys(node.metadata?.labels ?? {})
+          .filter((label) => label.startsWith("node-role.kubernetes.io/"))
+          .map((label) => label.replace("node-role.kubernetes.io/", "")),
+        version: node.status?.nodeInfo?.kubeletVersion,
+        os: node.status?.nodeInfo?.osImage,
+        cpu: node.status?.capacity?.cpu,
+        memory: node.status?.capacity?.memory,
+        ip: node.status?.addresses?.find((address) => address.type === "InternalIP")?.address,
+        unschedulable: node.spec?.unschedulable ?? false,
+        age: node.metadata?.creationTimestamp?.toISOString() ?? null,
+      })),
+    };
+  } catch {
+    return {
+      nodes: [
+        { name: "talos-prod-cp1", status: "Ready", roles: ["control-plane"], version: "v1.35.4", ip: "10.10.0.90", cpu: "8", memory: "14306560Ki", unschedulable: false, age: null, os: "Talos Linux" },
+        { name: "talos-prod-cp2", status: "Ready", roles: ["control-plane"], version: "v1.35.4", ip: "10.10.0.91", cpu: "8", memory: "14306560Ki", unschedulable: false, age: null, os: "Talos Linux" },
+        { name: "talos-prod-cp3", status: "Ready", roles: ["control-plane"], version: "v1.35.4", ip: "10.10.0.92", cpu: "8", memory: "14306560Ki", unschedulable: false, age: null, os: "Talos Linux" },
+      ],
+    };
+  }
+}
 
 export async function GET() {
   const session = await auth();
@@ -10,49 +61,13 @@ export async function GET() {
   if (!hasAnySessionPermission(access, ["infra:read", "config:read"])) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
-  try {
-    const kc = new k8s.KubeConfig();
-    if (process.env.KUBECONFIG) {
-      kc.loadFromFile(process.env.KUBECONFIG);
-    } else {
-      try { kc.loadFromCluster(); } catch { kc.loadFromDefault(); }
-    }
-    const coreApi = kc.makeApiClient(k8s.CoreV1Api);
-    const nodes = await coreApi.listNode();
-    const result = ((nodes as { items?: unknown[] }).items ?? []).map((n: unknown) => {
-      const node = n as {
-        metadata?: { name?: string; labels?: Record<string, string>; creationTimestamp?: Date };
-        status?: {
-          conditions?: Array<{ type?: string; status?: string }>;
-          nodeInfo?: { kubeletVersion?: string; osImage?: string };
-          capacity?: { cpu?: string; memory?: string };
-          addresses?: Array<{ type?: string; address?: string }>;
-        };
-        spec?: { unschedulable?: boolean };
-      };
-      return {
-        name: node.metadata?.name,
-        status: node.status?.conditions?.find(c => c.type === "Ready")?.status === "True" ? "Ready" : "NotReady",
-        roles: Object.keys(node.metadata?.labels ?? {})
-          .filter(k => k.startsWith("node-role.kubernetes.io/"))
-          .map(k => k.replace("node-role.kubernetes.io/", "")),
-        version: node.status?.nodeInfo?.kubeletVersion,
-        os: node.status?.nodeInfo?.osImage,
-        cpu: node.status?.capacity?.cpu,
-        memory: node.status?.capacity?.memory,
-        ip: node.status?.addresses?.find(a => a.type === "InternalIP")?.address,
-        unschedulable: node.spec?.unschedulable ?? false,
-        age: node.metadata?.creationTimestamp?.toISOString?.() ?? null,
-      };
-    });
-    return NextResponse.json({ nodes: result });
-  } catch {
-    return NextResponse.json({
-      nodes: [
-        { name: "talos-prod-cp1", status: "Ready", roles: ["control-plane"], version: "v1.35.4", ip: "10.10.0.90", cpu: "8", memory: "14306560Ki", unschedulable: false, age: null },
-        { name: "talos-prod-cp2", status: "Ready", roles: ["control-plane"], version: "v1.35.4", ip: "10.10.0.91", cpu: "8", memory: "14306560Ki", unschedulable: false, age: null },
-        { name: "talos-prod-cp3", status: "Ready", roles: ["control-plane"], version: "v1.35.4", ip: "10.10.0.92", cpu: "8", memory: "14306560Ki", unschedulable: false, age: null },
-      ]
-    });
+
+  const cached = apiCache.get<NodesResponse>(PERFORMANCE_CACHE_KEYS.clusterNodes);
+  if (cached) {
+    return NextResponse.json(cached, { headers: { "X-Cache": "HIT" } });
   }
+
+  const response = await loadNodes();
+  apiCache.set(PERFORMANCE_CACHE_KEYS.clusterNodes, response, NODES_CACHE_TTL_MS);
+  return NextResponse.json(response, { headers: { "X-Cache": "MISS" } });
 }

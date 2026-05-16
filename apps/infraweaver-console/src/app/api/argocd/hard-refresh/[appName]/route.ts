@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
+import { invalidateArgocdCaches } from "@/lib/performance-cache";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { isValidK8sName } from "@/lib/validate";
@@ -27,6 +28,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ app
     });
     if (!res.ok) throw new Error(`ArgoCD error: ${res.status}`);
     await auditLog("argocd:hard-refresh", session.user?.email ?? "unknown", `hard refresh ${appName}`);
+    invalidateArgocdCaches();
     return NextResponse.json({ ok: true });
   } catch {
     return NextResponse.json({ ok: true, simulated: true });

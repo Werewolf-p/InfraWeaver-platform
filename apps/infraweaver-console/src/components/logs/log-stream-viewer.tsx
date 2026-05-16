@@ -210,7 +210,7 @@ export function LogStreamViewer({
       }
 
       const stream = new EventSource(
-        `/api/logs/stream?namespace=${encodeURIComponent(namespace)}&pod=${encodeURIComponent(pod)}&container=${encodeURIComponent(container)}`
+        `/api/pods/${encodeURIComponent(namespace)}/${encodeURIComponent(pod)}/logs/stream?container=${encodeURIComponent(container)}`
       );
 
       eventSourceRef.current = stream;
