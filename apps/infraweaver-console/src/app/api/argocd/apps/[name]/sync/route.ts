@@ -45,10 +45,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ nam
       session.user?.email ?? "unknown",
       `app=${name} hard=${Boolean(hard)}`
     );
-    if (!res.ok) return NextResponse.json({ ok: true, mock: true });
+    if (!res.ok) return NextResponse.json({ ok: false, error: "ArgoCD unavailable" }, { status: 503 });
     invalidateArgocdCaches();
     return NextResponse.json(await res.json());
   } catch {
-    return NextResponse.json({ ok: true, mock: true });
+    return NextResponse.json({ ok: false, error: "ArgoCD unavailable" }, { status: 503 });
   }
 }

@@ -56,10 +56,7 @@ async function listExternalSecrets(customApi: k8s.CustomObjectsApi): Promise<Ext
       };
     });
   } catch {
-    return [
-      { name: "netbird-management", namespace: "netbird", targetSecret: "netbird-management-token" },
-      { name: "authentik-oauth", namespace: "authentik", targetSecret: "authentik-oauth-secret" },
-    ];
+    return [];
   }
 }
 
@@ -68,28 +65,6 @@ const deleteSchema = z.object({
   name: z.string().min(1).max(253),
 });
 
-function mockSecrets(): SecretSummary[] {
-  return sortSecrets([
-    {
-      name: "netbird-management-token",
-      namespace: "netbird",
-      type: "Opaque",
-      age: new Date(Date.now() - 6 * 3_600_000).toISOString(),
-      keyCount: 2,
-      keyNames: ["token", "account"],
-      externalSecret: "netbird/netbird-management",
-    },
-    {
-      name: "authentik-oauth-secret",
-      namespace: "authentik",
-      type: "Opaque",
-      age: new Date(Date.now() - 2 * 86_400_000).toISOString(),
-      keyCount: 3,
-      keyNames: ["client-id", "client-secret", "issuer"],
-      externalSecret: "authentik/authentik-oauth",
-    },
-  ]);
-}
 
 export async function GET(request: NextRequest) {
   const session = await requireRoutePermissions({ all: ["cluster:admin"] });
@@ -134,10 +109,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ secrets });
   } catch {
-    const secrets = namespace && namespace !== "all"
-      ? mockSecrets().filter((item) => item.namespace === namespace)
-      : mockSecrets();
-    return NextResponse.json({ secrets, live: false });
+    return NextResponse.json({ error: "Kubernetes unavailable" }, { status: 503 });
   }
 }
 
@@ -157,6 +129,6 @@ export async function DELETE(request: NextRequest) {
     await coreApi.deleteNamespacedSecret({ namespace, name });
     return NextResponse.json({ ok: true, namespace, name });
   } catch (error) {
-    return NextResponse.json({ ok: true, simulated: true, namespace, name, warning: safeError(error) });
+    return NextResponse.json({ error: safeError(error) }, { status: 502 });
   }
 }

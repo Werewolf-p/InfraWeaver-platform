@@ -113,13 +113,6 @@ export async function GET() {
     
     return NextResponse.json({ violations });
   } catch {
-    // Return mock data
-    return NextResponse.json({
-      violations: [
-        { policy: "disallow-privileged-containers", namespace: "default", resource: "nginx-pod", kind: "Pod", severity: "high", message: "Privileged container is not allowed", category: "Pod Security" },
-        { policy: "require-pod-probes", namespace: "apps-grafana", resource: "grafana-deployment", kind: "Deployment", severity: "medium", message: "Liveness probe is required", category: "Best Practices" },
-        { policy: "disallow-host-namespaces", namespace: "monitoring", resource: "node-exporter", kind: "DaemonSet", severity: "high", message: "Host namespaces are disallowed", category: "Pod Security" },
-      ],
-    });
+    return NextResponse.json({ error: "Kubernetes unavailable", violations: [] }, { status: 503 });
   }
 }

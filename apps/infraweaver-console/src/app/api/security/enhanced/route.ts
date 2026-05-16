@@ -404,57 +404,6 @@ export async function GET() {
     });
   } catch (err) {
     console.error("Enhanced security API error:", err);
-    // Return mock data so dashboard is always usable
-    return NextResponse.json({
-      overview: {
-        rootPodCount: 3,
-        privilegedCount: 1,
-        hostPathCount: 5,
-        noLimitsCount: 8,
-        secretCount: 42,
-        cmCount: 31,
-        argocdOutOfSync: 2,
-        certCount: 8,
-        certRenewalPending: 1,
-        longhornHealthy: 12,
-        longhornDegraded: 1,
-        longhornFaulted: 0,
-        metallbPoolUsed: 8,
-        metallbPoolTotal: 50,
-        nodePressureCount: 0,
-        nodeCount: 3,
-      },
-      podSecurityIssues: [
-        { pod: "wiki-js-789abc", namespace: "wiki", severity: "Warning", issues: ["container 'wiki' has no resource limits", "container 'wiki' missing readOnlyRootFilesystem"] },
-        { pod: "argocd-server-abc123", namespace: "argocd", severity: "Warning", issues: ["container 'argocd-server' allows privilege escalation"] },
-        { pod: "longhorn-manager-xyz", namespace: "longhorn-system", severity: "Critical", issues: ["container 'longhorn-manager' is privileged"] },
-      ],
-      unprotectedNamespaces: ["wiki", "catalog", "netbird"],
-      pdbList: [
-        { name: "argocd-server-pdb", namespace: "argocd", minAvailable: 1, maxUnavailable: undefined, currentHealthy: 2, desiredHealthy: 1, disruptionsAllowed: 1, expectedPods: 2 },
-        { name: "authentik-pdb", namespace: "authentik", minAvailable: 1, maxUnavailable: undefined, currentHealthy: 2, desiredHealthy: 1, disruptionsAllowed: 1, expectedPods: 2 },
-      ],
-      nodePressure: [
-        { name: "node-1", memoryPressure: false, cpuPressure: false, pidPressure: false, diskPressure: false, ready: true },
-        { name: "node-2", memoryPressure: false, cpuPressure: false, pidPressure: false, diskPressure: false, ready: true },
-        { name: "node-3", memoryPressure: false, cpuPressure: false, pidPressure: false, diskPressure: false, ready: true },
-      ],
-      externalSecrets: [
-        { name: "authentik-secret", namespace: "authentik", ready: true, lastSyncTime: new Date(Date.now() - 300000).toISOString(), targetSecret: "authentik-secret" },
-        { name: "openbao-tokens", namespace: "infraweaver-console", ready: true, lastSyncTime: new Date(Date.now() - 120000).toISOString(), targetSecret: "openbao-tokens" },
-        { name: "cloudflare-api", namespace: "cert-manager", ready: false, lastSyncTime: new Date(Date.now() - 3600000).toISOString(), targetSecret: "cloudflare-api-token" },
-      ],
-      kyvernoViolations: [
-        { name: "require-pod-probes", namespace: "apps", severity: "medium", category: "Best Practices", policy: "require-pod-probes", resource: "wiki-js-789abc", message: "Liveness probe not configured" },
-        { name: "disallow-latest-tag", namespace: "monitoring", severity: "high", category: "Best Practices", policy: "disallow-latest-tag", resource: "gatus-def123", message: "Image uses :latest tag" },
-        { name: "require-non-root", namespace: "argocd", severity: "high", category: "Pod Security", policy: "require-non-root", resource: "argocd-server-abc123", message: "runAsNonRoot not enforced" },
-      ],
-      openbaoStatus: { initialized: true, sealed: false, standby: false, version: "2.0.0", keyShares: 5, keyThreshold: 3 },
-      runningImages: [
-        { image: "argoproj/argocd:v2.12.0", vulnerable: false, cveCount: 0, severity: "unknown" },
-        { image: "ghcr.io/goauthentik/server:2024.12.0", vulnerable: false, cveCount: 0, severity: "unknown" },
-        { image: "longhornio/longhorn-manager:v1.7.2", vulnerable: false, cveCount: 0, severity: "unknown" },
-      ],
-    });
+    return NextResponse.json({ error: "Kubernetes unavailable" }, { status: 503 });
   }
 }

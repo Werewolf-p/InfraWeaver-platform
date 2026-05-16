@@ -30,13 +30,11 @@ export async function GET() {
         "Content-Disposition": "attachment; filename=cluster-state.yaml",
       },
     });
-  } catch {
-    const mockYaml = yaml.dump({ kind: "List", apiVersion: "v1", items: [] });
-    return new Response(mockYaml, {
-      headers: {
-        "Content-Type": "application/x-yaml",
-        "Content-Disposition": "attachment; filename=cluster-state.yaml",
-      },
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Kubernetes unavailable";
+    return new Response(JSON.stringify({ error: msg }), {
+      status: 503,
+      headers: { "Content-Type": "application/json" },
     });
   }
 }

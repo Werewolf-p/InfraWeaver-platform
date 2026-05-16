@@ -24,14 +24,13 @@ export function NamespaceUsage({ className }: NamespaceUsageProps) {
     queryKey: queryKeys.cluster.namespaceUsage(),
     queryFn: async () => {
       const response = await fetch("/api/cluster/namespace-usage");
-      if (!response.ok) return { namespaces: MOCK_DATA };
+      if (!response.ok) throw new Error(`Failed to load namespace usage: ${response.status}`);
       return response.json() as Promise<{ namespaces: NamespaceUsageItem[] }>;
     },
     refetchInterval: 30_000,
-    placeholderData: { namespaces: MOCK_DATA },
   });
 
-  const items = data?.namespaces ?? MOCK_DATA;
+  const items = data?.namespaces ?? [];
 
   return (
     <div className={cn("rounded-xl border border-white/10 bg-white/5 p-4", className)}>
@@ -42,6 +41,8 @@ export function NamespaceUsage({ className }: NamespaceUsageProps) {
         </div>
       ) : error ? (
         <p className="text-xs text-red-400">Failed to load namespace data</p>
+      ) : items.length === 0 ? (
+        <p className="text-xs text-white/40">No namespace data available</p>
       ) : (
         <div className="space-y-4">
           {items.map(item => (
@@ -72,8 +73,3 @@ export function NamespaceUsage({ className }: NamespaceUsageProps) {
   );
 }
 
-const MOCK_DATA: NamespaceUsageItem[] = [
-  { namespace: "default", podCount: 8, podLimit: 20, cpuUsed: 420, cpuLimit: 1000, memUsed: 512, memLimit: 1024 },
-  { namespace: "argocd", podCount: 6, podLimit: 10, cpuUsed: 280, cpuLimit: 500, memUsed: 768, memLimit: 1024 },
-  { namespace: "monitoring", podCount: 4, podLimit: 10, cpuUsed: 630, cpuLimit: 800, memUsed: 900, memLimit: 1024 },
-];

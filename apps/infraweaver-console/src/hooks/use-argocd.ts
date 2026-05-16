@@ -25,7 +25,7 @@ export interface ArgoApp {
   };
 }
 
-export type ArgoAppsDataSource = "argocd-api" | "crd" | "last-known" | "mock";
+export type ArgoAppsDataSource = "argocd-api" | "crd" | "last-known" | "unavailable";
 
 interface ArgoAppsResponse {
   apps: ArgoApp[];
@@ -33,7 +33,7 @@ interface ArgoAppsResponse {
 }
 
 function isArgoAppsDataSource(value: string | null): value is ArgoAppsDataSource {
-  return value === "argocd-api" || value === "crd" || value === "last-known" || value === "mock";
+  return value === "argocd-api" || value === "crd" || value === "last-known" || value === "unavailable";
 }
 
 async function getErrorMessage(response: Response) {

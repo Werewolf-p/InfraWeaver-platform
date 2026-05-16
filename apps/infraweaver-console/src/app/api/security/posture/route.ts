@@ -126,17 +126,6 @@ export async function GET() {
       trend: "stable",
     });
   } catch {
-    // Return mock data when K8s is not available
-    const score = 74;
-    return NextResponse.json({
-      score,
-      grade: gradeFromScore(score),
-      breakdown: {
-        pods: { rootPods: 2, privEscPods: 1, noLimitsPods: 5, totalPods: 42, deduction: 12 },
-        namespaces: { unprotected: ["default", "staging"], total: 8, deduction: 10 },
-        certs: { deduction: 0 },
-      },
-      trend: "improving",
-    });
+    return NextResponse.json({ error: "Kubernetes unavailable" }, { status: 503 });
   }
 }

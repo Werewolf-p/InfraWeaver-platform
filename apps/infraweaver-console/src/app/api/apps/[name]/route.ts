@@ -24,40 +24,6 @@ function normalize(value?: string | null) {
   return (value ?? "").toLowerCase();
 }
 
-function mockApplication(name: string) {
-  return {
-    metadata: { name, namespace: "argocd", labels: { "app.kubernetes.io/instance": name } },
-    spec: {
-      project: "platform",
-      destination: { namespace: name.replace(/^(?:catalog|platform|core)-/, "") || "default", server: "https://kubernetes.default.svc" },
-      source: {
-        repoURL: "https://github.com/Werewolf-p/InfraWeaver-platform",
-        path: `clusters/homelab/apps/${name}`,
-        targetRevision: "main",
-      },
-    },
-    status: {
-      health: { status: "Healthy" },
-      sync: { status: "Synced", revision: "main" },
-      reconciledAt: new Date().toISOString(),
-      resources: [
-        { kind: "Deployment", name, namespace: "default", status: "Synced", health: { status: "Healthy" } },
-        { kind: "Service", name, namespace: "default", status: "Synced", health: { status: "Healthy" } },
-      ],
-      history: [
-        {
-          revision: "main",
-          deployedAt: new Date().toISOString(),
-          source: {
-            repoURL: "https://github.com/Werewolf-p/InfraWeaver-platform",
-            path: `clusters/homelab/apps/${name}`,
-            targetRevision: "main",
-          },
-        },
-      ],
-    },
-  };
-}
 
 async function fetchApplication(name: string) {
   const encodedName = encodeURIComponent(name);
@@ -76,7 +42,7 @@ async function fetchApplication(name: string) {
       return (await response.json()) as Record<string, unknown>;
     }
   } catch {
-    // fall back to the cluster object
+    // fall through to CRD lookup
   }
 
   try {
@@ -91,7 +57,7 @@ async function fetchApplication(name: string) {
 
     return application as Record<string, unknown>;
   } catch {
-    return mockApplication(name) as Record<string, unknown>;
+    return null;
   }
 }
 
@@ -156,6 +122,10 @@ export async function GET(_request: Request, { params }: { params: Promise<{ nam
 
   const { name } = await params;
   const application = await fetchApplication(name);
+  if (!application) {
+    return NextResponse.json({ error: "Application not found or ArgoCD unavailable" }, { status: 503 });
+  }
+
   const app = application as {
     metadata?: { name?: string; namespace?: string };
     spec?: {

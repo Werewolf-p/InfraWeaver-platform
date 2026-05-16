@@ -918,12 +918,11 @@ function AllInstalledTab() {
         </div>
       </DashboardPanel>
 
-      {dataSource === "mock" && !argoError ? (
+      {dataSource === "unavailable" && !argoError ? (
         <div className="flex items-start gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-100">
           <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
           <div>
-            <p className="font-medium">Showing demo data — ArgoCD API unreachable.</p>
-            <p className="mt-1 text-amber-100/80">Check ARGOCD_TOKEN in cluster secrets.</p>
+            <p className="font-medium">ArgoCD unavailable — apps list cannot be loaded. Check ARGOCD_TOKEN and server connectivity.</p>
           </div>
         </div>
       ) : null}

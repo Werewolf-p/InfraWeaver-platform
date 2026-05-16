@@ -29,9 +29,6 @@ export async function GET() {
     const data = await res.json() as { repositories: string[] };
     return NextResponse.json({ repositories: data.repositories ?? [] });
   } catch {
-    return NextResponse.json({
-      repositories: ["infraweaver/console", "infraweaver/api", "homelab/nginx", "homelab/postgres"],
-      mock: true,
-    });
+    return NextResponse.json({ error: "Registry unavailable", repositories: [] }, { status: 503 });
   }
 }

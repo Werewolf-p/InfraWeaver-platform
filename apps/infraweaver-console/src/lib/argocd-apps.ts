@@ -10,7 +10,7 @@ const DEFAULT_ARGOCD_TOKEN = process.env.ARGOCD_TOKEN ?? "";
 const ARGOCD_CACHE_TTL_MS = 15_000;
 const LAST_KNOWN_APPS_TTL_MS = 600_000;
 
-export type ArgoAppsDataSource = "argocd-api" | "crd" | "last-known" | "mock";
+export type ArgoAppsDataSource = "argocd-api" | "crd" | "last-known" | "unavailable";
 
 export interface ArgoApplication {
   metadata?: { name?: string; namespace?: string; labels?: Record<string, string>; creationTimestamp?: string };
@@ -84,31 +84,6 @@ function getLastKnownApps(clusterId: string) {
   return cached.apps;
 }
 
-function buildMockApps(): ArgoApplication[] {
-  const apps = [
-    { name: "bootstrap", namespace: "argocd", project: "platform", health: "Healthy", sync: "Synced" },
-    { name: "core-argocd-manifests", namespace: "argocd", project: "platform", health: "Healthy", sync: "Synced" },
-    { name: "core-cert-manager", namespace: "cert-manager", project: "platform", health: "Healthy", sync: "Synced" },
-    { name: "core-traefik", namespace: "traefik", project: "platform", health: "Healthy", sync: "Synced" },
-    { name: "core-external-secrets-manifests", namespace: "external-secrets", project: "platform", health: "Healthy", sync: "Synced" },
-    { name: "core-longhorn", namespace: "longhorn-system", project: "platform", health: "Healthy", sync: "Synced" },
-    { name: "platform-authentik", namespace: "authentik", project: "platform", health: "Healthy", sync: "Synced" },
-    { name: "platform-netbird", namespace: "netbird", project: "platform", health: "Healthy", sync: "Synced" },
-    { name: "apps-netbird", namespace: "netbird", project: "platform", health: "Healthy", sync: "Synced" },
-    { name: "platform-grafana", namespace: "grafana", project: "platform", health: "Healthy", sync: "Synced" },
-    { name: "catalog-gatus-manifests", namespace: "gatus", project: "platform", health: "Healthy", sync: "Synced" },
-  ];
-
-  return apps.map((app) => ({
-    metadata: { name: app.name, namespace: app.namespace, labels: {} },
-    spec: { destination: { namespace: app.namespace, server: "https://kubernetes.default.svc" }, project: app.project },
-    status: {
-      health: { status: app.health },
-      sync: { status: app.sync },
-      summary: { images: [] },
-    },
-  }));
-}
 
 async function listApplicationCrds(clusterId?: string) {
   try {
@@ -164,8 +139,8 @@ async function fetchArgocdAppsUncached(clusterId?: string): Promise<ArgocdAppsFe
   }
 
   return {
-    apps: rememberApps(connection.clusterId, buildMockApps()),
-    dataSource: "mock",
+    apps: [],
+    dataSource: "unavailable",
   };
 }
 

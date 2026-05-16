@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
     if (!listRes.ok) {
       const error = `Failed to list apps: ${listRes.status}`;
       await auditLog("argocd:sync-all", session.user?.email ?? "unknown", `synced=0 errors=1 fallback=${error}`);
-      return NextResponse.json({ synced: [], errors: [error], total: 0, mock: true });
+      return NextResponse.json({ error: "ArgoCD unavailable", synced: [], errors: [error], total: 0 }, { status: 503 });
     }
     const data = await listRes.json() as { items?: Array<{ metadata: { name: string }; status: { sync: { status: string } } }> };
     const apps = data.items ?? [];

@@ -50,20 +50,13 @@ function toPeer(entry: unknown): NetBirdPeer {
   };
 }
 
-function mockPeers(): NetBirdPeer[] {
-  return [
-    { id: "peer-1", name: "talos-prod-cp1", ip: "100.64.0.11", connected: true, lastSeen: new Date().toISOString(), groups: ["k8s", "control-plane"], os: "Talos Linux" },
-    { id: "peer-2", name: "talos-prod-cp2", ip: "100.64.0.12", connected: true, lastSeen: new Date(Date.now() - 5 * 60_000).toISOString(), groups: ["k8s", "control-plane"], os: "Talos Linux" },
-    { id: "peer-3", name: "workstation", ip: "100.64.0.42", connected: false, lastSeen: new Date(Date.now() - 3_600_000).toISOString(), groups: ["admin"], os: "macOS" },
-  ];
-}
 
 export async function GET() {
   const session = await requireRoutePermissions({ any: ["infra:read", "cluster:admin"] });
   if (session instanceof NextResponse) return session;
 
   if (!NETBIRD_MANAGEMENT_TOKEN) {
-    return NextResponse.json(mockPeers());
+    return NextResponse.json({ error: "NetBird token not configured" }, { status: 503 });
   }
 
   try {
@@ -88,6 +81,6 @@ export async function GET() {
 
     return NextResponse.json(peers.map((peer) => toPeer(peer)));
   } catch {
-    return NextResponse.json(mockPeers());
+    return NextResponse.json({ error: "NetBird unavailable" }, { status: 503 });
   }
 }

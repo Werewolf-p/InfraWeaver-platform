@@ -21,15 +21,6 @@ interface PaginatedPodsResponse {
   total: number;
 }
 
-const mockPods: PodListItem[] = [
-  { name: "argocd-server-abc123", namespace: "argocd", status: "Running", containers: ["argocd-server"], nodeName: "node-1", createdAt: new Date().toISOString(), restartCount: 0 },
-  { name: "argocd-repo-server-def456", namespace: "argocd", status: "Running", containers: ["argocd-repo-server", "cmp-plugin"], nodeName: "node-1", createdAt: new Date().toISOString(), restartCount: 1 },
-  { name: "wiki-js-789abc", namespace: "wiki", status: "Running", containers: ["wiki"], nodeName: "node-2", createdAt: new Date(Date.now() - 7_200_000).toISOString(), restartCount: 0 },
-  { name: "gatus-def123", namespace: "monitoring", status: "Pending", containers: ["gatus"], nodeName: "node-1", createdAt: new Date(Date.now() - 300_000).toISOString(), restartCount: 0 },
-  { name: "longhorn-manager-xyz", namespace: "longhorn-system", status: "Failed", containers: ["longhorn-manager"], nodeName: "node-2", createdAt: new Date(Date.now() - 86_400_000).toISOString(), restartCount: 8 },
-  { name: "netbird-abc789", namespace: "netbird", status: "CrashLoopBackOff", containers: ["management", "signal"], nodeName: "node-1", createdAt: new Date(Date.now() - 5_400_000).toISOString(), restartCount: 24 },
-];
-
 function normalizeNamespace(namespace: string | null) {
   return namespace && namespace !== "all" ? namespace : undefined;
 }
@@ -95,17 +86,6 @@ async function listPaginatedPods(coreApi: k8s.CoreV1Api, namespace: string | und
   };
 }
 
-function paginateMockPods(namespace: string | undefined, page: number, limit: number): PaginatedPodsResponse {
-  const filtered = namespace ? mockPods.filter((pod) => pod.namespace === namespace) : mockPods;
-  const total = filtered.length;
-  const offset = (page - 1) * limit;
-  return {
-    pods: filtered.slice(offset, offset + limit),
-    total,
-    page,
-    pages: Math.max(1, Math.ceil(total / limit)),
-  };
-}
 
 export async function GET(req: NextRequest) {
   const session = await auth();
@@ -129,10 +109,6 @@ export async function GET(req: NextRequest) {
     }
     return NextResponse.json(await listAllPods(coreApi, namespace));
   } catch {
-    if (isPaginated) {
-      return NextResponse.json(paginateMockPods(namespace, page, limit));
-    }
-    const filtered = namespace ? mockPods.filter((pod) => pod.namespace === namespace) : mockPods;
-    return NextResponse.json(filtered);
+    return NextResponse.json({ error: "Kubernetes unavailable" }, { status: 503 });
   }
 }
