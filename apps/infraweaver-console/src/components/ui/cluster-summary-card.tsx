@@ -1,6 +1,7 @@
 "use client";
-import { CheckCircle2, AlertTriangle, WifiOff, HelpCircle, Server } from "lucide-react";
+import { CheckCircle2, AlertTriangle, WifiOff, HelpCircle, Server, Box } from "lucide-react";
 import { type ClusterInfo, useCluster } from "@/contexts/cluster-context";
+import { useQuery } from "@tanstack/react-query";
 
 function StatusIcon({ status }: { status: ClusterInfo["status"] }) {
   if (status === "healthy") return <CheckCircle2 className="h-4 w-4 text-emerald-400" />;
@@ -9,8 +10,55 @@ function StatusIcon({ status }: { status: ClusterInfo["status"] }) {
   return <HelpCircle className="h-4 w-4 text-[#555]" />;
 }
 
+interface ClusterStats {
+  apps: { total: number; healthy: number } | null;
+  pods: { total: number; running: number } | null;
+}
+
+function useClusterStats(clusterId: string): { data: ClusterStats | null; isLoading: boolean } {
+  const appsQuery = useQuery({
+    queryKey: ["clusters", clusterId, "apps-summary"],
+    queryFn: async () => {
+      const res = await fetch(`/api/argocd/apps?clusterId=${encodeURIComponent(clusterId)}`);
+      if (!res.ok) return null;
+      const list = await res.json() as Array<{ status: { health: { status: string } } }>;
+      return {
+        total: list.length,
+        healthy: list.filter((a) => a.status.health.status === "Healthy").length,
+      };
+    },
+    staleTime: 60_000,
+    retry: false,
+  });
+
+  const podsQuery = useQuery({
+    queryKey: ["clusters", clusterId, "pods-summary"],
+    queryFn: async () => {
+      const res = await fetch(`/api/pods?clusterId=${encodeURIComponent(clusterId)}`);
+      if (!res.ok) return null;
+      const list = await res.json() as Array<{ status: string }>;
+      return {
+        total: list.length,
+        running: list.filter((p) => p.status === "Running").length,
+      };
+    },
+    staleTime: 60_000,
+    retry: false,
+  });
+
+  return {
+    data: {
+      apps: appsQuery.data ?? null,
+      pods: podsQuery.data ?? null,
+    },
+    isLoading: appsQuery.isLoading || podsQuery.isLoading,
+  };
+}
+
 export function ClusterSummaryCard({ cluster }: { cluster: ClusterInfo }) {
   const { setActiveId } = useCluster();
+  const { data: stats, isLoading: statsLoading } = useClusterStats(cluster.id);
+
   return (
     <button
       onClick={() => setActiveId(cluster.id)}
@@ -28,6 +76,33 @@ export function ClusterSummaryCard({ cluster }: { cluster: ClusterInfo }) {
         </div>
         <StatusIcon status={cluster.status} />
       </div>
+
+      {/* Per-cluster stats */}
+      {cluster.status !== "offline" && (
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-1.5">
+            <CheckCircle2 className="h-3 w-3 text-emerald-400/60" />
+            {statsLoading ? (
+              <span className="text-[11px] text-[#555]">…</span>
+            ) : stats?.apps ? (
+              <span className="text-[11px] text-[#888]">{stats.apps.healthy}/{stats.apps.total} apps</span>
+            ) : (
+              <span className="text-[11px] text-[#444]">apps n/a</span>
+            )}
+          </div>
+          <div className="flex items-center gap-1.5">
+            <Box className="h-3 w-3 text-[#60a5fa]/60" />
+            {statsLoading ? (
+              <span className="text-[11px] text-[#555]">…</span>
+            ) : stats?.pods ? (
+              <span className="text-[11px] text-[#888]">{stats.pods.running}/{stats.pods.total} pods</span>
+            ) : (
+              <span className="text-[11px] text-[#444]">pods n/a</span>
+            )}
+          </div>
+        </div>
+      )}
+
       {cluster.tags.length > 0 && (
         <div className="flex flex-wrap gap-1">
           {cluster.tags.map(tag => (

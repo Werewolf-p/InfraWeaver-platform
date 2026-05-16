@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { loadAckedEventIds, saveAckedEventIds, subscribeAckedEventIds } from "@/lib/event-ack";
 import { NOTIFICATION_PUSH_EVENT, type NotificationPushDetail } from "@/lib/notify";
 
@@ -71,6 +71,14 @@ export function useNotifications() {
   const [ackedIds, setAckedIds] = useState<string[]>(() => loadAckedEventIds());
   const [serverNotifications, setServerNotifications] = useState<Notification[]>([]);
 
+  // Keep a ref to dismissedIds so the polling effect doesn't need it as a
+  // dependency (store.dismissedIds is a new array reference on every store
+  // update, which would restart the 60-second interval on every notification push).
+  const dismissedIdsRef = useRef(store.dismissedIds);
+  useEffect(() => {
+    dismissedIdsRef.current = store.dismissedIds;
+  }, [store.dismissedIds]);
+
   useEffect(() => subscribeAckedEventIds(() => setAckedIds(loadAckedEventIds())), []);
 
   // Listen for toast events dispatched by lib/notify.ts so every toast
@@ -114,7 +122,7 @@ export function useNotifications() {
         const remote = (payload.notifications ?? [])
           .map(normalizeNotification)
           .filter((notification): notification is Notification => Boolean(notification))
-          .filter((notification) => !store.dismissedIds.includes(notification.id))
+          .filter((notification) => !dismissedIdsRef.current.includes(notification.id))
           .map((notification) => ({
             ...notification,
             read: notification.read || ackedIds.includes(notification.id),
@@ -131,7 +139,7 @@ export function useNotifications() {
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [ackedIds, store.dismissedIds]);
+    }, [ackedIds]); // dismissedIds read via ref to avoid restarting interval on every push
 
   const addNotification = useCallback(
     (title: string, level: NotificationLevel = "info", body?: string) => {

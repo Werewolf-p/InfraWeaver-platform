@@ -83,8 +83,15 @@ export function getActiveClusterIdFromCookieValue(value?: string | null) {
 /**
  * Reads the active cluster ID from the request cookie.
  * Falls back to the default cluster ID if cookie is absent or invalid.
+ * Also supports an explicit ?clusterId= query parameter (for aggregate/multi-cluster
+ * fetch patterns like the "All Clusters" summary view). The query param takes priority
+ * over the cookie, but only if the cluster ID is valid (exists in CLUSTER_CONTEXTS).
  * Use in every API route that touches a cluster-specific resource.
  */
 export function getRequestClusterId(request: import("next/server").NextRequest): string {
+  const queryClusterId = request.nextUrl.searchParams.get("clusterId");
+  if (queryClusterId && getClusterConfig(queryClusterId)) {
+    return queryClusterId;
+  }
   return getActiveClusterIdFromCookieValue(request.cookies.get(ACTIVE_CLUSTER_COOKIE)?.value);
 }

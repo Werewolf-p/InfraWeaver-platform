@@ -212,6 +212,10 @@ export default function NewGameServerPage() {
     return worst;
   }, null) ?? null;
 
+  // Use activeEggKey (string ID) as the sole trigger — the activeEgg object itself
+  // can be a new reference on re-renders (React Query or find() returning same data),
+  // which would cause an infinite setState loop (React error #185) if used as a dep.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!activeEgg || !activeEggKey) return;
     setEnvValues(Object.fromEntries(activeEgg.environment.map((entry) => [entry.name, entry.defaultValue])));
@@ -222,7 +226,7 @@ export default function NewGameServerPage() {
     setSelectedDockerImage(null);
     setEulaAccepted(false);
     setEnvErrors({});
-  }, [activeEgg, activeEggKey]);
+  }, [activeEggKey]); // intentionally omitting activeEgg — key change implies egg change
 
   useEffect(() => {
     if (dnsType === "custom") return; // let the user type freely

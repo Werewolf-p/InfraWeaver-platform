@@ -11,7 +11,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import Link from "next/link";
 import {
   X, AlertTriangle, MoreHorizontal, Search, Clock,
-  ChevronDown, ChevronRight, ChevronUp, Settings, LogOut,
+  ChevronDown, ChevronRight, ChevronUp, Settings, LogOut, Server,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
@@ -26,6 +26,8 @@ import { useRBAC } from "@/hooks/use-rbac";
 import { filterNavGroupsByAddons } from "@/lib/addons";
 import { filterNavGroupsByPermissions } from "@/lib/navigation-rbac";
 import { PullToRefresh } from "@/components/ui/pull-to-refresh";
+import { useCluster } from "@/contexts/cluster-context";
+import { ClusterSelector } from "@/components/layout/cluster-selector";
 
 // ── Section accent colors (Iter 3: colored group identifiers) ─────────────────
 const GROUP_ACCENT: Record<string, string> = {
@@ -122,6 +124,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [drawerSearch, setDrawerSearch] = useState("");
   const { addons } = useAddons();
   const { permissions, assignments } = useRBAC();
+  const { activeId, activeCluster, clusters } = useCluster();
   const gotoTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingGotoRef = useRef(false);
 
@@ -616,6 +619,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
               {/* ── ITER 5: Footer — user profile + quick actions ── */}
               <div className="flex-shrink-0 border-t border-[#1e1e1e]" style={{ paddingBottom: "calc(env(safe-area-inset-bottom,0px) + 6px)" }}>
+                {/* Cluster switcher — only shown when multiple clusters are configured */}
+                {clusters.length > 1 && (
+                  <div className="px-4 pt-3 pb-1">
+                    <p className="text-[9px] font-semibold uppercase tracking-widest text-[#444] mb-1.5">Active Cluster</p>
+                    <ClusterSelector />
+                  </div>
+                )}
                 {/* User row */}
                 <Link href="/profile" onClick={() => { setMobileOpen(false); setDrawerSearch(""); }}>
                   <div className="flex items-center gap-3 px-4 py-3 hover:bg-[#181818] transition-colors touch-manipulation">
@@ -672,6 +682,22 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <TopBar onMenuClick={() => setMobileOpen(true)} onSearchClick={() => setSearchOpen(true)} />
         <StatusBar />
         <Breadcrumb className="hidden sm:flex" />
+        {/* Cluster context banner — only shown when a non-primary cluster is active or "all" mode */}
+        {(activeId === "all" || (clusters.length > 1 && activeCluster)) && (
+          <div className={cn(
+            "flex items-center gap-2 px-3 py-1.5 text-xs border-b",
+            activeId === "all"
+              ? "border-blue-500/20 bg-blue-500/8 text-blue-300"
+              : "border-amber-500/20 bg-amber-500/8 text-amber-300",
+          )}>
+            <Server className="h-3 w-3 flex-shrink-0" />
+            {activeId === "all" ? (
+              <span>Viewing <strong>all {clusters.length} clusters</strong> — select a cluster from the top bar to manage it</span>
+            ) : (
+              <span>Managing cluster: <strong>{activeCluster!.name}</strong>{activeCluster!.description ? ` — ${activeCluster!.description}` : ""}</span>
+            )}
+          </div>
+        )}
         <div className="hidden xl:flex items-center justify-between gap-3 border-b border-[#1e1e1e] bg-[#101010] px-6 py-2">
           <div className="flex min-w-0 items-center gap-2">
             <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#555]">Recent</span>

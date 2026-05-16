@@ -83,11 +83,12 @@ export function ClusterProvider({ children }: { children: React.ReactNode }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // If the stored cluster no longer exists, fall back to local
+  // If the stored cluster no longer exists in the configured list, fall back to the
+  // first available cluster (not hardcoded "local", which may not exist).
   useEffect(() => {
     if (!isLoading && clusters.length > 0 && activeId !== "all") {
       const exists = clusters.some((c) => c.id === activeId);
-      if (!exists) setActiveId("local");
+      if (!exists) setActiveId(clusters[0]!.id);
     }
   }, [clusters, isLoading, activeId, setActiveId]);
 
