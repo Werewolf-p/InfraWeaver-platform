@@ -38,7 +38,7 @@ export function ClusterSelector({ popupDirection = "down" }: { popupDirection?: 
       <button
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          "flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors",
+          "flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors touch-manipulation",
           open
             ? "border-[#3b82f6]/50 bg-[#3b82f6]/10 text-[#7cb9ff]"
             : "border-[#2a2a2a] bg-[#1a1a1a] text-[#9e9e9e] hover:border-[#444] hover:text-[#f2f2f2]",
@@ -122,7 +122,7 @@ function ClusterOption({
     <button
       onClick={() => onSelect(id)}
       className={cn(
-        "flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors",
+        "flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors touch-manipulation",
         active
           ? "bg-[#3b82f6]/15 text-[#f2f2f2]"
           : "text-[#ccc] hover:bg-[#2a2a2a] hover:text-[#f2f2f2]",
