@@ -1,6 +1,6 @@
 "use client";
 
-import { motion, useMotionValue, animate } from "framer-motion";
+import { motion, useMotionValue, useTransform, animate, type Variants } from "framer-motion";
 import { useArgoApps } from "@/hooks/use-argocd";
 import { usePlatformApps } from "@/hooks/use-platform-apps";
 import {
@@ -20,12 +20,16 @@ import { PageHeader } from "@/components/ui/page-header";
 import { ClusterSummaryCard } from "@/components/ui/cluster-summary-card";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { useCluster } from "@/contexts/cluster-context";
+import { staggerContainer, staggerItem } from "@/lib/spring";
 
-const container = {
+const dashboardContainer: Variants = {
   hidden: { opacity: 0 },
-  show: { opacity: 1, transition: { staggerChildren: 0.06 } },
+  show: { opacity: 1, transition: { staggerChildren: 0.04, delayChildren: 0.05 } },
 };
-const item = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } };
+const dashboardItem: Variants = {
+  hidden: { opacity: 0, y: 16 },
+  show: { opacity: 1, y: 0, transition: { type: "spring" as const, stiffness: 260, damping: 24, mass: 1 } },
+};
 
 function AnimatedNumber({ value }: { value: number }) {
   const motionVal = useMotionValue(0);
@@ -33,8 +37,10 @@ function AnimatedNumber({ value }: { value: number }) {
 
   useEffect(() => {
     const controls = animate(motionVal, value, {
-      duration: 0.8,
-      ease: "easeOut",
+      type: "spring",
+      stiffness: 260,
+      damping: 24,
+      mass: 1,
       onUpdate: (v) => setDisplay(Math.round(v)),
     });
     return controls.stop;
@@ -53,8 +59,8 @@ function KpiCard({ title, value, subtitle, icon: Icon, accent, trend }: {
 }) {
   return (
     <motion.div
-      variants={item}
-      whileHover={{ borderColor: "rgba(0,120,212,0.4)" }}
+      variants={dashboardItem}
+      whileHover={{ y: -2, borderColor: "rgba(0,120,212,0.3)" }}
       className="relative overflow-hidden rounded-2xl border border-[#2a2a2a] bg-[var(--surface-1,#1a1a1a)] p-4 touch-manipulation transition-transform active:scale-[0.98]"
     >
       <div className="mb-3 flex items-start justify-between">
@@ -88,12 +94,41 @@ function QuickAction({ icon: Icon, label, onClick, href, accent = "bg-[#1a1a1a] 
   accent?: string;
   loading?: boolean;
 }) {
+  const ref = useRef<HTMLElement | null>(null);
+  const x = useMotionValue(0);
+  const y = useMotionValue(0);
+  const rotateX = useTransform(y, [-20, 20], [4, -4]);
+  const rotateY = useTransform(x, [-20, 20], [-4, 4]);
+
+  function handleMouseMove(e: React.MouseEvent) {
+    const rect = ref.current?.getBoundingClientRect();
+    if (!rect) return;
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    x.set((e.clientX - cx) * 0.3);
+    y.set((e.clientY - cy) * 0.3);
+  }
+
+  function handleMouseLeave() {
+    x.set(0);
+    y.set(0);
+  }
+
   const cls = cn(
     "flex min-h-[56px] flex-col items-center justify-center gap-1.5 rounded-2xl border px-3 py-3",
-    "text-xs font-medium text-[#9e9e9e] transition-all touch-manipulation",
+    "text-xs font-medium text-[#9e9e9e] touch-manipulation",
     "hover:text-white active:scale-95",
     accent,
   );
+  const motionProps = {
+    style: { rotateX, rotateY, transformPerspective: 400 },
+    whileHover: { scale: 1.03, borderColor: "rgba(0,120,212,0.4)" },
+    whileTap: { scale: 0.96 },
+    transition: { type: "spring" as const, stiffness: 400, damping: 28, mass: 0.8 },
+    onMouseMove: handleMouseMove,
+    onMouseLeave: handleMouseLeave,
+  };
+
   const content = (
     <>
       {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Icon className="h-5 w-5" />}
@@ -101,8 +136,21 @@ function QuickAction({ icon: Icon, label, onClick, href, accent = "bg-[#1a1a1a] 
     </>
   );
 
-  if (href) return <Link href={href} className={cls}>{content}</Link>;
-  return <button type="button" onClick={onClick} className={cls} disabled={loading}>{content}</button>;
+  if (href) {
+    return (
+      <Link href={href}>
+        <motion.div ref={(node) => { ref.current = node; }} {...motionProps} className={cls}>
+          {content}
+        </motion.div>
+      </Link>
+    );
+  }
+
+  return (
+    <motion.button ref={(node) => { ref.current = node; }} type="button" onClick={onClick} {...motionProps} className={cls} disabled={loading}>
+      {content}
+    </motion.button>
+  );
 }
 
 function AppHealthChip({ name, health }: { name: string; health: string }) {
@@ -111,18 +159,23 @@ function AppHealthChip({ name, health }: { name: string; health: string }) {
 
   return (
     <Link href={`/apps/${name}`}>
-      <div className={cn(
-        "flex min-h-[32px] items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-medium transition-all touch-manipulation active:scale-95",
-        isHealthy ? "border-green-500/20 bg-green-500/10 text-green-400"
-          : isDegraded ? "border-red-500/20 bg-red-500/10 text-red-400"
-            : "border-amber-500/20 bg-amber-500/10 text-amber-400",
-      )}>
+      <motion.div
+        whileHover={{ y: -1, scale: 1.02 }}
+        whileTap={{ scale: 0.97 }}
+        transition={{ type: "spring", stiffness: 600, damping: 30, mass: 0.5 }}
+        className={cn(
+          "flex min-h-[32px] items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-medium touch-manipulation",
+          isHealthy ? "border-green-500/20 bg-green-500/10 text-green-400"
+            : isDegraded ? "border-red-500/20 bg-red-500/10 text-red-400"
+              : "border-amber-500/20 bg-amber-500/10 text-amber-400",
+        )}
+      >
         <span className={cn(
           "h-1.5 w-1.5 flex-shrink-0 rounded-full",
           isHealthy ? "bg-green-400" : isDegraded ? "bg-red-400" : "bg-amber-400",
         )} />
         {name}
-      </div>
+      </motion.div>
     </Link>
   );
 }
@@ -170,7 +223,7 @@ function PlatformServiceCard({ name, description, href, icon: Icon, status, exte
 
   return (
     <motion.div
-      variants={item}
+      variants={dashboardItem}
       whileHover={{ borderColor: "rgba(0,120,212,0.4)" }}
       className="flex flex-col rounded-2xl border border-[#2a2a2a] bg-[var(--surface-1,#1a1a1a)] p-4 touch-manipulation transition-transform active:scale-[0.98]"
     >
@@ -338,7 +391,7 @@ export default function DashboardPage() {
       ) : null}
 
       <motion.div
-        variants={container}
+        variants={dashboardContainer}
         initial="hidden"
         animate="show"
         className="mb-5 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3"
@@ -403,14 +456,16 @@ export default function DashboardPage() {
           ) : (
             <div
               ref={scrollRef}
-              className="flex snap-x gap-2 overflow-x-auto pb-1 scroll-smooth"
+              className="overflow-x-auto pb-1 scroll-smooth"
               style={{ WebkitOverflowScrolling: "touch" }}
             >
-              {appHealthChips.map((chip) => (
-                <div key={chip.name} className="snap-start flex-shrink-0">
-                  <AppHealthChip name={chip.name} health={chip.health} />
-                </div>
-              ))}
+              <motion.div className="flex snap-x gap-2 pb-1" variants={staggerContainer} initial="hidden" animate="show" style={{ width: "max-content" }}>
+                {appHealthChips.map((chip) => (
+                  <motion.div key={chip.name} className="snap-start flex-shrink-0" variants={staggerItem}>
+                    <AppHealthChip name={chip.name} health={chip.health} />
+                  </motion.div>
+                ))}
+              </motion.div>
             </div>
           )}
         </div>
@@ -496,7 +551,7 @@ export default function DashboardPage() {
         </div>
 
         <motion.div
-          variants={container}
+          variants={dashboardContainer}
           initial="hidden"
           animate="show"
           className="grid grid-cols-2 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4"
