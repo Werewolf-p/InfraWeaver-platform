@@ -1,0 +1,14 @@
+# Community app installed from Unraid AppFeed
+# Source: ghcr.io/homarr-labs/homarr:latest
+name: homarr
+description: "DESCRIPTION A sleek, modern dashboard that puts all of your apps and services at your fingertips. Control everything in one convenient location. Seamlessly integrates with the apps you've added, provi"
+namespace: homarr
+source: community-apps
+tier: simple
+image: ghcr.io/homarr-labs/homarr:latest
+categories:
+  - "Tools-Utilities"
+  - "Network-Other"
+ingressroute:
+  host: homarr.int.rlservers.com
+installed_at: 2026-05-16T21:35:01.382Z
