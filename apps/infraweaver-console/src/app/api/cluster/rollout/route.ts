@@ -4,6 +4,9 @@ import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac"
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { auditLog } from "@/lib/audit-log";
 import * as k8s from "@kubernetes/client-node";
+import { z } from "zod";
+
+const rolloutBodySchema = z.object({}).strict();
 
 export async function POST(req: NextRequest) {
   const session = await auth();
@@ -15,6 +18,20 @@ export async function POST(req: NextRequest) {
 
   if (!checkRateLimit(rateLimitKey("cluster-rollout", req), 5, 60_000)) {
     return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
+  }
+
+  const rawBody = await req.text();
+  let body: unknown = {};
+  if (rawBody.trim()) {
+    try {
+      body = JSON.parse(rawBody);
+    } catch {
+      body = null;
+    }
+  }
+  const result = rolloutBodySchema.safeParse(body);
+  if (!result.success) {
+    return NextResponse.json({ error: "Validation failed", details: result.error.flatten() }, { status: 400 });
   }
 
   try {

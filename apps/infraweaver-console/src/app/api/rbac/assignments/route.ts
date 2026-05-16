@@ -6,8 +6,20 @@ import { getSessionRBACContext, hasAnySessionPermission } from "@/lib/session-rb
 import { safeError } from "@/lib/utils";
 import { loadUsersConfig, normalizeRoleAssignments, saveUsersConfig } from "@/lib/users-config";
 import { randomUUID } from "crypto";
+import { z } from "zod";
 
 const SAFE_SCOPE_RE = /^\/(|[a-z0-9/_-]+)$/;
+const assignmentBodySchema = z.object({
+  username: z.string().min(1).max(100),
+  roleId: z.string().min(1).max(100),
+  scope: z.string().min(1).max(200),
+  principalType: z.enum(["user", "group"]).optional(),
+  expiresAt: z.string().max(100).optional(),
+}).strict();
+const revokeAssignmentBodySchema = z.object({
+  id: z.string().min(1).max(100),
+  username: z.string().min(1).max(100),
+}).strict();
 
 export async function GET() {
   const session = await auth();
@@ -40,8 +52,12 @@ export async function POST(req: NextRequest) {
   const access = await getSessionRBACContext(session, 60);
   if (!hasAnySessionPermission(access, ["users:write", "rbac:admin"])) return NextResponse.json({ error: "Forbidden: admin required" }, { status: 403 });
 
-  const body = await req.json() as { username: string; roleId: string; scope: string; principalType?: "user" | "group"; expiresAt?: string };
-  if (!body.username || !body.roleId || !body.scope) return NextResponse.json({ error: "username, roleId, scope required" }, { status: 400 });
+  const result = assignmentBodySchema.safeParse(await req.json().catch(() => null));
+  if (!result.success) {
+    return NextResponse.json({ error: "Validation failed", details: result.error.flatten() }, { status: 400 });
+  }
+
+  const body = result.data;
   if (!SAFE_SCOPE_RE.test(body.scope)) return NextResponse.json({ error: "Invalid scope" }, { status: 400 });
   if (!getBuiltInRoles().some((role) => role.id === body.roleId)) return NextResponse.json({ error: "Unknown role" }, { status: 400 });
 
@@ -78,8 +94,12 @@ export async function DELETE(req: NextRequest) {
   const access = await getSessionRBACContext(session, 60);
   if (!hasAnySessionPermission(access, ["users:write", "rbac:admin"])) return NextResponse.json({ error: "Forbidden: admin required" }, { status: 403 });
 
-  const { id, username } = await req.json() as { id: string; username: string };
-  if (!id || !username) return NextResponse.json({ error: "id and username required" }, { status: 400 });
+  const result = revokeAssignmentBodySchema.safeParse(await req.json().catch(() => null));
+  if (!result.success) {
+    return NextResponse.json({ error: "Validation failed", details: result.error.flatten() }, { status: 400 });
+  }
+
+  const { id, username } = result.data;
 
   try {
     const file = await loadUsersConfig();

@@ -1,17 +1,18 @@
 "use client";
-import { useEffect } from "react";
-import { AlertTriangle, RefreshCw } from "lucide-react";
 
-interface ErrorPageProps {
+import Link from "next/link";
+import { useEffect } from "react";
+import { AlertTriangle, Home, RefreshCw } from "lucide-react";
+
+interface DashboardErrorProps {
   error: Error & { digest?: string };
   reset: () => void;
 }
 
-export default function ErrorPage({ error, reset }: ErrorPageProps) {
+export default function DashboardError({ error, reset }: DashboardErrorProps) {
   const requestId = error.digest ?? `err_${Date.now().toString(36)}`;
 
   useEffect(() => {
-    // ChunkLoadError means stale JS chunks after a new deploy — hard reload recovers
     if (error.name === "ChunkLoadError" || error.message?.includes("Loading chunk")) {
       window.location.reload();
       return;
@@ -37,13 +38,22 @@ export default function ErrorPage({ error, reset }: ErrorPageProps) {
         <p className="mt-2 text-white/60">{error.message}</p>
         <p className="mt-1 font-mono text-xs text-white/40">Request ID: {requestId}</p>
       </div>
-      <button
-        onClick={reset}
-        className="inline-flex items-center gap-2 rounded-xl bg-[#0078D4] px-6 py-3 font-medium text-white transition-colors hover:bg-[#1a86d9]"
-      >
-        <RefreshCw className="h-4 w-4" />
-        Try again
-      </button>
+      <div className="flex flex-wrap items-center justify-center gap-3">
+        <button
+          onClick={reset}
+          className="inline-flex items-center gap-2 rounded-xl bg-[#0078D4] px-6 py-3 font-medium text-white transition-colors hover:bg-[#1a86d9]"
+        >
+          <RefreshCw className="h-4 w-4" />
+          Try again
+        </button>
+        <Link
+          href="/home"
+          className="inline-flex items-center gap-2 rounded-xl border border-white/10 px-6 py-3 font-medium text-white transition-colors hover:bg-white/5"
+        >
+          <Home className="h-4 w-4" />
+          Go home
+        </Link>
+      </div>
     </div>
   );
 }

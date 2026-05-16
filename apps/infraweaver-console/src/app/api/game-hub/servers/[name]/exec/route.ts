@@ -6,8 +6,15 @@ import { getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
 import { isServerStartingError, makeGameHubClients, runServerCommand } from "@/lib/game-hub-server";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { safeError } from "@/lib/utils";
+import { z } from "zod";
 
 const MAX_COMMAND_LENGTH = 512;
+const execBodySchema = z.object({
+  command: z.union([
+    z.string().min(1).max(500),
+    z.array(z.string().min(1).max(200)).min(1).max(20),
+  ]),
+}).strict();
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ name: string }> }) {
   if (!checkRateLimit(rateLimitKey("game-hub-exec", req), 20, 60_000)) {
@@ -24,8 +31,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ nam
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const body = await req.json() as { command?: string };
-  const sanitized = sanitizeConsoleCommand(body.command ?? "");
+  const result = execBodySchema.safeParse(await req.json().catch(() => null));
+  if (!result.success) {
+    return NextResponse.json({ error: "Validation failed", details: result.error.flatten() }, { status: 400 });
+  }
+
+  const rawCommand = Array.isArray(result.data.command) ? result.data.command.join(" ") : result.data.command;
+  const sanitized = sanitizeConsoleCommand(rawCommand);
   if (!sanitized.ok) return NextResponse.json({ error: sanitized.error }, { status: 400 });
   const command = sanitized.value;
   if (command.length > MAX_COMMAND_LENGTH) {
@@ -34,9 +46,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ nam
 
   try {
     const clients = makeGameHubClients();
-    const result = await runServerCommand(clients, name, command);
+    const commandResult = await runServerCommand(clients, name, command);
     await auditLog("game-hub:exec", session.user?.email ?? "unknown", `${name} — ${command}`);
-    return NextResponse.json({ stdout: result.stdout, stderr: result.stderr, method: result.method });
+    return NextResponse.json({ stdout: commandResult.stdout, stderr: commandResult.stderr, method: commandResult.method });
   } catch (error) {
     console.error("exec route failed", error);
     if (isServerStartingError(error)) {

@@ -5,8 +5,12 @@ import { auditLog, auditUnauthorizedAccess } from "@/lib/audit-log";
 import { getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
 import { makeGameHubClients, runServerCommand } from "@/lib/game-hub-server";
 import { safeError } from "@/lib/utils";
+import { z } from "zod";
 
 const MAX_COMMAND_LENGTH = 512;
+const rconBodySchema = z.object({
+  command: z.string().min(1).max(500),
+}).strict();
 
 export async function POST(
   req: NextRequest,
@@ -30,8 +34,12 @@ export async function POST(
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const body = (await req.json()) as { command?: string };
-  const sanitized = sanitizeConsoleCommand(body.command ?? "");
+  const result = rconBodySchema.safeParse(await req.json().catch(() => null));
+  if (!result.success) {
+    return NextResponse.json({ error: "Validation failed", details: result.error.flatten() }, { status: 400 });
+  }
+
+  const sanitized = sanitizeConsoleCommand(result.data.command);
   if (!sanitized.ok) return NextResponse.json({ error: sanitized.error }, { status: 400 });
   const input = sanitized.value;
   if (input.length > MAX_COMMAND_LENGTH) {
@@ -43,12 +51,12 @@ export async function POST(
 
   try {
     const clients = makeGameHubClients();
-    const result = await runServerCommand(clients, name, input);
+    const commandResult = await runServerCommand(clients, name, input);
     await auditLog("game-hub:rcon", session.user?.email ?? "unknown", `${name} — ${input}`);
 
     return NextResponse.json({
-      output: result.stdout.trim() || result.stderr.trim(),
-      ...(result.stderr.trim() ? { error: result.stderr.trim() } : {}),
+      output: commandResult.stdout.trim() || commandResult.stderr.trim(),
+      ...(commandResult.stderr.trim() ? { error: commandResult.stderr.trim() } : {}),
     });
   } catch (error) {
     console.error("rcon route failed", error);

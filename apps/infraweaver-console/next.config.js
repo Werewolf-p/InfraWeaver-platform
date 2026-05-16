@@ -40,8 +40,8 @@ const nextConfig = {
           { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
           // Prevent other sites from loading our resources
           { key: 'Cross-Origin-Resource-Policy', value: 'same-origin' },
-          // Prevent embedding in cross-origin contexts
-          { key: 'Cross-Origin-Embedder-Policy', value: 'require-corp' },
+          // COEP was removed because it breaks the PWA and some cross-origin subresource loads
+          // without tangible security benefit here (we do not use SharedArrayBuffer).
           { key: 'X-Download-Options', value: 'noopen' },
           { key: 'X-Permitted-Cross-Domain-Policies', value: 'none' },
           { key: 'X-Robots-Tag', value: 'noindex, nofollow' },

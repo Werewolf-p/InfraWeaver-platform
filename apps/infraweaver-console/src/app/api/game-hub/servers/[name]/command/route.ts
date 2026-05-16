@@ -7,8 +7,12 @@ import { appendServerAudit, getServerDeployment, isServerStartingError, makeGame
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { getEffectivePermissions } from "@/lib/rbac";
 import { safeError } from "@/lib/utils";
+import { z } from "zod";
 
 const MAX_COMMAND_LENGTH = 512;
+const commandBodySchema = z.object({
+  command: z.string().min(1).max(1000),
+}).strict();
 
 function allowedForRole(commandAcl: Record<string, string[]> | undefined, roleKey: string) {
   return commandAcl?.[roleKey] ?? [];
@@ -33,8 +37,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ nam
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const body = await req.json() as { command: string };
-  const sanitized = sanitizeConsoleCommand(body.command ?? "");
+  const result = commandBodySchema.safeParse(await req.json().catch(() => null));
+  if (!result.success) {
+    return NextResponse.json({ error: "Validation failed", details: result.error.flatten() }, { status: 400 });
+  }
+
+  const sanitized = sanitizeConsoleCommand(result.data.command);
   if (!sanitized.ok) return NextResponse.json({ error: sanitized.error }, { status: 400 });
   const command = sanitized.value;
   if (command.length > MAX_COMMAND_LENGTH) return NextResponse.json({ error: `Command too long (max ${MAX_COMMAND_LENGTH} chars)` }, { status: 400 });
@@ -55,10 +63,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ nam
       return NextResponse.json({ error: "Command not allowed for your role", stdout: "", stderr: "", success: false }, { status: 403 });
     }
 
-    const result = await runServerCommand(clients, name, command, 10_000);
+    const commandResult = await runServerCommand(clients, name, command, 10_000);
     await auditLog("game-hub:command", session.user?.email ?? "unknown", `${name} — ${command}`);
     await appendServerAudit(clients.coreApi, name, { timestamp: new Date().toISOString(), user: session.user?.email ?? "unknown", action: "command", details: command });
-    return NextResponse.json({ stdout: result.stdout, stderr: result.stderr, success: true, method: result.method });
+    return NextResponse.json({ stdout: commandResult.stdout, stderr: commandResult.stderr, success: true, method: commandResult.method });
   } catch (error) {
     console.error("game hub command failed", error);
     if (isServerStartingError(error)) {

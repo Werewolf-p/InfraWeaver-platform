@@ -3,9 +3,12 @@ import { auth } from "@/lib/auth";
 import { getSessionRBACContext, hasAnySessionPermission } from "@/lib/session-rbac";
 import { findUserByUsername, authentikFetch } from "@/lib/authentik";
 import { auditLog } from "@/lib/audit-log";
+import { z } from "zod";
+
+const resetMfaBodySchema = z.object({}).strict();
 
 export async function DELETE(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ username: string }> }
 ) {
   const session = await auth();
@@ -13,6 +16,20 @@ export async function DELETE(
   const access = await getSessionRBACContext(session, 60);
   if (!hasAnySessionPermission(access, ["users:invite", "users:write", "rbac:admin"])) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const rawBody = await req.text();
+  let body: unknown = {};
+  if (rawBody.trim()) {
+    try {
+      body = JSON.parse(rawBody);
+    } catch {
+      body = null;
+    }
+  }
+  const result = resetMfaBodySchema.safeParse(body);
+  if (!result.success) {
+    return NextResponse.json({ error: "Validation failed", details: result.error.flatten() }, { status: 400 });
   }
 
   const { username } = await params;
