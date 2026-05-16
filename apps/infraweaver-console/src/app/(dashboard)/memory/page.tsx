@@ -98,7 +98,8 @@ export default function MemoryPage() {
     queryFn: async () => {
       const response = await fetch("/api/cluster/memory-heatmap");
       if (!response.ok) throw new Error("Failed to load namespace memory data");
-      return response.json() as Promise<MemoryHeatmapResponse>;
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-return
+      return response.json();
     },
     refetchInterval: 15_000,
     staleTime: 10_000,
@@ -109,13 +110,16 @@ export default function MemoryPage() {
     queryFn: async () => {
       const response = await fetch("/api/cluster/top-consumers");
       if (!response.ok) throw new Error("Failed to load top consumers");
-      return response.json() as Promise<TopConsumersResponse>;
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-return
+      return response.json();
     },
     refetchInterval: 15_000,
     staleTime: 10_000,
   });
 
   const namespaces = heatmapQuery.data?.namespaces ?? [];
+  const cpuConsumers: CpuConsumer[] = topConsumersQuery.data?.cpu ?? [];
+  const memoryConsumers: MemoryConsumer[] = topConsumersQuery.data?.memory ?? [];
   const maxRequestMiB = useMemo(
     () => namespaces.reduce((max, namespace) => Math.max(max, namespace.total_request_mib), 0),
     [namespaces],
@@ -129,7 +133,7 @@ export default function MemoryPage() {
   const totalRequestMiB = namespaces.reduce((sum, namespace) => sum + namespace.total_request_mib, 0);
   const totalLimitMiB = namespaces.reduce((sum, namespace) => sum + namespace.total_limit_mib, 0);
   const hotNamespaces = namespaces.filter((namespace) => pressurePct(namespace, maxRequestMiB) >= 85).length;
-  const topMemoryPod = topConsumersQuery.data?.memory[0];
+  const topMemoryPod = memoryConsumers[0];
   const lastUpdatedAt = Math.max(heatmapQuery.dataUpdatedAt, topConsumersQuery.dataUpdatedAt);
 
   const refreshAll = () => {
@@ -252,7 +256,7 @@ export default function MemoryPage() {
           description="Live pod CPU cores from metrics-server, normalized as a share of the hosting node."
           icon={Cpu}
         >
-          {topConsumersQuery.isLoading && !(topConsumersQuery.data?.cpu.length) ? (
+          {topConsumersQuery.isLoading && !cpuConsumers.length ? (
             <SectionTableSkeleton rows={5} />
           ) : topConsumersQuery.isError ? (
             <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-200">Unable to load CPU consumers.</div>
@@ -269,7 +273,7 @@ export default function MemoryPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(topConsumersQuery.data?.cpu ?? []).map((row) => (
+                  {cpuConsumers.map((row) => (
                     <tr key={`${row.namespace}/${row.pod}`} className="border-b border-slate-200/70 text-sm hover:bg-slate-50/80 dark:border-white/5 dark:hover:bg-white/[0.03]">
                       <td className="px-3 py-3 font-medium text-slate-950 dark:text-[#f2f2f2]">{row.pod}</td>
                       <td className="px-3 py-3 text-slate-600 dark:text-[#b8b8b8]">{row.namespace}</td>
@@ -291,7 +295,7 @@ export default function MemoryPage() {
           description="Live pod working set memory from metrics-server, ranked against node allocatable memory."
           icon={Activity}
         >
-          {topConsumersQuery.isLoading && !(topConsumersQuery.data?.memory.length) ? (
+          {topConsumersQuery.isLoading && !memoryConsumers.length ? (
             <SectionTableSkeleton rows={5} />
           ) : topConsumersQuery.isError ? (
             <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-200">Unable to load memory consumers.</div>
@@ -308,7 +312,7 @@ export default function MemoryPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(topConsumersQuery.data?.memory ?? []).map((row) => (
+                  {memoryConsumers.map((row) => (
                     <tr key={`${row.namespace}/${row.pod}`} className="border-b border-slate-200/70 text-sm hover:bg-slate-50/80 dark:border-white/5 dark:hover:bg-white/[0.03]">
                       <td className="px-3 py-3 font-medium text-slate-950 dark:text-[#f2f2f2]">{row.pod}</td>
                       <td className="px-3 py-3 text-slate-600 dark:text-[#b8b8b8]">{row.namespace}</td>

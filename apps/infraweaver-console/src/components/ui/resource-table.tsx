@@ -23,6 +23,8 @@ interface ResourceTableProps<T extends object> {
   getRowKey?: (row: T) => string;
   mobileCardRender?: (row: T) => React.ReactNode;
   className?: string;
+  tableId?: string;
+  caption?: string;
 }
 
 export function ResourceTable<T extends object>({
