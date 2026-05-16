@@ -85,9 +85,14 @@ export async function POST() {
       try {
         await coreApi.createNamespace({
           body: {
+            apiVersion: "v1",
+            kind: "Namespace",
             metadata: {
               name: "game-hub",
-              labels: { "app.kubernetes.io/managed-by": "infraweaver-console" },
+              labels: {
+                "app.kubernetes.io/managed-by": "infraweaver-console",
+                "app.kubernetes.io/part-of": "infraweaver",
+              },
             },
           },
         });

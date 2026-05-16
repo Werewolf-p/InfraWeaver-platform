@@ -688,12 +688,14 @@ export default function GameHubPage() {
     queryFn: async () => {
       const res = await fetch("/api/game-hub/servers");
       if (!res.ok) throw new Error("Failed to fetch");
-      return res.json() as Promise<{ servers: GameServer[] }>;
+      return res.json() as Promise<{ servers: GameServer[]; setupRequired?: boolean; reason?: string }>;
     },
     refetchInterval: 15000,
   });
 
   const servers = data?.servers ?? [];
+  const setupRequired = data?.setupRequired ?? false;
+  const setupReason = data?.reason ?? "";
   const uniqueGameTypes = [...new Set(servers.map((server) => server.gameType))].sort();
   const allTags = [...new Set(servers.flatMap((server) => server.tags ?? []))].sort((a, b) => a.localeCompare(b));
   const allGroups = [...new Set(servers.flatMap((server) => server.groups ?? []))].sort((a, b) => a.localeCompare(b));
@@ -1007,17 +1009,43 @@ export default function GameHubPage() {
         </div>
       )}
 
-      {error && (
-        <div className="flex items-center gap-3 p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-300">
-          <AlertTriangle className="w-5 h-5 flex-shrink-0" />
+      {setupRequired && !isLoading && (
+        <div className="flex flex-col items-center justify-center gap-4 rounded-xl border border-dashed border-yellow-500/30 bg-yellow-500/5 p-10 text-center">
+          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-yellow-500/10">
+            <Gamepad2 className="h-7 w-7 text-yellow-400" />
+          </div>
+          <div>
+            <p className="text-base font-semibold text-yellow-300">
+              {setupReason === "permission_denied" ? "Permission denied" : "Game Hub not set up yet"}
+            </p>
+            <p className="mt-1 text-sm text-yellow-200/70">
+              {setupReason === "permission_denied"
+                ? "Your account does not have access to the game-hub namespace. Ask a platform-admin to grant permissions."
+                : "The game-hub namespace doesn't exist on the cluster yet. Run the one-time setup to create it."}
+            </p>
+          </div>
+          {setupReason !== "permission_denied" && (
+            <Link
+              href="/game-hub/setup"
+              className="flex items-center gap-2 rounded-lg bg-yellow-500 px-4 py-2 text-sm font-semibold text-black transition-colors hover:bg-yellow-400"
+            >
+              Run setup
+            </Link>
+          )}
+        </div>
+      )}
+
+      {error && !setupRequired && (
+        <div className="flex items-center gap-3 rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-red-300">
+          <AlertTriangle className="h-5 w-5 flex-shrink-0" />
           <div>
             <p className="text-sm font-medium">Failed to load servers</p>
-            <p className="mt-1 text-sm text-red-200">Is the game-hub namespace set up? <Link href="/game-hub/setup" className="underline">Run setup</Link></p>
+            <p className="mt-1 text-sm text-red-200">{error instanceof Error ? error.message : "An unexpected error occurred. Check the console logs."}</p>
           </div>
         </div>
       )}
 
-      {!isLoading && !error && servers.length === 0 && (
+      {!isLoading && !error && !setupRequired && servers.length === 0 && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col items-center justify-center h-64 rounded-xl border border-dashed border-[#2a2a2a] gap-4">
           <div className="text-5xl">🎮</div>
           <div className="text-center">

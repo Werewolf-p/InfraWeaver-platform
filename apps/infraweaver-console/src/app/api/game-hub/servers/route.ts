@@ -462,8 +462,20 @@ export async function GET() {
       };
     }));
 
-    return NextResponse.json({ servers });
+    return NextResponse.json({ servers, setupRequired: false });
   } catch (error) {
+    // Detect "namespace not found" (k8s 404) — namespace hasn't been set up yet
+    const k8sCode = (error as { statusCode?: number; body?: { code?: number; reason?: string } })?.statusCode
+      ?? (error as { body?: { code?: number } })?.body?.code;
+    const k8sReason = (error as { body?: { reason?: string } })?.body?.reason;
+
+    if (k8sCode === 404 || k8sReason === "NotFound") {
+      return NextResponse.json({ servers: [], setupRequired: true, reason: "namespace_missing" });
+    }
+    if (k8sCode === 403 || k8sReason === "Forbidden") {
+      return NextResponse.json({ servers: [], setupRequired: true, reason: "permission_denied" });
+    }
+
     console.error("game hub server list failed", error);
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }

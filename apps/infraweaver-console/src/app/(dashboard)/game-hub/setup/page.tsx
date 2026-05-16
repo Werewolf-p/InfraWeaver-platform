@@ -46,7 +46,9 @@ export default function GameHubSetupPage() {
       if (errors.length === 0) {
         toast.success("Resources applied successfully!");
       } else {
-        toast.error(`Some resources failed: ${errors.map(e => e.resource).join(", ")}`);
+        for (const e of errors) {
+          toast.error(`${e.resource}: ${e.error ?? "failed"}`);
+        }
       }
       queryClient.invalidateQueries({ queryKey: ["game-hub", "setup"] });
     } catch (err) {
