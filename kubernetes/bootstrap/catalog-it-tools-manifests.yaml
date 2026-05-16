@@ -1,7 +1,7 @@
 ---
 # catalog-it-tools-manifests.yaml — deployed by InfraWeaver Community Apps
 # Source: corentinth/it-tools
-# Installed: 2026-05-16T21:34:38.293Z
+# Installed: 2026-05-16T22:09:40.317Z
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
