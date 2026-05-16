@@ -171,8 +171,8 @@ export default function DashboardPage() {
     queryKey: ["health"],
     queryFn: async () => {
       const res = await fetch("/api/health");
-      if (!res.ok) throw new Error("fail");
-      return res.json() as Promise<{ endpoints?: Array<{ name: string; results?: Array<{ success: boolean }> }> }>;
+      // 503 means Gatus unreachable — return the shape so UI can show unavailable
+      return res.json() as Promise<{ endpoints?: Array<{ name: string; results?: Array<{ success: boolean }> }>; available?: boolean; error?: string }>;
     },
     refetchInterval: 60000,
     staleTime: 30000,
@@ -410,12 +410,17 @@ export default function DashboardPage() {
             Platform Services
           </h3>
           <div className="flex flex-wrap items-center gap-2 text-xs text-[#666]">
-            {gatusStats.total > 0 && (
+            {healthData?.available === false ? (
+              <span className="flex items-center gap-1 text-amber-400/70">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                monitoring unavailable
+              </span>
+            ) : gatusStats.total > 0 ? (
               <span className="flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
-                {gatusStats.up}/{gatusStats.total} up
+                {gatusStats.up}/{gatusStats.total} endpoints up
               </span>
-            )}
+            ) : null}
             {podStats.total > 0 && (
               <span className="flex items-center gap-1">
                 <Container className="w-3 h-3" />
