@@ -1,0 +1,36 @@
+---
+# catalog-photoprism-manifests.yaml — deployed by InfraWeaver Community Apps
+# Source: photoprism/photoprism
+# Installed: 2026-05-16T19:12:49.634Z
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: catalog-photoprism-manifests
+  namespace: argocd
+  labels:
+    infraweaver.io/type: catalog-app
+    infraweaver.io/source: community-apps
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  source:
+    repoURL: https://github.com/Werewolf-p/InfraWeaver-platform.git
+    targetRevision: HEAD
+    path: kubernetes/catalog/photoprism/manifests
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: photoprism
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
