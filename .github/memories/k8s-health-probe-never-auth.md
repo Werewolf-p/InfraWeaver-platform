@@ -28,3 +28,17 @@ description: /api/health is used as the k8s liveness and readiness probe — add
 - **Related:** `kubernetes/catalog/infraweaver-console/manifests/deployment.yaml` lines ~45-55 define the probe paths. If probe paths change, update this memory.
 
 - **Lesson learned:** When adding authentication to API routes for security hardening, always check: is this route used as a k8s probe endpoint? Health/ping/status endpoints at the "liveness" level must stay public. Sensitive data should live on *separate* authenticated routes.
+
+## Update — 2026-05-16: /api/health must not be used as liveness probe
+
+**Lesson learned:** `/api/health` returns HTTP 503 when Gatus is unreachable (correct for monitoring).
+Pointing k8s liveness/readiness probes + CI smoke test at `/api/health` caused:
+- k8s to restart console pods whenever Gatus was down
+- Every CI deploy to fail its smoke test and roll back
+
+**Fix:** Use `/api/ping` for all infrastructure-level checks:
+- `deployment.yaml` livenessProbe + readinessProbe → `/api/ping`
+- CI smoke test `SMOKE_URL` → `https://infraweaver.int.rlservers.com/api/ping`
+
+**Rule:** `/api/ping` = "is the process alive?" (no external deps, always 200).
+         `/api/health` = "are monitoring endpoints healthy?" (may 503).
