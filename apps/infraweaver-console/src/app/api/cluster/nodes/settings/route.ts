@@ -4,6 +4,16 @@ import { auth } from "@/lib/auth";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { hasPermission } from "@/lib/rbac";
 import { safeError } from "@/lib/utils";
+import { z } from "zod";
+
+const NodeChangeSchema = z.object({
+  name: z.string().min(1).max(63).regex(/^[a-z0-9][a-z0-9-]*$/),
+  cpu: z.number().int().min(1).max(64).optional(),
+  memory_mb: z.number().int().min(512).max(131072).optional(),
+});
+const NodesSettingsPutSchema = z.object({
+  changes: z.array(NodeChangeSchema).min(1).max(20),
+});
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -158,7 +168,11 @@ export async function PUT(req: NextRequest) {
   if (!GITHUB_TOKEN) return NextResponse.json({ error: "Missing GITHUB_TOKEN" }, { status: 503 });
 
   try {
-    const body = (await req.json()) as { changes?: NodeChange[] };
+    const parseResult = NodesSettingsPutSchema.safeParse(await req.json().catch(() => null));
+    if (!parseResult.success) {
+      return NextResponse.json({ error: parseResult.error.flatten() }, { status: 400 });
+    }
+    const body = parseResult.data;
     if (!Array.isArray(body.changes) || body.changes.length === 0) {
       return NextResponse.json({ error: "No changes provided" }, { status: 400 });
     }

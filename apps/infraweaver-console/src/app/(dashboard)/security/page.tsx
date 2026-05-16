@@ -1224,6 +1224,54 @@ export default function SecurityPage() {
           )}
         </SectionCard>
 
+        {/* ── Secret Rotation Status ── */}
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.34, duration: 0.35 }}>
+          <CollapsibleSection
+            title="Secret Rotation Status"
+            storageKey="sec-secret-rotation"
+            badge={<KeyRound className="w-4 h-4 text-yellow-400 flex-shrink-0" />}
+          >
+            <div className="space-y-3">
+              <div className="flex items-center gap-3 p-3 rounded-lg bg-white/5 border border-white/5">
+                <StatusDot ok={true} />
+                <div className="flex-1">
+                  <p className="text-sm text-white font-medium">HMAC API Secret</p>
+                  <p className="text-xs text-slate-400">
+                    Dual-secret rotation supported — set <code className="font-mono bg-white/10 px-1 rounded">CONSOLE_API_SECRET_PREV</code> during rollover.
+                    5-minute grace window active.
+                  </p>
+                </div>
+                <span className="text-xs text-green-400 font-semibold flex-shrink-0">Rotation-ready</span>
+              </div>
+              <div className="flex items-center gap-3 p-3 rounded-lg bg-white/5 border border-white/5">
+                <StatusDot ok={true} />
+                <div className="flex-1">
+                  <p className="text-sm text-white font-medium">NEXTAUTH_SECRET</p>
+                  <p className="text-xs text-slate-400">NextAuth session encryption key — stored in Kubernetes ExternalSecret, sourced from OpenBao vault.</p>
+                </div>
+                <span className="text-xs text-slate-400 font-semibold flex-shrink-0">Vault-managed</span>
+              </div>
+              <div className="flex items-center gap-3 p-3 rounded-lg bg-white/5 border border-white/5">
+                <StatusDot ok={true} />
+                <div className="flex-1">
+                  <p className="text-sm text-white font-medium">Authentik OIDC Client Secret</p>
+                  <p className="text-xs text-slate-400">OAuth2 client secret for Authentik → NextAuth integration. Rotation requires redeployment of console.</p>
+                </div>
+                <span className="text-xs text-slate-400 font-semibold flex-shrink-0">Vault-managed</span>
+              </div>
+              <div className="mt-2 p-3 rounded-lg bg-blue-500/5 border border-blue-500/20">
+                <p className="text-xs text-blue-300 flex items-start gap-2">
+                  <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                  <span>
+                    To rotate the API HMAC secret: set <code className="font-mono bg-white/10 px-1 rounded">CONSOLE_API_SECRET_PREV</code> = old value,
+                    update <code className="font-mono bg-white/10 px-1 rounded">CONSOLE_API_SECRET</code> = new value, then clear PREV after all pods restart.
+                  </span>
+                </p>
+              </div>
+            </div>
+          </CollapsibleSection>
+        </motion.div>
+
         {/* ── Longhorn + ArgoCD + MetalLB summary ── */}
         {enhanced && (
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

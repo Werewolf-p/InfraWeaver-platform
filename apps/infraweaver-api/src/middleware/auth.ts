@@ -3,6 +3,9 @@ import { createMiddleware } from 'hono/factory';
 import { signHmac, verifyHmac } from '../lib/hmac.js';
 import type { AppBindings } from '../types/index.js';
 
+// Grace window for previous secret during rotation (5 minutes)
+const ROTATION_GRACE_MS = 5 * 60 * 1000;
+
 export const authMiddleware = createMiddleware<AppBindings>(async (c, next) => {
   if (c.req.method === 'GET' && c.req.path.startsWith('/v1/agents/install/')) {
     await next();
@@ -28,15 +31,33 @@ export const authMiddleware = createMiddleware<AppBindings>(async (c, next) => {
     return c.json({ error: 'Request timestamp expired' }, 401);
   }
 
-  const secret = process.env.CONSOLE_API_SECRET;
-  if (!secret) {
+  const currentSecret = process.env.CONSOLE_API_SECRET;
+  if (!currentSecret) {
     console.error('[auth] CONSOLE_API_SECRET not set');
     return c.json({ error: 'Server misconfiguration' }, 500);
   }
 
   const message = `${ts}:${userId}:${rolesHeader}`;
-  const valid = await verifyHmac(message, sig, secret);
-  if (!valid) {
+  let validSecret: string | null = null;
+  let keyUsed: 'current' | 'previous' = 'current';
+
+  // Try current secret first
+  if (await verifyHmac(message, sig, currentSecret)) {
+    validSecret = currentSecret;
+    keyUsed = 'current';
+  } else {
+    // Try previous secret within grace window for zero-downtime rotation
+    const prevSecret = process.env.CONSOLE_API_SECRET_PREV;
+    if (prevSecret && age <= ROTATION_GRACE_MS) {
+      if (await verifyHmac(message, sig, prevSecret)) {
+        validSecret = prevSecret;
+        keyUsed = 'previous';
+        console.warn('[auth] Request authenticated with previous HMAC secret — rotate CONSOLE_API_SECRET_PREV out soon');
+      }
+    }
+  }
+
+  if (!validSecret) {
     return c.json({ error: 'Invalid signature' }, 401);
   }
 
@@ -49,8 +70,12 @@ export const authMiddleware = createMiddleware<AppBindings>(async (c, next) => {
   await next();
 
   const responseTs = Date.now().toString();
-  const responseSig = signHmac(`${c.res.status}:${requestId}:${responseTs}`, secret);
+  // Sign response with the same key that authenticated the request
+  const responseSig = signHmac(`${c.res.status}:${requestId}:${responseTs}`, validSecret);
   c.header('X-Api-Sig', responseSig);
   c.header('X-Request-Id', requestId);
   c.header('X-Api-Ts', responseTs);
+  if (keyUsed === 'previous') {
+    c.header('X-Auth-Key', 'previous');
+  }
 });

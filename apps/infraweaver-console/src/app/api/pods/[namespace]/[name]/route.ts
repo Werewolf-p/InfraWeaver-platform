@@ -6,6 +6,7 @@ import { loadKubeConfig } from "@/lib/k8s";
 import { invalidatePodCaches } from "@/lib/performance-cache";
 import { getSessionRBACContext, hasAnySessionPermission, hasSessionPermission } from "@/lib/session-rbac";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
+import { isValidK8sName, isValidNamespace } from "@/lib/validate";
 import * as k8s from "@kubernetes/client-node";
 
 function serializeYaml(value: unknown) {
@@ -48,7 +49,9 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ nam
   }
 
   const { namespace, name } = await params;
-
+  if (!isValidNamespace(namespace) || !isValidK8sName(name)) {
+    return NextResponse.json({ error: "Invalid namespace or pod name" }, { status: 400 });
+  }
   try {
     const coreApi = loadKubeConfig().makeApiClient(k8s.CoreV1Api);
     const pod = await coreApi.readNamespacedPod({ name, namespace });

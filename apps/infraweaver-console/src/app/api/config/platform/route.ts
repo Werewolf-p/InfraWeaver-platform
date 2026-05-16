@@ -3,6 +3,13 @@ import { auth } from "@/lib/auth";
 import { hasPermission } from "@/lib/rbac";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { safeError } from "@/lib/utils";
+import { z } from "zod";
+
+const PlatformUpdateSchema = z.object({
+  changes: z.array(z.string().min(1).max(256)).max(100).optional(),
+  yamlContent: z.string().max(512 * 1024).optional(),
+  commitMessage: z.string().max(256).optional(),
+});
 
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN ?? "";
 const GITHUB_REPO = process.env.GITHUB_REPO ?? "Werewolf-p/InfraWeaver-platform";
@@ -63,7 +70,11 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   try {
-    const body = await req.json() as { changes?: string[]; yamlContent?: string; commitMessage?: string };
+    const parsed = PlatformUpdateSchema.safeParse(await req.json().catch(() => null));
+    if (!parsed.success) {
+      return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+    }
+    const body = parsed.data;
     const file = await getFileFromGitHub();
     let newContent: string;
 

@@ -1,7 +1,8 @@
 "use client";
 import { SessionProvider } from "next-auth/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "sonner";
+import { createQueryClient } from "@/lib/query-client";
 import { useState, createContext, useContext, useEffect, type ReactNode } from "react";
 import { SettingsProvider } from "@/contexts/settings-context";
 import { ClusterProvider } from "@/contexts/cluster-context";
@@ -81,11 +82,7 @@ function ThemeProvider({ children }: { children: ReactNode }) {
 // ─── Providers ───────────────────────────────────────────────────────────────
 
 export function Providers({ children }: { children: React.ReactNode }) {
-  const [queryClient] = useState(() => new QueryClient({
-    defaultOptions: {
-      queries: { retry: 2, staleTime: 10000 },
-    },
-  }));
+  const [queryClient] = useState(() => createQueryClient());
 
   return (
     <SessionProvider>

@@ -2,6 +2,7 @@
 import { Sidebar } from "@/components/layout/sidebar";
 import { TopBar } from "@/components/layout/topbar";
 import { FloatingActionButton } from "@/components/floating-action-button";
+import { ErrorBoundary } from "@/components/error-boundary";
 import { Breadcrumb, titleForPathname } from "@/components/ui/breadcrumb";
 import { useSession, signOut } from "next-auth/react";
 import { useRouter, usePathname } from "next/navigation";
@@ -632,7 +633,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               transition={{ duration: 0.2, ease: "easeOut" }}
             className="min-w-0"
             >
-              {children}
+              <ErrorBoundary>
+                {children}
+              </ErrorBoundary>
             </motion.div>
           </AnimatePresence>
         </main>

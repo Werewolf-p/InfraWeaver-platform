@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
+import { z } from "zod";
 
 interface Silence {
   id: string;
@@ -11,6 +12,14 @@ interface Silence {
   comment: string;
   createdBy: string;
 }
+
+const CreateSilenceSchema = z.object({
+  name: z.string().min(1).max(128).optional(),
+  matchers: z.string().max(512).optional(),
+  startsAt: z.string().datetime({ offset: true }).optional(),
+  endsAt: z.string().datetime({ offset: true }).optional(),
+  comment: z.string().max(512).optional(),
+});
 
 const silences: Silence[] = [];
 
@@ -35,7 +44,11 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const session = await requireAccess("config:write");
   if (session instanceof NextResponse) return session;
-  const body = await req.json() as Partial<Silence>;
+  const parsed = CreateSilenceSchema.safeParse(await req.json().catch(() => null));
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+  }
+  const body = parsed.data;
   const silence: Silence = {
     id: Date.now().toString(),
     name: body.name ?? "New Silence",

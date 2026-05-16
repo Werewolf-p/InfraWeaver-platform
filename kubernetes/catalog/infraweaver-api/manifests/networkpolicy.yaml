@@ -25,6 +25,13 @@ spec:
               kubernetes.io/metadata.name: traefik
       ports:
         - port: 3001
+    # Allow Prometheus scraping from monitoring namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - port: 3001
   egress:
     # DNS resolution
     - to:

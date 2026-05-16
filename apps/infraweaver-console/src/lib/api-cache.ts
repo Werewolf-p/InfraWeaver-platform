@@ -1,3 +1,5 @@
+import { NextResponse } from "next/server";
+
 interface CacheEntry<T> {
   data: T;
   expires: number;
@@ -39,3 +41,16 @@ class ApiCache {
 }
 
 export const apiCache = new ApiCache();
+
+export function withCacheControl<T>(
+  data: T,
+  options: { sMaxAge?: number; staleWhileRevalidate?: number } = {},
+): NextResponse<T> {
+  const { sMaxAge = 30, staleWhileRevalidate = 60 } = options;
+  const response = NextResponse.json(data);
+  response.headers.set(
+    "Cache-Control",
+    `public, s-maxage=${sMaxAge}, stale-while-revalidate=${staleWhileRevalidate}`,
+  );
+  return response;
+}

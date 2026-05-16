@@ -60,3 +60,11 @@ spec:
         - /spec/updatePolicy
         - /spec/template
         - /spec/selector
+    - group: apps
+      kind: ReplicaSet
+      jsonPointers:
+        - /spec/replicas
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas

@@ -4,6 +4,16 @@ import { auth } from "@/lib/auth";
 import { hasPermission } from "@/lib/rbac";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { safeError } from "@/lib/utils";
+import { z } from "zod";
+
+const PlatformEditorChangeSchema = z.object({
+  key: z.string().min(1).max(256),
+  value: z.union([z.string().max(256), z.number()]),
+});
+const PlatformEditorPutSchema = z.object({
+  changes: z.array(PlatformEditorChangeSchema).min(1).max(100),
+  commitMessage: z.string().max(256).optional(),
+});
 
 type SettingType = "number" | "string" | "select";
 
@@ -389,10 +399,11 @@ export async function PUT(req: NextRequest) {
   }
 
   try {
-    const body = (await req.json()) as {
-      changes?: PlatformEditorChange[];
-      commitMessage?: string;
-    };
+    const parseResult = PlatformEditorPutSchema.safeParse(await req.json().catch(() => null));
+    if (!parseResult.success) {
+      return NextResponse.json({ error: parseResult.error.flatten() }, { status: 400 });
+    }
+    const body = parseResult.data;
 
     if (!Array.isArray(body.changes) || body.changes.length === 0) {
       return NextResponse.json({ error: "No changes provided" }, { status: 400 });

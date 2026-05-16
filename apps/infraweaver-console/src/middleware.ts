@@ -3,6 +3,7 @@ import { checkSameOrigin, getRequestSizeViolation } from "@/lib/api-helpers";
 import { auditAuthFailure, auditUnauthorizedAccess } from "@/lib/audit-log";
 import { checkRateLimit, LOGIN_RATE_LIMIT, rateLimitKey, UNAUTHENTICATED_RATE_LIMIT } from "@/lib/rate-limit";
 import { NextResponse, type NextRequest } from "next/server";
+import { randomUUID } from "node:crypto";
 
 const MUTATION_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const PUBLIC_EXACT_PATHS = new Set([
@@ -41,25 +42,46 @@ function withApiCacheControl(pathname: string, response: NextResponse) {
   return response;
 }
 
+/**
+ * Generates a cryptographically random nonce for CSP.
+ * Converts a UUID to base64url so it's compact and safe.
+ */
+function generateNonce(): string {
+  const uuid = randomUUID().replace(/-/g, "");
+  return Buffer.from(uuid, "hex").toString("base64url");
+}
+
+function withSecurityHeaders(response: NextResponse, nonce: string, requestId: string): NextResponse {
+  response.headers.set("X-Request-Id", requestId);
+  response.headers.set("x-nonce", nonce);
+  return response;
+}
+
 export default auth(async (req) => {
   const { nextUrl } = req;
   const pathname = nextUrl.pathname;
   const isApiRoute = pathname.startsWith("/api/");
   const isPublic = isPublicPath(pathname);
   const isLoggedIn = !!req.auth;
+  const nonce = generateNonce();
+  const requestId = randomUUID();
 
   if (pathname.startsWith("/api/auth/signin") && MUTATION_METHODS.has(req.method)) {
     if (!checkRateLimit(rateLimitKey("login", req), LOGIN_RATE_LIMIT.max, LOGIN_RATE_LIMIT.windowMs)) {
       await auditAuthFailure(`Rate limited login attempt for ${pathname}`, req);
-      return NextResponse.json({ error: "Too many login attempts" }, { status: 429 });
+      const r = NextResponse.json({ error: "Too many login attempts" }, { status: 429 });
+      r.headers.set("Retry-After", "60");
+      return withSecurityHeaders(r, nonce, requestId);
     }
   }
 
   if (!isLoggedIn && !RATE_LIMIT_EXEMPT_PATHS.has(pathname) && !pathname.startsWith("/_next")) {
     if (!checkRateLimit(rateLimitKey("unauthenticated", req), UNAUTHENTICATED_RATE_LIMIT.max, UNAUTHENTICATED_RATE_LIMIT.windowMs)) {
-      return isApiRoute
+      const r = isApiRoute
         ? NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 })
         : new NextResponse("Rate limit exceeded", { status: 429 });
+      r.headers.set("Retry-After", "60");
+      return withSecurityHeaders(r, nonce, requestId);
     }
   }
 
@@ -67,25 +89,31 @@ export default auth(async (req) => {
     const sizeViolation = getRequestSizeViolation(req, pathname);
     if (sizeViolation) {
       await auditUnauthorizedAccess("security:request-too-large", req, req.auth?.user?.email ?? "anonymous", `${req.method} ${pathname} — ${sizeViolation}`);
-      return NextResponse.json({ error: "Request body too large" }, { status: 413 });
+      return withSecurityHeaders(NextResponse.json({ error: "Request body too large" }, { status: 413 }), nonce, requestId);
     }
   }
 
   if (isApiRoute && MUTATION_METHODS.has(req.method) && !pathname.startsWith("/api/auth") && !checkSameOrigin(req)) {
     await auditUnauthorizedAccess("security:csrf-rejected", req, req.auth?.user?.email ?? "anonymous", `${req.method} ${pathname}`);
-    return NextResponse.json({ error: "Cross-origin request rejected" }, { status: 403 });
+    return withSecurityHeaders(NextResponse.json({ error: "Cross-origin request rejected" }, { status: 403 }), nonce, requestId);
   }
 
   if (isLoggedIn && isApiRoute && MUTATION_METHODS.has(req.method) && !pathname.startsWith("/api/auth")) {
     if (!checkRateLimit(rateLimitKey(`mutation:${pathname}`, req), AUTHENTICATED_MUTATION_RATE_LIMIT.max, AUTHENTICATED_MUTATION_RATE_LIMIT.windowMs)) {
-      return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
+      const r = NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
+      r.headers.set("Retry-After", "60");
+      return withSecurityHeaders(r, nonce, requestId);
     }
   }
 
   if (!isLoggedIn && !isPublic) {
     await auditUnauthorizedAccess("auth:unauthorized", req, "anonymous", `${req.method} ${pathname}`);
     if (isApiRoute) {
-      return withApiCacheControl(pathname, NextResponse.json({ error: "Unauthorized", loginUrl: buildLoginUrl(req).toString() }, { status: 401 }));
+      return withSecurityHeaders(
+        withApiCacheControl(pathname, NextResponse.json({ error: "Unauthorized", loginUrl: buildLoginUrl(req).toString() }, { status: 401 })),
+        nonce,
+        requestId,
+      );
     }
     return NextResponse.redirect(buildLoginUrl(req));
   }
@@ -96,7 +124,7 @@ export default auth(async (req) => {
     return NextResponse.redirect(target);
   }
 
-  return withApiCacheControl(pathname, NextResponse.next());
+  return withSecurityHeaders(withApiCacheControl(pathname, NextResponse.next()), nonce, requestId);
 });
 
 export const config = {

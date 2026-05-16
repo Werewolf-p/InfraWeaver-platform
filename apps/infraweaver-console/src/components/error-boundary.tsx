@@ -1,67 +1,103 @@
 "use client";
 import React from "react";
-import { AlertTriangle, RefreshCw, Home, Copy, ChevronDown } from "lucide-react";
+import { AlertTriangle, RefreshCw } from "lucide-react";
 
-interface State { hasError: boolean; error?: Error; showStack: boolean }
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+  requestId: string;
+}
 
-export class ErrorBoundary extends React.Component<{ children: React.ReactNode; fallback?: React.ReactNode }, State> {
-  constructor(props: { children: React.ReactNode; fallback?: React.ReactNode }) {
+interface ErrorBoundaryProps {
+  children: React.ReactNode;
+  fallback?: React.ReactNode;
+}
+
+export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
     super(props);
-    this.state = { hasError: false, showStack: false };
+    this.state = { hasError: false, error: null, requestId: "" };
   }
-  static getDerivedStateFromError(error: Error): State {
-    return { hasError: true, error, showStack: false };
+
+  static getDerivedStateFromError(error: Error): Partial<ErrorBoundaryState> {
+    return {
+      hasError: true,
+      error,
+      requestId: `err_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
+    };
   }
+
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    const { requestId } = this.state;
+    console.error("[ErrorBoundary] Caught error:", error.message, info.componentStack);
+    fetch("/api/errors", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: error.message,
+        stack: error.stack,
+        url: typeof window !== "undefined" ? window.location.href : "",
+        requestId,
+      }),
+    }).catch(() => {});
+  }
+
+  handleReset = () => {
+    this.setState({ hasError: false, error: null, requestId: "" });
+  };
+
   render() {
     if (this.state.hasError) {
       if (this.props.fallback) return this.props.fallback;
-      const msg = this.state.error?.message ?? "An unexpected error occurred";
-      const stack = this.state.error?.stack ?? "";
       return (
-        <div className="flex flex-col items-center justify-center p-8 bg-white/5 border border-white/10 rounded-xl text-center">
-          <AlertTriangle className="w-8 h-8 text-red-400 mb-3" />
-          <h3 className="text-sm font-semibold text-white mb-1">Something went wrong</h3>
-          <p className="text-xs text-slate-400 mb-4 max-w-sm">{msg}</p>
-          <div className="flex items-center gap-2 mb-4">
-            <button
-              onClick={() => this.setState({ hasError: false, showStack: false })}
-              className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-xs text-slate-300 hover:text-white transition-colors"
-            >
-              <RefreshCw className="w-3 h-3" /> Try Again
-            </button>
-            <a
-              href="/"
-              className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-xs text-slate-300 hover:text-white transition-colors"
-            >
-              <Home className="w-3 h-3" /> Go Home
-            </a>
-            <button
-              onClick={() => void navigator.clipboard.writeText(`${msg}\n\n${stack}`)}
-              className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-xs text-slate-300 hover:text-white transition-colors"
-            >
-              <Copy className="w-3 h-3" /> Copy Error
-            </button>
-          </div>
-          {stack && (
-            <div className="w-full max-w-xl text-left">
-              <button
-                onClick={() => this.setState(s => ({ showStack: !s.showStack }))}
-                className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 mb-2 transition-colors"
-              >
-                <ChevronDown className={`w-3 h-3 transition-transform ${this.state.showStack ? "rotate-180" : ""}`} />
-                {this.state.showStack ? "Hide" : "Show"} stack trace
-              </button>
-              {this.state.showStack && (
-                <pre className="text-[10px] text-red-300/70 bg-red-500/5 border border-red-500/20 rounded-lg p-3 overflow-auto max-h-48 whitespace-pre-wrap">
-                  {stack}
-                </pre>
-              )}
-            </div>
-          )}
-        </div>
+        <FallbackUI
+          error={this.state.error}
+          requestId={this.state.requestId}
+          onReset={this.handleReset}
+        />
       );
     }
     return this.props.children;
   }
 }
 
+interface FallbackUIProps {
+  error: Error | null;
+  requestId: string;
+  onReset: () => void;
+}
+
+export function FallbackUI({ error, requestId, onReset }: FallbackUIProps) {
+  return (
+    <div className="flex min-h-[400px] flex-col items-center justify-center gap-4 rounded-2xl border border-red-500/20 bg-red-500/5 p-8 text-center">
+      <AlertTriangle className="h-12 w-12 text-red-400" />
+      <div>
+        <h2 className="text-lg font-semibold text-white">Something went wrong</h2>
+        <p className="mt-1 text-sm text-white/60">
+          {error?.message ?? "An unexpected error occurred"}
+        </p>
+        <p className="mt-1 font-mono text-xs text-white/40">Request ID: {requestId}</p>
+      </div>
+      <button
+        onClick={onReset}
+        className="inline-flex items-center gap-2 rounded-lg bg-red-500/20 px-4 py-2 text-sm text-red-300 transition-colors hover:bg-red-500/30"
+      >
+        <RefreshCw className="h-4 w-4" />
+        Try again
+      </button>
+    </div>
+  );
+}
+
+export function withErrorBoundary<P extends object>(
+  Component: React.ComponentType<P>,
+  fallback?: React.ReactNode,
+) {
+  const WrappedComponent = (props: P) => (
+    <ErrorBoundary fallback={fallback}>
+      <Component {...props} />
+    </ErrorBoundary>
+  );
+  WrappedComponent.displayName = `withErrorBoundary(${Component.displayName ?? Component.name})`;
+  return WrappedComponent;
+}

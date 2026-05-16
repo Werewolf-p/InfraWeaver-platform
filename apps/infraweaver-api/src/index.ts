@@ -8,6 +8,7 @@ import { registerBroadcastFn } from './lib/mode.js';
 import { authMiddleware } from './middleware/auth.js';
 import { modeGuard } from './middleware/mode-guard.js';
 import { requestLogger } from './middleware/logger.js';
+import { securityHeaders } from './middleware/security-headers.js';
 import { agentsRoute } from './routes/agents.js';
 import { argocdRoute } from './routes/argocd.js';
 import { clustersRoute } from './routes/clusters.js';
@@ -18,18 +19,27 @@ import { metricsRoute } from './routes/metrics.js';
 import { nodesRoute } from './routes/nodes.js';
 import { podsRoute } from './routes/pods.js';
 import { modeRoute } from './routes/mode.js';
+import { prometheusRoute } from './routes/prometheus.js';
 import { rbacSyncRoute } from './routes/rbac-sync.js';
 import type { AppBindings } from './types/index.js';
 
 const app = new Hono<AppBindings>();
 
+app.use('*', async (c, next) => {
+  const requestId = c.req.header('x-request-id') ?? `req_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+  c.set('requestId', requestId);
+  c.header('x-request-id', requestId);
+  await next();
+});
 app.use('*', requestLogger);
+app.use('*', securityHeaders);
 app.use('*', cors({
   origin: process.env.CONSOLE_URL ?? 'https://infraweaver.int.rlservers.com',
   credentials: true,
 }));
 
 app.route('/health', healthRoute);
+app.route('/metrics', prometheusRoute);
 
 const api = new Hono<AppBindings>();
 api.use('*', authMiddleware);
@@ -81,9 +91,39 @@ async function main() {
   });
 
   setupWebSocketServer(server as Parameters<typeof setupWebSocketServer>[0]);
+
+  const shutdown = (signal: string) => {
+    process.stdout.write(JSON.stringify({ level: 'info', event: 'shutdown', signal, timestamp: new Date().toISOString() }) + '\n');
+    const httpServer = server as { close?: (cb: () => void) => void };
+    const timeout = setTimeout(() => {
+      process.stdout.write(JSON.stringify({ level: 'warn', event: 'shutdown_timeout', timestamp: new Date().toISOString() }) + '\n');
+      process.exit(0);
+    }, 30_000);
+    timeout.unref();
+    if (httpServer.close) {
+      httpServer.close(() => {
+        process.stdout.write(JSON.stringify({ level: 'info', event: 'shutdown_complete', timestamp: new Date().toISOString() }) + '\n');
+        process.exit(0);
+      });
+    } else {
+      process.exit(0);
+    }
+  };
+
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
 main().catch((error) => {
   console.error('[infraweaver-api] Fatal error', error);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason) => {
+  process.stdout.write(JSON.stringify({ level: 'error', event: 'unhandledRejection', reason: String(reason), timestamp: new Date().toISOString() }) + '\n');
+});
+
+process.on('uncaughtException', (error) => {
+  process.stdout.write(JSON.stringify({ level: 'fatal', event: 'uncaughtException', error: error.message, stack: error.stack, timestamp: new Date().toISOString() }) + '\n');
   process.exit(1);
 });
