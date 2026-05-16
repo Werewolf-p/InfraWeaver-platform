@@ -18,6 +18,6 @@ spec:
           namespace: traefik
       services:
         - name: homarr
-          port: 3000
+          port: 7575
   tls:
     secretName: int-rlservers-com-tls

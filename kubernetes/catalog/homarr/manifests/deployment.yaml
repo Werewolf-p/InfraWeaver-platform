@@ -48,17 +48,17 @@ spec:
           failureThreshold: 10
           initialDelaySeconds: 30
           tcpSocket:
-            port: 3000
+            port: 7575
         name: homarr
         ports:
-        - containerPort: 3000
+        - containerPort: 7575
           name: webui
           protocol: TCP
         readinessProbe:
           failureThreshold: 10
           initialDelaySeconds: 30
           tcpSocket:
-            port: 3000
+            port: 7575
         resources:
           limits:
             cpu: 500m
@@ -93,9 +93,9 @@ metadata:
 spec:
   ports:
   - name: webui
-    port: 3000
+    port: 7575
     protocol: TCP
-    targetPort: 3000
+    targetPort: 7575
   selector:
     app.kubernetes.io/name: homarr
   type: ClusterIP
