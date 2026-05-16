@@ -64,26 +64,6 @@ spec:
               The kernel OOM killer fired on node {{ $labels.instance }}.
               Check kubelet reservations, eviction thresholds, and the heaviest pods on that node.
 
-        - alert: NodeMemoryPressure
-          expr: kube_node_status_condition{condition="MemoryPressure",status="true"} == 1
-          for: 1m
-          labels:
-            severity: critical
-          annotations:
-            summary: "Node {{ $labels.node }} has MemoryPressure"
-            description: >-
-              Node {{ $labels.node }} is under MemoryPressure and kubelet soft eviction may already be running.
-
-        - alert: PodOOMKilled
-          expr: increase(kube_pod_container_status_last_terminated_reason{reason="OOMKilled"}[5m]) > 0
-          for: 0m
-          labels:
-            severity: warning
-          annotations:
-            summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} was OOMKilled"
-            description: >-
-              Container {{ $labels.container }} in {{ $labels.namespace }}/{{ $labels.pod }} was terminated by the OOM killer.
-
     # ── PVC / Storage ────────────────────────────────────────────────────────────
     - name: storage.alerts
       rules:

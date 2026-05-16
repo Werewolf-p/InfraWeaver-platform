@@ -54,7 +54,7 @@ catalog/
 | App | Description | URL |
 |-----|-------------|-----|
 | wiki | Wiki.js documentation wiki | wiki.int.rlservers.com |
-| uptime-kuma | Uptime/status monitoring | uptime-kuma.int.rlservers.com |
+| gatus | Uptime/status monitoring | status.int.rlservers.com |
 | gitea | Self-hosted Git forge | gitea.int.rlservers.com |
 | forgejo | Community Git forge (Gitea fork) | forgejo.int.rlservers.com |
 | vaultwarden | Bitwarden-compatible password manager | vaultwarden.int.rlservers.com |

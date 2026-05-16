@@ -1,12 +1,10 @@
 ---
-# catalog-game-hub-manifests.yaml — namespace guardrails and scale scheduling for game server workloads
+# ArgoCD Application for Grafana dashboard ConfigMaps in the monitoring namespace.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: catalog-game-hub-manifests
+  name: monitoring-grafana-dashboards
   namespace: argocd
-  labels:
-    infraweaver.io/type: catalog-app
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -14,21 +12,20 @@ spec:
   source:
     repoURL: https://github.com/Werewolf-p/InfraWeaver-platform.git
     targetRevision: HEAD
-    path: kubernetes/catalog/game-hub
+    path: kubernetes/monitoring/grafana-dashboards
   destination:
     server: https://kubernetes.default.svc
-    namespace: game-hub
+    namespace: monitoring
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
     retry:
-      limit: 3
+      limit: 5
       backoff:
-        duration: 10s
+        duration: 5s
         factor: 2
-        maxDuration: 2m
+        maxDuration: 3m
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
-      - RespectIgnoreDifferences=true

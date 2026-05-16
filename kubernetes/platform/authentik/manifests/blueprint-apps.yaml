@@ -213,29 +213,6 @@ data:
           provider: !Find [authentik_providers_oauth2.oauth2provider, [name, Gitea Provider]]
           policy_engine_mode: any
 
-      # ── Uptime Kuma (catalog app — proxy auth via Traefik forward-auth) ────
-      # Uptime Kuma v1.x has no native OIDC; authentication is handled by Traefik.
-      - model: authentik_providers_proxy.proxyprovider
-        state: present
-        identifiers:
-          name: Uptime Kuma Provider
-        attrs:
-          name: Uptime Kuma Provider
-          mode: forward_single
-          external_host: "https://uptime-kuma.int.rlservers.com"
-          authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
-          invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
-
-      - model: authentik_core.application
-        state: present
-        identifiers:
-          slug: uptime-kuma
-        attrs:
-          name: Uptime Kuma
-          slug: uptime-kuma
-          provider: !Find [authentik_providers_proxy.proxyprovider, [name, Uptime Kuma Provider]]
-          policy_engine_mode: any
-
       # ── Vaultwarden (catalog app — proxy auth via Traefik forward-auth) ────
       # Vaultwarden free edition has no native OIDC; Traefik forward-auth protects the UI.
       - model: authentik_providers_proxy.proxyprovider

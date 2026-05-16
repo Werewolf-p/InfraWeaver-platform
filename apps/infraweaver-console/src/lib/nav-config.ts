@@ -4,7 +4,7 @@ import {
   Package, FileText, ShieldCheck, Server,
   Sparkles, Home, Trash2, GitBranch,
   Globe, BellOff, Shield, AlertTriangle, HeartPulse,
-  Calendar, TrendingUp, Gamepad2, Search, LayoutGrid, TestTube2, Puzzle, BookOpen,
+  Calendar, TrendingUp, Gamepad2, Search, LayoutGrid, TestTube2, Puzzle, BookOpen, MemoryStick,
 } from "lucide-react";
 import { mergeRegisteredPages, navItemFromPage } from "@/lib/page-registry";
 
@@ -103,6 +103,7 @@ export const NAV_GROUPS: NavGroup[] = mergeRegisteredPages([
     defaultOpen: false,
     items: [
       { href: "/monitoring", icon: HeartPulse, label: "Monitoring", description: "Unified observability dashboard", pinnable: true },
+      { href: "/memory", icon: MemoryStick, label: "Memory Heatmap", description: "Namespace memory reservations and top consumers" },
       { href: "/health", icon: Activity, label: "Health", shortcut: "G H", description: "Node and cluster health checks", pinnable: true },
       { href: "/security", icon: ShieldCheck, label: "Security", shortcut: "G Y", description: "Security posture and vulnerability audit" },
       { href: "/uptime", icon: TrendingUp, label: "Uptime History", description: "Historical uptime for all services" },

@@ -2,4 +2,4 @@
 # See kubernetes/catalog/paperless-ngx/catalog.yaml for details.
 # To enable: add 'paperless-ngx' to catalog.enabled in platform.yaml,
 # then implement manifests here following the patterns in
-# kubernetes/catalog/uptime-kuma/manifests/all.yaml
+# kubernetes/catalog/gatus/manifests/all.yaml

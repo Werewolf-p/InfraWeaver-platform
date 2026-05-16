@@ -88,7 +88,8 @@ catalog:
   #
   # Available catalog apps:
   #   wiki             — Wiki.js documentation wiki            (wiki.int.rlservers.com)
-  #   uptime-kuma      — Uptime/status monitoring              (uptime-kuma.int.rlservers.com)
+  #   gatus            — Uptime/status monitoring              (status.int.rlservers.com)
+  #                      Gatus replaces the old Uptime Kuma deployment for the same purpose.
   #   gitea            — Self-hosted Git forge                 (gitea.int.rlservers.com)
   #   vaultwarden      — Bitwarden-compatible passwords        (vaultwarden.int.rlservers.com)
   #   it-tools         — IT/Dev tool collection                (it-tools.int.rlservers.com)

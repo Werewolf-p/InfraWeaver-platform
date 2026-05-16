@@ -1,12 +1,12 @@
 ---
-# catalog-game-hub-manifests.yaml — namespace guardrails and scale scheduling for game server workloads
+# ArgoCD Application for namespace-level default resource guardrails.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: catalog-game-hub-manifests
+  name: core-limitranges
   namespace: argocd
   labels:
-    infraweaver.io/type: catalog-app
+    infraweaver.io/type: core
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -14,21 +14,21 @@ spec:
   source:
     repoURL: https://github.com/Werewolf-p/InfraWeaver-platform.git
     targetRevision: HEAD
-    path: kubernetes/catalog/game-hub
+    path: kubernetes/core/limitranges
   destination:
     server: https://kubernetes.default.svc
-    namespace: game-hub
+    namespace: default
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
     retry:
-      limit: 3
+      limit: 5
       backoff:
-        duration: 10s
+        duration: 5s
         factor: 2
-        maxDuration: 2m
+        maxDuration: 3m
     syncOptions:
-      - CreateNamespace=true
+      - CreateNamespace=false
       - ServerSideApply=true
       - RespectIgnoreDifferences=true
