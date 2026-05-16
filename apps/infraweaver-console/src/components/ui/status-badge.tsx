@@ -1,5 +1,6 @@
 "use client";
 
+import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import {
   Activity,
@@ -225,7 +226,11 @@ export function StatusBadge({
         <span className="relative flex h-2 w-2 flex-shrink-0 items-center justify-center">
           {config.pulse ? (
             <>
-              <span className={cn("absolute inset-0 rounded-full animate-ping opacity-60", config.colors.dot)} />
+              <motion.span
+                className={cn("absolute inset-0 rounded-full", config.colors.dot)}
+                animate={{ scale: [1, 1.8, 1], opacity: [0.6, 0, 0.6] }}
+                transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut" }}
+              />
               <span className={cn("relative h-full w-full rounded-full", config.colors.dot)} />
             </>
           ) : (
@@ -233,7 +238,19 @@ export function StatusBadge({
           )}
         </span>
       ) : null}
-      {showIcon ? <Icon className={sz.icon} /> : null}
+      {showIcon ? (
+        (normalizedStatus === "syncing" || normalizedStatus === "progressing") ? (
+          <motion.span
+            animate={{ rotate: 360 }}
+            transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
+            className="inline-flex"
+          >
+            <Icon className={sz.icon} />
+          </motion.span>
+        ) : (
+          <Icon className={sz.icon} />
+        )
+      ) : null}
       {displayLabel}
     </span>
   );

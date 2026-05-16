@@ -1,8 +1,11 @@
 "use client";
 
+import type { ComponentType } from "react";
+import { motion } from "framer-motion";
 import Link from "next/link";
 import { Line, LineChart, ResponsiveContainer } from "recharts";
 import { Minus, TrendingDown, TrendingUp } from "lucide-react";
+import { springs } from "@/lib/spring";
 import { cn } from "@/lib/utils";
 
 interface MetricCardProps {
@@ -15,6 +18,9 @@ interface MetricCardProps {
   variant?: "default" | "success" | "warning" | "danger";
   loading?: boolean;
   className?: string;
+  index?: number;
+  icon?: ComponentType<{ className?: string }>;
+  status?: "healthy" | "degraded" | "warning" | "neutral";
 }
 
 const VARIANT_STYLES = {
@@ -56,10 +62,15 @@ export function MetricCard({
   variant = "default",
   loading,
   className,
+  index,
 }: MetricCardProps) {
   const styles = VARIANT_STYLES[variant];
   const card = (
-    <div
+    <motion.div
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ type: "spring", stiffness: 260, damping: 24, mass: 1, delay: (index ?? 0) * 0.06 }}
+      whileHover={{ y: -2, boxShadow: "0 8px 32px rgba(0,0,0,0.4)" }}
       className={cn(
         "group flex h-full flex-col justify-between rounded-3xl border border-[rgb(var(--color-border))] bg-[rgb(var(--color-surface-base))] p-5 shadow-sm transition-all duration-200",
         href && "hover:-translate-y-0.5 hover:border-[rgb(var(--color-border-strong))] hover:shadow-lg",
@@ -125,7 +136,7 @@ export function MetricCard({
           {href ? <span className={cn("mt-4 text-xs font-medium", styles.accent)}>Open details</span> : null}
         </>
       )}
-    </div>
+    </motion.div>
   );
 
   return href ? <Link href={href}>{card}</Link> : card;
