@@ -1,0 +1,14 @@
+# Community app installed from Unraid AppFeed
+# Source: photoprism/photoprism
+name: photoprism
+description: "PhotoPrism™ is a server-based application for browsing, organizing and sharing your personal photo collection. It makes use of the latest technologies to automatically tag and find pictures without ge"
+namespace: photoprism
+source: community-apps
+tier: simple
+image: photoprism/photoprism
+categories:
+  - "Productivity"
+  - "MediaApp-Photos"
+ingressroute:
+  host: photoprism.int.rlservers.com
+installed_at: 2026-05-16T19:12:49.634Z
