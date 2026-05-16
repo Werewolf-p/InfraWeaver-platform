@@ -210,7 +210,7 @@ jobs:
 
       - name: Smoke test console
         env:
-          SMOKE_URL: https://infraweaver.int.rlservers.com/api/health
+          SMOKE_URL: https://infraweaver.int.rlservers.com/api/ping
           SMOKE_TIMEOUT_SECONDS: "180"
         run: bash scripts/deploy/smoke-test-url.sh
 
@@ -242,7 +242,7 @@ jobs:
           DEPLOYMENT_NAMESPACE: infraweaver-console
           SYNC_TIMEOUT_SECONDS: "300"
           ROLLOUT_TIMEOUT_SECONDS: "300"
-          SMOKE_URL: https://infraweaver.int.rlservers.com/api/health
+          SMOKE_URL: https://infraweaver.int.rlservers.com/api/ping
           SMOKE_TIMEOUT_SECONDS: "180"
         run: |
           set -euo pipefail

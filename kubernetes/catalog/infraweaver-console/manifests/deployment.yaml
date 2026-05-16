@@ -182,13 +182,13 @@ spec:
           periodSeconds: 10
         readinessProbe:
           httpGet:
-            path: /api/health
+            path: /api/ping
             port: 3000
           initialDelaySeconds: 10
           periodSeconds: 10
         livenessProbe:
           httpGet:
-            path: /api/health
+            path: /api/ping
             port: 3000
           initialDelaySeconds: 0
           periodSeconds: 30
