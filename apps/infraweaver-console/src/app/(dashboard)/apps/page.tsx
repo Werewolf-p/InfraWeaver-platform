@@ -1785,8 +1785,9 @@ function DeployModal({ app, onClose }: { app: AppSummary; onClose: () => void })
     }
   };
 
+  // NOTE: no backdrop-blur — iOS Safari backdrop-filter causes sibling content to be invisible
   return (
-    <div className="fixed inset-0 z-[300] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-0 sm:p-4">
+    <div className="fixed inset-0 z-[300] flex items-end sm:items-center justify-center bg-black/75 p-0 sm:p-4">
       <motion.div
         initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }}
         className="bg-[#0d1117] border border-white/10 rounded-t-2xl sm:rounded-xl w-full sm:max-w-3xl max-h-[92dvh] sm:max-h-[90vh] flex flex-col shadow-2xl"
@@ -2476,7 +2477,7 @@ export default function AppsPage() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 z-[300] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+              className="fixed inset-0 z-[300] flex items-end sm:items-center justify-center bg-black/75 p-4"
               onClick={() => setShowInstallModal(false)}
             >
               <motion.div
