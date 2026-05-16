@@ -146,8 +146,18 @@ export interface ServerDetail {
     stopCommand?: string;
     description?: string;
     connectionHint?: string;
-    environment?: Array<{ name: string; description: string; defaultValue: string; required: boolean }>;
+    environment?: Array<{ name: string; description: string; defaultValue: string; required: boolean; fieldType?: "text" | "boolean" | "integer"; userViewable?: boolean; userEditable?: boolean; rules?: string }>;
     quickCommands: Array<{ label: string; cmd?: string; command?: string; description?: string; color?: string }>;
+    /** Log line pattern that signals server finished starting (from config.startup.done) */
+    startupReadySignal?: string;
+    /** Platform feature flags: "eula", "java_version", "pid_limit" etc. */
+    features?: string[];
+    /** Multiple image choices (PTDL_v2); key = label, value = image */
+    dockerImages?: Record<string, string>;
+    /** Files the file manager should deny access to */
+    fileDenylist?: string[];
+    author?: string;
+    exportedAt?: string;
   };
   allowedCommands?: string[];
   nasTargets?: { truenas: boolean; synology: boolean };

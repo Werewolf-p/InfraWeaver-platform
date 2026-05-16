@@ -52,7 +52,7 @@ import {
   OctagonX,
 } from "lucide-react";
 import { cn, formatBytes, timeAgo } from "@/lib/utils";
-import { getEggForGameType } from "@/lib/game-eggs";
+import { describeEggVariableRules, getEggForGameType, validateEggVariable } from "@/lib/game-eggs";
 import { toast } from "@/lib/notify";
 import Link from "next/link";
 // Note: previously used Monaco editor; replaced with styled <textarea> + <pre>
@@ -2781,6 +2781,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
   }, [name, queryClient]);
   const effectiveEnv = { ...currentEnv, ...appliedUnsetEnv };
   const unsetRecommendedEnvVars = eggEnvVars.filter((entry) => {
+    if (entry.userViewable === false) return false; // respect egg permissions
     const currentValue = effectiveEnv[entry.name]?.trim();
     return (entry.defaultValue.trim().length > 0 || entry.required) && !currentValue;
   });
@@ -3310,30 +3311,37 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
             {unsetRecommendedEnvVars.map((entry) => {
               const state = unsetApplyState[entry.name];
               const editVal = unsetEditValues[entry.name] ?? entry.defaultValue;
+              const validationError = editVal ? validateEggVariable(entry, editVal) : null;
+              const rulesHint = describeEggVariableRules(entry.rules);
               return (
                 <div key={entry.name} className="rounded-lg border border-yellow-500/10 bg-[#111] px-3 py-2 space-y-2">
                   <div className="flex flex-wrap items-start gap-2">
                     <span className="rounded border border-yellow-500/20 bg-yellow-500/10 px-2 py-0.5 font-mono text-[10px] text-yellow-100 mt-0.5">{entry.name}</span>
                     <div className="min-w-0 flex-1">
                       <p className="text-sm text-[#f2f2f2]">{entry.description || "Recommended setting"}</p>
+                      {rulesHint && <p className="text-[10px] text-[#555] mt-0.5">{rulesHint}</p>}
                     </div>
                   </div>
                   <div className="flex gap-2 items-center">
                     <input
-                      type={/password|secret|token|key/i.test(entry.name) ? "password" : "text"}
+                      type={/password|secret|token|key/i.test(entry.name) ? "password" : entry.fieldType === "integer" ? "number" : "text"}
                       value={editVal}
                       onChange={(e) => setUnsetEditValues((prev) => ({ ...prev, [entry.name]: e.target.value }))}
                       placeholder={entry.defaultValue || "Enter value…"}
-                      className="flex-1 min-w-0 rounded-md bg-[#1a1a1a] border border-[#2a2a2a] px-2.5 py-1 text-xs text-[#d4d4d4] font-mono focus:outline-none focus:border-yellow-500/40 placeholder-[#444]"
+                      className={cn(
+                        "flex-1 min-w-0 rounded-md bg-[#1a1a1a] border px-2.5 py-1 text-xs text-[#d4d4d4] font-mono focus:outline-none placeholder-[#444]",
+                        validationError ? "border-red-500/40 focus:border-red-500/40" : "border-[#2a2a2a] focus:border-yellow-500/40"
+                      )}
                     />
                     <button
                       onClick={() => void applyUnsetEnvVar(entry, editVal)}
-                      disabled={state === "loading" || !editVal}
+                      disabled={state === "loading" || !editVal || Boolean(validationError)}
                       className="inline-flex items-center gap-1 rounded-md border border-green-500/30 bg-green-500/15 px-2.5 py-1 text-[11px] text-green-200 transition-colors hover:bg-green-500/20 disabled:opacity-60 flex-shrink-0"
                     >
                       {state === "loading" ? <Loader2 className="h-3 w-3 animate-spin" /> : <span>{state === "done" ? "✓ Applied" : "✓ Apply"}</span>}
                     </button>
                   </div>
+                  {validationError && <p className="text-[11px] text-red-400">{validationError}</p>}
                 </div>
               );
             })}

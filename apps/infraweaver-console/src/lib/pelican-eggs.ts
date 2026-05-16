@@ -5,20 +5,47 @@ const PELICAN_TREE_API = `https://api.github.com/repos/${PELICAN_REPO}/git/trees
 const PELICAN_RAW_BASE = `https://raw.githubusercontent.com/${PELICAN_REPO}`;
 const CATALOG_CACHE_KEY = "catalog";
 const CACHE_TTL_MS = 3_600_000;
-const BRANCH_CANDIDATES = ["main", "master"] as const;
+const BRANCH_CANDIDATES = ["master", "main"] as const;
 const GAME_EGG_PREFIX = "game_eggs/";
 
 export interface PelicanEgg {
-  meta?: { version: string };
+  meta?: { version: string; update_url?: string | null };
+  exported_at?: string;
   name: string;
   author?: string;
   description?: string;
+  /** PTDL_v1: single image string */
   docker_image?: string;
+  /** PTDL_v2: map of human label → image (e.g. { "Java 21": "ghcr.io/..." }) */
+  docker_images?: Record<string, string>;
+  /** Files that should not be accessible to the user */
+  file_denylist?: string[];
   startup?: string;
   config?: {
     stop?: string;
-    startup?: { done?: string };
-    files?: Record<string, unknown>;
+    /**
+     * JSON-encoded string: '{"done": ")! For help, type "}'
+     * Signals that the server finished starting when this appears in logs.
+     */
+    startup?: string | { done?: string };
+    /**
+     * JSON-encoded string describing config file patches.
+     * Parser types: "properties" | "json" | "yaml"
+     */
+    files?: string | Record<string, unknown>;
+    logs?: string | Record<string, unknown>;
+  };
+  /**
+   * Platform feature flags.
+   * Known values: "eula", "java_version", "pid_limit", "steam_disk_space"
+   */
+  features?: string[] | null;
+  scripts?: {
+    installation?: {
+      script: string;
+      container: string;
+      entrypoint: string;
+    };
   };
   variables?: Array<{
     name: string;
@@ -37,6 +64,10 @@ export interface CatalogEntry {
   name: string;
   description: string;
   dockerImage: string;
+  /** Whether the egg exposes multiple runtime images (e.g. Java 17 vs 21) */
+  hasMultipleImages: boolean;
+  /** Known platform feature flags (e.g. "eula", "java_version", "pid_limit") */
+  features: string[];
   author: string;
   path: string;
   categoryPath: string;
@@ -45,7 +76,7 @@ export interface CatalogEntry {
 export interface CatalogCategory {
   name: string;
   path: string;
-  eggs: Array<Pick<CatalogEntry, "id" | "name" | "description" | "dockerImage" | "author" | "path">>;
+  eggs: Array<Pick<CatalogEntry, "id" | "name" | "description" | "dockerImage" | "hasMultipleImages" | "features" | "author" | "path">>;
 }
 
 interface GitTreeResponse {
@@ -202,13 +233,15 @@ async function getCatalogEntriesInternal() {
 
   const entries = (await mapWithConcurrency(jsonPaths, 24, async (path) => {
     try {
-      const { pelican } = await fetchEggFile(path, branch);
+      const { pelican, egg } = await fetchEggFile(path, branch);
       if (!isValidCatalogEgg(pelican)) return null;
       return {
         id: deriveCatalogId(path),
         name: pelican.name,
         description: pelican.description ?? "",
-        dockerImage: pelican.docker_image ?? "ubuntu:22.04",
+        dockerImage: egg.dockerImage,
+        hasMultipleImages: Object.keys(pelican.docker_images ?? {}).length > 1,
+        features: egg.features ?? [],
         author: pelican.author ?? "",
         path,
         categoryPath: deriveCategoryPath(path),
@@ -229,19 +262,51 @@ async function getCatalogEntriesInternal() {
 }
 
 export function pelicanToGameEgg(pelican: PelicanEgg, id: string): GameEgg {
+  // PTDL_v2 uses docker_images (map); PTDL_v1 uses docker_image (string).
+  // Build a normalised map so we always have both dockerImage and dockerImages.
+  const rawImages = pelican.docker_images ?? {};
+  const hasManyImages = Object.keys(rawImages).length > 0;
+  const dockerImages: Record<string, string> = hasManyImages
+    ? rawImages
+    : pelican.docker_image
+    ? { [pelican.docker_image]: pelican.docker_image }
+    : {};
+  const dockerImage =
+    Object.values(dockerImages)[0] ?? pelican.docker_image ?? "ubuntu:22.04";
+
   const portVar = pelican.variables?.find((variable) =>
     variable.env_variable.toUpperCase().includes("PORT") || variable.name.toLowerCase().includes("port")
   );
   const gamePort = Number.parseInt(portVar?.default_value ?? "", 10) || parsePortFromStartup(pelican.startup) || 25565;
   const protocol = /valheim|terraria|cs.*go|ark|rust|factorio|quake/i.test(`${pelican.name} ${id}`) ? "UDP" : "TCP";
 
+  // Parse `config.startup` — it can be a JSON-encoded string or an object
+  let startupReadySignal: string | undefined;
+  const rawStartup = pelican.config?.startup;
+  if (rawStartup) {
+    if (typeof rawStartup === "string") {
+      try {
+        const parsed = JSON.parse(rawStartup) as { done?: string };
+        startupReadySignal = parsed.done ?? undefined;
+      } catch {
+        // not JSON-encoded — use as-is if it's a plain string signal
+      }
+    } else if (typeof rawStartup === "object" && rawStartup.done) {
+      startupReadySignal = rawStartup.done;
+    }
+  }
+
+  const features = (pelican.features ?? []).filter((f): f is string => typeof f === "string" && f.length > 0);
+
   return {
     id,
     name: pelican.name,
     description: pelican.description ?? "",
-    dockerImage: pelican.docker_image ?? "ubuntu:22.04",
+    dockerImage,
+    dockerImages: Object.keys(dockerImages).length > 1 ? dockerImages : undefined,
     startupCommand: pelican.startup ?? "",
     stopCommand: pelican.config?.stop ?? "^C",
+    startupReadySignal: startupReadySignal || undefined,
     gamePort,
     mountPath: "/home/container",
     protocol,
@@ -260,6 +325,17 @@ export function pelicanToGameEgg(pelican: PelicanEgg, id: string): GameEgg {
     defaultMemory: "2Gi",
     defaultCpu: "1",
     defaultStorage: "10Gi",
+    features: features.length > 0 ? features : undefined,
+    fileDenylist: pelican.file_denylist?.length ? pelican.file_denylist : undefined,
+    author: pelican.author || undefined,
+    exportedAt: pelican.exported_at || undefined,
+    installScript: pelican.scripts?.installation
+      ? {
+          script: pelican.scripts.installation.script,
+          container: pelican.scripts.installation.container,
+          entrypoint: pelican.scripts.installation.entrypoint,
+        }
+      : undefined,
   };
 }
 
@@ -274,6 +350,8 @@ export async function getPelicanCatalog() {
       name: entry.name,
       description: entry.description,
       dockerImage: entry.dockerImage,
+      hasMultipleImages: entry.hasMultipleImages,
+      features: entry.features,
       author: entry.author,
       path: entry.path,
     };

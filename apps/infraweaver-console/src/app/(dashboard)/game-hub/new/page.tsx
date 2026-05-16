@@ -7,7 +7,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { ArrowLeft, ChevronLeft, ChevronRight, Gamepad2, Loader2, Search, ServerCrash, CheckCircle2 } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
-import { BUILT_IN_EGGS, type GameEgg } from "@/lib/game-eggs";
+import { BUILT_IN_EGGS, type GameEgg, validateEggVariable, describeEggVariableRules } from "@/lib/game-eggs";
 import type { CatalogCategory, CatalogEntry } from "@/lib/pelican-eggs";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/notify";
@@ -147,6 +147,9 @@ export default function NewGameServerPage() {
   const [storageClass, setStorageClass] = useState("longhorn-game");
   const [deploying, setDeploying] = useState(false);
   const [deployedServerName, setDeployedServerName] = useState<string | null>(null);
+  const [selectedDockerImage, setSelectedDockerImage] = useState<string | null>(null);
+  const [eulaAccepted, setEulaAccepted] = useState(false);
+  const [envErrors, setEnvErrors] = useState<Record<string, string>>({});
 
   const { data: catalogData, isLoading: catalogLoading, error: catalogError } = useQuery({
     queryKey: ["game-hub", "pelican-catalog"],
@@ -215,6 +218,10 @@ export default function NewGameServerPage() {
     setMemoryMi(parseMemoryToMi(activeEgg.defaultMemory));
     setCpuCores(parseCpuToCores(activeEgg.defaultCpu));
     setStorageGi(parseStorageToGi(activeEgg.defaultStorage));
+    // Reset image selection and EULA when egg changes
+    setSelectedDockerImage(null);
+    setEulaAccepted(false);
+    setEnvErrors({});
   }, [activeEgg, activeEggKey]);
 
   useEffect(() => {
@@ -249,8 +256,13 @@ export default function NewGameServerPage() {
     });
   }, [remoteEggs, search, selectedCategory]);
 
-  const requiredEnvMissing = activeEgg?.environment.some((entry) => entry.required && !(envValues[entry.name] ?? "").trim());
-  const canContinueFromConfigure = Boolean(activeEgg && serverName.trim() && !requiredEnvMissing);
+  const needsEula = Boolean(activeEgg?.features?.includes("eula"));
+  const requiredEnvMissing = activeEgg?.environment
+    .filter((entry) => entry.userViewable !== false)
+    .some((entry) => entry.required && !(envValues[entry.name] ?? "").trim());
+  const canContinueFromConfigure = Boolean(
+    activeEgg && serverName.trim() && !requiredEnvMissing && (!needsEula || eulaAccepted)
+  );
 
   function selectBuiltInEgg(egg: GameEgg) {
     setSourceTab("built-in");
@@ -273,7 +285,7 @@ export default function NewGameServerPage() {
       const payload = {
         name: normalizeServerName(serverName),
         egg: sourceTab === "pelican" && selectedRemoteEntry ? `pelican:${selectedRemoteEntry.id}` : activeEgg.id,
-        image: activeEgg.dockerImage,
+        image: selectedDockerImage ?? activeEgg.dockerImage,
         env: envValues,
         memory: formatMemory(memoryMi),
         cpu: formatCpu(cpuCores),
@@ -311,7 +323,7 @@ export default function NewGameServerPage() {
   const summaryRows = [
     { label: "Egg Source", value: sourceTab === "built-in" ? "Built-in library" : "Pelican catalog" },
     { label: "Selected Egg", value: activeEgg?.name ?? "—" },
-    { label: "Docker Image", value: activeEgg?.dockerImage ?? "—" },
+    { label: "Docker Image", value: selectedDockerImage ?? activeEgg?.dockerImage ?? "—" },
     { label: "Server Name", value: normalizeServerName(serverName) || "—" },
     { label: "DNS Hostname", value: dnsHostname || "Auto-generated" },
     { label: "Memory", value: formatMemory(memoryMi) },
@@ -509,8 +521,14 @@ export default function NewGameServerPage() {
                               <p className="mt-1 line-clamp-2 text-sm text-[#777]">{egg.description || "No description provided."}</p>
                             </div>
                           </div>
-                          <div className="mb-3 flex items-center gap-2 text-[11px] text-[#999]">
+                          <div className="mb-3 flex flex-wrap items-center gap-1.5 text-[11px] text-[#999]">
                             <span className="rounded-full border border-[#2a2a2a] px-2 py-1 text-[#cfcfcf]">{egg.categoryName}</span>
+                            {egg.hasMultipleImages && (
+                              <span className="rounded-full border border-[#0078D4]/30 bg-[#0078D4]/10 px-2 py-1 text-[#7cc4ff]">multi-image</span>
+                            )}
+                            {egg.features?.includes("eula") && (
+                              <span className="rounded-full border border-yellow-500/30 bg-yellow-500/10 px-2 py-1 text-yellow-300">EULA</span>
+                            )}
                             {egg.author ? <span>by {egg.author}</span> : null}
                           </div>
                           <p className="truncate font-mono text-xs text-[#cfcfcf]">{egg.dockerImage}</p>
@@ -615,29 +633,82 @@ export default function NewGameServerPage() {
                       <h3 className="text-sm font-semibold text-[#f2f2f2]">Egg variables</h3>
                       <p className="text-sm text-[#777]">Configure environment variables from the selected egg.</p>
                     </div>
-                    {activeEgg.environment.length === 0 ? (
+
+                    {/* Docker image picker (PTDL_v2 eggs with multiple images, e.g. Java 17 vs 21) */}
+                    {activeEgg.dockerImages && Object.keys(activeEgg.dockerImages).length > 1 && (
+                      <div className="rounded-2xl border border-[#0078D4]/20 bg-[#0078D4]/5 p-4 space-y-2">
+                        <label className="text-xs font-semibold uppercase tracking-[0.2em] text-[#7cc4ff]">Runtime Image</label>
+                        <p className="text-xs text-[#777]">This egg supports multiple runtime versions. Select which one to use.</p>
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          {Object.entries(activeEgg.dockerImages).map(([label, image]) => (
+                            <button
+                              key={image}
+                              type="button"
+                              onClick={() => setSelectedDockerImage(image)}
+                              className={cn(
+                                "rounded-xl border px-3 py-2 text-left text-xs transition-colors",
+                                (selectedDockerImage ?? activeEgg.dockerImage) === image
+                                  ? "border-[#0078D4]/50 bg-[#0078D4]/15 text-[#7cc4ff]"
+                                  : "border-[#2a2a2a] bg-[#111] text-[#888] hover:border-[#3a3a3a] hover:text-[#ccc]"
+                              )}
+                            >
+                              <span className="font-medium block">{label}</span>
+                              <span className="font-mono opacity-60 truncate block mt-0.5">{image}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* EULA acceptance (eggs with features: ["eula"]) */}
+                    {needsEula && (
+                      <div className="rounded-2xl border border-yellow-500/20 bg-yellow-500/5 p-4">
+                        <label className="flex items-start gap-3 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={eulaAccepted}
+                            onChange={(e) => setEulaAccepted(e.target.checked)}
+                            className="mt-0.5 h-4 w-4 accent-yellow-400 rounded"
+                          />
+                          <div>
+                            <span className="text-sm font-medium text-yellow-300">I accept the End User License Agreement (EULA)</span>
+                            <p className="mt-1 text-xs text-[#888]">
+                              This server requires EULA acceptance before it can start. By checking this box you agree on behalf of all users.
+                              {" "}<a href="https://aka.ms/MinecraftEULA" target="_blank" rel="noopener noreferrer" className="text-yellow-400 hover:text-yellow-300 underline">Read the EULA →</a>
+                            </p>
+                          </div>
+                        </label>
+                      </div>
+                    )}
+
+                    {activeEgg.environment.filter((v) => v.userViewable !== false).length === 0 ? (
                       <div className="rounded-xl border border-dashed border-[#2a2a2a] p-6 text-sm text-[#666]">
                         This egg does not define any editable environment variables.
                       </div>
                     ) : (
                       <div className="grid gap-4 md:grid-cols-2">
-                        {activeEgg.environment.map((variable) => {
+                        {activeEgg.environment.filter((v) => v.userViewable !== false).map((variable) => {
                           const fieldType = variable.fieldType ?? "text";
                           const label = variable.description.split(":")[0] || variable.name;
                           const helperText = variable.description;
                           const value = envValues[variable.name] ?? variable.defaultValue;
+                          const rulesHint = describeEggVariableRules(variable.rules);
+                          const error = envErrors[variable.name];
+                          const isReadOnly = variable.userEditable === false;
 
                           return (
-                            <div key={variable.name} className="rounded-2xl border border-[#2a2a2a] bg-[#111] p-4">
+                            <div key={variable.name} className={cn("rounded-2xl border bg-[#111] p-4", error ? "border-red-500/40" : "border-[#2a2a2a]")}>
                               <div className="mb-3 flex items-start justify-between gap-3">
                                 <div>
                                   <label className="text-sm font-medium text-[#f2f2f2]">
                                     {label}
                                     {variable.required ? <span className="ml-1 text-red-400">*</span> : null}
+                                    {isReadOnly ? <span className="ml-1 text-[10px] text-[#666] font-normal">(read-only)</span> : null}
                                   </label>
                                   <p className="mt-1 text-xs text-[#777]">{helperText}</p>
+                                  {rulesHint && <p className="mt-0.5 text-[10px] text-[#555]">{rulesHint}</p>}
                                 </div>
-                                <span className="rounded-full border border-[#2a2a2a] px-2 py-1 text-[10px] uppercase tracking-[0.2em] text-[#999]">{fieldType}</span>
+                                <span className="rounded-full border border-[#2a2a2a] px-2 py-1 text-[10px] uppercase tracking-[0.2em] text-[#999] flex-shrink-0">{fieldType}</span>
                               </div>
 
                               {fieldType === "boolean" ? (
@@ -646,16 +717,34 @@ export default function NewGameServerPage() {
                                   onChange={(checked) => setEnvValues((current) => ({ ...current, [variable.name]: checked ? "true" : "false" }))}
                                   label={variable.name}
                                   description="Toggle the boolean value"
+                                  disabled={isReadOnly}
                                 />
                               ) : (
                                 <input
                                   type={fieldType === "integer" ? "number" : /password|token|secret/i.test(variable.name) ? "password" : "text"}
                                   value={value}
-                                  onChange={(event) => setEnvValues((current) => ({ ...current, [variable.name]: event.target.value }))}
+                                  readOnly={isReadOnly}
+                                  onChange={(event) => {
+                                    const next = event.target.value;
+                                    setEnvValues((current) => ({ ...current, [variable.name]: next }));
+                                    // clear error while typing
+                                    if (envErrors[variable.name]) {
+                                      setEnvErrors((prev) => { const copy = { ...prev }; delete copy[variable.name]; return copy; });
+                                    }
+                                  }}
+                                  onBlur={() => {
+                                    const err = validateEggVariable(variable, value);
+                                    if (err) setEnvErrors((prev) => ({ ...prev, [variable.name]: err }));
+                                  }}
                                   placeholder={variable.defaultValue}
-                                  className="w-full rounded-xl border border-[#2a2a2a] bg-[#0d0d0d] px-3 py-2 text-sm text-[#f2f2f2] outline-none transition-colors focus:border-[#0078D4]/50"
+                                  className={cn(
+                                    "w-full rounded-xl border px-3 py-2 text-sm text-[#f2f2f2] outline-none transition-colors",
+                                    isReadOnly ? "bg-[#0d0d0d] text-[#666] cursor-not-allowed" : "bg-[#0d0d0d] focus:border-[#0078D4]/50",
+                                    error ? "border-red-500/40" : "border-[#2a2a2a]"
+                                  )}
                                 />
                               )}
+                              {error && <p className="mt-1.5 text-[11px] text-red-400">{error}</p>}
                             </div>
                           );
                         })}
@@ -861,13 +950,13 @@ export default function NewGameServerPage() {
                 <div className="space-y-4 rounded-2xl border border-[#2a2a2a] bg-[#111] p-5">
                   <div>
                     <h3 className="text-sm font-semibold text-[#f2f2f2]">Environment variables</h3>
-                    <p className="mt-1 text-sm text-[#777]">{activeEgg.environment.length} variable{activeEgg.environment.length === 1 ? "" : "s"} will be applied.</p>
+                    <p className="mt-1 text-sm text-[#777]">{activeEgg.environment.filter((v) => v.userViewable !== false).length} variable{activeEgg.environment.length === 1 ? "" : "s"} will be applied.</p>
                   </div>
                   <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
-                    {activeEgg.environment.length === 0 ? (
+                    {activeEgg.environment.filter((v) => v.userViewable !== false).length === 0 ? (
                       <div className="rounded-xl border border-dashed border-[#2a2a2a] p-4 text-sm text-[#666]">No custom environment variables.</div>
                     ) : (
-                      activeEgg.environment.map((variable) => (
+                      activeEgg.environment.filter((v) => v.userViewable !== false).map((variable) => (
                         <div key={variable.name} className="rounded-xl border border-[#2a2a2a] bg-[#0d0d0d] p-3">
                           <div className="flex items-center justify-between gap-3">
                             <p className="font-mono text-xs text-[#7cc4ff]">{variable.name}</p>

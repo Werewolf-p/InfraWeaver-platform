@@ -20,29 +20,54 @@ export interface SavedCommand {
   description?: string;
 }
 
+export interface EggEnvironmentVariable {
+  name: string;
+  description: string;
+  defaultValue: string;
+  required: boolean;
+  fieldType?: "text" | "boolean" | "integer";
+  userViewable?: boolean;
+  userEditable?: boolean;
+  /** Laravel-style validation rules string (e.g. "required|string|max:20") */
+  rules?: string;
+}
+
+export interface EggInstallScript {
+  script: string;
+  container: string;
+  entrypoint: string;
+}
+
 export interface GameEgg {
   id: string;
   name: string;
   description: string;
+  /** Primary Docker image to use (first/default choice from dockerImages) */
   dockerImage: string;
+  /**
+   * All available Docker images keyed by human label (PTDL_v2).
+   * e.g. { "Java 21": "ghcr.io/pterodactyl/yolks:java_21" }
+   * If only one image, it will be `{ [dockerImage]: dockerImage }`.
+   */
+  dockerImages?: Record<string, string>;
   startupCommand: string;
   stopCommand: string;
+  /**
+   * Log line pattern that signals the server has finished starting.
+   * From `config.startup.done` in the Pelican egg.
+   * Example: ")! For help, type " (Minecraft Paper)
+   *          "Hosting game at" (Factorio)
+   */
+  startupReadySignal?: string;
   queryPort?: number;
   gamePort: number;
   mountPath: string;
-  environment: Array<{
-    name: string;
-    description: string;
-    defaultValue: string;
-    required: boolean;
-    fieldType?: "text" | "boolean" | "integer";
-    userViewable?: boolean;
-    userEditable?: boolean;
-    rules?: string;
-  }>;
+  environment: EggEnvironmentVariable[];
   quickCommands: QuickCommand[];
   commandAcl?: Record<string, string[]>;
   installScriptUrl?: string;
+  /** Install script details from Pelican `scripts.installation` */
+  installScript?: EggInstallScript;
   protocol?: "TCP" | "UDP";
   ports?: Array<{ name: string; port: number; protocol: "TCP" | "UDP" }>;
   defaultMemory?: string;
@@ -50,6 +75,20 @@ export interface GameEgg {
   defaultStorage?: string;
   supportsModrinth?: boolean;
   connectionHint?: string;
+  /**
+   * Platform feature flags from Pelican `features[]`.
+   * Known values: "eula", "java_version", "pid_limit", "steam_disk_space"
+   */
+  features?: string[];
+  /**
+   * Files the user must not be able to read or edit (from `file_denylist`).
+   * e.g. ["server.properties"] for eggs that auto-manage that file.
+   */
+  fileDenylist?: string[];
+  /** Egg author (email or username, from Pelican metadata) */
+  author?: string;
+  /** ISO timestamp when the egg was exported from Pterodactyl/Pelican */
+  exportedAt?: string;
 }
 
 function defaultCommandAcl(egg: Pick<GameEgg, "quickCommands">): Record<string, string[]> {
@@ -480,4 +519,86 @@ export function buildEggConfigMap(
       ),
     },
   };
+}
+
+/**
+ * Validate a single egg environment variable value against its `rules` string.
+ * Rules are Laravel-style pipe-separated validators (e.g. "required|string|max:20").
+ *
+ * Returns a human-readable error string or null if the value is valid.
+ */
+export function validateEggVariable(
+  variable: EggEnvironmentVariable,
+  value: string
+): string | null {
+  const rules = variable.rules ?? "";
+  const parts = rules.split("|").map((r) => r.trim()).filter(Boolean);
+  const trimmed = value.trim();
+
+  if (parts.includes("required") && !trimmed) {
+    return `${variable.name} is required`;
+  }
+
+  // If empty and not required, remaining rules are skipped
+  if (!trimmed) return null;
+
+  const maxMatch = rules.match(/\bmax:(\d+)\b/);
+  if (maxMatch && trimmed.length > Number.parseInt(maxMatch[1], 10)) {
+    return `Must be at most ${maxMatch[1]} characters`;
+  }
+
+  const minMatch = rules.match(/\bmin:(\d+)\b/);
+  if (minMatch && trimmed.length < Number.parseInt(minMatch[1], 10)) {
+    return `Must be at least ${minMatch[1]} characters`;
+  }
+
+  if (parts.includes("numeric") || parts.includes("integer") || variable.fieldType === "integer") {
+    if (!/^-?\d+(\.\d+)?$/.test(trimmed)) {
+      return "Must be a number";
+    }
+    const betweenMatch = rules.match(/\bdigits_between:(\d+),(\d+)\b/);
+    if (betweenMatch) {
+      const digits = trimmed.replace(/\D/g, "").length;
+      if (digits < Number.parseInt(betweenMatch[1], 10) || digits > Number.parseInt(betweenMatch[2], 10)) {
+        return `Must be between ${betweenMatch[1]} and ${betweenMatch[2]} digits`;
+      }
+    }
+    const betweenValMatch = rules.match(/\bbetween:(\d+),(\d+)\b/);
+    if (betweenValMatch) {
+      const num = Number.parseFloat(trimmed);
+      if (num < Number.parseFloat(betweenValMatch[1]) || num > Number.parseFloat(betweenValMatch[2])) {
+        return `Must be between ${betweenValMatch[1]} and ${betweenValMatch[2]}`;
+      }
+    }
+  }
+
+  const regexMatch = rules.match(/\bregex:\/(.+?)\/([gimsuy]*)\b/);
+  if (regexMatch) {
+    try {
+      const re = new RegExp(regexMatch[1], regexMatch[2]);
+      if (!re.test(trimmed)) return "Invalid format";
+    } catch {
+      // ignore malformed regex
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Parse the `rules` string into a minimal zod-compatible constraint summary
+ * for display in UI tooltips or form hints.
+ */
+export function describeEggVariableRules(rules: string | undefined): string {
+  if (!rules) return "";
+  const parts: string[] = [];
+  if (/\brequired\b/.test(rules)) parts.push("required");
+  const max = rules.match(/\bmax:(\d+)\b/);
+  if (max) parts.push(`max ${max[1]} chars`);
+  const min = rules.match(/\bmin:(\d+)\b/);
+  if (min) parts.push(`min ${min[1]} chars`);
+  if (/\bnumeric\b|\binteger\b/.test(rules)) parts.push("number");
+  const between = rules.match(/\bbetween:(\d+),(\d+)\b/);
+  if (between) parts.push(`${between[1]}–${between[2]}`);
+  return parts.join(", ");
 }

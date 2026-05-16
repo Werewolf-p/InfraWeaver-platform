@@ -1675,6 +1675,11 @@ export function DashboardTab({
               </div>
             </div>
             <p className="text-[11px] text-[#4a6fa5] leading-relaxed">{connectHint}</p>
+            {server.egg?.startupReadySignal && server.status === "starting" && (
+              <p className="text-[11px] text-[#3a5a80] leading-relaxed mt-1">
+                Waiting for server-ready signal: <span className="font-mono text-[#4a88b0]">"{server.egg.startupReadySignal}"</span>
+              </p>
+            )}
           </div>
           <div className="space-y-3 rounded-lg border border-[#1e3a5f] bg-[#0d1b2a] p-4">
             <div>
