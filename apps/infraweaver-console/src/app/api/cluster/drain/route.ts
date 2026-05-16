@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { getRequestClusterId } from "@/lib/cluster-context";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { auditLog } from "@/lib/audit-log";
 import { loadKubeConfig } from "@/lib/k8s";
@@ -25,8 +26,13 @@ export async function POST(req: NextRequest) {
   const evicted: string[] = [];
   const errors: string[] = [];
 
+  const clusterId = getRequestClusterId(req);
+  if (clusterId === "all") {
+    return NextResponse.json({ error: "Select a specific cluster before performing this action" }, { status: 400 });
+  }
+
   try {
-    const coreApi = loadKubeConfig().makeApiClient(k8s.CoreV1Api);
+    const coreApi = loadKubeConfig(clusterId).makeApiClient(k8s.CoreV1Api);
     await coreApi.patchNode({ name: node, body: { spec: { unschedulable: true } } });
     const podsRes = await coreApi.listPodForAllNamespaces({ fieldSelector: `spec.nodeName=${node}` });
     for (const pod of podsRes.items) {

@@ -2,8 +2,9 @@
 
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { KeyRound, RefreshCw, ShieldAlert, Trash2 } from "lucide-react";
+import { Globe, KeyRound, RefreshCw, ShieldAlert, Trash2 } from "lucide-react";
 import { ConfirmDialog, EmptyState, PageScaffold, RelativeTime, SearchInput } from "@/components/ui";
+import { useCluster } from "@/contexts/cluster-context";
 import { useMutationWithToast } from "@/hooks/use-mutation-with-toast";
 import { useRBAC } from "@/hooks/use-rbac";
 import { cn } from "@/lib/utils";
@@ -28,6 +29,7 @@ function secretId(secret: Pick<SecretItem, "namespace" | "name">) {
 }
 
 export default function SecretsPage() {
+  const { activeId } = useCluster();
   const { can } = useRBAC();
   const canViewSecrets = can("cluster:admin");
   const [search, setSearch] = useState("");
@@ -97,6 +99,16 @@ export default function SecretsPage() {
   }, [namespaceFilter, search, typeFilter, visibleSecrets]);
 
   const managedCount = visibleSecrets.filter((secret) => secret.externalSecret).length;
+
+  if (activeId === "all") {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 text-center">
+        <Globe className="mb-4 h-10 w-10 text-[#333]" />
+        <p className="text-sm font-medium text-[#666]">Select a specific cluster to view this page</p>
+        <p className="mt-1 text-xs text-[#444]">Use the cluster selector in the top bar</p>
+      </div>
+    );
+  }
 
   if (!canViewSecrets) {
     return (

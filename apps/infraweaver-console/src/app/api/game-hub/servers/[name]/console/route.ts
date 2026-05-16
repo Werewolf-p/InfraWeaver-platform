@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { getRequestClusterId } from "@/lib/cluster-context";
 import { GAME_HUB_NAMESPACE, getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
 import { loadKubeConfig } from "@/lib/k8s";
 import { safeError } from "@/lib/utils";
 
-export async function GET(_req: NextRequest, { params }: { params: Promise<{ name: string }> }) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ name: string }> }) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { name } = await params;
@@ -15,7 +16,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ nam
 
   try {
     const k8s = await import("@kubernetes/client-node");
-    const coreApi = loadKubeConfig().makeApiClient(k8s.CoreV1Api);
+    const coreApi = loadKubeConfig(getRequestClusterId(req)).makeApiClient(k8s.CoreV1Api);
     const pods = await coreApi.listNamespacedPod({ namespace: GAME_HUB_NAMESPACE, labelSelector: `app=${name}` });
     const pod = pods.items?.[0];
     if (!pod?.metadata?.name) return NextResponse.json({ error: "No pod found" }, { status: 404 });

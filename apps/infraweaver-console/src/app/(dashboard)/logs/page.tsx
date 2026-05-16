@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { AlertCircle, FileText, PanelLeftClose, PanelLeftOpen, Rows3 } from "lucide-react";
+import { AlertCircle, FileText, Globe, PanelLeftClose, PanelLeftOpen, Rows3 } from "lucide-react";
 import { Group as PanelGroup, Panel, Separator as PanelResizeHandle } from "react-resizable-panels";
 import { LogStreamViewer } from "@/components/logs/log-stream-viewer";
 import { PodSelectorTree } from "@/components/logs/pod-selector-tree";
 import { BottomSheet } from "@/components/ui/bottom-sheet";
+import { useCluster } from "@/contexts/cluster-context";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { usePods } from "@/hooks/use-pods";
@@ -51,6 +52,7 @@ function isTypingTarget(target: EventTarget | null) {
 }
 
 export default function LogsPage() {
+  const { activeId } = useCluster();
   const { canAny } = useRBAC();
   const { data: pods = [], isLoading } = usePods();
   const searchParams = useSearchParams();
@@ -158,6 +160,16 @@ export default function LogsPage() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [moveSelection]);
+
+  if (activeId === "all") {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 text-center">
+        <Globe className="mb-4 h-10 w-10 text-[#333]" />
+        <p className="text-sm font-medium text-[#666]">Select a specific cluster to view this page</p>
+        <p className="mt-1 text-xs text-[#444]">Use the cluster selector in the top bar</p>
+      </div>
+    );
+  }
 
   if (!canAny(["cluster:read", "infra:read"])) {
     return (

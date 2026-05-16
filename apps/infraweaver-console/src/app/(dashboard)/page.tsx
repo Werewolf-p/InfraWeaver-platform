@@ -17,7 +17,9 @@ import { useRBAC } from "@/hooks/use-rbac";
 import { cn, timeAgo } from "@/lib/utils";
 import Link from "next/link";
 import { PageHeader } from "@/components/ui/page-header";
+import { ClusterSummaryCard } from "@/components/ui/cluster-summary-card";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { useCluster } from "@/contexts/cluster-context";
 
 const container = {
   hidden: { opacity: 0 },
@@ -215,6 +217,8 @@ function ArgoCDUnavailableBanner({ onRetry }: { onRetry: () => void }) {
 }
 
 export default function DashboardPage() {
+  const { activeId, clusters } = useCluster();
+  const isAllView = activeId === "all";
   const { data: apps, isLoading, isError, error, refetch } = useArgoApps();
   const { isAdmin } = useRBAC();
   const qc = useQueryClient();
@@ -304,6 +308,22 @@ export default function DashboardPage() {
 
   const uptimePct = gatusStats.total > 0 ? Math.round((gatusStats.up / gatusStats.total) * 100) : 100;
   const argoErrorDetail = error instanceof Error ? error.message : undefined;
+
+  if (isAllView) {
+    return (
+      <div className="space-y-6 p-4 sm:p-6">
+        <div className="space-y-1">
+          <h1 className="text-xl font-semibold text-[#f2f2f2]">All Clusters</h1>
+          <p className="text-sm text-[#666]">Select a cluster to manage it</p>
+        </div>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {clusters.map(cluster => (
+            <ClusterSummaryCard key={cluster.id} cluster={cluster} />
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>

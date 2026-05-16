@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { getRequestClusterId } from "@/lib/cluster-context";
 import { canAccessLogsTarget, getGameHubAccessContext } from "@/lib/game-hub";
 import { parseCpuQuantity, parseMemoryBytes } from "@/lib/game-hub-server";
 import { loadKubeConfig } from "@/lib/k8s";
@@ -55,7 +56,7 @@ function valuesToMap(values: Array<[number | string, string]>) {
 }
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ namespace: string; pod: string }> },
 ) {
   const session = await auth();
@@ -73,7 +74,7 @@ export async function GET(
 
   try {
     const k8s = await import("@kubernetes/client-node");
-    const coreApi = loadKubeConfig().makeApiClient(k8s.CoreV1Api);
+    const coreApi = loadKubeConfig(getRequestClusterId(req)).makeApiClient(k8s.CoreV1Api);
     const podResource = await coreApi.readNamespacedPod({ name: pod, namespace });
     const containers = podResource.spec?.containers ?? [];
     const cpuLimit = containers.reduce(

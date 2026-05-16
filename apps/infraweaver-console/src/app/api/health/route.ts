@@ -1,12 +1,15 @@
-import { NextResponse } from "next/server";
-
-const GATUS_URL = process.env.GATUS_URL ?? "http://gatus.gatus.svc.cluster.local:8080";
+import { NextRequest, NextResponse } from "next/server";
+import { getClusterConfig, getRequestClusterId } from "@/lib/cluster-context";
 
 // NOTE: This endpoint is intentionally public — used as the k8s liveness/readiness probe.
 // Sensitive health data (timeline, cluster status) is protected on separate authenticated routes.
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const clusterId = getRequestClusterId(request);
+  const clusterConfig = getClusterConfig(clusterId);
+  const gatusBase = clusterConfig?.gatusUrl ?? process.env.GATUS_URL ?? "http://gatus.gatus.svc.cluster.local:8080";
+
   try {
-    const res = await fetch(`${GATUS_URL}/api/v1/endpoints/statuses?page=1&pageSize=100`, {
+    const res = await fetch(`${gatusBase}/api/v1/endpoints/statuses?page=1&pageSize=100`, {
       cache: "no-store",
       signal: AbortSignal.timeout(5000),
     });
@@ -42,4 +45,3 @@ export async function GET() {
     return NextResponse.json({ endpoints: [], available: false, error: "Gatus unreachable" }, { status: 503 });
   }
 }
-

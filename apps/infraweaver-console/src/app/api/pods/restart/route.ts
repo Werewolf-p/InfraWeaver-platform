@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { auditLog } from "@/lib/audit-log";
+import { getRequestClusterId } from "@/lib/cluster-context";
 import { loadKubeConfig } from "@/lib/k8s";
 import { invalidatePodCaches } from "@/lib/performance-cache";
 import { z } from "zod";
@@ -32,9 +33,13 @@ export async function POST(req: NextRequest) {
   }
 
   const { namespace, name } = parsed.data;
+  const clusterId = getRequestClusterId(req);
+  if (clusterId === "all") {
+    return NextResponse.json({ error: "Select a specific cluster before performing this action" }, { status: 400 });
+  }
 
   try {
-    const coreApi = loadKubeConfig().makeApiClient(k8s.CoreV1Api);
+    const coreApi = loadKubeConfig(clusterId).makeApiClient(k8s.CoreV1Api);
     await coreApi.deleteNamespacedPod({ namespace, name });
     await auditLog("pod:restart", session.user?.email ?? "unknown", `restarted pod ${namespace}/${name}`);
     invalidatePodCaches();

@@ -2,8 +2,9 @@
 
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileText, RefreshCw, Save, ShieldAlert, Trash2 } from "lucide-react";
+import { FileText, Globe, RefreshCw, Save, ShieldAlert, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { useCluster } from "@/contexts/cluster-context";
 import { ConfirmDialog, EmptyState, PageScaffold, RelativeTime, SearchInput } from "@/components/ui";
 import { useMutationWithToast } from "@/hooks/use-mutation-with-toast";
 import { useRBAC } from "@/hooks/use-rbac";
@@ -36,6 +37,7 @@ function hasDraftChanges(current: Record<string, string>, draft: Record<string, 
 }
 
 export default function ConfigMapsPage() {
+  const { activeId } = useCluster();
   const queryClient = useQueryClient();
   const { can } = useRBAC();
   const canManageConfigMaps = can("cluster:admin");
@@ -110,6 +112,16 @@ export default function ConfigMapsPage() {
       return matchesNamespace && matchesSearch;
     });
   }, [namespaceFilter, search, visibleConfigMaps]);
+
+  if (activeId === "all") {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 text-center">
+        <Globe className="mb-4 h-10 w-10 text-[#333]" />
+        <p className="text-sm font-medium text-[#666]">Select a specific cluster to view this page</p>
+        <p className="mt-1 text-xs text-[#444]">Use the cluster selector in the top bar</p>
+      </div>
+    );
+  }
 
   async function handleSave(configMap: ConfigMapItem) {
     const id = configMapId(configMap);

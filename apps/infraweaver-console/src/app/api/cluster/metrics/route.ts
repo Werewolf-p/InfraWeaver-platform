@@ -1,6 +1,7 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import * as k8s from "@kubernetes/client-node";
 import { auth } from "@/lib/auth";
+import { getRequestClusterId } from "@/lib/cluster-context";
 import { apiCache } from "@/lib/api-cache";
 import { loadKubeConfig } from "@/lib/k8s";
 import { PERFORMANCE_CACHE_KEYS } from "@/lib/performance-cache";
@@ -26,9 +27,9 @@ function parseCpuToMillicores(cpu = "0n") {
   return (parseFloat(cpu) || 0) * 1000;
 }
 
-async function loadMetrics(): Promise<MetricsResponse> {
+async function loadMetrics(clusterId: string): Promise<MetricsResponse> {
   try {
-    const kc = loadKubeConfig();
+    const kc = loadKubeConfig(clusterId);
     const customApi = kc.makeApiClient(k8s.CustomObjectsApi);
     const coreApi = kc.makeApiClient(k8s.CoreV1Api);
     const [metricsResponse, nodesResponse] = await Promise.all([
@@ -68,7 +69,7 @@ async function loadMetrics(): Promise<MetricsResponse> {
   }
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
@@ -76,12 +77,14 @@ export async function GET() {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const cached = apiCache.get<MetricsResponse>(PERFORMANCE_CACHE_KEYS.clusterMetrics);
+  const clusterId = getRequestClusterId(request);
+  const cacheKey = `${PERFORMANCE_CACHE_KEYS.clusterMetrics}:${clusterId}`;
+  const cached = apiCache.get<MetricsResponse>(cacheKey);
   if (cached) {
     return NextResponse.json(cached, { headers: { "X-Cache": "HIT" } });
   }
 
-  const response = await loadMetrics();
-  apiCache.set(PERFORMANCE_CACHE_KEYS.clusterMetrics, response, METRICS_CACHE_TTL_MS);
+  const response = await loadMetrics(clusterId);
+  apiCache.set(cacheKey, response, METRICS_CACHE_TTL_MS);
   return NextResponse.json(response, { headers: { "X-Cache": "MISS" } });
 }

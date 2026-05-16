@@ -1,5 +1,6 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import * as k8s from "@kubernetes/client-node";
+import { getRequestClusterId } from "@/lib/cluster-context";
 import { requireRoutePermissions } from "@/lib/route-utils";
 import { loadKubeConfig } from "@/lib/k8s";
 
@@ -49,12 +50,12 @@ async function loadLonghornVolumes(): Promise<{ volumes: LonghornVolume[]; live:
   }
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const session = await requireRoutePermissions({ all: ["cluster:admin"] });
   if (session instanceof NextResponse) return session;
 
   try {
-    const coreApi = loadKubeConfig().makeApiClient(k8s.CoreV1Api);
+    const coreApi = loadKubeConfig(getRequestClusterId(request)).makeApiClient(k8s.CoreV1Api);
     const [{ volumes: longhornVolumes, live }, pvsRes, pvcsRes] = await Promise.all([
       loadLonghornVolumes(),
       coreApi.listPersistentVolume(),

@@ -58,6 +58,29 @@ export function ClusterProvider({ children }: { children: React.ReactNode }) {
   const setActiveId = useCallback((id: ActiveClusterId) => {
     setActiveIdState(id);
     try { localStorage.setItem(STORAGE_KEY, id); } catch { /* ignore */ }
+    // Sync with HTTP-only cookie so server-side API routes see the change
+    if (id !== "all") {
+      fetch("/api/clusters/active", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clusterId: id }),
+      }).catch(() => { /* best-effort */ });
+    }
+  }, []);
+
+  // On mount, sync localStorage with the server-side cookie
+  useEffect(() => {
+    fetch("/api/clusters/active")
+      .then(r => r.ok ? r.json() : null)
+      .then((data: { clusterId: string } | null) => {
+        if (data?.clusterId && data.clusterId !== activeId) {
+          setActiveIdState(data.clusterId);
+          try { localStorage.setItem(STORAGE_KEY, data.clusterId); } catch { /* ignore */ }
+        }
+      })
+      .catch(() => { /* ignore */ });
+  // Only run once on mount
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // If the stored cluster no longer exists, fall back to local

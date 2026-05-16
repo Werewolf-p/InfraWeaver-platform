@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
+import { getRequestClusterId } from "@/lib/cluster-context";
 import { loadKubeConfig } from "@/lib/k8s";
 import { invalidateClusterCaches } from "@/lib/performance-cache";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
@@ -9,8 +10,8 @@ import { isValidK8sName, isValidNamespace } from "@/lib/validate";
 import { z } from "zod";
 import * as k8s from "@kubernetes/client-node";
 
-function makeKc() {
-  return loadKubeConfig();
+function makeKc(clusterId: string) {
+  return loadKubeConfig(clusterId);
 }
 
 export async function PATCH(req: NextRequest) {
@@ -33,8 +34,12 @@ export async function PATCH(req: NextRequest) {
   if (!isValidNamespace(namespace) || !isValidK8sName(deployment)) {
     return NextResponse.json({ error: "Invalid deployment name" }, { status: 400 });
   }
+  const clusterId = getRequestClusterId(req);
+  if (clusterId === "all") {
+    return NextResponse.json({ error: "Select a specific cluster before performing this action" }, { status: 400 });
+  }
   try {
-    const appsApi = makeKc().makeApiClient(k8s.AppsV1Api);
+    const appsApi = makeKc(clusterId).makeApiClient(k8s.AppsV1Api);
     await appsApi.patchNamespacedDeployment({ name: deployment, namespace, body: { spec: { replicas } } });
     await auditLog("cluster:scale", session.user?.email ?? "unknown", `scaled ${namespace}/${deployment} to ${replicas}`);
     invalidateClusterCaches();
@@ -59,7 +64,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const appsApi = makeKc().makeApiClient(k8s.AppsV1Api);
+    const appsApi = makeKc(getRequestClusterId(req)).makeApiClient(k8s.AppsV1Api);
     const dep = await appsApi.readNamespacedDeployment({ name: deployment, namespace });
     return NextResponse.json({ replicas: dep.spec?.replicas ?? 1 });
   } catch {

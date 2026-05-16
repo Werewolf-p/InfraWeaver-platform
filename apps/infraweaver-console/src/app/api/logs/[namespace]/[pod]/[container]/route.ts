@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { getRequestClusterId } from "@/lib/cluster-context";
 import { canAccessLogsTarget, getGameHubAccessContext } from "@/lib/game-hub";
 import { loadKubeConfig } from "@/lib/k8s";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
@@ -29,7 +30,7 @@ export async function GET(
 
   try {
     const k8s = await import("@kubernetes/client-node");
-    const coreApi = loadKubeConfig().makeApiClient(k8s.CoreV1Api);
+    const coreApi = loadKubeConfig(getRequestClusterId(req)).makeApiClient(k8s.CoreV1Api);
     const logRes = await coreApi.readNamespacedPodLog({
       name: pod,
       namespace,

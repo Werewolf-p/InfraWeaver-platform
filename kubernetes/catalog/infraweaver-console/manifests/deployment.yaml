@@ -49,11 +49,7 @@ spec:
               topologyKey: kubernetes.io/hostname
       containers:
       - name: console
-<<<<<<< HEAD
         image: onedev.rlservers.com/infraweaver/infraweaver-console:main-9c48b3a
-=======
-        image: onedev.rlservers.com/infraweaver/infraweaver-console:main-9c48b3a
->>>>>>> 7bdef56c7 (chore: deploy main-cb56835 [skip ci])
         imagePullPolicy: IfNotPresent
         command: ["sh", "-c", "HOSTNAME=0.0.0.0 node server.js"]
         ports:
@@ -100,6 +96,16 @@ spec:
           value: Werewolf-p/InfraWeaver-platform
         - name: GATUS_URL
           value: http://gatus.gatus.svc.cluster.local:8080
+        # ─── Multi-Cluster Support (optional) ────────────────────────────────────
+        # Set CLUSTER_CONTEXTS to a JSON array to enable multi-cluster switching.
+        # Each entry can override ArgoCD server/token and Gatus URL per cluster.
+        # The first entry with isLocal:true is the primary (uses in-cluster SA).
+        # Additional entries require a base64-encoded kubeconfig.
+        #
+        # Example (base64-encode the JSON value):
+        # - name: CLUSTER_CONTEXTS
+        #   value: '[{"id":"homelab-prod","displayName":"Production","isLocal":true,"tags":["production"]},{"id":"homelab-dev","displayName":"Development","kubeconfig":"<base64>","argocdServer":"https://argocd.dev.example.com","argocdToken":"<token>","gatusUrl":"http://gatus.dev.svc:8080"}]'
+        # ─────────────────────────────────────────────────────────────────────────
         - name: LONGHORN_API
           value: http://longhorn-frontend.longhorn-system.svc.cluster.local:80
         - name: NETBIRD_API

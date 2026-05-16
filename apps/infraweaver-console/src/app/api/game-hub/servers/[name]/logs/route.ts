@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
+import { getRequestClusterId } from "@/lib/cluster-context";
 import { GAME_HUB_NAMESPACE, getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
 import { loadKubeConfig } from "@/lib/k8s";
 import { safeError } from "@/lib/utils";
@@ -58,7 +59,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ name
 
   try {
     const k8s = await import("@kubernetes/client-node");
-    const kc = loadKubeConfig();
+    const kc = loadKubeConfig(getRequestClusterId(req));
     const coreApi = kc.makeApiClient(k8s.CoreV1Api);
     const pods = await coreApi.listNamespacedPod({ namespace: GAME_HUB_NAMESPACE, labelSelector: `app=${name}` });
     const pod = pods.items?.find((entry) => entry.status?.phase === "Running") ?? pods.items?.[0];

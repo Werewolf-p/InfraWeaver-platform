@@ -3,7 +3,7 @@ import { Menu, Search, Plus, ExternalLink, Clock3, Command, ChevronDown } from "
 import { NotificationCenter } from "@/components/ui/notification-center";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { titleForPathname } from "@/components/ui/breadcrumb";
-import { ClusterSelector } from "@/components/ui/cluster-selector";
+import { ClusterSelector } from "@/components/layout/cluster-selector";
 import { useSession } from "next-auth/react";
 import { usePathname } from "next/navigation";
 import { useState, useRef, useEffect, useMemo } from "react";

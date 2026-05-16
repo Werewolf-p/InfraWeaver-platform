@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import * as k8s from "@kubernetes/client-node";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
+import { getRequestClusterId } from "@/lib/cluster-context";
 import { auditLog } from "@/lib/audit-log";
 import { loadKubeConfig } from "@/lib/k8s";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
@@ -31,9 +32,13 @@ async function updateMaintenanceMode(request: NextRequest, paramsPromise: Promis
 
   const { name } = await paramsPromise;
   const { cordon } = parsed.data;
+  const clusterId = getRequestClusterId(request);
+  if (clusterId === "all") {
+    return NextResponse.json({ error: "Select a specific cluster before performing this action" }, { status: 400 });
+  }
 
   try {
-    const coreApi = loadKubeConfig().makeApiClient(k8s.CoreV1Api);
+    const coreApi = loadKubeConfig(clusterId).makeApiClient(k8s.CoreV1Api);
     await coreApi.patchNode({
       name,
       body: { spec: { unschedulable: cordon } },

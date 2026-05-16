@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as k8s from "@kubernetes/client-node";
 import { auth } from "@/lib/auth";
+import { getRequestClusterId } from "@/lib/cluster-context";
 import { loadKubeConfig } from "@/lib/k8s";
 import { getSessionRBACContext, hasAnySessionPermission } from "@/lib/session-rbac";
 
@@ -103,7 +104,7 @@ export async function GET(req: NextRequest) {
   const limit = Math.min(500, Math.max(1, Number.parseInt(limitParam ?? "50", 10) || 50));
 
   try {
-    const coreApi = loadKubeConfig().makeApiClient(k8s.CoreV1Api);
+    const coreApi = loadKubeConfig(getRequestClusterId(req)).makeApiClient(k8s.CoreV1Api);
     if (isPaginated) {
       return NextResponse.json(await listPaginatedPods(coreApi, namespace, page, limit));
     }

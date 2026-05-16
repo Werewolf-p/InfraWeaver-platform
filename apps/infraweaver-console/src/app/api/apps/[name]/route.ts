@@ -1,6 +1,7 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { dump } from "js-yaml";
 import { auth } from "@/lib/auth";
+import { getRequestClusterId } from "@/lib/cluster-context";
 import { loadKubeConfig } from "@/lib/k8s";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import * as k8s from "@kubernetes/client-node";
@@ -25,7 +26,7 @@ function normalize(value?: string | null) {
 }
 
 
-async function fetchApplication(name: string) {
+async function fetchApplication(name: string, clusterId: string) {
   const encodedName = encodeURIComponent(name);
 
   try {
@@ -46,7 +47,7 @@ async function fetchApplication(name: string) {
   }
 
   try {
-    const customObjectsApi = loadKubeConfig().makeApiClient(k8s.CustomObjectsApi);
+    const customObjectsApi = loadKubeConfig(clusterId).makeApiClient(k8s.CustomObjectsApi);
     const application = await customObjectsApi.getNamespacedCustomObject({
       group: "argoproj.io",
       version: "v1alpha1",
@@ -61,9 +62,9 @@ async function fetchApplication(name: string) {
   }
 }
 
-async function listRelatedPods(name: string, namespace: string, resources: AppResource[]) {
+async function listRelatedPods(name: string, namespace: string, resources: AppResource[], clusterId: string) {
   try {
-    const coreApi = loadKubeConfig().makeApiClient(k8s.CoreV1Api);
+    const coreApi = loadKubeConfig(clusterId).makeApiClient(k8s.CoreV1Api);
     const podList = await coreApi.listNamespacedPod({ namespace });
     const resourceNames = new Set(resources.map((resource) => normalize(resource.name)).filter(Boolean));
     const appTokens = new Set([
@@ -111,7 +112,7 @@ async function listRelatedPods(name: string, namespace: string, resources: AppRe
   }
 }
 
-export async function GET(_request: Request, { params }: { params: Promise<{ name: string }> }) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ name: string }> }) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -121,7 +122,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ nam
   }
 
   const { name } = await params;
-  const application = await fetchApplication(name);
+  const clusterId = getRequestClusterId(request);
+  const application = await fetchApplication(name, clusterId);
   if (!application) {
     return NextResponse.json({ error: "Application not found or ArgoCD unavailable" }, { status: 503 });
   }
@@ -162,7 +164,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ nam
     return leftKey.localeCompare(rightKey);
   });
   const namespace = app.spec?.destination?.namespace ?? "default";
-  const pods = await listRelatedPods(name, namespace, resources);
+  const pods = await listRelatedPods(name, namespace, resources, clusterId);
   const history = [...(app.status?.history ?? [])]
     .slice(-10)
     .reverse()

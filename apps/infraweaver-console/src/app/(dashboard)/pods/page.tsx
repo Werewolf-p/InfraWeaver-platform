@@ -2,7 +2,7 @@
 
 import { motion } from "framer-motion";
 import Link from "next/link";
-import { CheckSquare, Copy, FileText, RefreshCw, RotateCcw, Server, Square, Trash2 } from "lucide-react";
+import { CheckSquare, Copy, FileText, Globe, RefreshCw, RotateCcw, Server, Square, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { CommandBar } from "@/components/ui/command-bar";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -15,6 +15,7 @@ import { ResourceBar } from "@/components/ui/resource-bar";
 import { SearchInput } from "@/components/ui/search-input";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { PodRowSkeleton } from "@/components/ui/skeleton-card";
+import { useCluster } from "@/contexts/cluster-context";
 import { useSimpleMode } from "@/contexts/simple-mode-context";
 import { useDebounce } from "@/hooks/use-debounce";
 import { useLocalStorage } from "@/hooks/use-local-storage";
@@ -161,6 +162,7 @@ function PodMobileCard({
 }
 
 export default function PodsPage() {
+  const { activeId } = useCluster();
   const { isAdmin } = usePermissions();
   const [nsFilter, setNsFilter] = useLocalStorage<string>("pods-namespace-filter", "all");
   const [statusFilter, setStatusFilter] = useLocalStorage<PodStatusFilter>("pods-status-filter", "all");
@@ -197,6 +199,16 @@ export default function PodsPage() {
     return status === "failed" || status === "crashloopbackoff";
   }).length;
   const allVisibleSelected = visiblePodKeys.length > 0 && visiblePodKeys.every((key) => selectedPods.has(key));
+
+  if (activeId === "all") {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 text-center">
+        <Globe className="mb-4 h-10 w-10 text-[#333]" />
+        <p className="text-sm font-medium text-[#666]">Select a specific cluster to view this page</p>
+        <p className="mt-1 text-xs text-[#444]">Use the cluster selector in the top bar</p>
+      </div>
+    );
+  }
 
   async function handleRestart(namespace: string, name: string) {
     setRestartingPod(`${namespace}/${name}`);

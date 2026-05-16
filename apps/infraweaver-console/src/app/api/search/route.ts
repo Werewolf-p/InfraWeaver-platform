@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getRequestClusterId } from "@/lib/cluster-context";
 import { loadKubeConfig } from "@/lib/k8s";
 import { auth } from "@/lib/auth";
 import { makeGameHubClients } from "@/lib/game-hub-server";
@@ -78,9 +79,9 @@ async function searchApps(query: string): Promise<SearchResult[]> {
   }
 }
 
-async function searchPods(query: string): Promise<SearchResult[]> {
+async function searchPods(query: string, clusterId: string): Promise<SearchResult[]> {
   try {
-    const coreApi = loadKubeConfig().makeApiClient(k8s.CoreV1Api);
+    const coreApi = loadKubeConfig(clusterId).makeApiClient(k8s.CoreV1Api);
     const podList = await coreApi.listPodForAllNamespaces();
     return (podList.items ?? [])
       .filter((pod) =>
@@ -221,7 +222,7 @@ export async function GET(req: NextRequest) {
   }
 
   if (permissions.has("*") || permissions.has("cluster:read") || permissions.has("infra:read")) {
-    response.pods = await searchPods(query);
+    response.pods = await searchPods(query, getRequestClusterId(req));
   }
 
   if (

@@ -1,6 +1,7 @@
 import * as k8s from "@kubernetes/client-node";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { getRequestClusterId } from "@/lib/cluster-context";
 import { loadKubeConfig } from "@/lib/k8s";
 import { getSessionRBACContext, hasAnySessionPermission, hasSessionPermission } from "@/lib/session-rbac";
 import { safeError } from "@/lib/utils";
@@ -80,7 +81,7 @@ function isAlreadyExistsError(error: unknown) {
   return candidate?.statusCode === 409 || candidate?.body?.code === 409 || candidate?.body?.reason === "AlreadyExists";
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -90,7 +91,7 @@ export async function GET() {
   }
 
   try {
-    const kc = loadKubeConfig();
+    const kc = loadKubeConfig(getRequestClusterId(request));
     const coreApi = kc.makeApiClient(k8s.CoreV1Api);
     const apiExtApi = kc.makeApiClient(k8s.ApiextensionsV1Api);
     const storageApi = kc.makeApiClient(k8s.StorageV1Api);
@@ -140,7 +141,7 @@ export async function GET() {
   }
 }
 
-export async function POST() {
+export async function POST(request: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -150,9 +151,13 @@ export async function POST() {
   }
 
   const results: Array<{ resource: string; status: string; error?: string }> = [];
+  const clusterId = getRequestClusterId(request);
+  if (clusterId === "all") {
+    return NextResponse.json({ error: "Select a specific cluster before performing this action" }, { status: 400 });
+  }
 
   try {
-    const kc = loadKubeConfig();
+    const kc = loadKubeConfig(clusterId);
     const coreApi = kc.makeApiClient(k8s.CoreV1Api);
     const rbacApi = kc.makeApiClient(k8s.RbacAuthorizationV1Api);
     const apiExtApi = kc.makeApiClient(k8s.ApiextensionsV1Api);

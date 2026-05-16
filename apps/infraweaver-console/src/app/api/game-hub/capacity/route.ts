@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { getRequestClusterId } from "@/lib/cluster-context";
 import { GAME_HUB_NAMESPACE, getGameHubAccessContext } from "@/lib/game-hub";
 import { parseCpuQuantity, parseMemoryBytes } from "@/lib/game-hub-server";
 import { loadKubeConfig } from "@/lib/k8s";
@@ -77,7 +78,7 @@ export async function GET(req: NextRequest) {
     const plannedMemoryBytes = parseMemoryBytes(req.nextUrl.searchParams.get("memory"));
     const plannedCpu = parseCpuQuantity(req.nextUrl.searchParams.get("cpu"));
 
-    const kc = loadKubeConfig();
+    const kc = loadKubeConfig(getRequestClusterId(req));
     const coreApi = kc.makeApiClient((await import("@kubernetes/client-node")).CoreV1Api);
     const customObjectsApi = kc.makeApiClient((await import("@kubernetes/client-node")).CustomObjectsApi);
 

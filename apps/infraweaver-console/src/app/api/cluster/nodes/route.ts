@@ -1,6 +1,7 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import * as k8s from "@kubernetes/client-node";
 import { auth } from "@/lib/auth";
+import { getRequestClusterId } from "@/lib/cluster-context";
 import { apiCache } from "@/lib/api-cache";
 import { loadKubeConfig } from "@/lib/k8s";
 import { PERFORMANCE_CACHE_KEYS } from "@/lib/performance-cache";
@@ -23,9 +24,9 @@ type NodesResponse = {
   }>;
 };
 
-async function loadNodes(): Promise<NodesResponse> {
+async function loadNodes(clusterId: string): Promise<NodesResponse> {
   try {
-    const coreApi = loadKubeConfig().makeApiClient(k8s.CoreV1Api);
+    const coreApi = loadKubeConfig(clusterId).makeApiClient(k8s.CoreV1Api);
     const nodes = await coreApi.listNode();
     return {
       nodes: nodes.items.map((node) => ({
@@ -54,7 +55,7 @@ async function loadNodes(): Promise<NodesResponse> {
   }
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const access = await getSessionRBACContext(session, 60);
@@ -62,12 +63,14 @@ export async function GET() {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const cached = apiCache.get<NodesResponse>(PERFORMANCE_CACHE_KEYS.clusterNodes);
+  const clusterId = getRequestClusterId(request);
+  const cacheKey = `${PERFORMANCE_CACHE_KEYS.clusterNodes}:${clusterId}`;
+  const cached = apiCache.get<NodesResponse>(cacheKey);
   if (cached) {
     return NextResponse.json(cached, { headers: { "X-Cache": "HIT" } });
   }
 
-  const response = await loadNodes();
-  apiCache.set(PERFORMANCE_CACHE_KEYS.clusterNodes, response, NODES_CACHE_TTL_MS);
+  const response = await loadNodes(clusterId);
+  apiCache.set(cacheKey, response, NODES_CACHE_TTL_MS);
   return NextResponse.json(response, { headers: { "X-Cache": "MISS" } });
 }

@@ -6,6 +6,10 @@ export interface ClusterConfig {
   kubeconfig?: string;
   argocdServer?: string;
   argocdToken?: string;
+  description?: string;
+  tags?: string[];
+  isLocal?: boolean;
+  gatusUrl?: string;
 }
 
 export const ACTIVE_CLUSTER_COOKIE = "infraweaver-cluster";
@@ -74,4 +78,13 @@ export function parseActiveClusterCookie(value?: string | null) {
 export function getActiveClusterIdFromCookieValue(value?: string | null) {
   const clusterId = parseActiveClusterCookie(value);
   return clusterId && getClusterConfig(clusterId) ? clusterId : getDefaultClusterId();
+}
+
+/**
+ * Reads the active cluster ID from the request cookie.
+ * Falls back to the default cluster ID if cookie is absent or invalid.
+ * Use in every API route that touches a cluster-specific resource.
+ */
+export function getRequestClusterId(request: import("next/server").NextRequest): string {
+  return getActiveClusterIdFromCookieValue(request.cookies.get(ACTIVE_CLUSTER_COOKIE)?.value);
 }

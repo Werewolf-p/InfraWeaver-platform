@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { getRequestClusterId } from "@/lib/cluster-context";
+import { loadKubeConfig } from "@/lib/k8s";
 import * as k8s from "@kubernetes/client-node";
 import { existsSync } from "fs";
 import path from "path";
@@ -12,12 +14,6 @@ export interface TestResult {
   message: string;
   detail?: string;
   durationMs: number;
-}
-
-function loadKubeConfig() {
-  const kc = new k8s.KubeConfig();
-  try { kc.loadFromCluster(); } catch { kc.loadFromDefault(); }
-  return kc;
 }
 
 function extractK8sMessage(err: unknown): string {
@@ -61,7 +57,7 @@ export async function GET(req: NextRequest) {
 
   const filter = req.nextUrl.searchParams.get("category");
 
-  const kc = loadKubeConfig();
+  const kc = loadKubeConfig(getRequestClusterId(req));
   const coreApi = kc.makeApiClient(k8s.CoreV1Api);
   const appsApi = kc.makeApiClient(k8s.AppsV1Api);
   const storageApi = kc.makeApiClient(k8s.StorageV1Api);

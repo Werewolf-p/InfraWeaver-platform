@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as k8s from "@kubernetes/client-node";
 import { z } from "zod";
+import { getRequestClusterId } from "@/lib/cluster-context";
 import { requireRoutePermissions } from "@/lib/route-utils";
 import { loadKubeConfig } from "@/lib/k8s";
 import { safeError } from "@/lib/utils";
@@ -53,7 +54,7 @@ export async function GET(request: NextRequest) {
   const namespace = request.nextUrl.searchParams.get("namespace");
 
   try {
-    const coreApi = loadKubeConfig().makeApiClient(k8s.CoreV1Api);
+    const coreApi = loadKubeConfig(getRequestClusterId(request)).makeApiClient(k8s.CoreV1Api);
     const response = namespace && namespace !== "all"
       ? await coreApi.listNamespacedConfigMap({ namespace })
       : await coreApi.listConfigMapForAllNamespaces();
@@ -75,9 +76,13 @@ export async function PATCH(request: NextRequest) {
   }
 
   const { namespace, name, data } = parsed.data;
+  const clusterId = getRequestClusterId(request);
+  if (clusterId === "all") {
+    return NextResponse.json({ error: "Select a specific cluster before performing this action" }, { status: 400 });
+  }
 
   try {
-    const coreApi = loadKubeConfig().makeApiClient(k8s.CoreV1Api);
+    const coreApi = loadKubeConfig(clusterId).makeApiClient(k8s.CoreV1Api);
     await coreApi.patchNamespacedConfigMap({
       name,
       namespace,
@@ -103,9 +108,13 @@ export async function DELETE(request: NextRequest) {
   }
 
   const { namespace, name } = parsed.data;
+  const clusterId = getRequestClusterId(request);
+  if (clusterId === "all") {
+    return NextResponse.json({ error: "Select a specific cluster before performing this action" }, { status: 400 });
+  }
 
   try {
-    const coreApi = loadKubeConfig().makeApiClient(k8s.CoreV1Api);
+    const coreApi = loadKubeConfig(clusterId).makeApiClient(k8s.CoreV1Api);
     await coreApi.deleteNamespacedConfigMap({ namespace, name });
     return NextResponse.json({ ok: true, namespace, name });
   } catch (error) {

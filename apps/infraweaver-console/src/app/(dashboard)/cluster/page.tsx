@@ -2,7 +2,7 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect, useMemo, useRef } from "react";
-import { Server, Plus, RefreshCw, Zap, Link2, Loader2, Copy, Check, ChevronDown, Activity, Layers, BarChart2, GitBranch, Pencil, Save, X, Download, Settings2, ArrowRightLeft, MemoryStick, AlertTriangle, Bell } from "lucide-react";
+import { Server, Plus, RefreshCw, Zap, Link2, Loader2, Copy, Check, ChevronDown, Activity, Layers, BarChart2, GitBranch, Pencil, Save, X, Download, Settings2, ArrowRightLeft, MemoryStick, AlertTriangle, Bell, Globe } from "lucide-react";
 import { useRBAC } from "@/hooks/use-rbac";
 import { cn, timeAgo } from "@/lib/utils";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -20,6 +20,7 @@ import { MetricAreaChart } from "@/components/charts/AreaChart";
 import { MetricSparkline, type SparklinePoint } from "@/components/charts/sparkline";
 import { ClusterSettingsPanel } from "@/components/settings/cluster-settings-panel";
 import { RefreshCountdown } from "@/components/ui/refresh-countdown";
+import { useCluster } from "@/contexts/cluster-context";
 
 interface Node {
   name: string;
@@ -527,6 +528,7 @@ function HPARow({ hpa, isAdmin, onSaved }: { hpa: HPA; isAdmin: boolean; onSaved
 }
 
 export default function ClusterPage() {
+  const { activeId } = useCluster();
   const { isAdmin } = useRBAC();
   const qc = useQueryClient();
   const [showSyncConfirm, setShowSyncConfirm] = useState(false);
@@ -721,6 +723,16 @@ export default function ClusterPage() {
   const protectedPdbs = pdbs.filter((pdb) => pdb.disruptionsAllowed > 0).length;
   const blockedPdbs = pdbs.filter((pdb) => pdb.disruptionsAllowed === 0).length;
   const pdbsAtRisk = pdbs.filter((pdb) => pdb.currentHealthy < pdb.desiredHealthy).length;
+
+  if (activeId === "all") {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 text-center">
+        <Globe className="mb-4 h-10 w-10 text-[#333]" />
+        <p className="text-sm font-medium text-[#666]">Select a specific cluster to view this page</p>
+        <p className="mt-1 text-xs text-[#444]">Use the cluster selector in the top bar</p>
+      </div>
+    );
+  }
 
   const handleSyncAll = async () => {
     setSyncing(true);

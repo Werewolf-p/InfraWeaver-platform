@@ -3,6 +3,7 @@ import { dump } from "js-yaml";
 import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
 import { validateK8sName, validateK8sNamespace } from "@/lib/api-security";
+import { getRequestClusterId } from "@/lib/cluster-context";
 import { loadKubeConfig } from "@/lib/k8s";
 import { invalidatePodCaches } from "@/lib/performance-cache";
 import { getSessionRBACContext, hasAnySessionPermission, hasSessionPermission } from "@/lib/session-rbac";
@@ -13,7 +14,7 @@ function serializeYaml(value: unknown) {
   return dump(JSON.parse(JSON.stringify(value)), { noRefs: true, lineWidth: 120 });
 }
 
-export async function GET(_req: NextRequest, { params }: { params: Promise<{ namespace: string; name: string }> }) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ namespace: string; name: string }> }) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -28,7 +29,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ nam
   const nameErr = validateK8sName(name);
   if (nameErr) return NextResponse.json(nameErr.error, { status: nameErr.status });
   try {
-    const coreApi = loadKubeConfig().makeApiClient(k8s.CoreV1Api);
+    const coreApi = loadKubeConfig(getRequestClusterId(req)).makeApiClient(k8s.CoreV1Api);
     const pod = await coreApi.readNamespacedPod({ name, namespace });
     const statuses = pod.status?.containerStatuses ?? [];
 
@@ -70,17 +71,11 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ n
   const nameErr = validateK8sName(name);
   if (nameErr) return NextResponse.json(nameErr.error, { status: nameErr.status });
   try {
-    const kc = new k8s.KubeConfig();
-    if (process.env.KUBECONFIG) {
-      kc.loadFromFile(process.env.KUBECONFIG);
-    } else {
-      try {
-        kc.loadFromCluster();
-      } catch {
-        kc.loadFromDefault();
-      }
+    const clusterId = getRequestClusterId(req);
+    if (clusterId === "all") {
+      return NextResponse.json({ error: "Select a specific cluster before performing this action" }, { status: 400 });
     }
-    const coreApi = kc.makeApiClient(k8s.CoreV1Api);
+    const coreApi = loadKubeConfig(clusterId).makeApiClient(k8s.CoreV1Api);
     await coreApi.deleteNamespacedPod({ name, namespace });
     await auditLog("pod:delete", session.user?.email ?? "unknown", `deleted pod ${namespace}/${name}`);
     invalidatePodCaches();
