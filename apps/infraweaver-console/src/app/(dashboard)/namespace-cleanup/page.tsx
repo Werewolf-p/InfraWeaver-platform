@@ -2,7 +2,7 @@
 import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { toast } from "sonner";
+import { toast } from "@/lib/notify";
 import { Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { useRBAC } from "@/hooks/use-rbac";

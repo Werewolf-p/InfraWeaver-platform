@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import { UserActionsDropdown } from "@/components/users/user-actions-dropdown";
 import { InviteModal } from "@/components/users/invite-modal";
-import { toast } from "sonner";
+import { toast } from "@/lib/notify";
 import { useUsersConfig, useSaveUsersConfig, type PlatformUser } from "@/hooks/use-users-config";
 import { useRBAC } from "@/hooks/use-rbac";
 import { Skeleton } from "@/components/ui/skeleton";

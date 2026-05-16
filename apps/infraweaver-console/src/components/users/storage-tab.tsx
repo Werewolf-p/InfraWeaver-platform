@@ -6,7 +6,7 @@ import {
   CheckCircle2, XCircle, FolderOpen, Shield, Eye, Wifi, WifiOff,
   Loader2, AlertTriangle, Copy, Check,
 } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/notify";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import {

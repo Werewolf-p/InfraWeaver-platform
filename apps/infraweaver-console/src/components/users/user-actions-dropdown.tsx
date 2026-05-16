@@ -6,7 +6,7 @@ import {
   MoreVertical, Pencil, KeyRound, Mail, PowerOff, PowerIcon,
   ShieldOff, MonitorSmartphone, History, UserCog, UserX, Trash2, X, Check,
 } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/notify";
 import { type PlatformUser } from "@/hooks/use-users-config";
 import { ResponsiveSheet } from "@/components/ui/responsive-sheet";
 import { ResetPasswordModal } from "./reset-password-modal";

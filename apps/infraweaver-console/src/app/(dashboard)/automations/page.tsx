@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { Activity, GitBranch, Play, ShieldAlert, Sparkles, Workflow } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/notify";
 import { DataCard } from "@/components/ui/data-card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";

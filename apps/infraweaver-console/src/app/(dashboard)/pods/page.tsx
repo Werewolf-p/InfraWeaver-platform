@@ -22,7 +22,7 @@ import { useLocalStorage } from "@/hooks/use-local-storage";
 import { usePermissions } from "@/hooks/use-permissions";
 import { usePods, type Pod } from "@/hooks/use-pods";
 import { cn } from "@/lib/utils";
-import { toast } from "sonner";
+import { toast } from "@/lib/notify";
 
 type PodStatusFilter = "all" | "running" | "pending" | "failed" | "crashloopbackoff";
 

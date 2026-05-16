@@ -31,7 +31,7 @@ import {
   type ManagedDnsRecord,
 } from "@/lib/dns";
 import { cn, timeAgo } from "@/lib/utils";
-import { toast } from "sonner";
+import { toast } from "@/lib/notify";
 import { useRBAC } from "@/hooks/use-rbac";
 
 interface DnsResponse {

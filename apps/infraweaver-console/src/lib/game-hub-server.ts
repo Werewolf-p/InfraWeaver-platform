@@ -341,13 +341,15 @@ export async function gracefulStopServer(
   clients: ReturnType<typeof makeGameHubClients>,
   name: string,
   stopCommand: string | null | undefined,
-  timeoutMs = 30_000,
+  _timeoutMs = 30_000, // kept for API compat but no longer used for blocking wait
 ) {
-  const deployment = await getServerDeployment(clients.appsApi, name);
   const pod = await getServerPod(clients.coreApi, name, true);
   const containerName = getPrimaryContainerName(pod, name);
   let stopCommandSent = false;
 
+  // Best-effort: send the game's graceful stop command so it can save state
+  // before SIGTERM arrives. We don't wait for the process to exit — Kubernetes
+  // handles termination via terminationGracePeriodSeconds on the pod spec.
   if (pod?.metadata?.name && stopCommand?.trim()) {
     try {
       await execShell(clients.kc, pod.metadata.name, containerName, stopCommand.trim(), 5_000);
@@ -357,18 +359,7 @@ export async function gracefulStopServer(
     }
   }
 
-  const startedWaitingAt = Date.now();
-  let exitedGracefully = false;
-  while (Date.now() - startedWaitingAt < timeoutMs) {
-    const currentPod = await getServerPod(clients.coreApi, name, true).catch(() => null);
-    const currentDeployment = await getServerDeployment(clients.appsApi, name).catch(() => deployment);
-    if (!currentPod?.metadata?.name || (currentDeployment.status?.readyReplicas ?? 0) === 0) {
-      exitedGracefully = true;
-      break;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 2_000));
-  }
-
+  // Scale to 0 immediately — k8s sends SIGTERM and waits the termination grace period
   await clients.appsApi.patchNamespacedDeployment({
     name,
     namespace: GAME_HUB_NS,
@@ -377,7 +368,7 @@ export async function gracefulStopServer(
     fieldManager: "infraweaver",
   });
 
-  return { stopCommandSent, exitedGracefully };
+  return { stopCommandSent, exitedGracefully: stopCommandSent };
 }
 
 function parseJsonValue<T>(raw: string | undefined | null, fallback: T): T {

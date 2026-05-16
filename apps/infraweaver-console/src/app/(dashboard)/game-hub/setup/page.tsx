@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, XCircle, Loader2, Gamepad2, Play } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
-import { toast } from "sonner";
+import { toast } from "@/lib/notify";
 import Link from "next/link";
 import { useRBAC } from "@/hooks/use-rbac";
 

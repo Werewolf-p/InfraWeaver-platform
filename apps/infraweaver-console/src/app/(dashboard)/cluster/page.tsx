@@ -14,7 +14,7 @@ import { DashboardPanel } from "@/components/ui/dashboard-panel";
 import { DashboardStatCard } from "@/components/ui/dashboard-stat-card";
 import { ToolbarSearchInput } from "@/components/ui/toolbar-search-input";
 import { SegmentedBar } from "@/components/ui/segmented-bar";
-import { toast } from "sonner";
+import { toast } from "@/lib/notify";
 import Link from "next/link";
 import { MetricAreaChart } from "@/components/charts/AreaChart";
 import { MetricSparkline, type SparklinePoint } from "@/components/charts/sparkline";

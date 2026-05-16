@@ -7,7 +7,7 @@ import {
   Server, FileText, Shield,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
+import { toast } from "@/lib/notify";
 import { cn } from "@/lib/utils";
 import { useRBAC } from "@/hooks/useRBAC";
 

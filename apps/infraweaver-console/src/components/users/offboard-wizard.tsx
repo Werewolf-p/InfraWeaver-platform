@@ -3,7 +3,7 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import * as Dialog from "@radix-ui/react-dialog";
 import { X, AlertTriangle, CheckCircle2, XCircle, Loader2, UserX } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/notify";
 import { useRBAC } from "@/hooks/use-rbac";
 
 interface OffboardStep {

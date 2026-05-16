@@ -2,7 +2,7 @@
 import { useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { X, Copy, Check, AlertTriangle, KeyRound } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/notify";
 
 interface Props {
   username: string;

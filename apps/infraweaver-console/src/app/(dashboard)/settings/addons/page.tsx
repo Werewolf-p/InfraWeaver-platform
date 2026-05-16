@@ -9,7 +9,7 @@ import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { SkeletonCard } from "@/components/ui/skeleton";
 import Link from "next/link";
-import { toast } from "sonner";
+import { toast } from "@/lib/notify";
 
 const ICON_MAP: Record<string, React.ElementType> = {
   Gamepad2, Network, Puzzle,

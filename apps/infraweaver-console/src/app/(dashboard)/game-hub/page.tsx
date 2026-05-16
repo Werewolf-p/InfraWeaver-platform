@@ -8,7 +8,7 @@ import { Plus, Gamepad2, Play, Square, RotateCcw, Trash2, Terminal, Loader2, Ale
 import { cn, timeAgo } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
 import { useRBAC } from "@/hooks/use-rbac";
-import { toast } from "sonner";
+import { toast } from "@/lib/notify";
 import Link from "next/link";
 import { RefreshCountdown } from "@/components/ui/refresh-countdown";
 import { HorizontalScrollHint } from "@/components/ui/horizontal-scroll-hint";

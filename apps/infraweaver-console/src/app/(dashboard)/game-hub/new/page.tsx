@@ -10,7 +10,7 @@ import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { BUILT_IN_EGGS, type GameEgg } from "@/lib/game-eggs";
 import type { CatalogCategory, CatalogEntry } from "@/lib/pelican-eggs";
 import { cn } from "@/lib/utils";
-import { toast } from "sonner";
+import { toast } from "@/lib/notify";
 
 const STEPS = [
   { id: 1, label: "Browse Eggs" },

@@ -1,6 +1,6 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useAnimation } from "framer-motion";
 import { Bell, X, CheckCheck, Info, AlertTriangle, XCircle, CheckCircle } from "lucide-react";
 import { useNotifications, type NotificationLevel } from "@/hooks/use-notifications";
 import { cn } from "@/lib/utils";
@@ -22,10 +22,24 @@ const levelConfig: Record<NotificationLevel, { icon: React.ElementType; color: s
   success: { icon: CheckCircle, color: "text-emerald-400", bg: "bg-emerald-500/10" },
 };
 
+const RING_KEYFRAMES = [0, -20, 16, -12, 8, -5, 3, 0];
+
 export function NotificationCenter() {
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
+  const bellControls = useAnimation();
+  const prevUnreadRef = useRef<number | null>(null);
   const { notifications, unreadCount, markAllRead, markRead, dismiss } = useNotifications();
+
+  useEffect(() => {
+    if (prevUnreadRef.current !== null && unreadCount > prevUnreadRef.current && !open) {
+      void bellControls.start({
+        rotate: RING_KEYFRAMES,
+        transition: { duration: 0.7, ease: "easeInOut" },
+      });
+    }
+    prevUnreadRef.current = unreadCount;
+  }, [unreadCount, open, bellControls]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -47,10 +61,13 @@ export function NotificationCenter() {
         className="relative p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
         aria-label="Notifications"
       >
-        <Bell className="w-4 h-4" />
+        <motion.span animate={bellControls} style={{ display: "inline-flex", transformOrigin: "50% 0%" }}>
+          <Bell className="w-4 h-4" />
+        </motion.span>
         <AnimatePresence>
           {unreadCount > 0 && (
             <motion.span
+              key={unreadCount}
               initial={{ scale: 0 }}
               animate={{ scale: 1 }}
               exit={{ scale: 0 }}

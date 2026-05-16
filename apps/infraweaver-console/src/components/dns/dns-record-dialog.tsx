@@ -13,7 +13,7 @@ import {
   Shield,
   X,
 } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/notify";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   MANAGED_RECORD_TYPES,

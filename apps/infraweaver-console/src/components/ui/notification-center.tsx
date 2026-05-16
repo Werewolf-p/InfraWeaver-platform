@@ -1,6 +1,6 @@
 "use client";
 import { useMemo, useRef, useState, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useAnimation } from "framer-motion";
 import { Bell, X, CheckCheck, Info, AlertTriangle, XCircle, CheckCircle, Trash2 } from "lucide-react";
 import { useNotifications, type NotificationLevel } from "@/hooks/use-notifications";
 import { cn } from "@/lib/utils";
@@ -22,6 +22,9 @@ const levelConfig: Record<NotificationLevel, { icon: React.ElementType; color: s
   success: { icon: CheckCircle, color: "text-emerald-400", bg: "bg-emerald-500/10" },
 };
 
+// Bell ring sequence: simulate a physical bell swing
+const RING_KEYFRAMES = [0, -20, 16, -12, 8, -5, 3, 0];
+
 interface NotificationCenterProps {
   className?: string;
 }
@@ -29,11 +32,24 @@ interface NotificationCenterProps {
 export function NotificationCenter({ className }: NotificationCenterProps) {
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
+  const bellControls = useAnimation();
+  const prevUnreadRef = useRef<number | null>(null);
   const { notifications, unreadCount, markAllRead, markRead, dismiss, clearAll } = useNotifications();
   const counts = useMemo(() => ({
-    warning: notifications.filter((notification) => notification.level === "warning" && !notification.read).length,
-    error: notifications.filter((notification) => notification.level === "error" && !notification.read).length,
+    warning: notifications.filter((n) => n.level === "warning" && !n.read).length,
+    error: notifications.filter((n) => n.level === "error" && !n.read).length,
   }), [notifications]);
+
+  // Ring the bell when unread count increases (new notification arrived)
+  useEffect(() => {
+    if (prevUnreadRef.current !== null && unreadCount > prevUnreadRef.current && !open) {
+      void bellControls.start({
+        rotate: RING_KEYFRAMES,
+        transition: { duration: 0.7, ease: "easeInOut" },
+      });
+    }
+    prevUnreadRef.current = unreadCount;
+  }, [unreadCount, open, bellControls]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -54,10 +70,13 @@ export function NotificationCenter({ className }: NotificationCenterProps) {
         className="relative flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-white/10 hover:text-white"
         aria-label="Notifications"
       >
-        <Bell className="h-4 w-4" />
+        <motion.span animate={bellControls} style={{ display: "inline-flex", transformOrigin: "50% 0%" }}>
+          <Bell className="h-4 w-4" />
+        </motion.span>
         <AnimatePresence>
           {unreadCount > 0 && (
             <motion.span
+              key={unreadCount}
               initial={{ scale: 0 }}
               animate={{ scale: 1 }}
               exit={{ scale: 0 }}
@@ -123,7 +142,7 @@ export function NotificationCenter({ className }: NotificationCenterProps) {
                 <div className="py-10 text-center">
                   <Bell className="mx-auto mb-2 h-6 w-6 text-slate-700" />
                   <p className="text-sm text-slate-600">No notifications yet</p>
-                  <p className="mt-1 text-[11px] text-slate-700">Cluster warnings and operator notices will appear here.</p>
+                  <p className="mt-1 text-[11px] text-slate-700">Errors, warnings and notices will appear here.</p>
                 </div>
               ) : (
                 <div className="divide-y divide-white/5">
@@ -148,7 +167,7 @@ export function NotificationCenter({ className }: NotificationCenterProps) {
                         </div>
                         <div className="min-w-0 flex-1">
                           <div className="flex items-start justify-between gap-2">
-                            <p className={cn("text-sm font-medium", notification.read ? "text-slate-400" : "text-white")}>
+                            <p className={cn("text-sm font-medium leading-snug", notification.read ? "text-slate-400" : "text-white")}>
                               {notification.title}
                             </p>
                             <button
@@ -176,3 +195,4 @@ export function NotificationCenter({ className }: NotificationCenterProps) {
     </div>
   );
 }
+

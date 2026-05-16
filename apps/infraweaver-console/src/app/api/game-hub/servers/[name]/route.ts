@@ -33,6 +33,9 @@ import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { getEffectivePermissions } from "@/lib/rbac";
 import { safeError } from "@/lib/utils";
 
+// Allow up to 60s for long operations (start/stop/restart/exec)
+export const maxDuration = 60;
+
 const VALID_ACTIONS = [
   "start", "stop", "restart", "scale", "set-hpa", "remove-hpa", "update-env",
   "set-restart-policy", "set-notes", "update-notes", "update-resources", "set-maintenance",

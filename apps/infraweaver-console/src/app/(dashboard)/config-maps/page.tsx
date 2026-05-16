@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FileText, Globe, RefreshCw, Save, ShieldAlert, Trash2 } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/notify";
 import { useCluster } from "@/contexts/cluster-context";
 import { ConfirmDialog, EmptyState, PageScaffold, RelativeTime, SearchInput } from "@/components/ui";
 import { useMutationWithToast } from "@/hooks/use-mutation-with-toast";

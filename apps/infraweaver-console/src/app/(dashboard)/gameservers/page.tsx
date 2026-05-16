@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
-import { toast } from "sonner";
+import { toast } from "@/lib/notify";
 import { useSimpleMode } from "@/contexts/simple-mode-context";
 import { useRBAC } from "@/hooks/use-rbac";
 

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Download, Loader2, Plus, Save, Trash2, Upload } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/notify";
 import { fetchJson } from "./utils";
 import { useRBAC } from "@/hooks/use-rbac";
 

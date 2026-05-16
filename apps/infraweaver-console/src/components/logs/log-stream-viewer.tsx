@@ -18,7 +18,7 @@ import {
   WrapText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { toast } from "sonner";
+import { toast } from "@/lib/notify";
 
 export type LogLevel = "ALL" | "ERROR" | "WARN" | "INFO" | "DEBUG";
 

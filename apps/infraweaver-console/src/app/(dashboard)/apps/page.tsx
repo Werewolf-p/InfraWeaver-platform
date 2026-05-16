@@ -9,7 +9,7 @@ import {
   Globe, Star, X, Shield, Zap, GitBranch, Eye, Store,
   Terminal, Download, RefreshCw, LayoutGrid, Layers, Settings2,
 } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/notify";
 import { cn } from "@/lib/utils";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";

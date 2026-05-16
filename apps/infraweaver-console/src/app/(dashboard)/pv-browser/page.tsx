@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Database, HardDrive, RefreshCw, ShieldAlert } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/notify";
 import { EmptyState, PageScaffold } from "@/components/ui";
 import { useRBAC } from "@/hooks/use-rbac";
 import { cn } from "@/lib/utils";

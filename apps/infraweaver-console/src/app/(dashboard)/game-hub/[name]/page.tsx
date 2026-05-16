@@ -52,7 +52,7 @@ import {
 } from "lucide-react";
 import { cn, formatBytes, timeAgo } from "@/lib/utils";
 import { getEggForGameType } from "@/lib/game-eggs";
-import { toast } from "sonner";
+import { toast } from "@/lib/notify";
 import Link from "next/link";
 // Note: previously used Monaco editor; replaced with styled <textarea> + <pre>
 // for instant load + no CDN dependency on Monaco worker scripts.

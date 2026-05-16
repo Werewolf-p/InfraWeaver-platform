@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Shield, Plus, Trash2, Clock, Globe, Loader2 } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/notify";
 import { buildScopes, scopeLabel, type RoleAssignment, type RoleDefinition } from "@/lib/rbac";
 import { cn, formatDate } from "@/lib/utils";
 import type { PlatformUser } from "@/hooks/use-users-config";

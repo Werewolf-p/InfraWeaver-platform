@@ -3,7 +3,7 @@ import { useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as Select from "@radix-ui/react-select";
 import { X, Mail, Copy, Check, ChevronDown } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/notify";
 import { useRBAC } from "@/hooks/use-rbac";
 
 interface Props {

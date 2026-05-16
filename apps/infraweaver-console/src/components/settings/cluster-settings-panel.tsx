@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
+import { toast } from "@/lib/notify";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { SkeletonCard } from "@/components/ui/skeleton";
 import { useRBAC } from "@/hooks/use-rbac";

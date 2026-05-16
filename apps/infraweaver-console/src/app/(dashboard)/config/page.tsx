@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRBAC } from "@/hooks/use-rbac";
-import { toast } from "sonner";
+import { toast } from "@/lib/notify";
 import { Save, Code, ToggleLeft, ToggleRight, GitCommit, Loader2, CheckCircle2, XCircle, Lock, Cog } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";

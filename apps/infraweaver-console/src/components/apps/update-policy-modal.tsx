@@ -16,7 +16,7 @@ import {
   Loader2,
   Check,
 } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/notify";
 import { useRBAC } from "@/hooks/use-rbac";
 import { cn } from "@/lib/utils";
 

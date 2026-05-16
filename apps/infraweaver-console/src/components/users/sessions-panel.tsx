@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { X, Trash2, RefreshCw } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/notify";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useRBAC } from "@/hooks/use-rbac";
 

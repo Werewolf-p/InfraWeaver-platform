@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
+import { toast } from "@/lib/notify";
 
 interface MutationWithToastOptions<TData, TVariables, TContext = unknown> {
   mutationFn: (vars: TVariables) => Promise<TData>;

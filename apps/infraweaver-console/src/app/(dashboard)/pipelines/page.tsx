@@ -6,7 +6,7 @@ import { GitBranch, Play, RefreshCw, CheckCircle2, XCircle, Clock, Loader2, Aler
 import { useRBAC } from "@/hooks/use-rbac";
 import { cn, timeAgo } from "@/lib/utils";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { toast } from "sonner";
+import { toast } from "@/lib/notify";
 import Link from "next/link";
 import { PageHeader } from "@/components/ui/page-header";
 

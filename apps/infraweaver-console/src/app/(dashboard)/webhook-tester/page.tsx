@@ -1,7 +1,7 @@
 "use client";
 import { motion } from "framer-motion";
 import { useState } from "react";
-import { toast } from "sonner";
+import { toast } from "@/lib/notify";
 import { Globe, Send, Zap} from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 

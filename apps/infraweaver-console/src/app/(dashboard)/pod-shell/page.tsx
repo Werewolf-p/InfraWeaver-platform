@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { toast } from "sonner";
+import { toast } from "@/lib/notify";
 import { Terminal } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { useRBAC } from "@/hooks/use-rbac";

@@ -31,7 +31,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { toast } from "sonner";
+import { toast } from "@/lib/notify";
 import { DnsRecordDialog } from "@/components/dns/dns-record-dialog";
 import { useRBAC } from "@/hooks/use-rbac";
 import { cn } from "@/lib/utils";

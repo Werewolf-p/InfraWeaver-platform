@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Package, Search, ChevronDown, ChevronRight, Trash2, Info, Terminal, X } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/notify";
 import { useRegistryRepos, useRegistryTags, useDeleteTag } from "@/hooks/use-registry";
 import { useRBAC } from "@/hooks/use-rbac";
 import { Skeleton } from "@/components/ui/skeleton";

@@ -8,7 +8,7 @@ import {
   ShieldCheck, Gamepad2, HardDrive, Network, Package, BookOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { toast } from "sonner";
+import { toast } from "@/lib/notify";
 import {
   BUILT_IN_ROLES, STATIC_SCOPES, buildScopes, scopeLabel, ROLE_COLOR_CLASSES,
   type RoleDefinition, type RoleAssignment,

@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { loadAckedEventIds, saveAckedEventIds, subscribeAckedEventIds } from "@/lib/event-ack";
+import { NOTIFICATION_PUSH_EVENT, type NotificationPushDetail } from "@/lib/notify";
 
 export type NotificationLevel = "info" | "warning" | "error" | "success";
 
@@ -71,6 +72,31 @@ export function useNotifications() {
   const [serverNotifications, setServerNotifications] = useState<Notification[]>([]);
 
   useEffect(() => subscribeAckedEventIds(() => setAckedIds(loadAckedEventIds())), []);
+
+  // Listen for toast events dispatched by lib/notify.ts so every toast
+  // automatically appears in the bell history without any extra wiring.
+  useEffect(() => {
+    function handlePush(e: Event) {
+      if (!(e instanceof CustomEvent)) return;
+      const { title, level } = (e as CustomEvent<NotificationPushDetail>).detail;
+      if (!title) return;
+      setStore((current) => ({
+        ...current,
+        local: [
+          {
+            id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            title,
+            level,
+            timestamp: Date.now(),
+            read: false,
+          },
+          ...current.local,
+        ].slice(0, MAX_NOTIFICATIONS),
+      }));
+    }
+    window.addEventListener(NOTIFICATION_PUSH_EVENT, handlePush);
+    return () => window.removeEventListener(NOTIFICATION_PUSH_EVENT, handlePush);
+  }, []);
 
   useEffect(() => {
     saveStore(store);

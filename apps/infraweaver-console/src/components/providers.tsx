@@ -1,7 +1,7 @@
 "use client";
 import { SessionProvider } from "next-auth/react";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { Toaster } from "sonner";
+import { Toaster } from "@/lib/notify";
 import { createQueryClient } from "@/lib/query-client";
 import { useState, createContext, useContext, useEffect, type ReactNode } from "react";
 import { SettingsProvider } from "@/contexts/settings-context";

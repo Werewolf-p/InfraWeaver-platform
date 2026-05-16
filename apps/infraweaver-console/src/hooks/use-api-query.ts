@@ -8,7 +8,7 @@ import {
   type UseMutationOptions,
   type UseQueryOptions,
 } from "@tanstack/react-query";
-import { toast } from "sonner";
+import { toast } from "@/lib/notify";
 import { apiClient, type ApiRequestOptions, toApiErrorMessage } from "@/lib/api-client";
 
 type Resolvable<TVariables, TValue> = TValue | ((variables: TVariables) => TValue);

@@ -2,7 +2,7 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Users, UserMinus, Clock } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/notify";
 import type { PlayerEntry, PlayerStats, ServerDetail } from "./types";
 import { countryFlag, fetchJson } from "./utils";
 

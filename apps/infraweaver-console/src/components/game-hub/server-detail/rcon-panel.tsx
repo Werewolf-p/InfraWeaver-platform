@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Loader2, Send } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/notify";
 import type { ServerDetail } from "./types";
 import { fetchJson } from "./utils";
 
