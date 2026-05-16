@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
+import { validateK8sName } from "@/lib/api-security";
 import { hasPermission } from "@/lib/rbac";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { auditLog } from "@/lib/audit-log";
@@ -28,6 +29,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ nam
   }
 
   const { name } = await params;
+  const nameErr = validateK8sName(name);
+  if (nameErr) return NextResponse.json(nameErr.error, { status: nameErr.status });
   if (!SAFE_NAME_RE.test(name)) {
     return NextResponse.json({ error: "Invalid app name" }, { status: 400 });
   }

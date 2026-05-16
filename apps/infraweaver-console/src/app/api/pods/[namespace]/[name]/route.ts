@@ -2,11 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { dump } from "js-yaml";
 import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
+import { validateK8sName, validateK8sNamespace } from "@/lib/api-security";
 import { loadKubeConfig } from "@/lib/k8s";
 import { invalidatePodCaches } from "@/lib/performance-cache";
 import { getSessionRBACContext, hasAnySessionPermission, hasSessionPermission } from "@/lib/session-rbac";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
-import { isValidK8sName, isValidNamespace } from "@/lib/validate";
 import * as k8s from "@kubernetes/client-node";
 
 function serializeYaml(value: unknown) {
@@ -23,9 +23,10 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ nam
   }
 
   const { namespace, name } = await params;
-  if (!isValidNamespace(namespace) || !isValidK8sName(name)) {
-    return NextResponse.json({ error: "Invalid namespace or pod name" }, { status: 400 });
-  }
+  const namespaceErr = validateK8sNamespace(namespace);
+  if (namespaceErr) return NextResponse.json(namespaceErr.error, { status: namespaceErr.status });
+  const nameErr = validateK8sName(name);
+  if (nameErr) return NextResponse.json(nameErr.error, { status: nameErr.status });
   try {
     const coreApi = loadKubeConfig().makeApiClient(k8s.CoreV1Api);
     const pod = await coreApi.readNamespacedPod({ name, namespace });
@@ -64,9 +65,10 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ n
   if (!hasSessionPermission(access, "cluster:admin")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   if (!checkRateLimit(rateLimitKey("pod-delete", req), 10, 60_000)) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
   const { namespace, name } = await params;
-  if (!isValidNamespace(namespace) || !isValidK8sName(name)) {
-    return NextResponse.json({ error: "Invalid namespace or pod name" }, { status: 400 });
-  }
+  const namespaceErr = validateK8sNamespace(namespace);
+  if (namespaceErr) return NextResponse.json(namespaceErr.error, { status: namespaceErr.status });
+  const nameErr = validateK8sName(name);
+  if (nameErr) return NextResponse.json(nameErr.error, { status: nameErr.status });
   try {
     const kc = new k8s.KubeConfig();
     if (process.env.KUBECONFIG) {

@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { validateK8sName } from "@/lib/api-security";
 import { auditLog } from "@/lib/audit-log";
 import { invalidateArgocdCaches } from "@/lib/performance-cache";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
-import { isValidK8sName } from "@/lib/validate";
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ appName: string }> }) {
   const session = await auth();
@@ -17,7 +17,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ app
     return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
   }
   const { appName } = await params;
-  if (!isValidK8sName(appName)) return NextResponse.json({ error: "Invalid app name" }, { status: 400 });
+  const nameErr = validateK8sName(appName);
+  if (nameErr) return NextResponse.json(nameErr.error, { status: nameErr.status });
   const server = process.env.ARGOCD_SERVER ?? "http://argocd-server.argocd.svc.cluster.local";
   const token = process.env.ARGOCD_TOKEN ?? "";
   try {

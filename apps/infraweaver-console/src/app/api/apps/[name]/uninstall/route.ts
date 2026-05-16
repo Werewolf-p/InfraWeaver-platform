@@ -20,6 +20,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { validateK8sName } from "@/lib/api-security";
 import { auditLog } from "@/lib/audit-log";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
@@ -144,6 +145,8 @@ export async function DELETE(
   }
 
   const { name } = await params;
+  const nameErr = validateK8sName(name);
+  if (nameErr) return NextResponse.json(nameErr.error, { status: nameErr.status });
   if (!SAFE_NAME_RE.test(name)) {
     return NextResponse.json({ error: "Invalid app name" }, { status: 400 });
   }
