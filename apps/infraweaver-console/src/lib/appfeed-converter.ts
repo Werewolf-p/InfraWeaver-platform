@@ -97,6 +97,8 @@ export interface ConversionResult {
     service?: string;
     pvcs: string[];
     ingressroute?: string;
+    /** Secret manifest for masked variables (empty values — operator must fill in) */
+    secrets?: string;
   };
   /** Combined YAML ready to write to a single file or split */
   combinedYaml: string;
@@ -214,6 +216,35 @@ function buildEnvVars(configs: AppFeedConfig[]): string[] {
           : `              value: ${yamlString(value)}`,
       ].join("\n");
     });
+}
+
+/** Generate a Kubernetes Secret manifest for all masked variables in the app feed entry.
+ * Returns undefined if the app has no masked variables. */
+function buildSecretsManifest(configs: AppFeedConfig[], slug: string, namespace: string): string | undefined {
+  const masked = configs.filter(c => c["@attributes"]?.Type === "Variable" && c["@attributes"]?.Mask === "true");
+  if (masked.length === 0) return undefined;
+
+  const secretDocs = masked.map(c => {
+    const attrs = c["@attributes"];
+    const secretName = `${toSlug(attrs.Name)}-secret`;
+    const defaultVal = c.value?.trim() ? c.value : (attrs.Default ?? "");
+    return `---
+# Secret for ${attrs.Name} (${attrs.Target})
+# Update this value before deploying! This is a placeholder.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ${secretName}
+  namespace: ${namespace}
+  labels:
+    app.kubernetes.io/name: ${slug}
+    infraweaver.io/source: community-apps
+type: Opaque
+stringData:
+  value: ${yamlString(defaultVal || "change-me")}`;
+  });
+
+  return secretDocs.join("\n");
 }
 
 function buildContainerPorts(configs: AppFeedConfig[]): string[] {
@@ -411,6 +442,12 @@ export function convertAppFeedEntry(
   const volumeMounts = buildVolumeMounts(configs, slug);
   const volumes = buildVolumes(configs, slug);
   const pvcs = buildPVCs(configs, slug, namespace, pvcSizeGi, storageClass);
+  const secretsYaml = buildSecretsManifest(configs, slug, namespace);
+
+  // Warn if masked variables need manual secret updates
+  if (secretsYaml) {
+    warnings.push("🔑 This app has masked/secret variables. A secrets.yaml was created with placeholder values — update them before deploying.");
+  }
 
   // Extract image + args
   const postArgs = splitArgs(app.PostArgs ?? "");
@@ -510,6 +547,7 @@ ${volumes.length > 0 ? `      volumes:\n${volumes.join("\n")}` : "      # No vol
   if (serviceYaml) allParts.push(serviceYaml);
   allParts.push(...pvcs);
   if (ingressRouteYaml) allParts.push(ingressRouteYaml);
+  if (secretsYaml) allParts.push(secretsYaml);
 
   return {
     slug,
@@ -520,6 +558,7 @@ ${volumes.length > 0 ? `      volumes:\n${volumes.join("\n")}` : "      # No vol
       service: serviceYaml ?? undefined,
       pvcs,
       ingressroute: ingressRouteYaml,
+      secrets: secretsYaml ?? undefined,
     },
     combinedYaml: allParts.join("\n") + "\n",
   };

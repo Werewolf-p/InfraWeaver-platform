@@ -201,6 +201,9 @@ installed_at: ${new Date().toISOString()}
   if (result.manifests.ingressroute) {
     allFiles.push([`${baseDir}/ingressroute.yaml`, result.manifests.ingressroute]);
   }
+  if (result.manifests.secrets) {
+    allFiles.push([`${baseDir}/secrets.yaml`, result.manifests.secrets]);
+  }
   allFiles.push([`kubernetes/catalog/${slug}/catalog.yaml`, catalogYaml]);
   allFiles.push([`kubernetes/bootstrap/catalog-${slug}-manifests.yaml`, argoAppYaml]);
 
