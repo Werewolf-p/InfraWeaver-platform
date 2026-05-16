@@ -42,3 +42,28 @@ Pointing k8s liveness/readiness probes + CI smoke test at `/api/health` caused:
 
 **Rule:** `/api/ping` = "is the process alive?" (no external deps, always 200).
          `/api/health` = "are monitoring endpoints healthy?" (may 503).
+
+## Update 2 — 2026-05-16: Full root cause chain documented
+
+Three separate issues all needed fixing together:
+
+### 1. /api/health → /api/ping for ALL probes (startupProbe too!)
+- All three probes must use /api/ping: startupProbe, readinessProbe, livenessProbe
+- Missing startupProbe fix means pods never pass startup → never become Ready
+
+### 2. Next.js edge runtime cannot use node:crypto
+- middleware.ts runs in edge runtime — no Node.js built-ins allowed
+- Fix: replace `import { randomUUID } from "node:crypto"` with `crypto.randomUUID()` (Web Crypto API, global in edge runtime)
+- Fix: replace `Buffer.from(uuid, "hex").toString("base64url")` with btoa + Uint8Array (no Buffer in edge runtime)
+- Symptom: pod starts ("✓ Ready in 0ms") but all requests return 500
+
+### 3. ArgoCD sync timeout too short for fresh image pulls
+- Registry (onedev.rlservers.com) can be slow; fresh image pulls take 3-4+ minutes
+- Default SYNC_TIMEOUT_SECONDS=300 and progressDeadlineSeconds=300 → race condition
+- Fix: both set to 600 seconds
+
+### Rule for middleware.ts (edge runtime only):
+- ✅ crypto.randomUUID(), crypto.getRandomValues() — Web Crypto globals
+- ✅ btoa(), atob(), TextEncoder, TextDecoder, fetch, URL
+- ❌ node:crypto, node:fs, node:path, Buffer, process.env (except via Next.js)
+- ❌ Any Node.js built-in module (use Web API equivalents)
