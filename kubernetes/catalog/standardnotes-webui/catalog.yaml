@@ -1,0 +1,14 @@
+# Community app installed from Unraid AppFeed
+# Source: standardnotes/web:latest
+name: standardnotes-webui
+description: "Standard Notes – browser web client for Unraid (community template). Runs the official standardnotes/web image as a static-served web app on port 80 inside the container, exposed on host port 3001 by "
+namespace: standardnotes-webui
+source: community-apps
+tier: simple
+image: standardnotes/web:latest
+categories:
+  - "Productivity"
+  - "Cloud"
+ingressroute:
+  host: standardnotes-webui.int.rlservers.com
+installed_at: 2026-05-16T21:35:07.207Z
