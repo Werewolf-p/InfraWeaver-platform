@@ -160,31 +160,39 @@ jobs:
           set -euo pipefail
           MANIFEST="kubernetes/catalog/infraweaver-console/manifests/deployment.yaml"
           SHA_TAG="${{ steps.build_image.outputs.sha_tag }}"
-          PREVIOUS_TAG=$(grep -E "image: ${REGISTRY}/${IMAGE_NAME}:" "$MANIFEST" | head -1 | sed -E "s|.*image: ${REGISTRY}/${IMAGE_NAME}:([^[:space:]]+).*|\\1|")
-          echo "previous_tag=${PREVIOUS_TAG}" >> "$GITHUB_OUTPUT"
-          sed -i "s|image: ${REGISTRY}/${IMAGE_NAME}:.*|image: ${REGISTRY}/${IMAGE_NAME}:${SHA_TAG}|g" "$MANIFEST"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "$MANIFEST"
-          if ! git diff --cached --quiet; then
-            echo "manifest_changed=true" >> "$GITHUB_OUTPUT"
-            git commit -m $'chore: deploy '"${SHA_TAG}"$' [skip ci]\n\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>'
-          else
-            echo "manifest_changed=false" >> "$GITHUB_OUTPUT"
-            echo "Manifest already updated for ${SHA_TAG}"
-          fi
+
+          # Fetch-reset-sed-commit-push loop.
+          # Each attempt resets to origin/main FIRST so concurrent CI runs
+          # never accumulate nested conflict markers in the manifest.
           PUSHED=false
-          for attempt in 1 2 3; do
-            if git push origin HEAD:main; then
-              echo "Manifest pushed on attempt $attempt"
+          PREVIOUS_TAG=""
+          for attempt in 1 2 3 4 5; do
+            git fetch origin main
+            git reset --hard origin/main
+            PREVIOUS_TAG=$(grep -E "image: ${REGISTRY}/${IMAGE_NAME}:" "$MANIFEST" | head -1 | sed -E "s|.*image: ${REGISTRY}/${IMAGE_NAME}:([^[:space:]]+).*|\\1|" || echo "unknown")
+            sed -i "s|image: ${REGISTRY}/${IMAGE_NAME}:.*|image: ${REGISTRY}/${IMAGE_NAME}:${SHA_TAG}|g" "$MANIFEST"
+            git add "$MANIFEST"
+            if git diff --cached --quiet; then
+              echo "Manifest already at ${SHA_TAG} — nothing to commit"
+              echo "manifest_changed=false" >> "$GITHUB_OUTPUT"
               PUSHED=true
               break
             fi
-            echo "Push failed (attempt $attempt), rebasing..."
-            git pull --rebase origin main
+            echo "manifest_changed=true" >> "$GITHUB_OUTPUT"
+            git commit -m $'chore: deploy '"${SHA_TAG}"$' [skip ci]\n\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>'
+            if git push origin HEAD:main; then
+              echo "✅ Manifest pushed on attempt $attempt"
+              PUSHED=true
+              break
+            fi
+            echo "Push failed (attempt $attempt / 5) — retrying with fresh fetch..."
+            sleep $((attempt * 3))
           done
+          echo "previous_tag=${PREVIOUS_TAG}" >> "$GITHUB_OUTPUT"
           if [ "$PUSHED" != true ]; then
-            echo "❌ Failed to push deployment manifest after 3 attempts" >&2
+            echo "❌ Failed to push deployment manifest after 5 attempts" >&2
             exit 1
           fi
           echo "✅ Deployment manifest updated from ${PREVIOUS_TAG} to ${SHA_TAG}" >> "$GITHUB_STEP_SUMMARY"
@@ -239,24 +247,30 @@ jobs:
         run: |
           set -euo pipefail
           MANIFEST="kubernetes/catalog/infraweaver-console/manifests/deployment.yaml"
-          sed -i "s|image: ${REGISTRY}/${IMAGE_NAME}:.*|image: ${REGISTRY}/${IMAGE_NAME}:${PREVIOUS_TAG}|g" "$MANIFEST"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "$MANIFEST"
-          if ! git diff --cached --quiet; then
-            git commit -m $'revert: rollback console deploy to '"${PREVIOUS_TAG}"$' [skip ci]\n\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>'
-            PUSHED=false
-            for attempt in 1 2 3; do
-              if git push origin HEAD:main; then
-                PUSHED=true
-                break
-              fi
-              git pull --rebase origin main
-            done
-            if [ "$PUSHED" != true ]; then
-              echo "❌ Failed to push rollback manifest" >&2
-              exit 1
+          PUSHED=false
+          for attempt in 1 2 3 4 5; do
+            git fetch origin main
+            git reset --hard origin/main
+            sed -i "s|image: ${REGISTRY}/${IMAGE_NAME}:.*|image: ${REGISTRY}/${IMAGE_NAME}:${PREVIOUS_TAG}|g" "$MANIFEST"
+            git add "$MANIFEST"
+            if git diff --cached --quiet; then
+              echo "Manifest already at ${PREVIOUS_TAG}"
+              PUSHED=true
+              break
             fi
+            git commit -m $'revert: rollback console deploy to '"${PREVIOUS_TAG}"$' [skip ci]\n\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>'
+            if git push origin HEAD:main; then
+              PUSHED=true
+              break
+            fi
+            echo "Rollback push failed (attempt $attempt / 5) — retrying..."
+            sleep $((attempt * 3))
+          done
+          if [ "$PUSHED" != true ]; then
+            echo "❌ Failed to push rollback manifest after 5 attempts" >&2
+            exit 1
           fi
           mkdir -p ~/.kube
           echo "${KUBECONFIG_B64}" | base64 -d > ~/.kube/config
