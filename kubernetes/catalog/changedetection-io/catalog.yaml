@@ -1,0 +1,13 @@
+# Community app installed from Unraid AppFeed
+# Source: dgtlmoon/changedetection.io
+name: changedetection-io
+description: "Self-hosted website change detection monitoring."
+namespace: changedetection-io
+source: community-apps
+tier: simple
+image: dgtlmoon/changedetection.io
+categories:
+  - "Tools-Utilities"
+ingressroute:
+  host: changedetection-io.int.rlservers.com
+installed_at: 2026-05-16T21:49:23.614Z
