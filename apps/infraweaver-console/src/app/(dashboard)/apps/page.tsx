@@ -1692,6 +1692,8 @@ const COMMUNITY_CATEGORY_TABS = [
   { value: "storage", label: "Storage" },
 ] as const;
 
+const FEATURED_APP_SLUGS = ["vaultwarden", "uptime-kuma", "filebrowser", "homarr", "it-tools"];
+
 type CommunityCategory = (typeof COMMUNITY_CATEGORY_TABS)[number]["value"];
 
 function detectCommunityCategory(app: Pick<AppSummary, "name" | "categories" | "overview">): CommunityCategory {
@@ -1855,7 +1857,7 @@ function DeployModal({ app, onClose }: { app: AppSummary; onClose: () => void })
 
           {step === "options" && !isPreviewLoading && (
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
                   <label className="text-white/60 text-xs mb-1 block">Namespace</label>
                   <input className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500"
@@ -2046,7 +2048,7 @@ function AppCard({ app, onDeploy, canDeploy, installed }: { app: AppSummary; onD
           </a>
         )}
         <button onClick={() => onDeploy(app)} disabled={!canDeploy}
-          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-indigo-600/80 hover:bg-indigo-500 text-white transition-colors disabled:opacity-50">
+          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded text-xs font-medium bg-indigo-600/80 hover:bg-indigo-500 text-white transition-colors disabled:opacity-50">
           <Globe className="w-3 h-3" /> {installed ? "Reconfigure" : "Deploy"}
         </button>
       </div>
@@ -2142,6 +2144,12 @@ function CommunityStoreTab() {
   }, [argoApps, installed]);
 
   const storeApps = (data?.apps ?? []).filter((app) => category === "all" || detectCommunityCategory(app) === category);
+  const featuredApps = useMemo(() => {
+    const appMap = new Map((data?.apps ?? []).map((app) => [app.slug, app]));
+    return FEATURED_APP_SLUGS
+      .map((slug) => appMap.get(slug))
+      .filter((app): app is AppSummary => Boolean(app));
+  }, [data?.apps]);
 
   return (
     <div className="space-y-5">
@@ -2178,6 +2186,52 @@ function CommunityStoreTab() {
 
       {storeTab === "store" && (
         <>
+          {featuredApps.length > 0 && (
+            <div className="space-y-3 rounded-2xl border border-indigo-500/20 bg-indigo-500/5 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-white">✨ Recommended Starter Apps — ready to deploy</p>
+                  <p className="text-xs text-white/50">Simple, lightweight community apps that work well with the default setup.</p>
+                </div>
+                <span className="hidden rounded-full border border-indigo-400/30 bg-indigo-400/10 px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-indigo-200 sm:inline-flex">Featured</span>
+              </div>
+              <div className="flex gap-3 overflow-x-auto pb-1 scrollbar-none">
+                {featuredApps.map((app) => (
+                  <div key={`featured-${app.slug}`} className="min-w-[260px] max-w-[260px] flex-shrink-0 rounded-xl border border-white/10 bg-white/5 p-4">
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-lg border border-white/10 bg-white/5">
+                        {app.icon ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={app.icon} alt="" className="h-8 w-8 object-contain" onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                        ) : (
+                          <Package className="h-5 w-5 text-white/30" />
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <p className="truncate text-sm font-medium text-white">{app.name}</p>
+                          <span className="rounded-full border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-300">Featured</span>
+                        </div>
+                        <p className="truncate text-xs text-white/40">{app.image}</p>
+                      </div>
+                    </div>
+                    <p className="mt-3 line-clamp-2 text-xs leading-relaxed text-white/55">{app.overview ?? "Reliable starter app for a fresh community apps setup."}</p>
+                    <div className="mt-3 flex items-center gap-2 text-[10px] text-white/35">
+                      <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2 py-0.5 text-emerald-300">Simple tier</span>
+                      <span>HTTP friendly</span>
+                    </div>
+                    <button
+                      onClick={() => setDeployApp(app)}
+                      disabled={!canDeployCommunity}
+                      className="mt-4 flex min-h-[40px] w-full items-center justify-center gap-1.5 rounded-lg bg-indigo-600/80 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-indigo-500 disabled:opacity-50"
+                    >
+                      <Globe className="h-3 w-3" /> {installedSlugs.has(app.slug) ? "Reconfigure" : "Quick deploy"}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
             {(Object.entries(TIER_CONFIG) as Array<[Tier, typeof TIER_CONFIG.simple]>).map(([key, cfg]) => (
               <button key={key} onClick={() => handleTier(tier === key ? "" : key)}
@@ -2372,7 +2426,7 @@ export default function AppsPage() {
           className="flex min-h-[40px] w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500 sm:w-auto"
         >
           <PlusCircle className="w-4 h-4" />
-          <span className="hidden sm:inline">Install App</span>
+          <span>Install App</span>
         </button>
       </div>
 

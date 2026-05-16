@@ -619,13 +619,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
               {/* ── ITER 5: Footer — user profile + quick actions ── */}
               <div className="flex-shrink-0 border-t border-[#1e1e1e]" style={{ paddingBottom: "calc(env(safe-area-inset-bottom,0px) + 6px)" }}>
-                {/* Cluster switcher — only shown when multiple clusters are configured */}
-                {clusters.length > 1 && (
-                  <div className="px-4 pt-3 pb-1">
-                    <p className="text-[9px] font-semibold uppercase tracking-widest text-[#444] mb-1.5">Active Cluster</p>
-                    <ClusterSelector />
-                  </div>
-                )}
+                <div className="px-4 pt-3 pb-1">
+                  <p className="text-[9px] font-semibold uppercase tracking-widest text-[#444] mb-1.5">Active Cluster</p>
+                  <ClusterSelector popupDirection="up" />
+                </div>
                 {/* User row */}
                 <Link href="/profile" onClick={() => { setMobileOpen(false); setDrawerSearch(""); }}>
                   <div className="flex items-center gap-3 px-4 py-3 hover:bg-[#181818] transition-colors touch-manipulation">

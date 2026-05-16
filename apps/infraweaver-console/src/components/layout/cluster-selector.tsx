@@ -14,7 +14,7 @@ function StatusDot({ status }: { status: ClusterInfo["status"] | "all" }) {
   return <span className="h-2 w-2 rounded-full bg-[#555]" />;
 }
 
-export function ClusterSelector() {
+export function ClusterSelector({ popupDirection = "down" }: { popupDirection?: "up" | "down" }) {
   const { clusters, activeId, setActiveId, isLoading } = useCluster();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -30,9 +30,8 @@ export function ClusterSelector() {
   const activeClusterInfo = clusters.find((c) => c.id === activeId);
   const activeLabel = activeId === "all" ? "All Clusters" : (activeClusterInfo?.name ?? activeId);
   const activeStatus = activeId === "all" ? "all" : (activeClusterInfo?.status ?? "unknown");
-
-  // Don't render if only one cluster and it's local (single-cluster setup with no extras)
   const hasMultiple = clusters.length > 1;
+  const popupOffset = popupDirection === "up" ? 4 : -4;
 
   return (
     <div className="relative" ref={ref}>
@@ -58,11 +57,14 @@ export function ClusterSelector() {
       <AnimatePresence>
         {open && (
           <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: -4 }}
+            initial={{ opacity: 0, scale: 0.95, y: popupOffset }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: -4 }}
+            exit={{ opacity: 0, scale: 0.95, y: popupOffset }}
             transition={springs.snappy}
-            className="absolute right-0 top-full z-50 mt-1 w-56 overflow-hidden rounded-xl border border-[#2a2a2a] bg-[#1a1a1a] shadow-2xl"
+            className={cn(
+              "absolute right-0 z-50 w-56 overflow-hidden rounded-xl border border-[#2a2a2a] bg-[#1a1a1a] shadow-2xl",
+              popupDirection === "up" ? "bottom-full mb-1" : "top-full mt-1",
+            )}
           >
             <div className="px-3 pb-1 pt-2.5">
               <p className="text-[10px] font-medium uppercase tracking-wider text-[#555]">Active Cluster</p>
