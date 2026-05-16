@@ -1,4 +1,5 @@
 export * from "./animated-number";
+export * from "./animated-ring";
 export * from "./app-nav-tabs";
 export * from "./auto-refresh-control";
 export * from "./bookmark-button";

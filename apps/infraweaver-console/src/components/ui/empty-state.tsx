@@ -2,6 +2,8 @@
 
 import React from "react";
 import { cn } from "@/lib/utils";
+import { motion } from "framer-motion";
+import { springs } from "@/lib/spring";
 
 interface EmptyStateAction {
   label: string;
@@ -24,25 +26,37 @@ export function EmptyState({ icon: Icon, title, description, action, className }
   const renderedAction = React.isValidElement(action) ? (
     action
   ) : isActionConfig(action) ? (
-    <button
+    <motion.button
       type="button"
       onClick={action.onClick}
-      className="mt-5 inline-flex h-9 cursor-pointer items-center rounded-lg bg-[#3b82f6] px-4 text-sm font-medium text-white transition-colors hover:bg-[#2563eb] active:bg-[#1d4ed8] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3b82f6] focus-visible:ring-offset-1 focus-visible:ring-offset-[#111]"
+      whileHover={{ scale: 1.03 }}
+      whileTap={{ scale: 0.97 }}
+      transition={springs.snappy}
+      className="mt-5 inline-flex h-9 cursor-pointer items-center rounded-lg border border-[#2a2a2a] bg-[#111] px-4 text-sm font-medium text-[#9e9e9e] hover:border-[#333] hover:text-[#f2f2f2] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3b82f6] focus-visible:ring-offset-1 focus-visible:ring-offset-[#111]"
     >
       {action.label}
-    </button>
+    </motion.button>
   ) : null;
 
   return (
-    <div className={cn("flex flex-col items-center justify-center rounded-2xl border border-dashed border-[#2a2a2a] bg-[#111] px-4 py-16 text-center", className)}>
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={springs.gentle}
+      className={cn("flex flex-col items-center justify-center rounded-2xl border border-dashed border-[#2a2a2a] bg-[#111] px-4 py-16 text-center", className)}
+    >
       {Icon ? (
-        <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full border border-[#2a2a2a] bg-[#0d0d0d] text-[#888]">
-          <Icon className="h-7 w-7" />
-        </div>
+        <motion.div
+          animate={{ y: [0, -5, 0] }}
+          transition={{ duration: 3.5, repeat: Infinity, ease: "easeInOut" }}
+          className="mb-5 flex h-14 w-14 items-center justify-center rounded-2xl border border-[#2a2a2a] bg-[#0f0f0f] text-[#888]"
+        >
+          <Icon className="h-6 w-6" />
+        </motion.div>
       ) : null}
       <h3 className="text-base font-medium text-[#f2f2f2]">{title}</h3>
       {description ? <p className="mt-2 max-w-sm text-sm leading-relaxed text-[#888]">{description}</p> : null}
       {renderedAction}
-    </div>
+    </motion.div>
   );
 }

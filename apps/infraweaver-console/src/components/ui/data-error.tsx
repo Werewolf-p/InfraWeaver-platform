@@ -3,6 +3,8 @@
 import { AlertCircle, RefreshCw, Stethoscope } from "lucide-react";
 import { useState } from "react";
 import Link from "next/link";
+import { motion } from "framer-motion";
+import { springs } from "@/lib/spring";
 
 interface DataErrorProps {
   message?: string;
@@ -15,9 +17,19 @@ export function DataError({ message = "Service unavailable", detail, onRetry, cl
   const [showDetail, setShowDetail] = useState(false);
 
   return (
-    <div className={`flex flex-col items-center justify-center gap-4 rounded-2xl border border-red-500/20 bg-red-500/5 p-8 text-center ${className ?? ""}`}>
+    <motion.div
+      initial={{ opacity: 0, scale: 0.97 }}
+      animate={{ opacity: 1, scale: 1 }}
+      transition={springs.gentle}
+      className={`flex flex-col items-center justify-center gap-4 rounded-2xl border border-red-500/20 bg-red-500/5 p-8 text-center ${className ?? ""}`}
+    >
       <div className="flex h-12 w-12 items-center justify-center rounded-full bg-red-500/10">
-        <AlertCircle className="h-6 w-6 text-red-400" />
+        <motion.div
+          animate={{ x: [0, -4, 4, -2, 2, 0] }}
+          transition={{ duration: 0.4, delay: 0.2 }}
+        >
+          <AlertCircle className="h-6 w-6 text-red-400" />
+        </motion.div>
       </div>
       <div>
         <p className="text-sm font-semibold text-red-300">{message}</p>
@@ -32,13 +44,16 @@ export function DataError({ message = "Service unavailable", detail, onRetry, cl
       </div>
       <div className="flex flex-wrap items-center justify-center gap-2">
         {onRetry && (
-          <button
+          <motion.button
             onClick={onRetry}
+            whileHover={{ scale: 1.03 }}
+            whileTap={{ scale: 0.97 }}
+            transition={springs.snappy}
             className="flex min-h-[44px] items-center gap-2 rounded-xl border border-[#333] bg-[#1a1a1a] px-4 py-2 text-sm text-[#9e9e9e] transition-colors hover:bg-[#2a2a2a] hover:text-white touch-manipulation"
           >
             <RefreshCw className="h-4 w-4" />
             Retry
-          </button>
+          </motion.button>
         )}
         <Link
           href="/self-test"
@@ -48,6 +63,6 @@ export function DataError({ message = "Service unavailable", detail, onRetry, cl
           Run Diagnostics
         </Link>
       </div>
-    </div>
+    </motion.div>
   );
 }

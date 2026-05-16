@@ -333,7 +333,7 @@ export default function PodsPage() {
   }
 
   return (
-    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }} className="space-y-6">
       <PageHeader icon={Server} title="Pods" description="Live pod inventory with bulk triage and direct log jumps" badge={`${pods.length} total`} />
 
       <div className="grid gap-3 md:grid-cols-3">
