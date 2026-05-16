@@ -83,12 +83,33 @@ function redactErrorMessage(message: string) {
 }
 
 export function safeError(e: unknown): string {
-  if (!(e instanceof Error)) return process.env.NODE_ENV === "production" ? "Internal error" : "An error occurred";
+  // Extract message string from various error shapes
+  let message = "";
 
-  const message = redactErrorMessage(e.message);
+  if (e instanceof Error) {
+    message = e.message;
+  } else if (typeof e === "string") {
+    message = e;
+  } else if (e && typeof e === "object") {
+    // @kubernetes/client-node v1.x throws ResponseError with body property
+    const obj = e as Record<string, unknown>;
+    if (typeof obj.message === "string") {
+      message = obj.message;
+    } else if (obj.body && typeof obj.body === "object") {
+      const body = obj.body as Record<string, unknown>;
+      if (typeof body.message === "string") message = body.message;
+      else if (typeof body.reason === "string") message = `${body.reason}${body.code ? ` (${body.code})` : ""}`;
+    } else if (typeof obj.statusCode === "number") {
+      message = `HTTP ${obj.statusCode}`;
+    }
+  }
+
   if (!message) return process.env.NODE_ENV === "production" ? "Internal error" : "An error occurred";
-  if (process.env.NODE_ENV !== "production") return message;
 
-  const normalized = message.toLowerCase();
-  return SAFE_ERROR_SUBSTRINGS.some((entry) => normalized.includes(entry)) ? message : "Internal error";
+  const redacted = redactErrorMessage(message);
+  if (!redacted) return process.env.NODE_ENV === "production" ? "Internal error" : "An error occurred";
+  if (process.env.NODE_ENV !== "production") return redacted;
+
+  const normalized = redacted.toLowerCase();
+  return SAFE_ERROR_SUBSTRINGS.some((entry) => normalized.includes(entry)) ? redacted : "Internal error";
 }
