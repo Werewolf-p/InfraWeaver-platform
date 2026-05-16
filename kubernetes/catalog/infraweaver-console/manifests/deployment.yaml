@@ -50,6 +50,7 @@ spec:
       containers:
       - name: console
 <<<<<<< HEAD
+<<<<<<< HEAD
         image: onedev.rlservers.com/infraweaver/infraweaver-console:main-9c48b3a
 =======
 <<<<<<< HEAD
@@ -58,6 +59,9 @@ spec:
         image: onedev.rlservers.com/infraweaver/infraweaver-console:main-9c48b3a
 >>>>>>> 7bdef56c7 (chore: deploy main-cb56835 [skip ci])
 >>>>>>> b953e02 (chore: deploy main-7bd5400 [skip ci])
+=======
+        image: onedev.rlservers.com/infraweaver/infraweaver-console:main-9c48b3a
+>>>>>>> 9fc4756 (chore: deploy main-2741121 [skip ci])
         imagePullPolicy: IfNotPresent
         command: ["sh", "-c", "HOSTNAME=0.0.0.0 node server.js"]
         ports:
