@@ -18,13 +18,18 @@ interface PageHeaderProps {
   actions?: React.ReactNode;
   badge?: string;
   breadcrumb?: BreadcrumbItem[];
+  sticky?: boolean;
 }
 
-export function PageHeader({ icon: Icon, title, subtitle, description, actions, badge, breadcrumb }: PageHeaderProps) {
+export function PageHeader({ icon: Icon, title, subtitle, description, actions, badge, breadcrumb, sticky = true }: PageHeaderProps) {
   const supportingText = description ?? subtitle;
 
   return (
-    <div className="mb-4 flex-shrink-0 rounded-3xl border border-slate-200 bg-white/95 p-4 shadow-sm backdrop-blur sm:mb-6 sm:p-5 dark:border-[#2a2a2a] dark:bg-[#111]/95">
+    <div className={cn(
+      "mb-4 flex-shrink-0 rounded-3xl border border-slate-200 bg-white/95 p-4 shadow-sm backdrop-blur sm:mb-6 sm:p-5",
+      "dark:border-[#2a2a2a] dark:bg-[#111]/90",
+      sticky && "sticky top-0 z-20 backdrop-blur-md",
+    )}>
       {breadcrumb && breadcrumb.length > 0 ? (
         <nav className="mb-2 flex items-center gap-1 overflow-x-auto whitespace-nowrap text-[11px] text-slate-500 scrollbar-none sm:text-xs dark:text-[#888]">
           {breadcrumb.map((crumb, i) => (

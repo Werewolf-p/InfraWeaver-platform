@@ -15,6 +15,14 @@
   --az-text: #f2f2f2;
   --az-text-secondary: #9e9e9e;
   --az-text-muted: #666666;
+
+  /* Surface tokens (aliases for homepage/layout) */
+  --surface-1: #1a1a1a;
+  --surface-2: #2a2a2a;
+  --surface-3: #333;
+  --text-primary: #f2f2f2;
+  --text-secondary: #9e9e9e;
+  --text-muted: #666;
   --az-success: #57a300;
   --az-warning: #d47500;
   --az-danger: #d13438;

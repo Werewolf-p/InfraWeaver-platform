@@ -25,6 +25,7 @@ import { useAddons } from "@/hooks/use-addons";
 import { useRBAC } from "@/hooks/use-rbac";
 import { filterNavGroupsByAddons } from "@/lib/addons";
 import { filterNavGroupsByPermissions } from "@/lib/navigation-rbac";
+import { PullToRefresh } from "@/components/ui/pull-to-refresh";
 
 // ── Section accent colors (Iter 3: colored group identifiers) ─────────────────
 const GROUP_ACCENT: Record<string, string> = {
@@ -158,6 +159,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [searchOpen, setSearchOpen] = useState(false);
   const [showBackToTop, setShowBackToTop] = useState(false);
   const mainRef = useRef<HTMLElement | null>(null);
+  const handlePullToRefresh = async () => {
+    router.refresh();
+    await new Promise<void>((resolve) => {
+      window.setTimeout(resolve, 400);
+    });
+  };
   const { recentPages } = useRecentPages();
   const flatNavItems = useMemo(
     () => filteredNavGroups.flatMap((group) => group.items),
@@ -696,20 +703,22 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           ref={mainRef}
           className="flex-1 overflow-y-auto overflow-x-hidden px-3 py-3 pb-28 sm:px-4 sm:py-4 sm:pb-4 md:p-6 md:pb-6"
         >
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={pathname}
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              transition={{ duration: 0.2, ease: "easeOut" }}
-            className="min-w-0"
-            >
-              <ErrorBoundary>
-                {children}
-              </ErrorBoundary>
-            </motion.div>
-          </AnimatePresence>
+          <PullToRefresh onRefresh={handlePullToRefresh} className="min-h-full">
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={pathname}
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                transition={{ duration: 0.2, ease: "easeOut" }}
+                className="min-w-0"
+              >
+                <ErrorBoundary>
+                  {children}
+                </ErrorBoundary>
+              </motion.div>
+            </AnimatePresence>
+          </PullToRefresh>
         </main>
       </div>
 
