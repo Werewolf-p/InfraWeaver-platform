@@ -3,7 +3,7 @@ import { checkSameOrigin, getRequestSizeViolation } from "@/lib/api-helpers";
 import { auditAuthFailure, auditUnauthorizedAccess } from "@/lib/audit-log";
 import { checkRateLimit, LOGIN_RATE_LIMIT, rateLimitKey, UNAUTHENTICATED_RATE_LIMIT } from "@/lib/rate-limit";
 import { NextResponse, type NextRequest } from "next/server";
-import { randomUUID } from "node:crypto";
+
 
 const MUTATION_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const PUBLIC_EXACT_PATHS = new Set([
@@ -44,11 +44,14 @@ function withApiCacheControl(pathname: string, response: NextResponse) {
 
 /**
  * Generates a cryptographically random nonce for CSP.
- * Converts a UUID to base64url so it's compact and safe.
+ * Uses Web Crypto API (globalThis.crypto) — safe in edge runtime.
  */
 function generateNonce(): string {
-  const uuid = randomUUID().replace(/-/g, "");
-  return Buffer.from(uuid, "hex").toString("base64url");
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return btoa(String.fromCharCode(...bytes))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=/g, "");
 }
 
 function withSecurityHeaders(response: NextResponse, nonce: string, requestId: string): NextResponse {
@@ -62,7 +65,7 @@ export default auth(async (req) => {
   const pathname = nextUrl.pathname;
   const isApiRoute = pathname.startsWith("/api/");
   const nonce = generateNonce();
-  const requestId = randomUUID();
+  const requestId = crypto.randomUUID();
 
   try {
     const isPublic = isPublicPath(pathname);
