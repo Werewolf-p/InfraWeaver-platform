@@ -1,7 +1,7 @@
 ---
 # catalog-librespeed-manifests.yaml — deployed by InfraWeaver Community Apps
 # Source: ghcr.io/librespeed/speedtest
-# Installed: 2026-05-16T21:41:40.251Z
+# Installed: 2026-05-16T21:45:07.797Z
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
