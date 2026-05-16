@@ -225,176 +225,9 @@ function buildIngressSummary(routes: IngressRouteItem[]) {
   };
 }
 
-const MOCK_EVENTS: ClusterEventItem[] = [
-  {
-    id: "argocd/argocd-sync-1",
-    name: "argocd-sync-1",
-    namespace: "argocd",
-    reason: "Sync",
-    message: "Successfully synced application core-traefik.",
-    type: "Normal",
-    level: "info",
-    count: 1,
-    firstSeen: new Date(Date.now() - 1_800_000).toISOString(),
-    lastSeen: new Date(Date.now() - 1_740_000).toISOString(),
-    involvedObject: { kind: "Application", name: "core-traefik" },
-    sourceComponent: "argocd-application-controller",
-  },
-  {
-    id: "netbird/backoff-1",
-    name: "backoff-1",
-    namespace: "netbird",
-    reason: "BackOff",
-    message: "Back-off restarting failed container relay in pod relay-0.",
-    type: "Warning",
-    level: "error",
-    count: 3,
-    firstSeen: new Date(Date.now() - 900_000).toISOString(),
-    lastSeen: new Date(Date.now() - 300_000).toISOString(),
-    involvedObject: { kind: "Pod", name: "relay-0" },
-    sourceComponent: "kubelet",
-  },
-  {
-    id: "monitoring/unhealthy-1",
-    name: "unhealthy-1",
-    namespace: "monitoring",
-    reason: "Unhealthy",
-    message: "Readiness probe failed for grafana deployment.",
-    type: "Warning",
-    level: "error",
-    count: 2,
-    firstSeen: new Date(Date.now() - 2_400_000).toISOString(),
-    lastSeen: new Date(Date.now() - 600_000).toISOString(),
-    involvedObject: { kind: "Pod", name: "grafana-0" },
-    sourceComponent: "kubelet",
-  },
-];
 
-const MOCK_CERTS: CertificateItem[] = [
-  {
-    id: "infraweaver-console/infraweaver-console-tls",
-    name: "infraweaver-console-tls",
-    namespace: "infraweaver-console",
-    secretName: "infraweaver-console-tls",
-    commonName: "console.int.rlservers.com",
-    dnsNames: ["console.int.rlservers.com"],
-    issuerRef: "ClusterIssuer/letsencrypt-int",
-    ready: true,
-    valid: true,
-    status: "Ready",
-    reason: null,
-    notAfter: new Date(Date.now() + 64 * 86_400_000).toISOString(),
-    renewalTime: new Date(Date.now() + 34 * 86_400_000).toISOString(),
-    daysLeft: 64,
-    revision: 7,
-    source: "cert-manager",
-  },
-  {
-    id: "monitoring/grafana-tls",
-    name: "grafana-tls",
-    namespace: "monitoring",
-    secretName: "grafana-tls",
-    commonName: "grafana.int.rlservers.com",
-    dnsNames: ["grafana.int.rlservers.com"],
-    issuerRef: "ClusterIssuer/letsencrypt-int",
-    ready: true,
-    valid: true,
-    status: "Renewing Soon",
-    reason: null,
-    notAfter: new Date(Date.now() + 11 * 86_400_000).toISOString(),
-    renewalTime: new Date(Date.now() + 4 * 86_400_000).toISOString(),
-    daysLeft: 11,
-    revision: 3,
-    source: "cert-manager",
-  },
-];
 
-const MOCK_CRONJOBS: CronJobItem[] = [
-  {
-    id: "default/cleanup-job",
-    namespace: "default",
-    name: "cleanup-job",
-    schedule: "0 2 * * *",
-    suspended: false,
-    active: 0,
-    image: "alpine:3.20",
-    concurrencyPolicy: "Forbid",
-    lastSchedule: new Date(Date.now() - 86_400_000).toISOString(),
-    nextRun: nextCronRun("0 2 * * *")?.toISOString() ?? null,
-    lastSuccess: new Date(Date.now() - 86_340_000).toISOString(),
-    lastFailure: null,
-    failing: false,
-    recentJobs: [
-      {
-        name: "cleanup-job-28949012",
-        status: "succeeded",
-        startedAt: new Date(Date.now() - 86_400_000).toISOString(),
-        completedAt: new Date(Date.now() - 86_340_000).toISOString(),
-        durationSeconds: 60,
-      },
-    ],
-  },
-  {
-    id: "monitoring/backup-metrics",
-    namespace: "monitoring",
-    name: "backup-metrics",
-    schedule: "0 */6 * * *",
-    suspended: false,
-    active: 1,
-    image: "busybox:latest",
-    concurrencyPolicy: "Allow",
-    lastSchedule: new Date(Date.now() - 18_000_000).toISOString(),
-    nextRun: nextCronRun("0 */6 * * *")?.toISOString() ?? null,
-    lastSuccess: new Date(Date.now() - 64_800_000).toISOString(),
-    lastFailure: new Date(Date.now() - 18_000_000).toISOString(),
-    failing: true,
-    recentJobs: [
-      {
-        name: "backup-metrics-28949048",
-        status: "failed",
-        startedAt: new Date(Date.now() - 18_000_000).toISOString(),
-        completedAt: new Date(Date.now() - 17_940_000).toISOString(),
-        durationSeconds: 60,
-      },
-      {
-        name: "backup-metrics-28949042",
-        status: "succeeded",
-        startedAt: new Date(Date.now() - 64_860_000).toISOString(),
-        completedAt: new Date(Date.now() - 64_800_000).toISOString(),
-        durationSeconds: 60,
-      },
-    ],
-  },
-];
 
-const MOCK_INGRESS: IngressRouteItem[] = [
-  {
-    id: "argocd/argocd",
-    namespace: "argocd",
-    name: "argocd",
-    entryPoints: ["websecure"],
-    hosts: ["argocd.int.rlservers.com"],
-    services: ["argocd/argocd-server:443"],
-    middlewares: ["traefik/netbird-vpn-only", "traefik/forward-auth-admin"],
-    authMiddlewares: ["traefik/forward-auth-admin"],
-    tlsSecretName: "argocd-tls",
-    certResolver: null,
-    hasTls: true,
-  },
-  {
-    id: "monitoring/grafana",
-    namespace: "monitoring",
-    name: "grafana",
-    entryPoints: ["websecure"],
-    hosts: ["grafana.int.rlservers.com"],
-    services: ["monitoring/grafana:80"],
-    middlewares: ["traefik/netbird-vpn-only"],
-    authMiddlewares: [],
-    tlsSecretName: "grafana-tls",
-    certResolver: null,
-    hasTls: true,
-  },
-];
 
 export async function loadClusterEvents(limit = 250): Promise<ClusterEventPayload> {
   try {
@@ -439,8 +272,7 @@ export async function loadClusterEvents(limit = 250): Promise<ClusterEventPayloa
 
     return { events: items, live: true, summary: buildEventSummary(items) };
   } catch {
-    const events = MOCK_EVENTS.slice(0, limit);
-    return { events, live: false, summary: buildEventSummary(events) };
+    return { events: [], live: false, summary: buildEventSummary([]) };
   }
 }
 
@@ -590,7 +422,7 @@ export async function loadCertificates(): Promise<CertificatePayload> {
       const certs = await loadSecretBackedCertificates();
       return { certs, live: true, summary: buildCertificateSummary(certs) };
     } catch {
-      return { certs: MOCK_CERTS, live: false, summary: buildCertificateSummary(MOCK_CERTS) };
+      return { certs: [], live: false, summary: buildCertificateSummary([]) };
     }
   }
 }
@@ -708,7 +540,7 @@ export async function loadCronJobs(): Promise<CronJobPayload> {
 
     return { cronjobs, live: true, summary: buildCronSummary(cronjobs) };
   } catch {
-    return { cronjobs: MOCK_CRONJOBS, live: false, summary: buildCronSummary(MOCK_CRONJOBS) };
+    return { cronjobs: [], live: false, summary: buildCronSummary([]) };
   }
 }
 
@@ -758,6 +590,6 @@ export async function loadIngressRoutes(): Promise<IngressRoutePayload> {
 
     return { ingressRoutes, live: true, summary: buildIngressSummary(ingressRoutes) };
   } catch {
-    return { ingressRoutes: MOCK_INGRESS, live: false, summary: buildIngressSummary(MOCK_INGRESS) };
+    return { ingressRoutes: [], live: false, summary: buildIngressSummary([]) };
   }
 }

@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
     });
     await auditLog("security:renew-cert", session.user?.email ?? "unknown", `renew cert ${namespace}/${name}`);
     return NextResponse.json({ ok: true });
-  } catch {
-    return NextResponse.json({ ok: true, simulated: true });
+  } catch (err) {
+    return NextResponse.json({ ok: false, error: err instanceof Error ? err.message : "Operation failed" }, { status: 502 });
   }
 }

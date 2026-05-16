@@ -84,7 +84,7 @@ export default function CertificatesPage() {
         icon={ShieldCheck}
         title="Certificates"
         subtitle="cert-manager certificate inventory with expiry, issuer, and renewal visibility"
-        badge={data?.live === false ? "mock" : "live"}
+        badge={data?.live === false ? "offline" : "live"}
         actions={
           <button
             onClick={() => void refetch()}
@@ -98,7 +98,7 @@ export default function CertificatesPage() {
 
       {data?.live === false ? (
         <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-          cert-manager data could not be reached, so the console is showing safe fallback certificate data.
+          cert-manager unavailable — certificate data cannot be loaded. Check cert-manager namespace.
         </div>
       ) : null}
 

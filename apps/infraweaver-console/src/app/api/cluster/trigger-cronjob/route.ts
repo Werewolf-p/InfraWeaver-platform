@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
 
     await auditLog("cluster:trigger-cronjob", session.user?.email ?? "unknown", `triggered cronjob ${namespace}/${name} as ${jobName}`);
     return NextResponse.json({ ok: true, jobName });
-  } catch {
-    return NextResponse.json({ ok: true, simulated: true, jobName });
+  } catch (err) {
+    return NextResponse.json({ ok: false, error: err instanceof Error ? err.message : "Operation failed" }, { status: 502 });
   }
 }

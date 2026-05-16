@@ -65,7 +65,7 @@ export default function IngressPage() {
         icon={Globe}
         title="Ingress"
         subtitle="Traefik IngressRoute audit for hosts, auth middleware, backends, and TLS"
-        badge={data?.live === false ? "mock" : "live"}
+        badge={data?.live === false ? "offline" : "live"}
         actions={
           <button
             onClick={() => void refetch()}
@@ -79,7 +79,7 @@ export default function IngressPage() {
 
       {data?.live === false ? (
         <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-          Live IngressRoute data was unavailable, so the console is showing safe fallback routing data.
+          Kubernetes unavailable — IngressRoute data cannot be loaded. Check Traefik and cluster connectivity.
         </div>
       ) : null}
 

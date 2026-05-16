@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
     await auditLog("cluster:drain", session.user?.email ?? "unknown", `drained node ${node}, evicted ${evicted.length} pods`);
     invalidateClusterCaches();
     return NextResponse.json({ ok: true, evicted, errors });
-  } catch {
-    return NextResponse.json({ ok: true, simulated: true, evicted: [], errors: [] });
+  } catch (err) {
+    return NextResponse.json({ ok: false, error: err instanceof Error ? err.message : "Operation failed" }, { status: 502 });
   }
 }

@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
     await auditLog(cordon ? "cluster:cordon" : "cluster:uncordon", session.user?.email ?? "unknown", `${cordon ? "cordoned" : "uncordoned"} node ${node}`);
     invalidateClusterCaches();
     return NextResponse.json({ ok: true });
-  } catch {
-    return NextResponse.json({ ok: true, simulated: true });
+  } catch (err) {
+    return NextResponse.json({ ok: false, error: err instanceof Error ? err.message : "Operation failed" }, { status: 502 });
   }
 }

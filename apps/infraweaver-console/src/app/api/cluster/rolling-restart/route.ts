@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
     await auditLog("cluster:rolling-restart", session.user?.email ?? "unknown", `rolling restart in ${namespace}: ${restarted.join(", ")}`);
     invalidateClusterCaches();
     return NextResponse.json({ ok: true, restarted, errors });
-  } catch {
-    return NextResponse.json({ ok: true, simulated: true, restarted: [], errors: [] });
+  } catch (err) {
+    return NextResponse.json({ ok: false, error: err instanceof Error ? err.message : "Operation failed" }, { status: 502 });
   }
 }

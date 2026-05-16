@@ -139,7 +139,7 @@ export default function SecretsPage() {
         <div className="space-y-6">
           {data?.live === false ? (
             <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-              Live Kubernetes data is unavailable, so the console is showing safe mock secret metadata for UI validation.
+              Kubernetes unavailable — secret data cannot be loaded. Check cluster connectivity and service account permissions.
             </div>
           ) : null}
 

@@ -55,13 +55,6 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ repo
     );
     return NextResponse.json({ repo, tags: tagDetails });
   } catch {
-    return NextResponse.json({
-      repo,
-      tags: [
-        { tag: "latest", digest: "sha256:abc123def456", size: 45000000, pushedAt: new Date().toISOString() },
-        { tag: "v1.0.0", digest: "sha256:def456abc789", size: 43000000, pushedAt: new Date(Date.now() - 86400000).toISOString() },
-      ],
-      mock: true,
-    });
+    return NextResponse.json({ error: "Registry unavailable" }, { status: 503 });
   }
 }

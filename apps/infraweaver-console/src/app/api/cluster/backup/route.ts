@@ -24,7 +24,7 @@ export async function POST(_req: NextRequest) {
     });
     await auditLog("cluster:backup", session.user?.email ?? "unknown", `created backup ${backupName}`);
     return NextResponse.json({ ok: true, backupName });
-  } catch {
-    return NextResponse.json({ ok: true, simulated: true, backupName });
+  } catch (err) {
+    return NextResponse.json({ ok: false, error: err instanceof Error ? err.message : "Operation failed" }, { status: 502 });
   }
 }

@@ -46,35 +46,6 @@ function toSummary(configMap: k8s.V1ConfigMap): ConfigMapSummary {
   };
 }
 
-function mockConfigMaps(): ConfigMapSummary[] {
-  return sortConfigMaps([
-    {
-      name: "infraweaver-console-config",
-      namespace: "infraweaver-console",
-      age: new Date(Date.now() - 3 * 86_400_000).toISOString(),
-      immutable: false,
-      keys: ["NEXTAUTH_URL", "FEATURE_FLAGS"],
-      binaryKeys: [],
-      data: {
-        NEXTAUTH_URL: "https://infraweaver.int.rlservers.com",
-        FEATURE_FLAGS: "vpn,storage,maintenance",
-      },
-    },
-    {
-      name: "netbird-config",
-      namespace: "netbird",
-      age: new Date(Date.now() - 12 * 3_600_000).toISOString(),
-      immutable: false,
-      keys: ["management-url", "signal-host"],
-      binaryKeys: [],
-      data: {
-        "management-url": "https://netbird.int.rlservers.com",
-        "signal-host": "signal.netbird.svc.cluster.local",
-      },
-    },
-  ]);
-}
-
 export async function GET(request: NextRequest) {
   const session = await requireRoutePermissions({ all: ["cluster:admin"] });
   if (session instanceof NextResponse) return session;
@@ -90,10 +61,7 @@ export async function GET(request: NextRequest) {
     const configMaps = sortConfigMaps(response.items.map((item) => toSummary(item)));
     return NextResponse.json({ configMaps });
   } catch {
-    const configMaps = namespace && namespace !== "all"
-      ? mockConfigMaps().filter((item) => item.namespace === namespace)
-      : mockConfigMaps();
-    return NextResponse.json({ configMaps, live: false });
+    return NextResponse.json({ error: "Kubernetes unavailable" }, { status: 503 });
   }
 }
 
@@ -121,7 +89,7 @@ export async function PATCH(request: NextRequest) {
     const updated = await coreApi.readNamespacedConfigMap({ name, namespace });
     return NextResponse.json({ ok: true, configMap: toSummary(updated) });
   } catch (error) {
-    return NextResponse.json({ ok: true, simulated: true, configMap: { name, namespace, age: new Date().toISOString(), immutable: false, keys: Object.keys(data).sort(), binaryKeys: [], data }, warning: safeError(error) });
+    return NextResponse.json({ error: safeError(error) }, { status: 502 });
   }
 }
 
@@ -141,6 +109,6 @@ export async function DELETE(request: NextRequest) {
     await coreApi.deleteNamespacedConfigMap({ namespace, name });
     return NextResponse.json({ ok: true, namespace, name });
   } catch (error) {
-    return NextResponse.json({ ok: true, simulated: true, namespace, name, warning: safeError(error) });
+    return NextResponse.json({ error: safeError(error) }, { status: 502 });
   }
 }

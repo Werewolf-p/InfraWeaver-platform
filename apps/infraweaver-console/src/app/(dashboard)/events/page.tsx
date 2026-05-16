@@ -85,7 +85,7 @@ export default function EventsPage() {
         icon={AlertTriangle}
         title="Events"
         subtitle="Cluster-wide Kubernetes event feed with acknowledgement workflow"
-        badge={data?.live === false ? "mock" : "live"}
+        badge={data?.live === false ? "offline" : "live"}
         actions={
           <>
             <RefreshCountdown intervalSeconds={15} resetKey={dataUpdatedAt} />
@@ -102,7 +102,7 @@ export default function EventsPage() {
 
       {data?.live === false ? (
         <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-          Live cluster events were unavailable, so the console is showing safe fallback data.
+          Kubernetes unavailable — cluster events cannot be loaded. Check cluster connectivity.
         </div>
       ) : null}
 

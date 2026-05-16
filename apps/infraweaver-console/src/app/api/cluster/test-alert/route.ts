@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
     if (res.status < 200 || res.status >= 300) throw new Error(`Discord error: ${res.status}`);
     await auditLog("cluster:test-alert", session.user?.email ?? "unknown", "sent Discord test alert");
     return NextResponse.json({ ok: true });
-  } catch {
-    return NextResponse.json({ ok: true, simulated: true });
+  } catch (err) {
+    return NextResponse.json({ ok: false, error: err instanceof Error ? err.message : "Operation failed" }, { status: 502 });
   }
 }

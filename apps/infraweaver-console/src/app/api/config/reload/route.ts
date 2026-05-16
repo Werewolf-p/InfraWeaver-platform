@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
     if (!res.ok) throw new Error(`ArgoCD error: ${res.status}`);
     await auditLog("config:reload", session.user?.email ?? "unknown", `triggered hot-reload of ${appName}`);
     return NextResponse.json({ ok: true });
-  } catch {
-    return NextResponse.json({ ok: true, simulated: true });
+  } catch (err) {
+    return NextResponse.json({ ok: false, error: err instanceof Error ? err.message : "Operation failed" }, { status: 502 });
   }
 }

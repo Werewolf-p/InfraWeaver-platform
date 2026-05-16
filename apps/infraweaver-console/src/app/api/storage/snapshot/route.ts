@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
     });
     await auditLog("storage:snapshot", session.user?.email ?? "unknown", `created snapshot ${namespace}/${snapshotName}`);
     return NextResponse.json({ ok: true, snapshotName });
-  } catch {
-    return NextResponse.json({ ok: true, simulated: true, snapshotName });
+  } catch (err) {
+    return NextResponse.json({ ok: false, error: err instanceof Error ? err.message : "Operation failed" }, { status: 502 });
   }
 }

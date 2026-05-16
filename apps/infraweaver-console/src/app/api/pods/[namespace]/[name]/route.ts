@@ -13,32 +13,6 @@ function serializeYaml(value: unknown) {
   return dump(JSON.parse(JSON.stringify(value)), { noRefs: true, lineWidth: 120 });
 }
 
-function buildMockPod(namespace: string, name: string) {
-  return {
-    name,
-    namespace,
-    status: "Running",
-    nodeName: "node-1",
-    podIP: "10.42.0.15",
-    createdAt: new Date().toISOString(),
-    labels: {
-      app: name,
-      namespace,
-    },
-    containers: [
-      {
-        name: "main",
-        image: "ghcr.io/example/app:latest",
-        ready: true,
-        restartCount: 0,
-        requests: { cpu: "100m", memory: "128Mi" },
-        limits: { cpu: "500m", memory: "512Mi" },
-      },
-    ],
-    yaml: dump({ apiVersion: "v1", kind: "Pod", metadata: { name, namespace }, status: { phase: "Running" } }, { noRefs: true }),
-  };
-}
-
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ namespace: string; name: string }> }) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -79,7 +53,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ nam
       yaml: serializeYaml(pod),
     });
   } catch {
-    return NextResponse.json(buildMockPod(namespace, name));
+    return NextResponse.json({ error: "Kubernetes unavailable" }, { status: 503 });
   }
 }
 
@@ -109,7 +83,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ n
     await auditLog("pod:delete", session.user?.email ?? "unknown", `deleted pod ${namespace}/${name}`);
     invalidatePodCaches();
     return NextResponse.json({ ok: true });
-  } catch {
-    return NextResponse.json({ ok: true, simulated: true });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to delete pod" }, { status: 502 });
   }
 }

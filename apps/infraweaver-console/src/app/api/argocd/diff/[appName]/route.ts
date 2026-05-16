@@ -20,6 +20,6 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ app
     const data = await res.json();
     return NextResponse.json(data);
   } catch {
-    return NextResponse.json({ manifests: [], simulated: true });
+    return NextResponse.json({ error: "ArgoCD unavailable" }, { status: 503 });
   }
 }

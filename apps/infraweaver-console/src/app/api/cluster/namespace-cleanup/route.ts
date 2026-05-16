@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
     }
     await auditLog("cluster:namespace-cleanup", session.user?.email ?? "unknown", `cleaned up ${namespace}: deleted ${deleted.length} resources`);
     return NextResponse.json({ ok: true, deleted, errors });
-  } catch {
-    return NextResponse.json({ ok: true, simulated: true, deleted: [], errors: [] });
+  } catch (err) {
+    return NextResponse.json({ ok: false, error: err instanceof Error ? err.message : "Operation failed" }, { status: 502 });
   }
 }

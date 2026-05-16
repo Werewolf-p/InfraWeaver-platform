@@ -26,10 +26,6 @@ export async function GET(
   }
 
   const lines = Math.min(Math.max(parseInt(req.nextUrl.searchParams.get("lines") ?? "500", 10) || 500, 1), 1000);
-  const mockLines = Array.from({ length: Math.min(lines, 50) }, (_, i) => {
-    const date = new Date(Date.now() - (50 - i) * 2000);
-    return `${date.toISOString()} INFO [${container}] Log line ${i + 1} - container ${container} in ${namespace}/${pod} is running normally`;
-  }).join("\n");
 
   try {
     const k8s = await import("@kubernetes/client-node");
@@ -43,6 +39,9 @@ export async function GET(
     });
     return new NextResponse(logRes as string, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
   } catch {
-    return new NextResponse(mockLines, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
+    return new NextResponse("Kubernetes unavailable — cannot retrieve logs", {
+      status: 503,
+      headers: { "Content-Type": "text/plain; charset=utf-8" },
+    });
   }
 }

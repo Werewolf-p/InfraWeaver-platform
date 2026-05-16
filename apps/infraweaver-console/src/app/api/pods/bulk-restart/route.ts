@@ -67,19 +67,10 @@ export async function POST(req: NextRequest) {
       total: uniquePods.length,
       failures,
     });
-  } catch {
-    await auditLog(
-      "pod:restart:bulk",
-      session.user?.email ?? "unknown",
-      `simulated restart of ${uniquePods.length} pods`,
+  } catch (err) {
+    return NextResponse.json(
+      { ok: false, error: err instanceof Error ? err.message : "Operation failed" },
+      { status: 502 },
     );
-
-    return NextResponse.json({
-      ok: true,
-      restartedCount: uniquePods.length,
-      total: uniquePods.length,
-      failures: [],
-      simulated: true,
-    });
   }
 }

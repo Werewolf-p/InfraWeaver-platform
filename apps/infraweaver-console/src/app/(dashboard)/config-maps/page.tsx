@@ -174,7 +174,7 @@ export default function ConfigMapsPage() {
         <div className="space-y-6">
           {data?.live === false ? (
             <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-              Kubernetes data is unavailable, so the console is showing safe mock ConfigMaps for UI validation.
+              Kubernetes unavailable — ConfigMap data cannot be loaded. Check cluster connectivity and service account permissions.
             </div>
           ) : null}
 

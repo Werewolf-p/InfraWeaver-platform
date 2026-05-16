@@ -106,7 +106,7 @@ export default function CronJobsPage() {
         icon={Calendar}
         title="CronJobs"
         subtitle="Scheduled workloads with next run prediction and one-click manual trigger"
-        badge={data?.live === false ? "mock" : "live"}
+        badge={data?.live === false ? "offline" : "live"}
         actions={
           <button
             onClick={() => void refetch()}
@@ -120,7 +120,7 @@ export default function CronJobsPage() {
 
       {data?.live === false ? (
         <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-          Live CronJob data was unavailable, so the console is showing safe fallback schedule data.
+          Kubernetes unavailable — CronJob data cannot be loaded. Check cluster connectivity.
         </div>
       ) : null}
 

@@ -44,10 +44,8 @@ export async function PATCH(request: NextRequest) {
     });
   } catch (error) {
     return NextResponse.json({
-      ok: true,
-      simulated: true,
-      pvc: { namespace, name, requestedStorage: newSize, capacity: newSize },
-      warning: safeError(error),
+      ok: false,
+      error: safeError(error),
     });
   }
 }

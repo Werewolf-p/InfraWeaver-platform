@@ -46,8 +46,8 @@ async function updateMaintenanceMode(request: NextRequest, paramsPromise: Promis
       `${cordon ? "enabled" : "disabled"} maintenance mode for node ${name}`,
     );
     return NextResponse.json({ ok: true, node: name, cordon });
-  } catch {
-    return NextResponse.json({ ok: true, simulated: true, node: name, cordon });
+  } catch (err) {
+    return NextResponse.json({ ok: false, error: err instanceof Error ? err.message : "Operation failed" }, { status: 502 });
   }
 }
 

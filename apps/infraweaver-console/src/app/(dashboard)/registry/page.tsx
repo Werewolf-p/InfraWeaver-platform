@@ -159,9 +159,9 @@ export default function RegistryPage() {
       </div>
 
       {data?.mock && (
-        <div className="mb-4 flex items-center gap-2 px-4 py-3 bg-yellow-500/10 border border-yellow-500/20 rounded-xl text-sm text-yellow-400">
+        <div className="mb-4 flex items-center gap-2 px-4 py-3 bg-red-500/10 border border-red-500/20 rounded-xl text-sm text-red-400">
           <Info className="w-4 h-4 flex-shrink-0" />
-          Registry unreachable — showing mock data
+          Registry unreachable — check REGISTRY_HOST, REGISTRY_USERNAME and REGISTRY_PASSWORD configuration
         </div>
       )}
 

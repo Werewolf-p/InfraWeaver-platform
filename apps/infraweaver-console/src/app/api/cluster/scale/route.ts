@@ -39,8 +39,8 @@ export async function PATCH(req: NextRequest) {
     await auditLog("cluster:scale", session.user?.email ?? "unknown", `scaled ${namespace}/${deployment} to ${replicas}`);
     invalidateClusterCaches();
     return NextResponse.json({ ok: true, replicas });
-  } catch {
-    return NextResponse.json({ ok: true, simulated: true, replicas });
+  } catch (err) {
+    return NextResponse.json({ ok: false, error: err instanceof Error ? err.message : "Operation failed" }, { status: 502 });
   }
 }
 
@@ -63,6 +63,6 @@ export async function GET(req: NextRequest) {
     const dep = await appsApi.readNamespacedDeployment({ name: deployment, namespace });
     return NextResponse.json({ replicas: dep.spec?.replicas ?? 1 });
   } catch {
-    return NextResponse.json({ replicas: 1, simulated: true });
+    return NextResponse.json({ error: "Kubernetes unavailable" }, { status: 503 });
   }
 }
