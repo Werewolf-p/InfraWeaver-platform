@@ -236,7 +236,7 @@ export async function POST(
           name,
           namespace: "game-hub",
           body: { spec: { replicas: 0 } },
-          force: true,
+
           fieldManager: "infraweaver",
         });
       }
@@ -298,7 +298,7 @@ export async function POST(
         name,
         namespace: "game-hub",
         body: { spec: { replicas: desiredReplicas } },
-        force: true,
+
         fieldManager: "infraweaver",
       });
       await auditLog(

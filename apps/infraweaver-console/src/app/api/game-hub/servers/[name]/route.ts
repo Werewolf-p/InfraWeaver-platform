@@ -531,7 +531,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
         name,
         namespace: GAME_HUB_NAMESPACE,
         body: { spec: { replicas: 1 }, metadata: { annotations: { "infraweaver.io/last-started": new Date().toISOString() } } },
-        force: true,
+
         fieldManager: "infraweaver",
       });
       await sendDiscordWebhook(webhookConfig, "start", `🟢 ${name} started`);
@@ -556,7 +556,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
     } else if (body.action === "scale") {
       await clients.autoscalingApi.deleteNamespacedHorizontalPodAutoscaler({ name, namespace: GAME_HUB_NAMESPACE }).catch(() => undefined);
       const count = Math.max(0, Math.min(body.replicas ?? 1, 10));
-      await clients.appsApi.patchNamespacedDeployment({ name, namespace: GAME_HUB_NAMESPACE, body: { spec: { replicas: count } }, force: true, fieldManager: "infraweaver" });
+      await clients.appsApi.patchNamespacedDeployment({ name, namespace: GAME_HUB_NAMESPACE, body: { spec: { replicas: count } }, fieldManager: "infraweaver" });
     } else if (body.action === "set-hpa") {
       const min = Math.max(1, body.hpaMin ?? 1);
       const max = Math.max(min, body.hpaMax ?? 3);
@@ -573,7 +573,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
         },
       };
       try {
-        await clients.autoscalingApi.patchNamespacedHorizontalPodAutoscaler({ name, namespace: GAME_HUB_NAMESPACE, body: hpaSpec, force: true, fieldManager: "infraweaver" });
+        await clients.autoscalingApi.patchNamespacedHorizontalPodAutoscaler({ name, namespace: GAME_HUB_NAMESPACE, body: hpaSpec,  fieldManager: "infraweaver" });
       } catch {
         await clients.autoscalingApi.createNamespacedHorizontalPodAutoscaler({ namespace: GAME_HUB_NAMESPACE, body: hpaSpec });
       }
@@ -588,22 +588,22 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
         name,
         namespace: GAME_HUB_NAMESPACE,
         body: { spec: { template: { spec: { containers: [{ name: containerName, env: envVars }] } } } },
-        force: true,
+
         fieldManager: "infraweaver",
       });
       await upsertEggConfigMap(clients.coreApi, name, egg, nextEnv);
     } else if (body.action === "set-restart-policy") {
       const policy = body.restartPolicy === true ? "Always" : "OnFailure";
-      await clients.appsApi.patchNamespacedDeployment({ name, namespace: GAME_HUB_NAMESPACE, body: { spec: { template: { spec: { restartPolicy: policy } } } }, force: true, fieldManager: "infraweaver" });
+      await clients.appsApi.patchNamespacedDeployment({ name, namespace: GAME_HUB_NAMESPACE, body: { spec: { template: { spec: { restartPolicy: policy } } } }, fieldManager: "infraweaver" });
     } else if (body.action === "set-notes" || body.action === "update-notes") {
-      await clients.appsApi.patchNamespacedDeployment({ name, namespace: GAME_HUB_NAMESPACE, body: { metadata: { annotations: { "infraweaver/notes": body.notes ?? "" } } }, force: true, fieldManager: "infraweaver" });
+      await clients.appsApi.patchNamespacedDeployment({ name, namespace: GAME_HUB_NAMESPACE, body: { metadata: { annotations: { "infraweaver/notes": body.notes ?? "" } } }, fieldManager: "infraweaver" });
     } else if (body.action === "update-resources") {
       const containerName = deployment.spec?.template?.spec?.containers?.[0]?.name ?? name;
       await clients.appsApi.patchNamespacedDeployment({
         name,
         namespace: GAME_HUB_NAMESPACE,
         body: { spec: { template: { spec: { containers: [{ name: containerName, resources: { limits: { memory: body.memory, cpu: body.cpu }, requests: { memory: body.memory, cpu: body.cpu } } }] } } } },
-        force: true,
+
         fieldManager: "infraweaver",
       });
     } else if (body.action === "set-maintenance") {
@@ -612,7 +612,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
         namespace: GAME_HUB_NAMESPACE,
         body: { metadata: { annotations: { "infraweaver/maintenance": body.enabled ? "true" : "false" } } },
         fieldManager: "infraweaver",
-        force: true,
+
       });
     } else if (body.action === "set-schedule") {
       const startSchedule = parsePowerSchedule(body.startSchedule);
@@ -655,7 +655,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
           },
         },
         fieldManager: "infraweaver",
-        force: true,
+
       });
     } else if (body.action === "set-backup-schedule") {
       await clients.appsApi.patchNamespacedDeployment({
@@ -663,7 +663,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
         namespace: GAME_HUB_NAMESPACE,
         body: { metadata: { annotations: { "infraweaver/backup-schedule": body.cronExpr ?? "", "infraweaver/backup-retention": String(body.retention ?? 7) } } },
         fieldManager: "infraweaver",
-        force: true,
+
       });
     } else if (body.action === "set-backup-target") {
       await clients.appsApi.patchNamespacedDeployment({
@@ -671,7 +671,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
         namespace: GAME_HUB_NAMESPACE,
         body: { metadata: { annotations: { "infraweaver/backup-target": body.target ?? "local" } } },
         fieldManager: "infraweaver",
-        force: true,
+
       });
     } else if (body.action === "set-alert-thresholds") {
       const alertCpu = Math.min(100, Math.max(0, Math.round(body.alertCpu ?? 80)));
@@ -690,7 +690,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
           },
         },
         fieldManager: "infraweaver",
-        force: true,
+
       });
     } else if (body.action === "expand-pvc") {
       if (!body.pvcName || !body.newSize) {
@@ -701,7 +701,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
         namespace: GAME_HUB_NAMESPACE,
         body: { spec: { resources: { requests: { storage: body.newSize } } } },
         fieldManager: "infraweaver",
-        force: true,
+
       });
     } else if (body.action === "update-image") {
       if (!body.image) return NextResponse.json({ error: "image is required" }, { status: 400 });
@@ -714,7 +714,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
           metadata: { annotations: { "infraweaver.io/image-version": parsedVersion.version } },
           spec: { template: { metadata: { annotations: { "infraweaver.io/image-version": parsedVersion.version } }, spec: { containers: [{ name: containerName, image: body.image }] } } },
         },
-        force: true,
+
         fieldManager: "infraweaver",
       });
     } else if (body.action === "pin-image-version") {
@@ -732,7 +732,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
           metadata: { annotations: { "infraweaver.io/image-version": currentVersion } },
           spec: { template: { metadata: { annotations: { "infraweaver.io/image-version": currentVersion } }, spec: { containers: [{ name: containerName, image: pinnedImage }] } } },
         },
-        force: true,
+
         fieldManager: "infraweaver",
       });
     } else if (body.action === "unpin-image-version") {
@@ -746,7 +746,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
           metadata: { annotations: { "infraweaver.io/image-version": "latest" } },
           spec: { template: { metadata: { annotations: { "infraweaver.io/image-version": "latest" } }, spec: { containers: [{ name: containerName, image: latestImage }] } } },
         },
-        force: true,
+
         fieldManager: "infraweaver",
       });
     } else if (body.action === "update-pull-policy") {
@@ -756,7 +756,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
         name,
         namespace: GAME_HUB_NAMESPACE,
         body: { spec: { template: { spec: { containers: [{ name: containerName, imagePullPolicy: body.pullPolicy }] } } } },
-        force: true,
+
         fieldManager: "infraweaver",
       });
     } else if (body.action === "update-strategy") {
@@ -765,7 +765,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
         name,
         namespace: GAME_HUB_NAMESPACE,
         body: { spec: { strategy: { type: strategyType } } },
-        force: true,
+
         fieldManager: "infraweaver",
       });
     } else if (body.action === "update-identity" || body.action === "update-tags") {
@@ -778,7 +778,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
         name,
         namespace: GAME_HUB_NAMESPACE,
         body: { metadata: { annotations } },
-        force: true,
+
         fieldManager: "infraweaver",
       });
     } else if (body.action === "update-service-ports") {
@@ -797,7 +797,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
             })),
           },
         },
-        force: true,
+
         fieldManager: "infraweaver",
       });
     } else if (body.action === "set-scheduled-action") {
@@ -809,7 +809,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
         name,
         namespace: GAME_HUB_NAMESPACE,
         body: { metadata: { annotations } },
-        force: true,
+
         fieldManager: "infraweaver",
       });
     } else if (body.action === "save-command") {

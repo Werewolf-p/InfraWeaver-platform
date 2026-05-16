@@ -52,7 +52,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ nam
       name,
       namespace: GAME_HUB_NAMESPACE,
       body: { spec: { template: previousTemplate } },
-      force: true,
+
       fieldManager: "infraweaver",
     });
 

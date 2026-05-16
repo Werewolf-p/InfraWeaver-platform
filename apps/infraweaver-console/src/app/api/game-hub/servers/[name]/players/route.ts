@@ -136,7 +136,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
       namespace: "game-hub",
       body: { metadata: { annotations: { "infraweaver/player-history": JSON.stringify(history) } } },
       fieldManager: "infraweaver",
-      force: true,
+
     });
     return NextResponse.json({ history });
   } catch (error) {

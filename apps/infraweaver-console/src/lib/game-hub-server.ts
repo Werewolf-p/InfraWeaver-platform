@@ -502,7 +502,7 @@ export async function writeSavedCommands(coreApi: k8s.CoreV1Api, name: string, c
       namespace: GAME_HUB_NS,
       body: { data: { [SAVED_COMMANDS_KEY]: payload } },
       fieldManager: "infraweaver",
-      force: true,
+
     });
   } catch {
     await coreApi.createNamespacedConfigMap({

@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
             namespace: GAME_HUB_NS,
             body: { spec: { replicas: 1 }, metadata: { annotations: { "infraweaver.io/last-started": new Date().toISOString() } } },
             fieldManager: "infraweaver",
-            force: true,
+
           });
         }
         await auditLog(`game-hub:${action}`, session.user?.email ?? "unknown", `${action} ${name}`);

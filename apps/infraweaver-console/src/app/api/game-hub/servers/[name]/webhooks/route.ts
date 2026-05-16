@@ -84,7 +84,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ nam
       namespace: "game-hub",
       body: { metadata: { annotations: { "infraweaver/discord-webhook": payload } } },
       fieldManager: "infraweaver",
-      force: true,
+
     });
     return NextResponse.json({ config: parseDiscordWebhookConfig(payload) });
   } catch (error) {
@@ -115,7 +115,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ n
       namespace: "game-hub",
       body: { metadata: { annotations: { "infraweaver/discord-webhook": "" } } },
       fieldManager: "infraweaver",
-      force: true,
+
     });
     return NextResponse.json({ ok: true });
   } catch (error) {
