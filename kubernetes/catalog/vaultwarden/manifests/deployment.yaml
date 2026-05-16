@@ -15,6 +15,8 @@ metadata:
     infraweaver.io/tier: simple
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app.kubernetes.io/name: vaultwarden
