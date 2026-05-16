@@ -143,6 +143,7 @@ export interface ServerDetail {
   };
   egg?: {
     mountPath: string;
+    stopCommand?: string;
     description?: string;
     connectionHint?: string;
     environment?: Array<{ name: string; description: string; defaultValue: string; required: boolean }>;

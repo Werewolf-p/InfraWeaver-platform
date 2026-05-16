@@ -49,6 +49,7 @@ import {
   HardDrive,
   Wrench,
   MoreHorizontal,
+  OctagonX,
 } from "lucide-react";
 import { cn, formatBytes, timeAgo } from "@/lib/utils";
 import { getEggForGameType } from "@/lib/game-eggs";
@@ -4984,19 +4985,34 @@ export default function ServerDetailPage() {
                       </button>
                     ) : null}
                     {server.permissions?.canStop ? (
-                      <button
-                        onClick={() => void doAction("stop")}
-                        disabled={!!actionLoading}
-                        title="Stop"
-                        className="flex min-h-[44px] items-center gap-1.5 rounded-xl bg-[#1a1a1a] px-2.5 py-2 text-xs text-[#888] transition-colors disabled:opacity-50 touch-manipulation hover:bg-red-500/15 hover:text-red-300"
-                      >
-                        {actionLoading === "stop" ? (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        ) : (
-                          <Square className="w-3.5 h-3.5" />
-                        )}
-                        <span className="hidden min-[380px]:inline">Stop</span>
-                      </button>
+                      <>
+                        <button
+                          onClick={() => void doAction("stop", "Server stopping gracefully…")}
+                          disabled={!!actionLoading}
+                          title={`Stop (sends game stop command: ${server.egg?.stopCommand ?? "stop"})`}
+                          className="flex min-h-[44px] items-center gap-1.5 rounded-xl bg-[#1a1a1a] px-2.5 py-2 text-xs text-[#888] transition-colors disabled:opacity-50 touch-manipulation hover:bg-red-500/15 hover:text-red-300"
+                        >
+                          {actionLoading === "stop" ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Square className="w-3.5 h-3.5" />
+                          )}
+                          <span className="hidden min-[380px]:inline">Stop</span>
+                        </button>
+                        <button
+                          onClick={() => void doAction("force-stop", "Server force-stopped")}
+                          disabled={!!actionLoading}
+                          title="Force Stop — immediately kills the pod (no save)"
+                          className="flex min-h-[44px] items-center gap-1.5 rounded-xl bg-[#1a1a1a] px-2.5 py-2 text-xs text-[#888] transition-colors disabled:opacity-50 touch-manipulation hover:bg-red-600/25 hover:text-red-400"
+                        >
+                          {actionLoading === "force-stop" ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <OctagonX className="w-3.5 h-3.5" />
+                          )}
+                          <span className="hidden min-[380px]:inline">Force</span>
+                        </button>
+                      </>
                     ) : null}
                   </>
                 )}
@@ -5230,16 +5246,34 @@ export default function ServerDetailPage() {
                       </button>
                     ) : null}
                     {server.permissions?.canStop ? (
-                      <button
-                        onClick={() => {
-                          setMobileActionSheetOpen(false);
-                          void doAction("stop");
-                        }}
-                        className="flex min-h-[52px] items-center justify-between rounded-2xl border border-red-500/30 bg-red-500/10 px-4 text-sm font-medium text-red-200"
-                      >
-                        <span>Stop server</span>
-                        <Square className="h-4 w-4" />
-                      </button>
+                      <>
+                        <button
+                          onClick={() => {
+                            setMobileActionSheetOpen(false);
+                            void doAction("stop", "Server stopping gracefully…");
+                          }}
+                          className="flex min-h-[52px] items-center justify-between rounded-2xl border border-red-500/30 bg-red-500/10 px-4 text-sm font-medium text-red-200"
+                        >
+                          <div className="flex flex-col items-start gap-0.5">
+                            <span>Stop server</span>
+                            <span className="text-[11px] font-normal text-red-300/60">Sends game command: {server.egg?.stopCommand ?? "stop"}</span>
+                          </div>
+                          <Square className="h-4 w-4" />
+                        </button>
+                        <button
+                          onClick={() => {
+                            setMobileActionSheetOpen(false);
+                            void doAction("force-stop", "Server force-stopped");
+                          }}
+                          className="flex min-h-[52px] items-center justify-between rounded-2xl border border-red-700/40 bg-red-700/15 px-4 text-sm font-medium text-red-300"
+                        >
+                          <div className="flex flex-col items-start gap-0.5">
+                            <span>Force stop</span>
+                            <span className="text-[11px] font-normal text-red-400/60">Kills pod immediately — no save</span>
+                          </div>
+                          <OctagonX className="h-4 w-4" />
+                        </button>
+                      </>
                     ) : null}
                   </>
                 )}

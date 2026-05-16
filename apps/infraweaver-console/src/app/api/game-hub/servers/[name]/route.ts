@@ -37,7 +37,7 @@ import { safeError } from "@/lib/utils";
 export const maxDuration = 60;
 
 const VALID_ACTIONS = [
-  "start", "stop", "restart", "scale", "set-hpa", "remove-hpa", "update-env",
+  "start", "stop", "force-stop", "restart", "scale", "set-hpa", "remove-hpa", "update-env",
   "set-restart-policy", "set-notes", "update-notes", "update-resources", "set-maintenance",
   "set-schedule", "set-backup-schedule", "set-backup-target", "set-alert-thresholds",
   "expand-pvc", "update-image", "pin-image-version", "unpin-image-version",
@@ -92,7 +92,7 @@ const MANIFEST_SYNC_ACTIONS = new Set([
 
 function actionPermission(action: string) {
   if (action === "start") return "game-hub:start" as const;
-  if (action === "stop") return "game-hub:stop" as const;
+  if (action === "stop" || action === "force-stop") return "game-hub:stop" as const;
   if (action === "scale") return "game-hub:scale" as const;
   if (["sync-to-git", "set-hpa", "remove-hpa", "update-env", "set-restart-policy", "set-notes", "update-notes", "update-resources", "set-maintenance", "set-schedule", "set-backup-schedule", "set-backup-target", "set-alert-thresholds", "expand-pvc"].includes(action)) {
     return "game-hub:admin" as const;
@@ -477,7 +477,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
     return NextResponse.json({ error: "Validation failed", details: actionParsed.error.flatten() }, { status: 400 });
   }
   const body = rawBody as {
-    action: "start" | "stop" | "restart" | "scale" | "set-hpa" | "remove-hpa" | "update-env" | "set-restart-policy" | "set-notes" | "update-notes" | "update-resources" | "set-maintenance" | "set-schedule" | "set-backup-schedule" | "set-backup-target" | "set-alert-thresholds" | "expand-pvc" | "update-image" | "pin-image-version" | "unpin-image-version" | "update-pull-policy" | "update-strategy" | "update-identity" | "update-tags" | "update-service-ports" | "set-scheduled-action" | "save-command" | "delete-saved-command" | "sync-to-git";
+    action: "start" | "stop" | "force-stop" | "restart" | "scale" | "set-hpa" | "remove-hpa" | "update-env" | "set-restart-policy" | "set-notes" | "update-notes" | "update-resources" | "set-maintenance" | "set-schedule" | "set-backup-schedule" | "set-backup-target" | "set-alert-thresholds" | "expand-pvc" | "update-image" | "pin-image-version" | "unpin-image-version" | "update-pull-policy" | "update-strategy" | "update-identity" | "update-tags" | "update-service-ports" | "set-scheduled-action" | "save-command" | "delete-saved-command" | "sync-to-git";
     replicas?: number;
     hpaMin?: number;
     hpaMax?: number;
@@ -538,6 +538,17 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
     } else if (body.action === "stop") {
       const result = await gracefulStopServer(clients, name, egg.stopCommand, 30_000);
       await sendDiscordWebhook(webhookConfig, "stop", `⏹️ ${name} stopped${result.exitedGracefully ? " gracefully" : ""}`);
+    } else if (body.action === "force-stop") {
+      // Hard stop: scale to 0 immediately, no RCON stop command.
+      // Kubernetes sends SIGTERM then SIGKILL after terminationGracePeriodSeconds.
+      await clients.appsApi.patchNamespacedDeployment({
+        name,
+        namespace: GAME_HUB_NAMESPACE,
+        body: { spec: { replicas: 0 }, metadata: { annotations: { "infraweaver.io/last-stopped": new Date().toISOString() } } },
+        force: true,
+        fieldManager: "infraweaver",
+      });
+      await sendDiscordWebhook(webhookConfig, "stop", `🛑 ${name} force-stopped`);
     } else if (body.action === "restart") {
       const pods = await clients.coreApi.listNamespacedPod({ namespace: GAME_HUB_NAMESPACE, labelSelector: `app=${name}` });
       for (const pod of pods.items ?? []) {
