@@ -24,8 +24,9 @@ spec:
         app.kubernetes.io/name: siliconnotes
     spec:
       securityContext:
-        fsGroup: 1000
+        fsGroup: 5000
       containers:
+        - name: siliconnotes
           image: bityard/silicon
           # No environment variables defined
           ports:
