@@ -1,5 +1,5 @@
 "use client";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSettingsContext } from "@/contexts/settings-context";
 
 export interface ArgoApp {
@@ -25,18 +25,49 @@ export interface ArgoApp {
   };
 }
 
+export type ArgoAppsDataSource = "argocd-api" | "crd" | "last-known" | "mock";
+
+interface ArgoAppsResponse {
+  apps: ArgoApp[];
+  dataSource: ArgoAppsDataSource | null;
+}
+
+function isArgoAppsDataSource(value: string | null): value is ArgoAppsDataSource {
+  return value === "argocd-api" || value === "crd" || value === "last-known" || value === "mock";
+}
+
+async function getErrorMessage(response: Response) {
+  try {
+    const data = await response.json() as { error?: string };
+    return data.error ?? `Failed to fetch apps (${response.status})`;
+  } catch {
+    return `Failed to fetch apps (${response.status})`;
+  }
+}
+
 export function useArgoApps() {
   const { settings } = useSettingsContext();
-  return useQuery<ArgoApp[]>({
+  const query = useQuery<ArgoAppsResponse, Error>({
     queryKey: ["argocd", "apps"],
     queryFn: async () => {
-      const res = await fetch("/api/argocd/apps");
-      if (!res.ok) throw new Error("Failed to fetch apps");
-      return res.json();
+      const res = await fetch("/api/argocd/apps", { cache: "no-store" });
+      if (!res.ok) throw new Error(await getErrorMessage(res));
+
+      const headerValue = res.headers.get("X-Data-Source");
+      const dataSource: ArgoAppsDataSource | null = isArgoAppsDataSource(headerValue) ? headerValue : null;
+      const apps = await res.json() as ArgoApp[];
+
+      return { apps, dataSource };
     },
     refetchInterval: settings.refreshInterval,
     staleTime: 15000,
   });
+
+  return {
+    ...query,
+    data: query.data?.apps ?? [],
+    dataSource: query.data?.dataSource ?? null,
+  } as typeof query & { data: ArgoApp[]; dataSource: ArgoAppsDataSource | null };
 }
 
 export function useSyncApp() {

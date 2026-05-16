@@ -11,6 +11,7 @@ import { useRBAC } from "@/hooks/use-rbac";
 interface SetupStatus {
   nsExists: boolean;
   crdExists: boolean;
+  rbacExists: boolean;
   longhornAvailable: boolean;
   storageClasses: Array<{ name: string; provisioner: string; isDefault: boolean }>;
   ready: boolean;
@@ -59,9 +60,12 @@ export default function GameHubSetupPage() {
   }
 
   const checks = [
-    { label: "game-hub namespace", key: "nsExists" as keyof SetupStatus, description: "Kubernetes namespace for game servers" },
-    { label: "GameServer CRD", key: "crdExists" as keyof SetupStatus, description: "Custom Resource Definition for game servers" },
+    { label: "game-hub namespace", key: "nsExists" as const, description: "Kubernetes namespace for game servers" },
+    { label: "GameServer CRD", key: "crdExists" as const, description: "Custom Resource Definition for game servers" },
+    { label: "RBAC permissions", key: "rbacExists" as const, description: "Console service account permissions in game-hub namespace" },
   ];
+
+  const ready = Boolean(status?.nsExists && status?.crdExists && status?.rbacExists);
 
   if (!canViewSetup) {
     return <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-4 text-sm text-red-200">You do not have permission to view Game Hub setup.</div>;
@@ -114,7 +118,7 @@ export default function GameHubSetupPage() {
           </div>
         )}
 
-        {status?.ready ? (
+        {ready ? (
           <div className="pt-2">
             <div className="flex items-center gap-2 text-green-400 text-sm mb-3">
               <CheckCircle2 className="w-4 h-4" />

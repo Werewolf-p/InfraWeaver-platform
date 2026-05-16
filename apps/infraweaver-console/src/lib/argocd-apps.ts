@@ -1,13 +1,16 @@
 import * as k8s from "@kubernetes/client-node";
 import { apiCache } from "@/lib/api-cache";
+import { getClusterConfig, getDefaultClusterId } from "@/lib/cluster-context";
 import { loadKubeConfig } from "@/lib/k8s";
 import { PERFORMANCE_CACHE_KEYS } from "@/lib/performance-cache";
 import { requestDedup } from "@/lib/request-dedup";
 
-const ARGOCD_SERVER = process.env.ARGOCD_SERVER ?? "http://argocd-server.argocd.svc.cluster.local:80";
-const ARGOCD_TOKEN = process.env.ARGOCD_TOKEN ?? "";
+const DEFAULT_ARGOCD_SERVER = process.env.ARGOCD_SERVER ?? "http://argocd-server.argocd.svc.cluster.local:80";
+const DEFAULT_ARGOCD_TOKEN = process.env.ARGOCD_TOKEN ?? "";
 const ARGOCD_CACHE_TTL_MS = 15_000;
 const LAST_KNOWN_APPS_TTL_MS = 600_000;
+
+export type ArgoAppsDataSource = "argocd-api" | "crd" | "last-known" | "mock";
 
 export interface ArgoApplication {
   metadata?: { name?: string; namespace?: string; labels?: Record<string, string>; creationTimestamp?: string };
@@ -42,13 +45,43 @@ export interface ArgoAppSummary {
   total: number;
 }
 
-let lastKnownApps: ArgoApplication[] | null = null;
-let lastKnownAppsAt = 0;
+interface LastKnownAppsEntry {
+  apps: ArgoApplication[];
+  at: number;
+}
 
-function rememberApps(apps: ArgoApplication[]) {
-  lastKnownApps = apps;
-  lastKnownAppsAt = Date.now();
+interface ArgocdAppsFetchResult {
+  apps: ArgoApplication[];
+  dataSource: ArgoAppsDataSource;
+}
+
+const lastKnownApps = new Map<string, LastKnownAppsEntry>();
+
+function getClusterCacheKey(clusterId?: string) {
+  return clusterId ?? getDefaultClusterId();
+}
+
+function getArgocdConnection(clusterId?: string) {
+  const resolvedClusterId = getClusterCacheKey(clusterId);
+  const clusterConfig = getClusterConfig(resolvedClusterId);
+
+  return {
+    clusterId: resolvedClusterId,
+    server: clusterConfig?.argocdServer ?? DEFAULT_ARGOCD_SERVER,
+    token: clusterConfig?.argocdToken ?? DEFAULT_ARGOCD_TOKEN,
+  };
+}
+
+function rememberApps(clusterId: string, apps: ArgoApplication[]) {
+  lastKnownApps.set(clusterId, { apps, at: Date.now() });
   return apps;
+}
+
+function getLastKnownApps(clusterId: string) {
+  const cached = lastKnownApps.get(clusterId);
+  if (!cached) return null;
+  if (Date.now() - cached.at >= LAST_KNOWN_APPS_TTL_MS) return null;
+  return cached.apps;
 }
 
 function buildMockApps(): ArgoApplication[] {
@@ -77,26 +110,29 @@ function buildMockApps(): ArgoApplication[] {
   }));
 }
 
-async function listApplicationCrds() {
+async function listApplicationCrds(clusterId?: string) {
   try {
-    const customObjectsApi = loadKubeConfig().makeApiClient(k8s.CustomObjectsApi);
+    const customObjectsApi = loadKubeConfig(clusterId).makeApiClient(k8s.CustomObjectsApi);
     const response = await customObjectsApi.listNamespacedCustomObject({
       group: "argoproj.io",
       version: "v1alpha1",
       namespace: "argocd",
       plural: "applications",
     }) as { items?: ArgoApplication[] };
+
     return Array.isArray(response.items) ? response.items : [];
   } catch {
     return null;
   }
 }
 
-async function fetchArgocdAppsUncached(): Promise<ArgoApplication[]> {
+async function fetchArgocdAppsUncached(clusterId?: string): Promise<ArgocdAppsFetchResult> {
+  const connection = getArgocdConnection(clusterId);
+
   try {
-    const response = await fetch(`${ARGOCD_SERVER}/api/v1/applications?limit=500`, {
+    const response = await fetch(`${connection.server}/api/v1/applications?limit=500`, {
       headers: {
-        Authorization: `Bearer ${ARGOCD_TOKEN}`,
+        ...(connection.token ? { Authorization: `Bearer ${connection.token}` } : {}),
         "Content-Type": "application/json",
       },
       cache: "no-store",
@@ -105,37 +141,48 @@ async function fetchArgocdAppsUncached(): Promise<ArgoApplication[]> {
 
     if (response.ok) {
       const data = await response.json() as { items?: ArgoApplication[] };
-      return rememberApps(Array.isArray(data.items) ? data.items : []);
+      return {
+        apps: rememberApps(connection.clusterId, Array.isArray(data.items) ? data.items : []),
+        dataSource: "argocd-api",
+      };
     }
   } catch {
     // Fall back to CRDs below.
   }
 
-  const crdItems = await listApplicationCrds();
+  const crdItems = await listApplicationCrds(clusterId);
   if (crdItems) {
-    return rememberApps(crdItems);
+    return {
+      apps: rememberApps(connection.clusterId, crdItems),
+      dataSource: "crd",
+    };
   }
 
-  if (lastKnownApps && Date.now() - lastKnownAppsAt < LAST_KNOWN_APPS_TTL_MS) {
-    return lastKnownApps;
+  const cached = getLastKnownApps(connection.clusterId);
+  if (cached) {
+    return { apps: cached, dataSource: "last-known" };
   }
 
-  return rememberApps(buildMockApps());
+  return {
+    apps: rememberApps(connection.clusterId, buildMockApps()),
+    dataSource: "mock",
+  };
 }
 
-export async function getArgocdAppsCached() {
-  const cached = apiCache.get<ArgoApplication[]>(PERFORMANCE_CACHE_KEYS.argocdApps);
+export async function getArgocdAppsCached(clusterId?: string) {
+  const cacheKey = `${PERFORMANCE_CACHE_KEYS.argocdApps}:${getClusterCacheKey(clusterId)}`;
+  const cached = apiCache.get<ArgocdAppsFetchResult>(cacheKey);
   if (cached) {
-    return { apps: cached, cacheStatus: "HIT" as const };
+    return { ...cached, cacheStatus: "HIT" as const };
   }
 
-  const apps = await requestDedup.dedupe(PERFORMANCE_CACHE_KEYS.argocdApps, async () => {
-    const fresh = await fetchArgocdAppsUncached();
-    apiCache.set(PERFORMANCE_CACHE_KEYS.argocdApps, fresh, ARGOCD_CACHE_TTL_MS);
+  const result = await requestDedup.dedupe(cacheKey, async () => {
+    const fresh = await fetchArgocdAppsUncached(clusterId);
+    apiCache.set(cacheKey, fresh, ARGOCD_CACHE_TTL_MS);
     return fresh;
   });
 
-  return { apps, cacheStatus: "MISS" as const };
+  return { ...result, cacheStatus: "MISS" as const };
 }
 
 export function summarizeArgocdApps(apps: ArgoApplication[]): ArgoAppSummary {

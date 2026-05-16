@@ -113,6 +113,10 @@ export async function GET() {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
+  if (!GITHUB_TOKEN.trim()) {
+    return NextResponse.json({ apps: [], total: 0, reason: "github_token_missing" });
+  }
+
   try {
     // List all bootstrap files
     const bootstrapFiles = await ghListTree("kubernetes/bootstrap");

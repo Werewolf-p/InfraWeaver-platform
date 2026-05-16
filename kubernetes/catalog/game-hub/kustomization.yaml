@@ -3,4 +3,5 @@ kind: Kustomization
 resources:
   - namespace.yaml
   - manifests/resource-quota.yaml
+  - manifests/rbac.yaml
   - scale-schedule.yaml

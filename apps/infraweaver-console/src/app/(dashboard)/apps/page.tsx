@@ -65,6 +65,12 @@ interface InstalledCommunityApp {
   manifestsPath: string;
 }
 
+interface InstalledCommunityAppsResponse {
+  apps: InstalledCommunityApp[];
+  total: number;
+  reason?: "github_token_missing";
+}
+
 // ── Policy badge helpers ───────────────────────────────────────────────────────
 
 type PolicySource = "aciu" | "renovate" | "none";
@@ -330,7 +336,7 @@ function AllInstalledTab() {
   const { can } = useRBAC();
   const canSyncApps = can("apps:sync");
   const canManageApps = can("apps:write");
-  const { data: argoApps, isLoading: argoLoading, isFetching: argoFetching, refetch, dataUpdatedAt, error: argoError } = useArgoApps();
+  const { data: argoApps, isLoading: argoLoading, isFetching: argoFetching, refetch, dataUpdatedAt, error: argoError, dataSource } = useArgoApps();
   const searchRef = useRef<HTMLInputElement>(null);
   const [search, setSearch] = useState("");
   const [healthFilter, setHealthFilter] = useState<AppHealthFilter>("all");
@@ -376,11 +382,11 @@ function AllInstalledTab() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  const communityAppsQuery = useQuery<{ apps?: InstalledCommunityApp[] }>({
+  const communityAppsQuery = useQuery<InstalledCommunityAppsResponse>({
     queryKey: ["community-installed-apps"],
     queryFn: async () => {
       const response = await fetch("/api/community-apps/installed");
-      return response.ok ? response.json() : { apps: [] };
+      return response.ok ? response.json() : { apps: [], total: 0 };
     },
     staleTime: 30_000,
   });
@@ -417,10 +423,10 @@ function AllInstalledTab() {
         namespace: app.namespace,
         health: argoApp
           ? toHealthStatus(argoApp.status?.health?.status ?? "Unknown")
-          : "progressing" as AppHealthStatus,
+          : "unknown" as AppHealthStatus,
         syncStatus: argoApp
           ? toHealthStatus(argoApp.status?.sync?.status ?? "Unknown")
-          : "progressing" as AppHealthStatus,
+          : "unknown" as AppHealthStatus,
         source: "Community" as const,
         lastSync: argoApp?.status?.reconciledAt ?? app.installedAt,
         createdAt: app.installedAt,
@@ -912,14 +918,33 @@ function AllInstalledTab() {
         </div>
       </DashboardPanel>
 
+      {dataSource === "mock" && !argoError ? (
+        <div className="flex items-start gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-100">
+          <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+          <div>
+            <p className="font-medium">Showing demo data — ArgoCD API unreachable.</p>
+            <p className="mt-1 text-amber-100/80">Check ARGOCD_TOKEN in cluster secrets.</p>
+          </div>
+        </div>
+      ) : null}
+
       {argoError ? (
-        <EmptyState
-          icon={AlertTriangle}
-          title="Apps could not be loaded"
-          description={argoError instanceof Error ? argoError.message : "Try refreshing the Apps page."}
-          action={{ label: "Retry", onClick: () => void refetch() }}
-          className="py-10"
-        />
+        <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-5 text-sm text-red-100">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0" />
+            <div className="space-y-3">
+              <div>
+                <p className="font-semibold">Apps could not be loaded</p>
+                <p className="mt-1 text-red-100/85">{argoError instanceof Error ? argoError.message : "Unknown ArgoCD error."}</p>
+              </div>
+              <div className="flex flex-wrap items-center gap-3 text-xs text-red-100/80">
+                <Link href="/settings" className="text-[#9dcbff] transition hover:text-white">Configure ArgoCD</Link>
+                <span>Check connectivity to the ArgoCD API and cluster secrets.</span>
+                <button type="button" onClick={() => void refetch()} className="text-[#9dcbff] transition hover:text-white">Retry</button>
+              </div>
+            </div>
+          </div>
+        </div>
       ) : null}
 
       {loading && filtered.length === 0 && (
@@ -2045,7 +2070,7 @@ function CommunityStoreTab() {
   const [tier, setTier] = useState("");
   const [deployApp, setDeployApp] = useState<AppSummary | null>(null);
   const [searchTimeout, setSearchTimeout] = useState<ReturnType<typeof setTimeout> | null>(null);
-  const [installed, setInstalled] = useState<{ apps: InstalledCommunityApp[]; total: number } | null>(null);
+  const [installed, setInstalled] = useState<InstalledCommunityAppsResponse | null>(null);
   const [installedLoading, setInstalledLoading] = useState(false);
   const [installedError, setInstalledError] = useState<string | null>(null);
 
@@ -2074,7 +2099,7 @@ function CommunityStoreTab() {
     try {
       const res = await fetch("/api/community-apps/installed");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      setInstalled(await res.json() as { apps: InstalledCommunityApp[]; total: number });
+      setInstalled(await res.json() as InstalledCommunityAppsResponse);
     } catch (err) {
       setInstalledError(String(err));
     } finally {
@@ -2237,6 +2262,12 @@ function CommunityStoreTab() {
 
       {storeTab === "installed" && (
         <>
+          {installed?.reason === "github_token_missing" && (
+            <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-100">
+              <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+              <div>GitHub token not configured — set GITHUB_TOKEN in cluster secrets to track installed community apps.</div>
+            </div>
+          )}
           {installedError && <div className="flex items-center gap-2 p-4 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm"><AlertTriangle className="w-4 h-4" /> {installedError}</div>}
           {installedLoading && !installed && <div className="flex items-center justify-center h-64"><Loader2 className="w-8 h-8 text-indigo-400 animate-spin" /></div>}
           {installed && installed.total === 0 && (
