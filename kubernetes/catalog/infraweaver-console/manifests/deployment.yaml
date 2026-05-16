@@ -8,7 +8,7 @@ metadata:
 spec:
   replicas: 2
   revisionHistoryLimit: 3
-  progressDeadlineSeconds: 300
+  progressDeadlineSeconds: 600
   # minReadySeconds ensures a new pod must be stable for 30s before old pod terminates.
   # This prevents silent startup failures from causing a brief outage.
   minReadySeconds: 30
