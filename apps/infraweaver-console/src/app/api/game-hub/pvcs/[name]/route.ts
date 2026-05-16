@@ -4,6 +4,7 @@ import { auditLog } from "@/lib/audit-log";
 import { GAME_HUB_NAMESPACE, getGameHubAccessContext } from "@/lib/game-hub";
 import { makeGameHubClients } from "@/lib/game-hub-server";
 import { hasPermission } from "@/lib/rbac";
+import { validateK8sName } from "@/lib/api-security";
 import { safeError } from "@/lib/utils";
 
 function pvcInUse(
@@ -18,6 +19,8 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { name } = await params;
+  const nameErr = validateK8sName(name);
+  if (nameErr) return NextResponse.json(nameErr.error, { status: nameErr.status });
   const access = await getGameHubAccessContext(session, 60);
   if (!hasPermission(access.groups, "game-hub:admin", access.roleAssignments, "/game-hub/", access.username)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { getSessionRBACContext, hasAnySessionPermission } from "@/lib/session-rbac";
 import { findUserByUsername, authentikFetch } from "@/lib/authentik";
@@ -7,6 +8,11 @@ import { auditLog } from "@/lib/audit-log";
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN ?? "";
 const GITHUB_REPO = process.env.GITHUB_REPO ?? "Werewolf-p/InfraWeaver-platform";
 const USERS_FILE_PATH = "users.yaml";
+
+const USERNAME_RE = /^[a-z0-9.-]{3,32}$/;
+const usernamePatchSchema = z.object({
+  newUsername: z.string().regex(USERNAME_RE, "Must be 3-32 chars, a-z0-9.-"),
+});
 
 async function getGitHubFile() {
   const res = await fetch(
@@ -50,8 +56,6 @@ async function updateGitHubFile(content: string, sha: string, message: string) {
   return res.json();
 }
 
-const USERNAME_RE = /^[a-z0-9.-]{3,32}$/;
-
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ username: string }> }
@@ -64,11 +68,12 @@ export async function PATCH(
   }
 
   const { username } = await params;
-  const { newUsername } = await req.json() as { newUsername: string };
-
-  if (!newUsername || !USERNAME_RE.test(newUsername)) {
-    return NextResponse.json({ error: "Invalid username (3-32 chars, a-z0-9.-)" }, { status: 400 });
+  const rawBody = await req.json().catch(() => ({}));
+  const parsed = usernamePatchSchema.safeParse(rawBody);
+  if (!parsed.success) {
+    return NextResponse.json({ error: "Validation failed", details: parsed.error.flatten() }, { status: 400 });
   }
+  const { newUsername } = parsed.data;
 
   const user = await findUserByUsername(username);
   if (!user) return NextResponse.json({ error: "User not found in Authentik" }, { status: 404 });

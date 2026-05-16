@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { parseSafeExternalUrl, requestSafeExternalUrl } from "@/lib/outbound-url";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
@@ -7,6 +8,13 @@ import { safeError } from "@/lib/utils";
 
 const ALLOWED_METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE"]);
 const BLOCKED_HEADERS = new Set(["connection", "content-length", "host", "transfer-encoding"]);
+
+const webhookTestSchema = z.object({
+  url: z.string().optional(),
+  method: z.string().optional(),
+  headers: z.record(z.string(), z.string()).optional(),
+  body: z.string().optional(),
+});
 
 function sanitizeHeaders(input: Record<string, string>) {
   const headers: Record<string, string> = {};
@@ -30,7 +38,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
   }
 
-  const body = await req.json() as { url?: string; method?: string; headers?: Record<string, string>; body?: string };
+  const rawBody = await req.json().catch(() => ({}));
+  const parsedBody = webhookTestSchema.safeParse(rawBody);
+  if (!parsedBody.success) {
+    return NextResponse.json({ error: "Validation failed", details: parsedBody.error.flatten() }, { status: 400 });
+  }
+  const body = parsedBody.data;
   const method = (body.method ?? "GET").toUpperCase();
   if (!ALLOWED_METHODS.has(method)) return NextResponse.json({ error: "Invalid method" }, { status: 400 });
 

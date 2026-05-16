@@ -1,10 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
 import { getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
 import { appendServerAudit, execShell, getPrimaryContainerName, getServerPod, makeGameHubClients, shellQuote } from "@/lib/game-hub-server";
+import { validateK8sName } from "@/lib/api-security";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { safeError } from "@/lib/utils";
+
+const uploadPathSchema = z.object({
+  path: z.string().optional(),
+});
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ name: string }> }) {
   if (!checkRateLimit(rateLimitKey("game-hub-file-upload", req), 10, 60_000)) {
@@ -14,6 +20,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ nam
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { name } = await params;
+  const nameErr = validateK8sName(name);
+  if (nameErr) return NextResponse.json(nameErr.error, { status: nameErr.status });
   const access = await getGameHubAccessContext(session, 60);
   if (!hasGameHubPermission(access.groups, access.username, access.roleAssignments, "game-hub:files", name)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -22,7 +30,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ nam
   try {
     const form = await req.formData();
     const file = form.get("file");
-    const directory = String(form.get("path") ?? "/data");
+    const rawPath = String(form.get("path") ?? "/data");
+    const pathParsed = uploadPathSchema.safeParse({ path: rawPath });
+    const directory = pathParsed.success ? (pathParsed.data.path ?? "/data") : "/data";
     if (!(file instanceof File)) {
       return NextResponse.json({ error: "file is required" }, { status: 400 });
     }

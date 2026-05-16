@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { GET as getGameHubServers } from "@/app/api/game-hub/servers/route";
 import { createARecord, deleteARecord } from "@/lib/cloudflare";
@@ -7,6 +8,19 @@ import { safeError } from "@/lib/utils";
 
 const IP_REGEX = /^(\d{1,3}\.){3}\d{1,3}$/;
 const SLUG_REGEX = /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/;
+
+const createGameserverSchema = z.object({
+  name: z.string().regex(SLUG_REGEX, "Must be a DNS-safe slug"),
+  displayName: z.string().min(1),
+  gameType: z.string().min(1),
+  targetIP: z.string().regex(IP_REGEX, "Must be a valid IP address"),
+  internalIP: z.string().optional(),
+  ports: z.array(z.object({ port: z.number(), protocol: z.enum(["TCP", "UDP"]), name: z.string() })),
+  backendType: z.enum(["external", "in-cluster"]),
+  publicDns: z.boolean(),
+  internalDns: z.boolean(),
+  description: z.string().optional(),
+});
 
 export async function GET() {
   const session = await auth();
@@ -77,27 +91,12 @@ export async function POST(req: NextRequest) {
   const access = await getSessionRBACContext(session, 60);
   if (!hasSessionPermission(access, "game-hub:write")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const body = await req.json() as {
-    name: string;
-    displayName: string;
-    gameType: string;
-    targetIP: string;
-    internalIP?: string;
-    ports: Array<{ port: number; protocol: "TCP" | "UDP"; name: string }>;
-    backendType: "external" | "in-cluster";
-    publicDns: boolean;
-    internalDns: boolean;
-    description?: string;
-  };
-
-  const { name, displayName, gameType, targetIP, internalIP, ports, backendType, publicDns, internalDns, description } = body;
-
-  if (!name || !SLUG_REGEX.test(name)) {
-    return NextResponse.json({ error: "Invalid name: must be a DNS-safe slug" }, { status: 400 });
+  const rawBody = await req.json().catch(() => ({}));
+  const parsedBody = createGameserverSchema.safeParse(rawBody);
+  if (!parsedBody.success) {
+    return NextResponse.json({ error: "Validation failed", details: parsedBody.error.flatten() }, { status: 400 });
   }
-  if (!targetIP || !IP_REGEX.test(targetIP)) {
-    return NextResponse.json({ error: "Invalid targetIP: must be a valid IP address" }, { status: 400 });
-  }
+  const { name, displayName, gameType, targetIP, internalIP, ports, backendType, publicDns, internalDns, description } = parsedBody.data;
 
   try {
     const k8s = await import("@kubernetes/client-node");

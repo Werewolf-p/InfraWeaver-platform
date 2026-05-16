@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
+
+const postBodySchema = z.object({
+  id: z.string(),
+  active: z.boolean().optional(),
+  message: z.string().optional(),
+});
 
 interface MaintenanceEntry {
   id: string;
@@ -38,7 +45,12 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const session = await requireAccess("config:write");
   if (session instanceof NextResponse) return session;
-  const body = await req.json() as { id?: string; active?: boolean; message?: string };
+  const rawBody = await req.json().catch(() => null);
+  const parsed = postBodySchema.safeParse(rawBody);
+  if (!parsed.success) {
+    return NextResponse.json({ error: "Validation failed", details: parsed.error.flatten() }, { status: 400 });
+  }
+  const body = parsed.data;
   const entry = maintenance.find(m => m.id === body.id);
   if (!entry) return NextResponse.json({ error: "Not found" }, { status: 404 });
   entry.active = body.active ?? entry.active;

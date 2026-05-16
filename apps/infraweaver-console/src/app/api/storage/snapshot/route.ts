@@ -1,15 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { auth } from "@/lib/auth";
+import { validateK8sName, validateK8sNamespace } from "@/lib/api-security";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { auditLog } from "@/lib/audit-log";
 import * as k8s from "@kubernetes/client-node";
+
+const snapshotBodySchema = z.object({
+  pvcName: z.string().min(1),
+  namespace: z.string().min(1),
+});
 
 export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const access = await getSessionRBACContext(session, 60);
   if (!hasSessionPermission(access, "cluster:admin")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  const { pvcName, namespace } = await req.json() as { pvcName: string; namespace: string };
+  const rawBody = await req.json().catch(() => ({}));
+  const parsed = snapshotBodySchema.safeParse(rawBody);
+  if (!parsed.success) {
+    return NextResponse.json({ error: "Validation failed", details: parsed.error.flatten() }, { status: 400 });
+  }
+  const { pvcName, namespace } = parsed.data;
+  const nsErr = validateK8sNamespace(namespace);
+  if (nsErr) return NextResponse.json(nsErr.error, { status: nsErr.status });
+  const nameErr = validateK8sName(pvcName);
+  if (nameErr) return NextResponse.json(nameErr.error, { status: nameErr.status });
   const snapshotName = `${pvcName}-snapshot-${Date.now()}`;
   try {
     const kc = new k8s.KubeConfig();

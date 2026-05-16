@@ -1,10 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { getSessionRBACContext, hasAnySessionPermission, hasSessionPermission } from "@/lib/session-rbac";
 import { safeError } from "@/lib/utils";
 import { isValidK8sName, isValidNamespace } from "@/lib/validate";
 import * as k8s from "@kubernetes/client-node";
+
+const pvcCleanupSchema = z.object({
+  pvcs: z.array(z.object({ namespace: z.string().min(1), name: z.string().min(1) })).min(1),
+});
 
 function makeClient() {
   const kc = new k8s.KubeConfig();
@@ -56,21 +61,22 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
   }
 
-  const body = await req.json() as { pvcs: Array<{ namespace: string; name: string }> };
-  if (!Array.isArray(body.pvcs) || body.pvcs.length === 0) {
-    return NextResponse.json({ error: "No PVCs specified" }, { status: 400 });
+  const rawBody = await req.json().catch(() => ({}));
+  const parsed = pvcCleanupSchema.safeParse(rawBody);
+  if (!parsed.success) {
+    return NextResponse.json({ error: "Validation failed", details: parsed.error.flatten() }, { status: 400 });
   }
-  if (body.pvcs.some((pvc) => !isValidNamespace(pvc.namespace) || !isValidK8sName(pvc.name))) {
+  if (parsed.data.pvcs.some((pvc) => !isValidNamespace(pvc.namespace) || !isValidK8sName(pvc.name))) {
     return NextResponse.json({ error: "Invalid PVC name" }, { status: 400 });
   }
+  const { pvcs } = parsed.data;
 
   const coreApi = makeClient();
   const results: Array<{ namespace: string; name: string; success: boolean; error?: string }> = [];
 
-  for (const { namespace, name } of body.pvcs) {
+  for (const { namespace, name } of pvcs) {
     try {
       await coreApi.deleteNamespacedPersistentVolumeClaim({ name, namespace });
-      console.log(`[AUDIT] pvc-cleanup | user=${session.user?.email ?? "unknown"} | deleted ${namespace}/${name}`);
       results.push({ namespace, name, success: true });
     } catch (err) {
       console.error(`[pvc-cleanup] failed to delete ${namespace}/${name}:`, err);

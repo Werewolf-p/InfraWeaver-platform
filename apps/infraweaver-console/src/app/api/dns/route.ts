@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { createDnsRecord, listDnsRecords } from "@/lib/cloudflare";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
@@ -12,6 +13,14 @@ import {
   relativeDnsName,
 } from "@/lib/dns";
 import { safeError } from "@/lib/utils";
+
+const createDnsBodySchema = z.object({
+  name: z.string().min(1),
+  value: z.string().min(1),
+  type: z.enum(MANAGED_RECORD_TYPES as unknown as [string, ...string[]]),
+  internal: z.boolean().optional(),
+  ttl: z.number().optional(),
+});
 
 function toManagedRecord(record: {
   id: string;
@@ -78,29 +87,17 @@ export async function POST(req: NextRequest) {
   if (session instanceof NextResponse) return session;
 
   try {
-    const body = await req.json() as {
-      name?: string;
-      value?: string;
-      type?: string;
-      internal?: boolean;
-      ttl?: number;
-    };
+    const rawBody = await req.json().catch(() => null);
+    const parsed = createDnsBodySchema.safeParse(rawBody);
+    if (!parsed.success) {
+      return NextResponse.json({ error: "Validation failed", details: parsed.error.flatten() }, { status: 400 });
+    }
 
-    const name = String(body.name ?? "").trim();
-    const value = String(body.value ?? "").trim();
-    const type = String(body.type ?? "").toUpperCase() as ManagedRecordType;
-    const internal = body.internal !== false;
-    const ttl = typeof body.ttl === "number" ? Math.max(1, Math.min(86400, Math.round(body.ttl))) : 120;
-
-    if (!name) {
-      return NextResponse.json({ error: "name is required" }, { status: 400 });
-    }
-    if (!value) {
-      return NextResponse.json({ error: "value is required" }, { status: 400 });
-    }
-    if (!MANAGED_RECORD_TYPES.includes(type)) {
-      return NextResponse.json({ error: `type must be one of ${MANAGED_RECORD_TYPES.join(", ")}` }, { status: 400 });
-    }
+    const name = parsed.data.name.trim();
+    const value = parsed.data.value.trim();
+    const type = parsed.data.type.toUpperCase() as ManagedRecordType;
+    const internal = parsed.data.internal !== false;
+    const ttl = typeof parsed.data.ttl === "number" ? Math.max(1, Math.min(86400, Math.round(parsed.data.ttl))) : 120;
 
     const record = await createDnsRecord({
       name: buildDnsName(name, internal),

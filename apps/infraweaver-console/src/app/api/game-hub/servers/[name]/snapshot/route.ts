@@ -1,10 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
 import { GAME_HUB_NAMESPACE, getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
 import { appendServerAudit, makeGameHubClients } from "@/lib/game-hub-server";
+import { validateK8sName } from "@/lib/api-security";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { safeError } from "@/lib/utils";
+
+const snapshotBodySchema = z.object({
+  snapshotClassName: z.string().optional(),
+  label: z.string().optional(),
+});
 
 const LONGHORN_GROUP = "longhorn.io";
 const LONGHORN_VERSION = "v1beta2";
@@ -17,6 +24,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ nam
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { name } = await params;
+  const nameErr = validateK8sName(name);
+  if (nameErr) return NextResponse.json(nameErr.error, { status: nameErr.status });
   const access = await getGameHubAccessContext(session, 60);
   if (!hasGameHubPermission(access.groups, access.username, access.roleAssignments, "game-hub:read", name)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -48,13 +57,20 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ nam
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { name } = await params;
+  const nameErr2 = validateK8sName(name);
+  if (nameErr2) return NextResponse.json(nameErr2.error, { status: nameErr2.status });
   const access = await getGameHubAccessContext(session, 60);
   if (!hasGameHubPermission(access.groups, access.username, access.roleAssignments, "game-hub:admin", name)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   try {
-    const body = await req.json().catch(() => ({})) as { snapshotClassName?: string; label?: string };
+    const rawBody = await req.json().catch(() => ({}));
+    const parsedBody = snapshotBodySchema.safeParse(rawBody);
+    if (!parsedBody.success) {
+      return NextResponse.json({ error: "Validation failed", details: parsedBody.error.flatten() }, { status: 400 });
+    }
+    const body = parsedBody.data;
     const clients = makeGameHubClients();
 
     const deployment = await clients.appsApi.readNamespacedDeployment({ name, namespace: GAME_HUB_NAMESPACE });

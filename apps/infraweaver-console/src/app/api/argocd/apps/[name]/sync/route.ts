@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { hasPermission } from "@/lib/rbac";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
@@ -9,6 +10,10 @@ const ARGOCD_SERVER = process.env.ARGOCD_SERVER ?? "http://argocd-server.argocd.
 const ARGOCD_TOKEN = process.env.ARGOCD_TOKEN ?? "";
 
 const SAFE_NAME_RE = /^[a-z0-9][a-z0-9-]*$/;
+
+const syncBodySchema = z.object({
+  hard: z.boolean().optional(),
+});
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ name: string }> }) {
   const session = await auth();
@@ -27,7 +32,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ nam
     return NextResponse.json({ error: "Invalid app name" }, { status: 400 });
   }
 
-  const { hard } = await req.json().catch(() => ({ hard: false }));
+  const rawBody = await req.json().catch(() => ({}));
+  const bodyParsed = syncBodySchema.safeParse(rawBody);
+  if (!bodyParsed.success) {
+    return NextResponse.json({ error: "Validation failed", details: bodyParsed.error.flatten() }, { status: 400 });
+  }
+  const { hard } = bodyParsed.data;
   try {
     const body = hard
       ? { revision: "HEAD", prune: false, strategy: { hook: {}, apply: { force: true } } }

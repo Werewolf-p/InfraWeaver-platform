@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
 import { buildEggConfigMap } from "@/lib/game-eggs";
@@ -27,9 +28,24 @@ import {
   validateServerToken,
   writeSavedCommands,
 } from "@/lib/game-hub-server";
+import { validateK8sName } from "@/lib/api-security";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { getEffectivePermissions } from "@/lib/rbac";
 import { safeError } from "@/lib/utils";
+
+const VALID_ACTIONS = [
+  "start", "stop", "restart", "scale", "set-hpa", "remove-hpa", "update-env",
+  "set-restart-policy", "set-notes", "update-notes", "update-resources", "set-maintenance",
+  "set-schedule", "set-backup-schedule", "set-backup-target", "set-alert-thresholds",
+  "expand-pvc", "update-image", "pin-image-version", "unpin-image-version",
+  "update-pull-policy", "update-strategy", "update-identity", "update-tags",
+  "update-service-ports", "set-scheduled-action", "save-command", "delete-saved-command",
+  "sync-to-git",
+] as const;
+
+const patchActionSchema = z.object({
+  action: z.enum(VALID_ACTIONS),
+});
 
 async function upsertEggConfigMap(
   coreApi: import("@kubernetes/client-node").CoreV1Api,
@@ -351,6 +367,8 @@ async function buildResponse(name: string, limitedToken = false, access?: Awaite
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ name: string }> }) {
   const { name } = await params;
+  const nameErr = validateK8sName(name);
+  if (nameErr) return NextResponse.json(nameErr.error, { status: nameErr.status });
   const token = req.nextUrl.searchParams.get("token");
 
   if (token) {
@@ -390,6 +408,8 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ n
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { name } = await params;
+  const nameErr2 = validateK8sName(name);
+  if (nameErr2) return NextResponse.json(nameErr2.error, { status: nameErr2.status });
   const access = await getGameHubAccessContext(session, 60);
   if (!hasGameHubPermission(access.groups, access.username, access.roleAssignments, "game-hub:admin", name)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -445,7 +465,15 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { name } = await params;
-  const body = await req.json() as {
+  const nameErr3 = validateK8sName(name);
+  if (nameErr3) return NextResponse.json(nameErr3.error, { status: nameErr3.status });
+
+  const rawBody = await req.json().catch(() => ({}));
+  const actionParsed = patchActionSchema.safeParse(rawBody);
+  if (!actionParsed.success) {
+    return NextResponse.json({ error: "Validation failed", details: actionParsed.error.flatten() }, { status: 400 });
+  }
+  const body = rawBody as {
     action: "start" | "stop" | "restart" | "scale" | "set-hpa" | "remove-hpa" | "update-env" | "set-restart-policy" | "set-notes" | "update-notes" | "update-resources" | "set-maintenance" | "set-schedule" | "set-backup-schedule" | "set-backup-target" | "set-alert-thresholds" | "expand-pvc" | "update-image" | "pin-image-version" | "unpin-image-version" | "update-pull-policy" | "update-strategy" | "update-identity" | "update-tags" | "update-service-ports" | "set-scheduled-action" | "save-command" | "delete-saved-command" | "sync-to-git";
     replicas?: number;
     hpaMin?: number;

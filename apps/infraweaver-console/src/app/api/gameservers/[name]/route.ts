@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { deleteARecord } from "@/lib/cloudflare";
+import { validateK8sName } from "@/lib/api-security";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { safeError } from "@/lib/utils";
 
@@ -10,6 +11,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ nam
   const access = await getSessionRBACContext(session, 60);
   if (!hasSessionPermission(access, "game-hub:read")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const { name } = await params;
+  const nameErr = validateK8sName(name);
+  if (nameErr) return NextResponse.json(nameErr.error, { status: nameErr.status });
 
   try {
     const k8s = await import("@kubernetes/client-node");
@@ -59,6 +62,8 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   const access = await getSessionRBACContext(session, 60);
   if (!hasSessionPermission(access, "game-hub:write")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const { name } = await params;
+  const nameErr2 = validateK8sName(name);
+  if (nameErr2) return NextResponse.json(nameErr2.error, { status: nameErr2.status });
 
   try {
     const k8s = await import("@kubernetes/client-node");

@@ -1,6 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { ScheduledTask } from "@/types";
-import { apiError, apiSuccess, parseJsonBody, requireRoutePermissions } from "@/lib/route-utils";
+import { z } from "zod";
+import { apiError, apiSuccess, requireRoutePermissions } from "@/lib/route-utils";
+
+const createTaskSchema = z.object({
+  name: z.string().optional(),
+  namespace: z.string().optional(),
+  pod: z.string().optional(),
+  schedule: z.string().optional(),
+  command: z.string().optional(),
+  enabled: z.boolean().optional(),
+});
+
+const patchTaskSchema = z.object({
+  id: z.string(),
+  enabled: z.boolean().optional(),
+});
 
 const tasks: ScheduledTask[] = [
   {
@@ -26,7 +41,12 @@ export async function POST(request: NextRequest) {
   const session = await requireRoutePermissions({ all: ["cluster:admin"] });
   if (session instanceof NextResponse) return session;
 
-  const body = await parseJsonBody<Partial<ScheduledTask>>(request);
+  const rawBody = await request.json().catch(() => null);
+  const parsed = createTaskSchema.safeParse(rawBody);
+  if (!parsed.success) {
+    return apiError("Validation failed", { status: 400, details: parsed.error.flatten() });
+  }
+  const body = parsed.data;
   const task: ScheduledTask = {
     id: Date.now().toString(),
     name: body.name ?? "New Task",
@@ -46,7 +66,12 @@ export async function PATCH(request: NextRequest) {
   const session = await requireRoutePermissions({ all: ["cluster:admin"] });
   if (session instanceof NextResponse) return session;
 
-  const body = await parseJsonBody<{ id?: string; enabled?: boolean }>(request);
+  const rawBody = await request.json().catch(() => null);
+  const parsedPatch = patchTaskSchema.safeParse(rawBody);
+  if (!parsedPatch.success) {
+    return apiError("Validation failed", { status: 400, details: parsedPatch.error.flatten() });
+  }
+  const body = parsedPatch.data;
   const task = tasks.find((entry) => entry.id === body.id);
   if (!task) {
     return apiError("Not found", { status: 404 });

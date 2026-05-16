@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
 import { buildEggConfigMap, getEggEnvironmentDefaults, getEggForGameType, getEggPorts } from "@/lib/game-eggs";
@@ -10,6 +11,25 @@ import { getPelicanGameEgg } from "@/lib/pelican-eggs";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { getEffectivePermissions, hasPermission } from "@/lib/rbac";
 import { safeError } from "@/lib/utils";
+
+const createServerBodySchema = z.object({
+  action: z.enum(["clone"]).optional(),
+  source: z.string().optional(),
+  newName: z.string().optional(),
+  egg: z.string().optional(),
+  game: z.string().optional(),
+  name: z.string().min(1),
+  dnsHostname: z.string().optional(),
+  image: z.string().optional(),
+  memory: z.string().optional(),
+  cpu: z.string().optional(),
+  storage: z.string().optional(),
+  storageClass: z.string().optional(),
+  env: z.record(z.string(), z.string()).optional(),
+  port: z.number().optional(),
+  ports: z.array(z.object({ name: z.string(), port: z.number(), protocol: z.enum(["TCP", "UDP"]) })).optional(),
+  mountPath: z.string().optional(),
+});
 
 function pvcSuffixForMountPath(mountPath: string) {
   return (mountPath.split("/").filter(Boolean).pop() ?? "data").replace(/[^a-z0-9-]/g, "-") || "data";
@@ -495,24 +515,12 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const body = await req.json() as {
-      action?: "clone";
-      source?: string;
-      newName?: string;
-      egg?: string;
-      game?: string;
-      name: string;
-      dnsHostname?: string;
-      image?: string;
-      memory?: string;
-      cpu?: string;
-      storage?: string;
-      storageClass?: string;
-      env?: Record<string, string>;
-      port?: number;
-      ports?: Array<{ name: string; port: number; protocol: "TCP" | "UDP" }>;
-      mountPath?: string;
-    };
+    const rawBody = await req.json().catch(() => ({}));
+    const parsed = createServerBodySchema.safeParse(rawBody);
+    if (!parsed.success) {
+      return NextResponse.json({ error: "Validation failed", details: parsed.error.flatten() }, { status: 400 });
+    }
+    const body = parsed.data;
 
     if (body.action === "clone") {
       if (!body.source || !body.newName) {

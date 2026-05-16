@@ -1,10 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
 import { execShell, getPrimaryContainerName, getServerPod, makeGameHubClients, shellQuote } from "@/lib/game-hub-server";
 import { parseSafeExternalUrl, requestSafeExternalUrl } from "@/lib/outbound-url";
+import { validateK8sName } from "@/lib/api-security";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { safeError } from "@/lib/utils";
+
+const pluginInstallSchema = z.object({
+  action: z.literal("install"),
+  type: z.enum(["plugin", "mod"]).optional(),
+  url: z.string().min(1),
+  filename: z.string().min(1),
+});
 
 async function listArtifacts(name: string) {
   const clients = makeGameHubClients();
@@ -25,6 +34,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ nam
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { name } = await params;
+  const nameErr = validateK8sName(name);
+  if (nameErr) return NextResponse.json(nameErr.error, { status: nameErr.status });
   const access = await getGameHubAccessContext(session, 60);
   if (!hasGameHubPermission(access.groups, access.username, access.roleAssignments, "game-hub:read", name)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -46,15 +57,19 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ nam
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { name } = await params;
+  const nameErr2 = validateK8sName(name);
+  if (nameErr2) return NextResponse.json(nameErr2.error, { status: nameErr2.status });
   const access = await getGameHubAccessContext(session, 60);
   if (!hasGameHubPermission(access.groups, access.username, access.roleAssignments, "game-hub:files", name)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const body = await req.json() as { action?: "install"; type?: "plugin" | "mod"; url?: string; filename?: string };
-  if (body.action !== "install" || !body.url || !body.filename) {
-    return NextResponse.json({ error: "action, url, and filename are required" }, { status: 400 });
+  const rawBody = await req.json().catch(() => null);
+  const parsedBody = pluginInstallSchema.safeParse(rawBody);
+  if (!parsedBody.success) {
+    return NextResponse.json({ error: "Validation failed", details: parsedBody.error.flatten() }, { status: 400 });
   }
+  const body = parsedBody.data;
 
   const pluginUrl = await parseSafeExternalUrl(body.url);
   if (!pluginUrl) {

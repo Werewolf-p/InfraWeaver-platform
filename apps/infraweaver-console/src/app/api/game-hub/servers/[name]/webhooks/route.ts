@@ -1,10 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
 import { getServerDeployment, makeGameHubClients, parseDiscordWebhookConfig, sendDiscordWebhook } from "@/lib/game-hub-server";
 import { parseSafeExternalUrl } from "@/lib/outbound-url";
+import { validateK8sName } from "@/lib/api-security";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { safeError } from "@/lib/utils";
+
+const webhookPostSchema = z.object({
+  action: z.enum(["save", "test"]).optional(),
+  url: z.string().optional(),
+  events: z.array(z.string()).optional(),
+});
 
 async function readConfig(name: string) {
   const clients = makeGameHubClients();
@@ -16,6 +24,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ nam
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { name } = await params;
+  const nameErr = validateK8sName(name);
+  if (nameErr) return NextResponse.json(nameErr.error, { status: nameErr.status });
   const access = await getGameHubAccessContext(session, 60);
   if (!hasGameHubPermission(access.groups, access.username, access.roleAssignments, "game-hub:read", name)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -37,12 +47,19 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ nam
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { name } = await params;
+  const nameErr2 = validateK8sName(name);
+  if (nameErr2) return NextResponse.json(nameErr2.error, { status: nameErr2.status });
   const access = await getGameHubAccessContext(session, 60);
   if (!hasGameHubPermission(access.groups, access.username, access.roleAssignments, "game-hub:admin", name)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const body = await req.json() as { action?: "save" | "test"; url?: string; events?: string[] };
+  const rawBody = await req.json().catch(() => ({}));
+  const parsedBody = webhookPostSchema.safeParse(rawBody);
+  if (!parsedBody.success) {
+    return NextResponse.json({ error: "Validation failed", details: parsedBody.error.flatten() }, { status: 400 });
+  }
+  const body = parsedBody.data;
   const validatedUrl = body.url ? await parseSafeExternalUrl(body.url) : null;
   if (body.url && !validatedUrl) {
     return NextResponse.json({ error: "Invalid webhook URL" }, { status: 400 });
@@ -84,6 +101,8 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ n
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { name } = await params;
+  const nameErr3 = validateK8sName(name);
+  if (nameErr3) return NextResponse.json(nameErr3.error, { status: nameErr3.status });
   const access = await getGameHubAccessContext(session, 60);
   if (!hasGameHubPermission(access.groups, access.username, access.roleAssignments, "game-hub:admin", name)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });

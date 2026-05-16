@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { hasPermission } from "@/lib/rbac";
 import { auditLog } from "@/lib/audit-log";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { safeError } from "@/lib/utils";
+
+const userPutSchema = z.record(z.string(), z.unknown());
 
 // Authentik username: alphanumeric, dots, hyphens, underscores, @-sign
 const SAFE_USERNAME_RE = /^[\w.@+-]{1,150}$/;
@@ -78,7 +81,12 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ user
   }
 
   try {
-    const body = await req.json() as Record<string, unknown>;
+    const rawBody = await req.json().catch(() => ({}));
+    const parsedBody = userPutSchema.safeParse(rawBody);
+    if (!parsedBody.success) {
+      return NextResponse.json({ error: "Validation failed", details: parsedBody.error.flatten() }, { status: 400 });
+    }
+    const body = parsedBody.data;
     const file = await getFileFromGitHub();
     const yaml = await import("js-yaml");
     const content = Buffer.from(file.content, "base64").toString("utf-8");

@@ -1,7 +1,14 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { getSessionRBACContext, hasAnySessionPermission, hasSessionPermission } from "@/lib/session-rbac";
 import { loadClusterEvents } from "@/lib/ops-data";
+
+const notificationPostSchema = z.object({
+  title: z.string().min(1),
+  body: z.string().optional(),
+  level: z.string().optional(),
+});
 
 export async function GET() {
   const session = await auth();
@@ -48,12 +55,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const body = await request.json() as { title?: string; body?: string; level?: string };
-  const { title, body: notifBody, level = "info" } = body;
-
-  if (!title) {
-    return NextResponse.json({ error: "title is required" }, { status: 400 });
+  const rawBody = await request.json().catch(() => ({}));
+  const parsed = notificationPostSchema.safeParse(rawBody);
+  if (!parsed.success) {
+    return NextResponse.json({ error: "Validation failed", details: parsed.error.flatten() }, { status: 400 });
   }
+  const { title, body: notifBody, level = "info" } = parsed.data;
 
   return NextResponse.json({
     success: true,

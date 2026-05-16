@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
 import { getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
@@ -13,8 +14,19 @@ import {
   readServerEgg,
   shellQuote,
 } from "@/lib/game-hub-server";
+import { validateK8sName } from "@/lib/api-security";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { safeError } from "@/lib/utils";
+
+const backupPostBodySchema = z.object({
+  action: z.enum(["create", "restore"]).optional(),
+  filename: z.string().optional(),
+  backupName: z.string().optional(),
+});
+
+const backupDeleteBodySchema = z.object({
+  filename: z.string().min(1),
+});
 
 interface BackupEntry {
   filename: string;
@@ -132,6 +144,8 @@ export async function GET(
   if (!session)
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { name } = await params;
+  const nameErr = validateK8sName(name);
+  if (nameErr) return NextResponse.json(nameErr.error, { status: nameErr.status });
   const access = await getGameHubAccessContext(session, 60);
   if (
     !hasGameHubPermission(
@@ -168,6 +182,8 @@ export async function POST(
   if (!session)
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { name } = await params;
+  const nameErr2 = validateK8sName(name);
+  if (nameErr2) return NextResponse.json(nameErr2.error, { status: nameErr2.status });
   const access = await getGameHubAccessContext(session, 60);
   if (
     !hasGameHubPermission(
@@ -181,11 +197,12 @@ export async function POST(
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const body = (await req.json().catch(() => ({ action: "create" }))) as {
-    action?: "create" | "restore";
-    filename?: string;
-    backupName?: string;
-  };
+  const rawBody = await req.json().catch(() => ({}));
+  const parsedBody = backupPostBodySchema.safeParse(rawBody);
+  if (!parsedBody.success) {
+    return NextResponse.json({ error: "Validation failed", details: parsedBody.error.flatten() }, { status: 400 });
+  }
+  const body = parsedBody.data;
   if (!["create", "restore"].includes(body.action ?? "create")) {
     return NextResponse.json({ error: "Unsupported action" }, { status: 400 });
   }
@@ -352,6 +369,8 @@ export async function DELETE(
   if (!session)
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { name } = await params;
+  const nameErr3 = validateK8sName(name);
+  if (nameErr3) return NextResponse.json(nameErr3.error, { status: nameErr3.status });
   const access = await getGameHubAccessContext(session, 60);
   if (
     !hasGameHubPermission(
@@ -365,14 +384,12 @@ export async function DELETE(
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const body = (await req.json()) as { filename?: string };
-  const backupName = sanitizeBackupName(body.filename ?? "");
-  if (!backupName) {
-    return NextResponse.json(
-      { error: "filename is required" },
-      { status: 400 },
-    );
+  const rawDeleteBody = await req.json().catch(() => null);
+  const parsedDelete = backupDeleteBodySchema.safeParse(rawDeleteBody);
+  if (!parsedDelete.success) {
+    return NextResponse.json({ error: "Validation failed", details: parsedDelete.error.flatten() }, { status: 400 });
   }
+  const backupName = sanitizeBackupName(parsedDelete.data.filename);
 
   try {
     const clients = makeGameHubClients();

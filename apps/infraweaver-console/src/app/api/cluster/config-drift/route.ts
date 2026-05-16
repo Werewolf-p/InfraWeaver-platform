@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { V1Deployment } from "@kubernetes/client-node";
 import type { ConfigDriftEntry } from "@/types";
+import { z } from "zod";
 import { makeAppsApi } from "@/lib/kube-client";
-import { apiError, apiSuccess, parseJsonBody, requireRoutePermissions } from "@/lib/route-utils";
+import { apiError, apiSuccess, requireRoutePermissions } from "@/lib/route-utils";
+
+const captureBodySchema = z.object({
+  action: z.literal("capture"),
+});
 
 interface BaselineEntry {
   namespace: string;
@@ -68,9 +73,10 @@ export async function POST(request: NextRequest) {
   const session = await requireRoutePermissions({ all: ["cluster:admin"] });
   if (session instanceof NextResponse) return session;
 
-  const body = await parseJsonBody<{ action?: string }>(request);
-  if (body.action !== "capture") {
-    return apiError("Invalid action", { status: 400 });
+  const rawBody = await request.json().catch(() => null);
+  const parsed = captureBodySchema.safeParse(rawBody);
+  if (!parsed.success) {
+    return apiError("Validation failed", { status: 400, details: parsed.error.flatten() });
   }
 
   try {

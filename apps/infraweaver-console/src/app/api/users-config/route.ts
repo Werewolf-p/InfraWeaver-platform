@@ -1,9 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { hasPermission } from "@/lib/rbac";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { auditLog } from "@/lib/audit-log";
 import { safeError } from "@/lib/utils";
+
+const usersConfigPostSchema = z.object({
+  users: z.array(z.record(z.string(), z.unknown())).min(1),
+  sha: z.string().optional(),
+  commitMessage: z.string().optional(),
+});
 
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN ?? "";
 const GITHUB_REPO = process.env.GITHUB_REPO ?? "Werewolf-p/InfraWeaver-platform";
@@ -75,7 +82,12 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const body = await req.json() as { users: unknown[]; commitMessage?: string; sha?: string };
+    const rawBody = await req.json().catch(() => ({}));
+    const parsed = usersConfigPostSchema.safeParse(rawBody);
+    if (!parsed.success) {
+      return NextResponse.json({ error: "Validation failed", details: parsed.error.flatten() }, { status: 400 });
+    }
+    const body = parsed.data;
     let sha = body.sha;
     if (!sha) {
       const file = await getFileFromGitHub();

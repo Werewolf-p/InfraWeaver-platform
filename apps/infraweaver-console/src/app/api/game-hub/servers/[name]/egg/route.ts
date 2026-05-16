@@ -1,10 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { buildEggConfigMap, getEggForGameType, type GameEgg } from "@/lib/game-eggs";
 import { GAME_HUB_NAMESPACE, getGameHubAccessContext, hasGameHubPermission, parseEggConfig } from "@/lib/game-hub";
 import { writeServerManifest } from "@/lib/game-hub-manifest";
 import { makeGameHubClients } from "@/lib/game-hub-server";
+import { validateK8sName } from "@/lib/api-security";
 import { safeError } from "@/lib/utils";
+
+const eggPatchBodySchema = z.object({
+  egg: z.record(z.string(), z.unknown()),
+});
 
 function deploymentGameType(deployment: { metadata?: { labels?: Record<string, string> } } | null | undefined) {
   return deployment?.metadata?.labels?.["infraweaver/game-type"] ?? deployment?.metadata?.labels?.["infraweaver.io/game-type"] ?? "unknown";
@@ -23,6 +29,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ nam
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { name } = await params;
+  const nameErr = validateK8sName(name);
+  if (nameErr) return NextResponse.json(nameErr.error, { status: nameErr.status });
   const access = await getGameHubAccessContext(session, 60);
   if (!hasGameHubPermission(access.groups, access.username, access.roleAssignments, "game-hub:read", name)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -46,13 +54,19 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { name } = await params;
+  const nameErr2 = validateK8sName(name);
+  if (nameErr2) return NextResponse.json(nameErr2.error, { status: nameErr2.status });
   const access = await getGameHubAccessContext(session, 60);
   if (!hasGameHubPermission(access.groups, access.username, access.roleAssignments, "game-hub:admin", name)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const body = await req.json() as { egg?: Partial<GameEgg> };
-  if (!body.egg) return NextResponse.json({ error: "egg payload required" }, { status: 400 });
+  const rawBody = await req.json().catch(() => null);
+  const parsed = eggPatchBodySchema.safeParse(rawBody);
+  if (!parsed.success) {
+    return NextResponse.json({ error: "Validation failed", details: parsed.error.flatten() }, { status: 400 });
+  }
+  const body = parsed.data as { egg: Partial<GameEgg> };
 
   try {
     const clients = makeGameHubClients();

@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { ADDONS } from "@/lib/addons";
 import { getEnabledAddons, setAddonEnabled } from "@/lib/addons-server";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { safeError } from "@/lib/utils";
+
+const patchBodySchema = z.object({
+  enabled: z.boolean(),
+});
 
 function getErrorMessage(error: unknown) {
   return safeError(error);
@@ -40,10 +45,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ error: "Addon not found" }, { status: 404 });
   }
 
-  const body = await req.json().catch(() => null) as { enabled?: boolean } | null;
-  if (typeof body?.enabled !== "boolean") {
-    return NextResponse.json({ error: "enabled must be a boolean" }, { status: 400 });
+  const rawBody = await req.json().catch(() => null);
+  const parsed = patchBodySchema.safeParse(rawBody);
+  if (!parsed.success) {
+    return NextResponse.json({ error: "Validation failed", details: parsed.error.flatten() }, { status: 400 });
   }
+  const body = parsed.data;
 
   try {
     return NextResponse.json(await setAddonEnabled(id, body.enabled));

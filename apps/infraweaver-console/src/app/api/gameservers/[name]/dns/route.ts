@@ -1,8 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { getARecord, createARecord, deleteARecord } from "@/lib/cloudflare";
+import { validateK8sName } from "@/lib/api-security";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { safeError } from "@/lib/utils";
+
+const dnsPatchSchema = z.object({
+  targetIP: z.string().min(1),
+  internalIP: z.string().optional(),
+  publicDns: z.boolean(),
+  internalDns: z.boolean(),
+});
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ name: string }> }) {
   const session = await auth();
@@ -10,6 +19,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ nam
   const access = await getSessionRBACContext(session, 60);
   if (!hasSessionPermission(access, "game-hub:read")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const { name } = await params;
+  const nameErr = validateK8sName(name);
+  if (nameErr) return NextResponse.json(nameErr.error, { status: nameErr.status });
 
   // Get target IPs from ConfigMap
   let targetIP = "";
@@ -43,7 +54,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ nam
   const access = await getSessionRBACContext(session, 60);
   if (!hasSessionPermission(access, "game-hub:write")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const { name } = await params;
-  const { targetIP, internalIP, publicDns, internalDns } = await req.json() as { targetIP: string; internalIP?: string; publicDns: boolean; internalDns: boolean };
+  const nameErr2 = validateK8sName(name);
+  if (nameErr2) return NextResponse.json(nameErr2.error, { status: nameErr2.status });
+  const rawBody = await req.json().catch(() => ({}));
+  const parsedBody = dnsPatchSchema.safeParse(rawBody);
+  if (!parsedBody.success) {
+    return NextResponse.json({ error: "Validation failed", details: parsedBody.error.flatten() }, { status: 400 });
+  }
+  const { targetIP, internalIP, publicDns, internalDns } = parsedBody.data;
 
   const results: Record<string, unknown> = {};
   const intIP = internalIP || targetIP;
