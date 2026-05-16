@@ -3,34 +3,7 @@ import { useState, useEffect } from "react";
 import { X, Keyboard } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
-
-interface Shortcut {
-  keys: string[];
-  description: string;
-  category?: string;
-}
-
-const SHORTCUTS: Shortcut[] = [
-  { keys: ["Ctrl", "K"], description: "Open global search", category: "Navigation" },
-  { keys: ["/"], description: "Focus global search", category: "Navigation" },
-  { keys: ["G", "H"], description: "Go to Home", category: "Navigation" },
-  { keys: ["G", "A"], description: "Go to Apps", category: "Navigation" },
-  { keys: ["G", "L"], description: "Go to Logs", category: "Navigation" },
-  { keys: ["G", "S"], description: "Go to Settings", category: "Navigation" },
-  { keys: ["G", "Z"], description: "Go to DNS", category: "Navigation" },
-  { keys: ["?"], description: "Show keyboard shortcuts", category: "Navigation" },
-  { keys: ["↑", "↓"], description: "Move through search results", category: "Actions" },
-  { keys: ["Enter"], description: "Open highlighted result", category: "Actions" },
-  { keys: ["["], description: "Previous pod in Logs view", category: "Actions" },
-  { keys: ["]"], description: "Next pod in Logs view", category: "Actions" },
-  { keys: ["Shift", "P"], description: "Pause or resume live logs", category: "Actions" },
-  { keys: ["Shift", "E"], description: "Jump to latest error log", category: "Actions" },
-  { keys: ["Shift", "W"], description: "Jump to latest warning log", category: "Actions" },
-  { keys: ["Shift", "I"], description: "Jump to latest info log", category: "Actions" },
-  { keys: ["R"], description: "Refresh current view", category: "Actions" },
-  { keys: ["Esc"], description: "Close modal / panel", category: "Actions" },
-  { keys: ["Ctrl", "Shift", "D"], description: "Toggle density", category: "Actions" },
-];
+import { KEYBOARD_SHORTCUTS } from "@/lib/keyboard-shortcuts";
 
 interface KeyboardShortcutsModalProps {
   open: boolean;
@@ -45,7 +18,7 @@ export function KeyboardShortcutsModal({ open, onClose }: KeyboardShortcutsModal
     return () => window.removeEventListener("keydown", handler);
   }, [open, onClose]);
 
-  const categories = [...new Set(SHORTCUTS.map(s => s.category ?? "General"))];
+  const categories = [...new Set(KEYBOARD_SHORTCUTS.map((shortcut) => shortcut.category))];
 
   return (
     <AnimatePresence>
@@ -77,15 +50,15 @@ export function KeyboardShortcutsModal({ open, onClose }: KeyboardShortcutsModal
                 <div key={cat}>
                   <h3 className="text-xs font-semibold uppercase tracking-widest text-white/30 mb-3">{cat}</h3>
                   <div className="space-y-2">
-                    {SHORTCUTS.filter(s => (s.category ?? "General") === cat).map((s, i) => (
-                      <div key={i} className="flex items-center justify-between">
-                        <span className="text-sm text-white/70">{s.description}</span>
+                    {KEYBOARD_SHORTCUTS.filter((shortcut) => shortcut.category === cat).map((shortcut, index) => (
+                      <div key={`${cat}-${index}`} className="flex items-center justify-between">
+                        <span className="text-sm text-white/70">{shortcut.description}</span>
                         <div className="flex items-center gap-1">
-                          {s.keys.map((k, j) => (
-                            <kbd key={j} className={cn(
+                          {shortcut.keys.map((key, keyIndex) => (
+                            <kbd key={`${shortcut.description}-${keyIndex}`} className={cn(
                               "px-1.5 py-0.5 text-xs rounded border border-white/20 bg-white/5 text-white/60 font-mono",
-                              j < s.keys.length - 1 && "mr-0.5"
-                            )}>{k}</kbd>
+                              keyIndex < shortcut.keys.length - 1 && "mr-0.5"
+                            )}>{key}</kbd>
                           ))}
                         </div>
                       </div>

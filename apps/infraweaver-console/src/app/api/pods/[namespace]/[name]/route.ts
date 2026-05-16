@@ -90,6 +90,9 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ n
   if (!hasSessionPermission(access, "cluster:admin")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   if (!checkRateLimit(rateLimitKey("pod-delete", req), 10, 60_000)) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
   const { namespace, name } = await params;
+  if (!isValidNamespace(namespace) || !isValidK8sName(name)) {
+    return NextResponse.json({ error: "Invalid namespace or pod name" }, { status: 400 });
+  }
   try {
     const kc = new k8s.KubeConfig();
     if (process.env.KUBECONFIG) {

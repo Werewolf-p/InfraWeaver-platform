@@ -6,7 +6,6 @@ import { createQueryClient } from "@/lib/query-client";
 import { useState, createContext, useContext, useEffect, type ReactNode } from "react";
 import { SettingsProvider } from "@/contexts/settings-context";
 import { ClusterProvider } from "@/contexts/cluster-context";
-import { KeyboardShortcutsProvider } from "@/components/ui/keyboard-shortcuts-modal";
 import { OnboardingWizard } from "@/components/ui/onboarding-wizard";
 
 // ─── Theme Context ───────────────────────────────────────────────────────────
@@ -91,7 +90,6 @@ export function Providers({ children }: { children: React.ReactNode }) {
           <ClusterProvider>
             <ThemeProvider>
               {children}
-              <KeyboardShortcutsProvider />
               <OnboardingWizard />
               <Toaster richColors position="top-right" />
             </ThemeProvider>

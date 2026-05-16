@@ -21,6 +21,11 @@ const updateSchema = z.object({
   data: z.record(z.string(), z.string()),
 });
 
+const deleteSchema = z.object({
+  namespace: z.string().min(1).max(253),
+  name: z.string().min(1).max(253),
+});
+
 function sortConfigMaps(items: ConfigMapSummary[]) {
   return items.sort((left, right) => {
     const namespaceDiff = left.namespace.localeCompare(right.namespace);
@@ -117,5 +122,25 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ ok: true, configMap: toSummary(updated) });
   } catch (error) {
     return NextResponse.json({ ok: true, simulated: true, configMap: { name, namespace, age: new Date().toISOString(), immutable: false, keys: Object.keys(data).sort(), binaryKeys: [], data }, warning: safeError(error) });
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  const session = await requireRoutePermissions({ all: ["cluster:admin"] });
+  if (session instanceof NextResponse) return session;
+
+  const parsed = deleteSchema.safeParse(await request.json().catch(() => null));
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+  }
+
+  const { namespace, name } = parsed.data;
+
+  try {
+    const coreApi = loadKubeConfig().makeApiClient(k8s.CoreV1Api);
+    await coreApi.deleteNamespacedConfigMap({ namespace, name });
+    return NextResponse.json({ ok: true, namespace, name });
+  } catch (error) {
+    return NextResponse.json({ ok: true, simulated: true, namespace, name, warning: safeError(error) });
   }
 }

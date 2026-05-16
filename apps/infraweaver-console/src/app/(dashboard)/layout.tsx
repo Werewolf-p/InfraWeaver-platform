@@ -18,6 +18,7 @@ import { useQuery } from "@tanstack/react-query";
 import { SimpleModeProvider } from "@/contexts/simple-mode-context";
 import { NAV_GROUPS } from "@/lib/nav-config";
 import { OfflineIndicator } from "@/components/ui/offline-indicator";
+import { KeyboardShortcutsProvider } from "@/components/ui/keyboard-shortcuts-modal";
 import { GlobalSearch } from "@/components/search/global-search";
 import { useRecentPages } from "@/hooks/use-recent-pages";
 import { useAddons } from "@/hooks/use-addons";
@@ -37,6 +38,15 @@ const GROUP_ACCENT: Record<string, string> = {
   services: "bg-sky-500",
   tools: "bg-yellow-500",
   settings: "bg-[#555]",
+};
+
+const GOTO_SHORTCUTS: Record<string, string> = {
+  h: "/home",
+  a: "/apps",
+  p: "/pods",
+  c: "/cluster",
+  s: "/security",
+  l: "/logs",
 };
 
 function isTypingTarget(target: EventTarget | null) {
@@ -111,6 +121,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [drawerSearch, setDrawerSearch] = useState("");
   const { addons } = useAddons();
   const { permissions, assignments } = useRBAC();
+  const gotoTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingGotoRef = useRef(false);
 
   const accessibleNavGroups = useMemo(
     () => filterNavGroupsByPermissions(NAV_GROUPS, permissions, assignments),
@@ -222,20 +234,58 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }, [pathname]);
 
   useEffect(() => {
+    return () => {
+      if (gotoTimeoutRef.current) {
+        clearTimeout(gotoTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    const resetGotoShortcut = () => {
+      pendingGotoRef.current = false;
+      if (gotoTimeoutRef.current) {
+        clearTimeout(gotoTimeoutRef.current);
+        gotoTimeoutRef.current = null;
+      }
+    };
+
+    const armGotoShortcut = () => {
+      resetGotoShortcut();
+      pendingGotoRef.current = true;
+      gotoTimeoutRef.current = setTimeout(() => {
+        pendingGotoRef.current = false;
+        gotoTimeoutRef.current = null;
+      }, 1200);
+    };
+
     const handleKeyDown = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+      const typingTarget = isTypingTarget(event.target);
+      const key = event.key.toLowerCase();
+
+      if ((event.metaKey || event.ctrlKey) && key === "k") {
         event.preventDefault();
+        resetGotoShortcut();
         setSearchOpen(true);
         return;
       }
 
-      if (!event.metaKey && !event.ctrlKey && !event.altKey && event.key === "/" && !isTypingTarget(event.target)) {
+      if ((event.metaKey || event.ctrlKey) && key === "r" && !typingTarget) {
         event.preventDefault();
+        resetGotoShortcut();
+        router.refresh();
+        return;
+      }
+
+      if (!event.metaKey && !event.ctrlKey && !event.altKey && event.key === "/" && !typingTarget) {
+        event.preventDefault();
+        resetGotoShortcut();
         setSearchOpen(true);
         return;
       }
 
       if (event.key === "Escape") {
+        resetGotoShortcut();
         if (searchOpen) {
           setSearchOpen(false);
           return;
@@ -250,12 +300,32 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           setMobileOpen(false);
           setDrawerSearch("");
         }
+        return;
+      }
+
+      if (typingTarget || event.metaKey || event.ctrlKey || event.altKey) {
+        return;
+      }
+
+      if (pendingGotoRef.current) {
+        const destination = GOTO_SHORTCUTS[key];
+        resetGotoShortcut();
+        if (destination) {
+          event.preventDefault();
+          router.push(destination);
+        }
+        return;
+      }
+
+      if (!event.shiftKey && key === "g") {
+        event.preventDefault();
+        armGotoShortcut();
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [mobileOpen, moreOpen, searchOpen]);
+  }, [mobileOpen, moreOpen, router, searchOpen]);
 
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -303,10 +373,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     >
       Skip to content
     </a>
-    <div className="flex h-screen overflow-hidden overflow-x-hidden bg-[#0f0f0f]">
+    <div className="flex h-screen w-full overflow-hidden overflow-x-hidden bg-[#0f0f0f]">
       <OfflineIndicator />
       {/* Desktop Sidebar */}
-      <Sidebar />
+      <div className="hidden md:flex">
+        <Sidebar />
+      </div>
 
       {/* Mobile Hamburger Drawer */}
       <AnimatePresence>
@@ -589,7 +661,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         )}
       </AnimatePresence>
 
-      <div className="relative z-10 flex min-w-0 flex-1 flex-col overflow-hidden overflow-x-hidden">
+      <div className="relative z-10 flex min-w-0 w-full flex-1 flex-col overflow-hidden overflow-x-hidden">
         <TopBar onMenuClick={() => setMobileOpen(true)} onSearchClick={() => setSearchOpen(true)} />
         <StatusBar />
         <Breadcrumb className="hidden sm:flex" />
@@ -622,7 +694,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <main
           id="dashboard-main"
           ref={mainRef}
-          className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-4 pb-28 sm:px-4 sm:py-4 sm:pb-4 md:p-6 md:pb-6"
+          className="flex-1 overflow-y-auto overflow-x-hidden px-3 py-3 pb-28 sm:px-4 sm:py-4 sm:pb-4 md:p-6 md:pb-6"
         >
           <AnimatePresence mode="wait">
             <motion.div
@@ -944,6 +1016,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </motion.div>
         )}
       </AnimatePresence>
+
+      <KeyboardShortcutsProvider />
     </div>
     </SimpleModeProvider>
   );

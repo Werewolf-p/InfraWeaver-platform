@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback } from "react";
+import { useLocalStorage } from "@/hooks/use-local-storage";
 import { useServerPreferences } from "@/hooks/use-server-preferences";
 import type { DashboardLayoutPreferences } from "@/lib/user-preferences";
 
@@ -31,4 +32,25 @@ export function useUserPreferences() {
   }, [setPreferences]);
 
   return { prefs, setPreference, toggleWidget, isLoading };
+}
+
+interface SimplePreferences {
+  tablePageSize: number;
+  sidebarCollapsed: boolean;
+  defaultNamespace: string;
+  refreshInterval: number;
+}
+
+export function useUserPreference<K extends keyof SimplePreferences>(
+  key: K,
+  defaultValue: SimplePreferences[K]
+): [SimplePreferences[K], (value: SimplePreferences[K]) => void] {
+  const storageKey = `infraweaver:${String(key)}`;
+  const [value, setValue] = useLocalStorage<SimplePreferences[K]>(storageKey, defaultValue);
+
+  const updateValue = useCallback((nextValue: SimplePreferences[K]) => {
+    setValue(nextValue);
+  }, [setValue]);
+
+  return [value, updateValue];
 }

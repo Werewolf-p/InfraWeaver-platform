@@ -11,6 +11,7 @@ export * from "./use-debounce";
 export * from "./use-favorites";
 export * from "./use-local-storage";
 export * from "./use-media-query";
+export * from "./use-mutation-with-toast";
 export * from "./use-nas";
 export * from "./use-notifications";
 export * from "./use-permissions";

@@ -8,6 +8,7 @@ import {
   Clock,
   GitBranch,
   HelpCircle,
+  PauseCircle,
   RefreshCw,
   XCircle,
 } from "lucide-react";
@@ -26,7 +27,8 @@ export type StatusType =
   | "syncing"
   | "warning"
   | "offline"
-  | "progressing";
+  | "progressing"
+  | "suspended";
 
 type BadgeVariant = "pill" | "card";
 type BadgeSize = "sm" | "md" | "lg";
@@ -111,6 +113,12 @@ const STATUS_CONFIG: Record<
     label: "Progressing",
     pulse: true,
   },
+  suspended: {
+    icon: PauseCircle,
+    colors: { bg: "bg-slate-500/10", border: "border-slate-500/30", text: "text-slate-400", dot: "bg-slate-400" },
+    label: "Suspended",
+    pulse: false,
+  },
   outOfSync: {
     icon: GitBranch,
     colors: { bg: "bg-amber-500/10", border: "border-amber-500/30", text: "text-amber-400", dot: "bg-amber-400" },
@@ -152,6 +160,7 @@ export function normalizeStatus(status: string): StatusType {
   if (["progressing", "terminating", "restarting"].some((token) => normalized.includes(token))) return "progressing";
   if (normalized.includes("syncing")) return "syncing";
   if (["processing", "creating", "starting"].some((token) => normalized.includes(token))) return "processing";
+  if (normalized.includes("suspended") || normalized.includes("paused")) return "suspended";
   if (["warning", "backoff", "throttled"].some((token) => normalized.includes(token))) return "warning";
   if (["offline", "disabled"].some((token) => normalized.includes(token))) return "offline";
   if (["online", "enabled"].some((token) => normalized.includes(token))) return "online";

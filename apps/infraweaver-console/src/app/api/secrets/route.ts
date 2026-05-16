@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as k8s from "@kubernetes/client-node";
+import { z } from "zod";
 import { requireRoutePermissions } from "@/lib/route-utils";
 import { loadKubeConfig } from "@/lib/k8s";
+import { safeError } from "@/lib/utils";
 
 interface SecretSummary {
   name: string;
@@ -60,6 +62,11 @@ async function listExternalSecrets(customApi: k8s.CustomObjectsApi): Promise<Ext
     ];
   }
 }
+
+const deleteSchema = z.object({
+  namespace: z.string().min(1).max(253),
+  name: z.string().min(1).max(253),
+});
 
 function mockSecrets(): SecretSummary[] {
   return sortSecrets([
@@ -131,5 +138,25 @@ export async function GET(request: NextRequest) {
       ? mockSecrets().filter((item) => item.namespace === namespace)
       : mockSecrets();
     return NextResponse.json({ secrets, live: false });
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  const session = await requireRoutePermissions({ all: ["cluster:admin"] });
+  if (session instanceof NextResponse) return session;
+
+  const parsed = deleteSchema.safeParse(await request.json().catch(() => null));
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+  }
+
+  const { namespace, name } = parsed.data;
+
+  try {
+    const coreApi = loadKubeConfig().makeApiClient(k8s.CoreV1Api);
+    await coreApi.deleteNamespacedSecret({ namespace, name });
+    return NextResponse.json({ ok: true, namespace, name });
+  } catch (error) {
+    return NextResponse.json({ ok: true, simulated: true, namespace, name, warning: safeError(error) });
   }
 }
