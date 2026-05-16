@@ -27,6 +27,10 @@ spec:
     spec:
       terminationGracePeriodSeconds: 60
       serviceAccountName: infraweaver-console
+      # MUST remain true — console uses in-cluster k8s API (game-hub, apps, cluster
+      # info, etc.) via /var/run/secrets/kubernetes.io/serviceaccount/. Setting false
+      # breaks ALL k8s features and makes everything show "unknown" in the UI.
+      automountServiceAccountToken: true
       imagePullSecrets:
       - name: onedev-pull-secret
       # Spread replicas across nodes so a single Flannel disruption
