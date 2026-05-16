@@ -1,0 +1,66 @@
+---
+# PVC for "Data Dir" → /photoprism/storage
+# Default path on Unraid: (not set)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: photoprism-data-0
+  namespace: photoprism
+  labels:
+    app.kubernetes.io/name: photoprism
+    app.kubernetes.io/component: storage
+    infraweaver.io/source: community-apps
+  annotations:
+    infraweaver.io/unraid-path: "/photoprism/storage"
+    infraweaver.io/required: "true"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 10Gi
+---
+# PVC for "Storage Path" → /photoprism/originals
+# Default path on Unraid: (not set)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: photoprism-data-1
+  namespace: photoprism
+  labels:
+    app.kubernetes.io/name: photoprism
+    app.kubernetes.io/component: storage
+    infraweaver.io/source: community-apps
+  annotations:
+    infraweaver.io/unraid-path: "/photoprism/originals"
+    infraweaver.io/required: "true"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 10Gi
+---
+# PVC for "Photo Import Folder" → /photoprism/import
+# Default path on Unraid: (not set)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: photoprism-data-2
+  namespace: photoprism
+  labels:
+    app.kubernetes.io/name: photoprism
+    app.kubernetes.io/component: storage
+    infraweaver.io/source: community-apps
+  annotations:
+    infraweaver.io/unraid-path: "/photoprism/import"
+    infraweaver.io/required: "false"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 10Gi
