@@ -216,9 +216,7 @@ export function TopBar({ onMenuClick, onSearchClick }: { title?: string; onMenuC
         <div className="hidden md:block">
           <ThemeToggle compact />
         </div>
-        <div className="hidden md:block">
-          <ClusterSelector />
-        </div>
+        <ClusterSelector />
         <NotificationCenter />
         <Link
           href="/changelog"
