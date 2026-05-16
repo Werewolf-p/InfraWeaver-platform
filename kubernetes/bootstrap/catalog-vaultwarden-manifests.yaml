@@ -1,7 +1,7 @@
 ---
 # catalog-vaultwarden-manifests.yaml — deployed by InfraWeaver Community Apps
 # Source: vaultwarden/server
-# Installed: 2026-05-16T22:06:11.515Z
+# Installed: 2026-05-16T22:09:44.258Z
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
