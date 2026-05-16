@@ -1,0 +1,36 @@
+---
+# catalog-filebrowser-pnp-manifests.yaml — deployed by InfraWeaver Community Apps
+# Source: filebrowser/filebrowser
+# Installed: 2026-05-16T21:37:07.554Z
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: catalog-filebrowser-pnp-manifests
+  namespace: argocd
+  labels:
+    infraweaver.io/type: catalog-app
+    infraweaver.io/source: community-apps
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  source:
+    repoURL: https://github.com/Werewolf-p/InfraWeaver-platform.git
+    targetRevision: HEAD
+    path: kubernetes/catalog/filebrowser-pnp/manifests
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: filebrowser-pnp
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
