@@ -1,0 +1,41 @@
+console:
+  - changed-files:
+      - any-glob-to-any-file: 'apps/infraweaver-console/**'
+
+api:
+  - changed-files:
+      - any-glob-to-any-file: 'apps/infraweaver-api/**'
+
+node-agent:
+  - changed-files:
+      - any-glob-to-any-file: 'apps/infraweaver-node/**'
+
+kubernetes:
+  - changed-files:
+      - any-glob-to-any-file: 'kubernetes/**'
+
+ci:
+  - changed-files:
+      - any-glob-to-any-file: '.github/workflows/**'
+
+scripts:
+  - changed-files:
+      - any-glob-to-any-file: 'scripts/**'
+
+documentation:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'docs/**'
+          - 'README.md'
+          - 'CONTRIBUTING.md'
+          - 'CHANGELOG.md'
+
+devex:
+  - changed-files:
+      - any-glob-to-any-file:
+          - '.vscode/**'
+          - '.env.example'
+          - 'docker-compose.yml'
+          - '.pre-commit-config.yaml'
+          - '.github/labeler.yml'
+          - '.github/memories/devex-100-ideas-2026-05.md'

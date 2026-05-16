@@ -30,7 +30,7 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - RespectIgnoreDifferences=true
-  # Ignore ESO-managed Secret fields and ExternalSecret status conditions
+  # Ignore ESO-managed Secret fields, ExternalSecret status, and completed bootstrap Job
   ignoreDifferences:
     - kind: Secret
       name: netbird-secrets
@@ -43,3 +43,9 @@ spec:
       name: netbird-secrets
       jsonPointers:
         - /status
+    - group: batch
+      kind: Job
+      name: netbird-db-bootstrap
+      jsonPointers:
+        - /spec/selector
+        - /spec/template/metadata/labels
