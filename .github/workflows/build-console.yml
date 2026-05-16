@@ -191,13 +191,14 @@ jobs:
 
       - name: Force ArgoCD sync and wait for rollout
         env:
-          KUBECONFIG: ~/.kube/config
           APP_NAME: catalog-infraweaver-console-manifests
           DEPLOYMENT_NAME: infraweaver-console
           DEPLOYMENT_NAMESPACE: infraweaver-console
           SYNC_TIMEOUT_SECONDS: "300"
           ROLLOUT_TIMEOUT_SECONDS: "300"
-        run: bash scripts/deploy/sync-argocd-app.sh
+        run: |
+          export KUBECONFIG="$HOME/.kube/config"
+          bash scripts/deploy/sync-argocd-app.sh
 
       - name: Smoke test console
         env:
@@ -266,6 +267,7 @@ jobs:
               break
             fi
           done
+          export KUBECONFIG="$HOME/.kube/config"
           bash scripts/deploy/sync-argocd-app.sh
           bash scripts/deploy/smoke-test-url.sh
           echo "↩️ Rolled console back to ${PREVIOUS_TAG}" >> "$GITHUB_STEP_SUMMARY"
