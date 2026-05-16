@@ -2049,7 +2049,7 @@ function AppCard({ app, onDeploy, canDeploy, installed }: { app: AppSummary; onD
           </a>
         )}
         <button onClick={() => onDeploy(app)} disabled={!canDeploy}
-          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded text-xs font-medium bg-indigo-600/80 hover:bg-indigo-500 text-white transition-colors disabled:opacity-50">
+          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded text-xs font-medium bg-indigo-600/80 hover:bg-indigo-500 text-white transition-colors disabled:opacity-50 touch-manipulation">
           <Globe className="w-3 h-3" /> {installed ? "Reconfigure" : "Deploy"}
         </button>
       </div>
@@ -2224,7 +2224,7 @@ function CommunityStoreTab() {
                     <button
                       onClick={() => setDeployApp(app)}
                       disabled={!canDeployCommunity}
-                      className="mt-4 flex min-h-[40px] w-full items-center justify-center gap-1.5 rounded-lg bg-indigo-600/80 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-indigo-500 disabled:opacity-50"
+                      className="mt-4 flex min-h-[40px] w-full items-center justify-center gap-1.5 rounded-lg bg-indigo-600/80 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-indigo-500 disabled:opacity-50 touch-manipulation"
                     >
                       <Globe className="h-3 w-3" /> {installedSlugs.has(app.slug) ? "Reconfigure" : "Quick deploy"}
                     </button>
@@ -2424,7 +2424,7 @@ export default function AppsPage() {
         {/* Floating + Install App button */}
         <button
           onClick={() => { setInstallSource(null); setShowInstallModal(true); }}
-          className="flex min-h-[40px] w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500 sm:w-auto"
+          className="flex min-h-[40px] w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500 sm:w-auto touch-manipulation"
         >
           <PlusCircle className="w-4 h-4" />
           <span>Install App</span>
