@@ -73,11 +73,13 @@ export const NAV_GROUPS: NavGroup[] = mergeRegisteredPages([
     items: [
       { href: "/storage", icon: HardDrive, label: "Storage", shortcut: "G S", description: "Persistent volumes and storage classes", pinnable: true },
       { href: "/network", icon: Network, label: "Network", shortcut: "G N", description: "Services, ingress, and network topology", pinnable: true },
+      { href: "/vpn", icon: Network, label: "VPN", description: "NetBird peer connectivity and management view", pinnable: true },
       { href: "/ingress", icon: Globe, label: "Ingress Routes", description: "Traefik hosts, auth, and TLS audit" },
       { href: "/dns", icon: Globe, label: "DNS", shortcut: "G Z", description: "Manage internal and public Cloudflare records", pinnable: true },
       { href: "/certificates", icon: ShieldCheck, label: "Certificates", description: "TLS certificate status and expiry" },
       { href: "/network-policies", icon: Network, label: "Net Policies", description: "Kubernetes NetworkPolicy rules" },
       { href: "/secret-expiry", icon: ShieldCheck, label: "Secret Expiry", description: "Track certificate and secret expiry" },
+      { href: "/secrets", icon: ShieldCheck, label: "Secrets", description: "Read-only secret browser with ExternalSecret ownership" },
     ],
   },
   {
@@ -88,6 +90,7 @@ export const NAV_GROUPS: NavGroup[] = mergeRegisteredPages([
     defaultOpen: false,
     items: [
       { href: "/config", icon: Cog, label: "Config Editor", shortcut: "G C", description: "Edit Kubernetes ConfigMaps and Secrets", pinnable: true },
+      { href: "/config-maps", icon: FileText, label: "Config Maps", description: "Edit ConfigMap data across namespaces" },
       { href: "/logs", icon: FileText, label: "Pod Logs", shortcut: "G L", description: "Live streaming pod logs" },
       { href: "/cronjobs", icon: Calendar, label: "CronJobs", description: "Scheduled Kubernetes cronjobs" },
       { href: "/maintenance", icon: Settings, label: "Maintenance", description: "Drain, cordon, and node maintenance" },
@@ -216,8 +219,11 @@ export const MOBILE_DRAWER_NAV: NavItem[] = [
   { href: "/monitoring", icon: HeartPulse, label: "Monitoring" },
   { href: "/health", icon: Activity, label: "Health" },
   { href: "/network", icon: Network, label: "Network" },
+  { href: "/vpn", icon: Network, label: "VPN" },
   { href: "/dns", icon: Globe, label: "DNS" },
   { href: "/config", icon: Cog, label: "Config Editor" },
+  { href: "/config-maps", icon: FileText, label: "Config Maps" },
+  { href: "/secrets", icon: ShieldCheck, label: "Secrets" },
   { href: "/security", icon: ShieldCheck, label: "Security" },
   { href: "/cluster", icon: Server, label: "Cluster" },
   { href: "/users", icon: Users, label: "User Management" },

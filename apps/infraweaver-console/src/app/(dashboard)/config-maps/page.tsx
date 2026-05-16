@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FileText, RefreshCw, Save, Search, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
@@ -56,10 +56,6 @@ export default function ConfigMapsPage() {
   });
 
   const configMaps = useMemo(() => data?.configMaps ?? [], [data?.configMaps]);
-
-  useEffect(() => {
-    setDrafts(Object.fromEntries(configMaps.map((configMap) => [configMapId(configMap), { ...configMap.data }] as const)));
-  }, [configMaps]);
 
   const namespaces = useMemo(
     () => Array.from(new Set(configMaps.map((configMap) => configMap.namespace))).sort(),

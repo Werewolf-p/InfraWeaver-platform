@@ -1,54 +1,120 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import * as k8s from "@kubernetes/client-node";
+import { requireRoutePermissions } from "@/lib/route-utils";
+import { loadKubeConfig } from "@/lib/k8s";
+
+const LONGHORN_API = process.env.LONGHORN_API ?? "http://longhorn-frontend.longhorn-system.svc.cluster.local:80";
+
+interface LonghornVolume {
+  name: string;
+  robustness: string | null;
+  state: string | null;
+  kubernetesStatus?: {
+    namespace?: string;
+    pvcName?: string;
+    pvName?: string;
+  };
+}
+
+function pvcKey(namespace: string, name: string) {
+  return `${namespace}/${name}`;
+}
+
+async function loadLonghornVolumes(): Promise<{ volumes: LonghornVolume[]; live: boolean }> {
+  try {
+    const response = await fetch(`${LONGHORN_API}/v1/volumes`, {
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+
+    if (!response.ok) throw new Error("Longhorn API error");
+
+    const payload = await response.json() as { data?: Array<Record<string, unknown>> };
+    const volumes = (payload.data ?? []).map((volume) => ({
+      name: typeof volume.name === "string" ? volume.name : "",
+      robustness: typeof volume.robustness === "string" ? volume.robustness : null,
+      state: typeof volume.state === "string" ? volume.state : null,
+      kubernetesStatus: volume.kubernetesStatus as LonghornVolume["kubernetesStatus"],
+    }));
+
+    return { volumes, live: true };
+  } catch {
+    return {
+      live: false,
+      volumes: [
+        { name: "pv-data-01", robustness: "healthy", state: "attached", kubernetesStatus: { namespace: "default", pvcName: "data-pvc", pvName: "pv-data-01" } },
+        { name: "pv-monitoring-01", robustness: "degraded", state: "attached", kubernetesStatus: { namespace: "monitoring", pvcName: "prometheus-pvc", pvName: "pv-monitoring-01" } },
+      ],
+    };
+  }
+}
 
 export async function GET() {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const session = await requireRoutePermissions({ all: ["cluster:admin"] });
+  if (session instanceof NextResponse) return session;
+
   try {
-    const kc = new k8s.KubeConfig();
-    if (process.env.KUBECONFIG) { kc.loadFromFile(process.env.KUBECONFIG); }
-    else { try { kc.loadFromCluster(); } catch { kc.loadFromDefault(); } }
-    const coreApi = kc.makeApiClient(k8s.CoreV1Api);
-    const [pvsRes, pvcsRes] = await Promise.all([
+    const coreApi = loadKubeConfig().makeApiClient(k8s.CoreV1Api);
+    const [{ volumes: longhornVolumes, live }, pvsRes, pvcsRes] = await Promise.all([
+      loadLonghornVolumes(),
       coreApi.listPersistentVolume(),
       coreApi.listPersistentVolumeClaimForAllNamespaces(),
     ]);
-    const pvs = (pvsRes.items as unknown[]).map(item => {
-      const p = item as { metadata?: { name?: string }; spec?: { capacity?: { storage?: string }; storageClassName?: string; accessModes?: string[]; persistentVolumeReclaimPolicy?: string; claimRef?: { namespace?: string; name?: string } }; status?: { phase?: string } };
+
+    const longhornByPv = new Map<string, LonghornVolume>();
+    const longhornByPvc = new Map<string, LonghornVolume>();
+    for (const volume of longhornVolumes) {
+      if (volume.kubernetesStatus?.pvName) longhornByPv.set(volume.kubernetesStatus.pvName, volume);
+      if (volume.kubernetesStatus?.namespace && volume.kubernetesStatus?.pvcName) {
+        longhornByPvc.set(pvcKey(volume.kubernetesStatus.namespace, volume.kubernetesStatus.pvcName), volume);
+      }
+      longhornByPv.set(volume.name, volume);
+    }
+
+    const pvs = pvsRes.items.map((pv) => {
+      const health = longhornByPv.get(pv.metadata?.name ?? "");
       return {
-        name: p.metadata?.name ?? "",
-        capacity: p.spec?.capacity?.storage ?? "",
-        storageClass: p.spec?.storageClassName ?? "",
-        accessModes: p.spec?.accessModes ?? [],
-        reclaimPolicy: p.spec?.persistentVolumeReclaimPolicy ?? "",
-        status: p.status?.phase ?? "",
-        claimRef: p.spec?.claimRef ? `${p.spec.claimRef.namespace}/${p.spec.claimRef.name}` : "",
+        name: pv.metadata?.name ?? "",
+        capacity: pv.spec?.capacity?.storage ?? "",
+        storageClass: pv.spec?.storageClassName ?? "",
+        accessModes: pv.spec?.accessModes ?? [],
+        reclaimPolicy: pv.spec?.persistentVolumeReclaimPolicy ?? "",
+        status: pv.status?.phase ?? "",
+        claimRef: pv.spec?.claimRef ? `${pv.spec.claimRef.namespace}/${pv.spec.claimRef.name}` : "",
+        longhornHealth: health?.robustness ?? null,
+        longhornState: health?.state ?? null,
       };
     });
-    const pvcs = (pvcsRes.items as unknown[]).map(item => {
-      const p = item as { metadata?: { namespace?: string; name?: string }; spec?: { storageClassName?: string; accessModes?: string[]; resources?: { requests?: { storage?: string } }; volumeName?: string }; status?: { phase?: string; capacity?: { storage?: string } } };
+
+    const pvcs = pvcsRes.items.map((pvc) => {
+      const namespace = pvc.metadata?.namespace ?? "";
+      const name = pvc.metadata?.name ?? "";
+      const health = longhornByPvc.get(pvcKey(namespace, name)) ?? longhornByPv.get(pvc.spec?.volumeName ?? "");
       return {
-        namespace: p.metadata?.namespace ?? "",
-        name: p.metadata?.name ?? "",
-        storageClass: p.spec?.storageClassName ?? "",
-        accessModes: p.spec?.accessModes ?? [],
-        requestedStorage: p.spec?.resources?.requests?.storage ?? "",
-        capacity: p.status?.capacity?.storage ?? "",
-        status: p.status?.phase ?? "",
-        volumeName: p.spec?.volumeName ?? "",
+        namespace,
+        name,
+        storageClass: pvc.spec?.storageClassName ?? "",
+        accessModes: pvc.spec?.accessModes ?? [],
+        requestedStorage: pvc.spec?.resources?.requests?.storage ?? "",
+        capacity: pvc.status?.capacity?.storage ?? "",
+        status: pvc.status?.phase ?? "",
+        volumeName: pvc.spec?.volumeName ?? "",
+        longhornHealth: health?.robustness ?? null,
+        longhornState: health?.state ?? null,
       };
     });
-    return NextResponse.json({ pvs, pvcs });
+
+    return NextResponse.json({ pvs, pvcs, live });
   } catch {
     return NextResponse.json({
+      live: false,
       pvs: [
-        { name: "pv-data-01", capacity: "50Gi", storageClass: "longhorn", accessModes: ["ReadWriteOnce"], reclaimPolicy: "Retain", status: "Bound", claimRef: "default/data-pvc" },
-        { name: "pv-logs-01", capacity: "20Gi", storageClass: "local-path", accessModes: ["ReadWriteOnce"], reclaimPolicy: "Delete", status: "Available", claimRef: "" },
+        { name: "pv-data-01", capacity: "50Gi", storageClass: "longhorn", accessModes: ["ReadWriteOnce"], reclaimPolicy: "Retain", status: "Bound", claimRef: "default/data-pvc", longhornHealth: "healthy", longhornState: "attached" },
+        { name: "pv-monitoring-01", capacity: "30Gi", storageClass: "longhorn", accessModes: ["ReadWriteOnce"], reclaimPolicy: "Delete", status: "Bound", claimRef: "monitoring/prometheus-pvc", longhornHealth: "degraded", longhornState: "attached" },
       ],
       pvcs: [
-        { namespace: "default", name: "data-pvc", storageClass: "longhorn", accessModes: ["ReadWriteOnce"], requestedStorage: "50Gi", capacity: "50Gi", status: "Bound", volumeName: "pv-data-01" },
-        { namespace: "monitoring", name: "prometheus-pvc", storageClass: "longhorn", accessModes: ["ReadWriteOnce"], requestedStorage: "30Gi", capacity: "30Gi", status: "Bound", volumeName: "" },
+        { namespace: "default", name: "data-pvc", storageClass: "longhorn", accessModes: ["ReadWriteOnce"], requestedStorage: "50Gi", capacity: "50Gi", status: "Bound", volumeName: "pv-data-01", longhornHealth: "healthy", longhornState: "attached" },
+        { namespace: "monitoring", name: "prometheus-pvc", storageClass: "longhorn", accessModes: ["ReadWriteOnce"], requestedStorage: "30Gi", capacity: "30Gi", status: "Bound", volumeName: "pv-monitoring-01", longhornHealth: "degraded", longhornState: "attached" },
       ],
     });
   }

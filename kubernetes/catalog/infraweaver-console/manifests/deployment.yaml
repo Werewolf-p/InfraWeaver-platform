@@ -102,7 +102,7 @@ spec:
           value: http://netbird-management.netbird.svc.cluster.local:80
         - name: PROMETHEUS_URL
           value: http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090
-        - name: NETBIRD_TOKEN
+        - name: NETBIRD_MANAGEMENT_TOKEN
           valueFrom:
             secretKeyRef:
               name: infraweaver-console-secret

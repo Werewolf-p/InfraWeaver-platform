@@ -700,6 +700,7 @@ export default function ClusterPage() {
   }, [metricsMap, nodeFilter, nodeSearch, nodes]);
 
   const displayNodes = showAllNodes ? filteredNodes : filteredNodes.slice(0, NODE_PAGE_SIZE);
+  const cordonedNodes = nodes.filter((node) => node.unschedulable);
   const totalMigratablePods = (nodePodData?.pods ?? []).filter(p => p.canMigrate).length;
   const readyNodesCount = nodes.filter(node => node.status === "Ready").length;
   const avgCpu = metrics.length > 0 ? Math.round(metrics.reduce((sum, metric) => sum + metric.cpuPct, 0) / metrics.length) : 0;
@@ -752,10 +753,10 @@ export default function ClusterPage() {
   const handleToggleCordon = async (node: Node) => {
     setCordoningNode(node.name);
     try {
-      const res = await fetch("/api/cluster/cordon", {
-        method: "POST",
+      const res = await fetch(`/api/cluster/nodes/${encodeURIComponent(node.name)}/cordon`, {
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ node: node.name, cordon: !node.unschedulable }),
+        body: JSON.stringify({ cordon: !node.unschedulable }),
       });
       const result = await res.json() as { error?: string };
       if (!res.ok) throw new Error(result.error ?? "Failed to update node scheduling");
@@ -773,10 +774,10 @@ export default function ClusterPage() {
     setDrainingNode(node.name);
     try {
       if (!node.unschedulable) {
-        const cordonRes = await fetch("/api/cluster/cordon", {
-          method: "POST",
+        const cordonRes = await fetch(`/api/cluster/nodes/${encodeURIComponent(node.name)}/cordon`, {
+          method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ node: node.name, cordon: true }),
+          body: JSON.stringify({ cordon: true }),
         });
         if (!cordonRes.ok) throw new Error("Failed to cordon node before drain");
       }
@@ -912,7 +913,7 @@ export default function ClusterPage() {
         </div>
       </DashboardPanel>
 
-      <DashboardPanel title="Node search & maintenance" description="Filter the node cards, then take quick cordon or smart-drain actions without leaving the page." icon={Activity}>
+      <DashboardPanel title="Node search & maintenance" description="Filter the node cards, then toggle maintenance mode or run a smart-drain without leaving the page." icon={Activity}>
         <div className="space-y-4">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
             <ToolbarSearchInput ref={searchRef} value={nodeSearch} onChange={setNodeSearch} placeholder="Search node name, IP, or role…" className="flex-1" />
@@ -945,6 +946,18 @@ export default function ClusterPage() {
           </div>
         </div>
       </DashboardPanel>
+
+      {cordonedNodes.length > 0 && (
+        <div className="mb-6 rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p className="font-medium text-amber-200">Maintenance mode active</p>
+              <p className="mt-1 text-amber-100/80">{cordonedNodes.map((node) => node.name).join(", ")} {cordonedNodes.length === 1 ? "is" : "are"} currently cordoned and excluded from new scheduling.</p>
+            </div>
+            <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-100">{cordonedNodes.length} node{cordonedNodes.length === 1 ? "" : "s"} in maintenance</span>
+          </div>
+        </div>
+      )}
 
       <div className="space-y-4 sm:space-y-6">
         {isAdmin && (
@@ -1017,7 +1030,7 @@ export default function ClusterPage() {
                     <div className="mb-3 flex items-center gap-2">
                       <span className={cn("h-2 w-2 flex-shrink-0 rounded-full", node.status === "Ready" ? "bg-green-500" : "bg-red-500")} />
                       <span className="truncate text-sm font-semibold text-white">{node.name}</span>
-                      {node.unschedulable && <span className="rounded bg-orange-500/10 px-1.5 py-0.5 text-xs text-orange-400">Cordoned</span>}
+                      {node.unschedulable && <span className="rounded bg-orange-500/10 px-1.5 py-0.5 text-xs text-orange-400">Maintenance</span>}
                     </div>
                     <div className="space-y-1 text-xs">
                       <div className="flex items-center justify-between gap-2"><span className="text-slate-500">IP</span><span className="flex items-center font-mono text-slate-300">{node.ip}<CopyBtn text={node.ip} /></span></div>
@@ -1058,7 +1071,7 @@ export default function ClusterPage() {
                             cordoningNode === node.name && "opacity-60"
                           )}
                         >
-                          {cordoningNode === node.name ? "Updating..." : node.unschedulable ? "Uncordon" : "Cordon"}
+                          {cordoningNode === node.name ? "Updating..." : node.unschedulable ? "Disable maintenance" : "Enable maintenance"}
                         </button>
                         <button
                           onClick={() => setDrainTarget(node)}

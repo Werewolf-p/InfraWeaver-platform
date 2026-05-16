@@ -22,7 +22,7 @@ export default function VpnPage() {
   const canViewVpn = canAny(["infra:read", "cluster:admin"]);
   const [search, setSearch] = useState("");
 
-  const { data: peers = [], isLoading, isFetching, refetch } = useQuery<NetBirdPeer[]>({
+  const { data: peers = [], dataUpdatedAt, isLoading, isFetching, refetch } = useQuery<NetBirdPeer[]>({
     queryKey: ["netbird", "vpn-page"],
     queryFn: async () => {
       const response = await fetch("/api/netbird/peers", { cache: "no-store" });
@@ -44,7 +44,10 @@ export default function VpnPage() {
 
   const connectedCount = peers.filter((peer) => peer.connected).length;
   const offlineCount = peers.length - connectedCount;
-  const staleCount = peers.filter((peer) => peer.lastSeen && Date.now() - new Date(peer.lastSeen).getTime() > 24 * 3_600_000).length;
+  const staleCount = peers.filter((peer) => {
+    if (!peer.lastSeen || !dataUpdatedAt) return false;
+    return dataUpdatedAt - new Date(peer.lastSeen).getTime() > 24 * 3_600_000;
+  }).length;
 
   if (!canViewVpn) {
     return (
