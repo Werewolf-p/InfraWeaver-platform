@@ -7,7 +7,9 @@ import { ClusterSelector } from "@/components/layout/cluster-selector";
 import { useSession } from "next-auth/react";
 import { usePathname } from "next/navigation";
 import { useState, useRef, useEffect, useMemo } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import Link from "next/link";
+import { springs } from "@/lib/spring";
 
 const QUICK_CREATE_ITEMS = [
   { label: "Deploy from Catalog", href: "/catalog-install" },
@@ -89,16 +91,19 @@ export function TopBar({ onMenuClick, onSearchClick }: { title?: string; onMenuC
   }, [pathname]);
 
   return (
-    <header className="flex min-h-16 flex-shrink-0 items-center justify-between gap-3 border-b border-[#2a2a2a] bg-[#141414] px-3 sm:min-h-14 sm:px-4">
+    <header className="flex min-h-16 flex-shrink-0 items-center justify-between gap-3 border-b border-white/5 bg-black/60 backdrop-blur-xl px-3 sm:min-h-14 sm:px-4">
       <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
-        <button
+        <motion.button
           type="button"
           onClick={onMenuClick}
+          whileHover={{ scale: 1.08 }}
+          whileTap={{ scale: 0.92 }}
+          transition={springs.micro}
           className="inline-flex h-11 w-11 items-center justify-center rounded-xl text-[#9e9e9e] transition-colors hover:bg-[#2a2a2a] hover:text-[#f2f2f2] md:hidden"
           aria-label="Open menu"
         >
           <Menu className="h-4 w-4" />
-        </button>
+        </motion.button>
 
         <Link href="/home" className="flex items-center gap-2 md:shrink-0">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#0078D4] text-xs font-bold text-white shadow-[0_0_0_1px_rgba(255,255,255,0.06)]">
@@ -112,7 +117,15 @@ export function TopBar({ onMenuClick, onSearchClick }: { title?: string; onMenuC
 
         <div className="hidden min-w-0 md:block">
           <div className="flex items-center gap-2">
-            <p className="truncate text-sm font-semibold text-[#f2f2f2]">{currentTitle}</p>
+            <motion.p
+              key={currentTitle}
+              initial={{ opacity: 0, x: -4 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={springs.gentle}
+              className="truncate text-sm font-semibold text-[#f2f2f2]"
+            >
+              {currentTitle}
+            </motion.p>
             <span className="rounded-full border border-[#2a2a2a] bg-[#0f0f0f] px-2 py-0.5 text-[10px] font-mono text-[#666]">
               v{appVersion}
             </span>
@@ -143,14 +156,17 @@ export function TopBar({ onMenuClick, onSearchClick }: { title?: string; onMenuC
           <span>{pageContext.badge}</span>
         </div>
 
-        <button
+        <motion.button
           type="button"
           onClick={onSearchClick}
+          whileHover={{ scale: 1.08 }}
+          whileTap={{ scale: 0.92 }}
+          transition={springs.micro}
           className="inline-flex h-11 w-11 items-center justify-center rounded-xl text-[#9e9e9e] transition-colors hover:bg-[#2a2a2a] hover:text-[#f2f2f2] md:hidden"
           aria-label="Search"
         >
           <Search className="h-4 w-4" />
-        </button>
+        </motion.button>
 
         <div className="relative hidden md:block" ref={dropRef}>
           <button
@@ -166,27 +182,35 @@ export function TopBar({ onMenuClick, onSearchClick }: { title?: string; onMenuC
             <span className="rounded-md bg-black/15 px-1.5 py-0.5 text-[10px] font-mono text-white/80">⇧N</span>
             <ChevronDown className={`h-3.5 w-3.5 transition-transform ${quickOpen ? "rotate-180" : ""}`} />
           </button>
-          {quickOpen && (
-            <div className="absolute right-0 top-full z-50 mt-2 w-56 overflow-hidden rounded-xl border border-[#333] bg-[#1a1a1a] shadow-xl">
-              <div className="border-b border-[#2a2a2a] px-3 py-2">
-                <p className="text-xs font-semibold text-white">Quick create</p>
-                <p className="mt-1 text-[11px] text-[#666]">Jump into common operator workflows.</p>
-              </div>
-              <div className="py-1">
-                {QUICK_CREATE_ITEMS.map((item) => (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    onClick={() => setQuickOpen(false)}
-                    className="flex items-center gap-2 px-3 py-2.5 text-sm text-[#f2f2f2] transition-colors hover:bg-[#2a2a2a]"
-                  >
-                    <ExternalLink className="h-3.5 w-3.5 text-[#555]" />
-                    {item.label}
-                  </Link>
-                ))}
-              </div>
-            </div>
-          )}
+          <AnimatePresence>
+            {quickOpen && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: -4 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: -4 }}
+                transition={springs.snappy}
+                className="absolute right-0 top-full z-50 mt-2 w-56 overflow-hidden rounded-xl border border-[#333] bg-[#1a1a1a] shadow-xl"
+              >
+                <div className="border-b border-[#2a2a2a] px-3 py-2">
+                  <p className="text-xs font-semibold text-white">Quick create</p>
+                  <p className="mt-1 text-[11px] text-[#666]">Jump into common operator workflows.</p>
+                </div>
+                <div className="py-1">
+                  {QUICK_CREATE_ITEMS.map((item) => (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      onClick={() => setQuickOpen(false)}
+                      className="flex items-center gap-2 px-3 py-2.5 text-sm text-[#f2f2f2] transition-colors hover:bg-[#2a2a2a]"
+                    >
+                      <ExternalLink className="h-3.5 w-3.5 text-[#555]" />
+                      {item.label}
+                    </Link>
+                  ))}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
         <div className="hidden md:block">

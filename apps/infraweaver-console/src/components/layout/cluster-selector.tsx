@@ -1,8 +1,10 @@
 "use client";
 import { useRef, useState, useEffect } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { ChevronDown, Server, Globe, CheckCircle2, AlertCircle, Loader2, WifiOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCluster, type ActiveClusterId, type ClusterInfo } from "@/contexts/cluster-context";
+import { springs } from "@/lib/spring";
 
 function StatusDot({ status }: { status: ClusterInfo["status"] | "all" }) {
   if (status === "all") return <Globe className="h-3 w-3 text-[#60a5fa]" />;
@@ -53,45 +55,53 @@ export function ClusterSelector() {
         <ChevronDown className={cn("h-3 w-3 transition-transform", open && "rotate-180")} />
       </button>
 
-      {open && (
-        <div className="absolute right-0 top-full z-50 mt-1 w-56 overflow-hidden rounded-xl border border-[#2a2a2a] bg-[#1a1a1a] shadow-2xl">
-          <div className="px-3 pb-1 pt-2.5">
-            <p className="text-[10px] font-medium uppercase tracking-wider text-[#555]">Active Cluster</p>
-          </div>
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: -4 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: -4 }}
+            transition={springs.snappy}
+            className="absolute right-0 top-full z-50 mt-1 w-56 overflow-hidden rounded-xl border border-[#2a2a2a] bg-[#1a1a1a] shadow-2xl"
+          >
+            <div className="px-3 pb-1 pt-2.5">
+              <p className="text-[10px] font-medium uppercase tracking-wider text-[#555]">Active Cluster</p>
+            </div>
 
-          {/* Individual clusters */}
-          <div className="space-y-0.5 px-1.5 pb-1.5">
-            {clusters.map((cluster) => (
-              <ClusterOption
-                key={cluster.id}
-                id={cluster.id}
-                label={cluster.name}
-                description={cluster.isLocal ? "Console host" : cluster.description}
-                status={cluster.status}
-                active={activeId === cluster.id}
-                onSelect={(id) => { setActiveId(id); setOpen(false); }}
-              />
-            ))}
-          </div>
-
-          {/* Show All option — only makes sense if multiple clusters */}
-          {hasMultiple && (
-            <>
-              <div className="mx-3 border-t border-[#222]" />
-              <div className="px-1.5 py-1.5">
+            {/* Individual clusters */}
+            <div className="space-y-0.5 px-1.5 pb-1.5">
+              {clusters.map((cluster) => (
                 <ClusterOption
-                  id="all"
-                  label="All Clusters"
-                  description="Aggregate view"
-                  status="all"
-                  active={activeId === "all"}
-                  onSelect={(id) => { setActiveId(id as ActiveClusterId); setOpen(false); }}
+                  key={cluster.id}
+                  id={cluster.id}
+                  label={cluster.name}
+                  description={cluster.isLocal ? "Console host" : cluster.description}
+                  status={cluster.status}
+                  active={activeId === cluster.id}
+                  onSelect={(id) => { setActiveId(id); setOpen(false); }}
                 />
-              </div>
-            </>
-          )}
-        </div>
-      )}
+              ))}
+            </div>
+
+            {/* Show All option — only makes sense if multiple clusters */}
+            {hasMultiple && (
+              <>
+                <div className="mx-3 border-t border-[#222]" />
+                <div className="px-1.5 py-1.5">
+                  <ClusterOption
+                    id="all"
+                    label="All Clusters"
+                    description="Aggregate view"
+                    status="all"
+                    active={activeId === "all"}
+                    onSelect={(id) => { setActiveId(id as ActiveClusterId); setOpen(false); }}
+                  />
+                </div>
+              </>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
