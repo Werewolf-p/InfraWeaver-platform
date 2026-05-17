@@ -53,7 +53,7 @@ spec:
               topologyKey: kubernetes.io/hostname
       containers:
       - name: console
-        image: onedev.rlservers.com/infraweaver/infraweaver-console:main-11d13a0
+        image: onedev.rlservers.com/infraweaver/infraweaver-console:main-9107b03
         imagePullPolicy: IfNotPresent
         command: ["sh", "-c", "HOSTNAME=0.0.0.0 node server.js"]
         ports:
