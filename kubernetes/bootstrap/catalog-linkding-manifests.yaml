@@ -1,7 +1,7 @@
 ---
 # catalog-linkding-manifests.yaml — deployed by InfraWeaver Community Apps
 # Source: sissbruecker/linkding
-# Installed: 2026-05-17T11:15:07.216Z
+# Installed: 2026-05-17T11:45:04.375Z
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
