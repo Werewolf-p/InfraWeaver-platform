@@ -61,8 +61,25 @@ interface GHTreeItem {
   sha: string;
 }
 
+/** Retry fetch on transient network errors (DNS failures, connection resets). */
+async function fetchWithRetry(url: string, init?: RequestInit, retries = 3): Promise<Response> {
+  let lastError: unknown;
+  for (let i = 0; i < retries; i++) {
+    try {
+      return await fetch(url, init);
+    } catch (err) {
+      lastError = err;
+      const msg = err instanceof Error ? err.message : String(err);
+      const isTransient = /EAI_AGAIN|ECONNRESET|ECONNREFUSED|ETIMEDOUT|fetch failed/i.test(msg);
+      if (!isTransient || i >= retries - 1) throw err;
+      await new Promise((r) => setTimeout(r, (i + 1) * 1000));
+    }
+  }
+  throw lastError;
+}
+
 async function ghGetFileSha(path: string): Promise<string | null> {
-  const res = await fetch(`${GH_API}/contents/${path}`, {
+  const res = await fetchWithRetry(`${GH_API}/contents/${path}`, {
     headers: { Authorization: `Bearer ${GITHUB_TOKEN}`, Accept: "application/vnd.github.v3+json" },
     cache: "no-store",
   });
@@ -73,7 +90,7 @@ async function ghGetFileSha(path: string): Promise<string | null> {
 }
 
 async function ghDeleteFile(path: string, message: string, sha: string): Promise<boolean> {
-  const res = await fetch(`${GH_API}/contents/${path}`, {
+  const res = await fetchWithRetry(`${GH_API}/contents/${path}`, {
     method: "DELETE",
     headers: {
       Authorization: `Bearer ${GITHUB_TOKEN}`,
@@ -86,7 +103,7 @@ async function ghDeleteFile(path: string, message: string, sha: string): Promise
 }
 
 async function ghListDir(dirPath: string): Promise<GHTreeItem[]> {
-  const res = await fetch(`${GH_API}/contents/${dirPath}`, {
+  const res = await fetchWithRetry(`${GH_API}/contents/${dirPath}`, {
     headers: { Authorization: `Bearer ${GITHUB_TOKEN}`, Accept: "application/vnd.github.v3+json" },
     cache: "no-store",
   });

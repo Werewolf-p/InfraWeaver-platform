@@ -70,6 +70,10 @@ const SAFE_ERROR_SUBSTRINGS = [
   "rejected",
   "failed",
   "unavailable",
+  "network",
+  "dns",
+  "connection",
+  "conflict",
 ];
 
 function redactErrorMessage(message: string) {

@@ -81,6 +81,23 @@ interface GitHubFile {
   sha?: string;
 }
 
+/** Retry fetch on transient network errors (DNS failures, connection resets). */
+async function fetchWithRetry(url: string, init?: RequestInit, retries = 3): Promise<Response> {
+  let lastError: unknown;
+  for (let i = 0; i < retries; i++) {
+    try {
+      return await fetch(url, init);
+    } catch (err) {
+      lastError = err;
+      const msg = err instanceof Error ? err.message : String(err);
+      const isTransient = /EAI_AGAIN|ECONNRESET|ECONNREFUSED|ETIMEDOUT|fetch failed/i.test(msg);
+      if (!isTransient || i >= retries - 1) throw err;
+      await new Promise((r) => setTimeout(r, (i + 1) * 1000));
+    }
+  }
+  throw lastError;
+}
+
 function sanitizeKubernetesName(value: string): string {
   return value
     .toLowerCase()
@@ -91,7 +108,7 @@ function sanitizeKubernetesName(value: string): string {
 }
 
 async function ghGet(path: string): Promise<GitHubFile | null> {
-  const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/contents/${path}`, {
+  const res = await fetchWithRetry(`https://api.github.com/repos/${GITHUB_REPO}/contents/${path}`, {
     headers: {
       Authorization: `Bearer ${GITHUB_TOKEN}`,
       Accept: "application/vnd.github.v3+json",
@@ -112,7 +129,7 @@ async function ghPut(path: string, content: string, message: string, sha?: strin
       committer: { name: "InfraWeaver Console", email: "console@rlservers.com" },
     };
     if (fileSha) body.sha = fileSha;
-    return fetch(`https://api.github.com/repos/${GITHUB_REPO}/contents/${path}`, {
+    return fetchWithRetry(`https://api.github.com/repos/${GITHUB_REPO}/contents/${path}`, {
       method: "PUT",
       headers: {
         Authorization: `Bearer ${GITHUB_TOKEN}`,
