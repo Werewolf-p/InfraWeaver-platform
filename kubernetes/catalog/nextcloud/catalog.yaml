@@ -1,0 +1,14 @@
+# Community app installed from Unraid AppFeed
+# Source: lscr.io/linuxserver/nextcloud
+name: nextcloud
+description: "Nextcloud(https://nextcloud.com/) gives you access to all your files wherever you are. Where are your photos and documents? With Nextcloud you pick a server of your choice, at home, in a data center o"
+namespace: nextcloud
+source: community-apps
+tier: simple
+image: lscr.io/linuxserver/nextcloud
+categories:
+  - "Cloud"
+  - "Tools-Utilities"
+ingressroute:
+  host: nextcloud.int.rlservers.com
+installed_at: 2026-05-17T18:03:24.268Z
