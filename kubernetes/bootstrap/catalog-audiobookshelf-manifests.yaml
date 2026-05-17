@@ -1,7 +1,7 @@
 ---
 # catalog-audiobookshelf-manifests.yaml — deployed by InfraWeaver Community Apps
 # Source: ghcr.io/advplyr/audiobookshelf
-# Installed: 2026-05-17T22:30:17.567Z
+# Installed: 2026-05-17T22:43:24.319Z
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
