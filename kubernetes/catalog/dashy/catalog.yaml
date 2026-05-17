@@ -1,0 +1,13 @@
+# Community app installed from Unraid AppFeed
+# Source: lissy93/dashy:latest
+name: dashy
+description: "Dashy helps you organize your self-hosted services, by making them all accessible from a single place. -Before you start CLI Unraid mkdir /mnt/user/appdata/dashy/ wget -O /mnt/user/appdata/dashy/conf."
+namespace: dashy
+source: community-apps
+tier: simple
+image: lissy93/dashy:latest
+categories:
+  - "Network-Web"
+ingressroute:
+  host: dashy.int.rlservers.com
+installed_at: 2026-05-17T13:25:58.070Z
