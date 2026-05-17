@@ -274,6 +274,8 @@ function computeVolumeInfos(configs: AppFeedConfig[], slug: string): VolumeInfo[
 
     const cls = classifyPath(target, attrs.Name);
     if (cls.kind === "skip") continue;
+
+    const mountPath = cls.kind === "pvc" ? safeMountDir(target) : target;
     let volumeName: string;
     let pvcName: string | undefined;
 
