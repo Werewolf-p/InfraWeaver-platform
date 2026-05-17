@@ -1,7 +1,7 @@
 ---
 # catalog-searxng-manifests.yaml — deployed by InfraWeaver Community Apps
 # Source: searxng/searxng
-# Installed: 2026-05-17T22:31:46.513Z
+# Installed: 2026-05-17T22:44:51.252Z
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
