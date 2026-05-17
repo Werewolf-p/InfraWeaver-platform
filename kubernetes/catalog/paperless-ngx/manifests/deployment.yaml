@@ -32,7 +32,7 @@ spec:
           image: ghcr.io/paperless-ngx/paperless-ngx
           env:
             - name: PAPERLESS_REDIS
-              value: "redis://[REPLACE-WITH-IP]:6379"
+              value: "redis://redis.paperless-ngx.svc.cluster.local:6379"
             - name: PAPERLESS_OCR_LANGUAGE
               value: "eng"
             - name: PAPERLESS_OCR_LANGUAGES
@@ -46,7 +46,7 @@ spec:
             - name: PAPERLESS_CONSUMER_POLLING
               value: "0"
             - name: PAPERLESS_SECRET_KEY
-              value: "e11fl1oa-*ytql8p)(06fbj4ukrlo+n7k&amp;q5+$1md7i+mge=ee"
+              value: "infraweaver-secret-123"
             - name: USERMAP_UID
               value: "99"
             - name: USERMAP_GID
