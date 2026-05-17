@@ -1,0 +1,36 @@
+---
+# catalog-adminer-manifests.yaml — deployed by InfraWeaver Community Apps
+# Source: adminer
+# Installed: 2026-05-17T09:15:46.534Z
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: catalog-adminer-manifests
+  namespace: argocd
+  labels:
+    infraweaver.io/type: catalog-app
+    infraweaver.io/source: community-apps
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  source:
+    repoURL: https://github.com/Werewolf-p/InfraWeaver-platform.git
+    targetRevision: HEAD
+    path: kubernetes/catalog/adminer/manifests
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: adminer
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
