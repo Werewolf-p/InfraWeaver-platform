@@ -9,8 +9,12 @@ metadata:
 rules:
   # Core resources: full read
   - apiGroups: [""]
-    resources: ["pods", "pods/log", "pods/exec", "namespaces", "nodes", "events", "services", "configmaps", "secrets", "persistentvolumeclaims", "persistentvolumes"]
+    resources: ["pods", "pods/log", "pods/exec", "nodes", "events", "services", "configmaps", "secrets", "persistentvolumeclaims", "persistentvolumes"]
     verbs: ["get", "list", "watch"]
+  # Namespaces: read + delete (community app uninstall cascades through namespace deletion)
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch", "delete"]
   # Secrets in infraweaver-system: full CRUD (cluster registry)
   - apiGroups: [""]
     resources: ["secrets", "configmaps"]
@@ -30,7 +34,7 @@ rules:
     verbs: ["get", "list"]
   - apiGroups: ["argoproj.io"]
     resources: ["applications", "appprojects"]
-    verbs: ["get", "list", "watch", "patch", "update"]
+    verbs: ["get", "list", "watch", "patch", "update", "delete"]
   - apiGroups: ["batch"]
     resources: ["jobs", "cronjobs"]
     verbs: ["get", "list", "watch"]
