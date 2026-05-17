@@ -28,7 +28,7 @@ jest.mock("@kubernetes/client-node", () => {
   };
 });
 
-import { buildConsoleInputScript, forceStopServer, scaleServerWorkload } from "@/lib/game-hub-server";
+import { buildConsoleInputScript, forceStopServer, isKubernetesNotFoundError, scaleServerWorkload } from "@/lib/game-hub-server";
 
 describe("game hub server helpers", () => {
   it("builds a safe exec script for console input", () => {
@@ -75,6 +75,13 @@ describe("game hub server helpers", () => {
       namespace: "game-hub",
       body: expect.objectContaining({ spec: expect.objectContaining({ replicas: 0 }) }),
     }));
+  });
+
+  it("detects kubernetes not found errors from client-node responses", () => {
+    expect(isKubernetesNotFoundError({ statusCode: 404 })).toBe(true);
+    expect(isKubernetesNotFoundError({ body: { code: 404, reason: "NotFound" } })).toBe(true);
+    expect(isKubernetesNotFoundError(new Error("HTTP-Code: 404"))).toBe(true);
+    expect(isKubernetesNotFoundError({ statusCode: 500 })).toBe(false);
   });
 
   it("force stops by scaling down and deleting pods with zero grace period", async () => {

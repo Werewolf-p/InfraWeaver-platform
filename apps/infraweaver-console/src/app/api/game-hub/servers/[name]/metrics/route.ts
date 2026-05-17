@@ -4,6 +4,7 @@ import { getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
 import {
   GAME_HUB_NS,
   getServerDeployment,
+  isKubernetesNotFoundError,
   makeGameHubClients,
   parseCpuQuantity,
   parseMemoryBytes,
@@ -158,6 +159,10 @@ export async function GET(
     return NextResponse.json(result.points);
   } catch (error) {
     console.error("metrics route failed", error);
+    if (isKubernetesNotFoundError(error)) {
+      metricsCache.delete(name);
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
 }

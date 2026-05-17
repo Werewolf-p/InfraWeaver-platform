@@ -2687,10 +2687,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
   const [hpaMax, setHpaMax] = useState(server.hpa.max);
   const [hpaCpu, setHpaCpu] = useState(server.hpa.cpuTarget ?? 70);
   const [scaleSaving, setScaleSaving] = useState(false);
-  const [autoRestart, setAutoRestart] = useState(
-    server.restartPolicy !== "OnFailure",
-  );
-  const [savingRestart, setSavingRestart] = useState(false);
+  const autoRestart = server.restartPolicy === "Always";
   const [notes, setNotes] = useState(server.notes ?? "");
   const [savingNotes, setSavingNotes] = useState(false);
   const [memLimit, setMemLimit] = useState(parseMemoryMi(server.memory));
@@ -2860,22 +2857,8 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
     }
   }
 
-  async function toggleAutoRestart() {
-    const next = !autoRestart;
-    setSavingRestart(true);
-    try {
-      await patchServer(
-        { action: "set-restart-policy", restartPolicy: next },
-        next
-          ? "Crash restart enabled"
-          : "Crash restart limited to failures only",
-      );
-      setAutoRestart(next);
-    } catch (error) {
-      toast.error(String(error));
-    } finally {
-      setSavingRestart(false);
-    }
+  function showAutoRestartInfo() {
+    toast.info("Crash restart is always enabled for deployment-backed Game Hub servers.");
   }
 
   async function saveNotes() {
@@ -3512,26 +3495,18 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
           <div className="flex min-w-0 items-center justify-between gap-3">
             <div className="min-w-0 flex-1">
               <p className="block truncate text-sm text-[#f2f2f2]">Restart on crash</p>
-              <p className="mt-0.5 truncate text-xs text-[#888]">
-                Automatically restart if the server process exits unexpectedly
+              <p className="mt-0.5 text-xs text-[#888]">
+                Kubernetes Deployments keep this enabled automatically for Game Hub servers.
               </p>
             </div>
             <button
-              onClick={toggleAutoRestart}
-              disabled={savingRestart}
-              className={cn(
-                "relative h-6 w-11 shrink-0 rounded-full transition-colors",
-                autoRestart ? "bg-[#3b82f6]" : "bg-[#2a2a2a]",
-              )}
+              type="button"
+              onClick={showAutoRestartInfo}
+              className="rounded-full border border-[#2a2a2a] bg-[#181818] px-3 py-1 text-xs font-medium text-[#bdbdbd] transition-colors hover:border-[#3b82f6]/40 hover:text-[#dbeafe]"
             >
-            <span
-              className={cn(
-                "absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform shadow",
-                autoRestart ? "translate-x-5" : "translate-x-0",
-              )}
-            />
-          </button>
-        </div>
+              {autoRestart ? "Always on" : "Managed by Kubernetes"}
+            </button>
+          </div>
       </div>
     </div>
 

@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import { sanitizeConsoleCommand } from "@/lib/api-helpers";
 import { auditLog, auditUnauthorizedAccess } from "@/lib/audit-log";
 import { getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
-import { appendServerAudit, getServerDeployment, isServerStartingError, makeGameHubClients, readServerEgg, runServerCommand } from "@/lib/game-hub-server";
+import { appendServerAudit, getServerDeployment, isKubernetesNotFoundError, isServerStartingError, makeGameHubClients, readServerEgg, runServerCommand } from "@/lib/game-hub-server";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { getEffectivePermissions } from "@/lib/rbac";
 import { safeError } from "@/lib/utils";
@@ -69,6 +69,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ nam
     return NextResponse.json({ stdout: commandResult.stdout, stderr: commandResult.stderr, success: true, method: commandResult.method });
   } catch (error) {
     console.error("game hub command failed", error);
+    if (isKubernetesNotFoundError(error)) {
+      return NextResponse.json({ error: "Not found", stdout: "", stderr: "", success: false }, { status: 404 });
+    }
     if (isServerStartingError(error)) {
       return NextResponse.json(
         { error: "Server is starting up, please wait...", stdout: "", stderr: "", success: false },

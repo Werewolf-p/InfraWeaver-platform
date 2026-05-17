@@ -28,6 +28,7 @@ import {
   sendDiscordWebhook,
   validateServerToken,
   writeSavedCommands,
+  isKubernetesNotFoundError,
 } from "@/lib/game-hub-server";
 import { validateK8sName } from "@/lib/api-security";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
@@ -383,6 +384,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ name
       return NextResponse.json(await buildResponse(name, true));
     } catch (error) {
       console.error("token auth server get failed", error);
+      if (isKubernetesNotFoundError(error)) {
+        return NextResponse.json({ error: "Not found" }, { status: 404 });
+      }
       return NextResponse.json({ error: safeError(error) }, { status: 500 });
     }
   }
@@ -399,6 +403,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ name
     return NextResponse.json(await buildResponse(name, false, access, includeYaml));
   } catch (error) {
     console.error("server GET failed", error);
+    if (isKubernetesNotFoundError(error)) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
 }
@@ -588,8 +595,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
       });
       await upsertEggConfigMap(clients.coreApi, name, egg, nextEnv);
     } else if (body.action === "set-restart-policy") {
-      const policy = body.restartPolicy === true ? "Always" : "OnFailure";
-      await clients.appsApi.patchNamespacedDeployment({ name, namespace: GAME_HUB_NAMESPACE, body: { spec: { template: { spec: { restartPolicy: policy } } } }, fieldManager: "infraweaver" });
+      if (body.restartPolicy !== true) {
+        return NextResponse.json(
+          { error: "Game Hub deployments always restart crashed pods. Use schedules or stop actions to keep a server offline." },
+          { status: 400 },
+        );
+      }
     } else if (body.action === "set-notes" || body.action === "update-notes") {
       await clients.appsApi.patchNamespacedDeployment({ name, namespace: GAME_HUB_NAMESPACE, body: { metadata: { annotations: { "infraweaver/notes": body.notes ?? "" } } }, fieldManager: "infraweaver" });
     } else if (body.action === "update-resources") {
@@ -852,6 +863,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
     return NextResponse.json({ action: body.action, name });
   } catch (error) {
     console.error("server patch failed", error);
+    if (isKubernetesNotFoundError(error)) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
 }

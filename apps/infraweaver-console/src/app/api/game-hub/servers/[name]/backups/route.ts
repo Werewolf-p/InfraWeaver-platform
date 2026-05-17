@@ -10,6 +10,7 @@ import {
   getServerDeployment,
   getServerPod,
   gracefulStopServer,
+  isKubernetesNotFoundError,
   makeGameHubClients,
   readServerEgg,
   shellQuote,
@@ -163,6 +164,9 @@ export async function GET(
     return NextResponse.json({ backups: await listBackups(name) });
   } catch (error) {
     console.error("list backups failed", error);
+    if (isKubernetesNotFoundError(error)) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
 }
@@ -226,7 +230,7 @@ export async function POST(
           (volume) => volume.persistentVolumeClaim?.claimName,
         )?.persistentVolumeClaim?.claimName ?? `${name}-data`;
       const backupDir = backupDirForMountPath(egg.mountPath);
-      const desiredReplicas = Math.max(deployment.spec?.replicas ?? 1, 1);
+      const desiredReplicas = deployment.spec?.replicas ?? 1;
       const restorePodName = `${name}-restore`.slice(0, 63);
 
       if ((deployment.spec?.replicas ?? 0) > 0) {
@@ -350,6 +354,9 @@ export async function POST(
     return NextResponse.json({ backups: await listBackups(name) });
   } catch (error) {
     console.error("create backup failed", error);
+    if (isKubernetesNotFoundError(error)) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
 }
@@ -418,6 +425,9 @@ export async function DELETE(
     return NextResponse.json({ backups: await listBackups(name) });
   } catch (error) {
     console.error("delete backup failed", error);
+    if (isKubernetesNotFoundError(error)) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
 }

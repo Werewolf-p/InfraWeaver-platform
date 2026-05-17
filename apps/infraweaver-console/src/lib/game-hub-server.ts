@@ -128,6 +128,39 @@ export async function readServerEgg(
   return getEggForGameType(getDeploymentGameType(deployment));
 }
 
+function kubernetesErrorText(error: unknown) {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  if (!error || typeof error !== "object") return "";
+
+  const statusText = typeof (error as { statusCode?: unknown }).statusCode === "number"
+    ? `HTTP ${String((error as { statusCode?: number }).statusCode)}`
+    : "";
+  const body = (error as { body?: { message?: unknown; reason?: unknown; code?: unknown } }).body;
+  const bodyText = [body?.message, body?.reason, body?.code]
+    .filter((value) => value !== undefined && value !== null)
+    .map((value) => String(value))
+    .join(" ");
+
+  return `${statusText} ${bodyText}`.trim();
+}
+
+export function getKubernetesErrorStatus(error: unknown) {
+  if (typeof error !== "object" || error === null) return null;
+
+  const statusCode = (error as { statusCode?: unknown }).statusCode;
+  if (typeof statusCode === "number") return statusCode;
+
+  const bodyCode = (error as { body?: { code?: unknown } }).body?.code;
+  if (typeof bodyCode === "number") return bodyCode;
+
+  return null;
+}
+
+export function isKubernetesNotFoundError(error: unknown) {
+  return getKubernetesErrorStatus(error) === 404 || /404|not\s*found/i.test(kubernetesErrorText(error));
+}
+
 export async function getServerDeployment(appsApi: k8s.AppsV1Api, name: string) {
   return appsApi.readNamespacedDeployment({ name, namespace: GAME_HUB_NS });
 }
