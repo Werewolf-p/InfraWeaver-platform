@@ -9,5 +9,5 @@ image: prom/prometheus
 categories:
   - "Productivity"
 ingressroute:
-  host: prometheus.apps.int.rlservers.com
-installed_at: 2026-05-17T17:52:45.038Z
+  host: prometheus.int.rlservers.com
+installed_at: 2026-05-17T17:55:41.954Z
