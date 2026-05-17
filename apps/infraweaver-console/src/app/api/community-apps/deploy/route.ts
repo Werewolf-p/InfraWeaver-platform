@@ -264,9 +264,12 @@ ${result.manifests.ingressroute ? `ingressroute:\n  host: ${ingressHost ?? `${sl
 installed_at: ${new Date().toISOString()}
 `;
 
-  const allFiles: Array<[string, string]> = [
-    [`${baseDir}/deployment.yaml`, deploymentWithService],
-  ];
+  const allFiles: Array<[string, string]> = [];
+  // namespace.yaml must come first — it sets pod-security labels before deployment
+  if (result.manifests.namespace) {
+    allFiles.push([`${baseDir}/namespace.yaml`, result.manifests.namespace]);
+  }
+  allFiles.push([`${baseDir}/deployment.yaml`, deploymentWithService]);
   if (result.manifests.pvcs.length > 0) {
     allFiles.push([`${baseDir}/pvc.yaml`, result.manifests.pvcs.join("\n")]);
   }

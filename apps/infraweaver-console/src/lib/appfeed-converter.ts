@@ -303,6 +303,8 @@ export interface ConversionResult {
   tier: K8sCompatTier;
   warnings: string[];
   manifests: {
+    /** Namespace manifest with pod-security labels (present when hostNetwork/privileged required) */
+    namespace?: string;
     deployment: string;
     service?: string;
     pvcs: string[];
@@ -600,6 +602,25 @@ spec:
     requests:
       storage: ${sizeGi}Gi`;
     });
+}
+
+/**
+ * Builds a Namespace manifest with pod-security labels.
+ * Required when an app uses hostNetwork or privileged mode — the cluster's default
+ * PodSecurity standard (baseline) forbids these. Setting enforce=privileged on the
+ * namespace allows them while audit/warn stay at baseline for visibility.
+ */
+function buildNamespaceManifest(namespace: string): string {
+  return `---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ${namespace}
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/warn: privileged
+    pod-security.kubernetes.io/audit: baseline
+    infraweaver.io/source: community-apps`;
 }
 
 function buildService(ports: AppFeedConfig[], slug: string, namespace: string): string | null {
@@ -923,7 +944,13 @@ ${allVolumes.length > 0 ? `      volumes:\n${allVolumes.join("\n")}` : "      # 
     }
   }
 
-  const allParts: string[] = [deploymentYaml];
+  // Namespace manifest — required when hostNetwork or privileged to override PodSecurity baseline
+  const needsPrivilegedNamespace = isPrivileged || isHostNetwork;
+  const namespaceYaml = needsPrivilegedNamespace ? buildNamespaceManifest(namespace) : undefined;
+
+  const allParts: string[] = [];
+  if (namespaceYaml) allParts.push(namespaceYaml);
+  allParts.push(deploymentYaml);
   if (serviceYaml) allParts.push(serviceYaml);
   allParts.push(...pvcs);
   if (ingressRouteYaml) allParts.push(ingressRouteYaml);
@@ -934,6 +961,7 @@ ${allVolumes.length > 0 ? `      volumes:\n${allVolumes.join("\n")}` : "      # 
     tier,
     warnings,
     manifests: {
+      namespace: namespaceYaml,
       deployment: deploymentYaml,
       service: serviceYaml ?? undefined,
       pvcs,
