@@ -38,7 +38,7 @@ export function ClusterSelector({ popupDirection = "down" }: { popupDirection?: 
       <button
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          "flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors touch-manipulation",
+          "flex h-8 min-h-[44px] sm:min-h-0 sm:h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors touch-manipulation",
           open
             ? "border-[#3b82f6]/50 bg-[#3b82f6]/10 text-[#7cb9ff]"
             : "border-[#2a2a2a] bg-[#1a1a1a] text-[#9e9e9e] hover:border-[#444] hover:text-[#f2f2f2]",
@@ -85,22 +85,20 @@ export function ClusterSelector({ popupDirection = "down" }: { popupDirection?: 
               ))}
             </div>
 
-            {/* Show All option — only makes sense if multiple clusters */}
-            {hasMultiple && (
-              <>
-                <div className="mx-3 border-t border-[#222]" />
-                <div className="px-1.5 py-1.5">
-                  <ClusterOption
-                    id="all"
-                    label="All Clusters"
-                    description="Aggregate view"
-                    status="all"
-                    active={activeId === "all"}
-                    onSelect={(id) => { setActiveId(id as ActiveClusterId); setOpen(false); }}
-                  />
-                </div>
-              </>
-            )}
+            {/* Show All option — always available for multi-cluster context awareness */}
+            <>
+              <div className="mx-3 border-t border-[#222]" />
+              <div className="px-1.5 py-1.5">
+                <ClusterOption
+                  id="all"
+                  label="All Clusters"
+                  description={hasMultiple ? "Aggregate view" : "Default — current cluster"}
+                  status="all"
+                  active={activeId === "all"}
+                  onSelect={(id) => { setActiveId(id as ActiveClusterId); setOpen(false); }}
+                />
+              </div>
+            </>
           </motion.div>
         )}
       </AnimatePresence>

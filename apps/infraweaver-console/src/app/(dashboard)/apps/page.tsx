@@ -1250,7 +1250,7 @@ function CatalogBrowseCard({
           onClick={() => onInstall(app)}
           disabled={installed || !canInstall}
           className={cn(
-            "flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors min-h-[36px]",
+            "flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors min-h-[44px] touch-manipulation",
             installed
               ? "bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 cursor-default"
               : canInstall
@@ -1319,7 +1319,7 @@ function CatalogBrowseView({
         <button
           onClick={onCustom}
           disabled={!canInstall}
-          className="flex min-h-[40px] w-full items-center justify-center gap-1.5 rounded-lg border border-[#333] px-3 py-2 text-sm text-[#9e9e9e] transition-colors hover:border-[#555] hover:text-white sm:w-auto whitespace-nowrap disabled:opacity-50"
+          className="flex min-h-[44px] w-full items-center justify-center gap-1.5 rounded-lg border border-[#333] px-3 py-2 text-sm text-[#9e9e9e] transition-colors hover:border-[#555] hover:text-white sm:w-auto whitespace-nowrap disabled:opacity-50 touch-manipulation"
         >
           <PlusCircle className="w-4 h-4" />
           <span className="hidden sm:inline">Custom URL</span>
@@ -1635,7 +1635,7 @@ function CatalogInstallerTab({ onInstalled }: { onInstalled?: () => void }) {
                     <ChevronLeft className="w-4 h-4" /> Back
                   </button>
                   <button onClick={handleInstall} disabled={installing || !canInstallCatalog}
-                    className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 transition-colors disabled:opacity-50">
+                    className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 transition-colors disabled:opacity-50 touch-manipulation min-h-[44px]">
                     {installing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Package className="w-4 h-4" />}
                     {installing ? "Installing…" : "Install Application"}
                   </button>
@@ -2049,7 +2049,7 @@ function AppCard({ app, onDeploy, canDeploy, installed }: { app: AppSummary; onD
           </a>
         )}
         <button onClick={() => onDeploy(app)} disabled={!canDeploy}
-          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded text-xs font-medium bg-indigo-600/80 hover:bg-indigo-500 text-white transition-colors disabled:opacity-50 touch-manipulation">
+          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded text-xs font-medium bg-indigo-600/80 hover:bg-indigo-500 text-white transition-colors disabled:opacity-50 touch-manipulation min-h-[44px]">
           <Globe className="w-3 h-3" /> {installed ? "Reconfigure" : "Deploy"}
         </button>
       </div>
