@@ -1,0 +1,13 @@
+# Community app installed from Unraid AppFeed
+# Source: danielszabo99/microbin
+name: microbin
+description: "MicroBin is a super tiny, feature rich, configurable, self-contained and self-hosted paste bin web application"
+namespace: microbin
+source: community-apps
+tier: simple
+image: danielszabo99/microbin
+categories:
+  - "Network-Web"
+ingressroute:
+  host: microbin.int.rlservers.com
+installed_at: 2026-05-17T09:26:52.425Z
