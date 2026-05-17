@@ -79,6 +79,10 @@ const EMPTY_DIR_MOUNTS: { prefix: string; medium?: "Memory" }[] = [
   { prefix: "/tmp" },
   { prefix: "/dev/shm", medium: "Memory" },
   { prefix: "/run/lock" },
+  { prefix: "/cache" },     // transcode cache (Jellyfin, Plex, etc.)
+  { prefix: "/transcode" },
+  { prefix: "/log" },
+  { prefix: "/logs" },
 ];
 
 /**
@@ -87,7 +91,9 @@ const EMPTY_DIR_MOUNTS: { prefix: string; medium?: "Memory" }[] = [
  * of block storage. Use emptyDir as a placeholder so the pod starts; the operator
  * can overlay a proper NFS/SMB/hostPath mount later.
  *
- * Rule: exact prefix match (or exact match) against the target path.
+ * Two checks apply:
+ * 1. Top-level prefix match  (e.g. /movies → emptyDir)
+ * 2. Any path *segment* is a media keyword  (e.g. /data/tvshows → "tvshows" is media)
  */
 const MEDIA_SINK_PREFIXES: string[] = [
   "/movies", "/films", "/movie",
@@ -103,6 +109,21 @@ const MEDIA_SINK_PREFIXES: string[] = [
   "/games",
 ];
 
+/**
+ * Path segment keywords that indicate a media/data-sink directory even when
+ * nested under another prefix (e.g. /data/tvshows, /data/movies).
+ * Only checked for non-root segments to avoid false-positives on /data alone.
+ */
+const MEDIA_SEGMENT_KEYWORDS = new Set([
+  "movies", "films", "movie",
+  "tvshows", "tv", "series", "shows", "anime",
+  "music", "audio",
+  "downloads", "download", "completed", "incomplete", "torrents",
+  "books", "ebooks", "audiobooks", "comics",
+  "photos", "pictures", "images", "gallery",
+  "video", "podcasts", "games",
+]);
+
 type PathVolumeKind = "pvc" | "hostPath" | "emptyDir" | "skip";
 type PathClassification = { kind: PathVolumeKind; medium?: "Memory" };
 
@@ -113,10 +134,13 @@ function classifyPath(target: string): PathClassification {
     if (p === ed.prefix || p.startsWith(ed.prefix + "/")) return { kind: "emptyDir", medium: ed.medium };
   }
   if (HOST_PATH_RO.some(h => p === h || p.startsWith(h + "/"))) return { kind: "hostPath" };
-  // Media / data-sink paths should be emptyDir, not Longhorn PVCs.
-  // These are meant to be NAS mounts in Unraid — creating block-storage PVCs for them
-  // wastes cluster storage and causes scheduling issues.
+  // Top-level media prefix check (e.g. /movies, /tv)
   if (MEDIA_SINK_PREFIXES.some(m => p === m || p.startsWith(m + "/"))) return { kind: "emptyDir" };
+  // Segment-level media keyword check (e.g. /data/tvshows, /data/movies)
+  const segments = p.split("/").filter(Boolean);
+  if (segments.length > 1 && segments.some(s => MEDIA_SEGMENT_KEYWORDS.has(s.toLowerCase()))) {
+    return { kind: "emptyDir" };
+  }
   return { kind: "pvc" };
 }
 
