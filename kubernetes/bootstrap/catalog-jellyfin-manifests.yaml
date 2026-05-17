@@ -1,7 +1,7 @@
 ---
 # catalog-jellyfin-manifests.yaml — deployed by InfraWeaver Community Apps
 # Source: lscr.io/linuxserver/jellyfin
-# Installed: 2026-05-17T22:40:30.727Z
+# Installed: 2026-05-17T22:56:14.413Z
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
