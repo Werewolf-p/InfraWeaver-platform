@@ -5,8 +5,8 @@ preUpgradeChecker:
   upgradeVersionCheck: false
 
 defaultSettings:
-  # 2-node cluster: store 2 replicas (cp2 node is currently NotReady; update to 3 when all 3 nodes healthy)
-  defaultReplicaCount: 1
+  # All 3 nodes healthy — store 2 replicas (no workers, only 3 CPs; 3 replicas would exhaust disk)
+  defaultReplicaCount: 2
   # Allow scheduling on control-plane nodes (no workers in this cluster)
   taintToleration: "node-role.kubernetes.io/control-plane:NoSchedule"
   # Give Longhorn itself platform-standard priority so storage stays online
@@ -17,7 +17,7 @@ defaultSettings:
   # At 15% the condition would require 63GB reserved which pushes CP1/CP3 to
   # "not schedulable" even though overprovisioning headroom is fine.
   storageMinimalAvailablePercentage: 5
-  storageOverProvisioningPercentage: 200
+  storageOverProvisioningPercentage: 300
   # Reserve CPU for Longhorn instance managers so replica rebuilds do not starve.
   guaranteedInstanceManagerCPU: 12
   # Limit concurrent rebuild pressure during volume creation/recovery storms.
@@ -62,7 +62,7 @@ ingress:
 
 persistence:
   defaultClass: false
-  defaultClassReplicaCount: 1
+  defaultClassReplicaCount: 2
 
 # Allow pods on control-plane nodes
 tolerations:
