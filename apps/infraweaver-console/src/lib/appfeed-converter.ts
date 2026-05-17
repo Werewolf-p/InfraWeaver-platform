@@ -923,24 +923,82 @@ ${containerSecCtxYaml}          resources:
 ${allVolumes.length > 0 ? `      volumes:\n${allVolumes.join("\n")}` : "      # No volumes defined"}`;
 
   const portConfigs = configs.filter(c => c["@attributes"]?.Type === "Port");
-  const serviceYaml = buildService(portConfigs, slug, namespace);
+  let serviceYaml = buildService(portConfigs, slug, namespace);
 
-  // IngressRoute: use WebUI hint or first TCP port
-  let ingressRouteYaml: string | undefined;
+  // ── IngressRoute port resolution ─────────────────────────────────────────
+  // Priority:
+  // 1. WebUI URL port matched back to container Target (fixes Default≠Target confusion)
+  // 2. First TCP portConfig Target port
+  // 3. WebUI URL port directly (apps with WebUI but zero Port-type configs)
   const createIngress = options.createIngress ?? (!!app.WebUI || portConfigs.length > 0);
+  let ingressRouteYaml: string | undefined;
 
   if (createIngress) {
-    let port: number | null = null;
-    if (app.WebUI) port = extractWebUIPort(app.WebUI);
-    if (!port && portConfigs.length > 0) {
-      // Prefer first TCP port for ingress
-      const firstTcp = portConfigs.find(c => (c["@attributes"]?.Mode ?? "tcp").toLowerCase() !== "udp");
-      if (firstTcp) port = parseInt(firstTcp["@attributes"].Target, 10);
+    let ingressPort: number | null = null;
+
+    if (app.WebUI && portConfigs.length > 0) {
+      const webUIDefaultPort = extractWebUIPort(app.WebUI);
+      if (webUIDefaultPort) {
+        // Try to resolve WebUI port (which is often the HOST/default port) back to the
+        // CONTAINER port (Target).  Look for a portConfig whose Default == webUIDefaultPort.
+        const matched = portConfigs.find(
+          c => parseInt(c["@attributes"].Default ?? "", 10) === webUIDefaultPort
+        );
+        if (matched) {
+          const targetPort = parseInt(matched["@attributes"].Target, 10);
+          if (!isNaN(targetPort)) ingressPort = targetPort;
+        }
+        // If no Default-match, try a direct Target match (host port == container port)
+        if (!ingressPort) {
+          const direct = portConfigs.find(
+            c => parseInt(c["@attributes"].Target, 10) === webUIDefaultPort
+          );
+          if (direct) ingressPort = webUIDefaultPort;
+        }
+      }
     }
 
-    if (port && !isNaN(port)) {
+    // Fallback: first TCP portConfig Target
+    if (!ingressPort && portConfigs.length > 0) {
+      const firstTcp = portConfigs.find(
+        c => (c["@attributes"]?.Mode ?? "tcp").toLowerCase() !== "udp"
+      );
+      if (firstTcp) {
+        const t = parseInt(firstTcp["@attributes"].Target, 10);
+        if (!isNaN(t)) ingressPort = t;
+      }
+    }
+
+    // Fallback: WebUI URL port directly (app has WebUI but no Port-type configs)
+    if (!ingressPort && app.WebUI) {
+      ingressPort = extractWebUIPort(app.WebUI);
+    }
+
+    if (ingressPort && !isNaN(ingressPort)) {
+      // If no Service was generated (no Port configs), create a minimal fallback Service
+      // using the ingressPort so the IngressRoute has something to route to.
+      if (!serviceYaml) {
+        serviceYaml = `---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${slug}
+  namespace: ${namespace}
+  labels:
+    app.kubernetes.io/name: ${slug}
+    infraweaver.io/source: community-apps
+spec:
+  selector:
+    app.kubernetes.io/name: ${slug}
+  ports:
+  - port: ${ingressPort}
+    targetPort: ${ingressPort}
+    protocol: TCP
+    name: http
+  type: ClusterIP`;
+      }
       const host = options.ingressHost ?? `${slug}.int.rlservers.com`;
-      ingressRouteYaml = buildIngressRoute(slug, namespace, port, host);
+      ingressRouteYaml = buildIngressRoute(slug, namespace, ingressPort, host);
     }
   }
 
