@@ -1,13 +1,14 @@
 # Community app installed from Unraid AppFeed
-# Source: sdesbure/arch-jackett
+# Source: lscr.io/linuxserver/jackett
 name: jackett
-description: "Use just about any tracker with Sonarr"
+description: "Jackett(https://github.com/Jackett/Jackett) works as a proxy server: it translates queries from apps (Sonarr, SickRage, CouchPotato, Mylar, etc) into tracker-site-specific http queries, parses the htm"
 namespace: jackett
 source: community-apps
 tier: simple
-image: sdesbure/arch-jackett
+image: lscr.io/linuxserver/jackett
 categories:
   - "Downloaders"
-  - "MediaApp-Video"
-
-installed_at: 2026-05-17T22:03:17.167Z
+  - "Tools-Utilities"
+ingressroute:
+  host: jackett.int.rlservers.com
+installed_at: 2026-05-17T22:31:28.105Z
