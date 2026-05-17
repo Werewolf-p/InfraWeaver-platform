@@ -3,6 +3,7 @@ import { cn } from "@/lib/utils";
 import React from "react";
 
 interface CommandBarAction {
+  id?: string;
   label: string;
   icon?: React.ElementType;
   onClick: () => void;
@@ -27,7 +28,7 @@ export function CommandBar({ primary, actions, search, filter, className }: Comm
           {(actions || search || filter) && <div className="w-px h-5 bg-[#333] mx-1 flex-shrink-0" />}
         </>
       )}
-      {actions && actions.map((action, i) => {
+      {actions && actions.map((action) => {
         const Icon = action.icon;
         const variantCls = action.variant === "danger"
           ? "border-red-500/30 text-red-400 hover:bg-red-500/10"
@@ -36,7 +37,7 @@ export function CommandBar({ primary, actions, search, filter, className }: Comm
             : "border-[#333] text-[#f2f2f2] hover:bg-[#2a2a2a]";
         return (
           <button
-            key={i}
+            key={action.id ?? `${action.label}:${action.variant ?? "secondary"}`}
             onClick={action.onClick}
             disabled={action.disabled}
             className={cn(

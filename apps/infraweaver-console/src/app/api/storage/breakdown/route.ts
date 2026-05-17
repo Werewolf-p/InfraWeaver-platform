@@ -1,5 +1,7 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { getRequestClusterId } from "@/lib/cluster-context";
+import { loadKubeConfig } from "@/lib/k8s";
 import { hasPermission } from "@/lib/rbac";
 import * as k8s from "@kubernetes/client-node";
 
@@ -20,7 +22,7 @@ function parseGi(str: string): number {
   return parseFloat(str) / (1024 * 1024 * 1024);
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
@@ -28,13 +30,7 @@ export async function GET() {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   try {
-    const kc = new k8s.KubeConfig();
-    if (process.env.KUBECONFIG) {
-      kc.loadFromFile(process.env.KUBECONFIG);
-    } else {
-      try { kc.loadFromCluster(); } catch { kc.loadFromDefault(); }
-    }
-    const coreApi = kc.makeApiClient(k8s.CoreV1Api);
+    const coreApi = loadKubeConfig(getRequestClusterId(request)).makeApiClient(k8s.CoreV1Api);
     const pvcsResp = await coreApi.listPersistentVolumeClaimForAllNamespaces();
     const breakdown: Record<string, { totalGi: number; pvcCount: number }> = {};
     for (const pvc of (pvcsResp as { items?: unknown[] }).items ?? []) {

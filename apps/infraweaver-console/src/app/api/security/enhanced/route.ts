@@ -1,17 +1,9 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { getRequestClusterId } from "@/lib/cluster-context";
+import { loadKubeConfig } from "@/lib/k8s";
 import { getSessionRBACContext, hasAnySessionPermission } from "@/lib/session-rbac";
 import * as k8s from "@kubernetes/client-node";
-
-function makeKubeConfig(): k8s.KubeConfig {
-  const kc = new k8s.KubeConfig();
-  if (process.env.KUBECONFIG) {
-    kc.loadFromFile(process.env.KUBECONFIG);
-  } else {
-    try { kc.loadFromCluster(); } catch { kc.loadFromDefault(); }
-  }
-  return kc;
-}
 
 interface PodSpec {
   metadata?: { name?: string; namespace?: string };
@@ -42,7 +34,7 @@ interface PodSpec {
   status?: { phase?: string };
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const access = await getSessionRBACContext(session, 60);
@@ -51,7 +43,7 @@ export async function GET() {
   }
 
   try {
-    const kc = makeKubeConfig();
+    const kc = loadKubeConfig(getRequestClusterId(request));
     const coreApi = kc.makeApiClient(k8s.CoreV1Api);
     const policyApi = kc.makeApiClient(k8s.PolicyV1Api);
     const networkingApi = kc.makeApiClient(k8s.NetworkingV1Api);

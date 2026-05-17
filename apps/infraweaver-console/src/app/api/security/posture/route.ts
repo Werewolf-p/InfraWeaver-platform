@@ -1,17 +1,9 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { getRequestClusterId } from "@/lib/cluster-context";
+import { loadKubeConfig } from "@/lib/k8s";
 import { getSessionRBACContext, hasAnySessionPermission } from "@/lib/session-rbac";
 import * as k8s from "@kubernetes/client-node";
-
-function getKubeConfig(): k8s.KubeConfig {
-  const kc = new k8s.KubeConfig();
-  if (process.env.KUBECONFIG) {
-    kc.loadFromFile(process.env.KUBECONFIG);
-  } else {
-    try { kc.loadFromCluster(); } catch { kc.loadFromDefault(); }
-  }
-  return kc;
-}
 
 // Scoring formula (deduct from 100):
 // - Pods running as root: -2 per pod (max -20)
@@ -28,7 +20,7 @@ function gradeFromScore(score: number): string {
   return "F";
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const access = await getSessionRBACContext(session, 60);
@@ -37,7 +29,7 @@ export async function GET() {
   }
 
   try {
-    const kc = getKubeConfig();
+    const kc = loadKubeConfig(getRequestClusterId(request));
     const coreApi = kc.makeApiClient(k8s.CoreV1Api);
     const networkingApi = kc.makeApiClient(k8s.NetworkingV1Api);
     

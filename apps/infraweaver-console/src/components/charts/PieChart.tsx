@@ -36,8 +36,8 @@ export function StoragePieChart({ data, unit = "Gi", className }: StoragePieChar
             animationBegin={0}
             animationDuration={800}
           >
-            {data.map((entry, i) => (
-              <Cell key={i} fill={entry.color} opacity={0.9} />
+            {data.map((entry) => (
+              <Cell key={`${entry.name}:${entry.color}`} fill={entry.color} opacity={0.9} />
             ))}
           </Pie>
           <Tooltip

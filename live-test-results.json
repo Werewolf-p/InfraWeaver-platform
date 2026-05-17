@@ -1,0 +1,1005 @@
+{
+  "counts": {
+    "main": 35,
+    "actual_route_checks": 4,
+    "noauth": 11,
+    "ok": 44,
+    "warn": 2,
+    "fail": 4
+  },
+  "minecraft_status_flow": {
+    "initial": "running",
+    "after_stop_wait": "stopped",
+    "after_restart_wait": "starting"
+  },
+  "terraria_status_flow": {
+    "initial": "stopped",
+    "after_restart_wait": "starting"
+  },
+  "results": [
+    {
+      "name": "cluster.nodes",
+      "category": "main",
+      "method": "GET",
+      "path": "/api/cluster/nodes",
+      "auth": true,
+      "status": 200,
+      "content_type": "application/json",
+      "valid": true,
+      "json_parseable": true,
+      "top_keys": [
+        "nodes"
+      ],
+      "mark": "\u2705",
+      "error": "",
+      "notes": [],
+      "body_preview": "{\"nodes\":[{\"name\":\"talos-prod-cp1\",\"status\":\"Ready\",\"roles\":[\"control-plane\"],\"version\":\"v1.35.4\",\"os\":\"Talos (v1.12.7)\",\"cpu\":\"8\",\"memory\":\"13257992Ki\",\"ip\":\"10.10.0.90\",\"unschedulable\":false,\"age\":\"2026-05-05T16:41:40.000Z\"},{\"name\":\"talos-prod-cp2\",\"status\":\"Ready\",\"roles\":[\"control-plane\"],\"version\":\"v1.35.4\",\"os\":\"Talos (v1.12.7)\",\"cpu\":\"8\",\"memory\":\"13257984Ki\",\"ip\":\"10.10.0.91\",\"unschedulable\":false,\"age\":\"2026-05-05T16:41:40.000Z\"},{\"name\":\"talos-prod-cp3\",\"status\":\"Ready\",\"roles\":[\"cont"
+    },
+    {
+      "name": "cluster.metrics",
+      "category": "main",
+      "method": "GET",
+      "path": "/api/cluster/metrics",
+      "auth": true,
+      "status": 200,
+      "content_type": "application/json",
+      "valid": true,
+      "json_parseable": true,
+      "top_keys": [
+        "metrics",
+        "timestamp"
+      ],
+      "mark": "\u2705",
+      "error": "",
+      "notes": [],
+      "body_preview": "{\"metrics\":[{\"name\":\"talos-prod-cp1\",\"cpuPct\":7,\"memPct\":65,\"cpuMillicores\":547,\"memKi\":8560888},{\"name\":\"talos-prod-cp2\",\"cpuPct\":8,\"memPct\":56,\"cpuMillicores\":636,\"memKi\":7480576},{\"name\":\"talos-prod-cp3\",\"cpuPct\":11,\"memPct\":71,\"cpuMillicores\":858,\"memKi\":9422572}],\"timestamp\":\"2026-05-17T10:27:27.790Z\"}"
+    },
+    {
+      "name": "cluster.events",
+      "category": "main",
+      "method": "GET",
+      "path": "/api/cluster/events",
+      "auth": true,
+      "status": 200,
+      "content_type": "application/json",
+      "valid": true,
+      "json_parseable": true,
+      "top_keys": [
+        "events",
+        "live",
+        "summary"
+      ],
+      "mark": "\u2705",
+      "error": "",
+      "notes": [],
+      "body_preview": "{\"events\":[{\"id\":\"29adc4ca-83ee-46fd-a6df-4e3923c2e7ac\",\"name\":\"catalog-pairdrop-manifests.18b05371c2356727\",\"namespace\":\"argocd\",\"reason\":\"ResourceUpdated\",\"message\":\"Updated health status: Progressing -> Healthy\",\"type\":\"Normal\",\"level\":\"info\",\"count\":1,\"firstSeen\":\"2026-05-17T10:26:40.000Z\",\"lastSeen\":\"2026-05-17T10:26:40.000Z\",\"involvedObject\":{\"kind\":\"Application\",\"name\":\"catalog-pairdrop-manifests\"},\"sourceComponent\":\"argocd-application-controller\"},{\"id\":\"948ca286-554e-4981-9011-f4c685405"
+    },
+    {
+      "name": "cluster.hpa",
+      "category": "main",
+      "method": "GET",
+      "path": "/api/cluster/hpa",
+      "auth": true,
+      "status": 200,
+      "content_type": "application/json",
+      "valid": true,
+      "json_parseable": true,
+      "top_keys": [
+        "hpas"
+      ],
+      "mark": "\u2705",
+      "error": "",
+      "notes": [],
+      "body_preview": "{\"hpas\":[{\"name\":\"argocd-server\",\"namespace\":\"argocd\",\"minReplicas\":1,\"maxReplicas\":5,\"currentReplicas\":2,\"desiredReplicas\":2,\"targetCpuPct\":70},{\"name\":\"grafana\",\"namespace\":\"monitoring\",\"minReplicas\":1,\"maxReplicas\":3,\"currentReplicas\":1,\"desiredReplicas\":1,\"targetCpuPct\":80}]}"
+    },
+    {
+      "name": "cluster.cronjobs",
+      "category": "main",
+      "method": "GET",
+      "path": "/api/cluster/cronjobs",
+      "auth": true,
+      "status": 200,
+      "content_type": "application/json",
+      "valid": true,
+      "json_parseable": true,
+      "top_keys": [
+        "cronjobs",
+        "live",
+        "summary"
+      ],
+      "mark": "\u2705",
+      "error": "",
+      "notes": [],
+      "body_preview": "{\"cronjobs\":[],\"live\":false,\"summary\":{\"total\":0,\"active\":0,\"suspended\":0,\"failing\":0}}"
+    },
+    {
+      "name": "cluster.cost",
+      "category": "main",
+      "method": "GET",
+      "path": "/api/cluster/cost",
+      "auth": true,
+      "status": 200,
+      "content_type": "application/json",
+      "valid": true,
+      "json_parseable": true,
+      "top_keys": [
+        "namespaces",
+        "totalMonthlyCost"
+      ],
+      "mark": "\u2705",
+      "error": "",
+      "notes": [],
+      "body_preview": "{\"namespaces\":[{\"namespace\":\"apps-grafana\",\"cpuMillicores\":100,\"memoryMiB\":128,\"monthlyCostUsd\":4.05},{\"namespace\":\"argocd\",\"cpuMillicores\":810,\"memoryMiB\":1408,\"monthlyCostUsd\":34.4},{\"namespace\":\"authentik\",\"cpuMillicores\":600,\"memoryMiB\":1408,\"monthlyCostUsd\":27.05},{\"namespace\":\"cert-manager\",\"cpuMillicores\":80,\"memoryMiB\":256,\"monthlyCostUsd\":3.9},{\"namespace\":\"dns-system\",\"cpuMillicores\":200,\"memoryMiB\":128,\"monthlyCostUsd\":7.56},{\"namespace\":\"esphome-enhanced\",\"cpuMillicores\":50,\"memoryMi"
+    },
+    {
+      "name": "cluster.config-drift",
+      "category": "main",
+      "method": "GET",
+      "path": "/api/cluster/config-drift",
+      "auth": true,
+      "status": 200,
+      "content_type": "application/json",
+      "valid": false,
+      "json_parseable": true,
+      "top_keys": [
+        "data",
+        "meta"
+      ],
+      "mark": "\u26a0\ufe0f",
+      "error": "{\"data\":{\"drift\":[],\"baselineCaptured\":false},\"meta\":{\"timestamp\":\"2026-05-17T10:27:30.645Z\"}}",
+      "notes": [],
+      "body_preview": "{\"data\":{\"drift\":[],\"baselineCaptured\":false},\"meta\":{\"timestamp\":\"2026-05-17T10:27:30.645Z\"}}"
+    },
+    {
+      "name": "cluster.memory-heatmap",
+      "category": "main",
+      "method": "GET",
+      "path": "/api/cluster/memory-heatmap",
+      "auth": true,
+      "status": 200,
+      "content_type": "application/json",
+      "valid": true,
+      "json_parseable": true,
+      "top_keys": [
+        "namespaces"
+      ],
+      "mark": "\u2705",
+      "error": "",
+      "notes": [],
+      "body_preview": "{\"namespaces\":[{\"name\":\"longhorn-system\",\"total_request_mib\":4608,\"total_limit_mib\":27000,\"pod_count\":27},{\"name\":\"kube-system\",\"total_request_mib\":3246,\"total_limit_mib\":16140,\"pod_count\":22},{\"name\":\"game-hub\",\"total_request_mib\":3000,\"total_limit_mib\":5060,\"pod_count\":2},{\"name\":\"authentik\",\"total_request_mib\":1408,\"total_limit_mib\":3548,\"pod_count\":5},{\"name\":\"plex\",\"total_request_mib\":1024,\"total_limit_mib\":2048,\"pod_count\":1},{\"name\":\"monitoring\",\"total_request_mib\":992,\"total_limit_mib\":3"
+    },
+    {
+      "name": "cluster.memory-pressure",
+      "category": "main",
+      "method": "GET",
+      "path": "/api/cluster/memory-pressure",
+      "auth": true,
+      "status": 200,
+      "content_type": "application/json",
+      "valid": true,
+      "json_parseable": true,
+      "top_keys": [
+        "nodes"
+      ],
+      "mark": "\u2705",
+      "error": "",
+      "notes": [],
+      "body_preview": "{\"nodes\":[{\"name\":\"talos-prod-cp3\",\"pressure_pct\":96,\"status\":\"critical\"},{\"name\":\"talos-prod-cp1\",\"pressure_pct\":87,\"status\":\"warn\"},{\"name\":\"talos-prod-cp2\",\"pressure_pct\":76,\"status\":\"warn\"}]}"
+    },
+    {
+      "name": "cluster.oom-events",
+      "category": "main",
+      "method": "GET",
+      "path": "/api/cluster/oom-events",
+      "auth": true,
+      "status": 200,
+      "content_type": "application/json",
+      "valid": true,
+      "json_parseable": true,
+      "top_keys": [
+        "events"
+      ],
+      "mark": "\u2705",
+      "error": "",
+      "notes": [],
+      "body_preview": "{\"events\":[]}"
+    },
+    {
+      "name": "cluster.namespace-cleanup",
+      "category": "main",
+      "method": "GET",
+      "path": "/api/cluster/namespace-cleanup",
+      "auth": true,
+      "status": 405,
+      "content_type": "",
+      "valid": false,
+      "json_parseable": false,
+      "top_keys": null,
+      "mark": "\u274c",
+      "error": "",
+      "notes": [],
+      "body_preview": ""
+    },
+    {
+      "name": "cluster.export",
+      "category": "main",
+      "method": "POST",
+      "path": "/api/cluster/export",
+      "auth": true,
+      "status": 405,
+      "content_type": "",
+      "valid": false,
+      "json_parseable": false,
+      "top_keys": null,
+      "mark": "\u274c",
+      "error": "",
+      "notes": [],
+      "body_preview": ""
+    },
+    {
+      "name": "network.topology",
+      "category": "main",
+      "method": "GET",
+      "path": "/api/network/topology",
+      "auth": true,
+      "status": 200,
+      "content_type": "application/json",
+      "valid": true,
+      "json_parseable": true,
+      "top_keys": [
+        "nodes",
+        "edges"
+      ],
+      "mark": "\u2705",
+      "error": "",
+      "notes": [],
+      "body_preview": "{\"nodes\":[{\"id\":\"traefik\",\"type\":\"ingress-controller\",\"name\":\"Traefik\",\"namespace\":\"traefik\",\"status\":\"healthy\"},{\"id\":\"svc-apps-grafana-grafana\",\"type\":\"service\",\"name\":\"grafana\",\"namespace\":\"apps-grafana\",\"status\":\"healthy\"},{\"id\":\"svc-argocd-argocd-applicationset-controller\",\"type\":\"service\",\"name\":\"argocd-applicationset-controller\",\"namespace\":\"argocd\",\"status\":\"healthy\"},{\"id\":\"svc-argocd-argocd-dex-server\",\"type\":\"service\",\"name\":\"argocd-dex-server\",\"namespace\":\"argocd\",\"status\":\"healthy\"}"
+    },
+    {
+      "name": "network.policies",
+      "category": "main",
+      "method": "GET",
+      "path": "/api/network/policies",
+      "auth": true,
+      "status": 200,
+      "content_type": "application/json",
+      "valid": true,
+      "json_parseable": true,
+      "top_keys": [
+        "policies"
+      ],
+      "mark": "\u2705",
+      "error": "",
+      "notes": [],
+      "body_preview": "{\"policies\":[{\"namespace\":\"apps-grafana\",\"name\":\"allow-monitoring-ingress\",\"podSelector\":{},\"ingressRules\":1,\"egressRules\":0,\"policyTypes\":[\"Ingress\"],\"createdAt\":\"2026-05-05T19:23:07.000Z\"},{\"namespace\":\"apps-grafana\",\"name\":\"allow-traefik-ingress\",\"podSelector\":{},\"ingressRules\":1,\"egressRules\":0,\"policyTypes\":[\"Ingress\"],\"createdAt\":\"2026-05-05T19:23:07.000Z\"},{\"namespace\":\"apps-grafana\",\"name\":\"default-deny-ingress\",\"podSelector\":{},\"ingressRules\":0,\"egressRules\":0,\"policyTypes\":[\"Ingress\"],"
+    },
+    {
+      "name": "security.certs",
+      "category": "main",
+      "method": "GET",
+      "path": "/api/security/certs",
+      "auth": true,
+      "status": 200,
+      "content_type": "application/json",
+      "valid": true,
+      "json_parseable": true,
+      "top_keys": [
+        "certs",
+        "live",
+        "summary"
+      ],
+      "mark": "\u2705",
+      "error": "",
+      "notes": [],
+      "body_preview": "{\"certs\":[{\"id\":\"197c1618-3286-48d0-8361-95535728b4c8\",\"name\":\"int-rlservers-com-wildcard\",\"namespace\":\"traefik\",\"secretName\":\"int-rlservers-com-tls\",\"commonName\":\"int.rlservers.com\",\"dnsNames\":[\"int.rlservers.com\",\"*.int.rlservers.com\"],\"issuerRef\":\"ClusterIssuer/letsencrypt-cloudflare\",\"ready\":true,\"valid\":true,\"status\":\"Ready\",\"reason\":\"Certificate is up to date and has not expired\",\"notAfter\":\"2026-08-02T17:47:50.000Z\",\"renewalTime\":\"2026-07-03T17:47:50.000Z\",\"daysLeft\":77,\"revision\":null,\"s"
+    },
+    {
+      "name": "secrets",
+      "category": "main",
+      "method": "GET",
+      "path": "/api/secrets",
+      "auth": true,
+      "status": 200,
+      "content_type": "application/json",
+      "valid": true,
+      "json_parseable": true,
+      "top_keys": [
+        "secrets"
+      ],
+      "mark": "\u2705",
+      "error": "",
+      "notes": [],
+      "body_preview": "{\"secrets\":[{\"name\":\"grafana-admin-secret\",\"namespace\":\"apps-grafana\",\"type\":\"Opaque\",\"age\":\"2026-05-05T16:53:55.000Z\",\"keyCount\":2,\"keyNames\":[\"admin-password\",\"admin-user\"],\"externalSecret\":\"apps-grafana/grafana-admin-secret\"},{\"name\":\"grafana-oidc-secret\",\"namespace\":\"apps-grafana\",\"type\":\"Opaque\",\"age\":\"2026-05-06T07:14:57.000Z\",\"keyCount\":1,\"keyNames\":[\"GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET\"],\"externalSecret\":\"apps-grafana/grafana-oidc-secret\"},{\"name\":\"grafana-tls\",\"namespace\":\"apps-grafana\""
+    },
+    {
+      "name": "config-maps",
+      "category": "main",
+      "method": "GET",
+      "path": "/api/config-maps",
+      "auth": true,
+      "status": 200,
+      "content_type": "application/json",
+      "valid": true,
+      "json_parseable": true,
+      "top_keys": [
+        "configMaps"
+      ],
+      "mark": "\u2705",
+      "error": "",
+      "notes": [],
+      "body_preview": "{\"configMaps\":[{\"name\":\"kube-root-ca.crt\",\"namespace\":\"actualserver\",\"age\":\"2026-05-16T21:54:39.000Z\",\"immutable\":false,\"keys\":[\"ca.crt\"],\"binaryKeys\":[],\"data\":{\"ca.crt\":\"-----BEGIN CERTIFICATE-----\\nMIIBiDCCAS+gAwIBAgIQOdjtvf0MqSFInnUp2pB4RDAKBggqhkjOPQQDAjAVMRMw\\nEQYDVQQKEwprdWJlcm5ldGVzMB4XDTI2MDUwNTE2MzYwMVoXDTM2MDUwMjE2MzYw\\nMVowFTETMBEGA1UEChMKa3ViZXJuZXRlczBZMBMGByqGSM49AgEGCCqGSM49AwEH\\nA0IABO/LXATVktyDIPnl7OiS3qpHjTwxfqNdI0EB2pKwNLlmACpVsyCgSy3s4M3u\\nREEWi4UebOOJiKw7ZoiATH7DS3ejYTBfMA4"
+    },
+    {
+      "name": "search",
+      "category": "main",
+      "method": "GET",
+      "path": "/api/search?q=infraweaver",
+      "auth": true,
+      "status": 200,
+      "content_type": "application/json",
+      "valid": true,
+      "json_parseable": true,
+      "top_keys": [
+        "navigation",
+        "gameServers",
+        "pods",
+        "apps",
+        "settings"
+      ],
+      "mark": "\u2705",
+      "error": "",
+      "notes": [],
+      "body_preview": "{\"navigation\":[],\"gameServers\":[],\"pods\":[{\"id\":\"pod-infraweaver-console-infraweaver-api-5b6f94d6c-tphrx\",\"title\":\"infraweaver-api-5b6f94d6c-tphrx\",\"subtitle\":\"infraweaver-console \u00b7 Running\",\"href\":\"/pods/infraweaver-console/infraweaver-api-5b6f94d6c-tphrx\",\"category\":\"pod\",\"icon\":\"\u2638\ufe0f\",\"badge\":\"Running\",\"badgeColor\":\"bg-emerald-500/10 text-emerald-300\"},{\"id\":\"pod-infraweaver-console-infraweaver-api-5b6f94d6c-vrlxz\",\"title\":\"infraweaver-api-5b6f94d6c-vrlxz\",\"subtitle\":\"infraweaver-console \u00b7 Runn"
+    },
+    {
+      "name": "health",
+      "category": "main",
+      "method": "GET",
+      "path": "/api/health",
+      "auth": true,
+      "status": 200,
+      "content_type": "application/json",
+      "valid": true,
+      "json_parseable": true,
+      "top_keys": [
+        "endpoints",
+        "available"
+      ],
+      "mark": "\u2705",
+      "error": "",
+      "notes": [],
+      "body_preview": "{\"endpoints\":[{\"name\":\"Container Registry\",\"group\":\"catalog\",\"results\":[{\"success\":true},{\"success\":false},{\"success\":true},{\"success\":true},{\"success\":true},{\"success\":true},{\"success\":true}]},{\"name\":\"InfraWeaver Console\",\"group\":\"catalog\",\"results\":[{\"success\":true},{\"success\":true},{\"success\":true},{\"success\":true},{\"success\":true},{\"success\":true},{\"success\":true},{\"success\":true},{\"success\":true},{\"success\":true},{\"success\":true},{\"success\":true},{\"success\":true}]},{\"name\":\"OneDev (Git + C"
+    },
+    {
+      "name": "apps",
+      "category": "main",
+      "method": "GET",
+      "path": "/api/apps",
+      "auth": true,
+      "status": 200,
+      "content_type": "application/json",
+      "valid": true,
+      "json_parseable": true,
+      "top_keys": null,
+      "mark": "\u2705",
+      "error": "",
+      "notes": [],
+      "body_preview": "[{\"apiVersion\":\"argoproj.io/v1alpha1\",\"kind\":\"Application\",\"metadata\":{\"creationTimestamp\":\"2026-05-05T16:50:45Z\",\"finalizers\":[\"resources-finalizer.argocd.argoproj.io\"],\"generation\":5245,\"labels\":{\"app.kubernetes.io/managed-by\":\"argocd-applicationset\",\"platform.infraweaver/cluster\":\"infraweaver-prod\",\"platform.infraweaver/env\":\"productie\"},\"managedFields\":[{\"apiVersion\":\"argoproj.io/v1alpha1\",\"fieldsType\":\"FieldsV1\",\"fieldsV1\":{\"f:metadata\":{\"f:finalizers\":{\".\":{},\"v:\\\"resources-finalizer.argoc"
+    },
+    {
+      "name": "appfeed",
+      "category": "main",
+      "method": "GET",
+      "path": "/api/appfeed",
+      "auth": true,
+      "status": 404,
+      "content_type": "text/html; charset=utf-8",
+      "valid": false,
+      "json_parseable": false,
+      "top_keys": null,
+      "mark": "\u274c",
+      "error": "<!DOCTYPE html><html lang=\"en\"><head><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width, initial-scale=1, viewport-fit=cover\"/><link rel=\"stylesheet\" href=\"/_next/static/chunks/05qmwjqau64bz.css\" data-precedence=\"next\"",
+      "notes": [],
+      "body_preview": "<!DOCTYPE html><html lang=\"en\"><head><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width, initial-scale=1, viewport-fit=cover\"/><link rel=\"stylesheet\" href=\"/_next/static/chunks/05qmwjqau64bz.css\" data-precedence=\"next\"/><link rel=\"stylesheet\" href=\"/_next/static/chunks/0k_g39ztu-t...css\" data-precedence=\"next\"/><link rel=\"preload\" as=\"script\" fetchPriority=\"low\" href=\"/_next/static/chunks/0rd.esgqmga2h.js\"/><script src=\"/_next/static/chunks/0zjs5hlwbvch9.js\" async=\"\"></scri"
+    },
+    {
+      "name": "game-hub.servers",
+      "category": "main",
+      "method": "GET",
+      "path": "/api/game-hub/servers",
+      "auth": true,
+      "status": 200,
+      "content_type": "application/json",
+      "valid": true,
+      "json_parseable": true,
+      "top_keys": [
+        "servers",
+        "setupRequired"
+      ],
+      "mark": "\u2705",
+      "error": "",
+      "notes": [],
+      "body_preview": "{\"servers\":[{\"name\":\"minecraft-server\",\"gameType\":\"minecraft\",\"status\":\"running\",\"replicas\":1,\"readyReplicas\":1,\"desiredReplicas\":1,\"podName\":\"minecraft-server-d6c8f7844-q6q2j\",\"podPhase\":\"Running\",\"podStartTime\":\"2026-05-17T10:11:40.000Z\",\"restartCount\":0,\"port\":25565,\"nodePort\":31261,\"memory\":\"2560Mi\",\"cpu\":\"2\",\"createdAt\":\"2026-05-11T21:58:52.000Z\",\"maintenanceMode\":false,\"description\":\"\",\"icon\":\"\",\"tags\":[],\"groups\":[],\"playerCount\":0,\"image\":\"itzg/minecraft-server:latest\",\"imageVersion\":\"la"
+    },
+    {
+      "name": "game-hub.eggs",
+      "category": "main",
+      "method": "GET",
+      "path": "/api/game-hub/eggs",
+      "auth": true,
+      "status": 200,
+      "content_type": "application/json",
+      "valid": true,
+      "json_parseable": true,
+      "top_keys": [
+        "eggs"
+      ],
+      "mark": "\u2705",
+      "error": "",
+      "notes": [],
+      "body_preview": "{\"eggs\":[{\"id\":\"minecraft-java\",\"name\":\"Minecraft Java Edition\",\"description\":\"Paper-ready Minecraft Java server powered by itzg/minecraft-server\",\"dockerImage\":\"itzg/minecraft-server:latest\",\"startupCommand\":\"java -Xmx{{MEMORY}} -Xms{{MEMORY}} -jar server.jar nogui\",\"stopCommand\":\"stop\",\"gamePort\":25565,\"queryPort\":25565,\"mountPath\":\"/data\",\"protocol\":\"TCP\",\"ports\":[{\"name\":\"game\",\"port\":25565,\"protocol\":\"TCP\"}],\"defaultMemory\":\"2Gi\",\"defaultCpu\":\"1\",\"defaultStorage\":\"10Gi\",\"supportsModrinth\":t"
+    },
+    {
+      "name": "game-hub.capacity",
+      "category": "main",
+      "method": "GET",
+      "path": "/api/game-hub/capacity",
+      "auth": true,
+      "status": 200,
+      "content_type": "application/json",
+      "valid": true,
+      "json_parseable": true,
+      "top_keys": [
+        "nodes",
+        "gameHubUsage",
+        "plannedWorkload",
+        "summary",
+        "canSafelyDeploy",
+        "warnings",
+        "checkedAt"
+      ],
+      "mark": "\u2705",
+      "error": "",
+      "notes": [],
+      "body_preview": "{\"nodes\":[{\"name\":\"talos-prod-cp1\",\"ready\":true,\"allocatableCpu\":7.3,\"allocatableMemoryBytes\":10052968448,\"requestedCpu\":3.4760000000000004,\"requestedMemoryBytes\":7971274752,\"limitsCpu\":10.5,\"limitsMemoryBytes\":30677139456,\"usageCpu\":0.546744846,\"usageMemoryBytes\":8766349312,\"requestCpuPct\":47.6,\"requestMemoryPct\":79.3,\"limitCpuPct\":143.8,\"limitMemoryPct\":305.2,\"usageCpuPct\":7.5,\"usageMemoryPct\":87.2},{\"name\":\"talos-prod-cp2\",\"ready\":true,\"allocatableCpu\":7.3,\"allocatableMemoryBytes\":10052960256"
+    },
+    {
+      "name": "game-hub.minecraft.get",
+      "category": "main",
+      "method": "GET",
+      "path": "/api/game-hub/servers/minecraft-server",
+      "auth": true,
+      "status": 200,
+      "content_type": "application/json",
+      "valid": true,
+      "json_parseable": true,
+      "top_keys": [
+        "name",
+        "gameType",
+        "egg",
+        "status",
+        "replicas",
+        "readyReplicas",
+        "restartCount",
+        "podName",
+        "podPhase",
+        "podStartTime"
+      ],
+      "mark": "\u2705",
+      "error": "",
+      "notes": [],
+      "body_preview": "{\"name\":\"minecraft-server\",\"gameType\":\"minecraft\",\"egg\":{\"id\":\"minecraft-java\",\"name\":\"Minecraft Java Edition\",\"description\":\"Paper-ready Minecraft Java server powered by itzg/minecraft-server\",\"dockerImage\":\"itzg/minecraft-server:latest\",\"startupCommand\":\"java -Xmx{{MEMORY}} -Xms{{MEMORY}} -jar server.jar nogui\",\"stopCommand\":\"stop\",\"gamePort\":25565,\"queryPort\":25565,\"mountPath\":\"/data\",\"protocol\":\"TCP\",\"ports\":[{\"name\":\"game\",\"port\":25565,\"protocol\":\"TCP\"}],\"defaultMemory\":\"2Gi\",\"defaultCpu\":\"",
+      "server_status": "running"
+    },
+    {
+      "name": "game-hub.minecraft.stop",
+      "category": "main",
+      "method": "PATCH",
+      "path": "/api/game-hub/servers/minecraft-server",
+      "auth": true,
+      "status": 200,
+      "content_type": "application/json",
+      "valid": true,
+      "json_parseable": true,
+      "top_keys": [
+        "action",
+        "name"
+      ],
+      "mark": "\u2705",
+      "error": "",
+      "notes": [],
+      "body_preview": "{\"action\":\"stop\",\"name\":\"minecraft-server\"}"
+    },
+    {
+      "name": "game-hub.minecraft.verify-stopped",
+      "category": "main",
+      "method": "GET",
+      "path": "/api/game-hub/servers/minecraft-server",
+      "auth": true,
+      "status": 200,
+      "content_type": "application/json",
+      "valid": true,
+      "json_parseable": true,
+      "top_keys": [
+        "name",
+        "gameType",
+        "egg",
+        "status",
+        "replicas",
+        "readyReplicas",
+        "restartCount",
+        "podName",
+        "podPhase",
+        "podStartTime"
+      ],
+      "mark": "\u2705",
+      "error": "",
+      "notes": [],
+      "body_preview": "{\"name\":\"minecraft-server\",\"gameType\":\"minecraft\",\"egg\":{\"id\":\"minecraft-java\",\"name\":\"Minecraft Java Edition\",\"description\":\"Paper-ready Minecraft Java server powered by itzg/minecraft-server\",\"dockerImage\":\"itzg/minecraft-server:latest\",\"startupCommand\":\"java -Xmx{{MEMORY}} -Xms{{MEMORY}} -jar server.jar nogui\",\"stopCommand\":\"stop\",\"gamePort\":25565,\"queryPort\":25565,\"mountPath\":\"/data\",\"protocol\":\"TCP\",\"ports\":[{\"name\":\"game\",\"port\":25565,\"protocol\":\"TCP\"}],\"defaultMemory\":\"2Gi\",\"defaultCpu\":\"",
+      "server_status": "stopped"
+    },
+    {
+      "name": "game-hub.minecraft.start",
+      "category": "main",
+      "method": "PATCH",
+      "path": "/api/game-hub/servers/minecraft-server",
+      "auth": true,
+      "status": 200,
+      "content_type": "application/json",
+      "valid": true,
+      "json_parseable": true,
+      "top_keys": [
+        "action",
+        "name"
+      ],
+      "mark": "\u2705",
+      "error": "",
+      "notes": [],
+      "body_preview": "{\"action\":\"start\",\"name\":\"minecraft-server\"}"
+    },
+    {
+      "name": "game-hub.minecraft.verify-started",
+      "category": "main",
+      "method": "GET",
+      "path": "/api/game-hub/servers/minecraft-server",
+      "auth": true,
+      "status": 200,
+      "content_type": "application/json",
+      "valid": true,
+      "json_parseable": true,
+      "top_keys": [
+        "name",
+        "gameType",
+        "egg",
+        "status",
+        "replicas",
+        "readyReplicas",
+        "restartCount",
+        "podName",
+        "podPhase",
+        "podStartTime"
+      ],
+      "mark": "\u2705",
+      "error": "",
+      "notes": [],
+      "body_preview": "{\"name\":\"minecraft-server\",\"gameType\":\"minecraft\",\"egg\":{\"id\":\"minecraft-java\",\"name\":\"Minecraft Java Edition\",\"description\":\"Paper-ready Minecraft Java server powered by itzg/minecraft-server\",\"dockerImage\":\"itzg/minecraft-server:latest\",\"startupCommand\":\"java -Xmx{{MEMORY}} -Xms{{MEMORY}} -jar server.jar nogui\",\"stopCommand\":\"stop\",\"gamePort\":25565,\"queryPort\":25565,\"mountPath\":\"/data\",\"protocol\":\"TCP\",\"ports\":[{\"name\":\"game\",\"port\":25565,\"protocol\":\"TCP\"}],\"defaultMemory\":\"2Gi\",\"defaultCpu\":\"",
+      "server_status": "starting"
+    },
+    {
+      "name": "game-hub.terraria.get",
+      "category": "main",
+      "method": "GET",
+      "path": "/api/game-hub/servers/terraria-server",
+      "auth": true,
+      "status": 200,
+      "content_type": "application/json",
+      "valid": true,
+      "json_parseable": true,
+      "top_keys": [
+        "name",
+        "gameType",
+        "egg",
+        "status",
+        "replicas",
+        "readyReplicas",
+        "restartCount",
+        "podName",
+        "podPhase",
+        "podStartTime"
+      ],
+      "mark": "\u2705",
+      "error": "",
+      "notes": [],
+      "body_preview": "{\"name\":\"terraria-server\",\"gameType\":\"terraria\",\"egg\":{\"id\":\"terraria\",\"name\":\"Terraria\",\"description\":\"Terraria dedicated server using the terrariad image\",\"dockerImage\":\"ryshe/terrariad:latest\",\"startupCommand\":\"TerrariaServer -world /world/{{WORLD_NAME}}.wld -autocreate {{WORLD_SIZE}} -worldname {{WORLD_NAME}} -port 7777 -maxplayers {{MAX_PLAYERS}}\",\"stopCommand\":\"exit\",\"gamePort\":7777,\"mountPath\":\"/world\",\"protocol\":\"TCP\",\"ports\":[{\"name\":\"game\",\"port\":7777,\"protocol\":\"TCP\"}],\"defaultMemory\"",
+      "server_status": "stopped"
+    },
+    {
+      "name": "game-hub.terraria.force-stop",
+      "category": "main",
+      "method": "PATCH",
+      "path": "/api/game-hub/servers/terraria-server",
+      "auth": true,
+      "status": 200,
+      "content_type": "application/json",
+      "valid": true,
+      "json_parseable": true,
+      "top_keys": [
+        "action",
+        "name"
+      ],
+      "mark": "\u2705",
+      "error": "",
+      "notes": [],
+      "body_preview": "{\"action\":\"force-stop\",\"name\":\"terraria-server\"}"
+    },
+    {
+      "name": "game-hub.terraria.start",
+      "category": "main",
+      "method": "PATCH",
+      "path": "/api/game-hub/servers/terraria-server",
+      "auth": true,
+      "status": 200,
+      "content_type": "application/json",
+      "valid": true,
+      "json_parseable": true,
+      "top_keys": [
+        "action",
+        "name"
+      ],
+      "mark": "\u2705",
+      "error": "",
+      "notes": [],
+      "body_preview": "{\"action\":\"start\",\"name\":\"terraria-server\"}"
+    },
+    {
+      "name": "game-hub.terraria.verify-started",
+      "category": "main",
+      "method": "GET",
+      "path": "/api/game-hub/servers/terraria-server",
+      "auth": true,
+      "status": 200,
+      "content_type": "application/json",
+      "valid": true,
+      "json_parseable": true,
+      "top_keys": [
+        "name",
+        "gameType",
+        "egg",
+        "status",
+        "replicas",
+        "readyReplicas",
+        "restartCount",
+        "podName",
+        "podPhase",
+        "podStartTime"
+      ],
+      "mark": "\u2705",
+      "error": "",
+      "notes": [],
+      "body_preview": "{\"name\":\"terraria-server\",\"gameType\":\"terraria\",\"egg\":{\"id\":\"terraria\",\"name\":\"Terraria\",\"description\":\"Terraria dedicated server using the terrariad image\",\"dockerImage\":\"ryshe/terrariad:latest\",\"startupCommand\":\"TerrariaServer -world /world/{{WORLD_NAME}}.wld -autocreate {{WORLD_SIZE}} -worldname {{WORLD_NAME}} -port 7777 -maxplayers {{MAX_PLAYERS}}\",\"stopCommand\":\"exit\",\"gamePort\":7777,\"mountPath\":\"/world\",\"protocol\":\"TCP\",\"ports\":[{\"name\":\"game\",\"port\":7777,\"protocol\":\"TCP\"}],\"defaultMemory\"",
+      "server_status": "starting"
+    },
+    {
+      "name": "audit",
+      "category": "main",
+      "method": "GET",
+      "path": "/api/audit",
+      "auth": true,
+      "status": 404,
+      "content_type": "text/html; charset=utf-8",
+      "valid": false,
+      "json_parseable": false,
+      "top_keys": null,
+      "mark": "\u274c",
+      "error": "<!DOCTYPE html><html lang=\"en\"><head><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width, initial-scale=1, viewport-fit=cover\"/><link rel=\"stylesheet\" href=\"/_next/static/chunks/05qmwjqau64bz.css\" data-precedence=\"next\"",
+      "notes": [],
+      "body_preview": "<!DOCTYPE html><html lang=\"en\"><head><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width, initial-scale=1, viewport-fit=cover\"/><link rel=\"stylesheet\" href=\"/_next/static/chunks/05qmwjqau64bz.css\" data-precedence=\"next\"/><link rel=\"stylesheet\" href=\"/_next/static/chunks/0k_g39ztu-t...css\" data-precedence=\"next\"/><link rel=\"preload\" as=\"script\" fetchPriority=\"low\" href=\"/_next/static/chunks/0rd.esgqmga2h.js\"/><script src=\"/_next/static/chunks/0zjs5hlwbvch9.js\" async=\"\"></scri"
+    },
+    {
+      "name": "audit.server",
+      "category": "main",
+      "method": "GET",
+      "path": "/api/game-hub/servers/minecraft-server/audit",
+      "auth": true,
+      "status": 200,
+      "content_type": "application/json",
+      "valid": true,
+      "json_parseable": true,
+      "top_keys": [
+        "entries"
+      ],
+      "mark": "\u2705",
+      "error": "",
+      "notes": [],
+      "body_preview": "{\"entries\":[{\"timestamp\":\"2026-05-13T12:58:25.853Z\",\"user\":\"remonhulst@gmail.com\",\"action\":\"command\",\"details\":\"list\"},{\"timestamp\":\"2026-05-13T12:58:29.612Z\",\"user\":\"remonhulst@gmail.com\",\"action\":\"command\",\"details\":\"help\"},{\"timestamp\":\"2026-05-13T12:58:32.932Z\",\"user\":\"remonhulst@gmail.com\",\"action\":\"save-command\",\"details\":\"{\\\"action\\\":\\\"save-command\\\",\\\"command\\\":{\\\"label\\\":\\\"test\\\",\\\"cmd\\\":\\\"test\\\"}}\"},{\"timestamp\":\"2026-05-13T14:25:48.672Z\",\"user\":\"remonhulst@gmail.com\",\"action\":\"command"
+    },
+    {
+      "name": "cluster.export.get.actual",
+      "category": "actual-route",
+      "method": "GET",
+      "path": "/api/cluster/export",
+      "auth": true,
+      "status": 200,
+      "content_type": "application/x-yaml",
+      "valid": true,
+      "json_parseable": false,
+      "top_keys": null,
+      "mark": "\u2705",
+      "error": "",
+      "notes": [
+        "YAML response"
+      ],
+      "body_preview": "metadata:\n  annotations:\n    argocd.argoproj.io/tracking-id: platform-grafana:apps/Deployment:apps-grafana/grafana\n    deployment.kubernetes.io/revision: '2'\n  creationTimestamp: 2026-05-05T16:50:55.000Z\n  generation: 2\n  labels:\n    app.kubernetes.io/instance: grafana\n    app.kubernetes.io/name: grafana\n    app.kubernetes.io/version: 11.6.1\n    helm.sh/chart: grafana-8.15.0\n  managedFields:\n    - apiVersion: apps/v1\n      fieldsType: FieldsV1\n      fieldsV1:\n        f:metadata:\n          f:anno"
+    },
+    {
+      "name": "appfeed.actual",
+      "category": "actual-route",
+      "method": "GET",
+      "path": "/api/community-apps?page=1&limit=5",
+      "auth": true,
+      "status": 200,
+      "content_type": "application/json",
+      "valid": true,
+      "json_parseable": true,
+      "top_keys": [
+        "apps",
+        "total",
+        "page",
+        "limit",
+        "pages",
+        "last_updated",
+        "last_updated_timestamp",
+        "categories"
+      ],
+      "mark": "\u2705",
+      "error": "",
+      "notes": [],
+      "body_preview": "{\"apps\":[{\"name\":\"MySQL\",\"slug\":\"mysql\",\"image\":\"mysql\",\"icon\":\"https://raw.githubusercontent.com/UNRA1DUser/unraid-docker-templates/main/templates/img/mysql.png\",\"overview\":\"|-------------------------------------------------\\r\\n| General Information\\r\\n|-------------------------------------------------\\r\\nOfficial MySQL database container. It allows to set a database and username without using the console.\\r\\n\\r\\nMySQL is the world's most popular open source database. With its proven performanc"
+    },
+    {
+      "name": "audit.actual",
+      "category": "actual-route",
+      "method": "GET",
+      "path": "/api/security/audit-log",
+      "auth": true,
+      "status": 200,
+      "content_type": "application/json",
+      "valid": true,
+      "json_parseable": true,
+      "top_keys": [
+        "entries"
+      ],
+      "mark": "\u2705",
+      "error": "",
+      "notes": [],
+      "body_preview": "{\"entries\":[]}"
+    },
+    {
+      "name": "cluster.namespace-cleanup.actual-preview",
+      "category": "actual-route",
+      "method": "POST",
+      "path": "/api/cluster/namespace-cleanup",
+      "auth": true,
+      "status": 400,
+      "content_type": "application/json",
+      "valid": true,
+      "json_parseable": true,
+      "top_keys": [
+        "error"
+      ],
+      "mark": "\u26a0\ufe0f",
+      "error": "{\"formErrors\": [], \"fieldErrors\": {\"namespace\": [\"Invalid input: expected string, received undefined\"]}}",
+      "notes": [],
+      "body_preview": "{\"error\":{\"formErrors\":[],\"fieldErrors\":{\"namespace\":[\"Invalid input: expected string, received undefined\"]}}}"
+    },
+    {
+      "name": "cluster.nodes.noauth",
+      "category": "noauth",
+      "method": "GET",
+      "path": "/api/cluster/nodes",
+      "auth": false,
+      "status": 401,
+      "content_type": "application/json",
+      "valid": true,
+      "json_parseable": true,
+      "top_keys": [
+        "error",
+        "loginUrl"
+      ],
+      "mark": "\u2705",
+      "error": "Unauthorized",
+      "notes": [],
+      "body_preview": "{\"error\":\"Unauthorized\",\"loginUrl\":\"https://infraweaver.int.rlservers.com/login?callbackUrl=%2Fapi%2Fcluster%2Fnodes\"}"
+    },
+    {
+      "name": "cluster.metrics.noauth",
+      "category": "noauth",
+      "method": "GET",
+      "path": "/api/cluster/metrics",
+      "auth": false,
+      "status": 401,
+      "content_type": "application/json",
+      "valid": true,
+      "json_parseable": true,
+      "top_keys": [
+        "error",
+        "loginUrl"
+      ],
+      "mark": "\u2705",
+      "error": "Unauthorized",
+      "notes": [],
+      "body_preview": "{\"error\":\"Unauthorized\",\"loginUrl\":\"https://infraweaver.int.rlservers.com/login?callbackUrl=%2Fapi%2Fcluster%2Fmetrics\"}"
+    },
+    {
+      "name": "cluster.events.noauth",
+      "category": "noauth",
+      "method": "GET",
+      "path": "/api/cluster/events",
+      "auth": false,
+      "status": 401,
+      "content_type": "application/json",
+      "valid": true,
+      "json_parseable": true,
+      "top_keys": [
+        "error",
+        "loginUrl"
+      ],
+      "mark": "\u2705",
+      "error": "Unauthorized",
+      "notes": [],
+      "body_preview": "{\"error\":\"Unauthorized\",\"loginUrl\":\"https://infraweaver.int.rlservers.com/login?callbackUrl=%2Fapi%2Fcluster%2Fevents\"}"
+    },
+    {
+      "name": "network.topology.noauth",
+      "category": "noauth",
+      "method": "GET",
+      "path": "/api/network/topology",
+      "auth": false,
+      "status": 401,
+      "content_type": "application/json",
+      "valid": true,
+      "json_parseable": true,
+      "top_keys": [
+        "error",
+        "loginUrl"
+      ],
+      "mark": "\u2705",
+      "error": "Unauthorized",
+      "notes": [],
+      "body_preview": "{\"error\":\"Unauthorized\",\"loginUrl\":\"https://infraweaver.int.rlservers.com/login?callbackUrl=%2Fapi%2Fnetwork%2Ftopology\"}"
+    },
+    {
+      "name": "security.certs.noauth",
+      "category": "noauth",
+      "method": "GET",
+      "path": "/api/security/certs",
+      "auth": false,
+      "status": 401,
+      "content_type": "application/json",
+      "valid": true,
+      "json_parseable": true,
+      "top_keys": [
+        "error",
+        "loginUrl"
+      ],
+      "mark": "\u2705",
+      "error": "Unauthorized",
+      "notes": [],
+      "body_preview": "{\"error\":\"Unauthorized\",\"loginUrl\":\"https://infraweaver.int.rlservers.com/login?callbackUrl=%2Fapi%2Fsecurity%2Fcerts\"}"
+    },
+    {
+      "name": "secrets.noauth",
+      "category": "noauth",
+      "method": "GET",
+      "path": "/api/secrets",
+      "auth": false,
+      "status": 401,
+      "content_type": "application/json",
+      "valid": true,
+      "json_parseable": true,
+      "top_keys": [
+        "error",
+        "loginUrl"
+      ],
+      "mark": "\u2705",
+      "error": "Unauthorized",
+      "notes": [],
+      "body_preview": "{\"error\":\"Unauthorized\",\"loginUrl\":\"https://infraweaver.int.rlservers.com/login?callbackUrl=%2Fapi%2Fsecrets\"}"
+    },
+    {
+      "name": "config-maps.noauth",
+      "category": "noauth",
+      "method": "GET",
+      "path": "/api/config-maps",
+      "auth": false,
+      "status": 401,
+      "content_type": "application/json",
+      "valid": true,
+      "json_parseable": true,
+      "top_keys": [
+        "error",
+        "loginUrl"
+      ],
+      "mark": "\u2705",
+      "error": "Unauthorized",
+      "notes": [],
+      "body_preview": "{\"error\":\"Unauthorized\",\"loginUrl\":\"https://infraweaver.int.rlservers.com/login?callbackUrl=%2Fapi%2Fconfig-maps\"}"
+    },
+    {
+      "name": "search.noauth",
+      "category": "noauth",
+      "method": "GET",
+      "path": "/api/search?q=infraweaver",
+      "auth": false,
+      "status": 401,
+      "content_type": "application/json",
+      "valid": true,
+      "json_parseable": true,
+      "top_keys": [
+        "error",
+        "loginUrl"
+      ],
+      "mark": "\u2705",
+      "error": "Unauthorized",
+      "notes": [],
+      "body_preview": "{\"error\":\"Unauthorized\",\"loginUrl\":\"https://infraweaver.int.rlservers.com/login?callbackUrl=%2Fapi%2Fsearch%3Fq%3Dinfraweaver\"}"
+    },
+    {
+      "name": "apps.noauth",
+      "category": "noauth",
+      "method": "GET",
+      "path": "/api/apps",
+      "auth": false,
+      "status": 401,
+      "content_type": "application/json",
+      "valid": true,
+      "json_parseable": true,
+      "top_keys": [
+        "error",
+        "loginUrl"
+      ],
+      "mark": "\u2705",
+      "error": "Unauthorized",
+      "notes": [],
+      "body_preview": "{\"error\":\"Unauthorized\",\"loginUrl\":\"https://infraweaver.int.rlservers.com/login?callbackUrl=%2Fapi%2Fapps\"}"
+    },
+    {
+      "name": "game-hub.servers.noauth",
+      "category": "noauth",
+      "method": "GET",
+      "path": "/api/game-hub/servers",
+      "auth": false,
+      "status": 401,
+      "content_type": "application/json",
+      "valid": true,
+      "json_parseable": true,
+      "top_keys": [
+        "error",
+        "loginUrl"
+      ],
+      "mark": "\u2705",
+      "error": "Unauthorized",
+      "notes": [],
+      "body_preview": "{\"error\":\"Unauthorized\",\"loginUrl\":\"https://infraweaver.int.rlservers.com/login?callbackUrl=%2Fapi%2Fgame-hub%2Fservers\"}"
+    },
+    {
+      "name": "health.noauth",
+      "category": "noauth",
+      "method": "GET",
+      "path": "/api/health",
+      "auth": false,
+      "status": 200,
+      "content_type": "application/json",
+      "valid": true,
+      "json_parseable": true,
+      "top_keys": [
+        "endpoints",
+        "available"
+      ],
+      "mark": "\u2705",
+      "error": "",
+      "notes": [],
+      "body_preview": "{\"endpoints\":[{\"name\":\"Container Registry\",\"group\":\"catalog\",\"results\":[{\"success\":true},{\"success\":false},{\"success\":true},{\"success\":true},{\"success\":true},{\"success\":true},{\"success\":true}]},{\"name\":\"InfraWeaver Console\",\"group\":\"catalog\",\"results\":[{\"success\":true},{\"success\":true},{\"success\":true},{\"success\":true},{\"success\":true},{\"success\":true},{\"success\":true},{\"success\":true},{\"success\":true},{\"success\":true},{\"success\":true},{\"success\":true},{\"success\":true},{\"success\":true}]},{\"name\""
+    }
+  ]
+}
