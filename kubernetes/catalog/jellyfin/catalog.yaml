@@ -1,13 +1,13 @@
----
-# catalog.yaml — jellyfin
-# Defined but not enabled by default. Add 'jellyfin' to catalog.enabled in platform.yaml to deploy.
-# Access: jellyfin.int.rlservers.com (VPN-only, protected by Authentik forward-auth)
-# SSO: Traefik forward-auth (Jellyfin also supports native OIDC via plugin if desired)
-
+# Community app installed from Unraid AppFeed
+# Source: jellyfin/jellyfin:latest
 name: jellyfin
-description: "Jellyfin — self-hosted media server for movies, TV, music, and photos"
+description: "Jellyfin(https://github.com/jellyfin/jellyfin) is a Free Software Media System that puts you in control of managing and streaming your media. It is an alternative to the proprietary Emby and Plex, to "
 namespace: jellyfin
-
+source: community-apps
+tier: simple
+image: jellyfin/jellyfin:latest
+categories:
+  - "Other"
 ingressroute:
   host: jellyfin.int.rlservers.com
-  entrypoint: websecure
+installed_at: 2026-05-17T18:20:13.310Z
