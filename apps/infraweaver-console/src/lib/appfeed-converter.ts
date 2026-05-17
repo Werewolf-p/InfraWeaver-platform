@@ -6,11 +6,12 @@
  * Unraid → K8s mapping:
  *   Config Type "Variable" → env[] in Deployment
  *   Config Type "Port"     → containerPorts[] + ClusterIP Service
- *   Config Type "Path"     → volumeMounts[] + PersistentVolumeClaim
+ *   Config Type "Path"     → volumeMounts[] + PVC / hostPath / emptyDir (classified)
  *   Config Type "Device"   → securityContext.privileged (flagged as complex)
  *   Network: host          → hostNetwork: true
  *   Privileged: true       → securityContext.privileged: true
  *   WebUI field            → port extracted for Traefik IngressRoute
+ *   ExtraParams            → capabilities, sysctls, runAsUser, memory limits
  */
 
 import { UserError } from "./utils";
@@ -41,7 +42,214 @@ const KNOWN_HEAVY_APPS: Record<string, ResourceProfile> = {
   filebrowser: { memReq: "64Mi", memLimit: "256Mi", cpuReq: "50m", cpuLimit: "250m" },
   homepage: { memReq: "64Mi", memLimit: "256Mi", cpuReq: "50m", cpuLimit: "250m" },
   grafana: { memReq: "128Mi", memLimit: "1Gi", cpuReq: "100m", cpuLimit: "1000m" },
+  mysql: { memReq: "256Mi", memLimit: "2Gi", cpuReq: "250m", cpuLimit: "2000m" },
+  postgresql18: { memReq: "128Mi", memLimit: "1Gi", cpuReq: "100m", cpuLimit: "1000m" },
+  postgresql17: { memReq: "128Mi", memLimit: "1Gi", cpuReq: "100m", cpuLimit: "1000m" },
+  postgresql16: { memReq: "128Mi", memLimit: "1Gi", cpuReq: "100m", cpuLimit: "1000m" },
+  mariadb: { memReq: "128Mi", memLimit: "1Gi", cpuReq: "100m", cpuLimit: "1000m" },
+  mongodb: { memReq: "256Mi", memLimit: "2Gi", cpuReq: "250m", cpuLimit: "2000m" },
+  elasticsearch: { memReq: "512Mi", memLimit: "4Gi", cpuReq: "500m", cpuLimit: "2000m" },
+  gitlab: { memReq: "2Gi", memLimit: "8Gi", cpuReq: "1000m", cpuLimit: "4000m" },
+  sonarqube: { memReq: "1Gi", memLimit: "4Gi", cpuReq: "500m", cpuLimit: "2000m" },
+  n8n: { memReq: "128Mi", memLimit: "1Gi", cpuReq: "100m", cpuLimit: "1000m" },
 };
+
+// ── host path classification ──────────────────────────────────────────────────
+
+/** Container-runtime sockets / OS virtual filesystems — skip (never create PVCs). */
+const RUNTIME_SKIP_PATHS: string[] = [
+  "/var/run/docker.sock",
+  "/run/docker.sock",
+  "/var/run/podman.sock",
+  "/proc",
+  "/sys/fs/cgroup",
+];
+
+/** OS paths that should be mounted read-only from the host (not PVCs). */
+const HOST_PATH_RO: string[] = [
+  "/lib/modules",
+  "/lib/firmware",
+  "/usr/lib/modules",
+  "/etc/localtime",
+  "/etc/timezone",
+];
+
+/** Paths that should be emptyDir (ephemeral scratch — not persisted). */
+const EMPTY_DIR_MOUNTS: { prefix: string; medium?: "Memory" }[] = [
+  { prefix: "/tmp" },
+  { prefix: "/dev/shm", medium: "Memory" },
+  { prefix: "/run/lock" },
+];
+
+type PathVolumeKind = "pvc" | "hostPath" | "emptyDir" | "skip";
+type PathClassification = { kind: PathVolumeKind; medium?: "Memory" };
+
+function classifyPath(target: string): PathClassification {
+  const p = target.replace(/\\/g, "/");
+  if (RUNTIME_SKIP_PATHS.some(s => p === s || p.startsWith(s + "/"))) return { kind: "skip" };
+  for (const ed of EMPTY_DIR_MOUNTS) {
+    if (p === ed.prefix || p.startsWith(ed.prefix + "/")) return { kind: "emptyDir", medium: ed.medium };
+  }
+  if (HOST_PATH_RO.some(h => p === h || p.startsWith(h + "/"))) return { kind: "hostPath" };
+  return { kind: "pvc" };
+}
+
+/** Whether a target path is a docker socket (for Required-true check). */
+function isDockerSocket(target: string): boolean {
+  const p = target.replace(/\\/g, "/");
+  return p.includes("/var/run/docker.sock") || p.includes("/run/docker.sock");
+}
+
+// ── ExtraParams parser ────────────────────────────────────────────────────────
+
+interface ExtraParamsParsed {
+  caps: string[];
+  sysctls: Array<{ name: string; value: string }>;
+  privileged: boolean;
+  hostPID: boolean;
+  runAsUser?: number;
+  runAsGroup?: number;
+  /** Memory limit converted to K8s format (e.g. "2Gi"). */
+  memoryLimitK8s?: string;
+  shmSize?: string;
+  envVars: Array<{ name: string; value: string }>;
+}
+
+/**
+ * Parses Docker ExtraParams (e.g. "--cap-add=NET_ADMIN --sysctl=net.ipv4...=1")
+ * into structured data for use in K8s manifest generation.
+ */
+function parseExtraParams(raw: string): ExtraParamsParsed {
+  const result: ExtraParamsParsed = {
+    caps: [], sysctls: [], privileged: false, hostPID: false, envVars: [],
+  };
+  if (!raw?.trim()) return result;
+
+  // Match --flag=value or bare --flag tokens (value may itself contain "=")
+  const tokens = raw.match(/--[\w-]+(?:=\S+)?/g) ?? [];
+  for (const token of tokens) {
+    const eqIdx = token.indexOf("=");
+    const flag = eqIdx >= 0 ? token.slice(0, eqIdx) : token;
+    const value = eqIdx >= 0 ? token.slice(eqIdx + 1) : "";
+    switch (flag) {
+      case "--cap-add":
+        if (value) result.caps.push(value.toUpperCase());
+        break;
+      case "--sysctl": {
+        const si = value.indexOf("=");
+        if (si >= 0) result.sysctls.push({ name: value.slice(0, si), value: value.slice(si + 1) });
+        break;
+      }
+      case "--privileged":
+        result.privileged = true;
+        break;
+      case "--pid":
+        if (value === "host") result.hostPID = true;
+        break;
+      case "--user": {
+        const [u, g] = value.split(":");
+        const uid = parseInt(u, 10);
+        const gid = parseInt(g ?? "", 10);
+        if (!isNaN(uid) && uid > 0) result.runAsUser = uid;
+        if (!isNaN(gid) && gid > 0) result.runAsGroup = gid;
+        break;
+      }
+      case "--memory":
+        if (value) {
+          // Docker: "2g"/"2G" → K8s: "2Gi"; "512m"/"512M" → "512Mi"
+          result.memoryLimitK8s = value.replace(/([0-9]+)[gG]$/i, "$1Gi").replace(/([0-9]+)[mM]$/i, "$1Mi");
+        }
+        break;
+      case "--shm-size":
+        if (value) result.shmSize = value;
+        break;
+      case "--env":
+      case "-e":
+        if (value) {
+          const ei = value.indexOf("=");
+          if (ei >= 0) result.envVars.push({ name: value.slice(0, ei), value: value.slice(ei + 1) });
+        }
+        break;
+    }
+  }
+  return result;
+}
+
+/** True for linuxserver.io images that expect PUID/PGID env vars. */
+function isLinuxServerImage(image: string): boolean {
+  const img = image.toLowerCase();
+  return img.startsWith("lscr.io/linuxserver/") || img.startsWith("linuxserver/");
+}
+
+// ── volume info pre-computation ───────────────────────────────────────────────
+
+interface VolumeInfo {
+  kind: PathVolumeKind;
+  medium?: "Memory";
+  volumeName: string;
+  mountPath: string;
+  originalTarget: string;
+  pvcName?: string;
+  isReadOnly: boolean;
+  /** Human-readable name from the AppFeed config, for PVC comments. */
+  configName: string;
+  configDefault: string;
+  configRequired: boolean;
+}
+
+/**
+ * Pre-compute all volume information for an app's Path configs.
+ * Called once in convertAppFeedEntry and shared across buildVolumeMounts,
+ * buildVolumes, and buildPVCs to keep names consistent.
+ */
+function computeVolumeInfos(configs: AppFeedConfig[], slug: string): VolumeInfo[] {
+  let pvcIndex = 0;
+  const infos: VolumeInfo[] = [];
+
+  for (const c of configs) {
+    if (c["@attributes"]?.Type !== "Path") continue;
+    const attrs = c["@attributes"];
+    const target = (attrs.Target ?? "").replace(/\\/g, "/");
+
+    // Always skip docker socket paths (required ones were already rejected above)
+    if (isDockerSocket(target)) continue;
+
+    const cls = classifyPath(target);
+    if (cls.kind === "skip") continue;
+
+    const mountPath = cls.kind === "pvc" ? safeMountDir(target) : target;
+    let volumeName: string;
+    let pvcName: string | undefined;
+
+    if (cls.kind === "pvc") {
+      pvcName = `${slug}-data-${pvcIndex}`;
+      volumeName = pvcName;
+      pvcIndex++;
+    } else if (cls.kind === "hostPath") {
+      // e.g. /lib/modules → host-lib-modules
+      volumeName = ("host-" + toSlug(target.replace(/^\//, ""))).slice(0, 63);
+    } else {
+      // emptyDir
+      volumeName = ("tmp-" + toSlug(target.replace(/^\//, ""))).slice(0, 63);
+    }
+    // Ensure valid DNS label start
+    volumeName = volumeName.replace(/^[^a-z0-9]/, "v").replace(/-+/g, "-").replace(/-$/, "");
+
+    infos.push({
+      kind: cls.kind,
+      medium: cls.medium,
+      volumeName,
+      mountPath,
+      originalTarget: target,
+      pvcName,
+      isReadOnly: cls.kind === "hostPath",
+      configName: attrs.Name ?? target,
+      configDefault: attrs.Default ?? "",
+      configRequired: attrs.Required === "true",
+    });
+  }
+  return infos;
+}
 
 export interface AppFeedConfig {
   "@attributes": {
@@ -122,14 +330,21 @@ function yamlString(value: string): string {
   return JSON.stringify(value);
 }
 
-function portName(name: string | undefined, port: number): string {
-  const candidate = (name ?? "")
+/**
+ * Port name for K8s Service/containerPorts.
+ * Includes a "-u" suffix for UDP to avoid name collisions when an app
+ * exposes the same port number on both TCP and UDP (e.g. AdGuard port 53).
+ */
+function portName(name: string | undefined, port: number, proto?: string): string {
+  const udpSuffix = proto?.toLowerCase() === "udp" ? "-u" : "";
+  const raw = (name ?? "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
-    .slice(0, 15)
+    .slice(0, 13)   // leave room for "-u" suffix to stay within 15-char limit
     .replace(/-+$/g, "");
-  return candidate || `port-${port}`;
+  const base = raw || `p${port}`;
+  return (base + udpSuffix).slice(0, 15);
 }
 
 function splitArgs(value: string): string[] {
@@ -194,7 +409,9 @@ export function detectTier(app: AppFeedEntry): K8sCompatTier {
   const isPrivileged = String(app.Privileged ?? "").toLowerCase() === "true";
   const hasDevice = getConfigs(app).some(c => c["@attributes"]?.Type === "Device");
 
-  if (isPrivileged || hasDevice) return "complex";
+  // Check ExtraParams for --privileged or --cap-add (needs elevated security context)
+  const extra = parseExtraParams(app.ExtraParams ?? "");
+  if (isPrivileged || hasDevice || extra.privileged || extra.caps.length > 0) return "complex";
 
   const network = String(app.Network ?? "").toLowerCase();
   if (network && !["bridge", "host", "none", ""].includes(network)) return "medium";
@@ -204,8 +421,18 @@ export function detectTier(app: AppFeedEntry): K8sCompatTier {
 
 // ── individual section generators ────────────────────────────────────────────
 
-function buildEnvVars(configs: AppFeedConfig[]): string[] {
-  return configs
+/**
+ * Build env[] lines for a Deployment.
+ * @param configs - AppFeed Variable configs
+ * @param extraEnvVars - env vars parsed from ExtraParams
+ * @param addLinuxServerDefaults - inject PUID/PGID/TZ for linuxserver.io images
+ */
+function buildEnvVars(
+  configs: AppFeedConfig[],
+  extraEnvVars: Array<{ name: string; value: string }>,
+  addLinuxServerDefaults: boolean
+): string[] {
+  const lines = configs
     .filter(c => c["@attributes"]?.Type === "Variable")
     .map(c => {
       const attrs = c["@attributes"];
@@ -218,6 +445,26 @@ function buildEnvVars(configs: AppFeedConfig[]): string[] {
           : `              value: ${yamlString(value)}`,
       ].join("\n");
     });
+
+  // Inject env vars from ExtraParams --env flags (skip if already defined)
+  const definedNames = new Set(
+    configs.filter(c => c["@attributes"]?.Type === "Variable").map(c => c["@attributes"]?.Target)
+  );
+  for (const ev of extraEnvVars) {
+    if (!definedNames.has(ev.name)) {
+      lines.push(`            - name: ${ev.name}\n              value: ${yamlString(ev.value)}`);
+      definedNames.add(ev.name);
+    }
+  }
+
+  // linuxserver.io images use PUID/PGID/TZ for user mapping
+  if (addLinuxServerDefaults) {
+    if (!definedNames.has("PUID")) lines.push(`            - name: PUID\n              value: "1000"`);
+    if (!definedNames.has("PGID")) lines.push(`            - name: PGID\n              value: "1000"`);
+    if (!definedNames.has("TZ")) lines.push(`            - name: TZ\n              value: "UTC"`);
+  }
+
+  return lines;
 }
 
 /** Generate a Kubernetes Secret manifest for all masked variables in the app feed entry.
@@ -260,7 +507,7 @@ function buildContainerPorts(configs: AppFeedConfig[]): string[] {
       return [
         `            - containerPort: ${containerPort}`,
         `              protocol: ${proto}`,
-        `              name: ${portName(attrs.Name, containerPort)}`,
+        `              name: ${portName(attrs.Name, containerPort, attrs.Mode)}`,
       ].join("\n");
     })
     .filter(Boolean);
@@ -286,57 +533,64 @@ function safeMountDir(p: string): string {
   return parent && parent !== "/" ? parent : "/data";
 }
 
-function buildVolumeMounts(configs: AppFeedConfig[], slug: string): string[] {
-  return configs
-    .filter(c => c["@attributes"]?.Type === "Path")
-    .map((c, i) => {
-      const attrs = c["@attributes"];
-      const mountPath = safeMountDir(attrs.Target);
-      const pvcName = `${slug}-data-${i}`;
-      return [
-        `            - name: ${pvcName}`,
-        `              mountPath: ${yamlString(mountPath)}`,
-      ].join("\n");
-    });
+function buildVolumeMounts(infos: VolumeInfo[]): string[] {
+  return infos.map(info => {
+    const lines = [
+      `            - name: ${info.volumeName}`,
+      `              mountPath: ${yamlString(info.mountPath)}`,
+    ];
+    if (info.isReadOnly) lines.push(`              readOnly: true`);
+    return lines.join("\n");
+  });
 }
 
-function buildVolumes(configs: AppFeedConfig[], slug: string): string[] {
-  return configs
-    .filter(c => c["@attributes"]?.Type === "Path")
-    .map((c, i) => {
-      const pvcName = `${slug}-data-${i}`;
+function buildVolumes(infos: VolumeInfo[]): string[] {
+  return infos.map(info => {
+    if (info.kind === "pvc") {
       return [
-        `      - name: ${pvcName}`,
+        `      - name: ${info.volumeName}`,
         `        persistentVolumeClaim:`,
-        `          claimName: ${pvcName}`,
+        `          claimName: ${info.pvcName}`,
       ].join("\n");
-    });
+    } else if (info.kind === "hostPath") {
+      return [
+        `      - name: ${info.volumeName}`,
+        `        hostPath:`,
+        `          path: ${info.originalTarget}`,
+        `          type: DirectoryOrCreate`,
+      ].join("\n");
+    } else {
+      // emptyDir
+      const mediumLine = info.medium ? `\n          medium: ${info.medium}` : "";
+      return [
+        `      - name: ${info.volumeName}`,
+        `        emptyDir:{}${mediumLine}`,
+      ].join("\n").replace("emptyDir:{}", "emptyDir:");
+    }
+  });
 }
 
-function buildPVCs(configs: AppFeedConfig[], slug: string, namespace: string, sizeGi: number, storageClass: string): string[] {
-  return configs
-    .filter(c => c["@attributes"]?.Type === "Path")
-    .map((c, i) => {
-      const attrs = c["@attributes"];
-      const pvcName = `${slug}-data-${i}`;
-      const required = attrs.Required === "true";
-      const mountPath = safeMountDir(attrs.Target);
-      const adjusted = mountPath !== attrs.Target ? ` (adjusted from file path "${attrs.Target}")` : "";
+function buildPVCs(infos: VolumeInfo[], namespace: string, sizeGi: number, storageClass: string): string[] {
+  return infos
+    .filter(info => info.kind === "pvc")
+    .map(info => {
+      const adjusted = info.mountPath !== info.originalTarget
+        ? ` (adjusted from file path "${info.originalTarget}")` : "";
       return `---
-# PVC for "${attrs.Name}" → ${mountPath}${adjusted}
-# Default path on Unraid: ${attrs.Default || "(not set)"}
+# PVC for "${info.configName}" → ${info.mountPath}${adjusted}
+# Default path on Unraid: ${info.configDefault || "(not set)"}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: ${pvcName}
+  name: ${info.pvcName}
   namespace: ${namespace}
   labels:
-    app.kubernetes.io/name: ${slug}
+    app.kubernetes.io/name: ${info.volumeName.replace(/-data-\d+$/, "")}
     app.kubernetes.io/component: storage
     infraweaver.io/source: community-apps
   annotations:
-    infraweaver.io/unraid-path: ${yamlString(attrs.Default || attrs.Target)}
-    infraweaver.io/required: "${required}"
+    infraweaver.io/unraid-path: ${yamlString(info.configDefault || info.originalTarget)}
+    infraweaver.io/required: "${info.configRequired}"
 spec:
   accessModes:
     - ReadWriteOnce
@@ -348,10 +602,10 @@ spec:
 }
 
 function buildService(ports: AppFeedConfig[], slug: string, namespace: string): string | null {
-  const tcpPorts = ports.filter(c => c["@attributes"]?.Type === "Port");
-  if (tcpPorts.length === 0) return null;
+  const allPorts = ports.filter(c => c["@attributes"]?.Type === "Port");
+  if (allPorts.length === 0) return null;
 
-  const portLines = tcpPorts
+  const portLines = allPorts
     .map(c => {
       const attrs = c["@attributes"];
       const containerPort = parseInt(attrs.Target, 10);
@@ -361,7 +615,7 @@ function buildService(ports: AppFeedConfig[], slug: string, namespace: string): 
         `  - port: ${containerPort}`,
         `    targetPort: ${containerPort}`,
         `    protocol: ${proto}`,
-        `    name: ${portName(attrs.Name, containerPort)}`,
+        `    name: ${portName(attrs.Name, containerPort, attrs.Mode)}`,
       ].join("\n");
     })
     .filter(Boolean);
@@ -430,14 +684,21 @@ export function convertAppFeedEntry(
   if (/^https?:\/\//i.test(image)) {
     throw new UserError(`App "${appName}" is an Unraid plugin (not a Docker image) — not deployable on Kubernetes`);
   }
-  // Detect Docker-socket-dependent apps (e.g. Dozzle, Portainer, Glances) — they require
-  // the host Docker daemon and cannot run in a standard Kubernetes pod
+
+  // Parse ExtraParams early — drives capabilities, user, memory, sysctls
+  const extra = parseExtraParams(app.ExtraParams ?? "");
+
   const configs0 = getConfigs(app);
-  const needsDockerSocket = configs0.some(c =>
+
+  // Block only when docker socket is explicitly Required=true.
+  // Apps like UptimeKuma list docker.sock as Required=false for optional features —
+  // we skip that mount and still deploy the app.
+  const hasRequiredDockerSocket = configs0.some(c =>
     c["@attributes"]?.Type === "Path" &&
-    (c["@attributes"]?.Target ?? "").replace(/\\/g, "/").includes("/var/run/docker.sock")
+    isDockerSocket(c["@attributes"]?.Target ?? "") &&
+    c["@attributes"]?.Required === "true"
   );
-  if (needsDockerSocket) {
+  if (hasRequiredDockerSocket) {
     throw new UserError(`App "${appName}" requires the Docker socket and cannot run in Kubernetes — use a Kubernetes-native monitoring tool instead`);
   }
 
@@ -445,14 +706,14 @@ export function convertAppFeedEntry(
   const namespace = options.namespace?.trim() || slug;
   const pvcSizeGi = options.pvcSizeGi ?? 10;
   // Community apps use the standard HA StorageClass (3 replicas, best-effort locality).
-  // longhorn-game is reserved for game servers only (strict-local, single replica).
   const storageClass = options.storageClass?.trim() || "longhorn";
   const tier = detectTier(app);
 
   const warnings: string[] = [];
   const configs = getConfigs(app);
 
-  const isPrivileged = String(app.Privileged ?? "").toLowerCase() === "true" ||
+  const isPrivileged = extra.privileged ||
+    String(app.Privileged ?? "").toLowerCase() === "true" ||
     configs.some(c => c["@attributes"]?.Type === "Device");
   const isHostNetwork = String(app.Network ?? "").toLowerCase() === "host";
   const hasCustomNetwork = String(app.Network ?? "") !== "" &&
@@ -474,24 +735,34 @@ export function convertAppFeedEntry(
     warnings.push(`ℹ️ Unraid PostArgs ("${app.PostArgs}") are set as the container args.`);
   }
 
-  // Build env vars
-  const envVars = buildEnvVars(configs);
-  const containerPorts = buildContainerPorts(configs);
-  const volumeMounts = buildVolumeMounts(configs, slug);
-  const volumes = buildVolumes(configs, slug);
-  const pvcs = buildPVCs(configs, slug, namespace, pvcSizeGi, storageClass);
+  // Warn about optional docker.sock paths that are being silently skipped
+  const hasOptionalDockerSocket = configs.some(c =>
+    c["@attributes"]?.Type === "Path" &&
+    isDockerSocket(c["@attributes"]?.Target ?? "") &&
+    c["@attributes"]?.Required !== "true"
+  );
+  if (hasOptionalDockerSocket) {
+    warnings.push("ℹ️ Docker socket mount skipped (optional feature on Unraid; not available in Kubernetes). Docker-dependent features will be unavailable.");
+  }
 
-  // Warn when file-like mount paths are adjusted to parent directories
+  // Pre-compute volume infos (shared by mounts, volumes, pvcs)
+  const volumeInfos = computeVolumeInfos(configs, slug);
+
+  // Warn for skipped/adjusted paths
   configs.filter(c => c["@attributes"]?.Type === "Path").forEach(c => {
-    const target = c["@attributes"]?.Target ?? "";
-    if (isFileLikePath(target)) {
+    const target = (c["@attributes"]?.Target ?? "").replace(/\\/g, "/");
+    if (isDockerSocket(target)) return; // already warned above
+    const cls = classifyPath(target);
+    if (cls.kind === "skip") return;
+    if (cls.kind === "hostPath") {
+      warnings.push(`ℹ️ Mount path "${target}" is a host OS path — mounted as read-only hostPath (not a PVC).`);
+    } else if (cls.kind === "pvc" && isFileLikePath(target)) {
       const adjusted = safeMountDir(target);
-      warnings.push(`ℹ️ Mount path "${target}" is a file — PVC mounted at parent directory "${adjusted}" instead. The file path will be ephemeral inside the container.`);
+      warnings.push(`ℹ️ Mount path "${target}" is a file — PVC mounted at parent directory "${adjusted}" instead.`);
     }
   });
-  const secretsYaml = buildSecretsManifest(configs, slug, namespace);
 
-  // Warn if masked variables need manual secret updates
+  const secretsYaml = buildSecretsManifest(configs, slug, namespace);
   if (secretsYaml) {
     warnings.push("🔑 This app has masked/secret variables. A secrets.yaml was created with placeholder values — update them before deploying.");
   }
@@ -502,29 +773,86 @@ export function convertAppFeedEntry(
     ? `\n          args:\n${postArgs.map(arg => `            - ${yamlString(arg)}`).join("\n")}`
     : "";
 
-  // Security context
-  const secCtxLines: string[] = [];
-  if (isPrivileged) secCtxLines.push("privileged: true");
-  if (!isPrivileged) {
-    secCtxLines.push("runAsNonRoot: false");
-    secCtxLines.push("allowPrivilegeEscalation: false");
-  }
+  // Build env vars (with linuxserver.io PUID/PGID injection and ExtraParams envs)
+  const envVars = buildEnvVars(configs, extra.envVars, isLinuxServerImage(image));
+  const containerPorts = buildContainerPorts(configs);
+  const volumeMounts = buildVolumeMounts(volumeInfos);
+  const volumes = buildVolumes(volumeInfos);
+  const pvcs = buildPVCs(volumeInfos, namespace, pvcSizeGi, storageClass);
 
-  const resources = getResourceProfile(appName, tier);
+  // ── Container security context ──────────────────────────────────────────────
+  const secCtxLines: string[] = [];
+  if (isPrivileged) {
+    secCtxLines.push("privileged: true");
+  } else if (extra.caps.length > 0) {
+    // Add capabilities from ExtraParams (e.g. NET_ADMIN, SYS_MODULE for WireGuard)
+    secCtxLines.push("capabilities:");
+    secCtxLines.push("  add:");
+    for (const cap of extra.caps) secCtxLines.push(`    - ${cap}`);
+  }
+  // Note: we deliberately do NOT set allowPrivilegeEscalation: false — many community
+  // apps use setuid binaries or spawn privileged child processes and would crash silently.
+
+  // ── Pod-level security context ──────────────────────────────────────────────
+  const fsGroup = extra.runAsGroup ?? 1000;
+  const podSecCtxParts: string[] = [`fsGroup: ${fsGroup}`];
+  if (extra.runAsUser !== undefined) podSecCtxParts.push(`runAsUser: ${extra.runAsUser}`);
+  if (extra.runAsGroup !== undefined) podSecCtxParts.push(`runAsGroup: ${extra.runAsGroup}`);
+  if (extra.sysctls.length > 0) {
+    podSecCtxParts.push("sysctls:");
+    for (const s of extra.sysctls) {
+      podSecCtxParts.push(`  - name: ${s.name}`);
+      podSecCtxParts.push(`    value: ${yamlString(s.value)}`);
+    }
+  }
+  const podSecCtxYaml = indent(podSecCtxParts.join("\n"), 8);
+
+  // ── Resources — respect ExtraParams --memory ────────────────────────────────
+  const baseResources = getResourceProfile(appName, tier);
+  const memLimit = extra.memoryLimitK8s ?? baseResources.memLimit;
+  // Ensure memReq ≤ memLimit
+  const resources = { ...baseResources, memLimit };
+
+  // ── Health probes with startupProbe to handle slow first-start ──────────────
+  // startupProbe gives the container up to (failureThreshold × periodSeconds) seconds
+  // to start before liveness/readiness probes begin, preventing CrashLoopBackOff.
   const probePort = getProbePort(configs);
-  const tcpProbeYaml = probePort !== null
+  const hasPvcs = pvcs.length > 0;
+  // Stateful apps (PVCs) can take longer: 10 min; stateless: 5 min
+  const startupFailureThreshold = hasPvcs ? 120 : 60;
+  const probeYaml = probePort !== null
     ? [
+      "          startupProbe:",
+      "            tcpSocket:",
+      `              port: ${probePort}`,
+      "            initialDelaySeconds: 5",
+      "            periodSeconds: 5",
+      `            failureThreshold: ${startupFailureThreshold}`,
       "          readinessProbe:",
       "            tcpSocket:",
       `              port: ${probePort}`,
-      "            initialDelaySeconds: 30",
-      "            failureThreshold: 10",
+      "            periodSeconds: 10",
+      "            failureThreshold: 3",
       "          livenessProbe:",
       "            tcpSocket:",
       `              port: ${probePort}`,
-      "            initialDelaySeconds: 30",
-      "            failureThreshold: 10",
+      "            periodSeconds: 30",
+      "            failureThreshold: 3",
     ].join("\n")
+    : "";
+
+  // ── shm-size → emptyDir volume at /dev/shm ──────────────────────────────────
+  const shmVolumeMount = extra.shmSize
+    ? `            - name: dshm\n              mountPath: "/dev/shm"` : "";
+  const shmVolume = extra.shmSize
+    ? `      - name: dshm\n        emptyDir:\n          medium: Memory\n          sizeLimit: ${extra.shmSize}` : "";
+
+  const allVolumeMounts = [...volumeMounts, ...(shmVolumeMount ? [shmVolumeMount] : [])];
+  const allVolumes = [...volumes, ...(shmVolume ? [shmVolume] : [])];
+
+  const hostPidLine = extra.hostPID ? "\n      hostPID: true" : "";
+  const containerSecCtxYaml = secCtxLines.length > 0
+    ? `          securityContext:\n${indent(secCtxLines.join("\n"), 12)}\n`
     : "";
 
   const deploymentYaml = `---
@@ -553,26 +881,24 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: ${slug}
-    spec:${isHostNetwork ? "\n      hostNetwork: true" : ""}
+    spec:${isHostNetwork ? "\n      hostNetwork: true" : ""}${hostPidLine}
       securityContext:
-        fsGroup: 1000
+${podSecCtxYaml}
       containers:
         - name: ${slug}
           image: ${image}${argsYaml}
 ${envVars.length > 0 ? `          env:\n${envVars.join("\n")}` : "          # No environment variables defined"}
 ${containerPorts.length > 0 ? `          ports:\n${containerPorts.join("\n")}` : "          # No ports defined"}
-${tcpProbeYaml}
-${volumeMounts.length > 0 ? `          volumeMounts:\n${volumeMounts.join("\n")}` : "          # No volume mounts defined"}
-          securityContext:
-${indent(secCtxLines.join("\n"), 12)}
-          resources:
+${probeYaml}
+${allVolumeMounts.length > 0 ? `          volumeMounts:\n${allVolumeMounts.join("\n")}` : "          # No volume mounts defined"}
+${containerSecCtxYaml}          resources:
             requests:
               memory: ${yamlString(resources.memReq)}
               cpu: ${yamlString(resources.cpuReq)}
             limits:
-              memory: ${yamlString(resources.memLimit)}
+              memory: ${yamlString(memLimit)}
               cpu: ${yamlString(resources.cpuLimit)}
-${volumes.length > 0 ? `      volumes:\n${volumes.join("\n")}` : "      # No volumes defined"}`;
+${allVolumes.length > 0 ? `      volumes:\n${allVolumes.join("\n")}` : "      # No volumes defined"}`;
 
   const portConfigs = configs.filter(c => c["@attributes"]?.Type === "Port");
   const serviceYaml = buildService(portConfigs, slug, namespace);
@@ -585,7 +911,9 @@ ${volumes.length > 0 ? `      volumes:\n${volumes.join("\n")}` : "      # No vol
     let port: number | null = null;
     if (app.WebUI) port = extractWebUIPort(app.WebUI);
     if (!port && portConfigs.length > 0) {
-      port = parseInt(portConfigs[0]["@attributes"].Target, 10);
+      // Prefer first TCP port for ingress
+      const firstTcp = portConfigs.find(c => (c["@attributes"]?.Mode ?? "tcp").toLowerCase() !== "udp");
+      if (firstTcp) port = parseInt(firstTcp["@attributes"].Target, 10);
     }
 
     if (port && !isNaN(port)) {
@@ -639,11 +967,15 @@ export interface AppFeedSummary {
 
 export function summarizeApp(app: AppFeedEntry): AppFeedSummary {
   const configs = getConfigs(app);
-  const needsDockerSocket = configs.some(c =>
-    c["@attributes"]?.Type === "Path" &&
-    (c["@attributes"]?.Target ?? "").replace(/\\/g, "/").includes("/var/run/docker.sock")
-  );
   const isPlugin = /^https?:\/\//i.test(app.Repository ?? "");
+
+  // Only mark incompatible when docker.sock is Required=true.
+  // Apps with optional docker.sock (like UptimeKuma) still work without it.
+  const hasRequiredDockerSocket = configs.some(c =>
+    c["@attributes"]?.Type === "Path" &&
+    isDockerSocket(c["@attributes"]?.Target ?? "") &&
+    c["@attributes"]?.Required === "true"
+  );
 
   const summary: AppFeedSummary = {
     name: app.Name,
@@ -661,7 +993,7 @@ export function summarizeApp(app: AppFeedEntry): AppFeedSummary {
     configCount: configs.length,
   };
 
-  if (needsDockerSocket) {
+  if (hasRequiredDockerSocket) {
     summary.incompatible = true;
     summary.incompatibleReason = "Requires Docker socket — not supported on Kubernetes";
   } else if (isPlugin) {
