@@ -1,0 +1,309 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: game-hub
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: live-test-mc-031870-data
+  namespace: game-hub
+  labels:
+    app: live-test-mc-031870
+    infraweaver/egg: minecraft-java
+    infraweaver/game: 'true'
+  annotations:
+    volume.beta.kubernetes.io/storage-provisioner: driver.longhorn.io
+    volume.kubernetes.io/storage-provisioner: driver.longhorn.io
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: longhorn-game
+  volumeMode: Filesystem
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gameserver-live-test-mc-031870-egg
+  namespace: game-hub
+  labels:
+    infraweaver.io/game-type: minecraft-java
+    infraweaver.io/server-name: live-test-mc-031870
+    infraweaver.io/type: game-egg
+data:
+  egg.json: |-
+    {
+      "id": "minecraft-java",
+      "name": "Minecraft Java Edition",
+      "description": "Paper-ready Minecraft Java server powered by itzg/minecraft-server",
+      "dockerImage": "itzg/minecraft-server:latest",
+      "startupCommand": "java -Xmx{{MEMORY}} -Xms{{MEMORY}} -jar server.jar nogui",
+      "stopCommand": "stop",
+      "gamePort": 25565,
+      "queryPort": 25565,
+      "mountPath": "/data",
+      "protocol": "TCP",
+      "ports": [
+        {
+          "name": "game",
+          "port": 25565,
+          "protocol": "TCP"
+        }
+      ],
+      "defaultMemory": "2Gi",
+      "defaultCpu": "1",
+      "defaultStorage": "10Gi",
+      "supportsModrinth": true,
+      "connectionHint": "Join with the listed host and port in the Minecraft multiplayer browser.",
+      "environment": [
+        {
+          "name": "EULA",
+          "description": "Accept Mojang's EULA",
+          "defaultValue": "TRUE",
+          "required": true
+        },
+        {
+          "name": "TYPE",
+          "description": "Server type (VANILLA, PAPER, SPIGOT)",
+          "defaultValue": "PAPER",
+          "required": false
+        },
+        {
+          "name": "VERSION",
+          "description": "Minecraft version",
+          "defaultValue": "LATEST",
+          "required": false
+        },
+        {
+          "name": "MEMORY",
+          "description": "Heap size passed to the server JVM",
+          "defaultValue": "2G",
+          "required": false
+        },
+        {
+          "name": "MOTD",
+          "description": "Message of the Day",
+          "defaultValue": "A Minecraft Server",
+          "required": false
+        },
+        {
+          "name": "MAX_PLAYERS",
+          "description": "Maximum players",
+          "defaultValue": "20",
+          "required": false
+        },
+        {
+          "name": "DIFFICULTY",
+          "description": "Difficulty (peaceful, easy, normal, hard)",
+          "defaultValue": "normal",
+          "required": false
+        },
+        {
+          "name": "GAMEMODE",
+          "description": "Game mode (survival, creative, adventure)",
+          "defaultValue": "survival",
+          "required": false
+        },
+        {
+          "name": "ENABLE_RCON",
+          "description": "Enable RCON support",
+          "defaultValue": "true",
+          "required": false
+        },
+        {
+          "name": "RCON_PASSWORD",
+          "description": "RCON password",
+          "defaultValue": "",
+          "required": false
+        }
+      ],
+      "quickCommands": [
+        {
+          "label": "List Players",
+          "cmd": "list",
+          "description": "List connected players"
+        },
+        {
+          "label": "Help",
+          "cmd": "help",
+          "description": "Show supported console commands"
+        },
+        {
+          "label": "Save World",
+          "cmd": "save-all",
+          "description": "Force save the world"
+        }
+      ],
+      "commandAcl": {
+        "game-server-viewer": [
+          "list",
+          "players",
+          "playing",
+          "status",
+          "help",
+          "ShowPlayers",
+          "Info",
+          "/players",
+          "/help"
+        ],
+        "game-server-operator": [
+          "list",
+          "players",
+          "playing",
+          "status",
+          "help",
+          "time set day",
+          "weather clear",
+          "save-all"
+        ],
+        "game-server-admin": [
+          "*"
+        ]
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: live-test-mc-031870
+  namespace: game-hub
+  labels:
+    app: live-test-mc-031870
+    infraweaver/egg: minecraft-java
+    infraweaver/game: 'true'
+    infraweaver/game-type: minecraft-java
+  annotations:
+    infraweaver.io/dns-hostname: live-test-mc-031870.games.int.rlservers.com
+    infraweaver.io/egg-id: minecraft-java
+    infraweaver.io/image-version: latest
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: live-test-mc-031870
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: live-test-mc-031870
+        infraweaver/egg: minecraft-java
+        infraweaver/game: 'true'
+        infraweaver/game-type: minecraft-java
+      annotations:
+        infraweaver.io/dns-hostname: live-test-mc-031870.games.int.rlservers.com
+        infraweaver.io/egg-id: minecraft-java
+        infraweaver.io/image-version: latest
+    spec:
+      containers:
+        - env:
+            - name: EULA
+              value: 'TRUE'
+            - name: TYPE
+              value: PAPER
+            - name: VERSION
+              value: LATEST
+            - name: MEMORY
+              value: 2G
+            - name: MOTD
+              value: A Minecraft Server
+            - name: MAX_PLAYERS
+              value: '20'
+            - name: DIFFICULTY
+              value: normal
+            - name: GAMEMODE
+              value: survival
+            - name: ENABLE_RCON
+              value: 'true'
+            - name: RCON_PASSWORD
+          image: itzg/minecraft-server:latest
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - '-c'
+                - pgrep -P 1 > /dev/null 2>&1
+            failureThreshold: 3
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            successThreshold: 1
+            timeoutSeconds: 1
+          name: live-test-mc-031870
+          ports:
+            - containerPort: 25565
+              protocol: TCP
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - '-c'
+                - pgrep -P 1 > /dev/null 2>&1
+            failureThreshold: 3
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            successThreshold: 1
+            timeoutSeconds: 1
+          resources:
+            limits:
+              cpu: '1'
+              memory: 2Gi
+            requests:
+              cpu: '1'
+              memory: 2Gi
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+            - mountPath: /data
+              name: data
+      dnsPolicy: ClusterFirst
+      priorityClassName: game-server
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsUser: 1000
+      terminationGracePeriodSeconds: 60
+      topologySpreadConstraints:
+        - labelSelector:
+            matchLabels:
+              infraweaver/game: 'true'
+          maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: live-test-mc-031870-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: live-test-mc-031870
+  namespace: game-hub
+  labels:
+    app: live-test-mc-031870
+    infraweaver/game: 'true'
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: live-test-mc-031870.games.int.rlservers.com
+    external-dns.alpha.kubernetes.io/ttl: '60'
+spec:
+  externalTrafficPolicy: Cluster
+  internalTrafficPolicy: Cluster
+  ports:
+    - name: game
+      nodePort: 32723
+      port: 25565
+      protocol: TCP
+      targetPort: 25565
+  selector:
+    app: live-test-mc-031870
+  sessionAffinity: None
+  type: NodePort
