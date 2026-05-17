@@ -81,6 +81,28 @@ const EMPTY_DIR_MOUNTS: { prefix: string; medium?: "Memory" }[] = [
   { prefix: "/run/lock" },
 ];
 
+/**
+ * Large media / data-sink paths that in Unraid point to the user's NAS array.
+ * In Kubernetes these should NOT become Longhorn PVCs — they'd waste huge amounts
+ * of block storage. Use emptyDir as a placeholder so the pod starts; the operator
+ * can overlay a proper NFS/SMB/hostPath mount later.
+ *
+ * Rule: exact prefix match (or exact match) against the target path.
+ */
+const MEDIA_SINK_PREFIXES: string[] = [
+  "/movies", "/films", "/movie",
+  "/tv", "/series", "/shows", "/anime",
+  "/music", "/audio",
+  "/downloads", "/download", "/completed", "/incomplete", "/torrents",
+  "/books", "/ebooks", "/audiobooks", "/comics",
+  "/photos", "/pictures", "/images", "/gallery",
+  "/media",
+  "/watch",          // Sonarr/Radarr watch folders
+  "/video",
+  "/podcasts",
+  "/games",
+];
+
 type PathVolumeKind = "pvc" | "hostPath" | "emptyDir" | "skip";
 type PathClassification = { kind: PathVolumeKind; medium?: "Memory" };
 
@@ -91,6 +113,10 @@ function classifyPath(target: string): PathClassification {
     if (p === ed.prefix || p.startsWith(ed.prefix + "/")) return { kind: "emptyDir", medium: ed.medium };
   }
   if (HOST_PATH_RO.some(h => p === h || p.startsWith(h + "/"))) return { kind: "hostPath" };
+  // Media / data-sink paths should be emptyDir, not Longhorn PVCs.
+  // These are meant to be NAS mounts in Unraid — creating block-storage PVCs for them
+  // wastes cluster storage and causes scheduling issues.
+  if (MEDIA_SINK_PREFIXES.some(m => p === m || p.startsWith(m + "/"))) return { kind: "emptyDir" };
   return { kind: "pvc" };
 }
 
@@ -726,7 +752,7 @@ export function convertAppFeedEntry(
 
   const slug = toSlug(appName);
   const namespace = options.namespace?.trim() || slug;
-  const pvcSizeGi = options.pvcSizeGi ?? 10;
+  const pvcSizeGi = options.pvcSizeGi ?? 2;
   // Community apps use the standard HA StorageClass (3 replicas, best-effort locality).
   const storageClass = options.storageClass?.trim() || "longhorn";
   const tier = detectTier(app);
