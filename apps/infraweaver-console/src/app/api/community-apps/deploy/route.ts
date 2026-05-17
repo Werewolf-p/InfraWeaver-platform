@@ -294,6 +294,61 @@ installed_at: ${new Date().toISOString()}
     // instead of waiting up to 3 minutes for the auto-poll interval.
     await triggerBootstrapRefresh();
 
+    // Also directly apply the ArgoCD Application resource so the app starts
+    // deploying immediately even if bootstrap is mid-sync on other apps.
+    try {
+      const kc = loadKubeConfig();
+      const cluster = kc.getCurrentCluster();
+      if (cluster) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const cfg = createConfiguration({
+          baseServer: new ServerConfiguration(cluster.server, {}),
+          authMethods: { default: kc as any },
+          promiseMiddleware: [],
+        });
+        const customApi = new k8s.CustomObjectsApi(cfg);
+        const argoApp = {
+          apiVersion: "argoproj.io/v1alpha1",
+          kind: "Application",
+          metadata: {
+            name: `catalog-${slug}-manifests`,
+            namespace: "argocd",
+            labels: {
+              "infraweaver.io/type": "catalog-app",
+              "infraweaver.io/source": "community-apps",
+            },
+            finalizers: ["resources-finalizer.argocd.argoproj.io"],
+          },
+          spec: {
+            project: "platform",
+            source: {
+              repoURL: `https://github.com/${GITHUB_REPO}.git`,
+              targetRevision: "HEAD",
+              path: baseDir,
+            },
+            destination: {
+              server: "https://kubernetes.default.svc",
+              namespace: ns,
+            },
+            syncPolicy: {
+              automated: { prune: true, selfHeal: true },
+              retry: { limit: 5, backoff: { duration: "5s", factor: 2, maxDuration: "3m" } },
+              syncOptions: ["CreateNamespace=true", "ServerSideApply=true"],
+            },
+          },
+        };
+        await customApi.createNamespacedCustomObject({
+          group: "argoproj.io",
+          version: "v1alpha1",
+          namespace: "argocd",
+          plural: "applications",
+          body: argoApp,
+        });
+      }
+    } catch {
+      // Non-fatal — if it already exists or permission error, bootstrap will handle it
+    }
+
     await auditLog(
       "community-apps:deploy",
       session.user?.email ?? "unknown",
