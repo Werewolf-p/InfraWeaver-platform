@@ -1,7 +1,7 @@
 ---
 # catalog-gotify-manifests.yaml — deployed by InfraWeaver Community Apps
 # Source: gotify/server:latest
-# Installed: 2026-05-17T22:57:15.343Z
+# Installed: 2026-05-17T23:13:14.962Z
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
