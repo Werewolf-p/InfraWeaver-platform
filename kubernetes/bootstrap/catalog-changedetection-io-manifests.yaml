@@ -1,7 +1,7 @@
 ---
 # catalog-changedetection-io-manifests.yaml — deployed by InfraWeaver Community Apps
 # Source: lscr.io/linuxserver/changedetection.io
-# Installed: 2026-05-17T22:29:21.044Z
+# Installed: 2026-05-17T22:42:16.543Z
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
