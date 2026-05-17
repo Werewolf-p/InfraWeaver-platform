@@ -84,6 +84,14 @@ repoServer:
     limits:
       cpu: 500m
       memory: 512Mi
+  # Increase liveness probe timeout — default 1s is too tight when repo server is busy
+  # with git clone/fetch operations, causing false-positive kills (52 restarts observed)
+  livenessProbe:
+    timeoutSeconds: 10
+    failureThreshold: 5
+  readinessProbe:
+    timeoutSeconds: 10
+    failureThreshold: 5
 
 applicationSet:
   replicas: 1  # Memory-optimised: single replica saves ~100Mi
