@@ -1,42 +1,16 @@
----
-# catalog.yaml — source definition for catalog apps
-# This file is read by scripts/sync-catalog.sh to generate ArgoCD Applications.
-#
-# Catalog app: Gitea — self-hosted Git service with full Authentik OIDC SSO
-# Access: gitea.int.rlservers.com (VPN-only)
-# SSO: Native OAuth2/OIDC via Gitea's built-in OAuth2 provider (Authentik)
-
+# Community app installed from Unraid AppFeed
+# Source: gitea/gitea
 name: gitea
-description: "Gitea — self-hosted Git service with Authentik OIDC SSO"
+description: "Gitea: Git with a cup of tea - The goal of this project is to make the easiest, fastest, and most painless way of setting up a self-hosted Git service. Using Go, this can be done with an independent b"
 namespace: gitea
-
-# Helm chart source
-helm:
-  repoURL: https://dl.gitea.com/charts/
-  chart: gitea
-  targetRevision: "10.*"
-  releaseName: gitea
-
+source: community-apps
+tier: simple
+image: gitea/gitea
+categories:
+  - "Backup"
+  - "Cloud"
+  - "Productivity"
+  - "Tools-Utilities"
 ingressroute:
-  host: gitea.int.rlservers.com
-  entrypoint: websecure
-
-# ── Secrets schema ────────────────────────────────────────────────────────────
-secrets:
-  path: platform/gitea
-  keys:
-    admin-user:
-      type: static
-      value: "gitea-admin"
-    admin-password:
-      type: password
-    admin-email:
-      type: static
-      value: "admin@infraweaver.local"
-    postgresql-password:
-      type: password
-    oidc-client-id:
-      type: static
-      value: "gitea"
-    oidc-client-secret:
-      type: password
+  host: gitea.apps.int.rlservers.com
+installed_at: 2026-05-17T17:52:31.651Z
