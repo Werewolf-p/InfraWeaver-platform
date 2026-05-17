@@ -1,0 +1,13 @@
+# Community app installed from Unraid AppFeed
+# Source: jgraph/drawio
+name: draw-io
+description: "A lightweight diagram drawing application"
+namespace: draw-io
+source: community-apps
+tier: simple
+image: jgraph/drawio
+categories:
+  - "Productivity"
+ingressroute:
+  host: draw-io.int.rlservers.com
+installed_at: 2026-05-17T15:32:19.750Z
