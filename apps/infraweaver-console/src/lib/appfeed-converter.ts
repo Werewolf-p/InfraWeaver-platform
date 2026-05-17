@@ -264,12 +264,32 @@ function buildContainerPorts(configs: AppFeedConfig[]): string[] {
     .filter(Boolean);
 }
 
+/**
+ * Returns true if the path's last segment looks like a file (has an extension).
+ * e.g., "/database.db" → true, "/config" → false, "/data/app.json" → true
+ */
+function isFileLikePath(p: string): boolean {
+  const last = p.split("/").filter(Boolean).pop() ?? "";
+  return /\.[a-z0-9]{1,10}$/i.test(last);
+}
+
+/**
+ * For file-like paths, return a safe parent directory to mount the PVC.
+ * Mounting a PVC at a file path creates a directory, causing crashes.
+ */
+function safeMountDir(p: string): string {
+  if (!isFileLikePath(p)) return p;
+  const parent = p.substring(0, p.lastIndexOf("/"));
+  // If parent is "/" or empty, use "/data" to avoid shadowing the root FS
+  return parent && parent !== "/" ? parent : "/data";
+}
+
 function buildVolumeMounts(configs: AppFeedConfig[], slug: string): string[] {
   return configs
     .filter(c => c["@attributes"]?.Type === "Path")
     .map((c, i) => {
       const attrs = c["@attributes"];
-      const mountPath = attrs.Target;
+      const mountPath = safeMountDir(attrs.Target);
       const pvcName = `${slug}-data-${i}`;
       return [
         `            - name: ${pvcName}`,
@@ -298,8 +318,10 @@ function buildPVCs(configs: AppFeedConfig[], slug: string, namespace: string, si
       const attrs = c["@attributes"];
       const pvcName = `${slug}-data-${i}`;
       const required = attrs.Required === "true";
+      const mountPath = safeMountDir(attrs.Target);
+      const adjusted = mountPath !== attrs.Target ? ` (adjusted from file path "${attrs.Target}")` : "";
       return `---
-# PVC for "${attrs.Name}" → ${attrs.Target}
+# PVC for "${attrs.Name}" → ${mountPath}${adjusted}
 # Default path on Unraid: ${attrs.Default || "(not set)"}
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -442,6 +464,15 @@ export function convertAppFeedEntry(
   const volumeMounts = buildVolumeMounts(configs, slug);
   const volumes = buildVolumes(configs, slug);
   const pvcs = buildPVCs(configs, slug, namespace, pvcSizeGi, storageClass);
+
+  // Warn when file-like mount paths are adjusted to parent directories
+  configs.filter(c => c["@attributes"]?.Type === "Path").forEach(c => {
+    const target = c["@attributes"]?.Target ?? "";
+    if (isFileLikePath(target)) {
+      const adjusted = safeMountDir(target);
+      warnings.push(`ℹ️ Mount path "${target}" is a file — PVC mounted at parent directory "${adjusted}" instead. The file path will be ephemeral inside the container.`);
+    }
+  });
   const secretsYaml = buildSecretsManifest(configs, slug, namespace);
 
   // Warn if masked variables need manual secret updates

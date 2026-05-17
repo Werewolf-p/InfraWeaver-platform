@@ -61,7 +61,7 @@ async function triggerBootstrapRefresh(): Promise<void> {
       namespace: "argocd",
       plural: "applications",
       name: "bootstrap",
-      body: { metadata: { annotations: { "argocd.argoproj.io/refresh": "normal" } } },
+      body: { metadata: { annotations: { "argocd.argoproj.io/refresh": "hard" } } },
     });
   } catch {
     // Non-fatal — bootstrap will pick up changes on next poll
