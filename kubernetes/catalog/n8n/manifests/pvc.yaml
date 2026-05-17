@@ -1,0 +1,22 @@
+---
+# PVC for "AppData" → /home/node (adjusted from file path "/home/node/.n8n")
+# Default path on Unraid: /mnt/user/appdata/n8n
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: n8n-data-0
+  namespace: n8n
+  labels:
+    app.kubernetes.io/name: n8n
+    app.kubernetes.io/component: storage
+    infraweaver.io/source: community-apps
+  annotations:
+    infraweaver.io/unraid-path: "/mnt/user/appdata/n8n"
+    infraweaver.io/required: "true"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 10Gi
