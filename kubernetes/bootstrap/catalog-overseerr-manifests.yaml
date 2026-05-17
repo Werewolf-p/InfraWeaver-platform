@@ -1,7 +1,7 @@
 ---
 # catalog-overseerr-manifests.yaml — deployed by InfraWeaver Community Apps
 # Source: lscr.io/linuxserver/overseerr
-# Installed: 2026-05-17T21:58:37.193Z
+# Installed: 2026-05-17T22:13:56.710Z
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
