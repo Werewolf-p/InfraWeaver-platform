@@ -1,0 +1,44 @@
+---
+# PVC for "Data" → /var/lib/mysql
+# Default path on Unraid: (not set)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mariadb-official-data-0
+  namespace: mariadb-official
+  labels:
+    app.kubernetes.io/name: mariadb-official
+    app.kubernetes.io/component: storage
+    infraweaver.io/source: community-apps
+  annotations:
+    infraweaver.io/unraid-path: "/var/lib/mysql"
+    infraweaver.io/required: "true"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 10Gi
+---
+# PVC for "Config" → /etc/mysql (adjusted from file path "/etc/mysql/conf.d")
+# Default path on Unraid: (not set)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mariadb-official-data-1
+  namespace: mariadb-official
+  labels:
+    app.kubernetes.io/name: mariadb-official
+    app.kubernetes.io/component: storage
+    infraweaver.io/source: community-apps
+  annotations:
+    infraweaver.io/unraid-path: "/etc/mysql/conf.d"
+    infraweaver.io/required: "true"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 10Gi
