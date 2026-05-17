@@ -2415,21 +2415,20 @@ export default function AppsPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <PageHeader
-          title="Apps"
-          icon={LayoutGrid}
-          subtitle="Install and manage all platform applications"
-        />
-        {/* Floating + Install App button */}
-        <button
-          onClick={() => { setInstallSource(null); setShowInstallModal(true); }}
-          className="flex min-h-[40px] w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500 sm:w-auto touch-manipulation"
-        >
-          <PlusCircle className="w-4 h-4" />
-          <span>Install App</span>
-        </button>
-      </div>
+      <PageHeader
+        title="Apps"
+        icon={LayoutGrid}
+        subtitle="Install and manage all platform applications"
+        actions={
+          <button
+            onClick={() => { setInstallSource(null); setShowInstallModal(true); }}
+            className="flex min-h-[40px] w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500 sm:w-auto touch-manipulation"
+          >
+            <PlusCircle className="w-4 h-4" />
+            <span>Install App</span>
+          </button>
+        }
+      />
 
       {/* Top tabs */}
       <div className="flex gap-1 overflow-x-auto border-b border-[#2a2a2a] scrollbar-none touch-pan-x">
