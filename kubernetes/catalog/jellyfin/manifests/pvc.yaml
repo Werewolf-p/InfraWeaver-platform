@@ -1,5 +1,5 @@
 ---
-# PVC for "xmltv" → /xmltv
+# PVC for "Appdata" → /config
 # Default path on Unraid: (not set)
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -11,29 +11,7 @@ metadata:
     app.kubernetes.io/component: storage
     infraweaver.io/source: community-apps
   annotations:
-    infraweaver.io/unraid-path: "/xmltv"
-    infraweaver.io/required: "false"
-spec:
-  accessModes:
-    - ReadWriteOnce
-  storageClassName: longhorn
-  resources:
-    requests:
-      storage: 5Gi
----
-# PVC for "Appdata" → /config
-# Default path on Unraid: /mnt/user/appdata/jellyfin
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: jellyfin-data-1
-  namespace: jellyfin
-  labels:
-    app.kubernetes.io/name: jellyfin
-    app.kubernetes.io/component: storage
-    infraweaver.io/source: community-apps
-  annotations:
-    infraweaver.io/unraid-path: "/mnt/user/appdata/jellyfin"
+    infraweaver.io/unraid-path: "/config"
     infraweaver.io/required: "true"
 spec:
   accessModes:
