@@ -1,5 +1,5 @@
 ---
-# PVC for "config" → /config
+# PVC for "Appdata" → /config
 # Default path on Unraid: (not set)
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -12,7 +12,7 @@ metadata:
     infraweaver.io/source: community-apps
   annotations:
     infraweaver.io/unraid-path: "/config"
-    infraweaver.io/required: "false"
+    infraweaver.io/required: "true"
 spec:
   accessModes:
     - ReadWriteOnce
