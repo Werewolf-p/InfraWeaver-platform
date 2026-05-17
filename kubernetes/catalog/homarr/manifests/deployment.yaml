@@ -10,7 +10,8 @@ metadata:
   namespace: homarr
 spec:
   replicas: 1
-  selector:
+  strategy:
+    type: Recreate
     matchLabels:
       app.kubernetes.io/name: homarr
   template:
