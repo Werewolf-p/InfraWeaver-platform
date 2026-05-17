@@ -1,7 +1,7 @@
 ---
 # catalog-prometheus-manifests.yaml — deployed by InfraWeaver Community Apps
 # Source: prom/prometheus
-# Installed: 2026-05-17T17:52:45.038Z
+# Installed: 2026-05-17T17:55:41.954Z
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
