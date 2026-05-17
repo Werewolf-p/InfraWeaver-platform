@@ -88,7 +88,6 @@ export async function PATCH(request: NextRequest) {
       namespace,
       body: { data },
       fieldManager: "infraweaver",
-      force: true,
     });
 
     const updated = await coreApi.readNamespacedConfigMap({ name, namespace });

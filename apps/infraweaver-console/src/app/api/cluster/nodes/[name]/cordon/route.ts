@@ -43,7 +43,6 @@ async function updateMaintenanceMode(request: NextRequest, paramsPromise: Promis
       name,
       body: { spec: { unschedulable: cordon } },
       fieldManager: "infraweaver",
-      force: true,
     });
     await auditLog(
       cordon ? "cluster:cordon" : "cluster:uncordon",

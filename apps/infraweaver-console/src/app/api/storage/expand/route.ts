@@ -34,7 +34,6 @@ export async function PATCH(request: NextRequest) {
       namespace,
       body: { spec: { resources: { requests: { storage: newSize } } } },
       fieldManager: "infraweaver",
-      force: true,
     });
 
     const pvc = await coreApi.readNamespacedPersistentVolumeClaim({ name, namespace });
