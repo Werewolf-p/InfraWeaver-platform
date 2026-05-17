@@ -1,0 +1,14 @@
+# Community app installed from Unraid AppFeed
+# Source: corentinth/it-tools:latest
+name: it-tools
+description: "Useful tools for developer and people working in IT"
+namespace: it-tools
+source: community-apps
+tier: simple
+image: corentinth/it-tools:latest
+categories:
+  - "Tools-Utilities"
+  - "Other"
+ingressroute:
+  host: it-tools.int.rlservers.com
+installed_at: 2026-05-17T12:42:47.821Z
