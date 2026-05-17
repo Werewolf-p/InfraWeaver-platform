@@ -752,7 +752,7 @@ export function convertAppFeedEntry(
 
   const slug = toSlug(appName);
   const namespace = options.namespace?.trim() || slug;
-  const pvcSizeGi = options.pvcSizeGi ?? 2;
+  const pvcSizeGi = options.pvcSizeGi ?? 5;
   // Community apps use the standard HA StorageClass (3 replicas, best-effort locality).
   const storageClass = options.storageClass?.trim() || "longhorn";
   const tier = detectTier(app);
