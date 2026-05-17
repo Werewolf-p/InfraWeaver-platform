@@ -383,7 +383,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     >
       Skip to content
     </a>
-    <div className="flex h-screen w-full overflow-hidden overflow-x-hidden bg-[#0f0f0f]">
+    <div className="flex h-[100dvh] w-full overflow-hidden overflow-x-hidden bg-[#0f0f0f]">
       <OfflineIndicator />
       {/* Desktop Sidebar */}
       <div className="hidden md:flex">

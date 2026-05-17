@@ -91,7 +91,7 @@ export function TopBar({ onMenuClick, onSearchClick }: { title?: string; onMenuC
   }, [pathname]);
 
   return (
-    <header className="sticky top-0 z-30 flex min-h-16 flex-shrink-0 items-center justify-between gap-3 border-b border-white/5 bg-black/60 backdrop-blur-xl px-3 sm:min-h-14 sm:px-4">
+    <header className="sticky top-0 z-30 flex min-h-16 flex-shrink-0 items-center justify-between gap-3 border-b border-white/5 bg-black/60 backdrop-blur-xl px-3 pt-[env(safe-area-inset-top,0px)] sm:min-h-14 sm:px-4">
       <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
         <motion.button
           type="button"
