@@ -1,0 +1,22 @@
+---
+# PVC for "Appdata" → /bitnami/redis
+# Default path on Unraid: (not set)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-data-0
+  namespace: redis
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/component: storage
+    infraweaver.io/source: community-apps
+  annotations:
+    infraweaver.io/unraid-path: "/bitnami/redis"
+    infraweaver.io/required: "false"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 10Gi
