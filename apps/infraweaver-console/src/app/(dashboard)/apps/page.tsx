@@ -1667,8 +1667,40 @@ interface FeedResponse {
   categories: Array<{ Cat: string; Des: string }>;
 }
 
+interface AppDetailConfig {
+  name: string; target: string; type: string;
+  defaultValue?: string; description?: string;
+  required: boolean; masked: boolean;
+}
+
+interface RequiredVariable {
+  name: string; target: string; description?: string;
+  defaultValue?: string; masked: boolean; required: boolean; isPlaceholder: boolean;
+}
+
+/** Returns true if a value contains an unfilled [PLACEHOLDER] (not [PORT:xxx]) */
+function isPlaceholderValue(v?: string): boolean {
+  return /\[(?!PORT:\d)[^\]]+\]/i.test(v ?? "");
+}
+
+/** Extract variables that need user input from AppFeed configs */
+function getRequiredVarsFromConfigs(configs: AppDetailConfig[]): RequiredVariable[] {
+  return configs
+    .filter(c => c.type === "Variable" && (c.required || c.masked || isPlaceholderValue(c.defaultValue)))
+    .map(c => ({
+      name: c.name,
+      target: c.target,
+      description: c.description,
+      defaultValue: isPlaceholderValue(c.defaultValue) ? "" : (c.defaultValue || undefined),
+      masked: c.masked,
+      required: c.required,
+      isPlaceholder: isPlaceholderValue(c.defaultValue),
+    }));
+}
+
 interface ConversionResult {
   slug: string; tier: Tier; warnings: string[]; combinedYaml: string;
+  requiredVariables?: RequiredVariable[];
 }
 
 interface DeployOptions {
@@ -1726,6 +1758,10 @@ function DeployModal({ app, onClose }: { app: AppSummary; onClose: () => void })
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [isDeployLoading, setIsDeployLoading] = useState(false);
   const isPending = isPreviewLoading || isDeployLoading;
+
+  // App-specific required variables (fetched from detail endpoint)
+  const [requiredVars, setRequiredVars] = useState<RequiredVariable[] | null>(null);
+  const [userVariables, setUserVariables] = useState<Record<string, string>>({});
   const [options, setOptions] = useState<DeployOptions>({
     namespace: app.slug, pvcSizeGi: 10, storageClass: "longhorn",
     ingressHost: `${app.slug}.int.rlservers.com`, createIngress: !!app.webUI,
@@ -1733,6 +1769,29 @@ function DeployModal({ app, onClose }: { app: AppSummary; onClose: () => void })
   const [preview, setPreview] = useState<ConversionResult | null>(null);
   const [deployResult, setDeployResult] = useState<{ paths: string[]; warnings: string[] } | null>(null);
   const [deployProgressStep, setDeployProgressStep] = useState(0);
+
+  // Fetch app-specific configs to surface required/placeholder variables
+  useEffect(() => {
+    if (!canReadApps) return;
+    fetch(`/api/community-apps/${app.slug}`)
+      .then(r => r.ok ? r.json() as Promise<{ configs?: AppDetailConfig[] }> : null)
+      .then(data => {
+        if (!data?.configs) return;
+        const vars = getRequiredVarsFromConfigs(data.configs);
+        setRequiredVars(vars);
+        // Pre-populate defaults for non-placeholder values
+        const defaults: Record<string, string> = {};
+        for (const v of vars) {
+          if (v.defaultValue) defaults[v.target] = v.defaultValue;
+        }
+        if (Object.keys(defaults).length > 0) setUserVariables(defaults);
+      })
+      .catch(() => { /* non-fatal — still deployable */ });
+  }, [app.slug, canReadApps]);
+
+  const missingRequired = (requiredVars ?? []).filter(
+    v => (v.required || v.isPlaceholder) && !userVariables[v.target]?.trim()
+  );
 
   const handlePreview = async () => {
     if (!canReadApps) {
@@ -1743,7 +1802,7 @@ function DeployModal({ app, onClose }: { app: AppSummary; onClose: () => void })
     try {
       const res = await fetch("/api/community-apps/convert", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ appName: app.name, ...options }),
+        body: JSON.stringify({ appName: app.name, ...options, userVariables }),
       });
       const data = await res.json() as ConversionResult & { error?: string };
       if (!res.ok) { toast.error(data.error ?? "Conversion failed"); return; }
@@ -1768,7 +1827,7 @@ function DeployModal({ app, onClose }: { app: AppSummary; onClose: () => void })
     try {
       const res = await fetch("/api/community-apps/deploy", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ appName: app.name, ...options }),
+        body: JSON.stringify({ appName: app.name, ...options, userVariables }),
       });
       const data = await res.json() as { ok?: boolean; paths?: string[]; warnings?: string[]; error?: string };
       if (!res.ok) { toast.error(data.error ?? "Deploy failed"); setStep("preview"); return; }
@@ -1893,6 +1952,51 @@ function DeployModal({ app, onClose }: { app: AppSummary; onClose: () => void })
                   <p className="text-white/40 text-xs mt-1">Will be VPN-only via netbird-vpn-only middleware</p>
                 </div>
               )}
+
+              {/* App-specific required / secret variables */}
+              {requiredVars && requiredVars.length > 0 && (
+                <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Settings2 className="w-4 h-4 text-amber-400" />
+                    <span className="text-amber-200 text-sm font-medium">App Configuration</span>
+                    {missingRequired.length > 0 && (
+                      <span className="ml-auto text-xs text-red-400 bg-red-400/10 px-2 py-0.5 rounded">
+                        {missingRequired.length} required
+                      </span>
+                    )}
+                  </div>
+                  <div className="space-y-3">
+                    {requiredVars.map(v => (
+                      <div key={v.target}>
+                        <label className="flex items-center gap-1 text-white/70 text-xs mb-1">
+                          {v.name}
+                          {(v.required || v.isPlaceholder) && <span className="text-red-400">*</span>}
+                          {v.masked && <span className="text-xs text-white/30 ml-1">(secret)</span>}
+                        </label>
+                        <input
+                          type={v.masked ? "password" : "text"}
+                          placeholder={v.isPlaceholder ? "Required — enter a value" : (v.defaultValue ?? "")}
+                          value={userVariables[v.target] ?? ""}
+                          onChange={e => setUserVariables(prev => ({ ...prev, [v.target]: e.target.value }))}
+                          className={cn(
+                            "w-full bg-white/5 border rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500",
+                            (v.required || v.isPlaceholder) && !userVariables[v.target]?.trim()
+                              ? "border-red-500/50"
+                              : "border-white/10"
+                          )}
+                        />
+                        {v.description && (
+                          <p className="text-white/35 text-xs mt-0.5 leading-relaxed">{v.description}</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  {missingRequired.length > 0 && (
+                    <p className="text-red-400 text-xs">Fill in required fields before previewing.</p>
+                  )}
+                </div>
+              )}
+
               <div className="rounded-lg border border-white/10 bg-white/5 p-4 text-sm text-white/70 space-y-2">
                 <div className="flex items-center gap-2 text-white">
                   <Globe className="h-4 w-4 text-indigo-300" />
@@ -1980,7 +2084,8 @@ function DeployModal({ app, onClose }: { app: AppSummary; onClose: () => void })
               </button>
             )}
             {step === "options" && (
-              <button onClick={handlePreview} disabled={isPending || !canReadApps}
+              <button onClick={handlePreview} disabled={isPending || !canReadApps || missingRequired.length > 0}
+                title={missingRequired.length > 0 ? "Fill in required fields above first" : undefined}
                 className="flex items-center gap-2 px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors disabled:opacity-50">
                 {isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Eye className="w-4 h-4" />} Preview YAML
               </button>

@@ -75,6 +75,8 @@ const DeployBody = z.object({
   storageClass: z.string().max(63).optional(),
   ingressHost: z.string().max(253).optional(),
   createIngress: z.boolean().optional(),
+  /** User-supplied values for Required/placeholder variables, keyed by env var name */
+  userVariables: z.record(z.string(), z.string().max(4096)).optional(),
 });
 
 interface GitHubFile {
@@ -173,7 +175,7 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
-  const { appName, namespace, pvcSizeGi, storageClass, ingressHost, createIngress } = parsed.data;
+  const { appName, namespace, pvcSizeGi, storageClass, ingressHost, createIngress, userVariables } = parsed.data;
 
   const app = await findAppInFeed(appName);
   if (!app) {
@@ -191,6 +193,7 @@ export async function POST(req: NextRequest) {
       storageClass: storageClass?.trim() || undefined,
       ingressHost: ingressHost?.trim() || undefined,
       createIngress,
+      userVariables,
     });
   } catch (error) {
     return NextResponse.json(

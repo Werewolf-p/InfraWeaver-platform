@@ -354,6 +354,33 @@ export interface ConvertOptions {
   storageClass?: string;
   ingressHost?: string;    // override auto-derived host
   createIngress?: boolean;
+  /**
+   * User-supplied values for Variable configs, keyed by AppFeed Target (env var name).
+   * These override the AppFeed Default — used when the Default is a placeholder like
+   * [REPLACE-WITH-IP], or when the user wants to customize a password/API key.
+   */
+  userVariables?: Record<string, string>;
+}
+
+/**
+ * A variable that requires user input before the app will work correctly.
+ * Returned by convertAppFeedEntry so the UI can prompt the user to fill these in.
+ */
+export interface RequiredVariable {
+  /** AppFeed Config Name (display label) */
+  name: string;
+  /** Environment variable name in the container (AppFeed Target) */
+  target: string;
+  /** Human-readable description from AppFeed */
+  description?: string;
+  /** Default from AppFeed (may be a placeholder like [REPLACE-WITH-IP]) */
+  defaultValue?: string;
+  /** True = render as password input, store in Kubernetes Secret */
+  masked: boolean;
+  /** True = app cannot start without this value */
+  required: boolean;
+  /** True = Default value contains an unfilled placeholder like [REPLACE-WITH-IP] */
+  isPlaceholder: boolean;
 }
 
 export interface ConversionResult {
@@ -372,6 +399,12 @@ export interface ConversionResult {
   };
   /** Combined YAML ready to write to a single file or split */
   combinedYaml: string;
+  /**
+   * Variables that need user input before the app will work correctly.
+   * Includes: Required=true variables, masked/secret variables, and
+   * variables whose Default value is a placeholder like [REPLACE-WITH-IP].
+   */
+  requiredVariables: RequiredVariable[];
 }
 
 // ── helpers ─────────────────────────────────────────────────────────────────
@@ -388,6 +421,42 @@ function toSlug(name: string): string {
 
 function yamlString(value: string): string {
   return JSON.stringify(value);
+}
+
+/**
+ * Returns true if the value contains an unfilled placeholder like [REPLACE-WITH-IP],
+ * [HOST], [IP], [USERNAME], etc. but NOT [PORT:xxx] which the converter handles.
+ */
+function isPlaceholderValue(value?: string): boolean {
+  if (!value) return false;
+  return /\[(?!PORT:\d)[^\]]+\]/i.test(value);
+}
+
+/**
+ * Extracts variables from AppFeed that need user input before the app will work.
+ * Includes Required=true vars, masked/secret vars, and vars with placeholder Defaults.
+ */
+export function extractRequiredVariables(configs: AppFeedConfig[]): RequiredVariable[] {
+  return configs
+    .filter(c => c["@attributes"]?.Type === "Variable")
+    .map(c => {
+      const attrs = c["@attributes"];
+      const defaultValue = c.value?.trim() ? c.value : (attrs.Default ?? "");
+      const masked = attrs.Mask === "true";
+      const required = attrs.Required === "true";
+      const placeholder = isPlaceholderValue(defaultValue);
+      return { attrs, defaultValue, masked, required, placeholder };
+    })
+    .filter(({ masked, required, placeholder }) => masked || required || placeholder)
+    .map(({ attrs, defaultValue, masked, required, placeholder }) => ({
+      name: attrs.Name ?? attrs.Target ?? "",
+      target: attrs.Target ?? "",
+      description: attrs.Description,
+      defaultValue: placeholder ? "" : (defaultValue || undefined),
+      masked,
+      required,
+      isPlaceholder: placeholder,
+    }));
 }
 
 /**
@@ -487,18 +556,25 @@ export function detectTier(app: AppFeedEntry): K8sCompatTier {
  * @param configs - AppFeed Variable configs
  * @param extraEnvVars - env vars parsed from ExtraParams
  * @param addLinuxServerDefaults - inject PUID/PGID/TZ for linuxserver.io images
+ * @param userVariables - user-supplied overrides keyed by env var name (Target)
  */
 function buildEnvVars(
   configs: AppFeedConfig[],
   extraEnvVars: Array<{ name: string; value: string }>,
-  addLinuxServerDefaults: boolean
+  addLinuxServerDefaults: boolean,
+  userVariables?: Record<string, string>
 ): string[] {
   const lines = configs
     .filter(c => c["@attributes"]?.Type === "Variable")
     .map(c => {
       const attrs = c["@attributes"];
-      const value = c.value?.trim() ? c.value : (attrs.Default ?? "");
+      const feedDefault = c.value?.trim() ? c.value : (attrs.Default ?? "");
       const masked = attrs.Mask === "true";
+      // User-supplied value takes priority; strip any lingering placeholder brackets
+      const userVal = userVariables?.[attrs.Target ?? ""];
+      const value = userVal !== undefined && userVal !== ""
+        ? userVal
+        : feedDefault.replace(/\[[^\]]+\]/g, "").trim() || feedDefault;
       return [
         `            - name: ${attrs.Target}`,
         masked
@@ -847,6 +923,12 @@ export function convertAppFeedEntry(
     warnings.push("🔑 This app has masked/secret variables. A secrets.yaml was created with placeholder values — update them before deploying.");
   }
 
+  // Extract variables that need user input (required, masked, or placeholder defaults)
+  const requiredVariables = extractRequiredVariables(configs);
+  if (requiredVariables.some(v => v.isPlaceholder && !options.userVariables?.[v.target])) {
+    warnings.push("⚠️ Some variables have placeholder values (e.g. [REPLACE-WITH-IP]). Fill them in via the 'App Configuration' section before deploying.");
+  }
+
   // Extract image + args
   const postArgs = splitArgs(app.PostArgs ?? "");
   const argsYaml = postArgs.length > 0
@@ -854,7 +936,7 @@ export function convertAppFeedEntry(
     : "";
 
   // Build env vars (with linuxserver.io PUID/PGID injection and ExtraParams envs)
-  const envVars = buildEnvVars(configs, extra.envVars, isLinuxServerImage(image));
+  const envVars = buildEnvVars(configs, extra.envVars, isLinuxServerImage(image), options.userVariables);
   const containerPorts = buildContainerPorts(configs);
   const volumeMounts = buildVolumeMounts(volumeInfos);
   const volumes = buildVolumes(volumeInfos);
@@ -1085,6 +1167,7 @@ spec:
       secrets: secretsYaml ?? undefined,
     },
     combinedYaml: allParts.join("\n") + "\n",
+    requiredVariables,
   };
 }
 
