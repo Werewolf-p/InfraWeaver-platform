@@ -1,0 +1,22 @@
+---
+# PVC for "Data Storage Path" → /data
+# Default path on Unraid: /mnt/user/appdata/gitea
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gitea-data-0
+  namespace: gitea
+  labels:
+    app.kubernetes.io/name: gitea
+    app.kubernetes.io/component: storage
+    infraweaver.io/source: community-apps
+  annotations:
+    infraweaver.io/unraid-path: "/mnt/user/appdata/gitea"
+    infraweaver.io/required: "true"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 10Gi
