@@ -1,0 +1,14 @@
+# Community app installed from Unraid AppFeed
+# Source: https://raw.githubusercontent.com/dmacias72/unRAID-speedtest/master/plugin/speedtest.plg
+name: speedtest
+description: "This plugin interacts with the command line interface for testing internet bandwidth using speedtest.net"
+namespace: speedtest
+source: community-apps
+tier: simple
+image: https://raw.githubusercontent.com/dmacias72/unRAID-speedtest/master/plugin/speedtest.plg
+categories:
+  - "Network-Other"
+  - "Tools-System"
+  - "Plugins"
+
+installed_at: 2026-05-17T11:04:14.505Z
