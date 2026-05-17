@@ -1,0 +1,15 @@
+# Community app installed from Unraid AppFeed
+# Source: postgres:17
+name: postgresql17
+description: "PostgreSQL 17 is a powerful, open source object-relational database system. Uses official Postgres Docker image @ https://hub.docker.com/_/postgres/ [br][br] [b][u][span style='color: #E80000;']Config"
+namespace: postgresql17
+source: community-apps
+tier: simple
+image: postgres:17
+categories:
+  - "Network-Management"
+  - "Productivity"
+  - "Tools-Utilities"
+ingressroute:
+  host: postgresql17.int.rlservers.com
+installed_at: 2026-05-17T18:20:13.907Z
