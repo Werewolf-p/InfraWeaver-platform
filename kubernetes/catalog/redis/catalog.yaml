@@ -1,0 +1,13 @@
+# Community app installed from Unraid AppFeed
+# Source: bitnamisecure/redis:latest
+name: redis
+description: "Redis is an open source (BSD licensed), in-memory data structure store, used as a database, cache and message broker."
+namespace: redis
+source: community-apps
+tier: simple
+image: bitnamisecure/redis:latest
+categories:
+  - "Tools-Utilities"
+ingressroute:
+  host: redis.int.rlservers.com
+installed_at: 2026-05-17T18:19:47.772Z
