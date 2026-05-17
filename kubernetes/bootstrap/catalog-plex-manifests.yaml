@@ -1,7 +1,7 @@
 ---
 # catalog-plex-manifests.yaml — deployed by InfraWeaver Community Apps
 # Source: lscr.io/linuxserver/plex
-# Installed: 2026-05-17T21:51:41.550Z
+# Installed: 2026-05-17T21:52:13.591Z
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
