@@ -1,7 +1,7 @@
 ---
 # catalog-jackett-manifests.yaml — deployed by InfraWeaver Community Apps
 # Source: lscr.io/linuxserver/jackett
-# Installed: 2026-05-17T22:31:28.105Z
+# Installed: 2026-05-17T22:44:33.925Z
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
