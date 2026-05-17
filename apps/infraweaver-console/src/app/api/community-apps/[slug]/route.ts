@@ -13,12 +13,41 @@ import { getAppFeed } from "@/lib/appfeed-cache";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { safeError } from "@/lib/utils";
+import { loadKubeConfig } from "@/lib/k8s";
+import {
+  createConfiguration,
+  ServerConfiguration,
+  type RequestContext,
+  type ResponseContext,
+} from "@kubernetes/client-node";
+import * as k8s from "@kubernetes/client-node";
 
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN ?? "";
 const GITHUB_REPO = process.env.GITHUB_REPO ?? "Werewolf-p/InfraWeaver-platform";
 const GH_API = `https://api.github.com/repos/${GITHUB_REPO}`;
-const ARGOCD_URL = process.env.ARGOCD_URL ?? "https://argocd.int.rlservers.com";
-const ARGOCD_TOKEN = process.env.ARGOCD_TOKEN ?? "";
+
+/** Creates a CustomObjectsApi client that sends application/merge-patch+json on PATCH. */
+function makeArgoCustomApi() {
+  const kc = loadKubeConfig();
+  const cluster = kc.getCurrentCluster();
+  if (!cluster) throw new Error("No active cluster");
+  const mergePatchMiddleware = {
+    pre: async (ctx: RequestContext): Promise<RequestContext> => {
+      if (ctx.getHttpMethod() === "PATCH") {
+        ctx.setHeaderParam("Content-Type", "application/merge-patch+json");
+      }
+      return ctx;
+    },
+    post: async (rsp: ResponseContext): Promise<ResponseContext> => rsp,
+  };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const cfg = createConfiguration({
+    baseServer: new ServerConfiguration(cluster.server, {}),
+    authMethods: { default: kc as any },
+    promiseMiddleware: [mergePatchMiddleware],
+  });
+  return new k8s.CustomObjectsApi(cfg);
+}
 
 interface GHFileContent {
   sha: string;
@@ -140,33 +169,31 @@ export async function GET(
 }
 
 async function cleanupArgoApplication(argoAppName: string): Promise<void> {
-  if (!ARGOCD_TOKEN) return;
-
-  const appName = encodeURIComponent(argoAppName);
-  const headers = {
-    Authorization: `Bearer ${ARGOCD_TOKEN}`,
-  };
-
-  const patchRes = await fetch(`${ARGOCD_URL}/api/v1/applications/${appName}`, {
-    method: "PATCH",
-    headers: {
-      ...headers,
-      "Content-Type": "application/merge-patch+json",
-    },
-    body: JSON.stringify({ metadata: { finalizers: [] } }),
-  });
-
-  if (!patchRes.ok && patchRes.status !== 404) {
-    throw new Error(`Failed to remove ArgoCD finalizer: ${patchRes.status}`);
+  const customApi = makeArgoCustomApi();
+  // Remove the finalizer so deletion isn't blocked by the ArgoCD finalizer
+  try {
+    await customApi.patchNamespacedCustomObject({
+      group: "argoproj.io",
+      version: "v1alpha1",
+      namespace: "argocd",
+      plural: "applications",
+      name: argoAppName,
+      body: { metadata: { finalizers: [] } },
+    });
+  } catch {
+    // 404 means app doesn't exist — that's fine
   }
-
-  const deleteRes = await fetch(`${ARGOCD_URL}/api/v1/applications/${appName}?cascade=true`, {
-    method: "DELETE",
-    headers,
-  });
-
-  if (!deleteRes.ok && deleteRes.status !== 404) {
-    throw new Error(`Failed to delete ArgoCD application: ${deleteRes.status}`);
+  // Delete the application resource (ArgoCD will cascade-delete managed resources)
+  try {
+    await customApi.deleteNamespacedCustomObject({
+      group: "argoproj.io",
+      version: "v1alpha1",
+      namespace: "argocd",
+      plural: "applications",
+      name: argoAppName,
+    });
+  } catch {
+    // Ignore 404 / already deleted
   }
 }
 

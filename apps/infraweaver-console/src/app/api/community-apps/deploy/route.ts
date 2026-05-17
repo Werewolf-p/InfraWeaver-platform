@@ -20,9 +20,53 @@ import { z } from "zod";
 import { convertAppFeedEntry } from "@/lib/appfeed-converter";
 import { findAppByName } from "@/lib/appfeed-cache";
 import { safeError } from "@/lib/utils";
+import { loadKubeConfig } from "@/lib/k8s";
+import {
+  createConfiguration,
+  ServerConfiguration,
+  type RequestContext,
+  type ResponseContext,
+} from "@kubernetes/client-node";
+import * as k8s from "@kubernetes/client-node";
 
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN ?? "";
 const GITHUB_REPO = process.env.GITHUB_REPO ?? "Werewolf-p/InfraWeaver-platform";
+
+/** Annotate the bootstrap ArgoCD app to force an immediate refresh so it picks
+ *  up newly committed bootstrap files without waiting for the 3-minute poll. */
+async function triggerBootstrapRefresh(): Promise<void> {
+  try {
+    const kc = loadKubeConfig();
+    const cluster = kc.getCurrentCluster();
+    if (!cluster) return;
+    const mergePatchMiddleware = {
+      pre: async (ctx: RequestContext): Promise<RequestContext> => {
+        if (ctx.getHttpMethod() === "PATCH") {
+          ctx.setHeaderParam("Content-Type", "application/merge-patch+json");
+        }
+        return ctx;
+      },
+      post: async (rsp: ResponseContext): Promise<ResponseContext> => rsp,
+    };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const cfg = createConfiguration({
+      baseServer: new ServerConfiguration(cluster.server, {}),
+      authMethods: { default: kc as any },
+      promiseMiddleware: [mergePatchMiddleware],
+    });
+    const customApi = new k8s.CustomObjectsApi(cfg);
+    await customApi.patchNamespacedCustomObject({
+      group: "argoproj.io",
+      version: "v1alpha1",
+      namespace: "argocd",
+      plural: "applications",
+      name: "bootstrap",
+      body: { metadata: { annotations: { "argocd.argoproj.io/refresh": "normal" } } },
+    });
+  } catch {
+    // Non-fatal — bootstrap will pick up changes on next poll
+  }
+}
 
 const DeployBody = z.object({
   appName: z.string().min(1).max(200),
@@ -228,6 +272,10 @@ installed_at: ${new Date().toISOString()}
         existing?.sha
       );
     }
+
+    // Kick bootstrap to immediately pick up the new ArgoCD Application file
+    // instead of waiting up to 3 minutes for the auto-poll interval.
+    await triggerBootstrapRefresh();
 
     await auditLog(
       "community-apps:deploy",
