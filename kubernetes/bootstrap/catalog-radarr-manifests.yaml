@@ -1,7 +1,7 @@
 ---
 # catalog-radarr-manifests.yaml — deployed by InfraWeaver Community Apps
 # Source: lscr.io/linuxserver/radarr
-# Installed: 2026-05-17T22:25:07.215Z
+# Installed: 2026-05-17T22:39:55.956Z
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
