@@ -1,7 +1,7 @@
 ---
 # catalog-bazarr-manifests.yaml — deployed by InfraWeaver Community Apps
 # Source: lscr.io/linuxserver/bazarr
-# Installed: 2026-05-17T20:40:04.042Z
+# Installed: 2026-05-17T21:13:36.820Z
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
