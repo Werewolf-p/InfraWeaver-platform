@@ -1,0 +1,36 @@
+---
+# catalog-excalidraw-manifests.yaml — deployed by InfraWeaver Community Apps
+# Source: excalidraw/excalidraw
+# Installed: 2026-05-17T11:19:28.166Z
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: catalog-excalidraw-manifests
+  namespace: argocd
+  labels:
+    infraweaver.io/type: catalog-app
+    infraweaver.io/source: community-apps
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  source:
+    repoURL: https://github.com/Werewolf-p/InfraWeaver-platform.git
+    targetRevision: HEAD
+    path: kubernetes/catalog/excalidraw/manifests
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: excalidraw
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
