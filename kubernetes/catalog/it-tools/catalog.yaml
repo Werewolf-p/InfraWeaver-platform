@@ -2,7 +2,7 @@
 # Source: corentinth/it-tools
 name: it-tools
 description: "Collection of handy online tools for developers, with great UX. NOTE: This is not my project. I simply enjoy this a ton and want it to reach as many people as possible which is why I made this templat"
-namespace: it-tools
+namespace: it-tools-test2
 source: community-apps
 tier: simple
 image: corentinth/it-tools
@@ -12,4 +12,4 @@ categories:
   - "Tools-Utilities"
 ingressroute:
   host: it-tools.int.rlservers.com
-installed_at: 2026-05-17T08:52:40.932Z
+installed_at: 2026-05-17T08:53:24.185Z
