@@ -1,6 +1,6 @@
 ---
-# PVC for "Config" → /config
-# Default path on Unraid: /mnt/user/appdata/prowlarr
+# PVC for "Appdata" → /config
+# Default path on Unraid: (not set)
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -11,8 +11,8 @@ metadata:
     app.kubernetes.io/component: storage
     infraweaver.io/source: community-apps
   annotations:
-    infraweaver.io/unraid-path: "/mnt/user/appdata/prowlarr"
-    infraweaver.io/required: "false"
+    infraweaver.io/unraid-path: "/config"
+    infraweaver.io/required: "true"
 spec:
   accessModes:
     - ReadWriteOnce
