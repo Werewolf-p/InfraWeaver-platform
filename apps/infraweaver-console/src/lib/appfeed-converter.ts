@@ -936,10 +936,19 @@ export function convertAppFeedEntry(
   const externalDeps = new Set<string>();
   configs.filter(c => c["@attributes"]?.Type === "Variable").forEach(c => {
     const val = (c.value || c["@attributes"]?.Default || "").toLowerCase();
-    if (/redis:\/\//.test(val)) externalDeps.add("Redis");
-    if (/postgres(?:ql)?:\/\/|pg_host|db_host/.test(val) || (c["@attributes"]?.Target ?? "").toLowerCase().includes("pg_host")) externalDeps.add("PostgreSQL");
-    if (/mysql:\/\/|mariadb:\/\//.test(val) || (c["@attributes"]?.Target ?? "").toLowerCase().includes("mysql_host")) externalDeps.add("MySQL/MariaDB");
+    const target = (c["@attributes"]?.Target ?? "").toLowerCase();
+    if (/redis:\/\//.test(val) || target === "redis_host" || target === "redis_url") externalDeps.add("Redis");
+    if (/postgres(?:ql)?:\/\//.test(val) || target === "pg_host" || target === "postgres_host" || target === "database_url" && /postgres/.test(val)) externalDeps.add("PostgreSQL");
+    if (/mysql:\/\/|mariadb:\/\//.test(val) || target === "mysql_host" || target === "db_host" || (target === "db_connection" && val === "mysql")) externalDeps.add("MySQL/MariaDB");
   });
+  // Also check for apps that require a database via host variable names even without defaults
+  const varTargets = configs.filter(c => c["@attributes"]?.Type === "Variable").map(c => (c["@attributes"]?.Target ?? "").toLowerCase());
+  if (varTargets.includes("db_host")) externalDeps.add("MySQL/MariaDB");
+  if (varTargets.includes("redis_host")) externalDeps.add("Redis");
+  if (varTargets.some(t => t === "database_url" || t === "db_url")) {
+    // Can't tell which DB, but warn
+    externalDeps.add("Database");
+  }
   if (externalDeps.size > 0) {
     warnings.push(`⚠️ This app requires external services: ${[...externalDeps].join(", ")}. Deploy these services separately before this app will start correctly. Set their connection URLs in the App Configuration section below.`);
   }
@@ -1087,6 +1096,7 @@ spec:
       labels:
         app.kubernetes.io/name: ${slug}
     spec:${isHostNetwork ? "\n      hostNetwork: true" : ""}${hostPidLine}
+      enableServiceLinks: false
       securityContext:
 ${podSecCtxYaml}
       containers:

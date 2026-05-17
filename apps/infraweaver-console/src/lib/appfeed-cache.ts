@@ -84,11 +84,18 @@ export async function getAppFeed(): Promise<AppFeedResponse> {
 export async function findAppByName(name: string): Promise<AppFeedEntry | null> {
   const feed = await getAppFeed();
   const lower = name.toLowerCase();
-  return (
-    feed.applist.find(
-      (a) => typeof a.Name === "string" && a.Name.toLowerCase() === lower
-    ) ?? null
+  const matches = feed.applist.filter(
+    (a) => typeof a.Name === "string" && a.Name.toLowerCase() === lower
   );
+  if (matches.length === 0) return null;
+  if (matches.length === 1) return matches[0]!;
+  // Multiple entries with the same name: prefer trusted/modern registries
+  const PREFERRED_REGISTRIES = ["lscr.io/linuxserver", "ghcr.io/linuxserver", "linuxserver/", "ghcr.io/"];
+  for (const prefix of PREFERRED_REGISTRIES) {
+    const preferred = matches.find(a => (a.Repository ?? "").startsWith(prefix));
+    if (preferred) return preferred;
+  }
+  return matches[0]!;
 }
 
 /** Invalidate the cache (useful for testing or manual refresh). */
