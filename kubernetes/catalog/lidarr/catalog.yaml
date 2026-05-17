@@ -1,0 +1,14 @@
+# Community app installed from Unraid AppFeed
+# Source: volikon/lidarr
+name: lidarr
+description: "Lidarr is a music collection manager for Usenet and BitTorrent users. It can monitor multiple RSS feeds for new tracks from your favorite artists and will grab, sort and rename them. It can also be co"
+namespace: lidarr
+source: community-apps
+tier: simple
+image: volikon/lidarr
+categories:
+  - "Downloaders"
+  - "MediaApp-Music"
+ingressroute:
+  host: lidarr.int.rlservers.com
+installed_at: 2026-05-17T21:32:24.989Z
