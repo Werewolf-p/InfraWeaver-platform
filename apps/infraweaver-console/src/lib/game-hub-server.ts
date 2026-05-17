@@ -1,4 +1,5 @@
 import * as k8s from "@kubernetes/client-node";
+import { createConfiguration, ServerConfiguration, type RequestContext, type ResponseContext } from "@kubernetes/client-node";
 import { randomBytes, randomUUID } from "crypto";
 import net from "net";
 import { Writable } from "stream";
@@ -76,13 +77,37 @@ export function parseImageVersion(image: string | null | undefined) {
 
 export function makeGameHubClients() {
   const kc = loadKubeConfig();
+  const cluster = kc.getCurrentCluster();
+  if (!cluster) throw new Error("No active cluster for game-hub");
+
+  // The k8s client 1.x picks application/json-patch+json by default (first in
+  // the list) for all PATCH calls.  We always send strategic-merge-patch objects,
+  // so we add a pre-request middleware that overwrites the Content-Type header
+  // before the HTTP request is actually dispatched.
+  const mergePatchMiddleware = {
+    pre: async (ctx: RequestContext): Promise<RequestContext> => {
+      if (ctx.getHttpMethod() === "PATCH") {
+        ctx.setHeaderParam("Content-Type", "application/strategic-merge-patch+json");
+      }
+      return ctx;
+    },
+    post: async (rsp: ResponseContext): Promise<ResponseContext> => rsp,
+  };
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const cfg = createConfiguration({
+    baseServer: new ServerConfiguration(cluster.server, {}),
+    authMethods: { default: kc as any },
+    promiseMiddleware: [mergePatchMiddleware],
+  });
+
   return {
     kc,
-    appsApi: kc.makeApiClient(k8s.AppsV1Api),
-    autoscalingApi: kc.makeApiClient(k8s.AutoscalingV2Api),
-    batchApi: kc.makeApiClient(k8s.BatchV1Api),
-    coreApi: kc.makeApiClient(k8s.CoreV1Api),
-    customObjectsApi: kc.makeApiClient(k8s.CustomObjectsApi),
+    appsApi: new k8s.AppsV1Api(cfg),
+    autoscalingApi: new k8s.AutoscalingV2Api(cfg),
+    batchApi: new k8s.BatchV1Api(cfg),
+    coreApi: new k8s.CoreV1Api(cfg),
+    customObjectsApi: new k8s.CustomObjectsApi(cfg),
   };
 }
 
