@@ -194,7 +194,16 @@ export async function DELETE(
   const errors: string[] = [];
   const deleted: string[] = [];
 
-  // 1. Delete the bootstrap ArgoCD Application file
+  // 1. Remove ArgoCD finalizer + cascade-delete k8s resources FIRST.
+  //    This must happen before touching git so bootstrap auto-prune doesn't
+  //    race with our own ArgoCD cleanup.
+  try {
+    await cleanupArgoApplication(`catalog-${slug}-manifests`);
+  } catch (error) {
+    errors.push(safeError(error));
+  }
+
+  // 2. Delete the bootstrap ArgoCD Application file
   const bootstrapPath = `kubernetes/bootstrap/catalog-${slug}-manifests.yaml`;
   const bootstrapSha = await ghGetFileSha(bootstrapPath);
   if (bootstrapSha) {
@@ -207,7 +216,7 @@ export async function DELETE(
     else errors.push(`Failed to delete ${bootstrapPath}`);
   }
 
-  // 2. Delete all files in kubernetes/catalog/<slug>/
+  // 3. Delete all files in kubernetes/catalog/<slug>/
   const catalogDir = `kubernetes/catalog/${slug}`;
   const entries = await ghListDir(catalogDir);
 
@@ -237,12 +246,6 @@ export async function DELETE(
         }
       }
     }
-  }
-
-  try {
-    await cleanupArgoApplication(`catalog-${slug}-manifests`);
-  } catch (error) {
-    errors.push(safeError(error));
   }
 
   if (errors.length > 0 && deleted.length === 0) {

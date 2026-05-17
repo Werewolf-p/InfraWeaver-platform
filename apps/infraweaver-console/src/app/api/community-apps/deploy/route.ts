@@ -60,21 +60,32 @@ async function ghGet(path: string): Promise<GitHubFile | null> {
 }
 
 async function ghPut(path: string, content: string, message: string, sha?: string): Promise<void> {
-  const body: Record<string, unknown> = {
-    message,
-    content: Buffer.from(content).toString("base64"),
-    committer: { name: "InfraWeaver Console", email: "console@rlservers.com" },
+  const encoded = Buffer.from(content).toString("base64");
+  const doRequest = async (fileSha?: string) => {
+    const body: Record<string, unknown> = {
+      message,
+      content: encoded,
+      committer: { name: "InfraWeaver Console", email: "console@rlservers.com" },
+    };
+    if (fileSha) body.sha = fileSha;
+    return fetch(`https://api.github.com/repos/${GITHUB_REPO}/contents/${path}`, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${GITHUB_TOKEN}`,
+        Accept: "application/vnd.github.v3+json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
   };
-  if (sha) body.sha = sha;
-  const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/contents/${path}`, {
-    method: "PUT",
-    headers: {
-      Authorization: `Bearer ${GITHUB_TOKEN}`,
-      Accept: "application/vnd.github.v3+json",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
+
+  let res = await doRequest(sha);
+  if (res.status === 409) {
+    // SHA conflict: another concurrent request already committed this file.
+    // Refresh the SHA and retry once.
+    const fresh = await ghGet(path);
+    res = await doRequest(fresh?.sha);
+  }
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`GitHub PUT ${path}: ${res.status} — ${text}`);
