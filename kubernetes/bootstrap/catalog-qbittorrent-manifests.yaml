@@ -1,7 +1,7 @@
 ---
 # catalog-qbittorrent-manifests.yaml — deployed by InfraWeaver Community Apps
 # Source: mace/qbittorrent
-# Installed: 2026-05-17T18:19:04.212Z
+# Installed: 2026-05-17T18:26:11.960Z
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
