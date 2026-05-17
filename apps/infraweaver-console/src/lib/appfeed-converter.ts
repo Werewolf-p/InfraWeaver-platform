@@ -935,7 +935,7 @@ export function convertAppFeedEntry(
   // Detect external service dependencies from Variable defaults (Redis, PostgreSQL, MySQL, etc.)
   const externalDeps = new Set<string>();
   configs.filter(c => c["@attributes"]?.Type === "Variable").forEach(c => {
-    const val = (c.value ?? c["@attributes"]?.Default ?? "").toLowerCase();
+    const val = (c.value || c["@attributes"]?.Default || "").toLowerCase();
     if (/redis:\/\//.test(val)) externalDeps.add("Redis");
     if (/postgres(?:ql)?:\/\/|pg_host|db_host/.test(val) || (c["@attributes"]?.Target ?? "").toLowerCase().includes("pg_host")) externalDeps.add("PostgreSQL");
     if (/mysql:\/\/|mariadb:\/\//.test(val) || (c["@attributes"]?.Target ?? "").toLowerCase().includes("mysql_host")) externalDeps.add("MySQL/MariaDB");

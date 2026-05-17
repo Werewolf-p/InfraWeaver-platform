@@ -20,11 +20,15 @@ export function ClusterSelector({ popupDirection = "down" }: { popupDirection?: 
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const handler = (e: MouseEvent) => {
+    const handler = (e: MouseEvent | TouchEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     };
     document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
+    document.addEventListener("touchstart", handler as EventListener, { passive: true });
+    return () => {
+      document.removeEventListener("mousedown", handler);
+      document.removeEventListener("touchstart", handler as EventListener);
+    };
   }, []);
 
   const activeClusterInfo = clusters.find((c) => c.id === activeId);

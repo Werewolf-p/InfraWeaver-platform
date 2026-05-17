@@ -1829,8 +1829,18 @@ function DeployModal({ app, onClose }: { app: AppSummary; onClose: () => void })
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ appName: app.name, ...options, userVariables }),
       });
-      const data = await res.json() as { ok?: boolean; paths?: string[]; warnings?: string[]; error?: string };
-      if (!res.ok) { toast.error(data.error ?? "Deploy failed"); setStep("preview"); return; }
+      const data = await res.json() as { ok?: boolean; paths?: string[]; warnings?: string[]; error?: string; conflict?: boolean };
+      if (!res.ok) {
+        // 409 conflict = platform-managed app, show a clear message and go back to options
+        if (res.status === 409 && data.conflict) {
+          toast.error(data.error ?? "This app is already installed by the platform.", { duration: 6000 });
+          setStep("options");
+        } else {
+          toast.error(data.error ?? "Deploy failed");
+          setStep("preview");
+        }
+        return;
+      }
       setDeployResult({ paths: data.paths ?? [], warnings: data.warnings ?? [] });
       setDeployProgressStep(2);
       setStep("done");
@@ -1846,7 +1856,8 @@ function DeployModal({ app, onClose }: { app: AppSummary; onClose: () => void })
 
   // NOTE: no backdrop-blur — iOS Safari backdrop-filter causes sibling content to be invisible
   return (
-    <div className="fixed inset-0 z-[300] flex items-end sm:items-center justify-center bg-black/75 p-0 sm:p-4">
+    <div className="fixed inset-0 z-[300] flex items-end sm:items-center justify-center bg-black/75 p-0 sm:p-4"
+      onClick={(e) => { if (e.target === e.currentTarget && step !== "deploying") onClose(); }}>
       <motion.div
         initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }}
         className="bg-[#0d1117] border border-white/10 rounded-t-2xl sm:rounded-xl w-full sm:max-w-3xl max-h-[92dvh] sm:max-h-[90vh] flex flex-col shadow-2xl"

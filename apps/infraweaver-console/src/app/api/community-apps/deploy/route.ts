@@ -185,6 +185,44 @@ export async function POST(req: NextRequest) {
   const slug = sanitizeKubernetesName(app.Name);
   const ns = sanitizeKubernetesName(namespace ?? slug);
 
+  // Check if an ArgoCD Application already exists for this slug that was NOT
+  // installed by the community-apps flow (i.e. a platform-managed app).
+  // Deploying on top of a platform app causes namespace conflicts.
+  try {
+    const kc = loadKubeConfig();
+    const cluster = kc.getCurrentCluster();
+    if (cluster) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const cfg = createConfiguration({
+        baseServer: new ServerConfiguration(cluster.server, {}),
+        authMethods: { default: kc as any },
+        promiseMiddleware: [],
+      });
+      const customApi = new k8s.CustomObjectsApi(cfg);
+      const existing = await customApi.getNamespacedCustomObject({
+        group: "argoproj.io",
+        version: "v1alpha1",
+        namespace: "argocd",
+        plural: "applications",
+        name: `catalog-${slug}-manifests`,
+      }).catch(() => null);
+      if (existing) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const labels = (existing as any)?.metadata?.labels ?? {};
+        const isCommunityApp = labels["infraweaver.io/source"] === "community-apps";
+        if (!isCommunityApp) {
+          return NextResponse.json({
+            error: `"${app.Name}" is already installed as a platform-managed application. To reinstall, remove it from the platform catalog first.`,
+            conflict: true,
+          }, { status: 409 });
+        }
+        // It's a prior community-apps install — allow update/redeploy.
+      }
+    }
+  } catch {
+    // Non-fatal check — proceed with deploy if we can't verify
+  }
+
   let result: ReturnType<typeof convertAppFeedEntry>;
   try {
     result = convertAppFeedEntry(app, {
