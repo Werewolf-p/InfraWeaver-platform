@@ -5,8 +5,8 @@ preUpgradeChecker:
   upgradeVersionCheck: false
 
 defaultSettings:
-  # 3-node cluster: store 3 replicas for true HA
-  defaultReplicaCount: 3
+  # 2-node cluster: store 2 replicas (cp2 node is currently NotReady; update to 3 when all 3 nodes healthy)
+  defaultReplicaCount: 2
   # Allow scheduling on control-plane nodes (no workers in this cluster)
   taintToleration: "node-role.kubernetes.io/control-plane:NoSchedule"
   # Give Longhorn itself platform-standard priority so storage stays online
@@ -62,7 +62,7 @@ ingress:
 
 persistence:
   defaultClass: false
-  defaultClassReplicaCount: 3
+  defaultClassReplicaCount: 2
 
 # Allow pods on control-plane nodes
 tolerations:
