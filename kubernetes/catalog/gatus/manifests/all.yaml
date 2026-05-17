@@ -244,6 +244,17 @@ spec:
         fsGroup: 1000
         seccompProfile:
           type: RuntimeDefault
+      # Resolve *.int.rlservers.com to Traefik ClusterIP so health checks work
+      # from inside the cluster (MetalLB VIP 10.10.0.200 has hairpin NAT limitations).
+      hostAliases:
+        - ip: "10.108.119.231"
+          hostnames:
+            - "infraweaver.int.rlservers.com"
+            - "argocd.int.rlservers.com"
+            - "registry.int.rlservers.com"
+            - "stirling-pdf.int.rlservers.com"
+            - "grafana.int.rlservers.com"
+            - "openbao.int.rlservers.com"
       containers:
         - name: gatus
           image: twinproduction/gatus:v5.12.1
