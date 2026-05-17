@@ -1,0 +1,22 @@
+---
+# PVC for "Path" → /var/opt/memos
+# Default path on Unraid: /mnt/user/appdata/memos
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: memos-data-0
+  namespace: memos
+  labels:
+    app.kubernetes.io/name: memos
+    app.kubernetes.io/component: storage
+    infraweaver.io/source: community-apps
+  annotations:
+    infraweaver.io/unraid-path: "/mnt/user/appdata/memos"
+    infraweaver.io/required: "false"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 10Gi
