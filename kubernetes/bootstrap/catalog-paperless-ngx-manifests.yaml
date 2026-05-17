@@ -1,7 +1,7 @@
 ---
 # catalog-paperless-ngx-manifests.yaml — deployed by InfraWeaver Community Apps
 # Source: ghcr.io/paperless-ngx/paperless-ngx
-# Installed: 2026-05-17T20:39:27.544Z
+# Installed: 2026-05-17T21:13:17.251Z
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
