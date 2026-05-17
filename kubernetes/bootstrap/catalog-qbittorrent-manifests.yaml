@@ -1,0 +1,36 @@
+---
+# catalog-qbittorrent-manifests.yaml — deployed by InfraWeaver Community Apps
+# Source: mace/qbittorrent
+# Installed: 2026-05-17T19:50:48.663Z
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: catalog-qbittorrent-manifests
+  namespace: argocd
+  labels:
+    infraweaver.io/type: catalog-app
+    infraweaver.io/source: community-apps
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  source:
+    repoURL: https://github.com/Werewolf-p/InfraWeaver-platform.git
+    targetRevision: HEAD
+    path: kubernetes/catalog/qbittorrent/manifests
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: qbittorrent
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
