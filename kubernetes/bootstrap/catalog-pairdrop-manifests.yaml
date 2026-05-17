@@ -1,7 +1,7 @@
 ---
 # catalog-pairdrop-manifests.yaml — deployed by InfraWeaver Community Apps
 # Source: lscr.io/linuxserver/pairdrop
-# Installed: 2026-05-17T13:06:14.434Z
+# Installed: 2026-05-17T13:06:23.279Z
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
