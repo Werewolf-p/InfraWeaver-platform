@@ -1,7 +1,7 @@
 ---
 # catalog-homer-manifests.yaml — deployed by InfraWeaver Community Apps
 # Source: b4bz/homer:latest
-# Installed: 2026-05-17T22:32:04.860Z
+# Installed: 2026-05-17T22:45:08.539Z
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
