@@ -35,20 +35,23 @@ spec:
             - containerPort: 80
               protocol: TCP
               name: port
+          startupProbe:
+            tcpSocket:
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 60
           readinessProbe:
             tcpSocket:
               port: 80
-            initialDelaySeconds: 30
-            failureThreshold: 10
+            periodSeconds: 10
+            failureThreshold: 3
           livenessProbe:
             tcpSocket:
               port: 80
-            initialDelaySeconds: 30
-            failureThreshold: 10
+            periodSeconds: 30
+            failureThreshold: 3
           # No volume mounts defined
-          securityContext:
-            runAsNonRoot: false
-            allowPrivilegeEscalation: false
           resources:
             requests:
               memory: "64Mi"
