@@ -168,9 +168,12 @@ export async function GET(
   }
 }
 
-async function cleanupArgoApplication(argoAppName: string): Promise<void> {
+async function cleanupArgoApplication(argoAppName: string, namespace: string): Promise<void> {
   const customApi = makeArgoCustomApi();
-  // Remove the finalizer so deletion isn't blocked by the ArgoCD finalizer
+  const kc = loadKubeConfig();
+  const cluster = kc.getCurrentCluster();
+
+  // 1. Remove the finalizer so the ArgoCD app can be deleted instantly
   try {
     await customApi.patchNamespacedCustomObject({
       group: "argoproj.io",
@@ -181,9 +184,25 @@ async function cleanupArgoApplication(argoAppName: string): Promise<void> {
       body: { metadata: { finalizers: [] } },
     });
   } catch {
-    // 404 means app doesn't exist — that's fine
+    // 404 means app doesn't exist — fine
   }
-  // Delete the application resource (ArgoCD will cascade-delete managed resources)
+
+  // 2. Delete the app namespace (cascade-deletes deployment, service, PVCs, etc.)
+  if (cluster) {
+    try {
+      const cfg = createConfiguration({
+        baseServer: new ServerConfiguration(cluster.server, {}),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        authMethods: { default: kc as any },
+      });
+      const coreApi = new k8s.CoreV1Api(cfg);
+      await coreApi.deleteNamespace({ name: namespace });
+    } catch {
+      // 404 = already gone; other errors are non-fatal (bootstrap will prune)
+    }
+  }
+
+  // 3. Delete the ArgoCD Application resource (no finalizer → instant)
   try {
     await customApi.deleteNamespacedCustomObject({
       group: "argoproj.io",
@@ -194,6 +213,42 @@ async function cleanupArgoApplication(argoAppName: string): Promise<void> {
     });
   } catch {
     // Ignore 404 / already deleted
+  }
+}
+
+/** Annotate the bootstrap ArgoCD app to force an immediate hard refresh so it
+ *  picks up git changes (prune of removed files) without waiting for the poll. */
+async function triggerBootstrapRefresh(): Promise<void> {
+  try {
+    const kc = loadKubeConfig();
+    const cluster = kc.getCurrentCluster();
+    if (!cluster) return;
+    const mergePatchMiddleware = {
+      pre: async (ctx: RequestContext): Promise<RequestContext> => {
+        if (ctx.getHttpMethod() === "PATCH") {
+          ctx.setHeaderParam("Content-Type", "application/merge-patch+json");
+        }
+        return ctx;
+      },
+      post: async (rsp: ResponseContext): Promise<ResponseContext> => rsp,
+    };
+    const cfg = createConfiguration({
+      baseServer: new ServerConfiguration(cluster.server, {}),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      authMethods: { default: kc as any },
+      promiseMiddleware: [mergePatchMiddleware],
+    });
+    const customApi = new k8s.CustomObjectsApi(cfg);
+    await customApi.patchNamespacedCustomObject({
+      group: "argoproj.io",
+      version: "v1alpha1",
+      namespace: "argocd",
+      plural: "applications",
+      name: "bootstrap",
+      body: { metadata: { annotations: { "argocd.argoproj.io/refresh": "hard" } } },
+    });
+  } catch {
+    // Non-fatal — bootstrap will pick up changes on next poll
   }
 }
 
@@ -221,11 +276,12 @@ export async function DELETE(
   const errors: string[] = [];
   const deleted: string[] = [];
 
-  // 1. Remove ArgoCD finalizer + cascade-delete k8s resources FIRST.
-  //    This must happen before touching git so bootstrap auto-prune doesn't
-  //    race with our own ArgoCD cleanup.
+  // 1. Remove ArgoCD finalizer + delete namespace (cascade resources) + delete ArgoCD app.
+  //    Deleting namespace first ensures clean resource removal before git files disappear.
+  //    Deleting the ArgoCD app ensures bootstrap's next prune finds nothing to do (no 404
+  //    failure that exhausts bootstrap's retry counter and causes Degraded state).
   try {
-    await cleanupArgoApplication(`catalog-${slug}-manifests`);
+    await cleanupArgoApplication(`catalog-${slug}-manifests`, slug);
   } catch (error) {
     errors.push(safeError(error));
   }
@@ -279,9 +335,14 @@ export async function DELETE(
     return NextResponse.json({ error: "Uninstall failed", details: errors }, { status: 500 });
   }
 
+  // Trigger bootstrap hard-refresh so it updates its resource tracking.
+  // Since we already deleted the ArgoCD app above, bootstrap's prune finds
+  // nothing to do — no 404 failure that would exhaust its retry counter.
+  void triggerBootstrapRefresh();
+
   return NextResponse.json({
     success: true,
-    message: `${slug} scheduled for removal. ArgoCD will clean up deployed resources shortly.`,
+    message: `${slug} uninstalled. Resources and git files removed.`,
     deleted,
     errors: errors.length > 0 ? errors : undefined,
   });
