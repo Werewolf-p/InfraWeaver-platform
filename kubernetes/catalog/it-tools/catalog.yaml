@@ -1,14 +1,13 @@
 # Community app installed from Unraid AppFeed
-# Source: corentinth/it-tools:latest
+# Source: ghcr.io/sharevb/it-tools:latest
 name: it-tools
-description: "Useful tools for developer and people working in IT"
+description: "This is a fork of the original it-tools with many changes: - Almost all tool PRs implemented from original - 95% of issues fixed from original - Full UI translation in many languages (Google translate"
 namespace: it-tools
 source: community-apps
 tier: simple
-image: corentinth/it-tools:latest
+image: ghcr.io/sharevb/it-tools:latest
 categories:
   - "Tools-Utilities"
-  - "Other"
 ingressroute:
   host: it-tools.int.rlservers.com
-installed_at: 2026-05-17T20:35:10.431Z
+installed_at: 2026-05-17T22:29:58.995Z
