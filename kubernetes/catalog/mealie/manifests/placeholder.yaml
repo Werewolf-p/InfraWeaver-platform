@@ -1,5 +1,0 @@
-# This catalog app is defined but not yet enabled.
-# See kubernetes/catalog/mealie/catalog.yaml for details.
-# To enable: add 'mealie' to catalog.enabled in platform.yaml,
-# then implement manifests here following the patterns in
-# kubernetes/catalog/gatus/manifests/all.yaml
