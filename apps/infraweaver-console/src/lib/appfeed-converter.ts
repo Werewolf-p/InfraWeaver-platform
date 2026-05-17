@@ -343,7 +343,8 @@ function portName(name: string | undefined, port: number, proto?: string): strin
     .replace(/^-+|-+$/g, "")
     .slice(0, 13)   // leave room for "-u" suffix to stay within 15-char limit
     .replace(/-+$/g, "");
-  const base = raw || `p${port}`;
+  // Fallback "port-{n}" preserves the original naming convention (max port 65535 → "port-65535" = 10 chars + "-u" = 12, well under 15)
+  const base = raw || `port-${port}`;
   return (base + udpSuffix).slice(0, 15);
 }
 
