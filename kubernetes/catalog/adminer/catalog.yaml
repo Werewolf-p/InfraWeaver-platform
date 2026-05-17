@@ -1,0 +1,13 @@
+# Community app installed from Unraid AppFeed
+# Source: adminer
+name: adminer
+description: "Adminer (formerly phpMinAdmin) is a full-featured database management tool written in PHP. Conversely to phpMyAdmin, it consist of a single file ready to deploy to the target server. Adminer is availa"
+namespace: adminer
+source: community-apps
+tier: simple
+image: adminer
+categories:
+  - "Tools-Utilities"
+ingressroute:
+  host: adminer.int.rlservers.com
+installed_at: 2026-05-17T09:15:46.534Z
