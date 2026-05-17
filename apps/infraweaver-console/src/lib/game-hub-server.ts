@@ -94,9 +94,9 @@ export function makeGameHubClients() {
     post: async (rsp: ResponseContext): Promise<ResponseContext> => rsp,
   };
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const cfg = createConfiguration({
     baseServer: new ServerConfiguration(cluster.server, {}),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     authMethods: { default: kc as any },
     promiseMiddleware: [mergePatchMiddleware],
   });
@@ -130,6 +130,48 @@ export async function readServerEgg(
 
 export async function getServerDeployment(appsApi: k8s.AppsV1Api, name: string) {
   return appsApi.readNamespacedDeployment({ name, namespace: GAME_HUB_NS });
+}
+
+export async function getServerStatefulSet(appsApi: k8s.AppsV1Api, name: string) {
+  return appsApi.readNamespacedStatefulSet({ name, namespace: GAME_HUB_NS });
+}
+
+export async function scaleServerWorkload(appsApi: k8s.AppsV1Api, name: string, replicas: number) {
+  const nextReplicas = Math.max(0, replicas);
+
+  try {
+    const scale = await appsApi.readNamespacedDeploymentScale({ name, namespace: GAME_HUB_NS });
+    await appsApi.replaceNamespacedDeploymentScale({
+      name,
+      namespace: GAME_HUB_NS,
+      body: {
+        ...scale,
+        spec: {
+          ...(scale.spec ?? {}),
+          replicas: nextReplicas,
+        },
+      },
+    });
+    return { kind: "deployment" as const, replicas: nextReplicas };
+  } catch (deploymentError) {
+    try {
+      const scale = await appsApi.readNamespacedStatefulSetScale({ name, namespace: GAME_HUB_NS });
+      await appsApi.replaceNamespacedStatefulSetScale({
+        name,
+        namespace: GAME_HUB_NS,
+        body: {
+          ...scale,
+          spec: {
+            ...(scale.spec ?? {}),
+            replicas: nextReplicas,
+          },
+        },
+      });
+      return { kind: "statefulset" as const, replicas: nextReplicas };
+    } catch {
+      throw deploymentError;
+    }
+  }
 }
 
 export async function getServerPod(coreApi: k8s.CoreV1Api, name: string, runningOnly = false) {
@@ -242,6 +284,35 @@ export async function execShell(
   timeoutMs = 15000,
 ) {
   return execInPod(kc, podName, containerName, ["sh", "-c", script], timeoutMs);
+}
+
+export function buildConsoleInputScript(command: string) {
+  const trimmed = command.trim();
+  if (!trimmed) throw new Error("command is required");
+  if (trimmed === "^C") return "kill -INT 1";
+  const quoted = shellQuote(trimmed);
+  return [
+    "if command -v mc-send-to-console >/dev/null 2>&1 && [ -p /tmp/minecraft-console-in ]; then",
+    `  mc-send-to-console ${quoted}`,
+    'elif [ -w /proc/1/fd/0 ] && [ "$(readlink /proc/1/fd/0 2>/dev/null || true)" != "/dev/null" ]; then',
+    `  printf '%s\\n' ${quoted} > /proc/1/fd/0`,
+    "elif command -v rcon-cli >/dev/null 2>&1; then",
+    `  rcon-cli ${quoted}`,
+    "else",
+    '  echo "No supported console input method found" >&2',
+    "  exit 1",
+    "fi",
+  ].join("\n");
+}
+
+export async function sendConsoleInputViaExec(
+  kc: k8s.KubeConfig,
+  podName: string,
+  containerName: string,
+  command: string,
+  timeoutMs = 8000,
+) {
+  return execShell(kc, podName, containerName, buildConsoleInputScript(command), timeoutMs);
 }
 
 export async function execCommandText(
@@ -368,35 +439,22 @@ export async function gracefulStopServer(
   stopCommand: string | null | undefined,
   _timeoutMs = 30_000, // kept for API compat
 ) {
-  // Scale to 0 first — this prevents the deployment from restarting the pod
-  // after the game process exits. Without this the pod would just restart.
-  await clients.appsApi.patchNamespacedDeployment({
-    name,
-    namespace: GAME_HUB_NS,
-    body: { spec: { replicas: 0 }, metadata: { annotations: { "infraweaver.io/last-stopped": new Date().toISOString() } } },
-  });
-
-  const pod = await getServerPod(clients.coreApi, name, true);
+  void _timeoutMs;
+  const pod = await getServerPod(clients.coreApi, name, true).catch(() => null);
   const containerName = getPrimaryContainerName(pod, name);
   let stopCommandSent = false;
 
-  // Send the egg's stop command via RCON so the game can save state cleanly
-  // before the pod is terminated. execShell would run it as a shell command
-  // (wrong); runRconCommand uses rcon-cli, the same path as the console tab.
   if (pod?.metadata?.name && stopCommand?.trim()) {
     try {
-      await runRconCommand(clients.kc, pod.metadata.name, containerName, stopCommand.trim(), 8_000);
+      await sendConsoleInputViaExec(clients.kc, pod.metadata.name, containerName, stopCommand.trim(), 8_000);
       stopCommandSent = true;
     } catch {
-      // RCON not available for this game type or server not ready — OK, the
-      // pod will be terminated via SIGTERM once replicas:0 is reconciled.
       stopCommandSent = false;
     }
   }
 
-  // Brief grace window: let the game process exit on its own after the stop
-  // command. If it exits quickly, the pod is already gone when k8s reconciles.
-  // Total wait: up to 12s (6 × 2s polls) — well inside any proxy timeout.
+  await scaleServerWorkload(clients.appsApi, name, 0);
+
   let exitedGracefully = false;
   if (stopCommandSent) {
     for (let i = 0; i < 6; i += 1) {
@@ -410,6 +468,25 @@ export async function gracefulStopServer(
   }
 
   return { stopCommandSent, exitedGracefully };
+}
+
+export async function forceStopServer(
+  clients: ReturnType<typeof makeGameHubClients>,
+  name: string,
+) {
+  const pods = await clients.coreApi.listNamespacedPod({ namespace: GAME_HUB_NS, labelSelector: `app=${name}` });
+  await scaleServerWorkload(clients.appsApi, name, 0);
+  await Promise.all((pods.items ?? []).map((pod) => {
+    const podName = pod.metadata?.name;
+    if (!podName) return Promise.resolve(undefined);
+    return clients.coreApi.deleteNamespacedPod({
+      name: podName,
+      namespace: GAME_HUB_NS,
+      gracePeriodSeconds: 0,
+      body: { gracePeriodSeconds: 0 },
+    }).catch(() => undefined);
+  }));
+  return { deletedPods: (pods.items ?? []).map((pod) => pod.metadata?.name).filter((podName): podName is string => Boolean(podName)) };
 }
 
 function parseJsonValue<T>(raw: string | undefined | null, fallback: T): T {

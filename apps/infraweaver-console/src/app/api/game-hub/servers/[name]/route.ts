@@ -12,6 +12,7 @@ import {
   createCronJob,
   deleteCronJob,
   GAME_HUB_NS,
+  forceStopServer,
   getDeploymentGameType,
   getNodeIp,
   getServerDeployment,
@@ -539,13 +540,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
       const result = await gracefulStopServer(clients, name, egg.stopCommand, 30_000);
       await sendDiscordWebhook(webhookConfig, "stop", `⏹️ ${name} stopped${result.exitedGracefully ? " gracefully" : ""}`);
     } else if (body.action === "force-stop") {
-      // Hard stop: scale to 0 immediately, no RCON stop command.
-      // Kubernetes sends SIGTERM then SIGKILL after terminationGracePeriodSeconds.
-      await clients.appsApi.patchNamespacedDeployment({
-        name,
-        namespace: GAME_HUB_NAMESPACE,
-        body: { spec: { replicas: 0 }, metadata: { annotations: { "infraweaver.io/last-stopped": new Date().toISOString() } } },
-      });
+      await forceStopServer(clients, name);
       await sendDiscordWebhook(webhookConfig, "stop", `🛑 ${name} force-stopped`);
     } else if (body.action === "restart") {
       const pods = await clients.coreApi.listNamespacedPod({ namespace: GAME_HUB_NAMESPACE, labelSelector: `app=${name}` });
