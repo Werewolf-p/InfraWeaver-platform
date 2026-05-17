@@ -1,7 +1,7 @@
 ---
 # catalog-navidrome-manifests.yaml — deployed by InfraWeaver Community Apps
 # Source: deluan/navidrome
-# Installed: 2026-05-17T22:28:06.587Z
+# Installed: 2026-05-17T22:42:33.921Z
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
