@@ -1,0 +1,13 @@
+# Community app installed from Unraid AppFeed
+# Source: ghost
+name: ghost
+description: "Ghost is a fully open source, adaptable platform for building and running a modern online publication."
+namespace: ghost
+source: community-apps
+tier: simple
+image: ghost
+categories:
+  - "Network-Web"
+ingressroute:
+  host: ghost.apps.int.rlservers.com
+installed_at: 2026-05-17T17:52:24.486Z
