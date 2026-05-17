@@ -1,7 +1,7 @@
 ---
 # catalog-prowlarr-manifests.yaml — deployed by InfraWeaver Community Apps
 # Source: lscr.io/linuxserver/prowlarr
-# Installed: 2026-05-17T22:43:59.162Z
+# Installed: 2026-05-17T22:57:51.934Z
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
