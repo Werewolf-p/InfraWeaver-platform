@@ -306,6 +306,37 @@ function computeVolumeInfos(configs: AppFeedConfig[], slug: string): VolumeInfo[
       configRequired: attrs.Required === "true",
     });
   }
+
+  // Post-pass: if the app already has at least one emptyDir volume (a media sink),
+  // reclassify any root-level /data PVC as emptyDir too.
+  // Rationale: media manager apps (Lidarr, Sonarr, Radarr…) use /data as a
+  // library/download root — a NAS path on Unraid, not a config store.
+  // Any app that has /config PVC + /data PVC + other emptyDir media paths
+  // is almost certainly using /data as a media root, not for config.
+  const hasMediaEmptyDir = infos.some(i =>
+    i.kind === "emptyDir" && i.originalTarget !== "/dev/shm"
+  );
+  if (hasMediaEmptyDir) {
+    for (const info of infos) {
+      if (info.kind === "pvc" && info.originalTarget === "/data") {
+        info.kind = "emptyDir";
+        info.mountPath = "/data";
+        info.volumeName = "tmp-data";
+        info.pvcName = undefined;
+      }
+    }
+  }
+  // Remove PVC entries that were reclassified (pvcName is now undefined)
+  // Re-number remaining PVCs so indices stay sequential
+  let pvcIdx = 0;
+  for (const info of infos) {
+    if (info.kind === "pvc") {
+      info.pvcName = `${slug}-data-${pvcIdx}`;
+      info.volumeName = info.pvcName;
+      pvcIdx++;
+    }
+  }
+
   return infos;
 }
 
@@ -899,6 +930,18 @@ export function convertAppFeedEntry(
   );
   if (hasOptionalDockerSocket) {
     warnings.push("ℹ️ Docker socket mount skipped (optional feature on Unraid; not available in Kubernetes). Docker-dependent features will be unavailable.");
+  }
+
+  // Detect external service dependencies from Variable defaults (Redis, PostgreSQL, MySQL, etc.)
+  const externalDeps = new Set<string>();
+  configs.filter(c => c["@attributes"]?.Type === "Variable").forEach(c => {
+    const val = (c.value ?? c["@attributes"]?.Default ?? "").toLowerCase();
+    if (/redis:\/\//.test(val)) externalDeps.add("Redis");
+    if (/postgres(?:ql)?:\/\/|pg_host|db_host/.test(val) || (c["@attributes"]?.Target ?? "").toLowerCase().includes("pg_host")) externalDeps.add("PostgreSQL");
+    if (/mysql:\/\/|mariadb:\/\//.test(val) || (c["@attributes"]?.Target ?? "").toLowerCase().includes("mysql_host")) externalDeps.add("MySQL/MariaDB");
+  });
+  if (externalDeps.size > 0) {
+    warnings.push(`⚠️ This app requires external services: ${[...externalDeps].join(", ")}. Deploy these services separately before this app will start correctly. Set their connection URLs in the App Configuration section below.`);
   }
 
   // Pre-compute volume infos (shared by mounts, volumes, pvcs)
