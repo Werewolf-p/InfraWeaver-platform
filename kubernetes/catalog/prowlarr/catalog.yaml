@@ -1,14 +1,14 @@
 # Community app installed from Unraid AppFeed
-# Source: bitlessbyte/prowlarr
+# Source: lscr.io/linuxserver/prowlarr
 name: prowlarr
-description: "This is a modified version(https://github.com/BitlessByte0/docker-prowlarr-abb) of Prowlarr that adds back AudioBookBay since it was considered obsolete. Prowlarr(https://github.com/Prowlarr/Prowlarr)"
+description: "Prowlarr(https://github.com/Prowlarr/Prowlarr) is a indexer manager/proxy built on the popular arr .net/reactjs base stack to integrate with your various PVR apps. Prowlarr supports both Torrent Track"
 namespace: prowlarr
 source: community-apps
 tier: simple
-image: bitlessbyte/prowlarr
+image: lscr.io/linuxserver/prowlarr
 categories:
-  - "Productivity"
-  - "Tools-Utilities"
+  - "Downloaders"
+  - "MediaApp-Other"
 ingressroute:
   host: prowlarr.int.rlservers.com
-installed_at: 2026-05-17T20:36:20.221Z
+installed_at: 2026-05-17T22:30:51.279Z
