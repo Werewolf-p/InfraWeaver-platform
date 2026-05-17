@@ -1,0 +1,13 @@
+# Community app installed from Unraid AppFeed
+# Source: mongo
+name: mongodb
+description: "[h3]MongoDB[/h3]MongoDB (from 'humongous') is a cross-platform document-oriented database. Classified as a NoSQL database, MongoDB eschews the traditional table-based relational database structure in "
+namespace: mongodb
+source: community-apps
+tier: simple
+image: mongo
+categories:
+  - "Network-Other"
+ingressroute:
+  host: mongodb.int.rlservers.com
+installed_at: 2026-05-17T18:13:40.251Z
