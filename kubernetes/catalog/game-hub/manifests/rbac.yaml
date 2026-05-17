@@ -17,6 +17,10 @@ rules:
   - apiGroups: ["apps"]
     resources: ["deployments", "statefulsets", "replicasets"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Scale sub-resource: required for scaleServerWorkload (stop/start/scale actions)
+  - apiGroups: ["apps"]
+    resources: ["deployments/scale", "statefulsets/scale"]
+    verbs: ["get", "update"]
   # HPA: auto-scaling game servers (set-hpa / remove-hpa actions)
   - apiGroups: ["autoscaling"]
     resources: ["horizontalpodautoscalers"]
