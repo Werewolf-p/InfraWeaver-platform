@@ -127,7 +127,7 @@ const MEDIA_SEGMENT_KEYWORDS = new Set([
 type PathVolumeKind = "pvc" | "hostPath" | "emptyDir" | "skip";
 type PathClassification = { kind: PathVolumeKind; medium?: "Memory" };
 
-function classifyPath(target: string): PathClassification {
+function classifyPath(target: string, configName?: string): PathClassification {
   const p = target.replace(/\\/g, "/");
   if (RUNTIME_SKIP_PATHS.some(s => p === s || p.startsWith(s + "/"))) return { kind: "skip" };
   for (const ed of EMPTY_DIR_MOUNTS) {
@@ -140,6 +140,14 @@ function classifyPath(target: string): PathClassification {
   const segments = p.split("/").filter(Boolean);
   if (segments.length > 1 && segments.some(s => MEDIA_SEGMENT_KEYWORDS.has(s.toLowerCase()))) {
     return { kind: "emptyDir" };
+  }
+  // Check configName for media keywords (e.g. Lidarr's /data has Name="Music" or "data")
+  // This catches paths like /data when the AppFeed Config Name hints it's a media library.
+  if (configName) {
+    const nameLower = configName.toLowerCase();
+    for (const kw of MEDIA_SEGMENT_KEYWORDS) {
+      if (nameLower.includes(kw)) return { kind: "emptyDir" };
+    }
   }
   return { kind: "pvc" };
 }
@@ -264,10 +272,8 @@ function computeVolumeInfos(configs: AppFeedConfig[], slug: string): VolumeInfo[
     // Always skip docker socket paths (required ones were already rejected above)
     if (isDockerSocket(target)) continue;
 
-    const cls = classifyPath(target);
+    const cls = classifyPath(target, attrs.Name);
     if (cls.kind === "skip") continue;
-
-    const mountPath = cls.kind === "pvc" ? safeMountDir(target) : target;
     let volumeName: string;
     let pvcName: string | undefined;
 
