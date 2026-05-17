@@ -1,7 +1,7 @@
 ---
 # catalog-it-tools-manifests.yaml — deployed by InfraWeaver Community Apps
 # Source: corentinth/it-tools
-# Installed: 2026-05-17T08:52:40.932Z
+# Installed: 2026-05-17T08:53:24.185Z
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -20,7 +20,7 @@ spec:
     path: kubernetes/catalog/it-tools/manifests
   destination:
     server: https://kubernetes.default.svc
-    namespace: it-tools
+    namespace: it-tools-test2
   syncPolicy:
     automated:
       prune: true
