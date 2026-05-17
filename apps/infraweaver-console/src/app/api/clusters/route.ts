@@ -27,12 +27,13 @@ export async function GET() {
   const results = await Promise.all(
     configs.map(async (cluster) => {
       const status = await pingCluster(cluster.id);
+      const isLocal = cluster.isLocal ?? (cluster.id === "default" || !cluster.kubeconfig);
       return {
         id: cluster.id,
         name: cluster.displayName,
-        description: cluster.description ?? (cluster.isLocal ? "Console host cluster" : "Remote cluster"),
+        description: cluster.description ?? (isLocal ? "Console host cluster" : "Remote cluster"),
         status,
-        isLocal: cluster.isLocal ?? (cluster.id === "default" || !cluster.kubeconfig),
+        isLocal,
         tags: cluster.tags ?? [],
         lastSeen: new Date().toISOString(),
       };

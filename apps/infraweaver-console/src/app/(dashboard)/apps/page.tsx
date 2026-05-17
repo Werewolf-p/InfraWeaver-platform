@@ -2187,7 +2187,7 @@ function CommunityStoreTab() {
   const [category, setCategory] = useState<CommunityCategory>("all");
   const [tier, setTier] = useState("");
   const [deployApp, setDeployApp] = useState<AppSummary | null>(null);
-  const [searchTimeout, setSearchTimeout] = useState<ReturnType<typeof setTimeout> | null>(null);
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [installed, setInstalled] = useState<InstalledCommunityAppsResponse | null>(null);
   const [installedLoading, setInstalledLoading] = useState(false);
   const [installedError, setInstalledError] = useState<string | null>(null);
@@ -2238,9 +2238,8 @@ function CommunityStoreTab() {
 
   const handleSearch = (value: string) => {
     setSearch(value);
-    if (searchTimeout) clearTimeout(searchTimeout);
-    const t = setTimeout(() => { setDebouncedSearch(value); setPage(1); void fetchApps({ page: 1, search: value, category, tier }); }, 300);
-    setSearchTimeout(t);
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    searchTimeoutRef.current = setTimeout(() => { setDebouncedSearch(value); setPage(1); void fetchApps({ page: 1, search: value, category, tier }); }, 300);
   };
 
   const handleCategory = (cat: CommunityCategory) => { setCategory(cat); setPage(1); void fetchApps({ page: 1, search: debouncedSearch, category: cat, tier }); };
