@@ -1,7 +1,7 @@
 ---
 # catalog-lidarr-manifests.yaml — deployed by InfraWeaver Community Apps
 # Source: lscr.io/linuxserver/lidarr
-# Installed: 2026-05-17T22:27:14.274Z
+# Installed: 2026-05-17T22:41:41.725Z
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
