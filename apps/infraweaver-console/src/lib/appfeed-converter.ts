@@ -424,6 +424,20 @@ export function convertAppFeedEntry(
   if (!image) {
     throw new Error(`App "${appName}" is missing a container image`);
   }
+  // Reject Unraid plugin/script URLs masquerading as container images
+  if (/^https?:\/\//i.test(image)) {
+    throw new Error(`App "${appName}" is an Unraid plugin (Repository is a URL), not a Docker container — not deployable on Kubernetes`);
+  }
+  // Detect Docker-socket-dependent apps (e.g. Dozzle, Portainer) — they require
+  // the host Docker daemon and cannot run in a standard Kubernetes pod
+  const configs0 = getConfigs(app);
+  const needsDockerSocket = configs0.some(c =>
+    c["@attributes"]?.Type === "Path" &&
+    (c["@attributes"]?.Target ?? "").replace(/\\/g, "/").includes("/var/run/docker.sock")
+  );
+  if (needsDockerSocket) {
+    throw new Error(`App "${appName}" requires the Docker socket (/var/run/docker.sock) and cannot run in a standard Kubernetes pod`);
+  }
 
   const slug = toSlug(appName);
   const namespace = options.namespace?.trim() || slug;
