@@ -1,15 +1,13 @@
----
-# catalog.yaml — source definition for catalog apps
-# This file is read by scripts/sync-catalog.sh to generate ArgoCD Applications.
-#
-# Catalog app: n8n — self-hosted workflow automation (open-source Zapier alternative)
-# Access: n8n.int.rlservers.com (VPN-only, protected by Authentik forward-auth)
-# SSO: Traefik forward-auth (n8n community has no native OIDC; uses built-in auth disabled)
-
+# Community app installed from Unraid AppFeed
+# Source: docker.n8n.io/n8nio/n8n
 name: n8n
-description: "n8n — self-hosted workflow automation, integrations, and low-code automations"
+description: "n8n – workflow automation tool"
 namespace: n8n
-
+source: community-apps
+tier: simple
+image: docker.n8n.io/n8nio/n8n
+categories:
+  - "Tools-Utilities"
 ingressroute:
   host: n8n.int.rlservers.com
-  entrypoint: websecure
+installed_at: 2026-05-17T17:58:16.017Z
