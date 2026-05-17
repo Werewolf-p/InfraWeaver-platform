@@ -1,0 +1,22 @@
+---
+# PVC for "Database Storage Path" → /var/lib/postgresql/data
+# Default path on Unraid: /mnt/cache/appdata/postgresql17
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgresql17-data-0
+  namespace: postgresql17
+  labels:
+    app.kubernetes.io/name: postgresql17
+    app.kubernetes.io/component: storage
+    infraweaver.io/source: community-apps
+  annotations:
+    infraweaver.io/unraid-path: "/mnt/cache/appdata/postgresql17"
+    infraweaver.io/required: "true"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 10Gi
