@@ -1,0 +1,13 @@
+# Community app installed from Unraid AppFeed
+# Source: sdesbure/arch-jackett
+name: jackett
+description: "Use just about any tracker with Sonarr"
+namespace: jackett
+source: community-apps
+tier: simple
+image: sdesbure/arch-jackett
+categories:
+  - "Downloaders"
+  - "MediaApp-Video"
+
+installed_at: 2026-05-17T22:03:17.167Z
