@@ -13,6 +13,8 @@
  *   WebUI field            → port extracted for Traefik IngressRoute
  */
 
+import { UserError } from "./utils";
+
 export type K8sCompatTier = "simple" | "medium" | "complex";
 
 type ResourceProfile = {
@@ -419,16 +421,16 @@ export function convertAppFeedEntry(
   const image = app.Repository?.trim();
 
   if (!appName) {
-    throw new Error("AppFeed entry is missing a Name");
+    throw new UserError("AppFeed entry is missing a Name");
   }
   if (!image) {
-    throw new Error(`App "${appName}" is missing a container image`);
+    throw new UserError(`App "${appName}" is missing a container image`);
   }
   // Reject Unraid plugin/script URLs masquerading as container images
   if (/^https?:\/\//i.test(image)) {
-    throw new Error(`App "${appName}" is an Unraid plugin (Repository is a URL), not a Docker container — not deployable on Kubernetes`);
+    throw new UserError(`App "${appName}" is an Unraid plugin (not a Docker image) — not deployable on Kubernetes`);
   }
-  // Detect Docker-socket-dependent apps (e.g. Dozzle, Portainer) — they require
+  // Detect Docker-socket-dependent apps (e.g. Dozzle, Portainer, Glances) — they require
   // the host Docker daemon and cannot run in a standard Kubernetes pod
   const configs0 = getConfigs(app);
   const needsDockerSocket = configs0.some(c =>
@@ -436,7 +438,7 @@ export function convertAppFeedEntry(
     (c["@attributes"]?.Target ?? "").replace(/\\/g, "/").includes("/var/run/docker.sock")
   );
   if (needsDockerSocket) {
-    throw new Error(`App "${appName}" requires the Docker socket (/var/run/docker.sock) and cannot run in a standard Kubernetes pod`);
+    throw new UserError(`App "${appName}" requires the Docker socket and cannot run in Kubernetes — use a Kubernetes-native monitoring tool instead`);
   }
 
   const slug = toSlug(appName);
@@ -629,10 +631,21 @@ export interface AppFeedSummary {
   support?: string;
   lastUpdate?: string;
   configCount: number;
+  /** True when the app cannot be deployed on Kubernetes (e.g. requires Docker socket or is an Unraid plugin). */
+  incompatible?: true;
+  /** Human-readable reason when incompatible is true. */
+  incompatibleReason?: string;
 }
 
 export function summarizeApp(app: AppFeedEntry): AppFeedSummary {
-  return {
+  const configs = getConfigs(app);
+  const needsDockerSocket = configs.some(c =>
+    c["@attributes"]?.Type === "Path" &&
+    (c["@attributes"]?.Target ?? "").replace(/\\/g, "/").includes("/var/run/docker.sock")
+  );
+  const isPlugin = /^https?:\/\//i.test(app.Repository ?? "");
+
+  const summary: AppFeedSummary = {
     name: app.Name,
     slug: toSlug(app.Name),
     image: app.Repository,
@@ -645,6 +658,16 @@ export function summarizeApp(app: AppFeedEntry): AppFeedSummary {
     webUI: app.WebUI,
     support: app.Support,
     lastUpdate: app.LastUpdate,
-    configCount: getConfigs(app).length,
+    configCount: configs.length,
   };
+
+  if (needsDockerSocket) {
+    summary.incompatible = true;
+    summary.incompatibleReason = "Requires Docker socket — not supported on Kubernetes";
+  } else if (isPlugin) {
+    summary.incompatible = true;
+    summary.incompatibleReason = "Unraid plugin (not a container image) — not deployable on Kubernetes";
+  }
+
+  return summary;
 }

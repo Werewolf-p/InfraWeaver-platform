@@ -76,9 +76,21 @@ const SAFE_ERROR_SUBSTRINGS = [
   "conflict",
 ];
 
+/**
+ * UserError: thrown for user-facing validation/compatibility errors that are
+ * safe to display as-is (no internal paths, IPs, or secrets). These bypass the
+ * SAFE_ERROR_SUBSTRINGS allowlist in safeError() and are always shown to users.
+ */
+export class UserError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "UserError";
+  }
+}
+
 function redactErrorMessage(message: string) {
   return message
-    .replace(/https?:\/\/[^\s]+/gi, "[internal]")
+    .replace(/https?:\/\/[^\s]+/gi, "[url]")
     .replace(/\b(?:localhost|(?:[a-z0-9-]+\.)+(?:svc(?:\.cluster\.local)?|cluster\.local|int\.rlservers\.com))(?::\d{1,5})?\b/gi, "[internal]")
     .replace(/\b(?:10(?:\.\d{1,3}){3}|192\.168(?:\.\d{1,3}){2}|172\.(?:1[6-9]|2\d|3[0-1])(?:\.\d{1,3}){2})(?::\d{1,5})?\b/g, "[internal]")
     .replace(/\b(?:[A-Z]:\\|\/)[\w./\\-]+/g, "[path]")
@@ -87,6 +99,9 @@ function redactErrorMessage(message: string) {
 }
 
 export function safeError(e: unknown): string {
+  // UserError messages are always safe to show as-is (caller is responsible for content)
+  if (e instanceof UserError) return e.message;
+
   // Extract message string from various error shapes
   let message = "";
 
