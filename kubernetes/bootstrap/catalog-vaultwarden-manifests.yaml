@@ -1,0 +1,36 @@
+---
+# catalog-vaultwarden-manifests.yaml — deployed by InfraWeaver Community Apps
+# Source: vaultwarden/server
+# Installed: 2026-05-17T18:15:18.036Z
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: catalog-vaultwarden-manifests
+  namespace: argocd
+  labels:
+    infraweaver.io/type: catalog-app
+    infraweaver.io/source: community-apps
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  source:
+    repoURL: https://github.com/Werewolf-p/InfraWeaver-platform.git
+    targetRevision: HEAD
+    path: kubernetes/catalog/vaultwarden/manifests
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: vaultwarden
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
