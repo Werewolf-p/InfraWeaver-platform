@@ -1,7 +1,7 @@
 ---
 # catalog-heimdall-manifests.yaml — deployed by InfraWeaver Community Apps
 # Source: lscr.io/linuxserver/heimdall
-# Installed: 2026-05-17T22:31:09.716Z
+# Installed: 2026-05-17T22:44:16.411Z
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
