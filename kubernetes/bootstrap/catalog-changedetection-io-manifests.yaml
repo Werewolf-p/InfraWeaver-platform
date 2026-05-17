@@ -1,0 +1,36 @@
+---
+# catalog-changedetection-io-manifests.yaml — deployed by InfraWeaver Community Apps
+# Source: lscr.io/linuxserver/changedetection.io
+# Installed: 2026-05-17T22:29:21.044Z
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: catalog-changedetection-io-manifests
+  namespace: argocd
+  labels:
+    infraweaver.io/type: catalog-app
+    infraweaver.io/source: community-apps
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  source:
+    repoURL: https://github.com/Werewolf-p/InfraWeaver-platform.git
+    targetRevision: HEAD
+    path: kubernetes/catalog/changedetection-io/manifests
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: changedetection-io
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
