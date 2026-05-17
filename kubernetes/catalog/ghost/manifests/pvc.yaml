@@ -1,0 +1,22 @@
+---
+# PVC for "Appdata Location" → /var/lib/ghost/content
+# Default path on Unraid: /mnt/user/appdata/ghost
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ghost-data-0
+  namespace: ghost
+  labels:
+    app.kubernetes.io/name: ghost
+    app.kubernetes.io/component: storage
+    infraweaver.io/source: community-apps
+  annotations:
+    infraweaver.io/unraid-path: "/mnt/user/appdata/ghost"
+    infraweaver.io/required: "true"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 10Gi
