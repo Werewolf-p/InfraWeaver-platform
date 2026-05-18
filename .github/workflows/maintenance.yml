@@ -80,11 +80,9 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
-      - name: Setup kubeconfig
-        run: |
-          mkdir -p ~/.kube
-          echo "${{ secrets.KUBECONFIG_PRODUCTIE }}" | base64 -d > ~/.kube/config-platform-productie
-          chmod 600 ~/.kube/config-platform-productie
+      - uses: ./.github/actions/setup-kubectl
+        with:
+          kubeconfig-b64: ${{ secrets.KUBECONFIG_PRODUCTIE }}
 
       - name: Run etcd-heal (alarms + proactive size-based defrag)
         run: |
@@ -412,11 +410,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup kubeconfig
-        run: |
-          mkdir -p ~/.kube
-          echo "${{ secrets.KUBECONFIG_PRODUCTIE }}" | base64 -d > ~/.kube/config-platform-productie
-          chmod 600 ~/.kube/config-platform-productie
+      - uses: ./.github/actions/setup-kubectl
+        with:
+          kubeconfig-b64: ${{ secrets.KUBECONFIG_PRODUCTIE }}
 
       - name: Recover stuck pods
         run: |
@@ -561,11 +557,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup kubeconfig
-        run: |
-          mkdir -p ~/.kube
-          echo "${{ secrets.KUBECONFIG_PRODUCTIE }}" | base64 -d > ~/.kube/config-platform-productie
-          chmod 600 ~/.kube/config-platform-productie
+      - uses: ./.github/actions/setup-kubectl
+        with:
+          kubeconfig-b64: ${{ secrets.KUBECONFIG_PRODUCTIE }}
 
       - name: Check and fix etcd CORRUPT alarm
         run: |
@@ -603,11 +597,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup kubeconfig
-        run: |
-          mkdir -p ~/.kube
-          echo "${{ secrets.KUBECONFIG_PRODUCTIE }}" | base64 -d > ~/.kube/config-platform-productie
-          chmod 600 ~/.kube/config-platform-productie
+      - uses: ./.github/actions/setup-kubectl
+        with:
+          kubeconfig-b64: ${{ secrets.KUBECONFIG_PRODUCTIE }}
 
       - name: Validate OpenBao + refresh failed ExternalSecrets
         run: |
@@ -678,11 +670,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup kubeconfig
-        run: |
-          mkdir -p ~/.kube
-          echo "${{ secrets.KUBECONFIG_PRODUCTIE }}" | base64 -d > ~/.kube/config-platform-productie
-          chmod 600 ~/.kube/config-platform-productie
+      - uses: ./.github/actions/setup-kubectl
+        with:
+          kubeconfig-b64: ${{ secrets.KUBECONFIG_PRODUCTIE }}
 
       - name: Check certificate expiry windows
         env:
@@ -746,11 +736,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup kubeconfig
-        run: |
-          mkdir -p ~/.kube
-          echo "${{ secrets.KUBECONFIG_PRODUCTIE }}" | base64 -d > ~/.kube/config-platform-productie
-          chmod 600 ~/.kube/config-platform-productie
+      - uses: ./.github/actions/setup-kubectl
+        with:
+          kubeconfig-b64: ${{ secrets.KUBECONFIG_PRODUCTIE }}
 
       - name: Verify recent Velero backups
         env:

@@ -194,17 +194,10 @@ jobs:
       - self-hosted
       - prod-worker
     steps:
-
-      - name: Setup kubeconfig
-        run: |
-          mkdir -p ~/.kube
-          if [ -n "$KUBECONFIG_B64" ]; then
-            echo "$KUBECONFIG_B64" | base64 -d > ~/.kube/config-platform-$ENV_NAME
-            chmod 600 ~/.kube/config-platform-$ENV_NAME
-          fi
-        env:
-          KUBECONFIG_B64: ${{ secrets.KUBECONFIG_PRODUCTIE }}
-          ENV_NAME: ${{ env.ENV_NAME }}
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: ./.github/actions/setup-kubectl
+        with:
+          kubeconfig-b64: ${{ secrets.KUBECONFIG_PRODUCTIE }}
       
       - name: Rollout restart CoreDNS
         run: |
@@ -232,17 +225,10 @@ jobs:
       - self-hosted
       - prod-worker
     steps:
-
-      - name: Setup kubeconfig
-        run: |
-          mkdir -p ~/.kube
-          if [ -n "$KUBECONFIG_B64" ]; then
-            echo "$KUBECONFIG_B64" | base64 -d > ~/.kube/config-platform-$ENV_NAME
-            chmod 600 ~/.kube/config-platform-$ENV_NAME
-          fi
-        env:
-          KUBECONFIG_B64: ${{ secrets.KUBECONFIG_PRODUCTIE }}
-          ENV_NAME: ${{ env.ENV_NAME }}
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: ./.github/actions/setup-kubectl
+        with:
+          kubeconfig-b64: ${{ secrets.KUBECONFIG_PRODUCTIE }}
       
       - name: Trigger ArgoCD hard-refresh for authentik
         run: |
@@ -274,19 +260,10 @@ jobs:
       - self-hosted
       - prod-worker
     steps:
-
-      - name: Setup kubeconfig
-        run: |
-          mkdir -p ~/.kube
-          if [ -n "$KUBECONFIG_B64" ]; then
-            echo "$KUBECONFIG_B64" | base64 -d > ~/.kube/config-platform-$ENV_NAME
-            chmod 600 ~/.kube/config-platform-$ENV_NAME
-          fi
-        env:
-          KUBECONFIG_B64: ${{ secrets.KUBECONFIG_PRODUCTIE }}
-          ENV_NAME: ${{ env.ENV_NAME }}
-      
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: ./.github/actions/setup-kubectl
+        with:
+          kubeconfig-b64: ${{ secrets.KUBECONFIG_PRODUCTIE }}
 
       - name: Seed new user secrets into OpenBao
         env:
@@ -400,20 +377,12 @@ jobs:
       - prod-worker
     steps:
 
-      - name: Setup kubeconfig
-        run: |
-          mkdir -p ~/.kube
-          if [ -n "$KUBECONFIG_B64" ]; then
-            echo "$KUBECONFIG_B64" | base64 -d > ~/.kube/config-platform-$ENV_NAME
-            chmod 600 ~/.kube/config-platform-$ENV_NAME
-          fi
-        env:
-          KUBECONFIG_B64: ${{ secrets.KUBECONFIG_PRODUCTIE }}
-          ENV_NAME: ${{ env.ENV_NAME }}
-      
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 2
+      - uses: ./.github/actions/setup-kubectl
+        with:
+          kubeconfig-b64: ${{ secrets.KUBECONFIG_PRODUCTIE }}
 
       - name: Apply changed bootstrap Application files
         run: |
@@ -458,21 +427,13 @@ jobs:
       contents: write
     steps:
 
-      - name: Setup kubeconfig
-        run: |
-          mkdir -p ~/.kube
-          if [ -n "$KUBECONFIG_B64" ]; then
-            echo "$KUBECONFIG_B64" | base64 -d > ~/.kube/config-platform-$ENV_NAME
-            chmod 600 ~/.kube/config-platform-$ENV_NAME
-          fi
-        env:
-          KUBECONFIG_B64: ${{ secrets.KUBECONFIG_PRODUCTIE }}
-          ENV_NAME: ${{ env.ENV_NAME }}
-      
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: ./.github/actions/setup-kubectl
+        with:
+          kubeconfig-b64: ${{ secrets.KUBECONFIG_PRODUCTIE }}
 
       - name: Install PyYAML
         run: |
@@ -510,21 +471,13 @@ jobs:
       contents: write
     steps:
 
-      - name: Setup kubeconfig
-        run: |
-          mkdir -p ~/.kube
-          if [ -n "$KUBECONFIG_B64" ]; then
-            echo "$KUBECONFIG_B64" | base64 -d > ~/.kube/config-platform-$ENV_NAME
-            chmod 600 ~/.kube/config-platform-$ENV_NAME
-          fi
-        env:
-          KUBECONFIG_B64: ${{ secrets.KUBECONFIG_PRODUCTIE }}
-          ENV_NAME: ${{ env.ENV_NAME }}
-      
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: ./.github/actions/setup-kubectl
+        with:
+          kubeconfig-b64: ${{ secrets.KUBECONFIG_PRODUCTIE }}
 
       - name: Install PyYAML
         run: |
@@ -565,18 +518,10 @@ jobs:
       - prod-worker
     steps:
 
-      - name: Setup kubeconfig
-        run: |
-          mkdir -p ~/.kube
-          if [ -n "$KUBECONFIG_B64" ]; then
-            echo "$KUBECONFIG_B64" | base64 -d > ~/.kube/config-platform-$ENV_NAME
-            chmod 600 ~/.kube/config-platform-$ENV_NAME
-          fi
-        env:
-          KUBECONFIG_B64: ${{ secrets.KUBECONFIG_PRODUCTIE }}
-          ENV_NAME: ${{ env.ENV_NAME }}
-      
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: ./.github/actions/setup-kubectl
+        with:
+          kubeconfig-b64: ${{ secrets.KUBECONFIG_PRODUCTIE }}
 
       - name: Ensure node labels (grafana-eligible)
         run: |
