@@ -591,3 +591,58 @@ Raised memory limit from `2200Mi → 4500Mi` on all 3 nodes via direct `talosctl
 - **2200Mi is NOT enough for kube-apiserver on an active cluster with this many resources**
 - **Minimum safe limit = observed peak × 2.0** (to account for startup spikes and GC lag)
 - **4500Mi is the correct production value** for this cluster
+
+
+---
+
+## Root Cause #N: MetalLB Speaker Startup Race Condition
+
+**Discovered:** 2026-05 (post-rolling-reboot audit)
+
+**Symptom:** MetalLB speaker DaemonSet pods accumulate 330+ restarts over 8 days (~35-min cycle, correlated with node reboots). Pods exit with code 1 at startup.
+
+**Root Cause:**
+When a node reboots, the metallb-speaker pod starts concurrently with the kube-apiserver static pod. The speaker tries to connect to the Kubernetes API (`10.96.0.1:443`) within its first second — if apiserver isn't ready yet, connection is refused → speaker exits code 1 → Kubernetes backoff loop (5–10 restarts per reboot before apiserver is ready).
+
+**Why It Can't Be Fixed via Chart Values Alone:**
+- The metallb chart (0.14.x) does NOT support `extraInitContainers` under `speaker`
+- The metallb speaker image uses `gcr.io/distroless/static` base — **NO shell** available, so `speaker.command` override with a wait-loop script is impossible
+- `livenessProbe.initialDelaySeconds` doesn't help since the container self-exits before the probe runs
+
+**Workarounds:**
+1. **Accept it** — restarts are cosmetic once apiserver is up; actual L2 announcement recovers quickly
+2. **Patch the DaemonSet directly** (outside Helm) with an init container using a minimal shell image to wait for API readiness — but ArgoCD will revert unless annotated with `argocd.argoproj.io/managed-fields` or resource exclusions
+3. **Upgrade metallb** to a version that supports `extraInitContainers` in the speaker section (check 0.15+)
+4. **Fix the root cause**: reduce node reboot frequency by tuning etcd defrag schedule
+
+**Current Mitigation:** Deleted all 6 stale `ServiceL2Status` objects (`l2-9x2kn`, `l2-d7ql9`, `l2-kdhtd`, `l2-khvw6`, `l2-rvvbr`, `l2-zj7mg`) to stop the `"status.node: Invalid value: immutable"` reconciler error loop. MetalLB immediately recreated 2 correct ones.
+
+**Impact:** Low — L2 announcements recover within ~30s of apiserver readiness. 330 restarts ≠ 330 L2 outages (each full node reboot = ~5–10 restarts). The cosmetic metric is misleading.
+
+
+---
+
+## Root Cause #N+1: Longhorn Replica Stall After Node Reboots
+
+**Discovered:** 2026-05 (post-rolling-reboot audit)
+
+**Symptom:** After a rolling node reboot, 46 Longhorn replicas show `stopped` state. With default settings, recovery takes 75+ minutes.
+
+**Root Causes (three compounding factors):**
+
+1. **`replicaReplenishmentWaitInterval: 1800`** — Longhorn waits 30 minutes before replenishing failed replicas. This is intentional (gives rebooting nodes time to return for delta-resync). It means no rebuild activity for the first 30 min post-reboot.
+
+2. **`concurrentReplicaRebuildPerNodeLimit: 1`** (default) — only 1 replica rebuilds per node at a time. With 15 stopped replicas per node, minimum recovery = 15 × rebuild_time (could be 45–75 min for large volumes).
+
+3. **`FailedStartingSnapshotPurge` after reboot** — when instance-manager pods restart with new IPs (e.g., old `10.244.2.241` → new IP), engines retain stale proxy references. Attempts to purge snapshots before rebuild fail, causing a start→stop retry cycle. Self-resolves as replicas rebuild and engine refreshes proxy refs.
+
+**Additionally:** 4+ detached Longhorn volumes with NO corresponding PVC exist as orphans. Their stopped replicas will NEVER rebuild automatically (no engine runs for detached volumes). These are wasting disk space and inflating the "stopped" count.
+
+**Fix Applied (2026-05):**
+- Increased `concurrentReplicaRebuildPerNodeLimit: 1 → 3` in `kubernetes/core/longhorn/values.yaml` (committed)
+- Result: 46→27 stopped replicas in ~20 seconds after the limit increase
+
+**Recommended Follow-up:**
+- Delete the 4+ orphaned Longhorn volumes (no PVC owners): `pvc-01742bea`, `pvc-36a32b45`, `pvc-7cd09fb5`, `pvc-89b1d247` (verify with `kubectl get pvc -A -o json | python3 -c "..."` before deleting)
+- Consider reducing `replicaReplenishmentWaitInterval` from 1800s to 600s — 30 min wait is conservative; 10 min should be sufficient for nodes to return
+- The `FailedStartingSnapshotPurge` errors are transient and require no action
