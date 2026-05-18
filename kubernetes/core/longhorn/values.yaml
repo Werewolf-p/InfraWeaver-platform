@@ -20,8 +20,11 @@ defaultSettings:
   storageOverProvisioningPercentage: 300
   # Reserve CPU for Longhorn instance managers so replica rebuilds do not starve.
   guaranteedInstanceManagerCPU: 12
-  # Limit concurrent rebuild pressure during volume creation/recovery storms.
-  concurrentReplicaRebuildPerNodeLimit: 1
+  # 3 concurrent rebuilds per node — increased from 1 to recover faster after
+  # rolling node reboots (which leave ~15 stopped replicas per node). Warm restarts
+  # (data dir intact, just reconnecting) are low-I/O; the original 1-limit extended
+  # post-reboot degraded-volume windows unnecessarily.
+  concurrentReplicaRebuildPerNodeLimit: 3
   # Wait before replenishing a failed replica — 30 min gives rebooting nodes time to return
   # and reuse existing replicas (delta-resync only) instead of triggering a full rebuild storm.
   replicaReplenishmentWaitInterval: 1800
