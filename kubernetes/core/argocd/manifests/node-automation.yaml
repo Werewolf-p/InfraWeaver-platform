@@ -129,12 +129,11 @@ spec:
                       continue
                     fi
 
-                    if kubectl get node "$node" -o jsonpath='{.metadata.labels.node-role\.kubernetes\.io/control-plane}' 2>/dev/null | grep -q .; then
-                      echo "Skipping control-plane node $node"
-                      continue
-                    fi
-                    if kubectl get node "$node" -o jsonpath='{.metadata.labels.node-role\.kubernetes\.io/master}' 2>/dev/null | grep -q .; then
-                      echo "Skipping master node $node"
+                    # This is a CP-only cluster — we handle CP nodes too.
+                    # Only cordon/drain if at least 2 other nodes are Ready (etcd quorum safe).
+                    ready_others=$(kubectl get nodes --no-headers | awk -v node="$node" '$1 != node && $2 ~ /^Ready/ {count++} END {print count+0}')
+                    if [ "$ready_others" -lt 2 ]; then
+                      echo "Only $ready_others other Ready node(s) — refusing remediation to preserve quorum"
                       continue
                     fi
 
@@ -147,12 +146,6 @@ spec:
                     down_for=$((now_epoch - transition_epoch))
                     if [ "$down_for" -lt "$NOT_READY_SECONDS" ]; then
                       echo "Node $node has been NotReady for ${down_for}s (< ${NOT_READY_SECONDS}s); waiting"
-                      continue
-                    fi
-
-                    ready_others=$(kubectl get nodes --no-headers | awk -v node="$node" '$1 != node && $2 ~ /^Ready/ {count++} END {print count+0}')
-                    if [ "$ready_others" -lt 1 ]; then
-                      echo "No Ready nodes remain besides $node; refusing remediation"
                       continue
                     fi
 
@@ -229,7 +222,7 @@ spec:
                   drop: ["ALL"]
               env:
                 - name: HIGH_THRESHOLD
-                  value: "90"
+                  value: "80"
                 - name: LOW_THRESHOLD
                   value: "70"
                 - name: MIN_POD_MEMORY_MI

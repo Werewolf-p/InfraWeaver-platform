@@ -21,6 +21,7 @@ import { podsRoute } from './routes/pods.js';
 import { modeRoute } from './routes/mode.js';
 import { prometheusRoute } from './routes/prometheus.js';
 import { rbacSyncRoute } from './routes/rbac-sync.js';
+import { updatesRoute } from './routes/updates.js';
 import type { AppBindings } from './types/index.js';
 
 const app = new Hono<AppBindings>();
@@ -60,6 +61,7 @@ api.route('/metrics', metricsRoute);
 api.route('/mode', modeRoute);
 api.route('/rbac', rbacSyncRoute);
 api.route('/agents', agentsRoute);
+api.route('/updates', updatesRoute);
 
 app.route('/v1', api);
 app.route('/api/v1', api);

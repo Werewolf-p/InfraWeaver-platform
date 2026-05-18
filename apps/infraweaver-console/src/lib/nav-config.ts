@@ -2,7 +2,7 @@ import {
   LayoutDashboard, Box, Settings, Users, HardDrive,
   Network, Activity, Terminal, History, Cog,
   Package, FileText, ShieldCheck, Server,
-  Sparkles, Home, Trash2, GitBranch,
+  Sparkles, Home, Trash2, GitBranch, ArrowUpCircle,
   Globe, BellOff, Shield, AlertTriangle, HeartPulse,
   Calendar, TrendingUp, Gamepad2, Search, LayoutGrid, TestTube2, Puzzle, BookOpen, MemoryStick,
 } from "lucide-react";
@@ -172,6 +172,16 @@ export const NAV_GROUPS: NavGroup[] = mergeRegisteredPages([
     ],
   },
   {
+    id: "admin",
+    label: "Admin",
+    description: "Platform administration and update tooling",
+    icon: Shield,
+    defaultOpen: false,
+    items: [
+      { href: "/admin/updates", icon: ArrowUpCircle, label: "Update Manager", description: "Review GitOps versions and commit application updates", pinnable: true },
+    ],
+  },
+  {
     id: "settings",
     label: "Settings",
     description: "Users, preferences, and account",
@@ -227,6 +237,7 @@ export const MOBILE_DRAWER_NAV: NavItem[] = [
   { href: "/security", icon: ShieldCheck, label: "Security" },
   { href: "/cluster", icon: Server, label: "Cluster" },
   { href: "/users", icon: Users, label: "User Management" },
+  { href: "/admin/updates", icon: ArrowUpCircle, label: "Update Manager" },
   { href: "/gameservers", icon: Gamepad2, label: "Port Routing" },
   { href: "/game-hub", icon: Gamepad2, label: "Game Hub" },
   { href: "/wiki", icon: BookOpen, label: "Wiki" },

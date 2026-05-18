@@ -15,16 +15,14 @@ name: Maintenance — Scheduled Operations
 
 on:
   schedule:
-    - cron: "0 3 * * 0"   # Sunday 03:00 UTC — etcd snapshot
-    - cron: "10 */6 * * *" # Every 6 hours — etcd health check + defrag if needed
-    - cron: "0 4 * * 0"   # Sunday 04:00 UTC — OpenBao snapshot
-    - cron: "0 7 * * 1"   # Monday 07:00 UTC — drift detection
-    - cron: "0 6 * * *"   # Daily 06:00 UTC  — self-heal cluster
-    - cron: "0 */6 * * *" # Every 6 hours — self-heal cluster (more frequent)
-    - cron: "0 5 1,15 * *" # 1st and 15th of month — ESO token renewal
-    - cron: "*/15 * * * *" # Every 15 min — OpenBao/ESO recovery
-    - cron: "30 8 * * *" # Daily 08:30 UTC — certificate expiry check
-    - cron: "45 */6 * * *" # Every 6 hours — Velero backup verification
+    - cron: "0 3 * * 0"    # Sunday 03:00 UTC  — etcd snapshot
+    - cron: "10 */6 * * *"  # Every 6 hours     — etcd health check + defrag if needed
+    - cron: "0 4 * * 0"    # Sunday 04:00 UTC  — OpenBao snapshot
+    - cron: "0 7 * * 1"    # Monday 07:00 UTC  — drift detection
+    - cron: "0 */6 * * *"  # Every 6 hours     — self-heal cluster + OpenBao/ESO recovery
+    - cron: "0 5 1,15 * *"  # 1st+15th of month — ESO token renewal
+    - cron: "30 8 * * *"   # Daily 08:30 UTC   — certificate expiry check
+    - cron: "45 */6 * * *"  # Every 6 hours     — Velero backup verification
   workflow_dispatch:
     inputs:
       task:
@@ -185,7 +183,7 @@ jobs:
       - name: Create OpenBao Raft snapshot
         run: |
           SNAPSHOT_FILE="/tmp/openbao-snapshot-$(date +%Y%m%d-%H%M%S).snap"
-          KB=~/.kube/config-platform-${{ env.ENV_NAME }}
+          KB=~/.kube/config-platform-productie
           KT="kubectl --kubeconfig $KB --insecure-skip-tls-verify"
 
           OPENBAO_POD=$($KT get pods -n openbao -l app.kubernetes.io/name=openbao \
@@ -313,7 +311,7 @@ jobs:
     steps:
       - name: Patch ArgoCD repo credentials
         run: |
-          KB=~/.kube/config-platform-${{ env.ENV_NAME }}
+          KB=~/.kube/config-platform-productie
           NEW_TOKEN=$(echo -n "${{ secrets.ARGOCD_GITHUB_TOKEN }}" | base64)
           kubectl --kubeconfig $KB patch secret repo-creds-github -n argocd \
             --type='json' \
@@ -398,29 +396,38 @@ jobs:
           echo "✅ ESO deployment restarted to pick up new token"
 
   # ── Self-Heal Cluster ─────────────────────────────────────────────────────────
-  # Automated recovery: detects and restarts stuck pods, re-syncs OutOfSync ArgoCD
-  # apps, and refreshes failed ExternalSecrets. Runs daily at 06:00 UTC.
-  # Source: OpenGitOps principles — continuous reconciliation.
+  # Automated recovery: restarts stuck pods, re-syncs OutOfSync ArgoCD apps,
+  # refreshes failed ExternalSecrets, and cleans stale CSI VolumeAttachments.
+  # Runs every 6 h. Longhorn orphan/snapshot cleanup is handled by Longhorn
+  # settings (autoCleanupSystemGeneratedSnapshot + orphanResourceAutoDeletion).
   self-heal:
     name: Self-Heal Cluster
     if: >
-      (github.event_name == 'schedule' && (github.event.schedule == '0 6 * * *' || github.event.schedule == '0 */6 * * *')) ||
-      github.event_name == 'workflow_dispatch' && inputs.task == 'self-heal'
+      (github.event_name == 'schedule' && github.event.schedule == '0 */6 * * *') ||
+      (github.event_name == 'workflow_dispatch' && inputs.task == 'self-heal')
     timeout-minutes: 20
     runs-on:
       - self-hosted
       - prod-worker
     steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG_PRODUCTIE }}" | base64 -d > ~/.kube/config-platform-productie
+          chmod 600 ~/.kube/config-platform-productie
+
       - name: Recover stuck pods
         run: |
-          KB=~/.kube/config-platform-${{ env.ENV_NAME }}
+          KB=~/.kube/config-platform-productie
           KT="kubectl --kubeconfig $KB --insecure-skip-tls-verify"
           HEALED=0
           ISSUES=""
 
           echo "### 🔍 Checking for stuck pods..." | tee -a "$GITHUB_STEP_SUMMARY"
 
-          # CrashLoopBackOff — restart count ≥ 5
+          # CrashLoopBackOff — restart count ≥ 10 (give more runway before force-restarting)
           while IFS= read -r line; do
             [[ -z "$line" ]] && continue
             NS=$(echo "$line" | awk '{print $1}')
@@ -431,7 +438,7 @@ jobs:
             ISSUES="${ISSUES}\n- CrashLoopBackOff: \`$NS/$POD\` (restarts: $RESTARTS) → deleted"
           done < <($KT get pods -A --field-selector='status.phase!=Succeeded' \
             -o custom-columns='NS:.metadata.namespace,NAME:.metadata.name,STATUS:.status.containerStatuses[0].state.waiting.reason,RESTARTS:.status.containerStatuses[0].restartCount' \
-            --no-headers 2>/dev/null | awk '$3=="CrashLoopBackOff" && $4+0 >= 5 {print}' || true)
+            --no-headers 2>/dev/null | awk '$3=="CrashLoopBackOff" && $4+0 >= 10 {print}' || true)
 
           # ImagePullBackOff — image can't be pulled
           while IFS= read -r line; do
@@ -445,106 +452,41 @@ jobs:
             -o custom-columns='NS:.metadata.namespace,NAME:.metadata.name,STATUS:.status.containerStatuses[0].state.waiting.reason' \
             --no-headers 2>/dev/null | awk '$3=="ImagePullBackOff" || $3=="ErrImagePull" {print}' || true)
 
-          # OOMKilled pods that are NOT being restarted (stuck in Error state)
+          # OOMKilled pods stuck in Failed state (not being restarted by controller)
           while IFS= read -r line; do
             [[ -z "$line" ]] && continue
             NS=$(echo "$line" | awk '{print $1}')
             POD=$(echo "$line" | awk '{print $2}')
-            echo "  ⚠️  OOMKilled+Error: $NS/$POD — deleting for restart"
+            echo "  ⚠️  OOMKilled+Failed: $NS/$POD — deleting for restart"
             $KT delete pod "$POD" -n "$NS" --grace-period=0 2>/dev/null && HEALED=$((HEALED+1)) || true
             ISSUES="${ISSUES}\n- OOMKilled/Error: \`$NS/$POD\` → deleted"
           done < <($KT get pods -A --field-selector='status.phase=Failed' \
             -o custom-columns='NS:.metadata.namespace,NAME:.metadata.name,REASON:.status.reason' \
             --no-headers 2>/dev/null | awk '$3=="OOMKilled" || $3=="Error" {print}' || true)
 
-          # Pending pods stuck > 10 minutes (scheduling failures)
-          while IFS= read -r line; do
-            [[ -z "$line" ]] && continue
-            NS=$(echo "$line" | awk '{print $1}')
-            POD=$(echo "$line" | awk '{print $2}')
-            START=$(echo "$line" | awk '{print $3}')
-            # Only delete if stuck > 10m (rough check: creationTimestamp old)
-            echo "  ⚠️  Pending pod: $NS/$POD — deleting for rescheduling"
-            $KT delete pod "$POD" -n "$NS" --grace-period=0 2>/dev/null && HEALED=$((HEALED+1)) || true
-            ISSUES="${ISSUES}\n- Pending: \`$NS/$POD\` → deleted for rescheduling"
-          done < <($KT get pods -A --field-selector='status.phase=Pending' \
-            -o custom-columns='NS:.metadata.namespace,NAME:.metadata.name,AGE:.metadata.creationTimestamp' \
-            --no-headers 2>/dev/null | head -20 | grep -v "^$" | while read ns pod age; do
-              # Skip recently created pods (< 10 min old)
-              POD_AGE_S=$(( $(date +%s) - $(date -d "$age" +%s 2>/dev/null || echo $(date +%s)) ))
-              [[ $POD_AGE_S -gt 600 ]] && echo "$ns $pod $age"
-            done || true)
-
-          # Multi-Attach Longhorn volume errors — stale VolumeAttachments block pod scheduling
-          # Caused by: pod rescheduled to different node while old CSI attachment wasn't cleaned up
-          echo "  🔍 Checking for stale Longhorn VolumeAttachments (Multi-Attach errors)..."
+          # Stale CSI VolumeAttachments (attached=false = detach RPC failed; safe to delete)
           while IFS= read -r line; do
             [[ -z "$line" ]] && continue
             VA_NAME=$(echo "$line" | awk '{print $1}')
             PV_NAME=$(echo "$line" | awk '{print $2}')
             NODE=$(echo "$line" | awk '{print $3}')
-            ATTACHED=$(echo "$line" | awk '{print $4}')
-            # Only delete if NOT currently attached (status.attached=false means detach failed)
-            if [[ "$ATTACHED" == "false" ]]; then
-              echo "  ⚠️  Stale VolumeAttachment $VA_NAME (pv=$PV_NAME, node=$NODE, attached=$ATTACHED) — deleting"
-              $KT delete volumeattachment "$VA_NAME" --grace-period=0 2>/dev/null && HEALED=$((HEALED+1)) || true
-              ISSUES="${ISSUES}\n- Stale VolumeAttachment: \`$VA_NAME\` (pv=$PV_NAME) → deleted"
-            fi
+            echo "  ⚠️  Stale VolumeAttachment $VA_NAME (pv=$PV_NAME, node=$NODE) — deleting"
+            $KT delete volumeattachment "$VA_NAME" --grace-period=0 2>/dev/null && HEALED=$((HEALED+1)) || true
+            ISSUES="${ISSUES}\n- Stale VolumeAttachment: \`$VA_NAME\` (pv=$PV_NAME) → deleted"
           done < <($KT get volumeattachments \
             -o custom-columns='NAME:.metadata.name,PV:.spec.source.persistentVolumeName,NODE:.spec.nodeName,ATTACHED:.status.attached' \
-            --no-headers 2>/dev/null | awk '$1~/^csi-/' || true)
-
-          # Longhorn snapshot-controller stale attachment tickets
-          # Caused by: backup/snapshot controller holding a volume attachment after snapshot completes
-          # This prevents the CSI driver from attaching the volume to a different node
-          echo "  🔍 Checking for stale Longhorn snapshot-controller attachment tickets..."
-          while IFS= read -r lhva; do
-            [[ -z "$lhva" ]] && continue
-            # Get attachment tickets for this Longhorn volume
-            TICKETS=$($KT get volumeattachments.longhorn.io -n longhorn-system "$lhva" \
-              -o jsonpath='{.spec.attachmentTickets}' 2>/dev/null || echo '{}')
-            if echo "$TICKETS" | grep -q '"snapshot-controller'; then
-              LH_VOL_STATE=$($KT get volume -n longhorn-system "$lhva" \
-                -o jsonpath='{.status.state}' 2>/dev/null || echo "unknown")
-              # If volume is attached but no pod is using it, clear snapshot-controller tickets
-              PVC_BOUND=$($KT get pv "$lhva" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
-              if [[ "$LH_VOL_STATE" == "attached" && -n "$PVC_BOUND" ]]; then
-                # Check if any pods are RUNNING and using this volume
-                PVC_NAME=$($KT get pv "$lhva" -o jsonpath='{.spec.claimRef.name}' 2>/dev/null || echo "")
-                PVC_NS=$($KT get pv "$lhva" -o jsonpath='{.spec.claimRef.namespace}' 2>/dev/null || echo "")
-                PODS_USING=$($KT get pods -n "$PVC_NS" --field-selector=status.phase=Running \
-                  -o jsonpath='{.items[*].spec.volumes[*].persistentVolumeClaim.claimName}' \
-                  2>/dev/null | tr ' ' '\n' | grep -c "^${PVC_NAME}$" 2>/dev/null || echo "0")
-                if [[ "${PODS_USING:-0}" -eq 0 ]]; then
-                  echo "  ⚠️  Stale snapshot-controller ticket on volume $lhva — clearing"
-                  # Remove all snapshot-controller tickets
-                  TICKET_KEYS=$(echo "$TICKETS" | python3 -c \
-                    "import json,sys; [print(k) for k in json.load(sys.stdin).keys() if 'snapshot-controller' in k]" \
-                    2>/dev/null || echo "")
-                  while IFS= read -r tk; do
-                    [[ -z "$tk" ]] && continue
-                    $KT patch volumeattachments.longhorn.io -n longhorn-system "$lhva" \
-                      --type='json' \
-                      -p="[{\"op\":\"remove\",\"path\":\"/spec/attachmentTickets/${tk}\"}]" 2>/dev/null || true
-                  done <<< "$TICKET_KEYS"
-                  HEALED=$((HEALED+1))
-                  ISSUES="${ISSUES}\n- Stale Longhorn snapshot ticket: \`$lhva\` → cleared"
-                fi
-              fi
-            fi
-          done < <($KT get volumeattachments.longhorn.io -n longhorn-system \
-            -o custom-columns='NAME:.metadata.name' --no-headers 2>/dev/null || true)
+            --no-headers 2>/dev/null | awk '$1~/^csi-/ && $4=="false" {print}' || true)
 
           if [[ $HEALED -eq 0 ]]; then
             echo "✅ No stuck pods found — cluster is healthy" | tee -a "$GITHUB_STEP_SUMMARY"
           else
-            echo "🔧 Recovered $HEALED pod(s):" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "🔧 Recovered $HEALED issue(s):" | tee -a "$GITHUB_STEP_SUMMARY"
             echo -e "$ISSUES" | tee -a "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Re-sync OutOfSync ArgoCD apps
         run: |
-          KB=~/.kube/config-platform-${{ env.ENV_NAME }}
+          KB=~/.kube/config-platform-productie
           KT="kubectl --kubeconfig $KB --insecure-skip-tls-verify"
           RESYNCED=0
           ISSUES=""
@@ -574,7 +516,7 @@ jobs:
 
       - name: Refresh failed ExternalSecrets
         run: |
-          KB=~/.kube/config-platform-${{ env.ENV_NAME }}
+          KB=~/.kube/config-platform-productie
           KT="kubectl --kubeconfig $KB --insecure-skip-tls-verify"
           REFRESHED=0
 
@@ -647,12 +589,15 @@ jobs:
           echo "$RESULT"
           echo "$RESULT" >> "$GITHUB_STEP_SUMMARY"
 
-  # ── OpenBao + ESO Recovery (every 15 min) ────────────────────────────────────
+  # ── OpenBao + ESO Recovery (every 6 h) ───────────────────────────────────────
+  # Validates OpenBao is unsealed + ClusterSecretStore is healthy, then refreshes
+  # any failed ExternalSecrets. Runs every 6 h alongside self-heal.
+  # Stale VolumeAttachment cleanup is handled by the self-heal job above.
   openbao-eso-recovery:
     name: OpenBao / ESO Recovery
     runs-on: [self-hosted, prod-worker]
     if: >-
-      (github.event_name == 'schedule' && github.event.schedule == '*/15 * * * *') ||
+      (github.event_name == 'schedule' && github.event.schedule == '0 */6 * * *') ||
       (github.event_name == 'workflow_dispatch' && inputs.task == 'openbao-eso-recovery')
     timeout-minutes: 5
     steps:
@@ -679,48 +624,7 @@ jobs:
             exit 0
           fi
 
-          # ── 2. Fix ALL stale k8s VolumeAttachments cluster-wide ──────────────
-          # When a node goes NotReady, CSI VolumeAttachments may become stale.
-          # attached=false means the detach RPC failed — safe to delete.
-          while IFS= read -r line; do
-            [[ -z "$line" ]] && continue
-            VA_NAME=$(echo "$line" | awk '{print $1}')
-            PV_NAME=$(echo "$line" | awk '{print $2}')
-            NODE=$(echo "$line" | awk '{print $3}')
-            echo "Stale VolumeAttachment $VA_NAME (pv=$PV_NAME, node=$NODE) — deleting"
-            $KT delete volumeattachment "$VA_NAME" --grace-period=0 2>/dev/null || true
-            RECOVERED=$((RECOVERED+1))
-          done < <($KT get volumeattachments \
-            -o custom-columns='NAME:.metadata.name,PV:.spec.source.persistentVolumeName,NODE:.spec.nodeName,ATTACHED:.status.attached' \
-            --no-headers 2>/dev/null | awk '$1~/^csi-/ && $4=="false" {print}' || true)
-
-          # ── 4. Fix stale Longhorn volume attachment for OpenBao if it was Unknown ──
-          # When cp3 goes NotReady, OpenBao pod becomes Unknown and a new pod is scheduled.
-          # Longhorn keeps the old attachment ticket — clear it if no running pod uses it.
-          BAO_PV=$($KT get pvc -n openbao openbao-data-openbao-0 \
-            -o jsonpath='{.spec.volumeName}' 2>/dev/null || echo "")
-          if [[ -n "$BAO_PV" ]]; then
-            LH_STATE=$($KT get volumeattachments.longhorn.io -n longhorn-system "$BAO_PV" \
-              -o jsonpath='{.status.currentNodeID}' 2>/dev/null || echo "")
-            LH_NODE=$($KT get pod -n openbao openbao-0 -o jsonpath='{.spec.nodeName}' 2>/dev/null || echo "")
-            TICKETS=$($KT get volumeattachments.longhorn.io -n longhorn-system "$BAO_PV" \
-              -o jsonpath='{.spec.attachmentTickets}' 2>/dev/null || echo '{}')
-            if echo "$TICKETS" | grep -q '"snapshot-controller'; then
-              echo "Clearing stale snapshot-controller ticket on OpenBao volume $BAO_PV"
-              TICKET_KEYS=$(echo "$TICKETS" | python3 -c \
-                "import json,sys; [print(k) for k in json.load(sys.stdin).keys() if 'snapshot-controller' in k]" \
-                2>/dev/null || echo "")
-              while IFS= read -r tk; do
-                [[ -z "$tk" ]] && continue
-                $KT patch volumeattachments.longhorn.io -n longhorn-system "$BAO_PV" \
-                  --type='json' \
-                  -p="[{\"op\":\"remove\",\"path\":\"/spec/attachmentTickets/${tk}\"}]" 2>/dev/null || true
-              done <<< "$TICKET_KEYS"
-              RECOVERED=$((RECOVERED+1))
-            fi
-          fi
-
-          # ── 5. Re-validate ClusterSecretStore ────────────────────────────────
+          # ── 2. Re-validate ClusterSecretStore ────────────────────────────────
           STORE_READY=$($KT get clustersecretstore openbao \
             -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "False")
           if [[ "$STORE_READY" != "True" ]]; then
@@ -731,7 +635,7 @@ jobs:
             RECOVERED=$((RECOVERED+1))
           fi
 
-          # ── 6. Refresh all failed ExternalSecrets ────────────────────────────
+          # ── 3. Refresh all failed ExternalSecrets ────────────────────────────
           REFRESHED=0
           while IFS= read -r line; do
             [[ -z "$line" ]] && continue
@@ -749,25 +653,20 @@ jobs:
             echo "Refreshed $REFRESHED failed ExternalSecret(s)"
           fi
 
-          # ── 7. Report to Discord if any recovery happened ─────────────────────
+          # ── 4. Report ─────────────────────────────────────────────────────────
           if [[ $RECOVERED -gt 0 ]]; then
-            WEBHOOK=$(cat ~/.kube/config-platform-productie 2>/dev/null | grep -o '' || true)
-            # Get Discord webhook from already-synced secret if available
-            DISCORD_URL=$($KT get secret -n gatus gatus-discord-secret \
+            DISCORD_URL=$($KT get secret -n argocd argocd-discord-secret \
               -o jsonpath='{.data.webhook_url}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
-            if [[ -z "$DISCORD_URL" ]]; then
-              DISCORD_URL=$($KT get secret -n argocd argocd-discord-secret \
-                -o jsonpath='{.data.webhook_url}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
-            fi
             if [[ -n "$DISCORD_URL" ]]; then
               curl -s -X POST "$DISCORD_URL" \
                 -H "Content-Type: application/json" \
-                -d "{\"content\": \"✅ **OpenBao/ESO Recovery**: refreshed $REFRESHED ExternalSecret(s) after OpenBao recovered.\"}" \
+                -d "{\"content\": \"✅ **OpenBao/ESO Recovery**: refreshed $REFRESHED ExternalSecret(s).\"}" \
                 > /dev/null 2>&1 || true
             fi
           else
             echo "✅ OpenBao healthy, all ExternalSecrets synced — nothing to recover"
           fi
+
 
   cert-expiry-check:
     name: Certificate Expiry Check

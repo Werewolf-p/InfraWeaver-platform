@@ -59,6 +59,7 @@ const NAV_REQUIREMENTS: Record<string, NavRequirement> = {
   "/tests": { any: ["infra:read"] },
   "/self-test": { any: ["infra:read"] },
   "/users": { any: ["users:read", "rbac:admin"] },
+  "/admin/updates": { any: ["apps:read"] },
   "/registry": { any: ["config:read"] },
   "/settings/addons": { any: ["config:read"] },
   "/settings/rbac": { any: ["rbac:admin"] },
