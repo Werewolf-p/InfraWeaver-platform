@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+/* Tell Tailwind v4 to use the .dark class strategy instead of prefers-color-scheme.
+   The app adds/removes the "dark" class on <html> via use-theme.ts. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   --foreground-rgb: 255, 255, 255;
   --background-start-rgb: 15, 15, 15;
