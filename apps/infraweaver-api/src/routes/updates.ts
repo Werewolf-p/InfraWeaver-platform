@@ -1,8 +1,3 @@
-import { execSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { readdir, readFile, writeFile } from 'node:fs/promises';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { VERSION_SOURCES, type VersionSource, type VersionSourceType } from '../config/version-sources.js';
@@ -54,44 +49,12 @@ const updateBodySchema = z.object({
   version: z.string().trim().min(1).max(100).regex(/^[A-Za-z0-9.*:+_-]+$/, 'Invalid version'),
 });
 
-const moduleDir = path.dirname(fileURLToPath(import.meta.url));
-const repoRoot = resolveRepoRoot();
-const kubernetesRoot = path.join(repoRoot, 'kubernetes');
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN ?? '';
+const GITHUB_REPO = process.env.GITHUB_REPO ?? 'Werewolf-p/InfraWeaver-platform';
+const GITHUB_BRANCH = process.env.GITHUB_BRANCH ?? 'main';
+const GITHUB_API = 'https://api.github.com';
 const argoAppsCache = new Map<string, { fetchedAt: number; items: ArgoApplication[] }>();
-
-function walkUpForRepoRoot(startDir: string) {
-  let currentDir = path.resolve(startDir);
-
-  while (true) {
-    if (existsSync(path.join(currentDir, 'kubernetes'))) {
-      return currentDir;
-    }
-
-    const parentDir = path.dirname(currentDir);
-    if (parentDir === currentDir) {
-      return null;
-    }
-
-    currentDir = parentDir;
-  }
-}
-
-function resolveRepoRoot() {
-  const candidates = [process.cwd(), moduleDir];
-
-  for (const candidate of candidates) {
-    const resolved = walkUpForRepoRoot(candidate);
-    if (resolved) {
-      return resolved;
-    }
-  }
-
-  throw new Error('Unable to resolve repository root');
-}
-
-function quoteForShell(value: string) {
-  return "'" + value.replace(/'/g, "'\\''") + "'";
-}
+let treeCache: { fetchedAt: number; items: Array<{ path: string; sha: string }> } | null = null;
 
 function normalizeVersionTag(version: string) {
   return version.trim().replace(/^v/i, '');
@@ -177,30 +140,8 @@ function getLastSync(liveApp: ArgoApplication | undefined) {
 }
 
 function matchLiveApp(manifest: ApplicationManifest, apps: ArgoApplication[]) {
-  const directCandidates = new Set([
-    manifest.id,
-    manifest.appName,
-    manifest.releaseName ?? undefined,
-    manifest.releaseName ? `${manifest.section}-${manifest.releaseName}` : undefined,
-  ]);
-
-  for (const candidate of directCandidates) {
-    if (!candidate) {
-      continue;
-    }
-
-    const directMatch = apps.find((app) => app.metadata?.name === candidate);
-    if (directMatch) {
-      return directMatch;
-    }
-  }
-
-  return apps.find((app) => {
-    const liveName = app.metadata?.name ?? '';
-    return liveName.endsWith(`-${manifest.appName}`)
-      || liveName.includes(manifest.appName)
-      || (manifest.releaseName ? liveName.includes(manifest.releaseName) : false);
-  });
+  return apps.find((app) => app.metadata?.name === manifest.appName)
+    ?? apps.find((app) => (app.metadata?.name ?? '').includes(manifest.appName));
 }
 
 function getFallbackSource(manifest: ApplicationManifest | undefined): VersionSource | null {
@@ -366,42 +307,118 @@ async function getAvailableVersions(source: VersionSource | null): Promise<Versi
   }
 }
 
-async function collectApplicationManifests(directory = kubernetesRoot): Promise<ApplicationManifest[]> {
-  const entries = await readdir(directory, { withFileTypes: true });
-  const manifests: ApplicationManifest[] = [];
+async function getRepoTree(): Promise<Array<{ path: string; sha: string }>> {
+  const response = await fetch(`${GITHUB_API}/repos/${GITHUB_REPO}/git/trees/${GITHUB_BRANCH}?recursive=1`, {
+    headers: {
+      Authorization: `Bearer ${GITHUB_TOKEN}`,
+      Accept: 'application/vnd.github.v3+json',
+    },
+    signal: AbortSignal.timeout(8000),
+  });
 
-  for (const entry of entries) {
-    const entryPath = path.join(directory, entry.name);
-    if (entry.isDirectory()) {
-      manifests.push(...await collectApplicationManifests(entryPath));
-      continue;
+  if (!response.ok) {
+    throw new Error(`GitHub tree fetch failed: ${response.status}`);
+  }
+
+  const data = await response.json() as { tree: Array<{ path: string; sha: string; type: string }> };
+  return data.tree
+    .filter((item) => item.type === 'blob' && item.path.startsWith('kubernetes/') && item.path.endsWith('application.yaml'))
+    .map(({ path, sha }) => ({ path, sha }));
+}
+
+async function getCachedRepoTree() {
+  const now = Date.now();
+  if (treeCache && now - treeCache.fetchedAt < 60_000) {
+    return treeCache.items;
+  }
+
+  const items = await getRepoTree();
+  treeCache = { fetchedAt: now, items };
+  return items;
+}
+
+async function ghGetFile(path: string): Promise<{ content: string; sha: string } | null> {
+  const response = await fetch(`${GITHUB_API}/repos/${GITHUB_REPO}/contents/${path}?ref=${GITHUB_BRANCH}`, {
+    headers: {
+      Authorization: `Bearer ${GITHUB_TOKEN}`,
+      Accept: 'application/vnd.github.v3+json',
+    },
+    signal: AbortSignal.timeout(8000),
+  });
+
+  if (response.status === 404) {
+    return null;
+  }
+
+  if (!response.ok) {
+    throw new Error(`GitHub GET ${path}: ${response.status}`);
+  }
+
+  const data = await response.json() as { content: string; sha: string };
+  return {
+    content: Buffer.from(data.content.replace(/\n/g, ''), 'base64').toString('utf-8'),
+    sha: data.sha,
+  };
+}
+
+async function ghPutFile(path: string, content: string, message: string, sha: string): Promise<string> {
+  const encoded = Buffer.from(content).toString('base64');
+  const response = await fetch(`${GITHUB_API}/repos/${GITHUB_REPO}/contents/${path}`, {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${GITHUB_TOKEN}`,
+      Accept: 'application/vnd.github.v3+json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      message,
+      content: encoded,
+      sha,
+      committer: { name: 'InfraWeaver Console', email: 'console@rlservers.com' },
+      branch: GITHUB_BRANCH,
+    }),
+    signal: AbortSignal.timeout(8000),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`GitHub PUT ${path}: ${response.status} — ${text}`);
+  }
+
+  const data = await response.json() as { commit?: { sha?: string } };
+  return data.commit?.sha ?? '';
+}
+
+async function collectApplicationManifests(): Promise<ApplicationManifest[]> {
+  const treeItems = await getCachedRepoTree();
+  const manifests = await Promise.all(treeItems.map(async ({ path }): Promise<ApplicationManifest | null> => {
+    const file = await ghGetFile(path);
+    if (!file) {
+      return null;
     }
 
-    if (!entry.isFile() || entry.name !== 'application.yaml') {
-      continue;
-    }
-
-    const fileContent = await readFile(entryPath, 'utf8');
-    const values = parseFlatYaml(fileContent);
-    const relativePath = path.relative(kubernetesRoot, entryPath);
-    const pathParts = relativePath.split(path.sep);
+    const values = parseFlatYaml(file.content);
+    const relativePath = path.replace(/^kubernetes\//, '');
+    const pathParts = relativePath.split('/');
     const section = pathParts[0] ?? 'apps';
-    const appName = path.basename(path.dirname(entryPath));
+    const appName = pathParts[pathParts.length - 2] ?? section;
 
-    manifests.push({
+    return {
       appName,
       chart: values.chart ?? null,
-      filePath: entryPath,
+      filePath: path,
       id: `${section}-${appName}`,
       namespace: values.namespace ?? null,
       releaseName: values.releaseName ?? null,
       repoUrl: values.repoURL ?? null,
       section,
       targetRevision: values.targetRevision ?? null,
-    });
-  }
+    };
+  }));
 
-  return manifests.sort((left, right) => left.appName.localeCompare(right.appName));
+  return manifests
+    .filter((manifest): manifest is ApplicationManifest => manifest !== null)
+    .sort((left, right) => left.appName.localeCompare(right.appName));
 }
 
 async function getArgoConfig(clusterId: string): Promise<{ server: string; token: string }> {
@@ -487,9 +504,12 @@ function replaceTargetRevision(content: string, version: string) {
 }
 
 async function updateManifestVersion(manifest: ApplicationManifest, version: string) {
-  const fileContent = await readFile(manifest.filePath, 'utf8');
-  const updated = replaceTargetRevision(fileContent, version);
+  const file = await ghGetFile(manifest.filePath);
+  if (!file) {
+    throw new Error('Application manifest not found');
+  }
 
+  const updated = replaceTargetRevision(file.content, version);
   if (!updated) {
     throw new Error('targetRevision not found in application.yaml');
   }
@@ -498,20 +518,14 @@ async function updateManifestVersion(manifest: ApplicationManifest, version: str
     throw new Error('Version already set in GitOps manifest');
   }
 
-  await writeFile(manifest.filePath, updated.updatedContent, 'utf8');
-  return updated.currentVersion;
-}
+  const commitSha = await ghPutFile(
+    manifest.filePath,
+    updated.updatedContent,
+    `chore(updates): bump ${manifest.appName} to ${version}`,
+    file.sha,
+  );
 
-function commitAndPushManifestChange(filePath: string, appName: string, version: string) {
-  const relativeFilePath = path.relative(repoRoot, filePath).split(path.sep).join('/');
-  const commitMessage = `chore(updates): bump ${appName} to ${version}`;
-
-  execSync(`git -C ${quoteForShell(repoRoot)} --no-pager add -- ${quoteForShell(relativeFilePath)}`, { stdio: 'pipe' });
-  execSync(`git -C ${quoteForShell(repoRoot)} --no-pager commit -m ${quoteForShell(commitMessage)}`, { stdio: 'pipe' });
-  const commitSha = execSync(`git -C ${quoteForShell(repoRoot)} rev-parse HEAD`, { encoding: 'utf8', stdio: 'pipe' }).trim();
-  execSync(`git -C ${quoteForShell(repoRoot)} --no-pager push`, { stdio: 'pipe' });
-
-  return commitSha;
+  return { currentVersion: updated.currentVersion, commitSha };
 }
 
 export const updatesRoute = new Hono<AppBindings>();
@@ -588,26 +602,26 @@ updatesRoute.post('/:appName', async (c) => {
   }
 
   try {
-    await updateManifestVersion(manifest, parsedBody.data.version);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unable to update manifest';
-    const status = message === 'Version already set in GitOps manifest' ? 409 : 422;
-    return c.json({ error: message }, status);
-  }
-
-  try {
-    const commitSha = commitAndPushManifestChange(manifest.filePath, manifest.appName, parsedBody.data.version);
+    const { commitSha } = await updateManifestVersion(manifest, parsedBody.data.version);
     return c.json({
       success: true,
       commitSha,
       message: `Updated ${manifest.appName} to ${parsedBody.data.version}`,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Git push failed';
+    const message = error instanceof Error ? error.message : 'Unable to update manifest';
+    if (message === 'Version already set in GitOps manifest') {
+      return c.json({ error: message }, 409);
+    }
+
+    if (message === 'targetRevision not found in application.yaml' || message === 'Application manifest not found') {
+      return c.json({ error: message }, 422);
+    }
+
     return c.json({
       error: message,
       success: false,
-      message: `Manifest updated but git push failed for ${manifest.appName}`,
+      message: `Manifest update failed for ${manifest.appName}`,
     }, 500);
   }
 });
