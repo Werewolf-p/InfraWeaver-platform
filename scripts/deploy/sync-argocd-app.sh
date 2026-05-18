@@ -2,7 +2,9 @@
 set -euo pipefail
 
 : "${APP_NAME:?APP_NAME is required}"
-: "${KUBECONFIG:?KUBECONFIG is required}"
+# Default to ~/.kube/config; expand ~ for callers that pass KUBECONFIG=~/.kube/config
+KUBECONFIG="${KUBECONFIG:-${HOME}/.kube/config}"
+KUBECONFIG="${KUBECONFIG/#\~/${HOME}}"
 
 APP_NAMESPACE="${APP_NAMESPACE:-argocd}"
 SYNC_TIMEOUT_SECONDS="${SYNC_TIMEOUT_SECONDS:-300}"
