@@ -1,0 +1,14 @@
+# Community app installed from Unraid AppFeed
+# Source: neosmemo/memos:latest
+name: memos
+description: "A lightweight, self-hosted memo hub with knowledge management and socialization."
+namespace: memos
+source: community-apps
+tier: simple
+image: neosmemo/memos:latest
+categories:
+  - "Productivity"
+  - "Tools-Utilities"
+ingressroute:
+  host: memos.int.rlservers.com
+installed_at: 2026-05-18T06:01:47.606Z
