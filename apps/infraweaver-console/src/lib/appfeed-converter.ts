@@ -174,8 +174,9 @@ interface ExtraParamsParsed {
 }
 
 /**
- * Parses Docker ExtraParams (e.g. "--cap-add=NET_ADMIN --sysctl=net.ipv4...=1")
+ * Parses Docker ExtraParams (e.g. "--cap-add NET_ADMIN --sysctl net.ipv4.conf.all.forwarding=1")
  * into structured data for use in K8s manifest generation.
+ * Handles both `--flag=value` (equals) and `--flag value` (space-separated) forms.
  */
 function parseExtraParams(raw: string): ExtraParamsParsed {
   const result: ExtraParamsParsed = {
@@ -183,12 +184,27 @@ function parseExtraParams(raw: string): ExtraParamsParsed {
   };
   if (!raw?.trim()) return result;
 
-  // Match --flag=value or bare --flag tokens (value may itself contain "=")
-  const tokens = raw.match(/--[\w-]+(?:=\S+)?/g) ?? [];
-  for (const token of tokens) {
+  // Tokenize: split on whitespace but respect quoted strings
+  const tokens: string[] = [];
+  const tokenRegex = /("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\S+)/g;
+  let m: RegExpExecArray | null;
+  while ((m = tokenRegex.exec(raw)) !== null) {
+    tokens.push(m[1].replace(/^["']|["']$/g, ""));
+  }
+
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    // Handle --flag=value form
     const eqIdx = token.indexOf("=");
-    const flag = eqIdx >= 0 ? token.slice(0, eqIdx) : token;
-    const value = eqIdx >= 0 ? token.slice(eqIdx + 1) : "";
+    const flag = token.startsWith("--") ? (eqIdx >= 0 ? token.slice(0, eqIdx) : token) : token;
+    let value = eqIdx >= 0 ? token.slice(eqIdx + 1) : "";
+
+    // For space-separated --flag value forms, peek at the next token
+    if (!value && i + 1 < tokens.length && !tokens[i + 1].startsWith("-")) {
+      value = tokens[i + 1];
+      i++; // consume the value token
+    }
+
     switch (flag) {
       case "--cap-add":
         if (value) result.caps.push(value.toUpperCase());
@@ -636,18 +652,27 @@ function buildEnvVars(
 }
 
 /** Generate a Kubernetes Secret manifest for all masked variables in the app feed entry.
+ * User-supplied values (from the deploy modal) take priority over feed defaults.
  * Returns undefined if the app has no masked variables. */
-function buildSecretsManifest(configs: AppFeedConfig[], slug: string, namespace: string): string | undefined {
+function buildSecretsManifest(
+  configs: AppFeedConfig[],
+  slug: string,
+  namespace: string,
+  userVariables?: Record<string, string>
+): string | undefined {
   const masked = configs.filter(c => c["@attributes"]?.Type === "Variable" && c["@attributes"]?.Mask === "true");
   if (masked.length === 0) return undefined;
 
   const secretDocs = masked.map(c => {
     const attrs = c["@attributes"];
     const secretName = `${toSlug(attrs.Name)}-secret`;
-    const defaultVal = c.value?.trim() ? c.value : (attrs.Default ?? "");
+    const feedDefault = c.value?.trim() ? c.value : (attrs.Default ?? "");
+    // User-supplied value has highest priority
+    const userVal = userVariables?.[attrs.Target ?? ""];
+    const secretValue = (userVal !== undefined && userVal !== "") ? userVal : (feedDefault || "change-me");
+    const isPlaceholder = secretValue === "change-me" || !userVal;
     return `---
-# Secret for ${attrs.Name} (${attrs.Target})
-# Update this value before deploying! This is a placeholder.
+# Secret for ${attrs.Name} (${attrs.Target})${isPlaceholder ? "\n# ⚠ Update this placeholder value before the app will work!" : ""}
 apiVersion: v1
 kind: Secret
 metadata:
@@ -658,7 +683,7 @@ metadata:
     infraweaver.io/source: community-apps
 type: Opaque
 stringData:
-  value: ${yamlString(defaultVal || "change-me")}`;
+  value: ${yamlString(secretValue)}`;
   });
 
   return secretDocs.join("\n");
@@ -721,11 +746,13 @@ function buildVolumes(infos: VolumeInfo[]): string[] {
         `          claimName: ${info.pvcName}`,
       ].join("\n");
     } else if (info.kind === "hostPath") {
+      // Detect known file paths (not directories) to use correct hostPath type
+      const isFilePath = info.originalTarget === "/etc/localtime" || info.originalTarget === "/etc/timezone";
       return [
         `      - name: ${info.volumeName}`,
         `        hostPath:`,
         `          path: ${info.originalTarget}`,
-        `          type: DirectoryOrCreate`,
+        `          type: ${isFilePath ? "File" : "DirectoryOrCreate"}`,
       ].join("\n");
     } else {
       // emptyDir
@@ -970,9 +997,16 @@ export function convertAppFeedEntry(
     }
   });
 
-  const secretsYaml = buildSecretsManifest(configs, slug, namespace);
-  if (secretsYaml) {
-    warnings.push("🔑 This app has masked/secret variables. A secrets.yaml was created with placeholder values — update them before deploying.");
+  const secretsYaml = buildSecretsManifest(configs, slug, namespace, options.userVariables);
+  const maskedVars = configs.filter(c => c["@attributes"]?.Type === "Variable" && c["@attributes"]?.Mask === "true");
+  const missingSecrets = maskedVars.filter(c => {
+    const target = c["@attributes"]?.Target ?? "";
+    return !options.userVariables?.[target];
+  });
+  if (secretsYaml && missingSecrets.length > 0) {
+    warnings.push(`🔑 This app has ${missingSecrets.length} secret variable(s) with placeholder values — fill them in via 'App Configuration' before the app will work correctly.`);
+  } else if (secretsYaml) {
+    // User supplied all secret values — no warning needed
   }
 
   // Extract variables that need user input (required, masked, or placeholder defaults)
@@ -1195,8 +1229,9 @@ spec:
     }
   }
 
-  // Namespace manifest — required when hostNetwork or privileged to override PodSecurity baseline
-  const needsPrivilegedNamespace = isPrivileged || isHostNetwork;
+  // Namespace manifest — required when hostNetwork, privileged, caps, sysctls, or hostPID
+  // to override PodSecurity baseline which forbids these.
+  const needsPrivilegedNamespace = isPrivileged || isHostNetwork || extra.caps.length > 0 || extra.sysctls.length > 0 || extra.hostPID;
   const namespaceYaml = needsPrivilegedNamespace ? buildNamespaceManifest(namespace) : undefined;
 
   const allParts: string[] = [];
