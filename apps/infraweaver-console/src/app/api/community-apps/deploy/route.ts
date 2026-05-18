@@ -17,7 +17,7 @@ import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac"
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { auditLog } from "@/lib/audit-log";
 import { z } from "zod";
-import { convertAppFeedEntry } from "@/lib/appfeed-converter";
+import { convertAppFeedEntry, reconcileAppPortsWithImageMetadata } from "@/lib/appfeed-converter";
 import { findAppByIdentifier } from "@/lib/appfeed-cache";
 import { safeError } from "@/lib/utils";
 import { loadKubeConfig } from "@/lib/k8s";
@@ -230,7 +230,8 @@ export async function POST(req: NextRequest) {
 
   let result: ReturnType<typeof convertAppFeedEntry>;
   try {
-    result = convertAppFeedEntry(app, {
+    const normalizedApp = await reconcileAppPortsWithImageMetadata(app);
+    result = convertAppFeedEntry(normalizedApp, {
       namespace: ns,
       pvcSizeGi,
       storageClass: storageClass?.trim() || undefined,

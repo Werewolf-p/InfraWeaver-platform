@@ -1,5 +1,5 @@
 import { loadAll } from "js-yaml";
-import { convertAppFeedEntry, type AppFeedEntry } from "@/lib/appfeed-converter";
+import { convertAppFeedEntry, reconcileAppPortsWithExposedPorts, type AppFeedEntry } from "@/lib/appfeed-converter";
 
 type ParsedDoc = { kind?: string };
 type ParsedDeployment = ParsedDoc & {
@@ -149,6 +149,55 @@ describe("convertAppFeedEntry", () => {
     const docs = loadAll(result.combinedYaml) as ParsedDoc[];
     const pvc = docs.find(doc => doc.kind === "PersistentVolumeClaim") as ParsedPvc;
     expect(pvc.spec.storageClassName).toBe("longhorn");
+  });
+
+  it("reconciles stale single-port templates with exposed image ports", () => {
+    const app: AppFeedEntry = {
+      Name: "CyberChef",
+      Repository: "ghcr.io/gchq/cyberchef:latest",
+      WebUI: "http://[IP]:[PORT:80]",
+      Config: {
+        "@attributes": {
+          Name: "Port",
+          Target: "80",
+          Default: "8000",
+          Type: "Port",
+        },
+      },
+    };
+
+    const reconciled = reconcileAppPortsWithExposedPorts(app, [8080]);
+    const docs = loadAll(convertAppFeedEntry(reconciled).combinedYaml) as ParsedDoc[];
+    const deployment = docs.find(doc => doc.kind === "Deployment") as ParsedDeployment;
+    const service = docs.find(doc => doc.kind === "Service") as ParsedService;
+    const ingress = docs.find(doc => doc.kind === "IngressRoute") as ParsedIngressRoute;
+
+    expect(deployment.spec.template.spec.containers[0].image).toBe("ghcr.io/gchq/cyberchef:latest");
+    expect(deployment.spec.template.spec.containers[0].ports?.[0]).toMatchObject({ containerPort: 8080 });
+    expect(service.spec.ports[0]).toMatchObject({ port: 8080 });
+    expect(ingress.spec.routes[0].services[0].port).toBe(8080);
+  });
+
+  it("does not override ports when image metadata is ambiguous", () => {
+    const app: AppFeedEntry = {
+      Name: "Ambiguous Port App",
+      Repository: "ghcr.io/example/ambiguous:latest",
+      WebUI: "http://[IP]:[PORT:80]",
+      Config: {
+        "@attributes": {
+          Name: "Port",
+          Target: "80",
+          Default: "8000",
+          Type: "Port",
+        },
+      },
+    };
+
+    const reconciled = reconcileAppPortsWithExposedPorts(app, [8080, 8443]);
+    const docs = loadAll(convertAppFeedEntry(reconciled).combinedYaml) as ParsedDoc[];
+    const deployment = docs.find(doc => doc.kind === "Deployment") as ParsedDeployment;
+
+    expect(deployment.spec.template.spec.containers[0].ports?.[0]).toMatchObject({ containerPort: 80 });
   });
 
   it("rejects apps without an image", () => {

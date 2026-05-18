@@ -11,7 +11,7 @@ import { auth } from "@/lib/auth";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { z } from "zod";
-import { convertAppFeedEntry } from "@/lib/appfeed-converter";
+import { convertAppFeedEntry, reconcileAppPortsWithImageMetadata } from "@/lib/appfeed-converter";
 import { findAppByIdentifier } from "@/lib/appfeed-cache";
 import { safeError } from "@/lib/utils";
 
@@ -59,7 +59,8 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const result = convertAppFeedEntry(app, {
+    const normalizedApp = await reconcileAppPortsWithImageMetadata(app);
+    const result = convertAppFeedEntry(normalizedApp, {
       namespace,
       pvcSizeGi,
       storageClass: storageClass?.trim() || undefined,

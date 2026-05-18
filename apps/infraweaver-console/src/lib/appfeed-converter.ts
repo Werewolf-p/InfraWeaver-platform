@@ -559,6 +559,171 @@ function getConfigs(app: AppFeedEntry): AppFeedConfig[] {
   return Array.isArray(app.Config) ? app.Config : [app.Config];
 }
 
+type RegistryImageReference = {
+  registry: string;
+  repository: string;
+  reference: string;
+};
+
+const IMAGE_EXPOSED_PORTS_CACHE = new Map<string, Promise<number[] | null>>();
+
+function parseImageReference(image: string): RegistryImageReference | null {
+  const raw = image.trim();
+  if (!raw || /^https?:\/\//i.test(raw)) return null;
+
+  let name = raw;
+  let reference = "latest";
+  if (raw.includes("@")) {
+    [name, reference] = raw.split("@", 2);
+  } else {
+    const lastSlash = raw.lastIndexOf("/");
+    const lastColon = raw.lastIndexOf(":");
+    if (lastColon > lastSlash) {
+      name = raw.slice(0, lastColon);
+      reference = raw.slice(lastColon + 1);
+    }
+  }
+
+  const parts = name.split("/");
+  let registry = "registry-1.docker.io";
+  let repository = name;
+  if (parts.length > 1 && (parts[0].includes(".") || parts[0].includes(":") || parts[0] === "localhost")) {
+    registry = parts[0] === "docker.io" ? "registry-1.docker.io" : parts[0];
+    repository = parts.slice(1).join("/");
+  } else if (!name.includes("/")) {
+    repository = `library/${name}`;
+  }
+
+  return { registry, repository, reference };
+}
+
+function parseWwwAuthenticate(header: string): Record<string, string> {
+  const params: Record<string, string> = {};
+  for (const match of header.matchAll(/(\w+)="([^"]+)"/g)) {
+    params[match[1]] = match[2];
+  }
+  return params;
+}
+
+async function fetchRegistryResource(url: string, accept: string): Promise<Response> {
+  let res = await fetch(url, { headers: { Accept: accept }, cache: "no-store" });
+  if (res.status !== 401) return res;
+
+  const authHeader = res.headers.get("www-authenticate") ?? "";
+  if (!authHeader.toLowerCase().startsWith("bearer ")) return res;
+
+  const auth = parseWwwAuthenticate(authHeader);
+  if (!auth.realm) return res;
+
+  const tokenUrl = new URL(auth.realm);
+  if (auth.service) tokenUrl.searchParams.set("service", auth.service);
+  if (auth.scope) tokenUrl.searchParams.set("scope", auth.scope);
+  const tokenRes = await fetch(tokenUrl, { cache: "no-store" });
+  if (!tokenRes.ok) return res;
+  const tokenBody = await tokenRes.json() as { token?: string; access_token?: string };
+  const token = tokenBody.token ?? tokenBody.access_token;
+  if (!token) return res;
+
+  res = await fetch(url, {
+    headers: {
+      Accept: accept,
+      Authorization: `Bearer ${token}`,
+    },
+    cache: "no-store",
+  });
+  return res;
+}
+
+async function fetchImageManifest(ref: RegistryImageReference, manifestRef: string): Promise<Record<string, unknown> | null> {
+  const accept = [
+    "application/vnd.oci.image.index.v1+json",
+    "application/vnd.docker.distribution.manifest.list.v2+json",
+    "application/vnd.oci.image.manifest.v1+json",
+    "application/vnd.docker.distribution.manifest.v2+json",
+  ].join(", ");
+  const url = `https://${ref.registry}/v2/${ref.repository}/manifests/${manifestRef}`;
+  const res = await fetchRegistryResource(url, accept);
+  if (!res.ok) return null;
+  return res.json() as Promise<Record<string, unknown>>;
+}
+
+async function getImageExposedPorts(image: string): Promise<number[] | null> {
+  if (!IMAGE_EXPOSED_PORTS_CACHE.has(image)) {
+    IMAGE_EXPOSED_PORTS_CACHE.set(image, (async () => {
+      const ref = parseImageReference(image);
+      if (!ref) return null;
+
+      let manifest = await fetchImageManifest(ref, ref.reference);
+      if (!manifest) return null;
+      if (Array.isArray(manifest.manifests)) {
+        const preferred = manifest.manifests.find((entry) => {
+          const platform = typeof entry === "object" && entry ? (entry as { platform?: { architecture?: string; os?: string } }).platform : undefined;
+          return platform?.os === "linux" && platform?.architecture === "amd64";
+        }) ?? manifest.manifests[0];
+        const digest = typeof preferred === "object" && preferred ? (preferred as { digest?: string }).digest : undefined;
+        if (!digest) return null;
+        manifest = await fetchImageManifest(ref, digest);
+        if (!manifest) return null;
+      }
+
+      const configDigest = typeof manifest.config === "object" && manifest.config
+        ? (manifest.config as { digest?: string }).digest
+        : undefined;
+      if (!configDigest) return null;
+
+      const blobUrl = `https://${ref.registry}/v2/${ref.repository}/blobs/${configDigest}`;
+      const blobRes = await fetchRegistryResource(blobUrl, "application/json");
+      if (!blobRes.ok) return null;
+      const blob = await blobRes.json() as { config?: { ExposedPorts?: Record<string, unknown> }; container_config?: { ExposedPorts?: Record<string, unknown> } };
+      const exposed = blob.config?.ExposedPorts ?? blob.container_config?.ExposedPorts ?? {};
+      const ports = Object.keys(exposed)
+        .filter((key) => key.toLowerCase().endsWith("/tcp"))
+        .map((key) => parseInt(key.split("/")[0] ?? "", 10))
+        .filter((port) => !Number.isNaN(port));
+      return ports.length > 0 ? [...new Set(ports)].sort((a, b) => a - b) : null;
+    })());
+  }
+
+  return IMAGE_EXPOSED_PORTS_CACHE.get(image)!;
+}
+
+export function reconcileAppPortsWithExposedPorts(app: AppFeedEntry, exposedPorts: number[]): AppFeedEntry {
+  const configs = getConfigs(app);
+  const tcpPortConfigs = configs.filter(c => c["@attributes"]?.Type === "Port" && (c["@attributes"]?.Mode ?? "tcp").toLowerCase() !== "udp");
+  if (tcpPortConfigs.length !== 1 || exposedPorts.length !== 1) return app;
+
+  const currentPort = parseInt(tcpPortConfigs[0]!["@attributes"].Target ?? "", 10);
+  const exposedPort = exposedPorts[0]!;
+  const webUIPort = app.WebUI ? extractWebUIPort(app.WebUI) : null;
+  if (Number.isNaN(currentPort) || currentPort === exposedPort || webUIPort !== currentPort) return app;
+
+  const updatedConfigs = configs.map((config) => {
+    if (config !== tcpPortConfigs[0]) return config;
+    return {
+      ...config,
+      "@attributes": {
+        ...config["@attributes"],
+        Target: String(exposedPort),
+      },
+    };
+  });
+
+  return {
+    ...app,
+    Config: Array.isArray(app.Config) ? updatedConfigs : updatedConfigs[0],
+  };
+}
+
+export async function reconcileAppPortsWithImageMetadata(app: AppFeedEntry): Promise<AppFeedEntry> {
+  try {
+    const exposedPorts = await getImageExposedPorts(app.Repository);
+    if (!exposedPorts || exposedPorts.length === 0) return app;
+    return reconcileAppPortsWithExposedPorts(app, exposedPorts);
+  } catch {
+    return app;
+  }
+}
+
 function indent(text: string, spaces: number): string {
   const pad = " ".repeat(spaces);
   return text.split("\n").map(l => (l.trim() ? pad + l : "")).join("\n");
