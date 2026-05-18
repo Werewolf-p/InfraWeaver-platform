@@ -344,14 +344,27 @@ export function buildConsoleInputScript(command: string) {
   if (trimmed === "^C") return "kill -INT 1";
   const quoted = shellQuote(trimmed);
   return [
+    // 1. Minecraft named-pipe helper (itzg/minecraft-server specific)
     "if command -v mc-send-to-console >/dev/null 2>&1 && [ -p /tmp/minecraft-console-in ]; then",
     `  mc-send-to-console ${quoted}`,
+    // 2. rcon-cli — reads host/port/password from the container's OWN environment variables.
+    //    Covers naming conventions used by Minecraft (RCON_PASSWORD), Valheim (SERVER_RCON_PASSWORD,
+    //    SERVER_RCON_PORT), Source games (SRCDS_RCONPW), and the rcon-cli standard (RCON_PORT).
+    //    Any future game that ships rcon-cli and sets one of these env vars works automatically.
+    "elif command -v rcon-cli >/dev/null 2>&1; then",
+    '  _rport="${RCON_PORT:-${SERVER_RCON_PORT:-${SRCDS_RCONPORT:-25575}}}"',
+    '  _rpass="${RCON_PASSWORD:-${SERVER_RCON_PASSWORD:-${SRCDS_RCONPW:-${RCON_PW:-}}}}"',
+    '  if [ -n "$_rpass" ]; then',
+    `    rcon-cli --host localhost --port "$_rport" --password "$_rpass" -- ${quoted}`,
+    "  else",
+    `    rcon-cli -- ${quoted}`,
+    "  fi",
+    // 3. stdin pipe — works for any game whose server process reads standard input
+    //    (e.g. Terraria terrariad image, Valheim valheim_server.x86_64, many others).
     'elif [ -w /proc/1/fd/0 ] && [ "$(readlink /proc/1/fd/0 2>/dev/null || true)" != "/dev/null" ]; then',
     `  printf '%s\\n' ${quoted} > /proc/1/fd/0`,
-    "elif command -v rcon-cli >/dev/null 2>&1; then",
-    `  rcon-cli ${quoted}`,
     "else",
-    '  echo "No supported console input method found" >&2',
+    '  echo "No supported console input method found (tried: mc-send-to-console, rcon-cli, /proc/1/fd/0)" >&2',
     "  exit 1",
     "fi",
   ].join("\n");
@@ -431,8 +444,10 @@ export async function runServerCommand(
 
     const containerName = getPrimaryContainerName(pod, name);
     try {
-      const result = await runRconCommand(clients.kc, pod.metadata.name, containerName, command, timeoutMs);
-      return { ...result, gameType, pod, method: "rcon" as const };
+      // Use the universal in-pod script that auto-detects the available console method:
+      // mc-send-to-console → rcon-cli (reads container's own RCON_PORT/RCON_PASSWORD env vars) → stdin pipe.
+      const result = await sendConsoleInputViaExec(clients.kc, pod.metadata.name, containerName, command, timeoutMs);
+      return { ...result, gameType, pod, method: "console" as const };
     } catch (error) {
       const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
       if ((message.includes("container not found") || message.includes("container not running")) && attempt < 2) {

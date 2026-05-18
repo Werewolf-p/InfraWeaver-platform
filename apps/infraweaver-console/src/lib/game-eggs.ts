@@ -221,6 +221,9 @@ export const GAME_EGGS: Record<string, GameEgg> = {
       { name: "WORLD_NAME", description: "World save name", defaultValue: "Dedicated", required: false },
       { name: "SERVER_PASS", description: "Server password", defaultValue: "changeme123", required: false },
       { name: "SERVER_PUBLIC", description: "Advertise to the public server list", defaultValue: "false", required: false },
+      { name: "ENABLE_RCON", description: "Enable RCON support (set to 1)", defaultValue: "1", required: false },
+      { name: "SERVER_RCON_PORT", description: "RCON port", defaultValue: "2458", required: false },
+      { name: "RCON_PASSWORD", description: "RCON password (used by rcon-cli auto-detection)", defaultValue: "", required: false },
       { name: "TZ", description: "Container timezone", defaultValue: "UTC", required: false },
     ],
     quickCommands: [
