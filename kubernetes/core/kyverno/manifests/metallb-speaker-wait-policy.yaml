@@ -10,9 +10,10 @@
 # 200 OK.
 #
 # IMPORTANT — Talos Linux note:
-# On Talos, kube-apiserver binds to the node IP only, NOT to 127.0.0.1. The speaker
-# pods use hostNetwork:true, so hostname -I returns the host node's IP. We use that
-# to contact the local API server. Do NOT use 127.0.0.1:6443 — it will loop forever.
+# On Talos, kube-apiserver binds to the node IP only (NOT 127.0.0.1), and has
+# --anonymous-auth=false so /healthz returns 401 (wget --spider fails on 401).
+# Solution: use `nc -z` TCP port check on the node IP — reliable, auth-free.
+# Speaker pods use hostNetwork:true so hostname -I returns the host node's IP.
 #
 # References: MetalLB issue #2042; fixed in v0.15.0 chart startup logic.
 apiVersion: kyverno.io/v1
@@ -24,11 +25,11 @@ metadata:
     policies.kyverno.io/category: Reliability
     policies.kyverno.io/severity: high
     policies.kyverno.io/description: >-
-      Injects a busybox init container into metallb-speaker pods that polls
-      the node's kube-apiserver /healthz before the speaker starts. Prevents
-      the startup race that causes 300+ CrashLoopBackOff restarts per reboot.
-      Uses the node's primary IP (via hostname -I) because on Talos Linux the
-      API server does not bind to 127.0.0.1.
+      Injects a busybox init container into metallb-speaker pods that waits for
+      the kube-apiserver TCP port (6443) to be open on the node's primary IP.
+      Uses nc -z (TCP check) instead of HTTP healthz because Talos Linux uses
+      --anonymous-auth=false (healthz returns 401, wget --spider fails).
+      Uses hostname -I to get the node IP (hostNetwork:true pods share host network).
 spec:
   rules:
     - name: inject-wait-for-apiserver
@@ -51,16 +52,15 @@ spec:
                   - sh
                   - -c
                   - |
-                    echo "Waiting for kube-apiserver to be ready..."
+                    echo "Waiting for kube-apiserver TCP port to open..."
                     NODE_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
                     [ -z "$NODE_IP" ] && NODE_IP=10.10.0.90
                     echo "  Using node IP: ${NODE_IP}"
-                    until wget -q --spider --no-check-certificate \
-                        "https://${NODE_IP}:6443/healthz" 2>/dev/null; do
-                      echo "  apiserver not ready at ${NODE_IP}:6443, retrying in 5s..."
+                    until nc -z -w 5 "${NODE_IP}" 6443 2>/dev/null; do
+                      echo "  Port 6443 not open yet, retrying in 5s..."
                       sleep 5
                     done
-                    echo "kube-apiserver is ready."
+                    echo "kube-apiserver TCP port is open — speaker may start."
                 resources:
                   requests:
                     cpu: 10m
