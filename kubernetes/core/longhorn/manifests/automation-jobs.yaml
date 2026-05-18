@@ -187,6 +187,9 @@ spec:
                     name = volume.get("name")
                     desired_replicas = int(volume.get("numberOfReplicas") or 1)
                     encoded = urllib.parse.quote(name, safe="")
-                    request(f"/v1/volumes/{encoded}?action=updateReplicaAutoBalance", {"replicaAutoBalance": "best-effort"})
-                    request(f"/v1/volumes/{encoded}?action=updateReplicaCount", {"replicaCount": desired_replicas})
-                    print(f"Reconciled Longhorn volume {name} with desired replicas={desired_replicas}")
+                    try:
+                      request(f"/v1/volumes/{encoded}?action=updateReplicaAutoBalance", {"replicaAutoBalance": "best-effort"})
+                      request(f"/v1/volumes/{encoded}?action=updateReplicaCount", {"replicaCount": desired_replicas})
+                      print(f"Reconciled Longhorn volume {name} with desired replicas={desired_replicas}")
+                    except Exception as e:
+                      print(f"Warning: failed to reconcile volume {name}: {e}")
