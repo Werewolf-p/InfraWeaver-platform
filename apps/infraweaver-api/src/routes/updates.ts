@@ -161,6 +161,7 @@ function extractHelmChartVersions(indexYaml: string, chartName: string) {
   const lines = indexYaml.split(/\r?\n/);
   let afterEntries = false;
   let chartHeaderRe: RegExp | null = null;
+  let itemVersionRe: RegExp | null = null;
   let insideChart = false;
 
   for (const line of lines) {
@@ -175,6 +176,10 @@ function extractHelmChartVersions(indexYaml: string, chartName: string) {
       const m = /^(\s+)([a-zA-Z][a-zA-Z0-9._-]*):\s*$/.exec(line);
       if (m) {
         chartHeaderRe = new RegExp(`^${m[1]}([a-zA-Z][a-zA-Z0-9._-]*):\\s*$`);
+        // Chart list items sit at chartIndent + 2 spaces ("- " prefix).
+        // Pinning to this exact depth prevents capturing dependency version fields.
+        const itemIndent = `${m[1]}  `;
+        itemVersionRe = new RegExp(`^${itemIndent}version:\\s*['"]?([^'"\\n]+)['"]?\\s*$`);
         insideChart = m[2] === chartName;
       }
       continue;
@@ -188,8 +193,8 @@ function extractHelmChartVersions(indexYaml: string, chartName: string) {
 
     if (!insideChart) continue;
 
-    const versionMatch = /^\s+version:\s*['"]?([^'"\n]+)['"]?\s*$/.exec(line);
-    if (versionMatch) versions.push(versionMatch[1].trim());
+    const vm = itemVersionRe!.exec(line);
+    if (vm) versions.push(vm[1].trim());
   }
 
   return uniqueSortedVersions(versions).slice(0, 15);
