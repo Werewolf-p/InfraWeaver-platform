@@ -16,13 +16,12 @@ name: Maintenance — Scheduled Operations
 on:
   schedule:
     - cron: "0 3 * * 0"   # Sunday 03:00 UTC — etcd snapshot
-    - cron: "0 2 * * *"   # Daily 02:00 UTC  — etcd defrag
+    - cron: "10 */6 * * *" # Every 6 hours — etcd health check + defrag if needed
     - cron: "0 4 * * 0"   # Sunday 04:00 UTC — OpenBao snapshot
     - cron: "0 7 * * 1"   # Monday 07:00 UTC — drift detection
     - cron: "0 6 * * *"   # Daily 06:00 UTC  — self-heal cluster
     - cron: "0 */6 * * *" # Every 6 hours — self-heal cluster (more frequent)
     - cron: "0 5 1,15 * *" # 1st and 15th of month — ESO token renewal
-    - cron: "*/10 * * * *" # Every 10 min — etcd alarm check
     - cron: "*/15 * * * *" # Every 15 min — OpenBao/ESO recovery
     - cron: "30 8 * * *" # Daily 08:30 UTC — certificate expiry check
     - cron: "45 */6 * * *" # Every 6 hours — Velero backup verification
@@ -66,14 +65,15 @@ env:
   TOFU_VERSION: "1.11.6"
 
 jobs:
-  # ── etcd Defrag ───────────────────────────────────────────────────────────────
-  # Runs daily to prevent etcd DB fragmentation buildup.
-  # Root cause of multiple cluster outages: fragmented 1.4GB etcd → 10s+ ops → apiserver OOM.
-  # Defrag reclaims free space, keeping the live DB at ~250-300MB (vs 1.4GB fragmented).
+  # ── etcd Health Check + Defrag ────────────────────────────────────────────────
+  # Runs every 6 h to catch fragmentation and CORRUPT alarms before they cause OOM.
+  # Uses etcd-heal.py via a longhorn-manager pod (has /host/proc + etcd client certs).
+  # Defrags proactively when: fragmentation ratio > 1.5x OR DB size > 800 MB.
+  # Root cause of multiple cluster outages: fragmented etcd → slow ops → apiserver OOM.
   etcd-defrag:
-    name: etcd Defrag
+    name: etcd Health Check
     if: >
-      (github.event_name == 'schedule' && github.event.schedule == '0 2 * * *') ||
+      (github.event_name == 'schedule' && github.event.schedule == '10 */6 * * *') ||
       (github.event_name == 'workflow_dispatch' && inputs.task == 'etcd-defrag')
     timeout-minutes: 15
     runs-on:
@@ -82,55 +82,38 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
-      - name: Setup talosctl
+      - name: Setup kubeconfig
         run: |
-          TALOS_VER=$(grep 'talos_version' envs/${{ env.ENV_NAME }}/cluster.yaml | awk '{print $2}' | tr -d '"')
-          curl -fsSL \
-            "https://github.com/siderolabs/talos/releases/download/${TALOS_VER}/talosctl-linux-amd64" \
-            -o /usr/local/bin/talosctl && chmod +x /usr/local/bin/talosctl
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG_PRODUCTIE }}" | base64 -d > ~/.kube/config-platform-productie
+          chmod 600 ~/.kube/config-platform-productie
 
-      - name: Setup talosconfig
+      - name: Run etcd-heal (alarms + proactive size-based defrag)
         run: |
-          mkdir -p ~/.talos
-          TALOS_CFG="envs/${{ env.ENV_NAME }}/generated/talosconfig"
-          [ -f "$TALOS_CFG" ] || { echo "❌ talosconfig not found at $TALOS_CFG"; exit 1; }
-          cp "$TALOS_CFG" ~/.talos/config
+          KB=~/.kube/config-platform-productie
+          KT="kubectl --kubeconfig $KB --insecure-skip-tls-verify"
 
-      - name: Defrag etcd on all nodes
-        run: |
-          DISCORD_WEBHOOK="${{ secrets.DISCORD_WEBHOOK_URL || secrets.DISCORD_WEBHOOK }}"
-          BEFORE_SIZES=""
-          AFTER_SIZES=""
+          # Find longhorn-manager on cp1 (has /host/proc with kube-apiserver certs)
+          LH_POD=$($KT get pods -n longhorn-system -l app=longhorn-manager \
+            --field-selector spec.nodeName=talos-prod-cp1 \
+            -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
 
-          echo "### etcd Defrag — $(date -u '+%Y-%m-%d %H:%M UTC')" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-
-          for NODE in 10.10.0.90 10.10.0.91 10.10.0.92; do
-            BEFORE=$(talosctl --nodes "$NODE" etcd status 2>/dev/null | tail -1 | awk '{print $3}')
-            echo "📊 $NODE before defrag: $BEFORE"
-            BEFORE_SIZES+="$NODE: $BEFORE  "
-
-            talosctl --nodes "$NODE" etcd defrag 2>&1 && echo "✅ $NODE defrag complete" || echo "⚠️  $NODE defrag failed (non-fatal)"
-            sleep 5
-
-            AFTER=$(talosctl --nodes "$NODE" etcd status 2>/dev/null | tail -1 | awk '{print $3}')
-            echo "📊 $NODE after defrag:  $AFTER"
-            AFTER_SIZES+="$NODE: $AFTER  "
-            echo "| $NODE | $BEFORE | $AFTER |" >> "$GITHUB_STEP_SUMMARY"
-          done
-
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "✅ etcd defrag complete" >> "$GITHUB_STEP_SUMMARY"
-
-          # Only notify Discord if DB was significantly fragmented (> 400MB before)
-          # to avoid spamming on healthy clusters
-          LARGEST_BEFORE=$(echo "$BEFORE_SIZES" | grep -oP '\d+ MB' | sort -n | tail -1 | awk '{print $1}')
-          if [[ -n "$DISCORD_WEBHOOK" && "${LARGEST_BEFORE:-0}" -gt 400 ]]; then
-            curl -s -X POST "$DISCORD_WEBHOOK" \
-              -H "Content-Type: application/json" \
-              -d "{\"content\": \"🗜️ **etcd Defrag**: DB was fragmented (${LARGEST_BEFORE}MB). Defragged all 3 nodes. After: $AFTER_SIZES\"}" \
-              > /dev/null 2>&1 || true
+          if [[ -z "$LH_POD" ]]; then
+            echo "::warning::No longhorn-manager pod found on talos-prod-cp1 — skipping"
+            exit 0
           fi
+
+          echo "### etcd Health Check — $(date -u '+%Y-%m-%d %H:%M UTC')" >> "$GITHUB_STEP_SUMMARY"
+
+          # Transfer script via stdin (avoids kubectl cp + tar + runner disk overhead)
+          SCRIPT=$(base64 -w0 scripts/etcd-heal.py)
+          $KT exec -n longhorn-system "$LH_POD" -c longhorn-manager -- \
+            sh -c "echo '${SCRIPT}' | base64 -d > /tmp/etcd-heal.py"
+
+          RESULT=$($KT exec -n longhorn-system "$LH_POD" -c longhorn-manager -- \
+            python3 /tmp/etcd-heal.py 2>&1)
+          echo "$RESULT"
+          printf '```\n%s\n```\n' "$RESULT" >> "$GITHUB_STEP_SUMMARY"
 
   # ── etcd Snapshot ─────────────────────────────────────────────────────────────
   etcd-snapshot:
@@ -147,10 +130,18 @@ jobs:
 
       - name: Setup talosctl
         run: |
+          # Pre-flight: free runner disk space from accumulated _work directories
+          find /tmp -name "etcd-snapshot-*.db" -mtime +1 -delete 2>/dev/null || true
+          df -h /tmp || true
+
           TALOS_VER=$(grep 'talos_version' envs/${{ env.ENV_NAME }}/cluster.yaml | awk '{print $2}' | tr -d '"')
-          curl -fsSL \
-            "https://github.com/siderolabs/talos/releases/download/${TALOS_VER}/talosctl-linux-amd64" \
-            -o /usr/local/bin/talosctl && chmod +x /usr/local/bin/talosctl
+          mkdir -p "$HOME/.local/bin"
+          if ! "$HOME/.local/bin/talosctl" version --client 2>/dev/null | grep -q "$TALOS_VER"; then
+            curl -fsSL \
+              "https://github.com/siderolabs/talos/releases/download/${TALOS_VER}/talosctl-linux-amd64" \
+              -o "$HOME/.local/bin/talosctl" && chmod +x "$HOME/.local/bin/talosctl"
+          fi
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Setup talosconfig
         run: |
@@ -615,13 +606,15 @@ jobs:
           echo "---" >> "$GITHUB_STEP_SUMMARY"
           echo "🏥 Self-heal complete — $(date -u '+%Y-%m-%d %H:%M UTC')" >> "$GITHUB_STEP_SUMMARY"
 
-  # ── etcd Alarm Check (every 10 min) ─────────────────────────────────────────
+  # ── etcd Alarm Check (manual emergency tool) ────────────────────────────────
+  # On-demand only — the scheduled etcd-defrag job (every 6h) now handles both
+  # CORRUPT alarm detection and proactive size-based defrag via etcd-heal.py.
+  # Use this for immediate investigation when an alarm is suspected.
   etcd-alarm-check:
     name: etcd Alarm Check
     runs-on: [self-hosted, prod-worker]
     if: >-
-      github.event_name == 'schedule' ||
-      (github.event_name == 'workflow_dispatch' && inputs.task == 'etcd-alarm-check')
+      github.event_name == 'workflow_dispatch' && inputs.task == 'etcd-alarm-check'
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4

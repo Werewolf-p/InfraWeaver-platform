@@ -35,6 +35,8 @@ spec:
       labels:
         app: valheim-server
         infraweaver/game: "true"
+      annotations:
+        infraweaver.io/rebalance-memory: "true"
     spec:
       priorityClassName: game-server
       # Prefer the node platform services bias away from so game workloads stop contending with ArgoCD/Auth.
@@ -53,6 +55,7 @@ spec:
         - maxSkew: 1
           topologyKey: kubernetes.io/hostname
           whenUnsatisfiable: DoNotSchedule
+          minDomains: 3
           labelSelector:
             matchLabels:
               infraweaver/game: "true"

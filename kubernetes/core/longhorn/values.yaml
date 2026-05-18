@@ -25,9 +25,16 @@ defaultSettings:
   # (data dir intact, just reconnecting) are low-I/O; the original 1-limit extended
   # post-reboot degraded-volume windows unnecessarily.
   concurrentReplicaRebuildPerNodeLimit: 3
-  # Wait before replenishing a failed replica — 30 min gives rebooting nodes time to return
-  # and reuse existing replicas (delta-resync only) instead of triggering a full rebuild storm.
-  replicaReplenishmentWaitInterval: 1800
+  # Wait before replenishing a failed replica — 2 min gives rebooting nodes time to return
+  # and reuse existing replicas (delta-resync only). Reduced from 30 min to prevent long
+  # degraded-volume windows that block new workloads from starting.
+  replicaReplenishmentWaitInterval: 120
+  # Auto-clean Longhorn-generated system snapshots (head snapshot, recurring job snapshots)
+  # to prevent FailedStartingSnapshotPurge errors caused by stale engine proxy references.
+  autoCleanupSystemGeneratedSnapshot: true
+  # Auto-delete orphaned volume CRs and instance data left after PVC deletion.
+  # replica-data: orphaned data dirs on disk; instance: orphaned instance-manager entries.
+  orphanResourceAutoDeletion: "replica-data;instance"
   # Limit concurrent engine upgrades per node so upgrades don't cause I/O storms.
   concurrentAutomaticEngineUpgradePerNodeLimit: 1
   # Disable periodic snapshot integrity checks — reduces background I/O on small cluster.

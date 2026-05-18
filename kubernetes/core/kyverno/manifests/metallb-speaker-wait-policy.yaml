@@ -1,0 +1,67 @@
+---
+# Kyverno ClusterPolicy: inject apiserver readiness wait into metallb-speaker pods
+#
+# Problem: metallb-speaker starts before kube-apiserver is ready after node reboots,
+# causing 300+ CrashLoopBackOff restarts per rollout. The speaker image is distroless
+# (no shell), so we cannot wrap the entrypoint. The MetalLB chart (v0.14) has no
+# extraInitContainers support.
+#
+# Solution: Kyverno mutates every speaker Pod before admission to inject a busybox
+# init container that polls kube-apiserver /healthz (on 127.0.0.1 — co-located on
+# the same node) and only exits when the apiserver responds 200 OK.
+#
+# References: MetalLB issue #2042; fixed in v0.15.0 chart startup logic.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: metallb-speaker-wait-for-apiserver
+  annotations:
+    policies.kyverno.io/title: MetalLB Speaker — Wait for API Server
+    policies.kyverno.io/category: Reliability
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/description: >-
+      Injects a busybox init container into metallb-speaker pods that polls
+      https://127.0.0.1:6443/healthz before the speaker starts. Prevents the
+      startup race that causes 300+ CrashLoopBackOff restarts per node reboot.
+spec:
+  rules:
+    - name: inject-wait-for-apiserver
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaces: [metallb-system]
+              selector:
+                matchLabels:
+                  app.kubernetes.io/component: speaker
+      mutate:
+        patchStrategicMerge:
+          spec:
+            initContainers:
+              - name: wait-for-apiserver
+                image: busybox:1.36
+                imagePullPolicy: IfNotPresent
+                command:
+                  - sh
+                  - -c
+                  - |
+                    echo "Waiting for kube-apiserver to be ready..."
+                    until wget -q --spider --no-check-certificate \
+                        https://127.0.0.1:6443/healthz 2>/dev/null; do
+                      echo "  apiserver not ready, retrying in 5s..."
+                      sleep 5
+                    done
+                    echo "kube-apiserver is ready."
+                resources:
+                  requests:
+                    cpu: 10m
+                    memory: 8Mi
+                  limits:
+                    cpu: 50m
+                    memory: 16Mi
+                securityContext:
+                  allowPrivilegeEscalation: false
+                  runAsNonRoot: true
+                  runAsUser: 65534
+                  capabilities:
+                    drop: ["ALL"]
