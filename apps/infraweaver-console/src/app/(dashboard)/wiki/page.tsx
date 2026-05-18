@@ -58,14 +58,14 @@ export default async function WikiHomePage() {
         {sections.map((section, index) => {
           const Icon = index === 0 ? BookOpen : Code2;
           return (
-            <div key={section.id} className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+            <div key={section.id} className="rounded-2xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/[0.03] p-5">
               <div className="flex items-center gap-3">
                 <div className="rounded-xl bg-blue-500/10 p-2 text-blue-200">
                   <Icon className="h-5 w-5" />
                 </div>
                 <div>
-                  <h2 className="text-lg font-semibold text-white">{section.title}</h2>
-                  <p className="text-sm text-slate-400">{section.description}</p>
+                  <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{section.title}</h2>
+                  <p className="text-sm text-slate-500 dark:text-slate-400">{section.description}</p>
                 </div>
               </div>
               <div className="mt-4 space-y-2">
@@ -73,7 +73,7 @@ export default async function WikiHomePage() {
                   <Link
                     key={page.slug}
                     href={`/wiki/${section.id}/${page.slug}`}
-                    className="flex items-center justify-between rounded-xl border border-white/10 bg-[#0d1117] px-3 py-2.5 text-sm text-slate-200 transition hover:border-blue-500/30 hover:bg-blue-500/10 hover:text-white"
+                    className="flex items-center justify-between rounded-xl border border-gray-200 dark:border-white/10 bg-[#0d1117] px-3 py-2.5 text-sm text-slate-800 dark:text-slate-200 transition hover:border-blue-500/30 hover:bg-blue-500/10 hover:text-gray-900 dark:hover:text-white"
                   >
                     <span>{page.title}</span>
                     <ArrowRight className="h-4 w-4 text-slate-500" />

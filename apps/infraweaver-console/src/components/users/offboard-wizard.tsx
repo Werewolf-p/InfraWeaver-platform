@@ -68,13 +68,13 @@ export function OffboardWizard({ username, open, onClose }: Props) {
     <Dialog.Root open={open} onOpenChange={(nextOpen) => !nextOpen && handleClose()}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm" />
-        <Dialog.Content className="fixed inset-x-0 bottom-0 top-0 z-50 w-full overflow-y-auto bg-[#111] p-4 pt-[calc(env(safe-area-inset-top,0px)+1rem)] pb-[calc(env(safe-area-inset-bottom,0px)+1.25rem)] text-[#f2f2f2] shadow-2xl focus:outline-none sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-full sm:max-w-lg sm:-translate-x-1/2 sm:-translate-y-1/2 sm:overflow-hidden sm:rounded-2xl sm:border sm:border-[#2a2a2a] sm:p-6 sm:pt-6 sm:pb-6">
-          <div className="flex items-center justify-between border-b border-[#2a2a2a] px-6 py-4">
-            <Dialog.Title className="flex items-center gap-2 text-base font-semibold text-[#f2f2f2]">
+        <Dialog.Content className="fixed inset-x-0 bottom-0 top-0 z-50 w-full overflow-y-auto bg-white dark:bg-[#111] p-4 pt-[calc(env(safe-area-inset-top,0px)+1rem)] pb-[calc(env(safe-area-inset-bottom,0px)+1.25rem)] text-gray-900 dark:text-[#f2f2f2] shadow-2xl focus:outline-none sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-full sm:max-w-lg sm:-translate-x-1/2 sm:-translate-y-1/2 sm:overflow-hidden sm:rounded-2xl sm:border sm:border-gray-200 dark:border-[#2a2a2a] sm:p-6 sm:pt-6 sm:pb-6">
+          <div className="flex items-center justify-between border-b border-gray-200 dark:border-[#2a2a2a] px-6 py-4">
+            <Dialog.Title className="flex items-center gap-2 text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">
               <UserX className="h-4 w-4 text-red-400" />
               Offboard User
             </Dialog.Title>
-            <button onClick={handleClose} className="inline-flex h-11 w-11 items-center justify-center rounded-xl text-[#888] transition-colors hover:bg-[#1a1a1a] hover:text-[#f2f2f2]">
+            <button onClick={handleClose} className="inline-flex h-11 w-11 items-center justify-center rounded-xl text-gray-500 dark:text-[#888] transition-colors hover:bg-gray-100 dark:hover:bg-[#1a1a1a] hover:text-gray-900 dark:hover:text-[#f2f2f2]">
               <X className="h-4 w-4" />
             </button>
           </div>
@@ -93,18 +93,18 @@ export function OffboardWizard({ username, open, onClose }: Props) {
                     </div>
                   </div>
                   <div>
-                    <label className="mb-2 block text-xs text-[#888]">
-                      Type <span className="font-mono text-[#f2f2f2]">{username}</span> to continue
+                    <label className="mb-2 block text-xs text-gray-500 dark:text-[#888]">
+                      Type <span className="font-mono text-gray-900 dark:text-[#f2f2f2]">{username}</span> to continue
                     </label>
                     <input
                       value={typed}
                       onChange={(event) => setTyped(event.target.value)}
                       placeholder={username}
-                      className="w-full rounded-xl border border-[#2a2a2a] bg-[#0d0d0d] px-3 py-2.5 text-sm text-[#f2f2f2] placeholder:text-[#444] focus:border-red-400 focus:outline-none focus:ring-1 focus:ring-red-400"
+                      className="w-full rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-3 py-2.5 text-sm text-gray-900 dark:text-[#f2f2f2] placeholder:text-gray-400 dark:placeholder:text-[#444] focus:border-red-400 focus:outline-none focus:ring-1 focus:ring-red-400"
                     />
                   </div>
                   <div className="flex gap-3">
-                    <button onClick={handleClose} className="flex h-11 flex-1 items-center justify-center rounded-lg border border-[#2a2a2a] bg-transparent px-4 text-sm text-[#d4d4d4] transition-colors hover:bg-[#1a1a1a] hover:text-[#f2f2f2] active:bg-[#1f1f1f]">Cancel</button>
+                    <button onClick={handleClose} className="flex h-11 flex-1 items-center justify-center rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-transparent px-4 text-sm text-gray-700 dark:text-[#d4d4d4] transition-colors hover:bg-gray-100 dark:hover:bg-[#1a1a1a] hover:text-gray-900 dark:hover:text-[#f2f2f2] active:bg-gray-200 dark:active:bg-[#1f1f1f]">Cancel</button>
                     <button
                       onClick={() => setStep(1)}
                       disabled={typed !== username || !canManageUsers}
@@ -118,17 +118,17 @@ export function OffboardWizard({ username, open, onClose }: Props) {
 
               {step === 1 ? (
                 <motion.div key="preview" variants={variants} initial="enter" animate="center" exit="exit" className="space-y-4 p-6">
-                  <p className="text-sm text-[#d4d4d4]">The following actions will be executed for <strong className="text-[#f2f2f2]">@{username}</strong>:</p>
+                  <p className="text-sm text-gray-700 dark:text-[#d4d4d4]">The following actions will be executed for <strong className="text-gray-900 dark:text-[#f2f2f2]">@{username}</strong>:</p>
                   <div className="space-y-2">
                     {PLANNED_STEPS.map((plannedStep) => (
-                      <div key={plannedStep} className="flex items-center gap-3 rounded-xl border border-[#2a2a2a] bg-[#0d0d0d] p-3">
+                      <div key={plannedStep} className="flex items-center gap-3 rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] p-3">
                         <div className="h-2 w-2 shrink-0 rounded-full bg-amber-400" />
-                        <span className="text-sm text-[#d4d4d4]">{plannedStep}</span>
+                        <span className="text-sm text-gray-700 dark:text-[#d4d4d4]">{plannedStep}</span>
                       </div>
                     ))}
                   </div>
                   <div className="flex gap-3">
-                    <button onClick={() => setStep(0)} className="flex h-11 flex-1 items-center justify-center rounded-lg border border-[#2a2a2a] bg-transparent px-4 text-sm text-[#d4d4d4] transition-colors hover:bg-[#1a1a1a] hover:text-[#f2f2f2] active:bg-[#1f1f1f]">Back</button>
+                    <button onClick={() => setStep(0)} className="flex h-11 flex-1 items-center justify-center rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-transparent px-4 text-sm text-gray-700 dark:text-[#d4d4d4] transition-colors hover:bg-gray-100 dark:hover:bg-[#1a1a1a] hover:text-gray-900 dark:hover:text-[#f2f2f2] active:bg-gray-200 dark:active:bg-[#1f1f1f]">Back</button>
                     <button
                       onClick={handleExecute}
                       className="flex h-11 flex-1 items-center justify-center rounded-lg border border-red-500/20 bg-red-500/10 px-4 text-sm font-medium text-red-400 transition-colors hover:bg-red-500/20 active:bg-red-500/25"
@@ -142,13 +142,13 @@ export function OffboardWizard({ username, open, onClose }: Props) {
               {step === 2 ? (
                 <motion.div key="executing" variants={variants} initial="enter" animate="center" exit="exit" className="flex flex-col items-center gap-4 px-6 py-12 text-center">
                   <Loader2 className="h-8 w-8 animate-spin text-[#3b82f6]" />
-                  <p className="text-sm text-[#d4d4d4]">Offboarding <strong className="text-[#f2f2f2]">@{username}</strong>…</p>
+                  <p className="text-sm text-gray-700 dark:text-[#d4d4d4]">Offboarding <strong className="text-gray-900 dark:text-[#f2f2f2]">@{username}</strong>…</p>
                 </motion.div>
               ) : null}
 
               {step === 3 ? (
                 <motion.div key="summary" variants={variants} initial="enter" animate="center" exit="exit" className="space-y-4 p-6">
-                  <p className="text-sm font-medium text-[#f2f2f2]">Offboarding complete</p>
+                  <p className="text-sm font-medium text-gray-900 dark:text-[#f2f2f2]">Offboarding complete</p>
                   <div className="space-y-2">
                     {results.map((result) => (
                       <div key={result.name} className={`flex items-start gap-3 rounded-xl border p-3 ${result.success ? "border-emerald-500/20 bg-emerald-500/10" : "border-red-500/20 bg-red-500/10"}`}>
@@ -159,7 +159,7 @@ export function OffboardWizard({ username, open, onClose }: Props) {
                         )}
                         <div className="min-w-0">
                           <p className={`text-sm font-medium ${result.success ? "text-emerald-300" : "text-red-300"}`}>{result.name}</p>
-                          <p className="mt-0.5 text-xs text-[#888]">{result.message}</p>
+                          <p className="mt-0.5 text-xs text-gray-500 dark:text-[#888]">{result.message}</p>
                         </div>
                       </div>
                     ))}

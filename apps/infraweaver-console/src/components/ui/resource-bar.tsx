@@ -38,12 +38,12 @@ export function ResourceBar({
   return (
     <div className={cn("space-y-1.5", className)}>
       {(label || summary) && (
-        <div className="flex items-center justify-between gap-2 text-[11px] text-slate-400">
+        <div className="flex items-center justify-between gap-2 text-[11px] text-slate-500 dark:text-slate-400">
           <span>{label}</span>
           <span>{summary}</span>
         </div>
       )}
-      <div className="h-2 overflow-hidden rounded-full bg-white/10">
+      <div className="h-2 overflow-hidden rounded-full bg-gray-100 dark:bg-white/10">
         <div className={cn("h-full rounded-full transition-all", fillClassName)} style={{ width: `${percentage}%` }} />
       </div>
     </div>

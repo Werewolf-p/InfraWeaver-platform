@@ -57,7 +57,7 @@ const GROUP_META = {
     icon: HardDrive,
     iconClassName: "bg-emerald-500/15 text-emerald-300 border border-emerald-500/20",
     badgeClassName: "border border-emerald-500/20 bg-emerald-500/10 text-emerald-300",
-    cardClassName: "border-white/10 bg-white/[0.03]",
+    cardClassName: "border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/[0.03]",
     accentClassName: "from-emerald-500/20 to-transparent",
     sliderColor: "#10b981",
   },
@@ -65,7 +65,7 @@ const GROUP_META = {
     icon: Globe,
     iconClassName: "bg-blue-500/15 text-blue-300 border border-blue-500/20",
     badgeClassName: "border border-blue-500/20 bg-blue-500/10 text-blue-300",
-    cardClassName: "border-white/10 bg-white/[0.03]",
+    cardClassName: "border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/[0.03]",
     accentClassName: "from-blue-500/20 to-transparent",
     sliderColor: "#3b82f6",
   },
@@ -73,7 +73,7 @@ const GROUP_META = {
     icon: GitBranch,
     iconClassName: "bg-violet-500/15 text-violet-300 border border-violet-500/20",
     badgeClassName: "border border-violet-500/20 bg-violet-500/10 text-violet-300",
-    cardClassName: "border-white/10 bg-white/[0.03]",
+    cardClassName: "border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/[0.03]",
     accentClassName: "from-violet-500/20 to-transparent",
     sliderColor: "#8b5cf6",
   },
@@ -81,7 +81,7 @@ const GROUP_META = {
     icon: ShieldCheck,
     iconClassName: "bg-orange-500/15 text-orange-300 border border-orange-500/20",
     badgeClassName: "border border-orange-500/20 bg-orange-500/10 text-orange-300",
-    cardClassName: "border-white/10 bg-white/[0.03]",
+    cardClassName: "border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/[0.03]",
     accentClassName: "from-orange-500/20 to-transparent",
     sliderColor: "#f97316",
   },
@@ -150,7 +150,7 @@ function PlatformEditorLoading() {
   return (
     <div className="space-y-4">
       {Array.from({ length: 4 }).map((_, index) => (
-        <div key={index} className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+        <div key={index} className="rounded-2xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/[0.03] p-5">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <Skeleton className="h-11 w-11 rounded-xl" />
@@ -163,7 +163,7 @@ function PlatformEditorLoading() {
           </div>
           <div className="mt-5 space-y-3">
             {Array.from({ length: 3 }).map((__, rowIndex) => (
-              <div key={rowIndex} className="flex items-center justify-between gap-4 rounded-xl border border-white/5 bg-black/20 px-4 py-3">
+              <div key={rowIndex} className="flex items-center justify-between gap-4 rounded-xl border border-gray-200 dark:border-white/5 bg-black/20 px-4 py-3">
                 <div className="space-y-2">
                   <Skeleton className="h-4 w-32" />
                   <Skeleton className="h-3 w-56" />
@@ -271,17 +271,17 @@ function PlatformEditorContent({ data, canWrite }: { data: PlatformEditorRespons
   return (
     <>
       <div className="space-y-4">
-        <div className="rounded-2xl border border-[#2a2a2a] bg-[#111] p-5">
+        <div className="rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-5">
           <div className="flex items-start gap-3">
             <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-blue-500/20 bg-blue-500/10 text-blue-300">
               <GitBranch className="h-5 w-5" />
             </div>
             <div className="flex-1">
-              <p className="text-base font-semibold text-[#f2f2f2]">Rolling deploy</p>
-              <p className="mt-1 text-sm text-[#888]">
+              <p className="text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">Rolling deploy</p>
+              <p className="mt-1 text-sm text-gray-500 dark:text-[#888]">
                 Changes are committed to git → ArgoCD auto-syncs → Helm upgrade triggers rolling restart of affected pods.
               </p>
-              <p className="mt-2 text-xs text-[#666]">
+              <p className="mt-2 text-xs text-gray-400 dark:text-[#666]">
                 ArgoCD polls for drift, detects the change, and Kubernetes rolls pods with zero-downtime where replica counts allow it.
               </p>
             </div>
@@ -318,8 +318,8 @@ function PlatformEditorContent({ data, canWrite }: { data: PlatformEditorRespons
                       <Icon className="h-5 w-5" />
                     </div>
                     <div>
-                      <p className="text-base font-semibold text-[#f2f2f2]">{groupName}</p>
-                      <p className="text-xs text-[#888]">{settings.length} editable setting{settings.length === 1 ? "" : "s"}</p>
+                      <p className="text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">{groupName}</p>
+                      <p className="text-xs text-gray-500 dark:text-[#888]">{settings.length} editable setting{settings.length === 1 ? "" : "s"}</p>
                     </div>
                   </div>
                   <span className={cn("inline-flex min-w-8 items-center justify-center rounded-full px-2.5 py-1 text-xs font-medium", meta.badgeClassName)}>
@@ -327,7 +327,7 @@ function PlatformEditorContent({ data, canWrite }: { data: PlatformEditorRespons
                   </span>
                 </div>
 
-                <div className="rounded-xl border border-white/5 bg-black/20 px-4">
+                <div className="rounded-xl border border-gray-200 dark:border-white/5 bg-black/20 px-4">
                   {settings.map((setting) => {
                     const originalValue = data.values[setting.key];
                     const currentValue = getDirtyValue(draftValues, setting.key, originalValue);
@@ -341,28 +341,28 @@ function PlatformEditorContent({ data, canWrite }: { data: PlatformEditorRespons
                       <div
                         key={setting.key}
                         className={cn(
-                          "flex items-center justify-between gap-4 py-3 border-b border-white/5 last:border-0",
-                          isDirty && "rounded-xl bg-white/[0.02]",
+                          "flex items-center justify-between gap-4 py-3 border-b border-gray-200 dark:border-white/5 last:border-0",
+                          isDirty && "rounded-xl bg-gray-50 dark:bg-white/[0.02]",
                         )}
                       >
                         <div className="min-w-0 flex-1 pr-2">
                           <div className="flex items-center gap-2">
-                            <p className="text-sm font-medium text-[#f2f2f2]">{setting.label}</p>
+                            <p className="text-sm font-medium text-gray-900 dark:text-[#f2f2f2]">{setting.label}</p>
                             {isDirty ? (
-                              <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-[#9ca3af]">
+                              <span className="rounded-full border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-[#9ca3af]">
                                 Modified
                               </span>
                             ) : null}
                           </div>
-                          <p className="mt-1 text-sm text-[#888]">{setting.description}</p>
+                          <p className="mt-1 text-sm text-gray-500 dark:text-[#888]">{setting.description}</p>
                         </div>
 
                         <div className="w-full max-w-md space-y-2">
                           <div className="flex items-center justify-end gap-2">
-                            <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-[#d4d4d4]">
+                            <span className="rounded-full border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-3 py-1 text-xs font-medium text-gray-700 dark:text-[#d4d4d4]">
                               {formatSettingValue(setting, currentValue)}
                             </span>
-                            <span className="text-[11px] uppercase tracking-[0.18em] text-[#666]">{setting.argoApp}</span>
+                            <span className="text-[11px] uppercase tracking-[0.18em] text-gray-400 dark:text-[#666]">{setting.argoApp}</span>
                           </div>
 
                           {setting.type === "number" ? (
@@ -398,9 +398,9 @@ function PlatformEditorContent({ data, canWrite }: { data: PlatformEditorRespons
                                     }
                                   }}
                                   disabled={!canWrite || saveMutation.isPending}
-                                  className="w-24 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none transition-colors focus:border-indigo-500/50 disabled:cursor-not-allowed disabled:opacity-60"
+                                  className="w-24 rounded-xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-3 py-2 text-sm text-gray-900 dark:text-white outline-none transition-colors focus:border-indigo-500/50 disabled:cursor-not-allowed disabled:opacity-60"
                                 />
-                                {unit ? <span className="text-xs text-[#888]">{unit}</span> : null}
+                                {unit ? <span className="text-xs text-gray-500 dark:text-[#888]">{unit}</span> : null}
                               </div>
                             </div>
                           ) : setting.type === "select" ? (
@@ -408,7 +408,7 @@ function PlatformEditorContent({ data, canWrite }: { data: PlatformEditorRespons
                               value={typeof currentValue === "string" ? currentValue : String(currentValue ?? "")}
                               onChange={(event) => handleValueChange(setting.key, event.target.value)}
                               disabled={!canWrite || saveMutation.isPending}
-                              className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none transition-colors focus:border-indigo-500/50 disabled:cursor-not-allowed disabled:opacity-60"
+                              className="w-full rounded-xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-3 py-2 text-sm text-gray-900 dark:text-white outline-none transition-colors focus:border-indigo-500/50 disabled:cursor-not-allowed disabled:opacity-60"
                             >
                               {setting.options?.map((option) => (
                                 <option key={option} value={option}>
@@ -422,7 +422,7 @@ function PlatformEditorContent({ data, canWrite }: { data: PlatformEditorRespons
                               value={typeof currentValue === "string" ? currentValue : String(currentValue ?? "")}
                               onChange={(event) => handleValueChange(setting.key, event.target.value)}
                               disabled={!canWrite || saveMutation.isPending}
-                              className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none transition-colors focus:border-indigo-500/50 disabled:cursor-not-allowed disabled:opacity-60"
+                              className="w-full rounded-xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-3 py-2 text-sm text-gray-900 dark:text-white outline-none transition-colors focus:border-indigo-500/50 disabled:cursor-not-allowed disabled:opacity-60"
                             />
                           )}
                         </div>
@@ -436,16 +436,16 @@ function PlatformEditorContent({ data, canWrite }: { data: PlatformEditorRespons
         })}
 
         {dirtyEntries.length > 0 ? (
-          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+          <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/[0.03] p-5">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div>
-                <p className="text-base font-semibold text-[#f2f2f2]">Apply Changes</p>
-                <p className="mt-1 text-sm text-[#888]">
+                <p className="text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">Apply Changes</p>
+                <p className="mt-1 text-sm text-gray-500 dark:text-[#888]">
                   Saving commits changes to GitHub and triggers rolling updates for the affected ArgoCD apps.
                 </p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {affectedApps.map((app) => (
-                    <span key={app} className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-[#d4d4d4]">
+                    <span key={app} className="rounded-full border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-3 py-1 text-xs text-gray-700 dark:text-[#d4d4d4]">
                       {app}
                     </span>
                   ))}
@@ -455,7 +455,7 @@ function PlatformEditorContent({ data, canWrite }: { data: PlatformEditorRespons
                 <button
                   onClick={handleReset}
                   disabled={saveMutation.isPending}
-                  className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 text-sm font-medium text-[#d4d4d4] transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-4 text-sm font-medium text-gray-700 dark:text-[#d4d4d4] transition-colors hover:bg-gray-100 dark:hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <RotateCcw className="h-4 w-4" />
                   Reset
@@ -514,7 +514,7 @@ export function PlatformEditorPanel() {
         <div className="flex items-start gap-3">
           <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-300" />
           <div>
-            <p className="font-medium text-white">Unable to load platform settings</p>
+            <p className="font-medium text-gray-900 dark:text-white">Unable to load platform settings</p>
             <p className="mt-1 text-red-200/80">{error.message}</p>
             <button
               onClick={() => void refetch()}

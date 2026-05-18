@@ -55,15 +55,15 @@ export default function AlertSilencePage() {
     onSuccess: () => { toast.success("Silence removed"); void qc.invalidateQueries({ queryKey: ["alert-silences"] }); },
   });
 
-  if (isLoading) return <div className="space-y-4">{[...Array(3)].map((_, i) => <div key={i} className="h-16 rounded-xl bg-white/5 animate-pulse" />)}</div>;
+  if (isLoading) return <div className="space-y-4">{[...Array(3)].map((_, i) => <div key={i} className="h-16 rounded-xl bg-gray-100 dark:bg-white/5 animate-pulse" />)}</div>;
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
       <PageHeader icon={BellOff} title="Alert Silence" />
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-white flex items-center gap-2"><BellOff className="w-5 h-5 text-slate-400" />Alert Silencing</h2>
-          <p className="text-sm text-slate-400">Manage alert silences and suppressions</p>
+          <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2"><BellOff className="w-5 h-5 text-slate-500 dark:text-slate-400" />Alert Silencing</h2>
+          <p className="text-sm text-slate-500 dark:text-slate-400">Manage alert silences and suppressions</p>
         </div>
         <button onClick={() => canManageSilences && setShowForm(v => !v)} disabled={!canManageSilences} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-500/20 border border-indigo-500/30 text-sm text-indigo-300 hover:bg-indigo-500/30 transition-colors disabled:cursor-not-allowed disabled:opacity-50">
           <Plus className="w-4 h-4" />New Silence
@@ -71,14 +71,14 @@ export default function AlertSilencePage() {
       </div>
 
       {showForm && (
-        <div className="bg-slate-900/60 border border-white/10 rounded-xl backdrop-blur-sm p-4 space-y-3">
-          <h3 className="text-sm font-semibold text-white">Create Silence</h3>
-          <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Silence name" className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-white placeholder:text-slate-500 outline-none focus:border-indigo-500/50" />
-          <input value={form.matchers} onChange={e => setForm(f => ({ ...f, matchers: e.target.value }))} placeholder='Matchers e.g. alertname="HighCPU"' className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-white placeholder:text-slate-500 outline-none focus:border-indigo-500/50" />
-          <input value={form.comment} onChange={e => setForm(f => ({ ...f, comment: e.target.value }))} placeholder="Comment" className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-white placeholder:text-slate-500 outline-none focus:border-indigo-500/50" />
+        <div className="bg-slate-100 dark:bg-slate-900/60 border border-gray-200 dark:border-white/10 rounded-xl backdrop-blur-sm p-4 space-y-3">
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Create Silence</h3>
+          <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Silence name" className="w-full px-3 py-2 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-sm text-gray-900 dark:text-white placeholder:text-slate-500 outline-none focus:border-indigo-500/50" />
+          <input value={form.matchers} onChange={e => setForm(f => ({ ...f, matchers: e.target.value }))} placeholder='Matchers e.g. alertname="HighCPU"' className="w-full px-3 py-2 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-sm text-gray-900 dark:text-white placeholder:text-slate-500 outline-none focus:border-indigo-500/50" />
+          <input value={form.comment} onChange={e => setForm(f => ({ ...f, comment: e.target.value }))} placeholder="Comment" className="w-full px-3 py-2 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-sm text-gray-900 dark:text-white placeholder:text-slate-500 outline-none focus:border-indigo-500/50" />
           <div>
-            <label className="text-xs text-slate-400 mb-1 block">Ends At</label>
-            <input type="datetime-local" value={form.endsAt} onChange={e => setForm(f => ({ ...f, endsAt: e.target.value }))} className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-white outline-none focus:border-indigo-500/50" />
+            <label className="text-xs text-slate-500 dark:text-slate-400 mb-1 block">Ends At</label>
+            <input type="datetime-local" value={form.endsAt} onChange={e => setForm(f => ({ ...f, endsAt: e.target.value }))} className="w-full px-3 py-2 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-sm text-gray-900 dark:text-white outline-none focus:border-indigo-500/50" />
           </div>
           <button onClick={() => createMutation.mutate(form)} disabled={createMutation.isPending || !canManageSilences} className="w-full py-2 rounded-lg bg-indigo-500/20 border border-indigo-500/30 text-sm text-indigo-300 hover:bg-indigo-500/30 transition-colors disabled:opacity-50">
             {createMutation.isPending ? "Creating..." : "Create"}
@@ -89,10 +89,10 @@ export default function AlertSilencePage() {
       <div className="space-y-3">
         {silences.length === 0 && <div className="py-12 text-center text-slate-500 text-sm">No active silences</div>}
         {silences.map(s => (
-          <div key={s.id} className="bg-slate-900/60 border border-white/10 rounded-xl backdrop-blur-sm p-4 flex items-start justify-between">
+          <div key={s.id} className="bg-slate-100 dark:bg-slate-900/60 border border-gray-200 dark:border-white/10 rounded-xl backdrop-blur-sm p-4 flex items-start justify-between">
             <div className="space-y-1">
-              <p className="text-sm font-semibold text-white">{s.name}</p>
-              <p className="text-xs text-slate-400">{s.matchers}</p>
+              <p className="text-sm font-semibold text-gray-900 dark:text-white">{s.name}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">{s.matchers}</p>
               <p className="text-xs text-slate-500">Expires: {new Date(s.endsAt).toLocaleString()} · by {s.createdBy}</p>
               {s.comment && <p className="text-xs text-slate-500 italic">{s.comment}</p>}
             </div>

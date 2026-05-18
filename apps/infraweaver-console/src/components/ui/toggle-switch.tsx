@@ -25,10 +25,10 @@ export function ToggleSwitch({ checked, onChange, label, description, disabled, 
       {(label || description) && (
         <div className="min-w-0 flex-1">
           {label ? (
-            <p className={cn("block truncate text-sm font-medium", disabled ? "text-[#666]" : "text-[#f2f2f2]")}>{label}</p>
+            <p className={cn("block truncate text-sm font-medium", disabled ? "text-gray-400 dark:text-[#666]" : "text-gray-900 dark:text-[#f2f2f2]")}>{label}</p>
           ) : null}
           {description ? (
-            <p className={cn("mt-0.5 truncate text-xs", disabled ? "text-[#666]" : "text-[#888]")}>{description}</p>
+            <p className={cn("mt-0.5 truncate text-xs", disabled ? "text-gray-400 dark:text-[#666]" : "text-gray-500 dark:text-[#888]")}>{description}</p>
           ) : null}
         </div>
       )}
@@ -41,7 +41,7 @@ export function ToggleSwitch({ checked, onChange, label, description, disabled, 
         className={cn(
           "relative inline-flex shrink-0 items-center rounded-full border border-transparent transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3b82f6] focus-visible:ring-offset-1 focus-visible:ring-offset-[#111] disabled:cursor-not-allowed disabled:opacity-50",
           s.track,
-          checked ? "bg-[#3b82f6]" : "bg-[#2a2a2a]",
+          checked ? "bg-[#3b82f6]" : "bg-gray-100 dark:bg-[#2a2a2a]",
         )}
       >
         <span

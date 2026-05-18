@@ -116,7 +116,7 @@ export default function AutomationsPage() {
       </div>
 
       <section className="space-y-3">
-        <div className="flex items-center gap-2 text-sm font-medium text-slate-300">
+        <div className="flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-300">
           <Sparkles className="h-4 w-4 text-indigo-300" />
           Cluster automations
         </div>
@@ -125,54 +125,54 @@ export default function AutomationsPage() {
             const status = !automation.live ? "unknown" : automation.failing ? "degraded" : automation.suspended ? "warning" : "healthy";
             const label = !automation.live ? "Repo only" : automation.failing ? "Needs attention" : automation.suspended ? "Suspended" : "Healthy";
             return (
-              <div key={automation.id} className="rounded-2xl border border-white/10 bg-slate-900/60 p-5 backdrop-blur-sm">
+              <div key={automation.id} className="rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/60 p-5 backdrop-blur-sm">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <div className="flex items-center gap-2">
-                      <h2 className="text-base font-semibold text-white">{automation.title}</h2>
+                      <h2 className="text-base font-semibold text-gray-900 dark:text-white">{automation.title}</h2>
                       <StatusBadge status={status} label={label} size="sm" />
                     </div>
-                    <p className="mt-1 text-sm text-slate-400">{automation.description}</p>
+                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{automation.description}</p>
                   </div>
-                  <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] uppercase tracking-wide text-slate-300">
+                  <span className="rounded-full border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-2.5 py-1 text-[11px] uppercase tracking-wide text-slate-700 dark:text-slate-300">
                     {automation.category}
                   </span>
                 </div>
 
-                <dl className="mt-4 grid gap-3 text-xs text-slate-400 sm:grid-cols-2">
+                <dl className="mt-4 grid gap-3 text-xs text-slate-500 dark:text-slate-400 sm:grid-cols-2">
                   <div>
                     <dt className="text-slate-500">CronJob</dt>
-                    <dd className="font-mono text-slate-300">{automation.namespace}/{automation.cronjob}</dd>
+                    <dd className="font-mono text-slate-700 dark:text-slate-300">{automation.namespace}/{automation.cronjob}</dd>
                   </div>
                   <div>
                     <dt className="text-slate-500">Schedule</dt>
-                    <dd className="font-mono text-slate-300">{automation.schedule ?? "Waiting for live cluster data"}</dd>
+                    <dd className="font-mono text-slate-700 dark:text-slate-300">{automation.schedule ?? "Waiting for live cluster data"}</dd>
                   </div>
                   <div>
                     <dt className="text-slate-500">Last success</dt>
-                    <dd className="text-slate-300">{automation.lastSuccess ? timeAgo(automation.lastSuccess) : "Never recorded"}</dd>
+                    <dd className="text-slate-700 dark:text-slate-300">{automation.lastSuccess ? timeAgo(automation.lastSuccess) : "Never recorded"}</dd>
                   </div>
                   <div>
                     <dt className="text-slate-500">Next run</dt>
-                    <dd className="text-slate-300">{automation.nextRun ? timeAgo(automation.nextRun) : "Unknown"}</dd>
+                    <dd className="text-slate-700 dark:text-slate-300">{automation.nextRun ? timeAgo(automation.nextRun) : "Unknown"}</dd>
                   </div>
                   <div>
                     <dt className="text-slate-500">Manifest</dt>
-                    <dd className="font-mono text-[11px] text-slate-300">{automation.file}</dd>
+                    <dd className="font-mono text-[11px] text-slate-700 dark:text-slate-300">{automation.file}</dd>
                   </div>
                   <div>
                     <dt className="text-slate-500">Active runs</dt>
-                    <dd className="text-slate-300">{automation.activeRuns}</dd>
+                    <dd className="text-slate-700 dark:text-slate-300">{automation.activeRuns}</dd>
                   </div>
                 </dl>
 
                 {automation.recentRuns.length > 0 ? (
-                  <div className="mt-4 rounded-xl border border-white/10 bg-black/20 p-3">
+                  <div className="mt-4 rounded-xl border border-gray-200 dark:border-white/10 bg-black/20 p-3">
                     <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">Recent runs</p>
-                    <div className="space-y-2 text-xs text-slate-400">
+                    <div className="space-y-2 text-xs text-slate-500 dark:text-slate-400">
                       {automation.recentRuns.map((run) => (
                         <div key={run.name} className="flex items-center justify-between gap-3">
-                          <span className="font-mono text-slate-300">{run.name}</span>
+                          <span className="font-mono text-slate-700 dark:text-slate-300">{run.name}</span>
                           <span>{run.completedAt ? timeAgo(run.completedAt) : run.startedAt ? timeAgo(run.startedAt) : run.status}</span>
                         </div>
                       ))}
@@ -199,28 +199,28 @@ export default function AutomationsPage() {
       </section>
 
       <section className="space-y-3">
-        <div className="flex items-center gap-2 text-sm font-medium text-slate-300">
+        <div className="flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-300">
           <GitBranch className="h-4 w-4 text-emerald-300" />
           GitHub workflow automations
         </div>
         <div className="grid gap-4 xl:grid-cols-2">
           {workflowAutomations.map((automation) => (
-            <div key={automation.id} className="rounded-2xl border border-white/10 bg-slate-900/60 p-5 backdrop-blur-sm">
+            <div key={automation.id} className="rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/60 p-5 backdrop-blur-sm">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <h2 className="text-base font-semibold text-white">{automation.title}</h2>
-                  <p className="mt-1 text-sm text-slate-400">{automation.description}</p>
+                  <h2 className="text-base font-semibold text-gray-900 dark:text-white">{automation.title}</h2>
+                  <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{automation.description}</p>
                 </div>
                 <StatusBadge status="healthy" label="GitHub Actions" size="sm" />
               </div>
-              <dl className="mt-4 grid gap-3 text-xs text-slate-400">
+              <dl className="mt-4 grid gap-3 text-xs text-slate-500 dark:text-slate-400">
                 <div>
                   <dt className="text-slate-500">Schedule</dt>
-                  <dd className="text-slate-300">{automation.schedule}</dd>
+                  <dd className="text-slate-700 dark:text-slate-300">{automation.schedule}</dd>
                 </div>
                 <div>
                   <dt className="text-slate-500">Workflow file</dt>
-                  <dd className="font-mono text-[11px] text-slate-300">{automation.file}</dd>
+                  <dd className="font-mono text-[11px] text-slate-700 dark:text-slate-300">{automation.file}</dd>
                 </div>
               </dl>
             </div>
@@ -229,7 +229,7 @@ export default function AutomationsPage() {
       </section>
 
       {automationQuery.isLoading ? (
-        <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-slate-900/60 px-4 py-3 text-sm text-slate-400">
+        <div className="flex items-center gap-2 rounded-xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/60 px-4 py-3 text-sm text-slate-500 dark:text-slate-400">
           <Activity className="h-4 w-4 animate-pulse" />
           Refreshing automation status…
         </div>

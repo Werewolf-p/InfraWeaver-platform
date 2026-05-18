@@ -91,7 +91,7 @@ export function TopBar({ onMenuClick, onSearchClick }: { title?: string; onMenuC
   }, [pathname]);
 
   return (
-    <header className="sticky top-0 z-30 flex min-h-16 flex-shrink-0 items-center justify-between gap-3 border-b border-white/5 bg-black/60 backdrop-blur-xl px-3 pt-[env(safe-area-inset-top,0px)] sm:min-h-14 sm:px-4">
+    <header className="sticky top-0 z-30 flex min-h-16 flex-shrink-0 items-center justify-between gap-3 border-b border-gray-200 dark:border-white/5 bg-black/60 backdrop-blur-xl px-3 pt-[env(safe-area-inset-top,0px)] sm:min-h-14 sm:px-4">
       <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
         <motion.button
           type="button"
@@ -99,7 +99,7 @@ export function TopBar({ onMenuClick, onSearchClick }: { title?: string; onMenuC
           whileHover={{ scale: 1.08 }}
           whileTap={{ scale: 0.92 }}
           transition={springs.micro}
-          className="inline-flex h-11 w-11 items-center justify-center rounded-xl text-[#9e9e9e] transition-colors hover:bg-[#2a2a2a] hover:text-[#f2f2f2] md:hidden"
+          className="inline-flex h-11 w-11 items-center justify-center rounded-xl text-gray-500 dark:text-[#9e9e9e] transition-colors hover:bg-gray-100 dark:hover:bg-[#2a2a2a] hover:text-gray-900 dark:hover:text-[#f2f2f2] md:hidden"
           aria-label="Open menu"
         >
           <Menu className="h-4 w-4" />
@@ -110,8 +110,8 @@ export function TopBar({ onMenuClick, onSearchClick }: { title?: string; onMenuC
             IW
           </div>
           <div className="min-w-0 md:hidden">
-            <p className="truncate text-xs font-semibold text-[#f2f2f2]">InfraWeaver</p>
-            <p className="truncate text-[10px] text-[#666]">{currentTitle}</p>
+            <p className="truncate text-xs font-semibold text-gray-900 dark:text-[#f2f2f2]">InfraWeaver</p>
+            <p className="truncate text-[10px] text-gray-400 dark:text-[#666]">{currentTitle}</p>
           </div>
         </Link>
 
@@ -122,37 +122,37 @@ export function TopBar({ onMenuClick, onSearchClick }: { title?: string; onMenuC
               initial={{ opacity: 0, x: -4 }}
               animate={{ opacity: 1, x: 0 }}
               transition={springs.gentle}
-              className="truncate text-sm font-semibold text-[#f2f2f2]"
+              className="truncate text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]"
             >
               {currentTitle}
             </motion.p>
-            <span className="rounded-full border border-[#2a2a2a] bg-[#0f0f0f] px-2 py-0.5 text-[10px] font-mono text-[#666]">
+            <span className="rounded-full border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0f0f0f] px-2 py-0.5 text-[10px] font-mono text-gray-400 dark:text-[#666]">
               v{appVersion}
             </span>
           </div>
-          <p className="truncate text-xs text-[#666]">{pageContext.description}</p>
+          <p className="truncate text-xs text-gray-400 dark:text-[#666]">{pageContext.description}</p>
         </div>
 
         <button
           type="button"
           onClick={onSearchClick}
-          className="hidden max-w-xl flex-1 items-center gap-3 rounded-xl border border-[#333] bg-[#0f0f0f] px-3 py-2 text-sm text-[#666] transition-colors hover:border-[#555] hover:text-[#9e9e9e] md:flex"
+          className="hidden max-w-xl flex-1 items-center gap-3 rounded-xl border border-gray-200 dark:border-[#333] bg-white dark:bg-[#0f0f0f] px-3 py-2 text-sm text-gray-400 dark:text-[#666] transition-colors hover:border-[#555] hover:text-gray-700 dark:hover:text-[#9e9e9e] md:flex"
         >
           <Search className="h-3.5 w-3.5" />
           <span>Search resources, pages, and commands…</span>
-          <span className="ml-auto inline-flex items-center gap-1 rounded-md border border-[#2a2a2a] bg-[#151515] px-2 py-1 text-[10px] font-mono text-[#888]">
+          <span className="ml-auto inline-flex items-center gap-1 rounded-md border border-gray-200 dark:border-[#2a2a2a] bg-[#151515] px-2 py-1 text-[10px] font-mono text-gray-500 dark:text-[#888]">
             <Command className="h-3 w-3" />K
           </span>
         </button>
       </div>
 
       <div className="flex items-center gap-1.5 sm:gap-2">
-        <div className="hidden xl:flex items-center gap-2 rounded-xl border border-[#2a2a2a] bg-[#101010] px-3 py-2 text-xs text-[#888]">
+        <div className="hidden xl:flex items-center gap-2 rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#101010] px-3 py-2 text-xs text-gray-500 dark:text-[#888]">
           <Clock3 className="h-3.5 w-3.5 text-[#0078D4]" />
-          <span className="font-medium text-[#f2f2f2]">
+          <span className="font-medium text-gray-900 dark:text-[#f2f2f2]">
             {clock.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}
           </span>
-          <span className="h-1 w-1 rounded-full bg-[#2a2a2a]" />
+          <span className="h-1 w-1 rounded-full bg-gray-100 dark:bg-[#2a2a2a]" />
           <span>{pageContext.badge}</span>
         </div>
 
@@ -162,7 +162,7 @@ export function TopBar({ onMenuClick, onSearchClick }: { title?: string; onMenuC
           whileHover={{ scale: 1.08 }}
           whileTap={{ scale: 0.92 }}
           transition={springs.micro}
-          className="inline-flex h-11 w-11 items-center justify-center rounded-xl text-[#9e9e9e] transition-colors hover:bg-[#2a2a2a] hover:text-[#f2f2f2] md:hidden"
+          className="inline-flex h-11 w-11 items-center justify-center rounded-xl text-gray-500 dark:text-[#9e9e9e] transition-colors hover:bg-gray-100 dark:hover:bg-[#2a2a2a] hover:text-gray-900 dark:hover:text-[#f2f2f2] md:hidden"
           aria-label="Search"
         >
           <Search className="h-4 w-4" />
@@ -179,7 +179,7 @@ export function TopBar({ onMenuClick, onSearchClick }: { title?: string; onMenuC
           >
             <Plus className="h-3.5 w-3.5" />
             <span>New</span>
-            <span className="rounded-md bg-black/15 px-1.5 py-0.5 text-[10px] font-mono text-white/80">⇧N</span>
+            <span className="rounded-md bg-black/15 px-1.5 py-0.5 text-[10px] font-mono text-gray-700 dark:text-white/80">⇧N</span>
             <ChevronDown className={`h-3.5 w-3.5 transition-transform ${quickOpen ? "rotate-180" : ""}`} />
           </button>
           <AnimatePresence>
@@ -189,11 +189,11 @@ export function TopBar({ onMenuClick, onSearchClick }: { title?: string; onMenuC
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.95, y: -4 }}
                 transition={springs.snappy}
-                className="absolute right-0 top-full z-50 mt-2 w-56 overflow-hidden rounded-xl border border-[#333] bg-[#1a1a1a] shadow-xl"
+                className="absolute right-0 top-full z-50 mt-2 w-56 overflow-hidden rounded-xl border border-gray-200 dark:border-[#333] bg-white dark:bg-[#1a1a1a] shadow-xl"
               >
-                <div className="border-b border-[#2a2a2a] px-3 py-2">
-                  <p className="text-xs font-semibold text-white">Quick create</p>
-                  <p className="mt-1 text-[11px] text-[#666]">Jump into common operator workflows.</p>
+                <div className="border-b border-gray-200 dark:border-[#2a2a2a] px-3 py-2">
+                  <p className="text-xs font-semibold text-gray-900 dark:text-white">Quick create</p>
+                  <p className="mt-1 text-[11px] text-gray-400 dark:text-[#666]">Jump into common operator workflows.</p>
                 </div>
                 <div className="py-1">
                   {QUICK_CREATE_ITEMS.map((item) => (
@@ -201,9 +201,9 @@ export function TopBar({ onMenuClick, onSearchClick }: { title?: string; onMenuC
                       key={item.href}
                       href={item.href}
                       onClick={() => setQuickOpen(false)}
-                      className="flex items-center gap-2 px-3 py-2.5 text-sm text-[#f2f2f2] transition-colors hover:bg-[#2a2a2a]"
+                      className="flex items-center gap-2 px-3 py-2.5 text-sm text-gray-900 dark:text-[#f2f2f2] transition-colors hover:bg-gray-100 dark:hover:bg-[#2a2a2a]"
                     >
-                      <ExternalLink className="h-3.5 w-3.5 text-[#555]" />
+                      <ExternalLink className="h-3.5 w-3.5 text-gray-400 dark:text-[#555]" />
                       {item.label}
                     </Link>
                   ))}
@@ -228,7 +228,7 @@ export function TopBar({ onMenuClick, onSearchClick }: { title?: string; onMenuC
             }
             setShowChangelogDot(false);
           }}
-          className="hidden items-center gap-3 border-l border-[#2a2a2a] pl-3 lg:flex"
+          className="hidden items-center gap-3 border-l border-gray-200 dark:border-[#2a2a2a] pl-3 lg:flex"
           title="What’s new"
         >
           <div className="relative flex h-8 w-8 items-center justify-center rounded-full bg-[#0078D4] text-xs font-bold text-white">
@@ -236,8 +236,8 @@ export function TopBar({ onMenuClick, onSearchClick }: { title?: string; onMenuC
             {showChangelogDot ? <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-emerald-400 ring-2 ring-[#141414]" /> : null}
           </div>
           <div className="min-w-0">
-            <span className="block truncate text-xs text-[#9e9e9e]">{session?.user?.name ?? "Operator"}</span>
-            <span className="block text-[10px] text-[#555]">What’s new</span>
+            <span className="block truncate text-xs text-gray-500 dark:text-[#9e9e9e]">{session?.user?.name ?? "Operator"}</span>
+            <span className="block text-[10px] text-gray-400 dark:text-[#555]">What’s new</span>
           </div>
         </Link>
       </div>

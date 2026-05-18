@@ -30,15 +30,15 @@ interface StorageTabProps {
 function ProviderCard({ provider }: { provider: NasProvider }) {
   const Icon = provider.id === "synology" ? Server : Database;
   return (
-    <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-4 flex items-center gap-4">
+    <div className="bg-gray-100 dark:bg-white/5 backdrop-blur-sm border border-gray-200 dark:border-white/10 rounded-xl p-4 flex items-center gap-4">
       <div className={cn("w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0",
         provider.reachable ? "bg-emerald-500/15 border border-emerald-500/30" : "bg-red-500/10 border border-red-500/20"
       )}>
         <Icon className={cn("w-5 h-5", provider.reachable ? "text-emerald-400" : "text-red-400")} />
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-semibold text-white">{provider.name}</p>
-        <p className="text-xs text-slate-400">{provider.host}:{provider.port}</p>
+        <p className="text-sm font-semibold text-gray-900 dark:text-white">{provider.name}</p>
+        <p className="text-xs text-slate-500 dark:text-slate-400">{provider.host}:{provider.port}</p>
       </div>
       <div className="flex items-center gap-1.5 flex-shrink-0">
         {provider.reachable ? (
@@ -49,7 +49,7 @@ function ProviderCard({ provider }: { provider: NasProvider }) {
         ) : !provider.enabled ? (
           <>
             <span className="w-2 h-2 rounded-full bg-slate-500" />
-            <span className="text-xs text-slate-400">Not configured</span>
+            <span className="text-xs text-slate-500 dark:text-slate-400">Not configured</span>
           </>
         ) : (
           <>
@@ -100,7 +100,7 @@ function DeleteConfirmDialog({
         initial={{ scale: 0.95, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         exit={{ scale: 0.95, opacity: 0 }}
-        className="bg-slate-900 border border-white/10 rounded-xl p-6 max-w-md w-full"
+        className="bg-slate-100 dark:bg-slate-900 border border-gray-200 dark:border-white/10 rounded-xl p-6 max-w-md w-full"
         onClick={e => e.stopPropagation()}
       >
         <div className="flex items-center gap-3 mb-4">
@@ -108,18 +108,18 @@ function DeleteConfirmDialog({
             <AlertTriangle className="w-5 h-5 text-red-400" />
           </div>
           <div>
-            <h3 className="text-sm font-semibold text-white">Revoke Share Access</h3>
-            <p className="text-xs text-slate-400">This will delete the K8s manifest from git</p>
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Revoke Share Access</h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400">This will delete the K8s manifest from git</p>
           </div>
         </div>
-        <p className="text-sm text-slate-300 mb-6">
-          Remove <span className="font-mono text-white">{assignment.share}/{assignment.subfolder}</span> from{" "}
+        <p className="text-sm text-slate-700 dark:text-slate-300 mb-6">
+          Remove <span className="font-mono text-gray-900 dark:text-white">{assignment.share}/{assignment.subfolder}</span> from{" "}
           <span className="text-emerald-400">@{username}</span>? The PVC and StorageClass will be deleted by ArgoCD.
         </p>
         <div className="flex gap-3">
           <button
             onClick={onCancel}
-            className="flex-1 px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 hover:bg-white/10 transition-colors"
+            className="flex-1 px-4 py-2 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-sm text-slate-700 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-white/10 transition-colors"
           >
             Cancel
           </button>
@@ -213,16 +213,16 @@ function StepIndicator({ current, total }: { current: Step; total: number }) {
             "w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-all",
             step < current ? "bg-emerald-500/30 border border-emerald-500/50 text-emerald-400" :
             step === current ? "bg-emerald-500/20 border border-emerald-500/40 text-emerald-300" :
-            "bg-white/5 border border-white/10 text-slate-500"
+            "bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-slate-500"
           )}>
             {step < current ? <Check className="w-3 h-3" /> : step}
           </div>
           {step < total && (
-            <div className={cn("h-px w-6", step < current ? "bg-emerald-500/30" : "bg-white/10")} />
+            <div className={cn("h-px w-6", step < current ? "bg-emerald-500/30" : "bg-gray-100 dark:bg-white/10")} />
           )}
         </div>
       ))}
-      <span className="ml-2 text-xs text-slate-400">{STEP_LABELS[current]}</span>
+      <span className="ml-2 text-xs text-slate-500 dark:text-slate-400">{STEP_LABELS[current]}</span>
     </div>
   );
 }
@@ -314,18 +314,18 @@ function AssignWizard({
         animate={{ y: 0, opacity: 1 }}
         exit={{ y: "100%", opacity: 0 }}
         transition={{ type: "spring", damping: 25, stiffness: 300 }}
-        className="bg-slate-900 border border-white/10 rounded-t-2xl sm:rounded-xl w-full sm:max-w-lg max-h-[90vh] overflow-y-auto"
+        className="bg-slate-100 dark:bg-slate-900 border border-gray-200 dark:border-white/10 rounded-t-2xl sm:rounded-xl w-full sm:max-w-lg max-h-[90vh] overflow-y-auto"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-white/10 sticky top-0 bg-slate-900 z-10">
+        <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-gray-200 dark:border-white/10 sticky top-0 bg-slate-100 dark:bg-slate-900 z-10">
           <div>
-            <h3 className="text-base font-semibold text-white flex items-center gap-2">
+            <h3 className="text-base font-semibold text-gray-900 dark:text-white flex items-center gap-2">
               <HardDrive className="w-4 h-4 text-emerald-400" />
               Assign NAS Share
             </h3>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg bg-white/5 border border-white/10 text-slate-400 hover:text-white transition-colors">
+          <button onClick={onClose} className="p-1.5 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white transition-colors">
             <XCircle className="w-4 h-4" />
           </button>
         </div>
@@ -337,7 +337,7 @@ function AssignWizard({
             {/* Step 1: Select user */}
             {step === 1 && (
               <motion.div key="step1" initial={{ x: 20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: -20, opacity: 0 }}>
-                <p className="text-xs text-slate-400 mb-3">Choose which user will get access to this share</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">Choose which user will get access to this share</p>
                 <div className="space-y-2 max-h-64 overflow-y-auto">
                   {users.map(u => (
                     <button
@@ -347,15 +347,15 @@ function AssignWizard({
                         "w-full flex items-center gap-3 p-3 rounded-lg border text-left transition-all",
                         state.username === u.username
                           ? "bg-emerald-500/10 border-emerald-500/40"
-                          : "bg-white/5 border-white/10 hover:bg-white/[0.08]"
+                          : "bg-gray-100 dark:bg-white/5 border-gray-200 dark:border-white/10 hover:bg-gray-100 dark:hover:bg-white/[0.08]"
                       )}
                     >
                       <div className="w-8 h-8 rounded-full bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-xs font-bold text-indigo-300 flex-shrink-0">
                         {(u.name || u.username)[0]?.toUpperCase()}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-white">{u.name}</p>
-                        <p className="text-xs text-slate-400">@{u.username} · {u.access_level}</p>
+                        <p className="text-sm font-medium text-gray-900 dark:text-white">{u.name}</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">@{u.username} · {u.access_level}</p>
                       </div>
                       {state.username === u.username && <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />}
                     </button>
@@ -367,7 +367,7 @@ function AssignWizard({
             {/* Step 2: Select provider */}
             {step === 2 && (
               <motion.div key="step2" initial={{ x: 20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: -20, opacity: 0 }}>
-                <p className="text-xs text-slate-400 mb-3">Select a NAS provider</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">Select a NAS provider</p>
                 <div className="space-y-3">
                   {providers.map(p => {
                     const Icon = p.id === "synology" ? Server : Database;
@@ -381,8 +381,8 @@ function AssignWizard({
                           state.provider === p.id
                             ? "bg-emerald-500/10 border-emerald-500/40"
                             : p.reachable
-                            ? "bg-white/5 border-white/10 hover:bg-white/[0.08]"
-                            : "bg-white/[0.02] border-white/5 opacity-50 cursor-not-allowed"
+                            ? "bg-gray-100 dark:bg-white/5 border-gray-200 dark:border-white/10 hover:bg-gray-100 dark:hover:bg-white/[0.08]"
+                            : "bg-gray-50 dark:bg-white/[0.02] border-gray-200 dark:border-white/5 opacity-50 cursor-not-allowed"
                         )}
                       >
                         <div className={cn(
@@ -392,8 +392,8 @@ function AssignWizard({
                           <Icon className={cn("w-5 h-5", p.reachable ? "text-emerald-400" : "text-red-400")} />
                         </div>
                         <div className="flex-1">
-                          <p className="text-sm font-semibold text-white">{p.name}</p>
-                          <p className="text-xs text-slate-400">{p.host}</p>
+                          <p className="text-sm font-semibold text-gray-900 dark:text-white">{p.name}</p>
+                          <p className="text-xs text-slate-500 dark:text-slate-400">{p.host}</p>
                         </div>
                         <div className="flex items-center gap-1.5">
                           {p.reachable
@@ -412,7 +412,7 @@ function AssignWizard({
             {step === 3 && (
               <motion.div key="step3" initial={{ x: 20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: -20, opacity: 0 }} className="space-y-4">
                 <div>
-                  <label className="text-xs text-slate-400 mb-2 block">Share</label>
+                  <label className="text-xs text-slate-500 dark:text-slate-400 mb-2 block">Share</label>
                   {sharesLoading ? (
                     <div className="space-y-2">{[...Array(3)].map((_, i) => <Skeleton key={i} className="h-12" />)}</div>
                   ) : (
@@ -425,13 +425,13 @@ function AssignWizard({
                             "w-full flex items-center gap-3 p-3 rounded-lg border text-left transition-all",
                             state.share === s.name
                               ? "bg-emerald-500/10 border-emerald-500/40"
-                              : "bg-white/5 border-white/10 hover:bg-white/[0.08]"
+                              : "bg-gray-100 dark:bg-white/5 border-gray-200 dark:border-white/10 hover:bg-gray-100 dark:hover:bg-white/[0.08]"
                           )}
                         >
-                          <FolderOpen className={cn("w-4 h-4 flex-shrink-0", state.share === s.name ? "text-emerald-400" : "text-slate-400")} />
+                          <FolderOpen className={cn("w-4 h-4 flex-shrink-0", state.share === s.name ? "text-emerald-400" : "text-slate-500 dark:text-slate-400")} />
                           <div>
-                            <p className="text-sm font-medium text-white">{s.name}</p>
-                            {s.desc && <p className="text-xs text-slate-400">{s.desc}</p>}
+                            <p className="text-sm font-medium text-gray-900 dark:text-white">{s.name}</p>
+                            {s.desc && <p className="text-xs text-slate-500 dark:text-slate-400">{s.desc}</p>}
                           </div>
                           {state.share === s.name && <CheckCircle2 className="w-4 h-4 text-emerald-400 ml-auto flex-shrink-0" />}
                         </button>
@@ -443,12 +443,12 @@ function AssignWizard({
 
                 {state.share && (
                   <div>
-                    <label className="text-xs text-slate-400 mb-2 block">Subfolder (optional)</label>
+                    <label className="text-xs text-slate-500 dark:text-slate-400 mb-2 block">Subfolder (optional)</label>
                     <input
                       value={state.subfolder}
                       onChange={e => updateState({ subfolder: e.target.value })}
                       placeholder={state.username}
-                      className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500/50 mb-3"
+                      className="w-full bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-lg px-3 py-2.5 text-sm text-gray-900 dark:text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500/50 mb-3"
                     />
                     {foldersLoading ? (
                       <div className="space-y-1">{[...Array(3)].map((_, i) => <Skeleton key={i} className="h-8" />)}</div>
@@ -462,7 +462,7 @@ function AssignWizard({
                               "px-3 py-1.5 rounded-lg text-xs border transition-all",
                               state.subfolder === f.name
                                 ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-300"
-                                : "bg-white/5 border-white/10 text-slate-400 hover:bg-white/10"
+                                : "bg-gray-100 dark:bg-white/5 border-gray-200 dark:border-white/10 text-slate-500 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-white/10"
                             )}
                           >
                             {f.name}
@@ -479,7 +479,7 @@ function AssignWizard({
             {step === 4 && (
               <motion.div key="step4" initial={{ x: 20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: -20, opacity: 0 }} className="space-y-4">
                 <div>
-                  <label className="text-xs text-slate-400 mb-2 block">Access Level</label>
+                  <label className="text-xs text-slate-500 dark:text-slate-400 mb-2 block">Access Level</label>
                   <div className="grid grid-cols-2 gap-3">
                     {(["readwrite", "readonly"] as const).map(a => (
                       <button
@@ -491,31 +491,31 @@ function AssignWizard({
                             ? a === "readwrite"
                               ? "bg-emerald-500/10 border-emerald-500/40"
                               : "bg-amber-500/10 border-amber-500/40"
-                            : "bg-white/5 border-white/10 hover:bg-white/[0.08]"
+                            : "bg-gray-100 dark:bg-white/5 border-gray-200 dark:border-white/10 hover:bg-gray-100 dark:hover:bg-white/[0.08]"
                         )}
                       >
                         {a === "readwrite" ? <Shield className="w-4 h-4 text-emerald-400" /> : <Eye className="w-4 h-4 text-amber-400" />}
-                        <span className="text-sm text-white">{a === "readwrite" ? "Read-Write" : "Read-Only"}</span>
+                        <span className="text-sm text-gray-900 dark:text-white">{a === "readwrite" ? "Read-Write" : "Read-Only"}</span>
                       </button>
                     ))}
                   </div>
                 </div>
                 <div>
-                  <label className="text-xs text-slate-400 mb-2 block">PVC Namespace</label>
+                  <label className="text-xs text-slate-500 dark:text-slate-400 mb-2 block">PVC Namespace</label>
                   <input
                     value={state.pvc_namespace}
                     onChange={e => updateState({ pvc_namespace: e.target.value })}
                     placeholder="plex"
-                    className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500/50"
+                    className="w-full bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-lg px-3 py-2.5 text-sm text-gray-900 dark:text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500/50"
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-slate-400 mb-2 block">PVC Name</label>
+                  <label className="text-xs text-slate-500 dark:text-slate-400 mb-2 block">PVC Name</label>
                   <input
                     value={state.pvc_name}
                     onChange={e => updateState({ pvc_name: e.target.value })}
                     placeholder={generatePvcName(state.username, state.share)}
-                    className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500/50 font-mono"
+                    className="w-full bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-lg px-3 py-2.5 text-sm text-gray-900 dark:text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500/50 font-mono"
                   />
                 </div>
               </motion.div>
@@ -525,40 +525,40 @@ function AssignWizard({
             {step === 5 && (
               <motion.div key="step5" initial={{ x: 20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: -20, opacity: 0 }} className="space-y-4">
                 <div className="grid grid-cols-2 gap-3 text-sm">
-                  <div className="bg-white/5 rounded-lg p-3">
-                    <p className="text-xs text-slate-400 mb-1">User</p>
-                    <p className="text-white font-medium">@{state.username}</p>
+                  <div className="bg-gray-100 dark:bg-white/5 rounded-lg p-3">
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">User</p>
+                    <p className="text-gray-900 dark:text-white font-medium">@{state.username}</p>
                   </div>
-                  <div className="bg-white/5 rounded-lg p-3">
-                    <p className="text-xs text-slate-400 mb-1">Provider</p>
-                    <p className="text-white font-medium capitalize">{state.provider}</p>
+                  <div className="bg-gray-100 dark:bg-white/5 rounded-lg p-3">
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">Provider</p>
+                    <p className="text-gray-900 dark:text-white font-medium capitalize">{state.provider}</p>
                   </div>
-                  <div className="bg-white/5 rounded-lg p-3">
-                    <p className="text-xs text-slate-400 mb-1">Share / Subfolder</p>
-                    <p className="text-white font-mono text-xs">{state.share}/{state.subfolder}</p>
+                  <div className="bg-gray-100 dark:bg-white/5 rounded-lg p-3">
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">Share / Subfolder</p>
+                    <p className="text-gray-900 dark:text-white font-mono text-xs">{state.share}/{state.subfolder}</p>
                   </div>
-                  <div className="bg-white/5 rounded-lg p-3">
-                    <p className="text-xs text-slate-400 mb-1">Access</p>
+                  <div className="bg-gray-100 dark:bg-white/5 rounded-lg p-3">
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">Access</p>
                     <AccessBadge access={state.access} />
                   </div>
-                  <div className="col-span-2 bg-white/5 rounded-lg p-3">
-                    <p className="text-xs text-slate-400 mb-1">PVC</p>
-                    <p className="text-white font-mono text-xs">{state.pvc_namespace}/{state.pvc_name}</p>
+                  <div className="col-span-2 bg-gray-100 dark:bg-white/5 rounded-lg p-3">
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">PVC</p>
+                    <p className="text-gray-900 dark:text-white font-mono text-xs">{state.pvc_namespace}/{state.pvc_name}</p>
                   </div>
                 </div>
 
                 <div>
                   <div className="flex items-center justify-between mb-2">
-                    <p className="text-xs text-slate-400">Generated K8s Manifest</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Generated K8s Manifest</p>
                     <button
                       onClick={copyYaml}
-                      className="flex items-center gap-1 text-xs text-slate-400 hover:text-white transition-colors"
+                      className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white transition-colors"
                     >
                       {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
                       {copied ? "Copied" : "Copy"}
                     </button>
                   </div>
-                  <pre className="bg-slate-950 border border-white/10 rounded-lg p-4 text-xs text-slate-300 overflow-x-auto max-h-56 leading-relaxed font-mono whitespace-pre">
+                  <pre className="bg-slate-100 dark:bg-slate-950 border border-gray-200 dark:border-white/10 rounded-lg p-4 text-xs text-slate-700 dark:text-slate-300 overflow-x-auto max-h-56 leading-relaxed font-mono whitespace-pre">
                     {generateYaml(state)}
                   </pre>
                 </div>
@@ -567,11 +567,11 @@ function AssignWizard({
           </AnimatePresence>
 
           {/* Navigation */}
-          <div className="flex gap-3 mt-6 pt-4 border-t border-white/10">
+          <div className="flex gap-3 mt-6 pt-4 border-t border-gray-200 dark:border-white/10">
             {step > 1 && (
               <button
                 onClick={() => setStep(s => (s - 1) as Step)}
-                className="px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 hover:bg-white/10 transition-colors"
+                className="px-4 py-2 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-sm text-slate-700 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-white/10 transition-colors"
               >
                 Back
               </button>
@@ -637,7 +637,7 @@ export function StorageTab({ users, isAdmin }: StorageTabProps) {
     <div className="space-y-6">
       {/* Provider status cards */}
       <div>
-        <h3 className="text-sm font-semibold text-slate-400 mb-3 uppercase tracking-wide">Provider Status</h3>
+        <h3 className="text-sm font-semibold text-slate-500 dark:text-slate-400 mb-3 uppercase tracking-wide">Provider Status</h3>
         {providersLoading ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Skeleton className="h-20" />
@@ -653,7 +653,7 @@ export function StorageTab({ users, isAdmin }: StorageTabProps) {
       {/* Assignments table */}
       <div>
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wide">
+          <h3 className="text-sm font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">
             Share Assignments
             {flatAssignments.length > 0 && (
               <span className="ml-2 text-xs normal-case text-slate-500">({flatAssignments.length})</span>
@@ -675,9 +675,9 @@ export function StorageTab({ users, isAdmin }: StorageTabProps) {
             {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-14" />)}
           </div>
         ) : flatAssignments.length === 0 ? (
-          <div className="bg-white/5 border border-white/10 rounded-xl py-16 flex flex-col items-center gap-3">
+          <div className="bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl py-16 flex flex-col items-center gap-3">
             <HardDrive className="w-10 h-10 text-slate-600" />
-            <p className="text-sm text-slate-400">No shares assigned yet</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400">No shares assigned yet</p>
             {isAdmin && (
               <button
                 onClick={() => setWizardOpen(true)}
@@ -690,8 +690,8 @@ export function StorageTab({ users, isAdmin }: StorageTabProps) {
         ) : (
           <>
             {/* Desktop table */}
-            <div className="hidden md:block bg-white/5 border border-white/10 rounded-xl overflow-hidden">
-              <div className="grid grid-cols-[2fr_2fr_auto_2fr_auto] gap-4 px-4 py-2.5 border-b border-white/5">
+            <div className="hidden md:block bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl overflow-hidden">
+              <div className="grid grid-cols-[2fr_2fr_auto_2fr_auto] gap-4 px-4 py-2.5 border-b border-gray-200 dark:border-white/5">
                 <span className="text-xs text-slate-500 font-medium uppercase tracking-wide">User</span>
                 <span className="text-xs text-slate-500 font-medium uppercase tracking-wide">Share</span>
                 <span className="text-xs text-slate-500 font-medium uppercase tracking-wide">Access</span>
@@ -706,24 +706,24 @@ export function StorageTab({ users, isAdmin }: StorageTabProps) {
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, x: -20 }}
                     transition={{ delay: i * 0.03 }}
-                    className="grid grid-cols-[2fr_2fr_auto_2fr_auto] gap-4 items-center px-4 py-3 border-b border-white/5 last:border-0 hover:bg-white/[0.03] transition-colors"
+                    className="grid grid-cols-[2fr_2fr_auto_2fr_auto] gap-4 items-center px-4 py-3 border-b border-gray-200 dark:border-white/5 last:border-0 hover:bg-white/[0.03] transition-colors"
                   >
                     <div className="flex items-center gap-2 min-w-0">
                       <div className="w-7 h-7 rounded-full bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-xs font-bold text-indigo-300 flex-shrink-0">
                         {(a.name || a.username)[0]?.toUpperCase()}
                       </div>
                       <div className="min-w-0">
-                        <p className="text-sm text-white truncate">{a.name}</p>
+                        <p className="text-sm text-gray-900 dark:text-white truncate">{a.name}</p>
                         <p className="text-xs text-slate-500">@{a.username}</p>
                       </div>
                     </div>
                     <div className="min-w-0">
-                      <p className="text-sm text-white font-mono truncate">{a.share}/{a.subfolder}</p>
+                      <p className="text-sm text-gray-900 dark:text-white font-mono truncate">{a.share}/{a.subfolder}</p>
                       <p className="text-xs text-slate-500 capitalize">{a.provider}</p>
                     </div>
                     <AccessBadge access={a.access} />
                     <div className="min-w-0">
-                      <p className="text-xs text-slate-300 font-mono truncate">{a.pvc_name ?? "—"}</p>
+                      <p className="text-xs text-slate-700 dark:text-slate-300 font-mono truncate">{a.pvc_name ?? "—"}</p>
                       <p className="text-xs text-slate-500">{a.pvc_namespace ?? "—"}</p>
                     </div>
                     {isAdmin && (
@@ -743,20 +743,20 @@ export function StorageTab({ users, isAdmin }: StorageTabProps) {
             {/* Mobile cards */}
             <div className="md:hidden space-y-3">
               {flatAssignments.map((a, i) => (
-                <div key={`${a.username}-${a.share}-${i}`} className="bg-white/5 border border-white/10 rounded-xl p-4">
+                <div key={`${a.username}-${a.share}-${i}`} className="bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl p-4">
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
                       <div className="w-7 h-7 rounded-full bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-xs font-bold text-indigo-300">
                         {(a.name || a.username)[0]?.toUpperCase()}
                       </div>
-                      <span className="text-sm font-medium text-white">@{a.username}</span>
+                      <span className="text-sm font-medium text-gray-900 dark:text-white">@{a.username}</span>
                     </div>
                     <AccessBadge access={a.access} />
                   </div>
                   <div className="space-y-1 text-xs mb-3">
-                    <p className="text-slate-400"><span className="text-slate-500">Share: </span><span className="font-mono text-slate-300">{a.share}/{a.subfolder}</span></p>
-                    <p className="text-slate-400"><span className="text-slate-500">Provider: </span><span className="capitalize">{a.provider}</span></p>
-                    <p className="text-slate-400"><span className="text-slate-500">PVC: </span><span className="font-mono text-slate-300">{a.pvc_name}</span></p>
+                    <p className="text-slate-500 dark:text-slate-400"><span className="text-slate-500">Share: </span><span className="font-mono text-slate-700 dark:text-slate-300">{a.share}/{a.subfolder}</span></p>
+                    <p className="text-slate-500 dark:text-slate-400"><span className="text-slate-500">Provider: </span><span className="capitalize">{a.provider}</span></p>
+                    <p className="text-slate-500 dark:text-slate-400"><span className="text-slate-500">PVC: </span><span className="font-mono text-slate-700 dark:text-slate-300">{a.pvc_name}</span></p>
                   </div>
                   {isAdmin && (
                     <button

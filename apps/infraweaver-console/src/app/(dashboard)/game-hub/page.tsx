@@ -64,7 +64,7 @@ interface UnusedPVC {
 const STATUS_COLORS: Record<string, string> = {
   running: "bg-green-500/20 text-green-300 border-green-500/30",
   starting: "bg-yellow-500/20 text-yellow-300 border-yellow-500/30",
-  stopped: "bg-[#333] text-[#999] border-[#444]",
+  stopped: "bg-[#333] text-gray-500 dark:text-[#999] border-gray-200 dark:border-[#444]",
   crashed: "bg-red-500/20 text-red-300 border-red-500/30",
 };
 
@@ -224,7 +224,7 @@ const FEATURE_ROADMAP: Array<{ category: string; items: Array<{ name: string; st
 const ROADMAP_STATUS_STYLES: Record<"Shipped" | "Planned" | "Coming Soon", string> = {
   Shipped: "bg-green-500/15 text-green-300 border-green-500/30",
   Planned: "bg-[#0078D4]/15 text-[#4db3ff] border-[#0078D4]/30",
-  "Coming Soon": "bg-[#252525] text-[#999] border-[#333]",
+  "Coming Soon": "bg-gray-50 dark:bg-[#252525] text-gray-500 dark:text-[#999] border-gray-200 dark:border-[#333]",
 };
 
 function PVCCleanupModal({ onClose }: { onClose: () => void }) {
@@ -288,9 +288,9 @@ function PVCCleanupModal({ onClose }: { onClose: () => void }) {
       description="Review unused volumes, select what to remove, and swipe down when you are done."
       footer={!isLoading && unused.length > 0 ? (
         <div className="space-y-3 sm:flex sm:items-center sm:justify-between sm:gap-4 sm:space-y-0">
-          <p className="text-sm text-[#888]">{checked.size} of {unused.length} selected</p>
+          <p className="text-sm text-gray-500 dark:text-[#888]">{checked.size} of {unused.length} selected</p>
           <div className="grid grid-cols-1 gap-3 sm:flex sm:gap-2">
-            <button onClick={onClose} className="inline-flex min-h-[48px] items-center justify-center rounded-2xl border border-[#2a2a2a] bg-[#161616] px-4 text-sm font-medium text-[#d4d4d4] transition-colors hover:border-[#3a3a3a] hover:text-white">Cancel</button>
+            <button onClick={onClose} className="inline-flex min-h-[48px] items-center justify-center rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] px-4 text-sm font-medium text-gray-700 dark:text-[#d4d4d4] transition-colors hover:border-[#3a3a3a] hover:text-gray-900 dark:hover:text-white">Cancel</button>
             <button onClick={doCleanup} disabled={checked.size === 0 || deleting} className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-2xl bg-red-500/20 px-4 text-sm font-semibold text-red-200 transition-colors hover:bg-red-500/30 disabled:cursor-not-allowed disabled:opacity-50">
               {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />} Delete {checked.size > 0 ? `${checked.size} PVC${checked.size !== 1 ? "s" : ""}` : "selected PVCs"}
             </button>
@@ -301,7 +301,7 @@ function PVCCleanupModal({ onClose }: { onClose: () => void }) {
       {isLoading && (
         <div className="space-y-3">
           {Array.from({ length: 3 }).map((_, index) => (
-            <div key={index} className="h-24 rounded-2xl border border-[#2a2a2a] bg-[#161616] animate-pulse" />
+            <div key={index} className="h-24 rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] animate-pulse" />
           ))}
         </div>
       )}
@@ -315,20 +315,20 @@ function PVCCleanupModal({ onClose }: { onClose: () => void }) {
         </div>
       )}
       {!isLoading && !error && unused.length === 0 && (
-        <div className="flex min-h-[240px] flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-[#2a2a2a] bg-[#161616] p-6 text-center">
+        <div className="flex min-h-[240px] flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] p-6 text-center">
           <div className="text-4xl">✅</div>
-          <p className="text-base font-semibold text-[#f2f2f2]">No unused PVCs found</p>
-          <p className="text-sm text-[#888]">All PersistentVolumeClaims are currently bound and in use.</p>
+          <p className="text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">No unused PVCs found</p>
+          <p className="text-sm text-gray-500 dark:text-[#888]">All PersistentVolumeClaims are currently bound and in use.</p>
         </div>
       )}
       {!isLoading && unused.length > 0 && (
         <div className="space-y-3">
-          <div className="flex flex-col gap-3 rounded-2xl border border-[#2a2a2a] bg-[#161616] p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-3 rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] p-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="text-base font-semibold text-white">{unused.length} unused PVC{unused.length !== 1 ? "s" : ""}</p>
-              <p className="mt-1 text-sm text-[#888]">Select the volumes you want to remove. Destructive actions stay in the bottom footer for thumb reach.</p>
+              <p className="text-base font-semibold text-gray-900 dark:text-white">{unused.length} unused PVC{unused.length !== 1 ? "s" : ""}</p>
+              <p className="mt-1 text-sm text-gray-500 dark:text-[#888]">Select the volumes you want to remove. Destructive actions stay in the bottom footer for thumb reach.</p>
             </div>
-            <button onClick={toggleAll} className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-2xl border border-[#2a2a2a] bg-[#111] px-4 text-sm font-medium text-[#9ecfff] transition-colors hover:border-[#3a3a3a] hover:text-white">
+            <button onClick={toggleAll} className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-4 text-sm font-medium text-[#9ecfff] transition-colors hover:border-[#3a3a3a] hover:text-gray-900 dark:hover:text-white">
               {checked.size === unused.length ? <SquareIcon className="h-4 w-4" /> : <CheckSquare className="h-4 w-4" />}
               {checked.size === unused.length ? "Deselect all" : "Select all"}
             </button>
@@ -338,26 +338,26 @@ function PVCCleanupModal({ onClose }: { onClose: () => void }) {
               const key = `${pvc.namespace}/${pvc.name}`;
               const isChecked = checked.has(key);
               return (
-                <button key={key} onClick={() => toggle(key)} className={cn("w-full rounded-2xl border p-4 text-left transition-colors", isChecked ? "border-red-500/30 bg-red-500/10 hover:bg-red-500/15" : "border-[#2a2a2a] bg-[#161616] hover:border-[#3a3a3a]")}>
+                <button key={key} onClick={() => toggle(key)} className={cn("w-full rounded-2xl border p-4 text-left transition-colors", isChecked ? "border-red-500/30 bg-red-500/10 hover:bg-red-500/15" : "border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] hover:border-[#3a3a3a]")}>
                   <div className="flex items-start gap-3">
-                    <div className={cn("mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md border", isChecked ? "border-red-500 bg-red-500" : "border-[#555]")}>{isChecked ? <span className="text-sm font-bold text-white">✓</span> : null}</div>
+                    <div className={cn("mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md border", isChecked ? "border-red-500 bg-red-500" : "border-[#555]")}>{isChecked ? <span className="text-sm font-bold text-gray-900 dark:text-white">✓</span> : null}</div>
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="truncate text-base font-semibold text-[#f2f2f2]">{pvc.name}</span>
-                        <span className={cn("rounded-full border px-3 py-1 text-sm font-medium", pvc.status === "Released" ? "border-yellow-500/30 bg-yellow-500/20 text-yellow-200" : pvc.status === "Lost" ? "border-red-500/30 bg-red-500/20 text-red-200" : "border-[#444] bg-[#252525] text-[#b3b3b3]")}>{pvc.status}</span>
+                        <span className="truncate text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">{pvc.name}</span>
+                        <span className={cn("rounded-full border px-3 py-1 text-sm font-medium", pvc.status === "Released" ? "border-yellow-500/30 bg-yellow-500/20 text-yellow-200" : pvc.status === "Lost" ? "border-red-500/30 bg-red-500/20 text-red-200" : "border-gray-200 dark:border-[#444] bg-gray-50 dark:bg-[#252525] text-gray-600 dark:text-[#b3b3b3]")}>{pvc.status}</span>
                       </div>
-                      <div className="mt-3 grid grid-cols-2 gap-3 text-sm text-[#b3b3b3] sm:grid-cols-3">
+                      <div className="mt-3 grid grid-cols-2 gap-3 text-sm text-gray-600 dark:text-[#b3b3b3] sm:grid-cols-3">
                         <div>
-                          <p className="text-[#777]">Namespace</p>
-                          <p className="mt-1 text-white">{pvc.namespace}</p>
+                          <p className="text-gray-500 dark:text-[#777]">Namespace</p>
+                          <p className="mt-1 text-gray-900 dark:text-white">{pvc.namespace}</p>
                         </div>
                         <div>
-                          <p className="text-[#777]">Storage class</p>
-                          <p className="mt-1 text-white">{pvc.storageClass || "default"}</p>
+                          <p className="text-gray-500 dark:text-[#777]">Storage class</p>
+                          <p className="mt-1 text-gray-900 dark:text-white">{pvc.storageClass || "default"}</p>
                         </div>
                         <div>
-                          <p className="text-[#777]">Capacity</p>
-                          <p className="mt-1 text-white">{pvc.capacity || "unknown size"}</p>
+                          <p className="text-gray-500 dark:text-[#777]">Capacity</p>
+                          <p className="mt-1 text-gray-900 dark:text-white">{pvc.capacity || "unknown size"}</p>
                         </div>
                       </div>
                     </div>
@@ -392,7 +392,7 @@ function computeHealthScore(server: GameServer) {
 
 function healthBadge(server: GameServer) {
   const score = computeHealthScore(server);
-  if (server.status === "stopped") return { label: "Stopped", score, className: "bg-[#333] text-[#bbb] border-[#444]" };
+  if (server.status === "stopped") return { label: "Stopped", score, className: "bg-[#333] text-[#bbb] border-gray-200 dark:border-[#444]" };
   if (score >= 80) return { label: `${score}/100`, score, className: "bg-green-500/15 text-green-300 border-green-500/30" };
   if (score >= 50) return { label: `${score}/100`, score, className: "bg-yellow-500/15 text-yellow-300 border-yellow-500/30" };
   return { label: `${score}/100`, score, className: "bg-red-500/15 text-red-300 border-red-500/30" };
@@ -479,7 +479,7 @@ function ServerActionSheet({
               onToggleSelected();
               onClose();
             }}
-            className="inline-flex min-h-[48px] items-center justify-center rounded-2xl border border-[#2a2a2a] bg-[#161616] px-4 text-sm font-medium text-[#d4d4d4] transition-colors hover:border-[#3a3a3a] hover:text-white"
+            className="inline-flex min-h-[48px] items-center justify-center rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] px-4 text-sm font-medium text-gray-700 dark:text-[#d4d4d4] transition-colors hover:border-[#3a3a3a] hover:text-gray-900 dark:hover:text-white"
           >
             {isSelected ? "Selected for bulk actions" : "Select for bulk actions"}
           </button>
@@ -489,22 +489,22 @@ function ServerActionSheet({
       <div className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
           {metrics.map((metric) => (
-            <div key={metric.label} className="rounded-2xl border border-[#2a2a2a] bg-[#161616] p-3">
-              <p className="text-sm text-[#888]">{metric.label}</p>
-              <p className="mt-1 text-base font-semibold text-white">{metric.value}</p>
+            <div key={metric.label} className="rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] p-3">
+              <p className="text-sm text-gray-500 dark:text-[#888]">{metric.label}</p>
+              <p className="mt-1 text-base font-semibold text-gray-900 dark:text-white">{metric.value}</p>
             </div>
           ))}
         </div>
 
-        <div className="rounded-2xl border border-[#2a2a2a] bg-[#161616] p-4">
+        <div className="rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] p-4">
           <div className="flex flex-wrap items-center gap-2">
             <span className={cn("rounded-full border px-3 py-1 text-sm font-medium capitalize", STATUS_COLORS[server.status] ?? STATUS_COLORS.stopped)}>{server.status}</span>
             <span className={cn("rounded-full border px-3 py-1 text-sm font-medium", healthBadge(server).className)}>
               {server.status === "stopped" ? "Stopped" : `Health ${healthBadge(server).label}`}
             </span>
-            <span className={cn("rounded-full border px-3 py-1 text-sm font-medium", server.inGit ? "border-green-500/30 bg-green-500/10 text-green-300" : "border-[#444] bg-[#252525] text-[#b3b3b3]")}>{server.inGit ? "IaC tracked" : "Cluster-only"}</span>
+            <span className={cn("rounded-full border px-3 py-1 text-sm font-medium", server.inGit ? "border-green-500/30 bg-green-500/10 text-green-300" : "border-gray-200 dark:border-[#444] bg-gray-50 dark:bg-[#252525] text-gray-600 dark:text-[#b3b3b3]")}>{server.inGit ? "IaC tracked" : "Cluster-only"}</span>
           </div>
-          <p className="mt-3 text-sm text-[#b3b3b3]">{server.description ?? "Use the action sheet for quick lifecycle operations without leaving the list."}</p>
+          <p className="mt-3 text-sm text-gray-600 dark:text-[#b3b3b3]">{server.description ?? "Use the action sheet for quick lifecycle operations without leaving the list."}</p>
         </div>
 
         <div className="space-y-2">
@@ -515,19 +515,19 @@ function ServerActionSheet({
             </button>
           ) : null}
           {(server.status !== "stopped" && server.permissions?.canAdmin) ? (
-            <button type="button" onClick={() => void onAction("restart")} disabled={!!actionLoading} className="flex min-h-[52px] w-full items-center justify-between rounded-2xl border border-[#2a2a2a] bg-[#161616] px-4 text-left text-sm font-medium text-[#d4d4d4] transition-colors hover:border-[#3a3a3a] hover:text-white disabled:opacity-50">
+            <button type="button" onClick={() => void onAction("restart")} disabled={!!actionLoading} className="flex min-h-[52px] w-full items-center justify-between rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] px-4 text-left text-sm font-medium text-gray-700 dark:text-[#d4d4d4] transition-colors hover:border-[#3a3a3a] hover:text-gray-900 dark:hover:text-white disabled:opacity-50">
               <span className="flex items-center gap-3"><RotateCcw className="h-4 w-4" /> Restart server</span>
               {actionLoading === "restart" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             </button>
           ) : null}
           {(server.status !== "stopped" && server.permissions?.canStop) ? (
-            <button type="button" onClick={() => void onAction("stop")} disabled={!!actionLoading} className="flex min-h-[52px] w-full items-center justify-between rounded-2xl border border-[#2a2a2a] bg-[#161616] px-4 text-left text-sm font-medium text-[#d4d4d4] transition-colors hover:border-red-500/30 hover:text-red-300 disabled:opacity-50">
+            <button type="button" onClick={() => void onAction("stop")} disabled={!!actionLoading} className="flex min-h-[52px] w-full items-center justify-between rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] px-4 text-left text-sm font-medium text-gray-700 dark:text-[#d4d4d4] transition-colors hover:border-red-500/30 hover:text-red-300 disabled:opacity-50">
               <span className="flex items-center gap-3"><Square className="h-4 w-4" /> Stop server</span>
               {actionLoading === "stop" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             </button>
           ) : null}
           {server.permissions?.canAdmin ? (
-            <button type="button" onClick={() => void onClone()} className="flex min-h-[52px] w-full items-center gap-3 rounded-2xl border border-[#2a2a2a] bg-[#161616] px-4 text-left text-sm font-medium text-[#d4d4d4] transition-colors hover:border-[#3a3a3a] hover:text-white">
+            <button type="button" onClick={() => void onClone()} className="flex min-h-[52px] w-full items-center gap-3 rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] px-4 text-left text-sm font-medium text-gray-700 dark:text-[#d4d4d4] transition-colors hover:border-[#3a3a3a] hover:text-gray-900 dark:hover:text-white">
               <Plus className="h-4 w-4" /> Clone server
             </button>
           ) : null}
@@ -537,11 +537,11 @@ function ServerActionSheet({
               {actionLoading === "sync-to-git" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             </button>
           ) : null}
-          <button type="button" onClick={() => { onToggleFavorite(); onClose(); }} className="flex min-h-[52px] w-full items-center gap-3 rounded-2xl border border-[#2a2a2a] bg-[#161616] px-4 text-left text-sm font-medium text-[#d4d4d4] transition-colors hover:border-[#3a3a3a] hover:text-white">
+          <button type="button" onClick={() => { onToggleFavorite(); onClose(); }} className="flex min-h-[52px] w-full items-center gap-3 rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] px-4 text-left text-sm font-medium text-gray-700 dark:text-[#d4d4d4] transition-colors hover:border-[#3a3a3a] hover:text-gray-900 dark:hover:text-white">
             <Star className={cn("h-4 w-4", isFavorite && "fill-yellow-300 text-yellow-300")} />
             {isFavorite ? "Remove favorite" : "Add to favorites"}
           </button>
-          <button type="button" onClick={() => { onToggleCompare(); onClose(); }} className="flex min-h-[52px] w-full items-center gap-3 rounded-2xl border border-[#2a2a2a] bg-[#161616] px-4 text-left text-sm font-medium text-[#d4d4d4] transition-colors hover:border-[#3a3a3a] hover:text-white">
+          <button type="button" onClick={() => { onToggleCompare(); onClose(); }} className="flex min-h-[52px] w-full items-center gap-3 rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] px-4 text-left text-sm font-medium text-gray-700 dark:text-[#d4d4d4] transition-colors hover:border-[#3a3a3a] hover:text-gray-900 dark:hover:text-white">
             <BarChart2 className="h-4 w-4" />
             {compareSelected ? "Remove from compare" : "Add to compare"}
           </button>
@@ -562,7 +562,7 @@ function ServerActionSheet({
           ) : null}
         </div>
 
-        <p className="text-sm text-[#777]">Tip: long-press any server card to open this action sheet without aiming for the menu button.</p>
+        <p className="text-sm text-gray-500 dark:text-[#777]">Tip: long-press any server card to open this action sheet without aiming for the menu button.</p>
       </div>
     </ResponsiveSheet>
   );
@@ -880,7 +880,7 @@ export default function GameHubPage() {
           <div className="flex items-center gap-2">
             <RefreshCountdown intervalSeconds={15} resetKey={dataUpdatedAt} className="hidden sm:inline-flex" />
             {canManageGameHub ? (
-              <button onClick={() => setShowPVCCleanup(true)} className="flex min-h-[44px] items-center gap-2 rounded-lg border border-[#2a2a2a] bg-[#252525] px-3 py-2 text-sm font-medium text-[#9e9e9e] transition-colors hover:bg-[#2a2a2a] hover:text-[#f2f2f2]">
+              <button onClick={() => setShowPVCCleanup(true)} className="flex min-h-[44px] items-center gap-2 rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#252525] px-3 py-2 text-sm font-medium text-gray-500 dark:text-[#9e9e9e] transition-colors hover:bg-gray-100 dark:hover:bg-[#2a2a2a] hover:text-gray-900 dark:hover:text-[#f2f2f2]">
                 <HardDrive className="w-4 h-4" />
                 <span className="hidden sm:inline">Cleanup PVCs</span>
               </button>
@@ -892,7 +892,7 @@ export default function GameHubPage() {
                   return !prev;
                 });
               }}
-              className={cn("flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors border", compareMode ? "bg-[#0078D4]/15 border-[#0078D4]/30 text-[#4db3ff]" : "bg-[#252525] hover:bg-[#2a2a2a] border-[#2a2a2a] text-[#9e9e9e] hover:text-[#f2f2f2]")}
+              className={cn("flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors border", compareMode ? "bg-[#0078D4]/15 border-[#0078D4]/30 text-[#4db3ff]" : "bg-gray-50 dark:bg-[#252525] hover:bg-gray-100 dark:hover:bg-[#2a2a2a] border-gray-200 dark:border-[#2a2a2a] text-gray-500 dark:text-[#9e9e9e] hover:text-gray-900 dark:hover:text-[#f2f2f2]")}
             >
               <BarChart2 className="w-4 h-4" />
               <span className="hidden sm:inline">{compareMode ? "Comparing" : "Compare"}</span>
@@ -907,55 +907,55 @@ export default function GameHubPage() {
         }
       />
 
-      <div className="space-y-3 rounded-2xl border border-[#2a2a2a] bg-[#111] p-3 sm:border-0 sm:bg-transparent sm:p-0">
+      <div className="space-y-3 rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-3 sm:border-0 sm:bg-transparent sm:p-0">
         <div className="flex items-center gap-2 sm:hidden">
           <button
             onClick={() => setMobileSearchOpen((value) => !value)}
-            className={cn("flex h-11 w-11 items-center justify-center rounded-2xl border border-[#2a2a2a] bg-[#161616] text-[#888] transition-colors", mobileSearchOpen && "border-[#0078D4]/30 bg-[#0078D4]/10 text-[#4db3ff]")}
+            className={cn("flex h-11 w-11 items-center justify-center rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] text-gray-500 dark:text-[#888] transition-colors", mobileSearchOpen && "border-[#0078D4]/30 bg-[#0078D4]/10 text-[#4db3ff]")}
             aria-label="Toggle search"
           >
             <Search className="h-4 w-4" />
           </button>
           <button
             onClick={() => setMobileFiltersOpen((value) => !value)}
-            className={cn("inline-flex min-h-[44px] items-center gap-2 rounded-2xl border border-[#2a2a2a] bg-[#161616] px-4 text-sm text-[#888] transition-colors", mobileFiltersOpen && "border-[#0078D4]/30 bg-[#0078D4]/10 text-[#4db3ff]")}
+            className={cn("inline-flex min-h-[44px] items-center gap-2 rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] px-4 text-sm text-gray-500 dark:text-[#888] transition-colors", mobileFiltersOpen && "border-[#0078D4]/30 bg-[#0078D4]/10 text-[#4db3ff]")}
           >
             Filters
             <ChevronDown className={cn("h-4 w-4 transition-transform", mobileFiltersOpen && "rotate-180")} />
           </button>
-          <div className="ml-auto flex items-center rounded-2xl border border-[#2a2a2a] bg-[#161616] p-1">
-            <button onClick={() => setViewMode("detailed")} className={cn("min-h-[44px] min-w-[44px] rounded-xl px-2 py-1 text-sm transition-colors", viewMode === "detailed" ? "bg-[#0078D4]/15 text-[#4db3ff]" : "text-[#666]")} title="Detailed cards"><LayoutGrid className="h-4 w-4" /></button>
-            <button onClick={() => setViewMode("compact")} className={cn("min-h-[44px] min-w-[44px] rounded-xl px-2 py-1 text-sm transition-colors", viewMode === "compact" ? "bg-[#0078D4]/15 text-[#4db3ff]" : "text-[#666]")} title="Compact list"><Rows3 className="h-4 w-4" /></button>
+          <div className="ml-auto flex items-center rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] p-1">
+            <button onClick={() => setViewMode("detailed")} className={cn("min-h-[44px] min-w-[44px] rounded-xl px-2 py-1 text-sm transition-colors", viewMode === "detailed" ? "bg-[#0078D4]/15 text-[#4db3ff]" : "text-gray-400 dark:text-[#666]")} title="Detailed cards"><LayoutGrid className="h-4 w-4" /></button>
+            <button onClick={() => setViewMode("compact")} className={cn("min-h-[44px] min-w-[44px] rounded-xl px-2 py-1 text-sm transition-colors", viewMode === "compact" ? "bg-[#0078D4]/15 text-[#4db3ff]" : "text-gray-400 dark:text-[#666]")} title="Compact list"><Rows3 className="h-4 w-4" /></button>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className={cn("relative min-w-0 flex-1", mobileSearchOpen ? "block" : "hidden sm:block", "sm:min-w-[260px] sm:max-w-sm")}>
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#555]" />
-            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search servers, tags, or groups" className="min-h-[48px] w-full rounded-2xl border border-[#2a2a2a] bg-[#161616] pl-10 pr-4 text-base text-[#f2f2f2] placeholder:text-[#555] focus:border-[#0078D4]/50 focus:outline-none" />
-            <p className="mt-2 text-sm text-[#777]">Search by server name, game type, tag, or group.</p>
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-[#555]" />
+            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search servers, tags, or groups" className="min-h-[48px] w-full rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] pl-10 pr-4 text-base text-gray-900 dark:text-[#f2f2f2] placeholder:text-gray-400 dark:placeholder:text-[#555] focus:border-[#0078D4]/50 focus:outline-none" />
+            <p className="mt-2 text-sm text-gray-500 dark:text-[#777]">Search by server name, game type, tag, or group.</p>
           </div>
           <div className={cn("w-full space-y-3", mobileFiltersOpen ? "block" : "hidden sm:block", "sm:w-auto sm:space-y-2")}>
             <HorizontalScrollHint hint="Swipe filters">
               <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-none">
                 {["all", "running", "starting", "stopped"].map((status) => (
-                  <button key={status} onClick={() => setFilterStatus(status)} className={cn("min-h-[44px] rounded-full border px-4 py-2 text-sm font-medium capitalize transition-colors whitespace-nowrap", filterStatus === status ? "border-[#0078D4]/40 bg-[#0078D4]/20 text-[#4db3ff]" : "border-[#2a2a2a] bg-[#161616] text-[#888] hover:text-white")}>{status}</button>
+                  <button key={status} onClick={() => setFilterStatus(status)} className={cn("min-h-[44px] rounded-full border px-4 py-2 text-sm font-medium capitalize transition-colors whitespace-nowrap", filterStatus === status ? "border-[#0078D4]/40 bg-[#0078D4]/20 text-[#4db3ff]" : "border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] text-gray-500 dark:text-[#888] hover:text-gray-900 dark:hover:text-white")}>{status}</button>
                 ))}
               </div>
             </HorizontalScrollHint>
             <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-wrap sm:items-center">
               {uniqueGameTypes.length > 1 && (
-                <select value={filterType} onChange={(event) => setFilterType(event.target.value)} className="min-h-[48px] rounded-2xl border border-[#2a2a2a] bg-[#161616] px-4 text-base text-[#d4d4d4] focus:border-[#0078D4]/50 focus:outline-none sm:text-sm">
+                <select value={filterType} onChange={(event) => setFilterType(event.target.value)} className="min-h-[48px] rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] px-4 text-base text-gray-700 dark:text-[#d4d4d4] focus:border-[#0078D4]/50 focus:outline-none sm:text-sm">
                   <option value="">All game types</option>
                   {uniqueGameTypes.map((type) => <option key={type} value={type}>{type}</option>)}
                 </select>
               )}
               {allGroups.length > 0 && (
-                <select value={filterGroup} onChange={(event) => setFilterGroup(event.target.value)} className="min-h-[48px] rounded-2xl border border-[#2a2a2a] bg-[#161616] px-4 text-base text-[#d4d4d4] focus:border-[#0078D4]/50 focus:outline-none sm:text-sm">
+                <select value={filterGroup} onChange={(event) => setFilterGroup(event.target.value)} className="min-h-[48px] rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] px-4 text-base text-gray-700 dark:text-[#d4d4d4] focus:border-[#0078D4]/50 focus:outline-none sm:text-sm">
                   <option value="">All groups</option>
                   {allGroups.map((group) => <option key={group} value={group}>{group}</option>)}
                 </select>
               )}
-              <select value={sortKey} onChange={(event) => setSort(event.target.value as ServerSortKey)} className="min-h-[48px] rounded-2xl border border-[#2a2a2a] bg-[#161616] px-4 text-base text-[#d4d4d4] focus:border-[#0078D4]/50 focus:outline-none sm:text-sm">
+              <select value={sortKey} onChange={(event) => setSort(event.target.value as ServerSortKey)} className="min-h-[48px] rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] px-4 text-base text-gray-700 dark:text-[#d4d4d4] focus:border-[#0078D4]/50 focus:outline-none sm:text-sm">
                 <option value="health">Sort by health</option>
                 <option value="name">Sort by name</option>
                 <option value="status">Sort by status</option>
@@ -963,12 +963,12 @@ export default function GameHubPage() {
                 <option value="players">Sort by players</option>
                 <option value="started">Sort by last started</option>
               </select>
-              <div className="hidden items-center rounded-2xl border border-[#2a2a2a] bg-[#161616] p-1 sm:flex">
-                <button onClick={() => setViewMode("detailed")} className={cn("min-h-[44px] min-w-[44px] rounded-xl px-2 py-1 text-sm transition-colors", viewMode === "detailed" ? "bg-[#0078D4]/15 text-[#4db3ff]" : "text-[#666]")} title="Detailed cards"><LayoutGrid className="h-4 w-4" /></button>
-                <button onClick={() => setViewMode("compact")} className={cn("min-h-[44px] min-w-[44px] rounded-xl px-2 py-1 text-sm transition-colors", viewMode === "compact" ? "bg-[#0078D4]/15 text-[#4db3ff]" : "text-[#666]")} title="Compact list"><Rows3 className="h-4 w-4" /></button>
+              <div className="hidden items-center rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] p-1 sm:flex">
+                <button onClick={() => setViewMode("detailed")} className={cn("min-h-[44px] min-w-[44px] rounded-xl px-2 py-1 text-sm transition-colors", viewMode === "detailed" ? "bg-[#0078D4]/15 text-[#4db3ff]" : "text-gray-400 dark:text-[#666]")} title="Detailed cards"><LayoutGrid className="h-4 w-4" /></button>
+                <button onClick={() => setViewMode("compact")} className={cn("min-h-[44px] min-w-[44px] rounded-xl px-2 py-1 text-sm transition-colors", viewMode === "compact" ? "bg-[#0078D4]/15 text-[#4db3ff]" : "text-gray-400 dark:text-[#666]")} title="Compact list"><Rows3 className="h-4 w-4" /></button>
               </div>
               {(search || filterType || filterTag || filterGroup || filterStatus !== "all") && (
-                <button onClick={resetFilters} className="min-h-[48px] rounded-2xl border border-[#2a2a2a] bg-[#161616] px-4 text-sm font-medium text-[#d4d4d4] transition-colors hover:border-[#3a3a3a] hover:text-white">Reset filters</button>
+                <button onClick={resetFilters} className="min-h-[48px] rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] px-4 text-sm font-medium text-gray-700 dark:text-[#d4d4d4] transition-colors hover:border-[#3a3a3a] hover:text-gray-900 dark:hover:text-white">Reset filters</button>
               )}
             </div>
           </div>
@@ -978,12 +978,12 @@ export default function GameHubPage() {
       {allTags.length > 0 && (
         <HorizontalScrollHint className={cn(mobileFiltersOpen ? "block" : "hidden sm:block")} hint="Swipe tags and groups">
           <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-none">
-            <button onClick={() => setFilterTag("")} className={cn("min-h-[44px] rounded-full border px-4 py-2 text-sm transition-colors whitespace-nowrap", !filterTag ? "border-[#0078D4]/30 bg-[#0078D4]/15 text-[#4db3ff]" : "border-[#2a2a2a] bg-[#111] text-[#777] hover:text-[#ccc]")}>All tags</button>
+            <button onClick={() => setFilterTag("")} className={cn("min-h-[44px] rounded-full border px-4 py-2 text-sm transition-colors whitespace-nowrap", !filterTag ? "border-[#0078D4]/30 bg-[#0078D4]/15 text-[#4db3ff]" : "border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-500 dark:text-[#777] hover:text-gray-700 dark:hover:text-[#ccc]")}>All tags</button>
             {allTags.map((tag) => (
-              <button key={tag} onClick={() => setFilterTag((prev) => prev === tag ? "" : tag)} className={cn("min-h-[44px] rounded-full border px-4 py-2 text-sm transition-colors whitespace-nowrap", filterTag === tag ? "border-[#0078D4]/30 bg-[#0078D4]/15 text-[#4db3ff]" : "border-[#2a2a2a] bg-[#111] text-[#777] hover:text-[#ccc]")}>#{tag}</button>
+              <button key={tag} onClick={() => setFilterTag((prev) => prev === tag ? "" : tag)} className={cn("min-h-[44px] rounded-full border px-4 py-2 text-sm transition-colors whitespace-nowrap", filterTag === tag ? "border-[#0078D4]/30 bg-[#0078D4]/15 text-[#4db3ff]" : "border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-500 dark:text-[#777] hover:text-gray-700 dark:hover:text-[#ccc]")}>#{tag}</button>
             ))}
             {allGroups.map((group) => (
-              <button key={`group-${group}`} onClick={() => setFilterGroup((prev) => prev === group ? "" : group)} className={cn("min-h-[44px] rounded-full border px-4 py-2 text-sm transition-colors whitespace-nowrap", filterGroup === group ? "border-green-500/30 bg-green-500/15 text-green-300" : "border-[#2a2a2a] bg-[#111] text-[#777] hover:text-[#ccc]")}>@{group}</button>
+              <button key={`group-${group}`} onClick={() => setFilterGroup((prev) => prev === group ? "" : group)} className={cn("min-h-[44px] rounded-full border px-4 py-2 text-sm transition-colors whitespace-nowrap", filterGroup === group ? "border-green-500/30 bg-green-500/15 text-green-300" : "border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-500 dark:text-[#777] hover:text-gray-700 dark:hover:text-[#ccc]")}>@{group}</button>
             ))}
           </div>
         </HorizontalScrollHint>
@@ -994,8 +994,8 @@ export default function GameHubPage() {
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-medium text-[#d4e7ff]">{selected.size} selected</span>
             {canBulkStart ? <button onClick={() => doBulkAction("start")} className="min-h-[44px] rounded-2xl bg-green-500/20 px-4 text-sm font-medium text-green-300">Start all</button> : null}
-            {canBulkStop ? <button onClick={() => doBulkAction("stop")} className="min-h-[44px] rounded-2xl bg-[#252525] px-4 text-sm font-medium text-[#d4d4d4]">Stop all</button> : null}
-            {canBulkRestart ? <button onClick={() => doBulkAction("restart")} className="min-h-[44px] rounded-2xl bg-[#252525] px-4 text-sm font-medium text-[#d4d4d4]">Restart all</button> : null}
+            {canBulkStop ? <button onClick={() => doBulkAction("stop")} className="min-h-[44px] rounded-2xl bg-gray-50 dark:bg-[#252525] px-4 text-sm font-medium text-gray-700 dark:text-[#d4d4d4]">Stop all</button> : null}
+            {canBulkRestart ? <button onClick={() => doBulkAction("restart")} className="min-h-[44px] rounded-2xl bg-gray-50 dark:bg-[#252525] px-4 text-sm font-medium text-gray-700 dark:text-[#d4d4d4]">Restart all</button> : null}
             <button onClick={() => setSelected(new Set())} className="ml-auto min-h-[44px] rounded-2xl px-3 text-sm font-medium text-[#7cc4ff]">Clear selection</button>
           </div>
         </div>
@@ -1004,7 +1004,7 @@ export default function GameHubPage() {
       {isLoading && (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {Array.from({ length: 3 }).map((_, index) => (
-            <div key={index} className="h-56 rounded-2xl border border-[#2a2a2a] bg-[#161616] animate-pulse" />
+            <div key={index} className="h-56 rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] animate-pulse" />
           ))}
         </div>
       )}
@@ -1046,11 +1046,11 @@ export default function GameHubPage() {
       )}
 
       {!isLoading && !error && !setupRequired && servers.length === 0 && (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col items-center justify-center h-64 rounded-xl border border-dashed border-[#2a2a2a] gap-4">
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col items-center justify-center h-64 rounded-xl border border-dashed border-gray-200 dark:border-[#2a2a2a] gap-4">
           <div className="text-5xl">🎮</div>
           <div className="text-center">
-            <p className="text-[#f2f2f2] font-medium">No game servers yet</p>
-            <p className="mt-1 text-sm text-[#888]">Deploy your first server to get started.</p>
+            <p className="text-gray-900 dark:text-[#f2f2f2] font-medium">No game servers yet</p>
+            <p className="mt-1 text-sm text-gray-500 dark:text-[#888]">Deploy your first server to get started.</p>
           </div>
           {canManageGameHub ? (
             <Link href="/game-hub/new" className="flex items-center gap-2 px-4 py-2 bg-[#0078D4] hover:bg-[#006cbe] text-white rounded-lg text-sm font-medium transition-colors">
@@ -1062,9 +1062,9 @@ export default function GameHubPage() {
       )}
 
       {!isLoading && !error && servers.length > 0 && filteredServers.length === 0 && (
-        <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-6 text-center">
-          <p className="text-sm text-[#f2f2f2] font-medium">No servers match the current filters</p>
-          <p className="text-xs text-[#666] mt-1">Try clearing filters, changing the sort order, or searching for a different game.</p>
+        <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-6 text-center">
+          <p className="text-sm text-gray-900 dark:text-[#f2f2f2] font-medium">No servers match the current filters</p>
+          <p className="text-xs text-gray-400 dark:text-[#666] mt-1">Try clearing filters, changing the sort order, or searching for a different game.</p>
         </div>
       )}
 
@@ -1081,7 +1081,7 @@ export default function GameHubPage() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.95 }}
                 transition={{ delay: index * 0.05 }}
-                className={cn("flex flex-col rounded-2xl border bg-[#1a1a1a] transition-colors", viewMode === "compact" ? "gap-3 p-3 sm:p-4" : "gap-3 p-3 sm:gap-4 sm:p-5", compareMode ? "cursor-pointer" : "cursor-pointer hover:border-[#3a3a3a]", compareSet.has(server.name) ? "border-[#0078D4] ring-1 ring-[#0078D4]/40" : "border-[#2a2a2a]")}
+                className={cn("flex flex-col rounded-2xl border bg-white dark:bg-[#1a1a1a] transition-colors", viewMode === "compact" ? "gap-3 p-3 sm:p-4" : "gap-3 p-3 sm:gap-4 sm:p-5", compareMode ? "cursor-pointer" : "cursor-pointer hover:border-[#3a3a3a]", compareSet.has(server.name) ? "border-[#0078D4] ring-1 ring-[#0078D4]/40" : "border-gray-200 dark:border-[#2a2a2a]")}
                 onPointerDown={() => startLongPress(server.name)}
                 onPointerUp={clearLongPress}
                 onPointerLeave={clearLongPress}
@@ -1098,28 +1098,28 @@ export default function GameHubPage() {
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex min-w-0 items-start gap-3">
                     <div className="flex flex-col items-center gap-2 pt-1">
-                      <button onClick={(event) => { event.stopPropagation(); toggleFavorite(server.name); }} className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-[#2a2a2a] bg-[#111] text-[#666] transition-colors hover:border-[#3a3a3a] hover:text-yellow-300" title={favorites.has(server.name) ? "Remove favorite" : "Favorite server"}>
+                      <button onClick={(event) => { event.stopPropagation(); toggleFavorite(server.name); }} className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-400 dark:text-[#666] transition-colors hover:border-[#3a3a3a] hover:text-yellow-300" title={favorites.has(server.name) ? "Remove favorite" : "Favorite server"}>
                         <Star className={cn("h-4 w-4", favorites.has(server.name) && "fill-yellow-300 text-yellow-300")} />
                       </button>
-                      <button onClick={(event) => { event.stopPropagation(); toggleSelected(server.name); }} className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-[#2a2a2a] bg-[#111] text-[#666] transition-colors hover:border-[#3a3a3a] hover:text-white">
-                        {selected.has(server.name) ? <CheckSquare className="h-4 w-4 text-[#0078D4]" /> : <SquareIcon className="h-4 w-4 text-[#666]" />}
+                      <button onClick={(event) => { event.stopPropagation(); toggleSelected(server.name); }} className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-400 dark:text-[#666] transition-colors hover:border-[#3a3a3a] hover:text-gray-900 dark:hover:text-white">
+                        {selected.has(server.name) ? <CheckSquare className="h-4 w-4 text-[#0078D4]" /> : <SquareIcon className="h-4 w-4 text-gray-400 dark:text-[#666]" />}
                       </button>
                     </div>
-                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#252525] text-2xl flex-shrink-0">{cardIcon}</div>
+                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gray-50 dark:bg-[#252525] text-2xl flex-shrink-0">{cardIcon}</div>
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <p className="truncate text-base font-semibold text-[#f2f2f2]">{server.name}</p>
+                        <p className="truncate text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">{server.name}</p>
                         <span className={cn("rounded-full border px-3 py-1 text-sm font-medium capitalize", stoppedStyle)}>{server.status}</span>
                         <span className={cn("rounded-full border px-3 py-1 text-sm font-medium", health.className)}>{server.status === "stopped" ? "Stopped" : `Health ${health.label}`}</span>
-                        <span className={cn("rounded-full border px-3 py-1 text-sm font-medium", server.inGit ? "border-green-500/30 bg-green-500/10 text-green-300" : "border-[#444] bg-[#252525] text-[#b3b3b3]")}>{server.inGit ? "IaC tracked" : "Cluster-only"}</span>
+                        <span className={cn("rounded-full border px-3 py-1 text-sm font-medium", server.inGit ? "border-green-500/30 bg-green-500/10 text-green-300" : "border-gray-200 dark:border-[#444] bg-gray-50 dark:bg-[#252525] text-gray-600 dark:text-[#b3b3b3]")}>{server.inGit ? "IaC tracked" : "Cluster-only"}</span>
                       </div>
-                      <p className="mt-1 text-sm capitalize text-[#888]">{server.gameType.replace(/-/g, " ")}</p>
-                      {server.description ? <p className="mt-2 text-sm text-[#b3b3b3] line-clamp-2">{server.description}</p> : null}
+                      <p className="mt-1 text-sm capitalize text-gray-500 dark:text-[#888]">{server.gameType.replace(/-/g, " ")}</p>
+                      {server.description ? <p className="mt-2 text-sm text-gray-600 dark:text-[#b3b3b3] line-clamp-2">{server.description}</p> : null}
                       {((server.tags ?? []).length > 0 || (server.groups ?? []).length > 0 || server.imageVersion) && (
                         <div className="mt-3 flex flex-wrap gap-2">
-                          {(server.tags ?? []).map((tag) => <span key={tag} className="rounded-full border border-[#2a2a2a] bg-[#111] px-3 py-1 text-sm text-[#9e9e9e] sm:text-xs">#{tag}</span>)}
+                          {(server.tags ?? []).map((tag) => <span key={tag} className="rounded-full border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-3 py-1 text-sm text-gray-500 dark:text-[#9e9e9e] sm:text-xs">#{tag}</span>)}
                           {(server.groups ?? []).map((group) => <span key={group} className="rounded-full border border-green-500/20 bg-green-500/10 px-3 py-1 text-sm text-green-300 sm:text-xs">@{group}</span>)}
-                          {server.imageVersion && <span className={cn("rounded-full border px-3 py-1 text-sm sm:text-xs", server.imagePinned ? "bg-[#111] border-[#2a2a2a] text-[#9e9e9e]" : "bg-yellow-500/10 border-yellow-500/20 text-yellow-200")}>{server.imagePinned ? `v${server.imageVersion}` : `latest (${server.imageVersion})`}</span>}
+                          {server.imageVersion && <span className={cn("rounded-full border px-3 py-1 text-sm sm:text-xs", server.imagePinned ? "bg-white dark:bg-[#111] border-gray-200 dark:border-[#2a2a2a] text-gray-500 dark:text-[#9e9e9e]" : "bg-yellow-500/10 border-yellow-500/20 text-yellow-200")}>{server.imagePinned ? `v${server.imageVersion}` : `latest (${server.imageVersion})`}</span>}
                         </div>
                       )}
                     </div>
@@ -1135,13 +1135,13 @@ export default function GameHubPage() {
                     ) : (
                       <>
                         {server.permissions?.canAdmin ? (
-                          <button onClick={() => void doAction(server.name, "restart")} disabled={!!actionLoading[server.name]} title="Restart" className="flex min-h-[44px] items-center gap-2 rounded-xl bg-[#222] px-3 text-sm text-[#888] transition-colors hover:bg-[#2a2a2a] hover:text-[#bbb] disabled:opacity-50">
+                          <button onClick={() => void doAction(server.name, "restart")} disabled={!!actionLoading[server.name]} title="Restart" className="flex min-h-[44px] items-center gap-2 rounded-xl bg-[#222] px-3 text-sm text-gray-500 dark:text-[#888] transition-colors hover:bg-gray-100 dark:hover:bg-[#2a2a2a] hover:text-gray-700 dark:hover:text-[#bbb] disabled:opacity-50">
                             {actionLoading[server.name] === "restart" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
                             <span>Restart</span>
                           </button>
                         ) : null}
                         {server.permissions?.canStop ? (
-                          <button onClick={() => void doAction(server.name, "stop")} disabled={!!actionLoading[server.name]} title="Stop" className="flex min-h-[44px] items-center gap-2 rounded-xl bg-[#222] px-3 text-sm text-[#888] transition-colors hover:bg-red-500/15 hover:text-red-300 disabled:opacity-50">
+                          <button onClick={() => void doAction(server.name, "stop")} disabled={!!actionLoading[server.name]} title="Stop" className="flex min-h-[44px] items-center gap-2 rounded-xl bg-[#222] px-3 text-sm text-gray-500 dark:text-[#888] transition-colors hover:bg-red-500/15 hover:text-red-300 disabled:opacity-50">
                             {actionLoading[server.name] === "stop" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Square className="h-4 w-4" />}
                             <span>Stop</span>
                           </button>
@@ -1157,25 +1157,25 @@ export default function GameHubPage() {
                     { label: "Memory", value: formatUsage(server.memoryUsage, server.memoryLimit, "memory") },
                     { label: "Replicas", value: replicaSummary(server) },
                   ].map((metric) => (
-                    <div key={metric.label} className="rounded-2xl border border-[#2a2a2a] bg-[#111] p-3">
-                      <p className="text-sm text-[#777]">{metric.label}</p>
-                      <p className="mt-1 text-base font-semibold text-white">{metric.value}</p>
+                    <div key={metric.label} className="rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-3">
+                      <p className="text-sm text-gray-500 dark:text-[#777]">{metric.label}</p>
+                      <p className="mt-1 text-base font-semibold text-gray-900 dark:text-white">{metric.value}</p>
                     </div>
                   ))}
                 </div>
-                <div className={cn("hidden gap-2 text-sm text-[#888] sm:grid", viewMode === "compact" ? "sm:grid-cols-2 lg:grid-cols-5" : "sm:grid-cols-2")}>
-                  <div>Port: <span className="text-[#d4d4d4]">{server.nodePort || server.port || "—"}</span></div>
-                  <div>Memory: <span className="text-[#d4d4d4]">{server.memory || "—"}</span></div>
-                  <div>CPU: <span className="text-[#d4d4d4]">{server.cpu || "—"}</span></div>
-                  <div>Players: <span className="text-[#d4d4d4]">{server.playerCount ?? 0}</span></div>
-                  <div>Last restart: <span className="text-[#d4d4d4]">{server.podStartTime ? timeAgo(server.podStartTime) : "—"}</span></div>
-                  <div>Replicas: <span className="text-[#d4d4d4]">{replicaSummary(server)}</span></div>
+                <div className={cn("hidden gap-2 text-sm text-gray-500 dark:text-[#888] sm:grid", viewMode === "compact" ? "sm:grid-cols-2 lg:grid-cols-5" : "sm:grid-cols-2")}>
+                  <div>Port: <span className="text-gray-700 dark:text-[#d4d4d4]">{server.nodePort || server.port || "—"}</span></div>
+                  <div>Memory: <span className="text-gray-700 dark:text-[#d4d4d4]">{server.memory || "—"}</span></div>
+                  <div>CPU: <span className="text-gray-700 dark:text-[#d4d4d4]">{server.cpu || "—"}</span></div>
+                  <div>Players: <span className="text-gray-700 dark:text-[#d4d4d4]">{server.playerCount ?? 0}</span></div>
+                  <div>Last restart: <span className="text-gray-700 dark:text-[#d4d4d4]">{server.podStartTime ? timeAgo(server.podStartTime) : "—"}</span></div>
+                  <div>Replicas: <span className="text-gray-700 dark:text-[#d4d4d4]">{replicaSummary(server)}</span></div>
                 </div>
                 <div className="grid grid-cols-2 gap-2 sm:hidden" onClick={(event) => event.stopPropagation()}>
                   <Link href={`/game-hub/${server.name}`} className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-2xl bg-[rgba(0,120,212,0.15)] px-4 text-sm font-semibold text-[#4db3ff] transition-colors hover:bg-[rgba(0,120,212,0.25)]">
                     <Terminal className="h-4 w-4" /> {server.permissions?.canConsole ? "Console" : "Details"}
                   </Link>
-                  <button onClick={() => openServerActions(server.name)} className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-2xl border border-[#2a2a2a] bg-[#111] px-4 text-sm font-medium text-[#d4d4d4] transition-colors hover:border-[#3a3a3a] hover:text-white">
+                  <button onClick={() => openServerActions(server.name)} className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-4 text-sm font-medium text-gray-700 dark:text-[#d4d4d4] transition-colors hover:border-[#3a3a3a] hover:text-gray-900 dark:hover:text-white">
                     <MoreVertical className="h-4 w-4" /> Actions
                   </button>
                 </div>
@@ -1189,19 +1189,19 @@ export default function GameHubPage() {
                   ) : (
                     <>
                       {server.permissions?.canStop ? (
-                        <button onClick={() => void doAction(server.name, "stop")} disabled={!!actionLoading[server.name]} className="flex min-h-[44px] items-center gap-2 rounded-xl bg-[#252525] px-4 text-sm font-medium text-[#9e9e9e] transition-colors hover:bg-[#2a2a2a] disabled:opacity-50">
+                        <button onClick={() => void doAction(server.name, "stop")} disabled={!!actionLoading[server.name]} className="flex min-h-[44px] items-center gap-2 rounded-xl bg-gray-50 dark:bg-[#252525] px-4 text-sm font-medium text-gray-500 dark:text-[#9e9e9e] transition-colors hover:bg-gray-100 dark:hover:bg-[#2a2a2a] disabled:opacity-50">
                           {actionLoading[server.name] === "stop" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Square className="h-4 w-4" />} Stop
                         </button>
                       ) : null}
                       {server.permissions?.canAdmin ? (
-                        <button onClick={() => void doAction(server.name, "restart")} disabled={!!actionLoading[server.name]} className="flex min-h-[44px] items-center gap-2 rounded-xl bg-[#252525] px-4 text-sm font-medium text-[#9e9e9e] transition-colors hover:bg-[#2a2a2a] disabled:opacity-50">
+                        <button onClick={() => void doAction(server.name, "restart")} disabled={!!actionLoading[server.name]} className="flex min-h-[44px] items-center gap-2 rounded-xl bg-gray-50 dark:bg-[#252525] px-4 text-sm font-medium text-gray-500 dark:text-[#9e9e9e] transition-colors hover:bg-gray-100 dark:hover:bg-[#2a2a2a] disabled:opacity-50">
                           {actionLoading[server.name] === "restart" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />} Restart
                         </button>
                       ) : null}
                     </>
                   )}
                   {server.permissions?.canAdmin ? (
-                    <button onClick={() => void cloneServer(server.name)} className="flex min-h-[44px] items-center gap-2 rounded-xl bg-[#252525] px-4 text-sm font-medium text-[#9e9e9e] transition-colors hover:bg-[#2a2a2a]">Clone</button>
+                    <button onClick={() => void cloneServer(server.name)} className="flex min-h-[44px] items-center gap-2 rounded-xl bg-gray-50 dark:bg-[#252525] px-4 text-sm font-medium text-gray-500 dark:text-[#9e9e9e] transition-colors hover:bg-gray-100 dark:hover:bg-[#2a2a2a]">Clone</button>
                   ) : null}
                   <Link href={`/game-hub/${server.name}`} className="flex min-h-[44px] items-center gap-2 rounded-xl bg-[rgba(0,120,212,0.15)] px-4 text-sm font-medium text-[#0078D4] transition-colors hover:bg-[rgba(0,120,212,0.25)]">
                     <Terminal className="h-4 w-4" /> {server.permissions?.canConsole ? "Console" : "View"}
@@ -1219,39 +1219,39 @@ export default function GameHubPage() {
       </div>
 
       {compareMode && comparedServers.length >= 2 && (
-        <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
-          <div className="flex items-center gap-2 px-4 py-3 border-b border-[#1e1e1e]">
+        <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] overflow-hidden">
+          <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-200 dark:border-[#1e1e1e]">
             <BarChart2 className="w-4 h-4 text-[#4db3ff]" />
             <div>
-              <p className="text-sm font-medium text-[#f2f2f2]">Server Comparison</p>
-              <p className="text-xs text-[#666]">Compare up to three servers side by side.</p>
+              <p className="text-sm font-medium text-gray-900 dark:text-[#f2f2f2]">Server Comparison</p>
+              <p className="text-xs text-gray-400 dark:text-[#666]">Compare up to three servers side by side.</p>
             </div>
           </div>
           <div className="space-y-3 p-3 sm:hidden">
             {comparedServers.map((server) => (
-              <div key={server.name} className="rounded-xl border border-[#1e1e1e] bg-[#0d0d0d] p-3 text-sm text-[#d4d4d4]">
+              <div key={server.name} className="rounded-xl border border-gray-200 dark:border-[#1e1e1e] bg-white dark:bg-[#0d0d0d] p-3 text-sm text-gray-700 dark:text-[#d4d4d4]">
                 <div className="mb-3 flex items-center justify-between gap-3">
-                  <p className="font-medium text-[#f2f2f2]">{server.icon ?? server.gameType[0]?.toUpperCase() ?? "🎮"} {server.name}</p>
-                  <span className="rounded-full border border-[#2a2a2a] px-3 py-1 text-sm uppercase text-[#888]">{server.status}</span>
+                  <p className="font-medium text-gray-900 dark:text-[#f2f2f2]">{server.icon ?? server.gameType[0]?.toUpperCase() ?? "🎮"} {server.name}</p>
+                  <span className="rounded-full border border-gray-200 dark:border-[#2a2a2a] px-3 py-1 text-sm uppercase text-gray-500 dark:text-[#888]">{server.status}</span>
                 </div>
                 <dl className="grid grid-cols-2 gap-3 text-sm">
-                  <div><dt className="text-[#666]">Game</dt><dd className="mt-1">{server.gameType}</dd></div>
-                  <div><dt className="text-[#666]">Players</dt><dd className="mt-1">{server.playerCount ?? 0}</dd></div>
-                  <div><dt className="text-[#666]">Replicas</dt><dd className="mt-1">{replicaSummary(server)}</dd></div>
-                  <div><dt className="text-[#666]">Restarts</dt><dd className="mt-1">{server.restartCount ?? 0}</dd></div>
-                  <div><dt className="text-[#666]">CPU</dt><dd className="mt-1">{formatUsage(server.cpuUsage, server.cpuLimit, "cpu")}</dd></div>
-                  <div><dt className="text-[#666]">Memory</dt><dd className="mt-1">{formatUsage(server.memoryUsage, server.memoryLimit, "memory")}</dd></div>
+                  <div><dt className="text-gray-400 dark:text-[#666]">Game</dt><dd className="mt-1">{server.gameType}</dd></div>
+                  <div><dt className="text-gray-400 dark:text-[#666]">Players</dt><dd className="mt-1">{server.playerCount ?? 0}</dd></div>
+                  <div><dt className="text-gray-400 dark:text-[#666]">Replicas</dt><dd className="mt-1">{replicaSummary(server)}</dd></div>
+                  <div><dt className="text-gray-400 dark:text-[#666]">Restarts</dt><dd className="mt-1">{server.restartCount ?? 0}</dd></div>
+                  <div><dt className="text-gray-400 dark:text-[#666]">CPU</dt><dd className="mt-1">{formatUsage(server.cpuUsage, server.cpuLimit, "cpu")}</dd></div>
+                  <div><dt className="text-gray-400 dark:text-[#666]">Memory</dt><dd className="mt-1">{formatUsage(server.memoryUsage, server.memoryLimit, "memory")}</dd></div>
                 </dl>
               </div>
             ))}
           </div>
           <div className="hidden overflow-x-auto sm:block">
             <table className="w-full min-w-[640px] text-sm">
-              <thead className="bg-[#0d0d0d]">
+              <thead className="bg-white dark:bg-[#0d0d0d]">
                 <tr>
-                  <th className="text-left px-4 py-3 text-xs uppercase tracking-wide text-[#666]">Metric</th>
+                  <th className="text-left px-4 py-3 text-xs uppercase tracking-wide text-gray-400 dark:text-[#666]">Metric</th>
                   {comparedServers.map((server) => (
-                    <th key={server.name} className="text-left px-4 py-3 text-xs uppercase tracking-wide text-[#888]">{server.icon ?? server.gameType[0]?.toUpperCase() ?? "🎮"} {server.name}</th>
+                    <th key={server.name} className="text-left px-4 py-3 text-xs uppercase tracking-wide text-gray-500 dark:text-[#888]">{server.icon ?? server.gameType[0]?.toUpperCase() ?? "🎮"} {server.name}</th>
                   ))}
                 </tr>
               </thead>
@@ -1265,10 +1265,10 @@ export default function GameHubPage() {
                   { label: "Restarts", render: (server: GameServer) => String(server.restartCount ?? 0) },
                   { label: "Uptime", render: (server: GameServer) => formatUptime(server.podStartTime, now) },
                 ].map((row) => (
-                  <tr key={row.label} className="border-t border-[#1e1e1e]">
-                    <td className="px-4 py-3 text-[#666] text-xs uppercase tracking-wide">{row.label}</td>
+                  <tr key={row.label} className="border-t border-gray-200 dark:border-[#1e1e1e]">
+                    <td className="px-4 py-3 text-gray-400 dark:text-[#666] text-xs uppercase tracking-wide">{row.label}</td>
                     {comparedServers.map((server) => (
-                      <td key={`${row.label}-${server.name}`} className="px-4 py-3 text-[#d4d4d4]">{row.render(server)}</td>
+                      <td key={`${row.label}-${server.name}`} className="px-4 py-3 text-gray-700 dark:text-[#d4d4d4]">{row.render(server)}</td>
                     ))}
                   </tr>
                 ))}
@@ -1280,35 +1280,35 @@ export default function GameHubPage() {
 
       {/* Mobile FAB handled by context-aware FloatingActionButton in layout */}
 
-      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
-        <button onClick={() => setShowRoadmap((prev) => !prev)} className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left border-b border-[#1e1e1e]">
+      <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] overflow-hidden">
+        <button onClick={() => setShowRoadmap((prev) => !prev)} className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left border-b border-gray-200 dark:border-[#1e1e1e]">
           <div className="flex items-start gap-3">
             <BookOpen className="w-4 h-4 text-[#4db3ff] mt-0.5" />
             <div>
-              <p className="text-sm font-medium text-[#f2f2f2]">Feature Roadmap</p>
-              <p className="text-xs text-[#666] mt-0.5">100 ideas across 10 categories, with shipped game hub features highlighted.</p>
+              <p className="text-sm font-medium text-gray-900 dark:text-[#f2f2f2]">Feature Roadmap</p>
+              <p className="text-xs text-gray-400 dark:text-[#666] mt-0.5">100 ideas across 10 categories, with shipped game hub features highlighted.</p>
             </div>
           </div>
-          <div className="flex items-center gap-2 text-[#666]">
-            <span className="text-[10px] px-2 py-0.5 rounded-full border border-[#2a2a2a] bg-[#0d0d0d]">{FEATURE_ROADMAP.reduce((sum, category) => sum + category.items.length, 0)} items</span>
+          <div className="flex items-center gap-2 text-gray-400 dark:text-[#666]">
+            <span className="text-[10px] px-2 py-0.5 rounded-full border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d]">{FEATURE_ROADMAP.reduce((sum, category) => sum + category.items.length, 0)} items</span>
             {showRoadmap ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
           </div>
         </button>
         {showRoadmap && (
           <div className="p-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {FEATURE_ROADMAP.map((category) => (
-              <div key={category.category} className="rounded-xl border border-[#1e1e1e] bg-[#0b0b0b] p-3 space-y-3">
+              <div key={category.category} className="rounded-xl border border-gray-200 dark:border-[#1e1e1e] bg-[#0b0b0b] p-3 space-y-3">
                 <div className="flex items-center justify-between gap-2">
-                  <p className="text-xs font-medium text-[#f2f2f2] uppercase tracking-wide">{category.category}</p>
-                  <span className="text-[10px] text-[#444]">{category.items.length}/10</span>
+                  <p className="text-xs font-medium text-gray-900 dark:text-[#f2f2f2] uppercase tracking-wide">{category.category}</p>
+                  <span className="text-[10px] text-gray-400 dark:text-[#444]">{category.items.length}/10</span>
                 </div>
                 <div className="grid gap-2 sm:grid-cols-2">
                   {category.items.map((feature) => (
-                    <div key={feature.name} className="rounded-lg border border-[#1d1d1d] bg-[#111] px-2.5 py-2">
+                    <div key={feature.name} className="rounded-lg border border-[#1d1d1d] bg-white dark:bg-[#111] px-2.5 py-2">
                       <div className="flex items-start gap-2">
-                        <span className={cn("mt-0.5 text-[11px] leading-none", feature.status === "Shipped" ? "text-green-400" : "text-[#333]")}>{feature.status === "Shipped" ? "✓" : "•"}</span>
+                        <span className={cn("mt-0.5 text-[11px] leading-none", feature.status === "Shipped" ? "text-green-400" : "text-gray-700 dark:text-[#333]")}>{feature.status === "Shipped" ? "✓" : "•"}</span>
                         <div className="min-w-0 flex-1">
-                          <p className="text-[11px] text-[#d4d4d4] leading-snug">{feature.name}</p>
+                          <p className="text-[11px] text-gray-700 dark:text-[#d4d4d4] leading-snug">{feature.name}</p>
                           <span className={cn("inline-flex mt-1 text-[9px] px-1.5 py-0.5 rounded-full border", ROADMAP_STATUS_STYLES[feature.status])}>{feature.status}</span>
                         </div>
                       </div>

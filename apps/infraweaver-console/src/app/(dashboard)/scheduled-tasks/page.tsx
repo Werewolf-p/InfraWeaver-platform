@@ -58,7 +58,7 @@ export default function ScheduledTasksPage() {
         sortable: true,
         render: (task) => (
           <div>
-            <p className="font-medium text-white">{task.name}</p>
+            <p className="font-medium text-gray-900 dark:text-white">{task.name}</p>
             <p className="text-xs text-slate-500">Created {timeAgo(task.createdAt)}</p>
           </div>
         ),
@@ -67,18 +67,18 @@ export default function ScheduledTasksPage() {
         key: "schedule",
         label: "Schedule",
         sortable: true,
-        render: (task) => <span className="font-mono text-xs text-slate-300">{task.schedule}</span>,
+        render: (task) => <span className="font-mono text-xs text-slate-700 dark:text-slate-300">{task.schedule}</span>,
       },
       {
         key: "pod",
         label: "Target",
         sortable: true,
-        render: (task) => <span className="text-sm text-slate-400">{task.namespace}/{task.pod}</span>,
+        render: (task) => <span className="text-sm text-slate-500 dark:text-slate-400">{task.namespace}/{task.pod}</span>,
       },
       {
         key: "command",
         label: "Command",
-        render: (task) => <span className="font-mono text-xs text-slate-400">{task.command}</span>,
+        render: (task) => <span className="font-mono text-xs text-slate-500 dark:text-slate-400">{task.command}</span>,
       },
       {
         key: "enabled",
@@ -106,7 +106,7 @@ export default function ScheduledTasksPage() {
                 "rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
                 task.enabled
                   ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
-                  : "border-slate-500/30 bg-slate-500/10 text-slate-300",
+                  : "border-slate-500/30 bg-slate-500/10 text-slate-700 dark:text-slate-300",
               )}
             >
               {task.enabled ? "Disable" : "Enable"}
@@ -173,8 +173,8 @@ export default function ScheduledTasksPage() {
       </div>
 
       {showForm ? (
-        <div className="space-y-3 rounded-xl border border-white/10 bg-slate-900/60 p-4 backdrop-blur-sm">
-          <h2 className="text-sm font-semibold text-white">Create scheduled task</h2>
+        <div className="space-y-3 rounded-xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/60 p-4 backdrop-blur-sm">
+          <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Create scheduled task</h2>
           <div className="grid gap-3 md:grid-cols-2">
             {(["name", "namespace", "pod", "schedule", "command"] as const).map((field) => (
               <input
@@ -182,7 +182,7 @@ export default function ScheduledTasksPage() {
                 value={form[field]}
                 onChange={(event) => setForm((current) => ({ ...current, [field]: event.target.value }))}
                 placeholder={field.charAt(0).toUpperCase() + field.slice(1)}
-                className="min-h-[44px] rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500 focus:border-indigo-500/50"
+                className="min-h-[44px] rounded-lg border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-3 py-2 text-sm text-gray-900 dark:text-white outline-none placeholder:text-slate-500 focus:border-indigo-500/50"
               />
             ))}
           </div>
@@ -193,7 +193,7 @@ export default function ScheduledTasksPage() {
                 setForm(DEFAULT_FORM);
                 setShowForm(false);
               }}
-              className="inline-flex min-h-[44px] items-center rounded-lg border border-white/10 px-4 py-2 text-sm text-slate-300 transition-colors hover:bg-white/5 hover:text-white"
+              className="inline-flex min-h-[44px] items-center rounded-lg border border-gray-200 dark:border-white/10 px-4 py-2 text-sm text-slate-700 dark:text-slate-300 transition-colors hover:bg-gray-100 dark:hover:bg-white/5 hover:text-gray-900 dark:hover:text-white"
             >
               Cancel
             </button>
@@ -241,7 +241,7 @@ export default function ScheduledTasksPage() {
           <div className="space-y-3">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="font-medium text-white">{task.name}</p>
+                <p className="font-medium text-gray-900 dark:text-white">{task.name}</p>
                 <p className="text-xs text-slate-500">{task.namespace}/{task.pod}</p>
               </div>
               <StatusBadge
@@ -250,7 +250,7 @@ export default function ScheduledTasksPage() {
                 size="sm"
               />
             </div>
-            <div className="space-y-1 text-xs text-slate-400">
+            <div className="space-y-1 text-xs text-slate-500 dark:text-slate-400">
               <p><span className="text-slate-500">Schedule:</span> <span className="font-mono">{task.schedule}</span></p>
               <p><span className="text-slate-500">Command:</span> <span className="font-mono">{task.command}</span></p>
               <p><span className="text-slate-500">Last run:</span> {task.lastRun ? timeAgo(task.lastRun) : "Never"}</p>
@@ -264,7 +264,7 @@ export default function ScheduledTasksPage() {
                   "rounded-lg border px-3 py-2 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
                   task.enabled
                     ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
-                    : "border-slate-500/30 bg-slate-500/10 text-slate-300",
+                    : "border-slate-500/30 bg-slate-500/10 text-slate-700 dark:text-slate-300",
                 )}
               >
                 {task.enabled ? "Disable" : "Enable"}

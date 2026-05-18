@@ -381,5 +381,5 @@ export const ROLE_COLOR_CLASSES = {
   orange: { badge: "bg-orange-500/10 border-orange-500/30 text-orange-300", dot: "bg-orange-400" },
   yellow: { badge: "bg-yellow-500/10 border-yellow-500/30 text-yellow-300", dot: "bg-yellow-400" },
   teal: { badge: "bg-teal-500/10 border-teal-500/30 text-teal-300", dot: "bg-teal-400" },
-  gray: { badge: "bg-slate-500/10 border-slate-500/30 text-slate-300", dot: "bg-slate-400" },
+  gray: { badge: "bg-slate-500/10 border-slate-500/30 text-slate-700 dark:text-slate-300", dot: "bg-slate-400" },
 } as const;

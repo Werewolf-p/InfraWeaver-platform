@@ -33,7 +33,7 @@ function DefaultLoadingState() {
       {Array.from({ length: 4 }, (_, index) => (
         <div
           key={index}
-          className="h-24 animate-pulse rounded-2xl border border-white/10 bg-white/5"
+          className="h-24 animate-pulse rounded-2xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5"
           style={{ opacity: 1 - index * 0.12 }}
         />
       ))}

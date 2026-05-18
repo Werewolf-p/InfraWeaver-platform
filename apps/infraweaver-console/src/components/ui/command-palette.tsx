@@ -120,7 +120,7 @@ export function CommandPalette() {
     Core: "text-indigo-400",
     Platform: "text-violet-400",
     Infrastructure: "text-cyan-400",
-    Settings: "text-slate-400",
+    Settings: "text-slate-500 dark:text-slate-400",
   };
 
   return (
@@ -139,22 +139,22 @@ export function CommandPalette() {
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: -10 }}
             transition={{ duration: 0.15 }}
-            className="relative w-full max-w-lg bg-slate-900 border border-white/10 rounded-2xl shadow-2xl overflow-hidden"
+            className="relative w-full max-w-lg bg-slate-100 dark:bg-slate-900 border border-gray-200 dark:border-white/10 rounded-2xl shadow-2xl overflow-hidden"
             onClick={e => e.stopPropagation()}
           >
-            <div className="flex items-center gap-3 px-4 py-3 border-b border-white/5">
-              <Search className="w-4 h-4 text-slate-400 flex-shrink-0" />
+            <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-200 dark:border-white/5">
+              <Search className="w-4 h-4 text-slate-500 dark:text-slate-400 flex-shrink-0" />
               <input
                 ref={inputRef}
                 value={query}
                 onChange={e => setQuery(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder="Search pages..."
-                className="flex-1 bg-transparent text-sm text-white placeholder-slate-500 focus:outline-none"
+                className="flex-1 bg-transparent text-sm text-gray-900 dark:text-white placeholder-slate-500 focus:outline-none"
               />
               <button
                 onClick={() => setOpen(false)}
-                className="text-slate-500 hover:text-slate-300 transition-colors"
+                className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -175,10 +175,10 @@ export function CommandPalette() {
                         "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-colors",
                         i === activeIndex
                           ? "bg-indigo-500/20 text-indigo-300"
-                          : "text-slate-300 hover:bg-white/5"
+                          : "text-slate-700 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-white/5"
                       )}
                     >
-                      <item.icon className="w-4 h-4 flex-shrink-0 text-slate-400" />
+                      <item.icon className="w-4 h-4 flex-shrink-0 text-slate-500 dark:text-slate-400" />
                       <span className="flex-1 text-sm font-medium">{item.label}</span>
                       <span className={cn("text-[10px] font-semibold", categoryColors[item.category])}>{item.category}</span>
                       {item.shortcut && <span className="text-xs text-slate-600 font-mono">{item.shortcut}</span>}
@@ -195,7 +195,7 @@ export function CommandPalette() {
                         <button
                           key={item.href}
                           onClick={() => navigate(item.href)}
-                          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-colors text-slate-300 hover:bg-white/5"
+                          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-colors text-slate-700 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-white/5"
                         >
                           <item.icon className="w-4 h-4 flex-shrink-0 text-slate-500" />
                           <span className="flex-1 text-sm">{item.label}</span>
@@ -215,9 +215,9 @@ export function CommandPalette() {
                             key={item.href}
                             onClick={() => navigate(item.href)}
                             onMouseEnter={() => setActiveIndex(flatIndex >= 0 ? flatIndex : i)}
-                            className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-colors text-slate-300 hover:bg-white/5"
+                            className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-colors text-slate-700 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-white/5"
                           >
-                            <item.icon className="w-4 h-4 flex-shrink-0 text-slate-400" />
+                            <item.icon className="w-4 h-4 flex-shrink-0 text-slate-500 dark:text-slate-400" />
                             <span className="flex-1 text-sm font-medium">{item.label}</span>
                             {item.shortcut && <span className="text-xs text-slate-600 font-mono">{item.shortcut}</span>}
                           </button>
@@ -229,7 +229,7 @@ export function CommandPalette() {
               )}
             </div>
 
-            <div className="px-4 py-2 border-t border-white/5 flex items-center gap-3 text-xs text-slate-600">
+            <div className="px-4 py-2 border-t border-gray-200 dark:border-white/5 flex items-center gap-3 text-xs text-slate-600">
               <span>↑↓ navigate</span>
               <span>↵ select</span>
               <span>esc close</span>

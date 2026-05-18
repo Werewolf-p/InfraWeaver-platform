@@ -162,25 +162,25 @@ export function CommandPalette() {
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.96, y: -8 }}
             transition={{ duration: 0.15, ease: "easeOut" }}
-            className="relative w-full max-w-xl bg-slate-900/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl overflow-hidden"
+            className="relative w-full max-w-xl bg-slate-100 dark:bg-slate-900/95 backdrop-blur-xl border border-gray-200 dark:border-white/10 rounded-xl shadow-2xl overflow-hidden"
             onClick={e => e.stopPropagation()}
           >
             {/* Search input */}
-            <div className="flex items-center gap-3 px-4 py-3 border-b border-white/10">
-              <Search className="w-4 h-4 text-slate-400 flex-shrink-0" />
+            <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-200 dark:border-white/10">
+              <Search className="w-4 h-4 text-slate-500 dark:text-slate-400 flex-shrink-0" />
               <input
                 ref={inputRef}
                 value={query}
                 onChange={e => setQuery(e.target.value)}
                 placeholder="Search pages and actions..."
-                className="flex-1 bg-transparent text-sm text-white placeholder:text-slate-500 outline-none"
+                className="flex-1 bg-transparent text-sm text-gray-900 dark:text-white placeholder:text-slate-500 outline-none"
               />
               {query && (
-                <button onClick={() => setQuery("")} className="text-slate-500 hover:text-slate-300 transition-colors">
+                <button onClick={() => setQuery("")} className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors">
                   <X className="w-4 h-4" />
                 </button>
               )}
-              <kbd className="text-[10px] text-slate-600 bg-slate-800 border border-slate-700 rounded px-1.5 py-0.5">ESC</kbd>
+              <kbd className="text-[10px] text-slate-600 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-1.5 py-0.5">ESC</kbd>
             </div>
 
             {/* Results */}
@@ -269,10 +269,10 @@ export function CommandPalette() {
             </div>
 
             {/* Footer hint */}
-            <div className="px-4 py-2 border-t border-white/5 flex items-center gap-3 text-[10px] text-slate-600">
-              <span><kbd className="bg-slate-800 border border-slate-700 rounded px-1">↑↓</kbd> navigate</span>
-              <span><kbd className="bg-slate-800 border border-slate-700 rounded px-1">↵</kbd> open</span>
-              <span><kbd className="bg-slate-800 border border-slate-700 rounded px-1">esc</kbd> close</span>
+            <div className="px-4 py-2 border-t border-gray-200 dark:border-white/5 flex items-center gap-3 text-[10px] text-slate-600">
+              <span><kbd className="bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-1">↑↓</kbd> navigate</span>
+              <span><kbd className="bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-1">↵</kbd> open</span>
+              <span><kbd className="bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-1">esc</kbd> close</span>
             </div>
           </motion.div>
         </motion.div>
@@ -304,7 +304,7 @@ function ResultRow({
     <button
       className={cn(
         "w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors",
-        selected ? "bg-indigo-500/20 text-white" : "text-slate-300 hover:bg-white/5"
+        selected ? "bg-indigo-500/20 text-gray-900 dark:text-white" : "text-slate-700 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-white/5"
       )}
       onMouseEnter={onHover}
       onClick={onSelect}

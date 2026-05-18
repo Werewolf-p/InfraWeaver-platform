@@ -31,7 +31,7 @@ export function GlassCard({
       onClick={onClick}
       className={cn(
         "relative rounded-xl border transition-all duration-200",
-        "bg-white/[0.03] backdrop-blur-[16px]",
+        "bg-gray-100 dark:bg-white/[0.03] backdrop-blur-[16px]",
         "border-white/[0.08]",
         !rainbow && "hover:border-white/[0.16]",
         hover && "hover:shadow-lg hover:shadow-black/20",

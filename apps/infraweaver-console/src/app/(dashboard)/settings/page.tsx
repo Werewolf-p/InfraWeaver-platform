@@ -63,15 +63,15 @@ function ConnectionStatus({ label, path }: { label: string; path: string }) {
   });
 
   return (
-    <div className="flex min-h-[44px] items-center gap-2 rounded-lg bg-white/5 px-3 py-2 sm:min-h-0 sm:bg-transparent sm:px-0 sm:py-0">
+    <div className="flex min-h-[44px] items-center gap-2 rounded-lg bg-gray-100 dark:bg-white/5 px-3 py-2 sm:min-h-0 sm:bg-transparent sm:px-0 sm:py-0">
       {isLoading ? (
-        <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" />
+        <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-500 dark:text-slate-400" />
       ) : isError || !data ? (
         <XCircle className="h-3.5 w-3.5 text-red-400" />
       ) : (
         <CheckCircle2 className="h-3.5 w-3.5 text-green-400" />
       )}
-      <span className={cn("text-sm font-medium sm:text-xs", isLoading ? "text-slate-400" : isError ? "text-red-400" : "text-green-400")}>
+      <span className={cn("text-sm font-medium sm:text-xs", isLoading ? "text-slate-500 dark:text-slate-400" : isError ? "text-red-400" : "text-green-400")}>
         {label}: {isLoading ? "Checking..." : isError ? "Disconnected" : "Connected"}
       </span>
     </div>
@@ -104,7 +104,7 @@ export default function SettingsPage() {
                 "flex min-h-[44px] items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors touch-manipulation",
                 activeTab === id
                   ? "border border-indigo-500/30 bg-indigo-500/20 text-indigo-300"
-                  : "border border-white/10 bg-white/5 text-slate-400 hover:text-white",
+                  : "border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white",
               )}
             >
               <Icon className="h-4 w-4" />
@@ -126,7 +126,7 @@ export default function SettingsPage() {
                         "flex min-h-[44px] items-center justify-center rounded-lg px-4 py-2 text-sm font-medium transition-colors touch-manipulation",
                         settings.refreshInterval === option.value
                           ? "border border-indigo-500/30 bg-indigo-500/20 text-indigo-300"
-                          : "border border-white/10 bg-white/5 text-slate-400 hover:text-white",
+                          : "border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white",
                       )}
                     >
                       {option.label}

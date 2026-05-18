@@ -193,13 +193,13 @@ export default function StoragePage() {
     <div className="space-y-6">
       <PageHeader icon={HardDrive} title="Storage" subtitle="Persistent volumes, capacity pressure, and replica health" />
 
-      <div className="flex flex-wrap items-start justify-between gap-4 rounded-xl border border-[#2a2a2a] bg-[#111] p-4 sm:p-5">
+      <div className="flex flex-wrap items-start justify-between gap-4 rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4 sm:p-5">
         <div>
-          <h2 className="text-xl font-semibold text-white">Storage workspace</h2>
-          <p className="mt-1 text-sm text-slate-400">Desktop-optimized visibility into Longhorn usage, hot volumes, storage class distribution, and backup freshness.</p>
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Storage workspace</h2>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Desktop-optimized visibility into Longhorn usage, hot volumes, storage class distribution, and backup freshness.</p>
         </div>
-        <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400">
-          <span className="rounded-full border border-[#2a2a2a] bg-[#0d0d0d] px-3 py-1.5">Press / to search volumes</span>
+        <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
+          <span className="rounded-full border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-3 py-1.5">Press / to search volumes</span>
           <RefreshCountdown intervalSeconds={60} resetKey={dataUpdatedAt} />
         </div>
       </div>
@@ -235,22 +235,22 @@ export default function StoragePage() {
             tone: "text-violet-400 bg-violet-500/10",
           },
         ].map((card) => (
-          <div key={card.label} className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4">
+          <div key={card.label} className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-xs uppercase tracking-[0.18em] text-slate-500">{card.label}</p>
-                <p className="mt-2 text-lg font-semibold text-white">{card.value}</p>
+                <p className="mt-2 text-lg font-semibold text-gray-900 dark:text-white">{card.value}</p>
               </div>
               <div className={cn("flex h-10 w-10 items-center justify-center rounded-xl", card.tone)}>
                 <card.icon className="h-5 w-5" />
               </div>
             </div>
-            <p className="mt-3 text-sm text-slate-400">{card.description}</p>
+            <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">{card.description}</p>
           </div>
         ))}
       </div>
 
-      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4 sm:p-5">
+      <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4 sm:p-5">
         <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
           <div className="flex flex-1 flex-col gap-3 md:flex-row md:items-center">
             <div className="relative min-w-[260px] flex-1 xl:max-w-md">
@@ -260,14 +260,14 @@ export default function StoragePage() {
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="Search volumes, namespaces, or hot paths..."
-                className="w-full rounded-xl border border-[#2a2a2a] bg-[#0d0d0d] py-2.5 pl-9 pr-3 text-sm text-white placeholder:text-slate-500 outline-none focus:border-[#0078D4]/50"
+                className="w-full rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] py-2.5 pl-9 pr-3 text-sm text-gray-900 dark:text-white placeholder:text-slate-500 outline-none focus:border-[#0078D4]/50"
               />
             </div>
-            <label className="flex min-h-[44px] items-center gap-2 rounded-xl border border-[#2a2a2a] bg-[#0d0d0d] px-3 text-xs text-slate-400">
+            <label className="flex min-h-[44px] items-center gap-2 rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-3 text-xs text-slate-500 dark:text-slate-400">
               <ArrowUpDown className="h-3.5 w-3.5" />
-              <select value={sortBy} onChange={(event) => setSortBy(event.target.value as SortBy)} className="bg-transparent text-sm text-white focus:outline-none">
+              <select value={sortBy} onChange={(event) => setSortBy(event.target.value as SortBy)} className="bg-transparent text-sm text-gray-900 dark:text-white focus:outline-none">
                 {SORT_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value} className="bg-slate-900">{option.label}</option>
+                  <option key={option.value} value={option.value} className="bg-slate-100 dark:bg-slate-900">{option.label}</option>
                 ))}
               </select>
             </label>
@@ -283,7 +283,7 @@ export default function StoragePage() {
                   "min-h-[40px] rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
                   healthFilter === option.value
                     ? "border-[#0078D4]/40 bg-[#0078D4]/10 text-[#7cb9ff]"
-                    : "border-[#2a2a2a] bg-[#0d0d0d] text-slate-400 hover:text-white",
+                    : "border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white",
                 )}
               >
                 {option.label}
@@ -293,7 +293,7 @@ export default function StoragePage() {
               <button
                 type="button"
                 onClick={() => { setSearch(""); setHealthFilter("all"); }}
-                className="min-h-[40px] rounded-full border border-[#2a2a2a] bg-[#0d0d0d] px-3 py-1.5 text-xs font-medium text-slate-400 transition-colors hover:text-white"
+                className="min-h-[40px] rounded-full border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-3 py-1.5 text-xs font-medium text-slate-500 dark:text-slate-400 transition-colors hover:text-gray-900 dark:hover:text-white"
               >
                 Reset
               </button>
@@ -312,15 +312,15 @@ export default function StoragePage() {
             />
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
               {breakdownData.breakdown.map((entry) => (
-                <div key={entry.name} className="rounded-xl border border-[#2a2a2a] bg-[#0d0d0d] p-4">
+                <div key={entry.name} className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] p-4">
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <p className="text-sm font-medium text-white">{entry.name}</p>
+                      <p className="text-sm font-medium text-gray-900 dark:text-white">{entry.name}</p>
                       <p className="mt-1 text-xs text-slate-500">{entry.pvcCount} PVC{entry.pvcCount === 1 ? "" : "s"}</p>
                     </div>
-                    <span className="text-sm font-semibold text-slate-200">{entry.totalGi} Gi</span>
+                    <span className="text-sm font-semibold text-slate-800 dark:text-slate-200">{entry.totalGi} Gi</span>
                   </div>
-                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#1a1a1a]">
+                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-white dark:bg-[#1a1a1a]">
                     <div
                       className="h-full rounded-full"
                       style={{ width: `${totalBreakdownGi > 0 ? Math.max(10, Math.round((entry.totalGi / totalBreakdownGi) * 100)) : 0}%`, backgroundColor: entry.color }}
@@ -336,30 +336,30 @@ export default function StoragePage() {
       {backupVolumes.length > 0 && (
         <CollapsibleSection title="Backup status" count={backupSummary.total} storageKey="storage-backup-status">
           <div className="mb-4 grid gap-3 md:grid-cols-4">
-            <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4">
+            <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4">
               <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Protected volumes</p>
-              <p className="mt-2 text-lg font-semibold text-white">{backupSummary.total}</p>
-              <p className="mt-1 text-sm text-slate-400">Longhorn backup volumes detected on the TrueNAS target.</p>
+              <p className="mt-2 text-lg font-semibold text-gray-900 dark:text-white">{backupSummary.total}</p>
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Longhorn backup volumes detected on the TrueNAS target.</p>
             </div>
-            <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4">
+            <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4">
               <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Current backups</p>
-              <p className="mt-2 text-lg font-semibold text-white">{backupSummary.healthy}</p>
-              <p className="mt-1 text-sm text-slate-400">Recovered within the {backupData?.maxAgeHours ?? 36}h freshness window.</p>
+              <p className="mt-2 text-lg font-semibold text-gray-900 dark:text-white">{backupSummary.healthy}</p>
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Recovered within the {backupData?.maxAgeHours ?? 36}h freshness window.</p>
             </div>
-            <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4">
+            <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4">
               <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Stale backups</p>
-              <p className="mt-2 text-lg font-semibold text-white">{backupSummary.stale}</p>
-              <p className="mt-1 text-sm text-slate-400">Backups that are too old or ended in an error state.</p>
+              <p className="mt-2 text-lg font-semibold text-gray-900 dark:text-white">{backupSummary.stale}</p>
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Backups that are too old or ended in an error state.</p>
             </div>
-            <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4">
+            <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4">
               <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Missing backups</p>
-              <p className="mt-2 text-lg font-semibold text-white">{backupSummary.missing}</p>
-              <p className="mt-1 text-sm text-slate-400">Volumes that have never produced a remote backup yet.</p>
+              <p className="mt-2 text-lg font-semibold text-gray-900 dark:text-white">{backupSummary.missing}</p>
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Volumes that have never produced a remote backup yet.</p>
             </div>
           </div>
-          <div className="overflow-x-auto rounded-xl border border-[#2a2a2a] bg-[#111]">
+          <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111]">
             <table className="w-full min-w-[720px] text-sm">
-              <thead className="bg-[#0d0d0d] text-xs uppercase tracking-[0.16em] text-slate-500">
+              <thead className="bg-white dark:bg-[#0d0d0d] text-xs uppercase tracking-[0.16em] text-slate-500">
                 <tr>
                   <th className="px-4 py-3 text-left font-medium">Volume</th>
                   <th className="px-4 py-3 text-left font-medium">Status</th>
@@ -370,17 +370,17 @@ export default function StoragePage() {
               </thead>
               <tbody>
                 {backupVolumes.map((volume) => (
-                  <tr key={volume.name} className="border-t border-[#1c1c1c] text-slate-300">
+                  <tr key={volume.name} className="border-t border-[#1c1c1c] text-slate-700 dark:text-slate-300">
                     <td className="px-4 py-4">
-                      <p className="font-medium text-white">{volume.name}</p>
+                      <p className="font-medium text-gray-900 dark:text-white">{volume.name}</p>
                       <p className="mt-1 text-xs text-slate-500">{volume.lastBackupState ?? "No backup yet"}</p>
                     </td>
                     <td className="px-4 py-4">
                       <span className={cn("rounded-full px-2 py-1 text-xs font-medium", volume.status === "healthy" ? "bg-emerald-500/10 text-emerald-300" : volume.status === "stale" ? "bg-amber-500/10 text-amber-300" : "bg-red-500/10 text-red-300")}>{volume.status}</span>
                     </td>
-                    <td className="px-4 py-4 text-slate-300">{volume.lastBackupAt ? new Date(volume.lastBackupAt).toLocaleString() : "Never"}</td>
-                    <td className="px-4 py-4 text-slate-300">{formatBackupAge(volume.ageHours)}</td>
-                    <td className="px-4 py-4 text-slate-300">{volume.backupCount}</td>
+                    <td className="px-4 py-4 text-slate-700 dark:text-slate-300">{volume.lastBackupAt ? new Date(volume.lastBackupAt).toLocaleString() : "Never"}</td>
+                    <td className="px-4 py-4 text-slate-700 dark:text-slate-300">{formatBackupAge(volume.ageHours)}</td>
+                    <td className="px-4 py-4 text-slate-700 dark:text-slate-300">{volume.backupCount}</td>
                   </tr>
                 ))}
               </tbody>
@@ -391,12 +391,12 @@ export default function StoragePage() {
 
       {isLoading ? (
         <div className="space-y-3">
-          <div className="hidden overflow-hidden rounded-xl border border-[#2a2a2a] bg-[#111] lg:block">
-            <div className="h-12 border-b border-[#2a2a2a] bg-white/5 animate-pulse" />
-            {[...Array(6)].map((_, index) => <div key={index} className="h-16 border-b border-[#1a1a1a] bg-white/5/0 animate-pulse" />)}
+          <div className="hidden overflow-hidden rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] lg:block">
+            <div className="h-12 border-b border-gray-200 dark:border-[#2a2a2a] bg-gray-100 dark:bg-white/5 animate-pulse" />
+            {[...Array(6)].map((_, index) => <div key={index} className="h-16 border-b border-gray-200 dark:border-[#1a1a1a] bg-white/5/0 animate-pulse" />)}
           </div>
           <div className="grid gap-3 lg:hidden">
-            {[...Array(4)].map((_, index) => <div key={index} className="h-28 rounded-xl border border-[#2a2a2a] bg-white/5 animate-pulse" />)}
+            {[...Array(4)].map((_, index) => <div key={index} className="h-28 rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-100 dark:bg-white/5 animate-pulse" />)}
           </div>
         </div>
       ) : filteredVolumes.length === 0 ? (
@@ -408,9 +408,9 @@ export default function StoragePage() {
         />
       ) : (
         <>
-          <div className="hidden overflow-hidden rounded-xl border border-[#2a2a2a] bg-[#111] lg:block">
+          <div className="hidden overflow-hidden rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] lg:block">
             <table className="w-full text-sm">
-              <thead className="bg-[#0d0d0d] text-xs uppercase tracking-[0.16em] text-slate-500">
+              <thead className="bg-white dark:bg-[#0d0d0d] text-xs uppercase tracking-[0.16em] text-slate-500">
                 <tr>
                   {[
                     ["name", "Volume"],
@@ -423,7 +423,7 @@ export default function StoragePage() {
                       <button
                         type="button"
                         onClick={() => setSortBy(value as SortBy)}
-                        className={cn("inline-flex items-center gap-1 transition-colors hover:text-white", sortBy === value && "text-[#7cb9ff]")}
+                        className={cn("inline-flex items-center gap-1 transition-colors hover:text-gray-900 dark:hover:text-white", sortBy === value && "text-[#7cb9ff]")}
                       >
                         {label}
                         <ArrowUpDown className="h-3 w-3" />
@@ -441,11 +441,11 @@ export default function StoragePage() {
                     <tr key={volume.name} className="border-t border-[#1c1c1c] transition-colors hover:bg-white/[0.03]">
                       <td className="px-4 py-4">
                         <div className="flex items-center gap-3">
-                          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#0d0d0d] text-slate-400">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white dark:bg-[#0d0d0d] text-slate-500 dark:text-slate-400">
                             <HardDrive className="h-4 w-4" />
                           </div>
                           <div className="min-w-0">
-                            <p className="truncate font-medium text-white">{volume.name}</p>
+                            <p className="truncate font-medium text-gray-900 dark:text-white">{volume.name}</p>
                             <p className="mt-1 text-xs text-slate-500">{pct}% utilized</p>
                           </div>
                         </div>
@@ -456,15 +456,15 @@ export default function StoragePage() {
                           <span className={cn("rounded-full border px-2 py-1 text-xs font-medium", healthy ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300" : bucket === "critical" ? "border-red-500/30 bg-red-500/10 text-red-300" : "border-amber-500/30 bg-amber-500/10 text-amber-300")}>{volume.robustness}</span>
                         </div>
                       </td>
-                      <td className="px-4 py-4 text-slate-300">{volume.numberOfReplicas}x</td>
-                      <td className="px-4 py-4 text-slate-300">{formatBytes(volume.size ?? 0)}</td>
+                      <td className="px-4 py-4 text-slate-700 dark:text-slate-300">{volume.numberOfReplicas}x</td>
+                      <td className="px-4 py-4 text-slate-700 dark:text-slate-300">{formatBytes(volume.size ?? 0)}</td>
                       <td className="px-4 py-4">
                         <div className="space-y-2">
-                          <div className="flex items-center justify-between gap-3 text-xs text-slate-400">
+                          <div className="flex items-center justify-between gap-3 text-xs text-slate-500 dark:text-slate-400">
                             <span>{formatBytes(volume.actualSize ?? 0)} used</span>
                             <span className={cn("font-medium", bucket === "critical" ? "text-red-300" : bucket === "attention" ? "text-amber-300" : "text-emerald-300")}>{pct}%</span>
                           </div>
-                          <div className="h-2 overflow-hidden rounded-full bg-[#1a1a1a]">
+                          <div className="h-2 overflow-hidden rounded-full bg-white dark:bg-[#1a1a1a]">
                             <div className={cn("h-full rounded-full transition-all", bucket === "critical" ? "bg-red-500" : bucket === "attention" ? "bg-amber-500" : "bg-[#0078D4]")} style={{ width: `${pct}%` }} />
                           </div>
                         </div>
@@ -482,12 +482,12 @@ export default function StoragePage() {
               const bucket = healthBucket(volume);
               const healthy = bucket === "healthy";
               return (
-                <motion.div key={volume.name} whileHover={{ x: 2 }} whileTap={{ scale: 0.99 }} className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4">
+                <motion.div key={volume.name} whileHover={{ x: 2 }} whileTap={{ scale: 0.99 }} className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
-                        <HardDrive className="h-4 w-4 text-slate-400" />
-                        <span className="truncate text-sm font-medium text-white">{volume.name}</span>
+                        <HardDrive className="h-4 w-4 text-slate-500 dark:text-slate-400" />
+                        <span className="truncate text-sm font-medium text-gray-900 dark:text-white">{volume.name}</span>
                       </div>
                       <p className="mt-1 text-xs text-slate-500">{volume.numberOfReplicas} replicas</p>
                     </div>
@@ -497,11 +497,11 @@ export default function StoragePage() {
                     </div>
                   </div>
                   <div className="mt-4 space-y-2">
-                    <div className="flex items-center justify-between text-xs text-slate-400">
+                    <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
                       <span>{formatBytes(volume.actualSize ?? 0)} of {formatBytes(volume.size ?? 0)}</span>
                       <span className={cn("font-medium", bucket === "critical" ? "text-red-300" : bucket === "attention" ? "text-amber-300" : "text-emerald-300")}>{pct}%</span>
                     </div>
-                    <div className="h-2 overflow-hidden rounded-full bg-[#1a1a1a]">
+                    <div className="h-2 overflow-hidden rounded-full bg-white dark:bg-[#1a1a1a]">
                       <div className={cn("h-full rounded-full transition-all", bucket === "critical" ? "bg-red-500" : bucket === "attention" ? "bg-amber-500" : "bg-[#0078D4]")} style={{ width: `${pct}%` }} />
                     </div>
                   </div>

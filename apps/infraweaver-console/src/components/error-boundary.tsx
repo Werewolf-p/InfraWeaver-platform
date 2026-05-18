@@ -72,11 +72,11 @@ export function FallbackUI({ error, requestId, onReset }: FallbackUIProps) {
     <div className="flex min-h-[400px] flex-col items-center justify-center gap-4 rounded-2xl border border-red-500/20 bg-red-500/5 p-8 text-center">
       <AlertTriangle className="h-12 w-12 text-red-400" />
       <div>
-        <h2 className="text-lg font-semibold text-white">Something went wrong</h2>
-        <p className="mt-1 text-sm text-white/60">
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Something went wrong</h2>
+        <p className="mt-1 text-sm text-gray-500 dark:text-white/60">
           {error?.message ?? "An unexpected error occurred"}
         </p>
-        <p className="mt-1 font-mono text-xs text-white/40">Request ID: {requestId}</p>
+        <p className="mt-1 font-mono text-xs text-gray-400 dark:text-white/40">Request ID: {requestId}</p>
       </div>
       <button
         onClick={onReset}

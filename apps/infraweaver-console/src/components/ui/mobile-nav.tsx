@@ -19,7 +19,7 @@ export function MobileNav() {
   return (
     <nav
       aria-label="Mobile navigation"
-      className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-slate-950/90 backdrop-blur-md border-t border-white/10 flex items-center justify-around px-2 pb-safe"
+      className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-slate-950/90 backdrop-blur-md border-t border-gray-200 dark:border-white/10 flex items-center justify-around px-2 pb-safe"
       style={{ paddingBottom: "max(env(safe-area-inset-bottom), 8px)" }}
     >
       {mobileNavItems.map((item) => {

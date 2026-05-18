@@ -48,8 +48,8 @@ export function AnimatedRing({
       </svg>
       {label && (
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-lg font-semibold tabular-nums text-[#f2f2f2]">{label}</span>
-          {sublabel && <span className="text-[10px] text-[#666]">{sublabel}</span>}
+          <span className="text-lg font-semibold tabular-nums text-gray-900 dark:text-[#f2f2f2]">{label}</span>
+          {sublabel && <span className="text-[10px] text-gray-400 dark:text-[#666]">{sublabel}</span>}
         </div>
       )}
     </div>

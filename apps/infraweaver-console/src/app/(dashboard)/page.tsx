@@ -61,7 +61,7 @@ function KpiCard({ title, value, subtitle, icon: Icon, accent, trend }: {
     <motion.div
       variants={dashboardItem}
       whileHover={{ y: -2, borderColor: "rgba(0,120,212,0.3)" }}
-      className="relative overflow-hidden rounded-2xl border border-[#2a2a2a] bg-[var(--surface-1,#1a1a1a)] p-4 touch-manipulation transition-transform active:scale-[0.98]"
+      className="relative overflow-hidden rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-[var(--surface-1,#1a1a1a)] p-4 touch-manipulation transition-transform active:scale-[0.98]"
     >
       <div className="mb-3 flex items-start justify-between">
         <div className={cn("flex h-9 w-9 items-center justify-center rounded-xl", accent)}>
@@ -86,7 +86,7 @@ function KpiCard({ title, value, subtitle, icon: Icon, accent, trend }: {
   );
 }
 
-function QuickAction({ icon: Icon, label, onClick, href, accent = "bg-[#1a1a1a] border-[#2a2a2a]", loading }: {
+function QuickAction({ icon: Icon, label, onClick, href, accent = "bg-white dark:bg-[#1a1a1a] border-gray-200 dark:border-[#2a2a2a]", loading }: {
   icon: React.ElementType;
   label: string;
   onClick?: () => void;
@@ -116,8 +116,8 @@ function QuickAction({ icon: Icon, label, onClick, href, accent = "bg-[#1a1a1a] 
 
   const cls = cn(
     "flex min-h-[56px] flex-col items-center justify-center gap-1.5 rounded-2xl border px-3 py-3",
-    "text-xs font-medium text-[#9e9e9e] touch-manipulation",
-    "hover:text-white active:scale-95",
+    "text-xs font-medium text-gray-500 dark:text-[#9e9e9e] touch-manipulation",
+    "hover:text-gray-900 dark:hover:text-white active:scale-95",
     accent,
   );
   const motionProps = {
@@ -225,7 +225,7 @@ function PlatformServiceCard({ name, description, href, icon: Icon, status, exte
     <motion.div
       variants={dashboardItem}
       whileHover={{ borderColor: "rgba(0,120,212,0.4)" }}
-      className="flex flex-col rounded-2xl border border-[#2a2a2a] bg-[var(--surface-1,#1a1a1a)] p-4 touch-manipulation transition-transform active:scale-[0.98]"
+      className="flex flex-col rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-[var(--surface-1,#1a1a1a)] p-4 touch-manipulation transition-transform active:scale-[0.98]"
     >
       <div className="mb-3 flex items-start justify-between">
         <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-[rgba(0,120,212,0.15)] bg-[rgba(0,120,212,0.1)]">
@@ -236,8 +236,8 @@ function PlatformServiceCard({ name, description, href, icon: Icon, status, exte
           status === "up" ? "animate-pulse bg-green-400" : status === "down" ? "bg-red-400" : "bg-slate-500",
         )} />
       </div>
-      <p className="mb-0.5 text-sm font-semibold text-[#f2f2f2]">{name}</p>
-      <p className="mb-3 flex-1 text-[11px] text-[#666]">{description}</p>
+      <p className="mb-0.5 text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">{name}</p>
+      <p className="mb-3 flex-1 text-[11px] text-gray-400 dark:text-[#666]">{description}</p>
       {/* @ts-expect-error polymorphic */}
       <Wrapper {...wrapperProps} className="flex w-fit items-center gap-1 text-xs text-[#0078D4] transition-colors hover:text-[#1a86d9]">
         Open {external ? <ExternalLink className="h-3 w-3" /> : <ArrowRight className="h-3 w-3" />}
@@ -261,7 +261,7 @@ function ArgoCDUnavailableBanner({ onRetry }: { onRetry: () => void }) {
           <RefreshCw className="h-3.5 w-3.5" />
           Retry
         </button>
-        <Link href="/self-test" className="flex min-h-[40px] items-center gap-2 rounded-xl border border-[#333] bg-[#1a1a1a] px-4 py-2 text-xs font-medium text-[#9e9e9e] touch-manipulation transition-transform hover:text-white active:scale-95">
+        <Link href="/self-test" className="flex min-h-[40px] items-center gap-2 rounded-xl border border-gray-200 dark:border-[#333] bg-white dark:bg-[#1a1a1a] px-4 py-2 text-xs font-medium text-gray-500 dark:text-[#9e9e9e] touch-manipulation transition-transform hover:text-gray-900 dark:hover:text-white active:scale-95">
           Run Diagnostics
         </Link>
       </div>
@@ -366,8 +366,8 @@ export default function DashboardPage() {
     return (
       <div className="space-y-6 p-4 sm:p-6">
         <div className="space-y-1">
-          <h1 className="text-xl font-semibold text-[#f2f2f2]">All Clusters</h1>
-          <p className="text-sm text-[#666]">Select a cluster to manage it</p>
+          <h1 className="text-xl font-semibold text-gray-900 dark:text-[#f2f2f2]">All Clusters</h1>
+          <p className="text-sm text-gray-400 dark:text-[#666]">Select a cluster to manage it</p>
         </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {clusters.map(cluster => (
@@ -423,7 +423,7 @@ export default function DashboardPage() {
       </motion.div>
 
       <div className="mb-5">
-        <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-[#555]">Quick Actions</h2>
+        <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-gray-400 dark:text-[#555]">Quick Actions</h2>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           {isAdmin ? (
             <QuickAction
@@ -434,23 +434,23 @@ export default function DashboardPage() {
               accent="border-[rgba(0,120,212,0.2)] bg-[rgba(0,120,212,0.08)] text-[#4db3ff] hover:bg-[rgba(0,120,212,0.15)]"
             />
           ) : null}
-          <QuickAction icon={Activity} label="View Logs" href="/logs" accent="border-[#2a2a2a] bg-[#1a1a1a] hover:bg-[#222]" />
-          <QuickAction icon={Key} label="Manage Secrets" href="/secrets" accent="border-[#2a2a2a] bg-[#1a1a1a] hover:bg-[#222]" />
-          <QuickAction icon={Terminal} label="Open Terminal" href="/pod-shell" accent="border-[#2a2a2a] bg-[#1a1a1a] hover:bg-[#222]" />
-          {!isAdmin ? <QuickAction icon={Server} label="Cluster" href="/cluster" accent="border-[#2a2a2a] bg-[#1a1a1a] hover:bg-[#222]" /> : null}
+          <QuickAction icon={Activity} label="View Logs" href="/logs" accent="border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#1a1a1a] hover:bg-gray-100 dark:hover:bg-[#222]" />
+          <QuickAction icon={Key} label="Manage Secrets" href="/secrets" accent="border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#1a1a1a] hover:bg-gray-100 dark:hover:bg-[#222]" />
+          <QuickAction icon={Terminal} label="Open Terminal" href="/pod-shell" accent="border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#1a1a1a] hover:bg-gray-100 dark:hover:bg-[#222]" />
+          {!isAdmin ? <QuickAction icon={Server} label="Cluster" href="/cluster" accent="border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#1a1a1a] hover:bg-gray-100 dark:hover:bg-[#222]" /> : null}
         </div>
       </div>
 
       {(appHealthChips.length > 0 || isLoading) ? (
         <div className="mb-5">
           <div className="mb-2 flex items-center justify-between">
-            <h2 className="text-xs font-semibold uppercase tracking-widest text-[#555]">App Health</h2>
+            <h2 className="text-xs font-semibold uppercase tracking-widest text-gray-400 dark:text-[#555]">App Health</h2>
             <Link href="/apps" className="text-xs text-[#0078D4] transition-colors hover:text-[#1a86d9]">View all</Link>
           </div>
           {isLoading ? (
             <div className="flex gap-2 overflow-x-hidden">
               {[...Array(6)].map((_, i) => (
-                <div key={i} className="h-8 w-24 flex-shrink-0 rounded-full bg-[#1a1a1a] shimmer-bg" />
+                <div key={i} className="h-8 w-24 flex-shrink-0 rounded-full bg-white dark:bg-[#1a1a1a] shimmer-bg" />
               ))}
             </div>
           ) : (
@@ -472,10 +472,10 @@ export default function DashboardPage() {
       ) : null}
 
       <div className="mb-5 grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-3">
-        <div className="rounded-2xl border border-[#2a2a2a] bg-[var(--surface-1,#1a1a1a)] p-4 sm:p-5 lg:col-span-2">
+        <div className="rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-[var(--surface-1,#1a1a1a)] p-4 sm:p-5 lg:col-span-2">
           <div className="mb-3 flex items-center justify-between">
-            <h3 className="flex items-center gap-2 text-sm font-semibold text-[#f2f2f2]">
-              <Clock className="h-4 w-4 text-[#9e9e9e]" />
+            <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">
+              <Clock className="h-4 w-4 text-gray-500 dark:text-[#9e9e9e]" />
               Recent Activity
             </h3>
             <Link href="/apps" className="text-xs text-[#0078D4] transition-colors hover:text-[#1a86d9]">All apps</Link>
@@ -484,15 +484,15 @@ export default function DashboardPage() {
             {isLoading ? (
               [...Array(5)].map((_, i) => <div key={i} className="h-12 rounded-xl shimmer-bg" />)
             ) : recentActivity.length === 0 ? (
-              <p className="py-8 text-center text-sm text-[#555]">No recent activity</p>
+              <p className="py-8 text-center text-sm text-gray-400 dark:text-[#555]">No recent activity</p>
             ) : recentActivity.map((app) => (
               <Link key={app.metadata.name} href={`/apps/${app.metadata.name}`}>
-                <div className="flex min-h-[52px] items-center justify-between rounded-xl px-3 py-2 transition-all hover:bg-[#222] touch-manipulation active:scale-[0.99]">
-                  <span className="mr-3 truncate text-sm font-medium text-[#f2f2f2]">{app.metadata.name}</span>
+                <div className="flex min-h-[52px] items-center justify-between rounded-xl px-3 py-2 transition-all hover:bg-gray-100 dark:hover:bg-[#222] touch-manipulation active:scale-[0.99]">
+                  <span className="mr-3 truncate text-sm font-medium text-gray-900 dark:text-[#f2f2f2]">{app.metadata.name}</span>
                   <div className="flex flex-shrink-0 items-center gap-2">
                     <StatusBadge status={app.status.health.status} size="sm" />
                     {app.status.operationState?.finishedAt ? (
-                      <span className="hidden text-xs text-[#666] sm:block">
+                      <span className="hidden text-xs text-gray-400 dark:text-[#666] sm:block">
                         {timeAgo(app.status.operationState.finishedAt)}
                       </span>
                     ) : null}
@@ -516,20 +516,20 @@ export default function DashboardPage() {
               </Link>
             </div>
           ) : null}
-          <div className="space-y-3 rounded-2xl border border-[#2a2a2a] bg-[var(--surface-1,#1a1a1a)] p-4">
-            <h3 className="text-xs font-semibold uppercase tracking-widest text-[#555]">Cluster Stats</h3>
+          <div className="space-y-3 rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-[var(--surface-1,#1a1a1a)] p-4">
+            <h3 className="text-xs font-semibold uppercase tracking-widest text-gray-400 dark:text-[#555]">Cluster Stats</h3>
             <div className="space-y-2.5">
               <div className="flex items-center justify-between">
-                <span className="text-xs text-[#9e9e9e]">Apps Synced</span>
-                <span className="tabular-nums text-sm font-semibold text-[#f2f2f2]">{stats.synced}/{stats.total}</span>
+                <span className="text-xs text-gray-500 dark:text-[#9e9e9e]">Apps Synced</span>
+                <span className="tabular-nums text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">{stats.synced}/{stats.total}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-xs text-[#9e9e9e]">Pods Running</span>
-                <span className="tabular-nums text-sm font-semibold text-[#f2f2f2]">{podStats.running}/{podStats.total}</span>
+                <span className="text-xs text-gray-500 dark:text-[#9e9e9e]">Pods Running</span>
+                <span className="tabular-nums text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">{podStats.running}/{podStats.total}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-xs text-[#9e9e9e]">Endpoints Up</span>
-                <span className="tabular-nums text-sm font-semibold text-[#f2f2f2]">{gatusStats.up}/{gatusStats.total}</span>
+                <span className="text-xs text-gray-500 dark:text-[#9e9e9e]">Endpoints Up</span>
+                <span className="tabular-nums text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">{gatusStats.up}/{gatusStats.total}</span>
               </div>
             </div>
           </div>
@@ -538,8 +538,8 @@ export default function DashboardPage() {
 
       <div className="mb-6">
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="flex items-center gap-2 text-sm font-semibold text-[#f2f2f2]">
-            <Activity className="h-4 w-4 text-[#9e9e9e]" />
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">
+            <Activity className="h-4 w-4 text-gray-500 dark:text-[#9e9e9e]" />
             Platform Services
           </h2>
           {healthData?.available === false ? (

@@ -59,7 +59,7 @@ export function BottomSheet({ open, onClose, title, children, className }: Botto
               if (info.offset.y > 80 || info.velocity.y > 500) onClose();
             }}
             className={cn(
-              "fixed bottom-0 left-0 right-0 z-[301] bg-[#141414] border-t border-[#2a2a2a] rounded-t-2xl max-h-[92dvh] flex flex-col shadow-2xl",
+              "fixed bottom-0 left-0 right-0 z-[301] bg-gray-50 dark:bg-[#141414] border-t border-gray-200 dark:border-[#2a2a2a] rounded-t-2xl max-h-[92dvh] flex flex-col shadow-2xl",
               className
             )}
             style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
@@ -71,11 +71,11 @@ export function BottomSheet({ open, onClose, title, children, className }: Botto
 
             {/* Header */}
             {title && (
-              <div className="flex-shrink-0 flex items-center justify-between px-5 py-3 border-b border-[#2a2a2a]">
-                <h2 className="text-base font-semibold text-white">{title}</h2>
+              <div className="flex-shrink-0 flex items-center justify-between px-5 py-3 border-b border-gray-200 dark:border-[#2a2a2a]">
+                <h2 className="text-base font-semibold text-gray-900 dark:text-white">{title}</h2>
                 <button
                   onClick={onClose}
-                  className="w-8 h-8 flex items-center justify-center rounded-lg text-[#666] hover:text-white hover:bg-[#2a2a2a] transition-colors"
+                  className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 dark:text-[#666] hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-[#2a2a2a] transition-colors"
                 >
                   <X className="w-4 h-4" />
                 </button>

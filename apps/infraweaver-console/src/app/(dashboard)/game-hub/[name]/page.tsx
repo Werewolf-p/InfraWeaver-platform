@@ -342,7 +342,7 @@ function ThresholdPreview({
   const percent = clampNumber((value / Math.max(max, 1)) * 100, 0, 100);
   const tone = thresholdTone(value, max);
   return (
-    <div className={cn("rounded-xl border border-[#2a2a2a] bg-[#0d0d0d] p-3", tone.bg)}>
+    <div className={cn("rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] p-3", tone.bg)}>
       <div className="flex items-center gap-3">
         <div
           className="relative flex h-14 w-14 items-center justify-center rounded-full"
@@ -350,15 +350,15 @@ function ThresholdPreview({
             background: `conic-gradient(${tone.color} 0 ${percent}%, #1f1f1f ${percent}% 100%)`,
           }}
         >
-          <div className="absolute inset-[5px] rounded-full bg-[#111]" />
+          <div className="absolute inset-[5px] rounded-full bg-white dark:bg-[#111]" />
           <span className={cn("relative text-xs font-semibold", tone.text)}>
             {value}
             {suffix}
           </span>
         </div>
         <div>
-          <p className="text-xs font-medium text-[#f2f2f2]">{label}</p>
-          <p className="text-[10px] text-[#666]">Preview trigger ring</p>
+          <p className="text-xs font-medium text-gray-900 dark:text-[#f2f2f2]">{label}</p>
+          <p className="text-[10px] text-gray-400 dark:text-[#666]">Preview trigger ring</p>
         </div>
       </div>
     </div>
@@ -964,7 +964,7 @@ function ConsoleTab({
       error: "text-red-400",
       input: "text-yellow-300",
       output: "text-cyan-300",
-    })[type] ?? "text-[#ccc]";
+    })[type] ?? "text-gray-600 dark:text-[#ccc]";
   const detectLogLevel = useCallback((type: string, line: string) => {
     const value = line.toLowerCase();
     if (type === "error" || /\b(error|fatal|panic)\b/.test(value))
@@ -1019,12 +1019,12 @@ function ConsoleTab({
   };
 
   return (
-    <div className="flex h-[calc(100dvh-170px)] min-h-[65vh] flex-col overflow-hidden rounded-xl border border-[#2a2a2a] bg-[#0a0a0a] sm:h-[calc(100dvh-280px)] sm:min-h-[360px]">
+    <div className="flex h-[calc(100dvh-170px)] min-h-[65vh] flex-col overflow-hidden rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0a0a0a] sm:h-[calc(100dvh-280px)] sm:min-h-[360px]">
       {/* ── Toolbar ── */}
-      <div className="flex flex-shrink-0 items-center gap-2 border-b border-[#1e1e1e] bg-[#111] px-3 py-2">
+      <div className="flex flex-shrink-0 items-center gap-2 border-b border-gray-200 dark:border-[#1e1e1e] bg-white dark:bg-[#111] px-3 py-2">
         {/* Status — always visible */}
-        <Circle className={cn("w-2 h-2 flex-shrink-0", isConnected ? "fill-green-400 text-green-400" : "fill-[#444] text-[#444]")} />
-        <span className={cn("min-w-0 flex-1 truncate text-xs", isConnected ? "text-green-400" : "text-[#555]")}>
+        <Circle className={cn("w-2 h-2 flex-shrink-0", isConnected ? "fill-green-400 text-green-400" : "fill-[#444] text-gray-400 dark:text-[#444]")} />
+        <span className={cn("min-w-0 flex-1 truncate text-xs", isConnected ? "text-green-400" : "text-gray-400 dark:text-[#555]")}>
           {isConnected ? podLabel : status === "stopped" ? "Server stopped" : "Connecting…"}
         </span>
 
@@ -1035,15 +1035,15 @@ function ConsoleTab({
               className="min-h-[36px] px-2 text-xs text-[#0078D4] hover:underline">↺</button>
           )}
           <button onClick={() => { setShowMobileSearch(v => !v); if (!showMobileSearch) setTimeout(() => searchRef.current?.focus(), 50); }}
-            className={cn("min-h-[36px] rounded p-2 transition-colors", showMobileSearch ? "text-[#4db3ff] bg-[#0078D4]/10" : "text-[#555] hover:text-[#888] hover:bg-[#1e1e1e]")}>
+            className={cn("min-h-[36px] rounded p-2 transition-colors", showMobileSearch ? "text-[#4db3ff] bg-[#0078D4]/10" : "text-gray-400 dark:text-[#555] hover:text-gray-700 dark:hover:text-[#888] hover:bg-gray-100 dark:hover:bg-[#1e1e1e]")}>
             <Search className="w-3.5 h-3.5" />
           </button>
           <button onClick={() => setLogLines([])} title="Clear"
-            className="min-h-[36px] rounded p-2 text-[#555] transition-colors hover:text-[#888] hover:bg-[#1e1e1e]">
+            className="min-h-[36px] rounded p-2 text-gray-400 dark:text-[#555] transition-colors hover:text-gray-700 dark:hover:text-[#888] hover:bg-gray-100 dark:hover:bg-[#1e1e1e]">
             <RefreshCw className="w-3.5 h-3.5" />
           </button>
           <button onClick={() => setShowConsoleOptions(v => !v)}
-            className={cn("min-h-[36px] rounded p-2 transition-colors", showConsoleOptions ? "text-[#4db3ff] bg-[#0078D4]/10" : "text-[#555] hover:text-[#888] hover:bg-[#1e1e1e]")}>
+            className={cn("min-h-[36px] rounded p-2 transition-colors", showConsoleOptions ? "text-[#4db3ff] bg-[#0078D4]/10" : "text-gray-400 dark:text-[#555] hover:text-gray-700 dark:hover:text-[#888] hover:bg-gray-100 dark:hover:bg-[#1e1e1e]")}>
             <MoreHorizontal className="w-3.5 h-3.5" />
           </button>
         </div>
@@ -1061,29 +1061,29 @@ function ConsoleTab({
           ].map(({ label, active, toggle }) => (
             <button key={label} onClick={toggle}
               className={cn("min-h-[36px] rounded-md border px-2 py-1 text-[10px] transition-colors",
-                active ? "border-[#0078D4]/30 bg-[#0078D4]/10 text-[#4db3ff]" : "border-[#2a2a2a] text-[#777]")}>
+                active ? "border-[#0078D4]/30 bg-[#0078D4]/10 text-[#4db3ff]" : "border-gray-200 dark:border-[#2a2a2a] text-gray-500 dark:text-[#777]")}>
               {label}
             </button>
           ))}
           <select value={historyDepth} onChange={(e) => { const d = e.target.value as ConsoleHistoryDepth; setHistoryDepth(d); lastLogTimestampRef.current = null; setLogLines([]); connect(d); }}
-            className="min-h-[36px] cursor-pointer rounded border border-[#2a2a2a] bg-[#1a1a1a] px-1.5 py-0.5 text-[10px] text-[#888]">
+            className="min-h-[36px] cursor-pointer rounded border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#1a1a1a] px-1.5 py-0.5 text-[10px] text-gray-500 dark:text-[#888]">
             <option value="1h">1h</option><option value="6h">6h</option>
             <option value="1d">1d</option><option value="3d">3d</option><option value="7d">7d</option>
           </select>
-          <button onClick={() => searchRef.current?.focus()} className="min-h-[36px] rounded p-1.5 text-[#444] hover:bg-[#1e1e1e] hover:text-[#888]"><Search className="w-3.5 h-3.5" /></button>
+          <button onClick={() => searchRef.current?.focus()} className="min-h-[36px] rounded p-1.5 text-gray-400 dark:text-[#444] hover:bg-gray-100 dark:hover:bg-[#1e1e1e] hover:text-gray-700 dark:hover:text-[#888]"><Search className="w-3.5 h-3.5" /></button>
           {[
             { icon: RefreshCw, label: "Clear", action: () => setLogLines([]) },
             { icon: Copy, label: "Copy all", action: () => { navigator.clipboard.writeText(displayedLogLines.map(l => renderedLine(l)).join("\n")); toast.success("Copied"); } },
             { icon: Download, label: "Download logs", action: () => downloadTextFile(`${name}-console-${new Date().toISOString().slice(0, 10)}.txt`, displayedLogLines.map(l => renderedLine(l)).join("\n")) },
           ].map(({ icon: Icon, label, action }) => (
-            <button key={label} onClick={action} title={label} className="min-h-[36px] rounded p-1.5 text-[#444] hover:bg-[#1e1e1e] hover:text-[#888]"><Icon className="w-3.5 h-3.5" /></button>
+            <button key={label} onClick={action} title={label} className="min-h-[36px] rounded p-1.5 text-gray-400 dark:text-[#444] hover:bg-gray-100 dark:hover:bg-[#1e1e1e] hover:text-gray-700 dark:hover:text-[#888]"><Icon className="w-3.5 h-3.5" /></button>
           ))}
         </div>
       </div>
 
       {/* Mobile options panel (toggleable) */}
       {showConsoleOptions && (
-        <div className="flex flex-wrap items-center gap-2 border-b border-[#1e1e1e] bg-[#0d0d0d] px-3 py-2 sm:hidden">
+        <div className="flex flex-wrap items-center gap-2 border-b border-gray-200 dark:border-[#1e1e1e] bg-white dark:bg-[#0d0d0d] px-3 py-2 sm:hidden">
           {[
             { label: autoScroll ? "Auto ✓" : "Auto-scroll", active: autoScroll, toggle: () => setAutoScroll(v => !v) },
             { label: showTimestamps ? "Time ✓" : "Timestamps", active: showTimestamps, toggle: () => setShowTimestamps(v => !v) },
@@ -1091,48 +1091,48 @@ function ConsoleTab({
           ].map(({ label, active, toggle }) => (
             <button key={label} onClick={toggle}
               className={cn("rounded-full border px-3 py-1 text-[10px] transition-colors",
-                active ? "border-[#0078D4]/30 bg-[#0078D4]/10 text-[#4db3ff]" : "border-[#2a2a2a] text-[#777]")}>
+                active ? "border-[#0078D4]/30 bg-[#0078D4]/10 text-[#4db3ff]" : "border-gray-200 dark:border-[#2a2a2a] text-gray-500 dark:text-[#777]")}>
               {label}
             </button>
           ))}
           <select value={historyDepth} onChange={(e) => { const d = e.target.value as ConsoleHistoryDepth; setHistoryDepth(d); lastLogTimestampRef.current = null; setLogLines([]); connect(d); }}
-            className="cursor-pointer rounded-full border border-[#2a2a2a] bg-[#0d0d0d] px-2 py-1 text-[10px] text-[#888]">
+            className="cursor-pointer rounded-full border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-2 py-1 text-[10px] text-gray-500 dark:text-[#888]">
             <option value="1h">1h history</option><option value="6h">6h history</option>
             <option value="1d">1d history</option><option value="3d">3d history</option><option value="7d">7d history</option>
           </select>
           <button onClick={() => { navigator.clipboard.writeText(displayedLogLines.map(l => renderedLine(l)).join("\n")); toast.success("Copied"); }}
-            className="rounded-full border border-[#2a2a2a] px-3 py-1 text-[10px] text-[#777]">Copy all</button>
+            className="rounded-full border border-gray-200 dark:border-[#2a2a2a] px-3 py-1 text-[10px] text-gray-500 dark:text-[#777]">Copy all</button>
           <button onClick={() => downloadTextFile(`${name}-console-${new Date().toISOString().slice(0, 10)}.txt`, displayedLogLines.map(l => renderedLine(l)).join("\n"))}
-            className="rounded-full border border-[#2a2a2a] px-3 py-1 text-[10px] text-[#777]">Download</button>
+            className="rounded-full border border-gray-200 dark:border-[#2a2a2a] px-3 py-1 text-[10px] text-gray-500 dark:text-[#777]">Download</button>
         </div>
       )}
 
       {/* Search bar — always on desktop, toggle-shown on mobile */}
       <div className={cn(
-        "flex flex-wrap items-center gap-2 px-4 py-2 border-b border-[#1e1e1e] bg-[#101010]",
+        "flex flex-wrap items-center gap-2 px-4 py-2 border-b border-gray-200 dark:border-[#1e1e1e] bg-white dark:bg-[#101010]",
         !showMobileSearch && "hidden sm:flex",
         showMobileSearch && "flex",
       )}>
-        <div className="flex min-w-0 basis-full flex-1 items-center gap-2 rounded-lg border border-[#2a2a2a] bg-[#0d0d0d] px-3 py-2 sm:min-w-[220px] sm:basis-auto">
-          <Search className="h-3.5 w-3.5 text-[#666]" />
+        <div className="flex min-w-0 basis-full flex-1 items-center gap-2 rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-3 py-2 sm:min-w-[220px] sm:basis-auto">
+          <Search className="h-3.5 w-3.5 text-gray-400 dark:text-[#666]" />
           <input
             ref={searchRef}
             value={logSearch}
             onChange={(event) => setLogSearch(event.target.value)}
             placeholder="Search logs…"
-            className="min-w-0 flex-1 bg-transparent text-sm text-[#f2f2f2] outline-none"
+            className="min-w-0 flex-1 bg-transparent text-sm text-gray-900 dark:text-[#f2f2f2] outline-none"
           />
           {logSearch && (
             <button
               onClick={() => setLogSearch("")}
-              className="min-h-[36px] rounded p-1 text-[#666] hover:bg-[#1a1a1a] hover:text-[#f2f2f2]"
+              className="min-h-[36px] rounded p-1 text-gray-400 dark:text-[#666] hover:bg-gray-100 dark:hover:bg-[#1a1a1a] hover:text-gray-900 dark:hover:text-[#f2f2f2]"
               aria-label="Clear search"
             >
               <X className="h-3.5 w-3.5" />
             </button>
           )}
         </div>
-        <span className="rounded-full border border-[#2a2a2a] bg-[#0d0d0d] px-2.5 py-1 text-[11px] text-[#bbb]">
+        <span className="rounded-full border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-2.5 py-1 text-[11px] text-[#bbb]">
           {matchingLineIds.length} matches
         </span>
         <button
@@ -1141,7 +1141,7 @@ function ConsoleTab({
             "min-h-[36px] rounded-lg border px-3 py-1.5 text-[11px] transition-colors",
             logFilterMode
               ? "border-[#0078D4]/30 bg-[#0078D4]/10 text-[#4db3ff]"
-              : "border-[#2a2a2a] bg-[#0d0d0d] text-[#888]",
+              : "border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] text-gray-500 dark:text-[#888]",
           )}
         >
           {logFilterMode ? "Filter mode" : "Dim mode"}
@@ -1153,7 +1153,7 @@ function ConsoleTab({
               event.target.value as "all" | "error" | "warn" | "info",
             )
           }
-          className="min-h-[36px] rounded border border-[#2a2a2a] bg-[#0d0d0d] px-2 py-1.5 text-[10px] text-[#bbb] focus:outline-none"
+          className="min-h-[36px] rounded border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-2 py-1.5 text-[10px] text-[#bbb] focus:outline-none"
         >
           <option value="all">All levels</option>
           <option value="error">ERROR</option>
@@ -1163,7 +1163,7 @@ function ConsoleTab({
       </div>
 
       {reconnectBanner && status !== "stopped" && (
-        <div className="px-4 py-1.5 border-b border-[#1e1e1e] bg-[#111827] text-[11px] text-[#93c5fd]">
+        <div className="px-4 py-1.5 border-b border-gray-200 dark:border-[#1e1e1e] bg-[#111827] text-[11px] text-[#93c5fd]">
           {reconnectBanner}
         </div>
       )}
@@ -1181,14 +1181,14 @@ function ConsoleTab({
       >
         {status === "stopped" ? (
           <div className="flex h-full items-center justify-center p-6">
-            <div className="w-full max-w-md rounded-2xl border border-[#2a2a2a] bg-[#111] px-6 py-10 text-center shadow-[0_0_40px_rgba(0,0,0,0.35)]">
-              <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full border border-[#2a2a2a] bg-[#0d0d0d] text-[#666]">
+            <div className="w-full max-w-md rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-6 py-10 text-center shadow-[0_0_40px_rgba(0,0,0,0.35)]">
+              <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] text-gray-400 dark:text-[#666]">
                 <Square className="h-8 w-8" />
               </div>
-              <h3 className="text-2xl font-semibold text-[#f2f2f2]">
+              <h3 className="text-2xl font-semibold text-gray-900 dark:text-[#f2f2f2]">
                 Server Stopped
               </h3>
-              <p className="mt-2 text-sm text-[#666]">
+              <p className="mt-2 text-sm text-gray-400 dark:text-[#666]">
                 Start the server to stream logs and run commands.
               </p>
               {canStartServer ? (
@@ -1205,14 +1205,14 @@ function ConsoleTab({
                   Start Server
                 </button>
               ) : (
-                <p className="mt-6 text-xs text-[#555]">
+                <p className="mt-6 text-xs text-gray-400 dark:text-[#555]">
                   You do not have permission to start this server.
                 </p>
               )}
             </div>
           </div>
         ) : displayedLogLines.length === 0 ? (
-          <div className="flex items-center gap-2 text-[#444] pt-1">
+          <div className="flex items-center gap-2 text-gray-400 dark:text-[#444] pt-1">
             <Loader2 className="w-3.5 h-3.5 animate-spin" />
             <span>
               {logLines.length === 0
@@ -1248,11 +1248,11 @@ function ConsoleTab({
       </div>
 
       {isConnected && (eggCommands.length > 0 || savedCommands.length > 0) && (
-        <div className="flex-shrink-0 border-t border-[#1a1a1a] bg-[#0d0d0d]">
+        <div className="flex-shrink-0 border-t border-gray-200 dark:border-[#1a1a1a] bg-white dark:bg-[#0d0d0d]">
           {/* Mobile: collapse toggle */}
           <button
             onClick={() => setShowCommandsPanel(v => !v)}
-            className="flex w-full items-center justify-between px-3 py-2 text-[10px] text-[#555] transition-colors hover:text-[#888] sm:hidden"
+            className="flex w-full items-center justify-between px-3 py-2 text-[10px] text-gray-400 dark:text-[#555] transition-colors hover:text-gray-700 dark:hover:text-[#888] sm:hidden"
           >
             <span className="uppercase tracking-wide">
               Commands ({eggCommands.length + savedCommands.length})
@@ -1264,13 +1264,13 @@ function ConsoleTab({
           <div className={cn("space-y-3 px-3 py-2", !showCommandsPanel && "hidden sm:block")}>
             {eggCommands.length > 0 && (
               <div>
-                <p className="text-[10px] uppercase tracking-wide text-[#444] mb-2">Quick Commands</p>
+                <p className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-[#444] mb-2">Quick Commands</p>
                 <div className="overflow-x-auto scrollbar-none">
                   <div className="flex w-max gap-2 pb-1">
                     {eggCommands.map((entry) => (
                       <button key={`${entry.label}-${entry.command}`}
                         onClick={() => { setCommand(entry.command); inputRef.current?.focus(); }}
-                        className="min-h-[36px] rounded-full border border-[#2a2a2a] bg-[#1a1a1a] px-3 py-1 text-[10px] text-[#777] transition-colors hover:bg-[#252525] hover:text-[#ccc]">
+                        className="min-h-[36px] rounded-full border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#1a1a1a] px-3 py-1 text-[10px] text-gray-500 dark:text-[#777] transition-colors hover:bg-gray-100 dark:hover:bg-[#252525] hover:text-gray-700 dark:hover:text-[#ccc]">
                         {entry.label}
                       </button>
                     ))}
@@ -1280,18 +1280,18 @@ function ConsoleTab({
             )}
             {savedCommands.length > 0 && (
               <div>
-                <p className="text-[10px] uppercase tracking-wide text-[#444] mb-2">Saved Commands</p>
+                <p className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-[#444] mb-2">Saved Commands</p>
                 <div className="overflow-x-auto scrollbar-none">
                   <div className="flex w-max gap-2 pb-1">
                     {savedCommands.map((entry) => (
                       <div key={`${entry.id ?? entry.label}-${entry.command}`}
-                        className="flex items-center overflow-hidden rounded-full border border-[#2a2a2a] bg-[#1a1a1a]">
+                        className="flex items-center overflow-hidden rounded-full border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#1a1a1a]">
                         <button onClick={() => { setCommand(entry.command ?? ""); inputRef.current?.focus(); }}
-                          className="min-h-[36px] px-3 py-1 text-[10px] text-[#777] transition-colors hover:bg-[#252525] hover:text-[#ccc]">
+                          className="min-h-[36px] px-3 py-1 text-[10px] text-gray-500 dark:text-[#777] transition-colors hover:bg-gray-100 dark:hover:bg-[#252525] hover:text-gray-700 dark:hover:text-[#ccc]">
                           {entry.label}
                         </button>
                         <button onClick={() => deleteSavedCommand(entry)}
-                          className="min-h-[36px] px-2 py-1 text-[10px] text-[#555] transition-colors hover:bg-red-500/10 hover:text-red-300">
+                          className="min-h-[36px] px-2 py-1 text-[10px] text-gray-400 dark:text-[#555] transition-colors hover:bg-red-500/10 hover:text-red-300">
                           ✕
                         </button>
                       </div>
@@ -1304,15 +1304,15 @@ function ConsoleTab({
         </div>
       )}
 
-      <div className="sticky bottom-0 z-10 flex-shrink-0 border-t border-[#1a1a1a] bg-[#0d0d0d]/95 p-2 backdrop-blur supports-[backdrop-filter]:bg-[#0d0d0d]/85 pb-[calc(env(safe-area-inset-bottom,0px)+0.5rem)]">
+      <div className="sticky bottom-0 z-10 flex-shrink-0 border-t border-gray-200 dark:border-[#1a1a1a] bg-[#0d0d0d]/95 p-2 backdrop-blur supports-[backdrop-filter]:bg-[#0d0d0d]/85 pb-[calc(env(safe-area-inset-bottom,0px)+0.5rem)]">
         {/* No extra row on mobile — save icon is inside the input bar */}
         <form onSubmit={sendCommand} className="flex items-center gap-2">
           <div
             className={cn(
-              "flex min-h-[46px] flex-1 items-center gap-2 rounded-xl border bg-[#111] px-3",
+              "flex min-h-[46px] flex-1 items-center gap-2 rounded-xl border bg-white dark:bg-[#111] px-3",
               isConnected
-                ? "border-[#2a2a2a] focus-within:border-[#0078D4]"
-                : "border-[#1a1a1a] opacity-50",
+                ? "border-gray-200 dark:border-[#2a2a2a] focus-within:border-[#0078D4]"
+                : "border-gray-200 dark:border-[#1a1a1a] opacity-50",
             )}
           >
             <span className="select-none font-mono text-sm text-green-500">❯</span>
@@ -1326,12 +1326,12 @@ function ConsoleTab({
               autoCapitalize="none"
               autoCorrect="off"
               spellCheck={false}
-              className="flex-1 bg-transparent py-1 font-mono text-[16px] leading-none text-[#f0f0f0] outline-none placeholder:text-[#333] disabled:cursor-not-allowed"
+              className="flex-1 bg-transparent py-1 font-mono text-[16px] leading-none text-gray-900 dark:text-[#f0f0f0] outline-none placeholder:text-gray-400 dark:placeholder:text-[#333] disabled:cursor-not-allowed"
             />
             {/* Save command icon — shown on mobile inside input bar */}
             <button type="button" onClick={saveCurrentCommand} disabled={!command.trim()}
               title="Save command"
-              className="min-h-[36px] rounded p-1 text-[#444] transition-colors hover:text-[#888] disabled:opacity-30 sm:hidden">
+              className="min-h-[36px] rounded p-1 text-gray-400 dark:text-[#444] transition-colors hover:text-gray-700 dark:hover:text-[#888] disabled:opacity-30 sm:hidden">
               <Save className="w-3.5 h-3.5" />
             </button>
           </div>
@@ -1339,7 +1339,7 @@ function ConsoleTab({
             type="button"
             onClick={saveCurrentCommand}
             disabled={!command.trim()}
-            className="hidden min-h-[46px] rounded-xl bg-[#1a1a1a] px-3 text-xs font-medium text-[#cfcfcf] transition-colors hover:bg-[#252525] disabled:opacity-40 sm:inline-flex sm:items-center"
+            className="hidden min-h-[46px] rounded-xl bg-white dark:bg-[#1a1a1a] px-3 text-xs font-medium text-gray-700 dark:text-[#cfcfcf] transition-colors hover:bg-gray-100 dark:hover:bg-[#252525] disabled:opacity-40 sm:inline-flex sm:items-center"
           >
             Save
           </button>
@@ -1347,7 +1347,7 @@ function ConsoleTab({
             type="button"
             onClick={clearCommandHistory}
             disabled={history.length === 0}
-            className="hidden min-h-[46px] rounded-xl bg-[#1a1a1a] px-3 text-xs font-medium text-[#9e9e9e] transition-colors hover:bg-[#252525] disabled:opacity-40 sm:inline-flex sm:items-center"
+            className="hidden min-h-[46px] rounded-xl bg-white dark:bg-[#1a1a1a] px-3 text-xs font-medium text-gray-500 dark:text-[#9e9e9e] transition-colors hover:bg-gray-100 dark:hover:bg-[#252525] disabled:opacity-40 sm:inline-flex sm:items-center"
           >
             Clear History
           </button>
@@ -1681,7 +1681,7 @@ function FilesTab({
 
   if (status === "stopped") {
     return (
-      <div className="flex flex-col items-center justify-center h-40 gap-3 text-[#555]">
+      <div className="flex flex-col items-center justify-center h-40 gap-3 text-gray-400 dark:text-[#555]">
         <FolderOpen className="w-8 h-8" />
         <p className="text-sm">Start the server to browse files</p>
       </div>
@@ -1690,17 +1690,17 @@ function FilesTab({
 
   const fileTree = (
     <div className="flex flex-col gap-2">
-      <div className="rounded-lg border border-[#2a2a2a] bg-[#111] p-2">
+      <div className="rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-2">
         <div className="flex items-center gap-1 px-1 pb-2">
           <button
             onClick={goUp}
             disabled={pathHistory.length <= 1}
-            className="p-1 rounded hover:bg-[#1e1e1e] disabled:opacity-30 transition-colors flex-shrink-0"
+            className="p-1 rounded hover:bg-gray-100 dark:hover:bg-[#1e1e1e] disabled:opacity-30 transition-colors flex-shrink-0"
           >
-            <ArrowUp className="w-3.5 h-3.5 text-[#666]" />
+            <ArrowUp className="w-3.5 h-3.5 text-gray-400 dark:text-[#666]" />
           </button>
           <div className="flex-1 min-w-0 overflow-x-auto scrollbar-none">
-            <div className="flex items-center gap-1.5 w-max min-w-full text-[10px] font-mono text-[#777]">
+            <div className="flex items-center gap-1.5 w-max min-w-full text-[10px] font-mono text-gray-500 dark:text-[#777]">
               <button
                 onClick={() => {
                   setCurrentPath(mountPath);
@@ -1710,7 +1710,7 @@ function FilesTab({
                   setFileContent(null);
                   originalContentRef.current = null;
                 }}
-                className="rounded px-1 py-0.5 hover:bg-[#1e1e1e]"
+                className="rounded px-1 py-0.5 hover:bg-gray-100 dark:hover:bg-[#1e1e1e]"
               >
                 root
               </button>
@@ -1731,7 +1731,7 @@ function FilesTab({
                         setFileContent(null);
                         originalContentRef.current = null;
                       }}
-                      className="rounded px-1 py-0.5 hover:bg-[#1e1e1e]"
+                      className="rounded px-1 py-0.5 hover:bg-gray-100 dark:hover:bg-[#1e1e1e]"
                     >
                       {part}
                     </button>
@@ -1742,19 +1742,19 @@ function FilesTab({
           </div>
           <button
             onClick={() => refetch()}
-            className="p-1 rounded hover:bg-[#1e1e1e] transition-colors flex-shrink-0"
+            className="p-1 rounded hover:bg-gray-100 dark:hover:bg-[#1e1e1e] transition-colors flex-shrink-0"
           >
-            <RefreshCw className="w-3 h-3 text-[#555]" />
+            <RefreshCw className="w-3 h-3 text-gray-400 dark:text-[#555]" />
           </button>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative min-w-0 flex-1">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-[#555]" />
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 dark:text-[#555]" />
             <input
               value={fileSearch}
               onChange={(event) => setFileSearch(event.target.value)}
               placeholder="Search files…"
-              className="w-full rounded-lg border border-[#2a2a2a] bg-[#0d0d0d] py-1.5 pl-8 pr-3 text-xs text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
+              className="w-full rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] py-1.5 pl-8 pr-3 text-xs text-gray-900 dark:text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
             />
           </div>
           <select
@@ -1762,7 +1762,7 @@ function FilesTab({
             onChange={(event) =>
               setSortKey(event.target.value as "name" | "size" | "modified")
             }
-            className="rounded-lg border border-[#2a2a2a] bg-[#0d0d0d] px-2 py-1.5 text-[10px] text-[#bbb] focus:outline-none"
+            className="rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-2 py-1.5 text-[10px] text-[#bbb] focus:outline-none"
           >
             <option value="name">Name</option>
             <option value="size">Size</option>
@@ -1776,20 +1776,20 @@ function FilesTab({
             <button
               key={entry.path}
               onClick={() => void openFile(entry)}
-              className="rounded-full border border-[#2a2a2a] bg-[#111] px-2 py-1 text-[10px] text-[#9e9e9e] hover:text-white"
+              className="rounded-full border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-2 py-1 text-[10px] text-gray-500 dark:text-[#9e9e9e] hover:text-gray-900 dark:hover:text-white"
             >
               {entry.name}
             </button>
           ))}
         </div>
       )}
-      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
+      <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] overflow-hidden">
         {isLoading ? (
           <div className="flex items-center justify-center h-20">
-            <Loader2 className="w-4 h-4 animate-spin text-[#555]" />
+            <Loader2 className="w-4 h-4 animate-spin text-gray-400 dark:text-[#555]" />
           </div>
         ) : sortedFiles.length === 0 ? (
-          <p className="text-xs text-[#555] text-center py-6">
+          <p className="text-xs text-gray-400 dark:text-[#555] text-center py-6">
             {fileSearch
               ? "No files match the current search"
               : "Empty directory"}
@@ -1822,14 +1822,14 @@ function FilesTab({
                 className={cn(
                   "group flex items-center gap-2 px-2.5 py-2 rounded-lg cursor-pointer transition-colors text-xs touch-manipulation",
                   selectedFile?.path === entry.path
-                    ? "bg-[rgba(0,120,212,0.2)] text-white"
-                    : "hover:bg-[#1a1a1a] text-[#9e9e9e]",
+                    ? "bg-[rgba(0,120,212,0.2)] text-gray-900 dark:text-white"
+                    : "hover:bg-gray-100 dark:hover:bg-[#1a1a1a] text-gray-500 dark:text-[#9e9e9e]",
                 )}
               >
                 {entry.type === "directory" ? (
                   <Folder className="w-3.5 h-3.5 text-yellow-400 flex-shrink-0" />
                 ) : (
-                  <File className="w-3.5 h-3.5 text-[#444] flex-shrink-0" />
+                  <File className="w-3.5 h-3.5 text-gray-400 dark:text-[#444] flex-shrink-0" />
                 )}
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 min-w-0">
@@ -1840,16 +1840,16 @@ function FilesTab({
                           entry.name
                             .toLowerCase()
                             .includes(fileSearch.toLowerCase()) &&
-                          "text-white",
+                          "text-gray-900 dark:text-white",
                       )}
                     >
                       {entry.name}
                     </span>
-                    <span className="shrink-0 rounded border border-[#2a2a2a] bg-[#0a0a0a] px-1.5 py-0.5 text-[10px] font-mono text-[#8fb8ff]">
+                    <span className="shrink-0 rounded border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0a0a0a] px-1.5 py-0.5 text-[10px] font-mono text-[#8fb8ff]">
                       {entry.permissions || "---------"}
                     </span>
                   </div>
-                  <span className="text-[10px] text-[#555]">
+                  <span className="text-[10px] text-gray-400 dark:text-[#555]">
                     {entry.type === "directory"
                       ? "Directory"
                       : `${formatBytes(entry.size)} • ${timeAgo(entry.modifiedAt)}`}
@@ -1862,7 +1862,7 @@ function FilesTab({
                         event.stopPropagation();
                         void extractArchive(entry);
                       }}
-                      className="opacity-0 group-hover:opacity-100 p-0.5 text-[#444] hover:text-green-300 transition-all"
+                      className="opacity-0 group-hover:opacity-100 p-0.5 text-gray-400 dark:text-[#444] hover:text-green-300 transition-all"
                       title="Extract here"
                     >
                       <Package className="w-3 h-3" />
@@ -1874,7 +1874,7 @@ function FilesTab({
                       event.stopPropagation();
                       deleteFile(entry);
                     }}
-                    className="opacity-0 group-hover:opacity-100 p-0.5 text-[#444] hover:text-red-400 transition-all"
+                    className="opacity-0 group-hover:opacity-100 p-0.5 text-gray-400 dark:text-[#444] hover:text-red-400 transition-all"
                   >
                     <Trash2 className="w-3 h-3" />
                   </button>
@@ -1899,10 +1899,10 @@ function FilesTab({
               ← Files
             </button>
             <div className="min-w-0 flex-1">
-              <span className="text-xs text-[#555] font-mono truncate block">
+              <span className="text-xs text-gray-400 dark:text-[#555] font-mono truncate block">
                 {selectedFile.path}
               </span>
-              <span className="text-[10px] text-[#444]">
+              <span className="text-[10px] text-gray-400 dark:text-[#444]">
                 {selectedFile.permissions || "---------"} •{" "}
                 {formatBytes(selectedFile.size)} • Modified{" "}
                 {formatDateTime(selectedFile.modifiedAt)} •{" "}
@@ -1915,14 +1915,14 @@ function FilesTab({
                 navigator.clipboard.writeText(fileContent ?? "");
                 toast.success("Copied");
               }}
-              className="p-1.5 text-[#444] hover:text-[#888] flex-shrink-0"
+              className="p-1.5 text-gray-400 dark:text-[#444] hover:text-gray-700 dark:hover:text-[#888] flex-shrink-0"
             >
               <Copy className="w-3.5 h-3.5" />
             </button>
             {isArchiveFile && (
               <button
                 onClick={() => void extractArchive(selectedFile)}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-[#1a1a1a] hover:bg-[#252525] text-[#d4d4d4] rounded-lg text-xs font-medium flex-shrink-0"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-[#1a1a1a] hover:bg-gray-100 dark:hover:bg-[#252525] text-gray-700 dark:text-[#d4d4d4] rounded-lg text-xs font-medium flex-shrink-0"
               >
                 <Package className="w-3 h-3" /> Extract
               </button>
@@ -1931,7 +1931,7 @@ function FilesTab({
               <button
                 onClick={() => setDiffOpen(true)}
                 disabled={saving || loadingContent}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-[#1a1a1a] hover:bg-[#252525] disabled:opacity-50 text-[#d4d4d4] rounded-lg text-xs font-medium flex-shrink-0"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-[#1a1a1a] hover:bg-gray-100 dark:hover:bg-[#252525] disabled:opacity-50 text-gray-700 dark:text-[#d4d4d4] rounded-lg text-xs font-medium flex-shrink-0"
               >
                 <FileText className="w-3 h-3" /> Show diff
               </button>
@@ -1955,19 +1955,19 @@ function FilesTab({
             )}
           </div>
           <div
-            className="rounded-xl border border-[#2a2a2a] overflow-hidden min-w-0"
+            className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] overflow-hidden min-w-0"
             style={{ height: "60vh", minHeight: "320px" }}
           >
             {loadingContent ? (
               <div className="flex items-center justify-center h-full">
-                <Loader2 className="w-5 h-5 animate-spin text-[#555]" />
+                <Loader2 className="w-5 h-5 animate-spin text-gray-400 dark:text-[#555]" />
               </div>
             ) : fileTooLarge ? (
-              <div className="flex flex-col items-center justify-center h-full gap-4 bg-[#0a0a0a] p-4">
-                <FileText className="w-10 h-10 text-[#444]" />
+              <div className="flex flex-col items-center justify-center h-full gap-4 bg-white dark:bg-[#0a0a0a] p-4">
+                <FileText className="w-10 h-10 text-gray-400 dark:text-[#444]" />
                 <div className="text-center">
-                  <p className="text-sm font-medium text-[#d4d4d4] mb-1">File too large to edit in browser</p>
-                  <p className="text-xs text-[#555]">{fileTooLarge.size > 0 ? `${(fileTooLarge.size / 1024 / 1024).toFixed(1)} MB` : "Size unknown"} — max 50 MB for inline editing</p>
+                  <p className="text-sm font-medium text-gray-700 dark:text-[#d4d4d4] mb-1">File too large to edit in browser</p>
+                  <p className="text-xs text-gray-400 dark:text-[#555]">{fileTooLarge.size > 0 ? `${(fileTooLarge.size / 1024 / 1024).toFixed(1)} MB` : "Size unknown"} — max 50 MB for inline editing</p>
                 </div>
                 <a
                   href={`/api/game-hub/servers/${name}/files/content?path=${encodeURIComponent(selectedFile.path)}&download=1`}
@@ -1978,11 +1978,11 @@ function FilesTab({
                 </a>
               </div>
             ) : isImageFile ? (
-              <div className="flex h-full items-center justify-center bg-[#0a0a0a] p-4">
+              <div className="flex h-full items-center justify-center bg-white dark:bg-[#0a0a0a] p-4">
                 <img
                   src={`/api/game-hub/servers/${name}/files/content?path=${encodeURIComponent(selectedFile.path)}&download=1`}
                   alt={selectedFile.name}
-                  className="max-h-full max-w-full rounded border border-[#2a2a2a] object-contain"
+                  className="max-h-full max-w-full rounded border border-gray-200 dark:border-[#2a2a2a] object-contain"
                 />
               </div>
             ) : (
@@ -1990,7 +1990,7 @@ function FilesTab({
                 value={fileContent ?? ""}
                 onChange={(e) => setFileContent(e.target.value)}
                 spellCheck={false}
-                className="w-full h-full bg-[#1e1e1e] text-[#d4d4d4] font-mono text-[13px] leading-[1.5] p-3 resize-none focus:outline-none border-0"
+                className="w-full h-full bg-gray-50 dark:bg-[#1e1e1e] text-gray-700 dark:text-[#d4d4d4] font-mono text-[13px] leading-[1.5] p-3 resize-none focus:outline-none border-0"
                 style={{ tabSize: 2 }}
                 placeholder="Empty file"
               />
@@ -1999,11 +1999,11 @@ function FilesTab({
         </>
       ) : (
         <div
-          className="flex flex-col items-center justify-center rounded-xl border border-[#2a2a2a] bg-[#111] gap-3"
+          className="flex flex-col items-center justify-center rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] gap-3"
           style={{ height: "55vh", minHeight: "200px" }}
         >
           <FolderOpen className="w-10 h-10 text-[#2a2a2a]" />
-          <p className="text-sm text-[#555]">Select a file to edit</p>
+          <p className="text-sm text-gray-400 dark:text-[#555]">Select a file to edit</p>
           <button
             onClick={() => setMobilePane("files")}
             className="md:hidden text-xs text-[#0078D4]"
@@ -2031,37 +2031,37 @@ function FilesTab({
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.98, y: 12 }}
               transition={{ duration: 0.18 }}
-              className="flex w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-[#2a2a2a] bg-[#0d0d0d] shadow-2xl"
+              className="flex w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] shadow-2xl"
               onClick={(event) => event.stopPropagation()}
             >
-              <div className="border-b border-[#1e1e1e] px-5 py-4">
+              <div className="border-b border-gray-200 dark:border-[#1e1e1e] px-5 py-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <p className="text-[11px] uppercase tracking-[0.24em] text-[#666]">
+                    <p className="text-[11px] uppercase tracking-[0.24em] text-gray-400 dark:text-[#666]">
                       Unified diff preview
                     </p>
-                    <h3 className="mt-1 text-base font-semibold text-[#f2f2f2]">
+                    <h3 className="mt-1 text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">
                       {selectedFile.name}
                     </h3>
-                    <p className="mt-1 text-xs text-[#777]">
+                    <p className="mt-1 text-xs text-gray-500 dark:text-[#777]">
                       {changedDiffLines} changed line{changedDiffLines === 1 ? "" : "s"} • review before saving
                     </p>
                   </div>
                   <button
                     onClick={() => setDiffOpen(false)}
-                    className="rounded-lg border border-[#2a2a2a] p-2 text-[#666] transition-colors hover:bg-[#161616] hover:text-[#d4d4d4]"
+                    className="rounded-lg border border-gray-200 dark:border-[#2a2a2a] p-2 text-gray-400 dark:text-[#666] transition-colors hover:bg-gray-100 dark:hover:bg-[#161616] hover:text-[#d4d4d4]"
                   >
                     <X className="h-4 w-4" />
                   </button>
                 </div>
               </div>
-              <div className="border-b border-[#1e1e1e] bg-[#101010] px-5 py-2 font-mono text-[11px] text-[#666]">
+              <div className="border-b border-gray-200 dark:border-[#1e1e1e] bg-white dark:bg-[#101010] px-5 py-2 font-mono text-[11px] text-gray-400 dark:text-[#666]">
                 <div>--- original</div>
                 <div>+++ current</div>
               </div>
-              <div className="max-h-[65vh] overflow-auto bg-[#0a0a0a] p-3 font-mono text-xs leading-6">
+              <div className="max-h-[65vh] overflow-auto bg-white dark:bg-[#0a0a0a] p-3 font-mono text-xs leading-6">
                 {diffLines.length === 0 ? (
-                  <div className="rounded-lg border border-[#1e1e1e] bg-[#111] px-4 py-6 text-center text-[#666]">
+                  <div className="rounded-lg border border-gray-200 dark:border-[#1e1e1e] bg-white dark:bg-[#111] px-4 py-6 text-center text-gray-400 dark:text-[#666]">
                     No changes detected.
                   </div>
                 ) : (
@@ -2077,7 +2077,7 @@ function FilesTab({
                             : "text-[#8a8a8a]",
                       )}
                     >
-                      <span className="mr-2 inline-block w-3 text-center text-[#666]">
+                      <span className="mr-2 inline-block w-3 text-center text-gray-400 dark:text-[#666]">
                         {line.type === "removed"
                           ? "-"
                           : line.type === "added"
@@ -2089,10 +2089,10 @@ function FilesTab({
                   ))
                 )}
               </div>
-              <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[#1e1e1e] bg-[#101010] px-5 py-4">
+              <div className="flex flex-wrap items-center justify-end gap-2 border-t border-gray-200 dark:border-[#1e1e1e] bg-white dark:bg-[#101010] px-5 py-4">
                 <button
                   onClick={() => setDiffOpen(false)}
-                  className="rounded-lg border border-[#2a2a2a] px-4 py-2 text-sm text-[#999] transition-colors hover:bg-[#161616] hover:text-[#f2f2f2]"
+                  className="rounded-lg border border-gray-200 dark:border-[#2a2a2a] px-4 py-2 text-sm text-gray-500 dark:text-[#999] transition-colors hover:bg-gray-100 dark:hover:bg-[#161616] hover:text-gray-900 dark:hover:text-[#f2f2f2]"
                 >
                   Cancel
                 </button>
@@ -2120,14 +2120,14 @@ function FilesTab({
         {editorPane}
       </div>
       <div className="md:hidden space-y-3">
-        <div className="flex gap-1 p-1 bg-[#111] rounded-lg border border-[#2a2a2a]">
+        <div className="flex gap-1 p-1 bg-white dark:bg-[#111] rounded-lg border border-gray-200 dark:border-[#2a2a2a]">
           {(["files", "editor"] as const).map((pane) => (
             <button
               key={pane}
               onClick={() => setMobilePane(pane)}
               className={cn(
                 "flex-1 py-2.5 rounded text-xs font-medium transition-colors flex items-center justify-center gap-1.5",
-                mobilePane === pane ? "bg-[#0078D4] text-white" : "text-[#666]",
+                mobilePane === pane ? "bg-[#0078D4] text-white" : "text-gray-400 dark:text-[#666]",
               )}
             >
               {pane === "files" ? (
@@ -2203,7 +2203,7 @@ function roleBadgeClasses(roleId: string) {
     return "border-[#0078D4]/30 bg-[#0078D4]/10 text-[#4db3ff]";
   if (roleId === "game-server-viewer")
     return "border-emerald-500/30 bg-emerald-500/10 text-emerald-300";
-  return "border-[#333] bg-[#1a1a1a] text-[#888]";
+  return "border-gray-200 dark:border-[#333] bg-white dark:bg-[#1a1a1a] text-gray-500 dark:text-[#888]";
 }
 
 function sourceBadgeClasses(source: InheritedAccessAssignment["source"]) {
@@ -2311,34 +2311,34 @@ function ServerRbacPanel({
   }
 
   return (
-    <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
-      <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-[#1e1e1e]">
+    <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] overflow-hidden">
+      <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-gray-200 dark:border-[#1e1e1e]">
         <div className="flex items-start gap-2">
-          <Shield className="w-3.5 h-3.5 text-[#555] mt-0.5" />
+          <Shield className="w-3.5 h-3.5 text-gray-400 dark:text-[#555] mt-0.5" />
           <div>
-            <p className="text-xs font-medium text-[#888] uppercase tracking-wide">
+            <p className="text-xs font-medium text-gray-500 dark:text-[#888] uppercase tracking-wide">
               Access Control
             </p>
-            <p className="text-[11px] text-[#555] mt-1">
+            <p className="text-[11px] text-gray-400 dark:text-[#555] mt-1">
               Inherited access is read-only here. Server-specific assignments
               are stored in users.yaml.
             </p>
           </div>
         </div>
-        <span className="text-[10px] px-1.5 py-0.5 rounded border border-[#2a2a2a] text-[#555] font-mono">
+        <span className="text-[10px] px-1.5 py-0.5 rounded border border-gray-200 dark:border-[#2a2a2a] text-gray-400 dark:text-[#555] font-mono">
           {scope}
         </span>
       </div>
 
       <div className="p-4 space-y-4">
         {!canEdit && (
-          <div className="rounded-lg border border-[#2a2a2a] bg-[#0a0a0a] px-3 py-2 text-xs text-[#777]">
+          <div className="rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0a0a0a] px-3 py-2 text-xs text-gray-500 dark:text-[#777]">
             Read-only. Only Game Hub admins can change server assignments.
           </div>
         )}
 
         {accessQuery.isLoading ? (
-          <div className="flex items-center gap-2 text-xs text-[#555]">
+          <div className="flex items-center gap-2 text-xs text-gray-400 dark:text-[#555]">
             <Loader2 className="w-3.5 h-3.5 animate-spin" />
             Loading access assignments…
           </div>
@@ -2348,21 +2348,21 @@ function ServerRbacPanel({
           </div>
         ) : (
           <>
-            <div className="rounded-lg border border-[#2a2a2a] bg-[#0a0a0a] overflow-hidden">
+            <div className="rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0a0a0a] overflow-hidden">
               <button
                 type="button"
                 onClick={() => setShowInherited((prev) => !prev)}
                 className="w-full flex items-center justify-between gap-3 px-3 py-3 text-left"
               >
                 <div>
-                  <p className="text-sm text-[#f2f2f2]">Inherited access</p>
-                  <p className="text-xs text-[#555] mt-1">
+                  <p className="text-sm text-gray-900 dark:text-[#f2f2f2]">Inherited access</p>
+                  <p className="text-xs text-gray-400 dark:text-[#555] mt-1">
                     Platform-wide and Game Hub-wide roles that also apply to
                     this server.
                   </p>
                 </div>
-                <div className="flex items-center gap-2 text-[#666]">
-                  <span className="text-[10px] px-2 py-0.5 rounded-full border border-[#2a2a2a]">
+                <div className="flex items-center gap-2 text-gray-400 dark:text-[#666]">
+                  <span className="text-[10px] px-2 py-0.5 rounded-full border border-gray-200 dark:border-[#2a2a2a]">
                     {inheritedAssignments.length}
                   </span>
                   <ChevronRight
@@ -2379,21 +2379,21 @@ function ServerRbacPanel({
                     initial={{ opacity: 0, height: 0 }}
                     animate={{ opacity: 1, height: "auto" }}
                     exit={{ opacity: 0, height: 0 }}
-                    className="border-t border-[#1e1e1e] p-3 space-y-2"
+                    className="border-t border-gray-200 dark:border-[#1e1e1e] p-3 space-y-2"
                   >
                     {inheritedAssignments.length === 0 ? (
-                      <p className="text-xs text-[#555]">
+                      <p className="text-xs text-gray-400 dark:text-[#555]">
                         No inherited assignments found for this server.
                       </p>
                     ) : (
                       inheritedAssignments.map((assignment) => (
                         <div
                           key={`${assignment.user}:${assignment.role}:${assignment.scope}`}
-                          className="flex items-center justify-between gap-3 rounded-lg border border-[#2a2a2a] bg-[#111] px-3 py-2.5"
+                          className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-3 py-2.5"
                         >
                           <div className="min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
-                              <p className="text-sm text-[#f2f2f2] truncate">
+                              <p className="text-sm text-gray-900 dark:text-[#f2f2f2] truncate">
                                 {assignment.user}
                               </p>
                               <span
@@ -2405,7 +2405,7 @@ function ServerRbacPanel({
                                 {sourceLabel(assignment.source)}
                               </span>
                             </div>
-                            <p className="text-[10px] text-[#555] font-mono mt-1">
+                            <p className="text-[10px] text-gray-400 dark:text-[#555] font-mono mt-1">
                               {assignment.scope}
                             </p>
                           </div>
@@ -2425,13 +2425,13 @@ function ServerRbacPanel({
               </AnimatePresence>
             </div>
 
-            <div className="rounded-lg border border-[#2a2a2a] bg-[#0a0a0a] overflow-hidden">
-              <div className="flex items-center justify-between gap-3 px-3 py-3 border-b border-[#1e1e1e]">
+            <div className="rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0a0a0a] overflow-hidden">
+              <div className="flex items-center justify-between gap-3 px-3 py-3 border-b border-gray-200 dark:border-[#1e1e1e]">
                 <div>
-                  <p className="text-sm text-[#f2f2f2]">
+                  <p className="text-sm text-gray-900 dark:text-[#f2f2f2]">
                     Server-specific access
                   </p>
-                  <p className="text-xs text-[#555] mt-1">
+                  <p className="text-xs text-gray-400 dark:text-[#555] mt-1">
                     Users assigned directly to this server only.
                   </p>
                 </div>
@@ -2468,7 +2468,7 @@ function ServerRbacPanel({
                       </p>
                       <div className="grid lg:grid-cols-[1fr_220px_auto] gap-2">
                         <div>
-                          <label className="block text-[10px] text-[#666] mb-1">
+                          <label className="block text-[10px] text-gray-400 dark:text-[#666] mb-1">
                             Username
                           </label>
                           <select
@@ -2476,7 +2476,7 @@ function ServerRbacPanel({
                             onChange={(event) =>
                               setAddUsername(event.target.value)
                             }
-                            className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
+                            className="w-full bg-white dark:bg-[#0a0a0a] border border-gray-200 dark:border-[#2a2a2a] rounded px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
                           >
                             {availableUsers.length === 0 ? (
                               <option value="">No users available</option>
@@ -2490,7 +2490,7 @@ function ServerRbacPanel({
                           </select>
                         </div>
                         <div>
-                          <label className="block text-[10px] text-[#666] mb-1">
+                          <label className="block text-[10px] text-gray-400 dark:text-[#666] mb-1">
                             Role
                           </label>
                           <select
@@ -2498,7 +2498,7 @@ function ServerRbacPanel({
                             onChange={(event) =>
                               setAddRole(event.target.value as ServerAccessRole)
                             }
-                            className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
+                            className="w-full bg-white dark:bg-[#0a0a0a] border border-gray-200 dark:border-[#2a2a2a] rounded px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
                           >
                             {GAME_SERVER_ROLES.map((role) => (
                               <option key={role.id} value={role.id}>
@@ -2531,7 +2531,7 @@ function ServerRbacPanel({
                             key={role.id}
                             className="rounded-lg border border-[#234] bg-[#08111d] px-3 py-2"
                           >
-                            <p className="text-[11px] text-[#f2f2f2] font-mono">
+                            <p className="text-[11px] text-gray-900 dark:text-[#f2f2f2] font-mono">
                               {role.label}
                             </p>
                             <p className="text-[10px] text-[#6f88a6] mt-1">
@@ -2545,7 +2545,7 @@ function ServerRbacPanel({
                 </AnimatePresence>
 
                 {serverAssignments.length === 0 ? (
-                  <p className="text-xs text-[#555]">
+                  <p className="text-xs text-gray-400 dark:text-[#555]">
                     No server-specific assignments yet.
                   </p>
                 ) : (
@@ -2555,13 +2555,13 @@ function ServerRbacPanel({
                       return (
                         <div
                           key={assignmentKey}
-                          className="flex items-center justify-between gap-3 rounded-lg border border-[#2a2a2a] bg-[#111] px-3 py-2.5"
+                          className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-3 py-2.5"
                         >
                           <div className="min-w-0">
-                            <p className="text-sm text-[#f2f2f2] truncate">
+                            <p className="text-sm text-gray-900 dark:text-[#f2f2f2] truncate">
                               {assignment.user}
                             </p>
-                            <p className="text-[10px] text-[#555] font-mono mt-1">
+                            <p className="text-[10px] text-gray-400 dark:text-[#555] font-mono mt-1">
                               {scope}
                             </p>
                           </div>
@@ -2580,7 +2580,7 @@ function ServerRbacPanel({
                                 onClick={() => removeAssignment(assignment)}
                                 disabled={removing === assignmentKey}
                                 title={`Remove ${assignment.user}'s access`}
-                                className="p-1.5 rounded-lg text-[#555] hover:text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                                className="p-1.5 rounded-lg text-gray-400 dark:text-[#555] hover:text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
                               >
                                 {removing === assignmentKey ? (
                                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -2621,16 +2621,16 @@ function SettingsAccordion({
     <details
       open={open}
       onToggle={(event) => setOpen(event.currentTarget.open)}
-      className="group overflow-hidden rounded-xl border border-[#2a2a2a] bg-[#111]"
+      className="group overflow-hidden rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111]"
     >
       <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3">
         <div>
-          <p className="text-sm font-medium text-[#f2f2f2]">{title}</p>
-          {description ? <p className="text-xs text-[#888]">{description}</p> : null}
+          <p className="text-sm font-medium text-gray-900 dark:text-[#f2f2f2]">{title}</p>
+          {description ? <p className="text-xs text-gray-500 dark:text-[#888]">{description}</p> : null}
         </div>
-        <ChevronDown className="h-4 w-4 text-[#555] transition-transform group-open:rotate-180" />
+        <ChevronDown className="h-4 w-4 text-gray-400 dark:text-[#555] transition-transform group-open:rotate-180" />
       </summary>
-      <div className="border-t border-[#1e1e1e] p-4">{children}</div>
+      <div className="border-t border-gray-200 dark:border-[#1e1e1e] p-4">{children}</div>
     </details>
   );
 }
@@ -3297,12 +3297,12 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
               const validationError = editVal ? validateEggVariable(entry, editVal) : null;
               const rulesHint = describeEggVariableRules(entry.rules);
               return (
-                <div key={entry.name} className="rounded-lg border border-yellow-500/10 bg-[#111] px-3 py-2 space-y-2">
+                <div key={entry.name} className="rounded-lg border border-yellow-500/10 bg-white dark:bg-[#111] px-3 py-2 space-y-2">
                   <div className="flex flex-wrap items-start gap-2">
                     <span className="rounded border border-yellow-500/20 bg-yellow-500/10 px-2 py-0.5 font-mono text-[10px] text-yellow-100 mt-0.5">{entry.name}</span>
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm text-[#f2f2f2]">{entry.description || "Recommended setting"}</p>
-                      {rulesHint && <p className="text-[10px] text-[#555] mt-0.5">{rulesHint}</p>}
+                      <p className="text-sm text-gray-900 dark:text-[#f2f2f2]">{entry.description || "Recommended setting"}</p>
+                      {rulesHint && <p className="text-[10px] text-gray-400 dark:text-[#555] mt-0.5">{rulesHint}</p>}
                     </div>
                   </div>
                   <div className="flex gap-2 items-center">
@@ -3312,8 +3312,8 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
                       onChange={(e) => setUnsetEditValues((prev) => ({ ...prev, [entry.name]: e.target.value }))}
                       placeholder={entry.defaultValue || "Enter value…"}
                       className={cn(
-                        "flex-1 min-w-0 rounded-md bg-[#1a1a1a] border px-2.5 py-1 text-xs text-[#d4d4d4] font-mono focus:outline-none placeholder-[#444]",
-                        validationError ? "border-red-500/40 focus:border-red-500/40" : "border-[#2a2a2a] focus:border-yellow-500/40"
+                        "flex-1 min-w-0 rounded-md bg-white dark:bg-[#1a1a1a] border px-2.5 py-1 text-xs text-gray-700 dark:text-[#d4d4d4] font-mono focus:outline-none placeholder-[#444]",
+                        validationError ? "border-red-500/40 focus:border-red-500/40" : "border-gray-200 dark:border-[#2a2a2a] focus:border-yellow-500/40"
                       )}
                     />
                     <button
@@ -3332,10 +3332,10 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
         </div>
       )}
 
-      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-[#1e1e1e]">
-          <Layers className="w-3.5 h-3.5 text-[#555]" />
-          <p className="text-xs font-medium text-[#888] uppercase tracking-wide">
+      <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] overflow-hidden">
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-200 dark:border-[#1e1e1e]">
+          <Layers className="w-3.5 h-3.5 text-gray-400 dark:text-[#555]" />
+          <p className="text-xs font-medium text-gray-500 dark:text-[#888] uppercase tracking-wide">
             Replica Scaling
           </p>
           {server.hpa.enabled && (
@@ -3346,7 +3346,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
         </div>
         <div className="p-4 space-y-4">
           {isServerStopped && (
-            <p className="text-xs text-[#888] rounded-lg border border-[#2a2a2a] bg-[#0d0d0d] px-3 py-2">
+            <p className="text-xs text-gray-500 dark:text-[#888] rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-3 py-2">
               Server is stopped. Use Start/Stop to control server state.
             </p>
           )}
@@ -3359,7 +3359,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
                   "flex-1 py-2 rounded-lg text-xs font-medium transition-colors border",
                   replicaMode === mode
                     ? "bg-[#0078D4]/20 border-[#0078D4]/50 text-[#0078D4]"
-                    : "bg-transparent border-[#2a2a2a] text-[#666] hover:text-[#888]",
+                    : "bg-transparent border-gray-200 dark:border-[#2a2a2a] text-gray-400 dark:text-[#666] hover:text-gray-700 dark:hover:text-[#888]",
                 )}
               >
                 {mode === "static" ? "Static (fixed)" : "Dynamic (HPA)"}
@@ -3369,7 +3369,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
           {replicaMode === "static" ? (
             <div className="space-y-2">
               <div className="flex items-center gap-3">
-                <label className="text-xs text-[#666] flex-shrink-0">
+                <label className="text-xs text-gray-400 dark:text-[#666] flex-shrink-0">
                   Replicas
                 </label>
                 <div className="flex items-center gap-1">
@@ -3378,11 +3378,11 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
                       setStaticCount((count) => Math.max(1, count - 1))
                     }
                     disabled={isServerStopped}
-                    className="flex h-11 w-11 items-center justify-center rounded bg-[#1e1e1e] text-sm font-bold text-[#888] hover:bg-[#2a2a2a] disabled:opacity-40"
+                    className="flex h-11 w-11 items-center justify-center rounded bg-gray-50 dark:bg-[#1e1e1e] text-sm font-bold text-gray-500 dark:text-[#888] hover:bg-gray-100 dark:hover:bg-[#2a2a2a] disabled:opacity-40"
                   >
                     −
                   </button>
-                  <span className="min-w-[72px] text-center text-sm font-mono text-[#f2f2f2] sm:min-w-[92px]">
+                  <span className="min-w-[72px] text-center text-sm font-mono text-gray-900 dark:text-[#f2f2f2] sm:min-w-[92px]">
                     {isServerStopped ? "0 (stopped)" : staticCount}
                   </span>
                   <button
@@ -3390,13 +3390,13 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
                       setStaticCount((count) => Math.min(10, count + 1))
                     }
                     disabled={isServerStopped}
-                    className="flex h-11 w-11 items-center justify-center rounded bg-[#1e1e1e] text-sm font-bold text-[#888] hover:bg-[#2a2a2a] disabled:opacity-40"
+                    className="flex h-11 w-11 items-center justify-center rounded bg-gray-50 dark:bg-[#1e1e1e] text-sm font-bold text-gray-500 dark:text-[#888] hover:bg-gray-100 dark:hover:bg-[#2a2a2a] disabled:opacity-40"
                   >
                     +
                   </button>
                 </div>
               </div>
-              <p className="text-[11px] text-[#555]">
+              <p className="text-[11px] text-gray-400 dark:text-[#555]">
                 Use Start/Stop to control server state. Static replicas cannot
                 go below 1 while running.
               </p>
@@ -3405,7 +3405,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
             <div className="space-y-3">
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-[10px] text-[#666] mb-1">
+                  <label className="block text-[10px] text-gray-400 dark:text-[#666] mb-1">
                     Min replicas
                   </label>
                   <input
@@ -3418,11 +3418,11 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
                         Math.max(1, parseInt(event.target.value, 10) || 1),
                       )
                     }
-                    className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded px-2 py-1.5 text-sm text-[#f2f2f2] text-center focus:outline-none focus:border-[#0078D4]"
+                    className="w-full bg-white dark:bg-[#0a0a0a] border border-gray-200 dark:border-[#2a2a2a] rounded px-2 py-1.5 text-sm text-gray-900 dark:text-[#f2f2f2] text-center focus:outline-none focus:border-[#0078D4]"
                   />
                 </div>
                 <div>
-                  <label className="block text-[10px] text-[#666] mb-1">
+                  <label className="block text-[10px] text-gray-400 dark:text-[#666] mb-1">
                     Max replicas
                   </label>
                   <input
@@ -3435,11 +3435,11 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
                         Math.max(hpaMin, parseInt(event.target.value, 10) || 1),
                       )
                     }
-                    className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded px-2 py-1.5 text-sm text-[#f2f2f2] text-center focus:outline-none focus:border-[#0078D4]"
+                    className="w-full bg-white dark:bg-[#0a0a0a] border border-gray-200 dark:border-[#2a2a2a] rounded px-2 py-1.5 text-sm text-gray-900 dark:text-[#f2f2f2] text-center focus:outline-none focus:border-[#0078D4]"
                   />
                 </div>
                 <div>
-                  <label className="block text-[10px] text-[#666] mb-1">
+                  <label className="block text-[10px] text-gray-400 dark:text-[#666] mb-1">
                     CPU target %
                   </label>
                   <input
@@ -3455,12 +3455,12 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
                         ),
                       )
                     }
-                    className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded px-2 py-1.5 text-sm text-[#f2f2f2] text-center focus:outline-none focus:border-[#0078D4]"
+                    className="w-full bg-white dark:bg-[#0a0a0a] border border-gray-200 dark:border-[#2a2a2a] rounded px-2 py-1.5 text-sm text-gray-900 dark:text-[#f2f2f2] text-center focus:outline-none focus:border-[#0078D4]"
                   />
                 </div>
               </div>
               {server.hpa.currentReplicas !== null && (
-                <p className="text-[10px] text-[#555]">
+                <p className="text-[10px] text-gray-400 dark:text-[#555]">
                   Currently running {server.hpa.currentReplicas} replica(s) via
                   HPA
                 </p>
@@ -3484,25 +3484,25 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
         </div>
       </div>
 
-      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-[#1e1e1e]">
-          <RotateCcw className="w-3.5 h-3.5 text-[#555]" />
-          <p className="text-xs font-medium text-[#888] uppercase tracking-wide">
+      <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] overflow-hidden">
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-200 dark:border-[#1e1e1e]">
+          <RotateCcw className="w-3.5 h-3.5 text-gray-400 dark:text-[#555]" />
+          <p className="text-xs font-medium text-gray-500 dark:text-[#888] uppercase tracking-wide">
             Auto-restart Policy
           </p>
         </div>
         <div className="p-4">
           <div className="flex min-w-0 items-center justify-between gap-3">
             <div className="min-w-0 flex-1">
-              <p className="block truncate text-sm text-[#f2f2f2]">Restart on crash</p>
-              <p className="mt-0.5 text-xs text-[#888]">
+              <p className="block truncate text-sm text-gray-900 dark:text-[#f2f2f2]">Restart on crash</p>
+              <p className="mt-0.5 text-xs text-gray-500 dark:text-[#888]">
                 Kubernetes Deployments keep this enabled automatically for Game Hub servers.
               </p>
             </div>
             <button
               type="button"
               onClick={showAutoRestartInfo}
-              className="rounded-full border border-[#2a2a2a] bg-[#181818] px-3 py-1 text-xs font-medium text-[#bdbdbd] transition-colors hover:border-[#3b82f6]/40 hover:text-[#dbeafe]"
+              className="rounded-full border border-gray-200 dark:border-[#2a2a2a] bg-[#181818] px-3 py-1 text-xs font-medium text-[#bdbdbd] transition-colors hover:border-[#3b82f6]/40 hover:text-[#dbeafe]"
             >
               {autoRestart ? "Always on" : "Managed by Kubernetes"}
             </button>
@@ -3510,26 +3510,26 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
       </div>
     </div>
 
-      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-[#1e1e1e]">
-          <Clock className="w-3.5 h-3.5 text-[#555]" />
-          <p className="text-xs font-medium text-[#888] uppercase tracking-wide">
+      <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] overflow-hidden">
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-200 dark:border-[#1e1e1e]">
+          <Clock className="w-3.5 h-3.5 text-gray-400 dark:text-[#555]" />
+          <p className="text-xs font-medium text-gray-500 dark:text-[#888] uppercase tracking-wide">
             Scheduled On/Off
           </p>
         </div>
         <div className="p-4 space-y-4">
           <div className="grid gap-4 md:grid-cols-2">
-            <div className="rounded-lg border border-[#2a2a2a] bg-[#0d0d0d] p-3 space-y-3">
+            <div className="rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] p-3 space-y-3">
               <div className="flex min-w-0 items-center justify-between gap-3">
                 <div className="min-w-0 flex-1">
-                  <p className="block truncate text-sm text-[#f2f2f2]">Enable scheduled start</p>
-                  <p className="truncate text-[11px] text-[#888]">Scale the server back to 1 replica on the selected days.</p>
+                  <p className="block truncate text-sm text-gray-900 dark:text-[#f2f2f2]">Enable scheduled start</p>
+                  <p className="truncate text-[11px] text-gray-500 dark:text-[#888]">Scale the server back to 1 replica on the selected days.</p>
                 </div>
                 <button
                   onClick={() => setScheduleStartEnabled((current) => !current)}
                   className={cn(
                     "relative h-6 w-11 shrink-0 rounded-full transition-colors",
-                    scheduleStartEnabled ? "bg-[#3b82f6]" : "bg-[#2a2a2a]",
+                    scheduleStartEnabled ? "bg-[#3b82f6]" : "bg-gray-100 dark:bg-[#2a2a2a]",
                   )}
                 >
                   <span
@@ -3546,20 +3546,20 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
                 value={scheduleStartTime}
                 onChange={(event) => setScheduleStartTime(event.target.value)}
                 disabled={!scheduleStartEnabled}
-                className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded px-3 py-2 text-sm text-[#f2f2f2] disabled:opacity-50 focus:outline-none focus:border-[#0078D4]"
+                className="w-full bg-white dark:bg-[#0a0a0a] border border-gray-200 dark:border-[#2a2a2a] rounded px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] disabled:opacity-50 focus:outline-none focus:border-[#0078D4]"
               />
             </div>
-            <div className="rounded-lg border border-[#2a2a2a] bg-[#0d0d0d] p-3 space-y-3">
+            <div className="rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] p-3 space-y-3">
               <div className="flex min-w-0 items-center justify-between gap-3">
                 <div className="min-w-0 flex-1">
-                  <p className="block truncate text-sm text-[#f2f2f2]">Enable scheduled stop</p>
-                  <p className="truncate text-[11px] text-[#888]">Scale the server down cleanly at the chosen time.</p>
+                  <p className="block truncate text-sm text-gray-900 dark:text-[#f2f2f2]">Enable scheduled stop</p>
+                  <p className="truncate text-[11px] text-gray-500 dark:text-[#888]">Scale the server down cleanly at the chosen time.</p>
                 </div>
                 <button
                   onClick={() => setScheduleStopEnabled((current) => !current)}
                   className={cn(
                     "relative h-6 w-11 shrink-0 rounded-full transition-colors",
-                    scheduleStopEnabled ? "bg-[#3b82f6]" : "bg-[#2a2a2a]",
+                    scheduleStopEnabled ? "bg-[#3b82f6]" : "bg-gray-100 dark:bg-[#2a2a2a]",
                   )}
                 >
                   <span
@@ -3576,13 +3576,13 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
                 value={scheduleStopTime}
                 onChange={(event) => setScheduleStopTime(event.target.value)}
                 disabled={!scheduleStopEnabled}
-                className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded px-3 py-2 text-sm text-[#f2f2f2] disabled:opacity-50 focus:outline-none focus:border-[#0078D4]"
+                className="w-full bg-white dark:bg-[#0a0a0a] border border-gray-200 dark:border-[#2a2a2a] rounded px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] disabled:opacity-50 focus:outline-none focus:border-[#0078D4]"
               />
             </div>
           </div>
           <div className="grid gap-3 md:grid-cols-[1fr_220px]">
             <div>
-              <label className="mb-2 block text-[10px] text-[#888]">Days of week</label>
+              <label className="mb-2 block text-[10px] text-gray-500 dark:text-[#888]">Days of week</label>
               <div className="flex flex-wrap gap-2">
                 {SCHEDULE_DAY_OPTIONS.map((day) => {
                   const active = scheduleDays.includes(day.value);
@@ -3594,7 +3594,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
                         "rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors",
                         active
                           ? "border-[#0078D4]/50 bg-[#0078D4]/15 text-[#7cc2ff]"
-                          : "border-[#2a2a2a] bg-[#0a0a0a] text-[#777] hover:text-[#bbb]",
+                          : "border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0a0a0a] text-gray-500 dark:text-[#777] hover:text-gray-700 dark:hover:text-[#bbb]",
                       )}
                     >
                       {day.label}
@@ -3604,14 +3604,14 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
               </div>
             </div>
             <div>
-              <label className="mb-2 block text-[10px] text-[#888]">Timezone</label>
+              <label className="mb-2 block text-[10px] text-gray-500 dark:text-[#888]">Timezone</label>
               <input
                 value={scheduleTimezone}
                 onChange={(event) => setScheduleTimezone(event.target.value)}
                 placeholder="America/New_York"
-                className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded px-3 py-2 text-sm text-[#f2f2f2] font-mono focus:outline-none focus:border-[#0078D4]"
+                className="w-full bg-white dark:bg-[#0a0a0a] border border-gray-200 dark:border-[#2a2a2a] rounded px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] font-mono focus:outline-none focus:border-[#0078D4]"
               />
-              <p className="mt-1 text-[10px] text-[#888]">CronJobs use this IANA timezone.</p>
+              <p className="mt-1 text-[10px] text-gray-500 dark:text-[#888]">CronJobs use this IANA timezone.</p>
             </div>
           </div>
           <button
@@ -3629,19 +3629,19 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
         </div>
       </div>
 
-      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-[#1e1e1e]">
-          <AlertTriangle className="w-3.5 h-3.5 text-[#555]" />
-          <p className="text-xs font-medium text-[#888] uppercase tracking-wide">
+      <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] overflow-hidden">
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-200 dark:border-[#1e1e1e]">
+          <AlertTriangle className="w-3.5 h-3.5 text-gray-400 dark:text-[#555]" />
+          <p className="text-xs font-medium text-gray-500 dark:text-[#888] uppercase tracking-wide">
             Alert Thresholds
           </p>
         </div>
         <div className="p-4 space-y-4">
           <div className="grid gap-3 xl:grid-cols-3">
-            <div className="rounded-xl border border-[#2a2a2a] bg-[#0d0d0d] p-3 space-y-3">
+            <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] p-3 space-y-3">
               <div className="flex items-center justify-between gap-3">
-                <label className="text-[10px] uppercase tracking-wide text-[#666]">CPU threshold</label>
-                <span className="text-xs text-[#f2f2f2]">{alertCpu}%</span>
+                <label className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-[#666]">CPU threshold</label>
+                <span className="text-xs text-gray-900 dark:text-[#f2f2f2]">{alertCpu}%</span>
               </div>
               <div className="flex items-center gap-3">
                 <input
@@ -3652,26 +3652,26 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
                   value={alertCpu}
                   onChange={(event) => setAlertCpu(clampNumber(Number.parseInt(event.target.value, 10) || 0, 0, 100))}
                   style={sliderTrackStyle(alertCpu, 0, 100)}
-                  className="h-2 flex-1 cursor-pointer appearance-none rounded-full bg-[#1a1a1a]"
+                  className="h-2 flex-1 cursor-pointer appearance-none rounded-full bg-white dark:bg-[#1a1a1a]"
                 />
-                <div className="flex items-center gap-1 rounded-lg border border-[#2a2a2a] bg-[#111] px-2.5 py-1.5">
+                <div className="flex items-center gap-1 rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-2.5 py-1.5">
                   <input
                     type="number"
                     min={0}
                     max={100}
                     value={alertCpu}
                     onChange={(event) => setAlertCpu(clampNumber(Number.parseInt(event.target.value, 10) || 0, 0, 100))}
-                    className="w-12 bg-transparent text-right text-sm text-[#f2f2f2] outline-none"
+                    className="w-12 bg-transparent text-right text-sm text-gray-900 dark:text-[#f2f2f2] outline-none"
                   />
-                  <span className="text-xs text-[#666]">%</span>
+                  <span className="text-xs text-gray-400 dark:text-[#666]">%</span>
                 </div>
               </div>
               <ThresholdPreview label="CPU preview" value={alertCpu} max={100} suffix="%" />
             </div>
-            <div className="rounded-xl border border-[#2a2a2a] bg-[#0d0d0d] p-3 space-y-3">
+            <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] p-3 space-y-3">
               <div className="flex items-center justify-between gap-3">
-                <label className="text-[10px] uppercase tracking-wide text-[#666]">Memory threshold</label>
-                <span className="text-xs text-[#f2f2f2]">{alertMemory}%</span>
+                <label className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-[#666]">Memory threshold</label>
+                <span className="text-xs text-gray-900 dark:text-[#f2f2f2]">{alertMemory}%</span>
               </div>
               <div className="flex items-center gap-3">
                 <input
@@ -3682,26 +3682,26 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
                   value={alertMemory}
                   onChange={(event) => setAlertMemory(clampNumber(Number.parseInt(event.target.value, 10) || 0, 0, 100))}
                   style={sliderTrackStyle(alertMemory, 0, 100)}
-                  className="h-2 flex-1 cursor-pointer appearance-none rounded-full bg-[#1a1a1a]"
+                  className="h-2 flex-1 cursor-pointer appearance-none rounded-full bg-white dark:bg-[#1a1a1a]"
                 />
-                <div className="flex items-center gap-1 rounded-lg border border-[#2a2a2a] bg-[#111] px-2.5 py-1.5">
+                <div className="flex items-center gap-1 rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-2.5 py-1.5">
                   <input
                     type="number"
                     min={0}
                     max={100}
                     value={alertMemory}
                     onChange={(event) => setAlertMemory(clampNumber(Number.parseInt(event.target.value, 10) || 0, 0, 100))}
-                    className="w-12 bg-transparent text-right text-sm text-[#f2f2f2] outline-none"
+                    className="w-12 bg-transparent text-right text-sm text-gray-900 dark:text-[#f2f2f2] outline-none"
                   />
-                  <span className="text-xs text-[#666]">%</span>
+                  <span className="text-xs text-gray-400 dark:text-[#666]">%</span>
                 </div>
               </div>
               <ThresholdPreview label="Memory preview" value={alertMemory} max={100} suffix="%" />
             </div>
-            <div className="rounded-xl border border-[#2a2a2a] bg-[#0d0d0d] p-3 space-y-3">
+            <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] p-3 space-y-3">
               <div className="flex items-center justify-between gap-3">
-                <label className="text-[10px] uppercase tracking-wide text-[#666]">Restart threshold</label>
-                <span className="text-xs text-[#f2f2f2]">{alertRestarts}</span>
+                <label className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-[#666]">Restart threshold</label>
+                <span className="text-xs text-gray-900 dark:text-[#f2f2f2]">{alertRestarts}</span>
               </div>
               <div className="flex items-center gap-3">
                 <input
@@ -3712,16 +3712,16 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
                   value={alertRestarts}
                   onChange={(event) => setAlertRestarts(clampNumber(Number.parseInt(event.target.value, 10) || 0, 0, 20))}
                   style={sliderTrackStyle(alertRestarts, 0, 20)}
-                  className="h-2 flex-1 cursor-pointer appearance-none rounded-full bg-[#1a1a1a]"
+                  className="h-2 flex-1 cursor-pointer appearance-none rounded-full bg-white dark:bg-[#1a1a1a]"
                 />
-                <div className="rounded-lg border border-[#2a2a2a] bg-[#111] px-2.5 py-1.5">
+                <div className="rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-2.5 py-1.5">
                   <input
                     type="number"
                     min={0}
                     max={20}
                     value={alertRestarts}
                     onChange={(event) => setAlertRestarts(clampNumber(Number.parseInt(event.target.value, 10) || 0, 0, 20))}
-                    className="w-12 bg-transparent text-right text-sm text-[#f2f2f2] outline-none"
+                    className="w-12 bg-transparent text-right text-sm text-gray-900 dark:text-[#f2f2f2] outline-none"
                   />
                 </div>
               </div>
@@ -3758,22 +3758,22 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
       </div>
 
       {server.permissions?.canAdmin && (
-        <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
-          <div className="flex items-center gap-2 px-4 py-3 border-b border-[#1e1e1e]">
-            <Cpu className="w-3.5 h-3.5 text-[#555]" />
-            <p className="text-xs font-medium text-[#888] uppercase tracking-wide">
+        <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] overflow-hidden">
+          <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-200 dark:border-[#1e1e1e]">
+            <Cpu className="w-3.5 h-3.5 text-gray-400 dark:text-[#555]" />
+            <p className="text-xs font-medium text-gray-500 dark:text-[#888] uppercase tracking-wide">
               Resource Limits
             </p>
           </div>
           <div className="p-4 space-y-4">
-            <p className="text-xs text-[#666]">
-              Current applied limits: <span className="text-[#f2f2f2]">{server.cpu}</span> CPU and <span className="text-[#f2f2f2]">{server.memory}</span> memory.
+            <p className="text-xs text-gray-400 dark:text-[#666]">
+              Current applied limits: <span className="text-gray-900 dark:text-[#f2f2f2]">{server.cpu}</span> CPU and <span className="text-gray-900 dark:text-[#f2f2f2]">{server.memory}</span> memory.
             </p>
             <div className="space-y-3">
-              <div className="rounded-xl border border-[#2a2a2a] bg-[#0d0d0d] p-3 space-y-3">
+              <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] p-3 space-y-3">
                 <div className="flex items-center justify-between gap-3">
-                  <label className="text-[10px] uppercase tracking-wide text-[#666]">CPU</label>
-                  <span className="text-sm text-[#f2f2f2]">{cpuLimit}m</span>
+                  <label className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-[#666]">CPU</label>
+                  <span className="text-sm text-gray-900 dark:text-[#f2f2f2]">{cpuLimit}m</span>
                 </div>
                 <div className="flex items-center gap-3">
                   <input
@@ -3784,9 +3784,9 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
                     value={cpuLimit}
                     onChange={(event) => setCpuLimit(clampNumber(Number.parseInt(event.target.value, 10) || 100, 100, 4000))}
                     style={sliderTrackStyle(cpuLimit, 100, 4000)}
-                    className="h-2 flex-1 cursor-pointer appearance-none rounded-full bg-[#1a1a1a]"
+                    className="h-2 flex-1 cursor-pointer appearance-none rounded-full bg-white dark:bg-[#1a1a1a]"
                   />
-                  <div className="flex items-center gap-1 rounded-lg border border-[#2a2a2a] bg-[#111] px-2.5 py-1.5">
+                  <div className="flex items-center gap-1 rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-2.5 py-1.5">
                     <input
                       type="number"
                       min={100}
@@ -3794,16 +3794,16 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
                       step={100}
                       value={cpuLimit}
                       onChange={(event) => setCpuLimit(clampNumber(Number.parseInt(event.target.value, 10) || 100, 100, 4000))}
-                      className="w-16 bg-transparent text-right text-sm text-[#f2f2f2] outline-none"
+                      className="w-16 bg-transparent text-right text-sm text-gray-900 dark:text-[#f2f2f2] outline-none"
                     />
-                    <span className="text-xs text-[#666]">m</span>
+                    <span className="text-xs text-gray-400 dark:text-[#666]">m</span>
                   </div>
                 </div>
               </div>
-              <div className="rounded-xl border border-[#2a2a2a] bg-[#0d0d0d] p-3 space-y-3">
+              <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] p-3 space-y-3">
                 <div className="flex items-center justify-between gap-3">
-                  <label className="text-[10px] uppercase tracking-wide text-[#666]">Memory</label>
-                  <span className="text-sm text-[#f2f2f2]">{memLimit} MB</span>
+                  <label className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-[#666]">Memory</label>
+                  <span className="text-sm text-gray-900 dark:text-[#f2f2f2]">{memLimit} MB</span>
                 </div>
                 <div className="flex items-center gap-3">
                   <input
@@ -3814,9 +3814,9 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
                     value={memLimit}
                     onChange={(event) => setMemLimit(clampNumber(Number.parseInt(event.target.value, 10) || 256, 256, 8192))}
                     style={sliderTrackStyle(memLimit, 256, 8192)}
-                    className="h-2 flex-1 cursor-pointer appearance-none rounded-full bg-[#1a1a1a]"
+                    className="h-2 flex-1 cursor-pointer appearance-none rounded-full bg-white dark:bg-[#1a1a1a]"
                   />
-                  <div className="flex items-center gap-1 rounded-lg border border-[#2a2a2a] bg-[#111] px-2.5 py-1.5">
+                  <div className="flex items-center gap-1 rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-2.5 py-1.5">
                     <input
                       type="number"
                       min={256}
@@ -3824,9 +3824,9 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
                       step={256}
                       value={memLimit}
                       onChange={(event) => setMemLimit(clampNumber(Number.parseInt(event.target.value, 10) || 256, 256, 8192))}
-                      className="w-16 bg-transparent text-right text-sm text-[#f2f2f2] outline-none"
+                      className="w-16 bg-transparent text-right text-sm text-gray-900 dark:text-[#f2f2f2] outline-none"
                     />
-                    <span className="text-xs text-[#666]">MB</span>
+                    <span className="text-xs text-gray-400 dark:text-[#666]">MB</span>
                   </div>
                 </div>
               </div>
@@ -3850,16 +3850,16 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
       <div className="space-y-4">
         <EnvTableEditor serverName={name} env={server.env} onSave={refreshServerDetails} />
 
-        <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
-          <div className="flex items-center gap-2 px-4 py-3 border-b border-[#1e1e1e]">
-            <Shield className="w-3.5 h-3.5 text-[#555]" />
-            <p className="text-xs font-medium text-[#888] uppercase tracking-wide">
+        <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] overflow-hidden">
+          <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-200 dark:border-[#1e1e1e]">
+            <Shield className="w-3.5 h-3.5 text-gray-400 dark:text-[#555]" />
+            <p className="text-xs font-medium text-gray-500 dark:text-[#888] uppercase tracking-wide">
               Config Diff vs Egg Defaults
             </p>
           </div>
           <div className="p-4">
             {envDiff.length === 0 ? (
-              <p className="text-xs text-[#555]">
+              <p className="text-xs text-gray-400 dark:text-[#555]">
                 No differences from the egg defaults.
               </p>
             ) : (
@@ -3876,14 +3876,14 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
                           : "border-yellow-500/20 bg-yellow-500/5",
                     )}
                   >
-                    <div className="font-mono text-[#f2f2f2]">{entry.key}</div>
-                    <div className="mt-1 text-[#777]">
+                    <div className="font-mono text-gray-900 dark:text-[#f2f2f2]">{entry.key}</div>
+                    <div className="mt-1 text-gray-500 dark:text-[#777]">
                       Default:{" "}
                       <span className="font-mono">
                         {entry.defaultValue ?? "<unset>"}
                       </span>
                     </div>
-                    <div className="text-[#777]">
+                    <div className="text-gray-500 dark:text-[#777]">
                       Current:{" "}
                       <span className="font-mono">
                         {entry.currentValue ?? "<unset>"}
@@ -3946,27 +3946,27 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
         </div>
       </div>
 
-      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-[#1e1e1e]">
-          <FileText className="w-3.5 h-3.5 text-[#555]" />
-          <p className="text-xs font-medium text-[#888] uppercase tracking-wide">
+      <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] overflow-hidden">
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-200 dark:border-[#1e1e1e]">
+          <FileText className="w-3.5 h-3.5 text-gray-400 dark:text-[#555]" />
+          <p className="text-xs font-medium text-gray-500 dark:text-[#888] uppercase tracking-wide">
             Description & Identity
           </p>
         </div>
         <div className="p-4 space-y-4">
           <div>
-            <label className="block text-[10px] text-[#666] mb-1">
+            <label className="block text-[10px] text-gray-400 dark:text-[#666] mb-1">
               Description
             </label>
             <textarea
               value={description}
               onChange={(event) => setDescription(event.target.value)}
               rows={3}
-              className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded-lg p-3 text-sm text-[#f2f2f2] resize-y focus:outline-none focus:border-[#0078D4]"
+              className="w-full bg-white dark:bg-[#0a0a0a] border border-gray-200 dark:border-[#2a2a2a] rounded-lg p-3 text-sm text-gray-900 dark:text-[#f2f2f2] resize-y focus:outline-none focus:border-[#0078D4]"
             />
           </div>
           <div>
-            <label className="block text-[10px] text-[#666] mb-2">Icon</label>
+            <label className="block text-[10px] text-gray-400 dark:text-[#666] mb-2">Icon</label>
             <div className="grid grid-cols-5 sm:grid-cols-10 gap-2">
               {ICON_OPTIONS.map((emoji) => (
                 <button
@@ -3976,7 +3976,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
                     "h-10 rounded-lg border text-lg transition-colors",
                     icon === emoji
                       ? "border-[#0078D4] bg-[#0078D4]/15"
-                      : "border-[#2a2a2a] bg-[#0a0a0a] hover:border-[#3a3a3a]",
+                      : "border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0a0a0a] hover:border-[#3a3a3a]",
                   )}
                 >
                   {emoji}
@@ -3985,12 +3985,12 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
             </div>
           </div>
           <div>
-            <label className="block text-[10px] text-[#666] mb-1">Groups</label>
+            <label className="block text-[10px] text-gray-400 dark:text-[#666] mb-1">Groups</label>
             <input
               value={groupsStr}
               onChange={(event) => setGroupsStr(event.target.value)}
               placeholder="production, testing, friends"
-              className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
+              className="w-full bg-white dark:bg-[#0a0a0a] border border-gray-200 dark:border-[#2a2a2a] rounded px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
             />
           </div>
           <button
@@ -4002,21 +4002,21 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
         </div>
       </div>
 
-      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-[#1e1e1e]">
-          <Package className="w-3.5 h-3.5 text-[#555]" />
-          <p className="text-xs font-medium text-[#888] uppercase tracking-wide">
+      <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] overflow-hidden">
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-200 dark:border-[#1e1e1e]">
+          <Package className="w-3.5 h-3.5 text-gray-400 dark:text-[#555]" />
+          <p className="text-xs font-medium text-gray-500 dark:text-[#888] uppercase tracking-wide">
             Image & Deployment
           </p>
         </div>
         <div className="p-4 space-y-4">
           <div>
-            <label className="block text-[10px] text-[#666] mb-1">Image</label>
+            <label className="block text-[10px] text-gray-400 dark:text-[#666] mb-1">Image</label>
             <div className="flex flex-wrap gap-2">
               <input
                 value={image}
                 onChange={(event) => setImage(event.target.value)}
-                className="flex-1 bg-[#0a0a0a] border border-[#2a2a2a] rounded px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
+                className="flex-1 bg-white dark:bg-[#0a0a0a] border border-gray-200 dark:border-[#2a2a2a] rounded px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
               />
               <button
                 onClick={saveImage}
@@ -4028,14 +4028,14 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
           </div>
           <div className="grid md:grid-cols-2 gap-3">
             <div>
-              <label className="block text-[10px] text-[#666] mb-1">
+              <label className="block text-[10px] text-gray-400 dark:text-[#666] mb-1">
                 Image pull policy
               </label>
               <div className="flex flex-wrap gap-2">
                 <select
                   value={imagePullPolicy}
                   onChange={(event) => setImagePullPolicy(event.target.value)}
-                  className="flex-1 bg-[#0a0a0a] border border-[#2a2a2a] rounded px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
+                  className="flex-1 bg-white dark:bg-[#0a0a0a] border border-gray-200 dark:border-[#2a2a2a] rounded px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
                 >
                   <option value="Always">Always</option>
                   <option value="IfNotPresent">IfNotPresent</option>
@@ -4043,14 +4043,14 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
                 </select>
                 <button
                   onClick={savePullPolicy}
-                  className="px-3 py-2 rounded-lg bg-[#1a1a1a] border border-[#2a2a2a] text-xs text-[#d4d4d4]"
+                  className="px-3 py-2 rounded-lg bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-[#2a2a2a] text-xs text-gray-700 dark:text-[#d4d4d4]"
                 >
                   Save
                 </button>
               </div>
             </div>
             <div>
-              <label className="block text-[10px] text-[#666] mb-1">
+              <label className="block text-[10px] text-gray-400 dark:text-[#666] mb-1">
                 Deployment strategy
               </label>
               <div className="flex flex-wrap gap-2">
@@ -4059,14 +4059,14 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
                   onChange={(event) =>
                     setDeploymentStrategy(event.target.value)
                   }
-                  className="flex-1 bg-[#0a0a0a] border border-[#2a2a2a] rounded px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
+                  className="flex-1 bg-white dark:bg-[#0a0a0a] border border-gray-200 dark:border-[#2a2a2a] rounded px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
                 >
                   <option value="RollingUpdate">RollingUpdate</option>
                   <option value="Recreate">Recreate</option>
                 </select>
                 <button
                   onClick={saveStrategy}
-                  className="px-3 py-2 rounded-lg bg-[#1a1a1a] border border-[#2a2a2a] text-xs text-[#d4d4d4]"
+                  className="px-3 py-2 rounded-lg bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-[#2a2a2a] text-xs text-gray-700 dark:text-[#d4d4d4]"
                 >
                   Save
                 </button>
@@ -4076,13 +4076,13 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
           <div className="flex flex-wrap gap-2">
             <button
               onClick={rollbackDeployment}
-              className="px-3 py-2 rounded-lg bg-[#1a1a1a] border border-[#2a2a2a] text-xs text-[#d4d4d4] hover:bg-[#222]"
+              className="px-3 py-2 rounded-lg bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-[#2a2a2a] text-xs text-gray-700 dark:text-[#d4d4d4] hover:bg-gray-100 dark:hover:bg-[#222]"
             >
               Rollback
             </button>
             <button
               onClick={viewYaml}
-              className="px-3 py-2 rounded-lg bg-[#1a1a1a] border border-[#2a2a2a] text-xs text-[#d4d4d4] hover:bg-[#222]"
+              className="px-3 py-2 rounded-lg bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-[#2a2a2a] text-xs text-gray-700 dark:text-[#d4d4d4] hover:bg-gray-100 dark:hover:bg-[#222]"
             >
               View Raw YAML
             </button>
@@ -4090,10 +4090,10 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
         </div>
       </div>
 
-      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-[#1e1e1e]">
-          <Wifi className="w-3.5 h-3.5 text-[#555]" />
-          <p className="text-xs font-medium text-[#888] uppercase tracking-wide">
+      <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] overflow-hidden">
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-200 dark:border-[#1e1e1e]">
+          <Wifi className="w-3.5 h-3.5 text-gray-400 dark:text-[#555]" />
+          <p className="text-xs font-medium text-gray-500 dark:text-[#888] uppercase tracking-wide">
             Service Ports
           </p>
         </div>
@@ -4110,7 +4110,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
                     updatePort(port.id, { name: event.target.value })
                   }
                   placeholder="name"
-                  className="bg-[#0a0a0a] border border-[#2a2a2a] rounded px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
+                  className="bg-white dark:bg-[#0a0a0a] border border-gray-200 dark:border-[#2a2a2a] rounded px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
                 />
                 <input
                   type="number"
@@ -4121,7 +4121,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
                       port: Math.max(1, parseInt(event.target.value, 10) || 1),
                     })
                   }
-                  className="bg-[#0a0a0a] border border-[#2a2a2a] rounded px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
+                  className="bg-white dark:bg-[#0a0a0a] border border-gray-200 dark:border-[#2a2a2a] rounded px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
                 />
                 <input
                   type="number"
@@ -4135,14 +4135,14 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
                       ),
                     })
                   }
-                  className="bg-[#0a0a0a] border border-[#2a2a2a] rounded px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
+                  className="bg-white dark:bg-[#0a0a0a] border border-gray-200 dark:border-[#2a2a2a] rounded px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
                 />
                 <select
                   value={port.protocol}
                   onChange={(event) =>
                     updatePort(port.id, { protocol: event.target.value })
                   }
-                  className="bg-[#0a0a0a] border border-[#2a2a2a] rounded px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
+                  className="bg-white dark:bg-[#0a0a0a] border border-gray-200 dark:border-[#2a2a2a] rounded px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
                 >
                   <option value="TCP">TCP</option>
                   <option value="UDP">UDP</option>
@@ -4150,7 +4150,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
                 <button
                   onClick={() => removePortRow(port.id)}
                   disabled={servicePorts.length <= 1}
-                  className="min-h-[44px] min-w-[44px] rounded-lg border border-[#2a2a2a] p-2 text-[#777] hover:text-red-300 disabled:opacity-40"
+                  className="min-h-[44px] min-w-[44px] rounded-lg border border-gray-200 dark:border-[#2a2a2a] p-2 text-gray-500 dark:text-[#777] hover:text-red-300 disabled:opacity-40"
                 >
                   ✕
                 </button>
@@ -4160,7 +4160,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
           <div className="flex flex-wrap gap-2">
             <button
               onClick={addPortRow}
-              className="px-3 py-2 rounded-lg bg-[#1a1a1a] border border-[#2a2a2a] text-xs text-[#d4d4d4] flex items-center gap-1.5"
+              className="px-3 py-2 rounded-lg bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-[#2a2a2a] text-xs text-gray-700 dark:text-[#d4d4d4] flex items-center gap-1.5"
             >
               <Plus className="w-3.5 h-3.5" />
               Add port
@@ -4175,22 +4175,22 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
         </div>
       </div>
 
-      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-[#1e1e1e]">
-          <Clock className="w-3.5 h-3.5 text-[#555]" />
-          <p className="text-xs font-medium text-[#888] uppercase tracking-wide">
+      <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] overflow-hidden">
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-200 dark:border-[#1e1e1e]">
+          <Clock className="w-3.5 h-3.5 text-gray-400 dark:text-[#555]" />
+          <p className="text-xs font-medium text-gray-500 dark:text-[#888] uppercase tracking-wide">
             Scheduled Action
           </p>
         </div>
         <div className="p-4 space-y-3">
           {server.scheduledAction && server.scheduledTime && (
-            <p className="text-xs text-[#888]">
+            <p className="text-xs text-gray-500 dark:text-[#888]">
               Current schedule:{" "}
-              <span className="text-[#f2f2f2]">{server.scheduledAction}</span> @{" "}
+              <span className="text-gray-900 dark:text-[#f2f2f2]">{server.scheduledAction}</span> @{" "}
               {formatDateTime(server.scheduledTime)}
             </p>
           )}
-          <p className="text-[11px] text-[#666]">
+          <p className="text-[11px] text-gray-400 dark:text-[#666]">
             Scheduled actions require the platform to be running so the
             controller can apply them.
           </p>
@@ -4198,7 +4198,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
             <select
               value={scheduledAction}
               onChange={(event) => setScheduledAction(event.target.value)}
-              className="bg-[#0a0a0a] border border-[#2a2a2a] rounded px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
+              className="bg-white dark:bg-[#0a0a0a] border border-gray-200 dark:border-[#2a2a2a] rounded px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
             >
               <option value="none">None</option>
               <option value="stop">Stop</option>
@@ -4208,7 +4208,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
               type="datetime-local"
               value={scheduledTime}
               onChange={(event) => setScheduledTime(event.target.value)}
-              className="bg-[#0a0a0a] border border-[#2a2a2a] rounded px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
+              className="bg-white dark:bg-[#0a0a0a] border border-gray-200 dark:border-[#2a2a2a] rounded px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
             />
             <button
               onClick={saveScheduledAction}
@@ -4220,10 +4220,10 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
         </div>
       </div>
 
-      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-[#1e1e1e]">
-          <HardDrive className="w-3.5 h-3.5 text-[#555]" />
-          <p className="text-xs font-medium text-[#888] uppercase tracking-wide">
+      <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] overflow-hidden">
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-200 dark:border-[#1e1e1e]">
+          <HardDrive className="w-3.5 h-3.5 text-gray-400 dark:text-[#555]" />
+          <p className="text-xs font-medium text-gray-500 dark:text-[#888] uppercase tracking-wide">
             Backup Scheduler
           </p>
         </div>
@@ -4246,7 +4246,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
                     "rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors",
                     active
                       ? "border-[#0078D4]/40 bg-[#0078D4]/15 text-[#7cc2ff]"
-                      : "border-[#2a2a2a] bg-[#0a0a0a] text-[#888] hover:text-[#f2f2f2]",
+                      : "border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0a0a0a] text-gray-500 dark:text-[#888] hover:text-gray-900 dark:hover:text-[#f2f2f2]",
                   )}
                 >
                   {preset.label}
@@ -4255,26 +4255,26 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
             })}
           </div>
           {backupSchedulePreset === "custom" && (
-            <div className="space-y-2 rounded-xl border border-[#2a2a2a] bg-[#0d0d0d] p-3">
-              <label className="block text-[10px] uppercase tracking-wide text-[#666]">Cron expression</label>
+            <div className="space-y-2 rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] p-3">
+              <label className="block text-[10px] uppercase tracking-wide text-gray-400 dark:text-[#666]">Cron expression</label>
               <input
                 value={backupCronExpr}
                 onChange={(event) => setBackupCronExpr(event.target.value)}
                 placeholder="0 4 * * *"
-                className="w-full rounded-lg border border-[#2a2a2a] bg-[#111] px-3 py-2 text-sm font-mono text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
+                className="w-full rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-3 py-2 text-sm font-mono text-gray-900 dark:text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
               />
-              <p className="text-[10px] text-[#555]">Use a standard 5-field cron: minute hour day month weekday.</p>
+              <p className="text-[10px] text-gray-400 dark:text-[#555]">Use a standard 5-field cron: minute hour day month weekday.</p>
             </div>
           )}
           <div className="grid gap-3 md:grid-cols-[1fr_180px]">
-            <div className="rounded-xl border border-[#2a2a2a] bg-[#0d0d0d] p-3">
-              <p className="text-[10px] uppercase tracking-wide text-[#666]">Next 3 run times</p>
-              <div className="mt-2 space-y-1 text-sm text-[#f2f2f2]">
+            <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] p-3">
+              <p className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-[#666]">Next 3 run times</p>
+              <div className="mt-2 space-y-1 text-sm text-gray-900 dark:text-[#f2f2f2]">
                 {backupSchedulePreset === "disabled" ? (
-                  <p className="text-xs text-[#666]">Backups are disabled.</p>
+                  <p className="text-xs text-gray-400 dark:text-[#666]">Backups are disabled.</p>
                 ) : nextBackupRuns.length > 0 ? (
                   nextBackupRuns.map((runAt) => (
-                    <div key={runAt.toISOString()} className="rounded-lg border border-[#1f1f1f] bg-[#111] px-3 py-2 text-xs">
+                    <div key={runAt.toISOString()} className="rounded-lg border border-[#1f1f1f] bg-white dark:bg-[#111] px-3 py-2 text-xs">
                       {runAt.toLocaleString()}
                     </div>
                   ))
@@ -4283,17 +4283,17 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
                 )}
               </div>
             </div>
-            <div className="rounded-xl border border-[#2a2a2a] bg-[#0d0d0d] p-3 space-y-2">
-              <label className="block text-[10px] uppercase tracking-wide text-[#666]">Retention (days)</label>
+            <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] p-3 space-y-2">
+              <label className="block text-[10px] uppercase tracking-wide text-gray-400 dark:text-[#666]">Retention (days)</label>
               <input
                 type="number"
                 min={1}
                 max={365}
                 value={backupRetention}
                 onChange={(event) => setBackupRetention(clampNumber(Number.parseInt(event.target.value, 10) || 1, 1, 365))}
-                className="w-full rounded-lg border border-[#2a2a2a] bg-[#111] px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
+                className="w-full rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
               />
-              <p className="text-[10px] text-[#555]">Keep backups for this many days.</p>
+              <p className="text-[10px] text-gray-400 dark:text-[#555]">Keep backups for this many days.</p>
             </div>
           </div>
           <button
@@ -4307,22 +4307,22 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
         </div>
       </div>
 
-      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-[#1e1e1e]">
-          <HardDrive className="w-3.5 h-3.5 text-[#555]" />
-          <p className="text-xs font-medium text-[#888] uppercase tracking-wide">
+      <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] overflow-hidden">
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-200 dark:border-[#1e1e1e]">
+          <HardDrive className="w-3.5 h-3.5 text-gray-400 dark:text-[#555]" />
+          <p className="text-xs font-medium text-gray-500 dark:text-[#888] uppercase tracking-wide">
             PVC Snapshots
           </p>
         </div>
         <div className="p-4 space-y-3">
           {!isLonghornPvc ? (
-            <p className="text-xs text-[#666]">
+            <p className="text-xs text-gray-400 dark:text-[#666]">
               Snapshots are available for Longhorn-backed PVCs.
             </p>
           ) : (
             <>
               <div className="flex items-center justify-between gap-2">
-                <p className="text-xs text-[#888]">
+                <p className="text-xs text-gray-500 dark:text-[#888]">
                   Create CSI snapshots for {server.pvc?.name ?? "this PVC"}.
                 </p>
                 <button
@@ -4334,7 +4334,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
               </div>
               <div className="space-y-2">
                 {(snapshotsData?.snapshots ?? []).length === 0 ? (
-                  <p className="text-xs text-[#555]">
+                  <p className="text-xs text-gray-400 dark:text-[#555]">
                     {snapshotsLoading
                       ? "Loading snapshots..."
                       : "No snapshots found."}
@@ -4343,10 +4343,10 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
                   (snapshotsData?.snapshots ?? []).map((snapshot) => (
                     <div
                       key={snapshot.metadata?.name}
-                      className="rounded-lg border border-[#2a2a2a] bg-[#0a0a0a] px-3 py-2 text-xs"
+                      className="rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0a0a0a] px-3 py-2 text-xs"
                     >
                       <div className="flex items-center justify-between gap-2">
-                        <span className="font-mono text-[#f2f2f2]">
+                        <span className="font-mono text-gray-900 dark:text-[#f2f2f2]">
                           {snapshot.metadata?.name}
                         </span>
                         <span
@@ -4360,7 +4360,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
                           {snapshot.status?.readyToUse ? "Ready" : "Pending"}
                         </span>
                       </div>
-                      <p className="text-[#666] mt-1">
+                      <p className="text-gray-400 dark:text-[#666] mt-1">
                         {snapshot.metadata?.creationTimestamp
                           ? formatDateTime(snapshot.metadata.creationTimestamp)
                           : "Waiting for controller"}
@@ -4374,26 +4374,26 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
         </div>
       </div>
 
-      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-[#1e1e1e]">
-          <Terminal className="w-3.5 h-3.5 text-[#555]" />
-          <p className="text-xs font-medium text-[#888] uppercase tracking-wide">
+      <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] overflow-hidden">
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-200 dark:border-[#1e1e1e]">
+          <Terminal className="w-3.5 h-3.5 text-gray-400 dark:text-[#555]" />
+          <p className="text-xs font-medium text-gray-500 dark:text-[#888] uppercase tracking-wide">
             Saved Quick Commands
           </p>
         </div>
         <div className="p-4 space-y-4">
           <div className="space-y-2">
             {savedCommands.length === 0 ? (
-              <p className="text-xs text-[#555]">No saved commands yet.</p>
+              <p className="text-xs text-gray-400 dark:text-[#555]">No saved commands yet.</p>
             ) : (
               savedCommands.map((entry) => (
                 <div
                   key={`${entry.id ?? entry.label}-${entry.command}`}
-                  className="flex items-center gap-3 rounded-lg border border-[#2a2a2a] bg-[#0a0a0a] px-3 py-2 text-sm"
+                  className="flex items-center gap-3 rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0a0a0a] px-3 py-2 text-sm"
                 >
                   <div className="flex-1 min-w-0">
-                    <p className="text-[#f2f2f2]">{entry.label}</p>
-                    <p className="text-xs text-[#777] font-mono truncate">
+                    <p className="text-gray-900 dark:text-[#f2f2f2]">{entry.label}</p>
+                    <p className="text-xs text-gray-500 dark:text-[#777] font-mono truncate">
                       {entry.command}
                     </p>
                   </div>
@@ -4412,13 +4412,13 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
               value={commandLabel}
               onChange={(event) => setCommandLabel(event.target.value)}
               placeholder="Label"
-              className="bg-[#0a0a0a] border border-[#2a2a2a] rounded px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
+              className="bg-white dark:bg-[#0a0a0a] border border-gray-200 dark:border-[#2a2a2a] rounded px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
             />
             <input
               value={commandText}
               onChange={(event) => setCommandText(event.target.value)}
               placeholder="Command"
-              className="bg-[#0a0a0a] border border-[#2a2a2a] rounded px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
+              className="bg-white dark:bg-[#0a0a0a] border border-gray-200 dark:border-[#2a2a2a] rounded px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
             />
             <button
               onClick={saveQuickCommand}
@@ -4430,15 +4430,15 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
         </div>
       </div>
 
-      <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-[#1e1e1e]">
-          <Download className="w-3.5 h-3.5 text-[#555]" />
-          <p className="text-xs font-medium text-[#888] uppercase tracking-wide">
+      <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] overflow-hidden">
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-200 dark:border-[#1e1e1e]">
+          <Download className="w-3.5 h-3.5 text-gray-400 dark:text-[#555]" />
+          <p className="text-xs font-medium text-gray-500 dark:text-[#888] uppercase tracking-wide">
             Export / Clone
           </p>
         </div>
         <div className="p-4 space-y-3">
-          <p className="text-xs text-[#666]">
+          <p className="text-xs text-gray-400 dark:text-[#666]">
             Export a reusable JSON template or open the create flow with this server pre-filled.
           </p>
           <div className="flex flex-wrap gap-2">
@@ -4450,7 +4450,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
             </button>
             <button
               onClick={cloneServerFromTemplate}
-              className="px-3 py-2 rounded-lg border border-[#2a2a2a] bg-[#1a1a1a] text-[#f2f2f2] text-xs hover:bg-[#222]"
+              className="px-3 py-2 rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#1a1a1a] text-gray-900 dark:text-[#f2f2f2] text-xs hover:bg-gray-100 dark:hover:bg-[#222]"
             >
               Clone Server
             </button>
@@ -4466,8 +4466,8 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
         </div>
         <div className="p-4 flex items-center justify-between gap-4">
           <div>
-            <p className="text-sm text-[#f2f2f2]">Delete this server</p>
-            <p className="text-xs text-[#666] mt-0.5">
+            <p className="text-sm text-gray-900 dark:text-[#f2f2f2]">Delete this server</p>
+            <p className="text-xs text-gray-400 dark:text-[#666] mt-0.5">
               Permanently removes the deployment and all data. This cannot be
               undone.
             </p>
@@ -4516,14 +4516,14 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
               initial={{ opacity: 0, scale: 0.98 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.98 }}
-              className="w-full max-w-5xl bg-[#111] border border-[#2a2a2a] rounded-xl overflow-hidden shadow-2xl"
+              className="w-full max-w-5xl bg-white dark:bg-[#111] border border-gray-200 dark:border-[#2a2a2a] rounded-xl overflow-hidden shadow-2xl"
             >
-              <div className="flex items-center justify-between px-4 py-3 border-b border-[#1e1e1e]">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-[#1e1e1e]">
                 <div>
-                  <p className="text-sm font-medium text-[#f2f2f2]">
+                  <p className="text-sm font-medium text-gray-900 dark:text-[#f2f2f2]">
                     Deployment YAML
                   </p>
-                  <p className="text-xs text-[#666]">
+                  <p className="text-xs text-gray-400 dark:text-[#666]">
                     Read-only deployment manifest
                   </p>
                 </div>
@@ -4533,13 +4533,13 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
                       navigator.clipboard.writeText(yamlContent);
                       toast.success("Copied");
                     }}
-                    className="px-3 py-1.5 rounded-lg bg-[#1a1a1a] border border-[#2a2a2a] text-xs text-[#d4d4d4]"
+                    className="px-3 py-1.5 rounded-lg bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-[#2a2a2a] text-xs text-gray-700 dark:text-[#d4d4d4]"
                   >
                     Copy
                   </button>
                   <button
                     onClick={() => setYamlOpen(false)}
-                    className="p-2 text-[#777] hover:text-white"
+                    className="p-2 text-gray-500 dark:text-[#777] hover:text-gray-900 dark:hover:text-white"
                   >
                     <X className="w-4 h-4" />
                   </button>
@@ -4551,7 +4551,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
                     <Loader2 className="w-5 h-5 animate-spin text-[#0078D4]" />
                   </div>
                 ) : (
-                  <pre className="h-full overflow-auto bg-[#1e1e1e] text-[#d4d4d4] font-mono text-[13px] leading-[1.5] p-3 m-0 whitespace-pre">
+                  <pre className="h-full overflow-auto bg-gray-50 dark:bg-[#1e1e1e] text-gray-700 dark:text-[#d4d4d4] font-mono text-[13px] leading-[1.5] p-3 m-0 whitespace-pre">
                     {yamlContent}
                   </pre>
                 )}
@@ -4629,7 +4629,7 @@ export default function ServerDetailPage() {
     running: "text-green-400",
     starting: "text-yellow-400",
     maintenance: "text-yellow-400",
-    stopped: "text-[#666]",
+    stopped: "text-gray-400 dark:text-[#666]",
   }[status];
   const connectionInfo =
     server?.nodeIp && server?.nodePort
@@ -4749,34 +4749,34 @@ export default function ServerDetailPage() {
 
   return (
     <div className="space-y-0 overflow-x-hidden pb-2">
-      <div className="sticky top-[env(safe-area-inset-top,0px)] z-10 -mx-4 border-b border-[#1e1e1e] bg-[#0e0e0e]/95 px-4 pb-0 pt-0 backdrop-blur-sm sm:-mx-4 sm:px-4 md:-mx-6 md:px-6">
-        <div className="hidden sm:flex items-center gap-1 px-1 pt-2 text-[10px] text-[#666] overflow-x-auto scrollbar-none whitespace-nowrap">
-          <Link href="/game-hub" className="hover:text-white">
+      <div className="sticky top-[env(safe-area-inset-top,0px)] z-10 -mx-4 border-b border-gray-200 dark:border-[#1e1e1e] bg-[#0e0e0e]/95 px-4 pb-0 pt-0 backdrop-blur-sm sm:-mx-4 sm:px-4 md:-mx-6 md:px-6">
+        <div className="hidden sm:flex items-center gap-1 px-1 pt-2 text-[10px] text-gray-400 dark:text-[#666] overflow-x-auto scrollbar-none whitespace-nowrap">
+          <Link href="/game-hub" className="hover:text-gray-900 dark:hover:text-white">
             Game Hub
           </Link>
           <ChevronRight className="w-3 h-3 flex-shrink-0" />
-          <span className="text-[#9e9e9e] truncate">{name}</span>
+          <span className="text-gray-500 dark:text-[#9e9e9e] truncate">{name}</span>
         </div>
         <div className="flex flex-wrap items-start gap-2 py-2 sm:py-3">
           <Link
             href="/game-hub"
-            className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl text-[#555] transition-colors hover:bg-[#1e1e1e] hover:text-[#9e9e9e]"
+            className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl text-gray-400 dark:text-[#555] transition-colors hover:bg-gray-100 dark:hover:bg-[#1e1e1e] hover:text-gray-700 dark:hover:text-[#9e9e9e]"
           >
             <ChevronLeft className="w-5 h-5" />
           </Link>
           <span className="text-2xl flex-shrink-0">{server?.icon ?? "🎮"}</span>
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <h1 className="min-w-0 flex-1 truncate text-lg font-semibold text-[#f2f2f2] sm:flex-none sm:text-xl">
+              <h1 className="min-w-0 flex-1 truncate text-lg font-semibold text-gray-900 dark:text-[#f2f2f2] sm:flex-none sm:text-xl">
                 {name}
               </h1>
               {primaryTag && (
-                <span className="shrink-0 rounded-full bg-[#222] px-2 py-0.5 text-xs text-[#888]">
+                <span className="shrink-0 rounded-full bg-[#222] px-2 py-0.5 text-xs text-gray-500 dark:text-[#888]">
                   {primaryTag}
                 </span>
               )}
               {server?.podStartTime && (
-                <span className="shrink-0 text-xs text-[#666]">
+                <span className="shrink-0 text-xs text-gray-400 dark:text-[#666]">
                   ↺ {timeAgo(server.podStartTime)}
                 </span>
               )}
@@ -4791,7 +4791,7 @@ export default function ServerDetailPage() {
                   {status}
                 </span>
                 {typeof connectivity?.external.latencyMs === "number" && (
-                  <span className="inline-flex items-center gap-1 text-[10px] text-[#666]" title={`Connection quality ${connectivity.external.latencyMs}ms`}>
+                  <span className="inline-flex items-center gap-1 text-[10px] text-gray-400 dark:text-[#666]" title={`Connection quality ${connectivity.external.latencyMs}ms`}>
                     <span
                       className={cn(
                         "h-2 w-2 rounded-full",
@@ -4807,13 +4807,13 @@ export default function ServerDetailPage() {
                 )}
               </div>
             </div>
-            <p className="mt-0.5 text-[10px] text-[#555] line-clamp-2 sm:line-clamp-1">
+            <p className="mt-0.5 text-[10px] text-gray-400 dark:text-[#555] line-clamp-2 sm:line-clamp-1">
               {server?.description ||
                 `${server?.gameType?.replace(/-/g, " ") ?? "Game"} Server`}
             </p>
             <div className="mt-1 flex flex-wrap gap-2 text-[10px]">
               {server?.imageVersion && (
-                <span className="rounded-full border border-[#2a2a2a] bg-[#111] px-2 py-0.5 text-[#9e9e9e]">
+                <span className="rounded-full border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-2 py-0.5 text-gray-500 dark:text-[#9e9e9e]">
                   Version {server.imageVersion}
                 </span>
               )}
@@ -4840,7 +4840,7 @@ export default function ServerDetailPage() {
                     actionLoading === "pin-image-version" ||
                     actionLoading === "unpin-image-version"
                   }
-                  className="hidden min-h-[44px] rounded-full border border-[#2a2a2a] bg-[#1a1a1a] px-3 py-1 text-[#d4d4d4] transition-colors hover:bg-[#222] disabled:opacity-50 sm:inline-flex"
+                  className="hidden min-h-[44px] rounded-full border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#1a1a1a] px-3 py-1 text-gray-700 dark:text-[#d4d4d4] transition-colors hover:bg-gray-100 dark:hover:bg-[#222] disabled:opacity-50 sm:inline-flex"
                 >
                   {actionLoading === "pin-image-version" || actionLoading === "unpin-image-version"
                     ? "Saving…"
@@ -4904,7 +4904,7 @@ export default function ServerDetailPage() {
                 <button
                   onClick={copyConnectionInfo}
                   title={connectionInfo}
-                  className="flex min-h-[44px] min-w-0 flex-1 items-center rounded-xl bg-[#1a1a1a] px-3 py-2 text-xs text-[#888] transition-colors hover:bg-[#222] sm:w-auto sm:max-w-[180px] sm:flex-none"
+                  className="flex min-h-[44px] min-w-0 flex-1 items-center rounded-xl bg-white dark:bg-[#1a1a1a] px-3 py-2 text-xs text-gray-500 dark:text-[#888] transition-colors hover:bg-gray-100 dark:hover:bg-[#222] sm:w-auto sm:max-w-[180px] sm:flex-none"
                 >
                   <span className="truncate">{connectionInfo}</span>
                 </button>
@@ -4922,7 +4922,7 @@ export default function ServerDetailPage() {
                       "hidden sm:flex min-h-[44px] items-center gap-1.5 rounded-xl border px-3 py-2 text-xs transition-all",
                       server.maintenanceMode
                         ? "border-yellow-400/40 bg-yellow-500/20 text-yellow-100 shadow-[0_0_18px_rgba(250,204,21,0.22)]"
-                        : "border-[#2a2a2a] bg-[#1a1a1a] text-[#888] hover:border-yellow-500/30 hover:bg-yellow-500/10 hover:text-yellow-200",
+                        : "border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#1a1a1a] text-gray-500 dark:text-[#888] hover:border-yellow-500/30 hover:bg-yellow-500/10 hover:text-yellow-200",
                     )}
                   >
                     <Wrench className="w-3.5 h-3.5" />
@@ -4932,7 +4932,7 @@ export default function ServerDetailPage() {
                 {server.permissions?.canAdmin ? (
                   <button
                     onClick={() => void cloneCurrentServer()}
-                    className="hidden min-h-[44px] rounded-xl bg-[#1a1a1a] px-3 py-2 text-xs text-[#888] transition-colors hover:bg-[#222] lg:flex"
+                    className="hidden min-h-[44px] rounded-xl bg-white dark:bg-[#1a1a1a] px-3 py-2 text-xs text-gray-500 dark:text-[#888] transition-colors hover:bg-gray-100 dark:hover:bg-[#222] lg:flex"
                   >
                     Clone
                   </button>
@@ -4959,7 +4959,7 @@ export default function ServerDetailPage() {
                         onClick={() => void doAction("restart")}
                         disabled={!!actionLoading}
                         title="Quick restart"
-                        className="flex min-h-[44px] items-center gap-1.5 rounded-xl bg-[#1a1a1a] px-2.5 py-2 text-xs text-[#888] transition-colors disabled:opacity-50 touch-manipulation hover:bg-[#222] hover:text-[#bbb]"
+                        className="flex min-h-[44px] items-center gap-1.5 rounded-xl bg-white dark:bg-[#1a1a1a] px-2.5 py-2 text-xs text-gray-500 dark:text-[#888] transition-colors disabled:opacity-50 touch-manipulation hover:bg-gray-100 dark:hover:bg-[#222] hover:text-gray-700 dark:hover:text-[#bbb]"
                       >
                         {actionLoading === "restart" ? (
                           <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -4975,7 +4975,7 @@ export default function ServerDetailPage() {
                           onClick={() => void doAction("stop", "Server stopping gracefully…")}
                           disabled={!!actionLoading}
                           title={`Stop (sends game stop command: ${server.egg?.stopCommand ?? "stop"})`}
-                          className="flex min-h-[44px] items-center gap-1.5 rounded-xl bg-[#1a1a1a] px-2.5 py-2 text-xs text-[#888] transition-colors disabled:opacity-50 touch-manipulation hover:bg-red-500/15 hover:text-red-300"
+                          className="flex min-h-[44px] items-center gap-1.5 rounded-xl bg-white dark:bg-[#1a1a1a] px-2.5 py-2 text-xs text-gray-500 dark:text-[#888] transition-colors disabled:opacity-50 touch-manipulation hover:bg-red-500/15 hover:text-red-300"
                         >
                           {actionLoading === "stop" ? (
                             <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -4988,7 +4988,7 @@ export default function ServerDetailPage() {
                           onClick={() => void doAction("force-stop", "Server force-stopped")}
                           disabled={!!actionLoading}
                           title="Force Stop — immediately kills the pod (no save)"
-                          className="flex min-h-[44px] items-center gap-1.5 rounded-xl bg-[#1a1a1a] px-2.5 py-2 text-xs text-[#888] transition-colors disabled:opacity-50 touch-manipulation hover:bg-red-600/25 hover:text-red-400"
+                          className="flex min-h-[44px] items-center gap-1.5 rounded-xl bg-white dark:bg-[#1a1a1a] px-2.5 py-2 text-xs text-gray-500 dark:text-[#888] transition-colors disabled:opacity-50 touch-manipulation hover:bg-red-600/25 hover:text-red-400"
                         >
                           {actionLoading === "force-stop" ? (
                             <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -5005,7 +5005,7 @@ export default function ServerDetailPage() {
               {(server.permissions?.canAdmin || server.permissions?.canStart || server.permissions?.canStop) ? (
                 <button
                   onClick={() => setMobileActionSheetOpen(true)}
-                  className="flex h-11 w-11 items-center justify-center rounded-xl border border-[#2a2a2a] bg-[#1a1a1a] text-[#888] transition-colors hover:bg-[#222] sm:hidden"
+                  className="flex h-11 w-11 items-center justify-center rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#1a1a1a] text-gray-500 dark:text-[#888] transition-colors hover:bg-gray-100 dark:hover:bg-[#222] sm:hidden"
                   aria-label="More server actions"
                   title="More actions"
                 >
@@ -5021,7 +5021,7 @@ export default function ServerDetailPage() {
             <button
               onClick={() => cycleTab(-1)}
               disabled={tabs.length < 2}
-              className="flex h-11 w-11 items-center justify-center rounded-xl border border-[#2a2a2a] bg-[#151515] text-[#888] transition-colors hover:bg-[#1d1d1d] disabled:opacity-40"
+              className="flex h-11 w-11 items-center justify-center rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-[#151515] text-gray-500 dark:text-[#888] transition-colors hover:bg-[#1d1d1d] disabled:opacity-40"
               aria-label="Previous tab"
             >
               <ChevronLeft className="h-4 w-4" />
@@ -5033,7 +5033,7 @@ export default function ServerDetailPage() {
             <button
               onClick={() => cycleTab(1)}
               disabled={tabs.length < 2}
-              className="flex h-11 w-11 items-center justify-center rounded-xl border border-[#2a2a2a] bg-[#151515] text-[#888] transition-colors hover:bg-[#1d1d1d] disabled:opacity-40"
+              className="flex h-11 w-11 items-center justify-center rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-[#151515] text-gray-500 dark:text-[#888] transition-colors hover:bg-[#1d1d1d] disabled:opacity-40"
               aria-label="Next tab"
             >
               <ChevronRight className="h-4 w-4" />
@@ -5050,7 +5050,7 @@ export default function ServerDetailPage() {
                 "-mb-px flex min-h-[44px] flex-shrink-0 items-center gap-1.5 rounded-t-xl border-b-2 px-3 py-2 text-xs font-medium whitespace-nowrap transition-colors touch-manipulation sm:px-4 sm:py-2.5",
                 resolvedActiveTab === id
                   ? "border-[#0078D4] bg-[#0078D4]/10 text-[#4db3ff] shadow-[inset_0_1px_0_rgba(77,179,255,0.2)]"
-                  : "border-transparent text-[#555] hover:bg-white/5 hover:text-[#888]",
+                  : "border-transparent text-gray-400 dark:text-[#555] hover:bg-gray-100 dark:hover:bg-white/5 hover:text-gray-700 dark:hover:text-[#888]",
               )}
             >
               <Icon className="w-3.5 h-3.5" />
@@ -5064,7 +5064,7 @@ export default function ServerDetailPage() {
         {isLoading && (
           <div className="flex flex-col items-center justify-center h-48 gap-3">
             <Loader2 className="w-6 h-6 text-[#0078D4] animate-spin" />
-            <p className="text-xs text-[#555]">Loading server details…</p>
+            <p className="text-xs text-gray-400 dark:text-[#555]">Loading server details…</p>
           </div>
         )}
 
@@ -5152,17 +5152,17 @@ export default function ServerDetailPage() {
               animate={{ y: 0 }}
               exit={{ y: "100%" }}
               transition={{ type: "spring", damping: 35, stiffness: 320 }}
-              className="fixed inset-x-0 bottom-0 z-50 rounded-t-[28px] border border-[#2a2a2a] bg-[#111] p-4 pb-[calc(env(safe-area-inset-bottom,0px)+1rem)] shadow-2xl sm:hidden"
+              className="fixed inset-x-0 bottom-0 z-50 rounded-t-[28px] border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4 pb-[calc(env(safe-area-inset-bottom,0px)+1rem)] shadow-2xl sm:hidden"
             >
-              <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-[#2a2a2a]" />
+              <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-gray-100 dark:bg-[#2a2a2a]" />
               <div className="mb-4 flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-semibold text-[#f2f2f2]">Server actions</p>
-                  <p className="text-xs text-[#666]">Quick controls for {name}</p>
+                  <p className="text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">Server actions</p>
+                  <p className="text-xs text-gray-400 dark:text-[#666]">Quick controls for {name}</p>
                 </div>
                 <button
                   onClick={() => setMobileActionSheetOpen(false)}
-                  className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#1a1a1a] text-[#888]"
+                  className="flex h-11 w-11 items-center justify-center rounded-xl bg-white dark:bg-[#1a1a1a] text-gray-500 dark:text-[#888]"
                 >
                   <X className="h-4 w-4" />
                 </button>
@@ -5179,10 +5179,10 @@ export default function ServerDetailPage() {
                           : `Pinned to ${server.imageVersion}`,
                       );
                     }}
-                    className="flex min-h-[48px] items-center justify-between rounded-2xl border border-[#2a2a2a] bg-[#161616] px-4 text-sm text-[#d4d4d4]"
+                    className="flex min-h-[48px] items-center justify-between rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] px-4 text-sm text-gray-700 dark:text-[#d4d4d4]"
                   >
                     <span>{server.imagePinned ? "Use latest image" : "Pin current image"}</span>
-                    <Package className="h-4 w-4 text-[#888]" />
+                    <Package className="h-4 w-4 text-gray-500 dark:text-[#888]" />
                   </button>
                 ) : null}
                 {server.permissions?.canAdmin ? (
@@ -5191,10 +5191,10 @@ export default function ServerDetailPage() {
                       setMobileActionSheetOpen(false);
                       void toggleMaintenanceMode();
                     }}
-                    className="flex min-h-[48px] items-center justify-between rounded-2xl border border-[#2a2a2a] bg-[#161616] px-4 text-sm text-[#d4d4d4]"
+                    className="flex min-h-[48px] items-center justify-between rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] px-4 text-sm text-gray-700 dark:text-[#d4d4d4]"
                   >
                     <span>{server.maintenanceMode ? "Disable maintenance" : "Enable maintenance"}</span>
-                    <Wrench className="h-4 w-4 text-[#888]" />
+                    <Wrench className="h-4 w-4 text-gray-500 dark:text-[#888]" />
                   </button>
                 ) : null}
                 {server.permissions?.canAdmin ? (
@@ -5203,10 +5203,10 @@ export default function ServerDetailPage() {
                       setMobileActionSheetOpen(false);
                       void cloneCurrentServer();
                     }}
-                    className="flex min-h-[48px] items-center justify-between rounded-2xl border border-[#2a2a2a] bg-[#161616] px-4 text-sm text-[#d4d4d4]"
+                    className="flex min-h-[48px] items-center justify-between rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] px-4 text-sm text-gray-700 dark:text-[#d4d4d4]"
                   >
                     <span>Clone server</span>
-                    <Copy className="h-4 w-4 text-[#888]" />
+                    <Copy className="h-4 w-4 text-gray-500 dark:text-[#888]" />
                   </button>
                 ) : null}
                 {status === "stopped" ? (
@@ -5230,10 +5230,10 @@ export default function ServerDetailPage() {
                           setMobileActionSheetOpen(false);
                           void doAction("restart");
                         }}
-                        className="flex min-h-[52px] items-center justify-between rounded-2xl border border-[#2a2a2a] bg-[#161616] px-4 text-sm text-[#d4d4d4]"
+                        className="flex min-h-[52px] items-center justify-between rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] px-4 text-sm text-gray-700 dark:text-[#d4d4d4]"
                       >
                         <span>Restart server</span>
-                        <RotateCcw className="h-4 w-4 text-[#888]" />
+                        <RotateCcw className="h-4 w-4 text-gray-500 dark:text-[#888]" />
                       </button>
                     ) : null}
                     {server.permissions?.canStop ? (

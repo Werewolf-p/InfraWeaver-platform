@@ -212,7 +212,7 @@ export default function DnsManagementPage() {
             />
             <button
               onClick={exportCsv}
-              className="rounded-xl border border-white/10 bg-slate-900 px-3 py-2 text-sm text-slate-300 transition hover:text-white"
+              className="rounded-xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900 px-3 py-2 text-sm text-slate-700 dark:text-slate-300 transition hover:text-gray-900 dark:hover:text-white"
             >
               Export CSV
             </button>
@@ -224,7 +224,7 @@ export default function DnsManagementPage() {
                 setDialogOpen(true);
               }}
               disabled={!canWriteDns}
-              className="inline-flex items-center gap-2 rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-3 py-2 text-sm font-medium text-cyan-200 transition hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-3 py-2 text-sm font-medium text-cyan-700 dark:text-cyan-200 transition hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Plus className="h-4 w-4" />
               Add Record
@@ -234,12 +234,12 @@ export default function DnsManagementPage() {
       />
 
       <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
-        <div className="rounded-2xl border border-white/10 bg-slate-900/60 p-4">
+        <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/60 p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <p className="text-sm font-semibold text-white">Managed zones</p>
-              <p className="mt-1 text-sm text-slate-400">
-                Internal records target <span className="font-mono text-cyan-200">*.{INTERNAL_DNS_DOMAIN}</span> and public records target <span className="font-mono text-emerald-200">*.{ROOT_DNS_DOMAIN}</span>.
+              <p className="text-sm font-semibold text-gray-900 dark:text-white">Managed zones</p>
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                Internal records target <span className="font-mono text-cyan-700 dark:text-cyan-200">*.{INTERNAL_DNS_DOMAIN}</span> and public records target <span className="font-mono text-emerald-700 dark:text-emerald-200">*.{ROOT_DNS_DOMAIN}</span>.
               </p>
             </div>
             <div className="text-right text-xs text-slate-500">
@@ -247,7 +247,7 @@ export default function DnsManagementPage() {
                 <RefreshCw className={cn("h-3.5 w-3.5", isFetching && "animate-spin")} />
                 {lastUpdated ? `Updated ${lastUpdated}` : "Waiting for first sync"}
               </div>
-              <Link href="/game-hub" className="mt-1 inline-flex items-center gap-1.5 text-cyan-200 hover:text-white">
+              <Link href="/game-hub" className="mt-1 inline-flex items-center gap-1.5 text-cyan-700 dark:text-cyan-200 hover:text-gray-900 dark:hover:text-white">
                 Add DNS for a game server
                 <ExternalLink className="h-3 w-3" />
               </Link>
@@ -255,9 +255,9 @@ export default function DnsManagementPage() {
           </div>
         </div>
 
-        <div className="rounded-2xl border border-white/10 bg-slate-900/60 p-4">
-          <div className="flex items-center gap-2 text-sm font-semibold text-white">
-            <Server className="h-4 w-4 text-cyan-300" />
+        <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/60 p-4">
+          <div className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-white">
+            <Server className="h-4 w-4 text-cyan-600 dark:text-cyan-300" />
             Quick templates
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
@@ -269,7 +269,7 @@ export default function DnsManagementPage() {
                   setDialogDefaults({ value: target.value, type: "A", internal: true });
                   setDialogOpen(true);
                 }}
-                className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 px-3 py-2 text-left text-xs text-cyan-100 transition hover:bg-cyan-500/10"
+                className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 px-3 py-2 text-left text-xs text-cyan-700 dark:text-cyan-100 transition hover:bg-cyan-500/10"
                 title={target.description}
               >
                 <div className="font-medium">Detected node</div>
@@ -281,7 +281,7 @@ export default function DnsManagementPage() {
         </div>
       </div>
 
-      <div className="rounded-2xl border border-white/10 bg-slate-900/60 p-4">
+      <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/60 p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-2">
             <button
@@ -292,8 +292,8 @@ export default function DnsManagementPage() {
               className={cn(
                 "inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm transition",
                 tab === "internal"
-                  ? "border-cyan-500/30 bg-cyan-500/10 text-cyan-200"
-                  : "border-white/10 bg-slate-950 text-slate-400 hover:text-white",
+                  ? "border-cyan-500/30 bg-cyan-500/10 text-cyan-700 dark:text-cyan-200"
+                  : "border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950 text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white",
               )}
             >
               <Shield className="h-4 w-4" />
@@ -308,8 +308,8 @@ export default function DnsManagementPage() {
               className={cn(
                 "inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm transition",
                 tab === "public"
-                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
-                  : "border-white/10 bg-slate-950 text-slate-400 hover:text-white",
+                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200"
+                  : "border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950 text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white",
               )}
             >
               <Globe className="h-4 w-4" />
@@ -326,7 +326,7 @@ export default function DnsManagementPage() {
                 setPage(1);
               }}
               placeholder={`Search ${tab} DNS records…`}
-              className="w-full min-w-[220px] rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none transition focus:border-cyan-500/40 sm:w-auto"
+              className="w-full min-w-[220px] rounded-xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950 px-3 py-2 text-sm text-gray-900 dark:text-white outline-none transition focus:border-cyan-500/40 sm:w-auto"
             />
             <select
               value={pageSize}
@@ -334,7 +334,7 @@ export default function DnsManagementPage() {
                 setPageSize(Number(event.target.value));
                 setPage(1);
               }}
-              className="rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none"
+              className="rounded-xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950 px-3 py-2 text-sm text-gray-900 dark:text-white outline-none"
               title="Rows per page"
             >
               {PAGE_SIZE_OPTIONS.map((option) => (
@@ -368,7 +368,7 @@ export default function DnsManagementPage() {
               <div className="overflow-x-auto">
                 <table className="min-w-full text-sm">
                   <thead>
-                    <tr className="border-b border-white/10 text-left text-xs uppercase tracking-[0.2em] text-slate-500">
+                    <tr className="border-b border-gray-200 dark:border-white/10 text-left text-xs uppercase tracking-[0.2em] text-slate-500">
                       <th className="px-3 py-3">Name</th>
                       <th className="px-3 py-3">Scope</th>
                       <th className="px-3 py-3">Type</th>
@@ -380,11 +380,11 @@ export default function DnsManagementPage() {
                   </thead>
                   <tbody>
                     {pagedRecords.map((record) => (
-                      <tr key={record.id} className="border-b border-white/5 hover:bg-white/[0.02]">
+                      <tr key={record.id} className="border-b border-gray-200 dark:border-white/5 hover:bg-gray-100 dark:hover:bg-white/[0.02]">
                         <td className="px-3 py-3 align-top">
                           <div className="flex items-start gap-2">
                             <div className="min-w-0">
-                              <div className="truncate font-medium text-white" title={record.name}>{record.name}</div>
+                              <div className="truncate font-medium text-gray-900 dark:text-white" title={record.name}>{record.name}</div>
                               <div className="mt-1 text-xs text-slate-500">Subdomain: {record.shortName}</div>
                             </div>
                             <CopyButton text={record.name} className="px-2 py-1" />
@@ -398,20 +398,20 @@ export default function DnsManagementPage() {
                           />
                         </td>
                         <td className="px-3 py-3 align-top">
-                          <span className="inline-flex rounded-full border border-white/10 bg-slate-950 px-2 py-1 text-xs font-semibold text-slate-300">
+                          <span className="inline-flex rounded-full border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950 px-2 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300">
                             {record.type}
                           </span>
                         </td>
                         <td className="px-3 py-3 align-top">
                           <div className="flex items-start gap-2">
-                            <div className="max-w-[280px] truncate font-mono text-sm text-slate-200" title={record.value}>
+                            <div className="max-w-[280px] truncate font-mono text-sm text-slate-800 dark:text-slate-200" title={record.value}>
                               {record.value}
                             </div>
                             <CopyButton text={record.value} className="px-2 py-1" />
                           </div>
                         </td>
-                        <td className="px-3 py-3 align-top text-slate-300">{record.ttl}s</td>
-                        <td className="px-3 py-3 align-top text-slate-400">
+                        <td className="px-3 py-3 align-top text-slate-700 dark:text-slate-300">{record.ttl}s</td>
+                        <td className="px-3 py-3 align-top text-slate-500 dark:text-slate-400">
                           {record.updatedAt ? <span title={record.updatedAt}>{timeAgo(record.updatedAt)}</span> : "—"}
                         </td>
                         <td className="px-3 py-3 align-top">
@@ -424,7 +424,7 @@ export default function DnsManagementPage() {
                                 setDialogOpen(true);
                               }}
                               disabled={!canWriteDns}
-                              className="rounded-lg border border-white/10 bg-slate-950 p-2 text-slate-300 transition hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                              className="rounded-lg border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950 p-2 text-slate-700 dark:text-slate-300 transition hover:text-gray-900 dark:hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                               title={`Edit ${record.name}`}
                             >
                               <Pencil className="h-4 w-4" />
@@ -432,7 +432,7 @@ export default function DnsManagementPage() {
                             <button
                               onClick={() => canWriteDns && setRecordToDelete(record)}
                               disabled={!canWriteDns}
-                              className="rounded-lg border border-red-500/20 bg-red-500/10 p-2 text-red-300 transition hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                              className="rounded-lg border border-red-500/20 bg-red-500/10 p-2 text-red-600 dark:text-red-300 transition hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50"
                               title={`Delete ${record.name}`}
                             >
                               <Trash2 className="h-4 w-4" />
@@ -445,7 +445,7 @@ export default function DnsManagementPage() {
                 </table>
               </div>
 
-              <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-slate-400">
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-slate-500 dark:text-slate-400">
                 <div>
                   Showing {(currentPage - 1) * pageSize + 1}-{Math.min(currentPage * pageSize, filteredRecords.length)} of {filteredRecords.length} {tab} records
                 </div>
@@ -453,7 +453,7 @@ export default function DnsManagementPage() {
                   <button
                     onClick={() => setPage((current) => Math.max(1, current - 1))}
                     disabled={currentPage === 1}
-                    className="rounded-lg border border-white/10 px-3 py-2 transition hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                    className="rounded-lg border border-gray-200 dark:border-white/10 px-3 py-2 transition hover:text-gray-900 dark:hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     Previous
                   </button>
@@ -461,7 +461,7 @@ export default function DnsManagementPage() {
                   <button
                     onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
                     disabled={currentPage === totalPages}
-                    className="rounded-lg border border-white/10 px-3 py-2 transition hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                    className="rounded-lg border border-gray-200 dark:border-white/10 px-3 py-2 transition hover:text-gray-900 dark:hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     Next
                   </button>
@@ -472,29 +472,29 @@ export default function DnsManagementPage() {
         </div>
       </div>
 
-      <div className="rounded-2xl border border-white/10 bg-slate-900/60 p-4">
+      <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/60 p-4">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <p className="text-sm font-semibold text-white">Game server quick-add</p>
-            <p className="mt-1 text-sm text-slate-400">Use current node IPs from Game Hub and jump into server details for one-click DNS creation.</p>
+            <p className="text-sm font-semibold text-gray-900 dark:text-white">Game server quick-add</p>
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Use current node IPs from Game Hub and jump into server details for one-click DNS creation.</p>
           </div>
-          <Link href="/game-hub" className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-sm text-slate-300 transition hover:text-white">
+          <Link href="/game-hub" className="inline-flex items-center gap-2 rounded-xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950 px-3 py-2 text-sm text-slate-700 dark:text-slate-300 transition hover:text-gray-900 dark:hover:text-white">
             <Gamepad2 className="h-4 w-4" />
             Open Game Hub
           </Link>
         </div>
         <div className="mt-4 grid gap-3 md:grid-cols-3">
           {gameServerTargets.length > 0 ? gameServerTargets.slice(0, 3).map((server) => (
-            <div key={server.label} className="rounded-xl border border-white/10 bg-slate-950/70 p-4">
+            <div key={server.label} className="rounded-xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950/70 p-4">
               <div className="flex items-center justify-between gap-2">
                 <div>
-                  <p className="font-medium text-white">{server.label}</p>
-                  <p className="mt-1 font-mono text-xs text-cyan-200">{server.value}</p>
+                  <p className="font-medium text-gray-900 dark:text-white">{server.label}</p>
+                  <p className="mt-1 font-mono text-xs text-cyan-700 dark:text-cyan-200">{server.value}</p>
                 </div>
                 <StatusBadge status="healthy" label="Ready" size="sm" />
               </div>
               <div className="mt-3 flex items-center justify-between gap-2">
-                <Link href={server.href ?? "/game-hub"} className="text-xs text-cyan-200 hover:text-white">Open details</Link>
+                <Link href={server.href ?? "/game-hub"} className="text-xs text-cyan-700 dark:text-cyan-200 hover:text-gray-900 dark:hover:text-white">Open details</Link>
                 <button
                   onClick={() => {
                     if (!canWriteDns) return;
@@ -503,7 +503,7 @@ export default function DnsManagementPage() {
                     setDialogOpen(true);
                   }}
                   disabled={!canWriteDns}
-                  className="rounded-lg border border-cyan-500/20 bg-cyan-500/10 px-2.5 py-1.5 text-xs text-cyan-100 transition hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="rounded-lg border border-cyan-500/20 bg-cyan-500/10 px-2.5 py-1.5 text-xs text-cyan-700 dark:text-cyan-100 transition hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   New DNS
                 </button>

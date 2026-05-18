@@ -75,18 +75,18 @@ export function KeyboardShortcutsModal({ open, onClose }: KeyboardShortcutsModal
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 8 }}
             transition={{ duration: 0.15, ease: "easeOut" }}
-            className="relative w-full max-w-lg bg-slate-900 border border-white/10 rounded-xl shadow-2xl overflow-hidden"
+            className="relative w-full max-w-lg bg-slate-100 dark:bg-slate-900 border border-gray-200 dark:border-white/10 rounded-xl shadow-2xl overflow-hidden"
             onClick={e => e.stopPropagation()}
           >
             {/* Header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-white/10">
               <div className="flex items-center gap-2">
                 <Keyboard className="w-4 h-4 text-indigo-400" />
-                <h2 className="text-sm font-semibold text-white">Keyboard Shortcuts</h2>
+                <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Keyboard Shortcuts</h2>
               </div>
               <button
                 onClick={onClose}
-                className="text-slate-500 hover:text-white transition-colors"
+                className="text-slate-500 hover:text-gray-900 dark:hover:text-white transition-colors"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -102,13 +102,13 @@ export function KeyboardShortcutsModal({ open, onClose }: KeyboardShortcutsModal
                   <div className="space-y-1.5">
                     {group.shortcuts.map((shortcut, idx) => (
                       <div key={idx} className="flex items-center justify-between">
-                        <span className="text-sm text-slate-300">{shortcut.label}</span>
+                        <span className="text-sm text-slate-700 dark:text-slate-300">{shortcut.label}</span>
                         <div className="flex items-center gap-1">
                           {shortcut.keys.map((key, ki) => (
                             <kbd
                               key={ki}
                               className={cn(
-                                "text-[11px] font-mono px-1.5 py-0.5 rounded bg-slate-800 border border-white/10 text-slate-300",
+                                "text-[11px] font-mono px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 border border-gray-200 dark:border-white/10 text-slate-700 dark:text-slate-300",
                                 shortcut.keys.length > 1 && ki < shortcut.keys.length - 1 && "mr-0.5"
                               )}
                             >
@@ -124,8 +124,8 @@ export function KeyboardShortcutsModal({ open, onClose }: KeyboardShortcutsModal
             </div>
 
             {/* Footer */}
-            <div className="px-5 py-3 border-t border-white/5 text-[11px] text-slate-600 text-center">
-              Press <kbd className="bg-slate-800 border border-white/10 rounded px-1 text-slate-400">?</kbd> anytime to open this
+            <div className="px-5 py-3 border-t border-gray-200 dark:border-white/5 text-[11px] text-slate-600 text-center">
+              Press <kbd className="bg-slate-100 dark:bg-slate-800 border border-gray-200 dark:border-white/10 rounded px-1 text-slate-500 dark:text-slate-400">?</kbd> anytime to open this
             </div>
           </motion.div>
         </motion.div>

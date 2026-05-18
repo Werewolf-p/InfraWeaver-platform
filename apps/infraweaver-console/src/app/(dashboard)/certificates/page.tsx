@@ -88,7 +88,7 @@ export default function CertificatesPage() {
         actions={
           <button
             onClick={() => void refetch()}
-            className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-300 transition hover:text-white"
+            className="inline-flex items-center gap-2 rounded-xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-3 py-2 text-sm text-slate-700 dark:text-slate-300 transition hover:text-gray-900 dark:hover:text-white"
           >
             <RefreshCw className={cn("h-4 w-4", isFetching && "animate-spin")} />
             Refresh
@@ -103,9 +103,9 @@ export default function CertificatesPage() {
       ) : null}
 
       <div className="grid gap-4 md:grid-cols-4">
-        <div className="rounded-2xl border border-white/10 bg-slate-900/70 p-4">
+        <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/70 p-4">
           <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Certificates</p>
-          <p className="mt-2 text-3xl font-semibold text-white">{data?.summary.total ?? 0}</p>
+          <p className="mt-2 text-3xl font-semibold text-gray-900 dark:text-white">{data?.summary.total ?? 0}</p>
         </div>
         <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4">
           <p className="text-xs uppercase tracking-[0.2em] text-emerald-100/80">Ready</p>
@@ -121,7 +121,7 @@ export default function CertificatesPage() {
         </div>
       </div>
 
-      <div className="rounded-2xl border border-white/10 bg-slate-900/70 p-4">
+      <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/70 p-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
           <div className="relative flex-1">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
@@ -129,13 +129,13 @@ export default function CertificatesPage() {
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Search by host, namespace, certificate, or secret…"
-              className="w-full rounded-xl border border-white/10 bg-slate-950 py-2.5 pl-9 pr-3 text-sm text-white outline-none focus:border-indigo-500/50"
+              className="w-full rounded-xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950 py-2.5 pl-9 pr-3 text-sm text-gray-900 dark:text-white outline-none focus:border-indigo-500/50"
             />
           </div>
           <select
             value={namespaceFilter}
             onChange={(event) => setNamespaceFilter(event.target.value)}
-            className="rounded-xl border border-white/10 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none"
+            className="rounded-xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950 px-3 py-2.5 text-sm text-gray-900 dark:text-white outline-none"
           >
             <option value="all">All namespaces</option>
             {namespaces.map((namespace) => <option key={namespace} value={namespace}>{namespace}</option>)}
@@ -143,7 +143,7 @@ export default function CertificatesPage() {
           <select
             value={statusFilter}
             onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}
-            className="rounded-xl border border-white/10 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none"
+            className="rounded-xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950 px-3 py-2.5 text-sm text-gray-900 dark:text-white outline-none"
           >
             <option value="all">All states</option>
             <option value="expiring">Expiring soon</option>
@@ -154,25 +154,25 @@ export default function CertificatesPage() {
       </div>
 
       {isLoading ? (
-        <div className="grid gap-4 xl:grid-cols-2">{Array.from({ length: 4 }).map((_, index) => <div key={index} className="h-56 rounded-2xl bg-white/5 animate-pulse" />)}</div>
+        <div className="grid gap-4 xl:grid-cols-2">{Array.from({ length: 4 }).map((_, index) => <div key={index} className="h-56 rounded-2xl bg-gray-100 dark:bg-white/5 animate-pulse" />)}</div>
       ) : filtered.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-white/10 bg-slate-950/40 py-16 text-center text-sm text-slate-500">
+        <div className="rounded-2xl border border-dashed border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950/40 py-16 text-center text-sm text-slate-500">
           No certificates matched the current filters.
         </div>
       ) : (
         <div className="grid gap-4 xl:grid-cols-2">
           {filtered.map((cert) => (
-            <div key={cert.id} className="rounded-2xl border border-white/10 bg-slate-900/70 p-5">
+            <div key={cert.id} className="rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/70 p-5">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="text-lg font-semibold text-white">{cert.name}</h2>
+                    <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{cert.name}</h2>
                     <span className={cn("rounded-full border px-2.5 py-1 text-xs", statusClass(cert))}>{cert.status}</span>
                   </div>
-                  <p className="mt-1 text-sm text-slate-400">{cert.namespace} · {cert.source === "cert-manager" ? "cert-manager" : "TLS secret scan"}</p>
+                  <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{cert.namespace} · {cert.source === "cert-manager" ? "cert-manager" : "TLS secret scan"}</p>
                 </div>
-                <div className="text-right text-sm text-slate-400">
-                  <p className="font-medium text-white">{cert.daysLeft === null ? "Unknown" : `${cert.daysLeft} days`}</p>
+                <div className="text-right text-sm text-slate-500 dark:text-slate-400">
+                  <p className="font-medium text-gray-900 dark:text-white">{cert.daysLeft === null ? "Unknown" : `${cert.daysLeft} days`}</p>
                   <p>Expires {formatDateTime(cert.notAfter)}</p>
                 </div>
               </div>
@@ -184,21 +184,21 @@ export default function CertificatesPage() {
               </div>
 
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                <div className="rounded-xl border border-white/10 bg-slate-950/60 p-3">
+                <div className="rounded-xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950/60 p-3">
                   <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Issuer</p>
-                  <p className="mt-2 text-sm text-white">{cert.issuerRef ?? "Unknown"}</p>
+                  <p className="mt-2 text-sm text-gray-900 dark:text-white">{cert.issuerRef ?? "Unknown"}</p>
                 </div>
-                <div className="rounded-xl border border-white/10 bg-slate-950/60 p-3">
+                <div className="rounded-xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950/60 p-3">
                   <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Secret</p>
-                  <p className="mt-2 text-sm text-white">{cert.secretName ?? "Unknown"}</p>
+                  <p className="mt-2 text-sm text-gray-900 dark:text-white">{cert.secretName ?? "Unknown"}</p>
                 </div>
-                <div className="rounded-xl border border-white/10 bg-slate-950/60 p-3">
+                <div className="rounded-xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950/60 p-3">
                   <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Renewal time</p>
-                  <p className="mt-2 text-sm text-white">{formatDateTime(cert.renewalTime)}</p>
+                  <p className="mt-2 text-sm text-gray-900 dark:text-white">{formatDateTime(cert.renewalTime)}</p>
                 </div>
-                <div className="rounded-xl border border-white/10 bg-slate-950/60 p-3">
+                <div className="rounded-xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950/60 p-3">
                   <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Revision</p>
-                  <p className="mt-2 text-sm text-white">{cert.revision ?? "—"}</p>
+                  <p className="mt-2 text-sm text-gray-900 dark:text-white">{cert.revision ?? "—"}</p>
                 </div>
               </div>
 

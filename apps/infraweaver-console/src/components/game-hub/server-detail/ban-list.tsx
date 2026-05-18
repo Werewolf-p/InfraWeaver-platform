@@ -81,13 +81,13 @@ export function BanList({ serverName, mountPath }: BanListProps) {
   const activeEntries = activeTab === "players" ? players : ips;
 
   return (
-    <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4 space-y-4">
+    <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4 space-y-4">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h3 className="text-sm font-medium text-[#f2f2f2]">Ban List</h3>
-          <p className="text-xs text-[#888]">Review banned players and IP addresses.</p>
+          <h3 className="text-sm font-medium text-gray-900 dark:text-[#f2f2f2]">Ban List</h3>
+          <p className="text-xs text-gray-500 dark:text-[#888]">Review banned players and IP addresses.</p>
         </div>
-        <div className="inline-flex rounded-lg border border-[#2a2a2a] bg-[#0a0a0a] p-1">
+        <div className="inline-flex rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0a0a0a] p-1">
           {([
             ["players", "Players"],
             ["ips", "IPs"],
@@ -99,7 +99,7 @@ export function BanList({ serverName, mountPath }: BanListProps) {
               className={`rounded-md px-3 py-1.5 text-xs transition ${
                 activeTab === value
                   ? "bg-[#0078D4] text-white"
-                  : "text-[#888] hover:text-[#f2f2f2]"
+                  : "text-gray-500 dark:text-[#888] hover:text-gray-900 dark:hover:text-[#f2f2f2]"
               }`}
             >
               {label}
@@ -109,11 +109,11 @@ export function BanList({ serverName, mountPath }: BanListProps) {
       </div>
 
       {bansQuery.isLoading ? (
-        <div className="flex items-center gap-2 text-sm text-[#888]">
+        <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-[#888]">
           <Loader2 className="h-4 w-4 animate-spin" /> Loading bans…
         </div>
       ) : activeEntries.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-[#2a2a2a] p-4 text-sm text-[#888]">
+        <div className="rounded-lg border border-dashed border-gray-200 dark:border-[#2a2a2a] p-4 text-sm text-gray-500 dark:text-[#888]">
           No bans.
         </div>
       ) : (
@@ -122,15 +122,15 @@ export function BanList({ serverName, mountPath }: BanListProps) {
             ? players.map((entry) => (
                 <div
                   key={entry.uuid || entry.name}
-                  className="flex flex-col gap-3 rounded-lg border border-[#2a2a2a] bg-[#0a0a0a] p-3 sm:flex-row sm:items-center sm:justify-between"
+                  className="flex flex-col gap-3 rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0a0a0a] p-3 sm:flex-row sm:items-center sm:justify-between"
                 >
                   <div className="min-w-0 space-y-1">
-                    <div className="flex items-center gap-2 text-sm text-[#f2f2f2]">
+                    <div className="flex items-center gap-2 text-sm text-gray-900 dark:text-[#f2f2f2]">
                       <Ban className="h-4 w-4 text-red-300" />
                       <span className="truncate">{entry.name}</span>
                     </div>
-                    <div className="text-xs text-[#888]">Reason: {entry.reason || "No reason provided"}</div>
-                    <div className="text-xs text-[#555]">
+                    <div className="text-xs text-gray-500 dark:text-[#888]">Reason: {entry.reason || "No reason provided"}</div>
+                    <div className="text-xs text-gray-400 dark:text-[#555]">
                       Created {formatBanDate(entry.created)} • Expires {formatBanDate(entry.expires)} • Source {entry.source || "Unknown"}
                     </div>
                   </div>
@@ -144,7 +144,7 @@ export function BanList({ serverName, mountPath }: BanListProps) {
                       )
                     }
                     disabled={saving}
-                    className="inline-flex items-center gap-2 rounded-lg border border-[#2a2a2a] px-3 py-2 text-sm text-[#f2f2f2] transition hover:border-red-500/30 hover:bg-red-500/10 hover:text-red-200 disabled:opacity-50"
+                    className="inline-flex items-center gap-2 rounded-lg border border-gray-200 dark:border-[#2a2a2a] px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] transition hover:border-red-500/30 hover:bg-red-500/10 hover:text-red-200 disabled:opacity-50"
                   >
                     <Trash2 className="h-4 w-4" /> Unban
                   </button>
@@ -153,15 +153,15 @@ export function BanList({ serverName, mountPath }: BanListProps) {
             : ips.map((entry) => (
                 <div
                   key={entry.ip}
-                  className="flex flex-col gap-3 rounded-lg border border-[#2a2a2a] bg-[#0a0a0a] p-3 sm:flex-row sm:items-center sm:justify-between"
+                  className="flex flex-col gap-3 rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0a0a0a] p-3 sm:flex-row sm:items-center sm:justify-between"
                 >
                   <div className="min-w-0 space-y-1">
-                    <div className="flex items-center gap-2 text-sm text-[#f2f2f2]">
+                    <div className="flex items-center gap-2 text-sm text-gray-900 dark:text-[#f2f2f2]">
                       <Ban className="h-4 w-4 text-red-300" />
                       <span className="truncate">{entry.ip}</span>
                     </div>
-                    <div className="text-xs text-[#888]">Reason: {entry.reason || "No reason provided"}</div>
-                    <div className="text-xs text-[#555]">
+                    <div className="text-xs text-gray-500 dark:text-[#888]">Reason: {entry.reason || "No reason provided"}</div>
+                    <div className="text-xs text-gray-400 dark:text-[#555]">
                       Created {formatBanDate(entry.created)} • Expires {formatBanDate(entry.expires)} • Source {entry.source || "Unknown"}
                     </div>
                   </div>
@@ -175,7 +175,7 @@ export function BanList({ serverName, mountPath }: BanListProps) {
                       )
                     }
                     disabled={saving}
-                    className="inline-flex items-center gap-2 rounded-lg border border-[#2a2a2a] px-3 py-2 text-sm text-[#f2f2f2] transition hover:border-red-500/30 hover:bg-red-500/10 hover:text-red-200 disabled:opacity-50"
+                    className="inline-flex items-center gap-2 rounded-lg border border-gray-200 dark:border-[#2a2a2a] px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] transition hover:border-red-500/30 hover:bg-red-500/10 hover:text-red-200 disabled:opacity-50"
                   >
                     <Trash2 className="h-4 w-4" /> Unban
                   </button>

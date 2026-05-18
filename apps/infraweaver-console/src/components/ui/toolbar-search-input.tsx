@@ -23,7 +23,7 @@ export const ToolbarSearchInput = forwardRef<HTMLInputElement, ToolbarSearchInpu
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
-        className="w-full bg-transparent text-sm text-inherit outline-none placeholder:text-slate-400 dark:placeholder:text-[#555]"
+        className="w-full bg-transparent text-sm text-inherit outline-none placeholder:text-slate-400 dark:placeholder:text-gray-400 dark:placeholder:text-[#555]"
       />
       <span className="hidden rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[11px] text-slate-400 md:inline-flex dark:border-[#2a2a2a] dark:bg-[#111] dark:text-[#666]">/</span>
       {value ? (

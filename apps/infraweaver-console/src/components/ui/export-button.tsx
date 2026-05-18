@@ -44,7 +44,7 @@ export function ExportButton({ getData, filename = "export", className, formats 
       <button
         onClick={() => setOpen(o => !o)}
         disabled={exporting}
-        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-white/10 bg-white/5 hover:bg-white/10 text-white/70 hover:text-white transition-all"
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 hover:bg-gray-100 dark:hover:bg-white/10 text-gray-600 dark:text-white/70 hover:text-gray-900 dark:hover:text-white transition-all"
       >
         <Download className="w-3.5 h-3.5" />
         Export
@@ -59,13 +59,13 @@ export function ExportButton({ getData, filename = "export", className, formats 
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -4, scale: 0.97 }}
               transition={{ duration: 0.1 }}
-              className="absolute right-0 top-9 z-30 w-28 rounded-lg border border-white/10 bg-neutral-900 shadow-xl overflow-hidden"
+              className="absolute right-0 top-9 z-30 w-28 rounded-lg border border-gray-200 dark:border-white/10 bg-neutral-900 shadow-xl overflow-hidden"
             >
               {formats.map(f => (
                 <button
                   key={f}
                   onClick={() => void handleExport(f)}
-                  className="w-full px-3 py-2 text-left text-xs text-white/70 hover:text-white hover:bg-white/10 uppercase font-medium transition-colors"
+                  className="w-full px-3 py-2 text-left text-xs text-gray-600 dark:text-white/70 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/10 uppercase font-medium transition-colors"
                 >
                   {f}
                 </button>

@@ -95,19 +95,19 @@ export function NotesTagsEditor({
   }
 
   return (
-    <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4 space-y-4">
+    <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4 space-y-4">
       <div>
-        <h3 className="text-sm font-medium text-[#f2f2f2]">Notes & Tags</h3>
-        <p className="text-xs text-[#888]">Quick metadata for admins and operators.</p>
+        <h3 className="text-sm font-medium text-gray-900 dark:text-[#f2f2f2]">Notes & Tags</h3>
+        <p className="text-xs text-gray-500 dark:text-[#888]">Quick metadata for admins and operators.</p>
       </div>
 
       <div className="space-y-2">
         <div className="flex items-center justify-between gap-3">
-          <label className="text-xs font-medium uppercase tracking-wide text-[#888]">
+          <label className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-[#888]">
             Notes
           </label>
           {savingNotes ? (
-            <span className="inline-flex items-center gap-1 text-xs text-[#888]">
+            <span className="inline-flex items-center gap-1 text-xs text-gray-500 dark:text-[#888]">
               <Loader2 className="h-3.5 w-3.5 animate-spin" /> Saving…
             </span>
           ) : null}
@@ -121,25 +121,25 @@ export function NotesTagsEditor({
           }}
           rows={5}
           placeholder="Add notes about this server, connection info, or admin context…"
-          className="w-full rounded-lg border border-[#2a2a2a] bg-[#0a0a0a] p-3 text-sm text-[#f2f2f2] focus:border-[#0078D4] focus:outline-none"
+          className="w-full rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0a0a0a] p-3 text-sm text-gray-900 dark:text-[#f2f2f2] focus:border-[#0078D4] focus:outline-none"
         />
       </div>
 
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-3">
-          <label className="text-xs font-medium uppercase tracking-wide text-[#888]">
+          <label className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-[#888]">
             Tags
           </label>
           {savingTags ? (
-            <span className="inline-flex items-center gap-1 text-xs text-[#888]">
+            <span className="inline-flex items-center gap-1 text-xs text-gray-500 dark:text-[#888]">
               <Loader2 className="h-3.5 w-3.5 animate-spin" /> Saving…
             </span>
           ) : null}
         </div>
-        <div className="rounded-lg border border-[#2a2a2a] bg-[#0a0a0a] p-3 space-y-3">
+        <div className="rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0a0a0a] p-3 space-y-3">
           <div className="flex flex-wrap gap-2">
             {tagsValue.length === 0 ? (
-              <span className="text-sm text-[#555]">No tags yet.</span>
+              <span className="text-sm text-gray-400 dark:text-[#555]">No tags yet.</span>
             ) : (
               tagsValue.map((tag) => (
                 <span
@@ -151,7 +151,7 @@ export function NotesTagsEditor({
                     type="button"
                     onClick={() => removeTag(tag)}
                     disabled={savingTags || !canWrite}
-                    className="text-[#9dd4ff] transition hover:text-white disabled:opacity-50"
+                    className="text-[#9dd4ff] transition hover:text-gray-900 dark:hover:text-white disabled:opacity-50"
                   >
                     <X className="h-3 w-3" />
                   </button>
@@ -171,13 +171,13 @@ export function NotesTagsEditor({
                 }
               }}
               placeholder="Add a tag"
-              className="flex-1 rounded-lg border border-[#2a2a2a] bg-[#111] px-3 py-2 text-sm text-[#f2f2f2] focus:border-[#0078D4] focus:outline-none"
+              className="flex-1 rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] focus:border-[#0078D4] focus:outline-none"
             />
             <button
               type="button"
               onClick={addTag}
               disabled={!tagInput.trim() || savingTags || !canWrite}
-              className="inline-flex items-center gap-2 rounded-lg border border-[#2a2a2a] px-3 py-2 text-sm text-[#f2f2f2] disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-lg border border-gray-200 dark:border-[#2a2a2a] px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] disabled:opacity-50"
             >
               <Plus className="h-4 w-4" /> Add
             </button>

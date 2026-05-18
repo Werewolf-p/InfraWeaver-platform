@@ -21,9 +21,9 @@ export function FloatingLabelInput({ label, error, className, ...props }: Floati
         onFocus={e => { setFocused(true); props.onFocus?.(e); }}
         onBlur={e => { setFocused(false); props.onBlur?.(e); }}
         className={cn(
-          "peer w-full bg-slate-800/60 border rounded-lg px-3 pt-5 pb-2 text-sm text-white placeholder-transparent",
+          "peer w-full bg-slate-800/60 border rounded-lg px-3 pt-5 pb-2 text-sm text-gray-900 dark:text-white placeholder-transparent",
           "focus:outline-none transition-colors",
-          error ? "border-red-500/60 focus:border-red-500" : "border-white/10 focus:border-indigo-500",
+          error ? "border-red-500/60 focus:border-red-500" : "border-gray-200 dark:border-white/10 focus:border-indigo-500",
           className
         )}
         placeholder={label}
@@ -31,7 +31,7 @@ export function FloatingLabelInput({ label, error, className, ...props }: Floati
       <label
         htmlFor={id}
         className={cn(
-          "absolute left-3 transition-all duration-150 pointer-events-none text-slate-400",
+          "absolute left-3 transition-all duration-150 pointer-events-none text-slate-500 dark:text-slate-400",
           floated ? "top-1.5 text-[10px] font-medium" : "top-3.5 text-sm"
         )}
       >

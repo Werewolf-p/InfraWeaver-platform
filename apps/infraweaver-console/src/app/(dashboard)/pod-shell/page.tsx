@@ -65,35 +65,35 @@ export default function PodShellPage() {
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
       <PageHeader icon={Terminal} title="Pod Shell" />
       <div>
-        <h2 className="text-xl font-bold text-white flex items-center gap-2"><Terminal className="w-5 h-5 text-slate-400" />Pod Shell Access</h2>
-        <p className="text-sm text-slate-400">Execute safe read-only commands in pods</p>
+        <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2"><Terminal className="w-5 h-5 text-slate-500 dark:text-slate-400" />Pod Shell Access</h2>
+        <p className="text-sm text-slate-500 dark:text-slate-400">Execute safe read-only commands in pods</p>
       </div>
-      <div className="bg-slate-900/60 border border-white/10 rounded-xl backdrop-blur-sm p-4 space-y-3">
+      <div className="bg-slate-100 dark:bg-slate-900/60 border border-gray-200 dark:border-white/10 rounded-xl backdrop-blur-sm p-4 space-y-3">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <div>
-            <label className="text-xs text-slate-400 mb-1 block">Namespace</label>
-            <select value={selectedNs} onChange={e => { setSelectedNs(e.target.value); setSelectedPod(""); setSelectedContainer(""); }} className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-white outline-none focus:border-indigo-500/50">
+            <label className="text-xs text-slate-500 dark:text-slate-400 mb-1 block">Namespace</label>
+            <select value={selectedNs} onChange={e => { setSelectedNs(e.target.value); setSelectedPod(""); setSelectedContainer(""); }} className="w-full px-3 py-2 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-sm text-gray-900 dark:text-white outline-none focus:border-indigo-500/50">
               {namespaces.map(ns => <option key={ns} value={ns}>{ns}</option>)}
             </select>
           </div>
           <div>
-            <label className="text-xs text-slate-400 mb-1 block">Pod</label>
-            <select value={selectedPod} onChange={e => { setSelectedPod(e.target.value); setSelectedContainer(""); }} className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-white outline-none focus:border-indigo-500/50">
+            <label className="text-xs text-slate-500 dark:text-slate-400 mb-1 block">Pod</label>
+            <select value={selectedPod} onChange={e => { setSelectedPod(e.target.value); setSelectedContainer(""); }} className="w-full px-3 py-2 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-sm text-gray-900 dark:text-white outline-none focus:border-indigo-500/50">
               <option value="">Select pod...</option>
               {nsPods.map(p => <option key={p.name} value={p.name}>{p.name}</option>)}
             </select>
           </div>
           <div>
-            <label className="text-xs text-slate-400 mb-1 block">Container</label>
-            <select value={activeContainer} onChange={e => setSelectedContainer(e.target.value)} className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-white outline-none focus:border-indigo-500/50">
+            <label className="text-xs text-slate-500 dark:text-slate-400 mb-1 block">Container</label>
+            <select value={activeContainer} onChange={e => setSelectedContainer(e.target.value)} className="w-full px-3 py-2 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-sm text-gray-900 dark:text-white outline-none focus:border-indigo-500/50">
               <option value="">Select container...</option>
               {(selectedPodObj?.containers ?? []).map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
         </div>
         <div>
-          <label className="text-xs text-slate-400 mb-1 block">Command (allowed only)</label>
-          <select value={command} onChange={e => setCommand(e.target.value)} className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-white font-mono outline-none focus:border-indigo-500/50">
+          <label className="text-xs text-slate-500 dark:text-slate-400 mb-1 block">Command (allowed only)</label>
+          <select value={command} onChange={e => setCommand(e.target.value)} className="w-full px-3 py-2 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-sm text-gray-900 dark:text-white font-mono outline-none focus:border-indigo-500/50">
             {ALLOWED_COMMANDS.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
         </div>
@@ -101,10 +101,10 @@ export default function PodShellPage() {
           <button onClick={handleExec} disabled={loading || !canExecPods} className="flex-1 py-2 rounded-lg bg-indigo-500/20 border border-indigo-500/30 text-sm text-indigo-300 hover:bg-indigo-500/30 transition-colors disabled:opacity-50">
             {loading ? "Running..." : "Execute"}
           </button>
-          <button onClick={() => setOutput([])} className="px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-400 hover:text-white transition-colors">Clear</button>
+          <button onClick={() => setOutput([])} className="px-4 py-2 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-sm text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white transition-colors">Clear</button>
         </div>
       </div>
-      <div className="bg-black/60 border border-white/10 rounded-xl p-4 min-h-64 font-mono text-sm">
+      <div className="bg-black/60 border border-gray-200 dark:border-white/10 rounded-xl p-4 min-h-64 font-mono text-sm">
         {output.length === 0 && <span className="text-slate-600">Output will appear here...</span>}
         {output.map((o, i) => (
           <pre key={i} className={`mb-2 whitespace-pre-wrap ${o.isError ? "text-red-400" : "text-green-300"}`}>{o.text}</pre>

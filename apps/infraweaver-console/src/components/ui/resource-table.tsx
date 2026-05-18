@@ -66,7 +66,7 @@ export function ResourceTable<T extends object>({
     return (
       <div className={cn("space-y-2", className)}>
         {[...Array(5)].map((_, i) => (
-          <div key={i} className="h-12 rounded bg-[#2a2a2a] animate-pulse" style={{ opacity: 1 - i * 0.15 }} />
+          <div key={i} className="h-12 rounded bg-gray-100 dark:bg-[#2a2a2a] animate-pulse" style={{ opacity: 1 - i * 0.15 }} />
         ))}
       </div>
     );
@@ -83,20 +83,20 @@ export function ResourceTable<T extends object>({
           {sorted.map((row, i) => {
             const key = getRowKey ? getRowKey(row) : String(i);
             return (
-              <div key={key} onClick={() => onRowClick?.(row)} className={cn("bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg p-3", onRowClick && "cursor-pointer hover:border-[#0078D4]/30")}>
+              <div key={key} onClick={() => onRowClick?.(row)} className={cn("bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-[#2a2a2a] rounded-lg p-3", onRowClick && "cursor-pointer hover:border-[#0078D4]/30")}>
                 {mobileCardRender(row)}
               </div>
             );
           })}
         </div>
       )}
-      <div className={cn("overflow-x-auto rounded-lg border border-[#2a2a2a]", mobileCardRender ? "hidden md:block" : "block")}>
+      <div className={cn("overflow-x-auto rounded-lg border border-gray-200 dark:border-[#2a2a2a]", mobileCardRender ? "hidden md:block" : "block")}>
         <table className="w-full text-sm">
           <thead>
-            <tr className="bg-[#141414] border-b border-[#2a2a2a]">
-              {selectable && <th className="w-10 px-3 py-2.5"><input type="checkbox" className="rounded border-[#333]" onChange={e => setSelected(e.target.checked ? new Set(sorted.map((r, i) => getRowKey ? getRowKey(r) : String(i))) : new Set())} /></th>}
+            <tr className="bg-gray-50 dark:bg-[#141414] border-b border-gray-200 dark:border-[#2a2a2a]">
+              {selectable && <th className="w-10 px-3 py-2.5"><input type="checkbox" className="rounded border-gray-200 dark:border-[#333]" onChange={e => setSelected(e.target.checked ? new Set(sorted.map((r, i) => getRowKey ? getRowKey(r) : String(i))) : new Set())} /></th>}
               {columns.map((col) => (
-                <th key={col.key} className={cn("px-3 py-2.5 text-left text-[10px] uppercase tracking-wider font-semibold text-[#9e9e9e]", col.className)}>
+                <th key={col.key} className={cn("px-3 py-2.5 text-left text-[10px] uppercase tracking-wider font-semibold text-gray-500 dark:text-[#9e9e9e]", col.className)}>
                   {col.sortable ? (
                     <SortableHeader
                       label={col.label}
@@ -118,13 +118,13 @@ export function ResourceTable<T extends object>({
               return (
                 <tr key={key}
                   onClick={() => onRowClick?.(row)}
-                  className={cn("border-b border-[#2a2a2a] transition-colors last:border-0", onRowClick && "cursor-pointer hover:bg-[#2a2a2a]", selected.has(key) && "bg-[rgba(0,120,212,0.05)]")}
+                  className={cn("border-b border-gray-200 dark:border-[#2a2a2a] transition-colors last:border-0", onRowClick && "cursor-pointer hover:bg-gray-100 dark:hover:bg-[#2a2a2a]", selected.has(key) && "bg-[rgba(0,120,212,0.05)]")}
                 >
-                  {selectable && <td className="px-3 py-2.5" onClick={e => e.stopPropagation()}><input type="checkbox" checked={selected.has(key)} onChange={() => toggleSelect(key)} className="rounded border-[#333]" /></td>}
+                  {selectable && <td className="px-3 py-2.5" onClick={e => e.stopPropagation()}><input type="checkbox" checked={selected.has(key)} onChange={() => toggleSelect(key)} className="rounded border-gray-200 dark:border-[#333]" /></td>}
                   {columns.map(col => {
                     const cellRow = row as Record<string, unknown>;
                     return (
-                      <td key={col.key} className={cn("px-3 py-2.5 text-[#f2f2f2]", col.className)}>
+                      <td key={col.key} className={cn("px-3 py-2.5 text-gray-900 dark:text-[#f2f2f2]", col.className)}>
                         {col.render ? col.render(row) : String(cellRow[col.key] ?? "")}
                       </td>
                     );

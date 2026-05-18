@@ -43,19 +43,19 @@ export default function GitopsDiffPage() {
     if (line.startsWith("+")) return "text-green-400";
     if (line.startsWith("-")) return "text-red-400";
     if (line.startsWith("@@")) return "text-blue-400";
-    return "text-slate-300";
+    return "text-slate-700 dark:text-slate-300";
   };
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
       <PageHeader icon={GitBranch} title="GitOps Diff" />
       <div>
-        <h2 className="text-xl font-bold text-white flex items-center gap-2"><GitBranch className="w-5 h-5 text-slate-400" />GitOps Diff Viewer</h2>
-        <p className="text-sm text-slate-400">View ArgoCD application diffs</p>
+        <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2"><GitBranch className="w-5 h-5 text-slate-500 dark:text-slate-400" />GitOps Diff Viewer</h2>
+        <p className="text-sm text-slate-500 dark:text-slate-400">View ArgoCD application diffs</p>
       </div>
-      <div className="bg-slate-900/60 border border-white/10 rounded-xl backdrop-blur-sm p-4">
-        <label className="text-xs text-slate-400 mb-2 block">Select Application</label>
-        <select value={selectedApp} onChange={e => setSelectedApp(e.target.value)} className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-white outline-none focus:border-indigo-500/50">
+      <div className="bg-slate-100 dark:bg-slate-900/60 border border-gray-200 dark:border-white/10 rounded-xl backdrop-blur-sm p-4">
+        <label className="text-xs text-slate-500 dark:text-slate-400 mb-2 block">Select Application</label>
+        <select value={selectedApp} onChange={e => setSelectedApp(e.target.value)} className="w-full px-3 py-2 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-sm text-gray-900 dark:text-white outline-none focus:border-indigo-500/50">
           <option value="">Choose an app...</option>
           {apps.map(a => (
             <option key={a.metadata.name} value={a.metadata.name}>
@@ -65,10 +65,10 @@ export default function GitopsDiffPage() {
         </select>
       </div>
       {selectedApp && (
-        <div className="bg-slate-900/60 border border-white/10 rounded-xl backdrop-blur-sm p-4">
-          <h3 className="text-sm font-semibold text-white mb-3">Diff: {selectedApp}</h3>
+        <div className="bg-slate-100 dark:bg-slate-900/60 border border-gray-200 dark:border-white/10 rounded-xl backdrop-blur-sm p-4">
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">Diff: {selectedApp}</h3>
           {isLoading ? (
-            <div className="h-32 bg-white/5 rounded-lg animate-pulse" />
+            <div className="h-32 bg-gray-100 dark:bg-white/5 rounded-lg animate-pulse" />
           ) : diffData?.error ? (
             <p className="text-sm text-red-400">{diffData.error}</p>
           ) : diffData?.diff ? (

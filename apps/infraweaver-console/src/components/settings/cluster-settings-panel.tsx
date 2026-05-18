@@ -108,15 +108,15 @@ function NodeCard({ metric }: { metric: NodeMetric }) {
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4 space-y-4"
+      className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4 space-y-4"
     >
       <div className="flex items-center gap-3">
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#3b82f6]/15 text-[#60a5fa]">
           <Server className="h-4 w-4" />
         </div>
         <div>
-          <p className="text-sm font-semibold text-[#f2f2f2] capitalize">{shortName}</p>
-          <p className="text-xs text-[#666]">{metric.name}</p>
+          <p className="text-sm font-semibold text-gray-900 dark:text-[#f2f2f2] capitalize">{shortName}</p>
+          <p className="text-xs text-gray-400 dark:text-[#666]">{metric.name}</p>
         </div>
       </div>
 
@@ -124,14 +124,14 @@ function NodeCard({ metric }: { metric: NodeMetric }) {
       <div className="space-y-1.5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">
-            <Cpu className="h-3.5 w-3.5 text-[#888]" />
-            <span className="text-xs text-[#888]">CPU</span>
+            <Cpu className="h-3.5 w-3.5 text-gray-500 dark:text-[#888]" />
+            <span className="text-xs text-gray-500 dark:text-[#888]">CPU</span>
           </div>
           <span className={cn("text-xs font-mono font-semibold", metricTextColor(metric.cpuPct))}>
             {metric.cpuPct}% · {metric.cpuMillicores}m
           </span>
         </div>
-        <div className="h-1.5 w-full rounded-full bg-[#2a2a2a]">
+        <div className="h-1.5 w-full rounded-full bg-gray-100 dark:bg-[#2a2a2a]">
           <div
             className={cn("h-1.5 rounded-full transition-all duration-500", metricColor(metric.cpuPct))}
             style={{ width: `${metric.cpuPct}%` }}
@@ -143,14 +143,14 @@ function NodeCard({ metric }: { metric: NodeMetric }) {
       <div className="space-y-1.5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">
-            <MemoryStick className="h-3.5 w-3.5 text-[#888]" />
-            <span className="text-xs text-[#888]">Memory</span>
+            <MemoryStick className="h-3.5 w-3.5 text-gray-500 dark:text-[#888]" />
+            <span className="text-xs text-gray-500 dark:text-[#888]">Memory</span>
           </div>
           <span className={cn("text-xs font-mono font-semibold", metricTextColor(metric.memPct))}>
             {metric.memPct}% · {fmtMem(metric.memKi)}
           </span>
         </div>
-        <div className="h-1.5 w-full rounded-full bg-[#2a2a2a]">
+        <div className="h-1.5 w-full rounded-full bg-gray-100 dark:bg-[#2a2a2a]">
           <div
             className={cn("h-1.5 rounded-full transition-all duration-500", metricColor(metric.memPct))}
             style={{ width: `${metric.memPct}%` }}
@@ -184,9 +184,9 @@ function NodeOverview() {
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2">
-        <HardDrive className="h-4 w-4 text-[#888]" />
-        <h3 className="text-sm font-medium text-[#ccc]">Node Resources</h3>
-        <span className="ml-auto text-xs text-[#555]">Live · refreshes every 30s</span>
+        <HardDrive className="h-4 w-4 text-gray-500 dark:text-[#888]" />
+        <h3 className="text-sm font-medium text-gray-600 dark:text-[#ccc]">Node Resources</h3>
+        <span className="ml-auto text-xs text-gray-400 dark:text-[#555]">Live · refreshes every 30s</span>
       </div>
       <div className="grid gap-4 sm:grid-cols-3">
         {metrics.map((m) => <NodeCard key={m.name} metric={m} />)}
@@ -228,8 +228,8 @@ function NodeSpecCard({
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       className={cn(
-        "rounded-xl border bg-[#111] p-5 space-y-4 transition-colors",
-        anyDirty ? "border-amber-500/30" : "border-[#2a2a2a]",
+        "rounded-xl border bg-white dark:bg-[#111] p-5 space-y-4 transition-colors",
+        anyDirty ? "border-amber-500/30" : "border-gray-200 dark:border-[#2a2a2a]",
       )}
     >
       <div className="flex items-center gap-3">
@@ -237,8 +237,8 @@ function NodeSpecCard({
           <Server className="h-4 w-4" />
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-[#f2f2f2] capitalize">{shortName}</p>
-          <p className="text-xs text-[#555]">{spec.ip} · VM {spec.vm_id}</p>
+          <p className="text-sm font-semibold text-gray-900 dark:text-[#f2f2f2] capitalize">{shortName}</p>
+          <p className="text-xs text-gray-400 dark:text-[#555]">{spec.ip} · VM {spec.vm_id}</p>
         </div>
         {anyDirty && (
           <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-400">
@@ -251,8 +251,8 @@ function NodeSpecCard({
       <div className="space-y-1.5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">
-            <Cpu className="h-3.5 w-3.5 text-[#888]" />
-            <span className="text-xs text-[#888]">vCPU cores</span>
+            <Cpu className="h-3.5 w-3.5 text-gray-500 dark:text-[#888]" />
+            <span className="text-xs text-gray-500 dark:text-[#888]">vCPU cores</span>
           </div>
           {cpuDirty && (
             <span className="text-[10px] text-amber-400">{spec.cpu} → {local.cpu}</span>
@@ -265,7 +265,7 @@ function NodeSpecCard({
           value={local.cpu}
           onChange={(e) => onChange(spec.name, "cpu", Math.max(1, Math.min(64, parseInt(e.target.value) || 1)))}
           disabled={disabled}
-          className="w-full rounded-lg border border-[#2a2a2a] bg-[#0d0d0d] px-3 py-2 text-sm text-[#f2f2f2] focus:border-[#3b82f6] focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+          className="w-full rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] focus:border-[#3b82f6] focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
         />
       </div>
 
@@ -273,15 +273,15 @@ function NodeSpecCard({
       <div className="space-y-1.5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">
-            <MemoryStick className="h-3.5 w-3.5 text-[#888]" />
-            <span className="text-xs text-[#888]">Memory (MB)</span>
+            <MemoryStick className="h-3.5 w-3.5 text-gray-500 dark:text-[#888]" />
+            <span className="text-xs text-gray-500 dark:text-[#888]">Memory (MB)</span>
           </div>
           {memDirty ? (
             <span className="text-[10px] text-amber-400">
               {fmtMemMb(spec.memory_mb)} → {fmtMemMb(local.memory_mb)}
             </span>
           ) : (
-            <span className="text-[10px] text-[#555]">{fmtMemMb(local.memory_mb)}</span>
+            <span className="text-[10px] text-gray-400 dark:text-[#555]">{fmtMemMb(local.memory_mb)}</span>
           )}
         </div>
         <input
@@ -297,9 +297,9 @@ function NodeSpecCard({
             onChange(spec.name, "memory_mb", Math.max(512, Math.min(131072, snapped)));
           }}
           disabled={disabled}
-          className="w-full rounded-lg border border-[#2a2a2a] bg-[#0d0d0d] px-3 py-2 text-sm text-[#f2f2f2] focus:border-[#3b82f6] focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+          className="w-full rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] focus:border-[#3b82f6] focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
         />
-        <p className="text-[11px] text-[#555]">Must be a multiple of 512 MB · {spec.disk_gb} GB disk (read-only)</p>
+        <p className="text-[11px] text-gray-400 dark:text-[#555]">Must be a multiple of 512 MB · {spec.disk_gb} GB disk (read-only)</p>
       </div>
     </motion.div>
   );
@@ -364,9 +364,9 @@ function NodeSpecsEditorContent({ data, canWrite }: { data: NodeSpecsResponse; c
   return (
     <div className="space-y-5">
       <div className="flex items-center gap-2">
-        <Settings2 className="h-4 w-4 text-[#888]" />
-        <h3 className="text-sm font-medium text-[#ccc]">Node Specs (CPU / Memory)</h3>
-        <span className="ml-auto text-xs text-[#555]">Changes drain → resize → uncordon each node</span>
+        <Settings2 className="h-4 w-4 text-gray-500 dark:text-[#888]" />
+        <h3 className="text-sm font-medium text-gray-600 dark:text-[#ccc]">Node Specs (CPU / Memory)</h3>
+        <span className="ml-auto text-xs text-gray-400 dark:text-[#555]">Changes drain → resize → uncordon each node</span>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">
@@ -389,15 +389,15 @@ function NodeSpecsEditorContent({ data, canWrite }: { data: NodeSpecsResponse; c
         >
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <p className="text-sm font-semibold text-[#f2f2f2]">
+              <p className="text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">
                 {dirtyNodes.length} node{dirtyNodes.length > 1 ? "s" : ""} to update
               </p>
-              <p className="mt-1 text-xs text-[#888]">
+              <p className="mt-1 text-xs text-gray-500 dark:text-[#888]">
                 Commits changes to git and dispatches a GitHub Actions workflow that drains, resizes (Proxmox), and uncordons each node one at a time. Expect 5–10 min per node.
               </p>
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {dirtyNodes.map((n) => (
-                  <span key={n.name} className="rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-[11px] text-[#d4d4d4]">
+                  <span key={n.name} className="rounded-full border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-2.5 py-0.5 text-[11px] text-gray-700 dark:text-[#d4d4d4]">
                     {n.name.replace("talos-prod-", "")}
                   </span>
                 ))}
@@ -407,7 +407,7 @@ function NodeSpecsEditorContent({ data, canWrite }: { data: NodeSpecsResponse; c
               <button
                 onClick={handleReset}
                 disabled={saveMutation.isPending}
-                className="inline-flex min-h-[40px] items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-4 text-sm font-medium text-[#d4d4d4] hover:bg-white/10 disabled:opacity-60"
+                className="inline-flex min-h-[40px] items-center gap-2 rounded-lg border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-4 text-sm font-medium text-gray-700 dark:text-[#d4d4d4] hover:bg-gray-100 dark:hover:bg-white/10 disabled:opacity-60"
               >
                 <RotateCcw className="h-3.5 w-3.5" />
                 Reset
@@ -430,7 +430,7 @@ function NodeSpecsEditorContent({ data, canWrite }: { data: NodeSpecsResponse; c
       )}
 
       {!canWrite && (
-        <p className="text-xs text-[#555]">
+        <p className="text-xs text-gray-400 dark:text-[#555]">
           <AlertCircle className="mr-1 inline h-3.5 w-3.5" />
           Config write permission required to resize nodes.
         </p>
@@ -497,9 +497,9 @@ function ResourceField({ def, value, onChange, disabled, isDirty }: ResourceFiel
   return (
     <div className="space-y-1.5">
       <div className="flex items-center gap-2">
-        <label className="text-xs font-medium text-[#ccc]">{def.label}</label>
+        <label className="text-xs font-medium text-gray-600 dark:text-[#ccc]">{def.label}</label>
         {def.unit && (
-          <span className="rounded-md border border-[#2a2a2a] bg-[#0d0d0d] px-1.5 py-0.5 text-[10px] text-[#666]">
+          <span className="rounded-md border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-1.5 py-0.5 text-[10px] text-gray-400 dark:text-[#666]">
             {def.unit}
           </span>
         )}
@@ -514,7 +514,7 @@ function ResourceField({ def, value, onChange, disabled, isDirty }: ResourceFiel
           value={value}
           onChange={(e) => onChange(def.key, e.target.value)}
           disabled={disabled}
-          className="w-full rounded-lg border border-[#2a2a2a] bg-[#0d0d0d] px-3 py-2 text-sm text-[#f2f2f2] focus:border-[#3b82f6] focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+          className="w-full rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] focus:border-[#3b82f6] focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
         >
           {def.options?.map((opt) => (
             <option key={opt} value={opt}>{opt}</option>
@@ -529,10 +529,10 @@ function ResourceField({ def, value, onChange, disabled, isDirty }: ResourceFiel
           min={def.min}
           max={def.max}
           placeholder={def.placeholder ?? ""}
-          className="w-full rounded-lg border border-[#2a2a2a] bg-[#0d0d0d] px-3 py-2 text-sm text-[#f2f2f2] placeholder-[#444] focus:border-[#3b82f6] focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+          className="w-full rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] placeholder-[#444] focus:border-[#3b82f6] focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
         />
       )}
-      <p className="text-[11px] text-[#555]">{def.description}</p>
+      <p className="text-[11px] text-gray-400 dark:text-[#555]">{def.description}</p>
     </div>
   );
 }
@@ -625,15 +625,15 @@ function ResourceEditorContent({
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-2">
-        <GitBranch className="h-4 w-4 text-[#888]" />
-        <h3 className="text-sm font-medium text-[#ccc]">Service Resource Limits</h3>
-        <span className="ml-auto text-xs text-[#555]">Changes commit to git → ArgoCD rolling update</span>
+        <GitBranch className="h-4 w-4 text-gray-500 dark:text-[#888]" />
+        <h3 className="text-sm font-medium text-gray-600 dark:text-[#ccc]">Service Resource Limits</h3>
+        <span className="ml-auto text-xs text-gray-400 dark:text-[#555]">Changes commit to git → ArgoCD rolling update</span>
       </div>
 
       <div className="grid gap-5 lg:grid-cols-2">
         {[...groups.entries()].map(([groupName, defs]) => {
           const colors = GROUP_COLORS[groupName] ?? {
-            badge: "border-white/10 bg-white/5 text-[#ccc]",
+            badge: "border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 text-gray-600 dark:text-[#ccc]",
             dot: "bg-[#888]",
           };
           const groupDirty = defs.some((d) => dirtyKeys.has(d.key));
@@ -642,7 +642,7 @@ function ResourceEditorContent({
               key={groupName}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              className="rounded-xl border border-[#2a2a2a] bg-[#111] p-5 space-y-4"
+              className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-5 space-y-4"
             >
               <div className="flex items-center gap-2">
                 <div className={cn("h-2 w-2 rounded-full", colors.dot)} />
@@ -678,16 +678,16 @@ function ResourceEditorContent({
         >
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <p className="text-sm font-semibold text-[#f2f2f2]">
+              <p className="text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">
                 {dirtyKeys.size} unsaved change{dirtyKeys.size > 1 ? "s" : ""}
               </p>
-              <p className="mt-1 text-xs text-[#888]">
+              <p className="mt-1 text-xs text-gray-500 dark:text-[#888]">
                 Saving commits to git and triggers a rolling update for the affected apps. No downtime — pods are replaced one at a time.
               </p>
               {affectedApps.length > 0 && (
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {affectedApps.map((app) => (
-                    <span key={app} className="rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-[11px] text-[#d4d4d4]">
+                    <span key={app} className="rounded-full border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-2.5 py-0.5 text-[11px] text-gray-700 dark:text-[#d4d4d4]">
                       {app}
                     </span>
                   ))}
@@ -698,7 +698,7 @@ function ResourceEditorContent({
               <button
                 onClick={handleReset}
                 disabled={saveMutation.isPending}
-                className="inline-flex min-h-[40px] items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-4 text-sm font-medium text-[#d4d4d4] hover:bg-white/10 disabled:opacity-60"
+                className="inline-flex min-h-[40px] items-center gap-2 rounded-lg border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-4 text-sm font-medium text-gray-700 dark:text-[#d4d4d4] hover:bg-gray-100 dark:hover:bg-white/10 disabled:opacity-60"
               >
                 <RotateCcw className="h-3.5 w-3.5" />
                 Reset
@@ -721,7 +721,7 @@ function ResourceEditorContent({
       )}
 
       {!canWrite && (
-        <p className="text-xs text-[#555]">
+        <p className="text-xs text-gray-400 dark:text-[#555]">
           <AlertCircle className="mr-1 inline h-3.5 w-3.5" />
           You have read-only access. Config write permission required to save changes.
         </p>
@@ -743,12 +743,12 @@ function ResourceEditorLoading() {
   return (
     <div className="grid gap-5 lg:grid-cols-2">
       {[0, 1, 2, 4].map((i) => (
-        <div key={i} className="rounded-xl border border-[#2a2a2a] bg-[#111] p-5 space-y-4 animate-pulse">
-          <div className="h-5 w-24 rounded bg-white/10" />
+        <div key={i} className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-5 space-y-4 animate-pulse">
+          <div className="h-5 w-24 rounded bg-gray-100 dark:bg-white/10" />
           {[0, 1, 2].map((j) => (
             <div key={j} className="space-y-2">
-              <div className="h-3 w-32 rounded bg-white/10" />
-              <div className="h-9 w-full rounded bg-white/10" />
+              <div className="h-3 w-32 rounded bg-gray-100 dark:bg-white/10" />
+              <div className="h-9 w-full rounded bg-gray-100 dark:bg-white/10" />
             </div>
           ))}
         </div>
@@ -778,7 +778,7 @@ function ResourceEditor({ canWrite }: { canWrite: boolean }) {
         <div className="flex items-start gap-3">
           <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-300" />
           <div>
-            <p className="font-medium text-white">Unable to load resource settings</p>
+            <p className="font-medium text-gray-900 dark:text-white">Unable to load resource settings</p>
             <p className="mt-1 text-red-200/80">{error.message}</p>
             <button
               onClick={() => void refetch()}

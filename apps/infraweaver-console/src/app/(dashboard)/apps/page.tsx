@@ -261,12 +261,12 @@ function SwipeableAppCard({
         dragElastic={0.1}
         onDragEnd={handleDragEnd}
         whileTap={{ cursor: "grabbing" }}
-        className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl p-4 relative z-10 touch-manipulation"
+        className="bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-[#2a2a2a] rounded-xl p-4 relative z-10 touch-manipulation"
       >
         <div className="flex items-start justify-between mb-2">
           <div className="flex-1 min-w-0 mr-3">
-            <Link href={`/apps/${encodeURIComponent(row.name)}`} className="block truncate text-sm font-medium text-[#f2f2f2] transition hover:text-[#7cb9ff]">{row.name}</Link>
-            <p className="text-xs text-[#9e9e9e] font-mono truncate mt-0.5">{row.namespace}</p>
+            <Link href={`/apps/${encodeURIComponent(row.name)}`} className="block truncate text-sm font-medium text-gray-900 dark:text-[#f2f2f2] transition hover:text-[#7cb9ff]">{row.name}</Link>
+            <p className="text-xs text-gray-500 dark:text-[#9e9e9e] font-mono truncate mt-0.5">{row.namespace}</p>
             {row.ingressHost && (
               <div className="flex items-center gap-1.5 mt-1">
                 <a
@@ -294,7 +294,7 @@ function SwipeableAppCard({
                 rel="noopener noreferrer"
                 title="Open app URL"
                 onClick={(event) => event.stopPropagation()}
-                className="inline-flex min-h-[36px] min-w-[36px] items-center justify-center rounded-lg border border-white/10 bg-white/5 text-slate-400 transition hover:text-white"
+                className="inline-flex min-h-[36px] min-w-[36px] items-center justify-center rounded-lg border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 text-slate-500 dark:text-slate-400 transition hover:text-gray-900 dark:hover:text-white"
               >
                 <Globe className="h-3.5 w-3.5" />
               </a>
@@ -305,7 +305,7 @@ function SwipeableAppCard({
               rel="noopener noreferrer"
               title="Open in ArgoCD"
               onClick={(event) => event.stopPropagation()}
-              className="inline-flex min-h-[36px] min-w-[36px] items-center justify-center rounded-lg border border-white/10 bg-white/5 text-slate-400 transition hover:text-white"
+              className="inline-flex min-h-[36px] min-w-[36px] items-center justify-center rounded-lg border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 text-slate-500 dark:text-slate-400 transition hover:text-gray-900 dark:hover:text-white"
             >
               <ExternalLink className="h-3.5 w-3.5" />
             </a>
@@ -761,15 +761,15 @@ function AllInstalledTab() {
             <DashboardStatCard label="Syncing" value={summary.syncing} icon={RefreshCw} tone={summary.syncing > 0 ? "warning" : "neutral"} description="Applications actively progressing or syncing." footer={<span>{summary.outOfSync} out of sync</span>} />
             <DashboardStatCard label="Selected" value={activeSelectedIds.size} icon={Package} tone={activeSelectedIds.size > 0 ? "info" : "neutral"} description="Desktop bulk actions work on the current filtered result set." footer={<span>{selectedRows.filter(row => row.source === "Catalog").length} catalog app(s) ready for bulk sync</span>} />
           </div>
-          <div className="rounded-2xl border border-[#2a2a2a] bg-[#141414] p-4">
+          <div className="rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#141414] p-4">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-sm font-semibold text-[#f2f2f2]">Health distribution</p>
-                <p className="text-xs text-[#888]">Quick read of app health without scanning the whole table.</p>
+                <p className="text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">Health distribution</p>
+                <p className="text-xs text-gray-500 dark:text-[#888]">Quick read of app health without scanning the whole table.</p>
               </div>
               <button
                 onClick={() => void refetch()}
-                className="inline-flex items-center gap-2 rounded-lg border border-[#2a2a2a] px-3 py-1.5 text-xs text-[#9e9e9e] transition hover:text-white"
+                className="inline-flex items-center gap-2 rounded-lg border border-gray-200 dark:border-[#2a2a2a] px-3 py-1.5 text-xs text-gray-500 dark:text-[#9e9e9e] transition hover:text-gray-900 dark:hover:text-white"
               >
                 <RefreshCw className={cn("h-3.5 w-3.5", (loading || argoFetching) && "animate-spin")} />
                 Refresh
@@ -789,8 +789,8 @@ function AllInstalledTab() {
                   { label: "Degraded", value: summary.degraded, tone: "text-amber-300" },
                   { label: "Syncing", value: summary.syncing, tone: "text-blue-300" },
                 ].map(item => (
-                  <div key={item.label} className="rounded-xl border border-[#2a2a2a] bg-[#111] p-3">
-                    <p className="text-[11px] uppercase tracking-[0.18em] text-[#666]">{item.label}</p>
+                  <div key={item.label} className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-3">
+                    <p className="text-[11px] uppercase tracking-[0.18em] text-gray-400 dark:text-[#666]">{item.label}</p>
                     <p className={`mt-2 text-2xl font-semibold ${item.tone}`}>{item.value}</p>
                   </div>
                 ))}
@@ -813,7 +813,7 @@ function AllInstalledTab() {
             <select
               value={namespaceFilter}
               onChange={(event) => setNamespaceFilter(event.target.value)}
-              className="h-11 rounded-xl border border-[#2a2a2a] bg-[#111] px-3 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]/50"
+              className="h-11 rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-3 text-sm text-gray-900 dark:text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]/50"
             >
               <option value="all">All namespaces</option>
               {namespaceOptions.map((namespace) => <option key={namespace} value={namespace}>{namespace}</option>)}
@@ -821,7 +821,7 @@ function AllInstalledTab() {
             <select
               value={sortOption}
               onChange={(event) => setSortOption(event.target.value as AppSortOption)}
-              className="h-11 rounded-xl border border-[#2a2a2a] bg-[#111] px-3 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]/50"
+              className="h-11 rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-3 text-sm text-gray-900 dark:text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]/50"
             >
               <option value="health">Health status</option>
               <option value="last-synced">Last synced</option>
@@ -834,7 +834,7 @@ function AllInstalledTab() {
                 "flex h-11 items-center gap-1.5 rounded-xl border px-4 text-xs font-medium transition-colors",
                 simpleMode
                   ? "border-indigo-500/30 bg-indigo-500/10 text-indigo-400"
-                  : "border-[#2a2a2a] bg-[#111] text-[#888] hover:text-[#f2f2f2]"
+                  : "border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-500 dark:text-[#888] hover:text-gray-900 dark:hover:text-[#f2f2f2]"
               )}
             >
               {simpleMode ? "Simple" : "Advanced"}
@@ -850,7 +850,7 @@ function AllInstalledTab() {
                   "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
                   healthFilter === option.value
                     ? "border-indigo-500/30 bg-indigo-500/15 text-indigo-300"
-                    : "border-white/10 bg-white/5 text-slate-400 hover:text-white"
+                    : "border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white"
                 )}
               >
                 {option.label}
@@ -867,7 +867,7 @@ function AllInstalledTab() {
                   "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
                   syncFilter === option.value
                     ? "border-blue-500/30 bg-blue-500/15 text-blue-200"
-                    : "border-white/10 bg-white/5 text-slate-400 hover:text-white"
+                    : "border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white"
                 )}
               >
                 {option.label}
@@ -881,7 +881,7 @@ function AllInstalledTab() {
                   "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
                   sourceFilter === option.value
                     ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-200"
-                    : "border-white/10 bg-white/5 text-slate-400 hover:text-white"
+                    : "border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white"
                 )}
               >
                 {option.label}
@@ -890,22 +890,22 @@ function AllInstalledTab() {
             {hasActiveFilters && (
               <button
                 onClick={() => { setSearch(""); setHealthFilter("all"); setSyncFilter("all"); setSourceFilter("all"); setNamespaceFilter("all"); }}
-                className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-400 transition-colors hover:text-white"
+                className="rounded-full border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-500 dark:text-slate-400 transition-colors hover:text-gray-900 dark:hover:text-white"
               >
                 Clear filters
               </button>
             )}
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-[#2a2a2a] bg-[#111] p-3 text-sm text-[#9e9e9e]">
+          <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-3 text-sm text-gray-500 dark:text-[#9e9e9e]">
             <span>{filtered.length} of {allRows.length} app(s) shown</span>
-            <div className="h-4 w-px bg-[#2a2a2a]" />
-            <button onClick={selectAllVisible} className="text-[#9dcbff] transition hover:text-white">
+            <div className="h-4 w-px bg-gray-100 dark:bg-[#2a2a2a]" />
+            <button onClick={selectAllVisible} className="text-[#9dcbff] transition hover:text-gray-900 dark:hover:text-white">
               {filtered.length > 0 && filtered.every(row => selectedIds.has(row.id)) ? "Clear visible selection" : "Select visible"}
             </button>
-            <div className="h-4 w-px bg-[#2a2a2a]" />
+            <div className="h-4 w-px bg-gray-100 dark:bg-[#2a2a2a]" />
             <span>{activeSelectedIds.size} selected</span>
-            <button onClick={() => setSelectedIds(new Set())} className="text-slate-400 transition hover:text-white">Reset selection</button>
+            <button onClick={() => setSelectedIds(new Set())} className="text-slate-500 dark:text-slate-400 transition hover:text-gray-900 dark:hover:text-white">Reset selection</button>
             <button
               onClick={requestBulkSync}
               disabled={bulkSyncing || selectedRows.filter(row => row.source === "Catalog").length === 0}
@@ -937,9 +937,9 @@ function AllInstalledTab() {
                 <p className="mt-1 text-red-100/85">{argoError instanceof Error ? argoError.message : "Unknown ArgoCD error."}</p>
               </div>
               <div className="flex flex-wrap items-center gap-3 text-xs text-red-100/80">
-                <Link href="/settings" className="text-[#9dcbff] transition hover:text-white">Configure ArgoCD</Link>
+                <Link href="/settings" className="text-[#9dcbff] transition hover:text-gray-900 dark:hover:text-white">Configure ArgoCD</Link>
                 <span>Check connectivity to the ArgoCD API and cluster secrets.</span>
-                <button type="button" onClick={() => void refetch()} className="text-[#9dcbff] transition hover:text-white">Retry</button>
+                <button type="button" onClick={() => void refetch()} className="text-[#9dcbff] transition hover:text-gray-900 dark:hover:text-white">Retry</button>
               </div>
             </div>
           </div>
@@ -951,7 +951,7 @@ function AllInstalledTab() {
           <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-[#2a2a2a] text-[#666] text-xs">
+                <tr className="border-b border-gray-200 dark:border-[#2a2a2a] text-gray-400 dark:text-[#666] text-xs">
                   <th className="w-10 py-2 px-3" />
                   <th className="text-left py-2 px-3 font-medium">Name</th>
                   {!simpleMode && <th className="text-left py-2 px-3 font-medium">Namespace</th>}
@@ -987,7 +987,7 @@ function AllInstalledTab() {
         {filtered.length > 0 && (
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-[#2a2a2a] text-[#666] text-xs">
+              <tr className="border-b border-gray-200 dark:border-[#2a2a2a] text-gray-400 dark:text-[#666] text-xs">
                 <th className="w-10 py-2 px-3">
                   <input type="checkbox" checked={filtered.length > 0 && filtered.every(row => selectedIds.has(row.id))} onChange={selectAllVisible} />
                 </th>
@@ -1002,11 +1002,11 @@ function AllInstalledTab() {
             </thead>
             <tbody>
               {filtered.map(row => (
-                <tr key={row.id} className={cn("border-b border-[#1e1e1e] transition-colors", selectedIds.has(row.id) ? "bg-[rgba(0,120,212,0.06)]" : "hover:bg-[#1a1a1a]")}>
+                <tr key={row.id} className={cn("border-b border-gray-200 dark:border-[#1e1e1e] transition-colors", selectedIds.has(row.id) ? "bg-[rgba(0,120,212,0.06)]" : "hover:bg-gray-100 dark:hover:bg-[#1a1a1a]")}>
                   <td className="py-2.5 px-3 align-top">
                     <input type="checkbox" checked={selectedIds.has(row.id)} onChange={() => toggleSelected(row.id)} />
                   </td>
-                  <td className="py-2.5 px-3 font-medium text-[#f2f2f2] align-top">
+                  <td className="py-2.5 px-3 font-medium text-gray-900 dark:text-[#f2f2f2] align-top">
                     <div className="flex items-center gap-2">
                       <Link href={`/apps/${encodeURIComponent(row.name)}`} className="transition hover:text-[#7cb9ff]">{row.name}</Link>
                       <CopyButton text={row.name} className="h-7 px-2 text-[11px]" />
@@ -1015,23 +1015,23 @@ function AllInstalledTab() {
                           <Globe className="w-3 h-3" />
                         </a>
                       )}
-                      <a href={argocdAppUrl(row)} target="_blank" rel="noopener noreferrer" title="Open in ArgoCD" className="text-slate-500 hover:text-white transition-colors" onClick={e => e.stopPropagation()}>
+                      <a href={argocdAppUrl(row)} target="_blank" rel="noopener noreferrer" title="Open in ArgoCD" className="text-slate-500 hover:text-gray-900 dark:hover:text-white transition-colors" onClick={e => e.stopPropagation()}>
                         <ExternalLink className="w-3 h-3" />
                       </a>
                     </div>
                     <div className="mt-1 flex flex-wrap items-center gap-2">
                       {row.ingressHost && <p className="text-xs text-[#4a9eff] font-mono truncate max-w-[240px]">{row.ingressHost}</p>}
                       {row.ingressHost?.includes(".int.") && <span className="text-[10px] px-1 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/20 font-medium shrink-0">VPN</span>}
-                      {row.createdAt && <span className="text-xs text-[#666]"><RelativeTime date={row.createdAt} live={false} className="text-xs text-[#666]" /></span>}
+                      {row.createdAt && <span className="text-xs text-gray-400 dark:text-[#666]"><RelativeTime date={row.createdAt} live={false} className="text-xs text-gray-400 dark:text-[#666]" /></span>}
                     </div>
                   </td>
-                  {!simpleMode && <td className="py-2.5 px-3 align-top"><div className="flex items-center gap-2"><span className="font-mono text-xs text-[#9e9e9e]">{row.namespace}</span><CopyButton text={row.namespace} className="h-7 px-2 text-[11px]" /></div></td>}
+                  {!simpleMode && <td className="py-2.5 px-3 align-top"><div className="flex items-center gap-2"><span className="font-mono text-xs text-gray-500 dark:text-[#9e9e9e]">{row.namespace}</span><CopyButton text={row.namespace} className="h-7 px-2 text-[11px]" /></div></td>}
                   <td className="py-2.5 px-3 align-top"><StatusBadge status={optimisticSyncing.has(row.name) ? "syncing" : row.health} /></td>
                   <td className="py-2.5 px-3 align-top"><StatusBadge status={row.syncStatus} /></td>
                   <td className="py-2.5 px-3 align-top"><span className={cn("px-2 py-0.5 rounded text-xs font-medium", row.source === "Catalog" ? "bg-blue-500/10 text-blue-400 border border-blue-500/20" : "bg-purple-500/10 text-purple-400 border border-purple-500/20")}>{row.source}</span></td>
                   {!simpleMode && (
-                    <td className="py-2.5 px-3 align-top text-xs text-[#666]">
-                      <div>{row.lastSync ? <RelativeTime date={row.lastSync} live={false} className="text-xs text-[#666]" /> : "Never synced"}</div>
+                    <td className="py-2.5 px-3 align-top text-xs text-gray-400 dark:text-[#666]">
+                      <div>{row.lastSync ? <RelativeTime date={row.lastSync} live={false} className="text-xs text-gray-400 dark:text-[#666]" /> : "Never synced"}</div>
                       <div className="mt-1">{row.lastSync ? new Date(row.lastSync).toLocaleString() : "—"}</div>
                     </td>
                   )}
@@ -1052,11 +1052,11 @@ function AllInstalledTab() {
         <AnimatePresence>
           {filtered.map((row, index) => (
             <motion.div key={row.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(index * 0.05, 0.25), duration: 0.2 }}>
-              <div className="mb-2 flex items-center justify-between rounded-xl border border-[#2a2a2a] bg-[#111] px-3 py-2 text-xs text-[#888]">
-                <button onClick={() => toggleSelected(row.id)} className={cn("rounded-full border px-2 py-1 transition-colors", selectedIds.has(row.id) ? "border-[#0078D4]/40 bg-[rgba(0,120,212,0.15)] text-[#9dcbff]" : "border-[#2a2a2a]")}>
+              <div className="mb-2 flex items-center justify-between rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-3 py-2 text-xs text-gray-500 dark:text-[#888]">
+                <button onClick={() => toggleSelected(row.id)} className={cn("rounded-full border px-2 py-1 transition-colors", selectedIds.has(row.id) ? "border-[#0078D4]/40 bg-[rgba(0,120,212,0.15)] text-[#9dcbff]" : "border-gray-200 dark:border-[#2a2a2a]")}>
                   {selectedIds.has(row.id) ? "Selected" : "Select"}
                 </button>
-                <span>{row.createdAt ? <RelativeTime date={row.createdAt} live={false} className="text-xs text-[#888]" /> : "Age unavailable"}</span>
+                <span>{row.createdAt ? <RelativeTime date={row.createdAt} live={false} className="text-xs text-gray-500 dark:text-[#888]" /> : "Age unavailable"}</span>
               </div>
               <SwipeableAppCard
                 row={row}
@@ -1072,7 +1072,7 @@ function AllInstalledTab() {
               {row.source === "Catalog" && (
                 <div className="mt-2 flex flex-wrap items-center gap-2 px-1">
                   <PolicyBadge slug={row.name} />
-                  <button onClick={() => setUpdatePolicyApp({ name: row.name, slug: row.name })} disabled={!canManageApps} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs border border-[#2a2a2a] text-[#666] hover:text-[#0078D4] hover:border-[#0078D4]/40 transition-colors min-h-[36px] disabled:opacity-50">
+                  <button onClick={() => setUpdatePolicyApp({ name: row.name, slug: row.name })} disabled={!canManageApps} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs border border-gray-200 dark:border-[#2a2a2a] text-gray-400 dark:text-[#666] hover:text-[#0078D4] hover:border-[#0078D4]/40 transition-colors min-h-[36px] disabled:opacity-50">
                     <Settings2 className="w-3.5 h-3.5" /> Update Policy
                   </button>
                 </div>
@@ -1183,12 +1183,12 @@ spec:
 }
 
 const DEFAULT_GIT_REPO = "https://github.com/Werewolf-p/InfraWeaver-platform";
-const inputCls = "w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50 transition-colors";
+const inputCls = "w-full bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50 transition-colors";
 
 function Field({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
   return (
     <div>
-      <label className="block text-xs font-medium text-slate-400 mb-1.5">
+      <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5">
         {label}{required && <span className="text-red-400 ml-1">*</span>}
       </label>
       {children}
@@ -1213,7 +1213,7 @@ function CatalogBrowseCard({
     <motion.div
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
-      className="group bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.07] hover:border-white/20 rounded-xl p-4 flex flex-col gap-3 transition-all duration-200"
+      className="group bg-gray-100 dark:bg-white/[0.03] hover:bg-gray-100 dark:hover:bg-white/[0.06] border border-white/[0.07] hover:border-white/20 rounded-xl p-4 flex flex-col gap-3 transition-all duration-200"
     >
       {/* Header */}
       <div className="flex items-start gap-3">
@@ -1221,8 +1221,8 @@ function CatalogBrowseCard({
           <Package className="w-4 h-4 text-[#0078D4]" />
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-white font-medium text-sm truncate">{displayName}</p>
-          <p className="text-white/40 text-[10px] font-mono truncate">{app.name}</p>
+          <p className="text-gray-900 dark:text-white font-medium text-sm truncate">{displayName}</p>
+          <p className="text-gray-400 dark:text-white/40 text-[10px] font-mono truncate">{app.name}</p>
         </div>
         {installed && (
           <span className="flex items-center gap-1 px-1.5 py-0.5 rounded border border-emerald-500/30 bg-emerald-500/10 text-[10px] font-medium text-emerald-400 flex-shrink-0">
@@ -1233,14 +1233,14 @@ function CatalogBrowseCard({
 
       {/* Description */}
       {app.description && (
-        <p className="text-white/50 text-xs leading-relaxed line-clamp-2 flex-1">{app.description}</p>
+        <p className="text-gray-500 dark:text-white/50 text-xs leading-relaxed line-clamp-2 flex-1">{app.description}</p>
       )}
 
       {/* Host */}
       {app.host && (
-        <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-white/5 border border-white/10">
-          <Globe className="w-3 h-3 text-white/40 flex-shrink-0" />
-          <span className="text-white/50 text-[10px] font-mono truncate">{app.host}</span>
+        <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10">
+          <Globe className="w-3 h-3 text-gray-400 dark:text-white/40 flex-shrink-0" />
+          <span className="text-gray-500 dark:text-white/50 text-[10px] font-mono truncate">{app.host}</span>
         </div>
       )}
 
@@ -1255,7 +1255,7 @@ function CatalogBrowseCard({
               ? "bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 cursor-default"
               : canInstall
                 ? "bg-[#0078D4] hover:bg-[#0066b8] text-white"
-                : "bg-white/10 border border-white/10 text-white/40 cursor-not-allowed"
+                : "bg-gray-100 dark:bg-white/10 border border-gray-200 dark:border-white/10 text-gray-400 dark:text-white/40 cursor-not-allowed"
           )}
         >
           {installed ? <><Check className="w-3 h-3" /> Installed</> : <><Download className="w-3 h-3" /> Install</>}
@@ -1308,18 +1308,18 @@ function CatalogBrowseView({
       {/* Toolbar */}
       <div className="flex flex-col gap-2 sm:flex-row">
         <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#555]" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 dark:text-[#555]" />
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Search catalog apps…"
-            className="w-full bg-[#0f0f0f] border border-[#333] rounded-lg pl-9 pr-3 py-2 text-sm text-[#f2f2f2] placeholder:text-[#555] focus:outline-none focus:border-[#0078D4]/50"
+            className="w-full bg-white dark:bg-[#0f0f0f] border border-gray-200 dark:border-[#333] rounded-lg pl-9 pr-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] placeholder:text-gray-400 dark:placeholder:text-[#555] focus:outline-none focus:border-[#0078D4]/50"
           />
         </div>
         <button
           onClick={onCustom}
           disabled={!canInstall}
-          className="flex min-h-[44px] w-full items-center justify-center gap-1.5 rounded-lg border border-[#333] px-3 py-2 text-sm text-[#9e9e9e] transition-colors hover:border-[#555] hover:text-white sm:w-auto whitespace-nowrap disabled:opacity-50 touch-manipulation"
+          className="flex min-h-[44px] w-full items-center justify-center gap-1.5 rounded-lg border border-gray-200 dark:border-[#333] px-3 py-2 text-sm text-gray-500 dark:text-[#9e9e9e] transition-colors hover:border-[#555] hover:text-gray-900 dark:hover:text-white sm:w-auto whitespace-nowrap disabled:opacity-50 touch-manipulation"
         >
           <PlusCircle className="w-4 h-4" />
           <span className="hidden sm:inline">Custom URL</span>
@@ -1328,7 +1328,7 @@ function CatalogBrowseView({
 
       {/* Counts */}
       {!loading && (
-        <p className="text-xs text-[#666]">
+        <p className="text-xs text-gray-400 dark:text-[#666]">
           {sorted.length} app{sorted.length !== 1 ? "s" : ""} in catalog
           {installedNames.size > 0 && ` · ${installedNames.size} installed`}
         </p>
@@ -1338,11 +1338,11 @@ function CatalogBrowseView({
       {loading ? (
         <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
           {[...Array(9)].map((_, i) => (
-            <div key={i} className="bg-white/[0.03] border border-white/[0.07] rounded-xl p-4 h-36 animate-pulse" />
+            <div key={i} className="bg-gray-100 dark:bg-white/[0.03] border border-white/[0.07] rounded-xl p-4 h-36 animate-pulse" />
           ))}
         </div>
       ) : sorted.length === 0 ? (
-        <div className="text-center py-16 text-[#555]">
+        <div className="text-center py-16 text-gray-400 dark:text-[#555]">
           <Package className="w-10 h-10 mx-auto mb-3 opacity-30" />
           <p className="text-sm">No catalog apps found</p>
         </div>
@@ -1383,468 +1383,7 @@ function CatalogInstallerTab({ onInstalled }: { onInstalled?: () => void }) {
   const [installing, setInstalling] = useState(false);
   const [success, setSuccess] = useState(false);
 
-  // Pull ArgoCD apps to know what's installed
-  const { data: argoApps } = useArgoApps();
-  const installedNames = useMemo(() => {
-    const names = new Set<string>();
-    for (const app of argoApps ?? []) {
-      const n = app.metadata?.name ?? "";
-      // ArgoCD name pattern: catalog-{appname}-manifests
-      const m = n.match(/^catalog-(.+)-manifests$/);
-      if (m) names.add(m[1]);
-    }
-    return names;
-  }, [argoApps]);
-
-  const appName = appType === "helm" ? helmFields.appName : rawFields.appName;
-  const generatedYaml = appType === "helm"
-    ? generateHelmYaml(helmFields)
-    : appType === "raw" ? generateRawYaml(rawFields) : "";
-  const defaultCommitMessage = `feat: install catalog app ${appName} via InfraWeaver Console`;
-
-  const canProceedStep2 = appType === "helm"
-    ? !!(helmFields.appName && helmFields.namespace && helmFields.helmRepoURL && helmFields.chartName && helmFields.chartVersion)
-    : !!(rawFields.appName && rawFields.namespace && rawFields.gitRepoURL && rawFields.gitPath);
-
-  // Called when user clicks "Install" on a catalog browse card
-  const handleCatalogInstall = (app: CatalogAppEntry) => {
-    if (!canInstallCatalog) {
-      toast.error("You do not have permission to install catalog apps");
-      return;
-    }
-    setRawFields({
-      appName: app.name,
-      namespace: app.namespace || app.name,
-      gitRepoURL: DEFAULT_GIT_REPO,
-      gitPath: `kubernetes/catalog/${app.name}`,
-      targetRevision: "HEAD",
-    });
-    setAppType("raw");
-    setStep(2); // Go to pre-filled details step
-    setMode("wizard");
-  };
-
-  const handleInstall = async () => {
-    if (!canInstallCatalog) {
-      toast.error("You do not have permission to install catalog apps");
-      return;
-    }
-    setInstalling(true);
-    try {
-      const body = appType === "helm"
-        ? { appName: helmFields.appName, namespace: helmFields.namespace, yaml: generatedYaml, appType, helmRepoURL: helmFields.helmRepoURL, chartName: helmFields.chartName, chartVersion: helmFields.chartVersion }
-        : { appName: rawFields.appName, namespace: rawFields.namespace, yaml: generatedYaml, appType, gitRepoURL: rawFields.gitRepoURL, gitPath: rawFields.gitPath };
-      const res = await fetch("/api/catalog-install", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...body, commitMessage: commitMessage || defaultCommitMessage }),
-      });
-      if (!res.ok) {
-        const data = (await res.json()) as { error?: string };
-        throw new Error(data.error ?? "Install failed");
-      }
-      toast.success(`${appName} installed successfully! ArgoCD will sync shortly.`);
-      setSuccess(true);
-      onInstalled?.();
-    } catch (err) {
-      toast.error(String(err));
-    } finally {
-      setInstalling(false);
-    }
-  };
-
-  // ── Browse Mode ──────────────────────────────────────────────────────────────
-  if (mode === "browse") {
-    return (
-      <CatalogBrowseView
-        onInstall={handleCatalogInstall}
-        onCustom={() => { setAppType(null); setStep(1); setMode("wizard"); }}
-        installedNames={installedNames}
-        canInstall={canInstallCatalog}
-      />
-    );
-  }
-
-  // ── Wizard Mode ──────────────────────────────────────────────────────────────
-  return (
-    <div className="max-w-3xl mx-auto">
-      {/* Back to browse */}
-      <button
-        onClick={() => { setMode("browse"); setStep(1); setAppType(null); setSuccess(false); }}
-        className="flex items-center gap-1.5 text-sm text-[#9e9e9e] hover:text-white mb-6 transition-colors"
-      >
-        <ChevronLeft className="w-4 h-4" /> Back to Catalog
-      </button>
-
-      {/* Step Indicators */}
-      <div className="flex items-center gap-2 mb-8">
-        {["Choose Type", "Fill Details", "Preview YAML", "Commit"].map((label, i) => {
-          const stepNum = i + 1;
-          const isActive = step === stepNum;
-          const isDone = step > stepNum;
-          return (
-            <div key={label} className="flex items-center gap-2">
-              <div className={cn(
-                "w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 transition-colors",
-                isDone ? "bg-green-500 text-white" : isActive ? "bg-indigo-500 text-white" : "bg-white/10 text-slate-400"
-              )}>
-                {isDone ? <Check className="w-3.5 h-3.5" /> : stepNum}
-              </div>
-              <span className={cn("text-xs font-medium hidden sm:block", isActive ? "text-white" : "text-slate-500")}>
-                {label}
-              </span>
-              {i < 3 && <ChevronRight className="w-3.5 h-3.5 text-slate-600 flex-shrink-0" />}
-            </div>
-          );
-        })}
-      </div>
-
-      <AnimatePresence mode="wait">
-        {step === 1 && (
-          <motion.div key="step1" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
-            <h3 className="text-base font-semibold text-white mb-4">Choose Application Type</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
-              {([
-                { type: "helm" as const, icon: Package, title: "Helm Chart", desc: "Deploy from a Helm repository. Supports version pinning and values overrides." },
-                { type: "raw" as const, icon: FileText, title: "Raw Manifests", desc: "Deploy Kubernetes manifests from a Git directory path." },
-              ]).map(({ type, icon: Icon, title, desc }) => (
-                <button key={type} onClick={() => setAppType(type)} className={cn(
-                  "flex flex-col items-center gap-4 p-6 rounded-xl border transition-all text-left",
-                  appType === type ? "border-indigo-500/50 bg-indigo-500/10" : "border-white/10 bg-white/5 hover:border-white/20 hover:bg-white/10"
-                )}>
-                  <div className={cn("w-12 h-12 rounded-xl flex items-center justify-center", appType === type ? "bg-indigo-500/20" : "bg-white/10")}>
-                    <Icon className={cn("w-6 h-6", appType === type ? "text-indigo-400" : "text-slate-400")} />
-                  </div>
-                  <div><h4 className="font-semibold text-white text-sm">{title}</h4><p className="text-xs text-slate-400 mt-1">{desc}</p></div>
-                </button>
-              ))}
-            </div>
-            <div className="flex justify-end">
-              <button onClick={() => setStep(2)} disabled={!appType}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600 transition-colors disabled:opacity-40">
-                Next <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
-          </motion.div>
-        )}
-
-        {step === 2 && (
-          <motion.div key="step2" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
-            <h3 className="text-base font-semibold text-white mb-4">{appType === "helm" ? "Helm Chart Details" : "Raw Manifests Details"}</h3>
-            <div className="space-y-4 mb-6">
-              {appType === "helm" ? (
-                <>
-                  <Field label="App Name" required><input value={helmFields.appName} onChange={e => { const v = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-"); setHelmFields(p => ({ ...p, appName: v, namespace: p.namespace || v })); }} placeholder="my-app" className={inputCls} /></Field>
-                  <Field label="Namespace" required><input value={helmFields.namespace} onChange={e => setHelmFields(p => ({ ...p, namespace: e.target.value }))} placeholder={helmFields.appName || "my-app"} className={inputCls} /></Field>
-                  <Field label="Helm Repo URL" required><input value={helmFields.helmRepoURL} onChange={e => setHelmFields(p => ({ ...p, helmRepoURL: e.target.value }))} placeholder="https://charts.example.com" className={inputCls} /></Field>
-                  <Field label="Chart Name" required><input value={helmFields.chartName} onChange={e => setHelmFields(p => ({ ...p, chartName: e.target.value }))} placeholder="my-chart" className={inputCls} /></Field>
-                  <Field label="Chart Version" required><input value={helmFields.chartVersion} onChange={e => setHelmFields(p => ({ ...p, chartVersion: e.target.value }))} placeholder="1.2.3" className={inputCls} /></Field>
-                  <Field label="Target Revision"><input value={helmFields.targetRevision} onChange={e => setHelmFields(p => ({ ...p, targetRevision: e.target.value }))} placeholder="HEAD" className={inputCls} /></Field>
-                  <Field label="Values Override (YAML)"><textarea value={helmFields.valuesOverride} onChange={e => setHelmFields(p => ({ ...p, valuesOverride: e.target.value }))} placeholder={`replicaCount: 1\nimage:\n  tag: latest`} rows={5} className={cn(inputCls, "resize-none font-mono text-xs")} /></Field>
-                </>
-              ) : (
-                <>
-                  <Field label="App Name" required><input value={rawFields.appName} onChange={e => { const v = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-"); setRawFields(p => ({ ...p, appName: v, namespace: p.namespace || v })); }} placeholder="my-app" className={inputCls} /></Field>
-                  <Field label="Namespace" required><input value={rawFields.namespace} onChange={e => setRawFields(p => ({ ...p, namespace: e.target.value }))} placeholder={rawFields.appName || "my-app"} className={inputCls} /></Field>
-                  <Field label="Git Repo URL" required><input value={rawFields.gitRepoURL} onChange={e => setRawFields(p => ({ ...p, gitRepoURL: e.target.value }))} placeholder={DEFAULT_GIT_REPO} className={inputCls} /></Field>
-                  <Field label="Git Path" required><input value={rawFields.gitPath} onChange={e => setRawFields(p => ({ ...p, gitPath: e.target.value }))} placeholder="kubernetes/catalog/my-app" className={inputCls} /></Field>
-                  <Field label="Target Revision"><input value={rawFields.targetRevision} onChange={e => setRawFields(p => ({ ...p, targetRevision: e.target.value }))} placeholder="HEAD" className={inputCls} /></Field>
-                </>
-              )}
-            </div>
-            <div className="flex justify-between">
-              <button onClick={() => appType ? setStep(1) : setMode("browse")} className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-slate-300 text-sm font-medium hover:bg-white/10 transition-colors">
-                <ChevronLeft className="w-4 h-4" /> Back
-              </button>
-              <button onClick={() => setStep(3)} disabled={!canProceedStep2}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600 transition-colors disabled:opacity-40">
-                Next <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
-          </motion.div>
-        )}
-
-        {step === 3 && (
-          <motion.div key="step3" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
-            <h3 className="text-base font-semibold text-white mb-2">Preview Generated YAML</h3>
-            <p className="text-xs text-slate-400 mb-4">
-              This ArgoCD Application manifest will be committed to{" "}
-              <code className="font-mono bg-white/10 px-1 rounded">kubernetes/catalog/{appName}/application.yaml</code>
-            </p>
-              <div className="rounded-xl overflow-hidden border border-white/10 mb-6">
-                <pre className="h-[380px] bg-[#1e1e1e] text-slate-200 font-mono text-xs leading-5 p-4 overflow-auto whitespace-pre">{generatedYaml}</pre>
-              </div>
-            <div className="flex justify-between">
-              <button onClick={() => setStep(2)} className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-slate-300 text-sm font-medium hover:bg-white/10 transition-colors">
-                <ChevronLeft className="w-4 h-4" /> Back
-              </button>
-              <button onClick={() => { setCommitMessage(defaultCommitMessage); setStep(4); }}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600 transition-colors">
-                Next <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
-          </motion.div>
-        )}
-
-        {step === 4 && (
-          <motion.div key="step4" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
-            {success ? (
-              <div className="text-center py-12">
-                <div className="w-16 h-16 rounded-full bg-green-500/20 flex items-center justify-center mx-auto mb-4">
-                  <Check className="w-8 h-8 text-green-400" />
-                </div>
-                <h3 className="text-lg font-semibold text-white mb-2">{appName} installed!</h3>
-                <p className="text-sm text-slate-400 mb-6">ArgoCD will sync the application shortly.</p>
-                <div className="flex items-center justify-center gap-3">
-                  <button onClick={() => { setSuccess(false); setStep(1); setAppType(null); setMode("browse"); }}
-                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg border border-white/10 text-slate-300 text-sm font-medium hover:bg-white/10 transition-colors">
-                    Back to Catalog
-                  </button>
-                  <button onClick={() => { setSuccess(false); setStep(1); setAppType(null); onInstalled?.(); }}
-                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600 transition-colors">
-                    Install Another
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <>
-                <h3 className="text-base font-semibold text-white mb-4">Review &amp; Commit</h3>
-                <div className="bg-white/5 border border-white/10 rounded-xl p-4 mb-4 space-y-3">
-                  <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Files to commit</h4>
-                  <div className="space-y-2">
-                    <div className="flex items-start gap-2 text-sm text-slate-300">
-                      <FileText className="w-4 h-4 text-indigo-400 flex-shrink-0 mt-0.5" />
-                      <div>
-                        <p className="font-mono text-xs">kubernetes/catalog/{appName}/application.yaml</p>
-                        <p className="text-xs text-slate-500 mt-0.5">ArgoCD Application manifest</p>
-                      </div>
-                    </div>
-                    <div className="flex items-start gap-2 text-sm text-slate-300">
-                      <FileText className="w-4 h-4 text-green-400 flex-shrink-0 mt-0.5" />
-                      <div>
-                        <p className="font-mono text-xs">platform.yaml</p>
-                        <p className="text-xs text-slate-500 mt-0.5">Adding <code className="font-mono bg-white/10 px-1 rounded">{appName}</code> to catalog.enabled</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <Field label="Commit Message">
-                  <input value={commitMessage || defaultCommitMessage} onChange={e => setCommitMessage(e.target.value)} className={inputCls} />
-                </Field>
-                <div className="flex justify-between mt-6">
-                  <button onClick={() => setStep(3)} className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-slate-300 text-sm font-medium hover:bg-white/10 transition-colors">
-                    <ChevronLeft className="w-4 h-4" /> Back
-                  </button>
-                  <button onClick={handleInstall} disabled={installing || !canInstallCatalog}
-                    className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 transition-colors disabled:opacity-50 touch-manipulation min-h-[44px]">
-                    {installing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Package className="w-4 h-4" />}
-                    {installing ? "Installing…" : "Install Application"}
-                  </button>
-                </div>
-              </>
-            )}
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-// COMMUNITY STORE TAB  (community-apps browser)
-// ══════════════════════════════════════════════════════════════════════════════
-
-type Tier = "simple" | "medium" | "complex";
-
-interface AppSummary {
-  name: string; slug: string; image: string; icon?: string; overview?: string;
-  categories: string[]; tier: Tier; stars?: number; downloads?: number;
-  webUI?: string; support?: string; configCount: number;
-}
-
-interface FeedResponse {
-  apps: AppSummary[]; total: number; page: number; limit: number;
-  pages: number; last_updated: string; last_updated_timestamp: number;
-  categories: Array<{ Cat: string; Des: string }>;
-}
-
-interface AppDetailConfig {
-  name: string; target: string; type: string;
-  defaultValue?: string; description?: string;
-  required: boolean; masked: boolean;
-}
-
-interface RequiredVariable {
-  name: string; target: string; description?: string;
-  defaultValue?: string; masked: boolean; required: boolean; isPlaceholder: boolean;
-}
-
-/** Returns true if a value contains an unfilled [PLACEHOLDER] (not [PORT:xxx]) */
-function isPlaceholderValue(v?: string): boolean {
-  return /\[(?!PORT:\d)[^\]]+\]/i.test(v ?? "");
-}
-
-/** Extract variables that need user input from AppFeed configs */
-function getRequiredVarsFromConfigs(configs: AppDetailConfig[]): RequiredVariable[] {
-  return configs
-    .filter(c => c.type === "Variable" && (c.required || c.masked || isPlaceholderValue(c.defaultValue)))
-    .map(c => ({
-      name: c.name,
-      target: c.target,
-      description: c.description,
-      defaultValue: isPlaceholderValue(c.defaultValue) ? "" : (c.defaultValue || undefined),
-      masked: c.masked,
-      required: c.required,
-      isPlaceholder: isPlaceholderValue(c.defaultValue),
-    }));
-}
-
-interface ConversionResult {
-  slug: string; tier: Tier; warnings: string[]; combinedYaml: string;
-  requiredVariables?: RequiredVariable[];
-}
-
-interface DeployOptions {
-  namespace: string; pvcSizeGi: number; storageClass: string;
-  ingressHost: string; createIngress: boolean;
-}
-
-const TIER_CONFIG: Record<Tier, { label: string; color: string; icon: React.ReactNode; description: string }> = {
-  simple: { label: "K8s Ready", color: "text-emerald-400 bg-emerald-400/10 border-emerald-400/30", icon: <CheckCircle className="w-3 h-3" />, description: "Standard container — deploys directly to Kubernetes" },
-  medium: { label: "Custom Network", color: "text-amber-400 bg-amber-400/10 border-amber-400/30", icon: <Zap className="w-3 h-3" />, description: "Uses custom Docker networking — verify service discovery" },
-  complex: { label: "Privileged", color: "text-red-400 bg-red-400/10 border-red-400/30", icon: <Shield className="w-3 h-3" />, description: "Requires privileged mode or host devices — review carefully" },
-};
-
-const COMMUNITY_CATEGORY_TABS = [
-  { value: "all", label: "All" },
-  { value: "monitoring", label: "Monitoring" },
-  { value: "media", label: "Media" },
-  { value: "games", label: "Games" },
-  { value: "tools", label: "Tools" },
-  { value: "security", label: "Security" },
-  { value: "storage", label: "Storage" },
-] as const;
-
-const FEATURED_APP_SLUGS = ["vaultwarden", "uptime-kuma", "filebrowser", "homarr", "it-tools"];
-
-type CommunityCategory = (typeof COMMUNITY_CATEGORY_TABS)[number]["value"];
-
-function detectCommunityCategory(app: Pick<AppSummary, "name" | "categories" | "overview">): CommunityCategory {
-  const haystack = [app.name, ...(app.categories ?? []), app.overview ?? ""].join(" ").toLowerCase();
-  if (haystack.includes("grafana") || haystack.includes("prometheus") || haystack.includes("monitor") || haystack.includes("gatus")) return "monitoring";
-  if (haystack.includes("plex") || haystack.includes("media") || haystack.includes("sonarr") || haystack.includes("radarr") || haystack.includes("jellyfin")) return "media";
-  if (haystack.includes("game") || haystack.includes("minecraft") || haystack.includes("steam") || haystack.includes("server")) return "games";
-  if (haystack.includes("security") || haystack.includes("auth") || haystack.includes("vault") || haystack.includes("firewall")) return "security";
-  if (haystack.includes("storage") || haystack.includes("backup") || haystack.includes("s3") || haystack.includes("nas") || haystack.includes("disk")) return "storage";
-  if (haystack.includes("tool") || haystack.includes("utility") || haystack.includes("dns") || haystack.includes("proxy") || haystack.includes("cloud") || haystack.includes("db") || haystack.includes("database")) return "tools";
-  return "all";
-}
-
-function formatDownloads(n?: number): string {
-  if (!n) return "";
-  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`;
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`;
-  return String(n);
-}
-
-function DeployModal({ app, onClose }: { app: AppSummary; onClose: () => void }) {
-  const { can } = useRBAC();
-  const canReadApps = can("apps:read");
-  const canDeployCommunity = can("catalog:write");
-  const [step, setStep] = useState<"options" | "preview" | "deploying" | "done">("options");
-  // NOTE: useTransition with async callbacks does NOT keep isPending=true for the
-  // full duration of the await in React 18 — it only tracks the synchronous part.
-  // Use explicit loading state instead so the spinner persists during the fetch.
-  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
-  const [isDeployLoading, setIsDeployLoading] = useState(false);
-  const isPending = isPreviewLoading || isDeployLoading;
-
-  // App-specific required variables (fetched from detail endpoint)
-  const [requiredVars, setRequiredVars] = useState<RequiredVariable[] | null>(null);
-  const [userVariables, setUserVariables] = useState<Record<string, string>>({});
-  const [options, setOptions] = useState<DeployOptions>({
-    namespace: app.slug, pvcSizeGi: 10, storageClass: "longhorn",
-    ingressHost: `${app.slug}.int.rlservers.com`, createIngress: !!app.webUI,
-  });
-  const [preview, setPreview] = useState<ConversionResult | null>(null);
-  const [deployResult, setDeployResult] = useState<{ paths: string[]; warnings: string[] } | null>(null);
-  const [deployProgressStep, setDeployProgressStep] = useState(0);
-
-  // Fetch app-specific configs to surface required/placeholder variables
-  useEffect(() => {
-    if (!canReadApps) return;
-    fetch(`/api/community-apps/${app.slug}`)
-      .then(r => r.ok ? r.json() as Promise<{ configs?: AppDetailConfig[] }> : null)
-      .then(data => {
-        if (!data?.configs) return;
-        const vars = getRequiredVarsFromConfigs(data.configs);
-        setRequiredVars(vars);
-        // Pre-populate defaults for non-placeholder values
-        const defaults: Record<string, string> = {};
-        for (const v of vars) {
-          if (v.defaultValue) defaults[v.target] = v.defaultValue;
-        }
-        if (Object.keys(defaults).length > 0) setUserVariables(defaults);
-      })
-      .catch(() => { /* non-fatal — still deployable */ });
-  }, [app.slug, canReadApps]);
-
-  const missingRequired = (requiredVars ?? []).filter(
-    v => (v.required || v.isPlaceholder) && !userVariables[v.target]?.trim()
-  );
-
-  const handlePreview = async () => {
-    if (!canReadApps) {
-      toast.error("You do not have permission to preview community apps");
-      return;
-    }
-    setIsPreviewLoading(true);
-    try {
-      const res = await fetch("/api/community-apps/convert", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ appName: app.name, ...options, userVariables }),
-      });
-      const data = await res.json() as ConversionResult & { error?: string };
-      if (!res.ok) { toast.error(data.error ?? "Conversion failed"); return; }
-      setPreview(data);
-      setStep("preview");
-    } catch {
-      toast.error("Failed to generate preview — AppFeed may still be loading, try again");
-    } finally {
-      setIsPreviewLoading(false);
-    }
-  };
-
-  const handleDeploy = async () => {
-    if (!canDeployCommunity) {
-      toast.error("You do not have permission to deploy community apps");
-      return;
-    }
-    setIsDeployLoading(true);
-    setDeployProgressStep(0);
-    setStep("deploying");
-    const timer = window.setTimeout(() => setDeployProgressStep(1), 900);
-    try {
-      const res = await fetch("/api/community-apps/deploy", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ appName: app.name, ...options, userVariables }),
-      });
-      const data = await res.json() as { ok?: boolean; paths?: string[]; warnings?: string[]; error?: string; conflict?: boolean };
-      if (!res.ok) {
-        // 409 conflict = platform-managed app, show a clear message and go back to options
-        if (res.status === 409 && data.conflict) {
-          toast.error(data.error ?? "This app is already installed by the platform.", { duration: 6000 });
-          setStep("options");
-        } else {
-          toast.error(data.error ?? "Deploy failed");
-          setStep("preview");
-        }
-        return;
-      }
-      setDeployResult({ paths: data.paths ?? [], warnings: data.warnings ?? [] });
-      setDeployProgressStep(2);
-      setStep("done");
-      toast.success(`${app.name} deployed! ArgoCD will sync in ~2 minutes. If it doesn't appear, the bootstrap file has been committed to git.`);
+  // Pull ArgoCD apps to know what's installed const { data: argoApps } = useArgoApps(); const installedNames = useMemo(() => { const names = new Set<string>(); for (const app of argoApps ?? []) { const n = app.metadata?.name ?? ""; // ArgoCD name pattern: catalog-{appname}-manifests const m = n.match(/^catalog-(.+)-manifests$/); if (m) names.add(m[1]); } return names; }, [argoApps]); const appName = appType === "helm" ? helmFields.appName : rawFields.appName; const generatedYaml = appType === "helm" ? generateHelmYaml(helmFields) : appType === "raw" ? generateRawYaml(rawFields) : ""; const defaultCommitMessage = `feat: install catalog app ${appName} via InfraWeaver Console`; const canProceedStep2 = appType === "helm" ? !!(helmFields.appName && helmFields.namespace && helmFields.helmRepoURL && helmFields.chartName && helmFields.chartVersion) : !!(rawFields.appName && rawFields.namespace && rawFields.gitRepoURL && rawFields.gitPath); // Called when user clicks "Install" on a catalog browse card const handleCatalogInstall = (app: CatalogAppEntry) => { if (!canInstallCatalog) { toast.error("You do not have permission to install catalog apps"); return; } setRawFields({ appName: app.name, namespace: app.namespace || app.name, gitRepoURL: DEFAULT_GIT_REPO, gitPath: `kubernetes/catalog/${app.name}`, targetRevision: "HEAD", }); setAppType("raw"); setStep(2); // Go to pre-filled details step setMode("wizard"); }; const handleInstall = async () => { if (!canInstallCatalog) { toast.error("You do not have permission to install catalog apps"); return; } setInstalling(true); try { const body = appType === "helm" ? { appName: helmFields.appName, namespace: helmFields.namespace, yaml: generatedYaml, appType, helmRepoURL: helmFields.helmRepoURL, chartName: helmFields.chartName, chartVersion: helmFields.chartVersion } : { appName: rawFields.appName, namespace: rawFields.namespace, yaml: generatedYaml, appType, gitRepoURL: rawFields.gitRepoURL, gitPath: rawFields.gitPath }; const res = await fetch("/api/catalog-install", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, commitMessage: commitMessage || defaultCommitMessage }), }); if (!res.ok) { const data = (await res.json()) as { error?: string }; throw new Error(data.error ?? "Install failed"); } toast.success(`${appName} installed successfully! ArgoCD will sync shortly.`); setSuccess(true); onInstalled?.(); } catch (err) { toast.error(String(err)); } finally { setInstalling(false); } }; // ── Browse Mode ────────────────────────────────────────────────────────────── if (mode === "browse") { return ( <CatalogBrowseView onInstall={handleCatalogInstall} onCustom={() => { setAppType(null); setStep(1); setMode("wizard"); }} installedNames={installedNames} canInstall={canInstallCatalog} /> ); } // ── Wizard Mode ────────────────────────────────────────────────────────────── return ( <div className="max-w-3xl mx-auto"> {/* Back to browse */} <button onClick={() => { setMode("browse"); setStep(1); setAppType(null); setSuccess(false); }} className="flex items-center gap-1.5 text-sm text-gray-500 dark:text-[#9e9e9e] hover:text-white mb-6 transition-colors" > <ChevronLeft className="w-4 h-4" /> Back to Catalog </button> {/* Step Indicators */} <div className="flex items-center gap-2 mb-8"> {["Choose Type", "Fill Details", "Preview YAML", "Commit"].map((label, i) => { const stepNum = i + 1; const isActive = step === stepNum; const isDone = step > stepNum; return ( <div key={label} className="flex items-center gap-2"> <div className={cn( "w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 transition-colors", isDone ? "bg-green-500 text-white" : isActive ? "bg-indigo-500 text-white" : "bg-white/10 text-slate-400" )}> {isDone ? <Check className="w-3.5 h-3.5" /> : stepNum} </div> <span className={cn("text-xs font-medium hidden sm:block", isActive ? "text-white" : "text-slate-500")}> {label} </span> {i < 3 && <ChevronRight className="w-3.5 h-3.5 text-slate-600 flex-shrink-0" />} </div> ); })} </div> <AnimatePresence mode="wait"> {step === 1 && ( <motion.div key="step1" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}> <h3 className="text-base font-semibold text-white mb-4">Choose Application Type</h3> <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6"> {([ { type: "helm" as const, icon: Package, title: "Helm Chart", desc: "Deploy from a Helm repository. Supports version pinning and values overrides." }, { type: "raw" as const, icon: FileText, title: "Raw Manifests", desc: "Deploy Kubernetes manifests from a Git directory path." }, ]).map(({ type, icon: Icon, title, desc }) => ( <button key={type} onClick={() => setAppType(type)} className={cn( "flex flex-col items-center gap-4 p-6 rounded-xl border transition-all text-left", appType === type ? "border-indigo-500/50 bg-indigo-500/10" : "border-white/10 bg-gray-100 dark:bg-white/5 hover:border-white/20 hover:bg-white/10" )}> <div className={cn("w-12 h-12 rounded-xl flex items-center justify-center", appType === type ? "bg-indigo-500/20" : "bg-white/10")}> <Icon className={cn("w-6 h-6", appType === type ? "text-indigo-400" : "text-slate-400")} /> </div> <div><h4 className="font-semibold text-white text-sm">{title}</h4><p className="text-xs text-slate-500 dark:text-slate-400 mt-1">{desc}</p></div> </button> ))} </div> <div className="flex justify-end"> <button onClick={() => setStep(2)} disabled={!appType} className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600 transition-colors disabled:opacity-40"> Next <ChevronRight className="w-4 h-4" /> </button> </div> </motion.div> )} {step === 2 && ( <motion.div key="step2" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}> <h3 className="text-base font-semibold text-white mb-4">{appType === "helm" ? "Helm Chart Details" : "Raw Manifests Details"}</h3> <div className="space-y-4 mb-6"> {appType === "helm" ? ( <> <Field label="App Name" required><input value={helmFields.appName} onChange={e => { const v = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-"); setHelmFields(p => ({ ...p, appName: v, namespace: p.namespace || v })); }} placeholder="my-app" className={inputCls} /></Field> <Field label="Namespace" required><input value={helmFields.namespace} onChange={e => setHelmFields(p => ({ ...p, namespace: e.target.value }))} placeholder={helmFields.appName || "my-app"} className={inputCls} /></Field> <Field label="Helm Repo URL" required><input value={helmFields.helmRepoURL} onChange={e => setHelmFields(p => ({ ...p, helmRepoURL: e.target.value }))} placeholder="https://charts.example.com" className={inputCls} /></Field> <Field label="Chart Name" required><input value={helmFields.chartName} onChange={e => setHelmFields(p => ({ ...p, chartName: e.target.value }))} placeholder="my-chart" className={inputCls} /></Field> <Field label="Chart Version" required><input value={helmFields.chartVersion} onChange={e => setHelmFields(p => ({ ...p, chartVersion: e.target.value }))} placeholder="1.2.3" className={inputCls} /></Field> <Field label="Target Revision"><input value={helmFields.targetRevision} onChange={e => setHelmFields(p => ({ ...p, targetRevision: e.target.value }))} placeholder="HEAD" className={inputCls} /></Field> <Field label="Values Override (YAML)"><textarea value={helmFields.valuesOverride} onChange={e => setHelmFields(p => ({ ...p, valuesOverride: e.target.value }))} placeholder={`replicaCount: 1\nimage:\n tag: latest`} rows={5} className={cn(inputCls, "resize-none font-mono text-xs")} /></Field> </> ) : ( <> <Field label="App Name" required><input value={rawFields.appName} onChange={e => { const v = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-"); setRawFields(p => ({ ...p, appName: v, namespace: p.namespace || v })); }} placeholder="my-app" className={inputCls} /></Field> <Field label="Namespace" required><input value={rawFields.namespace} onChange={e => setRawFields(p => ({ ...p, namespace: e.target.value }))} placeholder={rawFields.appName || "my-app"} className={inputCls} /></Field> <Field label="Git Repo URL" required><input value={rawFields.gitRepoURL} onChange={e => setRawFields(p => ({ ...p, gitRepoURL: e.target.value }))} placeholder={DEFAULT_GIT_REPO} className={inputCls} /></Field> <Field label="Git Path" required><input value={rawFields.gitPath} onChange={e => setRawFields(p => ({ ...p, gitPath: e.target.value }))} placeholder="kubernetes/catalog/my-app" className={inputCls} /></Field> <Field label="Target Revision"><input value={rawFields.targetRevision} onChange={e => setRawFields(p => ({ ...p, targetRevision: e.target.value }))} placeholder="HEAD" className={inputCls} /></Field> </> )} </div> <div className="flex justify-between"> <button onClick={() => appType ? setStep(1) : setMode("browse")} className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-slate-700 dark:text-slate-300 text-sm font-medium hover:bg-gray-100 dark:hover:bg-white/10 transition-colors"> <ChevronLeft className="w-4 h-4" /> Back </button> <button onClick={() => setStep(3)} disabled={!canProceedStep2} className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600 transition-colors disabled:opacity-40"> Next <ChevronRight className="w-4 h-4" /> </button> </div> </motion.div> )} {step === 3 && ( <motion.div key="step3" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}> <h3 className="text-base font-semibold text-white mb-2">Preview Generated YAML</h3> <p className="text-xs text-slate-500 dark:text-slate-400 mb-4"> This ArgoCD Application manifest will be committed to{" "} <code className="font-mono bg-gray-100 dark:bg-white/10 px-1 rounded">kubernetes/catalog/{appName}/application.yaml</code> </p> <div className="rounded-xl overflow-hidden border border-gray-200 dark:border-white/10 mb-6"> <pre className="h-[380px] bg-gray-50 dark:bg-[#1e1e1e] text-slate-800 dark:text-slate-200 font-mono text-xs leading-5 p-4 overflow-auto whitespace-pre">{generatedYaml}</pre> </div> <div className="flex justify-between"> <button onClick={() => setStep(2)} className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-slate-700 dark:text-slate-300 text-sm font-medium hover:bg-gray-100 dark:hover:bg-white/10 transition-colors"> <ChevronLeft className="w-4 h-4" /> Back </button> <button onClick={() => { setCommitMessage(defaultCommitMessage); setStep(4); }} className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600 transition-colors"> Next <ChevronRight className="w-4 h-4" /> </button> </div> </motion.div> )} {step === 4 && ( <motion.div key="step4" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}> {success ? ( <div className="text-center py-12"> <div className="w-16 h-16 rounded-full bg-green-500/20 flex items-center justify-center mx-auto mb-4"> <Check className="w-8 h-8 text-green-400" /> </div> <h3 className="text-lg font-semibold text-white mb-2">{appName} installed!</h3> <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">ArgoCD will sync the application shortly.</p> <div className="flex items-center justify-center gap-3"> <button onClick={() => { setSuccess(false); setStep(1); setAppType(null); setMode("browse"); }} className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg border border-gray-200 dark:border-white/10 text-slate-700 dark:text-slate-300 text-sm font-medium hover:bg-gray-100 dark:hover:bg-white/10 transition-colors"> Back to Catalog </button> <button onClick={() => { setSuccess(false); setStep(1); setAppType(null); onInstalled?.(); }} className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600 transition-colors"> Install Another </button> </div> </div> ) : ( <> <h3 className="text-base font-semibold text-white mb-4">Review &amp; Commit</h3> <div className="bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl p-4 mb-4 space-y-3"> <h4 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Files to commit</h4> <div className="space-y-2"> <div className="flex items-start gap-2 text-sm text-slate-300"> <FileText className="w-4 h-4 text-indigo-400 flex-shrink-0 mt-0.5" /> <div> <p className="font-mono text-xs">kubernetes/catalog/{appName}/application.yaml</p> <p className="text-xs text-slate-500 mt-0.5">ArgoCD Application manifest</p> </div> </div> <div className="flex items-start gap-2 text-sm text-slate-300"> <FileText className="w-4 h-4 text-green-400 flex-shrink-0 mt-0.5" /> <div> <p className="font-mono text-xs">platform.yaml</p> <p className="text-xs text-slate-500 mt-0.5">Adding <code className="font-mono bg-gray-100 dark:bg-white/10 px-1 rounded">{appName}</code> to catalog.enabled</p> </div> </div> </div> </div> <Field label="Commit Message"> <input value={commitMessage || defaultCommitMessage} onChange={e => setCommitMessage(e.target.value)} className={inputCls} /> </Field> <div className="flex justify-between mt-6"> <button onClick={() => setStep(3)} className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-slate-700 dark:text-slate-300 text-sm font-medium hover:bg-gray-100 dark:hover:bg-white/10 transition-colors"> <ChevronLeft className="w-4 h-4" /> Back </button> <button onClick={handleInstall} disabled={installing || !canInstallCatalog} className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 transition-colors disabled:opacity-50 touch-manipulation min-h-[44px]"> {installing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Package className="w-4 h-4" />} {installing ? "Installing…" : "Install Application"} </button> </div> </> )} </motion.div> )} </AnimatePresence> </div> ); } // ══════════════════════════════════════════════════════════════════════════════ // COMMUNITY STORE TAB (community-apps browser) // ══════════════════════════════════════════════════════════════════════════════ type Tier = "simple" | "medium" | "complex"; interface AppSummary { name: string; slug: string; image: string; icon?: string; overview?: string; categories: string[]; tier: Tier; stars?: number; downloads?: number; webUI?: string; support?: string; configCount: number; } interface FeedResponse { apps: AppSummary[]; total: number; page: number; limit: number; pages: number; last_updated: string; last_updated_timestamp: number; categories: Array<{ Cat: string; Des: string }>; } interface AppDetailConfig { name: string; target: string; type: string; defaultValue?: string; description?: string; required: boolean; masked: boolean; } interface RequiredVariable { name: string; target: string; description?: string; defaultValue?: string; masked: boolean; required: boolean; isPlaceholder: boolean; } /** Returns true if a value contains an unfilled [PLACEHOLDER] (not [PORT:xxx]) */ function isPlaceholderValue(v?: string): boolean { return /\[(?!PORT:\d)[^\]]+\]/i.test(v ?? ""); } /** Extract variables that need user input from AppFeed configs */ function getRequiredVarsFromConfigs(configs: AppDetailConfig[]): RequiredVariable[] { return configs .filter(c => c.type === "Variable" && (c.required || c.masked || isPlaceholderValue(c.defaultValue))) .map(c => ({ name: c.name, target: c.target, description: c.description, defaultValue: isPlaceholderValue(c.defaultValue) ? "" : (c.defaultValue || undefined), masked: c.masked, required: c.required, isPlaceholder: isPlaceholderValue(c.defaultValue), })); } interface ConversionResult { slug: string; tier: Tier; warnings: string[]; combinedYaml: string; requiredVariables?: RequiredVariable[]; } interface DeployOptions { namespace: string; pvcSizeGi: number; storageClass: string; ingressHost: string; createIngress: boolean; } const TIER_CONFIG: Record<Tier, { label: string; color: string; icon: React.ReactNode; description: string }> = { simple: { label: "K8s Ready", color: "text-emerald-400 bg-emerald-400/10 border-emerald-400/30", icon: <CheckCircle className="w-3 h-3" />, description: "Standard container — deploys directly to Kubernetes" }, medium: { label: "Custom Network", color: "text-amber-400 bg-amber-400/10 border-amber-400/30", icon: <Zap className="w-3 h-3" />, description: "Uses custom Docker networking — verify service discovery" }, complex: { label: "Privileged", color: "text-red-400 bg-red-400/10 border-red-400/30", icon: <Shield className="w-3 h-3" />, description: "Requires privileged mode or host devices — review carefully" }, }; const COMMUNITY_CATEGORY_TABS = [ { value: "all", label: "All" }, { value: "monitoring", label: "Monitoring" }, { value: "media", label: "Media" }, { value: "games", label: "Games" }, { value: "tools", label: "Tools" }, { value: "security", label: "Security" }, { value: "storage", label: "Storage" }, ] as const; const FEATURED_APP_SLUGS = ["vaultwarden", "uptime-kuma", "filebrowser", "homarr", "it-tools"]; type CommunityCategory = (typeof COMMUNITY_CATEGORY_TABS)[number]["value"]; function detectCommunityCategory(app: Pick<AppSummary, "name" | "categories" | "overview">): CommunityCategory { const haystack = [app.name, ...(app.categories ?? []), app.overview ?? ""].join(" ").toLowerCase(); if (haystack.includes("grafana") || haystack.includes("prometheus") || haystack.includes("monitor") || haystack.includes("gatus")) return "monitoring"; if (haystack.includes("plex") || haystack.includes("media") || haystack.includes("sonarr") || haystack.includes("radarr") || haystack.includes("jellyfin")) return "media"; if (haystack.includes("game") || haystack.includes("minecraft") || haystack.includes("steam") || haystack.includes("server")) return "games"; if (haystack.includes("security") || haystack.includes("auth") || haystack.includes("vault") || haystack.includes("firewall")) return "security"; if (haystack.includes("storage") || haystack.includes("backup") || haystack.includes("s3") || haystack.includes("nas") || haystack.includes("disk")) return "storage"; if (haystack.includes("tool") || haystack.includes("utility") || haystack.includes("dns") || haystack.includes("proxy") || haystack.includes("cloud") || haystack.includes("db") || haystack.includes("database")) return "tools"; return "all"; } function formatDownloads(n?: number): string { if (!n) return ""; if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`; if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`; if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`; return String(n); } function DeployModal({ app, onClose }: { app: AppSummary; onClose: () => void }) { const { can } = useRBAC(); const canReadApps = can("apps:read"); const canDeployCommunity = can("catalog:write"); const [step, setStep] = useState<"options" | "preview" | "deploying" | "done">("options"); // NOTE: useTransition with async callbacks does NOT keep isPending=true for the // full duration of the await in React 18 — it only tracks the synchronous part. // Use explicit loading state instead so the spinner persists during the fetch. const [isPreviewLoading, setIsPreviewLoading] = useState(false); const [isDeployLoading, setIsDeployLoading] = useState(false); const isPending = isPreviewLoading || isDeployLoading; // App-specific required variables (fetched from detail endpoint) const [requiredVars, setRequiredVars] = useState<RequiredVariable[] | null>(null); const [userVariables, setUserVariables] = useState<Record<string, string>>({}); const [options, setOptions] = useState<DeployOptions>({ namespace: app.slug, pvcSizeGi: 10, storageClass: "longhorn", ingressHost: `${app.slug}.int.rlservers.com`, createIngress: !!app.webUI, }); const [preview, setPreview] = useState<ConversionResult | null>(null); const [deployResult, setDeployResult] = useState<{ paths: string[]; warnings: string[] } | null>(null); const [deployProgressStep, setDeployProgressStep] = useState(0); // Fetch app-specific configs to surface required/placeholder variables useEffect(() => { if (!canReadApps) return; fetch(`/api/community-apps/${app.slug}`) .then(r => r.ok ? r.json() as Promise<{ configs?: AppDetailConfig[] }> : null) .then(data => { if (!data?.configs) return; const vars = getRequiredVarsFromConfigs(data.configs); setRequiredVars(vars); // Pre-populate defaults for non-placeholder values const defaults: Record<string, string> = {}; for (const v of vars) { if (v.defaultValue) defaults[v.target] = v.defaultValue; } if (Object.keys(defaults).length > 0) setUserVariables(defaults); }) .catch(() => { /* non-fatal — still deployable */ }); }, [app.slug, canReadApps]); const missingRequired = (requiredVars ?? []).filter( v => (v.required || v.isPlaceholder) && !userVariables[v.target]?.trim() ); const handlePreview = async () => { if (!canReadApps) { toast.error("You do not have permission to preview community apps"); return; } setIsPreviewLoading(true); try { const res = await fetch("/api/community-apps/convert", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ appName: app.name, ...options, userVariables }), }); const data = await res.json() as ConversionResult & { error?: string }; if (!res.ok) { toast.error(data.error ?? "Conversion failed"); return; } setPreview(data); setStep("preview"); } catch { toast.error("Failed to generate preview — AppFeed may still be loading, try again"); } finally { setIsPreviewLoading(false); } }; const handleDeploy = async () => { if (!canDeployCommunity) { toast.error("You do not have permission to deploy community apps"); return; } setIsDeployLoading(true); setDeployProgressStep(0); setStep("deploying"); const timer = window.setTimeout(() => setDeployProgressStep(1), 900); try { const res = await fetch("/api/community-apps/deploy", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ appName: app.name, ...options, userVariables }), }); const data = await res.json() as { ok?: boolean; paths?: string[]; warnings?: string[]; error?: string; conflict?: boolean }; if (!res.ok) { // 409 conflict = platform-managed app, show a clear message and go back to options if (res.status === 409 && data.conflict) { toast.error(data.error ?? "This app is already installed by the platform.", { duration: 6000 }); setStep("options"); } else { toast.error(data.error ?? "Deploy failed"); setStep("preview"); } return; } setDeployResult({ paths: data.paths ?? [], warnings: data.warnings ?? [] }); setDeployProgressStep(2); setStep("done"); toast.success(`${app.name} deployed! ArgoCD will sync in ~2 minutes. If it doesn't appear, the bootstrap file has been committed to git.`);
     } catch {
       toast.error("Deploy request failed");
       setStep("preview");
@@ -1860,9 +1399,9 @@ function DeployModal({ app, onClose }: { app: AppSummary; onClose: () => void })
       onClick={(e) => { if (e.target === e.currentTarget && step !== "deploying") onClose(); }}>
       <motion.div
         initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }}
-        className="bg-[#0d1117] border border-white/10 rounded-t-2xl sm:rounded-xl w-full sm:max-w-3xl max-h-[92dvh] sm:max-h-[90vh] flex flex-col shadow-2xl"
+        className="bg-[#0d1117] border border-gray-200 dark:border-white/10 rounded-t-2xl sm:rounded-xl w-full sm:max-w-3xl max-h-[92dvh] sm:max-h-[90vh] flex flex-col shadow-2xl"
       >
-        <div className="flex items-center justify-between p-5 border-b border-white/10 flex-shrink-0">
+        <div className="flex items-center justify-between p-5 border-b border-gray-200 dark:border-white/10 flex-shrink-0">
           <div className="flex items-center gap-3">
             {app.icon ? (
               // eslint-disable-next-line @next/next/no-img-element
@@ -1871,21 +1410,21 @@ function DeployModal({ app, onClose }: { app: AppSummary; onClose: () => void })
               <Package className="w-8 h-8 text-indigo-400" />
             )}
             <div>
-              <h2 className="text-white font-semibold">{app.name}</h2>
-              <p className="text-white/50 text-xs">{app.image}</p>
+              <h2 className="text-gray-900 dark:text-white font-semibold">{app.name}</h2>
+              <p className="text-gray-500 dark:text-white/50 text-xs">{app.image}</p>
             </div>
           </div>
-          <button onClick={onClose} className="text-white/40 hover:text-white transition-colors"><X className="w-5 h-5" /></button>
+          <button onClick={onClose} className="text-gray-400 dark:text-white/40 hover:text-gray-900 dark:hover:text-white transition-colors"><X className="w-5 h-5" /></button>
         </div>
 
-        <div className="flex items-center gap-2 px-5 py-3 border-b border-white/10 flex-shrink-0">
+        <div className="flex items-center gap-2 px-5 py-3 border-b border-gray-200 dark:border-white/10 flex-shrink-0">
           {(["options", "preview", "done"] as const).map((s, i) => (
             <div key={s} className="flex items-center gap-2">
               {i > 0 && <div className="w-8 h-px bg-white/20" />}
               <div className={cn(
                 "flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium transition-colors",
                 step === s ? "bg-indigo-500/20 text-indigo-400" :
-                  (["options", "preview", "done"].indexOf(step) > i ? "text-white/60" : "text-white/30")
+                  (["options", "preview", "done"].indexOf(step) > i ? "text-gray-500 dark:text-white/60" : "text-gray-400 dark:text-white/30")
               )}>
                 <span className="w-4 h-4 rounded-full border flex items-center justify-center text-[10px] border-current">{i + 1}</span>
                 {s === "options" ? "Configure" : s === "preview" ? "Review YAML" : "Done"}
@@ -1898,8 +1437,8 @@ function DeployModal({ app, onClose }: { app: AppSummary; onClose: () => void })
           {isPreviewLoading && (
             <div className="flex flex-col items-center justify-center py-12 gap-3">
               <Loader2 className="w-8 h-8 animate-spin text-blue-400" />
-              <p className="text-white/70 text-sm font-medium">Generating YAML preview…</p>
-              <p className="text-white/40 text-xs text-center max-w-xs">First run downloads the AppFeed index (~33MB). This may take up to 30 seconds.</p>
+              <p className="text-gray-600 dark:text-white/70 text-sm font-medium">Generating YAML preview…</p>
+              <p className="text-gray-400 dark:text-white/40 text-xs text-center max-w-xs">First run downloads the AppFeed index (~33MB). This may take up to 30 seconds.</p>
             </div>
           )}
 
@@ -1911,14 +1450,14 @@ function DeployModal({ app, onClose }: { app: AppSummary; onClose: () => void })
                   const complete = deployProgressStep > index || (step === "done" && index <= 2);
                   const active = deployProgressStep === index && step !== "done";
                   return (
-                    <div key={label} className="flex items-center gap-2 text-sm text-white/70">
+                    <div key={label} className="flex items-center gap-2 text-sm text-gray-600 dark:text-white/70">
                       <span className={cn(
                         "flex h-5 w-5 items-center justify-center rounded-full border text-[10px]",
-                        complete ? "border-emerald-400 bg-emerald-400/20 text-emerald-300" : active ? "border-indigo-400 bg-indigo-400/20 text-indigo-200" : "border-white/15 text-white/40"
+                        complete ? "border-emerald-400 bg-emerald-400/20 text-emerald-300" : active ? "border-indigo-400 bg-indigo-400/20 text-indigo-200" : "border-white/15 text-gray-400 dark:text-white/40"
                       )}>
                         {complete ? <Check className="h-3 w-3" /> : index + 1}
                       </span>
-                      <span className={cn(complete ? "text-emerald-300" : active ? "text-indigo-200" : "text-white/50")}>{label}</span>
+                      <span className={cn(complete ? "text-emerald-300" : active ? "text-indigo-200" : "text-gray-500 dark:text-white/50")}>{label}</span>
                     </div>
                   );
                 })}
@@ -1930,13 +1469,13 @@ function DeployModal({ app, onClose }: { app: AppSummary; onClose: () => void })
             <div className="space-y-4">
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
-                  <label className="text-white/60 text-xs mb-1 block">Namespace</label>
-                  <input className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500"
+                  <label className="text-gray-500 dark:text-white/60 text-xs mb-1 block">Namespace</label>
+                  <input className="w-full bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded px-3 py-2 text-gray-900 dark:text-white text-sm focus:outline-none focus:border-indigo-500"
                     value={options.namespace} onChange={e => setOptions(o => ({ ...o, namespace: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-") }))} />
                 </div>
                 <div>
-                  <label className="text-white/60 text-xs mb-1 block">Storage Class</label>
-                  <select className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500"
+                  <label className="text-gray-500 dark:text-white/60 text-xs mb-1 block">Storage Class</label>
+                  <select className="w-full bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded px-3 py-2 text-gray-900 dark:text-white text-sm focus:outline-none focus:border-indigo-500"
                     value={options.storageClass} onChange={e => setOptions(o => ({ ...o, storageClass: e.target.value }))}>
                     <option value="longhorn">longhorn</option>
                     <option value="local-path">local-path</option>
@@ -1944,23 +1483,23 @@ function DeployModal({ app, onClose }: { app: AppSummary; onClose: () => void })
                   </select>
                 </div>
                 <div>
-                  <label className="text-white/60 text-xs mb-1 block">PVC Size (GiB per volume)</label>
+                  <label className="text-gray-500 dark:text-white/60 text-xs mb-1 block">PVC Size (GiB per volume)</label>
                   <input type="number" min={1} max={10000}
-                    className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500"
+                    className="w-full bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded px-3 py-2 text-gray-900 dark:text-white text-sm focus:outline-none focus:border-indigo-500"
                     value={options.pvcSizeGi} onChange={e => setOptions(o => ({ ...o, pvcSizeGi: parseInt(e.target.value, 10) || 10 }))} />
                 </div>
                 <div className="flex items-start gap-3 pt-6">
                   <input type="checkbox" id="createIngress" checked={options.createIngress}
                     onChange={e => setOptions(o => ({ ...o, createIngress: e.target.checked }))} className="mt-0.5" />
-                  <label htmlFor="createIngress" className="text-white/80 text-sm">Create Traefik IngressRoute</label>
+                  <label htmlFor="createIngress" className="text-gray-700 dark:text-white/80 text-sm">Create Traefik IngressRoute</label>
                 </div>
               </div>
               {options.createIngress && (
                 <div>
-                  <label className="text-white/60 text-xs mb-1 block">Ingress Hostname</label>
-                  <input className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500"
+                  <label className="text-gray-500 dark:text-white/60 text-xs mb-1 block">Ingress Hostname</label>
+                  <input className="w-full bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded px-3 py-2 text-gray-900 dark:text-white text-sm focus:outline-none focus:border-indigo-500"
                     value={options.ingressHost} onChange={e => setOptions(o => ({ ...o, ingressHost: e.target.value }))} />
-                  <p className="text-white/40 text-xs mt-1">Will be VPN-only via netbird-vpn-only middleware</p>
+                  <p className="text-gray-400 dark:text-white/40 text-xs mt-1">Will be VPN-only via netbird-vpn-only middleware</p>
                 </div>
               )}
 
@@ -1979,10 +1518,10 @@ function DeployModal({ app, onClose }: { app: AppSummary; onClose: () => void })
                   <div className="space-y-3">
                     {requiredVars.map(v => (
                       <div key={v.target}>
-                        <label className="flex items-center gap-1 text-white/70 text-xs mb-1">
+                        <label className="flex items-center gap-1 text-gray-600 dark:text-white/70 text-xs mb-1">
                           {v.name}
                           {(v.required || v.isPlaceholder) && <span className="text-red-400">*</span>}
-                          {v.masked && <span className="text-xs text-white/30 ml-1">(secret)</span>}
+                          {v.masked && <span className="text-xs text-gray-400 dark:text-white/30 ml-1">(secret)</span>}
                         </label>
                         <input
                           type={v.masked ? "password" : "text"}
@@ -1990,10 +1529,10 @@ function DeployModal({ app, onClose }: { app: AppSummary; onClose: () => void })
                           value={userVariables[v.target] ?? ""}
                           onChange={e => setUserVariables(prev => ({ ...prev, [v.target]: e.target.value }))}
                           className={cn(
-                            "w-full bg-white/5 border rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500",
+                            "w-full bg-gray-100 dark:bg-white/5 border rounded px-3 py-2 text-gray-900 dark:text-white text-sm focus:outline-none focus:border-indigo-500",
                             (v.required || v.isPlaceholder) && !userVariables[v.target]?.trim()
                               ? "border-red-500/50"
-                              : "border-white/10"
+                              : "border-gray-200 dark:border-white/10"
                           )}
                         />
                         {v.description && (
@@ -2008,21 +1547,21 @@ function DeployModal({ app, onClose }: { app: AppSummary; onClose: () => void })
                 </div>
               )}
 
-              <div className="rounded-lg border border-white/10 bg-white/5 p-4 text-sm text-white/70 space-y-2">
-                <div className="flex items-center gap-2 text-white">
+              <div className="rounded-lg border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 p-4 text-sm text-gray-600 dark:text-white/70 space-y-2">
+                <div className="flex items-center gap-2 text-gray-900 dark:text-white">
                   <Globe className="h-4 w-4 text-indigo-300" />
                   <span className="font-medium">Connect</span>
                 </div>
                 {options.createIngress ? (
                   <p>
-                    InfraWeaver will expose this app at <code className="rounded bg-white/10 px-1.5 py-0.5 text-xs">https://{options.ingressHost}</code>
+                    InfraWeaver will expose this app at <code className="rounded bg-gray-100 dark:bg-white/10 px-1.5 py-0.5 text-xs">https://{options.ingressHost}</code>
                   </p>
                 ) : (
-                  <p className="text-white/50">Ingress is disabled. You can enable it now or connect later from the generated manifests.</p>
+                  <p className="text-gray-500 dark:text-white/50">Ingress is disabled. You can enable it now or connect later from the generated manifests.</p>
                 )}
                 {app.webUI && (
-                  <p className="text-white/50">
-                    Original app WebUI hint: <code className="rounded bg-white/10 px-1.5 py-0.5 text-xs">{app.webUI}</code>
+                  <p className="text-gray-500 dark:text-white/50">
+                    Original app WebUI hint: <code className="rounded bg-gray-100 dark:bg-white/10 px-1.5 py-0.5 text-xs">{app.webUI}</code>
                   </p>
                 )}
               </div>
@@ -2047,11 +1586,11 @@ function DeployModal({ app, onClose }: { app: AppSummary; onClose: () => void })
                   ))}
                 </div>
               )}
-              <div className="h-[380px] rounded-lg overflow-hidden border border-white/10 relative">
-                {isPreviewLoading && <div className="absolute inset-0 flex items-center justify-center bg-[#1e1e1e] z-10"><Loader2 className="w-6 h-6 animate-spin text-blue-400" /></div>}
-                <pre className="w-full h-full bg-[#1e1e1e] text-slate-200 font-mono text-xs leading-5 p-4 overflow-auto whitespace-pre">{preview.combinedYaml}</pre>
+              <div className="h-[380px] rounded-lg overflow-hidden border border-gray-200 dark:border-white/10 relative">
+                {isPreviewLoading && <div className="absolute inset-0 flex items-center justify-center bg-gray-50 dark:bg-[#1e1e1e] z-10"><Loader2 className="w-6 h-6 animate-spin text-blue-400" /></div>}
+                <pre className="w-full h-full bg-gray-50 dark:bg-[#1e1e1e] text-slate-800 dark:text-slate-200 font-mono text-xs leading-5 p-4 overflow-auto whitespace-pre">{preview.combinedYaml}</pre>
               </div>
-              <p className="text-white/40 text-xs">This YAML will be committed to <code className="bg-white/10 px-1 rounded">kubernetes/catalog/{preview.slug}/manifests/</code> and deployed by ArgoCD.</p>
+              <p className="text-gray-400 dark:text-white/40 text-xs">This YAML will be committed to <code className="bg-gray-100 dark:bg-white/10 px-1 rounded">kubernetes/catalog/{preview.slug}/manifests/</code> and deployed by ArgoCD.</p>
             </div>
           )}
 
@@ -2061,7 +1600,7 @@ function DeployModal({ app, onClose }: { app: AppSummary; onClose: () => void })
                 <CheckCircle className="w-8 h-8" />
                 <div>
                   <p className="font-semibold">App deployed! Bootstrap file committed to Git</p>
-                  <p className="text-white/50 text-sm">ArgoCD usually shows {app.name} within ~2 minutes.</p>
+                  <p className="text-gray-500 dark:text-white/50 text-sm">ArgoCD usually shows {app.name} within ~2 minutes.</p>
                 </div>
               </div>
               <div className="flex items-start gap-3 p-3 rounded-lg bg-indigo-500/10 border border-indigo-500/20">
@@ -2071,10 +1610,10 @@ function DeployModal({ app, onClose }: { app: AppSummary; onClose: () => void })
                   <p>If it does not show up yet, the bootstrap file was still committed to git. Check the <button onClick={onClose} className="text-indigo-300 underline hover:text-indigo-100">All Installed</button> tab again shortly.</p>
                 </div>
               </div>
-              <div className="bg-white/5 rounded-lg p-3 space-y-1">
-                <p className="text-white/60 text-xs font-medium mb-2">Files committed:</p>
+              <div className="bg-gray-100 dark:bg-white/5 rounded-lg p-3 space-y-1">
+                <p className="text-gray-500 dark:text-white/60 text-xs font-medium mb-2">Files committed:</p>
                 {deployResult.paths.map(p => (
-                  <div key={p} className="flex items-center gap-2 text-xs text-white/70">
+                  <div key={p} className="flex items-center gap-2 text-xs text-gray-600 dark:text-white/70">
                     <GitBranch className="w-3 h-3 text-indigo-400" /><code>{p}</code>
                   </div>
                 ))}
@@ -2086,11 +1625,11 @@ function DeployModal({ app, onClose }: { app: AppSummary; onClose: () => void })
           )}
         </div>
 
-        <div className="flex items-center justify-between p-5 border-t border-white/10 flex-shrink-0">
-          <button onClick={onClose} className="px-4 py-2 text-white/60 hover:text-white text-sm transition-colors">{step === "done" ? "Close" : "Cancel"}</button>
+        <div className="flex items-center justify-between p-5 border-t border-gray-200 dark:border-white/10 flex-shrink-0">
+          <button onClick={onClose} className="px-4 py-2 text-gray-500 dark:text-white/60 hover:text-gray-900 dark:hover:text-white text-sm transition-colors">{step === "done" ? "Close" : "Cancel"}</button>
           <div className="flex gap-3">
             {step === "preview" && (
-              <button onClick={() => setStep("options")} className="flex items-center gap-2 px-4 py-2 rounded-lg text-white/70 hover:text-white border border-white/10 hover:border-white/30 transition-colors text-sm">
+              <button onClick={() => setStep("options")} className="flex items-center gap-2 px-4 py-2 rounded-lg text-gray-600 dark:text-white/70 hover:text-gray-900 dark:hover:text-white border border-gray-200 dark:border-white/10 hover:border-white/30 transition-colors text-sm">
                 <ChevronLeft className="w-4 h-4" /> Back
               </button>
             )}
@@ -2124,14 +1663,14 @@ function AppCard({ app, onDeploy, canDeploy, installed }: { app: AppSummary; onD
   const tierCfg = TIER_CONFIG[app.tier];
   return (
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-      className="group relative bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.07] hover:border-white/20 rounded-xl p-4 transition-all duration-200 flex flex-col gap-3">
+      className="group relative bg-gray-100 dark:bg-white/[0.03] hover:bg-gray-100 dark:hover:bg-white/[0.06] border border-white/[0.07] hover:border-white/20 rounded-xl p-4 transition-all duration-200 flex flex-col gap-3">
       {installed && (
         <span className="absolute right-3 top-3 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-300">
           Installed
         </span>
       )}
       <div className="flex items-start gap-3">
-        <div className="w-10 h-10 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center flex-shrink-0 overflow-hidden">
+        <div className="w-10 h-10 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 flex items-center justify-center flex-shrink-0 overflow-hidden">
           {app.icon ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={app.icon} alt="" className="w-8 h-8 object-contain" onError={e => {
@@ -2139,33 +1678,33 @@ function AppCard({ app, onDeploy, canDeploy, installed }: { app: AppSummary; onD
               el.style.display = "none";
               el.parentElement!.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-white/30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>';
             }} />
-          ) : <Package className="w-5 h-5 text-white/30" />}
+          ) : <Package className="w-5 h-5 text-gray-400 dark:text-white/30" />}
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-white font-medium text-sm truncate">{app.name}</p>
-          <p className="text-white/40 text-xs truncate">{app.image}</p>
+          <p className="text-gray-900 dark:text-white font-medium text-sm truncate">{app.name}</p>
+          <p className="text-gray-400 dark:text-white/40 text-xs truncate">{app.image}</p>
         </div>
         <span className={cn("flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] font-medium flex-shrink-0", tierCfg.color)}>
           {tierCfg.icon} {tierCfg.label}
         </span>
       </div>
-      {app.overview && <p className="text-white/50 text-xs leading-relaxed line-clamp-2">{app.overview}</p>}
+      {app.overview && <p className="text-gray-500 dark:text-white/50 text-xs leading-relaxed line-clamp-2">{app.overview}</p>}
       <div className="flex items-center gap-2 flex-wrap">
-        {(app.stars ?? 0) > 0 && <span className="flex items-center gap-1 text-white/40 text-[10px]"><Star className="w-3 h-3" /> {app.stars?.toLocaleString()}</span>}
-        {(app.downloads ?? 0) > 0 && <span className="flex items-center gap-1 text-white/40 text-[10px]"><Download className="w-3 h-3" /> {formatDownloads(app.downloads)}</span>}
+        {(app.stars ?? 0) > 0 && <span className="flex items-center gap-1 text-gray-400 dark:text-white/40 text-[10px]"><Star className="w-3 h-3" /> {app.stars?.toLocaleString()}</span>}
+        {(app.downloads ?? 0) > 0 && <span className="flex items-center gap-1 text-gray-400 dark:text-white/40 text-[10px]"><Download className="w-3 h-3" /> {formatDownloads(app.downloads)}</span>}
         {app.categories.slice(0, 2).map(cat => (
-          <span key={cat} className="px-1.5 py-0.5 rounded bg-white/5 text-white/40 text-[10px]">{cat.replace(/:/g, " › ")}</span>
+          <span key={cat} className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-white/5 text-gray-400 dark:text-white/40 text-[10px]">{cat.replace(/:/g, " › ")}</span>
         ))}
       </div>
       <div className="flex gap-2 mt-auto pt-1">
         {app.support && (
           <a href={app.support} target="_blank" rel="noopener noreferrer"
-            className="flex items-center gap-1 px-2 py-1.5 rounded text-xs text-white/50 hover:text-white border border-white/10 hover:border-white/30 transition-colors">
+            className="flex items-center gap-1 px-2 py-1.5 rounded text-xs text-gray-500 dark:text-white/50 hover:text-gray-900 dark:hover:text-white border border-gray-200 dark:border-white/10 hover:border-white/30 transition-colors">
             <ExternalLink className="w-3 h-3" /> Docs
           </a>
         )}
         <button onClick={() => onDeploy(app)} disabled={!canDeploy}
-          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded text-xs font-medium bg-indigo-600/80 hover:bg-indigo-500 text-white transition-colors disabled:opacity-50 touch-manipulation min-h-[44px]">
+          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded text-xs font-medium bg-indigo-600/80 hover:bg-indigo-500 text-gray-900 dark:text-white transition-colors disabled:opacity-50 touch-manipulation min-h-[44px]">
           <Globe className="w-3 h-3" /> {installed ? "Reconfigure" : "Deploy"}
         </button>
       </div>
@@ -2272,31 +1811,31 @@ function CommunityStoreTab() {
       {/* Sub-header */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-white/50 text-sm">Browse 3,500+ apps from the Unraid Community Applications feed — convert and deploy to Kubernetes</p>
+          <p className="text-gray-500 dark:text-white/50 text-sm">Browse 3,500+ apps from the Unraid Community Applications feed — convert and deploy to Kubernetes</p>
           {storeTab === "store" && data?.last_updated && (
-            <p className="text-white/30 text-xs mt-0.5">Feed updated: {data.last_updated} · {data.total.toLocaleString()} apps</p>
+            <p className="text-gray-400 dark:text-white/30 text-xs mt-0.5">Feed updated: {data.last_updated} · {data.total.toLocaleString()} apps</p>
           )}
           {storeTab === "installed" && installed && (
-            <p className="text-white/30 text-xs mt-0.5">{installed.total} app{installed.total !== 1 ? "s" : ""} installed</p>
+            <p className="text-gray-400 dark:text-white/30 text-xs mt-0.5">{installed.total} app{installed.total !== 1 ? "s" : ""} installed</p>
           )}
         </div>
         <button onClick={storeTab === "store" ? () => void fetchApps({ page, search: debouncedSearch, category, tier }) : () => { setInstalled(null); void fetchInstalled(); }}
-          className="flex min-h-[40px] flex-shrink-0 items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-sm text-white/60 transition-colors hover:border-white/30 hover:text-white">
+          className="flex min-h-[40px] flex-shrink-0 items-center gap-2 rounded-lg border border-gray-200 dark:border-white/10 px-3 py-2 text-sm text-gray-500 dark:text-white/60 transition-colors hover:border-white/30 hover:text-gray-900 dark:hover:text-white">
           <RefreshCw className={cn("w-4 h-4", (loading || installedLoading) && "animate-spin")} />
           <span className="hidden sm:inline">Refresh</span>
         </button>
       </div>
 
       {/* Store / Installed sub-tabs */}
-      <div className="flex w-full gap-1 overflow-x-auto rounded-lg bg-white/5 p-1 sm:w-fit">
+      <div className="flex w-full gap-1 overflow-x-auto rounded-lg bg-gray-100 dark:bg-white/5 p-1 sm:w-fit">
         <button onClick={() => setStoreTab("store")}
-          className={cn("flex items-center gap-2 px-4 py-1.5 rounded text-sm font-medium transition-all", storeTab === "store" ? "bg-indigo-600 text-white" : "text-white/50 hover:text-white")}>
+          className={cn("flex items-center gap-2 px-4 py-1.5 rounded text-sm font-medium transition-all", storeTab === "store" ? "bg-indigo-600 text-white" : "text-gray-500 dark:text-white/50 hover:text-gray-900 dark:hover:text-white")}>
           <Store className="w-4 h-4" /> Store
         </button>
         <button onClick={() => setStoreTab("installed")}
-          className={cn("flex items-center gap-2 px-4 py-1.5 rounded text-sm font-medium transition-all", storeTab === "installed" ? "bg-indigo-600 text-white" : "text-white/50 hover:text-white")}>
+          className={cn("flex items-center gap-2 px-4 py-1.5 rounded text-sm font-medium transition-all", storeTab === "installed" ? "bg-indigo-600 text-white" : "text-gray-500 dark:text-white/50 hover:text-gray-900 dark:hover:text-white")}>
           <Package className="w-4 h-4" /> Installed
-          {installed && installed.total > 0 && <span className="ml-1 px-1.5 py-0.5 rounded-full bg-white/10 text-xs">{installed.total}</span>}
+          {installed && installed.total > 0 && <span className="ml-1 px-1.5 py-0.5 rounded-full bg-gray-100 dark:bg-white/10 text-xs">{installed.total}</span>}
         </button>
       </div>
 
@@ -2306,29 +1845,29 @@ function CommunityStoreTab() {
             <div className="space-y-3 rounded-2xl border border-indigo-500/20 bg-indigo-500/5 p-4">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-sm font-semibold text-white">✨ Recommended Starter Apps — ready to deploy</p>
-                  <p className="text-xs text-white/50">Simple, lightweight community apps that work well with the default setup.</p>
+                  <p className="text-sm font-semibold text-gray-900 dark:text-white">✨ Recommended Starter Apps — ready to deploy</p>
+                  <p className="text-xs text-gray-500 dark:text-white/50">Simple, lightweight community apps that work well with the default setup.</p>
                 </div>
                 <span className="hidden rounded-full border border-indigo-400/30 bg-indigo-400/10 px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-indigo-200 sm:inline-flex">Featured</span>
               </div>
               <div className="flex gap-3 overflow-x-auto pb-1 scrollbar-none">
                 {featuredApps.map((app) => (
-                  <div key={`featured-${app.slug}`} className="min-w-[260px] max-w-[260px] flex-shrink-0 rounded-xl border border-white/10 bg-white/5 p-4">
+                  <div key={`featured-${app.slug}`} className="min-w-[260px] max-w-[260px] flex-shrink-0 rounded-xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 p-4">
                     <div className="flex items-start gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-lg border border-white/10 bg-white/5">
+                      <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-lg border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5">
                         {app.icon ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img src={app.icon} alt="" className="h-8 w-8 object-contain" onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />
                         ) : (
-                          <Package className="h-5 w-5 text-white/30" />
+                          <Package className="h-5 w-5 text-gray-400 dark:text-white/30" />
                         )}
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
-                          <p className="truncate text-sm font-medium text-white">{app.name}</p>
+                          <p className="truncate text-sm font-medium text-gray-900 dark:text-white">{app.name}</p>
                           <span className="rounded-full border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-300">Featured</span>
                         </div>
-                        <p className="truncate text-xs text-white/40">{app.image}</p>
+                        <p className="truncate text-xs text-gray-400 dark:text-white/40">{app.image}</p>
                       </div>
                     </div>
                     <p className="mt-3 line-clamp-2 text-xs leading-relaxed text-white/55">{app.overview ?? "Reliable starter app for a fresh community apps setup."}</p>
@@ -2339,7 +1878,7 @@ function CommunityStoreTab() {
                     <button
                       onClick={() => setDeployApp(app)}
                       disabled={!canDeployCommunity}
-                      className="mt-4 flex min-h-[40px] w-full items-center justify-center gap-1.5 rounded-lg bg-indigo-600/80 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-indigo-500 disabled:opacity-50 touch-manipulation"
+                      className="mt-4 flex min-h-[40px] w-full items-center justify-center gap-1.5 rounded-lg bg-indigo-600/80 px-3 py-2 text-xs font-medium text-gray-900 dark:text-white transition-colors hover:bg-indigo-500 disabled:opacity-50 touch-manipulation"
                     >
                       <Globe className="h-3 w-3" /> {installedSlugs.has(app.slug) ? "Reconfigure" : "Quick deploy"}
                     </button>
@@ -2352,23 +1891,23 @@ function CommunityStoreTab() {
             {(Object.entries(TIER_CONFIG) as Array<[Tier, typeof TIER_CONFIG.simple]>).map(([key, cfg]) => (
               <button key={key} onClick={() => handleTier(tier === key ? "" : key)}
                 className={cn("flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-all",
-                  tier === key ? cfg.color : "text-white/40 bg-white/5 border-white/10 hover:border-white/30")}>
+                  tier === key ? cfg.color : "text-gray-400 dark:text-white/40 bg-gray-100 dark:bg-white/5 border-gray-200 dark:border-white/10 hover:border-white/30")}>
                 {cfg.icon} {cfg.label}
               </button>
             ))}
           </div>
           <div className="flex flex-col sm:flex-row gap-3">
             <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-white/40" />
               <input type="text" placeholder="Search apps, images, descriptions…" value={search} onChange={e => handleSearch(e.target.value)}
-                className="w-full bg-white/5 border border-white/10 focus:border-indigo-500/50 rounded-lg pl-10 pr-4 py-2.5 text-white text-sm placeholder-white/30 focus:outline-none transition-colors" />
+                className="w-full bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 focus:border-indigo-500/50 rounded-lg pl-10 pr-4 py-2.5 text-gray-900 dark:text-white text-sm placeholder-white/30 focus:outline-none transition-colors" />
             </div>
           </div>
           <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
             {COMMUNITY_CATEGORY_TABS.map((cat) => (
               <button key={cat.value} onClick={() => handleCategory(cat.value)}
                 className={cn("flex-shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-all border",
-                  category === cat.value ? "bg-indigo-600 text-white border-indigo-500" : "text-white/50 border-white/10 hover:border-white/30 hover:text-white/80")}>
+                  category === cat.value ? "bg-indigo-600 text-white border-indigo-500" : "text-gray-500 dark:text-white/50 border-gray-200 dark:border-white/10 hover:border-white/30 hover:text-white/80")}>
                 {cat.label}
               </button>
             ))}
@@ -2377,7 +1916,7 @@ function CommunityStoreTab() {
           {loading && !data && <div className="flex items-center justify-center h-64"><Loader2 className="w-8 h-8 text-indigo-400 animate-spin" /></div>}
           {data && (
             <>
-              <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-white/40">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-gray-400 dark:text-white/40">
                 <span>{storeApps.length.toLocaleString()} apps{debouncedSearch ? ` matching "${debouncedSearch}"` : ""}</span>
                 <span>Page {data.page} of {data.pages}</span>
               </div>
@@ -2394,7 +1933,7 @@ function CommunityStoreTab() {
                 ))}
               </div>
               {storeApps.length === 0 && !loading && (
-                <div className="text-center py-16 text-white/40">
+                <div className="text-center py-16 text-gray-400 dark:text-white/40">
                   <Package className="w-12 h-12 mx-auto mb-3 opacity-30" />
                   <p>No apps found. Try adjusting your search or filters.</p>
                 </div>
@@ -2402,24 +1941,24 @@ function CommunityStoreTab() {
               {data.pages > 1 && (
                 <div className="flex items-center justify-center gap-1.5 pt-4">
                   <button onClick={() => handlePage(page - 1)} disabled={page === 1}
-                    className="flex items-center gap-1 px-3 py-2 rounded-lg text-white/60 hover:text-white border border-white/10 hover:border-white/30 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm">
+                    className="flex items-center gap-1 px-3 py-2 rounded-lg text-gray-500 dark:text-white/60 hover:text-gray-900 dark:hover:text-white border border-gray-200 dark:border-white/10 hover:border-white/30 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm">
                     <ChevronLeft className="w-4 h-4" /><span className="hidden sm:inline">Prev</span>
                   </button>
-                  <span className="sm:hidden px-3 py-2 text-white/50 text-sm">{page} / {data.pages}</span>
+                  <span className="sm:hidden px-3 py-2 text-gray-500 dark:text-white/50 text-sm">{page} / {data.pages}</span>
                   <div className="hidden sm:flex items-center gap-1.5">
                     {Array.from({ length: Math.min(7, data.pages) }, (_, i) => {
                       const p = page <= 4 ? i + 1 : page >= data.pages - 3 ? data.pages - 6 + i : page - 3 + i;
                       if (p < 1 || p > data.pages) return null;
                       return (
                         <button key={p} onClick={() => handlePage(p)}
-                          className={cn("w-9 h-9 rounded-lg text-sm transition-colors", p === page ? "bg-indigo-600 text-white" : "text-white/50 hover:text-white border border-white/10 hover:border-white/30")}>
+                          className={cn("w-9 h-9 rounded-lg text-sm transition-colors", p === page ? "bg-indigo-600 text-white" : "text-gray-500 dark:text-white/50 hover:text-gray-900 dark:hover:text-white border border-gray-200 dark:border-white/10 hover:border-white/30")}>
                           {p}
                         </button>
                       );
                     })}
                   </div>
                   <button onClick={() => handlePage(page + 1)} disabled={page === data.pages}
-                    className="flex items-center gap-1 px-3 py-2 rounded-lg text-white/60 hover:text-white border border-white/10 hover:border-white/30 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm">
+                    className="flex items-center gap-1 px-3 py-2 rounded-lg text-gray-500 dark:text-white/60 hover:text-gray-900 dark:hover:text-white border border-gray-200 dark:border-white/10 hover:border-white/30 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm">
                     <span className="hidden sm:inline">Next</span><ChevronRight className="w-4 h-4" />
                   </button>
                 </div>
@@ -2440,7 +1979,7 @@ function CommunityStoreTab() {
           {installedError && <div className="flex items-center gap-2 p-4 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm"><AlertTriangle className="w-4 h-4" /> {installedError}</div>}
           {installedLoading && !installed && <div className="flex items-center justify-center h-64"><Loader2 className="w-8 h-8 text-indigo-400 animate-spin" /></div>}
           {installed && installed.total === 0 && (
-            <div className="text-center py-20 text-white/40">
+            <div className="text-center py-20 text-gray-400 dark:text-white/40">
               <Package className="w-14 h-14 mx-auto mb-4 opacity-20" />
               <p className="text-lg font-medium">No apps installed yet</p>
               <p className="text-sm mt-1">Browse the <button onClick={() => setStoreTab("store")} className="text-indigo-400 hover:underline">Store</button> and deploy your first app</p>
@@ -2451,35 +1990,35 @@ function CommunityStoreTab() {
               {installed.apps.map(app => {
                 const tierCfg = TIER_CONFIG[app.tier as Tier] ?? TIER_CONFIG.simple;
                 return (
-                  <div key={app.slug} className="group bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.07] hover:border-white/20 rounded-xl p-4 flex flex-col gap-3 transition-all duration-200">
+                  <div key={app.slug} className="group bg-gray-100 dark:bg-white/[0.03] hover:bg-gray-100 dark:hover:bg-white/[0.06] border border-white/[0.07] hover:border-white/20 rounded-xl p-4 flex flex-col gap-3 transition-all duration-200">
                     <div className="flex items-start gap-3">
-                      <div className="w-10 h-10 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center flex-shrink-0">
+                      <div className="w-10 h-10 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 flex items-center justify-center flex-shrink-0">
                         <Package className="w-5 h-5 text-indigo-400/70" />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-white font-medium text-sm truncate">{app.name}</p>
-                        <p className="text-white/40 text-xs truncate">{app.namespace}</p>
+                        <p className="text-gray-900 dark:text-white font-medium text-sm truncate">{app.name}</p>
+                        <p className="text-gray-400 dark:text-white/40 text-xs truncate">{app.namespace}</p>
                       </div>
                       <span className={cn("flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] font-medium flex-shrink-0", tierCfg.color)}>
                         {tierCfg.icon} {tierCfg.label}
                       </span>
                     </div>
-                    {app.description && <p className="text-white/50 text-xs leading-relaxed line-clamp-2">{app.description}</p>}
-                    {app.image && <p className="text-white/30 text-[10px] truncate font-mono">{app.image}</p>}
+                    {app.description && <p className="text-gray-500 dark:text-white/50 text-xs leading-relaxed line-clamp-2">{app.description}</p>}
+                    {app.image && <p className="text-gray-400 dark:text-white/30 text-[10px] truncate font-mono">{app.image}</p>}
                     <div className="flex items-center gap-2 flex-wrap">
                       {app.categories.slice(0, 2).map(cat => (
-                        <span key={cat} className="px-1.5 py-0.5 rounded bg-white/5 text-white/40 text-[10px]">{cat.replace(/:/g, " › ")}</span>
+                        <span key={cat} className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-white/5 text-gray-400 dark:text-white/40 text-[10px]">{cat.replace(/:/g, " › ")}</span>
                       ))}
                     </div>
                     <div className="flex gap-2 mt-auto pt-1">
                       {app.ingressHost && (
                         <a href={`https://${app.ingressHost}`} target="_blank" rel="noopener noreferrer"
-                          className="flex items-center gap-1 px-2 py-1.5 rounded text-xs text-white/50 hover:text-white border border-white/10 hover:border-white/30 transition-colors">
+                          className="flex items-center gap-1 px-2 py-1.5 rounded text-xs text-gray-500 dark:text-white/50 hover:text-gray-900 dark:hover:text-white border border-gray-200 dark:border-white/10 hover:border-white/30 transition-colors">
                           <ExternalLink className="w-3 h-3" /> Open
                         </a>
                       )}
                       <a href={`https://github.com/Werewolf-p/InfraWeaver-platform/tree/main/${app.manifestsPath}`} target="_blank" rel="noopener noreferrer"
-                        className="flex items-center gap-1 px-2 py-1.5 rounded text-xs text-white/50 hover:text-white border border-white/10 hover:border-white/30 transition-colors">
+                        className="flex items-center gap-1 px-2 py-1.5 rounded text-xs text-gray-500 dark:text-white/50 hover:text-gray-900 dark:hover:text-white border border-gray-200 dark:border-white/10 hover:border-white/30 transition-colors">
                         <GitBranch className="w-3 h-3" /> Manifests
                       </a>
                       {app.installedAt && <span className="ml-auto text-white/25 text-[10px] self-center">{new Date(app.installedAt).toLocaleDateString()}</span>}
@@ -2553,7 +2092,7 @@ export default function AppsPage() {
       />
 
       {/* Top tabs */}
-      <div className="flex gap-1 overflow-x-auto border-b border-[#2a2a2a] scrollbar-none touch-pan-x">
+      <div className="flex gap-1 overflow-x-auto border-b border-gray-200 dark:border-[#2a2a2a] scrollbar-none touch-pan-x">
         {TOP_TABS.map(tab => {
           const Icon = tab.icon;
           return (
@@ -2564,7 +2103,7 @@ export default function AppsPage() {
                 "flex min-h-[40px] flex-shrink-0 items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-medium transition-colors -mb-px",
                 activeTab === tab.value
                   ? "border-[#0078D4] text-[#0078D4]"
-                  : "border-transparent text-[#9e9e9e] hover:text-[#f2f2f2]"
+                  : "border-transparent text-gray-500 dark:text-[#9e9e9e] hover:text-gray-900 dark:hover:text-[#f2f2f2]"
               )}
             >
               <Icon className="w-4 h-4" />
@@ -2606,34 +2145,34 @@ export default function AppsPage() {
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.95, y: 16 }}
                 transition={{ duration: 0.15 }}
-                className="bg-[#1a1a1a] border border-[#333] rounded-2xl p-6 w-full max-w-sm shadow-2xl"
+                className="bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-[#333] rounded-2xl p-6 w-full max-w-sm shadow-2xl"
                 onClick={e => e.stopPropagation()}
               >
                 <div className="flex items-center justify-between mb-5">
-                  <h2 className="text-base font-semibold text-white">Choose Install Source</h2>
-                  <button onClick={() => setShowInstallModal(false)} className="text-[#666] hover:text-white transition-colors">
+                  <h2 className="text-base font-semibold text-gray-900 dark:text-white">Choose Install Source</h2>
+                  <button onClick={() => setShowInstallModal(false)} className="text-gray-400 dark:text-[#666] hover:text-gray-900 dark:hover:text-white transition-colors">
                     <X className="w-5 h-5" />
                   </button>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     onClick={() => { setShowInstallModal(false); setActiveTab("catalog"); }}
-                    className="flex flex-col items-center gap-3 p-5 rounded-xl border border-[#333] hover:border-indigo-500/50 hover:bg-indigo-500/10 transition-all group"
+                    className="flex flex-col items-center gap-3 p-5 rounded-xl border border-gray-200 dark:border-[#333] hover:border-indigo-500/50 hover:bg-indigo-500/10 transition-all group"
                   >
-                    <Package className="w-8 h-8 text-[#9e9e9e] group-hover:text-indigo-400 transition-colors" />
+                    <Package className="w-8 h-8 text-gray-500 dark:text-[#9e9e9e] group-hover:text-indigo-400 transition-colors" />
                     <div className="text-center">
-                      <p className="text-sm font-medium text-white">Platform Catalog</p>
-                      <p className="text-xs text-[#666] mt-0.5">Helm &amp; Git apps</p>
+                      <p className="text-sm font-medium text-gray-900 dark:text-white">Platform Catalog</p>
+                      <p className="text-xs text-gray-400 dark:text-[#666] mt-0.5">Helm &amp; Git apps</p>
                     </div>
                   </button>
                   <button
                     onClick={() => { setShowInstallModal(false); setActiveTab("community"); }}
-                    className="flex flex-col items-center gap-3 p-5 rounded-xl border border-[#333] hover:border-purple-500/50 hover:bg-purple-500/10 transition-all group"
+                    className="flex flex-col items-center gap-3 p-5 rounded-xl border border-gray-200 dark:border-[#333] hover:border-purple-500/50 hover:bg-purple-500/10 transition-all group"
                   >
-                    <Store className="w-8 h-8 text-[#9e9e9e] group-hover:text-purple-400 transition-colors" />
+                    <Store className="w-8 h-8 text-gray-500 dark:text-[#9e9e9e] group-hover:text-purple-400 transition-colors" />
                     <div className="text-center">
-                      <p className="text-sm font-medium text-white">Community Store</p>
-                      <p className="text-xs text-[#666] mt-0.5">3,500+ UnrAid apps</p>
+                      <p className="text-sm font-medium text-gray-900 dark:text-white">Community Store</p>
+                      <p className="text-xs text-gray-400 dark:text-[#666] mt-0.5">3,500+ UnrAid apps</p>
                     </div>
                   </button>
                 </div>

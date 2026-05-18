@@ -58,27 +58,27 @@ export default function LogAnalyticsPage() {
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
       <PageHeader icon={BarChart2} title="Log Analytics" />
       <div>
-        <h2 className="text-xl font-bold text-white flex items-center gap-2"><FileText className="w-5 h-5 text-slate-400" />Log Analytics</h2>
-        <p className="text-sm text-slate-400">Analyze log patterns and error distribution</p>
+        <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2"><FileText className="w-5 h-5 text-slate-500 dark:text-slate-400" />Log Analytics</h2>
+        <p className="text-sm text-slate-500 dark:text-slate-400">Analyze log patterns and error distribution</p>
       </div>
-      <div className="bg-slate-900/60 border border-white/10 rounded-xl backdrop-blur-sm p-4 space-y-3">
+      <div className="bg-slate-100 dark:bg-slate-900/60 border border-gray-200 dark:border-white/10 rounded-xl backdrop-blur-sm p-4 space-y-3">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <div>
-            <label className="text-xs text-slate-400 mb-1 block">Namespace</label>
-            <select value={selectedNs} onChange={e => { setSelectedNs(e.target.value); setSelectedPod(""); setSelectedContainer(""); setAnalyze(false); }} className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-white outline-none focus:border-indigo-500/50">
+            <label className="text-xs text-slate-500 dark:text-slate-400 mb-1 block">Namespace</label>
+            <select value={selectedNs} onChange={e => { setSelectedNs(e.target.value); setSelectedPod(""); setSelectedContainer(""); setAnalyze(false); }} className="w-full px-3 py-2 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-sm text-gray-900 dark:text-white outline-none focus:border-indigo-500/50">
               {namespaces.map(ns => <option key={ns} value={ns}>{ns}</option>)}
             </select>
           </div>
           <div>
-            <label className="text-xs text-slate-400 mb-1 block">Pod</label>
-            <select value={selectedPod} onChange={e => { setSelectedPod(e.target.value); setSelectedContainer(""); setAnalyze(false); }} className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-white outline-none focus:border-indigo-500/50">
+            <label className="text-xs text-slate-500 dark:text-slate-400 mb-1 block">Pod</label>
+            <select value={selectedPod} onChange={e => { setSelectedPod(e.target.value); setSelectedContainer(""); setAnalyze(false); }} className="w-full px-3 py-2 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-sm text-gray-900 dark:text-white outline-none focus:border-indigo-500/50">
               <option value="">Select pod...</option>
               {nsPods.map(p => <option key={p.name} value={p.name}>{p.name}</option>)}
             </select>
           </div>
           <div>
-            <label className="text-xs text-slate-400 mb-1 block">Container</label>
-            <select value={selectedContainer} onChange={e => { setSelectedContainer(e.target.value); setAnalyze(false); }} className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-white outline-none focus:border-indigo-500/50">
+            <label className="text-xs text-slate-500 dark:text-slate-400 mb-1 block">Container</label>
+            <select value={selectedContainer} onChange={e => { setSelectedContainer(e.target.value); setAnalyze(false); }} className="w-full px-3 py-2 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-sm text-gray-900 dark:text-white outline-none focus:border-indigo-500/50">
               <option value="">Select container...</option>
               {(selectedPodObj?.containers ?? []).map(c => <option key={c} value={c}>{c}</option>)}
             </select>
@@ -89,13 +89,13 @@ export default function LogAnalyticsPage() {
         </button>
       </div>
 
-      {analyze && isLoading && <div className="h-48 bg-white/5 rounded-xl animate-pulse" />}
+      {analyze && isLoading && <div className="h-48 bg-gray-100 dark:bg-white/5 rounded-xl animate-pulse" />}
 
       {analytics && (
         <>
           <div className="grid grid-cols-2 gap-4">
-            <div className="bg-slate-900/60 border border-white/10 rounded-xl backdrop-blur-sm p-4">
-              <h3 className="text-sm font-semibold text-white mb-3">Log Level Distribution</h3>
+            <div className="bg-slate-100 dark:bg-slate-900/60 border border-gray-200 dark:border-white/10 rounded-xl backdrop-blur-sm p-4">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">Log Level Distribution</h3>
               <ResponsiveContainer width="100%" height={180}>
                 <PieChart>
                   <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={70}>
@@ -105,8 +105,8 @@ export default function LogAnalyticsPage() {
                 </PieChart>
               </ResponsiveContainer>
             </div>
-            <div className="bg-slate-900/60 border border-white/10 rounded-xl backdrop-blur-sm p-4">
-              <h3 className="text-sm font-semibold text-white mb-3">Counts by Level</h3>
+            <div className="bg-slate-100 dark:bg-slate-900/60 border border-gray-200 dark:border-white/10 rounded-xl backdrop-blur-sm p-4">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">Counts by Level</h3>
               <ResponsiveContainer width="100%" height={180}>
                 <BarChart data={barData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
@@ -118,8 +118,8 @@ export default function LogAnalyticsPage() {
               </ResponsiveContainer>
             </div>
           </div>
-          <div className="bg-slate-900/60 border border-white/10 rounded-xl backdrop-blur-sm p-4">
-            <h3 className="text-sm font-semibold text-white mb-3">Top Errors ({analytics.topErrors.length})</h3>
+          <div className="bg-slate-100 dark:bg-slate-900/60 border border-gray-200 dark:border-white/10 rounded-xl backdrop-blur-sm p-4">
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">Top Errors ({analytics.topErrors.length})</h3>
             {analytics.topErrors.length === 0 ? (
               <p className="text-sm text-green-400">No errors found</p>
             ) : (

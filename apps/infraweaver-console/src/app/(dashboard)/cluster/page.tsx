@@ -175,37 +175,37 @@ function MigratePodModal({
         initial={{ scale: 0.95, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         onClick={e => e.stopPropagation()}
-        className="w-full max-w-md bg-slate-900 border border-white/10 rounded-xl shadow-2xl overflow-hidden"
+        className="w-full max-w-md bg-slate-100 dark:bg-slate-900 border border-gray-200 dark:border-white/10 rounded-xl shadow-2xl overflow-hidden"
       >
-        <div className="p-5 border-b border-white/10">
+        <div className="p-5 border-b border-gray-200 dark:border-white/10">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <ArrowRightLeft className="w-4 h-4 text-indigo-400" />
-              <h3 className="text-base font-semibold text-white">Migrate Pod</h3>
+              <h3 className="text-base font-semibold text-gray-900 dark:text-white">Migrate Pod</h3>
             </div>
-            <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors"><X className="w-4 h-4" /></button>
+            <button onClick={onClose} className="text-slate-500 hover:text-gray-900 dark:hover:text-white transition-colors"><X className="w-4 h-4" /></button>
           </div>
-          <p className="text-xs text-slate-400 mt-1 font-mono">{pod.namespace}/{pod.name}</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 font-mono">{pod.namespace}/{pod.name}</p>
         </div>
 
         <div className="p-5 space-y-4">
-          <div className="bg-white/5 rounded-lg p-3 space-y-1.5 text-xs">
+          <div className="bg-gray-100 dark:bg-white/5 rounded-lg p-3 space-y-1.5 text-xs">
             <div className="flex justify-between">
-              <span className="text-slate-400">Current node</span>
-              <span className="text-white font-mono">{pod.node}</span>
+              <span className="text-slate-500 dark:text-slate-400">Current node</span>
+              <span className="text-gray-900 dark:text-white font-mono">{pod.node}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-slate-400">Pod memory usage</span>
-              <span className="text-white">{pod.memoryMi > 0 ? `~${pod.memoryMi} Mi` : "unknown"}</span>
+              <span className="text-slate-500 dark:text-slate-400">Pod memory usage</span>
+              <span className="text-gray-900 dark:text-white">{pod.memoryMi > 0 ? `~${pod.memoryMi} Mi` : "unknown"}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-slate-400">Owner</span>
-              <span className="text-slate-300">{pod.ownerKind}: {pod.ownerName}</span>
+              <span className="text-slate-500 dark:text-slate-400">Owner</span>
+              <span className="text-slate-700 dark:text-slate-300">{pod.ownerKind}: {pod.ownerName}</span>
             </div>
           </div>
 
           <div>
-            <label className="text-xs font-medium text-slate-300 mb-2 block">Target node</label>
+            <label className="text-xs font-medium text-slate-700 dark:text-slate-300 mb-2 block">Target node</label>
             <div className="space-y-2">
               {eligibleNodes.length === 0 && (
                 <p className="text-xs text-slate-500 text-center py-3">No other Ready nodes available</p>
@@ -225,13 +225,13 @@ function MigratePodModal({
                       targetNode === node.name
                         ? "border-indigo-500/60 bg-indigo-500/15"
                         : fits
-                          ? "border-white/10 bg-white/5 hover:border-white/20 hover:bg-white/8"
+                          ? "border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 hover:border-white/20 hover:bg-white/8"
                           : "border-red-500/20 bg-red-500/5 opacity-60 cursor-not-allowed",
                     )}
                   >
                     <div>
-                      <p className="text-sm font-medium text-white">{node.name.replace("talos-", "")}</p>
-                      <p className="text-xs text-slate-400 mt-0.5">
+                      <p className="text-sm font-medium text-gray-900 dark:text-white">{node.name.replace("talos-", "")}</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                         {node.availableMi} Mi free of {node.allocatableMi} Mi allocatable
                       </p>
                     </div>
@@ -265,7 +265,7 @@ function MigratePodModal({
             {migrating ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRightLeft className="w-4 h-4" />}
             {migrating ? "Migrating…" : "Migrate Pod"}
           </button>
-          <button onClick={onClose} className="px-4 py-2.5 rounded-lg border border-white/10 text-sm text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+          <button onClick={onClose} className="px-4 py-2.5 rounded-lg border border-gray-200 dark:border-white/10 text-sm text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/5 transition-colors">
             Cancel
           </button>
         </div>
@@ -298,15 +298,15 @@ function NodePodSection({
   const pct = nodeCapacity.usedPct;
 
   return (
-    <div className="rounded-xl border border-white/10 bg-white/5 overflow-hidden">
-      <div className="flex items-center justify-between p-3 border-b border-white/10">
+    <div className="rounded-xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 overflow-hidden">
+      <div className="flex items-center justify-between p-3 border-b border-gray-200 dark:border-white/10">
         <div className="flex items-center gap-2">
           <span className={cn("w-2 h-2 rounded-full flex-shrink-0", nodeCapacity.status === "Ready" ? "bg-green-500" : "bg-red-500")} />
-          <span className="text-sm font-semibold text-white">{nodeCapacity.name.replace("talos-", "")}</span>
+          <span className="text-sm font-semibold text-gray-900 dark:text-white">{nodeCapacity.name.replace("talos-", "")}</span>
           <span className="text-xs text-slate-500">{pods.length} pods</span>
         </div>
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5 text-xs text-slate-400">
+          <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
             <MemoryStick className="w-3 h-3" />
             <span>{nodeCapacity.usedMi} / {nodeCapacity.allocatableMi} Mi</span>
             <span className={cn("px-1.5 py-0.5 rounded font-medium",
@@ -322,19 +322,19 @@ function NodePodSection({
 
       <div className="divide-y divide-white/5">
         {displayed.map(pod => (
-          <div key={`${pod.namespace}/${pod.name}`} className="flex items-center gap-3 px-3 py-2 hover:bg-white/5 transition-colors">
+          <div key={`${pod.namespace}/${pod.name}`} className="flex items-center gap-3 px-3 py-2 hover:bg-gray-100 dark:hover:bg-white/5 transition-colors">
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-1.5">
-                <span className="text-xs text-white font-mono truncate">{pod.name}</span>
+                <span className="text-xs text-gray-900 dark:text-white font-mono truncate">{pod.name}</span>
               </div>
               <span className="text-[11px] text-slate-500">{pod.namespace}</span>
             </div>
-            <div className="flex items-center gap-2 text-xs text-slate-400 flex-shrink-0">
+            <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 flex-shrink-0">
               {pod.memoryMi > 0 && (
-                <span className="bg-slate-800 px-1.5 py-0.5 rounded">{pod.memoryMi} Mi</span>
+                <span className="bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">{pod.memoryMi} Mi</span>
               )}
               {pod.cpuMillicores > 0 && (
-                <span className="bg-slate-800 px-1.5 py-0.5 rounded">{pod.cpuMillicores}m</span>
+                <span className="bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">{pod.cpuMillicores}m</span>
               )}
               {isAdmin && pod.canMigrate && (
                 <button
@@ -356,7 +356,7 @@ function NodePodSection({
       {pods.length > PAGE && (
         <button
           onClick={() => setShowAll(v => !v)}
-          className="w-full flex items-center justify-center gap-1 py-2 text-xs text-slate-500 hover:text-white hover:bg-white/5 transition-colors border-t border-white/10"
+          className="w-full flex items-center justify-center gap-1 py-2 text-xs text-slate-500 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/5 transition-colors border-t border-gray-200 dark:border-white/10"
         >
           <ChevronDown className={cn("w-3.5 h-3.5 transition-transform", showAll && "rotate-180")} />
           {showAll ? `Show fewer` : `${pods.length - PAGE} more pods`}
@@ -364,7 +364,7 @@ function NodePodSection({
       )}
 
       {movable.length > 0 && !showAll && pods.length <= PAGE && (
-        <div className="px-3 py-2 border-t border-white/10">
+        <div className="px-3 py-2 border-t border-gray-200 dark:border-white/10">
           <p className="text-[11px] text-slate-500">{movable.length} pod{movable.length !== 1 ? "s" : ""} can be migrated</p>
         </div>
       )}
@@ -399,7 +399,7 @@ function heatBarColor(pct: number): string {
 function CopyBtn({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   return (
-    <button onClick={() => { void navigator.clipboard.writeText(text); toast.success("Copied"); setCopied(true); setTimeout(() => setCopied(false), 2000); }} className="ml-2 text-slate-500 hover:text-slate-300 transition-colors flex-shrink-0">
+    <button onClick={() => { void navigator.clipboard.writeText(text); toast.success("Copied"); setCopied(true); setTimeout(() => setCopied(false), 2000); }} className="ml-2 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors flex-shrink-0">
       {copied ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
     </button>
   );
@@ -407,7 +407,7 @@ function CopyBtn({ text }: { text: string }) {
 
 function CodeBlock({ code }: { code: string }) {
   return (
-    <div className="flex items-center bg-slate-950 rounded-lg border border-white/5 p-3 font-mono text-xs text-slate-300 overflow-x-auto">
+    <div className="flex items-center bg-slate-100 dark:bg-slate-950 rounded-lg border border-gray-200 dark:border-white/5 p-3 font-mono text-xs text-slate-700 dark:text-slate-300 overflow-x-auto">
       <code className="flex-1">{code}</code>
       <CopyBtn text={code} />
     </div>
@@ -433,12 +433,12 @@ function NodeHeatCard({ node, metric }: { node?: Node; metric?: NodeMetric }) {
           <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" />
         </span>
       )}
-      <p className="text-xs font-semibold text-white truncate mb-2">{name.replace("talos-", "")}</p>
+      <p className="text-xs font-semibold text-gray-900 dark:text-white truncate mb-2">{name.replace("talos-", "")}</p>
       <div className="space-y-1.5">
         <div>
           <div className="flex justify-between text-[10px] mb-0.5">
-            <span className="text-slate-400">CPU</span>
-            <span className="text-slate-300">{cpuPct}%</span>
+            <span className="text-slate-500 dark:text-slate-400">CPU</span>
+            <span className="text-slate-700 dark:text-slate-300">{cpuPct}%</span>
           </div>
           <div className="h-1 rounded-full bg-black/30 overflow-hidden">
             <div className={cn("h-full rounded-full transition-all", heatBarColor(cpuPct))} style={{ width: `${cpuPct}%` }} />
@@ -446,8 +446,8 @@ function NodeHeatCard({ node, metric }: { node?: Node; metric?: NodeMetric }) {
         </div>
         <div>
           <div className="flex justify-between text-[10px] mb-0.5">
-            <span className="text-slate-400">MEM</span>
-            <span className="text-slate-300">{memPct}%</span>
+            <span className="text-slate-500 dark:text-slate-400">MEM</span>
+            <span className="text-slate-700 dark:text-slate-300">{memPct}%</span>
           </div>
           <div className="h-1 rounded-full bg-black/30 overflow-hidden">
             <div className={cn("h-full rounded-full transition-all", heatBarColor(memPct))} style={{ width: `${memPct}%` }} />
@@ -457,12 +457,12 @@ function NodeHeatCard({ node, metric }: { node?: Node; metric?: NodeMetric }) {
       <AnimatePresence>
         {showTip && (
           <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-            className="absolute z-20 bottom-full left-0 mb-2 w-44 bg-slate-900 border border-white/15 rounded-lg p-2.5 shadow-xl pointer-events-none">
-            <p className="text-xs font-semibold text-white mb-1.5">{name}</p>
+            className="absolute z-20 bottom-full left-0 mb-2 w-44 bg-slate-100 dark:bg-slate-900 border border-white/15 rounded-lg p-2.5 shadow-xl pointer-events-none">
+            <p className="text-xs font-semibold text-gray-900 dark:text-white mb-1.5">{name}</p>
             <div className="space-y-1 text-xs">
-              <div className="flex justify-between"><span className="text-slate-400">CPU</span><span className="text-white">{cpuPct}% ({metric?.cpuMillicores ?? 0}m)</span></div>
-              <div className="flex justify-between"><span className="text-slate-400">Memory</span><span className="text-white">{memPct}%</span></div>
-              {node && <div className="flex justify-between"><span className="text-slate-400">Version</span><span className="text-slate-300">{node.version}</span></div>}
+              <div className="flex justify-between"><span className="text-slate-500 dark:text-slate-400">CPU</span><span className="text-gray-900 dark:text-white">{cpuPct}% ({metric?.cpuMillicores ?? 0}m)</span></div>
+              <div className="flex justify-between"><span className="text-slate-500 dark:text-slate-400">Memory</span><span className="text-gray-900 dark:text-white">{memPct}%</span></div>
+              {node && <div className="flex justify-between"><span className="text-slate-500 dark:text-slate-400">Version</span><span className="text-slate-700 dark:text-slate-300">{node.version}</span></div>}
             </div>
           </motion.div>
         )}
@@ -497,30 +497,30 @@ function HPARow({ hpa, isAdmin, onSaved }: { hpa: HPA; isAdmin: boolean; onSaved
   };
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center gap-3 p-3 rounded-lg bg-white/5 border border-white/10 text-sm flex-wrap">
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center gap-3 p-3 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-sm flex-wrap">
       <div className="flex-1 min-w-0">
-        <p className="text-white font-medium truncate">{hpa.name}</p>
+        <p className="text-gray-900 dark:text-white font-medium truncate">{hpa.name}</p>
         <p className="text-xs text-slate-500">{hpa.namespace}</p>
       </div>
-      <div className="flex items-center gap-2 text-xs text-slate-400">
+      <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
         <span className="bg-indigo-500/10 text-indigo-400 px-2 py-0.5 rounded">{hpa.currentReplicas}/{hpa.desiredReplicas} pods</span>
         {hpa.targetCpuPct > 0 && <span className="bg-slate-500/10 px-2 py-0.5 rounded">{hpa.targetCpuPct}% CPU target</span>}
       </div>
       {editing ? (
         <div className="flex items-center gap-2">
-          <label className="text-xs text-slate-400">Min</label>
-          <input type="number" min={1} value={minVal} onChange={e => setMinVal(+e.target.value)} className="w-14 bg-slate-800 border border-white/10 rounded px-2 py-0.5 text-sm text-white text-center focus:outline-none focus:border-indigo-500/50" />
-          <label className="text-xs text-slate-400">Max</label>
-          <input type="number" min={minVal} value={maxVal} onChange={e => setMaxVal(+e.target.value)} className="w-14 bg-slate-800 border border-white/10 rounded px-2 py-0.5 text-sm text-white text-center focus:outline-none focus:border-indigo-500/50" />
+          <label className="text-xs text-slate-500 dark:text-slate-400">Min</label>
+          <input type="number" min={1} value={minVal} onChange={e => setMinVal(+e.target.value)} className="w-14 bg-slate-100 dark:bg-slate-800 border border-gray-200 dark:border-white/10 rounded px-2 py-0.5 text-sm text-gray-900 dark:text-white text-center focus:outline-none focus:border-indigo-500/50" />
+          <label className="text-xs text-slate-500 dark:text-slate-400">Max</label>
+          <input type="number" min={minVal} value={maxVal} onChange={e => setMaxVal(+e.target.value)} className="w-14 bg-slate-100 dark:bg-slate-800 border border-gray-200 dark:border-white/10 rounded px-2 py-0.5 text-sm text-gray-900 dark:text-white text-center focus:outline-none focus:border-indigo-500/50" />
           <button onClick={handleSave} disabled={saving} className="p-1 rounded text-green-400 hover:bg-green-500/10 transition-colors disabled:opacity-50">
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
           </button>
-          <button onClick={() => setEditing(false)} className="p-1 rounded text-slate-400 hover:bg-white/5 transition-colors"><X className="w-4 h-4" /></button>
+          <button onClick={() => setEditing(false)} className="p-1 rounded text-slate-500 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-white/5 transition-colors"><X className="w-4 h-4" /></button>
         </div>
       ) : (
         <div className="flex items-center gap-2">
-          <span className="text-xs text-slate-400">{hpa.minReplicas}–{hpa.maxReplicas} replicas</span>
-          {isAdmin && <button onClick={() => setEditing(true)} className="p-1 rounded text-slate-500 hover:text-white hover:bg-white/5 transition-colors"><Pencil className="w-3.5 h-3.5" /></button>}
+          <span className="text-xs text-slate-500 dark:text-slate-400">{hpa.minReplicas}–{hpa.maxReplicas} replicas</span>
+          {isAdmin && <button onClick={() => setEditing(true)} className="p-1 rounded text-slate-500 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/5 transition-colors"><Pencil className="w-3.5 h-3.5" /></button>}
         </div>
       )}
     </motion.div>
@@ -727,9 +727,9 @@ export default function ClusterPage() {
   if (activeId === "all") {
     return (
       <div className="flex flex-col items-center justify-center py-24 text-center">
-        <Globe className="mb-4 h-10 w-10 text-[#333]" />
-        <p className="text-sm font-medium text-[#666]">Select a specific cluster to view this page</p>
-        <p className="mt-1 text-xs text-[#444]">Use the cluster selector in the top bar</p>
+        <Globe className="mb-4 h-10 w-10 text-gray-700 dark:text-[#333]" />
+        <p className="text-sm font-medium text-gray-400 dark:text-[#666]">Select a specific cluster to view this page</p>
+        <p className="mt-1 text-xs text-gray-400 dark:text-[#444]">Use the cluster selector in the top bar</p>
       </div>
     );
   }
@@ -853,34 +853,34 @@ export default function ClusterPage() {
               <Server className="w-5 h-5 text-indigo-400" />
               Cluster Management
             </h2>
-            <p className="text-sm text-slate-400 mt-0.5">Node status and cluster operations</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Node status and cluster operations</p>
           </div>
           <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
-            <Link href="/node-top" className="flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-300 transition-colors hover:bg-white/10 hover:text-white active:scale-95 touch-manipulation sm:flex-none">
+            <Link href="/node-top" className="flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-lg border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-3 py-2 text-sm text-slate-700 dark:text-slate-300 transition-colors hover:bg-gray-100 dark:hover:bg-white/10 hover:text-gray-900 dark:hover:text-white active:scale-95 touch-manipulation sm:flex-none">
               <Activity className="w-3.5 h-3.5" />
               Node Top
             </Link>
-            <Link href="/pipelines" className="flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-300 transition-colors hover:bg-white/10 hover:text-white active:scale-95 touch-manipulation sm:flex-none">
+            <Link href="/pipelines" className="flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-lg border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-3 py-2 text-sm text-slate-700 dark:text-slate-300 transition-colors hover:bg-gray-100 dark:hover:bg-white/10 hover:text-gray-900 dark:hover:text-white active:scale-95 touch-manipulation sm:flex-none">
               <GitBranch className="w-3.5 h-3.5" />
               Pipelines
             </Link>
-            <button onClick={handleExportYaml} className="flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-300 transition-colors hover:bg-white/10 hover:text-white active:scale-95 touch-manipulation sm:flex-none">
+            <button onClick={handleExportYaml} className="flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-lg border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-3 py-2 text-sm text-slate-700 dark:text-slate-300 transition-colors hover:bg-gray-100 dark:hover:bg-white/10 hover:text-gray-900 dark:hover:text-white active:scale-95 touch-manipulation sm:flex-none">
               <Download className="w-3.5 h-3.5" />
               Export YAML
             </button>
-            <div className="flex min-h-[44px] items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-300">
-              <span className="text-xs text-slate-400">Metrics</span>
+            <div className="flex min-h-[44px] items-center gap-2 rounded-lg border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-3 py-2 text-sm text-slate-700 dark:text-slate-300">
+              <span className="text-xs text-slate-500 dark:text-slate-400">Metrics</span>
               <select
                 value={metricsRefreshSeconds}
                 onChange={(event) => setMetricsRefreshSeconds(Number(event.target.value))}
-                className="bg-transparent text-sm text-white focus:outline-none"
+                className="bg-transparent text-sm text-gray-900 dark:text-white focus:outline-none"
               >
                 {[15, 30, 60].map((seconds) => (
-                  <option key={seconds} value={seconds} className="bg-slate-900">{seconds}s</option>
+                  <option key={seconds} value={seconds} className="bg-slate-100 dark:bg-slate-900">{seconds}s</option>
                 ))}
               </select>
             </div>
-            <button onClick={() => { void refetch(); void refetchMetrics(); void refetchHpa(); void refetchNodePods(); void refetchQuota(); void refetchEvents(); void refetchPdbs(); }} className="flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-300 transition-colors hover:bg-white/10 hover:text-white active:scale-95 touch-manipulation sm:flex-none">
+            <button onClick={() => { void refetch(); void refetchMetrics(); void refetchHpa(); void refetchNodePods(); void refetchQuota(); void refetchEvents(); void refetchPdbs(); }} className="flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-lg border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-3 py-2 text-sm text-slate-700 dark:text-slate-300 transition-colors hover:bg-gray-100 dark:hover:bg-white/10 hover:text-gray-900 dark:hover:text-white active:scale-95 touch-manipulation sm:flex-none">
               <RefreshCw className="w-3.5 h-3.5" />
               Refresh
             </button>
@@ -896,13 +896,13 @@ export default function ClusterPage() {
             <DashboardStatCard label="Memory pressure" value={`${avgMem}%`} icon={MemoryStick} tone={avgMem >= 70 ? "warning" : "success"} description="Average memory usage across node metrics." trendData={memHistory.map((point) => ({ label: point.time, value: point.value }))} trendTone={avgMem >= 70 ? "amber" : "emerald"} trendLabel="Cluster memory pressure trend" footer={<span>{totalMigratablePods} migratable pod(s) available</span>} />
             <DashboardStatCard label="Quota hotspots" value={hotQuotas.length} icon={BarChart2} tone={hotQuotas.some(quota => quota.peak >= 85) ? "danger" : "neutral"} description="Namespaces close to quota exhaustion." trendData={memHistory.map((point) => ({ label: point.time, value: hotQuotas.length }))} trendTone={hotQuotas.some(quota => quota.peak >= 85) ? "red" : "slate"} trendLabel="Quota hotspot count trend" footer={<span>{recentEvents.filter(event => event.type === "Warning").length} recent warning event(s)</span>} />
           </div>
-          <div className="rounded-2xl border border-[#2a2a2a] bg-[#141414] p-4">
+          <div className="rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#141414] p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <p className="text-sm font-semibold text-white">Node capacity distribution</p>
+                <p className="text-sm font-semibold text-gray-900 dark:text-white">Node capacity distribution</p>
                 <p className="text-xs text-slate-500">Healthy, cordoned, and high-pressure nodes grouped into one quick view.</p>
               </div>
-              <button onClick={() => { void refetch(); void refetchMetrics(); void refetchHpa(); void refetchNodePods(); void refetchQuota(); void refetchEvents(); void refetchPdbs(); }} className="inline-flex items-center gap-2 rounded-lg border border-[#2a2a2a] px-3 py-1.5 text-xs text-[#9e9e9e] transition hover:text-white">
+              <button onClick={() => { void refetch(); void refetchMetrics(); void refetchHpa(); void refetchNodePods(); void refetchQuota(); void refetchEvents(); void refetchPdbs(); }} className="inline-flex items-center gap-2 rounded-lg border border-gray-200 dark:border-[#2a2a2a] px-3 py-1.5 text-xs text-gray-500 dark:text-[#9e9e9e] transition hover:text-gray-900 dark:hover:text-white">
                 <RefreshCw className="h-3.5 w-3.5" /> Refresh all
               </button>
             </div>
@@ -915,13 +915,13 @@ export default function ClusterPage() {
                 ]}
               />
               <div className="grid gap-3 sm:grid-cols-2">
-                <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-3">
-                  <p className="text-[11px] uppercase tracking-[0.18em] text-[#666]">Search & filters</p>
-                  <p className="mt-2 text-sm text-[#b8b8b8]">Use <span className="text-white">/</span> to focus the node search. <span className="text-white">Esc</span> clears filters and closes dialogs.</p>
+                <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-3">
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-gray-400 dark:text-[#666]">Search & filters</p>
+                  <p className="mt-2 text-sm text-gray-600 dark:text-[#b8b8b8]">Use <span className="text-gray-900 dark:text-white">/</span> to focus the node search. <span className="text-gray-900 dark:text-white">Esc</span> clears filters and closes dialogs.</p>
                 </div>
-                <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-3">
-                  <p className="text-[11px] uppercase tracking-[0.18em] text-[#666]">Events in scope</p>
-                  <p className="mt-2 text-sm text-[#b8b8b8]">{recentEvents.length} recent event(s) loaded · {hotQuotas.length} quota hotspot(s) highlighted below.</p>
+                <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-3">
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-gray-400 dark:text-[#666]">Events in scope</p>
+                  <p className="mt-2 text-sm text-gray-600 dark:text-[#b8b8b8]">{recentEvents.length} recent event(s) loaded · {hotQuotas.length} quota hotspot(s) highlighted below.</p>
                 </div>
               </div>
             </div>
@@ -947,7 +947,7 @@ export default function ClusterPage() {
                     "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
                     nodeFilter === option.value
                       ? "border-[#0078D4]/40 bg-[rgba(0,120,212,0.15)] text-[#9dcbff]"
-                      : "border-[#2a2a2a] bg-[#111] text-[#888] hover:text-white"
+                      : "border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-500 dark:text-[#888] hover:text-gray-900 dark:hover:text-white"
                   )}
                 >
                   {option.label}
@@ -955,7 +955,7 @@ export default function ClusterPage() {
               ))}
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-3 text-sm text-[#888]">
+          <div className="flex flex-wrap items-center gap-3 text-sm text-gray-500 dark:text-[#888]">
             <span>{filteredNodes.length} of {nodes.length} node(s) shown</span>
             <RefreshCountdown intervalSeconds={metricsRefreshSeconds} resetKey={metricsData?.timestamp ?? metricsRefreshSeconds} />
             <span>{totalMigratablePods} migratable pod(s)</span>
@@ -1021,10 +1021,10 @@ export default function ClusterPage() {
               {[...Array(3)].map((_, i) => <div key={i} className="h-36 rounded-xl shimmer-bg" />)}
             </div>
           ) : filteredNodes.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-[#2a2a2a] bg-[#111] px-5 py-8 text-center">
-              <p className="text-sm font-medium text-white">No nodes match the current filters</p>
-              <p className="mt-2 text-sm text-[#888]">Clear the search or switch filters to inspect the full cluster again.</p>
-              <button onClick={() => { setNodeSearch(""); setNodeFilter("all"); }} className="mt-4 rounded-lg border border-[#2a2a2a] px-3 py-2 text-xs text-[#b8b8b8] transition hover:text-white">
+            <div className="rounded-2xl border border-dashed border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-5 py-8 text-center">
+              <p className="text-sm font-medium text-gray-900 dark:text-white">No nodes match the current filters</p>
+              <p className="mt-2 text-sm text-gray-500 dark:text-[#888]">Clear the search or switch filters to inspect the full cluster again.</p>
+              <button onClick={() => { setNodeSearch(""); setNodeFilter("all"); }} className="mt-4 rounded-lg border border-gray-200 dark:border-[#2a2a2a] px-3 py-2 text-xs text-gray-600 dark:text-[#b8b8b8] transition hover:text-gray-900 dark:hover:text-white">
                 Reset filters
               </button>
             </div>
@@ -1045,27 +1045,27 @@ export default function ClusterPage() {
                   >
                     <div className="mb-3 flex items-center gap-2">
                       <span className={cn("h-2 w-2 flex-shrink-0 rounded-full", node.status === "Ready" ? "bg-green-500" : "bg-red-500")} />
-                      <span className="truncate text-sm font-semibold text-white">{node.name}</span>
+                      <span className="truncate text-sm font-semibold text-gray-900 dark:text-white">{node.name}</span>
                       {node.unschedulable && <span className="rounded bg-orange-500/10 px-1.5 py-0.5 text-xs text-orange-400">Maintenance</span>}
                     </div>
                     <div className="space-y-1 text-xs">
-                      <div className="flex items-center justify-between gap-2"><span className="text-slate-500">IP</span><span className="flex items-center gap-2 font-mono text-slate-300"><span>{node.ip}</span><CopyButton text={node.ip} label="IP" className="h-7 px-2 text-[11px]" /></span></div>
-                      <div className="flex justify-between"><span className="text-slate-500">Role</span><span className="text-slate-300">{node.roles.join(", ") || "worker"}</span></div>
-                      <div className="flex justify-between"><span className="text-slate-500">Version</span><span className="font-mono text-slate-300">{node.version}</span></div>
-                      <div className="flex justify-between"><span className="text-slate-500">CPU</span><span className="text-slate-300">{node.cpu} cores {metricsMap[node.name] ? `(${metricsMap[node.name].cpuPct}% used)` : ""}</span></div>
-                      <div className="flex justify-between"><span className="text-slate-500">Memory</span><span className="text-slate-300">{node.memory} {metricsMap[node.name] ? `(${metricsMap[node.name].memPct}%)` : ""}</span></div>
-                      {node.age && <div className="flex justify-between"><span className="text-slate-500">Uptime</span><RelativeTime date={node.age} className="text-slate-300" /></div>}
+                      <div className="flex items-center justify-between gap-2"><span className="text-slate-500">IP</span><span className="flex items-center gap-2 font-mono text-slate-700 dark:text-slate-300"><span>{node.ip}</span><CopyButton text={node.ip} label="IP" className="h-7 px-2 text-[11px]" /></span></div>
+                      <div className="flex justify-between"><span className="text-slate-500">Role</span><span className="text-slate-700 dark:text-slate-300">{node.roles.join(", ") || "worker"}</span></div>
+                      <div className="flex justify-between"><span className="text-slate-500">Version</span><span className="font-mono text-slate-700 dark:text-slate-300">{node.version}</span></div>
+                      <div className="flex justify-between"><span className="text-slate-500">CPU</span><span className="text-slate-700 dark:text-slate-300">{node.cpu} cores {metricsMap[node.name] ? `(${metricsMap[node.name].cpuPct}% used)` : ""}</span></div>
+                      <div className="flex justify-between"><span className="text-slate-500">Memory</span><span className="text-slate-700 dark:text-slate-300">{node.memory} {metricsMap[node.name] ? `(${metricsMap[node.name].memPct}%)` : ""}</span></div>
+                      {node.age && <div className="flex justify-between"><span className="text-slate-500">Uptime</span><RelativeTime date={node.age} className="text-slate-700 dark:text-slate-300" /></div>}
                     </div>
                     {nodeHistory[node.name] && (nodeHistory[node.name].cpu.length > 1 || nodeHistory[node.name].memory.length > 1) ? (
                       <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                        <div className="rounded-xl border border-white/10 bg-white/5 px-2 py-2">
+                        <div className="rounded-xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-2 py-2">
                           <div className="mb-1 flex items-center justify-between text-[10px] uppercase tracking-[0.18em] text-slate-500">
                             <span>CPU</span>
                             <span>{metricsMap[node.name]?.cpuPct ?? 0}%</span>
                           </div>
                           <MetricSparkline data={nodeHistory[node.name].cpu} color={(metricsMap[node.name]?.cpuPct ?? 0) >= 70 ? "amber" : "emerald"} height={34} className="h-8" ariaLabel={`${node.name} CPU trend`} />
                         </div>
-                        <div className="rounded-xl border border-white/10 bg-white/5 px-2 py-2">
+                        <div className="rounded-xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-2 py-2">
                           <div className="mb-1 flex items-center justify-between text-[10px] uppercase tracking-[0.18em] text-slate-500">
                             <span>Memory</span>
                             <span>{metricsMap[node.name]?.memPct ?? 0}%</span>
@@ -1105,7 +1105,7 @@ export default function ClusterPage() {
                 ))}
               </div>
               {filteredNodes.length > NODE_PAGE_SIZE && (
-                <button onClick={() => setShowAllNodes(v => !v)} className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/5 py-2 text-xs text-slate-400 transition-colors hover:bg-white/8 hover:text-white">
+                <button onClick={() => setShowAllNodes(v => !v)} className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 py-2 text-xs text-slate-500 dark:text-slate-400 transition-colors hover:bg-white/8 hover:text-gray-900 dark:hover:text-white">
                   <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", showAllNodes && "rotate-180")} />
                   {showAllNodes ? "Show fewer" : `Show ${filteredNodes.length - NODE_PAGE_SIZE} more node${filteredNodes.length - NODE_PAGE_SIZE !== 1 ? "s" : ""}`}
                 </button>
@@ -1117,25 +1117,25 @@ export default function ClusterPage() {
         {pdbs.length > 0 && (
           <CollapsibleSection title="Disruption budgets" count={pdbs.length} storageKey="cluster-pdbs" badge={<AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0" />}>
             <div className="mb-4 grid gap-3 md:grid-cols-3">
-              <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-3">
-                <p className="text-[11px] uppercase tracking-[0.18em] text-[#666]">Protected services</p>
-                <p className="mt-2 text-2xl font-semibold text-white">{pdbs.length}</p>
-                <p className="mt-1 text-sm text-[#888]">{protectedPdbs} currently allow at least one voluntary disruption.</p>
+              <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-3">
+                <p className="text-[11px] uppercase tracking-[0.18em] text-gray-400 dark:text-[#666]">Protected services</p>
+                <p className="mt-2 text-2xl font-semibold text-gray-900 dark:text-white">{pdbs.length}</p>
+                <p className="mt-1 text-sm text-gray-500 dark:text-[#888]">{protectedPdbs} currently allow at least one voluntary disruption.</p>
               </div>
-              <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-3">
-                <p className="text-[11px] uppercase tracking-[0.18em] text-[#666]">Zero-disruption budgets</p>
-                <p className="mt-2 text-2xl font-semibold text-white">{blockedPdbs}</p>
-                <p className="mt-1 text-sm text-[#888]">Single-replica platform services are expected here during maintenance windows.</p>
+              <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-3">
+                <p className="text-[11px] uppercase tracking-[0.18em] text-gray-400 dark:text-[#666]">Zero-disruption budgets</p>
+                <p className="mt-2 text-2xl font-semibold text-gray-900 dark:text-white">{blockedPdbs}</p>
+                <p className="mt-1 text-sm text-gray-500 dark:text-[#888]">Single-replica platform services are expected here during maintenance windows.</p>
               </div>
-              <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-3">
-                <p className="text-[11px] uppercase tracking-[0.18em] text-[#666]">At-risk budgets</p>
-                <p className="mt-2 text-2xl font-semibold text-white">{pdbsAtRisk}</p>
-                <p className="mt-1 text-sm text-[#888]">Budgets where currentHealthy is below desiredHealthy and disruption safety is already reduced.</p>
+              <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-3">
+                <p className="text-[11px] uppercase tracking-[0.18em] text-gray-400 dark:text-[#666]">At-risk budgets</p>
+                <p className="mt-2 text-2xl font-semibold text-gray-900 dark:text-white">{pdbsAtRisk}</p>
+                <p className="mt-1 text-sm text-gray-500 dark:text-[#888]">Budgets where currentHealthy is below desiredHealthy and disruption safety is already reduced.</p>
               </div>
             </div>
-            <div className="overflow-x-auto rounded-xl border border-[#2a2a2a] bg-[#111]">
+            <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111]">
               <table className="w-full min-w-[760px] text-sm">
-                <thead className="bg-[#0d0d0d] text-xs uppercase tracking-[0.16em] text-slate-500">
+                <thead className="bg-white dark:bg-[#0d0d0d] text-xs uppercase tracking-[0.16em] text-slate-500">
                   <tr>
                     <th className="px-4 py-3 text-left font-medium">Budget</th>
                     <th className="px-4 py-3 text-left font-medium">Policy</th>
@@ -1150,13 +1150,13 @@ export default function ClusterPage() {
                     const policy = pdb.minAvailable !== null ? `minAvailable ${pdb.minAvailable}` : pdb.maxUnavailable !== null ? `maxUnavailable ${pdb.maxUnavailable}` : "No policy";
                     const isHealthy = pdb.currentHealthy >= pdb.desiredHealthy;
                     return (
-                      <tr key={`${pdb.namespace}/${pdb.name}`} className="border-t border-[#1c1c1c] align-top text-slate-300">
+                      <tr key={`${pdb.namespace}/${pdb.name}`} className="border-t border-[#1c1c1c] align-top text-slate-700 dark:text-slate-300">
                         <td className="px-4 py-4">
-                          <p className="font-medium text-white">{pdb.name}</p>
+                          <p className="font-medium text-gray-900 dark:text-white">{pdb.name}</p>
                           <p className="mt-1 text-xs text-slate-500">{pdb.namespace}</p>
                         </td>
-                        <td className="px-4 py-4 text-slate-300">{policy}</td>
-                        <td className="px-4 py-4 text-xs text-slate-400">{selector}</td>
+                        <td className="px-4 py-4 text-slate-700 dark:text-slate-300">{policy}</td>
+                        <td className="px-4 py-4 text-xs text-slate-500 dark:text-slate-400">{selector}</td>
                         <td className="px-4 py-4">
                           <span className={cn("rounded-full px-2 py-1 text-xs font-medium", isHealthy ? "bg-emerald-500/10 text-emerald-300" : "bg-red-500/10 text-red-300")}>{pdb.currentHealthy}/{pdb.expectedPods || pdb.desiredHealthy}</span>
                         </td>
@@ -1188,11 +1188,11 @@ export default function ClusterPage() {
               <DashboardPanel title="Quota hotspots" description="Namespaces approaching their hard limits." icon={BarChart2}>
                 <div className="space-y-3">
                   {hotQuotas.map((quota) => (
-                    <div key={`${quota.namespace}-${quota.name}`} className="rounded-xl border border-[#2a2a2a] bg-[#111] p-3">
+                    <div key={`${quota.namespace}-${quota.name}`} className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-3">
                       <div className="flex items-center justify-between gap-3">
                         <div>
-                          <p className="text-sm font-semibold text-white">{quota.namespace}</p>
-                          <p className="text-xs text-[#666]">{quota.name}</p>
+                          <p className="text-sm font-semibold text-gray-900 dark:text-white">{quota.namespace}</p>
+                          <p className="text-xs text-gray-400 dark:text-[#666]">{quota.name}</p>
                         </div>
                         <span className={cn("rounded-full px-2 py-1 text-xs font-medium", quota.peak >= 90 ? "bg-red-500/10 text-red-300" : "bg-amber-500/10 text-amber-300")}>{quota.peak}% used</span>
                       </div>
@@ -1201,11 +1201,11 @@ export default function ClusterPage() {
                           const pct = quotaPct(quota.used[resource] ?? "0", quota.hard[resource]);
                           return (
                             <div key={resource}>
-                              <div className="mb-1 flex items-center justify-between text-xs text-[#888]">
+                              <div className="mb-1 flex items-center justify-between text-xs text-gray-500 dark:text-[#888]">
                                 <span>{resource}</span>
                                 <span>{quota.used[resource] ?? "0"} / {quota.hard[resource]}</span>
                               </div>
-                              <div className="h-2 overflow-hidden rounded-full bg-[#1a1a1a]">
+                              <div className="h-2 overflow-hidden rounded-full bg-white dark:bg-[#1a1a1a]">
                                 <div className={cn("h-full rounded-full", pct >= 90 ? "bg-red-500" : pct >= 70 ? "bg-amber-500" : "bg-emerald-500")} style={{ width: `${Math.min(100, pct)}%` }} />
                               </div>
                             </div>
@@ -1221,16 +1221,16 @@ export default function ClusterPage() {
               <DashboardPanel title="Recent cluster events" description="Warnings and scheduling activity pulled from the shared event stream." icon={Bell}>
                 <div className="space-y-3">
                   {recentEvents.map((event) => (
-                    <div key={`${event.namespace}-${event.name}-${event.lastTimestamp}`} className="rounded-xl border border-[#2a2a2a] bg-[#111] p-3">
+                    <div key={`${event.namespace}-${event.name}-${event.lastTimestamp}`} className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-3">
                       <div className="flex items-start justify-between gap-3">
                         <div>
-                          <p className="text-sm font-semibold text-white">{event.reason}</p>
-                          <p className="mt-1 text-xs text-[#888]">{event.namespace} · {event.involvedObject.kind}/{event.involvedObject.name}</p>
+                          <p className="text-sm font-semibold text-gray-900 dark:text-white">{event.reason}</p>
+                          <p className="mt-1 text-xs text-gray-500 dark:text-[#888]">{event.namespace} · {event.involvedObject.kind}/{event.involvedObject.name}</p>
                         </div>
                         <span className={cn("rounded-full px-2 py-1 text-[11px] font-medium", event.type === "Warning" ? "bg-red-500/10 text-red-300" : "bg-emerald-500/10 text-emerald-300")}>{event.type}</span>
                       </div>
-                      <p className="mt-2 text-sm text-[#b8b8b8]">{event.message}</p>
-                      <p className="mt-2 text-xs text-[#666]">Last seen {timeAgo(event.lastTimestamp ?? new Date())}</p>
+                      <p className="mt-2 text-sm text-gray-600 dark:text-[#b8b8b8]">{event.message}</p>
+                      <p className="mt-2 text-xs text-gray-400 dark:text-[#666]">Last seen {timeAgo(event.lastTimestamp ?? new Date())}</p>
                     </div>
                   ))}
                 </div>
@@ -1267,8 +1267,8 @@ export default function ClusterPage() {
         )}
 
         {isAdmin && (
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="rounded-xl border border-white/10 bg-white/5 p-4 sm:p-5">
-            <h3 className="mb-4 text-sm font-semibold text-white">Quick Cluster Actions</h3>
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="rounded-xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 p-4 sm:p-5">
+            <h3 className="mb-4 text-sm font-semibold text-gray-900 dark:text-white">Quick Cluster Actions</h3>
             <div className="flex flex-wrap gap-2 sm:gap-3">
               <button onClick={() => setShowSyncConfirm(true)} disabled={syncing} className="flex min-h-[44px] w-full items-center gap-2 rounded-lg border border-indigo-500/30 bg-indigo-500/20 px-4 py-2.5 text-sm text-indigo-300 transition-colors hover:bg-indigo-500/30 disabled:opacity-50 sm:w-auto">
                 {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
@@ -1282,7 +1282,7 @@ export default function ClusterPage() {
                 <Plus className="w-4 h-4" />
                 Add Node Wizard
               </button>
-              <Link href="/config" className="flex min-h-[44px] w-full items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-slate-300 transition-colors hover:bg-white/10 hover:text-white sm:w-auto">
+              <Link href="/config" className="flex min-h-[44px] w-full items-center gap-2 rounded-lg border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-4 py-2.5 text-sm text-slate-700 dark:text-slate-300 transition-colors hover:bg-gray-100 dark:hover:bg-white/10 hover:text-gray-900 dark:hover:text-white sm:w-auto">
                 <Link2 className="w-4 h-4" />
                 Platform YAML Editor
               </Link>
@@ -1292,14 +1292,14 @@ export default function ClusterPage() {
 
         {showAddNode && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75" onClick={() => setShowAddNode(false)}>
-            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} onClick={e => e.stopPropagation()} className="w-full max-w-lg bg-slate-900 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} onClick={e => e.stopPropagation()} className="w-full max-w-lg bg-slate-100 dark:bg-slate-900 border border-gray-200 dark:border-white/10 rounded-xl shadow-2xl overflow-hidden">
               <div className="w-10 h-1 bg-white/20 rounded-full mx-auto mt-3" />
               <div className="p-5">
-                <h3 className="text-base font-semibold text-white mb-1">Add New Talos Node</h3>
-                <p className="text-xs text-slate-400 mb-4">Follow these steps to add a new control-plane node</p>
+                <h3 className="text-base font-semibold text-gray-900 dark:text-white mb-1">Add New Talos Node</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">Follow these steps to add a new control-plane node</p>
                 <div className="mb-3">
-                  <label className="text-xs text-slate-400 mb-1 block">New Node IP Address</label>
-                  <input value={newIp} onChange={e => setNewIp(e.target.value)} className="w-full bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-sm font-mono text-white focus:outline-none focus:border-indigo-500/50" placeholder="10.10.0.93" />
+                  <label className="text-xs text-slate-500 dark:text-slate-400 mb-1 block">New Node IP Address</label>
+                  <input value={newIp} onChange={e => setNewIp(e.target.value)} className="w-full bg-slate-100 dark:bg-slate-800 border border-gray-200 dark:border-white/10 rounded-lg px-3 py-2 text-sm font-mono text-gray-900 dark:text-white focus:outline-none focus:border-indigo-500/50" placeholder="10.10.0.93" />
                 </div>
                 <div className="space-y-3">
                   {[
@@ -1311,14 +1311,14 @@ export default function ClusterPage() {
                     <div key={s.step} className="flex gap-3">
                       <div className="w-6 h-6 rounded-full bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-xs font-bold text-indigo-400 flex-shrink-0 mt-0.5">{s.step}</div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm text-slate-200 mb-1">{s.label}</p>
+                        <p className="text-sm text-slate-800 dark:text-slate-200 mb-1">{s.label}</p>
                         {s.cmd && <CodeBlock code={s.cmd} />}
                         {s.note && <p className="text-xs text-slate-500 mt-1">{s.note}</p>}
                       </div>
                     </div>
                   ))}
                 </div>
-                <button onClick={() => setShowAddNode(false)} className="mt-5 w-full py-2.5 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 hover:text-white transition-colors">Close</button>
+                <button onClick={() => setShowAddNode(false)} className="mt-5 w-full py-2.5 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-sm text-slate-700 dark:text-slate-300 hover:text-gray-900 dark:hover:text-white transition-colors">Close</button>
               </div>
             </motion.div>
           </motion.div>

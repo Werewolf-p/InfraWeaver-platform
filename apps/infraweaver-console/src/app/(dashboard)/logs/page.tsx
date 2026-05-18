@@ -164,9 +164,9 @@ export default function LogsPage() {
   if (activeId === "all") {
     return (
       <div className="flex flex-col items-center justify-center py-24 text-center">
-        <Globe className="mb-4 h-10 w-10 text-[#333]" />
-        <p className="text-sm font-medium text-[#666]">Select a specific cluster to view this page</p>
-        <p className="mt-1 text-xs text-[#444]">Use the cluster selector in the top bar</p>
+        <Globe className="mb-4 h-10 w-10 text-gray-700 dark:text-[#333]" />
+        <p className="text-sm font-medium text-gray-400 dark:text-[#666]">Select a specific cluster to view this page</p>
+        <p className="mt-1 text-xs text-gray-400 dark:text-[#444]">Use the cluster selector in the top bar</p>
       </div>
     );
   }
@@ -175,8 +175,8 @@ export default function LogsPage() {
     return (
       <div className="flex h-64 flex-col items-center justify-center text-center">
         <AlertCircle className="mb-3 h-8 w-8 text-red-400" />
-        <h3 className="mb-1 font-semibold text-white">Access denied</h3>
-        <p className="text-sm text-slate-400">You need cluster:read or infra:read permission to view pod logs.</p>
+        <h3 className="mb-1 font-semibold text-gray-900 dark:text-white">Access denied</h3>
+        <p className="text-sm text-slate-500 dark:text-slate-400">You need cluster:read or infra:read permission to view pod logs.</p>
       </div>
     );
   }
@@ -190,7 +190,7 @@ export default function LogsPage() {
         actions={
           <button
             onClick={() => (isMobile ? setSelectorOpen(true) : setLeftCollapsed((current) => !current))}
-            className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-slate-900 px-3 py-2 text-sm text-slate-300 transition hover:text-white"
+            className="inline-flex items-center gap-2 rounded-lg border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900 px-3 py-2 text-sm text-slate-700 dark:text-slate-300 transition hover:text-gray-900 dark:hover:text-white"
           >
             {isMobile ? <Rows3 className="h-4 w-4" /> : leftCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
             {isMobile ? "Select pod" : leftCollapsed ? "Show selector" : "Hide selector"}
@@ -198,10 +198,10 @@ export default function LogsPage() {
         }
       />
 
-      <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-3">
+      <div className="flex items-center justify-between rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/60 px-4 py-3">
         <div>
           <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Current target</p>
-          <p className="mt-1 text-sm text-white">
+          <p className="mt-1 text-sm text-gray-900 dark:text-white">
             {selectedPod ? `${selectedPod.namespace}/${selectedPod.name}` : "No pod selected"}
           </p>
           {selectedPod ? (
@@ -215,7 +215,7 @@ export default function LogsPage() {
       </div>
 
       {isMobile ? (
-        <div className="min-h-[70vh] rounded-2xl border border-white/10 bg-slate-950/40 p-4">
+        <div className="min-h-[70vh] rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950/40 p-4">
           <LogStreamViewer
             namespace={selectedPod?.namespace}
             pod={selectedPod?.name}
@@ -225,7 +225,7 @@ export default function LogsPage() {
           />
         </div>
       ) : (
-        <div className="h-[70vh] min-h-[620px] overflow-hidden rounded-2xl border border-white/10 bg-slate-950/40">
+        <div className="h-[70vh] min-h-[620px] overflow-hidden rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950/40">
           <PanelGroup orientation="horizontal">
             {!leftCollapsed && (
               <>
@@ -238,7 +238,7 @@ export default function LogsPage() {
                     onSelect={handleSelectPod}
                   />
                 </Panel>
-                <PanelResizeHandle className="w-px bg-white/10 transition hover:bg-indigo-500/50" />
+                <PanelResizeHandle className="w-px bg-gray-100 dark:bg-white/10 transition hover:bg-indigo-500/50" />
               </>
             )}
             <Panel defaultSize={leftCollapsed ? 100 : 76} minSize={40}>

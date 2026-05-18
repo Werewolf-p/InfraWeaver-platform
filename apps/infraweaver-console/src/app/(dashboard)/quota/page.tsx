@@ -34,7 +34,7 @@ function barColor(percentage: number) {
 
 function QuotaCard({ quota }: { quota: NamespaceQuota }) {
   return (
-    <DashboardPanel title={quota.namespace} description={quota.name} className="bg-slate-900/60 backdrop-blur-sm" contentClassName="space-y-3">
+    <DashboardPanel title={quota.namespace} description={quota.name} className="bg-slate-100 dark:bg-slate-900/60 backdrop-blur-sm" contentClassName="space-y-3">
       {Object.keys(quota.hard).map((resourceKey) => {
         const used = quota.used[resourceKey] ?? "0";
         const hard = quota.hard[resourceKey];
@@ -43,10 +43,10 @@ function QuotaCard({ quota }: { quota: NamespaceQuota }) {
         return (
           <div key={resourceKey}>
             <div className="mb-1 flex items-center justify-between text-xs">
-              <span className="text-slate-400">{resourceKey}</span>
-              <span className="text-slate-300">{used} / {hard}</span>
+              <span className="text-slate-500 dark:text-slate-400">{resourceKey}</span>
+              <span className="text-slate-700 dark:text-slate-300">{used} / {hard}</span>
             </div>
-            <div className="h-2 overflow-hidden rounded-full bg-white/10">
+            <div className="h-2 overflow-hidden rounded-full bg-gray-100 dark:bg-white/10">
               <div className={`h-full rounded-full transition-all ${barColor(percentage)}`} style={{ width: `${percentage}%` }} />
             </div>
             <div className="mt-0.5 text-right text-[10px] text-slate-500">{percentage}%</div>

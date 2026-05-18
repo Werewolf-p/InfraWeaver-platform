@@ -71,11 +71,11 @@ export function ProgressRing({
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
         {showValue && (
-          <span className="text-xs font-bold text-white tabular-nums">
+          <span className="text-xs font-bold text-gray-900 dark:text-white tabular-nums">
             {Math.round(value)}%
           </span>
         )}
-        {label && <span className="text-[9px] text-slate-400 mt-0.5">{label}</span>}
+        {label && <span className="text-[9px] text-slate-500 dark:text-slate-400 mt-0.5">{label}</span>}
       </div>
     </div>
   );

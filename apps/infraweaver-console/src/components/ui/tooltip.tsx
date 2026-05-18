@@ -61,8 +61,8 @@ export function Tooltip({
           >
             <div
               className={cn(
-                "px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-200 whitespace-nowrap",
-                "bg-slate-900/95 backdrop-blur-sm border border-white/10",
+                "px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-800 dark:text-slate-200 whitespace-nowrap",
+                "bg-slate-100 dark:bg-slate-900/95 backdrop-blur-sm border border-gray-200 dark:border-white/10",
                 "shadow-xl shadow-black/40",
                 className
               )}

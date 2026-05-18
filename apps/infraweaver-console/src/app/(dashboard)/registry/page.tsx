@@ -21,11 +21,11 @@ function TagRow({ repo, tag, onDelete, isAdmin }: {
 }) {
   const pullCmd = `docker pull ${REGISTRY_HOST}/${repo}:${tag.tag}`;
   return (
-    <div className="flex items-center gap-4 px-4 py-2.5 bg-white/3 border-b border-white/5 last:border-0 text-sm overflow-x-auto">
+    <div className="flex items-center gap-4 px-4 py-2.5 bg-white/3 border-b border-gray-200 dark:border-white/5 last:border-0 text-sm overflow-x-auto">
       <PageHeader icon={Package} title="Container Registry" />
-      <span className="text-slate-300 font-mono text-xs w-32 truncate">{tag.tag}</span>
+      <span className="text-slate-700 dark:text-slate-300 font-mono text-xs w-32 truncate">{tag.tag}</span>
       <span className="text-slate-500 font-mono text-xs w-36 truncate">{tag.digest || "—"}</span>
-      <span className="text-slate-400 text-xs w-20">{tag.size ? formatBytes(tag.size) : "—"}</span>
+      <span className="text-slate-500 dark:text-slate-400 text-xs w-20">{tag.size ? formatBytes(tag.size) : "—"}</span>
       <span className="text-slate-500 text-xs flex-1">{tag.pushedAt ? new Date(tag.pushedAt).toLocaleDateString() : "—"}</span>
       <div className="flex items-center gap-2">
         <CopyButton text={pullCmd} label="Pull" />
@@ -65,15 +65,15 @@ function RepoRow({ name }: { name: string }) {
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
-        className="border-b border-white/5 last:border-0"
+        className="border-b border-gray-200 dark:border-white/5 last:border-0"
       >
         <button
           onClick={() => setExpanded(e => !e)}
-          className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-white/5 transition-colors text-left"
+          className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-gray-100 dark:hover:bg-white/5 transition-colors text-left"
         >
-          {expanded ? <ChevronDown className="w-4 h-4 text-slate-400 flex-shrink-0" /> : <ChevronRight className="w-4 h-4 text-slate-400 flex-shrink-0" />}
+          {expanded ? <ChevronDown className="w-4 h-4 text-slate-500 dark:text-slate-400 flex-shrink-0" /> : <ChevronRight className="w-4 h-4 text-slate-500 dark:text-slate-400 flex-shrink-0" />}
           <Package className="w-4 h-4 text-indigo-400 flex-shrink-0" />
-          <span className="text-sm font-medium text-white flex-1">{name}</span>
+          <span className="text-sm font-medium text-gray-900 dark:text-white flex-1">{name}</span>
           <span className="text-xs text-slate-500">{tagsData?.tags?.length ?? "—"} tags</span>
         </button>
         <AnimatePresence>
@@ -82,7 +82,7 @@ function RepoRow({ name }: { name: string }) {
               initial={{ height: 0, opacity: 0 }}
               animate={{ height: "auto", opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
-              className="overflow-hidden bg-slate-950/50"
+              className="overflow-hidden bg-slate-100 dark:bg-slate-950/50"
             >
               {tagsLoading ? (
                 <div className="px-4 py-3 space-y-2">
@@ -133,15 +133,15 @@ export default function RegistryPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h2 className="text-xl font-bold text-white flex items-center gap-2">
+          <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
             <Package className="w-5 h-5 text-indigo-400" />
             Container Registry
           </h2>
-          <p className="text-sm text-slate-400 mt-0.5">{REGISTRY_HOST}</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">{REGISTRY_HOST}</p>
         </div>
         <button
           onClick={() => setShowLoginModal(true)}
-          className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 hover:text-white transition-colors"
+          className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-sm text-slate-700 dark:text-slate-300 hover:text-gray-900 dark:hover:text-white transition-colors"
         >
           <Terminal className="w-4 h-4" />
           Login Instructions
@@ -149,12 +149,12 @@ export default function RegistryPage() {
       </div>
 
       <div className="relative mb-5 max-w-sm">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 dark:text-slate-400" />
         <input
           value={search}
           onChange={e => setSearch(e.target.value)}
           placeholder="Search repositories..."
-          className="w-full bg-white/5 border border-white/10 rounded-lg pl-9 pr-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50"
+          className="w-full bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-lg pl-9 pr-3 py-2 text-sm text-gray-900 dark:text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50"
         />
       </div>
 
@@ -170,8 +170,8 @@ export default function RegistryPage() {
           {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-14" />)}
         </div>
       ) : (
-        <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl overflow-hidden">
-          <div className="grid grid-cols-[auto_1fr_auto] gap-4 px-4 py-2 border-b border-white/5 text-xs text-slate-500 font-medium uppercase tracking-wide">
+        <div className="bg-gray-100 dark:bg-white/5 backdrop-blur-sm border border-gray-200 dark:border-white/10 rounded-xl overflow-hidden">
+          <div className="grid grid-cols-[auto_1fr_auto] gap-4 px-4 py-2 border-b border-gray-200 dark:border-white/5 text-xs text-slate-500 font-medium uppercase tracking-wide">
             <span className="w-4" />
             <span>Repository</span>
             <span>Tags</span>
@@ -191,18 +191,18 @@ export default function RegistryPage() {
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="relative w-full max-w-md bg-slate-900 border border-white/10 rounded-xl p-6 shadow-2xl z-10"
+              className="relative w-full max-w-md bg-slate-100 dark:bg-slate-900 border border-gray-200 dark:border-white/10 rounded-xl p-6 shadow-2xl z-10"
             >
               <div className="flex items-center justify-between mb-4">
-                <h3 className="font-semibold text-white">Registry Login</h3>
-                <button onClick={() => setShowLoginModal(false)} className="text-slate-400 hover:text-white"><X className="w-5 h-5" /></button>
+                <h3 className="font-semibold text-gray-900 dark:text-white">Registry Login</h3>
+                <button onClick={() => setShowLoginModal(false)} className="text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white"><X className="w-5 h-5" /></button>
               </div>
-              <p className="text-sm text-slate-400 mb-4">Run the following command to authenticate with the registry:</p>
-              <div className="bg-slate-950 border border-white/10 rounded-lg p-3 font-mono text-sm text-green-400 mb-3">
+              <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">Run the following command to authenticate with the registry:</p>
+              <div className="bg-slate-100 dark:bg-slate-950 border border-gray-200 dark:border-white/10 rounded-lg p-3 font-mono text-sm text-green-400 mb-3">
                 {loginCmd}
               </div>
               <CopyButton text={loginCmd} label="Copy command" className="w-full justify-center" />
-              <p className="text-xs text-slate-500 mt-4">Then push images with: <span className="font-mono text-slate-300">docker push {REGISTRY_HOST}/your-image:tag</span></p>
+              <p className="text-xs text-slate-500 mt-4">Then push images with: <span className="font-mono text-slate-700 dark:text-slate-300">docker push {REGISTRY_HOST}/your-image:tag</span></p>
             </motion.div>
           </div>
         )}

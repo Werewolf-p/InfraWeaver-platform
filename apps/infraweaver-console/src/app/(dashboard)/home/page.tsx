@@ -372,7 +372,7 @@ export default function HomePage() {
           </button>
           <Link
             href="/apps"
-            className="inline-flex h-10 items-center gap-2 rounded-xl bg-[rgb(var(--color-brand-600))] px-3 text-sm font-medium text-white transition-colors hover:bg-[rgb(var(--color-brand-700))]"
+            className="inline-flex h-10 items-center gap-2 rounded-xl bg-[rgb(var(--color-brand-600))] px-3 text-sm font-medium text-gray-900 dark:text-white transition-colors hover:bg-[rgb(var(--color-brand-700))]"
           >
             Applications
             <ArrowRight className="h-4 w-4" />

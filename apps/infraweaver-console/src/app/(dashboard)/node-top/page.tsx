@@ -39,7 +39,7 @@ function rowColor(cpuPct: number, memPct: number): string {
   const max = Math.max(cpuPct, memPct);
   if (max >= 90) return "bg-red-500/10 border-red-500/20";
   if (max >= 70) return "bg-amber-500/10 border-amber-500/20";
-  return "bg-white/5 border-white/10";
+  return "bg-gray-100 dark:bg-white/5 border-gray-200 dark:border-white/10";
 }
 
 function exportCSV(rows: FlatRow[]) {
@@ -120,17 +120,17 @@ export default function NodeTopPage() {
               <Activity className="w-5 h-5 text-emerald-400" />
               Node Top — Pod Resource Usage
             </h2>
-            <p className="text-sm text-slate-400 mt-0.5">Live pod CPU & memory from metrics-server · auto-refreshes every 10s · last: {lastUpdated}</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Live pod CPU & memory from metrics-server · auto-refreshes every 10s · last: {lastUpdated}</p>
           </div>
           <div className="flex items-center gap-2">
-            <Link href="/cluster" className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 hover:text-white hover:bg-white/10 transition-colors">
+            <Link href="/cluster" className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-sm text-slate-700 dark:text-slate-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/10 transition-colors">
               ← Cluster
             </Link>
-            <button onClick={() => exportCSV(sorted)} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 hover:text-white hover:bg-white/10 transition-colors active:scale-95">
+            <button onClick={() => exportCSV(sorted)} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-sm text-slate-700 dark:text-slate-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/10 transition-colors active:scale-95">
               <Download className="w-3.5 h-3.5" />
               Export CSV
             </button>
-            <button onClick={() => { void refetch(); }} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 hover:text-white hover:bg-white/10 transition-colors active:scale-95">
+            <button onClick={() => { void refetch(); }} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-sm text-slate-700 dark:text-slate-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/10 transition-colors active:scale-95">
               <RefreshCw className="w-3.5 h-3.5" />
               Refresh
             </button>
@@ -144,27 +144,27 @@ export default function NodeTopPage() {
           value={search}
           onChange={e => setSearch(e.target.value)}
           placeholder="Filter by namespace, pod or container..."
-          className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-9 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50 transition-colors"
+          className="w-full bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl pl-9 pr-9 py-2.5 text-sm text-gray-900 dark:text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50 transition-colors"
         />
         {search && (
-          <button onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white">
+          <button onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-gray-900 dark:hover:text-white">
             <X className="w-3.5 h-3.5" />
           </button>
         )}
       </div>
 
       {isLoading ? (
-        <div className="space-y-2">{[...Array(8)].map((_, i) => <div key={i} className="h-10 rounded-lg bg-white/5 animate-pulse" />)}</div>
+        <div className="space-y-2">{[...Array(8)].map((_, i) => <div key={i} className="h-10 rounded-lg bg-gray-100 dark:bg-white/5 animate-pulse" />)}</div>
       ) : (
-        <div className="bg-white/5 border border-white/10 rounded-xl overflow-hidden">
-          <div className="grid grid-cols-[2fr_3fr_2fr_1fr_1fr_1fr_1fr] gap-2 px-4 py-2.5 border-b border-white/10 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-            <button className="flex items-center hover:text-white transition-colors text-left" onClick={() => toggleSort("namespace")}>Namespace <SortIcon k="namespace" /></button>
-            <button className="flex items-center hover:text-white transition-colors text-left" onClick={() => toggleSort("pod")}>Pod <SortIcon k="pod" /></button>
+        <div className="bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl overflow-hidden">
+          <div className="grid grid-cols-[2fr_3fr_2fr_1fr_1fr_1fr_1fr] gap-2 px-4 py-2.5 border-b border-gray-200 dark:border-white/10 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+            <button className="flex items-center hover:text-gray-900 dark:hover:text-white transition-colors text-left" onClick={() => toggleSort("namespace")}>Namespace <SortIcon k="namespace" /></button>
+            <button className="flex items-center hover:text-gray-900 dark:hover:text-white transition-colors text-left" onClick={() => toggleSort("pod")}>Pod <SortIcon k="pod" /></button>
             <span>Container</span>
-            <button className="flex items-center hover:text-white transition-colors justify-end" onClick={() => toggleSort("cpu_m")}>CPU (m) <SortIcon k="cpu_m" /></button>
-            <button className="flex items-center hover:text-white transition-colors justify-end" onClick={() => toggleSort("cpuPct")}>CPU% <SortIcon k="cpuPct" /></button>
-            <button className="flex items-center hover:text-white transition-colors justify-end" onClick={() => toggleSort("memory_mi")}>Mem (Mi) <SortIcon k="memory_mi" /></button>
-            <button className="flex items-center hover:text-white transition-colors justify-end" onClick={() => toggleSort("memPct")}>Mem% <SortIcon k="memPct" /></button>
+            <button className="flex items-center hover:text-gray-900 dark:hover:text-white transition-colors justify-end" onClick={() => toggleSort("cpu_m")}>CPU (m) <SortIcon k="cpu_m" /></button>
+            <button className="flex items-center hover:text-gray-900 dark:hover:text-white transition-colors justify-end" onClick={() => toggleSort("cpuPct")}>CPU% <SortIcon k="cpuPct" /></button>
+            <button className="flex items-center hover:text-gray-900 dark:hover:text-white transition-colors justify-end" onClick={() => toggleSort("memory_mi")}>Mem (Mi) <SortIcon k="memory_mi" /></button>
+            <button className="flex items-center hover:text-gray-900 dark:hover:text-white transition-colors justify-end" onClick={() => toggleSort("memPct")}>Mem% <SortIcon k="memPct" /></button>
           </div>
           <div className="max-h-[60vh] overflow-y-auto">
             {sorted.map((row, i) => (
@@ -173,16 +173,16 @@ export default function NodeTopPage() {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ delay: Math.min(i * 0.02, 0.3) }}
-                className={cn("grid grid-cols-[2fr_3fr_2fr_1fr_1fr_1fr_1fr] gap-2 px-4 py-2.5 border-b border-white/5 text-xs hover:bg-white/5 transition-colors", rowColor(row.cpuPct, row.memPct))}
+                className={cn("grid grid-cols-[2fr_3fr_2fr_1fr_1fr_1fr_1fr] gap-2 px-4 py-2.5 border-b border-gray-200 dark:border-white/5 text-xs hover:bg-gray-100 dark:hover:bg-white/5 transition-colors", rowColor(row.cpuPct, row.memPct))}
               >
-                <span className="text-slate-400 truncate">{row.namespace}</span>
-                <span className="text-white font-mono truncate">{row.pod}</span>
-                <span className="text-slate-300 truncate">{row.container}</span>
-                <span className="text-slate-300 text-right tabular-nums">{row.cpu_m}</span>
+                <span className="text-slate-500 dark:text-slate-400 truncate">{row.namespace}</span>
+                <span className="text-gray-900 dark:text-white font-mono truncate">{row.pod}</span>
+                <span className="text-slate-700 dark:text-slate-300 truncate">{row.container}</span>
+                <span className="text-slate-700 dark:text-slate-300 text-right tabular-nums">{row.cpu_m}</span>
                 <span className={cn("text-right tabular-nums font-semibold", row.cpuPct >= 90 ? "text-red-400" : row.cpuPct >= 70 ? "text-amber-400" : "text-emerald-400")}>
                   {row.cpu_limit_m > 0 ? `${row.cpuPct}%` : "—"}
                 </span>
-                <span className="text-slate-300 text-right tabular-nums">{row.memory_mi}</span>
+                <span className="text-slate-700 dark:text-slate-300 text-right tabular-nums">{row.memory_mi}</span>
                 <span className={cn("text-right tabular-nums font-semibold", row.memPct >= 90 ? "text-red-400" : row.memPct >= 70 ? "text-amber-400" : "text-emerald-400")}>
                   {row.memory_limit_mi > 0 ? `${row.memPct}%` : "—"}
                 </span>
@@ -192,7 +192,7 @@ export default function NodeTopPage() {
               <div className="py-12 text-center text-slate-500 text-sm">No pods match your filter</div>
             )}
           </div>
-          <div className="px-4 py-2.5 border-t border-white/10 text-xs text-slate-500">
+          <div className="px-4 py-2.5 border-t border-gray-200 dark:border-white/10 text-xs text-slate-500">
             {sorted.length} container{sorted.length !== 1 ? "s" : ""} {search ? `(filtered from ${rows.length})` : ""}
           </div>
         </div>

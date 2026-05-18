@@ -23,14 +23,14 @@ export function AutoRefreshControl({ interval, onChange, onRefreshNow, className
       {onRefreshNow && (
         <button
           onClick={onRefreshNow}
-          className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-white/10 transition-colors"
+          className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-gray-100 dark:hover:bg-white/10 transition-colors"
           aria-label="Refresh now"
           title="Refresh now"
         >
-          <RefreshCw className="w-3.5 h-3.5 text-white/60" />
+          <RefreshCw className="w-3.5 h-3.5 text-gray-500 dark:text-white/60" />
         </button>
       )}
-      <div className="flex items-center gap-0.5 p-0.5 rounded-lg bg-white/5 border border-white/10">
+      <div className="flex items-center gap-0.5 p-0.5 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10">
         {intervalOptions.map(opt => (
           <button
             key={opt.value}
@@ -38,8 +38,8 @@ export function AutoRefreshControl({ interval, onChange, onRefreshNow, className
             className={cn(
               "flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium transition-all",
               interval === opt.value
-                ? "bg-white/15 text-white"
-                : "text-white/40 hover:text-white/70"
+                ? "bg-white/15 text-gray-900 dark:text-white"
+                : "text-gray-400 dark:text-white/40 hover:text-white/70"
             )}
           >
             {opt.value === 0 ? <Pause className="w-2.5 h-2.5" /> : null}

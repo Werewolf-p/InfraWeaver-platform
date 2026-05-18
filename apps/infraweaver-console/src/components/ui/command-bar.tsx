@@ -21,7 +21,7 @@ interface CommandBarProps {
 
 export function CommandBar({ primary, actions, search, filter, className }: CommandBarProps) {
   return (
-    <div className={cn("bg-[#1a1a1a] border-b border-[#2a2a2a] px-4 py-2 flex items-center gap-2 flex-shrink-0 flex-wrap", className)}>
+    <div className={cn("bg-white dark:bg-[#1a1a1a] border-b border-gray-200 dark:border-[#2a2a2a] px-4 py-2 flex items-center gap-2 flex-shrink-0 flex-wrap", className)}>
       {primary && (
         <>
           <div className="flex items-center gap-2">{primary}</div>
@@ -34,7 +34,7 @@ export function CommandBar({ primary, actions, search, filter, className }: Comm
           ? "border-red-500/30 text-red-400 hover:bg-red-500/10"
           : action.variant === "primary"
             ? "border-indigo-500/30 bg-indigo-500/10 text-indigo-300 hover:bg-indigo-500/20"
-            : "border-[#333] text-[#f2f2f2] hover:bg-[#2a2a2a]";
+            : "border-gray-200 dark:border-[#333] text-gray-900 dark:text-[#f2f2f2] hover:bg-gray-100 dark:hover:bg-[#2a2a2a]";
         return (
           <button
             key={action.id ?? `${action.label}:${action.variant ?? "secondary"}`}

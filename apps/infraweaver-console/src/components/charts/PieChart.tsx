@@ -17,10 +17,10 @@ interface StoragePieChartProps {
 export function StoragePieChart({ data, unit = "Gi", className }: StoragePieChartProps) {
   const total = data.reduce((a, b) => a + b.value, 0);
   return (
-    <div className={cn("bg-white/5 border border-white/10 rounded-xl p-4", className)}>
+    <div className={cn("bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl p-4", className)}>
       <div className="flex items-center justify-between mb-3">
-        <span className="text-sm font-semibold text-white">Storage by Class</span>
-        <span className="text-xs text-slate-400">{Math.round(total * 10) / 10} {unit} total</span>
+        <span className="text-sm font-semibold text-gray-900 dark:text-white">Storage by Class</span>
+        <span className="text-xs text-slate-500 dark:text-slate-400">{Math.round(total * 10) / 10} {unit} total</span>
       </div>
       <ResponsiveContainer width="100%" height={220}>
         <PieChart>

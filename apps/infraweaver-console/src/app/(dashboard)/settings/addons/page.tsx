@@ -79,51 +79,51 @@ export default function AddonsPage() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: index * 0.05 }}
               className={cn(
-                "flex flex-col gap-4 rounded-xl border bg-[#111] p-5 transition-colors",
-                addon.enabled ? "border-[#3b82f6]/30" : "border-[#2a2a2a]",
+                "flex flex-col gap-4 rounded-xl border bg-white dark:bg-[#111] p-5 transition-colors",
+                addon.enabled ? "border-[#3b82f6]/30" : "border-gray-200 dark:border-[#2a2a2a]",
               )}
             >
               <div className="flex items-start gap-3">
-                <div className={cn("flex h-11 w-11 shrink-0 items-center justify-center rounded-full", addon.enabled ? "bg-[#3b82f6]/15 text-[#60a5fa]" : "bg-[#0d0d0d] text-[#888]")}>
+                <div className={cn("flex h-11 w-11 shrink-0 items-center justify-center rounded-full", addon.enabled ? "bg-[#3b82f6]/15 text-[#60a5fa]" : "bg-white dark:bg-[#0d0d0d] text-gray-500 dark:text-[#888]")}>
                   <Icon className="h-5 w-5" />
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="truncate text-base font-medium text-[#f2f2f2]">{addon.name}</h3>
+                    <h3 className="truncate text-base font-medium text-gray-900 dark:text-[#f2f2f2]">{addon.name}</h3>
                     <StatusBadge status={isUpdating ? "processing" : addon.enabled ? "healthy" : "offline"} label={isUpdating ? "Updating" : addon.enabled ? "Enabled" : "Disabled"} size="sm" showIcon />
                   </div>
-                  <p className="mt-2 text-sm leading-relaxed text-[#d4d4d4]">{addon.description}</p>
+                  <p className="mt-2 text-sm leading-relaxed text-gray-700 dark:text-[#d4d4d4]">{addon.description}</p>
                 </div>
               </div>
 
               <div className="flex flex-wrap gap-2">
-                <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-medium capitalize", CATEGORY_COLORS[addon.category] ?? "border border-[#2a2a2a] bg-[#0d0d0d] text-[#888]")}>
+                <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-medium capitalize", CATEGORY_COLORS[addon.category] ?? "border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] text-gray-500 dark:text-[#888]")}>
                   {addon.category}
                 </span>
                 {addon.requiresSetup ? <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-300">Setup required</span> : null}
               </div>
 
-              <div className="grid grid-cols-2 gap-3 rounded-xl border border-[#2a2a2a] bg-[#0d0d0d] p-3 text-sm">
+              <div className="grid grid-cols-2 gap-3 rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] p-3 text-sm">
                 <div>
-                  <p className="text-xs uppercase tracking-wider text-[#888]">Status</p>
-                  <p className="mt-1 font-medium text-[#f2f2f2]">{addon.enabled ? "Available" : "Disabled"}</p>
+                  <p className="text-xs uppercase tracking-wider text-gray-500 dark:text-[#888]">Status</p>
+                  <p className="mt-1 font-medium text-gray-900 dark:text-[#f2f2f2]">{addon.enabled ? "Available" : "Disabled"}</p>
                 </div>
                 <div>
-                  <p className="text-xs uppercase tracking-wider text-[#888]">Route</p>
-                  <p className="mt-1 truncate font-mono text-xs text-[#d4d4d4]">{addon.navItems?.[0]?.href ?? addon.setupPath ?? "—"}</p>
+                  <p className="text-xs uppercase tracking-wider text-gray-500 dark:text-[#888]">Route</p>
+                  <p className="mt-1 truncate font-mono text-xs text-gray-700 dark:text-[#d4d4d4]">{addon.navItems?.[0]?.href ?? addon.setupPath ?? "—"}</p>
                 </div>
               </div>
 
-              <div className="mt-auto space-y-3 border-t border-[#2a2a2a] pt-4">
+              <div className="mt-auto space-y-3 border-t border-gray-200 dark:border-[#2a2a2a] pt-4">
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-[#f2f2f2]">Toggle addon</p>
-                    <p className="truncate text-xs text-[#888]">AWS-style quick action with the most common state change inline.</p>
+                    <p className="truncate text-sm font-medium text-gray-900 dark:text-[#f2f2f2]">Toggle addon</p>
+                    <p className="truncate text-xs text-gray-500 dark:text-[#888]">AWS-style quick action with the most common state change inline.</p>
                   </div>
                   <ToggleSwitch checked={addon.enabled} onChange={() => void handleToggle(addon)} disabled={isUpdating} className="shrink-0" />
                 </div>
                 {actionHref ? (
-                  <Link href={actionHref} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#2a2a2a] px-3 text-sm text-[#60a5fa] transition-colors hover:bg-[#1a1a1a] hover:text-[#93c5fd]">
+                  <Link href={actionHref} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-gray-200 dark:border-[#2a2a2a] px-3 text-sm text-[#60a5fa] transition-colors hover:bg-gray-100 dark:hover:bg-[#1a1a1a] hover:text-[#93c5fd]">
                     {addon.requiresSetup ? "Open setup" : "Open addon"}
                     <ExternalLink className="h-3.5 w-3.5" />
                   </Link>

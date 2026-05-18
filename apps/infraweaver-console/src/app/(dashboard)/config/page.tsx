@@ -198,8 +198,8 @@ export default function ConfigPage() {
       <PageHeader icon={Cog} title="Config Editor" subtitle="Kubernetes ConfigMaps and Secrets" />
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h2 className="text-xl font-bold text-white">Platform Config</h2>
-          <p className="text-sm text-slate-400">Manage catalog apps, groups, and platform settings</p>
+          <h2 className="text-xl font-bold text-gray-900 dark:text-white">Platform Config</h2>
+          <p className="text-sm text-slate-500 dark:text-slate-400">Manage catalog apps, groups, and platform settings</p>
         </div>
         <div className="flex items-center gap-3">
           {(groupsYamlPending || pendingChanges.some(c => c.startsWith("Set replicas catalog:"))) && can("catalog:write") && (
@@ -224,7 +224,7 @@ export default function ConfigPage() {
         </div>
       </div>
 
-      <div className="flex gap-1 bg-white/5 rounded-lg p-1 mb-6 w-fit overflow-x-auto max-w-full scrollbar-none">
+      <div className="flex gap-1 bg-gray-100 dark:bg-white/5 rounded-lg p-1 mb-6 w-fit overflow-x-auto max-w-full scrollbar-none">
         {tabs.map(tab => (
           <button
             key={tab.id}
@@ -233,7 +233,7 @@ export default function ConfigPage() {
               "flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors flex-shrink-0",
               activeTab === tab.id
                 ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/30"
-                : "text-slate-400 hover:text-white"
+                : "text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white"
             )}
           >
             <tab.icon className="w-4 h-4" />
@@ -245,19 +245,19 @@ export default function ConfigPage() {
       {/* Core Apps Tab */}
       {activeTab === "core" && (
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-          <div className="mb-4 flex items-center gap-2 text-sm text-slate-400">
+          <div className="mb-4 flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
             <Lock className="w-4 h-4 text-slate-500" />
             <span>Core apps are always enabled and cannot be toggled. They are required for platform operation.</span>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
             {coreApps
               ? Object.entries(coreApps).map(([name, { description }]) => (
-                  <div key={name} className="bg-white/5 border border-green-500/20 rounded-xl p-4">
+                  <div key={name} className="bg-gray-100 dark:bg-white/5 border border-green-500/20 rounded-xl p-4">
                     <div className="flex items-start justify-between mb-3">
                       <div>
                         <span className="text-2xl mb-1 block">⚙️</span>
-                        <h3 className="text-sm font-semibold text-white">{name}</h3>
-                        <p className="text-xs text-slate-400 mt-0.5">{description}</p>
+                        <h3 className="text-sm font-semibold text-gray-900 dark:text-white">{name}</h3>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{description}</p>
                       </div>
                       <Lock className="w-4 h-4 text-slate-600 flex-shrink-0 mt-1" />
                     </div>
@@ -267,7 +267,7 @@ export default function ConfigPage() {
                   </div>
                 ))
               : [...Array(8)].map((_, i) => (
-                  <div key={i} className="h-32 rounded-xl bg-white/5 animate-pulse" />
+                  <div key={i} className="h-32 rounded-xl bg-gray-100 dark:bg-white/5 animate-pulse" />
                 ))}
           </div>
         </motion.div>
@@ -282,7 +282,7 @@ export default function ConfigPage() {
         >
           {catalogLoading
             ? [...Array(8)].map((_, i) => (
-                <div key={i} className="h-32 rounded-xl bg-white/5 animate-pulse" />
+                <div key={i} className="h-32 rounded-xl bg-gray-100 dark:bg-white/5 animate-pulse" />
               ))
             : (catalogApps ?? []).map(app => {
                 const isEnabled = enabledApps.has(app.name);
@@ -293,15 +293,15 @@ export default function ConfigPage() {
                     key={app.name}
                     whileHover={{ scale: 1.01 }}
                     className={cn(
-                      "bg-white/5 border rounded-xl p-4 transition-colors",
-                      isEnabled ? "border-green-500/20" : "border-white/5"
+                      "bg-gray-100 dark:bg-white/5 border rounded-xl p-4 transition-colors",
+                      isEnabled ? "border-green-500/20" : "border-gray-200 dark:border-white/5"
                     )}
                   >
                     <div className="flex items-start justify-between mb-3">
                       <div>
                         <span className="text-2xl mb-1 block">{icon}</span>
-                        <h3 className="text-sm font-semibold text-white">{app.name}</h3>
-                        <p className="text-xs text-slate-400 mt-0.5">{app.description || "Catalog app"}</p>
+                        <h3 className="text-sm font-semibold text-gray-900 dark:text-white">{app.name}</h3>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{app.description || "Catalog app"}</p>
                       </div>
                       <button
                         onClick={() => toggleApp(app.name)}
@@ -329,7 +329,7 @@ export default function ConfigPage() {
                           value={replicas}
                           onChange={e => setCatalogReplicas(app.name, Number(e.target.value))}
                           disabled={!can("catalog:write")}
-                          className="w-14 bg-white/10 border border-white/10 rounded px-2 py-0.5 text-xs text-white focus:outline-none focus:border-indigo-500/50 disabled:opacity-50"
+                          className="w-14 bg-gray-100 dark:bg-white/10 border border-gray-200 dark:border-white/10 rounded px-2 py-0.5 text-xs text-gray-900 dark:text-white focus:outline-none focus:border-indigo-500/50 disabled:opacity-50"
                         />
                       </div>
                     )}
@@ -347,11 +347,11 @@ export default function ConfigPage() {
                 const isEnabled = group.enabled ?? true;
                 const apps = group.apps ?? {};
                 return (
-                  <div key={groupName} className="bg-white/5 border border-white/10 rounded-xl p-5">
+                  <div key={groupName} className="bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl p-5">
                     <div className="flex items-center justify-between mb-4">
                       <div>
-                        <h3 className="text-sm font-semibold text-white">{groupName}</h3>
-                        {group.description && <p className="text-xs text-slate-400 mt-0.5">{group.description}</p>}
+                        <h3 className="text-sm font-semibold text-gray-900 dark:text-white">{groupName}</h3>
+                        {group.description && <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{group.description}</p>}
                       </div>
                       <button
                         onClick={() => toggleGroup(groupName)}
@@ -368,9 +368,9 @@ export default function ConfigPage() {
                     {Object.keys(apps).length > 0 && (
                       <div className="space-y-2">
                         {Object.entries(apps).map(([appName, appData]) => (
-                          <div key={appName} className="flex items-center justify-between bg-white/5 rounded-lg px-3 py-2">
+                          <div key={appName} className="flex items-center justify-between bg-gray-100 dark:bg-white/5 rounded-lg px-3 py-2">
                             <div>
-                              <span className="text-xs font-medium text-white">{appName}</span>
+                              <span className="text-xs font-medium text-gray-900 dark:text-white">{appName}</span>
                               {appData.description && (
                                 <p className="text-xs text-slate-500">{appData.description}</p>
                               )}
@@ -385,7 +385,7 @@ export default function ConfigPage() {
                                   value={appData.replicas}
                                   onChange={e => setGroupReplicas(groupName, appName, Number(e.target.value))}
                                   disabled={!can("catalog:write")}
-                                  className="w-14 bg-white/10 border border-white/10 rounded px-2 py-0.5 text-xs text-white focus:outline-none focus:border-indigo-500/50 disabled:opacity-50"
+                                  className="w-14 bg-gray-100 dark:bg-white/10 border border-gray-200 dark:border-white/10 rounded px-2 py-0.5 text-xs text-gray-900 dark:text-white focus:outline-none focus:border-indigo-500/50 disabled:opacity-50"
                                 />
                               </div>
                             )}
@@ -400,10 +400,10 @@ export default function ConfigPage() {
                 { name: "core-monitoring", description: "Prometheus, Loki, Alertmanager — cluster observability", enabled: platformConfig?.groups?.["core-monitoring"]?.enabled ?? true },
                 { name: "core-platform", description: "SSO, VPN, DNS, Homepage, Backups — core platform services", enabled: platformConfig?.groups?.["core-platform"]?.enabled ?? true },
               ].map(group => (
-                <div key={group.name} className="bg-white/5 border border-white/10 rounded-xl p-5 flex items-center justify-between animate-pulse">
+                <div key={group.name} className="bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl p-5 flex items-center justify-between animate-pulse">
                   <div>
-                    <h3 className="text-sm font-semibold text-white">{group.name}</h3>
-                    <p className="text-xs text-slate-400 mt-0.5">{group.description}</p>
+                    <h3 className="text-sm font-semibold text-gray-900 dark:text-white">{group.name}</h3>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{group.description}</p>
                   </div>
                   <div className={cn("text-xs px-3 py-1 rounded-full font-medium", group.enabled ? "bg-green-500/10 text-green-400" : "bg-slate-500/10 text-slate-500")}>
                     {group.enabled ? "Enabled" : "Disabled"}
@@ -415,10 +415,10 @@ export default function ConfigPage() {
 
       {/* Raw YAML Tab */}
       {activeTab === "yaml" && isAdmin && (
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-white/5 border border-white/10 rounded-xl overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-white/5">
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-white/5">
             <div className="flex items-center gap-3">
-              <span className="text-sm font-medium text-white">platform.yaml</span>
+              <span className="text-sm font-medium text-gray-900 dark:text-white">platform.yaml</span>
               {yamlContent && (() => {
                 try { jsYaml.load(yamlContent); return <span className="flex items-center gap-1 text-xs text-green-400"><CheckCircle2 className="w-3.5 h-3.5" />Valid YAML</span>; }
                 catch { return <span className="flex items-center gap-1 text-xs text-red-400"><XCircle className="w-3.5 h-3.5" />Invalid YAML</span>; }
@@ -441,7 +441,7 @@ export default function ConfigPage() {
             value={yamlContent}
             onChange={e => setYamlContent(e.target.value)}
             spellCheck={false}
-            className="w-full h-[500px] bg-[#1e1e1e] text-slate-200 font-mono text-[13px] leading-5 p-4 resize-none focus:outline-none border-0 rounded-b-xl"
+            className="w-full h-[500px] bg-gray-50 dark:bg-[#1e1e1e] text-slate-800 dark:text-slate-200 font-mono text-[13px] leading-5 p-4 resize-none focus:outline-none border-0 rounded-b-xl"
             style={{ tabSize: 2 }}
           />
         </motion.div>
@@ -452,18 +452,18 @@ export default function ConfigPage() {
           <motion.div
             initial={{ scale: 0.95, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            className="bg-slate-900 border border-white/10 rounded-2xl p-6 w-full max-w-md shadow-2xl"
+            className="bg-slate-100 dark:bg-slate-900 border border-gray-200 dark:border-white/10 rounded-2xl p-6 w-full max-w-md shadow-2xl"
           >
-            <h3 className="text-lg font-semibold text-white mb-4">Commit Changes</h3>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Commit Changes</h3>
             <div className="space-y-2 mb-4">
               {pendingChanges.filter(c => !c.startsWith("Set replicas")).map((c, i) => (
-                <div key={i} className="flex items-center gap-2 text-sm text-slate-300">
+                <div key={i} className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
                   <span className="w-2 h-2 rounded-full bg-indigo-400 flex-shrink-0" />
                   {c}
                 </div>
               ))}
             </div>
-            <p className="text-xs text-slate-400 mb-4">This will commit changes to platform.yaml and push to main. ArgoCD will auto-sync.</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">This will commit changes to platform.yaml and push to main. ArgoCD will auto-sync.</p>
             <div className="flex gap-3">
               <button
                 onClick={() => commitMutation.mutate(`chore: ${pendingChanges.filter(c => !c.startsWith("Set replicas")).join(", ")} via InfraWeaver Console`)}
@@ -474,7 +474,7 @@ export default function ConfigPage() {
               </button>
               <button
                 onClick={() => setShowCommitDialog(false)}
-                className="flex-1 py-2.5 rounded-lg bg-white/5 border border-white/10 text-slate-300 text-sm font-medium"
+                className="flex-1 py-2.5 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-slate-700 dark:text-slate-300 text-sm font-medium"
               >
                 Cancel
               </button>

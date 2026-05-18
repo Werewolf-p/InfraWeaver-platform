@@ -1,12 +1,12 @@
 import { cn } from "@/lib/utils";
 
 function Pulse({ className }: { className?: string }) {
-  return <div className={cn("rounded bg-[#1a1a1a] shimmer-bg", className)} />;
+  return <div className={cn("rounded bg-white dark:bg-[#1a1a1a] shimmer-bg", className)} />;
 }
 
 export function AppCardSkeleton() {
   return (
-    <div className="space-y-3 rounded-xl border border-[#2a2a2a] bg-[#111] p-4">
+    <div className="space-y-3 rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4">
       <div className="flex items-start justify-between">
         <div className="mr-3 flex-1 space-y-2">
           <Pulse className="h-4 w-32" />
@@ -28,7 +28,7 @@ export function AppCardSkeleton() {
 
 export function PodRowSkeleton() {
   return (
-    <tr className="border-b border-[#2a2a2a] last:border-b-0">
+    <tr className="border-b border-gray-200 dark:border-[#2a2a2a] last:border-b-0">
       <td className="px-4 py-3"><Pulse className="h-4 w-40" /></td>
       <td className="px-4 py-3"><Pulse className="h-4 w-24" /></td>
       <td className="px-4 py-3"><Pulse className="h-5 w-16 rounded-full" /></td>
@@ -40,7 +40,7 @@ export function PodRowSkeleton() {
 
 export function StatCardSkeleton() {
   return (
-    <div className="flex items-center gap-3 rounded-xl border border-[#2a2a2a] bg-[#111] p-4">
+    <div className="flex items-center gap-3 rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4">
       <Pulse className="h-8 w-8 shrink-0 rounded-lg" />
       <div className="flex-1 space-y-2">
         <Pulse className="h-3 w-16" />
@@ -52,7 +52,7 @@ export function StatCardSkeleton() {
 
 export function TableRowSkeleton() {
   return (
-    <tr className="border-b border-[#2a2a2a] last:border-b-0">
+    <tr className="border-b border-gray-200 dark:border-[#2a2a2a] last:border-b-0">
       <td className="px-3 py-2.5"><Pulse className="h-4 w-32" /></td>
       <td className="px-3 py-2.5"><Pulse className="h-4 w-20" /></td>
       <td className="px-3 py-2.5"><Pulse className="h-5 w-16 rounded-full" /></td>
@@ -66,8 +66,8 @@ export function TableRowSkeleton() {
 
 export function TableSkeleton({ rows = 5, columns = 4 }: { rows?: number; columns?: number }) {
   return (
-    <div className="overflow-hidden rounded-xl border border-[#2a2a2a] bg-[#111]">
-      <div className="border-b border-[#2a2a2a] bg-[#141414] px-4 py-3">
+    <div className="overflow-hidden rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111]">
+      <div className="border-b border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#141414] px-4 py-3">
         <Pulse className="h-4 w-32" />
       </div>
       <div className="divide-y divide-[#2a2a2a]">

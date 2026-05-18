@@ -97,11 +97,11 @@ export function ConfigEditor({
   }
 
   return (
-    <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4 space-y-4">
+    <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4 space-y-4">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h3 className="text-sm font-medium text-[#f2f2f2]">{title}</h3>
-          <p className="text-xs text-[#888]">{filePath}</p>
+          <h3 className="text-sm font-medium text-gray-900 dark:text-[#f2f2f2]">{title}</h3>
+          <p className="text-xs text-gray-500 dark:text-[#888]">{filePath}</p>
         </div>
         <button
           type="button"
@@ -119,13 +119,13 @@ export function ConfigEditor({
       </div>
 
       {fileQuery.isLoading ? (
-        <div className="flex items-center gap-2 text-sm text-[#888]">
+        <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-[#888]">
           <Loader2 className="h-4 w-4 animate-spin" /> Loading config…
         </div>
       ) : isPropertiesFile ? (
         <div className="space-y-3">
           {propertyEntries.length === 0 ? (
-            <p className="text-sm text-[#888]">No editable properties found.</p>
+            <p className="text-sm text-gray-500 dark:text-[#888]">No editable properties found.</p>
           ) : (
             propertyEntries.map((entry) => {
               const description = isMinecraftGameType(gameType)
@@ -133,21 +133,21 @@ export function ConfigEditor({
                 : undefined;
               return (
                 <label key={`${entry.key}-${entry.index}`} className="block space-y-1">
-                  <span className="flex items-center gap-2 text-xs font-medium text-[#f2f2f2]">
+                  <span className="flex items-center gap-2 text-xs font-medium text-gray-900 dark:text-[#f2f2f2]">
                     <span>{entry.key}</span>
                     {description ? (
-                      <span title={description} className="text-[#888]">
+                      <span title={description} className="text-gray-500 dark:text-[#888]">
                         <Info className="h-3.5 w-3.5" />
                       </span>
                     ) : null}
                   </span>
                   {description ? (
-                    <span className="block text-[11px] text-[#555]">{description}</span>
+                    <span className="block text-[11px] text-gray-400 dark:text-[#555]">{description}</span>
                   ) : null}
                   <input
                     value={entry.value}
                     onChange={(event) => updateProperty(entry.index, event.target.value)}
-                    className="w-full rounded-lg border border-[#2a2a2a] bg-[#0a0a0a] px-3 py-2 text-sm text-[#f2f2f2] focus:border-[#0078D4] focus:outline-none"
+                    className="w-full rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0a0a0a] px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] focus:border-[#0078D4] focus:outline-none"
                   />
                 </label>
               );
@@ -159,7 +159,7 @@ export function ConfigEditor({
           value={rawContent}
           onChange={(event) => setRawContent(event.target.value)}
           rows={16}
-          className="min-h-[320px] w-full rounded-lg border border-[#2a2a2a] bg-[#0a0a0a] p-3 font-mono text-sm text-[#f2f2f2] focus:border-[#0078D4] focus:outline-none"
+          className="min-h-[320px] w-full rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0a0a0a] p-3 font-mono text-sm text-gray-900 dark:text-[#f2f2f2] focus:border-[#0078D4] focus:outline-none"
         />
       )}
     </div>

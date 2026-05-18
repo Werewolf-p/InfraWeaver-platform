@@ -93,8 +93,8 @@ function TableOfContents({ toc }: { toc: WikiHeading[] }) {
 
   return (
     <aside className="sticky top-6 hidden w-64 self-start xl:block">
-      <div className="rounded-2xl border border-white/10 bg-[#0b0f14] p-4">
-        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">On this page</p>
+      <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-[#0b0f14] p-4">
+        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">On this page</p>
         <nav className="mt-4 space-y-1.5">
           {toc.map((item) => (
             <a
@@ -105,7 +105,7 @@ function TableOfContents({ toc }: { toc: WikiHeading[] }) {
                 item.level === 3 ? "ml-4" : "",
                 activeId === item.id
                   ? "bg-blue-500/15 text-blue-200"
-                  : "text-slate-400 hover:bg-white/5 hover:text-white",
+                  : "text-slate-500 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-white/5 hover:text-gray-900 dark:hover:text-white",
               )}
             >
               {item.text}
@@ -146,31 +146,31 @@ function WikiSidebar({
           "block rounded-xl border px-4 py-3 transition",
           currentHref === "/wiki"
             ? "border-blue-500/40 bg-blue-500/10 text-blue-100"
-            : "border-white/10 bg-white/[0.03] text-slate-200 hover:bg-white/[0.06]",
+            : "border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/[0.03] text-slate-800 dark:text-slate-200 hover:bg-gray-100 dark:hover:bg-white/[0.06]",
         )}
       >
         <p className="text-sm font-semibold">Wiki home</p>
-        <p className="mt-1 text-xs text-slate-400">Browse manuals, runbooks, and developer notes.</p>
+        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Browse manuals, runbooks, and developer notes.</p>
       </Link>
 
       {sections.map((section) => {
         const isOpen = openSections[section.id] ?? false;
 
         return (
-          <div key={section.id} className="overflow-hidden rounded-2xl border border-white/10 bg-[#0b0f14]">
+          <div key={section.id} className="overflow-hidden rounded-2xl border border-gray-200 dark:border-white/10 bg-[#0b0f14]">
             <button
               type="button"
               onClick={() => setOpenSections((previous) => ({ ...previous, [section.id]: !isOpen }))}
               className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
             >
               <div>
-                <p className="text-sm font-semibold text-white">{section.title}</p>
-                <p className="mt-1 text-xs text-slate-400">{section.description}</p>
+                <p className="text-sm font-semibold text-gray-900 dark:text-white">{section.title}</p>
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{section.description}</p>
               </div>
               <ChevronDown className={cn("h-4 w-4 text-slate-500 transition", isOpen && "rotate-180")} />
             </button>
             {isOpen ? (
-              <div className="border-t border-white/10 px-2 py-2">
+              <div className="border-t border-gray-200 dark:border-white/10 px-2 py-2">
                 {section.pages.map((page) => {
                   const href = `/wiki/${section.id}/${page.slug}`;
                   const isActive = currentHref === href;
@@ -184,7 +184,7 @@ function WikiSidebar({
                         "block rounded-xl px-3 py-2.5 text-sm transition",
                         isActive
                           ? "bg-blue-500/15 text-blue-100"
-                          : "text-slate-300 hover:bg-white/[0.05] hover:text-white",
+                          : "text-slate-700 dark:text-slate-300 hover:bg-white/[0.05] hover:text-gray-900 dark:hover:text-white",
                       )}
                     >
                       <span className="font-medium">{page.title}</span>
@@ -251,7 +251,7 @@ export function WikiLayout({
             <button
               type="button"
               onClick={() => setMobileOpen(true)}
-              className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-slate-200 transition hover:bg-white/[0.06]"
+              className="inline-flex items-center gap-2 rounded-xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/[0.03] px-3 py-2 text-sm text-slate-800 dark:text-slate-200 transition hover:bg-gray-100 dark:hover:bg-white/[0.06]"
             >
               <Menu className="h-4 w-4" />
               Browse pages
@@ -260,7 +260,7 @@ export function WikiLayout({
 
           <PageHeader icon={BookOpen} title={title} subtitle={description} breadcrumb={breadcrumb} actions={actions} />
 
-          <div className="rounded-3xl border border-white/10 bg-[#0b0f14] p-5 sm:p-6 lg:p-8">
+          <div className="rounded-3xl border border-gray-200 dark:border-white/10 bg-[#0b0f14] p-5 sm:p-6 lg:p-8">
             {children}
           </div>
         </div>

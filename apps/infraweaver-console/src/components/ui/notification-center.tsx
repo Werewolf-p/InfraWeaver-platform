@@ -67,7 +67,7 @@ export function NotificationCenter({ className }: NotificationCenterProps) {
     <div className={cn("relative", className)} ref={panelRef}>
       <button
         onClick={() => setOpen((prev) => !prev)}
-        className="relative flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-white/10 hover:text-white"
+        className="relative flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 transition-colors hover:bg-gray-100 dark:hover:bg-white/10 hover:text-gray-900 dark:hover:text-white"
         aria-label="Notifications"
       >
         <motion.span animate={bellControls} style={{ display: "inline-flex", transformOrigin: "50% 0%" }}>
@@ -82,7 +82,7 @@ export function NotificationCenter({ className }: NotificationCenterProps) {
               exit={{ scale: 0 }}
               transition={{ type: "spring", stiffness: 500, damping: 20 }}
               className={cn(
-                "absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[9px] font-bold text-white",
+                "absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[9px] font-bold text-gray-900 dark:text-white",
                 counts.error > 0 ? "bg-red-500" : "bg-amber-500"
               )}
             >
@@ -99,12 +99,12 @@ export function NotificationCenter({ className }: NotificationCenterProps) {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -8, scale: 0.97 }}
             transition={{ duration: 0.15, ease: "easeOut" }}
-            className="absolute right-0 top-full z-[100] mt-2 w-80 overflow-hidden rounded-xl border border-white/10 bg-slate-900/95 shadow-2xl backdrop-blur-xl"
+            className="absolute right-0 top-full z-[100] mt-2 w-80 overflow-hidden rounded-xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/95 shadow-2xl backdrop-blur-xl"
           >
-            <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+            <div className="flex items-center justify-between border-b border-gray-200 dark:border-white/10 px-4 py-3">
               <div className="flex items-center gap-2">
-                <Bell className="h-3.5 w-3.5 text-slate-400" />
-                <h3 className="text-sm font-semibold text-white">Notifications</h3>
+                <Bell className="h-3.5 w-3.5 text-slate-500 dark:text-slate-400" />
+                <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Notifications</h3>
                 {unreadCount > 0 && (
                   <span className="rounded-full border border-indigo-500/30 bg-indigo-500/20 px-1.5 py-0.5 text-[10px] text-indigo-400">
                     {unreadCount} open
@@ -113,25 +113,25 @@ export function NotificationCenter({ className }: NotificationCenterProps) {
               </div>
               <div className="flex items-center gap-2">
                 {unreadCount > 0 && (
-                  <button onClick={markAllRead} className="flex items-center gap-1 text-[11px] text-slate-500 transition-colors hover:text-slate-300">
+                  <button onClick={markAllRead} className="flex items-center gap-1 text-[11px] text-slate-500 transition-colors hover:text-slate-700 dark:hover:text-slate-300">
                     <CheckCheck className="h-3 w-3" />
                     Read all
                   </button>
                 )}
                 {notifications.length > 0 && (
-                  <button onClick={clearAll} className="flex items-center gap-1 text-[11px] text-slate-500 transition-colors hover:text-slate-300">
+                  <button onClick={clearAll} className="flex items-center gap-1 text-[11px] text-slate-500 transition-colors hover:text-slate-700 dark:hover:text-slate-300">
                     <Trash2 className="h-3 w-3" />
                     Clear
                   </button>
                 )}
-                <button onClick={() => setOpen(false)} className="text-slate-500 transition-colors hover:text-white">
+                <button onClick={() => setOpen(false)} className="text-slate-500 transition-colors hover:text-gray-900 dark:hover:text-white">
                   <X className="h-4 w-4" />
                 </button>
               </div>
             </div>
 
             {(counts.warning > 0 || counts.error > 0) && (
-              <div className="flex items-center gap-2 border-b border-white/5 px-4 py-2 text-[11px] text-slate-400">
+              <div className="flex items-center gap-2 border-b border-gray-200 dark:border-white/5 px-4 py-2 text-[11px] text-slate-500 dark:text-slate-400">
                 {counts.error > 0 ? <span className="rounded-full border border-red-500/30 bg-red-500/10 px-2 py-0.5 text-red-300">{counts.error} errors</span> : null}
                 {counts.warning > 0 ? <span className="rounded-full border border-yellow-500/30 bg-yellow-500/10 px-2 py-0.5 text-yellow-300">{counts.warning} warnings</span> : null}
               </div>
@@ -157,8 +157,8 @@ export function NotificationCenter({ className }: NotificationCenterProps) {
                         animate={{ opacity: 1, x: 0 }}
                         exit={{ opacity: 0, x: 4 }}
                         className={cn(
-                          "flex cursor-default gap-3 px-4 py-3 transition-colors hover:bg-white/5",
-                          !notification.read && "bg-white/[0.02]"
+                          "flex cursor-default gap-3 px-4 py-3 transition-colors hover:bg-gray-100 dark:hover:bg-white/5",
+                          !notification.read && "bg-gray-50 dark:bg-white/[0.02]"
                         )}
                         onClick={() => markRead(notification.id)}
                       >
@@ -167,12 +167,12 @@ export function NotificationCenter({ className }: NotificationCenterProps) {
                         </div>
                         <div className="min-w-0 flex-1">
                           <div className="flex items-start justify-between gap-2">
-                            <p className={cn("text-sm font-medium leading-snug", notification.read ? "text-slate-400" : "text-white")}>
+                            <p className={cn("text-sm font-medium leading-snug", notification.read ? "text-slate-500 dark:text-slate-400" : "text-gray-900 dark:text-white")}>
                               {notification.title}
                             </p>
                             <button
                               onClick={(e) => { e.stopPropagation(); dismiss(notification.id); }}
-                              className="mt-0.5 flex-shrink-0 text-slate-600 transition-colors hover:text-slate-400"
+                              className="mt-0.5 flex-shrink-0 text-slate-600 transition-colors hover:text-slate-700 dark:hover:text-slate-400"
                             >
                               <X className="h-3 w-3" />
                             </button>

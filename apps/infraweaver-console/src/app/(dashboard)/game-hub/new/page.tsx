@@ -348,7 +348,7 @@ export default function NewGameServerPage() {
         actions={
           <button
             onClick={() => router.push("/game-hub")}
-            className="inline-flex items-center gap-2 rounded-lg border border-[#2a2a2a] bg-[#111] px-3 py-2 text-sm text-[#b3b3b3] transition-colors hover:border-[#3a3a3a] hover:text-white"
+            className="inline-flex items-center gap-2 rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-3 py-2 text-sm text-gray-600 dark:text-[#b3b3b3] transition-colors hover:border-[#3a3a3a] hover:text-gray-900 dark:hover:text-white"
           >
             <ArrowLeft className="h-4 w-4" /> Back to Game Hub
           </button>
@@ -365,7 +365,7 @@ export default function NewGameServerPage() {
                 ? "border-[#0078D4]/40 bg-[#0078D4]/10"
                 : step > entry.id
                   ? "border-green-500/30 bg-green-500/10"
-                  : "border-[#2a2a2a] bg-[#111]"
+                  : "border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111]"
             )}
           >
             <div className="flex items-center gap-3">
@@ -375,13 +375,13 @@ export default function NewGameServerPage() {
                   ? "border-[#0078D4] bg-[#0078D4] text-white"
                   : step > entry.id
                     ? "border-green-500 bg-green-500 text-white"
-                    : "border-[#333] text-[#666]"
+                    : "border-gray-200 dark:border-[#333] text-gray-400 dark:text-[#666]"
               )}>
                 {step > entry.id ? <CheckCircle2 className="h-4 w-4" /> : entry.id}
               </div>
               <div>
-                <p className="text-xs uppercase tracking-[0.2em] text-[#666]">Step {entry.id}</p>
-                <p className="text-sm font-medium text-[#f2f2f2]">{entry.label}</p>
+                <p className="text-xs uppercase tracking-[0.2em] text-gray-400 dark:text-[#666]">Step {entry.id}</p>
+                <p className="text-sm font-medium text-gray-900 dark:text-[#f2f2f2]">{entry.label}</p>
               </div>
             </div>
           </div>
@@ -395,17 +395,17 @@ export default function NewGameServerPage() {
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -12 }}
           transition={{ duration: 0.18 }}
-          className="rounded-2xl border border-[#2a2a2a] bg-[#0f0f0f] p-6"
+          className="rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0f0f0f] p-6"
         >
           {step === 1 && (
             <div className="space-y-6">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                 <div>
-                  <h2 className="text-lg font-semibold text-[#f2f2f2]">Choose an egg</h2>
-                  <p className="text-sm text-[#777]">Pick from the built-in library or the full Pelican catalog.</p>
+                  <h2 className="text-lg font-semibold text-gray-900 dark:text-[#f2f2f2]">Choose an egg</h2>
+                  <p className="text-sm text-gray-500 dark:text-[#777]">Pick from the built-in library or the full Pelican catalog.</p>
                 </div>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                  <div className="flex rounded-xl border border-[#2a2a2a] bg-[#111] p-1">
+                  <div className="flex rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-1">
                     {([
                       { id: "built-in", label: "Built-in" },
                       { id: "pelican", label: `Pelican (${catalogData?.total ?? 0})` },
@@ -415,20 +415,20 @@ export default function NewGameServerPage() {
                         onClick={() => setSourceTab(tab.id)}
                         className={cn(
                           "rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-                          sourceTab === tab.id ? "bg-[#0078D4] text-white" : "text-[#888] hover:text-white"
+                          sourceTab === tab.id ? "bg-[#0078D4] text-white" : "text-gray-500 dark:text-[#888] hover:text-gray-900 dark:hover:text-white"
                         )}
                       >
                         {tab.label}
                       </button>
                     ))}
                   </div>
-                  <div className="flex min-w-[260px] items-center gap-2 rounded-xl border border-[#2a2a2a] bg-[#111] px-3 py-2">
-                    <Search className="h-4 w-4 text-[#555]" />
+                  <div className="flex min-w-[260px] items-center gap-2 rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-3 py-2">
+                    <Search className="h-4 w-4 text-gray-400 dark:text-[#555]" />
                     <input
                       value={search}
                       onChange={(event) => setSearch(event.target.value)}
                       placeholder={sourceTab === "built-in" ? "Search built-in eggs..." : "Search Pelican eggs..."}
-                      className="w-full bg-transparent text-sm text-[#f2f2f2] outline-none placeholder:text-[#555]"
+                      className="w-full bg-transparent text-sm text-gray-900 dark:text-[#f2f2f2] outline-none placeholder:text-gray-400 dark:placeholder:text-[#555]"
                     />
                   </div>
                 </div>
@@ -440,33 +440,33 @@ export default function NewGameServerPage() {
                     <button
                       key={egg.id}
                       onClick={() => selectBuiltInEgg(egg)}
-                      className="rounded-2xl border border-[#2a2a2a] bg-[#111] p-5 text-left transition-colors hover:border-[#0078D4]/50 hover:bg-[#0078D4]/5"
+                      className="rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-5 text-left transition-colors hover:border-[#0078D4]/50 hover:bg-[#0078D4]/5"
                     >
                       <div className="mb-4 flex items-start gap-3">
                         <div className="text-3xl">{builtInIcon(egg)}</div>
                         <div className="min-w-0">
-                          <p className="truncate text-base font-semibold text-[#f2f2f2]">{egg.name}</p>
-                          <p className="mt-1 line-clamp-2 text-sm text-[#777]">{egg.description}</p>
+                          <p className="truncate text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">{egg.name}</p>
+                          <p className="mt-1 line-clamp-2 text-sm text-gray-500 dark:text-[#777]">{egg.description}</p>
                         </div>
                       </div>
-                      <dl className="space-y-1.5 text-xs text-[#999]">
+                      <dl className="space-y-1.5 text-xs text-gray-500 dark:text-[#999]">
                         <div className="flex justify-between gap-3">
                           <dt>Image</dt>
-                          <dd className="truncate font-mono text-[#cfcfcf]">{egg.dockerImage}</dd>
+                          <dd className="truncate font-mono text-gray-700 dark:text-[#cfcfcf]">{egg.dockerImage}</dd>
                         </div>
                         <div className="flex justify-between gap-3">
                           <dt>Port</dt>
-                          <dd className="text-[#cfcfcf]">{egg.gamePort}/{egg.protocol ?? "TCP"}</dd>
+                          <dd className="text-gray-700 dark:text-[#cfcfcf]">{egg.gamePort}/{egg.protocol ?? "TCP"}</dd>
                         </div>
                         <div className="flex justify-between gap-3">
                           <dt>Defaults</dt>
-                          <dd className="text-[#cfcfcf]">{egg.defaultMemory ?? "2Gi"} · {egg.defaultCpu ?? "1"} CPU</dd>
+                          <dd className="text-gray-700 dark:text-[#cfcfcf]">{egg.defaultMemory ?? "2Gi"} · {egg.defaultCpu ?? "1"} CPU</dd>
                         </div>
                       </dl>
                     </button>
                   ))}
                   {filteredBuiltInEggs.length === 0 && (
-                    <div className="col-span-full rounded-xl border border-dashed border-[#2a2a2a] p-10 text-center text-sm text-[#666]">
+                    <div className="col-span-full rounded-xl border border-dashed border-gray-200 dark:border-[#2a2a2a] p-10 text-center text-sm text-gray-400 dark:text-[#666]">
                       No built-in eggs matched your search.
                     </div>
                   )}
@@ -480,7 +480,7 @@ export default function NewGameServerPage() {
                         "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
                         selectedCategory === "all"
                           ? "border-[#0078D4]/40 bg-[#0078D4]/15 text-[#7cc4ff]"
-                          : "border-[#2a2a2a] bg-[#111] text-[#888] hover:text-white"
+                          : "border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-500 dark:text-[#888] hover:text-gray-900 dark:hover:text-white"
                       )}
                     >
                       All Categories
@@ -493,7 +493,7 @@ export default function NewGameServerPage() {
                           "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
                           selectedCategory === category.path
                             ? "border-[#0078D4]/40 bg-[#0078D4]/15 text-[#7cc4ff]"
-                            : "border-[#2a2a2a] bg-[#111] text-[#888] hover:text-white"
+                            : "border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-500 dark:text-[#888] hover:text-gray-900 dark:hover:text-white"
                         )}
                       >
                         <span className="mr-1.5">{categoryIcon(category.path)}</span>
@@ -503,7 +503,7 @@ export default function NewGameServerPage() {
                   </div>
 
                   {catalogLoading ? (
-                    <div className="flex h-48 items-center justify-center gap-3 text-[#777]">
+                    <div className="flex h-48 items-center justify-center gap-3 text-gray-500 dark:text-[#777]">
                       <Loader2 className="h-5 w-5 animate-spin" /> Loading Pelican egg catalog...
                     </div>
                   ) : catalogError ? (
@@ -516,17 +516,17 @@ export default function NewGameServerPage() {
                         <button
                           key={`${egg.path}-${egg.id}`}
                           onClick={() => selectRemoteEgg(egg)}
-                          className="rounded-2xl border border-[#2a2a2a] bg-[#111] p-5 text-left transition-colors hover:border-[#0078D4]/50 hover:bg-[#0078D4]/5"
+                          className="rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-5 text-left transition-colors hover:border-[#0078D4]/50 hover:bg-[#0078D4]/5"
                         >
                           <div className="mb-4 flex items-start gap-3">
                             <div className="text-3xl">{categoryIcon(egg.categoryPath)}</div>
                             <div className="min-w-0">
-                              <p className="truncate text-base font-semibold text-[#f2f2f2]">{egg.name}</p>
-                              <p className="mt-1 line-clamp-2 text-sm text-[#777]">{egg.description || "No description provided."}</p>
+                              <p className="truncate text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">{egg.name}</p>
+                              <p className="mt-1 line-clamp-2 text-sm text-gray-500 dark:text-[#777]">{egg.description || "No description provided."}</p>
                             </div>
                           </div>
-                          <div className="mb-3 flex flex-wrap items-center gap-1.5 text-[11px] text-[#999]">
-                            <span className="rounded-full border border-[#2a2a2a] px-2 py-1 text-[#cfcfcf]">{egg.categoryName}</span>
+                          <div className="mb-3 flex flex-wrap items-center gap-1.5 text-[11px] text-gray-500 dark:text-[#999]">
+                            <span className="rounded-full border border-gray-200 dark:border-[#2a2a2a] px-2 py-1 text-gray-700 dark:text-[#cfcfcf]">{egg.categoryName}</span>
                             {egg.hasMultipleImages && (
                               <span className="rounded-full border border-[#0078D4]/30 bg-[#0078D4]/10 px-2 py-1 text-[#7cc4ff]">multi-image</span>
                             )}
@@ -535,11 +535,11 @@ export default function NewGameServerPage() {
                             )}
                             {egg.author ? <span>by {egg.author}</span> : null}
                           </div>
-                          <p className="truncate font-mono text-xs text-[#cfcfcf]">{egg.dockerImage}</p>
+                          <p className="truncate font-mono text-xs text-gray-700 dark:text-[#cfcfcf]">{egg.dockerImage}</p>
                         </button>
                       ))}
                       {filteredRemoteEggs.length === 0 && (
-                        <div className="col-span-full rounded-xl border border-dashed border-[#2a2a2a] p-10 text-center text-sm text-[#666]">
+                        <div className="col-span-full rounded-xl border border-dashed border-gray-200 dark:border-[#2a2a2a] p-10 text-center text-sm text-gray-400 dark:text-[#666]">
                           No Pelican eggs matched the current search.
                         </div>
                       )}
@@ -552,22 +552,22 @@ export default function NewGameServerPage() {
 
           {step === 2 && (
             <div className="space-y-6">
-              <div className="flex items-start justify-between gap-4 rounded-2xl border border-[#2a2a2a] bg-[#111] p-5">
+              <div className="flex items-start justify-between gap-4 rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-5">
                 <div className="flex items-start gap-3">
                   <div className="text-3xl">
                     {sourceTab === "built-in" && activeEgg ? builtInIcon(activeEgg) : categoryIcon(selectedRemoteEntry?.categoryPath ?? "misc")}
                   </div>
                   <div>
-                    <p className="text-base font-semibold text-[#f2f2f2]">{activeEgg?.name ?? selectedRemoteEntry?.name ?? "Loading egg..."}</p>
-                    <p className="mt-1 text-sm text-[#777]">{activeEgg?.description ?? selectedRemoteEntry?.description ?? "Fetching egg details from Pelican..."}</p>
-                    <p className="mt-2 font-mono text-xs text-[#999]">{activeEgg?.dockerImage ?? selectedRemoteEntry?.dockerImage ?? "—"}</p>
+                    <p className="text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">{activeEgg?.name ?? selectedRemoteEntry?.name ?? "Loading egg..."}</p>
+                    <p className="mt-1 text-sm text-gray-500 dark:text-[#777]">{activeEgg?.description ?? selectedRemoteEntry?.description ?? "Fetching egg details from Pelican..."}</p>
+                    <p className="mt-2 font-mono text-xs text-gray-500 dark:text-[#999]">{activeEgg?.dockerImage ?? selectedRemoteEntry?.dockerImage ?? "—"}</p>
                   </div>
                 </div>
-                <button onClick={() => setStep(1)} className="text-sm text-[#7cc4ff] hover:text-white">Change egg</button>
+                <button onClick={() => setStep(1)} className="text-sm text-[#7cc4ff] hover:text-gray-900 dark:hover:text-white">Change egg</button>
               </div>
 
               {sourceTab === "pelican" && remoteEggLoading && (
-                <div className="flex h-40 items-center justify-center gap-3 text-[#777]">
+                <div className="flex h-40 items-center justify-center gap-3 text-gray-500 dark:text-[#777]">
                   <Loader2 className="h-5 w-5 animate-spin" /> Loading Pelican egg variables...
                 </div>
               )}
@@ -582,19 +582,19 @@ export default function NewGameServerPage() {
                 <>
                   <div className="grid gap-4 md:grid-cols-2">
                     <div className="space-y-2 md:col-span-2">
-                      <label className="text-xs font-semibold uppercase tracking-[0.2em] text-[#666]">Server Name</label>
+                      <label className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-400 dark:text-[#666]">Server Name</label>
                       <input
                         value={serverName}
                         onChange={(event) => setServerName(event.target.value)}
                         placeholder="my-server"
-                        className="w-full rounded-xl border border-[#2a2a2a] bg-[#111] px-4 py-3 text-sm text-[#f2f2f2] outline-none transition-colors focus:border-[#0078D4]/50"
+                        className="w-full rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-4 py-3 text-sm text-gray-900 dark:text-[#f2f2f2] outline-none transition-colors focus:border-[#0078D4]/50"
                       />
-                      <p className="text-xs text-[#666]">The deployed Kubernetes resource will use {normalizeServerName(serverName) || "your-server-name"}.</p>
+                      <p className="text-xs text-gray-400 dark:text-[#666]">The deployed Kubernetes resource will use {normalizeServerName(serverName) || "your-server-name"}.</p>
                     </div>
                     <div className="space-y-2 md:col-span-2">
-                      <label className="text-xs font-semibold uppercase tracking-[0.2em] text-[#666]">DNS Hostname</label>
+                      <label className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-400 dark:text-[#666]">DNS Hostname</label>
                       {/* DNS type toggle */}
-                      <div className="flex gap-1 rounded-lg bg-[#0d0d0d] p-1 w-fit">
+                      <div className="flex gap-1 rounded-lg bg-white dark:bg-[#0d0d0d] p-1 w-fit">
                         {(["internal", "public", "custom"] as const).map((t) => (
                           <button
                             key={t}
@@ -603,7 +603,7 @@ export default function NewGameServerPage() {
                             className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
                               dnsType === t
                                 ? "bg-[#0078D4] text-white"
-                                : "text-[#888] hover:text-[#f2f2f2]"
+                                : "text-gray-500 dark:text-[#888] hover:text-gray-900 dark:hover:text-[#f2f2f2]"
                             }`}
                           >
                             {t === "internal" ? "🔒 Internal" : t === "public" ? "🌐 Public" : "✏️ Custom"}
@@ -615,14 +615,14 @@ export default function NewGameServerPage() {
                           value={dnsHostname}
                           onChange={(e) => setDnsHostname(e.target.value)}
                           placeholder="e.g. game.example.com"
-                          className="w-full rounded-xl border border-[#2a2a2a] bg-[#111] px-4 py-3 text-sm text-[#f2f2f2] outline-none transition-colors focus:border-[#0078D4]/50"
+                          className="w-full rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-4 py-3 text-sm text-gray-900 dark:text-[#f2f2f2] outline-none transition-colors focus:border-[#0078D4]/50"
                         />
                       ) : (
-                        <p className="rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] px-4 py-3 text-sm text-[#888] font-mono">
+                        <p className="rounded-xl border border-gray-200 dark:border-[#1a1a1a] bg-white dark:bg-[#0a0a0a] px-4 py-3 text-sm text-gray-500 dark:text-[#888] font-mono">
                           {dnsHostname || <span className="italic">Enter a server name above</span>}
                         </p>
                       )}
-                      <p className="text-xs text-[#555]">
+                      <p className="text-xs text-gray-400 dark:text-[#555]">
                         {dnsType === "internal"
                           ? "Only accessible via NetBird VPN (int.rlservers.com)"
                           : dnsType === "public"
@@ -634,15 +634,15 @@ export default function NewGameServerPage() {
 
                   <div className="space-y-4">
                     <div>
-                      <h3 className="text-sm font-semibold text-[#f2f2f2]">Egg variables</h3>
-                      <p className="text-sm text-[#777]">Configure environment variables from the selected egg.</p>
+                      <h3 className="text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">Egg variables</h3>
+                      <p className="text-sm text-gray-500 dark:text-[#777]">Configure environment variables from the selected egg.</p>
                     </div>
 
                     {/* Docker image picker (PTDL_v2 eggs with multiple images, e.g. Java 17 vs 21) */}
                     {activeEgg.dockerImages && Object.keys(activeEgg.dockerImages).length > 1 && (
                       <div className="rounded-2xl border border-[#0078D4]/20 bg-[#0078D4]/5 p-4 space-y-2">
                         <label className="text-xs font-semibold uppercase tracking-[0.2em] text-[#7cc4ff]">Runtime Image</label>
-                        <p className="text-xs text-[#777]">This egg supports multiple runtime versions. Select which one to use.</p>
+                        <p className="text-xs text-gray-500 dark:text-[#777]">This egg supports multiple runtime versions. Select which one to use.</p>
                         <div className="grid gap-2 sm:grid-cols-2">
                           {Object.entries(activeEgg.dockerImages).map(([label, image]) => (
                             <button
@@ -653,7 +653,7 @@ export default function NewGameServerPage() {
                                 "rounded-xl border px-3 py-2 text-left text-xs transition-colors",
                                 (selectedDockerImage ?? activeEgg.dockerImage) === image
                                   ? "border-[#0078D4]/50 bg-[#0078D4]/15 text-[#7cc4ff]"
-                                  : "border-[#2a2a2a] bg-[#111] text-[#888] hover:border-[#3a3a3a] hover:text-[#ccc]"
+                                  : "border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-500 dark:text-[#888] hover:border-[#3a3a3a] hover:text-gray-700 dark:hover:text-[#ccc]"
                               )}
                             >
                               <span className="font-medium block">{label}</span>
@@ -676,7 +676,7 @@ export default function NewGameServerPage() {
                           />
                           <div>
                             <span className="text-sm font-medium text-yellow-300">I accept the End User License Agreement (EULA)</span>
-                            <p className="mt-1 text-xs text-[#888]">
+                            <p className="mt-1 text-xs text-gray-500 dark:text-[#888]">
                               This server requires EULA acceptance before it can start. By checking this box you agree on behalf of all users.
                               {" "}<a href="https://aka.ms/MinecraftEULA" target="_blank" rel="noopener noreferrer" className="text-yellow-400 hover:text-yellow-300 underline">Read the EULA →</a>
                             </p>
@@ -686,7 +686,7 @@ export default function NewGameServerPage() {
                     )}
 
                     {activeEgg.environment.filter((v) => v.userViewable !== false).length === 0 ? (
-                      <div className="rounded-xl border border-dashed border-[#2a2a2a] p-6 text-sm text-[#666]">
+                      <div className="rounded-xl border border-dashed border-gray-200 dark:border-[#2a2a2a] p-6 text-sm text-gray-400 dark:text-[#666]">
                         This egg does not define any editable environment variables.
                       </div>
                     ) : (
@@ -701,18 +701,18 @@ export default function NewGameServerPage() {
                           const isReadOnly = variable.userEditable === false;
 
                           return (
-                            <div key={variable.name} className={cn("rounded-2xl border bg-[#111] p-4", error ? "border-red-500/40" : "border-[#2a2a2a]")}>
+                            <div key={variable.name} className={cn("rounded-2xl border bg-white dark:bg-[#111] p-4", error ? "border-red-500/40" : "border-gray-200 dark:border-[#2a2a2a]")}>
                               <div className="mb-3 flex items-start justify-between gap-3">
                                 <div>
-                                  <label className="text-sm font-medium text-[#f2f2f2]">
+                                  <label className="text-sm font-medium text-gray-900 dark:text-[#f2f2f2]">
                                     {label}
                                     {variable.required ? <span className="ml-1 text-red-400">*</span> : null}
-                                    {isReadOnly ? <span className="ml-1 text-[10px] text-[#666] font-normal">(read-only)</span> : null}
+                                    {isReadOnly ? <span className="ml-1 text-[10px] text-gray-400 dark:text-[#666] font-normal">(read-only)</span> : null}
                                   </label>
-                                  <p className="mt-1 text-xs text-[#777]">{helperText}</p>
-                                  {rulesHint && <p className="mt-0.5 text-[10px] text-[#555]">{rulesHint}</p>}
+                                  <p className="mt-1 text-xs text-gray-500 dark:text-[#777]">{helperText}</p>
+                                  {rulesHint && <p className="mt-0.5 text-[10px] text-gray-400 dark:text-[#555]">{rulesHint}</p>}
                                 </div>
-                                <span className="rounded-full border border-[#2a2a2a] px-2 py-1 text-[10px] uppercase tracking-[0.2em] text-[#999] flex-shrink-0">{fieldType}</span>
+                                <span className="rounded-full border border-gray-200 dark:border-[#2a2a2a] px-2 py-1 text-[10px] uppercase tracking-[0.2em] text-gray-500 dark:text-[#999] flex-shrink-0">{fieldType}</span>
                               </div>
 
                               {fieldType === "boolean" ? (
@@ -742,9 +742,9 @@ export default function NewGameServerPage() {
                                   }}
                                   placeholder={variable.defaultValue}
                                   className={cn(
-                                    "w-full rounded-xl border px-3 py-2 text-sm text-[#f2f2f2] outline-none transition-colors",
-                                    isReadOnly ? "bg-[#0d0d0d] text-[#666] cursor-not-allowed" : "bg-[#0d0d0d] focus:border-[#0078D4]/50",
-                                    error ? "border-red-500/40" : "border-[#2a2a2a]"
+                                    "w-full rounded-xl border px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] outline-none transition-colors",
+                                    isReadOnly ? "bg-white dark:bg-[#0d0d0d] text-gray-400 dark:text-[#666] cursor-not-allowed" : "bg-white dark:bg-[#0d0d0d] focus:border-[#0078D4]/50",
+                                    error ? "border-red-500/40" : "border-gray-200 dark:border-[#2a2a2a]"
                                   )}
                                 />
                               )}
@@ -761,7 +761,7 @@ export default function NewGameServerPage() {
               <div className="flex items-center justify-between gap-3 pt-4">
                 <button
                   onClick={() => setStep(1)}
-                  className="inline-flex items-center gap-2 rounded-lg border border-[#2a2a2a] bg-[#111] px-4 py-2 text-sm text-[#b3b3b3] transition-colors hover:text-white"
+                  className="inline-flex items-center gap-2 rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-4 py-2 text-sm text-gray-600 dark:text-[#b3b3b3] transition-colors hover:text-gray-900 dark:hover:text-white"
                 >
                   <ChevronLeft className="h-4 w-4" /> Back
                 </button>
@@ -779,16 +779,16 @@ export default function NewGameServerPage() {
           {step === 3 && activeEgg && (
             <div className="space-y-8">
               <div>
-                <h2 className="text-lg font-semibold text-[#f2f2f2]">Set resources</h2>
-                <p className="text-sm text-[#777]">Tune the default memory, CPU, and storage before deployment.</p>
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-[#f2f2f2]">Set resources</h2>
+                <p className="text-sm text-gray-500 dark:text-[#777]">Tune the default memory, CPU, and storage before deployment.</p>
               </div>
 
               <div className="grid gap-6 lg:grid-cols-3">
-                <div className="rounded-2xl border border-[#2a2a2a] bg-[#111] p-5 lg:col-span-2">
+                <div className="rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-5 lg:col-span-2">
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <p className="text-sm font-semibold text-[#f2f2f2]">Memory</p>
-                      <p className="text-sm text-[#777]">512Mi to 16Gi</p>
+                      <p className="text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">Memory</p>
+                      <p className="text-sm text-gray-500 dark:text-[#777]">512Mi to 16Gi</p>
                     </div>
                     <span className="rounded-full border border-[#0078D4]/30 bg-[#0078D4]/10 px-3 py-1 text-sm font-medium text-[#7cc4ff]">{formatMemory(memoryMi)}</span>
                   </div>
@@ -800,31 +800,31 @@ export default function NewGameServerPage() {
                     value={memoryMi}
                     onChange={(event) => setMemoryMi(Number.parseInt(event.target.value, 10))}
                     style={sliderTrackStyle(memoryMi, 512, 16384)}
-                    className="mt-5 h-2 w-full cursor-pointer appearance-none rounded-full bg-[#1a1a1a]"
+                    className="mt-5 h-2 w-full cursor-pointer appearance-none rounded-full bg-white dark:bg-[#1a1a1a]"
                   />
                 </div>
 
-                <div className="rounded-2xl border border-[#2a2a2a] bg-[#111] p-5 lg:row-span-2">
-                  <h3 className="text-sm font-semibold text-[#f2f2f2]">Storage</h3>
-                  <p className="mt-1 text-sm text-[#777]">5Gi to 500Gi</p>
+                <div className="rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-5 lg:row-span-2">
+                  <h3 className="text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">Storage</h3>
+                  <p className="mt-1 text-sm text-gray-500 dark:text-[#777]">5Gi to 500Gi</p>
                   <div className="mt-5 space-y-4">
                     <div>
-                      <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-[#666]">Size</label>
+                      <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-gray-400 dark:text-[#666]">Size</label>
                       <input
                         type="number"
                         min={5}
                         max={500}
                         value={storageGi}
                         onChange={(event) => setStorageGi(Math.max(5, Math.min(500, Number.parseInt(event.target.value || "10", 10))))}
-                        className="w-full rounded-xl border border-[#2a2a2a] bg-[#0d0d0d] px-3 py-2 text-sm text-[#f2f2f2] outline-none transition-colors focus:border-[#0078D4]/50"
+                        className="w-full rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] outline-none transition-colors focus:border-[#0078D4]/50"
                       />
                     </div>
                     <div>
-                      <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-[#666]">Storage Class</label>
+                      <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-gray-400 dark:text-[#666]">Storage Class</label>
                       <select
                         value={storageClass}
                         onChange={(event) => setStorageClass(event.target.value)}
-                        className="w-full rounded-xl border border-[#2a2a2a] bg-[#0d0d0d] px-3 py-2 text-sm text-[#f2f2f2] outline-none transition-colors focus:border-[#0078D4]/50"
+                        className="w-full rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] outline-none transition-colors focus:border-[#0078D4]/50"
                       >
                         {storageClasses.map((entry) => (
                           <option key={entry.name} value={entry.name}>{entry.name}{entry.isDefault ? " (default)" : ""}</option>
@@ -834,11 +834,11 @@ export default function NewGameServerPage() {
                   </div>
                 </div>
 
-                <div className="rounded-2xl border border-[#2a2a2a] bg-[#111] p-5 lg:col-span-2">
+                <div className="rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-5 lg:col-span-2">
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <p className="text-sm font-semibold text-[#f2f2f2]">CPU</p>
-                      <p className="text-sm text-[#777]">0.5 to 8 cores</p>
+                      <p className="text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">CPU</p>
+                      <p className="text-sm text-gray-500 dark:text-[#777]">0.5 to 8 cores</p>
                     </div>
                     <span className="rounded-full border border-[#0078D4]/30 bg-[#0078D4]/10 px-3 py-1 text-sm font-medium text-[#7cc4ff]">{formatCpu(cpuCores)} cores</span>
                   </div>
@@ -850,7 +850,7 @@ export default function NewGameServerPage() {
                     value={cpuCores}
                     onChange={(event) => setCpuCores(Number.parseFloat(event.target.value))}
                     style={sliderTrackStyle(cpuCores, 0.5, 8)}
-                    className="mt-5 h-2 w-full cursor-pointer appearance-none rounded-full bg-[#1a1a1a]"
+                    className="mt-5 h-2 w-full cursor-pointer appearance-none rounded-full bg-white dark:bg-[#1a1a1a]"
                   />
                 </div>
               </div>
@@ -862,8 +862,8 @@ export default function NewGameServerPage() {
                 )}>
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <h3 className="text-sm font-semibold text-[#f2f2f2]">Cluster capacity</h3>
-                      <p className="mt-1 text-sm text-[#777]">Live safety check before this server is deployed.</p>
+                      <h3 className="text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">Cluster capacity</h3>
+                      <p className="mt-1 text-sm text-gray-500 dark:text-[#777]">Live safety check before this server is deployed.</p>
                     </div>
                     <span className={cn(
                       "rounded-full px-2 py-1 text-[11px] font-medium",
@@ -874,28 +874,28 @@ export default function NewGameServerPage() {
                   </div>
                   <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4 text-xs">
                     <div className="rounded-xl bg-black/20 p-3">
-                      <p className="text-[#777]">Highest node requests</p>
-                      <p className="mt-1 text-base font-semibold text-[#f2f2f2]">{capacityData.summary.maxRequestMemoryPct.toFixed(1)}%</p>
-                      <p className="text-[#666]">{highestPressureNode?.name ?? "No ready nodes"}</p>
+                      <p className="text-gray-500 dark:text-[#777]">Highest node requests</p>
+                      <p className="mt-1 text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">{capacityData.summary.maxRequestMemoryPct.toFixed(1)}%</p>
+                      <p className="text-gray-400 dark:text-[#666]">{highestPressureNode?.name ?? "No ready nodes"}</p>
                     </div>
                     <div className="rounded-xl bg-black/20 p-3">
-                      <p className="text-[#777]">Highest node limits</p>
-                      <p className="mt-1 text-base font-semibold text-[#f2f2f2]">{capacityData.summary.maxLimitMemoryPct.toFixed(1)}%</p>
-                      <p className="text-[#666]">Current overcommit</p>
+                      <p className="text-gray-500 dark:text-[#777]">Highest node limits</p>
+                      <p className="mt-1 text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">{capacityData.summary.maxLimitMemoryPct.toFixed(1)}%</p>
+                      <p className="text-gray-400 dark:text-[#666]">Current overcommit</p>
                     </div>
                     <div className="rounded-xl bg-black/20 p-3">
-                      <p className="text-[#777]">Projected worst-case requests</p>
-                      <p className="mt-1 text-base font-semibold text-[#f2f2f2]">{capacityData.summary.projectedWorstNodeRequestMemoryPct.toFixed(1)}%</p>
-                      <p className="text-[#666]">After this deploy</p>
+                      <p className="text-gray-500 dark:text-[#777]">Projected worst-case requests</p>
+                      <p className="mt-1 text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">{capacityData.summary.projectedWorstNodeRequestMemoryPct.toFixed(1)}%</p>
+                      <p className="text-gray-400 dark:text-[#666]">After this deploy</p>
                     </div>
                     <div className="rounded-xl bg-black/20 p-3">
-                      <p className="text-[#777]">Game Hub request budget</p>
-                      <p className="mt-1 text-base font-semibold text-[#f2f2f2]">{formatBytesGi(capacityData.gameHubUsage.requestedMemoryBytes)}</p>
-                      <p className="text-[#666]">of {formatBytesGi(capacityData.gameHubUsage.quota.requestsMemoryBytes)}</p>
+                      <p className="text-gray-500 dark:text-[#777]">Game Hub request budget</p>
+                      <p className="mt-1 text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">{formatBytesGi(capacityData.gameHubUsage.requestedMemoryBytes)}</p>
+                      <p className="text-gray-400 dark:text-[#666]">of {formatBytesGi(capacityData.gameHubUsage.quota.requestsMemoryBytes)}</p>
                     </div>
                   </div>
                   {capacityData.summary.maxUsageMemoryPct != null ? (
-                    <p className="mt-3 text-xs text-[#777]">Observed node memory usage is {capacityData.summary.maxUsageMemoryPct.toFixed(1)}%.</p>
+                    <p className="mt-3 text-xs text-gray-500 dark:text-[#777]">Observed node memory usage is {capacityData.summary.maxUsageMemoryPct.toFixed(1)}%.</p>
                   ) : null}
                   {capacityData.warnings.length > 0 ? (
                     <ul className="mt-3 list-disc space-y-1 pl-4 text-xs text-amber-200">
@@ -910,7 +910,7 @@ export default function NewGameServerPage() {
               <div className="flex items-center justify-between gap-3">
                 <button
                   onClick={() => setStep(2)}
-                  className="inline-flex items-center gap-2 rounded-lg border border-[#2a2a2a] bg-[#111] px-4 py-2 text-sm text-[#b3b3b3] transition-colors hover:text-white"
+                  className="inline-flex items-center gap-2 rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-4 py-2 text-sm text-gray-600 dark:text-[#b3b3b3] transition-colors hover:text-gray-900 dark:hover:text-white"
                 >
                   <ChevronLeft className="h-4 w-4" /> Back
                 </button>
@@ -927,8 +927,8 @@ export default function NewGameServerPage() {
           {step === 4 && activeEgg && (
             <div className="space-y-6">
               <div>
-                <h2 className="text-lg font-semibold text-[#f2f2f2]">Review and deploy</h2>
-                <p className="text-sm text-[#777]">Double-check the server settings before creating Kubernetes resources.</p>
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-[#f2f2f2]">Review and deploy</h2>
+                <p className="text-sm text-gray-500 dark:text-[#777]">Double-check the server settings before creating Kubernetes resources.</p>
               </div>
 
               {capacityData && !capacityData.canSafelyDeploy ? (
@@ -939,34 +939,34 @@ export default function NewGameServerPage() {
               ) : null}
 
               <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
-                <div className="rounded-2xl border border-[#2a2a2a] bg-[#111] p-5">
-                  <h3 className="text-sm font-semibold text-[#f2f2f2]">Deployment summary</h3>
+                <div className="rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-5">
+                  <h3 className="text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">Deployment summary</h3>
                   <dl className="mt-4 space-y-3 text-sm">
                     {summaryRows.map((row) => (
                       <div key={row.label} className="flex flex-col gap-1 border-b border-[#1d1d1d] pb-3 last:border-b-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between">
-                        <dt className="text-[#777]">{row.label}</dt>
-                        <dd className="font-medium text-[#f2f2f2] sm:text-right">{row.value}</dd>
+                        <dt className="text-gray-500 dark:text-[#777]">{row.label}</dt>
+                        <dd className="font-medium text-gray-900 dark:text-[#f2f2f2] sm:text-right">{row.value}</dd>
                       </div>
                     ))}
                   </dl>
                 </div>
 
-                <div className="space-y-4 rounded-2xl border border-[#2a2a2a] bg-[#111] p-5">
+                <div className="space-y-4 rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-5">
                   <div>
-                    <h3 className="text-sm font-semibold text-[#f2f2f2]">Environment variables</h3>
-                    <p className="mt-1 text-sm text-[#777]">{activeEgg.environment.filter((v) => v.userViewable !== false).length} variable{activeEgg.environment.length === 1 ? "" : "s"} will be applied.</p>
+                    <h3 className="text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">Environment variables</h3>
+                    <p className="mt-1 text-sm text-gray-500 dark:text-[#777]">{activeEgg.environment.filter((v) => v.userViewable !== false).length} variable{activeEgg.environment.length === 1 ? "" : "s"} will be applied.</p>
                   </div>
                   <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
                     {activeEgg.environment.filter((v) => v.userViewable !== false).length === 0 ? (
-                      <div className="rounded-xl border border-dashed border-[#2a2a2a] p-4 text-sm text-[#666]">No custom environment variables.</div>
+                      <div className="rounded-xl border border-dashed border-gray-200 dark:border-[#2a2a2a] p-4 text-sm text-gray-400 dark:text-[#666]">No custom environment variables.</div>
                     ) : (
                       activeEgg.environment.filter((v) => v.userViewable !== false).map((variable) => (
-                        <div key={variable.name} className="rounded-xl border border-[#2a2a2a] bg-[#0d0d0d] p-3">
+                        <div key={variable.name} className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] p-3">
                           <div className="flex items-center justify-between gap-3">
                             <p className="font-mono text-xs text-[#7cc4ff]">{variable.name}</p>
                             {variable.required ? <span className="text-[10px] uppercase tracking-[0.2em] text-red-300">required</span> : null}
                           </div>
-                          <p className="mt-2 break-all text-sm text-[#f2f2f2]">{(envValues[variable.name] ?? variable.defaultValue) || "<empty>"}</p>
+                          <p className="mt-2 break-all text-sm text-gray-900 dark:text-[#f2f2f2]">{(envValues[variable.name] ?? variable.defaultValue) || "<empty>"}</p>
                         </div>
                       ))
                     )}
@@ -983,7 +983,7 @@ export default function NewGameServerPage() {
               <div className="flex items-center justify-between gap-3">
                 <button
                   onClick={() => setStep(3)}
-                  className="inline-flex items-center gap-2 rounded-lg border border-[#2a2a2a] bg-[#111] px-4 py-2 text-sm text-[#b3b3b3] transition-colors hover:text-white"
+                  className="inline-flex items-center gap-2 rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-4 py-2 text-sm text-gray-600 dark:text-[#b3b3b3] transition-colors hover:text-gray-900 dark:hover:text-white"
                 >
                   <ChevronLeft className="h-4 w-4" /> Back
                 </button>
@@ -991,7 +991,7 @@ export default function NewGameServerPage() {
                   onClick={() => void deployServer()}
                   disabled={deploying}
                   className={cn(
-                    "inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                    "inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-gray-900 dark:text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50",
                     capacityData && !capacityData.canSafelyDeploy ? "bg-amber-600 hover:bg-amber-500" : "bg-green-600 hover:bg-green-500"
                   )}
                 >

@@ -54,7 +54,7 @@ function healthBadge(health: string | null) {
   if (normalized.includes("fault") || normalized.includes("error")) {
     return "border-red-500/30 bg-red-500/10 text-red-200";
   }
-  return "border-slate-700 bg-slate-950 text-slate-300";
+  return "border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-950 text-slate-700 dark:text-slate-300";
 }
 
 export default function PvBrowserPage() {
@@ -130,7 +130,7 @@ export default function PvBrowserPage() {
         <button
           type="button"
           onClick={() => void refetch()}
-          className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-300 transition hover:text-white"
+          className="inline-flex items-center gap-2 rounded-xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-3 py-2 text-sm text-slate-700 dark:text-slate-300 transition hover:text-gray-900 dark:hover:text-white"
         >
           <RefreshCw className={cn("h-4 w-4", isFetching && "animate-spin")} />
           Refresh
@@ -152,9 +152,9 @@ export default function PvBrowserPage() {
         ) : null}
 
         <div className="grid gap-4 md:grid-cols-3">
-          <div className="rounded-2xl border border-white/10 bg-slate-900/70 p-4">
+          <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/70 p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Persistent volumes</p>
-            <p className="mt-2 text-3xl font-semibold text-white">{pvs.length}</p>
+            <p className="mt-2 text-3xl font-semibold text-gray-900 dark:text-white">{pvs.length}</p>
           </div>
           <div className="rounded-2xl border border-indigo-500/20 bg-indigo-500/10 p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-indigo-100/80">Persistent claims</p>
@@ -166,7 +166,7 @@ export default function PvBrowserPage() {
           </div>
         </div>
 
-        <div className="rounded-2xl border border-white/10 bg-slate-900/70 p-4">
+        <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/70 p-4">
           <div className="flex flex-wrap gap-2">
             {(["pv", "pvc"] as const).map((tab) => (
               <button
@@ -177,23 +177,23 @@ export default function PvBrowserPage() {
                   "rounded-xl border px-4 py-2 text-sm font-medium uppercase transition-colors",
                   activeTab === tab
                     ? "border-indigo-500/30 bg-indigo-500/10 text-indigo-200"
-                    : "border-white/10 bg-slate-950 text-slate-400 hover:text-white",
+                    : "border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950 text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white",
                 )}
               >
                 {tab === "pv" ? `PVs (${pvs.length})` : `PVCs (${pvcs.length})`}
               </button>
             ))}
           </div>
-          <p className="mt-3 text-sm text-slate-400">
+          <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">
             PVC expansion sends a Kubernetes PATCH request and depends on the storage class allowing volume expansion.
           </p>
         </div>
 
         {activeTab === "pv" ? (
-          <div className="overflow-hidden rounded-2xl border border-white/10 bg-slate-900/70">
+          <div className="overflow-hidden rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/70">
             <div className="overflow-x-auto">
               <table className="w-full min-w-[900px] text-sm">
-                <thead className="bg-slate-950/80 text-left text-xs uppercase tracking-[0.18em] text-slate-500">
+                <thead className="bg-slate-100 dark:bg-slate-950/80 text-left text-xs uppercase tracking-[0.18em] text-slate-500">
                   <tr>
                     <th className="px-4 py-3">Name</th>
                     <th className="px-4 py-3">Capacity</th>
@@ -205,17 +205,17 @@ export default function PvBrowserPage() {
                 </thead>
                 <tbody>
                   {pvs.map((pv) => (
-                    <tr key={pv.name} className="border-t border-white/5">
-                      <td className="px-4 py-4 font-medium text-white">{pv.name}</td>
-                      <td className="px-4 py-4 text-slate-300">{pv.capacity || "—"}</td>
-                      <td className="px-4 py-4 text-slate-300">{pv.storageClass || "—"}</td>
+                    <tr key={pv.name} className="border-t border-gray-200 dark:border-white/5">
+                      <td className="px-4 py-4 font-medium text-gray-900 dark:text-white">{pv.name}</td>
+                      <td className="px-4 py-4 text-slate-700 dark:text-slate-300">{pv.capacity || "—"}</td>
+                      <td className="px-4 py-4 text-slate-700 dark:text-slate-300">{pv.storageClass || "—"}</td>
                       <td className="px-4 py-4">
                         <span className={cn("rounded-full border px-2.5 py-1 text-xs font-medium", healthBadge(pv.longhornHealth))}>
                           {pv.longhornHealth ?? "n/a"}
                         </span>
                       </td>
-                      <td className="px-4 py-4 text-slate-300">{pv.status || "—"}</td>
-                      <td className="px-4 py-4 text-slate-400">{pv.claimRef || "—"}</td>
+                      <td className="px-4 py-4 text-slate-700 dark:text-slate-300">{pv.status || "—"}</td>
+                      <td className="px-4 py-4 text-slate-500 dark:text-slate-400">{pv.claimRef || "—"}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -223,10 +223,10 @@ export default function PvBrowserPage() {
             </div>
           </div>
         ) : (
-          <div className="overflow-hidden rounded-2xl border border-white/10 bg-slate-900/70">
+          <div className="overflow-hidden rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/70">
             <div className="overflow-x-auto">
               <table className="w-full min-w-[1120px] text-sm">
-                <thead className="bg-slate-950/80 text-left text-xs uppercase tracking-[0.18em] text-slate-500">
+                <thead className="bg-slate-100 dark:bg-slate-950/80 text-left text-xs uppercase tracking-[0.18em] text-slate-500">
                   <tr>
                     <th className="px-4 py-3">Name</th>
                     <th className="px-4 py-3">Namespace</th>
@@ -243,24 +243,24 @@ export default function PvBrowserPage() {
                     const id = pvcId(pvc);
                     const busy = expandMutation.isPending && expandMutation.variables?.namespace === pvc.namespace && expandMutation.variables?.name === pvc.name;
                     return (
-                      <tr key={id} className="border-t border-white/5 align-top">
-                        <td className="px-4 py-4 font-medium text-white">{pvc.name}</td>
-                        <td className="px-4 py-4 text-slate-300">{pvc.namespace}</td>
-                        <td className="px-4 py-4 text-slate-300">{pvc.requestedStorage || "—"}</td>
-                        <td className="px-4 py-4 text-slate-300">{pvc.capacity || "—"}</td>
+                      <tr key={id} className="border-t border-gray-200 dark:border-white/5 align-top">
+                        <td className="px-4 py-4 font-medium text-gray-900 dark:text-white">{pvc.name}</td>
+                        <td className="px-4 py-4 text-slate-700 dark:text-slate-300">{pvc.namespace}</td>
+                        <td className="px-4 py-4 text-slate-700 dark:text-slate-300">{pvc.requestedStorage || "—"}</td>
+                        <td className="px-4 py-4 text-slate-700 dark:text-slate-300">{pvc.capacity || "—"}</td>
                         <td className="px-4 py-4">
                           <span className={cn("rounded-full border px-2.5 py-1 text-xs font-medium", healthBadge(pvc.longhornHealth))}>
                             {pvc.longhornHealth ?? "n/a"}
                           </span>
                         </td>
-                        <td className="px-4 py-4 text-slate-300">{pvc.status || "—"}</td>
-                        <td className="px-4 py-4 text-slate-400">{pvc.volumeName || "—"}</td>
+                        <td className="px-4 py-4 text-slate-700 dark:text-slate-300">{pvc.status || "—"}</td>
+                        <td className="px-4 py-4 text-slate-500 dark:text-slate-400">{pvc.volumeName || "—"}</td>
                         <td className="px-4 py-4">
                           <div className="flex min-w-[240px] items-center gap-2">
                             <input
                               value={sizeDrafts[id] ?? ""}
                               onChange={(event) => setSizeDrafts((current) => ({ ...current, [id]: event.target.value }))}
-                              className="w-28 rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-indigo-500/50"
+                              className="w-28 rounded-lg border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950 px-3 py-2 text-sm text-gray-900 dark:text-white outline-none focus:border-indigo-500/50"
                               placeholder="50Gi"
                             />
                             <button

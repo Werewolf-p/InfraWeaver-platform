@@ -55,15 +55,15 @@ export function Wizard({ steps, children, onComplete, completeLabel = "Complete"
                   ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400"
                   : index === currentStep
                     ? "border-[#3b82f6]/40 bg-[#3b82f6]/10 text-[#3b82f6]"
-                    : "border-[#2a2a2a] bg-[#0d0d0d] text-[#555]",
+                    : "border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] text-gray-400 dark:text-[#555]",
               )}
               aria-current={index === currentStep ? "step" : undefined}
             >
               {index < currentStep ? <Check className="h-4 w-4" /> : index + 1}
             </div>
             <div className="hidden sm:block">
-              <p className={cn("text-xs font-medium", index === currentStep ? "text-[#f2f2f2]" : index < currentStep ? "text-emerald-400" : "text-[#555]")}>{step.label}</p>
-              {step.description ? <p className="text-[10px] text-[#555]">{step.description}</p> : null}
+              <p className={cn("text-xs font-medium", index === currentStep ? "text-gray-900 dark:text-[#f2f2f2]" : index < currentStep ? "text-emerald-400" : "text-gray-400 dark:text-[#555]")}>{step.label}</p>
+              {step.description ? <p className="text-[10px] text-gray-400 dark:text-[#555]">{step.description}</p> : null}
             </div>
             {index < steps.length - 1 ? (
               <ChevronRight className={cn("h-4 w-4 flex-1", index < currentStep ? "text-emerald-500/40" : "text-[#2a2a2a]")} />
@@ -74,12 +74,12 @@ export function Wizard({ steps, children, onComplete, completeLabel = "Complete"
 
       <div className="flex-1">{childArray[currentStep]}</div>
 
-      <div className="flex items-center justify-between border-t border-[#2a2a2a] pt-4">
+      <div className="flex items-center justify-between border-t border-gray-200 dark:border-[#2a2a2a] pt-4">
         <button
           type="button"
           onClick={() => setCurrentStep((stepIndex) => Math.max(0, stepIndex - 1))}
           disabled={currentStep === 0}
-          className="inline-flex h-9 items-center justify-center rounded-lg border border-[#2a2a2a] px-4 text-sm text-[#d4d4d4] transition-colors hover:bg-[#1a1a1a] disabled:cursor-not-allowed disabled:opacity-40"
+          className="inline-flex h-9 items-center justify-center rounded-lg border border-gray-200 dark:border-[#2a2a2a] px-4 text-sm text-gray-700 dark:text-[#d4d4d4] transition-colors hover:bg-gray-100 dark:hover:bg-[#1a1a1a] disabled:cursor-not-allowed disabled:opacity-40"
         >
           Back
         </button>

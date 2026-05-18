@@ -46,7 +46,7 @@ function InlineEdit({
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           placeholder={placeholder}
-          className="rounded-lg border border-indigo-500/50 bg-white/5 px-2.5 py-1.5 text-sm text-white focus:outline-none"
+          className="rounded-lg border border-indigo-500/50 bg-gray-100 dark:bg-white/5 px-2.5 py-1.5 text-sm text-gray-900 dark:text-white focus:outline-none"
           onKeyDown={(event) => {
             if (event.key === "Enter") void save();
             if (event.key === "Escape") {
@@ -64,7 +64,7 @@ function InlineEdit({
             setDraft(value);
             setEditing(false);
           }}
-          className="p-1 text-slate-400 hover:text-white"
+          className="p-1 text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white"
         >
           <X className="h-4 w-4" />
         </button>
@@ -78,7 +78,7 @@ function InlineEdit({
         setDraft(value);
         setEditing(true);
       }}
-      className="group flex items-center gap-2 text-white transition-colors hover:text-indigo-300"
+      className="group flex items-center gap-2 text-gray-900 dark:text-white transition-colors hover:text-indigo-300"
     >
       <span>{value || placeholder}</span>
       <Pencil className="h-3.5 w-3.5 text-slate-500 transition-colors group-hover:text-indigo-400" />
@@ -196,8 +196,8 @@ export default function ProfilePage() {
           <SettingsCard title="My NAS Shares" description="Storage access mapped to your account" icon={UserCircle}>
             <div className="space-y-2">
               {nasShares.map((share, index) => (
-                <div key={`${share.provider}-${share.share}-${index}`} className="rounded-xl border border-white/10 bg-white/5 px-3 py-2">
-                  <div className="text-sm text-slate-200">
+                <div key={`${share.provider}-${share.share}-${index}`} className="rounded-xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-3 py-2">
+                  <div className="text-sm text-slate-800 dark:text-slate-200">
                     {share.provider}:{share.share}{share.subfolder ? `/${share.subfolder}` : ""}
                   </div>
                   <div className="text-xs text-slate-500">
@@ -213,7 +213,7 @@ export default function ProfilePage() {
 
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
         <SettingsCard title="Session Activity" description="Review active sessions and recent login events" icon={RefreshCw}>
-          <div className="mb-4 flex border-b border-white/10">
+          <div className="mb-4 flex border-b border-gray-200 dark:border-white/10">
             {([
               { id: "sessions", label: "Sessions" },
               { id: "activity", label: "Login Activity" },
@@ -223,8 +223,8 @@ export default function ProfilePage() {
                 onClick={() => setActiveTab(tab.id)}
                 className={`px-5 py-3 text-sm font-medium transition-colors ${
                   activeTab === tab.id
-                    ? "-mb-px border-b-2 border-indigo-500 text-white"
-                    : "text-slate-400 hover:text-white"
+                    ? "-mb-px border-b-2 border-indigo-500 text-gray-900 dark:text-white"
+                    : "text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white"
                 }`}
               >
                 {tab.label}
@@ -240,9 +240,9 @@ export default function ProfilePage() {
             ) : (
               <div className="space-y-2">
                 {sessions.map((authentikSession) => (
-                  <div key={authentikSession.identifier} className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3">
+                  <div key={authentikSession.identifier} className="flex items-center justify-between rounded-xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-4 py-3">
                     <div>
-                      <p className="text-sm text-white">{authentikSession.description || authentikSession.identifier}</p>
+                      <p className="text-sm text-gray-900 dark:text-white">{authentikSession.description || authentikSession.identifier}</p>
                       <p className="mt-0.5 text-xs text-slate-500">
                         {authentikSession.created ? new Date(authentikSession.created).toLocaleString() : "—"}
                         {authentikSession.expires ? ` · expires ${new Date(authentikSession.expires).toLocaleString()}` : ""}
@@ -259,17 +259,17 @@ export default function ProfilePage() {
             <p className="py-6 text-center text-sm text-slate-500">No login activity</p>
           ) : (
             <div className="relative space-y-3 pl-6">
-              <div className="absolute bottom-0 left-2.5 top-0 w-px bg-white/10" />
+              <div className="absolute bottom-0 left-2.5 top-0 w-px bg-gray-100 dark:bg-white/10" />
               {events.map((event) => {
                 const success = event.context?.result !== "denied";
                 return (
-                  <div key={event.pk} className="relative rounded-xl border border-white/10 bg-white/5 px-4 py-3">
+                  <div key={event.pk} className="relative rounded-xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-4 py-3">
                     <div
                       className={`absolute -left-3.5 top-4 h-2.5 w-2.5 rounded-full border-2 ${
                         success ? "border-green-400 bg-green-500" : "border-red-400 bg-red-500"
                       }`}
                     />
-                    <div className="text-sm text-white">{event.action}</div>
+                    <div className="text-sm text-gray-900 dark:text-white">{event.action}</div>
                     <div className="mt-0.5 text-xs text-slate-500">{new Date(event.created).toLocaleString()}</div>
                   </div>
                 );

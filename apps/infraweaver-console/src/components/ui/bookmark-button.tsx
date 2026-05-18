@@ -21,7 +21,7 @@ export function BookmarkButton({ id, label, href, className }: BookmarkButtonPro
         "flex items-center justify-center w-8 h-8 rounded-lg transition-all",
         bookmarked
           ? "text-yellow-400 hover:text-yellow-300 bg-yellow-400/10"
-          : "text-white/30 hover:text-white/60 hover:bg-white/10",
+          : "text-gray-400 dark:text-white/30 hover:text-white/60 hover:bg-gray-100 dark:hover:bg-white/10",
         className
       )}
       aria-label={bookmarked ? `Remove bookmark: ${label}` : `Bookmark: ${label}`}

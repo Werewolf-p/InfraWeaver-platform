@@ -76,24 +76,24 @@ export function OnboardingWizard({ className }: OnboardingWizardProps) {
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 16 }}
             transition={{ duration: 0.2 }}
-            className="relative z-10 w-full max-w-md rounded-2xl border border-white/10 bg-neutral-900 shadow-2xl p-8"
+            className="relative z-10 w-full max-w-md rounded-2xl border border-gray-200 dark:border-white/10 bg-neutral-900 shadow-2xl p-8"
           >
-            <button onClick={handleDismiss} className="absolute top-4 right-4 text-white/30 hover:text-white/60">
+            <button onClick={handleDismiss} className="absolute top-4 right-4 text-gray-400 dark:text-white/30 hover:text-white/60">
               <X className="w-4 h-4" />
             </button>
 
             <div className="flex gap-1.5 mb-6">
               {STEPS.map((_, i) => (
-                <div key={i} className={cn("h-1 flex-1 rounded-full transition-colors", i <= step ? "bg-indigo-500" : "bg-white/10")} />
+                <div key={i} className={cn("h-1 flex-1 rounded-full transition-colors", i <= step ? "bg-indigo-500" : "bg-gray-100 dark:bg-white/10")} />
               ))}
             </div>
 
             <CheckCircle className="w-8 h-8 text-indigo-400 mb-4" />
-            <h2 className="text-lg font-semibold text-white mb-2">{current.title}</h2>
-            <p className="text-sm text-white/60 mb-8 leading-relaxed">{current.description}</p>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">{current.title}</h2>
+            <p className="text-sm text-gray-500 dark:text-white/60 mb-8 leading-relaxed">{current.description}</p>
 
             <div className="flex items-center justify-between">
-              <button onClick={handleDismiss} className="text-xs text-white/30 hover:text-white/60 transition-colors">
+              <button onClick={handleDismiss} className="text-xs text-gray-400 dark:text-white/30 hover:text-white/60 transition-colors">
                 Skip tour
               </button>
               <button

@@ -46,7 +46,7 @@ function normalizedStatus(status: string): PodStatusFilter | "unknown" {
 function restartColor(restarts: number) {
   if (restarts > 20) return "text-red-400";
   if (restarts > 5) return "text-amber-300";
-  return "text-slate-300";
+  return "text-slate-700 dark:text-slate-300";
 }
 
 function podKey(pod: Pick<Pod, "namespace" | "name">) {
@@ -76,13 +76,13 @@ function PodMobileCard({
   const restartCount = pod.restartCount ?? 0;
 
   return (
-    <div className={cn("rounded-xl border bg-slate-900/60 p-4 shadow-sm transition-colors", selected ? "border-indigo-500/40" : "border-white/10")}>
+    <div className={cn("rounded-xl border bg-slate-100 dark:bg-slate-900/60 p-4 shadow-sm transition-colors", selected ? "border-indigo-500/40" : "border-gray-200 dark:border-white/10")}>
       <div className="flex items-start gap-3">
         <button
           type="button"
           onClick={() => onToggleSelection(pod)}
           disabled={selectionBusy}
-          className="mt-0.5 inline-flex h-11 w-11 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-slate-300 transition hover:text-white disabled:opacity-50"
+          className="mt-0.5 inline-flex h-11 w-11 items-center justify-center rounded-xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 text-slate-700 dark:text-slate-300 transition hover:text-gray-900 dark:hover:text-white disabled:opacity-50"
           aria-label={selected ? `Deselect ${pod.name}` : `Select ${pod.name}`}
         >
           {selected ? <CheckSquare className="h-4 w-4 text-indigo-300" /> : <Square className="h-4 w-4" />}
@@ -91,13 +91,13 @@ function PodMobileCard({
           <div className="flex items-start gap-2">
             <Link
               href={`/pods/${encodeURIComponent(pod.namespace)}/${encodeURIComponent(pod.name)}`}
-              className="min-w-0 flex-1 truncate text-base font-semibold text-white transition hover:text-indigo-300"
+              className="min-w-0 flex-1 truncate text-base font-semibold text-gray-900 dark:text-white transition hover:text-indigo-300"
             >
               {pod.name}
             </Link>
             <CopyButton text={pod.name} label="Pod" className="h-11" />
           </div>
-          <p className="mt-1 text-sm text-slate-400">{pod.namespace}</p>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{pod.namespace}</p>
         </div>
         <StatusBadge status={pod.status} label={pod.status} size="sm" />
       </div>
@@ -105,8 +105,8 @@ function PodMobileCard({
       <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
         <div>
           <dt className="text-slate-500">Age</dt>
-          <dd className="mt-1 text-slate-200">
-            <RelativeTime date={pod.createdAt} className="text-slate-200" />
+          <dd className="mt-1 text-slate-800 dark:text-slate-200">
+            <RelativeTime date={pod.createdAt} className="text-slate-800 dark:text-slate-200" />
           </dd>
         </div>
         <div>
@@ -117,24 +117,24 @@ function PodMobileCard({
           <>
             <div>
               <dt className="text-slate-500">Node</dt>
-              <dd className="mt-1 truncate text-slate-300">{pod.nodeName || "—"}</dd>
+              <dd className="mt-1 truncate text-slate-700 dark:text-slate-300">{pod.nodeName || "—"}</dd>
             </div>
             <div>
               <dt className="text-slate-500">Containers</dt>
-              <dd className="mt-1 text-slate-300">{Array.isArray(pod.containers) ? pod.containers.length : 0}</dd>
+              <dd className="mt-1 text-slate-700 dark:text-slate-300">{Array.isArray(pod.containers) ? pod.containers.length : 0}</dd>
             </div>
           </>
         ) : null}
       </dl>
 
       {!simpleMode && Array.isArray(pod.containers) && pod.containers.length > 0 ? (
-        <p className="mt-3 text-sm text-slate-400">{pod.containers.join(", ")}</p>
+        <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">{pod.containers.join(", ")}</p>
       ) : null}
 
       <div className="mt-4 grid gap-2 sm:grid-cols-3">
         <Link
           href={`/pods/${encodeURIComponent(pod.namespace)}/${encodeURIComponent(pod.name)}`}
-          className="inline-flex min-h-[44px] items-center justify-center rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-slate-200 transition hover:bg-white/10 hover:text-white"
+          className="inline-flex min-h-[44px] items-center justify-center rounded-lg border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-4 py-2 text-sm font-medium text-slate-800 dark:text-slate-200 transition hover:bg-gray-100 dark:hover:bg-white/10 hover:text-gray-900 dark:hover:text-white"
         >
           View details
         </Link>
@@ -203,9 +203,9 @@ export default function PodsPage() {
   if (activeId === "all") {
     return (
       <div className="flex flex-col items-center justify-center py-24 text-center">
-        <Globe className="mb-4 h-10 w-10 text-[#333]" />
-        <p className="text-sm font-medium text-[#666]">Select a specific cluster to view this page</p>
-        <p className="mt-1 text-xs text-[#444]">Use the cluster selector in the top bar</p>
+        <Globe className="mb-4 h-10 w-10 text-gray-700 dark:text-[#333]" />
+        <p className="text-sm font-medium text-gray-400 dark:text-[#666]">Select a specific cluster to view this page</p>
+        <p className="mt-1 text-xs text-gray-400 dark:text-[#444]">Use the cluster selector in the top bar</p>
       </div>
     );
   }
@@ -321,9 +321,9 @@ export default function PodsPage() {
     return (
       <div className="space-y-3">
         <div className="space-y-3 md:hidden">
-          {[...Array(4)].map((_, i) => <div key={i} className="h-44 animate-pulse rounded-xl border border-white/10 bg-slate-900/60" />)}
+          {[...Array(4)].map((_, i) => <div key={i} className="h-44 animate-pulse rounded-xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/60" />)}
         </div>
-        <div className="hidden overflow-hidden rounded-xl border border-white/10 bg-slate-900/60 md:block">
+        <div className="hidden overflow-hidden rounded-xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/60 md:block">
           <table className="w-full">
             <tbody>{[...Array(6)].map((_, i) => <PodRowSkeleton key={i} />)}</tbody>
           </table>
@@ -338,11 +338,11 @@ export default function PodsPage() {
 
       <div className="grid gap-3 md:grid-cols-3">
         <DataCard title="Total Pods" value={pods.length} subtitle="Current pod inventory" />
-        <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4">
+        <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4">
           <DataCard title="Running" value={runningCount} subtitle="Healthy workloads" trend="up" className="border-0 bg-transparent p-0" />
           <ResourceBar value={runningCount} max={pods.length || 1} label="Healthy share" valueFormatter={(_, __, percentage) => `${percentage}%`} className="mt-4" />
         </div>
-        <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4">
+        <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4">
           <DataCard title="Unhealthy" value={unhealthyCount} subtitle="Failed or crash looping pods" trend={unhealthyCount > 0 ? "down" : undefined} className="border-0 bg-transparent p-0" />
           <ResourceBar value={unhealthyCount} max={pods.length || 1} label="Problem share" valueFormatter={(_, __, percentage) => `${percentage}%`} tone={unhealthyCount > 0 ? "red" : "emerald"} className="mt-4" />
         </div>
@@ -350,8 +350,8 @@ export default function PodsPage() {
 
       <CommandBar
         primary={
-          <div className="flex items-center gap-2 text-sm text-slate-300">
-            <span className="rounded-full border border-[#2a2a2a] bg-[#0d0d0d] px-2 py-1 text-xs font-medium text-[#d4d4d4]">
+          <div className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+            <span className="rounded-full border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-2 py-1 text-xs font-medium text-gray-700 dark:text-[#d4d4d4]">
               {selectedVisiblePods.length} selected
             </span>
           </div>
@@ -370,7 +370,7 @@ export default function PodsPage() {
             <select
               value={nsFilter}
               onChange={(event) => setNsFilter(event.target.value)}
-              className="min-h-[44px] rounded-lg border border-[#333] bg-[#0f0f0f] px-3 py-2 text-sm text-[#f2f2f2] outline-none focus:border-[#0078D4]/50 sm:min-w-[180px]"
+              className="min-h-[44px] rounded-lg border border-gray-200 dark:border-[#333] bg-white dark:bg-[#0f0f0f] px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] outline-none focus:border-[#0078D4]/50 sm:min-w-[180px]"
             >
               {namespaces.map((namespace) => (
                 <option key={namespace} value={namespace}>
@@ -384,7 +384,7 @@ export default function PodsPage() {
               onClick={toggle}
               className={cn(
                 "flex min-h-[44px] w-full items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-colors sm:w-auto",
-                simpleMode ? "border-indigo-500/30 bg-indigo-500/10 text-indigo-400" : "border-[#333] text-[#666] hover:text-[#9e9e9e]",
+                simpleMode ? "border-indigo-500/30 bg-indigo-500/10 text-indigo-400" : "border-gray-200 dark:border-[#333] text-gray-400 dark:text-[#666] hover:text-gray-700 dark:hover:text-[#9e9e9e]",
               )}
             >
               {simpleMode ? "Simple" : "Advanced"}
@@ -405,7 +405,7 @@ export default function PodsPage() {
                   "min-h-[44px] rounded-full border px-4 py-2 text-sm font-medium transition-colors touch-manipulation",
                   statusFilter === filterOption.value
                     ? "border-indigo-500/30 bg-indigo-500/15 text-indigo-300"
-                    : "border-white/10 bg-white/5 text-slate-400 hover:text-white",
+                    : "border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white",
                 )}
               >
                 {filterOption.label}
@@ -413,7 +413,7 @@ export default function PodsPage() {
             ))}
           </div>
         </div>
-        <p className="text-sm text-[#9e9e9e]">Showing {filteredPods.length} of {pods.length} pods</p>
+        <p className="text-sm text-gray-500 dark:text-[#9e9e9e]">Showing {filteredPods.length} of {pods.length} pods</p>
       </div>
 
       {filteredPods.length === 0 ? (
@@ -444,28 +444,28 @@ export default function PodsPage() {
             ))}
           </div>
 
-          <div className="hidden overflow-hidden rounded-xl border border-white/10 bg-slate-900/60 backdrop-blur-sm md:block">
+          <div className="hidden overflow-hidden rounded-xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/60 backdrop-blur-sm md:block">
             <table className="w-full">
               <thead>
-                <tr className="border-b border-white/10">
-                  <th className="w-14 px-4 py-3 text-left text-xs font-semibold text-slate-400">
+                <tr className="border-b border-gray-200 dark:border-white/10">
+                  <th className="w-14 px-4 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400">
                     <button
                       type="button"
                       onClick={toggleVisibleSelection}
-                      className="inline-flex items-center gap-1 text-slate-400 transition hover:text-white"
+                      className="inline-flex items-center gap-1 text-slate-500 dark:text-slate-400 transition hover:text-gray-900 dark:hover:text-white"
                       aria-label={allVisibleSelected ? "Clear visible pod selection" : "Select all visible pods"}
                     >
                       {allVisibleSelected ? <CheckSquare className="h-4 w-4 text-indigo-300" /> : <Square className="h-4 w-4" />}
                     </button>
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400">Name</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400">Namespace</th>
-                  <th className="px-4 py-3 text-center text-xs font-semibold text-slate-400">Status</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400">Age</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400">Restarts</th>
-                  {!simpleMode ? <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400">Node</th> : null}
-                  {!simpleMode ? <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400">Containers</th> : null}
-                  <th className="px-4 py-3 text-right text-xs font-semibold text-slate-400">Actions</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400">Name</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400">Namespace</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-slate-500 dark:text-slate-400">Status</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400">Age</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400">Restarts</th>
+                  {!simpleMode ? <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400">Node</th> : null}
+                  {!simpleMode ? <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400">Containers</th> : null}
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 dark:text-slate-400">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -474,19 +474,19 @@ export default function PodsPage() {
                   const restartCount = pod.restartCount ?? 0;
                   const selected = selectedPods.has(key);
                   return (
-                    <tr key={key} className={cn("border-b border-white/5 transition-colors hover:bg-white/5", selected && "bg-indigo-500/5") }>
+                    <tr key={key} className={cn("border-b border-gray-200 dark:border-white/5 transition-colors hover:bg-gray-100 dark:hover:bg-white/5", selected && "bg-indigo-500/5") }>
                       <td className="px-4 py-3">
                         <button
                           type="button"
                           onClick={() => togglePodSelection(pod)}
                           disabled={bulkRestarting}
-                          className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-slate-300 transition hover:text-white disabled:opacity-50"
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 text-slate-700 dark:text-slate-300 transition hover:text-gray-900 dark:hover:text-white disabled:opacity-50"
                           aria-label={selected ? `Deselect ${pod.name}` : `Select ${pod.name}`}
                         >
                           {selected ? <CheckSquare className="h-4 w-4 text-indigo-300" /> : <Square className="h-4 w-4" />}
                         </button>
                       </td>
-                      <td className="max-w-xs px-4 py-3 text-sm font-medium text-white">
+                      <td className="max-w-xs px-4 py-3 text-sm font-medium text-gray-900 dark:text-white">
                         <div className="flex items-center gap-2">
                           <Link href={`/pods/${encodeURIComponent(pod.namespace)}/${encodeURIComponent(pod.name)}`} className="truncate transition hover:text-indigo-300">
                             {pod.name}
@@ -494,16 +494,16 @@ export default function PodsPage() {
                           <CopyButton text={pod.name} label="Pod" className="h-9" />
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-sm text-slate-400">{pod.namespace}</td>
+                      <td className="px-4 py-3 text-sm text-slate-500 dark:text-slate-400">{pod.namespace}</td>
                       <td className="px-4 py-3 text-center">
                         <StatusBadge status={pod.status} label={pod.status} size="sm" />
                       </td>
-                      <td className="px-4 py-3 text-xs text-slate-400">
-                        <RelativeTime date={pod.createdAt} className="text-xs text-slate-400" />
+                      <td className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400">
+                        <RelativeTime date={pod.createdAt} className="text-xs text-slate-500 dark:text-slate-400" />
                       </td>
                       <td className={cn("px-4 py-3 text-xs font-medium", restartColor(restartCount))}>{restartCount}</td>
                       {!simpleMode ? <td className="px-4 py-3 text-xs text-slate-500">{pod.nodeName}</td> : null}
-                      {!simpleMode ? <td className="px-4 py-3 text-xs text-slate-400">{Array.isArray(pod.containers) ? pod.containers.join(", ") : ""}</td> : null}
+                      {!simpleMode ? <td className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400">{Array.isArray(pod.containers) ? pod.containers.join(", ") : ""}</td> : null}
                       <td className="px-4 py-3 text-right">
                         <div className="flex justify-end gap-2">
                           <Link

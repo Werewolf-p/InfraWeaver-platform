@@ -107,7 +107,7 @@ export function OfflineIndicator() {
             title="Expand offline banner"
           />
         ) : (
-          <div className="border-b border-red-500/30 bg-red-600/95 text-white shadow-lg backdrop-blur-sm">
+          <div className="border-b border-red-500/30 bg-red-600/95 text-gray-900 dark:text-white shadow-lg backdrop-blur-sm">
             <div className="mx-auto flex max-w-7xl items-start gap-3 px-3 py-2.5 sm:px-4">
               <WifiOff className="mt-0.5 h-4 w-4 flex-shrink-0" />
               <div className="min-w-0 flex-1">
@@ -129,7 +129,7 @@ export function OfflineIndicator() {
                 <button
                   type="button"
                   onClick={collapseBanner}
-                  className="inline-flex h-11 w-11 items-center justify-center rounded-xl text-white/80 transition-colors hover:bg-black/10 hover:text-white"
+                  className="inline-flex h-11 w-11 items-center justify-center rounded-xl text-gray-700 dark:text-white/80 transition-colors hover:bg-black/10 hover:text-gray-900 dark:hover:text-white"
                   aria-label="Collapse offline banner"
                   title="Collapse"
                 >
@@ -138,7 +138,7 @@ export function OfflineIndicator() {
                 <button
                   type="button"
                   onClick={dismissBanner}
-                  className="inline-flex h-11 w-11 items-center justify-center rounded-xl text-white/80 transition-colors hover:bg-black/10 hover:text-white"
+                  className="inline-flex h-11 w-11 items-center justify-center rounded-xl text-gray-700 dark:text-white/80 transition-colors hover:bg-black/10 hover:text-gray-900 dark:hover:text-white"
                   aria-label="Dismiss offline banner"
                   title="Dismiss for 24 hours"
                 >

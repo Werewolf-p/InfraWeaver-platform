@@ -39,9 +39,9 @@ export function MetricAreaChart({ data, label, unit = "%", color = "emerald", wa
   const gradId = `grad-${label.replace(/\s+/g, "")}`;
 
   return (
-    <div className={cn("rounded-xl border border-white/10 bg-white/5 p-3 sm:p-4", className)}>
+    <div className={cn("rounded-xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 p-3 sm:p-4", className)}>
       <div className="mb-2 flex items-center justify-between sm:mb-3">
-        <span className="text-xs font-medium text-slate-300 sm:text-sm">{label}</span>
+        <span className="text-xs font-medium text-slate-700 dark:text-slate-300 sm:text-sm">{label}</span>
         <span className={cn("text-base font-bold tabular-nums sm:text-lg", lastVal >= critAt ? "text-red-400" : lastVal >= warnAt ? "text-amber-400" : "text-emerald-400")}>
           {Math.round(lastVal)}{unit}
         </span>

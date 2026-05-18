@@ -60,7 +60,7 @@ export function ConfirmDialog({
     <Dialog.Root open={open} onOpenChange={handleOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm" />
-        <Dialog.Content className="fixed inset-x-0 bottom-0 top-0 z-[61] w-full overflow-y-auto bg-[#111] p-4 pb-[calc(env(safe-area-inset-bottom,0px)+1.25rem)] pt-[calc(env(safe-area-inset-top,0px)+1rem)] text-[#f2f2f2] shadow-2xl focus:outline-none sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-full sm:max-w-md sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:border sm:border-[#2a2a2a] sm:p-6 sm:pt-6 sm:pb-6">
+        <Dialog.Content className="fixed inset-x-0 bottom-0 top-0 z-[61] w-full overflow-y-auto bg-white dark:bg-[#111] p-4 pb-[calc(env(safe-area-inset-bottom,0px)+1.25rem)] pt-[calc(env(safe-area-inset-top,0px)+1rem)] text-gray-900 dark:text-[#f2f2f2] shadow-2xl focus:outline-none sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-full sm:max-w-md sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:border sm:border-gray-200 dark:border-[#2a2a2a] sm:p-6 sm:pt-6 sm:pb-6">
           <div className="flex items-start gap-4">
             {danger ? (
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-red-500/20 bg-red-500/10">
@@ -68,8 +68,8 @@ export function ConfirmDialog({
               </div>
             ) : null}
             <div className="flex-1">
-              <Dialog.Title className="mb-1 text-base font-semibold text-[#f2f2f2]">{title}</Dialog.Title>
-              {description ? <Dialog.Description className="text-sm leading-relaxed text-[#888]">{description}</Dialog.Description> : null}
+              <Dialog.Title className="mb-1 text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">{title}</Dialog.Title>
+              {description ? <Dialog.Description className="text-sm leading-relaxed text-gray-500 dark:text-[#888]">{description}</Dialog.Description> : null}
             </div>
           </div>
 
@@ -82,8 +82,8 @@ export function ConfirmDialog({
                 className="overflow-hidden"
               >
                 <div className="mt-4 space-y-1.5">
-                  <p className="text-xs text-[#888]">
-                    Type <span className="font-mono font-semibold text-[#f2f2f2]">{requireTyping}</span> to confirm:
+                  <p className="text-xs text-gray-500 dark:text-[#888]">
+                    Type <span className="font-mono font-semibold text-gray-900 dark:text-[#f2f2f2]">{requireTyping}</span> to confirm:
                   </p>
                   <motion.div
                     animate={shake ? { x: [-6, 6, -5, 5, -3, 3, 0] } : { x: 0 }}
@@ -95,9 +95,9 @@ export function ConfirmDialog({
                       onChange={(event) => setTypedValue(event.target.value)}
                       placeholder={requireTyping}
                       className={cn(
-                        "w-full rounded-lg border bg-[#0d0d0d] px-3 py-2 text-sm font-mono text-[#f2f2f2] placeholder:text-[#444] transition-colors focus:outline-none focus:ring-1 focus:ring-[#3b82f6]",
+                        "w-full rounded-lg border bg-white dark:bg-[#0d0d0d] px-3 py-2 text-sm font-mono text-gray-900 dark:text-[#f2f2f2] placeholder:text-gray-400 dark:placeholder:text-[#444] transition-colors focus:outline-none focus:ring-1 focus:ring-[#3b82f6]",
                         typedValue === ""
-                          ? "border-[#2a2a2a] focus:border-[#3b82f6]"
+                          ? "border-gray-200 dark:border-[#2a2a2a] focus:border-[#3b82f6]"
                           : isTypingMatch
                             ? "border-emerald-500/40 focus:border-emerald-400"
                             : "border-red-500/40 focus:border-red-400",
@@ -114,7 +114,7 @@ export function ConfirmDialog({
           <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:flex-wrap sm:justify-end">
             <button
               onClick={onCancel}
-              className="inline-flex min-h-[44px] cursor-pointer items-center justify-center rounded-lg border border-[#2a2a2a] bg-transparent px-4 text-sm text-[#d4d4d4] transition-colors hover:bg-[#1a1a1a] hover:text-[#f2f2f2] active:bg-[#1f1f1f]"
+              className="inline-flex min-h-[44px] cursor-pointer items-center justify-center rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-transparent px-4 text-sm text-gray-700 dark:text-[#d4d4d4] transition-colors hover:bg-gray-100 dark:hover:bg-[#1a1a1a] hover:text-gray-900 dark:hover:text-[#f2f2f2] active:bg-gray-200 dark:active:bg-[#1f1f1f]"
             >
               Cancel
             </button>

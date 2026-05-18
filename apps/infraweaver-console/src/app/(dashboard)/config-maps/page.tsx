@@ -116,9 +116,9 @@ export default function ConfigMapsPage() {
   if (activeId === "all") {
     return (
       <div className="flex flex-col items-center justify-center py-24 text-center">
-        <Globe className="mb-4 h-10 w-10 text-[#333]" />
-        <p className="text-sm font-medium text-[#666]">Select a specific cluster to view this page</p>
-        <p className="mt-1 text-xs text-[#444]">Use the cluster selector in the top bar</p>
+        <Globe className="mb-4 h-10 w-10 text-gray-700 dark:text-[#333]" />
+        <p className="text-sm font-medium text-gray-400 dark:text-[#666]">Select a specific cluster to view this page</p>
+        <p className="mt-1 text-xs text-gray-400 dark:text-[#444]">Use the cluster selector in the top bar</p>
       </div>
     );
   }
@@ -167,7 +167,7 @@ export default function ConfigMapsPage() {
           <button
             type="button"
             onClick={() => void refetch()}
-            className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-300 transition hover:text-white"
+            className="inline-flex items-center gap-2 rounded-xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-3 py-2 text-sm text-slate-700 dark:text-slate-300 transition hover:text-gray-900 dark:hover:text-white"
           >
             <RefreshCw className={cn("h-4 w-4", isFetching && "animate-spin")} />
             Refresh
@@ -191,9 +191,9 @@ export default function ConfigMapsPage() {
           ) : null}
 
           <div className="grid gap-4 md:grid-cols-3">
-            <div className="rounded-2xl border border-white/10 bg-slate-900/70 p-4">
+            <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/70 p-4">
               <p className="text-xs uppercase tracking-[0.2em] text-slate-500">ConfigMaps</p>
-              <p className="mt-2 text-3xl font-semibold text-white">{visibleConfigMaps.length}</p>
+              <p className="mt-2 text-3xl font-semibold text-gray-900 dark:text-white">{visibleConfigMaps.length}</p>
             </div>
             <div className="rounded-2xl border border-indigo-500/20 bg-indigo-500/10 p-4">
               <p className="text-xs uppercase tracking-[0.2em] text-indigo-100/80">Namespaces</p>
@@ -205,7 +205,7 @@ export default function ConfigMapsPage() {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-white/10 bg-slate-900/70 p-4">
+          <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/70 p-4">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
               <SearchInput
                 value={search}
@@ -216,7 +216,7 @@ export default function ConfigMapsPage() {
               <select
                 value={namespaceFilter}
                 onChange={(event) => setNamespaceFilter(event.target.value)}
-                className="rounded-xl border border-white/10 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none"
+                className="rounded-xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950 px-3 py-2.5 text-sm text-gray-900 dark:text-white outline-none"
               >
                 <option value="all">All namespaces</option>
                 {namespaces.map((namespace) => (
@@ -233,17 +233,17 @@ export default function ConfigMapsPage() {
               const dirty = hasDraftChanges(configMap.data, draft);
               const isDeleting = deleteMutation.isPending && deleteTarget != null && configMapId(deleteTarget) === id;
               return (
-                <div key={id} className="rounded-2xl border border-white/10 bg-slate-900/70 p-5">
+                <div key={id} className="rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/70 p-5">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
-                        <h2 className="text-lg font-semibold text-white">{configMap.name}</h2>
-                        <span className="rounded-full border border-slate-700 bg-slate-950 px-2.5 py-1 text-xs text-slate-300">{configMap.namespace}</span>
+                        <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{configMap.name}</h2>
+                        <span className="rounded-full border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-950 px-2.5 py-1 text-xs text-slate-700 dark:text-slate-300">{configMap.namespace}</span>
                         {configMap.immutable ? (
                           <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs text-amber-200">Immutable</span>
                         ) : null}
                       </div>
-                      <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-400">
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
                         <RelativeTime date={configMap.age} />
                         <span>·</span>
                         <span>
@@ -282,14 +282,14 @@ export default function ConfigMapsPage() {
 
                   <div className="mt-4 space-y-4">
                     {configMap.keys.length === 0 ? (
-                      <div className="rounded-xl border border-dashed border-white/10 bg-slate-950/50 px-4 py-8 text-center text-sm text-slate-500">
+                      <div className="rounded-xl border border-dashed border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950/50 px-4 py-8 text-center text-sm text-slate-500">
                         This ConfigMap has no text data keys to edit.
                       </div>
                     ) : (
                       configMap.keys.map((key) => (
                         <label key={key} className="block">
                           <div className="mb-2 flex items-center justify-between gap-3">
-                            <span className="text-sm font-medium text-white">{key}</span>
+                            <span className="text-sm font-medium text-gray-900 dark:text-white">{key}</span>
                             <span className="text-xs text-slate-500">{draft[key]?.length ?? 0} chars</span>
                           </div>
                           <textarea
@@ -305,7 +305,7 @@ export default function ConfigMapsPage() {
                               }));
                             }}
                             rows={Math.min(12, Math.max(4, (draft[key] ?? "").split("\n").length + 1))}
-                            className="min-h-[132px] w-full rounded-xl border border-white/10 bg-slate-950 px-3 py-2.5 font-mono text-sm text-white outline-none focus:border-indigo-500/50"
+                            className="min-h-[132px] w-full rounded-xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950 px-3 py-2.5 font-mono text-sm text-gray-900 dark:text-white outline-none focus:border-indigo-500/50"
                           />
                         </label>
                       ))

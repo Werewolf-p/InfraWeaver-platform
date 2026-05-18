@@ -91,17 +91,17 @@ export default function ChangelogPage() {
       <PageHeader icon={FileText} title="Changelog" />
       <div className="flex items-center gap-3 mb-10">
         <Sparkles className="w-6 h-6 text-indigo-400" />
-        <h1 className="text-2xl font-bold text-white">What&apos;s New</h1>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">What&apos;s New</h1>
       </div>
 
       <div className="space-y-12">
         {RELEASES.map((release) => (
-          <div key={release.version} className="relative pl-6 border-l border-white/10">
+          <div key={release.version} className="relative pl-6 border-l border-gray-200 dark:border-white/10">
             <div className="absolute -left-1.5 top-0 w-3 h-3 rounded-full bg-indigo-500 ring-2 ring-neutral-950" />
             <div className="mb-4">
               <div className="flex items-center gap-3 flex-wrap">
-                <span className="text-lg font-semibold text-white">v{release.version}</span>
-                <span className="text-xs text-white/30">{release.date}</span>
+                <span className="text-lg font-semibold text-gray-900 dark:text-white">v{release.version}</span>
+                <span className="text-xs text-gray-400 dark:text-white/30">{release.date}</span>
                 {release.highlights && (
                   <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
                     {release.highlights}
@@ -115,7 +115,7 @@ export default function ChangelogPage() {
                   <span className={`shrink-0 text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded mt-0.5 ${typeStyles[change.type]}`}>
                     {typeLabel[change.type]}
                   </span>
-                  <span className="text-sm text-white/70 leading-relaxed">{change.text}</span>
+                  <span className="text-sm text-gray-600 dark:text-white/70 leading-relaxed">{change.text}</span>
                 </li>
               ))}
             </ul>

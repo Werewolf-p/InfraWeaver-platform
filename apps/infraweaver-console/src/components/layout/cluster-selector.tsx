@@ -45,7 +45,7 @@ export function ClusterSelector({ popupDirection = "down" }: { popupDirection?: 
           "flex h-8 min-h-[44px] sm:min-h-0 sm:h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors touch-manipulation",
           open
             ? "border-[#3b82f6]/50 bg-[#3b82f6]/10 text-[#7cb9ff]"
-            : "border-[#2a2a2a] bg-[#1a1a1a] text-[#9e9e9e] hover:border-[#444] hover:text-[#f2f2f2]",
+            : "border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#1a1a1a] text-gray-500 dark:text-[#9e9e9e] hover:border-[#444] hover:text-gray-900 dark:hover:text-[#f2f2f2]",
         )}
         title="Switch active cluster"
       >
@@ -66,12 +66,12 @@ export function ClusterSelector({ popupDirection = "down" }: { popupDirection?: 
             exit={{ opacity: 0, scale: 0.95, y: popupOffset }}
             transition={springs.snappy}
             className={cn(
-              "absolute right-0 z-50 w-56 overflow-hidden rounded-xl border border-[#2a2a2a] bg-[#1a1a1a] shadow-2xl",
+              "absolute right-0 z-50 w-56 overflow-hidden rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#1a1a1a] shadow-2xl",
               popupDirection === "up" ? "bottom-full mb-1" : "top-full mt-1",
             )}
           >
             <div className="px-3 pb-1 pt-2.5">
-              <p className="text-[10px] font-medium uppercase tracking-wider text-[#555]">Active Cluster</p>
+              <p className="text-[10px] font-medium uppercase tracking-wider text-gray-400 dark:text-[#555]">Active Cluster</p>
             </div>
 
             {/* Individual clusters */}
@@ -91,7 +91,7 @@ export function ClusterSelector({ popupDirection = "down" }: { popupDirection?: 
 
             {/* Show All option — always available for multi-cluster context awareness */}
             <>
-              <div className="mx-3 border-t border-[#222]" />
+              <div className="mx-3 border-t border-gray-200 dark:border-[#222]" />
               <div className="px-1.5 py-1.5">
                 <ClusterOption
                   id="all"
@@ -126,16 +126,16 @@ function ClusterOption({
       className={cn(
         "flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors touch-manipulation",
         active
-          ? "bg-[#3b82f6]/15 text-[#f2f2f2]"
-          : "text-[#ccc] hover:bg-[#2a2a2a] hover:text-[#f2f2f2]",
+          ? "bg-[#3b82f6]/15 text-gray-900 dark:text-[#f2f2f2]"
+          : "text-gray-600 dark:text-[#ccc] hover:bg-gray-100 dark:hover:bg-[#2a2a2a] hover:text-gray-900 dark:hover:text-[#f2f2f2]",
       )}
     >
-      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[#111]">
+      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white dark:bg-[#111]">
         {status === "all" ? <Globe className="h-3.5 w-3.5 text-[#60a5fa]" /> : <Server className="h-3.5 w-3.5 text-[#60a5fa]" />}
       </div>
       <div className="min-w-0 flex-1">
         <p className="truncate text-xs font-medium">{label}</p>
-        <p className="truncate text-[10px] text-[#555]">{description}</p>
+        <p className="truncate text-[10px] text-gray-400 dark:text-[#555]">{description}</p>
       </div>
       <StatusDot status={status} />
     </button>

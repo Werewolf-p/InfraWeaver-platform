@@ -174,8 +174,8 @@ export default function TestsPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-white">Platform Tests</h1>
-          <p className="text-sm text-slate-400 mt-1">Interactive test suite for APIs, pages, and mobile layout</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Platform Tests</h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Interactive test suite for APIs, pages, and mobile layout</p>
         </div>
         <button
           onClick={runAll}
@@ -195,7 +195,7 @@ export default function TestsPage() {
           {[
             { label: "Passed", value: passed, color: "text-green-400", bg: "bg-green-500/10 border-green-500/20" },
             { label: "Failed", value: failed, color: "text-red-400", bg: "bg-red-500/10 border-red-500/20" },
-            { label: "Skipped", value: skipped, color: "text-slate-400", bg: "bg-slate-800 border-white/10" },
+            { label: "Skipped", value: skipped, color: "text-slate-500 dark:text-slate-400", bg: "bg-slate-100 dark:bg-slate-800 border-gray-200 dark:border-white/10" },
           ].map(s => (
             <div key={s.label} className={cn("p-4 rounded-xl border", s.bg)}>
               <div className={cn("text-2xl font-bold", s.color)}>{s.value}</div>
@@ -211,9 +211,9 @@ export default function TestsPage() {
       {categories.map(cat => {
         const catResults = results.filter(r => r.category === cat);
         return (
-          <div key={cat} className="rounded-xl border border-white/10 overflow-hidden">
-            <div className="px-4 py-3 bg-white/[0.02] border-b border-white/5 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-slate-300">{cat}</h2>
+          <div key={cat} className="rounded-xl border border-gray-200 dark:border-white/10 overflow-hidden">
+            <div className="px-4 py-3 bg-gray-50 dark:bg-white/[0.02] border-b border-gray-200 dark:border-white/5 flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-300">{cat}</h2>
               <div className="flex gap-2">
                 {catResults.some(r => r.status === "fail") && (
                   <span className="text-xs text-red-400">{catResults.filter(r => r.status === "fail").length} failed</span>
@@ -227,7 +227,7 @@ export default function TestsPage() {
               {catResults.map(result => (
                 <div key={result.id} className="flex items-start gap-3 px-4 py-3">
                   <div className="flex-none mt-0.5">
-                    {result.status === "pending" && <div className="w-4 h-4 rounded-full border-2 border-slate-700" />}
+                    {result.status === "pending" && <div className="w-4 h-4 rounded-full border-2 border-slate-200 dark:border-slate-700" />}
                     {result.status === "running" && <Loader2 className="w-4 h-4 text-indigo-400 animate-spin" />}
                     {result.status === "pass" && <CheckCircle2 className="w-4 h-4 text-green-400" />}
                     {result.status === "fail" && <XCircle className="w-4 h-4 text-red-400" />}
@@ -235,13 +235,13 @@ export default function TestsPage() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-sm font-medium text-slate-200">{result.name}</span>
+                      <span className="text-sm font-medium text-slate-800 dark:text-slate-200">{result.name}</span>
                       {result.durationMs !== undefined && result.durationMs > 0 && (
                         <span className="text-xs text-slate-600 font-mono">{result.durationMs.toFixed(0)}ms</span>
                       )}
                     </div>
                     <p className="text-xs text-slate-500 mt-0.5">{result.description}</p>
-                    {result.detail && <p className="text-xs text-slate-400 mt-1 font-mono">{result.detail}</p>}
+                    {result.detail && <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 font-mono">{result.detail}</p>}
                     {result.error && <p className="text-xs text-red-400 mt-1 font-mono">{result.error}</p>}
                   </div>
                 </div>
@@ -254,7 +254,7 @@ export default function TestsPage() {
       {/* Info */}
       <div className="flex items-start gap-3 p-4 rounded-xl bg-blue-500/5 border border-blue-500/20">
         <AlertTriangle className="w-4 h-4 text-blue-400 flex-shrink-0 mt-0.5" />
-        <div className="text-xs text-slate-400 space-y-1">
+        <div className="text-xs text-slate-500 dark:text-slate-400 space-y-1">
           <p>Tests run directly in your browser against the platform APIs. Some tests may fail if optional components (Gatus, community app feed) are unavailable.</p>
           <p>Mobile tests are informational — run on your phone to check mobile-specific behavior.</p>
         </div>

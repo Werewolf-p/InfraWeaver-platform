@@ -42,7 +42,7 @@ function getCallbackUrl() {
 
 export default function SignInPage() {
   return (
-    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 relative overflow-hidden">
+    <div className="min-h-screen bg-slate-100 dark:bg-slate-950 flex items-center justify-center p-4 relative overflow-hidden">
       {/* Aurora background */}
       <div className="aurora-bg" aria-hidden="true">
         <div className="aurora-blob aurora-blob-1" />
@@ -71,12 +71,12 @@ export default function SignInPage() {
               <Terminal className="w-7 h-7 text-indigo-400" />
             </motion.div>
             <div>
-              <h1 className="text-3xl font-black text-white tracking-tight">InfraWeaver</h1>
+              <h1 className="text-3xl font-black text-gray-900 dark:text-white tracking-tight">InfraWeaver</h1>
               <p className="text-sm text-indigo-400 font-medium">Platform Console</p>
             </div>
           </div>
 
-          <p className="text-slate-400 text-base leading-relaxed">
+          <p className="text-slate-500 dark:text-slate-400 text-base leading-relaxed">
             Your unified homelab control plane. Manage Kubernetes workloads, monitor health,
             edit configs, and enforce access control — all in one place.
           </p>
@@ -93,7 +93,7 @@ export default function SignInPage() {
                 <div className="w-8 h-8 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center flex-shrink-0">
                   <f.icon className="w-4 h-4 text-indigo-400" />
                 </div>
-                <span className="text-sm text-slate-300">{f.text}</span>
+                <span className="text-sm text-slate-700 dark:text-slate-300">{f.text}</span>
               </motion.div>
             ))}
           </div>
@@ -119,13 +119,13 @@ export default function SignInPage() {
                   <Terminal className="w-5 h-5 text-indigo-400" />
                 </div>
                 <div>
-                  <h1 className="text-xl font-bold text-white">InfraWeaver</h1>
+                  <h1 className="text-xl font-bold text-gray-900 dark:text-white">InfraWeaver</h1>
                   <p className="text-xs text-indigo-400">Platform Console</p>
                 </div>
               </div>
 
-              <h2 className="text-xl font-bold text-white mb-1">Welcome back</h2>
-              <p className="text-sm text-slate-400 mb-8">
+              <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-1">Welcome back</h2>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mb-8">
                 Sign in with your Authentik account to access the platform console.
               </p>
 
@@ -144,9 +144,9 @@ export default function SignInPage() {
 
               {/* Divider */}
               <div className="flex items-center gap-3 my-6">
-                <div className="flex-1 h-px bg-white/5" />
+                <div className="flex-1 h-px bg-gray-100 dark:bg-white/5" />
                 <span className="text-xs text-slate-600">or</span>
-                <div className="flex-1 h-px bg-white/5" />
+                <div className="flex-1 h-px bg-gray-100 dark:bg-white/5" />
               </div>
 
               {/* Secondary GitHub button (UI only - Authentik handles OAuth) */}
@@ -154,7 +154,7 @@ export default function SignInPage() {
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.97 }}
                 onClick={() => signIn("authentik", { callbackUrl: getCallbackUrl() })}
-                className="w-full flex items-center justify-center gap-3 py-3 px-6 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 font-medium text-sm transition-colors"
+                className="w-full flex items-center justify-center gap-3 py-3 px-6 rounded-xl bg-gray-100 dark:bg-white/5 hover:bg-gray-100 dark:hover:bg-white/10 border border-gray-200 dark:border-white/10 text-slate-700 dark:text-slate-300 font-medium text-sm transition-colors"
               >
                 <svg viewBox="0 0 24 24" className="w-4 h-4 fill-current">
                   <path d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.44 9.8 8.2 11.38.6.1.82-.26.82-.57v-2c-3.34.72-4.04-1.6-4.04-1.6-.54-1.38-1.33-1.74-1.33-1.74-1.09-.74.08-.73.08-.73 1.2.09 1.84 1.24 1.84 1.24 1.07 1.83 2.8 1.3 3.49 1 .1-.78.42-1.3.76-1.6-2.67-.3-5.47-1.33-5.47-5.93 0-1.31.47-2.38 1.24-3.22-.13-.3-.54-1.52.12-3.18 0 0 1.01-.32 3.3 1.23a11.5 11.5 0 0 1 3-.4c1.02 0 2.04.13 3 .4 2.3-1.55 3.3-1.23 3.3-1.23.66 1.66.25 2.88.12 3.18.77.84 1.24 1.91 1.24 3.22 0 4.61-2.81 5.63-5.48 5.92.43.37.81 1.1.81 2.22v3.29c0 .32.22.68.82.57C20.56 21.8 24 17.3 24 12c0-6.63-5.37-12-12-12z" />

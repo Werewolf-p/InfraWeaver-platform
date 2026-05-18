@@ -71,11 +71,11 @@ export function SessionsPanel({ username, open, onClose }: Props) {
   return (
     <div className="fixed inset-0 z-50 flex">
       <div className="flex-1 bg-black/40 backdrop-blur-sm" onClick={onClose} />
-      <div className="w-96 bg-slate-900 border-l border-white/10 flex flex-col h-full shadow-2xl">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
+      <div className="w-96 bg-slate-100 dark:bg-slate-900 border-l border-gray-200 dark:border-white/10 flex flex-col h-full shadow-2xl">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-white/10">
           <div>
-            <h2 className="text-sm font-semibold text-white">Sessions</h2>
-            <p className="text-xs text-slate-400">@{username}</p>
+            <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Sessions</h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400">@{username}</p>
           </div>
           <div className="flex items-center gap-2">
             {sessions.length > 0 && (
@@ -87,7 +87,7 @@ export function SessionsPanel({ username, open, onClose }: Props) {
                 Revoke All
               </button>
             )}
-            <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors">
+            <button onClick={onClose} className="p-1.5 rounded-lg text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/10 transition-colors">
               <X className="w-4 h-4" />
             </button>
           </div>
@@ -101,10 +101,10 @@ export function SessionsPanel({ username, open, onClose }: Props) {
             sessions.map((s) => (
               <div
                 key={s.identifier}
-                className="flex items-start justify-between p-3 rounded-xl bg-white/5 border border-white/10"
+                className="flex items-start justify-between p-3 rounded-xl bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10"
               >
                 <div className="min-w-0">
-                  <p className="text-xs font-medium text-white truncate">
+                  <p className="text-xs font-medium text-gray-900 dark:text-white truncate">
                     {s.description || s.identifier}
                   </p>
                   <p className="text-xs text-slate-500 mt-0.5">
@@ -127,10 +127,10 @@ export function SessionsPanel({ username, open, onClose }: Props) {
             ))
           )}
         </div>
-        <div className="px-4 py-3 border-t border-white/10">
+        <div className="px-4 py-3 border-t border-gray-200 dark:border-white/10">
           <button
             onClick={fetchSessions}
-            className="flex items-center gap-2 text-xs text-slate-400 hover:text-white transition-colors"
+            className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white transition-colors"
           >
             <RefreshCw className="w-3.5 h-3.5" />
             Refresh

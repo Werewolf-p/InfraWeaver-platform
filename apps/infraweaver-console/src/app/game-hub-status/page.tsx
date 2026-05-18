@@ -54,12 +54,12 @@ export default function PublicStatusPage() {
   const summary = useMemo(() => data?.overall ?? { total: 0, healthy: 0, degraded: 0 }, [data]);
 
   return (
-    <main className="min-h-screen bg-[#070b11] text-white">
+    <main className="min-h-screen bg-[#070b11] text-gray-900 dark:text-white">
       <div className="mx-auto max-w-5xl px-6 py-12 space-y-8">
         <div className="space-y-2">
           <p className="text-sm uppercase tracking-[0.3em] text-sky-300/70">InfraWeaver</p>
           <h1 className="text-4xl font-semibold">Public Status</h1>
-          <p className="text-sm text-slate-400">Live platform health and public game server availability.</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400">Live platform health and public game server availability.</p>
         </div>
 
         <section className="grid gap-4 md:grid-cols-3">
@@ -71,17 +71,17 @@ export default function PublicStatusPage() {
             <p className="text-xs uppercase tracking-widest text-amber-200/70">Degraded apps</p>
             <p className="mt-2 text-3xl font-semibold text-amber-100">{summary.degraded}</p>
           </div>
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-            <p className="text-xs uppercase tracking-widest text-slate-400">Tracked apps</p>
-            <p className="mt-2 text-3xl font-semibold text-white">{summary.total}</p>
+          <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 p-5">
+            <p className="text-xs uppercase tracking-widest text-slate-500 dark:text-slate-400">Tracked apps</p>
+            <p className="mt-2 text-3xl font-semibold text-gray-900 dark:text-white">{summary.total}</p>
           </div>
         </section>
 
-        <section className="rounded-2xl border border-white/10 bg-white/5 overflow-hidden">
-          <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
+        <section className="rounded-2xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 overflow-hidden">
+          <div className="flex items-center justify-between border-b border-gray-200 dark:border-white/10 px-5 py-4">
             <div>
               <h2 className="text-lg font-medium">Game Servers</h2>
-              <p className="text-xs text-slate-400">Name, runtime status, and uptime only.</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Name, runtime status, and uptime only.</p>
             </div>
             {data?.generatedAt && (
               <span className="text-xs text-slate-500">Updated {new Date(data.generatedAt).toLocaleTimeString()}</span>
@@ -90,9 +90,9 @@ export default function PublicStatusPage() {
           {error ? (
             <div className="px-5 py-10 text-sm text-red-300">{error}</div>
           ) : !data ? (
-            <div className="px-5 py-10 text-sm text-slate-400">Loading status…</div>
+            <div className="px-5 py-10 text-sm text-slate-500 dark:text-slate-400">Loading status…</div>
           ) : data.servers.length === 0 ? (
-            <div className="px-5 py-10 text-sm text-slate-400">No public game servers found.</div>
+            <div className="px-5 py-10 text-sm text-slate-500 dark:text-slate-400">No public game servers found.</div>
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full text-sm">
@@ -105,8 +105,8 @@ export default function PublicStatusPage() {
                 </thead>
                 <tbody>
                   {data.servers.map((server) => (
-                    <tr key={server.name} className="border-t border-white/5">
-                      <td className="px-5 py-3 font-mono text-slate-200">{server.name}</td>
+                    <tr key={server.name} className="border-t border-gray-200 dark:border-white/5">
+                      <td className="px-5 py-3 font-mono text-slate-800 dark:text-slate-200">{server.name}</td>
                       <td className="px-5 py-3">
                         <span className={[
                           "inline-flex rounded-full px-2.5 py-1 text-xs font-medium capitalize border",
@@ -114,12 +114,12 @@ export default function PublicStatusPage() {
                             ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
                             : server.status === "starting"
                               ? "border-amber-500/30 bg-amber-500/10 text-amber-200"
-                              : "border-slate-500/30 bg-slate-500/10 text-slate-300",
+                              : "border-slate-500/30 bg-slate-500/10 text-slate-700 dark:text-slate-300",
                         ].join(" ")}>
                           {server.status}
                         </span>
                       </td>
-                      <td className="px-5 py-3 text-slate-300">{formatUptime(server.uptimeSeconds)}</td>
+                      <td className="px-5 py-3 text-slate-700 dark:text-slate-300">{formatUptime(server.uptimeSeconds)}</td>
                     </tr>
                   ))}
                 </tbody>

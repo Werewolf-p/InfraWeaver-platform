@@ -19,7 +19,7 @@ export function SortableHeader({ label, sortKey, activeKey, direction = "asc", o
     <button
       type="button"
       onClick={() => onSort(sortKey)}
-      className={cn("inline-flex items-center gap-1 text-left transition-colors hover:text-[#f2f2f2]", className)}
+      className={cn("inline-flex items-center gap-1 text-left transition-colors hover:text-gray-900 dark:hover:text-[#f2f2f2]", className)}
     >
       <span>{label}</span>
       {isActive ? (

@@ -27,14 +27,14 @@ function conclusionIcon(status: string | null, conclusion: string | null) {
   if (status === "in_progress" || status === "queued") return <Loader2 className="w-4 h-4 text-amber-400 animate-spin" />;
   if (conclusion === "success") return <CheckCircle2 className="w-4 h-4 text-emerald-400" />;
   if (conclusion === "failure") return <XCircle className="w-4 h-4 text-red-400" />;
-  if (conclusion === "cancelled") return <AlertCircle className="w-4 h-4 text-slate-400" />;
+  if (conclusion === "cancelled") return <AlertCircle className="w-4 h-4 text-slate-500 dark:text-slate-400" />;
   return <Clock className="w-4 h-4 text-slate-500" />;
 }
 
 function conclusionColor(conclusion: string | null): string {
   if (conclusion === "success") return "border-emerald-500/20 bg-emerald-500/5";
   if (conclusion === "failure") return "border-red-500/20 bg-red-500/5";
-  return "border-white/10 bg-white/5";
+  return "border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5";
 }
 
 function formatDuration(sec: number | null): string {
@@ -97,13 +97,13 @@ export default function PipelinesPage() {
               <GitBranch className="w-5 h-5 text-indigo-400" />
               CI/CD Pipelines
             </h2>
-            <p className="text-sm text-slate-400 mt-0.5">GitHub Actions workflows for the InfraWeaver platform</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">GitHub Actions workflows for the InfraWeaver platform</p>
           </div>
           <div className="flex items-center gap-2">
-            <Link href="/cluster" className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 hover:text-white hover:bg-white/10 transition-colors">
+            <Link href="/cluster" className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-sm text-slate-700 dark:text-slate-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/10 transition-colors">
               ← Cluster
             </Link>
-            <button onClick={() => { void refetch(); }} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 hover:text-white hover:bg-white/10 transition-colors active:scale-95">
+            <button onClick={() => { void refetch(); }} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-sm text-slate-700 dark:text-slate-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/10 transition-colors active:scale-95">
               <RefreshCw className="w-3.5 h-3.5" />
               Refresh
             </button>
@@ -119,7 +119,7 @@ export default function PipelinesPage() {
         ].map(s => (
           <div key={s.label} className={cn("rounded-xl border p-4 text-center", s.bg)}>
             <p className={cn("text-2xl font-bold tabular-nums", s.color)}>{s.value}</p>
-            <p className="text-xs text-slate-400 mt-0.5">{s.label}</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{s.label}</p>
           </div>
         ))}
       </div>
@@ -138,12 +138,12 @@ export default function PipelinesPage() {
             >
               <div className="flex-shrink-0">{conclusionIcon(wf.lastRunStatus, wf.lastRunConclusion)}</div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-white truncate">{wf.name}</p>
+                <p className="text-sm font-semibold text-gray-900 dark:text-white truncate">{wf.name}</p>
                 <p className="text-xs text-slate-500 font-mono truncate">{wf.path}</p>
               </div>
-              <div className="flex items-center gap-3 text-xs text-slate-400 flex-wrap">
+              <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400 flex-wrap">
                 {wf.lastRunBranch && (
-                  <span className="flex items-center gap-1 bg-white/5 px-2 py-0.5 rounded">
+                  <span className="flex items-center gap-1 bg-gray-100 dark:bg-white/5 px-2 py-0.5 rounded">
                     <GitBranch className="w-3 h-3" />{wf.lastRunBranch}
                   </span>
                 )}

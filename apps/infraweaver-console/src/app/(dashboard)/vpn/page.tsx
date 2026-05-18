@@ -70,7 +70,7 @@ export default function VpnPage() {
         <button
           type="button"
           onClick={() => void refetch()}
-          className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-300 transition hover:text-white"
+          className="inline-flex items-center gap-2 rounded-xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-3 py-2 text-sm text-slate-700 dark:text-slate-300 transition hover:text-gray-900 dark:hover:text-white"
         >
           <RefreshCw className={cn("h-4 w-4", isFetching && "animate-spin")} />
           Refresh
@@ -88,9 +88,9 @@ export default function VpnPage() {
     >
       <div className="space-y-6">
         <div className="grid gap-4 md:grid-cols-3">
-          <div className="rounded-2xl border border-white/10 bg-slate-900/70 p-4">
+          <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/70 p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Peers</p>
-            <p className="mt-2 text-3xl font-semibold text-white">{peers.length}</p>
+            <p className="mt-2 text-3xl font-semibold text-gray-900 dark:text-white">{peers.length}</p>
           </div>
           <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-emerald-100/80">Connected</p>
@@ -102,22 +102,22 @@ export default function VpnPage() {
           </div>
         </div>
 
-        <div className="rounded-2xl border border-white/10 bg-slate-900/70 p-4">
+        <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/70 p-4">
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Search peer name, IP, or operating system…"
-              className="w-full rounded-xl border border-white/10 bg-slate-950 py-2.5 pl-9 pr-3 text-sm text-white outline-none focus:border-indigo-500/50"
+              className="w-full rounded-xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950 py-2.5 pl-9 pr-3 text-sm text-gray-900 dark:text-white outline-none focus:border-indigo-500/50"
             />
           </div>
         </div>
 
-        <div className="overflow-hidden rounded-2xl border border-white/10 bg-slate-900/70">
+        <div className="overflow-hidden rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/70">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[760px] text-sm">
-              <thead className="bg-slate-950/80 text-left text-xs uppercase tracking-[0.18em] text-slate-500">
+              <thead className="bg-slate-100 dark:bg-slate-950/80 text-left text-xs uppercase tracking-[0.18em] text-slate-500">
                 <tr>
                   <th className="px-4 py-3">Peer</th>
                   <th className="px-4 py-3">IP</th>
@@ -127,18 +127,18 @@ export default function VpnPage() {
               </thead>
               <tbody>
                 {filteredPeers.map((peer) => (
-                  <tr key={peer.id} className="border-t border-white/5">
+                  <tr key={peer.id} className="border-t border-gray-200 dark:border-white/5">
                     <td className="px-4 py-4">
                       <div className="flex items-center gap-3">
                         <span className={cn("h-2.5 w-2.5 rounded-full", peer.connected ? "bg-emerald-400" : "bg-slate-500")} />
                         <div>
-                          <p className="font-medium text-white">{peer.name}</p>
+                          <p className="font-medium text-gray-900 dark:text-white">{peer.name}</p>
                           <p className="mt-1 text-xs text-slate-500">{peer.os ?? "Unknown OS"}</p>
                         </div>
                       </div>
                     </td>
-                    <td className="px-4 py-4 font-mono text-slate-300">{peer.ip ?? "—"}</td>
-                    <td className="px-4 py-4 text-slate-400">{peer.lastSeen ? timeAgo(peer.lastSeen) : "Never"}</td>
+                    <td className="px-4 py-4 font-mono text-slate-700 dark:text-slate-300">{peer.ip ?? "—"}</td>
+                    <td className="px-4 py-4 text-slate-500 dark:text-slate-400">{peer.lastSeen ? timeAgo(peer.lastSeen) : "Never"}</td>
                     <td className="px-4 py-4">
                       <span className={cn(
                         "rounded-full border px-2.5 py-1 text-xs font-medium",

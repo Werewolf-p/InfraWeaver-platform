@@ -117,7 +117,7 @@ function DnsStatusCell({ name, targetIP, internalIP, publicDns, internalDns }: {
           <span className={data?.public?.exists ? "text-green-400" : "text-slate-600"}>
             {data?.public?.exists ? "✓" : "✗"}
           </span>
-          <span className="text-slate-400">{name}.rlservers.com</span>
+          <span className="text-slate-500 dark:text-slate-400">{name}.rlservers.com</span>
           <span className="text-slate-600">→ {targetIP}</span>
         </div>
       )}
@@ -126,7 +126,7 @@ function DnsStatusCell({ name, targetIP, internalIP, publicDns, internalDns }: {
           <span className={data?.internal?.exists ? "text-green-400" : "text-slate-600"}>
             {data?.internal?.exists ? "✓" : "✗"}
           </span>
-          <span className="text-slate-400">{name}.int.rlservers.com</span>
+          <span className="text-slate-500 dark:text-slate-400">{name}.int.rlservers.com</span>
           <span className="text-slate-600">→ {effectiveIntIP}</span>
         </div>
       )}
@@ -156,30 +156,30 @@ function HowItWorksPanel() {
             className="overflow-hidden"
           >
             <div className="px-4 pb-4 space-y-4">
-              <p className="text-sm text-slate-300">
-                <strong className="text-white">DNS Routing</strong> — each game server gets its own hostname pointing to its own public IP. 
+              <p className="text-sm text-slate-700 dark:text-slate-300">
+                <strong className="text-gray-900 dark:text-white">DNS Routing</strong> — each game server gets its own hostname pointing to its own public IP. 
                 Two servers can use the same port (e.g. 25565) because <code className="text-blue-300">mc1.rlservers.com</code> and <code className="text-blue-300">mc2.rlservers.com</code> resolve to different IPs.
                 Your router forwards traffic based on the destination IP.
               </p>
-              <div className="flex items-center gap-2 text-xs font-mono text-slate-400 flex-wrap">
-                <span className="px-2 py-1 bg-slate-800 rounded border border-white/10">Players</span>
+              <div className="flex items-center gap-2 text-xs font-mono text-slate-500 dark:text-slate-400 flex-wrap">
+                <span className="px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded border border-gray-200 dark:border-white/10">Players</span>
                 <span className="text-slate-600">→</span>
                 <span className="px-2 py-1 bg-indigo-900/40 rounded border border-indigo-500/30 text-indigo-300">DNS lookup</span>
                 <span className="text-slate-600">→</span>
-                <span className="px-2 py-1 bg-slate-800 rounded border border-white/10">Your Public IP</span>
+                <span className="px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded border border-gray-200 dark:border-white/10">Your Public IP</span>
                 <span className="text-slate-600">→</span>
-                <span className="px-2 py-1 bg-slate-800 rounded border border-white/10">Router</span>
+                <span className="px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded border border-gray-200 dark:border-white/10">Router</span>
                 <span className="text-slate-600">→</span>
                 <span className="px-2 py-1 bg-green-900/40 rounded border border-green-500/30 text-green-300">Game Server</span>
               </div>
               <div className="grid grid-cols-2 gap-3 text-xs">
-                <div className="p-3 rounded-lg bg-slate-800/50 border border-white/5">
-                  <p className="font-semibold text-white mb-1">mc1.rlservers.com :25565</p>
+                <div className="p-3 rounded-lg bg-slate-100 dark:bg-slate-800/50 border border-gray-200 dark:border-white/5">
+                  <p className="font-semibold text-gray-900 dark:text-white mb-1">mc1.rlservers.com :25565</p>
                   <p className="text-slate-500">→ DNS: 1.2.3.4</p>
                   <p className="text-slate-500">→ Router forwards to MC server 1</p>
                 </div>
-                <div className="p-3 rounded-lg bg-slate-800/50 border border-white/5">
-                  <p className="font-semibold text-white mb-1">mc2.rlservers.com :25565</p>
+                <div className="p-3 rounded-lg bg-slate-100 dark:bg-slate-800/50 border border-gray-200 dark:border-white/5">
+                  <p className="font-semibold text-gray-900 dark:text-white mb-1">mc2.rlservers.com :25565</p>
                   <p className="text-slate-500">→ DNS: 5.6.7.8</p>
                   <p className="text-slate-500">→ Router forwards to MC server 2</p>
                 </div>
@@ -224,16 +224,16 @@ function RouterConfigTable({ servers }: { servers: GameServer[] }) {
   if (servers.length === 0) return null;
 
   return (
-    <div className="rounded-xl border border-white/10 bg-white/[0.02] overflow-hidden">
+    <div className="rounded-xl border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/[0.02] overflow-hidden">
       <button
         onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-white/5 transition-colors"
+        className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-gray-100 dark:hover:bg-white/5 transition-colors"
       >
         <div className="flex items-center gap-2">
-          <Network className="w-4 h-4 text-slate-400" />
-          <span className="text-sm font-medium text-slate-300">Router Port-Forward Rules</span>
+          <Network className="w-4 h-4 text-slate-500 dark:text-slate-400" />
+          <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Router Port-Forward Rules</span>
         </div>
-        {open ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+        {open ? <ChevronUp className="w-4 h-4 text-slate-500 dark:text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-500 dark:text-slate-400" />}
       </button>
       <AnimatePresence>
         {open && (
@@ -241,10 +241,10 @@ function RouterConfigTable({ servers }: { servers: GameServer[] }) {
             initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }}
             className="overflow-hidden"
           >
-            <div className="border-t border-white/5 overflow-x-auto">
+            <div className="border-t border-gray-200 dark:border-white/5 overflow-x-auto">
               <table className="w-full text-xs">
                 <thead>
-                  <tr className="bg-slate-950/50">
+                  <tr className="bg-slate-100 dark:bg-slate-950/50">
                     <th className="text-left px-4 py-2 text-slate-500 font-semibold uppercase tracking-wider">Hostname</th>
                     <th className="text-left px-4 py-2 text-slate-500 font-semibold uppercase tracking-wider">Protocol</th>
                     <th className="text-left px-4 py-2 text-slate-500 font-semibold uppercase tracking-wider">External IP</th>
@@ -254,26 +254,26 @@ function RouterConfigTable({ servers }: { servers: GameServer[] }) {
                 </thead>
                 <tbody>
                   {rows.map((row, i) => (
-                    <tr key={i} className="border-t border-white/5 hover:bg-white/5">
-                      <td className="px-4 py-2 font-mono text-slate-300">{row.hostname}</td>
+                    <tr key={i} className="border-t border-gray-200 dark:border-white/5 hover:bg-gray-100 dark:hover:bg-white/5">
+                      <td className="px-4 py-2 font-mono text-slate-700 dark:text-slate-300">{row.hostname}</td>
                       <td className="px-4 py-2"><ProtocolBadge protocol={row.protocol} /></td>
-                      <td className="px-4 py-2 font-mono text-slate-300">{row.externalIP}</td>
-                      <td className="px-4 py-2 font-mono text-white">{row.extPort}</td>
-                      <td className="px-4 py-2 font-mono text-slate-400">{row.internalTarget}</td>
+                      <td className="px-4 py-2 font-mono text-slate-700 dark:text-slate-300">{row.externalIP}</td>
+                      <td className="px-4 py-2 font-mono text-gray-900 dark:text-white">{row.extPort}</td>
+                      <td className="px-4 py-2 font-mono text-slate-500 dark:text-slate-400">{row.internalTarget}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-              <div className="flex gap-2 px-4 py-3 border-t border-white/5">
+              <div className="flex gap-2 px-4 py-3 border-t border-gray-200 dark:border-white/5">
                 <button
                   onClick={copyJson}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 text-xs text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-white/10 text-xs text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/5 transition-colors"
                 >
                   <Copy className="w-3 h-3" /> {copied === "json" ? "Copied!" : "Copy as JSON"}
                 </button>
                 <button
                   onClick={copyText}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 text-xs text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-white/10 text-xs text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/5 transition-colors"
                 >
                   <Copy className="w-3 h-3" /> {copied === "text" ? "Copied!" : "Copy as text"}
                 </button>
@@ -437,14 +437,14 @@ function AddServerDrawer({
             <motion.div
               initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }}
               transition={{ type: "spring", damping: 30, stiffness: 300 }}
-              className="fixed inset-y-0 right-0 w-full max-w-xl bg-slate-900 border-l border-slate-700 z-[201] shadow-2xl flex flex-col"
+              className="fixed inset-y-0 right-0 w-full max-w-xl bg-slate-100 dark:bg-slate-900 border-l border-slate-200 dark:border-slate-700 z-[201] shadow-2xl flex flex-col"
               style={{ maxHeight: '100dvh' }}
             >
               {/* Row 1: Header */}
               <div className="flex-none flex items-center justify-between px-5 py-3 border-b border-slate-700/60">
               <div>
-                <h2 className="text-base font-bold text-white">Add Port Route</h2>
-                <p className="text-xs text-slate-400">Step {step} of {totalSteps} — {activeStepLabels[step - 1]}</p>
+                <h2 className="text-base font-bold text-gray-900 dark:text-white">Add Port Route</h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400">Step {step} of {totalSteps} — {activeStepLabels[step - 1]}</p>
               </div>
               <div className="flex items-center gap-2">
                 <button
@@ -454,13 +454,13 @@ function AddServerDrawer({
                     "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors",
                     simpleMode
                       ? "bg-indigo-500/20 border-indigo-500/40 text-indigo-300"
-                      : "bg-slate-800 border-slate-600 text-slate-300 hover:text-white"
+                      : "bg-slate-100 dark:bg-slate-800 border-slate-600 text-slate-700 dark:text-slate-300 hover:text-gray-900 dark:hover:text-white"
                   )}
                 >
                   <Zap className="w-3 h-3" />
                   {simpleMode ? "Simple" : "Advanced"}
                 </button>
-                <button type="button" onClick={() => { onClose(); resetForm(); }} className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 transition-colors">
+                <button type="button" onClick={() => { onClose(); resetForm(); }} className="p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white hover:bg-slate-700 transition-colors">
                   <X className="w-5 h-5" />
                 </button>
               </div>
@@ -474,11 +474,11 @@ function AddServerDrawer({
             </div>
 
             {/* Row 3: Scrollable content — flex-1 min-h-0 is CRITICAL for flexbox overflow scrolling */}
-            <div className="flex-1 min-h-0 overflow-y-auto bg-slate-900 p-5" style={{ WebkitOverflowScrolling: "touch" }}>
+            <div className="flex-1 min-h-0 overflow-y-auto bg-slate-100 dark:bg-slate-900 p-5" style={{ WebkitOverflowScrolling: "touch" }}>
               {/* Step 1 — same for both modes */}
               {step === 1 && (
                 <div>
-                  <h3 className="text-sm font-semibold text-slate-300 mb-1">Select protocol / server type</h3>
+                  <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1">Select protocol / server type</h3>
                   <p className="text-xs text-slate-500 mb-4">Tap a card to select it, then press Next ↓</p>
                   <div className="grid grid-cols-2 gap-3">
                     {GAME_TYPES.filter(gt => gt.id !== "custom").map(gt => (
@@ -492,11 +492,11 @@ function AddServerDrawer({
                           "flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all cursor-pointer touch-manipulation select-none",
                           gameType === gt.id
                             ? "border-indigo-500 bg-indigo-500/20 ring-2 ring-indigo-400/40"
-                            : "border-slate-600 bg-slate-800 active:border-indigo-500 active:bg-indigo-500/10"
+                            : "border-slate-600 bg-slate-100 dark:bg-slate-800 active:border-indigo-500 active:bg-indigo-500/10"
                         )}
                       >
                         <span className="text-3xl leading-none">{gt.icon}</span>
-                        <span className={cn("text-sm font-semibold", gameType === gt.id ? "text-indigo-300" : "text-slate-200")}>{gt.label}</span>
+                        <span className={cn("text-sm font-semibold", gameType === gt.id ? "text-indigo-300" : "text-slate-800 dark:text-slate-200")}>{gt.label}</span>
                         {gameType === gt.id && (
                           <span className="flex items-center gap-1 text-[10px] text-indigo-400 font-bold">
                             <Check className="w-3 h-3" /> Selected
@@ -515,11 +515,11 @@ function AddServerDrawer({
                       "mt-3 w-full flex items-center justify-center gap-3 p-4 rounded-xl border-2 transition-all cursor-pointer touch-manipulation select-none",
                       gameType === "custom"
                         ? "border-indigo-500 bg-indigo-500/20 ring-2 ring-indigo-400/40"
-                        : "border-slate-600 bg-slate-800 active:border-indigo-500 active:bg-indigo-500/10"
+                        : "border-slate-600 bg-slate-100 dark:bg-slate-800 active:border-indigo-500 active:bg-indigo-500/10"
                     )}
                   >
                     <span className="text-2xl">🎮</span>
-                    <span className={cn("text-sm font-semibold", gameType === "custom" ? "text-indigo-300" : "text-slate-200")}>Custom — I&apos;ll enter ports manually</span>
+                    <span className={cn("text-sm font-semibold", gameType === "custom" ? "text-indigo-300" : "text-slate-800 dark:text-slate-200")}>Custom — I&apos;ll enter ports manually</span>
                     {gameType === "custom" && <Check className="w-4 h-4 text-indigo-400 ml-auto" />}
                   </div>
                 </div>
@@ -532,52 +532,52 @@ function AddServerDrawer({
                     <Zap className="w-4 h-4 text-indigo-400 flex-shrink-0" />
                     <p className="text-xs text-indigo-300">Quick Setup — defaults will be applied for ports, backend, and DNS</p>
                   </div>
-                  <div className="flex items-center gap-3 p-3 rounded-lg bg-white/5 border border-white/10">
+                  <div className="flex items-center gap-3 p-3 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10">
                     <span className="text-2xl">{selectedType?.icon}</span>
-                    <span className="text-sm font-medium text-white">{selectedType?.label}</span>
+                    <span className="text-sm font-medium text-gray-900 dark:text-white">{selectedType?.label}</span>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-400 mb-1.5">Server name <span className="text-slate-600">(subdomain)</span></label>
+                    <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5">Server name <span className="text-slate-600">(subdomain)</span></label>
                     <input
                       value={name} onChange={e => setName(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
                       placeholder="mc1"
-                      className="w-full bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-white text-sm font-mono placeholder:text-slate-600 focus:outline-none focus:border-indigo-500"
+                      className="w-full bg-slate-100 dark:bg-slate-800 border border-gray-200 dark:border-white/10 rounded-lg px-3 py-2 text-gray-900 dark:text-white text-sm font-mono placeholder:text-slate-600 focus:outline-none focus:border-indigo-500"
                     />
                     {name && <p className="text-xs text-slate-500 mt-1">→ {name}.rlservers.com</p>}
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-400 mb-1.5">Display name</label>
+                    <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5">Display name</label>
                     <input
                       value={displayName} onChange={e => setDisplayName(e.target.value)}
                       placeholder="Minecraft — Survival"
-                      className="w-full bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-white text-sm placeholder:text-slate-600 focus:outline-none focus:border-indigo-500"
+                      className="w-full bg-slate-100 dark:bg-slate-800 border border-gray-200 dark:border-white/10 rounded-lg px-3 py-2 text-gray-900 dark:text-white text-sm placeholder:text-slate-600 focus:outline-none focus:border-indigo-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-400 mb-1.5">
+                    <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5">
                       Target IP <span className="text-red-400">*</span>
                     </label>
                     <div className="flex gap-2">
                       <input
                         value={targetIP} onChange={e => setTargetIP(e.target.value)}
                         placeholder="1.2.3.4"
-                        className="flex-1 bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-white text-sm font-mono placeholder:text-slate-600 focus:outline-none focus:border-indigo-500"
+                        className="flex-1 bg-slate-100 dark:bg-slate-800 border border-gray-200 dark:border-white/10 rounded-lg px-3 py-2 text-gray-900 dark:text-white text-sm font-mono placeholder:text-slate-600 focus:outline-none focus:border-indigo-500"
                       />
                       <button
                         onClick={detectMyIP} disabled={detectingIP || !canReadServers}
-                        className="px-3 py-2 rounded-lg border border-white/10 bg-white/5 text-xs text-slate-400 hover:text-white hover:bg-white/10 transition-colors whitespace-nowrap disabled:opacity-50"
+                        className="px-3 py-2 rounded-lg border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 text-xs text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/10 transition-colors whitespace-nowrap disabled:opacity-50"
                       >
                         {detectingIP ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Detect my IP"}
                       </button>
                     </div>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-400 mb-1.5">Description <span className="text-slate-600">(optional)</span></label>
+                    <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5">Description <span className="text-slate-600">(optional)</span></label>
                     <textarea
                       value={description} onChange={e => setDescription(e.target.value)}
                       placeholder="A survival Minecraft server..."
                       rows={2}
-                      className="w-full bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-white text-sm placeholder:text-slate-600 focus:outline-none focus:border-indigo-500 resize-none"
+                      className="w-full bg-slate-100 dark:bg-slate-800 border border-gray-200 dark:border-white/10 rounded-lg px-3 py-2 text-gray-900 dark:text-white text-sm placeholder:text-slate-600 focus:outline-none focus:border-indigo-500 resize-none"
                     />
                   </div>
                 </div>
@@ -586,29 +586,29 @@ function AddServerDrawer({
               {/* Simple mode — Step 3: Review + Create */}
               {simpleMode && step === 3 && (
                 <div className="space-y-4">
-                  <div className="p-4 rounded-xl border border-white/10 bg-white/5 space-y-3">
+                  <div className="p-4 rounded-xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 space-y-3">
                     <div className="flex items-center gap-3">
                       <span className="text-2xl">{selectedType?.icon}</span>
                       <div>
-                        <p className="text-sm font-bold text-white">{displayName}</p>
+                        <p className="text-sm font-bold text-gray-900 dark:text-white">{displayName}</p>
                         <p className="text-xs text-slate-500 font-mono">{name}.rlservers.com</p>
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-2 text-xs">
-                      <div className="p-2 rounded-lg bg-slate-800/50">
+                      <div className="p-2 rounded-lg bg-slate-100 dark:bg-slate-800/50">
                         <p className="text-slate-500 mb-1">Target IP</p>
-                        <p className="font-mono text-white">{targetIP || "—"}</p>
+                        <p className="font-mono text-gray-900 dark:text-white">{targetIP || "—"}</p>
                       </div>
-                      <div className="p-2 rounded-lg bg-slate-800/50">
+                      <div className="p-2 rounded-lg bg-slate-100 dark:bg-slate-800/50">
                         <p className="text-slate-500 mb-1">Backend</p>
-                        <p className="text-white">External</p>
+                        <p className="text-gray-900 dark:text-white">External</p>
                       </div>
                     </div>
                     <div>
                       <p className="text-xs text-slate-500 mb-1.5">Ports <span className="text-indigo-400">(game defaults)</span></p>
                       <div className="flex flex-wrap gap-1.5">
                         {ports.map((p, i) => (
-                          <span key={i} className="flex items-center gap-1 text-xs bg-slate-800 rounded-md px-2 py-1 font-mono text-slate-300">
+                          <span key={i} className="flex items-center gap-1 text-xs bg-slate-100 dark:bg-slate-800 rounded-md px-2 py-1 font-mono text-slate-700 dark:text-slate-300">
                             <ProtocolBadge protocol={p.protocol} /> {p.port}
                           </span>
                         ))}
@@ -627,34 +627,34 @@ function AddServerDrawer({
               {/* Advanced mode — Step 2: Details */}
               {!simpleMode && step === 2 && (
                 <div className="space-y-4">
-                  <div className="flex items-center gap-3 p-3 rounded-lg bg-white/5 border border-white/10">
+                  <div className="flex items-center gap-3 p-3 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10">
                     <span className="text-2xl">{selectedType?.icon}</span>
-                    <span className="text-sm font-medium text-white">{selectedType?.label}</span>
+                    <span className="text-sm font-medium text-gray-900 dark:text-white">{selectedType?.label}</span>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-400 mb-1.5">Server name <span className="text-slate-600">(subdomain)</span></label>
+                    <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5">Server name <span className="text-slate-600">(subdomain)</span></label>
                     <input
                       value={name} onChange={e => setName(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
                       placeholder="mc1"
-                      className="w-full bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-white text-sm font-mono placeholder:text-slate-600 focus:outline-none focus:border-indigo-500"
+                      className="w-full bg-slate-100 dark:bg-slate-800 border border-gray-200 dark:border-white/10 rounded-lg px-3 py-2 text-gray-900 dark:text-white text-sm font-mono placeholder:text-slate-600 focus:outline-none focus:border-indigo-500"
                     />
                     {name && <p className="text-xs text-slate-500 mt-1">→ {name}.rlservers.com</p>}
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-400 mb-1.5">Display name</label>
+                    <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5">Display name</label>
                     <input
                       value={displayName} onChange={e => setDisplayName(e.target.value)}
                       placeholder="Minecraft — Survival"
-                      className="w-full bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-white text-sm placeholder:text-slate-600 focus:outline-none focus:border-indigo-500"
+                      className="w-full bg-slate-100 dark:bg-slate-800 border border-gray-200 dark:border-white/10 rounded-lg px-3 py-2 text-gray-900 dark:text-white text-sm placeholder:text-slate-600 focus:outline-none focus:border-indigo-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-400 mb-1.5">Description <span className="text-slate-600">(optional)</span></label>
+                    <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5">Description <span className="text-slate-600">(optional)</span></label>
                     <textarea
                       value={description} onChange={e => setDescription(e.target.value)}
                       placeholder="A survival Minecraft server..."
                       rows={2}
-                      className="w-full bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-white text-sm placeholder:text-slate-600 focus:outline-none focus:border-indigo-500 resize-none"
+                      className="w-full bg-slate-100 dark:bg-slate-800 border border-gray-200 dark:border-white/10 rounded-lg px-3 py-2 text-gray-900 dark:text-white text-sm placeholder:text-slate-600 focus:outline-none focus:border-indigo-500 resize-none"
                     />
                   </div>
                 </div>
@@ -669,24 +669,24 @@ function AddServerDrawer({
                       return (
                         <div key={i} className={cn(
                           "flex items-center gap-2 p-3 rounded-lg border transition-colors",
-                          conflict ? "border-red-500/50 bg-red-500/10" : "border-white/10 bg-white/5"
+                          conflict ? "border-red-500/50 bg-red-500/10" : "border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5"
                         )}>
                           <input
                             type="number" value={p.port}
                             onChange={e => setPorts(ports.map((pp, ii) => ii === i ? { ...pp, port: parseInt(e.target.value) || 0 } : pp))}
-                            className="w-24 bg-transparent text-white font-mono text-sm focus:outline-none"
+                            className="w-24 bg-transparent text-gray-900 dark:text-white font-mono text-sm focus:outline-none"
                           />
                           <select
                             value={p.protocol}
                             onChange={e => setPorts(ports.map((pp, ii) => ii === i ? { ...pp, protocol: e.target.value as "TCP" | "UDP" } : pp))}
-                            className="bg-slate-800 border border-white/10 rounded text-xs text-white px-2 py-1"
+                            className="bg-slate-100 dark:bg-slate-800 border border-gray-200 dark:border-white/10 rounded text-xs text-gray-900 dark:text-white px-2 py-1"
                           >
                             <option>TCP</option><option>UDP</option>
                           </select>
                           <input
                             value={p.name} onChange={e => setPorts(ports.map((pp, ii) => ii === i ? { ...pp, name: e.target.value } : pp))}
                             placeholder="name"
-                            className="flex-1 bg-transparent text-slate-400 text-xs font-mono focus:outline-none"
+                            className="flex-1 bg-transparent text-slate-500 dark:text-slate-400 text-xs font-mono focus:outline-none"
                           />
                           {conflict && <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0" />}
                           <button onClick={() => setPorts(ports.filter((_, ii) => ii !== i))} className="text-slate-600 hover:text-red-400 transition-colors">
@@ -698,7 +698,7 @@ function AddServerDrawer({
                   </div>
                   <button
                     onClick={() => setPorts([...ports, { port: 0, protocol: "TCP", name: "" }])}
-                    className="w-full py-2 rounded-lg border border-dashed border-white/20 text-slate-500 hover:text-white hover:border-indigo-500/50 text-sm transition-colors"
+                    className="w-full py-2 rounded-lg border border-dashed border-gray-200 dark:border-white/20 text-slate-500 hover:text-gray-900 dark:hover:text-white hover:border-indigo-500/50 text-sm transition-colors"
                   >
                     + Add port
                   </button>
@@ -714,7 +714,7 @@ function AddServerDrawer({
                         onClick={() => setBackendType(bt)}
                         className={cn(
                           "p-4 rounded-xl border text-left transition-all",
-                          backendType === bt ? "border-indigo-500 bg-indigo-500/10 text-white" : "border-white/10 bg-white/5 text-slate-400 hover:border-white/30"
+                          backendType === bt ? "border-indigo-500 bg-indigo-500/10 text-gray-900 dark:text-white" : "border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 text-slate-500 dark:text-slate-400 hover:border-white/30"
                         )}
                       >
                         <div className="text-sm font-medium mb-1">{bt === "external" ? "External Server" : "In-Cluster Pod"}</div>
@@ -728,7 +728,7 @@ function AddServerDrawer({
                     </div>
                   )}
                   {backendType === "external" && (
-                    <div className="p-3 rounded-lg bg-slate-800/50 border border-white/5 text-xs text-slate-400">
+                    <div className="p-3 rounded-lg bg-slate-100 dark:bg-slate-800/50 border border-gray-200 dark:border-white/5 text-xs text-slate-500 dark:text-slate-400">
                       External servers only create a ConfigMap and DNS records. No K8s Service is created.
                     </div>
                   )}
@@ -743,18 +743,18 @@ function AddServerDrawer({
                   </div>
 
                   <div>
-                    <label className="block text-xs font-medium text-slate-400 mb-1.5">
+                    <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5">
                       Target IP <span className="text-slate-600">(for DNS A record)</span> <span className="text-red-400">*</span>
                     </label>
                     <div className="flex gap-2">
                       <input
                         value={targetIP} onChange={e => setTargetIP(e.target.value)}
                         placeholder="1.2.3.4"
-                        className="flex-1 bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-white text-sm font-mono placeholder:text-slate-600 focus:outline-none focus:border-indigo-500"
+                        className="flex-1 bg-slate-100 dark:bg-slate-800 border border-gray-200 dark:border-white/10 rounded-lg px-3 py-2 text-gray-900 dark:text-white text-sm font-mono placeholder:text-slate-600 focus:outline-none focus:border-indigo-500"
                       />
                       <button
                         onClick={detectMyIP} disabled={detectingIP || !canReadServers}
-                        className="px-3 py-2 rounded-lg border border-white/10 bg-white/5 text-xs text-slate-400 hover:text-white hover:bg-white/10 transition-colors whitespace-nowrap disabled:opacity-50"
+                        className="px-3 py-2 rounded-lg border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 text-xs text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/10 transition-colors whitespace-nowrap disabled:opacity-50"
                       >
                         {detectingIP ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Detect my IP"}
                       </button>
@@ -765,36 +765,36 @@ function AddServerDrawer({
                   </div>
 
                   <div>
-                    <label className="block text-xs font-medium text-slate-400 mb-1.5">
+                    <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5">
                       Internal IP <span className="text-slate-600">(optional — for .int. record)</span>
                     </label>
                     <input
                       value={internalIP} onChange={e => setInternalIP(e.target.value)}
                       placeholder="192.168.1.50"
-                      className="w-full bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-white text-sm font-mono placeholder:text-slate-600 focus:outline-none focus:border-indigo-500"
+                      className="w-full bg-slate-100 dark:bg-slate-800 border border-gray-200 dark:border-white/10 rounded-lg px-3 py-2 text-gray-900 dark:text-white text-sm font-mono placeholder:text-slate-600 focus:outline-none focus:border-indigo-500"
                     />
                     <p className="text-xs text-slate-600 mt-1">Leave blank to use Target IP for both records.</p>
                   </div>
 
                   {targetIP && (
-                    <div className="p-4 rounded-xl border border-white/10 bg-white/5 space-y-3">
-                      <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">DNS Preview</p>
+                    <div className="p-4 rounded-xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 space-y-3">
+                      <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">DNS Preview</p>
                       <div className="space-y-2 text-xs font-mono">
                         <div className="flex items-center gap-2">
                           <span className="w-2 h-2 rounded-full bg-green-500" />
-                          <span className="text-slate-300">{name || "<name>"}.rlservers.com</span>
+                          <span className="text-slate-700 dark:text-slate-300">{name || "<name>"}.rlservers.com</span>
                           <span className="text-slate-600">→</span>
                           <span className="text-green-300">{targetIP}</span>
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="w-2 h-2 rounded-full bg-blue-500" />
-                          <span className="text-slate-300">{name || "<name>"}.int.rlservers.com</span>
+                          <span className="text-slate-700 dark:text-slate-300">{name || "<name>"}.int.rlservers.com</span>
                           <span className="text-slate-600">→</span>
                           <span className="text-blue-300">{effectiveIntIP}</span>
                         </div>
                       </div>
-                      <div className="pt-2 border-t border-white/5">
-                        <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Routing Flow</p>
+                      <div className="pt-2 border-t border-gray-200 dark:border-white/5">
+                        <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">Routing Flow</p>
                         <div className="flex items-center gap-1.5 flex-wrap text-xs text-slate-500 font-mono">
                           <span>Player</span>
                           <span>→</span>
@@ -803,7 +803,7 @@ function AddServerDrawer({
                           <span className="text-green-300">{targetIP}</span>
                           <span>→ Router →</span>
                           <span>Game Server</span>
-                          {ports[0] && <><span>:</span><span className="text-white">{ports[0].port}</span></>}
+                          {ports[0] && <><span>:</span><span className="text-gray-900 dark:text-white">{ports[0].port}</span></>}
                         </div>
                       </div>
                     </div>
@@ -819,10 +819,10 @@ function AddServerDrawer({
                       { key: "publicDns" as const, label: "Public DNS", record: `${name}.rlservers.com`, ip: targetIP, description: `Points to ${targetIP || "target IP"}`, value: publicDns, setter: setPublicDns },
                       { key: "internalDns" as const, label: "Internal DNS", record: `${name}.int.rlservers.com`, ip: effectiveIntIP, description: `Points to ${effectiveIntIP || "internal IP (or target IP)"}`, value: internalDns, setter: setInternalDns },
                     ]).map(({ key, label, record, ip, description: desc, value, setter }) => (
-                      <div key={key} className="p-4 rounded-xl border border-white/10 bg-white/5">
+                      <div key={key} className="p-4 rounded-xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5">
                         <div className="flex items-center justify-between mb-2">
                           <div>
-                            <p className="text-sm font-medium text-white">{label}</p>
+                            <p className="text-sm font-medium text-gray-900 dark:text-white">{label}</p>
                             <p className="text-xs text-slate-500">{desc}</p>
                           </div>
                           <button
@@ -836,7 +836,7 @@ function AddServerDrawer({
                           </button>
                         </div>
                         {value && ip && (
-                          <div className="mt-2 p-2 bg-slate-900/50 rounded-lg font-mono text-xs text-slate-400">
+                          <div className="mt-2 p-2 bg-slate-900/50 rounded-lg font-mono text-xs text-slate-500 dark:text-slate-400">
                             A {record} → {ip}
                           </div>
                         )}
@@ -848,27 +848,27 @@ function AddServerDrawer({
 
               {!simpleMode && step === 7 && (
                 <div className="space-y-4">
-                  <div className="p-4 rounded-xl border border-white/10 bg-white/5 space-y-3">
+                  <div className="p-4 rounded-xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 space-y-3">
                     <div className="flex items-center gap-3">
                       <span className="text-2xl">{selectedType?.icon}</span>
                       <div>
-                        <p className="text-sm font-bold text-white">{displayName}</p>
+                        <p className="text-sm font-bold text-gray-900 dark:text-white">{displayName}</p>
                         <p className="text-xs text-slate-500 font-mono">{name}.rlservers.com</p>
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-2 text-xs">
-                      <div className="p-2 rounded-lg bg-slate-800/50">
+                      <div className="p-2 rounded-lg bg-slate-100 dark:bg-slate-800/50">
                         <p className="text-slate-500 mb-1">Target IP</p>
-                        <p className="font-mono text-white">{targetIP || "—"}</p>
+                        <p className="font-mono text-gray-900 dark:text-white">{targetIP || "—"}</p>
                       </div>
-                      <div className="p-2 rounded-lg bg-slate-800/50">
+                      <div className="p-2 rounded-lg bg-slate-100 dark:bg-slate-800/50">
                         <p className="text-slate-500 mb-1">Backend</p>
-                        <p className="text-white">{backendType === "external" ? "External" : "In-cluster"}</p>
+                        <p className="text-gray-900 dark:text-white">{backendType === "external" ? "External" : "In-cluster"}</p>
                       </div>
                       {internalIP && (
-                        <div className="p-2 rounded-lg bg-slate-800/50 col-span-2">
+                        <div className="p-2 rounded-lg bg-slate-100 dark:bg-slate-800/50 col-span-2">
                           <p className="text-slate-500 mb-1">Internal IP</p>
-                          <p className="font-mono text-white">{internalIP}</p>
+                          <p className="font-mono text-gray-900 dark:text-white">{internalIP}</p>
                         </div>
                       )}
                     </div>
@@ -876,7 +876,7 @@ function AddServerDrawer({
                       <p className="text-xs text-slate-500 mb-1.5">Ports</p>
                       <div className="flex flex-wrap gap-1.5">
                         {ports.map((p, i) => (
-                          <span key={i} className="flex items-center gap-1 text-xs bg-slate-800 rounded-md px-2 py-1 font-mono text-slate-300">
+                          <span key={i} className="flex items-center gap-1 text-xs bg-slate-100 dark:bg-slate-800 rounded-md px-2 py-1 font-mono text-slate-700 dark:text-slate-300">
                             <ProtocolBadge protocol={p.protocol} /> {p.port}
                           </span>
                         ))}
@@ -896,7 +896,7 @@ function AddServerDrawer({
             </div>
 
             {/* Row 4: Footer */}
-            <div className="flex-none flex flex-col gap-1 border-t border-slate-700/60 px-5 pt-3 bg-slate-900" style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px) + 12px, 12px)" }}>
+            <div className="flex-none flex flex-col gap-1 border-t border-slate-700/60 px-5 pt-3 bg-slate-100 dark:bg-slate-900" style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px) + 12px, 12px)" }}>
               {/* Hint text for disabled Next */}
               {((step === 1 && !gameType) || (!simpleMode && step === 2 && (!name || !displayName)) || (simpleMode && step === 2 && (!name || !targetIP)) || (!simpleMode && step === 5 && !targetIP)) && (
                 <p className="text-[11px] text-amber-500/80 text-right">
@@ -910,7 +910,7 @@ function AddServerDrawer({
               <button
                 type="button"
                 onClick={() => step > 1 ? setStep(step - 1) : onClose()}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg text-slate-400 hover:text-white transition-colors"
+                className="flex items-center gap-2 px-4 py-2 rounded-lg text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white transition-colors"
               >
                 <ChevronLeft className="w-4 h-4" />
                 {step > 1 ? "Back" : "Cancel"}
@@ -977,17 +977,17 @@ function DeleteConfirmDialog({ server, onClose, onDeleted }: { server: GameServe
     <div className="fixed inset-0 bg-black/75 z-50 flex items-center justify-center p-4">
       <motion.div
         initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
-        className="bg-slate-900 border border-red-500/30 rounded-2xl p-6 w-full max-w-md shadow-2xl"
+        className="bg-slate-100 dark:bg-slate-900 border border-red-500/30 rounded-2xl p-6 w-full max-w-md shadow-2xl"
       >
-        <h3 className="text-lg font-bold text-white mb-2">Delete Game Server</h3>
-        <p className="text-sm text-slate-400 mb-4">This will delete the ConfigMap, K8s Service (if in-cluster), and DNS records for <strong className="text-white">{server.displayName}</strong>.</p>
-        <p className="text-xs text-slate-500 mb-2">Type <strong className="font-mono text-white">{server.name}</strong> to confirm</p>
+        <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">Delete Game Server</h3>
+        <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">This will delete the ConfigMap, K8s Service (if in-cluster), and DNS records for <strong className="text-gray-900 dark:text-white">{server.displayName}</strong>.</p>
+        <p className="text-xs text-slate-500 mb-2">Type <strong className="font-mono text-gray-900 dark:text-white">{server.name}</strong> to confirm</p>
         <input
           value={input} onChange={e => setInput(e.target.value)}
-          className="w-full bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-red-500 mb-4"
+          className="w-full bg-slate-100 dark:bg-slate-800 border border-gray-200 dark:border-white/10 rounded-lg px-3 py-2 text-gray-900 dark:text-white text-sm font-mono focus:outline-none focus:border-red-500 mb-4"
         />
         <div className="flex gap-3">
-          <button onClick={onClose} className="flex-1 py-2 rounded-lg border border-white/10 text-slate-400 hover:text-white text-sm transition-colors">Cancel</button>
+          <button onClick={onClose} className="flex-1 py-2 rounded-lg border border-gray-200 dark:border-white/10 text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white text-sm transition-colors">Cancel</button>
           <button
             onClick={handleDelete} disabled={input !== server.name || deleting || !canManageServers}
             className="flex-1 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white text-sm font-medium transition-colors disabled:opacity-50"
@@ -1072,7 +1072,7 @@ export default function GameServersPage() {
           <p className="text-sm text-slate-500 mt-1">Route traffic to any server via DNS — same port, different IPs</p>
         </div>
         <div className="flex items-center gap-3">
-          <button onClick={() => refetch()} className="p-2 rounded-lg border border-white/10 text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+          <button onClick={() => refetch()} className="p-2 rounded-lg border border-gray-200 dark:border-white/10 text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/5 transition-colors">
             <RefreshCw className="w-4 h-4" />
           </button>
           <button
@@ -1102,9 +1102,9 @@ export default function GameServersPage() {
       </div>
 
 
-      <div className="rounded-2xl bg-slate-800/50 overflow-hidden border border-white/5">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-white/5">
-          <h2 className="text-sm font-semibold text-white">Servers</h2>
+      <div className="rounded-2xl bg-slate-100 dark:bg-slate-800/50 overflow-hidden border border-gray-200 dark:border-white/5">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-white/5">
+          <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Servers</h2>
           <span className="text-xs text-slate-500">{servers?.length ?? 0} total</span>
         </div>
 
@@ -1116,7 +1116,7 @@ export default function GameServersPage() {
         ) : !servers?.length ? (
           <div className="p-12 text-center">
             <Gamepad2 className="w-12 h-12 text-slate-700 mx-auto mb-4" />
-            <h3 className="text-sm font-medium text-slate-400 mb-2">No routes configured</h3>
+            <h3 className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-2">No routes configured</h3>
             <p className="text-xs text-slate-600 mb-4">Add your first port route to start DNS-based traffic routing</p>
             <button onClick={() => setDrawerOpen(true)} disabled={!canManageServers} className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm transition-colors disabled:opacity-50">
               Add Route
@@ -1126,7 +1126,7 @@ export default function GameServersPage() {
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
-                <tr className="border-b border-white/5 bg-slate-950/80 backdrop-blur-sm">
+                <tr className="border-b border-gray-200 dark:border-white/5 bg-slate-100 dark:bg-slate-950/80 backdrop-blur-sm">
                   <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Server</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Routing</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Ports</th>
@@ -1145,8 +1145,8 @@ export default function GameServersPage() {
                       key={server.name}
                       onClick={() => setExpandedServer(isExpanded ? null : server.name)}
                       className={cn(
-                        "border-b border-white/5 hover:bg-white/5 cursor-pointer transition-colors",
-                        idx % 2 === 0 ? "bg-transparent" : "bg-white/[0.02]",
+                        "border-b border-gray-200 dark:border-white/5 hover:bg-gray-100 dark:hover:bg-white/5 cursor-pointer transition-colors",
+                        idx % 2 === 0 ? "bg-transparent" : "bg-gray-50 dark:bg-white/[0.02]",
                         isExpanded ? "border-indigo-500/30" : ""
                       )}
                     >
@@ -1154,7 +1154,7 @@ export default function GameServersPage() {
                         <div className="flex items-center gap-2.5">
                           <span className="text-xl">{gt?.icon ?? "🎮"}</span>
                           <div>
-                            <p className="text-sm font-medium text-white">{server.displayName}</p>
+                            <p className="text-sm font-medium text-gray-900 dark:text-white">{server.displayName}</p>
                             <div className="flex items-center gap-2">
                               <p className="text-xs text-slate-500 font-mono">{server.name}</p>
                               {gameHubServerNames.has(server.name) && (
@@ -1172,11 +1172,11 @@ export default function GameServersPage() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="space-y-0.5 text-xs font-mono">
-                          <div className="text-slate-300">{server.name}.rlservers.com</div>
+                          <div className="text-slate-700 dark:text-slate-300">{server.name}.rlservers.com</div>
                           <div className="text-slate-600">→ {server.targetIP || "—"}</div>
                           {server.internalIP && (
                             <>
-                              <div className="text-slate-400">{server.name}.int.rlservers.com</div>
+                              <div className="text-slate-500 dark:text-slate-400">{server.name}.int.rlservers.com</div>
                               <div className="text-slate-600">→ {server.internalIP}</div>
                             </>
                           )}
@@ -1185,7 +1185,7 @@ export default function GameServersPage() {
                       <td className="px-4 py-3">
                         <div className="flex flex-wrap gap-1">
                           {server.ports.map((p, i) => (
-                            <span key={i} className="flex items-center gap-1 text-xs font-mono text-slate-400">
+                            <span key={i} className="flex items-center gap-1 text-xs font-mono text-slate-500 dark:text-slate-400">
                               <ProtocolBadge protocol={p.protocol} /> {p.port}
                             </span>
                           ))}
@@ -1234,8 +1234,8 @@ export default function GameServersPage() {
                         {server.ports.map((p, i) => (
                           <div key={i} className="flex items-center gap-2 text-xs font-mono">
                             <ProtocolBadge protocol={p.protocol} />
-                            <span className="text-slate-300">{server.targetIP}:{p.port}</span>
-                            <button onClick={() => { navigator.clipboard.writeText(`${server.targetIP}:${p.port}`); toast.success("Copied!"); }} className="text-slate-600 hover:text-white">
+                            <span className="text-slate-700 dark:text-slate-300">{server.targetIP}:{p.port}</span>
+                            <button onClick={() => { navigator.clipboard.writeText(`${server.targetIP}:${p.port}`); toast.success("Copied!"); }} className="text-slate-600 hover:text-gray-900 dark:hover:text-white">
                               <Copy className="w-3 h-3" />
                             </button>
                           </div>
@@ -1244,14 +1244,14 @@ export default function GameServersPage() {
                     </div>
                     <div>
                       <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">DNS Records</p>
-                      <div className="space-y-1 text-xs font-mono text-slate-400">
+                      <div className="space-y-1 text-xs font-mono text-slate-500 dark:text-slate-400">
                         {server.publicDns && <p>{server.name}.rlservers.com → {server.targetIP}</p>}
                         {server.internalDns && <p>{server.name}.int.rlservers.com → {effectiveIntIP}</p>}
                       </div>
                     </div>
                     <div>
                       <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Router Config</p>
-                      <div className="space-y-1 text-xs font-mono text-slate-400">
+                      <div className="space-y-1 text-xs font-mono text-slate-500 dark:text-slate-400">
                         {server.ports.map((p, i) => (
                           <div key={i} className="flex items-center gap-1"><ProtocolBadge protocol={p.protocol} /> {p.port} → {effectiveIntIP}:{p.port}</div>
                         ))}

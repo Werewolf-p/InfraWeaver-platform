@@ -18,7 +18,7 @@ export function SearchInput({ placeholder = "Search...", value, onChange, classN
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
-        className="w-full bg-transparent text-sm text-inherit outline-none placeholder:text-slate-400 dark:placeholder:text-[#555]"
+        className="w-full bg-transparent text-sm text-inherit outline-none placeholder:text-slate-400 dark:placeholder:text-gray-400 dark:placeholder:text-[#555]"
       />
       {value ? (
         <button

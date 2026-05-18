@@ -38,20 +38,20 @@ export function CollapsibleSection({
   };
 
   return (
-    <div className={cn('rounded-xl border border-white/10 bg-white/5 backdrop-blur-sm overflow-hidden', className)}>
+    <div className={cn('rounded-xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 backdrop-blur-sm overflow-hidden', className)}>
       <button
         onClick={toggle}
-        className="w-full flex items-center justify-between p-4 text-left hover:bg-white/5 transition-colors"
+        className="w-full flex items-center justify-between p-4 text-left hover:bg-gray-100 dark:hover:bg-white/5 transition-colors"
       >
         <div className="flex items-center gap-3">
           {badge}
-          <span className="font-semibold text-white">{title}</span>
+          <span className="font-semibold text-gray-900 dark:text-white">{title}</span>
           {count !== undefined && (
-            <span className="text-xs bg-white/10 text-slate-400 px-2 py-0.5 rounded-full">{count}</span>
+            <span className="text-xs bg-gray-100 dark:bg-white/10 text-slate-500 dark:text-slate-400 px-2 py-0.5 rounded-full">{count}</span>
           )}
         </div>
         <motion.div animate={{ rotate: open ? 180 : 0 }} transition={{ duration: 0.2 }}>
-          <ChevronDown className="w-4 h-4 text-slate-400" />
+          <ChevronDown className="w-4 h-4 text-slate-500 dark:text-slate-400" />
         </motion.div>
       </button>
       <AnimatePresence initial={false}>

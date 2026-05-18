@@ -7,7 +7,7 @@ export function HealthTimeline({ data }: Props) {
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <span className="text-sm text-slate-400">Last 24h Uptime</span>
+        <span className="text-sm text-slate-500 dark:text-slate-400">Last 24h Uptime</span>
         <span className="text-sm font-semibold text-green-400">{uptime}%</span>
       </div>
       <div className="flex gap-px h-8">

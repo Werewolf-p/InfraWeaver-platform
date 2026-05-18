@@ -136,7 +136,7 @@ function AlertFeed({ events }: { events: K8sEvent[] }) {
             "rounded-2xl border p-3",
             event.type === "Warning"
               ? "border-amber-500/30 bg-amber-500/10"
-              : "border-[#2a2a2a] bg-[#141414]"
+              : "border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#141414]"
           )}
         >
           <div className="flex items-start justify-between gap-3">
@@ -145,17 +145,17 @@ function AlertFeed({ events }: { events: K8sEvent[] }) {
                 <span
                   className={cn(
                     "rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.18em]",
-                    event.type === "Warning" ? "bg-amber-500/15 text-amber-200" : "bg-[#0d0d0d] text-[#888]"
+                    event.type === "Warning" ? "bg-amber-500/15 text-amber-200" : "bg-white dark:bg-[#0d0d0d] text-gray-500 dark:text-[#888]"
                   )}
                 >
                   {event.reason}
                 </span>
-                <span className="text-xs text-[#888]">{event.namespace}</span>
-                <span className="text-xs text-[#666]">{event.involvedObject.kind}/{event.involvedObject.name}</span>
+                <span className="text-xs text-gray-500 dark:text-[#888]">{event.namespace}</span>
+                <span className="text-xs text-gray-400 dark:text-[#666]">{event.involvedObject.kind}/{event.involvedObject.name}</span>
               </div>
-              <p className="mt-2 text-sm text-[#f2f2f2]">{event.message}</p>
+              <p className="mt-2 text-sm text-gray-900 dark:text-[#f2f2f2]">{event.message}</p>
             </div>
-            <div className="text-right text-xs text-[#888]">
+            <div className="text-right text-xs text-gray-500 dark:text-[#888]">
               <p>x{event.count}</p>
               <p>{event.lastTimestamp ? timeAgo(event.lastTimestamp) : "now"}</p>
             </div>
@@ -432,7 +432,7 @@ export default function MonitoringPage() {
                 "h-11 rounded-xl border px-4 text-sm font-medium transition-colors",
                 onlyIssues
                   ? "border-amber-500/30 bg-amber-500/10 text-amber-200"
-                  : "border-[#2a2a2a] bg-[#111] text-[#9e9e9e] hover:text-[#f2f2f2]"
+                  : "border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-500 dark:text-[#9e9e9e] hover:text-gray-900 dark:hover:text-[#f2f2f2]"
               )}
             >
               Only issues
@@ -447,7 +447,7 @@ export default function MonitoringPage() {
                   "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
                   timeRange === option
                     ? "border-[#0078D4]/40 bg-[rgba(0,120,212,0.15)] text-[#9dcbff]"
-                    : "border-[#2a2a2a] bg-[#111] text-[#888] hover:text-[#f2f2f2]"
+                    : "border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-500 dark:text-[#888] hover:text-gray-900 dark:hover:text-[#f2f2f2]"
                 )}
               >
                 {TIME_RANGE_LABELS[option]}
@@ -481,21 +481,21 @@ export default function MonitoringPage() {
           {isPrimaryLoading ? (
             <div className="grid gap-4 lg:grid-cols-2">
               {[0, 1].map((index) => (
-                <div key={index} className="h-64 animate-pulse rounded-2xl bg-[#111]" />
+                <div key={index} className="h-64 animate-pulse rounded-2xl bg-white dark:bg-[#111]" />
               ))}
             </div>
           ) : chartPoints.length === 0 ? (
             <EmptyState icon={Activity} title="No timeline data" description="Timeline points will appear once the monitoring history API returns samples." className="py-10" />
           ) : (
             <div className="grid gap-4 lg:grid-cols-2">
-              <div className="rounded-2xl border border-[#2a2a2a] bg-[#111] p-4">
+              <div className="rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4">
                 <div className="mb-3 flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-semibold text-[#f2f2f2]">Latency trend</p>
-                    <p className="text-xs text-[#888]">Average response time of the shared monitoring surface.</p>
+                    <p className="text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">Latency trend</p>
+                    <p className="text-xs text-gray-500 dark:text-[#888]">Average response time of the shared monitoring surface.</p>
                   </div>
                   <Tooltip content="Higher spikes usually indicate downstream saturation or an endpoint timeout.">
-                    <span className="rounded-full border border-[#2a2a2a] bg-[#0d0d0d] px-2 py-1 text-[10px] text-[#888]">Investigate spikes</span>
+                    <span className="rounded-full border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-2 py-1 text-[10px] text-gray-500 dark:text-[#888]">Investigate spikes</span>
                   </Tooltip>
                 </div>
                 <div className="h-56">
@@ -516,13 +516,13 @@ export default function MonitoringPage() {
                   </ResponsiveContainer>
                 </div>
               </div>
-              <div className="rounded-2xl border border-[#2a2a2a] bg-[#111] p-4">
+              <div className="rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4">
                 <div className="mb-3 flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-semibold text-[#f2f2f2]">Availability signal</p>
-                    <p className="text-xs text-[#888]">Up, degraded, and down transitions for the selected time range.</p>
+                    <p className="text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">Availability signal</p>
+                    <p className="text-xs text-gray-500 dark:text-[#888]">Up, degraded, and down transitions for the selected time range.</p>
                   </div>
-                  <span className="rounded-full border border-[#2a2a2a] bg-[#0d0d0d] px-2 py-1 text-[10px] text-[#888]">{uptimeFootprint}% stable</span>
+                  <span className="rounded-full border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-2 py-1 text-[10px] text-gray-500 dark:text-[#888]">{uptimeFootprint}% stable</span>
                 </div>
                 <div className="h-56">
                   <ResponsiveContainer width="100%" height="100%">
@@ -556,7 +556,7 @@ export default function MonitoringPage() {
                   { label: "Down", value: downCount, className: "bg-red-500" },
                 ]}
               />
-              <div className="mt-2 flex flex-wrap gap-3 text-xs text-[#888]">
+              <div className="mt-2 flex flex-wrap gap-3 text-xs text-gray-500 dark:text-[#888]">
                 <span>{healthyCount} healthy</span>
                 <span>{degradedCount} degraded</span>
                 <span>{downCount} down</span>
@@ -571,12 +571,12 @@ export default function MonitoringPage() {
         title="Service watchlist"
         description="Use this table to scan health, uptime, and latency without drilling into the lower-level pages."
         icon={HeartPulse}
-        actions={<span className="text-xs text-[#888]">{filteredEndpoints.length} service{filteredEndpoints.length === 1 ? "" : "s"} shown</span>}
+        actions={<span className="text-xs text-gray-500 dark:text-[#888]">{filteredEndpoints.length} service{filteredEndpoints.length === 1 ? "" : "s"} shown</span>}
       >
         {healthQuery.isLoading ? (
           <div className="space-y-3">
             {[0, 1, 2, 3, 4].map((index) => (
-              <div key={index} className="h-16 animate-pulse rounded-2xl bg-[#111]" />
+              <div key={index} className="h-16 animate-pulse rounded-2xl bg-white dark:bg-[#111]" />
             ))}
           </div>
         ) : filteredEndpoints.length === 0 ? (
@@ -594,8 +594,8 @@ export default function MonitoringPage() {
             className="py-10"
           />
         ) : (
-          <div className="overflow-hidden rounded-2xl border border-[#2a2a2a]">
-            <div className="hidden grid-cols-[minmax(0,1.4fr)_140px_120px_120px_130px] gap-4 border-b border-[#2a2a2a] bg-[#111] px-4 py-3 text-xs font-medium uppercase tracking-[0.16em] text-[#666] lg:grid">
+          <div className="overflow-hidden rounded-2xl border border-gray-200 dark:border-[#2a2a2a]">
+            <div className="hidden grid-cols-[minmax(0,1.4fr)_140px_120px_120px_130px] gap-4 border-b border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-4 py-3 text-xs font-medium uppercase tracking-[0.16em] text-gray-400 dark:text-[#666] lg:grid">
               <span>Service</span>
               <span>Status</span>
               <span>Latency</span>
@@ -618,10 +618,10 @@ export default function MonitoringPage() {
                   >
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="truncate text-sm font-medium text-[#f2f2f2]">{endpoint.name}</span>
+                        <span className="truncate text-sm font-medium text-gray-900 dark:text-[#f2f2f2]">{endpoint.name}</span>
                         <CopyButton text={endpoint.name} className="h-7 px-2 text-[11px]" />
                       </div>
-                      <p className="mt-1 text-xs text-[#666]">Last sample {endpoint.results?.[0]?.timestamp ? timeAgo(endpoint.results[0].timestamp) : "unavailable"}</p>
+                      <p className="mt-1 text-xs text-gray-400 dark:text-[#666]">Last sample {endpoint.results?.[0]?.timestamp ? timeAgo(endpoint.results[0].timestamp) : "unavailable"}</p>
                     </div>
                     <div>
                       <span
@@ -630,15 +630,15 @@ export default function MonitoringPage() {
                           status === "healthy" && "border-emerald-500/30 bg-emerald-500/10 text-emerald-200",
                           status === "degraded" && "border-amber-500/30 bg-amber-500/10 text-amber-200",
                           status === "down" && "border-red-500/30 bg-red-500/10 text-red-200",
-                          status === "unknown" && "border-[#2a2a2a] bg-[#111] text-[#888]"
+                          status === "unknown" && "border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-500 dark:text-[#888]"
                         )}
                       >
                         {status}
                       </span>
                     </div>
-                    <div className="text-sm text-[#d4d4d4]">{currentLatency > 0 ? `${currentLatency} ms` : "—"}</div>
-                    <div className="text-sm text-[#d4d4d4]">{recentUptime}%</div>
-                    <div className="text-sm text-[#d4d4d4]">{sla ? `${sla.uptime24h.toFixed(2)}%` : "—"}</div>
+                    <div className="text-sm text-gray-700 dark:text-[#d4d4d4]">{currentLatency > 0 ? `${currentLatency} ms` : "—"}</div>
+                    <div className="text-sm text-gray-700 dark:text-[#d4d4d4]">{recentUptime}%</div>
+                    <div className="text-sm text-gray-700 dark:text-[#d4d4d4]">{sla ? `${sla.uptime24h.toFixed(2)}%` : "—"}</div>
                   </motion.div>
                 );
               })}
@@ -652,7 +652,7 @@ export default function MonitoringPage() {
           {statusQuery.isLoading ? (
             <div className="space-y-3">
               {[0, 1, 2].map((index) => (
-                <div key={index} className="h-20 animate-pulse rounded-2xl bg-[#111]" />
+                <div key={index} className="h-20 animate-pulse rounded-2xl bg-white dark:bg-[#111]" />
               ))}
             </div>
           ) : statusQuery.data ? (
@@ -667,8 +667,8 @@ export default function MonitoringPage() {
                       : "border-red-500/30 bg-red-500/10"
                 )}
               >
-                <p className="text-lg font-semibold capitalize text-[#f2f2f2]">{statusQuery.data.status}</p>
-                <p className="mt-1 text-sm text-[#b8b8b8]">
+                <p className="text-lg font-semibold capitalize text-gray-900 dark:text-[#f2f2f2]">{statusQuery.data.status}</p>
+                <p className="mt-1 text-sm text-gray-600 dark:text-[#b8b8b8]">
                   Checked {timeAgo(statusQuery.data.checkedAt)} · {statusQuery.data.metrics.readyNodes}/{statusQuery.data.metrics.totalNodes} nodes ready
                 </p>
               </div>
@@ -679,10 +679,10 @@ export default function MonitoringPage() {
               </div>
               <div className="space-y-2">
                 {statusQuery.data.services.map((service) => (
-                  <div key={service.name} className="flex items-center justify-between rounded-xl border border-[#2a2a2a] bg-[#111] px-3 py-3 text-sm">
-                    <span className="text-[#f2f2f2]">{service.name}</span>
+                  <div key={service.name} className="flex items-center justify-between rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-3 py-3 text-sm">
+                    <span className="text-gray-900 dark:text-[#f2f2f2]">{service.name}</span>
                     <div className="flex items-center gap-2">
-                      {service.latencyMs > 0 ? <span className="text-xs text-[#666]">{service.latencyMs} ms</span> : null}
+                      {service.latencyMs > 0 ? <span className="text-xs text-gray-400 dark:text-[#666]">{service.latencyMs} ms</span> : null}
                       <span
                         className={cn(
                           "rounded-full px-2.5 py-1 text-xs font-medium capitalize",
@@ -705,21 +705,21 @@ export default function MonitoringPage() {
 
         <DashboardPanel title="Operational notes" description="Investigation helpers and operator cues collected from the current state of the dashboard." icon={Download}>
           <div className="grid gap-3 sm:grid-cols-2">
-            <div className="rounded-2xl border border-[#2a2a2a] bg-[#111] p-4">
-              <p className="text-sm font-semibold text-[#f2f2f2]">Keyboard flow</p>
-              <ul className="mt-3 space-y-2 text-sm text-[#b8b8b8]">
+            <div className="rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4">
+              <p className="text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">Keyboard flow</p>
+              <ul className="mt-3 space-y-2 text-sm text-gray-600 dark:text-[#b8b8b8]">
                 <li>
-                  <span className="font-medium text-white">/</span> focuses service search.
+                  <span className="font-medium text-gray-900 dark:text-white">/</span> focuses service search.
                 </li>
                 <li>
-                  <span className="font-medium text-white">Esc</span> clears search and issue filters.
+                  <span className="font-medium text-gray-900 dark:text-white">Esc</span> clears search and issue filters.
                 </li>
                 <li>Use the export menu to hand off filtered watchlists.</li>
               </ul>
             </div>
-            <div className="rounded-2xl border border-[#2a2a2a] bg-[#111] p-4">
-              <p className="text-sm font-semibold text-[#f2f2f2]">What changed</p>
-              <ul className="mt-3 space-y-2 text-sm text-[#b8b8b8]">
+            <div className="rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4">
+              <p className="text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">What changed</p>
+              <ul className="mt-3 space-y-2 text-sm text-gray-600 dark:text-[#b8b8b8]">
                 <li>Alert summary now sits above the fold.</li>
                 <li>Time-range selection keeps charts understandable.</li>
                 <li>Latency, SLA, and warnings can be cross-referenced in one screen.</li>

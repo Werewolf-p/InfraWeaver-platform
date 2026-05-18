@@ -57,7 +57,7 @@ export default function StatusPage() {
     : 0;
   const banner = statusBanner(data?.status ?? "operational");
 
-  if (isLoading) return <div className="space-y-4">{[...Array(4)].map((_, i) => <div key={i} className="h-20 rounded-xl bg-white/5 animate-pulse" />)}</div>;
+  if (isLoading) return <div className="space-y-4">{[...Array(4)].map((_, i) => <div key={i} className="h-20 rounded-xl bg-gray-100 dark:bg-white/5 animate-pulse" />)}</div>;
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
@@ -75,43 +75,43 @@ export default function StatusPage() {
       />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="flex items-center gap-2 text-xl font-bold text-white"><Activity className="w-5 h-5 text-slate-400" />Platform Status</h2>
-          <p className="text-sm text-slate-400">
+          <h2 className="flex items-center gap-2 text-xl font-bold text-gray-900 dark:text-white"><Activity className="w-5 h-5 text-slate-500 dark:text-slate-400" />Platform Status</h2>
+          <p className="text-sm text-slate-500 dark:text-slate-400">
             {refreshInterval ? `Real-time system status · next auto-refresh in ${countdown}s` : "Auto-refresh paused"}
           </p>
         </div>
-        <button onClick={() => void refetch()} className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-300 transition-colors hover:text-white">
+        <button onClick={() => void refetch()} className="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-3 py-2 text-sm text-slate-700 dark:text-slate-300 transition-colors hover:text-gray-900 dark:hover:text-white">
           <RefreshCw className="w-3.5 h-3.5" />Refresh
         </button>
       </div>
 
       <div className={cn("rounded-2xl border p-8 text-center", banner.bg)}>
         <p className={cn("text-3xl font-bold", banner.text)}>{banner.label}</p>
-        <p className="mt-2 text-sm text-slate-400">Last checked: {data?.checkedAt ? `${timeAgo(data.checkedAt)} (${new Date(data.checkedAt).toLocaleTimeString()})` : "—"}</p>
+        <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">Last checked: {data?.checkedAt ? `${timeAgo(data.checkedAt)} (${new Date(data.checkedAt).toLocaleTimeString()})` : "—"}</p>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {[
-          { label: "Total Nodes", value: data?.metrics.totalNodes ?? 0, color: "text-white" },
+          { label: "Total Nodes", value: data?.metrics.totalNodes ?? 0, color: "text-gray-900 dark:text-white" },
           { label: "Ready Nodes", value: data?.metrics.readyNodes ?? 0, color: "text-green-400" },
           { label: "Uptime", value: data?.metrics.uptime ?? "—", color: "text-indigo-400" },
         ].map(m => (
-          <div key={m.label} className="bg-slate-900/60 border border-white/10 rounded-xl backdrop-blur-sm p-4 text-center">
-            <p className="text-xs text-slate-400">{m.label}</p>
+          <div key={m.label} className="bg-slate-100 dark:bg-slate-900/60 border border-gray-200 dark:border-white/10 rounded-xl backdrop-blur-sm p-4 text-center">
+            <p className="text-xs text-slate-500 dark:text-slate-400">{m.label}</p>
             <p className={`text-3xl font-bold mt-1 ${m.color}`}>{m.value}</p>
           </div>
         ))}
       </div>
 
-      <div className="rounded-xl border border-white/10 bg-slate-900/60 p-4 backdrop-blur-sm">
+      <div className="rounded-xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/60 p-4 backdrop-blur-sm">
         <p className="mb-3 text-xs uppercase tracking-[0.2em] text-slate-500">
           Last UI refresh {dataUpdatedAt ? timeAgo(new Date(dataUpdatedAt)) : "pending"}
         </p>
-        <h3 className="text-sm font-semibold text-white mb-4">Services</h3>
+        <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">Services</h3>
         <div className="grid grid-cols-2 gap-3">
           {(data?.services ?? []).map(s => (
-            <div key={s.name} className="flex items-center justify-between p-3 bg-white/5 rounded-lg border border-white/10">
-              <span className="text-sm text-white">{s.name}</span>
+            <div key={s.name} className="flex items-center justify-between p-3 bg-gray-100 dark:bg-white/5 rounded-lg border border-gray-200 dark:border-white/10">
+              <span className="text-sm text-gray-900 dark:text-white">{s.name}</span>
               <div className="flex items-center gap-2">
                 {s.latencyMs > 0 && <span className="text-xs text-slate-500">{s.latencyMs}ms</span>}
                 <span className={cn("text-xs px-2 py-0.5 rounded-full border", serviceColor(s.status))}>{s.status}</span>

@@ -245,17 +245,17 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
     <Dialog.Root open={open} onOpenChange={handleOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-[500] bg-black/70 backdrop-blur-sm" />
-        <Dialog.Content className="fixed inset-x-0 bottom-0 top-0 z-[501] overflow-hidden bg-[#111] p-0 shadow-2xl outline-none sm:inset-x-auto sm:left-1/2 sm:top-[14vh] sm:w-[min(92vw,42rem)] sm:-translate-x-1/2 sm:rounded-2xl sm:border sm:border-[#2a2a2a]">
+        <Dialog.Content className="fixed inset-x-0 bottom-0 top-0 z-[501] overflow-hidden bg-white dark:bg-[#111] p-0 shadow-2xl outline-none sm:inset-x-auto sm:left-1/2 sm:top-[14vh] sm:w-[min(92vw,42rem)] sm:-translate-x-1/2 sm:rounded-2xl sm:border sm:border-gray-200 dark:border-[#2a2a2a]">
           <Dialog.Title className="sr-only">Global search</Dialog.Title>
-          <div className="flex items-center border-b border-[#2a2a2a] px-4 pt-[calc(env(safe-area-inset-top,0px)+0.75rem)] sm:pt-0">
-            <SearchIcon className="mr-2 h-4 w-4 shrink-0 text-[#666]" />
+          <div className="flex items-center border-b border-gray-200 dark:border-[#2a2a2a] px-4 pt-[calc(env(safe-area-inset-top,0px)+0.75rem)] sm:pt-0">
+            <SearchIcon className="mr-2 h-4 w-4 shrink-0 text-gray-400 dark:text-[#666]" />
             <input
               ref={inputRef}
               role="combobox"
               aria-expanded={open}
               aria-controls="infraweaver-global-search-results"
               aria-activedescendant={activeResult ? `infraweaver-search-option-${activeResult.id}` : undefined}
-              className="flex-1 bg-transparent py-3.5 text-base text-[#f2f2f2] outline-none placeholder:text-[#444] sm:text-sm"
+              className="flex-1 bg-transparent py-3.5 text-base text-gray-900 dark:text-[#f2f2f2] outline-none placeholder:text-gray-400 dark:placeholder:text-[#444] sm:text-sm"
               placeholder="Search pods, servers, apps, and pages..."
               value={query}
               onChange={(event) => {
@@ -285,12 +285,12 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
                 }
               }}
             />
-            {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin text-[#666]" /> : null}
-            <kbd className="hidden rounded border border-[#333] px-1 text-xs text-[#444] sm:inline-flex">↑↓ ↵ ESC</kbd>
+            {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin text-gray-400 dark:text-[#666]" /> : null}
+            <kbd className="hidden rounded border border-gray-200 dark:border-[#333] px-1 text-xs text-gray-400 dark:text-[#444] sm:inline-flex">↑↓ ↵ ESC</kbd>
             <button
               type="button"
               onClick={() => handleOpenChange(false)}
-              className="ml-1 inline-flex h-11 w-11 items-center justify-center rounded-xl text-[#666] transition-colors hover:bg-[#1a1a1a] hover:text-[#f2f2f2] sm:hidden"
+              className="ml-1 inline-flex h-11 w-11 items-center justify-center rounded-xl text-gray-400 dark:text-[#666] transition-colors hover:bg-gray-100 dark:hover:bg-[#1a1a1a] hover:text-gray-900 dark:hover:text-[#f2f2f2] sm:hidden"
               aria-label="Close search"
             >
               <X className="h-4 w-4" />
@@ -305,11 +305,11 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
             {!query.trim() && recentSearches.length > 0 ? (
               <div className="px-4 pb-2">
                 <div className="mb-2 flex items-center justify-between gap-2">
-                  <p className="text-xs font-medium uppercase tracking-wider text-[#888]">Recent searches</p>
+                  <p className="text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-[#888]">Recent searches</p>
                   <button
                     type="button"
                     onClick={clearRecentSearches}
-                    className="text-[11px] text-[#666] transition-colors hover:text-[#f2f2f2]"
+                    className="text-[11px] text-gray-400 dark:text-[#666] transition-colors hover:text-gray-900 dark:hover:text-[#f2f2f2]"
                   >
                     Clear
                   </button>
@@ -320,7 +320,7 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
                       key={entry.query}
                       type="button"
                       onClick={() => setQuery(entry.query)}
-                      className="rounded-full border border-[#2a2a2a] bg-[#161616] px-3 py-1.5 text-xs text-[#d4d4d4] transition-colors hover:border-[#3b82f6]/40 hover:text-white"
+                      className="rounded-full border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] px-3 py-1.5 text-xs text-gray-700 dark:text-[#d4d4d4] transition-colors hover:border-[#3b82f6]/40 hover:text-gray-900 dark:hover:text-white"
                     >
                       {entry.query}
                     </button>
@@ -332,7 +332,7 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
             {loading ? (
               <div className="space-y-2 px-4 py-3">
                 {[0, 1, 2, 3].map((index) => (
-                  <div key={index} className="h-14 animate-pulse rounded-xl border border-[#202020] bg-[#161616]" />
+                  <div key={index} className="h-14 animate-pulse rounded-xl border border-[#202020] bg-gray-50 dark:bg-[#161616]" />
                 ))}
               </div>
             ) : null}
@@ -341,7 +341,7 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
               const SectionIcon = section.icon;
               return (
                 <div key={section.key}>
-                  <div className="flex items-center gap-2 px-4 py-1.5 text-xs font-medium uppercase tracking-wider text-[#888]">
+                  <div className="flex items-center gap-2 px-4 py-1.5 text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-[#888]">
                     <SectionIcon className="h-3.5 w-3.5" />
                     {section.label}
                   </div>
@@ -359,20 +359,20 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
                         aria-selected={isActive}
                         className={cn(
                           "flex w-full cursor-pointer items-center gap-3 px-4 py-2.5 text-left transition-colors focus:outline-none",
-                          isActive ? "bg-[#1a1a1a]" : "hover:bg-[#171717]"
+                          isActive ? "bg-white dark:bg-[#1a1a1a]" : "hover:bg-[#171717]"
                         )}
                         onMouseEnter={() => setActiveIndex(index)}
                         onClick={() => handleSelect(result)}
                       >
-                        <span className="text-base text-[#d4d4d4]">{result.icon ?? "•"}</span>
+                        <span className="text-base text-gray-700 dark:text-[#d4d4d4]">{result.icon ?? "•"}</span>
                         <div className="min-w-0 flex-1">
-                          <div className="truncate text-sm text-[#f2f2f2]">{result.title}</div>
+                          <div className="truncate text-sm text-gray-900 dark:text-[#f2f2f2]">{result.title}</div>
                           {result.subtitle ? (
-                            <div className="truncate text-xs text-[#888]">{result.subtitle}</div>
+                            <div className="truncate text-xs text-gray-500 dark:text-[#888]">{result.subtitle}</div>
                           ) : null}
                         </div>
                         {result.badge ? (
-                          <span className={`rounded-full px-1.5 py-0.5 text-xs ${result.badgeColor ?? "bg-[#1f1f1f] text-[#888]"}`}>
+                          <span className={`rounded-full px-1.5 py-0.5 text-xs ${result.badgeColor ?? "bg-gray-50 dark:bg-[#1f1f1f] text-gray-500 dark:text-[#888]"}`}>
                             {result.badge}
                           </span>
                         ) : null}
@@ -384,10 +384,10 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
             })}
 
             {query.length > 0 && flatResults.length === 0 && !loading ? (
-              <div className="px-4 py-8 text-center text-sm text-[#888]">No results for &quot;{query}&quot;</div>
+              <div className="px-4 py-8 text-center text-sm text-gray-500 dark:text-[#888]">No results for &quot;{query}&quot;</div>
             ) : null}
             {!query.trim() && !loading && sections.length === 0 && recentSearches.length === 0 ? (
-              <div className="px-4 py-8 text-center text-sm text-[#888]">Pinned pages and recent searches will show up here.</div>
+              <div className="px-4 py-8 text-center text-sm text-gray-500 dark:text-[#888]">Pinned pages and recent searches will show up here.</div>
             ) : null}
           </div>
         </Dialog.Content>

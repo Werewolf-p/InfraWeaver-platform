@@ -97,19 +97,19 @@ export function ClusterSelector() {
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
-        className="inline-flex h-11 items-center gap-2 rounded-xl border border-[#2a2a2a] bg-[#1a1a1a] px-3 text-sm text-[#d9d9d9] transition-colors hover:border-[#3a3a3a] hover:text-white"
+        className="inline-flex h-11 items-center gap-2 rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#1a1a1a] px-3 text-sm text-[#d9d9d9] transition-colors hover:border-[#3a3a3a] hover:text-gray-900 dark:hover:text-white"
         aria-expanded={open}
         aria-haspopup="menu"
       >
         {loading ? <Loader2 className="h-4 w-4 animate-spin text-[#7cb9ff]" /> : <Server className="h-4 w-4 text-[#7cb9ff]" />}
         <span className="max-w-[150px] truncate">{activeCluster?.displayName ?? "Cluster"}</span>
-        <ChevronDown className={cn("h-4 w-4 text-[#777] transition-transform", open && "rotate-180")} />
+        <ChevronDown className={cn("h-4 w-4 text-gray-500 dark:text-[#777] transition-transform", open && "rotate-180")} />
       </button>
 
       {open && clusters.length > 1 ? (
-        <div className="absolute right-0 top-full z-50 mt-2 w-64 overflow-hidden rounded-xl border border-[#2a2a2a] bg-[#1a1a1a] shadow-2xl">
-          <div className="border-b border-[#2a2a2a] px-3 py-2">
-            <p className="text-xs font-medium uppercase tracking-wide text-[#777]">Active cluster</p>
+        <div className="absolute right-0 top-full z-50 mt-2 w-64 overflow-hidden rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#1a1a1a] shadow-2xl">
+          <div className="border-b border-gray-200 dark:border-[#2a2a2a] px-3 py-2">
+            <p className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-[#777]">Active cluster</p>
           </div>
           <div className="p-1.5">
             {clusters.map((cluster) => {
@@ -124,8 +124,8 @@ export function ClusterSelector() {
                   className={cn(
                     "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm transition-colors",
                     selected
-                      ? "bg-[#0f2538] text-white"
-                      : "text-[#d0d0d0] hover:bg-[#232323] hover:text-white",
+                      ? "bg-[#0f2538] text-gray-900 dark:text-white"
+                      : "text-[#d0d0d0] hover:bg-[#232323] hover:text-gray-900 dark:hover:text-white",
                     saving && "opacity-60",
                   )}
                 >

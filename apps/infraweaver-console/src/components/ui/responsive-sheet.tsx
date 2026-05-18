@@ -79,7 +79,7 @@ export function ResponsiveSheet({
               if (info.offset.y > 96 || info.velocity.y > 600) onClose();
             }}
             className={cn(
-              "fixed inset-x-0 bottom-0 top-0 z-[51] flex flex-col bg-[#111] text-[#f2f2f2] shadow-2xl sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:max-h-[90vh] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:overflow-hidden sm:rounded-[28px] sm:border sm:border-[#222]",
+              "fixed inset-x-0 bottom-0 top-0 z-[51] flex flex-col bg-white dark:bg-[#111] text-gray-900 dark:text-[#f2f2f2] shadow-2xl sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:max-h-[90vh] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:overflow-hidden sm:rounded-[28px] sm:border sm:border-gray-200 dark:border-[#222]",
               sizeClassMap[size],
               className,
             )}
@@ -87,16 +87,16 @@ export function ResponsiveSheet({
           >
             <div className="flex h-full min-h-0 flex-col">
               <div className="px-4 pt-[calc(env(safe-area-inset-top,0px)+0.75rem)] sm:px-5 sm:pt-5">
-                {hideHandle ? null : <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-[#2a2a2a] sm:hidden" />}
-                <div className="flex items-start justify-between gap-3 border-b border-[#1e1e1e] pb-3">
+                {hideHandle ? null : <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-gray-100 dark:bg-[#2a2a2a] sm:hidden" />}
+                <div className="flex items-start justify-between gap-3 border-b border-gray-200 dark:border-[#1e1e1e] pb-3">
                   <div className="min-w-0 flex-1">
-                    <h2 className="text-lg font-semibold leading-tight text-white">{title}</h2>
-                    {description ? <p className="mt-1 text-sm text-[#b3b3b3]">{description}</p> : null}
+                    <h2 className="text-lg font-semibold leading-tight text-gray-900 dark:text-white">{title}</h2>
+                    {description ? <p className="mt-1 text-sm text-gray-600 dark:text-[#b3b3b3]">{description}</p> : null}
                   </div>
                   <button
                     type="button"
                     onClick={onClose}
-                    className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-2xl border border-[#2a2a2a] bg-[#161616] text-[#9e9e9e] transition-colors hover:border-[#3a3a3a] hover:text-white"
+                    className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] text-gray-500 dark:text-[#9e9e9e] transition-colors hover:border-[#3a3a3a] hover:text-gray-900 dark:hover:text-white"
                     aria-label="Close"
                   >
                     <X className="h-4 w-4" />
@@ -115,7 +115,7 @@ export function ResponsiveSheet({
               </div>
 
               {footer ? (
-                <div className="border-t border-[#1e1e1e] px-4 py-4 pb-[calc(env(safe-area-inset-bottom,0px)+1rem)] sm:px-5 sm:py-5 sm:pb-5">
+                <div className="border-t border-gray-200 dark:border-[#1e1e1e] px-4 py-4 pb-[calc(env(safe-area-inset-bottom,0px)+1rem)] sm:px-5 sm:py-5 sm:pb-5">
                   {footer}
                 </div>
               ) : null}

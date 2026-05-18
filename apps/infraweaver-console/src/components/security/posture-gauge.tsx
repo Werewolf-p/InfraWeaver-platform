@@ -75,7 +75,7 @@ export function PostureGauge({
   const progressPath = animatedScore > 0 ? describeArc(startAngle, Math.min(progressAngle, endAngle - 0.01)) : "";
   
   const trendIcon = trend === "improving" ? "↑" : trend === "declining" ? "↓" : "→";
-  const trendColor = trend === "improving" ? "text-green-400" : trend === "declining" ? "text-red-400" : "text-slate-400";
+  const trendColor = trend === "improving" ? "text-green-400" : trend === "declining" ? "text-red-400" : "text-slate-500 dark:text-slate-400";
   
   return (
     <div className={cn("flex flex-col items-center gap-2", className)}>
@@ -114,7 +114,7 @@ export function PostureGauge({
             {grade}
           </motion.span>
           <motion.span
-            className={cn("text-slate-400 tabular-nums font-mono", cfg.subFontSize)}
+            className={cn("text-slate-500 dark:text-slate-400 tabular-nums font-mono", cfg.subFontSize)}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.5 }}
@@ -130,7 +130,7 @@ export function PostureGauge({
       </div>
       <div className="flex items-center gap-1.5 text-xs">
         <span className={cn("font-semibold", trendColor)}>{trendIcon}</span>
-        <span className="text-slate-400">
+        <span className="text-slate-500 dark:text-slate-400">
           {trend === "improving" ? "Improving" : trend === "declining" ? "Declining" : "Stable"}
         </span>
       </div>

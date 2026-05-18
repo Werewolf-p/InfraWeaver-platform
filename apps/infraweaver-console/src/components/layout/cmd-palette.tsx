@@ -328,11 +328,11 @@ export function CmdPalette() {
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.96, y: -10 }}
             transition={{ duration: 0.15 }}
-            className="relative w-full max-w-3xl overflow-hidden rounded-2xl border border-white/10 bg-slate-900/95 shadow-2xl"
+            className="relative w-full max-w-3xl overflow-hidden rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/95 shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="flex items-center gap-3 border-b border-white/10 px-4 py-3">
-              <Search className="h-4 w-4 text-slate-400" />
+            <div className="flex items-center gap-3 border-b border-gray-200 dark:border-white/10 px-4 py-3">
+              <Search className="h-4 w-4 text-slate-500 dark:text-slate-400" />
               <input
                 ref={inputRef}
                 value={query}
@@ -341,10 +341,10 @@ export function CmdPalette() {
                   setSelectedIndex(0);
                 }}
                 placeholder="Search navigation, apps, pods, and game servers..."
-                className="flex-1 bg-transparent text-sm text-white placeholder:text-slate-500 outline-none"
+                className="flex-1 bg-transparent text-sm text-gray-900 dark:text-white placeholder:text-slate-500 outline-none"
               />
               {loading ? <LoadingSpinner size="sm" color="white" /> : null}
-              <button onClick={() => setOpen(false)} className="text-slate-500 transition hover:text-slate-300">
+              <button onClick={() => setOpen(false)} className="text-slate-500 transition hover:text-slate-700 dark:hover:text-slate-300">
                 <X className="h-4 w-4" />
               </button>
             </div>
@@ -372,16 +372,16 @@ export function CmdPalette() {
                               className={cn(
                                 "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition",
                                 selectedIndex === currentIndex
-                                  ? "bg-indigo-500/15 text-white"
-                                  : "text-slate-300 hover:bg-white/5"
+                                  ? "bg-indigo-500/15 text-gray-900 dark:text-white"
+                                  : "text-slate-700 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-white/5"
                               )}
                             >
-                              <item.icon className="h-4 w-4 flex-shrink-0 text-slate-400" />
+                              <item.icon className="h-4 w-4 flex-shrink-0 text-slate-500 dark:text-slate-400" />
                               <span className="min-w-0 flex-1">
                                 <span className="block truncate text-sm font-medium">{item.title}</span>
                                 <span className="block truncate text-xs text-slate-500">{item.subtitle}</span>
                               </span>
-                              <span className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-slate-500">
+                              <span className="rounded-full border border-gray-200 dark:border-white/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-slate-500">
                                 {item.category}
                               </span>
                             </button>
@@ -394,7 +394,7 @@ export function CmdPalette() {
               )}
             </div>
 
-            <div className="flex items-center gap-4 border-t border-white/10 px-4 py-2 text-xs text-slate-500">
+            <div className="flex items-center gap-4 border-t border-gray-200 dark:border-white/10 px-4 py-2 text-xs text-slate-500">
               <span>↑↓ navigate</span>
               <span>Enter open</span>
               <span>Esc close</span>

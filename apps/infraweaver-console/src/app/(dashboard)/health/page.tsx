@@ -79,7 +79,7 @@ function HealthCard({ endpoint }: { endpoint: Endpoint }) {
       onClick={() => setExpanded(e => !e)}
     >
       <div className="flex items-center justify-between mb-3">
-        <span className="text-sm font-medium text-white truncate pr-2">{displayName(endpoint.name)}</span>
+        <span className="text-sm font-medium text-gray-900 dark:text-white truncate pr-2">{displayName(endpoint.name)}</span>
         <div className="flex items-center gap-2 flex-shrink-0">
           {isUp ? (
             <CheckCircle2 className="w-4 h-4 text-green-400" />
@@ -98,7 +98,7 @@ function HealthCard({ endpoint }: { endpoint: Endpoint }) {
             <span className={cn("text-xs font-semibold", isUp ? "text-green-400" : "text-red-400")}>
               {isUp ? "UP" : "DOWN"}
             </span>
-            <div className="flex items-center gap-3 text-xs text-slate-400">
+            <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
               <span>{uptime}% uptime</span>
               {endpoint.results![0] && (
                 <span>{endpoint.results![0].duration}ms</span>
@@ -106,7 +106,7 @@ function HealthCard({ endpoint }: { endpoint: Endpoint }) {
             </div>
           </div>
           {/* Uptime bar */}
-          <div className="mt-2 h-1 rounded-full bg-white/5 overflow-hidden">
+          <div className="mt-2 h-1 rounded-full bg-gray-100 dark:bg-white/5 overflow-hidden">
             <div
               className={cn("h-full rounded-full transition-all", uptime >= 99 ? "bg-green-500" : uptime >= 90 ? "bg-yellow-500" : "bg-red-500")}
               style={{ width: `${uptime}%` }}
@@ -123,7 +123,7 @@ function HealthCard({ endpoint }: { endpoint: Endpoint }) {
                 className="overflow-hidden"
                 onClick={e => e.stopPropagation()}
               >
-                <div className="mt-3 pt-3 border-t border-white/5 space-y-1.5">
+                <div className="mt-3 pt-3 border-t border-gray-200 dark:border-white/5 space-y-1.5">
                   <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Last {last5.length} checks</p>
                   {displayHistory.map((r, i) => (
                     <div key={i} className="flex items-center justify-between text-xs">
@@ -140,7 +140,7 @@ function HealthCard({ endpoint }: { endpoint: Endpoint }) {
                   {last5.length > HISTORY_PAGE_SIZE && (
                     <button
                       onClick={e => { e.stopPropagation(); setShowAllHistory(v => !v); }}
-                      className="w-full text-xs text-slate-500 hover:text-slate-300 pt-1 transition-colors"
+                      className="w-full text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 pt-1 transition-colors"
                     >
                       {showAllHistory ? "Show fewer" : `+${last5.length - HISTORY_PAGE_SIZE} more`}
                     </button>
@@ -181,17 +181,17 @@ function SLASection({ data }: { data: SLAData }) {
           { label: "7d Overall", value: data.overall.uptime7d },
           { label: "30d Overall", value: data.overall.uptime30d },
         ].map(({ label, value }) => (
-          <div key={label} className="bg-white/5 border border-white/10 rounded-xl p-3 text-center">
-            <p className="text-xs text-slate-400 mb-1">{label}</p>
+          <div key={label} className="bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl p-3 text-center">
+            <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">{label}</p>
             <UptimeBadge pct={value} />
           </div>
         ))}
       </div>
       <div className="space-y-2">
         {data.sla.map(entry => (
-          <div key={entry.name} className="flex items-center gap-3 p-3 rounded-lg bg-white/5 border border-white/10 flex-wrap">
-            <span className="text-sm font-medium text-white flex-1 min-w-0 truncate">{entry.name}</span>
-            <div className="flex items-center gap-2 text-xs text-slate-400">
+          <div key={entry.name} className="flex items-center gap-3 p-3 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 flex-wrap">
+            <span className="text-sm font-medium text-gray-900 dark:text-white flex-1 min-w-0 truncate">{entry.name}</span>
+            <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
               <span className="hidden sm:inline">24h</span><UptimeBadge pct={entry.uptime24h} />
               <span className="hidden sm:inline">7d</span><UptimeBadge pct={entry.uptime7d} />
               <span className="hidden sm:inline">30d</span><UptimeBadge pct={entry.uptime30d} />
@@ -293,14 +293,14 @@ export default function HealthPage() {
       </motion.div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h2 className="text-xl font-bold text-white">Platform Health</h2>
-          <p className="text-sm text-slate-400">Gatus endpoint monitoring status</p>
+          <h2 className="text-xl font-bold text-gray-900 dark:text-white">Platform Health</h2>
+          <p className="text-sm text-slate-500 dark:text-slate-400">Gatus endpoint monitoring status</p>
         </div>
         <div className="flex items-center gap-2">
           <RefreshCountdown intervalSeconds={30} resetKey={dataUpdatedAt} />
           <button
             onClick={() => refetch()}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 hover:text-white hover:bg-white/10 transition-colors touch-manipulation active:scale-95"
+            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-sm text-slate-700 dark:text-slate-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/10 transition-colors touch-manipulation active:scale-95"
           >
             <RefreshCw className="w-3.5 h-3.5" />
             Refresh
@@ -315,14 +315,14 @@ export default function HealthPage() {
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Search endpoints..."
-            className="w-full rounded-lg border border-white/10 bg-white/5 py-2 pl-9 pr-3 text-sm text-white placeholder:text-slate-500 outline-none focus:border-indigo-500/50"
+            className="w-full rounded-lg border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 py-2 pl-9 pr-3 text-sm text-gray-900 dark:text-white placeholder:text-slate-500 outline-none focus:border-indigo-500/50"
           />
         </div>
         {(["all", "up", "down"] as const).map((value) => (
           <button
             key={value}
             onClick={() => setStatusFilter(value)}
-            className={cn("rounded-full border px-3 py-1 text-xs font-medium capitalize transition-colors", statusFilter === value ? "border-indigo-500/40 bg-indigo-500/15 text-indigo-300" : "border-white/10 bg-white/5 text-slate-400 hover:text-white")}
+            className={cn("rounded-full border px-3 py-1 text-xs font-medium capitalize transition-colors", statusFilter === value ? "border-indigo-500/40 bg-indigo-500/15 text-indigo-300" : "border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white")}
           >
             {value}
           </button>
@@ -334,12 +334,12 @@ export default function HealthPage() {
         <motion.div
           initial={{ opacity: 0, y: -8 }}
           animate={{ opacity: 1, y: 0 }}
-          className="flex items-center gap-3 flex-wrap mb-6 p-3 rounded-xl bg-white/5 border border-white/10"
+          className="flex items-center gap-3 flex-wrap mb-6 p-3 rounded-xl bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10"
         >
-          <span className="text-xs text-slate-400 font-medium">
+          <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">
             {upCount}/{totalCount} services healthy
           </span>
-          <div className="h-3 w-px bg-white/10" />
+          <div className="h-3 w-px bg-gray-100 dark:bg-white/10" />
           <span className="flex items-center gap-1.5 text-xs">
             <span className="px-1.5 py-0.5 rounded-md bg-green-500/15 text-green-400 font-semibold">{upCount} up</span>
           </span>
@@ -350,17 +350,17 @@ export default function HealthPage() {
           )}
           {unknownCount > 0 && (
             <span className="flex items-center gap-1.5 text-xs">
-              <span className="px-1.5 py-0.5 rounded-md bg-slate-500/15 text-slate-400 font-semibold">{unknownCount} unknown</span>
+              <span className="px-1.5 py-0.5 rounded-md bg-slate-500/15 text-slate-500 dark:text-slate-400 font-semibold">{unknownCount} unknown</span>
             </span>
           )}
-          <div className="h-3 w-px bg-white/10" />
+          <div className="h-3 w-px bg-gray-100 dark:bg-white/10" />
           <span className="text-xs text-slate-500">Last checked: {lastChecked}</span>
         </motion.div>
       )}
 
       {isLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {[...Array(8)].map((_, i) => <div key={i} className="h-28 rounded-xl bg-white/5 animate-pulse" />)}
+          {[...Array(8)].map((_, i) => <div key={i} className="h-28 rounded-xl bg-gray-100 dark:bg-white/5 animate-pulse" />)}
         </div>
       ) : (
         <div className="space-y-4">
@@ -385,8 +385,8 @@ export default function HealthPage() {
             </div>
           )}
           {timelineData && timelineData.data.length > 0 && (
-            <div className="bg-slate-900/60 border border-white/10 rounded-xl backdrop-blur-sm p-4 mt-4">
-              <h3 className="text-sm font-semibold text-white mb-3">Service Uptime Timeline</h3>
+            <div className="bg-slate-100 dark:bg-slate-900/60 border border-gray-200 dark:border-white/10 rounded-xl backdrop-blur-sm p-4 mt-4">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">Service Uptime Timeline</h3>
               <HealthTimeline data={timelineData.data} />
             </div>
           )}

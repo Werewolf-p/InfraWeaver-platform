@@ -76,7 +76,7 @@ function CopyLineButton({ line }: { line: string }) {
         setCopied(true);
         window.setTimeout(() => setCopied(false), 1500);
       }}
-      className="opacity-0 transition-opacity group-hover:opacity-100 text-white/30 hover:text-white/70"
+      className="opacity-0 transition-opacity group-hover:opacity-100 text-gray-400 dark:text-white/30 hover:text-white/70"
       aria-label="Copy line"
     >
       {copied ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}

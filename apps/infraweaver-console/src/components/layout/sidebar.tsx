@@ -19,8 +19,8 @@ import { springs, staggerContainer, staggerItem } from "@/lib/spring";
 const ROLE_COLORS: Record<string, string> = {
   admin: "bg-[rgba(0,120,212,0.2)] text-[#0078D4] border-[rgba(0,120,212,0.3)]",
   operator: "bg-amber-500/20 text-amber-300 border-amber-500/30",
-  viewer: "bg-[#2a2a2a] text-[#9e9e9e] border-[#333]",
-  unknown: "bg-[#2a2a2a] text-[#666] border-[#333]",
+  viewer: "bg-gray-100 dark:bg-[#2a2a2a] text-gray-500 dark:text-[#9e9e9e] border-gray-200 dark:border-[#333]",
+  unknown: "bg-gray-100 dark:bg-[#2a2a2a] text-gray-400 dark:text-[#666] border-gray-200 dark:border-[#333]",
 };
 
 function ClusterHealthDot() {
@@ -60,7 +60,7 @@ function NavItemRow({ item, isActive, collapsed }: { item: NavItem; isActive: bo
         className={cn(
           "relative flex items-center gap-2.5 rounded-lg text-sm w-full transition-colors",
           collapsed ? "justify-center px-2 py-2" : "px-3 py-1.5",
-          isActive ? "text-[#0078D4]" : "text-[#9e9e9e] hover:text-[#f2f2f2] hover:bg-[#2a2a2a]"
+          isActive ? "text-[#0078D4]" : "text-gray-500 dark:text-[#9e9e9e] hover:text-gray-900 dark:hover:text-[#f2f2f2] hover:bg-gray-100 dark:hover:bg-[#2a2a2a]"
         )}
       >
         {isActive && (
@@ -71,10 +71,10 @@ function NavItemRow({ item, isActive, collapsed }: { item: NavItem; isActive: bo
           />
         )}
         <span className="relative z-10 flex items-center gap-2.5 w-full">
-          <item.icon className={cn("w-4 h-4 flex-shrink-0", isActive ? "text-[#0078D4]" : "text-[#666] group-hover:text-[#9e9e9e]")} />
-          {!collapsed && <span className={cn("flex-1 truncate", isActive ? "text-[#f2f2f2] font-medium" : "")}>{item.label}</span>}
+          <item.icon className={cn("w-4 h-4 flex-shrink-0", isActive ? "text-[#0078D4]" : "text-gray-400 dark:text-[#666] group-hover:text-[#9e9e9e]")} />
+          {!collapsed && <span className={cn("flex-1 truncate", isActive ? "text-gray-900 dark:text-[#f2f2f2] font-medium" : "")}>{item.label}</span>}
           {!collapsed && item.shortcut && (
-            <kbd className="hidden xl:flex text-[10px] text-[#555] font-mono">{item.shortcut}</kbd>
+            <kbd className="hidden xl:flex text-[10px] text-gray-400 dark:text-[#555] font-mono">{item.shortcut}</kbd>
           )}
         </span>
       </Link>
@@ -84,7 +84,7 @@ function NavItemRow({ item, isActive, collapsed }: { item: NavItem; isActive: bo
           onClick={(e) => { e.stopPropagation(); toggleFavorite({ id: item.href, href: item.href, label: item.label, iconName: item.label }); }}
           className={cn(
             "absolute right-2 p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity",
-            fav ? "opacity-100 text-yellow-400" : "text-[#555] hover:text-yellow-400"
+            fav ? "opacity-100 text-yellow-400" : "text-gray-400 dark:text-[#555] hover:text-yellow-400"
           )}
           title={fav ? "Unpin" : "Pin to favorites"}
         >
@@ -174,28 +174,28 @@ export function Sidebar() {
     <motion.aside
       animate={{ width: collapsed ? 48 : 220 }}
       transition={springs.fluid}
-      className="relative flex flex-col h-screen bg-[#141414] border-r border-[#2a2a2a] flex-shrink-0 overflow-hidden z-20 hidden md:flex"
+      className="relative flex flex-col h-screen bg-gray-50 dark:bg-[#141414] border-r border-gray-200 dark:border-[#2a2a2a] flex-shrink-0 overflow-hidden z-20 hidden md:flex"
     >
       {/* Logo / Header */}
-      <div className={cn("flex items-center px-3 py-3 border-b border-[#2a2a2a] flex-shrink-0", collapsed ? "justify-center" : "gap-2 justify-between")}>
+      <div className={cn("flex items-center px-3 py-3 border-b border-gray-200 dark:border-[#2a2a2a] flex-shrink-0", collapsed ? "justify-center" : "gap-2 justify-between")}>
         {!collapsed && (
           <Link href="/" className="flex items-center gap-2 min-w-0">
             <div className="w-7 h-7 rounded bg-[#0078D4] flex items-center justify-center flex-shrink-0 relative">
-              <span className="text-white text-xs font-bold">IW</span>
+              <span className="text-gray-900 dark:text-white text-xs font-bold">IW</span>
               <ClusterHealthDot />
             </div>
-            <span className="font-bold text-[#f2f2f2] text-sm truncate">InfraWeaver</span>
+            <span className="font-bold text-gray-900 dark:text-[#f2f2f2] text-sm truncate">InfraWeaver</span>
           </Link>
         )}
         {collapsed && (
           <div className="w-7 h-7 rounded bg-[#0078D4] flex items-center justify-center relative">
-            <span className="text-white text-xs font-bold">IW</span>
+            <span className="text-gray-900 dark:text-white text-xs font-bold">IW</span>
             <ClusterHealthDot />
           </div>
         )}
         <button
           onClick={() => setCollapsed(c => !c)}
-          className={cn("p-1 rounded text-[#666] hover:text-[#f2f2f2] hover:bg-[#2a2a2a] transition-colors flex-shrink-0", collapsed && "mx-auto mt-2")}
+          className={cn("p-1 rounded text-gray-400 dark:text-[#666] hover:text-gray-900 dark:hover:text-[#f2f2f2] hover:bg-gray-100 dark:hover:bg-[#2a2a2a] transition-colors flex-shrink-0", collapsed && "mx-auto mt-2")}
         >
           {collapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
         </button>
@@ -205,16 +205,16 @@ export function Sidebar() {
       {!collapsed && (
         <div className="px-2 pt-3 pb-1 flex-shrink-0">
           <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#555]" />
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 dark:text-[#555]" />
             <input
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder="Filter..."
-              className="w-full bg-[#0f0f0f] border border-[#333] rounded pl-8 pr-3 py-1.5 text-xs text-[#f2f2f2] placeholder:text-[#555] focus:outline-none focus:border-[#0078D4]/50"
+              className="w-full bg-white dark:bg-[#0f0f0f] border border-gray-200 dark:border-[#333] rounded pl-8 pr-3 py-1.5 text-xs text-gray-900 dark:text-[#f2f2f2] placeholder:text-gray-400 dark:placeholder:text-[#555] focus:outline-none focus:border-[#0078D4]/50"
             />
             {search && (
               <button onClick={() => setSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2">
-                <X className="w-3 h-3 text-[#555] hover:text-[#f2f2f2]" />
+                <X className="w-3 h-3 text-gray-400 dark:text-[#555] hover:text-gray-900 dark:hover:text-[#f2f2f2]" />
               </button>
             )}
           </div>
@@ -227,14 +227,14 @@ export function Sidebar() {
         {/* Search results */}
         {filteredItems !== null && !collapsed && (
           <div className="mb-3">
-            <p className="px-2 py-1 text-[10px] text-[#555] uppercase tracking-wider">{filteredItems.length} results</p>
+            <p className="px-2 py-1 text-[10px] text-gray-400 dark:text-[#555] uppercase tracking-wider">{filteredItems.length} results</p>
             <div className="space-y-0.5">
               {filteredItems.map(item => {
                 const isActive = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
                 return <NavItemRow key={item.href} item={item} isActive={isActive} collapsed={false} />;
               })}
               {filteredItems.length === 0 && (
-                <p className="px-3 py-2 text-xs text-[#555]">No pages match &ldquo;{search}&rdquo;</p>
+                <p className="px-3 py-2 text-xs text-gray-400 dark:text-[#555]">No pages match &ldquo;{search}&rdquo;</p>
               )}
             </div>
           </div>
@@ -245,7 +245,7 @@ export function Sidebar() {
           <div className="mb-3">
             <div className="px-3 py-1 flex items-center gap-1.5">
               <Star className="w-3 h-3 text-yellow-500/60" />
-              <span className="text-[10px] font-semibold text-[#555] uppercase tracking-wider">Pinned</span>
+              <span className="text-[10px] font-semibold text-gray-400 dark:text-[#555] uppercase tracking-wider">Pinned</span>
             </div>
             <div className="space-y-0.5">
               {favItems.map(item => {
@@ -260,8 +260,8 @@ export function Sidebar() {
         {!collapsed && filteredItems === null && recentItems.length > 0 && (
           <div className="mb-3">
             <div className="px-3 py-1 flex items-center gap-1.5">
-              <Clock className="w-3 h-3 text-[#555]" />
-              <span className="text-[10px] font-semibold text-[#555] uppercase tracking-wider">Recent</span>
+              <Clock className="w-3 h-3 text-gray-400 dark:text-[#555]" />
+              <span className="text-[10px] font-semibold text-gray-400 dark:text-[#555] uppercase tracking-wider">Recent</span>
             </div>
             <div className="space-y-0.5">
               {recentItems.map(item => {
@@ -274,7 +274,7 @@ export function Sidebar() {
 
         {/* Group separator */}
         {!collapsed && filteredItems === null && (favItems.length > 0 || recentItems.length > 0) && (
-          <div className="mx-2 border-b border-[#2a2a2a] my-2" />
+          <div className="mx-2 border-b border-gray-200 dark:border-[#2a2a2a] my-2" />
         )}
 
         {/* Main nav groups - COLLAPSIBLE accordion */}
@@ -294,7 +294,7 @@ export function Sidebar() {
                     >
                       <Link href={item.href} title={item.label}
                         className={cn("w-8 h-8 mx-auto flex items-center justify-center rounded-lg transition-colors relative",
-                          isActive ? "text-[#0078D4]" : "text-[#666] hover:text-[#f2f2f2] hover:bg-[#2a2a2a]"
+                          isActive ? "text-[#0078D4]" : "text-gray-400 dark:text-[#666] hover:text-gray-900 dark:hover:text-[#f2f2f2] hover:bg-gray-100 dark:hover:bg-[#2a2a2a]"
                         )}>
                         {isActive && (
                           <motion.div
@@ -308,7 +308,7 @@ export function Sidebar() {
                     </motion.div>
                   );
                 })}
-                <div className="mx-2 border-b border-[#2a2a2a] my-1.5" />
+                <div className="mx-2 border-b border-gray-200 dark:border-[#2a2a2a] my-1.5" />
               </div>
             );
           }
@@ -317,7 +317,7 @@ export function Sidebar() {
             <div key={group.id} className="mb-0.5">
               <button
                 onClick={() => toggleSection(group.id)}
-                className="w-full flex items-center gap-1.5 px-3 py-1 mt-1.5 mb-0.5 text-[10px] text-[#666] uppercase tracking-widest hover:text-[#9e9e9e] transition-colors select-none"
+                className="w-full flex items-center gap-1.5 px-3 py-1 mt-1.5 mb-0.5 text-[10px] text-gray-400 dark:text-[#666] uppercase tracking-widest hover:text-gray-700 dark:hover:text-[#9e9e9e] transition-colors select-none"
               >
                 <span className="flex-1 text-left">{group.label}</span>
                 <ChevronDown className={cn("w-3 h-3 transition-transform", isOpen && "rotate-180")} />
@@ -356,7 +356,7 @@ export function Sidebar() {
                 "flex items-center gap-2.5 px-3 py-1.5 rounded text-sm transition-all w-full",
                 pathname === "/all-services"
                   ? "bg-[rgba(0,120,212,0.15)] text-[#0078D4] border-l-2 border-[#0078D4] pl-[10px] font-medium"
-                  : "text-[#9e9e9e] hover:text-[#f2f2f2] hover:bg-[#2a2a2a]"
+                  : "text-gray-500 dark:text-[#9e9e9e] hover:text-gray-900 dark:hover:text-[#f2f2f2] hover:bg-gray-100 dark:hover:bg-[#2a2a2a]"
               )}
             >
               <Grid3X3 className="w-4 h-4 flex-shrink-0" />
@@ -368,7 +368,7 @@ export function Sidebar() {
 
       {/* Settings group (always at bottom) */}
       {!collapsed && (
-        <div className="px-2 py-2 border-t border-[#2a2a2a] flex-shrink-0 space-y-0.5">
+        <div className="px-2 py-2 border-t border-gray-200 dark:border-[#2a2a2a] flex-shrink-0 space-y-0.5">
           {filteredNavGroups.find((g) => g.id === "settings")?.items.map(item => {
             const isActive = pathname === item.href;
             return <NavItemRow key={item.href} item={item} isActive={isActive} collapsed={false} />;
@@ -381,7 +381,7 @@ export function Sidebar() {
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ type: "spring", stiffness: 260, damping: 24, mass: 1, delay: 0.3 }}
-        className={cn("px-2 py-3 border-t border-[#2a2a2a] flex-shrink-0", collapsed ? "flex justify-center" : "flex items-center gap-2")}
+        className={cn("px-2 py-3 border-t border-gray-200 dark:border-[#2a2a2a] flex-shrink-0", collapsed ? "flex justify-center" : "flex items-center gap-2")}
       >
         <div className="relative flex-shrink-0">
           <div className="w-7 h-7 rounded-full bg-[#0078D4] flex items-center justify-center text-white text-xs font-bold">
@@ -391,18 +391,18 @@ export function Sidebar() {
         {!collapsed && (
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5">
-              <p className="text-xs font-medium text-[#f2f2f2] truncate">{userName}</p>
+              <p className="text-xs font-medium text-gray-900 dark:text-[#f2f2f2] truncate">{userName}</p>
               <span className={cn("text-[10px] px-1.5 py-0.5 rounded-full border capitalize font-medium", ROLE_COLORS[role] ?? ROLE_COLORS.unknown)}>
                 {role}
               </span>
             </div>
-            <p className="text-[10px] text-[#555] font-mono">v{appVersion}</p>
+            <p className="text-[10px] text-gray-400 dark:text-[#555] font-mono">v{appVersion}</p>
           </div>
         )}
         {!collapsed && (
           <button
             onClick={() => signOut()}
-            className="p-1 rounded text-[#555] hover:text-[#f2f2f2] hover:bg-[#2a2a2a] transition-colors flex-shrink-0"
+            className="p-1 rounded text-gray-400 dark:text-[#555] hover:text-gray-900 dark:hover:text-[#f2f2f2] hover:bg-gray-100 dark:hover:bg-[#2a2a2a] transition-colors flex-shrink-0"
             title="Sign out"
           >
             <LogOut className="w-3.5 h-3.5" />

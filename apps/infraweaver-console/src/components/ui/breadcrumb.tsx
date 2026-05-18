@@ -116,11 +116,11 @@ export function Breadcrumb({ className }: { className?: string }) {
   if (crumbs.length === 0) return null;
 
   return (
-    <div className={cn("flex items-center gap-2 border-b border-[#2a2a2a] bg-[#111]/95 px-4 py-2 text-xs text-[#888]", className)}>
+    <div className={cn("flex items-center gap-2 border-b border-gray-200 dark:border-[#2a2a2a] bg-[#111]/95 px-4 py-2 text-xs text-gray-500 dark:text-[#888]", className)}>
       {crumbs.length > 1 ? (
         <button
           onClick={() => router.back()}
-          className="inline-flex h-7 items-center gap-1 rounded-lg border border-[#2a2a2a] bg-[#0d0d0d] px-2 text-[#888] transition-colors hover:bg-[#1a1a1a] hover:text-[#f2f2f2] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3b82f6] focus-visible:ring-offset-1 focus-visible:ring-offset-[#111]"
+          className="inline-flex h-7 items-center gap-1 rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-2 text-gray-500 dark:text-[#888] transition-colors hover:bg-gray-100 dark:hover:bg-[#1a1a1a] hover:text-gray-900 dark:hover:text-[#f2f2f2] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3b82f6] focus-visible:ring-offset-1 focus-visible:ring-offset-[#111]"
           title="Go back"
           aria-label="Go back"
         >
@@ -129,16 +129,16 @@ export function Breadcrumb({ className }: { className?: string }) {
         </button>
       ) : null}
       <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1.5 overflow-x-auto whitespace-nowrap scrollbar-none">
-        <Link href="/" className="flex items-center rounded-md p-1 transition-colors hover:text-[#f2f2f2]">
+        <Link href="/" className="flex items-center rounded-md p-1 transition-colors hover:text-gray-900 dark:hover:text-[#f2f2f2]">
           <Home className="h-3 w-3" />
         </Link>
         {crumbs.map((crumb) => (
           <span key={crumb.href} className="flex items-center gap-1.5">
             <ChevronRight className="h-3 w-3 opacity-50" />
             {crumb.isLast ? (
-              <span className="font-medium text-[#d4d4d4]">{crumb.label}</span>
+              <span className="font-medium text-gray-700 dark:text-[#d4d4d4]">{crumb.label}</span>
             ) : (
-              <Link href={crumb.href} className="transition-colors hover:text-[#f2f2f2]">{crumb.label}</Link>
+              <Link href={crumb.href} className="transition-colors hover:text-gray-900 dark:hover:text-[#f2f2f2]">{crumb.label}</Link>
             )}
           </span>
         ))}
@@ -148,7 +148,7 @@ export function Breadcrumb({ className }: { className?: string }) {
           <button
             type="button"
             onClick={() => setJumpOpen((open) => !open)}
-            className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-[#2a2a2a] bg-[#0d0d0d] px-2 text-[#888] transition-colors hover:bg-[#1a1a1a] hover:text-[#f2f2f2]"
+            className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-2 text-gray-500 dark:text-[#888] transition-colors hover:bg-gray-100 dark:hover:bg-[#1a1a1a] hover:text-gray-900 dark:hover:text-[#f2f2f2]"
             aria-haspopup="menu"
             aria-expanded={jumpOpen}
           >
@@ -157,23 +157,23 @@ export function Breadcrumb({ className }: { className?: string }) {
             <ChevronDown className={cn("h-3 w-3 transition-transform", jumpOpen && "rotate-180")} />
           </button>
           {jumpOpen ? (
-            <div className="absolute right-0 top-full z-20 mt-2 min-w-[14rem] overflow-hidden rounded-xl border border-[#2a2a2a] bg-[#111] shadow-2xl">
-              <div className="border-b border-[#2a2a2a] px-3 py-2">
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-[#888]">Quick jump</p>
-                <p className="mt-1 text-[11px] text-[#666]">Sibling pages and recent destinations.</p>
+            <div className="absolute right-0 top-full z-20 mt-2 min-w-[14rem] overflow-hidden rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] shadow-2xl">
+              <div className="border-b border-gray-200 dark:border-[#2a2a2a] px-3 py-2">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-[#888]">Quick jump</p>
+                <p className="mt-1 text-[11px] text-gray-400 dark:text-[#666]">Sibling pages and recent destinations.</p>
               </div>
               <div className="py-1">
                 {jumpItems.map((item) => (
                   <Link
                     key={item.href}
                     href={item.href}
-                    className="flex items-center justify-between gap-3 px-3 py-2.5 transition-colors hover:bg-[#1a1a1a]"
+                    className="flex items-center justify-between gap-3 px-3 py-2.5 transition-colors hover:bg-gray-100 dark:hover:bg-[#1a1a1a]"
                   >
                     <div className="min-w-0">
-                      <p className="truncate text-sm text-[#f2f2f2]">{item.label}</p>
-                      <p className="truncate text-[11px] text-[#666]">{item.subtitle}</p>
+                      <p className="truncate text-sm text-gray-900 dark:text-[#f2f2f2]">{item.label}</p>
+                      <p className="truncate text-[11px] text-gray-400 dark:text-[#666]">{item.subtitle}</p>
                     </div>
-                    <ChevronRight className="h-3.5 w-3.5 flex-shrink-0 text-[#555]" />
+                    <ChevronRight className="h-3.5 w-3.5 flex-shrink-0 text-gray-400 dark:text-[#555]" />
                   </Link>
                 ))}
               </div>

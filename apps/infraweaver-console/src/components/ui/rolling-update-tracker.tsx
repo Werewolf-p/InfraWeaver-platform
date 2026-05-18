@@ -31,10 +31,10 @@ export function RollingUpdateTracker() {
         return (
           <div key={`${r.namespace}/${r.name}`} className="space-y-1.5">
             <div className="flex items-center justify-between text-xs">
-              <span className="text-white font-medium">{r.name}</span>
-              <span className="text-slate-400">{r.ready}/{r.desired} ready</span>
+              <span className="text-gray-900 dark:text-white font-medium">{r.name}</span>
+              <span className="text-slate-500 dark:text-slate-400">{r.ready}/{r.desired} ready</span>
             </div>
-            <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+            <div className="h-2 bg-gray-100 dark:bg-white/10 rounded-full overflow-hidden">
               <div
                 className={`h-full rounded-full transition-all ${pct === 100 ? "bg-green-500" : "bg-indigo-500"}`}
                 style={{ width: `${pct}%` }}

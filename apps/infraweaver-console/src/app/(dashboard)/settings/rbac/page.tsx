@@ -54,25 +54,25 @@ function RoleCard({
         "w-full text-left rounded-xl border p-4 transition-all group",
         selected
           ? "border-[#0078D4] bg-[#0d1e33]"
-          : "border-[#2a2a2a] bg-[#111] hover:border-[#333] hover:bg-[#141414]"
+          : "border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] hover:border-[#333] hover:bg-[#141414]"
       )}
     >
       <div className="flex items-start justify-between gap-2 mb-2">
         <div className="flex items-center gap-2">
           <span className={cn("w-2 h-2 rounded-full flex-shrink-0 mt-0.5", colors.dot)} />
-          <span className="text-sm font-semibold text-[#f2f2f2] leading-tight">{role.name}</span>
+          <span className="text-sm font-semibold text-gray-900 dark:text-[#f2f2f2] leading-tight">{role.name}</span>
         </div>
         <span className={cn("text-[10px] px-1.5 py-0.5 rounded border font-mono flex-shrink-0", colors.badge)}>
           {CATEGORY_LABEL[role.category ?? "platform"]}
         </span>
       </div>
-      <p className="text-xs text-[#666] mb-3 leading-relaxed">{role.description}</p>
+      <p className="text-xs text-gray-400 dark:text-[#666] mb-3 leading-relaxed">{role.description}</p>
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1 text-[10px] text-[#555]">
+        <div className="flex items-center gap-1 text-[10px] text-gray-400 dark:text-[#555]">
           <Lock className="w-3 h-3" />
           <span>{role.permissions.includes("*") ? "All permissions" : `${role.permissions.length} permissions`}</span>
         </div>
-        <div className="flex items-center gap-1 text-[10px] text-[#555]">
+        <div className="flex items-center gap-1 text-[10px] text-gray-400 dark:text-[#555]">
           <Users className="w-3 h-3" />
           <span>{assignmentCount} assignment{assignmentCount !== 1 ? "s" : ""}</span>
         </div>
@@ -89,7 +89,7 @@ function PermBadge({ perm }: { perm: string }) {
       "inline-flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded border",
       isWild
         ? "bg-red-900/20 text-red-300 border-red-700/30"
-        : "bg-[#1a1a1a] text-[#888] border-[#2a2a2a]"
+        : "bg-white dark:bg-[#1a1a1a] text-gray-500 dark:text-[#888] border-gray-200 dark:border-[#2a2a2a]"
     )}>
       {isWild && <ShieldCheck className="w-2.5 h-2.5" />}
       {perm}
@@ -145,30 +145,30 @@ function AddAssignmentModal({
         initial={{ opacity: 0, scale: 0.95, y: 8 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95 }}
-        className="w-full max-w-md rounded-2xl border border-[#2a2a2a] bg-[#111] shadow-2xl overflow-hidden"
+        className="w-full max-w-md rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] shadow-2xl overflow-hidden"
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-[#1e1e1e]">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-[#1e1e1e]">
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 rounded-lg bg-[#0078D4]/20 flex items-center justify-center">
               <Plus className="w-4 h-4 text-[#0078D4]" />
             </div>
             <div>
-              <h2 className="text-sm font-semibold text-[#f2f2f2]">Add role assignment</h2>
-              <p className="text-[10px] text-[#555]">Grant a role to a platform user</p>
+              <h2 className="text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">Add role assignment</h2>
+              <p className="text-[10px] text-gray-400 dark:text-[#555]">Grant a role to a platform user</p>
             </div>
           </div>
-          <button onClick={onClose} className="text-[#555] hover:text-[#888] p-1"><X className="w-4 h-4" /></button>
+          <button onClick={onClose} className="text-gray-400 dark:text-[#555] hover:text-gray-700 dark:hover:text-[#888] p-1"><X className="w-4 h-4" /></button>
         </div>
 
         <div className="p-5 space-y-4">
           {/* User */}
           <div>
-            <label className="block text-xs text-[#888] mb-1.5 font-medium">Member</label>
+            <label className="block text-xs text-gray-500 dark:text-[#888] mb-1.5 font-medium">Member</label>
             <select
               value={username}
               onChange={e => setUsername(e.target.value)}
-              className="w-full bg-[#0d0d0d] border border-[#2a2a2a] rounded-lg px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
+              className="w-full bg-white dark:bg-[#0d0d0d] border border-gray-200 dark:border-[#2a2a2a] rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
             >
               <option value="">Select a user…</option>
               {users.map(u => (
@@ -181,11 +181,11 @@ function AddAssignmentModal({
 
           {/* Role */}
           <div>
-            <label className="block text-xs text-[#888] mb-1.5 font-medium">Role</label>
+            <label className="block text-xs text-gray-500 dark:text-[#888] mb-1.5 font-medium">Role</label>
             <select
               value={roleId}
               onChange={e => handleRoleChange(e.target.value)}
-              className="w-full bg-[#0d0d0d] border border-[#2a2a2a] rounded-lg px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
+              className="w-full bg-white dark:bg-[#0d0d0d] border border-gray-200 dark:border-[#2a2a2a] rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
             >
               <option value="">Select a role…</option>
               {["platform", "game-hub", "wiki", "storage", "catalog"].map(cat => (
@@ -200,18 +200,18 @@ function AddAssignmentModal({
 
           {/* Scope */}
           <div>
-            <label className="block text-xs text-[#888] mb-1.5 font-medium">
+            <label className="block text-xs text-gray-500 dark:text-[#888] mb-1.5 font-medium">
               Scope
               {isPerServerRole && <span className="text-[#0078D4] ml-1">← select a specific server</span>}
             </label>
             <select
               value={scope}
               onChange={e => setScope(e.target.value)}
-              className="w-full bg-[#0d0d0d] border border-[#2a2a2a] rounded-lg px-3 py-2 text-sm text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
+              className="w-full bg-white dark:bg-[#0d0d0d] border border-gray-200 dark:border-[#2a2a2a] rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
             >
               {allScopes.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
             </select>
-            <p className="text-[10px] text-[#555] mt-1 flex items-center gap-1">
+            <p className="text-[10px] text-gray-400 dark:text-[#555] mt-1 flex items-center gap-1">
               <Info className="w-3 h-3" />
               {isPerServerRole
                 ? "Pick \"Server: <name>\" to limit this role to one game server."
@@ -221,8 +221,8 @@ function AddAssignmentModal({
 
           {/* Role preview */}
           {selectedRole && (
-            <div className="rounded-lg border border-[#1e1e1e] bg-[#0d0d0d] p-3 space-y-2">
-              <p className="text-xs font-medium text-[#888]">Permissions included:</p>
+            <div className="rounded-lg border border-gray-200 dark:border-[#1e1e1e] bg-white dark:bg-[#0d0d0d] p-3 space-y-2">
+              <p className="text-xs font-medium text-gray-500 dark:text-[#888]">Permissions included:</p>
               <div className="flex flex-wrap gap-1">
                 {selectedRole.permissions.map(p => <PermBadge key={p} perm={p} />)}
               </div>
@@ -230,8 +230,8 @@ function AddAssignmentModal({
           )}
         </div>
 
-        <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-[#1e1e1e] bg-[#0d0d0d]">
-          <button onClick={onClose} className="px-3 py-1.5 text-xs text-[#888] hover:text-[#f2f2f2] transition-colors">Cancel</button>
+        <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-gray-200 dark:border-[#1e1e1e] bg-white dark:bg-[#0d0d0d]">
+          <button onClick={onClose} className="px-3 py-1.5 text-xs text-gray-500 dark:text-[#888] hover:text-gray-900 dark:hover:text-[#f2f2f2] transition-colors">Cancel</button>
           <button
             onClick={() => mutation.mutate()}
             disabled={!username || !roleId || mutation.isPending}
@@ -323,11 +323,11 @@ export default function RBACPage() {
       {/* Page header */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-xl font-bold text-[#f2f2f2] flex items-center gap-2">
+          <h1 className="text-xl font-bold text-gray-900 dark:text-[#f2f2f2] flex items-center gap-2">
             <Shield className="w-5 h-5 text-[#0078D4]" />
             Access Control (RBAC)
           </h1>
-          <p className="text-sm text-[#555] mt-1">
+          <p className="text-sm text-gray-400 dark:text-[#555] mt-1">
             Manage who has access to what — inspired by Azure role-based access control.
           </p>
         </div>
@@ -352,12 +352,12 @@ export default function RBACPage() {
         {/* Left: role list */}
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-xs font-semibold text-[#888] uppercase tracking-wide">Built-in Roles</h2>
-            <span className="text-[10px] text-[#555] px-1.5 py-0.5 rounded bg-[#1a1a1a] border border-[#2a2a2a]">{builtInRoles.length} roles</span>
+            <h2 className="text-xs font-semibold text-gray-500 dark:text-[#888] uppercase tracking-wide">Built-in Roles</h2>
+            <span className="text-[10px] text-gray-400 dark:text-[#555] px-1.5 py-0.5 rounded bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-[#2a2a2a]">{builtInRoles.length} roles</span>
           </div>
           {Object.entries(groupedRoles).map(([cat, roles]) => (
             <div key={cat} className="space-y-2">
-              <div className="flex items-center gap-1.5 text-[10px] text-[#555] uppercase tracking-wide">
+              <div className="flex items-center gap-1.5 text-[10px] text-gray-400 dark:text-[#555] uppercase tracking-wide">
                 {(() => { const Icon = CATEGORY_ICON[cat] ?? Shield; return <Icon className="w-3 h-3" />; })()}
                 {CATEGORY_LABEL[cat]}
               </div>
@@ -388,8 +388,8 @@ export default function RBACPage() {
               >
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <h3 className="text-sm font-semibold text-[#f2f2f2]">{selectedRole.name}</h3>
-                    <p className="text-xs text-[#666] mt-0.5">{selectedRole.description}</p>
+                    <h3 className="text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">{selectedRole.name}</h3>
+                    <p className="text-xs text-gray-400 dark:text-[#666] mt-0.5">{selectedRole.description}</p>
                   </div>
                   <div className="flex items-center gap-2">
                     <button
@@ -398,11 +398,11 @@ export default function RBACPage() {
                     >
                       <Plus className="w-3 h-3" /> Assign
                     </button>
-                    <button onClick={() => setSelectedRoleId(null)} className="text-[#555] hover:text-[#888]"><X className="w-4 h-4" /></button>
+                    <button onClick={() => setSelectedRoleId(null)} className="text-gray-400 dark:text-[#555] hover:text-gray-700 dark:hover:text-[#888]"><X className="w-4 h-4" /></button>
                   </div>
                 </div>
                 <div>
-                  <p className="text-[10px] text-[#555] uppercase tracking-wide mb-2">Permissions</p>
+                  <p className="text-[10px] text-gray-400 dark:text-[#555] uppercase tracking-wide mb-2">Permissions</p>
                   <div className="flex flex-wrap gap-1.5">
                     {selectedRole.permissions.map(p => <PermBadge key={p} perm={p} />)}
                   </div>
@@ -413,45 +413,45 @@ export default function RBACPage() {
                 key="hint"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
-                className="rounded-xl border border-dashed border-[#2a2a2a] p-6 flex flex-col items-center justify-center text-center gap-2"
+                className="rounded-xl border border-dashed border-gray-200 dark:border-[#2a2a2a] p-6 flex flex-col items-center justify-center text-center gap-2"
               >
-                <Shield className="w-8 h-8 text-[#333]" />
-                <p className="text-xs text-[#555]">Select a role to view its permissions and manage assignments</p>
+                <Shield className="w-8 h-8 text-gray-700 dark:text-[#333]" />
+                <p className="text-xs text-gray-400 dark:text-[#555]">Select a role to view its permissions and manage assignments</p>
               </motion.div>
             )}
           </AnimatePresence>
 
           {/* Assignments table */}
-          <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
-            <div className="px-4 py-3 border-b border-[#1e1e1e] flex items-center justify-between gap-3">
+          <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] overflow-hidden">
+            <div className="px-4 py-3 border-b border-gray-200 dark:border-[#1e1e1e] flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">
-                <Users className="w-3.5 h-3.5 text-[#555]" />
-                <span className="text-xs font-medium text-[#888] uppercase tracking-wide">
+                <Users className="w-3.5 h-3.5 text-gray-400 dark:text-[#555]" />
+                <span className="text-xs font-medium text-gray-500 dark:text-[#888] uppercase tracking-wide">
                   {selectedRoleId ? `Assignments for ${selectedRole?.name}` : "All Assignments"}
                 </span>
-                <span className="text-[10px] text-[#555] px-1.5 py-0.5 rounded bg-[#1a1a1a] border border-[#2a2a2a]">{visibleAssignments.length}</span>
+                <span className="text-[10px] text-gray-400 dark:text-[#555] px-1.5 py-0.5 rounded bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-[#2a2a2a]">{visibleAssignments.length}</span>
               </div>
               <input
                 placeholder="Filter by user…"
                 value={filterUser}
                 onChange={e => setFilterUser(e.target.value)}
-                className="text-xs bg-[#0d0d0d] border border-[#2a2a2a] rounded-lg px-2.5 py-1 text-[#888] focus:outline-none focus:border-[#444] w-40"
+                className="text-xs bg-white dark:bg-[#0d0d0d] border border-gray-200 dark:border-[#2a2a2a] rounded-lg px-2.5 py-1 text-gray-500 dark:text-[#888] focus:outline-none focus:border-[#444] w-40"
               />
             </div>
 
             {assignmentsLoading ? (
-              <div className="flex items-center justify-center h-24"><Loader2 className="w-4 h-4 animate-spin text-[#555]" /></div>
+              <div className="flex items-center justify-center h-24"><Loader2 className="w-4 h-4 animate-spin text-gray-400 dark:text-[#555]" /></div>
             ) : visibleAssignments.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-24 text-xs text-[#555] gap-2">
-                <AlertTriangle className="w-5 h-5 text-[#333]" />
+              <div className="flex flex-col items-center justify-center h-24 text-xs text-gray-400 dark:text-[#555] gap-2">
+                <AlertTriangle className="w-5 h-5 text-gray-700 dark:text-[#333]" />
                 No assignments found
               </div>
             ) : (
               <div className="divide-y divide-[#1a1a1a]">
                 {/* Column headers */}
-                <div className="grid grid-cols-[1fr_1fr_auto_auto] gap-3 px-4 py-2 bg-[#0d0d0d]">
+                <div className="grid grid-cols-[1fr_1fr_auto_auto] gap-3 px-4 py-2 bg-white dark:bg-[#0d0d0d]">
                   {["User", "Role", "Scope", ""].map((h, i) => (
-                    <span key={i} className="text-[10px] text-[#444] uppercase tracking-wide font-medium">{h}</span>
+                    <span key={i} className="text-[10px] text-gray-400 dark:text-[#444] uppercase tracking-wide font-medium">{h}</span>
                   ))}
                 </div>
                 {visibleAssignments.map(a => {
@@ -461,12 +461,12 @@ export default function RBACPage() {
                     <div key={a.id} className="grid grid-cols-[1fr_1fr_auto_auto] gap-3 px-4 py-3 items-center hover:bg-[#0d0d0d] transition-colors">
                       {/* User */}
                       <div className="flex items-center gap-2 min-w-0">
-                        <div className="w-6 h-6 rounded-full bg-[#1a1a1a] border border-[#2a2a2a] flex items-center justify-center flex-shrink-0">
-                          <User className="w-3 h-3 text-[#666]" />
+                        <div className="w-6 h-6 rounded-full bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-[#2a2a2a] flex items-center justify-center flex-shrink-0">
+                          <User className="w-3 h-3 text-gray-400 dark:text-[#666]" />
                         </div>
                         <div className="min-w-0">
-                          <p className="text-xs text-[#f2f2f2] truncate">{a.userName || a.username}</p>
-                          <p className="text-[10px] text-[#555] truncate">{a.userEmail}</p>
+                          <p className="text-xs text-gray-900 dark:text-[#f2f2f2] truncate">{a.userName || a.username}</p>
+                          <p className="text-[10px] text-gray-400 dark:text-[#555] truncate">{a.userEmail}</p>
                         </div>
                       </div>
                       {/* Role badge */}
@@ -474,14 +474,14 @@ export default function RBACPage() {
                         {role?.name ?? a.roleId}
                       </span>
                       {/* Scope */}
-                      <span className="text-[10px] text-[#666] font-mono self-center whitespace-nowrap">
+                      <span className="text-[10px] text-gray-400 dark:text-[#666] font-mono self-center whitespace-nowrap">
                         {scopeLabel(a.scope)}
                       </span>
                       {/* Revoke */}
                       <button
                         onClick={() => revokeMutation.mutate({ id: a.id, username: a.username })}
                         disabled={revokeMutation.isPending}
-                        className="text-[#444] hover:text-red-400 transition-colors p-1 self-center"
+                        className="text-gray-400 dark:text-[#444] hover:text-red-400 transition-colors p-1 self-center"
                         title="Revoke assignment"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -494,15 +494,15 @@ export default function RBACPage() {
           </div>
 
           {/* Legend */}
-          <div className="rounded-xl border border-[#1e1e1e] bg-[#0d0d0d] p-4">
-            <p className="text-[10px] text-[#555] uppercase tracking-wide mb-3 font-medium">Scope Hierarchy</p>
+          <div className="rounded-xl border border-gray-200 dark:border-[#1e1e1e] bg-white dark:bg-[#0d0d0d] p-4">
+            <p className="text-[10px] text-gray-400 dark:text-[#555] uppercase tracking-wide mb-3 font-medium">Scope Hierarchy</p>
             <div className="space-y-1.5">
               {buildScopes(gameServers).map((s, i) => (
-                <div key={s.value} className="flex items-center gap-2 text-xs text-[#666]">
+                <div key={s.value} className="flex items-center gap-2 text-xs text-gray-400 dark:text-[#666]">
                   <div style={{ width: Math.min(i, 4) * 12 }} />
-                  <ChevronRight className="w-3 h-3 text-[#333] flex-shrink-0" />
-                  <span className="font-mono text-[#555]">{s.value}</span>
-                  <span className="text-[#444]">—</span>
+                  <ChevronRight className="w-3 h-3 text-gray-700 dark:text-[#333] flex-shrink-0" />
+                  <span className="font-mono text-gray-400 dark:text-[#555]">{s.value}</span>
+                  <span className="text-gray-400 dark:text-[#444]">—</span>
                   <span>{s.label}</span>
                 </div>
               ))}

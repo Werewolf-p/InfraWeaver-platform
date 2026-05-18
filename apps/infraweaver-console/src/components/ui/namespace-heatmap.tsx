@@ -31,8 +31,8 @@ export function NamespaceHeatmap({ onNamespaceClick }: Props) {
     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
       {entries.map(e => (
         <button key={e.ns} onClick={() => onNamespaceClick?.(e.ns)} className={`p-3 rounded-lg border text-left transition-all hover:scale-105 ${color(Math.max(e.cpu, e.mem))}`}>
-          <div className="text-xs font-medium text-white truncate">{e.ns}</div>
-          <div className="text-xs text-slate-400 mt-1">CPU: {e.cpu}% / Mem: {e.mem}%</div>
+          <div className="text-xs font-medium text-gray-900 dark:text-white truncate">{e.ns}</div>
+          <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">CPU: {e.cpu}% / Mem: {e.mem}%</div>
         </button>
       ))}
     </div>

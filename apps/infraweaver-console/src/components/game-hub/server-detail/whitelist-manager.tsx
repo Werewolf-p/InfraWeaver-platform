@@ -111,11 +111,11 @@ export function WhitelistManager({ serverName, mountPath }: WhitelistManagerProp
   const entries = whitelistQuery.data ?? [];
 
   return (
-    <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4 space-y-4">
+    <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4 space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h3 className="text-sm font-medium text-[#f2f2f2]">Whitelist</h3>
-          <p className="text-xs text-[#888]">Manage Minecraft whitelist entries.</p>
+          <h3 className="text-sm font-medium text-gray-900 dark:text-[#f2f2f2]">Whitelist</h3>
+          <p className="text-xs text-gray-500 dark:text-[#888]">Manage Minecraft whitelist entries.</p>
         </div>
         <div className="flex gap-2">
           <input
@@ -128,13 +128,13 @@ export function WhitelistManager({ serverName, mountPath }: WhitelistManagerProp
               }
             }}
             placeholder="Player name"
-            className="rounded-lg border border-[#2a2a2a] bg-[#0a0a0a] px-3 py-2 text-sm text-[#f2f2f2] focus:border-[#0078D4] focus:outline-none"
+            className="rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0a0a0a] px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] focus:border-[#0078D4] focus:outline-none"
           />
           <button
             type="button"
             onClick={addPlayer}
             disabled={saving}
-            className="inline-flex items-center gap-2 rounded-lg border border-[#2a2a2a] bg-[#1a1a1a] px-3 py-2 text-sm text-[#f2f2f2] disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#1a1a1a] px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] disabled:opacity-50"
           >
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
             Add
@@ -150,11 +150,11 @@ export function WhitelistManager({ serverName, mountPath }: WhitelistManagerProp
       ) : null}
 
       {whitelistQuery.isLoading ? (
-        <div className="flex items-center gap-2 text-sm text-[#888]">
+        <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-[#888]">
           <Loader2 className="h-4 w-4 animate-spin" /> Loading whitelist…
         </div>
       ) : entries.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-[#2a2a2a] p-4 text-sm text-[#888]">
+        <div className="rounded-lg border border-dashed border-gray-200 dark:border-[#2a2a2a] p-4 text-sm text-gray-500 dark:text-[#888]">
           No players are currently whitelisted.
         </div>
       ) : (
@@ -162,7 +162,7 @@ export function WhitelistManager({ serverName, mountPath }: WhitelistManagerProp
           {entries.map((entry, index) => (
             <div
               key={entry.uuid || entry.name}
-              className="flex items-center justify-between gap-3 rounded-lg border border-[#2a2a2a] bg-[#0a0a0a] px-3 py-2"
+              className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0a0a0a] px-3 py-2"
             >
               <div className="flex items-center gap-3 min-w-0">
                 <div
@@ -171,15 +171,15 @@ export function WhitelistManager({ serverName, mountPath }: WhitelistManagerProp
                   {entry.name.charAt(0).toUpperCase() || "?"}
                 </div>
                 <div className="min-w-0">
-                  <div className="truncate text-sm text-[#f2f2f2]">{entry.name}</div>
-                  <div className="truncate font-mono text-[11px] text-[#555]">{entry.uuid}</div>
+                  <div className="truncate text-sm text-gray-900 dark:text-[#f2f2f2]">{entry.name}</div>
+                  <div className="truncate font-mono text-[11px] text-gray-400 dark:text-[#555]">{entry.uuid}</div>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => removePlayer(entry)}
                 disabled={saving}
-                className="rounded-lg p-2 text-[#888] transition hover:bg-red-500/10 hover:text-red-300 disabled:opacity-50"
+                className="rounded-lg p-2 text-gray-500 dark:text-[#888] transition hover:bg-red-500/10 hover:text-red-300 disabled:opacity-50"
               >
                 <Trash2 className="h-4 w-4" />
               </button>

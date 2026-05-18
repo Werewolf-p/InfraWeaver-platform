@@ -46,15 +46,15 @@ function CheckDot({ result }: { result: GatusResult }) {
 
 function SkeletonRow() {
   return (
-    <div className="flex items-center gap-4 p-4 border-b border-white/5 last:border-0">
-      <div className="w-5 h-4 rounded bg-white/10 animate-pulse" />
-      <div className="w-36 h-4 rounded bg-white/10 animate-pulse" />
+    <div className="flex items-center gap-4 p-4 border-b border-gray-200 dark:border-white/5 last:border-0">
+      <div className="w-5 h-4 rounded bg-gray-100 dark:bg-white/10 animate-pulse" />
+      <div className="w-36 h-4 rounded bg-gray-100 dark:bg-white/10 animate-pulse" />
       <div className="flex-1 flex gap-0.5">
         {[...Array(30)].map((_, i) => (
-          <div key={i} className="w-3.5 h-3.5 rounded-sm bg-white/10 animate-pulse" />
+          <div key={i} className="w-3.5 h-3.5 rounded-sm bg-gray-100 dark:bg-white/10 animate-pulse" />
         ))}
       </div>
-      <div className="w-16 h-5 rounded-full bg-white/10 animate-pulse" />
+      <div className="w-16 h-5 rounded-full bg-gray-100 dark:bg-white/10 animate-pulse" />
     </div>
   );
 }
@@ -91,11 +91,11 @@ export default function UptimePage() {
         className="flex items-center justify-between"
       >
         <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-2">
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
             <TrendingUp className="w-6 h-6 text-emerald-400" />
             Uptime History
           </h1>
-          <p className="text-sm text-slate-400 mt-0.5">
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
             Last {endpoints[0]?.results.length ?? 0} checks per endpoint · via Gatus
           </p>
           <span className="inline-flex items-center gap-1 text-xs text-amber-400/70 mt-1">
@@ -110,7 +110,7 @@ export default function UptimePage() {
           )}
           <button
             onClick={() => refetch()}
-            className="p-2 rounded-lg border border-white/10 text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+            className="p-2 rounded-lg border border-gray-200 dark:border-white/10 text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/5 transition-colors"
           >
             <RefreshCw className={cn("w-4 h-4", isFetching && "animate-spin")} />
           </button>
@@ -124,11 +124,11 @@ export default function UptimePage() {
         transition={{ delay: 0.05 }}
         className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
       >
-        <div className="bg-white/5 border border-white/10 rounded-xl p-4 text-center">
-          <div className="text-3xl font-bold text-white tabular-nums">{endpoints.length}</div>
+        <div className="bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl p-4 text-center">
+          <div className="text-3xl font-bold text-gray-900 dark:text-white tabular-nums">{endpoints.length}</div>
           <p className="text-xs text-slate-500 uppercase tracking-wider mt-1">Endpoints</p>
         </div>
-        <div className="bg-white/5 border border-white/10 rounded-xl p-4 text-center">
+        <div className="bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl p-4 text-center">
           <div className={cn(
             "text-3xl font-bold tabular-nums",
             overallUptime === 100 ? "text-emerald-400" : overallUptime >= 90 ? "text-yellow-400" : "text-red-400"
@@ -137,8 +137,8 @@ export default function UptimePage() {
           </div>
           <p className="text-xs text-slate-500 uppercase tracking-wider mt-1">Avg Uptime</p>
         </div>
-        <div className="bg-white/5 border border-white/10 rounded-xl p-4 text-center">
-          <div className="text-3xl font-bold text-white tabular-nums">
+        <div className="bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl p-4 text-center">
+          <div className="text-3xl font-bold text-gray-900 dark:text-white tabular-nums">
             {endpoints.filter(ep => ep.results[0]?.success).length}
           </div>
           <p className="text-xs text-slate-500 uppercase tracking-wider mt-1">Currently Up</p>
@@ -159,7 +159,7 @@ export default function UptimePage() {
           <span className="w-3 h-3 rounded-sm bg-red-500 inline-block" /> Offline
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded-sm bg-white/10 inline-block" /> No data
+          <span className="w-3 h-3 rounded-sm bg-gray-100 dark:bg-white/10 inline-block" /> No data
         </span>
         <span className="ml-auto">← Oldest · Newest →</span>
       </motion.div>
@@ -169,7 +169,7 @@ export default function UptimePage() {
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.15 }}
-        className="bg-white/5 border border-white/10 rounded-xl overflow-hidden"
+        className="bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl overflow-hidden"
       >
         {isLoading ? (
           [...Array(6)].map((_, i) => <SkeletonRow key={i} />)
@@ -192,7 +192,7 @@ export default function UptimePage() {
                 initial={{ opacity: 0, x: -8 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: idx * 0.03 }}
-                className="flex items-center gap-4 px-4 py-3.5 border-b border-white/5 last:border-0 hover:bg-white/[0.02] transition-colors"
+                className="flex items-center gap-4 px-4 py-3.5 border-b border-gray-200 dark:border-white/5 last:border-0 hover:bg-white/[0.02] transition-colors"
               >
                 {/* Status icon */}
                 <div className="w-5 flex-shrink-0">
@@ -205,7 +205,7 @@ export default function UptimePage() {
 
                 {/* Name */}
                 <div className="w-40 flex-shrink-0">
-                  <p className="text-sm font-medium text-white truncate">{ep.name}</p>
+                  <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{ep.name}</p>
                   {ep.group && <p className="text-xs text-slate-500">{ep.group}</p>}
                 </div>
 
@@ -217,7 +217,7 @@ export default function UptimePage() {
                     ))
                   ) : (
                     [...Array(30)].map((_, i) => (
-                      <span key={i} className="inline-block w-3.5 h-3.5 rounded-sm bg-white/10 flex-shrink-0" />
+                      <span key={i} className="inline-block w-3.5 h-3.5 rounded-sm bg-gray-100 dark:bg-white/10 flex-shrink-0" />
                     ))
                   )}
                 </div>
@@ -241,7 +241,7 @@ export default function UptimePage() {
 
       <p className="text-xs text-slate-600 text-center">
         Data sourced from Gatus ·{" "}
-        <a href="https://status.rlservers.com" target="_blank" rel="noopener noreferrer" className="hover:text-slate-400 underline">
+        <a href="https://status.rlservers.com" target="_blank" rel="noopener noreferrer" className="hover:text-slate-700 dark:hover:text-slate-400 underline">
           status.rlservers.com
         </a>
       </p>

@@ -47,7 +47,7 @@ export default function ConfigDriftPage() {
         sortable: true,
         render: (entry) => (
           <div>
-            <p className="font-medium text-white">{entry.name}</p>
+            <p className="font-medium text-gray-900 dark:text-white">{entry.name}</p>
             <p className="text-xs text-slate-500">{entry.kind}</p>
           </div>
         ),
@@ -56,7 +56,7 @@ export default function ConfigDriftPage() {
         key: "namespace",
         label: "Namespace",
         sortable: true,
-        render: (entry) => <span className="text-sm text-slate-400">{entry.namespace}</span>,
+        render: (entry) => <span className="text-sm text-slate-500 dark:text-slate-400">{entry.namespace}</span>,
       },
       {
         key: "drifted",
@@ -73,13 +73,13 @@ export default function ConfigDriftPage() {
       {
         key: "image",
         label: "Baseline Image",
-        render: (entry) => <span className="font-mono text-xs text-slate-300">{entry.image}</span>,
+        render: (entry) => <span className="font-mono text-xs text-slate-700 dark:text-slate-300">{entry.image}</span>,
       },
       {
         key: "currentImage",
         label: "Current Image",
         render: (entry) => (
-          <span className={entry.drifted ? "font-mono text-xs text-red-400" : "font-mono text-xs text-slate-300"}>
+          <span className={entry.drifted ? "font-mono text-xs text-red-400" : "font-mono text-xs text-slate-700 dark:text-slate-300"}>
             {entry.currentImage}
           </span>
         ),
@@ -89,7 +89,7 @@ export default function ConfigDriftPage() {
         label: "Replicas",
         sortable: true,
         render: (entry) => (
-          <span className={entry.replicas !== entry.currentReplicas ? "text-sm text-red-400" : "text-sm text-slate-300"}>
+          <span className={entry.replicas !== entry.currentReplicas ? "text-sm text-red-400" : "text-sm text-slate-700 dark:text-slate-300"}>
             {entry.replicas} → {entry.currentReplicas}
           </span>
         ),
@@ -143,7 +143,7 @@ export default function ConfigDriftPage() {
 
       <div className="grid gap-3 md:grid-cols-3">
         <DataCard title="Tracked Workloads" value={drift.length} subtitle="Resources currently compared" />
-        <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4">
+        <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4">
           <DataCard title="Drifted" value={driftedEntries.length} subtitle="Resources requiring attention" trend={driftedEntries.length > 0 ? "down" : undefined} className="border-0 bg-transparent p-0" />
           <ResourceBar value={driftedEntries.length} max={drift.length || 1} label="Drift share" valueFormatter={(_, __, percentage) => `${percentage}%`} tone={driftedEntries.length > 0 ? "red" : "emerald"} className="mt-4" />
         </div>
@@ -186,7 +186,7 @@ export default function ConfigDriftPage() {
               <div className="space-y-3">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <p className="font-medium text-white">{entry.name}</p>
+                    <p className="font-medium text-gray-900 dark:text-white">{entry.name}</p>
                     <p className="text-xs text-slate-500">{entry.namespace} · {entry.kind}</p>
                   </div>
                   <StatusBadge
@@ -195,7 +195,7 @@ export default function ConfigDriftPage() {
                     size="sm"
                   />
                 </div>
-                <div className="space-y-1 text-xs text-slate-400">
+                <div className="space-y-1 text-xs text-slate-500 dark:text-slate-400">
                   <p><span className="text-slate-500">Baseline:</span> <span className="font-mono">{entry.image}</span></p>
                   <p><span className="text-slate-500">Current:</span> <span className={entry.drifted ? "font-mono text-red-400" : "font-mono"}>{entry.currentImage}</span></p>
                   <p><span className="text-slate-500">Replicas:</span> {entry.replicas} → {entry.currentReplicas}</p>

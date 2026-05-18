@@ -165,13 +165,13 @@ function getConnectivityTone(status: ConnectivityStatus) {
   }
   if (status === "unverified") {
     return {
-      text: "text-slate-300",
-      badge: "border-slate-500/30 bg-slate-500/10 text-slate-300",
+      text: "text-slate-700 dark:text-slate-300",
+      badge: "border-slate-500/30 bg-slate-500/10 text-slate-700 dark:text-slate-300",
       dot: "bg-slate-400",
     };
   }
   return {
-    text: "text-[#999]",
+    text: "text-gray-500 dark:text-[#999]",
     badge: "border-[#1e3a5f] bg-[#10233a] text-[#7aa8da]",
     dot: "bg-[#4a6fa5]",
   };
@@ -300,7 +300,7 @@ function normalizeNetworkStats(payload: NetworkStatsResponse) {
 
 function computeTrendIndicator(values: number[]): TrendIndicator {
   if (values.length < 4) {
-    return { direction: "flat", icon: "→", className: "text-[#888]" };
+    return { direction: "flat", icon: "→", className: "text-gray-500 dark:text-[#888]" };
   }
 
   const latest = values[values.length - 1] ?? 0;
@@ -311,7 +311,7 @@ function computeTrendIndicator(values: number[]): TrendIndicator {
   if (previousAverage <= 0) {
     return latest > 0
       ? { direction: "up", icon: "↑", className: "text-red-400" }
-      : { direction: "flat", icon: "→", className: "text-[#888]" };
+      : { direction: "flat", icon: "→", className: "text-gray-500 dark:text-[#888]" };
   }
 
   if (latest > previousAverage * 1.05) {
@@ -322,7 +322,7 @@ function computeTrendIndicator(values: number[]): TrendIndicator {
     return { direction: "down", icon: "↓", className: "text-green-400" };
   }
 
-  return { direction: "flat", icon: "→", className: "text-[#888]" };
+  return { direction: "flat", icon: "→", className: "text-gray-500 dark:text-[#888]" };
 }
 
 function truncateText(value: string, maxLength = 80) {
@@ -971,21 +971,21 @@ export function DashboardTab({
       )}
 
       <div className="grid grid-cols-2 gap-3 sm:hidden">
-        <div className="rounded-2xl border border-[#2a2a2a] bg-[#111] px-4 py-3">
-          <p className="text-[10px] uppercase tracking-wide text-[#666]">Status</p>
-          <p className="mt-1 text-sm font-semibold capitalize text-[#f2f2f2]">
+        <div className="rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-4 py-3">
+          <p className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-[#666]">Status</p>
+          <p className="mt-1 text-sm font-semibold capitalize text-gray-900 dark:text-[#f2f2f2]">
             {server.status ?? "unknown"}
           </p>
         </div>
-        <div className="rounded-2xl border border-[#2a2a2a] bg-[#111] px-4 py-3">
-          <p className="text-[10px] uppercase tracking-wide text-[#666]">Players</p>
-          <p className="mt-1 text-sm font-semibold text-[#f2f2f2]">{currentPlayerCount}</p>
+        <div className="rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-4 py-3">
+          <p className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-[#666]">Players</p>
+          <p className="mt-1 text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">{currentPlayerCount}</p>
         </div>
       </div>
       <button
         type="button"
         onClick={() => setShowMobileDetails((value) => !value)}
-        className="inline-flex min-h-[44px] items-center justify-center rounded-full border border-[#2a2a2a] bg-[#111] px-4 text-xs font-medium text-[#d4d4d4] transition-colors hover:bg-[#181818] sm:hidden"
+        className="inline-flex min-h-[44px] items-center justify-center rounded-full border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-4 text-xs font-medium text-gray-700 dark:text-[#d4d4d4] transition-colors hover:bg-[#181818] sm:hidden"
       >
         {showMobileDetails ? "Hide extra details" : "Show more details"}
       </button>
@@ -999,11 +999,11 @@ export function DashboardTab({
               "rounded-xl border px-4 py-3",
               alert.triggered
                 ? "border-yellow-500/30 bg-yellow-500/10"
-                : "border-[#2a2a2a] bg-[#111]",
+                : "border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111]",
             )}
           >
             <div className="flex items-center justify-between gap-3">
-              <p className="text-[10px] uppercase tracking-wide text-[#666]">
+              <p className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-[#666]">
                 {alert.label} alert threshold
               </p>
               <span
@@ -1011,7 +1011,7 @@ export function DashboardTab({
                   "rounded-full border px-2 py-0.5 text-[10px]",
                   alert.triggered
                     ? "border-yellow-500/30 bg-yellow-500/10 text-yellow-200"
-                    : "border-[#2a2a2a] text-[#777]",
+                    : "border-gray-200 dark:border-[#2a2a2a] text-gray-500 dark:text-[#777]",
                 )}
               >
                 {alert.triggered ? "Triggered" : "Normal"}
@@ -1019,16 +1019,16 @@ export function DashboardTab({
             </div>
             <div className="mt-2 flex items-end justify-between gap-3">
               <div>
-                <p className="text-xl font-semibold text-[#f2f2f2]">
+                <p className="text-xl font-semibold text-gray-900 dark:text-[#f2f2f2]">
                   {alert.current}
                 </p>
-                <p className="text-[11px] text-[#666]">Current</p>
+                <p className="text-[11px] text-gray-400 dark:text-[#666]">Current</p>
               </div>
               <div className="text-right">
-                <p className="text-sm font-medium text-[#d4d4d4]">
+                <p className="text-sm font-medium text-gray-700 dark:text-[#d4d4d4]">
                   {alert.threshold}
                 </p>
-                <p className="text-[11px] text-[#666]">Threshold</p>
+                <p className="text-[11px] text-gray-400 dark:text-[#666]">Threshold</p>
               </div>
             </div>
           </div>
@@ -1036,20 +1036,20 @@ export function DashboardTab({
       </div>
 
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
-        <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4">
-          <p className="text-[10px] uppercase text-[#666]">Status</p>
-          <p className="text-sm text-[#f2f2f2] mt-1 capitalize">
+        <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4">
+          <p className="text-[10px] uppercase text-gray-400 dark:text-[#666]">Status</p>
+          <p className="text-sm text-gray-900 dark:text-[#f2f2f2] mt-1 capitalize">
             {server.status ?? "unknown"}
           </p>
         </div>
-        <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4">
-          <p className="text-[10px] uppercase text-[#666]">Uptime</p>
-          <p className="text-sm text-[#f2f2f2] mt-1">
+        <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4">
+          <p className="text-[10px] uppercase text-gray-400 dark:text-[#666]">Uptime</p>
+          <p className="text-sm text-gray-900 dark:text-[#f2f2f2] mt-1">
             <Uptime startTime={server.podStartTime} />
           </p>
         </div>
-        <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4">
-          <p className="text-[10px] uppercase text-[#666]">Connectivity</p>
+        <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4">
+          <p className="text-[10px] uppercase text-gray-400 dark:text-[#666]">Connectivity</p>
           <p className={cn("text-sm mt-1", primaryConnectivityTone.text)}>
             {primaryConnectivityLabel}
           </p>
@@ -1059,10 +1059,10 @@ export function DashboardTab({
             "rounded-xl border p-4",
             restartCount > 5
               ? "border-red-500/30 bg-red-500/10"
-              : "border-[#2a2a2a] bg-[#111]",
+              : "border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111]",
           )}
         >
-          <p className="text-[10px] uppercase text-[#666]">Restarts</p>
+          <p className="text-[10px] uppercase text-gray-400 dark:text-[#666]">Restarts</p>
           <div className="mt-1 flex items-center justify-between gap-2">
             <p
               className={cn(
@@ -1071,7 +1071,7 @@ export function DashboardTab({
                   ? "text-red-300"
                   : restartCount > 2
                     ? "text-yellow-300"
-                    : "text-[#f2f2f2]",
+                    : "text-gray-900 dark:text-[#f2f2f2]",
               )}
             >
               {restartCount}
@@ -1082,15 +1082,15 @@ export function DashboardTab({
               </span>
             )}
           </div>
-          <p className="text-[11px] text-[#666] mt-2">
+          <p className="text-[11px] text-gray-400 dark:text-[#666] mt-2">
             {restartCount > 5
               ? "Frequent restarts detected."
               : "Container restart count."}
           </p>
         </div>
-        <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4">
-          <p className="text-[10px] uppercase text-[#666]">Ready Replicas</p>
-          <p className="text-sm text-[#f2f2f2] mt-1">
+        <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4">
+          <p className="text-[10px] uppercase text-gray-400 dark:text-[#666]">Ready Replicas</p>
+          <p className="text-sm text-gray-900 dark:text-[#f2f2f2] mt-1">
             {server.readyReplicas}/{server.replicas}
           </p>
         </div>
@@ -1101,9 +1101,9 @@ export function DashboardTab({
             healthTone.bg,
           )}
         >
-          <p className="text-[10px] uppercase text-[#666]">Server Health</p>
+          <p className="text-[10px] uppercase text-gray-400 dark:text-[#666]">Server Health</p>
           <div className="mt-2 flex items-center gap-3">
-            <div className="relative h-14 w-14 rounded-full border border-white/10 bg-[#0d0d0d] flex items-center justify-center">
+            <div className="relative h-14 w-14 rounded-full border border-gray-200 dark:border-white/10 bg-white dark:bg-[#0d0d0d] flex items-center justify-center">
               <div
                 className={cn(
                   "absolute inset-1 rounded-full opacity-15",
@@ -1123,7 +1123,7 @@ export function DashboardTab({
               <p className={cn("text-sm font-semibold", healthTone.text)}>
                 {healthTone.badge}
               </p>
-              <p className="text-[11px] text-[#666] mt-1">
+              <p className="text-[11px] text-gray-400 dark:text-[#666] mt-1">
                 Running, readiness, restarts, and OOM state.
               </p>
             </div>
@@ -1131,12 +1131,12 @@ export function DashboardTab({
         </div>
       </div>
 
-        <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4 space-y-3">
-          <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-[#888]">
+        <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4 space-y-3">
+          <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-gray-500 dark:text-[#888]">
             <Activity className="w-4 h-4 text-[#f87171]" /> Crash History
           </div>
         {crashEvents.length === 0 ? (
-          <p className="text-xs text-[#666]">No crash events</p>
+          <p className="text-xs text-gray-400 dark:text-[#666]">No crash events</p>
         ) : (
           <div className="space-y-3">
             {crashEvents.map((event, index) => {
@@ -1151,15 +1151,15 @@ export function DashboardTab({
                       )}
                     />
                     {index < crashEvents.length - 1 && (
-                      <span className="mt-1 h-full w-px bg-[#2a2a2a]" />
+                      <span className="mt-1 h-full w-px bg-gray-100 dark:bg-[#2a2a2a]" />
                     )}
                   </div>
                   <div className="min-w-0 pb-1">
-                    <p className="text-sm text-[#f2f2f2]">{event.reason}</p>
-                    <p className="mt-1 text-xs text-[#888]">
+                    <p className="text-sm text-gray-900 dark:text-[#f2f2f2]">{event.reason}</p>
+                    <p className="mt-1 text-xs text-gray-500 dark:text-[#888]">
                       {truncateText(event.message || "No event message")}
                     </p>
-                    <p className="mt-1 text-[10px] text-[#555]">
+                    <p className="mt-1 text-[10px] text-gray-400 dark:text-[#555]">
                       {formatDateTime(event.timestamp)}
                     </p>
                   </div>
@@ -1173,25 +1173,25 @@ export function DashboardTab({
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
-        <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4">
-          <div className="mb-4 flex items-center gap-2 text-xs uppercase tracking-wide text-[#888]">
+        <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4">
+          <div className="mb-4 flex items-center gap-2 text-xs uppercase tracking-wide text-gray-500 dark:text-[#888]">
             <Server className="w-4 h-4 text-[#38bdf8]" />
             Resource Metrics
           </div>
           <div className="mb-4 grid gap-3 sm:grid-cols-2">
-            <div className="rounded-lg border border-[#1e1e1e] bg-[#0d0d0d] p-3">
+            <div className="rounded-lg border border-gray-200 dark:border-[#1e1e1e] bg-white dark:bg-[#0d0d0d] p-3">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="text-[10px] uppercase text-[#666]">CPU</p>
+                  <p className="text-[10px] uppercase text-gray-400 dark:text-[#666]">CPU</p>
                   <div className="mt-1 flex items-center gap-2">
-                    <p className="text-2xl font-semibold text-[#f2f2f2]">
+                    <p className="text-2xl font-semibold text-gray-900 dark:text-[#f2f2f2]">
                       {cpuMetricLabel}
                     </p>
                     <span className={cn("text-sm font-medium", cpuTrend.className)}>
                       {cpuTrend.icon}
                     </span>
                   </div>
-                  <p className="mt-2 text-[11px] text-[#666]">
+                  <p className="mt-2 text-[11px] text-gray-400 dark:text-[#666]">
                     {latest
                       ? cpuUsesPercent
                         ? `${latest.cpu.toFixed(2)} / ${latest.cpuLimit.toFixed(2)} cores`
@@ -1216,7 +1216,7 @@ export function DashboardTab({
                   ) : null}
                 </div>
               </div>
-              <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#1a1a1a]">
+              <div className="mt-3 h-2 overflow-hidden rounded-full bg-white dark:bg-[#1a1a1a]">
                 <div
                   className={cn(
                     "h-full rounded-full",
@@ -1230,19 +1230,19 @@ export function DashboardTab({
                 />
               </div>
             </div>
-            <div className="rounded-lg border border-[#1e1e1e] bg-[#0d0d0d] p-3">
+            <div className="rounded-lg border border-gray-200 dark:border-[#1e1e1e] bg-white dark:bg-[#0d0d0d] p-3">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="text-[10px] uppercase text-[#666]">Memory</p>
+                  <p className="text-[10px] uppercase text-gray-400 dark:text-[#666]">Memory</p>
                   <div className="mt-1 flex items-center gap-2">
-                    <p className="text-2xl font-semibold text-[#f2f2f2]">
+                    <p className="text-2xl font-semibold text-gray-900 dark:text-[#f2f2f2]">
                       {memoryMetricLabel}
                     </p>
                     <span className={cn("text-sm font-medium", memoryTrend.className)}>
                       {memoryTrend.icon}
                     </span>
                   </div>
-                  <p className="mt-2 text-[11px] text-[#666]">
+                  <p className="mt-2 text-[11px] text-gray-400 dark:text-[#666]">
                     {latest
                       ? memoryUsesPercent
                         ? `${formatBytes(latest.memory)} / ${formatBytes(latest.memoryLimit)}`
@@ -1267,7 +1267,7 @@ export function DashboardTab({
                   ) : null}
                 </div>
               </div>
-              <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#1a1a1a]">
+              <div className="mt-3 h-2 overflow-hidden rounded-full bg-white dark:bg-[#1a1a1a]">
                 <div
                   className={cn(
                     "h-full rounded-full",
@@ -1284,10 +1284,10 @@ export function DashboardTab({
           </div>
           {cpuChartData.length > 0 && memoryChartData.length > 0 ? (
             <div className="space-y-3">
-              <div className="rounded-lg border border-[#1e1e1e] bg-[#0d0d0d] p-3">
+              <div className="rounded-lg border border-gray-200 dark:border-[#1e1e1e] bg-white dark:bg-[#0d0d0d] p-3">
                 <div className="mb-2 flex items-center justify-between gap-3">
-                  <p className="text-xs uppercase tracking-wide text-[#888]">CPU</p>
-                  <p className="text-sm font-medium text-[#f2f2f2]">{cpuMetricLabel}</p>
+                  <p className="text-xs uppercase tracking-wide text-gray-500 dark:text-[#888]">CPU</p>
+                  <p className="text-sm font-medium text-gray-900 dark:text-[#f2f2f2]">{cpuMetricLabel}</p>
                 </div>
                 <div className="h-[200px] sm:h-[220px]">
                   <ResponsiveContainer width="100%" height="100%">
@@ -1334,10 +1334,10 @@ export function DashboardTab({
                   </ResponsiveContainer>
                 </div>
               </div>
-              <div className="rounded-lg border border-[#1e1e1e] bg-[#0d0d0d] p-3">
+              <div className="rounded-lg border border-gray-200 dark:border-[#1e1e1e] bg-white dark:bg-[#0d0d0d] p-3">
                 <div className="mb-2 flex items-center justify-between gap-3">
-                  <p className="text-xs uppercase tracking-wide text-[#888]">Memory</p>
-                  <p className="text-sm font-medium text-[#f2f2f2]">{memoryMetricLabel}</p>
+                  <p className="text-xs uppercase tracking-wide text-gray-500 dark:text-[#888]">Memory</p>
+                  <p className="text-sm font-medium text-gray-900 dark:text-[#f2f2f2]">{memoryMetricLabel}</p>
                 </div>
                 <div className="h-[200px] sm:h-[220px]">
                   <ResponsiveContainer width="100%" height="100%">
@@ -1386,36 +1386,36 @@ export function DashboardTab({
               </div>
             </div>
           ) : (
-            <div className="flex h-[252px] items-center justify-center rounded-lg border border-[#1e1e1e] bg-[#0d0d0d] p-3 text-sm text-[#666]">
+            <div className="flex h-[252px] items-center justify-center rounded-lg border border-gray-200 dark:border-[#1e1e1e] bg-white dark:bg-[#0d0d0d] p-3 text-sm text-gray-400 dark:text-[#666]">
               {metricsMessage}
             </div>
           )}
         </div>
 
         <div className={cn("space-y-4", showMobileDetails ? "block" : "hidden", "sm:block")}>
-          <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4 space-y-3">
-            <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-[#888]">
+          <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4 space-y-3">
+            <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-gray-500 dark:text-[#888]">
               <HardDrive className="w-4 h-4 text-[#34d399]" /> Storage
             </div>
-            <div className="text-xs text-[#777] space-y-1">
+            <div className="text-xs text-gray-500 dark:text-[#777] space-y-1">
               <div className="flex justify-between">
                 <span>PVC</span>
-                <span className="text-[#d4d4d4]">{server.pvc?.name ?? "—"}</span>
+                <span className="text-gray-700 dark:text-[#d4d4d4]">{server.pvc?.name ?? "—"}</span>
               </div>
               <div className="flex justify-between">
                 <span>Capacity</span>
-                <span className="text-[#d4d4d4]">{server.pvc?.size ?? "—"}</span>
+                <span className="text-gray-700 dark:text-[#d4d4d4]">{server.pvc?.size ?? "—"}</span>
               </div>
               <div className="flex justify-between">
                 <span>Used</span>
-                <span className="text-[#d4d4d4]">{disk?.filesystem.used ?? "—"}</span>
+                <span className="text-gray-700 dark:text-[#d4d4d4]">{disk?.filesystem.used ?? "—"}</span>
               </div>
               <div className="flex justify-between">
                 <span>Available</span>
-                <span className="text-[#d4d4d4]">{disk?.filesystem.available ?? "—"}</span>
+                <span className="text-gray-700 dark:text-[#d4d4d4]">{disk?.filesystem.available ?? "—"}</span>
               </div>
             </div>
-            <div className="h-2 overflow-hidden rounded-full bg-[#1a1a1a]">
+            <div className="h-2 overflow-hidden rounded-full bg-white dark:bg-[#1a1a1a]">
               <div
                 className={cn(
                   "h-full",
@@ -1428,8 +1428,8 @@ export function DashboardTab({
                 style={{ width: `${disk?.filesystem.percent ?? 0}%` }}
               />
             </div>
-            <div className="rounded-lg border border-[#1e1e1e] bg-[#0d0d0d] p-2">
-              <div className="mb-1 flex items-center justify-between text-[10px] text-[#666]">
+            <div className="rounded-lg border border-gray-200 dark:border-[#1e1e1e] bg-white dark:bg-[#0d0d0d] p-2">
+              <div className="mb-1 flex items-center justify-between text-[10px] text-gray-400 dark:text-[#666]">
                 <span>Usage trend</span>
                 <span>{disk?.filesystem.percent ?? 0}%</span>
               </div>
@@ -1448,7 +1448,7 @@ export function DashboardTab({
                     </LineChart>
                   </ResponsiveContainer>
                 ) : (
-                  <div className="flex h-full items-center justify-center text-[10px] text-[#555]">
+                  <div className="flex h-full items-center justify-center text-[10px] text-gray-400 dark:text-[#555]">
                     Waiting for more storage samples…
                   </div>
                 )}
@@ -1459,22 +1459,22 @@ export function DashboardTab({
                 {disk.topDirs.slice(0, 6).map((entry) => (
                   <div
                     key={`${entry.path}-${entry.size}`}
-                    className="flex justify-between text-[10px] text-[#666]"
+                    className="flex justify-between text-[10px] text-gray-400 dark:text-[#666]"
                   >
                     <span className="max-w-[120px] truncate font-mono">{entry.path}</span>
-                    <span className="text-[#888]">{entry.size}</span>
+                    <span className="text-gray-500 dark:text-[#888]">{entry.size}</span>
                   </div>
                 ))}
               </div>
             ) : null}
           </div>
 
-          <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4">
+          <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4">
             <div className="mb-3 flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-[#888]">
+              <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-gray-500 dark:text-[#888]">
                 <Network className="w-4 h-4 text-[#22d3ee]" /> Network Throughput
               </div>
-              <div className="text-right text-[10px] text-[#666]">
+              <div className="text-right text-[10px] text-gray-400 dark:text-[#666]">
                 <div>
                   RX <span className="text-[#67e8f9]">{latestNetworkThroughput ? `${formatBytes(latestNetworkThroughput.rx)}/s` : "—"}</span>
                 </div>
@@ -1483,7 +1483,7 @@ export function DashboardTab({
                 </div>
               </div>
             </div>
-            <div className="h-[140px] rounded-lg border border-[#1e1e1e] bg-[#0d0d0d] p-3">
+            <div className="h-[140px] rounded-lg border border-gray-200 dark:border-[#1e1e1e] bg-white dark:bg-[#0d0d0d] p-3">
               {networkThroughputData.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={networkThroughputData}>
@@ -1533,7 +1533,7 @@ export function DashboardTab({
                   </AreaChart>
                 </ResponsiveContainer>
               ) : (
-                <div className="flex h-full items-center justify-center text-sm text-[#666]">
+                <div className="flex h-full items-center justify-center text-sm text-gray-400 dark:text-[#666]">
                   {networkThroughputMessage}
                 </div>
               )}
@@ -1576,7 +1576,7 @@ export function DashboardTab({
             <div className="rounded-lg border border-[#1e3a5f] bg-[#0d1b2a] p-4">
               <p className="text-[10px] uppercase text-[#4a6fa5]">Connection string</p>
               <div className="mt-2 flex flex-wrap items-center gap-3">
-                <code className="min-w-0 flex-1 break-all rounded-lg border border-[#1e3a5f] bg-[#10233a] px-3 py-2 text-base text-[#e0e0e0]">
+                <code className="min-w-0 flex-1 break-all rounded-lg border border-[#1e3a5f] bg-[#10233a] px-3 py-2 text-base text-gray-700 dark:text-[#e0e0e0]">
                   {connectionString}
                 </code>
                 <button
@@ -1597,18 +1597,18 @@ export function DashboardTab({
                       <div className="flex items-start justify-between gap-3">
                         <div>
                           <p className="text-[10px] uppercase text-[#4a6fa5]">Port</p>
-                          <p className="mt-1 capitalize text-[#e0e0e0]">{port.label}</p>
+                          <p className="mt-1 capitalize text-gray-700 dark:text-[#e0e0e0]">{port.label}</p>
                         </div>
                         <span className="rounded-full border border-[#1e3a5f] bg-[#0d1b2a] px-2 py-0.5 font-mono">{port.protocol}</span>
                       </div>
                       <dl className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
                         <div>
                           <dt className="text-[#4a6fa5]">Container</dt>
-                          <dd className="mt-1 font-mono text-[#e0e0e0]">{port.servicePort}</dd>
+                          <dd className="mt-1 font-mono text-gray-700 dark:text-[#e0e0e0]">{port.servicePort}</dd>
                         </div>
                         <div>
                           <dt className="text-[#4a6fa5]">NodePort</dt>
-                          <dd className="mt-1 font-mono text-[#e0e0e0]">{port.nodePort ?? "—"}</dd>
+                          <dd className="mt-1 font-mono text-gray-700 dark:text-[#e0e0e0]">{port.nodePort ?? "—"}</dd>
                         </div>
                       </dl>
                       <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -1646,7 +1646,7 @@ export function DashboardTab({
                       const externalTone = getConnectivityTone(port.externalStatus);
                       return (
                         <tr key={port.id} className="border-t border-[#1e3a5f]">
-                          <td className="px-3 py-2 capitalize text-[#e0e0e0]">{port.label}</td>
+                          <td className="px-3 py-2 capitalize text-gray-700 dark:text-[#e0e0e0]">{port.label}</td>
                           <td className="px-3 py-2 font-mono">{port.servicePort}</td>
                           <td className="px-3 py-2 font-mono">{port.nodePort ?? "—"}</td>
                           <td className="px-3 py-2">{port.protocol}</td>
@@ -1684,7 +1684,7 @@ export function DashboardTab({
           <div className="space-y-3 rounded-lg border border-[#1e3a5f] bg-[#0d1b2a] p-4">
             <div>
               <p className="text-[10px] uppercase text-[#4a6fa5]">Primary host</p>
-              <p className="mt-1 break-all font-mono text-sm text-[#e0e0e0]">{connectionHost}</p>
+              <p className="mt-1 break-all font-mono text-sm text-gray-700 dark:text-[#e0e0e0]">{connectionHost}</p>
             </div>
             <img
               src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(connectionString)}`}
@@ -1723,8 +1723,8 @@ export function DashboardTab({
       ) : null}
 
       {server.podName && server.allPorts.length > 0 && (
-        <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4 space-y-2">
-          <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-[#888]">
+        <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4 space-y-2">
+          <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-gray-500 dark:text-[#888]">
             <Terminal className="w-4 h-4 text-[#60a5fa]" /> Port-forward Helper
           </div>
           <div className="space-y-1.5">
@@ -1737,12 +1737,12 @@ export function DashboardTab({
                   key={`${port.name ?? port.port}-${index}`}
                   className="flex items-center gap-2"
                 >
-                  <code className="flex-1 text-[11px] font-mono text-[#9e9e9e] bg-[#0a0a0a] border border-[#1e1e1e] rounded px-2 py-1 truncate">
+                  <code className="flex-1 text-[11px] font-mono text-gray-500 dark:text-[#9e9e9e] bg-white dark:bg-[#0a0a0a] border border-gray-200 dark:border-[#1e1e1e] rounded px-2 py-1 truncate">
                     {snippet}
                   </code>
                   <button
                     onClick={() => copyValue(snippet)}
-                    className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded text-[#444] transition-colors hover:text-[#888]"
+                    className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded text-gray-400 dark:text-[#444] transition-colors hover:text-gray-700 dark:hover:text-[#888]"
                   >
                     <Copy className="w-3 h-3" />
                   </button>
@@ -1754,8 +1754,8 @@ export function DashboardTab({
       )}
 
       {server.volumeMounts?.length || server.volumes?.length ? (
-        <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4 space-y-2">
-          <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-[#888]">
+        <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4 space-y-2">
+          <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-gray-500 dark:text-[#888]">
             <Layers className="w-4 h-4 text-[#f59e0b]" /> Volume Mounts
           </div>
           <div className="space-y-2">
@@ -1763,25 +1763,25 @@ export function DashboardTab({
               {(server.volumeMounts ?? []).map((mount, index) => {
                 const volume = (server.volumes ?? []).find((entry) => entry.name === mount.name);
                 return (
-                  <div key={`${mount.name}-${index}`} className="rounded-xl border border-[#1a1a1a] bg-[#0d0d0d] p-3 text-xs">
+                  <div key={`${mount.name}-${index}`} className="rounded-xl border border-gray-200 dark:border-[#1a1a1a] bg-white dark:bg-[#0d0d0d] p-3 text-xs">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="font-mono text-[#d4d4d4]">{mount.name}</p>
-                        <p className="mt-1 break-all font-mono text-[11px] text-[#9e9e9e]">{mount.mountPath}</p>
+                        <p className="font-mono text-gray-700 dark:text-[#d4d4d4]">{mount.name}</p>
+                        <p className="mt-1 break-all font-mono text-[11px] text-gray-500 dark:text-[#9e9e9e]">{mount.mountPath}</p>
                       </div>
-                      <span className={mount.readOnly ? "text-yellow-400" : "text-[#555]"}>
+                      <span className={mount.readOnly ? "text-yellow-400" : "text-gray-400 dark:text-[#555]"}>
                         {mount.readOnly ? "Read only" : "Writable"}
                       </span>
                     </div>
-                    <p className="mt-3 text-[11px] text-[#777]">Size: <span className="text-[#d4d4d4]">{volume?.pvcSize ?? "—"}</span></p>
+                    <p className="mt-3 text-[11px] text-gray-500 dark:text-[#777]">Size: <span className="text-gray-700 dark:text-[#d4d4d4]">{volume?.pvcSize ?? "—"}</span></p>
                   </div>
                 );
               })}
             </div>
             <div className="hidden overflow-x-auto touch-pan-x sm:block">
-              <table className="w-full min-w-[560px] text-xs text-[#888]">
+              <table className="w-full min-w-[560px] text-xs text-gray-500 dark:text-[#888]">
                 <thead>
-                  <tr className="text-[#555] text-[10px] uppercase">
+                  <tr className="text-gray-400 dark:text-[#555] text-[10px] uppercase">
                     <th className="text-left py-1 pr-3">Name</th>
                     <th className="text-left py-1 pr-3">Mount Path</th>
                     <th className="text-left py-1 pr-3">Read Only</th>
@@ -1796,19 +1796,19 @@ export function DashboardTab({
                     return (
                       <tr
                         key={`${mount.name}-${index}`}
-                        className="border-t border-[#1a1a1a]"
+                        className="border-t border-gray-200 dark:border-[#1a1a1a]"
                       >
-                        <td className="py-1 pr-3 font-mono text-[#d4d4d4]">
+                        <td className="py-1 pr-3 font-mono text-gray-700 dark:text-[#d4d4d4]">
                           {mount.name}
                         </td>
-                        <td className="py-1 pr-3 font-mono text-[#9e9e9e]">
+                        <td className="py-1 pr-3 font-mono text-gray-500 dark:text-[#9e9e9e]">
                           {mount.mountPath}
                         </td>
                         <td className="py-1 pr-3">
                           {mount.readOnly ? (
                             <span className="text-yellow-400">Yes</span>
                           ) : (
-                            <span className="text-[#555]">No</span>
+                            <span className="text-gray-400 dark:text-[#555]">No</span>
                           )}
                         </td>
                         <td className="py-1">{volume?.pvcSize ?? "—"}</td>
@@ -1824,9 +1824,9 @@ export function DashboardTab({
 
       {server.replicas > 0 && (
         <div className="grid lg:grid-cols-2 gap-4">
-          <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4 space-y-3">
+          <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4 space-y-3">
             <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-[#888]">
+              <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-gray-500 dark:text-[#888]">
                 <Terminal className="w-4 h-4 text-[#22d3ee]" /> Live Processes
               </div>
               <button
@@ -1834,29 +1834,29 @@ export function DashboardTab({
                   void refetchProcesses();
                 }}
                 disabled={loadingProcesses}
-                className="min-h-[36px] rounded-lg border border-[#2a2a2a] bg-[#1e1e1e] px-3 py-1.5 text-xs text-[#888] transition-colors hover:bg-[#2a2a2a] hover:text-[#ccc] disabled:opacity-50"
+                className="min-h-[36px] rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#1e1e1e] px-3 py-1.5 text-xs text-gray-500 dark:text-[#888] transition-colors hover:bg-gray-100 dark:hover:bg-[#2a2a2a] hover:text-gray-700 dark:hover:text-[#ccc] disabled:opacity-50"
               >
                 {loadingProcesses ? "Loading…" : rawProcessRows.length ? "Refresh" : "Load"}
               </button>
             </div>
-            <div className="flex items-center gap-2 rounded-lg border border-[#2a2a2a] bg-[#0d0d0d] px-3 py-2">
-              <Search className="h-3.5 w-3.5 text-[#666]" />
+            <div className="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-3 py-2">
+              <Search className="h-3.5 w-3.5 text-gray-400 dark:text-[#666]" />
               <input
                 value={processSearch}
                 onChange={(event) => setProcessSearch(event.target.value)}
                 placeholder="Search processes…"
-                className="flex-1 bg-transparent text-sm text-[#f2f2f2] outline-none"
+                className="flex-1 bg-transparent text-sm text-gray-900 dark:text-[#f2f2f2] outline-none"
               />
             </div>
             {rawProcessRows.length ? (
               <div className="space-y-2">
                 <div className="space-y-2 sm:hidden">
                   {processRows.map((row) => (
-                    <div key={`${row.pid}-${row.command}`} className="rounded-xl border border-[#1a1a1a] bg-[#0d0d0d] p-3 text-xs text-[#9e9e9e]">
+                    <div key={`${row.pid}-${row.command}`} className="rounded-xl border border-gray-200 dark:border-[#1a1a1a] bg-white dark:bg-[#0d0d0d] p-3 text-xs text-gray-500 dark:text-[#9e9e9e]">
                       <div className="flex items-start justify-between gap-3">
                         <div>
-                          <p className="text-[10px] uppercase text-[#555]">PID</p>
-                          <p className="mt-1 font-mono text-[#f2f2f2]">{row.pid}</p>
+                          <p className="text-[10px] uppercase text-gray-400 dark:text-[#555]">PID</p>
+                          <p className="mt-1 font-mono text-gray-900 dark:text-[#f2f2f2]">{row.pid}</p>
                         </div>
                         <button
                           onClick={() => void killProcess(row.pid)}
@@ -1869,21 +1869,21 @@ export function DashboardTab({
                       </div>
                       <div className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
                         <div>
-                          <p className="text-[#555]">CPU</p>
+                          <p className="text-gray-400 dark:text-[#555]">CPU</p>
                           <p className="mt-1">{row.cpu.toFixed(1)}%</p>
                         </div>
                         <div>
-                          <p className="text-[#555]">Memory</p>
+                          <p className="text-gray-400 dark:text-[#555]">Memory</p>
                           <p className="mt-1">{row.mem.toFixed(1)}%</p>
                         </div>
                       </div>
-                      <p className="mt-3 break-all font-mono text-[11px] text-[#d4d4d4]">{row.command}</p>
+                      <p className="mt-3 break-all font-mono text-[11px] text-gray-700 dark:text-[#d4d4d4]">{row.command}</p>
                     </div>
                   ))}
                 </div>
                 <div className="hidden max-h-64 overflow-x-auto overflow-y-auto touch-pan-x sm:block">
                   <table className="w-full min-w-[420px] text-[11px] font-mono">
-                    <thead className="sticky top-0 bg-[#111] text-[#555] text-[10px] uppercase">
+                    <thead className="sticky top-0 bg-white dark:bg-[#111] text-gray-400 dark:text-[#555] text-[10px] uppercase">
                       <tr>
                         {[
                           ["pid", "PID"],
@@ -1894,7 +1894,7 @@ export function DashboardTab({
                           <th key={key} className="pb-1 pr-3 text-left">
                             <button
                               onClick={() => toggleProcessSort(key as "pid" | "cpu" | "mem" | "command")}
-                              className="inline-flex items-center gap-1 hover:text-[#ccc]"
+                              className="inline-flex items-center gap-1 hover:text-gray-700 dark:hover:text-[#ccc]"
                             >
                               {label}
                               <ArrowUpDown className="h-3 w-3" />
@@ -1908,12 +1908,12 @@ export function DashboardTab({
                       {processRows.map((row) => (
                         <tr
                           key={`${row.pid}-${row.command}`}
-                          className="border-t border-[#1a1a1a] text-[#9e9e9e]"
+                          className="border-t border-gray-200 dark:border-[#1a1a1a] text-gray-500 dark:text-[#9e9e9e]"
                         >
                           <td className="py-1 pr-3">{row.pid}</td>
                           <td className="py-1 pr-3">{row.cpu.toFixed(1)}</td>
                           <td className="py-1 pr-3">{row.mem.toFixed(1)}</td>
-                          <td className="py-1 pr-3 text-[#d4d4d4]" title={row.command}>
+                          <td className="py-1 pr-3 text-gray-700 dark:text-[#d4d4d4]" title={row.command}>
                             {truncateCommand(row.command)}
                           </td>
                           <td className="py-1 text-right">
@@ -1933,15 +1933,15 @@ export function DashboardTab({
                 </div>
               </div>
             ) : (
-              <p className="text-xs text-[#555]">
+              <p className="text-xs text-gray-400 dark:text-[#555]">
                 Load the current process list from inside the container.
               </p>
             )}
           </div>
 
-          <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4 space-y-3">
+          <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4 space-y-3">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-[#888]">
+              <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-gray-500 dark:text-[#888]">
                 <Network className="w-4 h-4 text-[#22d3ee]" /> Network Stats
               </div>
               <button
@@ -1949,7 +1949,7 @@ export function DashboardTab({
                   void refetchNetwork();
                 }}
                 disabled={loadingNetwork}
-                className="min-h-[36px] rounded-lg border border-[#2a2a2a] bg-[#1e1e1e] px-3 py-1.5 text-xs text-[#888] transition-colors hover:bg-[#2a2a2a] hover:text-[#ccc] disabled:opacity-50"
+                className="min-h-[36px] rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#1e1e1e] px-3 py-1.5 text-xs text-gray-500 dark:text-[#888] transition-colors hover:bg-gray-100 dark:hover:bg-[#2a2a2a] hover:text-gray-700 dark:hover:text-[#ccc] disabled:opacity-50"
               >
                 {loadingNetwork
                   ? "Loading…"
@@ -1962,26 +1962,26 @@ export function DashboardTab({
               <div className="space-y-2">
                 <div className="space-y-2 sm:hidden">
                   {networkRows.map((row) => (
-                    <div key={row.iface} className="rounded-xl border border-[#1a1a1a] bg-[#0d0d0d] p-3 text-xs text-[#9e9e9e]">
+                    <div key={row.iface} className="rounded-xl border border-gray-200 dark:border-[#1a1a1a] bg-white dark:bg-[#0d0d0d] p-3 text-xs text-gray-500 dark:text-[#9e9e9e]">
                       <div className="flex items-center justify-between gap-3">
-                        <p className="font-mono text-[#d4d4d4]">{row.iface}</p>
-                        <span className="rounded-full border border-[#2a2a2a] px-2 py-0.5 text-[10px] text-[#888]">iface</span>
+                        <p className="font-mono text-gray-700 dark:text-[#d4d4d4]">{row.iface}</p>
+                        <span className="rounded-full border border-gray-200 dark:border-[#2a2a2a] px-2 py-0.5 text-[10px] text-gray-500 dark:text-[#888]">iface</span>
                       </div>
                       <dl className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
                         <div>
-                          <dt className="text-[#555]">RX</dt>
+                          <dt className="text-gray-400 dark:text-[#555]">RX</dt>
                           <dd className="mt-1">{formatBytes(row.rxBytes)}</dd>
                         </div>
                         <div>
-                          <dt className="text-[#555]">RX pkt</dt>
+                          <dt className="text-gray-400 dark:text-[#555]">RX pkt</dt>
                           <dd className="mt-1">{row.rxPackets}</dd>
                         </div>
                         <div>
-                          <dt className="text-[#555]">TX</dt>
+                          <dt className="text-gray-400 dark:text-[#555]">TX</dt>
                           <dd className="mt-1">{formatBytes(row.txBytes)}</dd>
                         </div>
                         <div>
-                          <dt className="text-[#555]">TX pkt</dt>
+                          <dt className="text-gray-400 dark:text-[#555]">TX pkt</dt>
                           <dd className="mt-1">{row.txPackets}</dd>
                         </div>
                       </dl>
@@ -1990,7 +1990,7 @@ export function DashboardTab({
                 </div>
                 <div className="hidden max-h-64 overflow-x-auto overflow-y-auto touch-pan-x sm:block">
                   <table className="w-full min-w-[520px] text-[11px] font-mono">
-                    <thead className="text-[#555] text-[10px] uppercase sticky top-0 bg-[#111]">
+                    <thead className="text-gray-400 dark:text-[#555] text-[10px] uppercase sticky top-0 bg-white dark:bg-[#111]">
                       <tr>
                         <th className="text-left pb-1 pr-3">Iface</th>
                         <th className="text-left pb-1 pr-3">RX</th>
@@ -2003,9 +2003,9 @@ export function DashboardTab({
                       {networkRows.map((row) => (
                         <tr
                           key={row.iface}
-                          className="border-t border-[#1a1a1a] text-[#9e9e9e]"
+                          className="border-t border-gray-200 dark:border-[#1a1a1a] text-gray-500 dark:text-[#9e9e9e]"
                         >
-                          <td className="py-0.5 pr-3 text-[#d4d4d4]">
+                          <td className="py-0.5 pr-3 text-gray-700 dark:text-[#d4d4d4]">
                             {row.iface}
                           </td>
                           <td className="py-0.5 pr-3">
@@ -2023,7 +2023,7 @@ export function DashboardTab({
                 </div>
               </div>
             ) : (
-              <p className="text-xs text-[#555]">
+              <p className="text-xs text-gray-400 dark:text-[#555]">
                 Inspect bytes in and out from /proc/net/dev for this server pod.
               </p>
             )}
@@ -2032,9 +2032,9 @@ export function DashboardTab({
       )}
 
       <div className="grid lg:grid-cols-2 gap-4">
-        <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4 space-y-3">
+        <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4 space-y-3">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-[#888]">
+            <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-gray-500 dark:text-[#888]">
               <Download className="w-4 h-4 text-[#60a5fa]" /> Backup Browser
             </div>
             <button
@@ -2045,16 +2045,16 @@ export function DashboardTab({
             </button>
           </div>
           {(backups?.backups ?? []).length === 0 ? (
-            <p className="text-xs text-[#666]">No backups found</p>
+            <p className="text-xs text-gray-400 dark:text-[#666]">No backups found</p>
           ) : (
             <div className="space-y-2">
               <div className="space-y-2 sm:hidden">
                 {(backups?.backups ?? []).map((backup) => (
-                  <div key={backup.filename} className="rounded-xl border border-[#1a1a1a] bg-[#0d0d0d] p-3 text-xs text-[#9e9e9e]">
+                  <div key={backup.filename} className="rounded-xl border border-gray-200 dark:border-[#1a1a1a] bg-white dark:bg-[#0d0d0d] p-3 text-xs text-gray-500 dark:text-[#9e9e9e]">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="break-all font-mono text-[#d4d4d4]">{backup.filename}</p>
-                        <p className="mt-1 text-[11px] text-[#666]">{formatDateTime(backup.createdAt)}</p>
+                        <p className="break-all font-mono text-gray-700 dark:text-[#d4d4d4]">{backup.filename}</p>
+                        <p className="mt-1 text-[11px] text-gray-400 dark:text-[#666]">{formatDateTime(backup.createdAt)}</p>
                       </div>
                       {backup.status === "warning" ? (
                         <span className="rounded-full border border-yellow-500/30 bg-yellow-500/10 px-2 py-0.5 text-yellow-200">
@@ -2068,12 +2068,12 @@ export function DashboardTab({
                     </div>
                     <dl className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
                       <div>
-                        <dt className="text-[#555]">Size</dt>
-                        <dd className="mt-1 text-[#d4d4d4]">{backup.size}</dd>
+                        <dt className="text-gray-400 dark:text-[#555]">Size</dt>
+                        <dd className="mt-1 text-gray-700 dark:text-[#d4d4d4]">{backup.size}</dd>
                       </div>
                       <div>
-                        <dt className="text-[#555]">SHA256</dt>
-                        <dd className="mt-1 font-mono text-[#d4d4d4]">{backup.checksum?.slice(0, 10) ?? "—"}</dd>
+                        <dt className="text-gray-400 dark:text-[#555]">SHA256</dt>
+                        <dd className="mt-1 font-mono text-gray-700 dark:text-[#d4d4d4]">{backup.checksum?.slice(0, 10) ?? "—"}</dd>
                       </div>
                     </dl>
                     <div className="mt-3 flex flex-wrap gap-2">
@@ -2099,9 +2099,9 @@ export function DashboardTab({
                   </div>
                 ))}
               </div>
-              <div className="hidden max-h-64 overflow-x-auto overflow-y-auto touch-pan-x rounded-lg border border-[#1a1a1a] sm:block">
+              <div className="hidden max-h-64 overflow-x-auto overflow-y-auto touch-pan-x rounded-lg border border-gray-200 dark:border-[#1a1a1a] sm:block">
                 <table className="w-full min-w-[720px] text-[11px]">
-                  <thead className="sticky top-0 bg-[#0d0d0d] text-[#666]">
+                  <thead className="sticky top-0 bg-white dark:bg-[#0d0d0d] text-gray-400 dark:text-[#666]">
                     <tr>
                       <th className="px-3 py-2 text-left">Backup</th>
                       <th className="px-3 py-2 text-left">Size</th>
@@ -2115,9 +2115,9 @@ export function DashboardTab({
                     {(backups?.backups ?? []).map((backup) => (
                       <tr
                         key={backup.filename}
-                        className="border-t border-[#1a1a1a] text-[#9e9e9e]"
+                        className="border-t border-gray-200 dark:border-[#1a1a1a] text-gray-500 dark:text-[#9e9e9e]"
                       >
-                        <td className="px-3 py-2 font-mono text-[#d4d4d4]">
+                        <td className="px-3 py-2 font-mono text-gray-700 dark:text-[#d4d4d4]">
                           {backup.filename}
                         </td>
                         <td className="px-3 py-2">{backup.size}</td>
@@ -2169,13 +2169,13 @@ export function DashboardTab({
           )}
         </div>
 
-        <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4 space-y-3">
-          <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-[#888]">
+        <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4 space-y-3">
+          <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-gray-500 dark:text-[#888]">
             <Wifi className="w-4 h-4 text-[#22d3ee]" /> Network / Artifacts
           </div>
-          <p className="text-xs text-[#777]">
+          <p className="text-xs text-gray-500 dark:text-[#777]">
             Ports:{" "}
-            <span className="text-[#d4d4d4]">
+            <span className="text-gray-700 dark:text-[#d4d4d4]">
               {server.allPorts
                 .map((port) => `${port.protocol} ${port.nodePort ?? port.port}`)
                 .join(", ") || "—"}
@@ -2183,24 +2183,24 @@ export function DashboardTab({
           </p>
           <div className="grid md:grid-cols-2 gap-3 text-xs">
             <div>
-              <p className="text-[#666] mb-2">Plugins</p>
+              <p className="text-gray-400 dark:text-[#666] mb-2">Plugins</p>
               {(plugins?.plugins ?? []).length === 0 ? (
-                <p className="text-[#555]">None</p>
+                <p className="text-gray-400 dark:text-[#555]">None</p>
               ) : (
                 plugins?.plugins.map((plugin) => (
-                  <div key={plugin} className="text-[#d4d4d4] truncate">
+                  <div key={plugin} className="text-gray-700 dark:text-[#d4d4d4] truncate">
                     {plugin}
                   </div>
                 ))
               )}
             </div>
             <div>
-              <p className="text-[#666] mb-2">Mods</p>
+              <p className="text-gray-400 dark:text-[#666] mb-2">Mods</p>
               {(plugins?.mods ?? []).length === 0 ? (
-                <p className="text-[#555]">None</p>
+                <p className="text-gray-400 dark:text-[#555]">None</p>
               ) : (
                 plugins?.mods.map((mod) => (
-                  <div key={mod} className="text-[#d4d4d4] truncate">
+                  <div key={mod} className="text-gray-700 dark:text-[#d4d4d4] truncate">
                     {mod}
                   </div>
                 ))
@@ -2211,12 +2211,12 @@ export function DashboardTab({
       </div>
 
       <div className="grid lg:grid-cols-2 gap-4">
-        <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4 space-y-3">
-          <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-[#888]">
+        <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4 space-y-3">
+          <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-gray-500 dark:text-[#888]">
             <Activity className="w-4 h-4 text-[#22c55e]" /> Recent Events
           </div>
           {eventFeed.length === 0 ? (
-            <p className="text-xs text-[#666]">No recent events</p>
+            <p className="text-xs text-gray-400 dark:text-[#666]">No recent events</p>
           ) : (
             eventFeed.slice(0, 5).map((event, index) => (
               <div
@@ -2225,20 +2225,20 @@ export function DashboardTab({
                   "rounded-lg border px-3 py-2",
                   event.type === "Warning"
                     ? "border-yellow-500/30 bg-yellow-500/10"
-                    : "border-[#222]",
+                    : "border-gray-200 dark:border-[#222]",
                 )}
               >
                 <div className="flex items-start justify-between gap-3">
-                  <p className="text-sm text-[#f2f2f2]">{event.reason}</p>
+                  <p className="text-sm text-gray-900 dark:text-[#f2f2f2]">{event.reason}</p>
                   {event.type === "Warning" && (
                     <span className="rounded-full border border-yellow-500/30 bg-yellow-500/10 px-2 py-0.5 text-[10px] text-yellow-200">
                       Warning
                     </span>
                   )}
                 </div>
-                <p className="mt-1 text-xs text-[#666]">{event.message}</p>
+                <p className="mt-1 text-xs text-gray-400 dark:text-[#666]">{event.message}</p>
                 {event.timestamp && (
-                  <p className="mt-0.5 text-[10px] text-[#444]">
+                  <p className="mt-0.5 text-[10px] text-gray-400 dark:text-[#444]">
                     {formatDateTime(event.timestamp)}
                   </p>
                 )}
@@ -2246,54 +2246,54 @@ export function DashboardTab({
             ))
           )}
         </div>
-        <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4 space-y-3">
-          <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-[#888]">
+        <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4 space-y-3">
+          <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-gray-500 dark:text-[#888]">
             <Users className="w-4 h-4 text-[#f59e0b]" /> Player Activity
           </div>
-          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-[#777]">
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500 dark:text-[#777]">
             <p>
               Unique today:{" "}
-              <span className="text-[#f2f2f2]">{stats?.uniqueToday ?? 0}</span>
+              <span className="text-gray-900 dark:text-[#f2f2f2]">{stats?.uniqueToday ?? 0}</span>
             </p>
             <p>
               Current players:{" "}
-              <span className="text-[#f2f2f2]">{players?.count ?? 0}</span>
+              <span className="text-gray-900 dark:text-[#f2f2f2]">{players?.count ?? 0}</span>
             </p>
           </div>
           <div className="grid gap-3 text-xs md:grid-cols-2">
             <div>
-              <p className="mb-2 text-[#666]">Recent joins</p>
+              <p className="mb-2 text-gray-400 dark:text-[#666]">Recent joins</p>
               {(stats?.recentJoins ?? []).slice(0, 8).map((entry, index) => (
                 <div
                   key={`${entry.player}-${index}`}
-                  className="text-[#d4d4d4]"
+                  className="text-gray-700 dark:text-[#d4d4d4]"
                 >
                   {entry.player}
                 </div>
               ))}
             </div>
             <div>
-              <p className="mb-2 text-[#666]">Recent leaves</p>
+              <p className="mb-2 text-gray-400 dark:text-[#666]">Recent leaves</p>
               {(stats?.recentLeaves ?? []).slice(0, 8).map((entry, index) => (
                 <div
                   key={`${entry.player}-${index}`}
-                  className="text-[#d4d4d4]"
+                  className="text-gray-700 dark:text-[#d4d4d4]"
                 >
                   {entry.player}
                 </div>
               ))}
             </div>
           </div>
-          <div className="rounded-lg border border-[#1e1e1e] bg-[#0d0d0d] p-3">
+          <div className="rounded-lg border border-gray-200 dark:border-[#1e1e1e] bg-white dark:bg-[#0d0d0d] p-3">
             <div className="mb-3 flex items-center justify-between gap-3">
-              <p className="text-xs uppercase tracking-wide text-[#888]">
+              <p className="text-xs uppercase tracking-wide text-gray-500 dark:text-[#888]">
                 Player count history
               </p>
-              <p className="text-[11px] text-[#666]">Last {playerHistory.length} samples</p>
+              <p className="text-[11px] text-gray-400 dark:text-[#666]">Last {playerHistory.length} samples</p>
             </div>
             <div className="h-[180px]">
               {playerHistory.length === 0 ? (
-                <div className="flex h-full items-center justify-center text-sm text-[#666]">
+                <div className="flex h-full items-center justify-center text-sm text-gray-400 dark:text-[#666]">
                   No player history yet
                 </div>
               ) : (

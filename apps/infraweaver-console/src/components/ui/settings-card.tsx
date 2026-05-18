@@ -21,7 +21,7 @@ export function SettingsCard({
   contentClassName,
 }: SettingsCardProps) {
   return (
-    <section className={cn("rounded-xl border border-white/10 bg-white/5 p-4 sm:p-5", className)}>
+    <section className={cn("rounded-xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 p-4 sm:p-5", className)}>
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex min-w-0 items-center gap-3">
           {Icon ? (
@@ -30,8 +30,8 @@ export function SettingsCard({
             </div>
           ) : null}
           <div>
-            <p className="text-base font-medium text-white sm:text-sm">{title}</p>
-            <p className="text-sm text-slate-400 sm:text-xs">{description}</p>
+            <p className="text-base font-medium text-gray-900 dark:text-white sm:text-sm">{title}</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400 sm:text-xs">{description}</p>
           </div>
         </div>
         {action ? <div className="sm:shrink-0">{action}</div> : null}

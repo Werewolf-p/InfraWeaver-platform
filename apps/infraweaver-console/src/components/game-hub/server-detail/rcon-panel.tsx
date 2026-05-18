@@ -171,10 +171,10 @@ export function RconPanel({ serverName, gameType, permissions }: RconPanelProps)
   }
 
   return (
-    <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4 space-y-4">
+    <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4 space-y-4">
       <div>
-        <h3 className="text-sm font-medium text-[#f2f2f2]">{getPanelTitle(gameType)}</h3>
-        <p className="text-xs text-[#888]">{getPanelDescription(gameType)}</p>
+        <h3 className="text-sm font-medium text-gray-900 dark:text-[#f2f2f2]">{getPanelTitle(gameType)}</h3>
+        <p className="text-xs text-gray-500 dark:text-[#888]">{getPanelDescription(gameType)}</p>
       </div>
 
       {quickCommands.length > 0 ? (
@@ -185,7 +185,7 @@ export function RconPanel({ serverName, gameType, permissions }: RconPanelProps)
               type="button"
               disabled={!canConsole || submitting}
               onClick={() => void sendCommand(quickCommand)}
-              className="rounded-lg border border-[#2a2a2a] bg-[#0a0a0a] px-3 py-1.5 text-xs text-[#f2f2f2] transition hover:border-[#3a3a3a] disabled:opacity-50"
+              className="rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0a0a0a] px-3 py-1.5 text-xs text-gray-900 dark:text-[#f2f2f2] transition hover:border-[#3a3a3a] disabled:opacity-50"
             >
               {quickCommand}
             </button>
@@ -205,7 +205,7 @@ export function RconPanel({ serverName, gameType, permissions }: RconPanelProps)
           }}
           disabled={!canConsole || submitting}
           placeholder={canConsole ? getCommandPlaceholder(gameType) : "Console access is disabled"}
-          className="flex-1 rounded-lg border border-[#2a2a2a] bg-[#0a0a0a] px-3 py-2 text-sm text-[#f2f2f2] focus:border-[#0078D4] focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+          className="flex-1 rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0a0a0a] px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] focus:border-[#0078D4] focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
         />
         <button
           type="button"
@@ -226,7 +226,7 @@ export function RconPanel({ serverName, gameType, permissions }: RconPanelProps)
 
       <div className="space-y-2">
         {history.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-[#2a2a2a] p-4 text-sm text-[#888]">
+          <div className="rounded-lg border border-dashed border-gray-200 dark:border-[#2a2a2a] p-4 text-sm text-gray-500 dark:text-[#888]">
             No console commands sent yet.
           </div>
         ) : (
@@ -234,9 +234,9 @@ export function RconPanel({ serverName, gameType, permissions }: RconPanelProps)
             .slice()
             .reverse()
             .map((entry) => (
-              <div key={entry.id} className="rounded-lg border border-[#2a2a2a] bg-[#0a0a0a] p-3">
-                <div className="flex items-center justify-between gap-3 text-xs text-[#888]">
-                  <span className="font-mono text-[#f2f2f2]">{entry.command}</span>
+              <div key={entry.id} className="rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0a0a0a] p-3">
+                <div className="flex items-center justify-between gap-3 text-xs text-gray-500 dark:text-[#888]">
+                  <span className="font-mono text-gray-900 dark:text-[#f2f2f2]">{entry.command}</span>
                   <span>{new Date(entry.createdAt).toLocaleTimeString()}</span>
                 </div>
                 <pre

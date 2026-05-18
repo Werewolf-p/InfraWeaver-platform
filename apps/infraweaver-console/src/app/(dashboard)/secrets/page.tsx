@@ -103,9 +103,9 @@ export default function SecretsPage() {
   if (activeId === "all") {
     return (
       <div className="flex flex-col items-center justify-center py-24 text-center">
-        <Globe className="mb-4 h-10 w-10 text-[#333]" />
-        <p className="text-sm font-medium text-[#666]">Select a specific cluster to view this page</p>
-        <p className="mt-1 text-xs text-[#444]">Use the cluster selector in the top bar</p>
+        <Globe className="mb-4 h-10 w-10 text-gray-700 dark:text-[#333]" />
+        <p className="text-sm font-medium text-gray-400 dark:text-[#666]">Select a specific cluster to view this page</p>
+        <p className="mt-1 text-xs text-gray-400 dark:text-[#444]">Use the cluster selector in the top bar</p>
       </div>
     );
   }
@@ -132,7 +132,7 @@ export default function SecretsPage() {
           <button
             type="button"
             onClick={() => void refetch()}
-            className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-300 transition hover:text-white"
+            className="inline-flex items-center gap-2 rounded-xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-3 py-2 text-sm text-slate-700 dark:text-slate-300 transition hover:text-gray-900 dark:hover:text-white"
           >
             <RefreshCw className={cn("h-4 w-4", isFetching && "animate-spin")} />
             Refresh
@@ -156,9 +156,9 @@ export default function SecretsPage() {
           ) : null}
 
           <div className="grid gap-4 md:grid-cols-4">
-            <div className="rounded-2xl border border-white/10 bg-slate-900/70 p-4">
+            <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/70 p-4">
               <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Secrets</p>
-              <p className="mt-2 text-3xl font-semibold text-white">{visibleSecrets.length}</p>
+              <p className="mt-2 text-3xl font-semibold text-gray-900 dark:text-white">{visibleSecrets.length}</p>
             </div>
             <div className="rounded-2xl border border-indigo-500/20 bg-indigo-500/10 p-4">
               <p className="text-xs uppercase tracking-[0.2em] text-indigo-100/80">Namespaces</p>
@@ -174,7 +174,7 @@ export default function SecretsPage() {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-white/10 bg-slate-900/70 p-4">
+          <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/70 p-4">
             <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
               <SearchInput
                 value={search}
@@ -185,7 +185,7 @@ export default function SecretsPage() {
               <select
                 value={namespaceFilter}
                 onChange={(event) => setNamespaceFilter(event.target.value)}
-                className="rounded-xl border border-white/10 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none"
+                className="rounded-xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950 px-3 py-2.5 text-sm text-gray-900 dark:text-white outline-none"
               >
                 <option value="all">All namespaces</option>
                 {namespaces.map((namespace) => <option key={namespace} value={namespace}>{namespace}</option>)}
@@ -193,7 +193,7 @@ export default function SecretsPage() {
               <select
                 value={typeFilter}
                 onChange={(event) => setTypeFilter(event.target.value)}
-                className="rounded-xl border border-white/10 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none"
+                className="rounded-xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950 px-3 py-2.5 text-sm text-gray-900 dark:text-white outline-none"
               >
                 <option value="all">All types</option>
                 {types.map((type) => <option key={type} value={type}>{type}</option>)}
@@ -201,10 +201,10 @@ export default function SecretsPage() {
             </div>
           </div>
 
-          <div className="overflow-hidden rounded-2xl border border-white/10 bg-slate-900/70">
+          <div className="overflow-hidden rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/70">
             <div className="overflow-x-auto">
               <table className="w-full min-w-[1080px] text-sm">
-                <thead className="bg-slate-950/80 text-left text-xs uppercase tracking-[0.18em] text-slate-500">
+                <thead className="bg-slate-100 dark:bg-slate-950/80 text-left text-xs uppercase tracking-[0.18em] text-slate-500">
                   <tr>
                     <th className="px-4 py-3">Name</th>
                     <th className="px-4 py-3">Namespace</th>
@@ -219,16 +219,16 @@ export default function SecretsPage() {
                   {filteredSecrets.map((secret) => {
                     const isDeleting = deleteMutation.isPending && deleteTarget != null && secretId(deleteTarget) === secretId(secret);
                     return (
-                      <tr key={secretId(secret)} className="border-t border-white/5 align-top">
+                      <tr key={secretId(secret)} className="border-t border-gray-200 dark:border-white/5 align-top">
                         <td className="px-4 py-4">
-                          <p className="font-medium text-white">{secret.name}</p>
+                          <p className="font-medium text-gray-900 dark:text-white">{secret.name}</p>
                           <p className="mt-1 text-xs text-slate-500">{secret.keyCount} key{secret.keyCount === 1 ? "" : "s"}</p>
                         </td>
-                        <td className="px-4 py-4 text-slate-300">{secret.namespace}</td>
+                        <td className="px-4 py-4 text-slate-700 dark:text-slate-300">{secret.namespace}</td>
                         <td className="px-4 py-4">
-                          <span className="rounded-full border border-white/10 bg-slate-950 px-2.5 py-1 text-xs text-slate-300">{secret.type}</span>
+                          <span className="rounded-full border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950 px-2.5 py-1 text-xs text-slate-700 dark:text-slate-300">{secret.type}</span>
                         </td>
-                        <td className="px-4 py-4 text-slate-300">{secret.externalSecret ?? "—"}</td>
+                        <td className="px-4 py-4 text-slate-700 dark:text-slate-300">{secret.externalSecret ?? "—"}</td>
                         <td className="px-4 py-4">
                           <div className="flex max-w-md flex-wrap gap-1.5">
                             {secret.keyNames.length > 0 ? secret.keyNames.map((keyName) => (
@@ -236,7 +236,7 @@ export default function SecretsPage() {
                             )) : <span className="text-slate-500">No keys</span>}
                           </div>
                         </td>
-                        <td className="px-4 py-4 text-slate-400"><RelativeTime date={secret.age} /></td>
+                        <td className="px-4 py-4 text-slate-500 dark:text-slate-400"><RelativeTime date={secret.age} /></td>
                         <td className="px-4 py-4 text-right">
                           <button
                             type="button"

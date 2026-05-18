@@ -82,9 +82,9 @@ export default function CostPage() {
             getRowKey={(row) => row.namespace}
             mobileCardRender={(row) => (
               <div className="space-y-1 text-sm">
-                <div className="font-medium text-white">{row.namespace}</div>
-                <div className="text-slate-400">CPU: {row.cpuMillicores}m</div>
-                <div className="text-slate-400">Memory: {row.memoryMiB} MiB</div>
+                <div className="font-medium text-gray-900 dark:text-white">{row.namespace}</div>
+                <div className="text-slate-500 dark:text-slate-400">CPU: {row.cpuMillicores}m</div>
+                <div className="text-slate-500 dark:text-slate-400">Memory: {row.memoryMiB} MiB</div>
                 <div className="text-indigo-300">${row.monthlyCostUsd.toFixed(2)} / month</div>
               </div>
             )}

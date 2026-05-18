@@ -31,7 +31,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           }}
         />
       </head>
-      <body className={`${inter.className} bg-slate-950 text-white antialiased overflow-x-hidden`}>
+      <body className={`${inter.className} bg-white text-gray-900 dark:bg-slate-950 dark:text-white antialiased overflow-x-hidden`}>
         <Providers>{children}</Providers>
       </body>
     </html>

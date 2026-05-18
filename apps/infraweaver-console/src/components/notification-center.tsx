@@ -58,7 +58,7 @@ export function NotificationCenter() {
       {/* Bell button */}
       <button
         onClick={() => setOpen(prev => !prev)}
-        className="relative p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+        className="relative p-1.5 rounded-lg text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/5 transition-colors"
         aria-label="Notifications"
       >
         <motion.span animate={bellControls} style={{ display: "inline-flex", transformOrigin: "50% 0%" }}>
@@ -88,13 +88,13 @@ export function NotificationCenter() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -8, scale: 0.97 }}
             transition={{ duration: 0.15, ease: "easeOut" }}
-            className="absolute right-0 top-full mt-2 w-80 bg-slate-900/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl overflow-hidden z-[100]"
+            className="absolute right-0 top-full mt-2 w-80 bg-slate-100 dark:bg-slate-900/95 backdrop-blur-xl border border-gray-200 dark:border-white/10 rounded-xl shadow-2xl overflow-hidden z-[100]"
           >
             {/* Header */}
-            <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-white/10">
               <div className="flex items-center gap-2">
-                <Bell className="w-3.5 h-3.5 text-slate-400" />
-                <h3 className="text-sm font-semibold text-white">Notifications</h3>
+                <Bell className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+                <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Notifications</h3>
                 {unreadCount > 0 && (
                   <span className="text-[10px] bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 rounded-full px-1.5 py-0.5">
                     {unreadCount} new
@@ -105,7 +105,7 @@ export function NotificationCenter() {
                 {unreadCount > 0 && (
                   <button
                     onClick={markAllRead}
-                    className="text-[11px] text-slate-500 hover:text-slate-300 transition-colors flex items-center gap-1"
+                    className="text-[11px] text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors flex items-center gap-1"
                   >
                     <CheckCheck className="w-3 h-3" />
                     Mark all read
@@ -113,7 +113,7 @@ export function NotificationCenter() {
                 )}
                 <button
                   onClick={() => setOpen(false)}
-                  className="text-slate-500 hover:text-white transition-colors"
+                  className="text-slate-500 hover:text-gray-900 dark:hover:text-white transition-colors"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -140,8 +140,8 @@ export function NotificationCenter() {
                         animate={{ opacity: 1, x: 0 }}
                         exit={{ opacity: 0, x: 4 }}
                         className={cn(
-                          "flex gap-3 px-4 py-3 transition-colors hover:bg-white/5 cursor-default",
-                          !notification.read && "bg-white/[0.02]"
+                          "flex gap-3 px-4 py-3 transition-colors hover:bg-gray-100 dark:hover:bg-white/5 cursor-default",
+                          !notification.read && "bg-gray-50 dark:bg-white/[0.02]"
                         )}
                         onClick={() => markRead(notification.id)}
                       >
@@ -150,12 +150,12 @@ export function NotificationCenter() {
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-start justify-between gap-2">
-                            <p className={cn("text-sm font-medium", notification.read ? "text-slate-400" : "text-white")}>
+                            <p className={cn("text-sm font-medium", notification.read ? "text-slate-500 dark:text-slate-400" : "text-gray-900 dark:text-white")}>
                               {notification.title}
                             </p>
                             <button
                               onClick={e => { e.stopPropagation(); dismiss(notification.id); }}
-                              className="text-slate-600 hover:text-slate-400 transition-colors flex-shrink-0 mt-0.5"
+                              className="text-slate-600 hover:text-slate-700 dark:hover:text-slate-400 transition-colors flex-shrink-0 mt-0.5"
                             >
                               <X className="w-3 h-3" />
                             </button>

@@ -31,12 +31,12 @@ export default function DashboardError({ error, reset }: DashboardErrorProps) {
   }, [error, requestId]);
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-[#0f0f0f] p-8 text-center">
+    <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-white dark:bg-[#0f0f0f] p-8 text-center">
       <AlertTriangle className="h-16 w-16 text-red-400" />
       <div>
-        <h1 className="text-2xl font-bold text-white">Something went wrong</h1>
-        <p className="mt-2 text-white/60">{error.message}</p>
-        <p className="mt-1 font-mono text-xs text-white/40">Request ID: {requestId}</p>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Something went wrong</h1>
+        <p className="mt-2 text-gray-500 dark:text-white/60">{error.message}</p>
+        <p className="mt-1 font-mono text-xs text-gray-400 dark:text-white/40">Request ID: {requestId}</p>
       </div>
       <div className="flex flex-wrap items-center justify-center gap-3">
         <button
@@ -48,7 +48,7 @@ export default function DashboardError({ error, reset }: DashboardErrorProps) {
         </button>
         <Link
           href="/home"
-          className="inline-flex items-center gap-2 rounded-xl border border-white/10 px-6 py-3 font-medium text-white transition-colors hover:bg-white/5"
+          className="inline-flex items-center gap-2 rounded-xl border border-gray-200 dark:border-white/10 px-6 py-3 font-medium text-gray-900 dark:text-white transition-colors hover:bg-gray-100 dark:hover:bg-white/5"
         >
           <Home className="h-4 w-4" />
           Go home

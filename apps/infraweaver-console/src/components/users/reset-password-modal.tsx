@@ -54,13 +54,13 @@ export function ResetPasswordModal({ username, open, onClose }: Props) {
     <Dialog.Root open={open} onOpenChange={(nextOpen) => !nextOpen && handleClose()}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm" />
-        <Dialog.Content className="fixed inset-x-0 bottom-0 top-0 z-50 w-full overflow-y-auto bg-[#111] p-4 pt-[calc(env(safe-area-inset-top,0px)+1rem)] pb-[calc(env(safe-area-inset-bottom,0px)+1.25rem)] text-[#f2f2f2] shadow-2xl focus:outline-none sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-full sm:max-w-md sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:border sm:border-[#2a2a2a] sm:p-6 sm:pt-6 sm:pb-6">
+        <Dialog.Content className="fixed inset-x-0 bottom-0 top-0 z-50 w-full overflow-y-auto bg-white dark:bg-[#111] p-4 pt-[calc(env(safe-area-inset-top,0px)+1rem)] pb-[calc(env(safe-area-inset-bottom,0px)+1.25rem)] text-gray-900 dark:text-[#f2f2f2] shadow-2xl focus:outline-none sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-full sm:max-w-md sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:border sm:border-gray-200 dark:border-[#2a2a2a] sm:p-6 sm:pt-6 sm:pb-6">
           <div className="mb-5 flex items-center justify-between gap-3">
-            <Dialog.Title className="flex items-center gap-2 text-base font-semibold text-[#f2f2f2]">
+            <Dialog.Title className="flex items-center gap-2 text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">
               <KeyRound className="h-4 w-4 text-amber-400" />
               Reset Password
             </Dialog.Title>
-            <button onClick={handleClose} className="inline-flex h-11 w-11 items-center justify-center rounded-xl text-[#888] transition-colors hover:bg-[#1a1a1a] hover:text-[#f2f2f2]">
+            <button onClick={handleClose} className="inline-flex h-11 w-11 items-center justify-center rounded-xl text-gray-500 dark:text-[#888] transition-colors hover:bg-gray-100 dark:hover:bg-[#1a1a1a] hover:text-gray-900 dark:hover:text-[#f2f2f2]">
               <X className="h-4 w-4" />
             </button>
           </div>
@@ -79,7 +79,7 @@ export function ResetPasswordModal({ username, open, onClose }: Props) {
               <div className="flex gap-3">
                 <button
                   onClick={handleClose}
-                  className="flex h-11 flex-1 items-center justify-center rounded-lg border border-[#2a2a2a] bg-transparent px-4 text-sm text-[#d4d4d4] transition-colors hover:bg-[#1a1a1a] hover:text-[#f2f2f2] active:bg-[#1f1f1f]"
+                  className="flex h-11 flex-1 items-center justify-center rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-transparent px-4 text-sm text-gray-700 dark:text-[#d4d4d4] transition-colors hover:bg-gray-100 dark:hover:bg-[#1a1a1a] hover:text-gray-900 dark:hover:text-[#f2f2f2] active:bg-gray-200 dark:active:bg-[#1f1f1f]"
                 >
                   Cancel
                 </button>
@@ -94,15 +94,15 @@ export function ResetPasswordModal({ username, open, onClose }: Props) {
             </div>
           ) : (
             <div className="space-y-4">
-              <div className="rounded-xl border border-[#2a2a2a] bg-[#0d0d0d] p-4">
-                <p className="mb-2 text-xs text-[#888]">Temporary password for @{username}</p>
+              <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] p-4">
+                <p className="mb-2 text-xs text-gray-500 dark:text-[#888]">Temporary password for @{username}</p>
                 <div className="flex items-center gap-2">
-                  <code className="flex-1 break-all rounded-lg border border-[#2a2a2a] bg-[#111] px-3 py-2 font-mono text-sm text-[#f2f2f2]">
+                  <code className="flex-1 break-all rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-3 py-2 font-mono text-sm text-gray-900 dark:text-[#f2f2f2]">
                     {tempPassword}
                   </code>
                   <button
                     onClick={handleCopy}
-                    className="flex h-11 w-9 shrink-0 items-center justify-center rounded-lg border border-[#2a2a2a] bg-[#111] text-[#888] transition-colors hover:bg-[#1a1a1a] hover:text-[#f2f2f2]"
+                    className="flex h-11 w-9 shrink-0 items-center justify-center rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-500 dark:text-[#888] transition-colors hover:bg-gray-100 dark:hover:bg-[#1a1a1a] hover:text-gray-900 dark:hover:text-[#f2f2f2]"
                   >
                     {copied ? <Check className="h-4 w-4 text-emerald-400" /> : <Copy className="h-4 w-4" />}
                   </button>

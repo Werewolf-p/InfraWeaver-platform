@@ -20,7 +20,7 @@ const variantConfig: Record<StatusVariant, { dot: string; text: string; bg: stri
   degraded:    { dot: "bg-red-500",    text: "text-red-400",    bg: "bg-red-500/10",    border: "border-red-500/20",    pulse: "animate-[pulse_1s_ease-in-out_infinite]" },
   warning:     { dot: "bg-orange-500", text: "text-orange-400", bg: "bg-orange-500/10", border: "border-orange-500/20", pulse: "animate-[pulse_1.5s_ease-in-out_infinite]" },
   offline:     { dot: "bg-red-500",    text: "text-red-400",    bg: "bg-red-500/10",    border: "border-red-500/20",    pulse: "" },
-  unknown:     { dot: "bg-slate-500",  text: "text-slate-400",  bg: "bg-slate-500/10",  border: "border-slate-500/20",  pulse: "" },
+  unknown:     { dot: "bg-slate-500",  text: "text-slate-500 dark:text-slate-400",  bg: "bg-slate-500/10",  border: "border-slate-500/20",  pulse: "" },
 };
 
 const sizeConfig: Record<StatusSize, { badge: string; dot: string; text: string }> = {

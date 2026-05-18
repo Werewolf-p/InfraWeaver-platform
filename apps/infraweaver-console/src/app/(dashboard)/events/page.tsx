@@ -91,7 +91,7 @@ export default function EventsPage() {
             <RefreshCountdown intervalSeconds={15} resetKey={dataUpdatedAt} />
             <button
               onClick={() => void refetch()}
-              className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-300 transition hover:text-white"
+              className="inline-flex items-center gap-2 rounded-lg border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-3 py-2 text-sm text-slate-700 dark:text-slate-300 transition hover:text-gray-900 dark:hover:text-white"
             >
               <RefreshCw className={cn("h-4 w-4", isFetching && "animate-spin")} />
               Refresh
@@ -107,7 +107,7 @@ export default function EventsPage() {
       ) : null}
 
       <div className="grid gap-4 md:grid-cols-4">
-        <div className="rounded-2xl border border-white/10 bg-slate-900/70 p-4">
+        <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/70 p-4">
           <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Open warnings</p>
           <p className="mt-2 text-3xl font-semibold text-yellow-300">{unackedWarnings.length}</p>
           <p className="mt-1 text-xs text-slate-500">Warning events not yet acknowledged</p>
@@ -117,19 +117,19 @@ export default function EventsPage() {
           <p className="mt-2 text-3xl font-semibold text-red-300">{data?.summary.errors ?? 0}</p>
           <p className="mt-1 text-xs text-red-100/70">BackOff, failure, or unhealthy signals</p>
         </div>
-        <div className="rounded-2xl border border-white/10 bg-slate-900/70 p-4">
+        <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/70 p-4">
           <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Warnings</p>
-          <p className="mt-2 text-3xl font-semibold text-white">{data?.summary.warnings ?? 0}</p>
+          <p className="mt-2 text-3xl font-semibold text-gray-900 dark:text-white">{data?.summary.warnings ?? 0}</p>
           <p className="mt-1 text-xs text-slate-500">Total warning events in the current feed</p>
         </div>
-        <div className="rounded-2xl border border-white/10 bg-slate-900/70 p-4">
+        <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/70 p-4">
           <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Namespaces</p>
-          <p className="mt-2 text-3xl font-semibold text-white">{data?.summary.namespaces ?? 0}</p>
+          <p className="mt-2 text-3xl font-semibold text-gray-900 dark:text-white">{data?.summary.namespaces ?? 0}</p>
           <p className="mt-1 text-xs text-slate-500">Distinct namespaces represented</p>
         </div>
       </div>
 
-      <div className="rounded-2xl border border-white/10 bg-slate-900/70 p-4">
+      <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/70 p-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
           <div className="relative flex-1">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
@@ -137,13 +137,13 @@ export default function EventsPage() {
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Search by namespace, reason, message, or object…"
-              className="w-full rounded-xl border border-white/10 bg-slate-950 py-2.5 pl-9 pr-3 text-sm text-white outline-none focus:border-indigo-500/50"
+              className="w-full rounded-xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950 py-2.5 pl-9 pr-3 text-sm text-gray-900 dark:text-white outline-none focus:border-indigo-500/50"
             />
           </div>
           <select
             value={namespaceFilter}
             onChange={(event) => setNamespaceFilter(event.target.value)}
-            className="rounded-xl border border-white/10 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none"
+            className="rounded-xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950 px-3 py-2.5 text-sm text-gray-900 dark:text-white outline-none"
           >
             <option value="all">All namespaces</option>
             {namespaces.map((namespace) => (
@@ -153,7 +153,7 @@ export default function EventsPage() {
           <select
             value={typeFilter}
             onChange={(event) => setTypeFilter(event.target.value as "all" | "Warning" | "Normal")}
-            className="rounded-xl border border-white/10 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none"
+            className="rounded-xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950 px-3 py-2.5 text-sm text-gray-900 dark:text-white outline-none"
           >
             <option value="all">All types</option>
             <option value="Warning">Warnings</option>
@@ -163,7 +163,7 @@ export default function EventsPage() {
             onClick={() => setHideAcked((value) => !value)}
             className={cn(
               "rounded-xl border px-3 py-2.5 text-sm transition",
-              hideAcked ? "border-indigo-500/40 bg-indigo-500/10 text-indigo-300" : "border-white/10 bg-slate-950 text-slate-300"
+              hideAcked ? "border-indigo-500/40 bg-indigo-500/10 text-indigo-300" : "border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950 text-slate-700 dark:text-slate-300"
             )}
           >
             {hideAcked ? "Showing open only" : "Show acknowledged"}
@@ -180,9 +180,9 @@ export default function EventsPage() {
       </div>
 
       {isLoading ? (
-        <div className="space-y-3">{Array.from({ length: 6 }).map((_, index) => <div key={index} className="h-28 rounded-2xl bg-white/5 animate-pulse" />)}</div>
+        <div className="space-y-3">{Array.from({ length: 6 }).map((_, index) => <div key={index} className="h-28 rounded-2xl bg-gray-100 dark:bg-white/5 animate-pulse" />)}</div>
       ) : filteredEvents.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-white/10 bg-slate-950/40 py-16 text-center text-sm text-slate-500">
+        <div className="rounded-2xl border border-dashed border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950/40 py-16 text-center text-sm text-slate-500">
           No events matched the current filters.
         </div>
       ) : (
@@ -198,7 +198,7 @@ export default function EventsPage() {
                     ? event.level === "error"
                       ? "border-red-500/30 bg-red-500/10"
                       : "border-yellow-500/30 bg-yellow-500/10"
-                    : "border-white/10 bg-slate-900/70"
+                    : "border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/70"
                 )}
               >
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -214,16 +214,16 @@ export default function EventsPage() {
                       )}>
                         {event.reason}
                       </span>
-                      <span className="rounded-full border border-white/10 px-2.5 py-1 text-xs text-slate-300">
+                      <span className="rounded-full border border-gray-200 dark:border-white/10 px-2.5 py-1 text-xs text-slate-700 dark:text-slate-300">
                         {event.namespace}
                       </span>
-                      <span className="rounded-full border border-white/10 px-2.5 py-1 text-xs text-slate-400">
+                      <span className="rounded-full border border-gray-200 dark:border-white/10 px-2.5 py-1 text-xs text-slate-500 dark:text-slate-400">
                         {event.involvedObject.kind}/{event.involvedObject.name}
                       </span>
                       {isAcked ? <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs text-emerald-300">Acknowledged</span> : null}
                     </div>
-                    <p className="text-sm text-white">{event.message}</p>
-                    <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400">
+                    <p className="text-sm text-gray-900 dark:text-white">{event.message}</p>
+                    <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
                       <span>Seen {timeAgo(event.lastSeen ?? event.firstSeen ?? new Date().toISOString())}</span>
                       <span>Last update {formatTimestamp(event.lastSeen)}</span>
                       <span>Count ×{event.count}</span>

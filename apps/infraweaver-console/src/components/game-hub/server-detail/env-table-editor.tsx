@@ -129,24 +129,24 @@ export function EnvTableEditor({ serverName, env, onSave }: EnvTableEditorProps)
   }
 
   return (
-    <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4 space-y-4">
+    <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4 space-y-4">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h3 className="text-sm font-medium text-[#f2f2f2]">Environment Variables</h3>
-          <p className="text-xs text-[#888]">Edit env values in a spreadsheet-style table.</p>
+          <h3 className="text-sm font-medium text-gray-900 dark:text-[#f2f2f2]">Environment Variables</h3>
+          <p className="text-xs text-gray-500 dark:text-[#888]">Edit env values in a spreadsheet-style table.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
             onClick={() => setImportOpen((current) => !current)}
-            className="inline-flex items-center gap-2 rounded-lg border border-[#2a2a2a] bg-[#0a0a0a] px-3 py-2 text-sm text-[#f2f2f2]"
+            className="inline-flex items-center gap-2 rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0a0a0a] px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2]"
           >
             <Upload className="h-4 w-4" /> Paste .env
           </button>
           <button
             type="button"
             onClick={exportEnv}
-            className="inline-flex items-center gap-2 rounded-lg border border-[#2a2a2a] bg-[#0a0a0a] px-3 py-2 text-sm text-[#f2f2f2]"
+            className="inline-flex items-center gap-2 rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0a0a0a] px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2]"
           >
             <Download className="h-4 w-4" /> Export
           </button>
@@ -163,13 +163,13 @@ export function EnvTableEditor({ serverName, env, onSave }: EnvTableEditorProps)
       </div>
 
       {importOpen ? (
-        <div className="rounded-lg border border-[#2a2a2a] bg-[#0a0a0a] p-3 space-y-3">
+        <div className="rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0a0a0a] p-3 space-y-3">
           <textarea
             value={importText}
             onChange={(event) => setImportText(event.target.value)}
             rows={8}
             placeholder="KEY=VALUE"
-            className="w-full rounded-lg border border-[#2a2a2a] bg-[#111] p-3 font-mono text-sm text-[#f2f2f2] focus:border-[#0078D4] focus:outline-none"
+            className="w-full rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-3 font-mono text-sm text-gray-900 dark:text-[#f2f2f2] focus:border-[#0078D4] focus:outline-none"
           />
           <div className="flex gap-2">
             <button
@@ -182,7 +182,7 @@ export function EnvTableEditor({ serverName, env, onSave }: EnvTableEditorProps)
             <button
               type="button"
               onClick={() => setImportOpen(false)}
-              className="rounded-lg border border-[#2a2a2a] px-3 py-2 text-sm text-[#f2f2f2]"
+              className="rounded-lg border border-gray-200 dark:border-[#2a2a2a] px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2]"
             >
               Cancel
             </button>
@@ -190,9 +190,9 @@ export function EnvTableEditor({ serverName, env, onSave }: EnvTableEditorProps)
         </div>
       ) : null}
 
-      <div className="overflow-x-auto rounded-lg border border-[#2a2a2a] bg-[#0a0a0a]">
+      <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0a0a0a]">
         <table className="min-w-full divide-y divide-[#2a2a2a] text-sm">
-          <thead className="bg-[#111] text-left text-xs uppercase tracking-wide text-[#888]">
+          <thead className="bg-white dark:bg-[#111] text-left text-xs uppercase tracking-wide text-gray-500 dark:text-[#888]">
             <tr>
               <th className="px-3 py-2">Key</th>
               <th className="px-3 py-2">Value</th>
@@ -202,7 +202,7 @@ export function EnvTableEditor({ serverName, env, onSave }: EnvTableEditorProps)
           <tbody className="divide-y divide-[#1f1f1f]">
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={3} className="px-3 py-6 text-center text-[#888]">
+                <td colSpan={3} className="px-3 py-6 text-center text-gray-500 dark:text-[#888]">
                   No environment variables. Add a row to begin.
                 </td>
               </tr>
@@ -215,7 +215,7 @@ export function EnvTableEditor({ serverName, env, onSave }: EnvTableEditorProps)
                       onChange={(event) => updateRow(row.id, "name", event.target.value)}
                       disabled={!canWrite}
                       placeholder="KEY"
-                      className="w-full rounded-md border border-transparent bg-transparent px-2 py-1 text-[#f2f2f2] focus:border-[#2a2a2a] focus:bg-[#111] focus:outline-none"
+                      className="w-full rounded-md border border-transparent bg-transparent px-2 py-1 text-gray-900 dark:text-[#f2f2f2] focus:border-[#2a2a2a] focus:bg-[#111] focus:outline-none"
                     />
                   </td>
                   <td className="px-3 py-2 align-top">
@@ -224,7 +224,7 @@ export function EnvTableEditor({ serverName, env, onSave }: EnvTableEditorProps)
                       onChange={(event) => updateRow(row.id, "value", event.target.value)}
                       disabled={!canWrite}
                       placeholder="VALUE"
-                      className="w-full rounded-md border border-transparent bg-transparent px-2 py-1 text-[#f2f2f2] focus:border-[#2a2a2a] focus:bg-[#111] focus:outline-none"
+                      className="w-full rounded-md border border-transparent bg-transparent px-2 py-1 text-gray-900 dark:text-[#f2f2f2] focus:border-[#2a2a2a] focus:bg-[#111] focus:outline-none"
                     />
                   </td>
                   <td className="px-3 py-2 align-top">
@@ -232,7 +232,7 @@ export function EnvTableEditor({ serverName, env, onSave }: EnvTableEditorProps)
                       type="button"
                       onClick={() => deleteRow(row.id)}
                       disabled={!canWrite}
-                      className="rounded-lg p-2 text-[#888] transition hover:bg-red-500/10 hover:text-red-300"
+                      className="rounded-lg p-2 text-gray-500 dark:text-[#888] transition hover:bg-red-500/10 hover:text-red-300"
                     >
                       <Trash2 className="h-4 w-4" />
                     </button>
@@ -248,7 +248,7 @@ export function EnvTableEditor({ serverName, env, onSave }: EnvTableEditorProps)
         type="button"
         onClick={addRow}
         disabled={!canWrite}
-        className="inline-flex items-center gap-2 rounded-lg border border-dashed border-[#2a2a2a] px-3 py-2 text-sm text-[#f2f2f2]"
+        className="inline-flex items-center gap-2 rounded-lg border border-dashed border-gray-200 dark:border-[#2a2a2a] px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2]"
       >
         <Plus className="h-4 w-4" /> Add row
       </button>

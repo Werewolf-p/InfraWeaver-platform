@@ -116,7 +116,7 @@ const STATUS_CONFIG: Record<
   },
   suspended: {
     icon: PauseCircle,
-    colors: { bg: "bg-slate-500/10", border: "border-slate-500/30", text: "text-slate-400", dot: "bg-slate-400" },
+    colors: { bg: "bg-slate-500/10", border: "border-slate-500/30", text: "text-slate-500 dark:text-slate-400", dot: "bg-slate-400" },
     label: "Suspended",
     pulse: false,
   },
@@ -140,7 +140,7 @@ const STATUS_CONFIG: Record<
   },
   unknown: {
     icon: HelpCircle,
-    colors: { bg: "bg-slate-500/10", border: "border-slate-500/30", text: "text-slate-400", dot: "bg-slate-400" },
+    colors: { bg: "bg-slate-500/10", border: "border-slate-500/30", text: "text-slate-500 dark:text-slate-400", dot: "bg-slate-400" },
     label: "Unknown",
     pulse: false,
   },
@@ -197,7 +197,7 @@ export function StatusBadge({
         </div>
         <div className="min-w-0">
           <p className={cn("text-sm font-semibold", config.colors.text)}>{displayLabel}</p>
-          {description ? <p className="mt-0.5 text-xs text-slate-400">{description}</p> : null}
+          {description ? <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{description}</p> : null}
         </div>
         {config.pulse && (
           <div className="relative ml-auto flex-shrink-0">

@@ -59,7 +59,7 @@ export function AuditLogTable({ entries, isLoading }: AuditLogTableProps) {
 
   return (
     <div className="space-y-4">
-      <div className="space-y-3 rounded-2xl border border-white/10 bg-white/5 p-3 sm:border-0 sm:bg-transparent sm:p-0">
+      <div className="space-y-3 rounded-2xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 p-3 sm:border-0 sm:bg-transparent sm:p-0">
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex min-w-[160px] flex-1 items-center gap-2">
             <Filter className="h-4 w-4 flex-shrink-0 text-slate-500" />
@@ -68,7 +68,7 @@ export function AuditLogTable({ entries, isLoading }: AuditLogTableProps) {
               placeholder="Filter by user"
               value={userFilter}
               onChange={e => setUserFilter(e.target.value)}
-              className="min-h-[48px] flex-1 rounded-2xl border border-white/10 bg-white/5 px-4 text-base text-white placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 sm:text-sm"
+              className="min-h-[48px] flex-1 rounded-2xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-4 text-base text-gray-900 dark:text-white placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 sm:text-sm"
             />
           </div>
           <input
@@ -76,11 +76,11 @@ export function AuditLogTable({ entries, isLoading }: AuditLogTableProps) {
             placeholder="Filter by action"
             value={actionFilter}
             onChange={e => setActionFilter(e.target.value)}
-            className="min-h-[48px] min-w-[160px] flex-1 rounded-2xl border border-white/10 bg-white/5 px-4 text-base text-white placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 sm:text-sm"
+            className="min-h-[48px] min-w-[160px] flex-1 rounded-2xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-4 text-base text-gray-900 dark:text-white placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 sm:text-sm"
           />
           <button
             onClick={exportCSV}
-            className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 text-sm font-medium text-slate-300 transition-colors hover:bg-white/10 hover:text-white"
+            className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-2xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-4 text-sm font-medium text-slate-700 dark:text-slate-300 transition-colors hover:bg-gray-200 dark:hover:bg-white/10 hover:text-gray-900 dark:hover:text-white"
           >
             <Download className="h-4 w-4" />
             Export CSV
@@ -96,32 +96,32 @@ export function AuditLogTable({ entries, isLoading }: AuditLogTableProps) {
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: i * 0.03 }}
-            className={cn("rounded-2xl border p-4", entry.result === "failure" ? "border-red-500/20 bg-red-500/5" : "border-white/10 bg-white/5")}
+            className={cn("rounded-2xl border p-4", entry.result === "failure" ? "border-red-500/20 bg-red-500/5" : "border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5")}
           >
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0 flex-1">
-                <p className="text-base font-semibold text-white">{entry.user}</p>
-                <p className="mt-1 truncate font-mono text-sm text-slate-300">{entry.action}</p>
+                <p className="text-base font-semibold text-gray-900 dark:text-white">{entry.user}</p>
+                <p className="mt-1 truncate font-mono text-sm text-slate-700 dark:text-slate-300">{entry.action}</p>
               </div>
               <ResultBadge result={entry.result} />
             </div>
-            <dl className="mt-3 grid grid-cols-2 gap-3 text-sm text-slate-400">
+            <dl className="mt-3 grid grid-cols-2 gap-3 text-sm text-slate-500 dark:text-slate-400">
               <div>
                 <dt className="text-slate-500">Time</dt>
-                <dd className="mt-1 text-white">{timeAgo(entry.timestamp)}</dd>
+                <dd className="mt-1 text-gray-900 dark:text-white">{timeAgo(entry.timestamp)}</dd>
               </div>
               <div>
                 <dt className="text-slate-500">IP</dt>
-                <dd className="mt-1 text-white">{entry.ip ?? "—"}</dd>
+                <dd className="mt-1 text-gray-900 dark:text-white">{entry.ip ?? "—"}</dd>
               </div>
               <div className="col-span-2">
                 <dt className="text-slate-500">Resource</dt>
-                <dd className="mt-1 text-white">{entry.resource || "—"}</dd>
+                <dd className="mt-1 text-gray-900 dark:text-white">{entry.resource || "—"}</dd>
               </div>
               {entry.details ? (
                 <div className="col-span-2">
                   <dt className="text-slate-500">Details</dt>
-                  <dd className="mt-1 text-white">{entry.details}</dd>
+                  <dd className="mt-1 text-gray-900 dark:text-white">{entry.details}</dd>
                 </div>
               ) : null}
             </dl>
@@ -132,7 +132,7 @@ export function AuditLogTable({ entries, isLoading }: AuditLogTableProps) {
       <div className="hidden overflow-x-auto -mx-1 sm:block">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-white/5 text-slate-500">
+            <tr className="border-b border-gray-200 dark:border-white/5 text-slate-500">
               <th className="px-1 pb-2 text-left font-medium">Time</th>
               <th className="px-1 pb-2 text-left font-medium">User</th>
               <th className="px-1 pb-2 text-left font-medium">Action</th>
@@ -140,7 +140,7 @@ export function AuditLogTable({ entries, isLoading }: AuditLogTableProps) {
               <th className="px-1 pb-2 text-left font-medium">Result</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-white/5">
+          <tbody className="divide-y divide-gray-200 dark:divide-white/5">
             {filtered.map((entry, i) => (
               <motion.tr
                 key={`${entry.timestamp}-${i}`}
@@ -149,9 +149,9 @@ export function AuditLogTable({ entries, isLoading }: AuditLogTableProps) {
                 transition={{ delay: i * 0.03 }}
                 className={cn("transition-colors", entry.result === "failure" && "bg-red-500/5")}
               >
-                <td className="whitespace-nowrap px-1 py-2 text-slate-400">{timeAgo(entry.timestamp)}</td>
-                <td className="max-w-[120px] truncate px-1 py-2 text-slate-300">{entry.user}</td>
-                <td className="px-1 py-2 font-mono text-slate-400">{entry.action}</td>
+                <td className="whitespace-nowrap px-1 py-2 text-slate-500 dark:text-slate-400">{timeAgo(entry.timestamp)}</td>
+                <td className="max-w-[120px] truncate px-1 py-2 text-slate-700 dark:text-slate-300">{entry.user}</td>
+                <td className="px-1 py-2 font-mono text-slate-500 dark:text-slate-400">{entry.action}</td>
                 <td className="hidden max-w-[140px] truncate px-1 py-2 text-slate-500 sm:table-cell">{entry.resource}</td>
                 <td className="px-1 py-2"><ResultBadge result={entry.result} /></td>
               </motion.tr>

@@ -34,28 +34,28 @@ export default function RbacVizPage() {
   const subjects = [...new Set(bindings.flatMap(b => b.subjects.map(s => s.name)))];
   const selectedBindings = selected ? bindings.filter(b => b.subjects.some(s => s.name === selected)) : [];
 
-  if (isLoading) return <div className="space-y-4">{[...Array(4)].map((_, i) => <div key={i} className="h-16 rounded-xl bg-white/5 animate-pulse" />)}</div>;
+  if (isLoading) return <div className="space-y-4">{[...Array(4)].map((_, i) => <div key={i} className="h-16 rounded-xl bg-gray-100 dark:bg-white/5 animate-pulse" />)}</div>;
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
       <PageHeader icon={Shield} title="RBAC Visualizer" />
       <div>
-        <h2 className="text-xl font-bold text-white flex items-center gap-2"><Shield className="w-5 h-5 text-slate-400" />RBAC Permission Visualizer</h2>
-        <p className="text-sm text-slate-400">Browse role bindings by subject</p>
+        <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2"><Shield className="w-5 h-5 text-slate-500 dark:text-slate-400" />RBAC Permission Visualizer</h2>
+        <p className="text-sm text-slate-500 dark:text-slate-400">Browse role bindings by subject</p>
       </div>
       <div className="grid grid-cols-2 gap-4">
-        <div className="bg-slate-900/60 border border-white/10 rounded-xl backdrop-blur-sm p-4">
-          <h3 className="text-sm font-semibold text-white mb-3">Subjects ({subjects.length})</h3>
+        <div className="bg-slate-100 dark:bg-slate-900/60 border border-gray-200 dark:border-white/10 rounded-xl backdrop-blur-sm p-4">
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">Subjects ({subjects.length})</h3>
           <div className="space-y-1 max-h-96 overflow-y-auto">
             {subjects.map(s => (
-              <button key={s} onClick={() => setSelected(s === selected ? null : s)} className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${s === selected ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/30" : "text-slate-400 hover:text-white hover:bg-white/5"}`}>
+              <button key={s} onClick={() => setSelected(s === selected ? null : s)} className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${s === selected ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/30" : "text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/5"}`}>
                 {s}
               </button>
             ))}
             {subjects.length === 0 && <p className="text-slate-500 text-sm">No subjects found</p>}
           </div>
-          <div className="mt-4 pt-4 border-t border-white/10">
-            <h4 className="text-xs font-semibold text-slate-400 mb-2">Service Accounts ({sas.length})</h4>
+          <div className="mt-4 pt-4 border-t border-gray-200 dark:border-white/10">
+            <h4 className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2">Service Accounts ({sas.length})</h4>
             <div className="space-y-1 max-h-32 overflow-y-auto">
               {sas.slice(0, 10).map(sa => (
                 <div key={`${sa.namespace}/${sa.name}`} className="text-xs text-slate-500 px-2">{sa.namespace}/{sa.name}</div>
@@ -63,15 +63,15 @@ export default function RbacVizPage() {
             </div>
           </div>
         </div>
-        <div className="bg-slate-900/60 border border-white/10 rounded-xl backdrop-blur-sm p-4">
-          <h3 className="text-sm font-semibold text-white mb-3">
+        <div className="bg-slate-100 dark:bg-slate-900/60 border border-gray-200 dark:border-white/10 rounded-xl backdrop-blur-sm p-4">
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">
             {selected ? `Bindings for "${selected}"` : "Select a subject"}
           </h3>
           {!selected && <p className="text-slate-500 text-sm">Click a subject to see their bindings</p>}
           <div className="space-y-2">
             {selectedBindings.map(b => (
-              <div key={b.name} className="p-3 rounded-lg bg-white/5 border border-white/10">
-                <p className="text-sm font-medium text-white">{b.name}</p>
+              <div key={b.name} className="p-3 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10">
+                <p className="text-sm font-medium text-gray-900 dark:text-white">{b.name}</p>
                 <p className="text-xs text-indigo-400 mt-0.5">Role: {b.role}</p>
                 {b.namespace && <p className="text-xs text-slate-500 mt-0.5">Namespace: {b.namespace}</p>}
               </div>

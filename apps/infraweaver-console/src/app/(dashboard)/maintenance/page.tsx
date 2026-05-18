@@ -48,15 +48,15 @@ export default function MaintenancePage() {
   const entries = data?.maintenance ?? [];
   const active = entries.filter(e => e.active).length;
 
-  if (isLoading) return <div className="space-y-4">{[...Array(3)].map((_, i) => <div key={i} className="h-20 rounded-xl bg-white/5 animate-pulse" />)}</div>;
+  if (isLoading) return <div className="space-y-4">{[...Array(3)].map((_, i) => <div key={i} className="h-20 rounded-xl bg-gray-100 dark:bg-white/5 animate-pulse" />)}</div>;
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
       <PageHeader icon={Wrench} title="Maintenance" />
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-white flex items-center gap-2"><Settings className="w-5 h-5 text-slate-400" />Maintenance Mode Manager</h2>
-          <p className="text-sm text-slate-400">Toggle maintenance mode per application</p>
+          <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2"><Settings className="w-5 h-5 text-slate-500 dark:text-slate-400" />Maintenance Mode Manager</h2>
+          <p className="text-sm text-slate-500 dark:text-slate-400">Toggle maintenance mode per application</p>
         </div>
         {active > 0 && (
           <span className="px-3 py-1.5 rounded-lg bg-yellow-500/10 border border-yellow-500/20 text-yellow-400 text-sm font-medium">
@@ -66,14 +66,14 @@ export default function MaintenancePage() {
       </div>
       <div className="space-y-3">
         {entries.map(e => (
-          <div key={e.id} className={cn("bg-slate-900/60 border rounded-xl backdrop-blur-sm p-4 flex items-center justify-between", e.active ? "border-yellow-500/30" : "border-white/10")}>
+          <div key={e.id} className={cn("bg-slate-100 dark:bg-slate-900/60 border rounded-xl backdrop-blur-sm p-4 flex items-center justify-between", e.active ? "border-yellow-500/30" : "border-gray-200 dark:border-white/10")}>
             <div className="space-y-0.5">
               <div className="flex items-center gap-2">
-                <p className="text-sm font-semibold text-white">{e.appName}</p>
+                <p className="text-sm font-semibold text-gray-900 dark:text-white">{e.appName}</p>
                 <span className="text-xs text-slate-500">{e.namespace}</span>
                 {e.active && <span className="text-xs px-2 py-0.5 rounded-full bg-yellow-500/10 text-yellow-400 border border-yellow-500/20">MAINTENANCE</span>}
               </div>
-              <p className="text-xs text-slate-400">{e.message}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">{e.message}</p>
               {e.enabledAt && <p className="text-xs text-slate-500">Enabled {new Date(e.enabledAt).toLocaleString()} by {e.enabledBy}</p>}
             </div>
             <button

@@ -71,13 +71,13 @@ export function WikiSearch({ documents }: { documents: WikiSearchDocument[] }) {
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Search the wiki"
-          className="w-full rounded-xl border border-white/10 bg-[#0d1117] py-2.5 pl-10 pr-10 text-sm text-white placeholder:text-slate-500 focus:border-blue-500/60 focus:outline-none"
+          className="w-full rounded-xl border border-gray-200 dark:border-white/10 bg-[#0d1117] py-2.5 pl-10 pr-10 text-sm text-gray-900 dark:text-white placeholder:text-slate-500 focus:border-blue-500/60 focus:outline-none"
         />
         {query ? (
           <button
             type="button"
             onClick={() => setQuery("")}
-            className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md p-1 text-slate-500 transition hover:bg-white/5 hover:text-white"
+            className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md p-1 text-slate-500 transition hover:bg-gray-100 dark:hover:bg-white/5 hover:text-gray-900 dark:hover:text-white"
             aria-label="Clear wiki search"
           >
             <X className="h-4 w-4" />
@@ -86,7 +86,7 @@ export function WikiSearch({ documents }: { documents: WikiSearchDocument[] }) {
       </div>
 
       {query.trim() ? (
-        <div className="absolute z-30 mt-2 w-full overflow-hidden rounded-2xl border border-white/10 bg-[#0b0f14] shadow-2xl">
+        <div className="absolute z-30 mt-2 w-full overflow-hidden rounded-2xl border border-gray-200 dark:border-white/10 bg-[#0b0f14] shadow-2xl">
           {results.length > 0 ? (
             <div className="divide-y divide-white/10">
               {results.map(({ item }) => (
@@ -98,9 +98,9 @@ export function WikiSearch({ documents }: { documents: WikiSearchDocument[] }) {
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-medium text-white">{item.title}</p>
+                      <p className="truncate text-sm font-medium text-gray-900 dark:text-white">{item.title}</p>
                       <p className="mt-1 text-xs uppercase tracking-[0.18em] text-blue-300">{item.sectionTitle}</p>
-                      <p className="mt-2 line-clamp-2 text-sm text-slate-300">{buildSnippet(item.content, query)}</p>
+                      <p className="mt-2 line-clamp-2 text-sm text-slate-700 dark:text-slate-300">{buildSnippet(item.content, query)}</p>
                     </div>
                     <ArrowRight className="mt-1 h-4 w-4 shrink-0 text-slate-500" />
                   </div>
@@ -108,7 +108,7 @@ export function WikiSearch({ documents }: { documents: WikiSearchDocument[] }) {
               ))}
             </div>
           ) : (
-            <div className="flex items-center gap-3 px-4 py-6 text-sm text-slate-400">
+            <div className="flex items-center gap-3 px-4 py-6 text-sm text-slate-500 dark:text-slate-400">
               <FileSearch className="h-4 w-4" />
               No wiki pages matched “{query.trim()}”.
             </div>
