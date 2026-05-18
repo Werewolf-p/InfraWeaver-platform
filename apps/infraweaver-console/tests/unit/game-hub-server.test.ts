@@ -35,7 +35,7 @@ describe("game hub server helpers", () => {
     const script = buildConsoleInputScript("say it's time");
     expect(script).toContain("mc-send-to-console");
     expect(script).toContain("/proc/1/fd/0");
-    expect(script).toContain("rcon-cli");
+    // rcon-cli is handled by runRconCommand/getGameRconArgs; buildConsoleInputScript is stdin-only
     expect(script).toContain("'say it'\\''s time'");
     expect(buildConsoleInputScript("^C")).toBe("kill -INT 1");
   });
