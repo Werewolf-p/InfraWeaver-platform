@@ -31,30 +31,37 @@ import * as k8s from "@kubernetes/client-node";
 
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN ?? "";
 const GITHUB_REPO = process.env.GITHUB_REPO ?? "Werewolf-p/InfraWeaver-platform";
+const APP_SOURCE_RESOLUTION_ATTEMPTS = 6;
+const APP_SOURCE_RESOLUTION_DELAY_MS = 5000;
+
+const mergePatchMiddleware = {
+  pre: async (ctx: RequestContext): Promise<RequestContext> => {
+    if (ctx.getHttpMethod() === "PATCH") {
+      ctx.setHeaderParam("Content-Type", "application/merge-patch+json");
+    }
+    return ctx;
+  },
+  post: async (rsp: ResponseContext): Promise<ResponseContext> => rsp,
+};
+
+function createCustomObjectsApi(useMergePatch = false): k8s.CustomObjectsApi | null {
+  const kc = loadKubeConfig();
+  const cluster = kc.getCurrentCluster();
+  if (!cluster) return null;
+  const cfg = createConfiguration({
+    baseServer: new ServerConfiguration(cluster.server, {}),
+    authMethods: { default: kc },
+    promiseMiddleware: useMergePatch ? [mergePatchMiddleware] : [],
+  });
+  return new k8s.CustomObjectsApi(cfg);
+}
 
 /** Annotate the bootstrap ArgoCD app to force an immediate refresh so it picks
  *  up newly committed bootstrap files without waiting for the 3-minute poll. */
 async function triggerBootstrapRefresh(): Promise<void> {
   try {
-    const kc = loadKubeConfig();
-    const cluster = kc.getCurrentCluster();
-    if (!cluster) return;
-    const mergePatchMiddleware = {
-      pre: async (ctx: RequestContext): Promise<RequestContext> => {
-        if (ctx.getHttpMethod() === "PATCH") {
-          ctx.setHeaderParam("Content-Type", "application/merge-patch+json");
-        }
-        return ctx;
-      },
-      post: async (rsp: ResponseContext): Promise<ResponseContext> => rsp,
-    };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const cfg = createConfiguration({
-      baseServer: new ServerConfiguration(cluster.server, {}),
-      authMethods: { default: kc as any },
-      promiseMiddleware: [mergePatchMiddleware],
-    });
-    const customApi = new k8s.CustomObjectsApi(cfg);
+    const customApi = createCustomObjectsApi(true);
+    if (!customApi) return;
     await customApi.patchNamespacedCustomObject({
       group: "argoproj.io",
       version: "v1alpha1",
@@ -65,6 +72,53 @@ async function triggerBootstrapRefresh(): Promise<void> {
     });
   } catch {
     // Non-fatal — bootstrap will pick up changes on next poll
+  }
+}
+
+async function triggerCatalogAppRefresh(name: string): Promise<void> {
+  const customApi = createCustomObjectsApi(true);
+  if (!customApi) return;
+  await customApi.patchNamespacedCustomObject({
+    group: "argoproj.io",
+    version: "v1alpha1",
+    namespace: "argocd",
+    plural: "applications",
+    name,
+    body: { metadata: { annotations: { "argocd.argoproj.io/refresh": "hard" } } },
+  });
+}
+
+async function waitForCatalogAppSourceResolution(name: string): Promise<void> {
+  const customApi = createCustomObjectsApi();
+  if (!customApi) return;
+
+  for (let attempt = 0; attempt < APP_SOURCE_RESOLUTION_ATTEMPTS; attempt++) {
+    try {
+      await triggerCatalogAppRefresh(name);
+    } catch {
+      // Application may not be visible yet; fall through to the next poll.
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, APP_SOURCE_RESOLUTION_DELAY_MS));
+
+    try {
+      const application = await customApi.getNamespacedCustomObject({
+        group: "argoproj.io",
+        version: "v1alpha1",
+        namespace: "argocd",
+        plural: "applications",
+        name,
+      }) as {
+        status?: {
+          conditions?: Array<{ type?: string; message?: string }>;
+        };
+      };
+      const comparisonError = application.status?.conditions?.find((condition) => condition.type === "ComparisonError");
+      if (!comparisonError) return;
+      if (!/app path does not exist/i.test(comparisonError.message ?? "")) return;
+    } catch {
+      // Keep retrying — Argo may still be creating or refreshing the app.
+    }
   }
 }
 
@@ -194,16 +248,8 @@ export async function POST(req: NextRequest) {
   // installed by the community-apps flow (i.e. a platform-managed app).
   // Deploying on top of a platform app causes namespace conflicts.
   try {
-    const kc = loadKubeConfig();
-    const cluster = kc.getCurrentCluster();
-    if (cluster) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const cfg = createConfiguration({
-        baseServer: new ServerConfiguration(cluster.server, {}),
-        authMethods: { default: kc as any },
-        promiseMiddleware: [],
-      });
-      const customApi = new k8s.CustomObjectsApi(cfg);
+    const customApi = createCustomObjectsApi();
+    if (customApi) {
       const existing = await customApi.getNamespacedCustomObject({
         group: "argoproj.io",
         version: "v1alpha1",
@@ -212,8 +258,8 @@ export async function POST(req: NextRequest) {
         name: `catalog-${slug}-manifests`,
       }).catch(() => null);
       if (existing) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const labels = (existing as any)?.metadata?.labels ?? {};
+        const existingApp = existing as { metadata?: { labels?: Record<string, string> } };
+        const labels = existingApp.metadata?.labels ?? {};
         const isCommunityApp = labels["infraweaver.io/source"] === "community-apps";
         if (!isCommunityApp) {
           return NextResponse.json({
@@ -347,16 +393,8 @@ installed_at: ${new Date().toISOString()}
     // Also directly apply the ArgoCD Application resource so the app starts
     // deploying immediately even if bootstrap is mid-sync on other apps.
     try {
-      const kc = loadKubeConfig();
-      const cluster = kc.getCurrentCluster();
-      if (cluster) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const cfg = createConfiguration({
-          baseServer: new ServerConfiguration(cluster.server, {}),
-          authMethods: { default: kc as any },
-          promiseMiddleware: [],
-        });
-        const customApi = new k8s.CustomObjectsApi(cfg);
+      const customApi = createCustomObjectsApi();
+      if (customApi) {
         const argoApp = {
           apiVersion: "argoproj.io/v1alpha1",
           kind: "Application",
@@ -393,10 +431,11 @@ installed_at: ${new Date().toISOString()}
           namespace: "argocd",
           plural: "applications",
           body: argoApp,
-        });
+        }).catch(() => undefined);
+        await waitForCatalogAppSourceResolution(`catalog-${slug}-manifests`);
       }
     } catch {
-      // Non-fatal — if it already exists or permission error, bootstrap will handle it
+      // Non-fatal — if the refresh wait fails, bootstrap/self-heal will reconcile later
     }
 
     await auditLog(
