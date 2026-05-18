@@ -42,6 +42,13 @@ function parseEnvText(content: string) {
     });
 }
 
+function sameEnvRows(rows: EnvRow[], env: EnvEntry[]) {
+  return rows.length === env.length
+    && rows.every(
+      (row, index) => row.name === env[index]?.name && row.value === (env[index]?.value ?? ""),
+    );
+}
+
 export function EnvTableEditor({ serverName, env, onSave }: EnvTableEditorProps) {
   const { can } = useRBAC();
   const canWrite = can("game-hub:write", `/game-hub/servers/${serverName}`) || can("game-hub:admin", `/game-hub/servers/${serverName}`);
@@ -51,7 +58,11 @@ export function EnvTableEditor({ serverName, env, onSave }: EnvTableEditorProps)
   const [importText, setImportText] = useState("");
 
   useEffect(() => {
-    setRows(env.map((entry) => createRow(entry.name, entry.value ?? "")));
+    setRows((current) => (
+      sameEnvRows(current, env)
+        ? current
+        : env.map((entry) => createRow(entry.name, entry.value ?? ""))
+    ));
   }, [env]);
 
   const envObject = useMemo(() => {

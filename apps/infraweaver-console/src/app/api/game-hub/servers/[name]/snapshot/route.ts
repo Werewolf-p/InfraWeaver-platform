@@ -3,7 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
 import { GAME_HUB_NAMESPACE, getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
-import { appendServerAudit, makeGameHubClients } from "@/lib/game-hub-server";
+import { appendServerAudit, getKubernetesErrorStatus, makeGameHubClients } from "@/lib/game-hub-server";
 import { validateK8sName } from "@/lib/api-security";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { safeError } from "@/lib/utils";
@@ -43,6 +43,10 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ nam
 
     return NextResponse.json({ snapshots: snapshots.items ?? [] });
   } catch (error) {
+    if (getKubernetesErrorStatus(error) === 403) {
+      console.warn("snapshot list forbidden", error);
+      return NextResponse.json({ snapshots: [] }, { status: 200 });
+    }
     console.error("snapshot list failed", error);
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }

@@ -13,6 +13,10 @@ interface NotesTagsEditorProps {
   onSaved: () => void;
 }
 
+function sameTags(left: string[], right: string[]) {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
 export function NotesTagsEditor({
   serverName,
   notes,
@@ -28,11 +32,11 @@ export function NotesTagsEditor({
   const [savingTags, setSavingTags] = useState(false);
 
   useEffect(() => {
-    setNotesValue(notes);
+    setNotesValue((current) => (current === notes ? current : notes));
   }, [notes]);
 
   useEffect(() => {
-    setTagsValue(tags);
+    setTagsValue((current) => (sameTags(current, tags) ? current : [...tags]));
   }, [tags]);
 
   async function saveNotes(nextNotes: string) {

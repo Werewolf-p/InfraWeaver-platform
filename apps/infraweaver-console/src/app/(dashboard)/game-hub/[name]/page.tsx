@@ -111,6 +111,38 @@ type EditablePort = {
   protocol: string;
 };
 
+type SnapshotListResponse = {
+  snapshots: Array<{
+    metadata?: {
+      name?: string;
+      creationTimestamp?: string;
+      annotations?: Record<string, string>;
+    };
+    status?: { readyToUse?: boolean };
+  }>;
+};
+
+const EMPTY_SNAPSHOT_RESPONSE: SnapshotListResponse = { snapshots: [] };
+const EMPTY_STRING_ARRAY: string[] = [];
+
+function buildFallbackConnectivity(message: string): ConnectivityDetails {
+  return {
+    status: "unknown",
+    message,
+    internal: { ready: false, clusterIP: null, port: null, message },
+    external: {
+      status: "unknown",
+      open: null,
+      host: null,
+      port: null,
+      protocol: null,
+      latencyMs: null,
+      message,
+    },
+    ports: [],
+  };
+}
+
 const ISO_TIMESTAMP_PREFIX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z\s*/;
 const CONSOLE_PREFS_KEY = "infraweaver:console-prefs";
 const CONSOLE_HISTORY_KEY = "infraweaver:console-history";
@@ -2807,23 +2839,23 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
     [backupCronExpr],
   );
   const {
-    data: snapshotsData,
+    data: snapshotsData = EMPTY_SNAPSHOT_RESPONSE,
     refetch: refetchSnapshots,
     isFetching: snapshotsLoading,
-  } = useQuery({
+  } = useQuery<SnapshotListResponse>({
     queryKey: ["game-hub", "snapshots", name],
-    queryFn: () =>
-      fetchJson<{
-        snapshots: Array<{
-          metadata?: {
-            name?: string;
-            creationTimestamp?: string;
-            annotations?: Record<string, string>;
-          };
-          status?: { readyToUse?: boolean };
-        }>;
-      }>(`/api/game-hub/servers/${name}/snapshot`),
+    queryFn: async () => {
+      try {
+        return await fetchJson<SnapshotListResponse>(
+          `/api/game-hub/servers/${name}/snapshot`,
+        );
+      } catch (error) {
+        console.error("snapshot query failed", error);
+        return EMPTY_SNAPSHOT_RESPONSE;
+      }
+    },
     enabled: isLonghornPvc,
+    retry: false,
   });
 
   async function patchServer(body: unknown, successMessage: string) {
@@ -4505,7 +4537,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
       <NotesTagsEditor
         serverName={name}
         notes={server.notes ?? ""}
-        tags={server.tags ?? []}
+        tags={server.tags ?? EMPTY_STRING_ARRAY}
         onSaved={refreshServerDetails}
       />
 
@@ -4589,8 +4621,18 @@ export default function ServerDetailPage() {
 
   const { data: connectivity } = useQuery<ConnectivityDetails>({
     queryKey: ["game-hub", "connectivity", name],
-    queryFn: () => fetchJson(`/api/game-hub/servers/${name}/connectivity`),
+    queryFn: async () => {
+      try {
+        return await fetchJson<ConnectivityDetails>(
+          `/api/game-hub/servers/${name}/connectivity`,
+        );
+      } catch (error) {
+        console.error("connectivity query failed", error);
+        return buildFallbackConnectivity("connectivity unavailable");
+      }
+    },
     refetchInterval: 30000,
+    retry: false,
   });
 
   async function doAction(action: string, successMessage?: string) {
@@ -4880,15 +4922,26 @@ export default function ServerDetailPage() {
                 <span
                   className={cn(
                     "rounded-full border px-2 py-0.5",
-                    connectivity.external.open
+                    connectivity.external.status === "open"
                       ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
-                      : "border-yellow-500/20 bg-yellow-500/10 text-yellow-200",
+                      : connectivity.external.status === "closed"
+                        ? "border-red-500/20 bg-red-500/10 text-red-300"
+                        : "border-yellow-500/20 bg-yellow-500/10 text-yellow-200",
                   )}
+                  title={connectivity.external.message ?? undefined}
                 >
-                  External {connectivity.external.open ? "open" : "blocked"}
+                  External {
+                    connectivity.external.status === "open"
+                      ? "open"
+                      : connectivity.external.status === "closed"
+                        ? "blocked"
+                        : connectivity.external.status
+                  }
                   {typeof connectivity.external.latencyMs === "number"
                     ? ` · ${connectivity.external.latencyMs}ms`
-                    : ""}
+                    : connectivity.external.message
+                      ? ` · ${connectivity.external.message}`
+                      : ""}
                 </span>
               </div>
             )}

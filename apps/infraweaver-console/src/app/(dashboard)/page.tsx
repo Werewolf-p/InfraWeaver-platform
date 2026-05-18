@@ -32,19 +32,23 @@ const dashboardItem: Variants = {
 };
 
 function AnimatedNumber({ value }: { value: number }) {
-  const motionVal = useMotionValue(0);
+  const motionValue = useMotionValue(0);
+  const motionValueRef = useRef(motionValue);
   const [display, setDisplay] = useState(0);
 
   useEffect(() => {
-    const controls = animate(motionVal, value, {
+    const controls = animate(motionValueRef.current, value, {
       type: "spring",
       stiffness: 260,
       damping: 24,
       mass: 1,
-      onUpdate: (v) => setDisplay(Math.round(v)),
+      onUpdate: (v) => {
+        const nextValue = Math.round(v);
+        setDisplay((current) => (current === nextValue ? current : nextValue));
+      },
     });
     return controls.stop;
-  }, [value, motionVal]);
+  }, [value]);
 
   return <>{display}</>;
 }

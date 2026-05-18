@@ -79,10 +79,18 @@ export interface ConnectivityPortStatus {
   status: ConnectivityStatus;
   open: boolean | null;
   latencyMs: number | null;
+  message?: string | null;
 }
 
 export interface ConnectivityDetails {
-  internal: { ready: boolean; clusterIP?: string | null; port?: number | null };
+  status?: ConnectivityStatus;
+  message?: string | null;
+  internal: {
+    ready: boolean;
+    clusterIP?: string | null;
+    port?: number | null;
+    message?: string | null;
+  };
   external: {
     status: ConnectivityStatus;
     open: boolean | null;
@@ -90,6 +98,7 @@ export interface ConnectivityDetails {
     port?: number | null;
     protocol?: string | null;
     latencyMs?: number | null;
+    message?: string | null;
   };
   ports: ConnectivityPortStatus[];
 }
