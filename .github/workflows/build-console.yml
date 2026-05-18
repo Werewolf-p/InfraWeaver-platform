@@ -19,6 +19,12 @@ jobs:
   test:
     runs-on: [self-hosted, prod-worker]
     steps:
+      - name: Pre-flight disk cleanup
+        run: |
+          docker system prune -f || true
+          find /opt/platform-runner/_diag -name "*.log" -mtime +0 -delete 2>/dev/null || true
+          find /home/runner/actions-runner/_diag -name "*.log" -mtime +0 -delete 2>/dev/null || true
+          df -h /
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
       - uses: actions/setup-node@v4
         with:

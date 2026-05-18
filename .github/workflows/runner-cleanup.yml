@@ -1,0 +1,30 @@
+name: Runner Disk Cleanup
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 3 * * *"   # 03:00 UTC daily — before builds start
+
+jobs:
+  cleanup:
+    runs-on: [self-hosted, prod-worker]
+    timeout-minutes: 10
+    steps:
+      - name: Prune Docker
+        run: |
+          docker system prune -af --volumes || true
+          df -h /
+
+      - name: Remove stale runner artefacts
+        run: |
+          find /tmp -name "*.db" -mtime +1 -delete 2>/dev/null || true
+          find /tmp -maxdepth 2 -name "runner-*" -mtime +1 -exec rm -rf {} + 2>/dev/null || true
+          find /opt/platform-runner/_work -name "_temp" -type d -exec rm -rf {} + 2>/dev/null || true
+          find /home/runner/actions-runner/_work -name "_temp" -type d -exec rm -rf {} + 2>/dev/null || true
+          df -h /
+
+      - name: Remove old runner diagnostic logs
+        run: |
+          find /opt/platform-runner/_diag -name "*.log" -mtime +1 -delete 2>/dev/null || true
+          find /home/runner/actions-runner/_diag -name "*.log" -mtime +1 -delete 2>/dev/null || true
+          df -h /
