@@ -21,6 +21,7 @@ import { convertAppFeedEntry, reconcileAppPortsWithImageMetadata } from "@/lib/a
 import { findAppByIdentifier } from "@/lib/appfeed-cache";
 import { safeError } from "@/lib/utils";
 import { loadKubeConfig } from "@/lib/k8s";
+import { getRequestClusterId } from "@/lib/cluster-context";
 import {
   createConfiguration,
   ServerConfiguration,
@@ -44,8 +45,8 @@ const mergePatchMiddleware = {
   post: async (rsp: ResponseContext): Promise<ResponseContext> => rsp,
 };
 
-function createCustomObjectsApi(useMergePatch = false): k8s.CustomObjectsApi | null {
-  const kc = loadKubeConfig();
+function createCustomObjectsApi(useMergePatch = false, clusterId?: string): k8s.CustomObjectsApi | null {
+  const kc = loadKubeConfig(clusterId);
   const cluster = kc.getCurrentCluster();
   if (!cluster) return null;
   const cfg = createConfiguration({
@@ -58,9 +59,9 @@ function createCustomObjectsApi(useMergePatch = false): k8s.CustomObjectsApi | n
 
 /** Annotate the bootstrap ArgoCD app to force an immediate refresh so it picks
  *  up newly committed bootstrap files without waiting for the 3-minute poll. */
-async function triggerBootstrapRefresh(): Promise<void> {
+async function triggerBootstrapRefresh(clusterId?: string): Promise<void> {
   try {
-    const customApi = createCustomObjectsApi(true);
+    const customApi = createCustomObjectsApi(true, clusterId);
     if (!customApi) return;
     await customApi.patchNamespacedCustomObject({
       group: "argoproj.io",
@@ -75,8 +76,8 @@ async function triggerBootstrapRefresh(): Promise<void> {
   }
 }
 
-async function triggerCatalogAppRefresh(name: string): Promise<void> {
-  const customApi = createCustomObjectsApi(true);
+async function triggerCatalogAppRefresh(name: string, clusterId?: string): Promise<void> {
+  const customApi = createCustomObjectsApi(true, clusterId);
   if (!customApi) return;
   await customApi.patchNamespacedCustomObject({
     group: "argoproj.io",
@@ -88,13 +89,13 @@ async function triggerCatalogAppRefresh(name: string): Promise<void> {
   });
 }
 
-async function waitForCatalogAppSourceResolution(name: string): Promise<void> {
-  const customApi = createCustomObjectsApi();
+async function waitForCatalogAppSourceResolution(name: string, clusterId?: string): Promise<void> {
+  const customApi = createCustomObjectsApi(undefined, clusterId);
   if (!customApi) return;
 
   for (let attempt = 0; attempt < APP_SOURCE_RESOLUTION_ATTEMPTS; attempt++) {
     try {
-      await triggerCatalogAppRefresh(name);
+      await triggerCatalogAppRefresh(name, clusterId);
     } catch {
       // Application may not be visible yet; fall through to the next poll.
     }
@@ -235,6 +236,7 @@ export async function POST(req: NextRequest) {
   }
   const { appName, slug: requestedSlug, namespace, pvcSizeGi, storageClass, ingressHost, createIngress, userVariables } = parsed.data;
   const appIdentifier = appName?.trim() || requestedSlug?.trim() || "";
+  const clusterId = getRequestClusterId(req);
 
   const app = await findAppInFeed(appIdentifier);
   if (!app) {
@@ -248,7 +250,7 @@ export async function POST(req: NextRequest) {
   // installed by the community-apps flow (i.e. a platform-managed app).
   // Deploying on top of a platform app causes namespace conflicts.
   try {
-    const customApi = createCustomObjectsApi();
+    const customApi = createCustomObjectsApi(false, clusterId);
     if (customApi) {
       const existing = await customApi.getNamespacedCustomObject({
         group: "argoproj.io",
@@ -388,12 +390,12 @@ installed_at: ${new Date().toISOString()}
 
     // Kick bootstrap to immediately pick up the new ArgoCD Application file
     // instead of waiting up to 3 minutes for the auto-poll interval.
-    await triggerBootstrapRefresh();
+    await triggerBootstrapRefresh(clusterId);
 
     // Also directly apply the ArgoCD Application resource so the app starts
     // deploying immediately even if bootstrap is mid-sync on other apps.
     try {
-      const customApi = createCustomObjectsApi();
+      const customApi = createCustomObjectsApi(false, clusterId);
       if (customApi) {
         const argoApp = {
           apiVersion: "argoproj.io/v1alpha1",
@@ -432,7 +434,7 @@ installed_at: ${new Date().toISOString()}
           plural: "applications",
           body: argoApp,
         }).catch(() => undefined);
-        await waitForCatalogAppSourceResolution(`catalog-${slug}-manifests`);
+        await waitForCatalogAppSourceResolution(`catalog-${slug}-manifests`, clusterId);
       }
     } catch {
       // Non-fatal — if the refresh wait fails, bootstrap/self-heal will reconcile later

@@ -14,6 +14,7 @@ import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { safeError } from "@/lib/utils";
 import { loadKubeConfig } from "@/lib/k8s";
+import { getRequestClusterId } from "@/lib/cluster-context";
 import {
   createConfiguration,
   ServerConfiguration,
@@ -27,8 +28,8 @@ const GITHUB_REPO = process.env.GITHUB_REPO ?? "Werewolf-p/InfraWeaver-platform"
 const GH_API = `https://api.github.com/repos/${GITHUB_REPO}`;
 
 /** Creates a CustomObjectsApi client that sends application/merge-patch+json on PATCH. */
-function makeArgoCustomApi() {
-  const kc = loadKubeConfig();
+function makeArgoCustomApi(clusterId?: string) {
+  const kc = loadKubeConfig(clusterId);
   const cluster = kc.getCurrentCluster();
   if (!cluster) throw new Error("No active cluster");
   const mergePatchMiddleware = {
@@ -185,9 +186,9 @@ export async function GET(
   }
 }
 
-async function cleanupArgoApplication(argoAppName: string, namespace: string): Promise<void> {
-  const customApi = makeArgoCustomApi();
-  const kc = loadKubeConfig();
+async function cleanupArgoApplication(argoAppName: string, namespace: string, clusterId?: string): Promise<void> {
+  const customApi = makeArgoCustomApi(clusterId);
+  const kc = loadKubeConfig(clusterId);
   const cluster = kc.getCurrentCluster();
 
   // 1. Remove the finalizer so the ArgoCD app can be deleted instantly
@@ -235,9 +236,9 @@ async function cleanupArgoApplication(argoAppName: string, namespace: string): P
 
 /** Annotate the bootstrap ArgoCD app to force an immediate hard refresh so it
  *  picks up git changes (prune of removed files) without waiting for the poll. */
-async function triggerBootstrapRefresh(): Promise<void> {
+async function triggerBootstrapRefresh(clusterId?: string): Promise<void> {
   try {
-    const kc = loadKubeConfig();
+    const kc = loadKubeConfig(clusterId);
     const cluster = kc.getCurrentCluster();
     if (!cluster) return;
     const mergePatchMiddleware = {
@@ -292,13 +293,14 @@ export async function DELETE(
 
   const errors: string[] = [];
   const deleted: string[] = [];
+  const clusterId = getRequestClusterId(req);
 
   // 1. Remove ArgoCD finalizer + delete namespace (cascade resources) + delete ArgoCD app.
   //    Deleting namespace first ensures clean resource removal before git files disappear.
   //    Deleting the ArgoCD app ensures bootstrap's next prune finds nothing to do (no 404
   //    failure that exhausts bootstrap's retry counter and causes Degraded state).
   try {
-    await cleanupArgoApplication(`catalog-${slug}-manifests`, slug);
+    await cleanupArgoApplication(`catalog-${slug}-manifests`, slug, clusterId);
   } catch (error) {
     errors.push(safeError(error));
   }
@@ -355,7 +357,7 @@ export async function DELETE(
   // Trigger bootstrap hard-refresh so it updates its resource tracking.
   // Since we already deleted the ArgoCD app above, bootstrap's prune finds
   // nothing to do — no 404 failure that would exhaust its retry counter.
-  void triggerBootstrapRefresh();
+  void triggerBootstrapRefresh(clusterId);
 
   return NextResponse.json({
     success: true,

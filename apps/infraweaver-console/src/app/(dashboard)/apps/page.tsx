@@ -2518,6 +2518,13 @@ export default function AppsPage() {
   const [showInstallModal, setShowInstallModal] = useState(false);
   const [installSource, setInstallSource] = useState<"catalog" | "community" | null>(null);
 
+  // Listen for FAB "Install App" button on mobile
+  useEffect(() => {
+    const handler = () => { setInstallSource(null); setShowInstallModal(true); };
+    window.addEventListener("fab:apps:install", handler);
+    return () => window.removeEventListener("fab:apps:install", handler);
+  }, []);
+
   const rawTab = searchParams?.get("tab");
   const activeTab: TopTab =
     rawTab === "catalog" ? "catalog" : rawTab === "community" ? "community" : "installed";
