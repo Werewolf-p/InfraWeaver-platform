@@ -1383,7 +1383,468 @@ function CatalogInstallerTab({ onInstalled }: { onInstalled?: () => void }) {
   const [installing, setInstalling] = useState(false);
   const [success, setSuccess] = useState(false);
 
-  // Pull ArgoCD apps to know what's installed const { data: argoApps } = useArgoApps(); const installedNames = useMemo(() => { const names = new Set<string>(); for (const app of argoApps ?? []) { const n = app.metadata?.name ?? ""; // ArgoCD name pattern: catalog-{appname}-manifests const m = n.match(/^catalog-(.+)-manifests$/); if (m) names.add(m[1]); } return names; }, [argoApps]); const appName = appType === "helm" ? helmFields.appName : rawFields.appName; const generatedYaml = appType === "helm" ? generateHelmYaml(helmFields) : appType === "raw" ? generateRawYaml(rawFields) : ""; const defaultCommitMessage = `feat: install catalog app ${appName} via InfraWeaver Console`; const canProceedStep2 = appType === "helm" ? !!(helmFields.appName && helmFields.namespace && helmFields.helmRepoURL && helmFields.chartName && helmFields.chartVersion) : !!(rawFields.appName && rawFields.namespace && rawFields.gitRepoURL && rawFields.gitPath); // Called when user clicks "Install" on a catalog browse card const handleCatalogInstall = (app: CatalogAppEntry) => { if (!canInstallCatalog) { toast.error("You do not have permission to install catalog apps"); return; } setRawFields({ appName: app.name, namespace: app.namespace || app.name, gitRepoURL: DEFAULT_GIT_REPO, gitPath: `kubernetes/catalog/${app.name}`, targetRevision: "HEAD", }); setAppType("raw"); setStep(2); // Go to pre-filled details step setMode("wizard"); }; const handleInstall = async () => { if (!canInstallCatalog) { toast.error("You do not have permission to install catalog apps"); return; } setInstalling(true); try { const body = appType === "helm" ? { appName: helmFields.appName, namespace: helmFields.namespace, yaml: generatedYaml, appType, helmRepoURL: helmFields.helmRepoURL, chartName: helmFields.chartName, chartVersion: helmFields.chartVersion } : { appName: rawFields.appName, namespace: rawFields.namespace, yaml: generatedYaml, appType, gitRepoURL: rawFields.gitRepoURL, gitPath: rawFields.gitPath }; const res = await fetch("/api/catalog-install", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, commitMessage: commitMessage || defaultCommitMessage }), }); if (!res.ok) { const data = (await res.json()) as { error?: string }; throw new Error(data.error ?? "Install failed"); } toast.success(`${appName} installed successfully! ArgoCD will sync shortly.`); setSuccess(true); onInstalled?.(); } catch (err) { toast.error(String(err)); } finally { setInstalling(false); } }; // ── Browse Mode ────────────────────────────────────────────────────────────── if (mode === "browse") { return ( <CatalogBrowseView onInstall={handleCatalogInstall} onCustom={() => { setAppType(null); setStep(1); setMode("wizard"); }} installedNames={installedNames} canInstall={canInstallCatalog} /> ); } // ── Wizard Mode ────────────────────────────────────────────────────────────── return ( <div className="max-w-3xl mx-auto"> {/* Back to browse */} <button onClick={() => { setMode("browse"); setStep(1); setAppType(null); setSuccess(false); }} className="flex items-center gap-1.5 text-sm text-gray-500 dark:text-[#9e9e9e] hover:text-white mb-6 transition-colors" > <ChevronLeft className="w-4 h-4" /> Back to Catalog </button> {/* Step Indicators */} <div className="flex items-center gap-2 mb-8"> {["Choose Type", "Fill Details", "Preview YAML", "Commit"].map((label, i) => { const stepNum = i + 1; const isActive = step === stepNum; const isDone = step > stepNum; return ( <div key={label} className="flex items-center gap-2"> <div className={cn( "w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 transition-colors", isDone ? "bg-green-500 text-white" : isActive ? "bg-indigo-500 text-white" : "bg-white/10 text-slate-400" )}> {isDone ? <Check className="w-3.5 h-3.5" /> : stepNum} </div> <span className={cn("text-xs font-medium hidden sm:block", isActive ? "text-white" : "text-slate-500")}> {label} </span> {i < 3 && <ChevronRight className="w-3.5 h-3.5 text-slate-600 flex-shrink-0" />} </div> ); })} </div> <AnimatePresence mode="wait"> {step === 1 && ( <motion.div key="step1" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}> <h3 className="text-base font-semibold text-white mb-4">Choose Application Type</h3> <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6"> {([ { type: "helm" as const, icon: Package, title: "Helm Chart", desc: "Deploy from a Helm repository. Supports version pinning and values overrides." }, { type: "raw" as const, icon: FileText, title: "Raw Manifests", desc: "Deploy Kubernetes manifests from a Git directory path." }, ]).map(({ type, icon: Icon, title, desc }) => ( <button key={type} onClick={() => setAppType(type)} className={cn( "flex flex-col items-center gap-4 p-6 rounded-xl border transition-all text-left", appType === type ? "border-indigo-500/50 bg-indigo-500/10" : "border-white/10 bg-gray-100 dark:bg-white/5 hover:border-white/20 hover:bg-white/10" )}> <div className={cn("w-12 h-12 rounded-xl flex items-center justify-center", appType === type ? "bg-indigo-500/20" : "bg-white/10")}> <Icon className={cn("w-6 h-6", appType === type ? "text-indigo-400" : "text-slate-400")} /> </div> <div><h4 className="font-semibold text-white text-sm">{title}</h4><p className="text-xs text-slate-500 dark:text-slate-400 mt-1">{desc}</p></div> </button> ))} </div> <div className="flex justify-end"> <button onClick={() => setStep(2)} disabled={!appType} className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600 transition-colors disabled:opacity-40"> Next <ChevronRight className="w-4 h-4" /> </button> </div> </motion.div> )} {step === 2 && ( <motion.div key="step2" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}> <h3 className="text-base font-semibold text-white mb-4">{appType === "helm" ? "Helm Chart Details" : "Raw Manifests Details"}</h3> <div className="space-y-4 mb-6"> {appType === "helm" ? ( <> <Field label="App Name" required><input value={helmFields.appName} onChange={e => { const v = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-"); setHelmFields(p => ({ ...p, appName: v, namespace: p.namespace || v })); }} placeholder="my-app" className={inputCls} /></Field> <Field label="Namespace" required><input value={helmFields.namespace} onChange={e => setHelmFields(p => ({ ...p, namespace: e.target.value }))} placeholder={helmFields.appName || "my-app"} className={inputCls} /></Field> <Field label="Helm Repo URL" required><input value={helmFields.helmRepoURL} onChange={e => setHelmFields(p => ({ ...p, helmRepoURL: e.target.value }))} placeholder="https://charts.example.com" className={inputCls} /></Field> <Field label="Chart Name" required><input value={helmFields.chartName} onChange={e => setHelmFields(p => ({ ...p, chartName: e.target.value }))} placeholder="my-chart" className={inputCls} /></Field> <Field label="Chart Version" required><input value={helmFields.chartVersion} onChange={e => setHelmFields(p => ({ ...p, chartVersion: e.target.value }))} placeholder="1.2.3" className={inputCls} /></Field> <Field label="Target Revision"><input value={helmFields.targetRevision} onChange={e => setHelmFields(p => ({ ...p, targetRevision: e.target.value }))} placeholder="HEAD" className={inputCls} /></Field> <Field label="Values Override (YAML)"><textarea value={helmFields.valuesOverride} onChange={e => setHelmFields(p => ({ ...p, valuesOverride: e.target.value }))} placeholder={`replicaCount: 1\nimage:\n tag: latest`} rows={5} className={cn(inputCls, "resize-none font-mono text-xs")} /></Field> </> ) : ( <> <Field label="App Name" required><input value={rawFields.appName} onChange={e => { const v = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-"); setRawFields(p => ({ ...p, appName: v, namespace: p.namespace || v })); }} placeholder="my-app" className={inputCls} /></Field> <Field label="Namespace" required><input value={rawFields.namespace} onChange={e => setRawFields(p => ({ ...p, namespace: e.target.value }))} placeholder={rawFields.appName || "my-app"} className={inputCls} /></Field> <Field label="Git Repo URL" required><input value={rawFields.gitRepoURL} onChange={e => setRawFields(p => ({ ...p, gitRepoURL: e.target.value }))} placeholder={DEFAULT_GIT_REPO} className={inputCls} /></Field> <Field label="Git Path" required><input value={rawFields.gitPath} onChange={e => setRawFields(p => ({ ...p, gitPath: e.target.value }))} placeholder="kubernetes/catalog/my-app" className={inputCls} /></Field> <Field label="Target Revision"><input value={rawFields.targetRevision} onChange={e => setRawFields(p => ({ ...p, targetRevision: e.target.value }))} placeholder="HEAD" className={inputCls} /></Field> </> )} </div> <div className="flex justify-between"> <button onClick={() => appType ? setStep(1) : setMode("browse")} className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-slate-700 dark:text-slate-300 text-sm font-medium hover:bg-gray-100 dark:hover:bg-white/10 transition-colors"> <ChevronLeft className="w-4 h-4" /> Back </button> <button onClick={() => setStep(3)} disabled={!canProceedStep2} className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600 transition-colors disabled:opacity-40"> Next <ChevronRight className="w-4 h-4" /> </button> </div> </motion.div> )} {step === 3 && ( <motion.div key="step3" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}> <h3 className="text-base font-semibold text-white mb-2">Preview Generated YAML</h3> <p className="text-xs text-slate-500 dark:text-slate-400 mb-4"> This ArgoCD Application manifest will be committed to{" "} <code className="font-mono bg-gray-100 dark:bg-white/10 px-1 rounded">kubernetes/catalog/{appName}/application.yaml</code> </p> <div className="rounded-xl overflow-hidden border border-gray-200 dark:border-white/10 mb-6"> <pre className="h-[380px] bg-gray-50 dark:bg-[#1e1e1e] text-slate-800 dark:text-slate-200 font-mono text-xs leading-5 p-4 overflow-auto whitespace-pre">{generatedYaml}</pre> </div> <div className="flex justify-between"> <button onClick={() => setStep(2)} className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-slate-700 dark:text-slate-300 text-sm font-medium hover:bg-gray-100 dark:hover:bg-white/10 transition-colors"> <ChevronLeft className="w-4 h-4" /> Back </button> <button onClick={() => { setCommitMessage(defaultCommitMessage); setStep(4); }} className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600 transition-colors"> Next <ChevronRight className="w-4 h-4" /> </button> </div> </motion.div> )} {step === 4 && ( <motion.div key="step4" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}> {success ? ( <div className="text-center py-12"> <div className="w-16 h-16 rounded-full bg-green-500/20 flex items-center justify-center mx-auto mb-4"> <Check className="w-8 h-8 text-green-400" /> </div> <h3 className="text-lg font-semibold text-white mb-2">{appName} installed!</h3> <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">ArgoCD will sync the application shortly.</p> <div className="flex items-center justify-center gap-3"> <button onClick={() => { setSuccess(false); setStep(1); setAppType(null); setMode("browse"); }} className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg border border-gray-200 dark:border-white/10 text-slate-700 dark:text-slate-300 text-sm font-medium hover:bg-gray-100 dark:hover:bg-white/10 transition-colors"> Back to Catalog </button> <button onClick={() => { setSuccess(false); setStep(1); setAppType(null); onInstalled?.(); }} className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600 transition-colors"> Install Another </button> </div> </div> ) : ( <> <h3 className="text-base font-semibold text-white mb-4">Review &amp; Commit</h3> <div className="bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl p-4 mb-4 space-y-3"> <h4 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Files to commit</h4> <div className="space-y-2"> <div className="flex items-start gap-2 text-sm text-slate-300"> <FileText className="w-4 h-4 text-indigo-400 flex-shrink-0 mt-0.5" /> <div> <p className="font-mono text-xs">kubernetes/catalog/{appName}/application.yaml</p> <p className="text-xs text-slate-500 mt-0.5">ArgoCD Application manifest</p> </div> </div> <div className="flex items-start gap-2 text-sm text-slate-300"> <FileText className="w-4 h-4 text-green-400 flex-shrink-0 mt-0.5" /> <div> <p className="font-mono text-xs">platform.yaml</p> <p className="text-xs text-slate-500 mt-0.5">Adding <code className="font-mono bg-gray-100 dark:bg-white/10 px-1 rounded">{appName}</code> to catalog.enabled</p> </div> </div> </div> </div> <Field label="Commit Message"> <input value={commitMessage || defaultCommitMessage} onChange={e => setCommitMessage(e.target.value)} className={inputCls} /> </Field> <div className="flex justify-between mt-6"> <button onClick={() => setStep(3)} className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-slate-700 dark:text-slate-300 text-sm font-medium hover:bg-gray-100 dark:hover:bg-white/10 transition-colors"> <ChevronLeft className="w-4 h-4" /> Back </button> <button onClick={handleInstall} disabled={installing || !canInstallCatalog} className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 transition-colors disabled:opacity-50 touch-manipulation min-h-[44px]"> {installing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Package className="w-4 h-4" />} {installing ? "Installing…" : "Install Application"} </button> </div> </> )} </motion.div> )} </AnimatePresence> </div> ); } // ══════════════════════════════════════════════════════════════════════════════ // COMMUNITY STORE TAB (community-apps browser) // ══════════════════════════════════════════════════════════════════════════════ type Tier = "simple" | "medium" | "complex"; interface AppSummary { name: string; slug: string; image: string; icon?: string; overview?: string; categories: string[]; tier: Tier; stars?: number; downloads?: number; webUI?: string; support?: string; configCount: number; } interface FeedResponse { apps: AppSummary[]; total: number; page: number; limit: number; pages: number; last_updated: string; last_updated_timestamp: number; categories: Array<{ Cat: string; Des: string }>; } interface AppDetailConfig { name: string; target: string; type: string; defaultValue?: string; description?: string; required: boolean; masked: boolean; } interface RequiredVariable { name: string; target: string; description?: string; defaultValue?: string; masked: boolean; required: boolean; isPlaceholder: boolean; } /** Returns true if a value contains an unfilled [PLACEHOLDER] (not [PORT:xxx]) */ function isPlaceholderValue(v?: string): boolean { return /\[(?!PORT:\d)[^\]]+\]/i.test(v ?? ""); } /** Extract variables that need user input from AppFeed configs */ function getRequiredVarsFromConfigs(configs: AppDetailConfig[]): RequiredVariable[] { return configs .filter(c => c.type === "Variable" && (c.required || c.masked || isPlaceholderValue(c.defaultValue))) .map(c => ({ name: c.name, target: c.target, description: c.description, defaultValue: isPlaceholderValue(c.defaultValue) ? "" : (c.defaultValue || undefined), masked: c.masked, required: c.required, isPlaceholder: isPlaceholderValue(c.defaultValue), })); } interface ConversionResult { slug: string; tier: Tier; warnings: string[]; combinedYaml: string; requiredVariables?: RequiredVariable[]; } interface DeployOptions { namespace: string; pvcSizeGi: number; storageClass: string; ingressHost: string; createIngress: boolean; } const TIER_CONFIG: Record<Tier, { label: string; color: string; icon: React.ReactNode; description: string }> = { simple: { label: "K8s Ready", color: "text-emerald-400 bg-emerald-400/10 border-emerald-400/30", icon: <CheckCircle className="w-3 h-3" />, description: "Standard container — deploys directly to Kubernetes" }, medium: { label: "Custom Network", color: "text-amber-400 bg-amber-400/10 border-amber-400/30", icon: <Zap className="w-3 h-3" />, description: "Uses custom Docker networking — verify service discovery" }, complex: { label: "Privileged", color: "text-red-400 bg-red-400/10 border-red-400/30", icon: <Shield className="w-3 h-3" />, description: "Requires privileged mode or host devices — review carefully" }, }; const COMMUNITY_CATEGORY_TABS = [ { value: "all", label: "All" }, { value: "monitoring", label: "Monitoring" }, { value: "media", label: "Media" }, { value: "games", label: "Games" }, { value: "tools", label: "Tools" }, { value: "security", label: "Security" }, { value: "storage", label: "Storage" }, ] as const; const FEATURED_APP_SLUGS = ["vaultwarden", "uptime-kuma", "filebrowser", "homarr", "it-tools"]; type CommunityCategory = (typeof COMMUNITY_CATEGORY_TABS)[number]["value"]; function detectCommunityCategory(app: Pick<AppSummary, "name" | "categories" | "overview">): CommunityCategory { const haystack = [app.name, ...(app.categories ?? []), app.overview ?? ""].join(" ").toLowerCase(); if (haystack.includes("grafana") || haystack.includes("prometheus") || haystack.includes("monitor") || haystack.includes("gatus")) return "monitoring"; if (haystack.includes("plex") || haystack.includes("media") || haystack.includes("sonarr") || haystack.includes("radarr") || haystack.includes("jellyfin")) return "media"; if (haystack.includes("game") || haystack.includes("minecraft") || haystack.includes("steam") || haystack.includes("server")) return "games"; if (haystack.includes("security") || haystack.includes("auth") || haystack.includes("vault") || haystack.includes("firewall")) return "security"; if (haystack.includes("storage") || haystack.includes("backup") || haystack.includes("s3") || haystack.includes("nas") || haystack.includes("disk")) return "storage"; if (haystack.includes("tool") || haystack.includes("utility") || haystack.includes("dns") || haystack.includes("proxy") || haystack.includes("cloud") || haystack.includes("db") || haystack.includes("database")) return "tools"; return "all"; } function formatDownloads(n?: number): string { if (!n) return ""; if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`; if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`; if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`; return String(n); } function DeployModal({ app, onClose }: { app: AppSummary; onClose: () => void }) { const { can } = useRBAC(); const canReadApps = can("apps:read"); const canDeployCommunity = can("catalog:write"); const [step, setStep] = useState<"options" | "preview" | "deploying" | "done">("options"); // NOTE: useTransition with async callbacks does NOT keep isPending=true for the // full duration of the await in React 18 — it only tracks the synchronous part. // Use explicit loading state instead so the spinner persists during the fetch. const [isPreviewLoading, setIsPreviewLoading] = useState(false); const [isDeployLoading, setIsDeployLoading] = useState(false); const isPending = isPreviewLoading || isDeployLoading; // App-specific required variables (fetched from detail endpoint) const [requiredVars, setRequiredVars] = useState<RequiredVariable[] | null>(null); const [userVariables, setUserVariables] = useState<Record<string, string>>({}); const [options, setOptions] = useState<DeployOptions>({ namespace: app.slug, pvcSizeGi: 10, storageClass: "longhorn", ingressHost: `${app.slug}.int.rlservers.com`, createIngress: !!app.webUI, }); const [preview, setPreview] = useState<ConversionResult | null>(null); const [deployResult, setDeployResult] = useState<{ paths: string[]; warnings: string[] } | null>(null); const [deployProgressStep, setDeployProgressStep] = useState(0); // Fetch app-specific configs to surface required/placeholder variables useEffect(() => { if (!canReadApps) return; fetch(`/api/community-apps/${app.slug}`) .then(r => r.ok ? r.json() as Promise<{ configs?: AppDetailConfig[] }> : null) .then(data => { if (!data?.configs) return; const vars = getRequiredVarsFromConfigs(data.configs); setRequiredVars(vars); // Pre-populate defaults for non-placeholder values const defaults: Record<string, string> = {}; for (const v of vars) { if (v.defaultValue) defaults[v.target] = v.defaultValue; } if (Object.keys(defaults).length > 0) setUserVariables(defaults); }) .catch(() => { /* non-fatal — still deployable */ }); }, [app.slug, canReadApps]); const missingRequired = (requiredVars ?? []).filter( v => (v.required || v.isPlaceholder) && !userVariables[v.target]?.trim() ); const handlePreview = async () => { if (!canReadApps) { toast.error("You do not have permission to preview community apps"); return; } setIsPreviewLoading(true); try { const res = await fetch("/api/community-apps/convert", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ appName: app.name, ...options, userVariables }), }); const data = await res.json() as ConversionResult & { error?: string }; if (!res.ok) { toast.error(data.error ?? "Conversion failed"); return; } setPreview(data); setStep("preview"); } catch { toast.error("Failed to generate preview — AppFeed may still be loading, try again"); } finally { setIsPreviewLoading(false); } }; const handleDeploy = async () => { if (!canDeployCommunity) { toast.error("You do not have permission to deploy community apps"); return; } setIsDeployLoading(true); setDeployProgressStep(0); setStep("deploying"); const timer = window.setTimeout(() => setDeployProgressStep(1), 900); try { const res = await fetch("/api/community-apps/deploy", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ appName: app.name, ...options, userVariables }), }); const data = await res.json() as { ok?: boolean; paths?: string[]; warnings?: string[]; error?: string; conflict?: boolean }; if (!res.ok) { // 409 conflict = platform-managed app, show a clear message and go back to options if (res.status === 409 && data.conflict) { toast.error(data.error ?? "This app is already installed by the platform.", { duration: 6000 }); setStep("options"); } else { toast.error(data.error ?? "Deploy failed"); setStep("preview"); } return; } setDeployResult({ paths: data.paths ?? [], warnings: data.warnings ?? [] }); setDeployProgressStep(2); setStep("done"); toast.success(`${app.name} deployed! ArgoCD will sync in ~2 minutes. If it doesn't appear, the bootstrap file has been committed to git.`);
+  // Pull ArgoCD apps to know what's installed
+  const { data: argoApps } = useArgoApps();
+  const installedNames = useMemo(() => {
+    const names = new Set<string>();
+    for (const app of argoApps ?? []) {
+      const n = app.metadata?.name ?? "";
+      // ArgoCD name pattern: catalog-{appname}-manifests
+      const m = n.match(/^catalog-(.+)-manifests$/);
+      if (m) names.add(m[1]);
+    }
+    return names;
+  }, [argoApps]);
+
+  const appName = appType === "helm" ? helmFields.appName : rawFields.appName;
+  const generatedYaml = appType === "helm"
+    ? generateHelmYaml(helmFields)
+    : appType === "raw" ? generateRawYaml(rawFields) : "";
+  const defaultCommitMessage = `feat: install catalog app ${appName} via InfraWeaver Console`;
+
+  const canProceedStep2 = appType === "helm"
+    ? !!(helmFields.appName && helmFields.namespace && helmFields.helmRepoURL && helmFields.chartName && helmFields.chartVersion)
+    : !!(rawFields.appName && rawFields.namespace && rawFields.gitRepoURL && rawFields.gitPath);
+
+  // Called when user clicks "Install" on a catalog browse card
+  const handleCatalogInstall = (app: CatalogAppEntry) => {
+    if (!canInstallCatalog) {
+      toast.error("You do not have permission to install catalog apps");
+      return;
+    }
+    setRawFields({
+      appName: app.name,
+      namespace: app.namespace || app.name,
+      gitRepoURL: DEFAULT_GIT_REPO,
+      gitPath: `kubernetes/catalog/${app.name}`,
+      targetRevision: "HEAD",
+    });
+    setAppType("raw");
+    setStep(2); // Go to pre-filled details step
+    setMode("wizard");
+  };
+
+  const handleInstall = async () => {
+    if (!canInstallCatalog) {
+      toast.error("You do not have permission to install catalog apps");
+      return;
+    }
+    setInstalling(true);
+    try {
+      const body = appType === "helm"
+        ? { appName: helmFields.appName, namespace: helmFields.namespace, yaml: generatedYaml, appType, helmRepoURL: helmFields.helmRepoURL, chartName: helmFields.chartName, chartVersion: helmFields.chartVersion }
+        : { appName: rawFields.appName, namespace: rawFields.namespace, yaml: generatedYaml, appType, gitRepoURL: rawFields.gitRepoURL, gitPath: rawFields.gitPath };
+      const res = await fetch("/api/catalog-install", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...body, commitMessage: commitMessage || defaultCommitMessage }),
+      });
+      if (!res.ok) {
+        const data = (await res.json()) as { error?: string };
+        throw new Error(data.error ?? "Install failed");
+      }
+      toast.success(`${appName} installed successfully! ArgoCD will sync shortly.`);
+      setSuccess(true);
+      onInstalled?.();
+    } catch (err) {
+      toast.error(String(err));
+    } finally {
+      setInstalling(false);
+    }
+  };
+
+  // ── Browse Mode ──────────────────────────────────────────────────────────────
+  if (mode === "browse") {
+    return (
+      <CatalogBrowseView
+        onInstall={handleCatalogInstall}
+        onCustom={() => { setAppType(null); setStep(1); setMode("wizard"); }}
+        installedNames={installedNames}
+        canInstall={canInstallCatalog}
+      />
+    );
+  }
+
+  // ── Wizard Mode ──────────────────────────────────────────────────────────────
+  return (
+    <div className="max-w-3xl mx-auto">
+      {/* Back to browse */}
+      <button
+        onClick={() => { setMode("browse"); setStep(1); setAppType(null); setSuccess(false); }}
+        className="flex items-center gap-1.5 text-sm text-[#9e9e9e] hover:text-white mb-6 transition-colors"
+      >
+        <ChevronLeft className="w-4 h-4" /> Back to Catalog
+      </button>
+
+      {/* Step Indicators */}
+      <div className="flex items-center gap-2 mb-8">
+        {["Choose Type", "Fill Details", "Preview YAML", "Commit"].map((label, i) => {
+          const stepNum = i + 1;
+          const isActive = step === stepNum;
+          const isDone = step > stepNum;
+          return (
+            <div key={label} className="flex items-center gap-2">
+              <div className={cn(
+                "w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 transition-colors",
+                isDone ? "bg-green-500 text-white" : isActive ? "bg-indigo-500 text-white" : "bg-white/10 text-slate-400"
+              )}>
+                {isDone ? <Check className="w-3.5 h-3.5" /> : stepNum}
+              </div>
+              <span className={cn("text-xs font-medium hidden sm:block", isActive ? "text-white" : "text-slate-500")}>
+                {label}
+              </span>
+              {i < 3 && <ChevronRight className="w-3.5 h-3.5 text-slate-600 flex-shrink-0" />}
+            </div>
+          );
+        })}
+      </div>
+
+      <AnimatePresence mode="wait">
+        {step === 1 && (
+          <motion.div key="step1" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
+            <h3 className="text-base font-semibold text-white mb-4">Choose Application Type</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+              {([
+                { type: "helm" as const, icon: Package, title: "Helm Chart", desc: "Deploy from a Helm repository. Supports version pinning and values overrides." },
+                { type: "raw" as const, icon: FileText, title: "Raw Manifests", desc: "Deploy Kubernetes manifests from a Git directory path." },
+              ]).map(({ type, icon: Icon, title, desc }) => (
+                <button key={type} onClick={() => setAppType(type)} className={cn(
+                  "flex flex-col items-center gap-4 p-6 rounded-xl border transition-all text-left",
+                  appType === type ? "border-indigo-500/50 bg-indigo-500/10" : "border-white/10 bg-white/5 hover:border-white/20 hover:bg-white/10"
+                )}>
+                  <div className={cn("w-12 h-12 rounded-xl flex items-center justify-center", appType === type ? "bg-indigo-500/20" : "bg-white/10")}>
+                    <Icon className={cn("w-6 h-6", appType === type ? "text-indigo-400" : "text-slate-400")} />
+                  </div>
+                  <div><h4 className="font-semibold text-white text-sm">{title}</h4><p className="text-xs text-slate-400 mt-1">{desc}</p></div>
+                </button>
+              ))}
+            </div>
+            <div className="flex justify-end">
+              <button onClick={() => setStep(2)} disabled={!appType}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600 transition-colors disabled:opacity-40">
+                Next <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          </motion.div>
+        )}
+
+        {step === 2 && (
+          <motion.div key="step2" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
+            <h3 className="text-base font-semibold text-white mb-4">{appType === "helm" ? "Helm Chart Details" : "Raw Manifests Details"}</h3>
+            <div className="space-y-4 mb-6">
+              {appType === "helm" ? (
+                <>
+                  <Field label="App Name" required><input value={helmFields.appName} onChange={e => { const v = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-"); setHelmFields(p => ({ ...p, appName: v, namespace: p.namespace || v })); }} placeholder="my-app" className={inputCls} /></Field>
+                  <Field label="Namespace" required><input value={helmFields.namespace} onChange={e => setHelmFields(p => ({ ...p, namespace: e.target.value }))} placeholder={helmFields.appName || "my-app"} className={inputCls} /></Field>
+                  <Field label="Helm Repo URL" required><input value={helmFields.helmRepoURL} onChange={e => setHelmFields(p => ({ ...p, helmRepoURL: e.target.value }))} placeholder="https://charts.example.com" className={inputCls} /></Field>
+                  <Field label="Chart Name" required><input value={helmFields.chartName} onChange={e => setHelmFields(p => ({ ...p, chartName: e.target.value }))} placeholder="my-chart" className={inputCls} /></Field>
+                  <Field label="Chart Version" required><input value={helmFields.chartVersion} onChange={e => setHelmFields(p => ({ ...p, chartVersion: e.target.value }))} placeholder="1.2.3" className={inputCls} /></Field>
+                  <Field label="Target Revision"><input value={helmFields.targetRevision} onChange={e => setHelmFields(p => ({ ...p, targetRevision: e.target.value }))} placeholder="HEAD" className={inputCls} /></Field>
+                  <Field label="Values Override (YAML)"><textarea value={helmFields.valuesOverride} onChange={e => setHelmFields(p => ({ ...p, valuesOverride: e.target.value }))} placeholder={`replicaCount: 1\nimage:\n  tag: latest`} rows={5} className={cn(inputCls, "resize-none font-mono text-xs")} /></Field>
+                </>
+              ) : (
+                <>
+                  <Field label="App Name" required><input value={rawFields.appName} onChange={e => { const v = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-"); setRawFields(p => ({ ...p, appName: v, namespace: p.namespace || v })); }} placeholder="my-app" className={inputCls} /></Field>
+                  <Field label="Namespace" required><input value={rawFields.namespace} onChange={e => setRawFields(p => ({ ...p, namespace: e.target.value }))} placeholder={rawFields.appName || "my-app"} className={inputCls} /></Field>
+                  <Field label="Git Repo URL" required><input value={rawFields.gitRepoURL} onChange={e => setRawFields(p => ({ ...p, gitRepoURL: e.target.value }))} placeholder={DEFAULT_GIT_REPO} className={inputCls} /></Field>
+                  <Field label="Git Path" required><input value={rawFields.gitPath} onChange={e => setRawFields(p => ({ ...p, gitPath: e.target.value }))} placeholder="kubernetes/catalog/my-app" className={inputCls} /></Field>
+                  <Field label="Target Revision"><input value={rawFields.targetRevision} onChange={e => setRawFields(p => ({ ...p, targetRevision: e.target.value }))} placeholder="HEAD" className={inputCls} /></Field>
+                </>
+              )}
+            </div>
+            <div className="flex justify-between">
+              <button onClick={() => appType ? setStep(1) : setMode("browse")} className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-slate-300 text-sm font-medium hover:bg-white/10 transition-colors">
+                <ChevronLeft className="w-4 h-4" /> Back
+              </button>
+              <button onClick={() => setStep(3)} disabled={!canProceedStep2}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600 transition-colors disabled:opacity-40">
+                Next <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          </motion.div>
+        )}
+
+        {step === 3 && (
+          <motion.div key="step3" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
+            <h3 className="text-base font-semibold text-white mb-2">Preview Generated YAML</h3>
+            <p className="text-xs text-slate-400 mb-4">
+              This ArgoCD Application manifest will be committed to{" "}
+              <code className="font-mono bg-white/10 px-1 rounded">kubernetes/catalog/{appName}/application.yaml</code>
+            </p>
+              <div className="rounded-xl overflow-hidden border border-white/10 mb-6">
+                <pre className="h-[380px] bg-[#1e1e1e] text-slate-200 font-mono text-xs leading-5 p-4 overflow-auto whitespace-pre">{generatedYaml}</pre>
+              </div>
+            <div className="flex justify-between">
+              <button onClick={() => setStep(2)} className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-slate-300 text-sm font-medium hover:bg-white/10 transition-colors">
+                <ChevronLeft className="w-4 h-4" /> Back
+              </button>
+              <button onClick={() => { setCommitMessage(defaultCommitMessage); setStep(4); }}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600 transition-colors">
+                Next <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          </motion.div>
+        )}
+
+        {step === 4 && (
+          <motion.div key="step4" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
+            {success ? (
+              <div className="text-center py-12">
+                <div className="w-16 h-16 rounded-full bg-green-500/20 flex items-center justify-center mx-auto mb-4">
+                  <Check className="w-8 h-8 text-green-400" />
+                </div>
+                <h3 className="text-lg font-semibold text-white mb-2">{appName} installed!</h3>
+                <p className="text-sm text-slate-400 mb-6">ArgoCD will sync the application shortly.</p>
+                <div className="flex items-center justify-center gap-3">
+                  <button onClick={() => { setSuccess(false); setStep(1); setAppType(null); setMode("browse"); }}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg border border-white/10 text-slate-300 text-sm font-medium hover:bg-white/10 transition-colors">
+                    Back to Catalog
+                  </button>
+                  <button onClick={() => { setSuccess(false); setStep(1); setAppType(null); onInstalled?.(); }}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600 transition-colors">
+                    Install Another
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <h3 className="text-base font-semibold text-white mb-4">Review &amp; Commit</h3>
+                <div className="bg-white/5 border border-white/10 rounded-xl p-4 mb-4 space-y-3">
+                  <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Files to commit</h4>
+                  <div className="space-y-2">
+                    <div className="flex items-start gap-2 text-sm text-slate-300">
+                      <FileText className="w-4 h-4 text-indigo-400 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-mono text-xs">kubernetes/catalog/{appName}/application.yaml</p>
+                        <p className="text-xs text-slate-500 mt-0.5">ArgoCD Application manifest</p>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-2 text-sm text-slate-300">
+                      <FileText className="w-4 h-4 text-green-400 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-mono text-xs">platform.yaml</p>
+                        <p className="text-xs text-slate-500 mt-0.5">Adding <code className="font-mono bg-white/10 px-1 rounded">{appName}</code> to catalog.enabled</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <Field label="Commit Message">
+                  <input value={commitMessage || defaultCommitMessage} onChange={e => setCommitMessage(e.target.value)} className={inputCls} />
+                </Field>
+                <div className="flex justify-between mt-6">
+                  <button onClick={() => setStep(3)} className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-slate-300 text-sm font-medium hover:bg-white/10 transition-colors">
+                    <ChevronLeft className="w-4 h-4" /> Back
+                  </button>
+                  <button onClick={handleInstall} disabled={installing || !canInstallCatalog}
+                    className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 transition-colors disabled:opacity-50 touch-manipulation min-h-[44px]">
+                    {installing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Package className="w-4 h-4" />}
+                    {installing ? "Installing…" : "Install Application"}
+                  </button>
+                </div>
+              </>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// COMMUNITY STORE TAB  (community-apps browser)
+// ══════════════════════════════════════════════════════════════════════════════
+
+type Tier = "simple" | "medium" | "complex";
+
+interface AppSummary {
+  name: string; slug: string; image: string; icon?: string; overview?: string;
+  categories: string[]; tier: Tier; stars?: number; downloads?: number;
+  webUI?: string; support?: string; configCount: number;
+}
+
+interface FeedResponse {
+  apps: AppSummary[]; total: number; page: number; limit: number;
+  pages: number; last_updated: string; last_updated_timestamp: number;
+  categories: Array<{ Cat: string; Des: string }>;
+}
+
+interface AppDetailConfig {
+  name: string; target: string; type: string;
+  defaultValue?: string; description?: string;
+  required: boolean; masked: boolean;
+}
+
+interface RequiredVariable {
+  name: string; target: string; description?: string;
+  defaultValue?: string; masked: boolean; required: boolean; isPlaceholder: boolean;
+}
+
+/** Returns true if a value contains an unfilled [PLACEHOLDER] (not [PORT:xxx]) */
+function isPlaceholderValue(v?: string): boolean {
+  return /\[(?!PORT:\d)[^\]]+\]/i.test(v ?? "");
+}
+
+/** Extract variables that need user input from AppFeed configs */
+function getRequiredVarsFromConfigs(configs: AppDetailConfig[]): RequiredVariable[] {
+  return configs
+    .filter(c => c.type === "Variable" && (c.required || c.masked || isPlaceholderValue(c.defaultValue)))
+    .map(c => ({
+      name: c.name,
+      target: c.target,
+      description: c.description,
+      defaultValue: isPlaceholderValue(c.defaultValue) ? "" : (c.defaultValue || undefined),
+      masked: c.masked,
+      required: c.required,
+      isPlaceholder: isPlaceholderValue(c.defaultValue),
+    }));
+}
+
+interface ConversionResult {
+  slug: string; tier: Tier; warnings: string[]; combinedYaml: string;
+  requiredVariables?: RequiredVariable[];
+}
+
+interface DeployOptions {
+  namespace: string; pvcSizeGi: number; storageClass: string;
+  ingressHost: string; createIngress: boolean;
+}
+
+const TIER_CONFIG: Record<Tier, { label: string; color: string; icon: React.ReactNode; description: string }> = {
+  simple: { label: "K8s Ready", color: "text-emerald-400 bg-emerald-400/10 border-emerald-400/30", icon: <CheckCircle className="w-3 h-3" />, description: "Standard container — deploys directly to Kubernetes" },
+  medium: { label: "Custom Network", color: "text-amber-400 bg-amber-400/10 border-amber-400/30", icon: <Zap className="w-3 h-3" />, description: "Uses custom Docker networking — verify service discovery" },
+  complex: { label: "Privileged", color: "text-red-400 bg-red-400/10 border-red-400/30", icon: <Shield className="w-3 h-3" />, description: "Requires privileged mode or host devices — review carefully" },
+};
+
+const COMMUNITY_CATEGORY_TABS = [
+  { value: "all", label: "All" },
+  { value: "monitoring", label: "Monitoring" },
+  { value: "media", label: "Media" },
+  { value: "games", label: "Games" },
+  { value: "tools", label: "Tools" },
+  { value: "security", label: "Security" },
+  { value: "storage", label: "Storage" },
+] as const;
+
+const FEATURED_APP_SLUGS = ["vaultwarden", "uptime-kuma", "filebrowser", "homarr", "it-tools"];
+
+type CommunityCategory = (typeof COMMUNITY_CATEGORY_TABS)[number]["value"];
+
+function detectCommunityCategory(app: Pick<AppSummary, "name" | "categories" | "overview">): CommunityCategory {
+  const haystack = [app.name, ...(app.categories ?? []), app.overview ?? ""].join(" ").toLowerCase();
+  if (haystack.includes("grafana") || haystack.includes("prometheus") || haystack.includes("monitor") || haystack.includes("gatus")) return "monitoring";
+  if (haystack.includes("plex") || haystack.includes("media") || haystack.includes("sonarr") || haystack.includes("radarr") || haystack.includes("jellyfin")) return "media";
+  if (haystack.includes("game") || haystack.includes("minecraft") || haystack.includes("steam") || haystack.includes("server")) return "games";
+  if (haystack.includes("security") || haystack.includes("auth") || haystack.includes("vault") || haystack.includes("firewall")) return "security";
+  if (haystack.includes("storage") || haystack.includes("backup") || haystack.includes("s3") || haystack.includes("nas") || haystack.includes("disk")) return "storage";
+  if (haystack.includes("tool") || haystack.includes("utility") || haystack.includes("dns") || haystack.includes("proxy") || haystack.includes("cloud") || haystack.includes("db") || haystack.includes("database")) return "tools";
+  return "all";
+}
+
+function formatDownloads(n?: number): string {
+  if (!n) return "";
+  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`;
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`;
+  return String(n);
+}
+
+function DeployModal({ app, onClose }: { app: AppSummary; onClose: () => void }) {
+  const { can } = useRBAC();
+  const canReadApps = can("apps:read");
+  const canDeployCommunity = can("catalog:write");
+  const [step, setStep] = useState<"options" | "preview" | "deploying" | "done">("options");
+  // NOTE: useTransition with async callbacks does NOT keep isPending=true for the
+  // full duration of the await in React 18 — it only tracks the synchronous part.
+  // Use explicit loading state instead so the spinner persists during the fetch.
+  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
+  const [isDeployLoading, setIsDeployLoading] = useState(false);
+  const isPending = isPreviewLoading || isDeployLoading;
+
+  // App-specific required variables (fetched from detail endpoint)
+  const [requiredVars, setRequiredVars] = useState<RequiredVariable[] | null>(null);
+  const [userVariables, setUserVariables] = useState<Record<string, string>>({});
+  const [options, setOptions] = useState<DeployOptions>({
+    namespace: app.slug, pvcSizeGi: 10, storageClass: "longhorn",
+    ingressHost: `${app.slug}.int.rlservers.com`, createIngress: !!app.webUI,
+  });
+  const [preview, setPreview] = useState<ConversionResult | null>(null);
+  const [deployResult, setDeployResult] = useState<{ paths: string[]; warnings: string[] } | null>(null);
+  const [deployProgressStep, setDeployProgressStep] = useState(0);
+
+  // Fetch app-specific configs to surface required/placeholder variables
+  useEffect(() => {
+    if (!canReadApps) return;
+    fetch(`/api/community-apps/${app.slug}`)
+      .then(r => r.ok ? r.json() as Promise<{ configs?: AppDetailConfig[] }> : null)
+      .then(data => {
+        if (!data?.configs) return;
+        const vars = getRequiredVarsFromConfigs(data.configs);
+        setRequiredVars(vars);
+        // Pre-populate defaults for non-placeholder values
+        const defaults: Record<string, string> = {};
+        for (const v of vars) {
+          if (v.defaultValue) defaults[v.target] = v.defaultValue;
+        }
+        if (Object.keys(defaults).length > 0) setUserVariables(defaults);
+      })
+      .catch(() => { /* non-fatal — still deployable */ });
+  }, [app.slug, canReadApps]);
+
+  const missingRequired = (requiredVars ?? []).filter(
+    v => (v.required || v.isPlaceholder) && !userVariables[v.target]?.trim()
+  );
+
+  const handlePreview = async () => {
+    if (!canReadApps) {
+      toast.error("You do not have permission to preview community apps");
+      return;
+    }
+    setIsPreviewLoading(true);
+    try {
+      const res = await fetch("/api/community-apps/convert", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ appName: app.name, ...options, userVariables }),
+      });
+      const data = await res.json() as ConversionResult & { error?: string };
+      if (!res.ok) { toast.error(data.error ?? "Conversion failed"); return; }
+      setPreview(data);
+      setStep("preview");
+    } catch {
+      toast.error("Failed to generate preview — AppFeed may still be loading, try again");
+    } finally {
+      setIsPreviewLoading(false);
+    }
+  };
+
+  const handleDeploy = async () => {
+    if (!canDeployCommunity) {
+      toast.error("You do not have permission to deploy community apps");
+      return;
+    }
+    setIsDeployLoading(true);
+    setDeployProgressStep(0);
+    setStep("deploying");
+    const timer = window.setTimeout(() => setDeployProgressStep(1), 900);
+    try {
+      const res = await fetch("/api/community-apps/deploy", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ appName: app.name, ...options, userVariables }),
+      });
+      const data = await res.json() as { ok?: boolean; paths?: string[]; warnings?: string[]; error?: string; conflict?: boolean };
+      if (!res.ok) {
+        // 409 conflict = platform-managed app, show a clear message and go back to options
+        if (res.status === 409 && data.conflict) {
+          toast.error(data.error ?? "This app is already installed by the platform.", { duration: 6000 });
+          setStep("options");
+        } else {
+          toast.error(data.error ?? "Deploy failed");
+          setStep("preview");
+        }
+        return;
+      }
+      setDeployResult({ paths: data.paths ?? [], warnings: data.warnings ?? [] });
+      setDeployProgressStep(2);
+      setStep("done");
+      toast.success(`${app.name} deployed! ArgoCD will sync in ~2 minutes. If it doesn't appear, the bootstrap file has been committed to git.`);
     } catch {
       toast.error("Deploy request failed");
       setStep("preview");
@@ -1392,6 +1853,7 @@ function CatalogInstallerTab({ onInstalled }: { onInstalled?: () => void }) {
       setIsDeployLoading(false);
     }
   };
+
 
   // NOTE: no backdrop-blur — iOS Safari backdrop-filter causes sibling content to be invisible
   return (
