@@ -18,7 +18,7 @@ import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { auditLog } from "@/lib/audit-log";
 import { z } from "zod";
 import { convertAppFeedEntry } from "@/lib/appfeed-converter";
-import { findAppByName } from "@/lib/appfeed-cache";
+import { findAppByIdentifier } from "@/lib/appfeed-cache";
 import { safeError } from "@/lib/utils";
 import { loadKubeConfig } from "@/lib/k8s";
 import {
@@ -69,7 +69,8 @@ async function triggerBootstrapRefresh(): Promise<void> {
 }
 
 const DeployBody = z.object({
-  appName: z.string().min(1).max(200),
+  appName: z.string().min(1).max(200).optional(),
+  slug: z.string().min(1).max(200).optional(),
   namespace: z.string().min(1).max(63).regex(/^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/).optional(),
   pvcSizeGi: z.number().int().min(1).max(10000).optional(),
   storageClass: z.string().max(63).optional(),
@@ -77,6 +78,9 @@ const DeployBody = z.object({
   createIngress: z.boolean().optional(),
   /** User-supplied values for Required/placeholder variables, keyed by env var name */
   userVariables: z.record(z.string(), z.string().max(4096)).optional(),
+}).refine((value) => Boolean(value.appName?.trim() || value.slug?.trim()), {
+  message: "appName or slug is required",
+  path: ["appName"],
 });
 
 interface GitHubFile {
@@ -155,8 +159,8 @@ async function ghPut(path: string, content: string, message: string, sha?: strin
   }
 }
 
-async function findAppInFeed(name: string) {
-  return findAppByName(name);
+async function findAppInFeed(identifier: string) {
+  return findAppByIdentifier(identifier);
 }
 
 export async function POST(req: NextRequest) {
@@ -175,11 +179,12 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
-  const { appName, namespace, pvcSizeGi, storageClass, ingressHost, createIngress, userVariables } = parsed.data;
+  const { appName, slug: requestedSlug, namespace, pvcSizeGi, storageClass, ingressHost, createIngress, userVariables } = parsed.data;
+  const appIdentifier = appName?.trim() || requestedSlug?.trim() || "";
 
-  const app = await findAppInFeed(appName);
+  const app = await findAppInFeed(appIdentifier);
   if (!app) {
-    return NextResponse.json({ error: `App "${appName}" not found in AppFeed` }, { status: 404 });
+    return NextResponse.json({ error: `App "${appIdentifier}" not found in AppFeed` }, { status: 404 });
   }
 
   const slug = sanitizeKubernetesName(app.Name);
@@ -396,7 +401,7 @@ installed_at: ${new Date().toISOString()}
     await auditLog(
       "community-apps:deploy",
       session.user?.email ?? "unknown",
-      `Deployed ${appName} (${app.Repository}) → kubernetes/catalog/${slug}/`
+      `Deployed ${app.Name} (${app.Repository}) → kubernetes/catalog/${slug}/`
     );
 
     return NextResponse.json({

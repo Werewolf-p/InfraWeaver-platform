@@ -12,22 +12,26 @@ import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac"
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { z } from "zod";
 import { convertAppFeedEntry } from "@/lib/appfeed-converter";
-import { findAppByName } from "@/lib/appfeed-cache";
+import { findAppByIdentifier } from "@/lib/appfeed-cache";
 import { safeError } from "@/lib/utils";
 
 const ConvertBody = z.object({
-  // App can be passed by name (looked up from feed) or as full entry (from client cache)
-  appName: z.string().min(1).max(200),
+  // App can be passed by name or slug (looked up from feed)
+  appName: z.string().min(1).max(200).optional(),
+  slug: z.string().min(1).max(200).optional(),
   namespace: z.string().min(1).max(63).regex(/^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/).optional(),
   pvcSizeGi: z.number().int().min(1).max(10000).optional(),
   storageClass: z.string().max(63).optional(),
   ingressHost: z.string().max(253).optional(),
   createIngress: z.boolean().optional(),
   userVariables: z.record(z.string(), z.string().max(4096)).optional(),
+}).refine((value) => Boolean(value.appName?.trim() || value.slug?.trim()), {
+  message: "appName or slug is required",
+  path: ["appName"],
 });
 
-async function findAppInFeed(name: string) {
-  return findAppByName(name);
+async function findAppInFeed(identifier: string) {
+  return findAppByIdentifier(identifier);
 }
 
 export async function POST(req: NextRequest) {
@@ -46,11 +50,12 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
-  const { appName, namespace, pvcSizeGi, storageClass, ingressHost, createIngress, userVariables } = parsed.data;
+  const { appName, slug, namespace, pvcSizeGi, storageClass, ingressHost, createIngress, userVariables } = parsed.data;
+  const appIdentifier = appName?.trim() || slug?.trim() || "";
 
-  const app = await findAppInFeed(appName);
+  const app = await findAppInFeed(appIdentifier);
   if (!app) {
-    return NextResponse.json({ error: `App "${appName}" not found in AppFeed` }, { status: 404 });
+    return NextResponse.json({ error: `App "${appIdentifier}" not found in AppFeed` }, { status: 404 });
   }
 
   try {

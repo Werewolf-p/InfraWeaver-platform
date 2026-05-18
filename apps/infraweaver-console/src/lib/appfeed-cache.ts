@@ -19,7 +19,7 @@
  *   - Warm-up: first request after pod start triggers a download (~2–5s)
  */
 
-import type { AppFeedEntry } from "./appfeed-converter";
+import { summarizeApp, type AppFeedEntry } from "./appfeed-converter";
 
 export interface AppFeedResponse {
   apps: number;
@@ -77,25 +77,44 @@ export async function getAppFeed(): Promise<AppFeedResponse> {
   return inflight;
 }
 
+const PREFERRED_REGISTRIES = ["lscr.io/linuxserver", "ghcr.io/linuxserver", "linuxserver/", "ghcr.io/"];
+
+function pickPreferredApp(matches: AppFeedEntry[]): AppFeedEntry {
+  if (matches.length === 1) return matches[0]!;
+  for (const prefix of PREFERRED_REGISTRIES) {
+    const preferred = matches.find(a => (a.Repository ?? "").startsWith(prefix));
+    if (preferred) return preferred;
+  }
+  return matches[0]!;
+}
+
 /**
  * Look up a single app by exact name (case-insensitive).
  * Uses the same cache as getAppFeed().
  */
 export async function findAppByName(name: string): Promise<AppFeedEntry | null> {
   const feed = await getAppFeed();
-  const lower = name.toLowerCase();
+  const lower = name.trim().toLowerCase();
   const matches = feed.applist.filter(
     (a) => typeof a.Name === "string" && a.Name.toLowerCase() === lower
   );
-  if (matches.length === 0) return null;
-  if (matches.length === 1) return matches[0]!;
-  // Multiple entries with the same name: prefer trusted/modern registries
-  const PREFERRED_REGISTRIES = ["lscr.io/linuxserver", "ghcr.io/linuxserver", "linuxserver/", "ghcr.io/"];
-  for (const prefix of PREFERRED_REGISTRIES) {
-    const preferred = matches.find(a => (a.Repository ?? "").startsWith(prefix));
-    if (preferred) return preferred;
-  }
-  return matches[0]!;
+  return matches.length > 0 ? pickPreferredApp(matches) : null;
+}
+
+/**
+ * Look up a single app by either exact name or summarized slug.
+ * Uses the same cache as getAppFeed().
+ */
+export async function findAppByIdentifier(identifier: string): Promise<AppFeedEntry | null> {
+  const byName = await findAppByName(identifier);
+  if (byName) return byName;
+
+  const feed = await getAppFeed();
+  const lower = identifier.trim().toLowerCase();
+  const matches = feed.applist.filter(
+    (a) => typeof a.Name === "string" && summarizeApp(a).slug === lower
+  );
+  return matches.length > 0 ? pickPreferredApp(matches) : null;
 }
 
 /** Invalidate the cache (useful for testing or manual refresh). */
