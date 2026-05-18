@@ -163,6 +163,7 @@ async function createServer(body: {
               name: slug,
               image: egg.dockerImage,
               imagePullPolicy: "IfNotPresent",
+              stdin: true,  // required: lets /proc/1/fd/0 work for in-pod console commands
               ports: getEggPorts(egg).map((port) => ({ containerPort: port.port, protocol: port.protocol })),
               env: Object.entries(env).map(([key, value]) => ({ name: key, value })),
               resources,
@@ -271,6 +272,7 @@ async function cloneServer(source: string, newName: string) {
               name: slug,
               image: container?.image ?? sourceEgg.dockerImage,
               imagePullPolicy: "IfNotPresent",
+              stdin: true,  // required: lets /proc/1/fd/0 work for in-pod console commands
               env: (container?.env ?? []).map((entry) => ({ name: entry.name, value: entry.value ?? "" })),
               ports: (container?.ports ?? []).map((port) => ({ containerPort: port.containerPort, protocol: port.protocol })),
               resources,
