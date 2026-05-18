@@ -171,25 +171,19 @@ export async function getServerStatefulSet(appsApi: k8s.AppsV1Api, name: string)
 
 export async function scaleServerWorkload(appsApi: k8s.AppsV1Api, name: string, replicas: number) {
   const nextReplicas = Math.max(0, replicas);
+  const scalePatch = { spec: { replicas: nextReplicas } };
 
   try {
-    const scale = await appsApi.readNamespacedDeploymentScale({ name, namespace: GAME_HUB_NS });
-    await appsApi.replaceNamespacedDeploymentScale({
-      name,
-      namespace: GAME_HUB_NS,
-      body: {
-        ...scale,
-        spec: {
-          ...(scale.spec ?? {}),
-          replicas: nextReplicas,
-        },
-      },
-    });
-    return { kind: "deployment" as const, replicas: nextReplicas };
-  } catch (deploymentError) {
-    try {
-      const scale = await appsApi.readNamespacedStatefulSetScale({ name, namespace: GAME_HUB_NS });
-      await appsApi.replaceNamespacedStatefulSetScale({
+    if (typeof appsApi.patchNamespacedDeploymentScale === "function") {
+      await appsApi.patchNamespacedDeploymentScale({
+        name,
+        namespace: GAME_HUB_NS,
+        body: scalePatch,
+        fieldManager: "infraweaver",
+      });
+    } else {
+      const scale = await appsApi.readNamespacedDeploymentScale({ name, namespace: GAME_HUB_NS });
+      await appsApi.replaceNamespacedDeploymentScale({
         name,
         namespace: GAME_HUB_NS,
         body: {
@@ -200,6 +194,31 @@ export async function scaleServerWorkload(appsApi: k8s.AppsV1Api, name: string, 
           },
         },
       });
+    }
+    return { kind: "deployment" as const, replicas: nextReplicas };
+  } catch (deploymentError) {
+    try {
+      if (typeof appsApi.patchNamespacedStatefulSetScale === "function") {
+        await appsApi.patchNamespacedStatefulSetScale({
+          name,
+          namespace: GAME_HUB_NS,
+          body: scalePatch,
+          fieldManager: "infraweaver",
+        });
+      } else {
+        const scale = await appsApi.readNamespacedStatefulSetScale({ name, namespace: GAME_HUB_NS });
+        await appsApi.replaceNamespacedStatefulSetScale({
+          name,
+          namespace: GAME_HUB_NS,
+          body: {
+            ...scale,
+            spec: {
+              ...(scale.spec ?? {}),
+              replicas: nextReplicas,
+            },
+          },
+        });
+      }
       return { kind: "statefulset" as const, replicas: nextReplicas };
     } catch {
       throw deploymentError;

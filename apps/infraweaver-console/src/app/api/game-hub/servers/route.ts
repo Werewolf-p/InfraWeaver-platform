@@ -18,6 +18,7 @@ const createServerBodySchema = z.object({
   newName: z.string().optional(),
   egg: z.string().optional(),
   game: z.string().optional(),
+  gameId: z.string().optional(),
   name: z.string().min(1),
   dnsHostname: z.string().optional(),
   image: z.string().optional(),
@@ -76,6 +77,7 @@ function buildGameServerResources(memory: string | number | null | undefined, cp
 async function createServer(body: {
   egg?: string;
   game?: string;
+  gameId?: string;
   name: string;
   dnsHostname?: string;
   image?: string;
@@ -89,7 +91,7 @@ async function createServer(body: {
   mountPath?: string;
   groups?: string[];
 }) {
-  const requestedGame = body.egg ?? body.game ?? "";
+  const requestedGame = body.egg ?? body.gameId ?? body.game ?? "";
   const slug = normalizeServerName(body.name);
   const baseEgg = requestedGame.startsWith("pelican:")
     ? (await getPelicanGameEgg(requestedGame.replace(/^pelican:/, ""))).egg
@@ -199,7 +201,7 @@ async function createServer(body: {
     body: buildEggConfigMap(GAME_HUB_NAMESPACE, slug, egg, env),
   });
 
-  return { name: slug, game: egg.id, status: "creating" };
+  return { name: slug, game: egg.id, gameId: egg.id, status: "creating" };
 }
 
 async function cloneServer(source: string, newName: string) {
