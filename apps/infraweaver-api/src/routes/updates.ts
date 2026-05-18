@@ -159,31 +159,37 @@ function getFallbackSource(manifest: ApplicationManifest | undefined): VersionSo
 function extractHelmChartVersions(indexYaml: string, chartName: string) {
   const versions: string[] = [];
   const lines = indexYaml.split(/\r?\n/);
-  let insideEntries = false;
+  let afterEntries = false;
+  let chartHeaderRe: RegExp | null = null;
   let insideChart = false;
 
   for (const line of lines) {
-    if (!insideEntries) {
-      if (line.trim() === 'entries:') {
-        insideEntries = true;
+    if (!afterEntries) {
+      if (line.trim() === 'entries:') afterEntries = true;
+      continue;
+    }
+
+    // Auto-detect chart header indent from the first chart-level key.
+    // Different repos use different indent sizes (2-space, 3-space, etc.).
+    if (!chartHeaderRe) {
+      const m = /^(\s+)([a-zA-Z][a-zA-Z0-9._-]*):\s*$/.exec(line);
+      if (m) {
+        chartHeaderRe = new RegExp(`^${m[1]}([a-zA-Z][a-zA-Z0-9._-]*):\\s*$`);
+        insideChart = m[2] === chartName;
       }
       continue;
     }
 
-    const chartHeaderMatch = /^  ([^:#][^:]*):\s*$/.exec(line);
-    if (chartHeaderMatch) {
-      insideChart = chartHeaderMatch[1] === chartName;
+    const headerMatch = chartHeaderRe.exec(line);
+    if (headerMatch) {
+      insideChart = headerMatch[1] === chartName;
       continue;
     }
 
-    if (!insideChart) {
-      continue;
-    }
+    if (!insideChart) continue;
 
     const versionMatch = /^\s+version:\s*['"]?([^'"\n]+)['"]?\s*$/.exec(line);
-    if (versionMatch) {
-      versions.push(versionMatch[1].trim());
-    }
+    if (versionMatch) versions.push(versionMatch[1].trim());
   }
 
   return uniqueSortedVersions(versions).slice(0, 15);
