@@ -1,0 +1,22 @@
+---
+# PVC for "AppData" → /data
+# Default path on Unraid: /mnt/user/appdata/karakeep
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: karakeep-data-0
+  namespace: karakeep
+  labels:
+    app.kubernetes.io/name: karakeep
+    app.kubernetes.io/component: storage
+    infraweaver.io/source: community-apps
+  annotations:
+    infraweaver.io/unraid-path: "/mnt/user/appdata/karakeep"
+    infraweaver.io/required: "true"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 5Gi
