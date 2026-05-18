@@ -102,16 +102,42 @@ jobs:
           CACHE_NEW_DIR="/tmp/.buildx-cache-console-new"
 
           echo "==> Building image..."
-          docker buildx build \
-            --platform linux/amd64 \
-            --build-arg CACHEBUST="${GITHUB_SHA}" \
-            --build-arg APP_VERSION="${SHORT_SHA}" \
-            --cache-from "type=local,src=${CACHE_DIR}" \
-            --cache-to "type=local,dest=${CACHE_NEW_DIR},mode=max" \
-            --tag "${IMAGE_BASE}:${BRANCH_TAG}" \
-            --tag "${IMAGE_BASE}:${SHA_TAG}" \
-            --push \
-            apps/infraweaver-console
+          BUILD_PUSHED=false
+          for attempt in 1 2 3; do
+            echo "  Build/push attempt $attempt/3"
+            if docker buildx build \
+              --platform linux/amd64 \
+              --build-arg CACHEBUST="${GITHUB_SHA}" \
+              --build-arg APP_VERSION="${SHORT_SHA}" \
+              --cache-from "type=local,src=${CACHE_DIR}" \
+              --cache-to "type=local,dest=${CACHE_NEW_DIR},mode=max" \
+              --tag "${IMAGE_BASE}:${BRANCH_TAG}" \
+              --tag "${IMAGE_BASE}:${SHA_TAG}" \
+              --push \
+              apps/infraweaver-console; then
+              BUILD_PUSHED=true
+              break
+            fi
+
+            if [ "$attempt" -lt 3 ]; then
+              echo "  Build/push failed; waiting for registry recovery before retrying..."
+              for check in 1 2 3 4 5 6; do
+                if curl -sf --max-time 5 "https://${REGISTRY}/v2/" >/dev/null 2>&1 || \
+                   curl -sf --max-time 5 "https://${REGISTRY}/v2/" -o /dev/null -w "%{http_code}" 2>/dev/null | grep -qE "200|401"; then
+                  echo "  Registry reachable before retry after ${check} check(s)"
+                  break
+                fi
+                echo "    Registry still unavailable (check $check/6), waiting 20s..."
+                sleep 20
+              done
+              sleep $((attempt * 20))
+            fi
+          done
+
+          if [ "$BUILD_PUSHED" != true ]; then
+            echo "❌ Failed to build/push image after 3 attempts" >&2
+            exit 1
+          fi
 
           echo "✅ Built and pushed to OneDev registry:" >> "$GITHUB_STEP_SUMMARY"
           echo "- ${IMAGE_BASE}:${BRANCH_TAG}" >> "$GITHUB_STEP_SUMMARY"
