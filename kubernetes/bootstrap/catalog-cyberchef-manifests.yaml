@@ -1,7 +1,7 @@
 ---
 # catalog-cyberchef-manifests.yaml — deployed by InfraWeaver Community Apps
 # Source: ghcr.io/gchq/cyberchef:latest
-# Installed: 2026-05-18T02:42:01.092Z
+# Installed: 2026-05-18T02:59:33.199Z
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
