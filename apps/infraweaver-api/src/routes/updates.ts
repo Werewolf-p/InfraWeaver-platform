@@ -54,7 +54,6 @@ const GITHUB_REPO = process.env.GITHUB_REPO ?? 'Werewolf-p/InfraWeaver-platform'
 const GITHUB_BRANCH = process.env.GITHUB_BRANCH ?? 'main';
 const GITHUB_API = 'https://api.github.com';
 const argoAppsCache = new Map<string, { fetchedAt: number; items: ArgoApplication[] }>();
-let treeCache: { fetchedAt: number; items: Array<{ path: string; sha: string }> } | null = null;
 let manifestsCache: { fetchedAt: number; items: ApplicationManifest[] } | null = null;
 
 function normalizeVersionTag(version: string) {
@@ -327,17 +326,6 @@ async function getRepoTree(): Promise<Array<{ path: string; sha: string }>> {
     .map(({ path, sha }) => ({ path, sha }));
 }
 
-async function getCachedRepoTree() {
-  const now = Date.now();
-  if (treeCache && now - treeCache.fetchedAt < 60_000) {
-    return treeCache.items;
-  }
-
-  const items = await getRepoTree();
-  treeCache = { fetchedAt: now, items };
-  return items;
-}
-
 async function ghGetFile(path: string): Promise<{ content: string; sha: string } | null> {
   const response = await fetch(`${GITHUB_API}/repos/${GITHUB_REPO}/contents/${path}?ref=${GITHUB_BRANCH}`, {
     headers: {
@@ -396,7 +384,7 @@ async function collectApplicationManifests(): Promise<ApplicationManifest[]> {
     return manifestsCache.items;
   }
 
-  const treeItems = await getCachedRepoTree();
+  const treeItems = await getRepoTree();
   const results = await Promise.all(treeItems.map(async ({ path }): Promise<ApplicationManifest | null> => {
     const file = await ghGetFile(path);
     if (!file) {

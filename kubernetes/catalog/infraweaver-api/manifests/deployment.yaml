@@ -51,6 +51,13 @@ spec:
               value: "https://infraweaver.int.rlservers.com"
             - name: ARGOCD_SERVER
               value: "http://argocd-server.argocd.svc.cluster.local:80"
+            - name: GITHUB_REPO
+              value: "Werewolf-p/InfraWeaver-platform"
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: infraweaver-console-secret
+                  key: github-token
             - name: CONSOLE_API_SECRET
               valueFrom:
                 secretKeyRef:
