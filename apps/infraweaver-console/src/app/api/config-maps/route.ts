@@ -83,11 +83,11 @@ export async function PATCH(request: NextRequest) {
 
   try {
     const coreApi = loadKubeConfig(clusterId).makeApiClient(k8s.CoreV1Api);
-    await coreApi.patchNamespacedConfigMap({
+    const existing = await coreApi.readNamespacedConfigMap({ name, namespace });
+    await coreApi.replaceNamespacedConfigMap({
       name,
       namespace,
-      body: { data },
-      fieldManager: "infraweaver",
+      body: { ...existing, data },
     });
 
     const updated = await coreApi.readNamespacedConfigMap({ name, namespace });

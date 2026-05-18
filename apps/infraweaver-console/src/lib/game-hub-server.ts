@@ -172,54 +172,33 @@ export async function getServerStatefulSet(appsApi: k8s.AppsV1Api, name: string)
 
 export async function scaleServerWorkload(appsApi: k8s.AppsV1Api, name: string, replicas: number) {
   const nextReplicas = Math.max(0, replicas);
-  const scalePatch = { spec: { replicas: nextReplicas } };
 
+  // Use read+replace (PUT) instead of PATCH to avoid content-type negotiation issues.
+  // The k8s client v1.x picks application/json-patch+json for PATCH calls, which Kubernetes
+  // rejects with 422 "force: Forbidden: may not be specified for non-apply patch" when
+  // fieldManager is included. PUT (replaceNamespacedDeploymentScale) avoids this entirely.
   try {
-    if (typeof appsApi.patchNamespacedDeploymentScale === "function") {
-      await appsApi.patchNamespacedDeploymentScale({
-        name,
-        namespace: GAME_HUB_NS,
-        body: scalePatch,
-        fieldManager: "infraweaver",
-      });
-    } else {
-      const scale = await appsApi.readNamespacedDeploymentScale({ name, namespace: GAME_HUB_NS });
-      await appsApi.replaceNamespacedDeploymentScale({
+    const scale = await appsApi.readNamespacedDeploymentScale({ name, namespace: GAME_HUB_NS });
+    await appsApi.replaceNamespacedDeploymentScale({
+      name,
+      namespace: GAME_HUB_NS,
+      body: {
+        ...scale,
+        spec: { ...(scale.spec ?? {}), replicas: nextReplicas },
+      },
+    });
+    return { kind: "deployment" as const, replicas: nextReplicas };
+  } catch (deploymentError) {
+    try {
+      const scale = await appsApi.readNamespacedStatefulSetScale({ name, namespace: GAME_HUB_NS });
+      await appsApi.replaceNamespacedStatefulSetScale({
         name,
         namespace: GAME_HUB_NS,
         body: {
           ...scale,
-          spec: {
-            ...(scale.spec ?? {}),
-            replicas: nextReplicas,
-          },
+          spec: { ...(scale.spec ?? {}), replicas: nextReplicas },
         },
       });
-    }
-    return { kind: "deployment" as const, replicas: nextReplicas };
-  } catch (deploymentError) {
-    try {
-      if (typeof appsApi.patchNamespacedStatefulSetScale === "function") {
-        await appsApi.patchNamespacedStatefulSetScale({
-          name,
-          namespace: GAME_HUB_NS,
-          body: scalePatch,
-          fieldManager: "infraweaver",
-        });
-      } else {
-        const scale = await appsApi.readNamespacedStatefulSetScale({ name, namespace: GAME_HUB_NS });
-        await appsApi.replaceNamespacedStatefulSetScale({
-          name,
-          namespace: GAME_HUB_NS,
-          body: {
-            ...scale,
-            spec: {
-              ...(scale.spec ?? {}),
-              replicas: nextReplicas,
-            },
-          },
-        });
-      }
       return { kind: "statefulset" as const, replicas: nextReplicas };
     } catch {
       throw deploymentError;
@@ -772,13 +751,11 @@ export async function readSavedCommands(coreApi: k8s.CoreV1Api, name: string): P
 export async function writeSavedCommands(coreApi: k8s.CoreV1Api, name: string, commands: SavedCommand[]) {
   const payload = JSON.stringify(commands, null, 2);
   try {
-    await coreApi.readNamespacedConfigMap({ name: `gameserver-${name}-egg`, namespace: GAME_HUB_NS });
-    await coreApi.patchNamespacedConfigMap({
+    const existing = await coreApi.readNamespacedConfigMap({ name: `gameserver-${name}-egg`, namespace: GAME_HUB_NS });
+    await coreApi.replaceNamespacedConfigMap({
       name: `gameserver-${name}-egg`,
       namespace: GAME_HUB_NS,
-      body: { data: { [SAVED_COMMANDS_KEY]: payload } },
-      fieldManager: "infraweaver",
-
+      body: { ...existing, data: { ...(existing.data ?? {}), [SAVED_COMMANDS_KEY]: payload } },
     });
   } catch {
     await coreApi.createNamespacedConfigMap({

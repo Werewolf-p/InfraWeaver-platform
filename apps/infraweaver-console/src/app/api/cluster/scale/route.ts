@@ -40,7 +40,12 @@ export async function PATCH(req: NextRequest) {
   }
   try {
     const appsApi = makeKc(clusterId).makeApiClient(k8s.AppsV1Api);
-    await appsApi.patchNamespacedDeployment({ name: deployment, namespace, body: { spec: { replicas } } });
+    const scale = await appsApi.readNamespacedDeploymentScale({ name: deployment, namespace });
+    await appsApi.replaceNamespacedDeploymentScale({
+      name: deployment,
+      namespace,
+      body: { ...scale, spec: { ...(scale.spec ?? {}), replicas } },
+    });
     await auditLog("cluster:scale", session.user?.email ?? "unknown", `scaled ${namespace}/${deployment} to ${replicas}`);
     invalidateClusterCaches();
     return NextResponse.json({ ok: true, replicas });
