@@ -21,5 +21,4 @@ export const VERSION_SOURCES: Record<string, VersionSource> = {
   'metrics-server': { type: 'helm', repoUrl: 'https://kubernetes-sigs.github.io/metrics-server/', chartName: 'metrics-server' },
   'csi-driver-smb': { type: 'helm', repoUrl: 'https://raw.githubusercontent.com/kubernetes-csi/csi-driver-smb/master/charts', chartName: 'csi-driver-smb' },
   openbao: { type: 'helm', repoUrl: 'https://openbao.github.io/openbao-helm', chartName: 'openbao' },
-  'example-app': { type: 'helm', repoUrl: 'https://charts.bitnami.com/bitnami', chartName: 'nginx' },
 };

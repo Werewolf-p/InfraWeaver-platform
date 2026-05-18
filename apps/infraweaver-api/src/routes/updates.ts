@@ -55,6 +55,7 @@ const GITHUB_BRANCH = process.env.GITHUB_BRANCH ?? 'main';
 const GITHUB_API = 'https://api.github.com';
 const argoAppsCache = new Map<string, { fetchedAt: number; items: ArgoApplication[] }>();
 let treeCache: { fetchedAt: number; items: Array<{ path: string; sha: string }> } | null = null;
+let manifestsCache: { fetchedAt: number; items: ApplicationManifest[] } | null = null;
 
 function normalizeVersionTag(version: string) {
   return version.trim().replace(/^v/i, '');
@@ -390,8 +391,13 @@ async function ghPutFile(path: string, content: string, message: string, sha: st
 }
 
 async function collectApplicationManifests(): Promise<ApplicationManifest[]> {
+  const now = Date.now();
+  if (manifestsCache && now - manifestsCache.fetchedAt < 60_000) {
+    return manifestsCache.items;
+  }
+
   const treeItems = await getCachedRepoTree();
-  const manifests = await Promise.all(treeItems.map(async ({ path }): Promise<ApplicationManifest | null> => {
+  const results = await Promise.all(treeItems.map(async ({ path }): Promise<ApplicationManifest | null> => {
     const file = await ghGetFile(path);
     if (!file) {
       return null;
@@ -416,9 +422,12 @@ async function collectApplicationManifests(): Promise<ApplicationManifest[]> {
     };
   }));
 
-  return manifests
+  const items = results
     .filter((manifest): manifest is ApplicationManifest => manifest !== null)
     .sort((left, right) => left.appName.localeCompare(right.appName));
+
+  manifestsCache = { fetchedAt: now, items };
+  return items;
 }
 
 async function getArgoConfig(clusterId: string): Promise<{ server: string; token: string }> {
@@ -525,6 +534,9 @@ async function updateManifestVersion(manifest: ApplicationManifest, version: str
     file.sha,
   );
 
+  // Invalidate manifest cache so the next GET picks up the new targetRevision.
+  manifestsCache = null;
+
   return { currentVersion: updated.currentVersion, commitSha };
 }
 
@@ -548,6 +560,7 @@ updatesRoute.get('/', async (c) => {
       id: manifest.id,
       name: manifest.appName,
       namespace: liveApp?.spec?.destination?.namespace ?? liveApp?.metadata?.namespace ?? manifest.namespace ?? 'default',
+      section: manifest.section,
       currentVersion: getCurrentVersion(liveApp, manifest),
       targetVersion: manifest.targetRevision,
       chart: manifest.chart,
