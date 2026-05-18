@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import { sanitizeConsoleCommand } from "@/lib/api-helpers";
 import { auditLog, auditUnauthorizedAccess } from "@/lib/audit-log";
 import { getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
-import { makeGameHubClients, runServerCommand } from "@/lib/game-hub-server";
+import { isServerStartingError, makeGameHubClients, runServerCommand } from "@/lib/game-hub-server";
 import { safeError } from "@/lib/utils";
 import { z } from "zod";
 
@@ -57,9 +57,14 @@ export async function POST(
     return NextResponse.json({
       output: commandResult.stdout.trim() || commandResult.stderr.trim(),
       ...(commandResult.stderr.trim() ? { error: commandResult.stderr.trim() } : {}),
+      method: commandResult.method,
+      gameType: commandResult.gameType,
     });
   } catch (error) {
     console.error("rcon route failed", error);
+    if (isServerStartingError(error)) {
+      return NextResponse.json({ error: "Server is starting up, please wait...", output: "" }, { status: 503 });
+    }
     return NextResponse.json({ error: safeError(error), output: "" }, { status: 500 });
   }
 }

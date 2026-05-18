@@ -20,6 +20,13 @@ interface HistoryEntry {
   createdAt: number;
 }
 
+interface CommandResponse {
+  output: string;
+  error?: string;
+  method?: string;
+  gameType?: string;
+}
+
 const MINECRAFT_QUICK_COMMANDS = [
   "/list",
   "/weather clear",
@@ -29,8 +36,83 @@ const MINECRAFT_QUICK_COMMANDS = [
   "/seed",
 ];
 
+function normalizeGameType(gameType: string) {
+  return (gameType ?? "").toLowerCase();
+}
+
 function isMinecraft(gameType: string) {
-  return (gameType ?? "").toLowerCase().includes("minecraft");
+  return normalizeGameType(gameType).includes("minecraft");
+}
+
+function isTerraria(gameType: string) {
+  return normalizeGameType(gameType) === "terraria";
+}
+
+function isValheim(gameType: string) {
+  return normalizeGameType(gameType) === "valheim";
+}
+
+function isRust(gameType: string) {
+  return normalizeGameType(gameType) === "rust";
+}
+
+function isSourceGame(gameType: string) {
+  return ["cs2", "csgo", "tf2"].includes(normalizeGameType(gameType));
+}
+
+function getPanelTitle(gameType: string) {
+  return isMinecraft(gameType) || isSourceGame(gameType) || isRust(gameType) || isValheim(gameType)
+    ? "RCON Console"
+    : "Console Commands";
+}
+
+function getPanelDescription(gameType: string) {
+  if (isTerraria(gameType)) return "Terraria sends commands over stdin to the server process.";
+  if (isValheim(gameType)) return "Valheim tries localhost:2458 RCON first, then falls back to stdin.";
+  if (isMinecraft(gameType)) return "Minecraft tries mcrcon/RCON first, then falls back to the server console pipe.";
+  if (isRust(gameType) || isSourceGame(gameType)) return "Uses localhost RCON first, then falls back to stdin when available.";
+  return "Send console commands and review the last 20 responses.";
+}
+
+function getCommandPlaceholder(gameType: string) {
+  if (isTerraria(gameType)) return "Enter a Terraria console command";
+  if (isValheim(gameType)) return "Enter a Valheim console command";
+  return "Enter a console command";
+}
+
+function isTransportFailure(message: string) {
+  return [
+    "can't connect rcon",
+    "rcon client is unavailable",
+    "connection refused",
+    "connection reset",
+    "timed out",
+    "authentication",
+    "bad password",
+    "wrong password",
+    "no supported stdin console input method found",
+  ].some((entry) => message.includes(entry));
+}
+
+function formatCommandError(gameType: string, rawMessage: string) {
+  const message = rawMessage.trim();
+  const lower = message.toLowerCase();
+  if (!isTransportFailure(lower)) return message;
+  if (isTerraria(gameType)) return "Terraria commands use stdin. Make sure the server is running and its console pipe is attached.";
+  if (isValheim(gameType)) return "Valheim command delivery failed. Check ENABLE_RCON=1, SERVER_RCON_PASSWORD, and RCON_PORT=2458, or make sure stdin is available.";
+  if (isMinecraft(gameType)) return "Minecraft command delivery failed. Check ENABLE_RCON, RCON_PASSWORD, and RCON_PORT=25575, or make sure the console pipe is available.";
+  if (isRust(gameType)) return "Rust command delivery failed. Check RCON_PASSWORD and RCON_PORT=28016, or make sure stdin is available.";
+  if (isSourceGame(gameType)) return "Source server command delivery failed. Check SRCDS_RCONPW and SRCDS_PORT, or make sure stdin is available.";
+  return message;
+}
+
+function getSuccessMessage(gameType: string, method?: string) {
+  if (method === "stdin") {
+    return isTerraria(gameType) ? "Command sent via Terraria stdin" : "Command sent via server console";
+  }
+  if (method === "mcrcon") return "Command sent via mcrcon";
+  if (method === "rcon") return "Command sent via RCON";
+  return "Command sent";
 }
 
 export function RconPanel({ serverName, gameType, permissions }: RconPanelProps) {
@@ -48,7 +130,7 @@ export function RconPanel({ serverName, gameType, permissions }: RconPanelProps)
     if (!value) return;
     setSubmitting(true);
     try {
-      const response = await fetchJson<{ output: string; error?: string }>(
+      const response = await fetchJson<CommandResponse>(
         `/api/game-hub/servers/${serverName}/rcon`,
         {
           method: "POST",
@@ -56,19 +138,20 @@ export function RconPanel({ serverName, gameType, permissions }: RconPanelProps)
           body: JSON.stringify({ command: value }),
         },
       );
+      const errorMessage = response.error ? formatCommandError(gameType, response.error) : undefined;
       const entry: HistoryEntry = {
         id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
         command: value,
         output: response.output,
-        error: response.error,
+        error: errorMessage,
         createdAt: Date.now(),
       };
       setHistory((current) => [...current, entry].slice(-20));
-      if (response.error) toast.error(response.error);
-      else toast.success("Command sent");
+      if (errorMessage) toast.error(errorMessage);
+      else toast.success(getSuccessMessage(gameType, response.method));
       setCommand("");
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = formatCommandError(gameType, error instanceof Error ? error.message : String(error));
       setHistory((current) =>
         [
           ...current,
@@ -90,10 +173,8 @@ export function RconPanel({ serverName, gameType, permissions }: RconPanelProps)
   return (
     <div className="rounded-xl border border-[#2a2a2a] bg-[#111] p-4 space-y-4">
       <div>
-        <h3 className="text-sm font-medium text-[#f2f2f2]">RCON Console</h3>
-        <p className="text-xs text-[#888]">
-          Send remote console commands and review the last 20 responses.
-        </p>
+        <h3 className="text-sm font-medium text-[#f2f2f2]">{getPanelTitle(gameType)}</h3>
+        <p className="text-xs text-[#888]">{getPanelDescription(gameType)}</p>
       </div>
 
       {quickCommands.length > 0 ? (
@@ -123,7 +204,7 @@ export function RconPanel({ serverName, gameType, permissions }: RconPanelProps)
             }
           }}
           disabled={!canConsole || submitting}
-          placeholder={canConsole ? "Enter an RCON command" : "Console access is disabled"}
+          placeholder={canConsole ? getCommandPlaceholder(gameType) : "Console access is disabled"}
           className="flex-1 rounded-lg border border-[#2a2a2a] bg-[#0a0a0a] px-3 py-2 text-sm text-[#f2f2f2] focus:border-[#0078D4] focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
         />
         <button
@@ -146,7 +227,7 @@ export function RconPanel({ serverName, gameType, permissions }: RconPanelProps)
       <div className="space-y-2">
         {history.length === 0 ? (
           <div className="rounded-lg border border-dashed border-[#2a2a2a] p-4 text-sm text-[#888]">
-            No RCON commands sent yet.
+            No console commands sent yet.
           </div>
         ) : (
           history

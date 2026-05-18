@@ -7,6 +7,7 @@ import { getEggForGameType, type GameEgg, type SavedCommand } from "@/lib/game-e
 import { GAME_HUB_NAMESPACE, parseEggConfig } from "@/lib/game-hub";
 import { loadKubeConfig } from "@/lib/k8s";
 import { parseSafeExternalUrl, requestSafeExternalUrl } from "@/lib/outbound-url";
+import { UserError } from "@/lib/utils";
 
 export const GAME_HUB_NS = GAME_HUB_NAMESPACE;
 const AUDIT_CONFIG_MAP_KEY = "entries.json";
@@ -244,6 +245,109 @@ export function getPrimaryContainerName(pod: k8s.V1Pod | null | undefined, fallb
   return pod?.spec?.containers?.[0]?.name ?? fallback;
 }
 
+const STDIN_ONLY_GAMES = new Set(["terraria"]);
+const SRCDS_GAMES = new Set(["cs2", "csgo", "tf2"]);
+
+export interface RconCommandCandidate {
+  method: "mcrcon" | "rcon";
+  commands: string[][];
+}
+
+function getEggEnvValue(egg: GameEgg | null | undefined, name: string) {
+  return egg?.environment.find((entry) => entry.name === name)?.defaultValue?.trim() ?? "";
+}
+
+function isMinecraftGame(gameType: string) {
+  return gameType.includes("minecraft");
+}
+
+function isSrcdsGame(gameType: string) {
+  return SRCDS_GAMES.has(gameType);
+}
+
+function expandBinaryCandidates(binary: string, args: string[]) {
+  return [
+    [`/usr/local/bin/${binary}`, ...args],
+    [`/usr/bin/${binary}`, ...args],
+    [binary, ...args],
+  ];
+}
+
+export function getGameRconArgs(gameType: string, egg: GameEgg, command: string): RconCommandCandidate[] {
+  if (isMinecraftGame(gameType)) {
+    const password = getEggEnvValue(egg, "RCON_PASSWORD");
+    const port = getEggEnvValue(egg, "RCON_PORT") || "25575";
+    if (!password) return [];
+    return [
+      {
+        method: "mcrcon",
+        commands: expandBinaryCandidates("mcrcon", ["-H", "localhost", "-P", port, "-p", password, command]),
+      },
+      {
+        method: "rcon",
+        commands: expandBinaryCandidates("rcon-cli", ["--host", "localhost", "--port", port, "--password", password, command]),
+      },
+    ];
+  }
+
+  if (gameType === "valheim") {
+    const password = getEggEnvValue(egg, "SERVER_RCON_PASSWORD") || getEggEnvValue(egg, "RCON_PASSWORD");
+    const port = getEggEnvValue(egg, "RCON_PORT") || getEggEnvValue(egg, "SERVER_RCON_PORT") || "2458";
+    if (!password) return [];
+    return [{
+      method: "rcon",
+      commands: expandBinaryCandidates("rcon-cli", ["--host", "localhost", "--port", port, "--password", password, command]),
+    }];
+  }
+
+  if (gameType === "rust") {
+    const password = getEggEnvValue(egg, "RCON_PASSWORD");
+    const port = getEggEnvValue(egg, "RCON_PORT") || "28016";
+    if (!password) return [];
+    return [{
+      method: "rcon",
+      commands: expandBinaryCandidates("rcon-cli", ["--host", "localhost", "--port", port, "--password", password, command]),
+    }];
+  }
+
+  if (isSrcdsGame(gameType)) {
+    const password = getEggEnvValue(egg, "SRCDS_RCONPW");
+    const port = getEggEnvValue(egg, "SRCDS_PORT") || "27015";
+    if (!password) return [];
+    return [{
+      method: "rcon",
+      commands: expandBinaryCandidates("rcon-cli", ["--host", "localhost", "--port", port, "--password", password, command]),
+    }];
+  }
+
+  return [];
+}
+
+function buildCommandExecutionError(gameType: string, transportError: unknown, stdinError?: unknown) {
+  const detail = [transportError, stdinError]
+    .filter((value) => value !== undefined && value !== null)
+    .map((value) => (value instanceof Error ? value.message : String(value)).trim())
+    .find(Boolean);
+  const suffix = detail ? ` ${detail}` : "";
+
+  if (gameType === "terraria") {
+    return new UserError(`Terraria commands use stdin. Make sure the server is running and /proc/1/fd/0 is writable.${suffix}`.trim());
+  }
+  if (gameType === "valheim") {
+    return new UserError(`Valheim command delivery failed. Check ENABLE_RCON=1, SERVER_RCON_PASSWORD, and RCON_PORT=2458, or make sure stdin is available.${suffix}`.trim());
+  }
+  if (isMinecraftGame(gameType)) {
+    return new UserError(`Minecraft command delivery failed. Check ENABLE_RCON, RCON_PASSWORD, and RCON_PORT, or make sure the console pipe is available.${suffix}`.trim());
+  }
+  if (gameType === "rust") {
+    return new UserError(`Rust command delivery failed. Check RCON_PASSWORD, RCON_PORT=28016, or make sure stdin is available.${suffix}`.trim());
+  }
+  if (isSrcdsGame(gameType)) {
+    return new UserError(`Source server command delivery failed. Check SRCDS_RCONPW, SRCDS_PORT, or make sure stdin is available.${suffix}`.trim());
+  }
+  return new UserError(`Command delivery failed for ${gameType || "this server"}. Make sure the server is running and accepts stdin input.${suffix}`.trim());
+}
+
 function missingExecutable(error: unknown) {
   if (!(error instanceof Error)) return false;
   const message = error.message.toLowerCase();
@@ -344,27 +448,12 @@ export function buildConsoleInputScript(command: string) {
   if (trimmed === "^C") return "kill -INT 1";
   const quoted = shellQuote(trimmed);
   return [
-    // 1. Minecraft named-pipe helper (itzg/minecraft-server specific)
     "if command -v mc-send-to-console >/dev/null 2>&1 && [ -p /tmp/minecraft-console-in ]; then",
     `  mc-send-to-console ${quoted}`,
-    // 2. rcon-cli — reads host/port/password from the container's OWN environment variables.
-    //    Covers naming conventions used by Minecraft (RCON_PASSWORD), Valheim (SERVER_RCON_PASSWORD,
-    //    SERVER_RCON_PORT), Source games (SRCDS_RCONPW), and the rcon-cli standard (RCON_PORT).
-    //    Any future game that ships rcon-cli and sets one of these env vars works automatically.
-    "elif command -v rcon-cli >/dev/null 2>&1; then",
-    '  _rport="${RCON_PORT:-${SERVER_RCON_PORT:-${SRCDS_RCONPORT:-25575}}}"',
-    '  _rpass="${RCON_PASSWORD:-${SERVER_RCON_PASSWORD:-${SRCDS_RCONPW:-${RCON_PW:-}}}}"',
-    '  if [ -n "$_rpass" ]; then',
-    `    rcon-cli --host localhost --port "$_rport" --password "$_rpass" -- ${quoted}`,
-    "  else",
-    `    rcon-cli -- ${quoted}`,
-    "  fi",
-    // 3. stdin pipe — works for any game whose server process reads standard input
-    //    (e.g. Terraria terrariad image, Valheim valheim_server.x86_64, many others).
     'elif [ -w /proc/1/fd/0 ] && [ "$(readlink /proc/1/fd/0 2>/dev/null || true)" != "/dev/null" ]; then',
     `  printf '%s\\n' ${quoted} > /proc/1/fd/0`,
     "else",
-    '  echo "No supported console input method found (tried: mc-send-to-console, rcon-cli, /proc/1/fd/0)" >&2',
+    '  echo "No supported stdin console input method found" >&2',
     "  exit 1",
     "fi",
   ].join("\n");
@@ -394,23 +483,25 @@ export async function runRconCommand(
   kc: k8s.KubeConfig,
   podName: string,
   containerName: string,
-  command: string,
+  candidates: RconCommandCandidate[],
   timeoutMs = 15000,
 ) {
-  const candidates = [
-    ["/usr/local/bin/rcon-cli", command],
-    ["/usr/bin/rcon-cli", command],
-    ["rcon-cli", command],
-  ];
+  let lastError: unknown = null;
 
   for (const candidate of candidates) {
-    try {
-      return await execInPod(kc, podName, containerName, candidate, timeoutMs);
-    } catch (error) {
-      if (!missingExecutable(error)) throw error;
+    for (const command of candidate.commands) {
+      try {
+        const result = await execInPod(kc, podName, containerName, command, timeoutMs);
+        return { ...result, method: candidate.method };
+      } catch (error) {
+        if (missingExecutable(error)) continue;
+        lastError = error;
+        break;
+      }
     }
   }
 
+  if (lastError) throw lastError;
   throw new Error("RCON client is unavailable for this server");
 }
 
@@ -430,7 +521,9 @@ export async function runServerCommand(
   timeoutMs = 15000,
 ) {
   const deployment = await getServerDeployment(clients.appsApi, name);
-  const gameType = getDeploymentGameType(deployment).toLowerCase();
+  const egg = await readServerEgg(clients.coreApi, name, deployment);
+  const gameType = (egg.id || getDeploymentGameType(deployment)).toLowerCase();
+  const rconCandidates = STDIN_ONLY_GAMES.has(gameType) ? [] : getGameRconArgs(gameType, egg, command);
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const pod = await getServerPod(clients.coreApi, name, true);
@@ -443,18 +536,32 @@ export async function runServerCommand(
     }
 
     const containerName = getPrimaryContainerName(pod, name);
+    let transportError: unknown = null;
+
+    if (rconCandidates.length > 0) {
+      try {
+        const result = await runRconCommand(clients.kc, pod.metadata.name, containerName, rconCandidates, timeoutMs);
+        return { ...result, gameType, pod };
+      } catch (error) {
+        const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
+        if ((message.includes("container not found") || message.includes("container not running")) && attempt < 2) {
+          await new Promise((resolve) => setTimeout(resolve, COMMAND_RETRY_DELAY_MS));
+          continue;
+        }
+        transportError = error;
+      }
+    }
+
     try {
-      // Use the universal in-pod script that auto-detects the available console method:
-      // mc-send-to-console → rcon-cli (reads container's own RCON_PORT/RCON_PASSWORD env vars) → stdin pipe.
       const result = await sendConsoleInputViaExec(clients.kc, pod.metadata.name, containerName, command, timeoutMs);
-      return { ...result, gameType, pod, method: "console" as const };
+      return { ...result, gameType, pod, method: "stdin" as const };
     } catch (error) {
       const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
       if ((message.includes("container not found") || message.includes("container not running")) && attempt < 2) {
         await new Promise((resolve) => setTimeout(resolve, COMMAND_RETRY_DELAY_MS));
         continue;
       }
-      throw error;
+      throw buildCommandExecutionError(gameType, transportError ?? error, transportError ? error : undefined);
     }
   }
 

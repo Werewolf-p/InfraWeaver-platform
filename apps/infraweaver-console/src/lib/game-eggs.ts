@@ -159,6 +159,7 @@ const minecraftJava: GameEgg = {
     { name: "GAMEMODE", description: "Game mode (survival, creative, adventure)", defaultValue: "survival", required: false },
     { name: "ENABLE_RCON", description: "Enable RCON support", defaultValue: "true", required: false },
     { name: "RCON_PASSWORD", description: "RCON password", defaultValue: "", required: false },
+    { name: "RCON_PORT", description: "RCON port", defaultValue: "25575", required: false },
   ],
   quickCommands: [
     ...standardQuickCommands({ status: "list", list: "list", help: "help" }),
@@ -189,6 +190,7 @@ export const GAME_EGGS: Record<string, GameEgg> = {
       { name: "WORLD_FILENAME", description: "World file name", defaultValue: "World.wld", required: false },
       { name: "MAX_PLAYERS", description: "Maximum players", defaultValue: "16", required: false },
       { name: "SERVER_PASSWORD", description: "Optional join password", defaultValue: "", required: false },
+      { name: "RCON_PASSWORD", description: "Optional TShock RCON password", defaultValue: "", required: false },
       { name: "TZ", description: "Container timezone", defaultValue: "UTC", required: false },
     ],
     quickCommands: [
@@ -221,9 +223,9 @@ export const GAME_EGGS: Record<string, GameEgg> = {
       { name: "WORLD_NAME", description: "World save name", defaultValue: "Dedicated", required: false },
       { name: "SERVER_PASS", description: "Server password", defaultValue: "changeme123", required: false },
       { name: "SERVER_PUBLIC", description: "Advertise to the public server list", defaultValue: "false", required: false },
-      { name: "ENABLE_RCON", description: "Enable RCON support (set to 1)", defaultValue: "1", required: false },
-      { name: "SERVER_RCON_PORT", description: "RCON port", defaultValue: "2458", required: false },
-      { name: "RCON_PASSWORD", description: "RCON password (used by rcon-cli auto-detection)", defaultValue: "", required: false },
+      { name: "ENABLE_RCON", description: "Enable Valheim RCON", defaultValue: "1", required: false },
+      { name: "SERVER_RCON_PASSWORD", description: "RCON password", defaultValue: "", required: false },
+      { name: "RCON_PORT", description: "RCON port", defaultValue: "2458", required: false },
       { name: "TZ", description: "Container timezone", defaultValue: "UTC", required: false },
     ],
     quickCommands: [
@@ -337,6 +339,8 @@ export const GAME_EGGS: Record<string, GameEgg> = {
       { name: "RUST_SERVER_SEED", description: "Map seed", defaultValue: "12345", required: false },
       { name: "RUST_SERVER_NAME", description: "Server name", defaultValue: "My Rust Server", required: false },
       { name: "RUST_SERVER_DESCRIPTION", description: "Server description", defaultValue: "", required: false },
+      { name: "RCON_PASSWORD", description: "RCON password", defaultValue: "", required: false },
+      { name: "RCON_PORT", description: "RCON port", defaultValue: "28016", required: false },
     ],
     quickCommands: [
       { label: "Players", command: "global.status", description: "Show server status" },

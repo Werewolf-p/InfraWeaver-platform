@@ -3896,52 +3896,54 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
           </div>
         </div>
 
-        {isMinecraft ? (
-          <div className="space-y-4">
-            <SettingsAccordion
-              title="World Info"
-              description="Seed, world name, and key gameplay settings."
-              defaultOpen
-            >
-              <WorldInfo serverName={name} mountPath={mountPath} gameType={server.gameType} />
-            </SettingsAccordion>
-            <SettingsAccordion
-              title="RCON Console"
-              description="Run remote console commands for the server."
-            >
-              <RconPanel serverName={name} gameType={server.gameType} permissions={server.permissions} />
-            </SettingsAccordion>
-            <SettingsAccordion
-              title="Whitelist"
-              description="Add or remove allowed players."
-            >
-              <WhitelistManager serverName={name} mountPath={mountPath} />
-            </SettingsAccordion>
-            <SettingsAccordion
-              title="Operators"
-              description="Manage Minecraft op levels and bypass permissions."
-            >
-              <OpsManager serverName={name} mountPath={mountPath} />
-            </SettingsAccordion>
-            <SettingsAccordion
-              title="Ban List"
-              description="Review banned players and IP addresses."
-            >
-              <BanList serverName={name} mountPath={mountPath} />
-            </SettingsAccordion>
-            <SettingsAccordion
-              title="server.properties"
-              description="Edit the main Minecraft server configuration file."
-            >
-              <ConfigEditor
-                serverName={name}
-                filePath={`${mountPath}/server.properties`}
+        <div className="space-y-4">
+          <SettingsAccordion
+            title={isMinecraft ? "RCON Console" : "Console Commands"}
+            description="Run remote console commands for the server."
+          >
+            <RconPanel serverName={name} gameType={server.gameType} permissions={server.permissions} />
+          </SettingsAccordion>
+          {isMinecraft ? (
+            <>
+              <SettingsAccordion
+                title="World Info"
+                description="Seed, world name, and key gameplay settings."
+                defaultOpen
+              >
+                <WorldInfo serverName={name} mountPath={mountPath} gameType={server.gameType} />
+              </SettingsAccordion>
+              <SettingsAccordion
+                title="Whitelist"
+                description="Add or remove allowed players."
+              >
+                <WhitelistManager serverName={name} mountPath={mountPath} />
+              </SettingsAccordion>
+              <SettingsAccordion
+                title="Operators"
+                description="Manage Minecraft op levels and bypass permissions."
+              >
+                <OpsManager serverName={name} mountPath={mountPath} />
+              </SettingsAccordion>
+              <SettingsAccordion
+                title="Ban List"
+                description="Review banned players and IP addresses."
+              >
+                <BanList serverName={name} mountPath={mountPath} />
+              </SettingsAccordion>
+              <SettingsAccordion
                 title="server.properties"
-                gameType={server.gameType}
-              />
-            </SettingsAccordion>
-          </div>
-        ) : null}
+                description="Edit the main Minecraft server configuration file."
+              >
+                <ConfigEditor
+                  serverName={name}
+                  filePath={`${mountPath}/server.properties`}
+                  title="server.properties"
+                  gameType={server.gameType}
+                />
+              </SettingsAccordion>
+            </>
+          ) : null}
+        </div>
       </div>
 
       <div className="rounded-xl border border-[#2a2a2a] bg-[#111] overflow-hidden">
@@ -5107,7 +5109,13 @@ export default function ServerDetailPage() {
                         permissions={server.permissions}
                       />
                     </div>
-                  ) : null}
+                  ) : (
+                    <RconPanel
+                      serverName={name}
+                      gameType={server.gameType}
+                      permissions={server.permissions}
+                    />
+                  )}
                 </div>
               )}
               {resolvedActiveTab === "console" && (
