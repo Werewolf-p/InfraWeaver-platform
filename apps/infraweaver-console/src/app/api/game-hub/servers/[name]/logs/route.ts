@@ -62,10 +62,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ name
     const kc = loadKubeConfig(getRequestClusterId(req));
     const coreApi = kc.makeApiClient(k8s.CoreV1Api);
     const pods = await coreApi.listNamespacedPod({ namespace: GAME_HUB_NAMESPACE, labelSelector: `app=${name}` });
-    const pod = pods.items?.find((entry) => entry.status?.phase === "Running") ?? pods.items?.[0];
+    // Exclude Terminating pods (they have a deletionTimestamp) to avoid reading stale/dying containers
+    const activePods = (pods.items ?? []).filter((p) => !p.metadata?.deletionTimestamp);
+    const pod = activePods.find((entry) => entry.status?.phase === "Running") ?? activePods[0];
 
     if (!pod?.metadata?.name) {
-      return new Response(`data: ${JSON.stringify({ type: "error", line: "No pod found — server may be stopped" })}\n\n`, {
+      return new Response(`data: ${JSON.stringify({ type: "error", line: "No running pod found — server may be stopped or still starting" })}\n\n`, {
         headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" },
       });
     }
