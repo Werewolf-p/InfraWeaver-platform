@@ -38,10 +38,14 @@ spec:
       containers:
         - name: api
 <<<<<<< HEAD
-          image: onedev.rlservers.com/infraweaver/infraweaver-api:main-99e3b34
+<<<<<<< HEAD
+          image: onedev.rlservers.com/infraweaver/infraweaver-api:main-44fe2ee
 =======
-          image: onedev.rlservers.com/infraweaver/infraweaver-api:main-99e3b34
+          image: onedev.rlservers.com/infraweaver/infraweaver-api:main-44fe2ee
 >>>>>>> 108213447a8 (chore: deploy infraweaver-api main-9945fdb [skip ci])
+=======
+          image: onedev.rlservers.com/infraweaver/infraweaver-api:main-44fe2ee
+>>>>>>> 40314f91 (chore: deploy infraweaver-api main-3bf8b4a [skip ci])
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 3001
