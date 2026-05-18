@@ -213,7 +213,7 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
 async function fetchHelmVersions(source: Extract<VersionSource, { type: 'helm' }>): Promise<VersionLookupResponse> {
   const repoUrl = source.repoUrl.endsWith('/') ? source.repoUrl : `${source.repoUrl}/`;
   const indexUrl = new URL('index.yaml', repoUrl).toString();
-  const indexYaml = await fetch(indexUrl, { signal: AbortSignal.timeout(8000) }).then((response) => {
+  const indexYaml = await fetch(indexUrl, { signal: AbortSignal.timeout(25000) }).then((response) => {
     if (!response.ok) {
       throw new Error(`Failed to fetch Helm index from ${indexUrl}`);
     }
