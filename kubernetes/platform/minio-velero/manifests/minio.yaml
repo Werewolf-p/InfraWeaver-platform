@@ -28,6 +28,31 @@ spec:
     requests:
       storage: 20Gi
 ---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: minio-velero-pvc-reader
+  namespace: velero
+rules:
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    resourceNames: ["minio-velero-data"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: minio-velero-pvc-reader-system-nodes
+  namespace: velero
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: minio-velero-pvc-reader
+subjects:
+  - kind: Group
+    name: system:nodes
+    apiGroup: rbac.authorization.k8s.io
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
