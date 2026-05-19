@@ -29,6 +29,7 @@ spec:
     - "keycloak.rlservers.com"
     - "awx.rlservers.com"
     - "bitwarden.rlservers.com"
+    - "vaultwarden.rlservers.com"
     - "gitlab.rlservers.com"
     - "registry.gitlab.rlservers.com"
     - "cloud.rlservers.com"
