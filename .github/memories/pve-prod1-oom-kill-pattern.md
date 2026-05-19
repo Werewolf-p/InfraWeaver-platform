@@ -96,3 +96,46 @@ Options (not yet implemented):
 - The OOM kill manifested as "OpenBao token 403 errors" — misleading; actual issue was sealed vault from OOM crash
 - After pve-prod1 restarts, ALL nested VMs (9100, 9200, 9300) autostart via Proxmox `onboot` config
 - pve-prod1 boot takes ~90s from `qm start 180` to SSH accessible
+
+## K8s Node-Level OOM Crashes (Secondary Pattern)
+
+**Separate from pve-prod1:** Individual Talos VMs (cp1/cp2/cp3) can also OOM-crash when
+cluster memory overcommitment becomes critical. Each VM has 13312MB allocated.
+
+### Observed Crashes
+
+| Date | Node | Peak Memory | Trigger | Duration |
+|------|------|-------------|---------|----------|
+| 2026-05-19 08:53 UTC | talos-prod-cp3 | ~89-93% | Cascade from rebalancing + volume moves | ~60s |
+
+### K8s Node OOM Symptoms
+- `kubectl top nodes` shows `<unknown>` for affected node
+- Node gets `node.kubernetes.io/unreachable:NoSchedule/NoExecute` taints
+- `kubectl get nodes` briefly shows NotReady then back to Ready (auto-restart)
+- Mass pod evictions: all pods on the node go Terminating simultaneously
+- Longhorn snapshots appear as "not ready" in bulk after crash
+
+### K8s Node OOM Root Causes
+- Per-node 13Gi RAM with ~9.6Gi allocatable
+- Longhorn instance-manager: up to 1.5Gi limit per node
+- kube-apiserver: ~1.5Gi (static pod, no limit enforced)
+- Game servers (minecraft+valheim+terraria): ~3.4Gi total (opt-in for rebalancer)
+- 20+ catalog apps with no memory limits: unpredictable growth
+- Volume "gravity": 1-replica Longhorn volumes pull pods back to the same node
+
+### K8s Node Recovery (Auto)
+- Talos VM has `onboot=1` — Proxmox auto-restarts it after crash
+- `node.kubernetes.io/unreachable` taints must be manually removed after recovery:
+  ```bash
+  kubectl taint node talos-prod-cp3 node.kubernetes.io/unreachable:NoSchedule- 
+  kubectl taint node talos-prod-cp3 node.kubernetes.io/unreachable:NoExecute-
+  ```
+- Pods reschedule automatically; Longhorn volumes reattach (takes 1-3 min)
+- Full cluster recovery: ~5-10 minutes
+
+### Preventing K8s Node OOM
+1. **Memory rebalancer** (implemented): moves opt-in pods when node > 85%, but uses preferred affinity (pods can drift back). Cooldown 2h per workload.
+2. **Game server node spread** (implemented): topology spread constraints prevent 2 game servers on same node.
+3. **TODO**: Add `LimitRange` defaults to catalog namespaces so pods without limits get capped
+4. **TODO**: Reduce Longhorn instance-manager limit from 1500Mi to 1100Mi
+5. **TODO**: Add `kube-apiserver` memory monitoring alert (currently uncapped)
