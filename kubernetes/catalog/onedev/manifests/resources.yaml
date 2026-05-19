@@ -88,6 +88,8 @@ spec:
       app.kubernetes.io/name: onedev
   template:
     metadata:
+      annotations:
+        infraweaver.io/rebalance-memory: "true"
       labels:
         app.kubernetes.io/name: onedev
         app.kubernetes.io/component: server

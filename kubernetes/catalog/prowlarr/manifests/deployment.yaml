@@ -22,6 +22,8 @@ spec:
       app.kubernetes.io/name: prowlarr
   template:
     metadata:
+      annotations:
+        infraweaver.io/rebalance-memory: "true"
       labels:
         app.kubernetes.io/name: prowlarr
     spec:

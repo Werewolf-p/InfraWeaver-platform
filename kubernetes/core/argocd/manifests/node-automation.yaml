@@ -245,6 +245,8 @@ spec:
                   value: "85"
                 - name: LOW_THRESHOLD
                   value: "75"
+                - name: MIN_DIFF_PERCENT
+                  value: "10"
                 - name: MIN_POD_MEMORY_MI
                   value: "256"
                 - name: DISCORD_WEBHOOK_URL
@@ -274,11 +276,19 @@ spec:
                       -d "{\"content\":\"${message}\"}" >/dev/null 2>&1 || true
                   }
 
-                  high_node=$(kubectl top nodes --no-headers 2>/dev/null | awk -v limit="$HIGH_THRESHOLD" '{gsub("%", "", $5); if ($5+0 >= limit) print $1" "$5}' | sort -k2nr | head -1 | awk '{print $1}')
-                  target_node=$(kubectl top nodes --no-headers 2>/dev/null | awk -v limit="$LOW_THRESHOLD" '{gsub("%", "", $5); if ($5+0 <= limit) print $1" "$5}' | sort -k2n | head -1 | awk '{print $1}')
+                  high_node=$(kubectl top nodes --no-headers 2>/dev/null | awk -v limit="$HIGH_THRESHOLD" '{gsub("%", "", $5); if ($5+0 >= limit) print $5" "$1}' | sort -rn | head -1 | awk '{print $2}')
+                  high_mem=$(kubectl top nodes --no-headers 2>/dev/null | awk -v limit="$HIGH_THRESHOLD" '{gsub("%", "", $5); if ($5+0 >= limit) print $5" "$1}' | sort -rn | head -1 | awk '{print $1}')
+                  # Find least-loaded node (not the high node), regardless of LOW_THRESHOLD
+                  target_node=$(kubectl top nodes --no-headers 2>/dev/null | awk -v h="$high_node" '{gsub("%", "", $5); if ($1 != h) print $5" "$1}' | sort -n | head -1 | awk '{print $2}')
+                  target_mem=$(kubectl top nodes --no-headers 2>/dev/null | awk -v h="$high_node" '{gsub("%", "", $5); if ($1 != h) print $5" "$1}' | sort -n | head -1 | awk '{print $1}')
+                  diff=$(( ${high_mem:-0} - ${target_mem:-0} ))
 
                   if [ -z "$high_node" ] || [ -z "$target_node" ] || [ "$high_node" = "$target_node" ]; then
-                    echo "No memory rebalance needed"
+                    echo "No memory rebalance needed (no node above ${HIGH_THRESHOLD}%)"
+                    exit 0
+                  fi
+                  if [ "$diff" -lt "${MIN_DIFF_PERCENT:-10}" ]; then
+                    echo "No memory rebalance needed (${high_node}=${high_mem}%, ${target_node}=${target_mem}%, diff=${diff}% < min ${MIN_DIFF_PERCENT:-10}%)"
                     exit 0
                   fi
 
