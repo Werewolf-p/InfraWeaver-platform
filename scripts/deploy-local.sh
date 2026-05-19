@@ -267,10 +267,13 @@ log "Step 6: Deploy ArgoCD & bootstrap ApplicationSet..."
 ENV_NAME="$ENV_NAME" bash scripts/deploy/deploy-argocd.sh
 ok "Step 6: ArgoCD deployed"
 
-# ── Step 7: Bootstrap Storage ─────────────────────────────────────────────────
-log "Step 7: Bootstrap local-path-provisioner storage..."
+# ── Step 7: Bootstrap Storage + PriorityClasses ──────────────────────────────
+log "Step 7: Bootstrap local-path-provisioner storage + platform PriorityClasses..."
 ENV_NAME="$ENV_NAME" bash scripts/deploy/bootstrap-storage.sh
-ok "Step 7: Storage bootstrapped"
+# Apply PriorityClasses early — Longhorn and other services reference platform-standard
+kubectl --kubeconfig "$KB_FILE" apply \
+  -f kubernetes/core/priority-classes/manifests/priority-classes.yaml 2>/dev/null || true
+ok "Step 7: Storage bootstrapped + PriorityClasses applied"
 
 # ── Step 7b: Deploy Longhorn directly (breaks ArgoCD→Onedev→Longhorn cycle) ──
 log "Step 7b: Deploying Longhorn directly via Helm..."
@@ -312,6 +315,14 @@ ok "Step 8: OpenBao deployed and bootstrapped"
 
 # ── Step 9: Deploy Onedev + wire ArgoCD → Onedev ──────────────────────────────
 log "Step 9: Deploying Onedev and wiring ArgoCD to it..."
+# Refresh kubeconfig — Talos may have rotated certs since step 4
+TALOSCONFIG_FILE="envs/$ENV_NAME/generated/talosconfig"
+[[ ! -f "$TALOSCONFIG_FILE" ]] && TALOSCONFIG_FILE="envs/$ENV_NAME/talosconfig"
+if [[ -f "$TALOSCONFIG_FILE" ]]; then
+  log "  Refreshing kubeconfig via talosctl..."
+  talosctl --talosconfig "$TALOSCONFIG_FILE" kubeconfig --force \
+    -o "$KB_FILE" 2>/dev/null && log "  ✅ kubeconfig refreshed" || warn "  kubeconfig refresh failed (continuing)"
+fi
 # Get OpenBao root token
 BAO_POD=$(kubectl --kubeconfig "$KB_FILE" get pod -n openbao \
   -l app.kubernetes.io/name=openbao --no-headers \

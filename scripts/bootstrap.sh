@@ -118,17 +118,32 @@ if [[ -d "$ONEDEV_MANIFEST_DIR" ]]; then
     fi
   fi
 
-  # Apply core manifests — use kubectl apply per-file, skipping files that
-  # depend on CRDs not yet installed (ExternalSecret, IngressRoute).
-  # Those CRDs will be installed by ArgoCD once Onedev is running.
+  # Apply core manifests — split multi-doc files to skip CRD-dependent resources
+  # (ExternalSecret, IngressRoute, VaultAuth depend on CRDs installed by ArgoCD later)
   for _MFILE in "$ONEDEV_MANIFEST_DIR"/*.yaml; do
     _MNAME=$(basename "$_MFILE")
-    # Check if file has types that need CRDs we might not have yet
     if grep -q "ExternalSecret\|IngressRoute\|VaultAuth" "$_MFILE" 2>/dev/null; then
-      log "Skipping $_MNAME (contains CRD types not yet installed — ArgoCD will apply later)"
-      continue
+      log "Filtering $_MNAME — applying only core k8s types (skipping ExternalSecret/IngressRoute)..."
+      # Extract individual YAML docs, skip those with CRD-dependent kinds
+      python3 - "$_MFILE" << 'PYEOF' | kubectl apply --server-side -f - 2>/dev/null \
+        || warn "Partial apply of $_MNAME had issues"
+import sys, re
+
+path = sys.argv[1]
+content = open(path).read()
+skip_kinds = {'ExternalSecret', 'IngressRoute', 'VaultAuth', 'ClusterSecretStore'}
+docs = [d for d in re.split(r'^---\s*$', content, flags=re.MULTILINE) if d.strip()]
+for doc in docs:
+    m = re.search(r'^\s*kind:\s*(\S+)', doc, re.MULTILINE)
+    if m and m.group(1) in skip_kinds:
+        continue
+    if doc.strip():
+        print('---')
+        print(doc)
+PYEOF
+    else
+      run kubectl apply -f "$_MFILE" --server-side || warn "Failed to apply $_MNAME"
     fi
-    run kubectl apply -f "$_MFILE" --server-side || warn "Failed to apply $_MNAME"
   done
   ok "Onedev core manifests applied"
 

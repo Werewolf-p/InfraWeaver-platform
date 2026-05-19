@@ -140,10 +140,11 @@ if [[ "$_wizard_api" != "200" ]]; then
       --data-urlencode "content:groups:1:properties:3:value:inputAgain=${ADMIN_PASS}" \
       --data-urlencode "content:groups:1:properties:4:value:content:input=" \
       --data-urlencode "content:groups:1:properties:7:value:content:input=${ADMIN_EMAIL}" \
-      --data-urlencode "endActions:finish=Finish" 2>/dev/null || true
+      --data-urlencode "next=" 2>/dev/null || true
     sleep 2
 
-    # Step 2: Submit server URL form
+    # Step 2: Submit server URL form with Finish button
+    # After admin creds step, wizard shows the server URL step with endActions:finish
     log "Completing wizard step 2: server URL..."
     curl -sk -c "$_COOKIE_JAR" -b "$_COOKIE_JAR" \
       "${ONEDEV_URL}/~init" -o /tmp/od_wizard2.html 2>/dev/null
@@ -151,16 +152,28 @@ if [[ "$_wizard_api" != "200" ]]; then
     _A2=$(python3 -c "import re; h=open('/tmp/od_wizard2.html').read(); m=re.search(r'action=\"(/[^\"]+)\"', h); print(m.group(1) if m else '')" 2>/dev/null || true)
     _I2=$(python3 -c "import re; h=open('/tmp/od_wizard2.html').read(); m=re.search(r'<form[^>]+id=\"([^\"]+)\"', h); print(m.group(1) if m else 'id4')" 2>/dev/null || true)
     _F2=$(python3 -c "import re; h=open('/tmp/od_wizard2.html').read(); m=re.search(r'name=\"(content[^\"]+)\"', h); print(m.group(1) if m else '')" 2>/dev/null || true)
+    # Check if this is the final step (has endActions:finish button)
+    _FINISH=$(python3 -c "import re; h=open('/tmp/od_wizard2.html').read(); print('yes' if re.search(r'endActions:finish', h) else 'no')" 2>/dev/null || echo "no")
 
-    if [[ -n "$_A2" ]] && [[ -n "$_F2" ]]; then
+    if [[ -n "$_A2" ]] && [[ "$_FINISH" == "yes" ]]; then
+      curl -sk -c "$_COOKIE_JAR" -b "$_COOKIE_JAR" \
+        -o /tmp/od_wizard_r2.html \
+        -X POST "${ONEDEV_URL}${_A2}" \
+        --data-urlencode "${_I2}_hf_0=" \
+        ${_F2:+--data-urlencode "${_F2}=${ONEDEV_URL}"} \
+        --data-urlencode "endActions:finish=Finish" 2>/dev/null || true
+      sleep 2
+      log "  Wizard step 2 (server URL) submitted with Finish"
+    elif [[ -n "$_A2" ]] && [[ -n "$_F2" ]]; then
+      # Multi-step wizard: intermediate step, just click Next
       curl -sk -c "$_COOKIE_JAR" -b "$_COOKIE_JAR" \
         -o /tmp/od_wizard_r2.html \
         -X POST "${ONEDEV_URL}${_A2}" \
         --data-urlencode "${_I2}_hf_0=" \
         --data-urlencode "${_F2}=${ONEDEV_URL}" \
-        --data-urlencode "endActions:finish=Finish" 2>/dev/null || true
+        --data-urlencode "next=" 2>/dev/null || true
       sleep 2
-      log "  Wizard step 2 submitted"
+      log "  Wizard step 2 submitted (intermediate step)"
     else
       log "  No step 2 form found — wizard may already be complete"
     fi
