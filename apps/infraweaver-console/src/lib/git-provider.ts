@@ -81,10 +81,11 @@ function getOneDevConfig() {
   const url = (process.env.ONEDEV_URL ?? DEFAULT_ONEDEV_URL).replace(/\/$/, "");
   const token = process.env.ONEDEV_TOKEN ?? "";
   const projectId = process.env.ONEDEV_PROJECT_ID ?? "";
+  const projectPath = normalizePath(process.env.ONEDEV_PROJECT_PATH ?? "").replace(/\.git$/, "");
   const branch = process.env.ONEDEV_BRANCH ?? DEFAULT_ONEDEV_BRANCH;
   const username = process.env.ONEDEV_USERNAME ?? "admin";
   const worktreeRoot = process.env.GIT_WORKTREE_ROOT ?? DEFAULT_GIT_WORKTREE_ROOT;
-  return { url, token, projectId, branch, username, worktreeRoot };
+  return { url, token, projectId, projectPath, branch, username, worktreeRoot };
 }
 
 function onedevHeaders(username: string, token: string): HeadersInit {
@@ -105,7 +106,11 @@ async function loadIsomorphicGit() {
 
 async function getOneDevProjectPath(): Promise<string> {
   if (cachedOneDevProjectPath) return cachedOneDevProjectPath;
-  const { url, token, projectId, username } = getOneDevConfig();
+  const { url, token, projectId, projectPath: configuredProjectPath, username } = getOneDevConfig();
+  if (configuredProjectPath.trim()) {
+    cachedOneDevProjectPath = configuredProjectPath;
+    return configuredProjectPath;
+  }
   if (!token.trim() || !projectId.trim()) {
     throw new Error("OneDev is not configured. Set ONEDEV_TOKEN and ONEDEV_PROJECT_ID.");
   }
@@ -130,7 +135,7 @@ export async function getGitRepoUrl(): Promise<string> {
   }
   const { url } = getOneDevConfig();
   const projectPath = await getOneDevProjectPath();
-  return `${url}/${projectPath}`;
+  return `${url}/${projectPath}.git`;
 }
 
 async function githubReadFile(filePath: string, revalidateSeconds = 0): Promise<GitFileResult | null> {
