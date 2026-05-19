@@ -1,0 +1,8 @@
+.env.example:private-key:28
+.env.example:github-pat:55
+.env.example:age-secret-key:42
+.github/memories/netbird-bootstrap-dynamic-account-ids.md:generic-api-key:98
+.github/memories/openbao-seal-unseal-resilience.md:generic-api-key:75
+.github/memories/netbird-vlan3-cluster-architecture.md:generic-api-key:36
+kubernetes/platform/netbird/manifests/bootstrap-job.yaml:generic-api-key:27
+scripts/deploy/reconnect-netbird.sh:generic-api-key:22
