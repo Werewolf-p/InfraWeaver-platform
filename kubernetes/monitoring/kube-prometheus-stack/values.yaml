@@ -198,9 +198,9 @@ alertmanager:
   config:
     global:
       smtp_from: "alertmanager@rlservers.com"
-      smtp_smarthost: "smtp-mail.outlook.com:587"
-      smtp_auth_username: "remonhulst@gmail.com"   # overridden by secret below
-      smtp_auth_password: "changeme"               # overridden by ExternalSecret-mounted env
+      smtp_smarthost: "smtp.gmail.com:587"
+      smtp_auth_username: "remonhulst@gmail.com"
+      smtp_auth_password: "changeme"   # set via ExternalSecret when Gmail app-password is ready
       smtp_require_tls: true
       resolve_timeout: 5m
     route:
@@ -235,9 +235,7 @@ alertmanager:
           - url: "http://alertmanager-discord.monitoring.svc.cluster.local:9094"
             send_resolved: true
       - name: "all"
-        email_configs:
-          - to: "remonhulst@gmail.com"
-            send_resolved: true
+        # email disabled until Gmail app-password ExternalSecret is configured
         webhook_configs:
           - url: "http://alertmanager-discord.monitoring.svc.cluster.local:9094"
             send_resolved: true
