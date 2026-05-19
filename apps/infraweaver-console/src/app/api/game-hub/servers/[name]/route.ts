@@ -4,7 +4,7 @@ import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
 import { buildEggConfigMap } from "@/lib/game-eggs";
 import { GAME_HUB_NAMESPACE, getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
-import { deleteServerManifest, writeServerManifest } from "@/lib/game-hub-manifest";
+import { deleteServerManifest, getGitHubConfig, writeServerManifest } from "@/lib/game-hub-manifest";
 import {
   appendServerAudit,
   buildPowerScheduleCron,
@@ -432,11 +432,13 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ n
     // so if we delete k8s resources first, ArgoCD immediately re-creates them from
     // the git manifest. By deleting the manifest first, ArgoCD's desired state
     // becomes "nothing here" → it won't re-create anything after k8s deletion.
-    try {
-      await deleteServerManifest(name);
-    } catch (gitErr) {
-      console.error("Git delete failed, continuing with k8s delete:", gitErr);
+    const { token } = getGitHubConfig();
+    if (!token.trim()) {
+      return NextResponse.json({
+        error: "Git token not configured - cannot safely delete server. Manifests would remain in git and ArgoCD would recreate the server.",
+      }, { status: 500 });
     }
+    await deleteServerManifest(name);
 
     const { appsApi, batchApi, coreApi } = makeGameHubClients();
     await appsApi.deleteNamespacedDeployment({ name, namespace: GAME_HUB_NAMESPACE }).catch(() => undefined);
