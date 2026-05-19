@@ -2,32 +2,22 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { GAME_HUB_NAMESPACE, getGameHubAccessContext } from "@/lib/game-hub";
 import { makeGameHubClients } from "@/lib/game-hub-server";
+import { getGitAccessToken, gitListDir } from "@/lib/git-provider";
 import { hasPermission } from "@/lib/rbac";
 import { safeError } from "@/lib/utils";
 
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN ?? "";
-const GITHUB_REPO = process.env.GITHUB_REPO ?? "Werewolf-p/InfraWeaver-platform";
+const GIT_TOKEN = getGitAccessToken();
 const GIT_SERVERS_PATH = "kubernetes/catalog/game-hub/servers";
 
 /** List files in the git servers directory. Returns [] if the directory doesn't exist yet. */
 async function listGitServerManifests(): Promise<Set<string>> {
-  const res = await fetch(
-    `https://api.github.com/repos/${GITHUB_REPO}/contents/${GIT_SERVERS_PATH}`,
-    {
-      headers: {
-        Authorization: `Bearer ${GITHUB_TOKEN}`,
-        Accept: "application/vnd.github.v3+json",
-      },
-      cache: "no-store",
-    },
-  );
-  if (res.status === 404) return new Set();
-  if (!res.ok) throw new Error(`GitHub GET ${GIT_SERVERS_PATH}: ${res.status}`);
-  const files = await res.json() as Array<{ name: string; type: string }>;
+  if (!GIT_TOKEN) return new Set();
+  const files = await gitListDir(GIT_SERVERS_PATH);
   return new Set(
     files
-      .filter((f) => f.type === "file" && f.name.endsWith(".yaml"))
-      .map((f) => f.name.slice(0, -5)), // strip .yaml
+      .filter((file) => file.type === "file" && file.path.endsWith(".yaml"))
+      .map((file) => file.path.split("/").pop()?.slice(0, -5) ?? "")
+      .filter(Boolean),
   );
 }
 

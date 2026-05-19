@@ -10,7 +10,7 @@ metadata:
 spec:
   description: "InfraWeaver Platform — all cluster applications"
   sourceRepos:
-    - "https://github.com/Werewolf-p/InfraWeaver-platform.git"
+    - "http://onedev.onedev.svc.cluster.local/InfraWeaver-platform"
     - "https://charts.bitnami.com/bitnami"
     - "https://grafana.github.io/helm-charts"
     - "https://prometheus-community.github.io/helm-charts"

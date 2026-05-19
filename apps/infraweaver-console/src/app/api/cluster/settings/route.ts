@@ -3,6 +3,7 @@ import * as jsYaml from "js-yaml";
 import { auth } from "@/lib/auth";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { hasPermission } from "@/lib/rbac";
+import { getGitAccessToken, gitCommitFiles, gitReadFile } from "@/lib/git-provider";
 import { safeError } from "@/lib/utils";
 import { z } from "zod";
 
@@ -33,18 +34,7 @@ interface ResourceSettingDef {
   placeholder?: string;
 }
 
-interface GitHubFileResponse {
-  content: string;
-  sha: string;
-}
-
-interface ResourceChange {
-  key: string;
-  value: unknown;
-}
-
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN ?? "";
-const GITHUB_REPO = process.env.GITHUB_REPO ?? "Werewolf-p/InfraWeaver-platform";
+const GIT_TOKEN = getGitAccessToken();
 
 // Resource limit settings for all platform services
 const RESOURCE_DEFS: ResourceSettingDef[] = [
@@ -226,39 +216,6 @@ function setNestedPath(obj: Record<string, unknown>, path: string, value: unknow
   current[segments[segments.length - 1]] = value;
 }
 
-async function getFileFromGitHub(filePath: string): Promise<GitHubFileResponse> {
-  const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/contents/${filePath}`, {
-    headers: {
-      Authorization: `Bearer ${GITHUB_TOKEN}`,
-      Accept: "application/vnd.github.v3+json",
-      "X-GitHub-Api-Version": "2022-11-28",
-    },
-    cache: "no-store",
-  });
-  if (!res.ok) throw new Error(`GitHub API error ${res.status} for ${filePath}`);
-  return res.json() as Promise<GitHubFileResponse>;
-}
-
-async function commitFileToGitHub(filePath: string, content: string, sha: string, message: string) {
-  const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/contents/${filePath}`, {
-    method: "PUT",
-    headers: {
-      Authorization: `Bearer ${GITHUB_TOKEN}`,
-      Accept: "application/vnd.github.v3+json",
-      "X-GitHub-Api-Version": "2022-11-28",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      message,
-      content: Buffer.from(content).toString("base64"),
-      sha,
-      committer: { name: "InfraWeaver Console", email: "console@infraweaver.internal" },
-    }),
-  });
-  if (!res.ok) throw new Error(`GitHub commit failed: ${res.status}`);
-  return res.json();
-}
-
 export async function GET() {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -266,16 +223,17 @@ export async function GET() {
   if (!hasPermission(groups, "config:read")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
-  if (!GITHUB_TOKEN) {
-    return NextResponse.json({ error: "Missing GITHUB_TOKEN" }, { status: 503 });
+  if (!GIT_TOKEN) {
+    return NextResponse.json({ error: "Missing git provider token" }, { status: 503 });
   }
 
   try {
     const uniqueFiles = Array.from(new Set(RESOURCE_DEFS.map((d) => d.file)));
     const fileEntries = await Promise.all(
       uniqueFiles.map(async (filePath) => {
-        const file = await getFileFromGitHub(filePath);
-        const parsed = toRecord(jsYaml.load(Buffer.from(file.content, "base64").toString("utf-8")));
+        const file = await gitReadFile(filePath);
+        if (!file) throw new Error(`Repository file not found: ${filePath}`);
+        const parsed = toRecord(jsYaml.load(file.content));
         return [filePath, { parsed, sha: file.sha }] as const;
       }),
     );
@@ -297,8 +255,8 @@ export async function PUT(req: NextRequest) {
   if (!hasSessionPermission(access, "config:write")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
-  if (!GITHUB_TOKEN) {
-    return NextResponse.json({ error: "Missing GITHUB_TOKEN" }, { status: 503 });
+  if (!GIT_TOKEN) {
+    return NextResponse.json({ error: "Missing git provider token" }, { status: 503 });
   }
 
   try {
@@ -344,15 +302,23 @@ export async function PUT(req: NextRequest) {
       body.commitMessage?.trim() ||
       `feat(cluster): update ${labels.join(", ")} via InfraWeaver Console\n\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>`;
 
-    await Promise.all(
+    const filesToWrite = await Promise.all(
       Array.from(byFile.entries()).map(async ([filePath, changes]) => {
-        const file = await getFileFromGitHub(filePath);
-        const parsed = toRecord(jsYaml.load(Buffer.from(file.content, "base64").toString("utf-8")));
+        const file = await gitReadFile(filePath);
+        if (!file) throw new Error(`Repository file not found: ${filePath}`);
+        const parsed = toRecord(jsYaml.load(file.content));
         for (const { def, value } of changes) setNestedPath(parsed, def.yamlPath, value);
-        const content = jsYaml.dump(parsed, { lineWidth: -1, indent: 2 });
-        await commitFileToGitHub(filePath, content, file.sha, commitMsg);
+        return {
+          path: filePath,
+          content: jsYaml.dump(parsed, { lineWidth: -1, indent: 2 }),
+        };
       }),
     );
+
+    await gitCommitFiles({
+      message: commitMsg,
+      addOrUpdateFiles: filesToWrite,
+    });
 
     return NextResponse.json({
       ok: true,

@@ -1,41 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { getGitAccessToken, gitCommitFiles, gitReadFile } from "@/lib/git-provider";
 import { hasPermission } from "@/lib/rbac";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { safeError } from "@/lib/utils";
 import { z } from "zod";
 
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN ?? "";
-const GITHUB_REPO = process.env.GITHUB_REPO ?? "Werewolf-p/InfraWeaver-platform";
-
-async function githubPut(path: string, content: string, message: string, sha?: string) {
-  const body: Record<string, unknown> = {
-    message,
-    content: Buffer.from(content).toString("base64"),
-    committer: {
-      name: "InfraWeaver Console",
-      email: "console@infraweaver.internal",
-    },
-  };
-  if (sha) body.sha = sha;
-
-  const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/contents/${path}`, {
-    method: "PUT",
-    headers: {
-      Authorization: `Bearer ${GITHUB_TOKEN}`,
-      Accept: "application/vnd.github.v3+json",
-      "X-GitHub-Api-Version": "2022-11-28",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
-
-  if (!res.ok) {
-    throw new Error(`GitHub API error ${res.status}: ${await res.text()}`);
-  }
-
-  return res.json();
-}
+const GIT_TOKEN = getGitAccessToken();
 
 export async function POST(req: NextRequest) {
   const session = await auth();
@@ -62,36 +33,33 @@ export async function POST(req: NextRequest) {
   const { appName, yaml, commitMessage } = result.data;
 
   try {
-    await githubPut(
-      `kubernetes/catalog/${appName}/application.yaml`,
-      yaml,
-      commitMessage ?? `feat: add catalog app ${appName} via InfraWeaver Console`
-    );
+    if (!GIT_TOKEN) throw new Error("Missing git provider token");
 
-    const platformRes = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/contents/platform.yaml`, {
-      headers: {
-        Authorization: `Bearer ${GITHUB_TOKEN}`,
-        Accept: "application/vnd.github.v3+json",
-        "X-GitHub-Api-Version": "2022-11-28",
+    const filesToWrite = [
+      {
+        path: `kubernetes/catalog/${appName}/application.yaml`,
+        content: yaml,
       },
-      cache: "no-store",
-    });
+    ];
 
-    if (platformRes.ok) {
-      const platformFile = await platformRes.json() as { content: string; sha: string };
-      const content = Buffer.from(platformFile.content, "base64").toString("utf-8");
+    const platformFile = await gitReadFile("platform.yaml");
+    if (platformFile) {
       const yamlLib = await import("js-yaml");
-      const parsed = yamlLib.load(content) as Record<string, unknown>;
-      const catalog = parsed.catalog as { enabled: string[] };
+      const parsed = yamlLib.load(platformFile.content) as Record<string, unknown>;
+      const catalog = ((parsed.catalog as { enabled?: string[] } | undefined) ?? { enabled: [] });
+      catalog.enabled ??= [];
       if (!catalog.enabled.includes(appName)) catalog.enabled.push(appName);
-      const newContent = yamlLib.dump(parsed, { lineWidth: -1, indent: 2 });
-      await githubPut(
-        "platform.yaml",
-        newContent,
-        `chore: add ${appName} to catalog.enabled via InfraWeaver Console`,
-        platformFile.sha
-      );
+      parsed.catalog = catalog;
+      filesToWrite.push({
+        path: "platform.yaml",
+        content: yamlLib.dump(parsed, { lineWidth: -1, indent: 2 }),
+      });
     }
+
+    await gitCommitFiles({
+      message: commitMessage ?? `feat: add catalog app ${appName} via InfraWeaver Console`,
+      addOrUpdateFiles: filesToWrite,
+    });
 
     return NextResponse.json({ ok: true });
   } catch (error) {

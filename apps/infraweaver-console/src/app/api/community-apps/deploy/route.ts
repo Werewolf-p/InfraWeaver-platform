@@ -13,15 +13,16 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
-import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { auditLog } from "@/lib/audit-log";
-import { z } from "zod";
 import { convertAppFeedEntry, reconcileAppPortsWithImageMetadata } from "@/lib/appfeed-converter";
 import { findAppByIdentifier } from "@/lib/appfeed-cache";
-import { safeError } from "@/lib/utils";
-import { loadKubeConfig } from "@/lib/k8s";
 import { getRequestClusterId } from "@/lib/cluster-context";
+import { gitCommitFiles, getGitRepoUrl } from "@/lib/git-provider";
+import { loadKubeConfig } from "@/lib/k8s";
+import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
+import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
+import { safeError } from "@/lib/utils";
+import { z } from "zod";
 import {
   createConfiguration,
   ServerConfiguration,
@@ -30,8 +31,6 @@ import {
 } from "@kubernetes/client-node";
 import * as k8s from "@kubernetes/client-node";
 
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN ?? "";
-const GITHUB_REPO = process.env.GITHUB_REPO ?? "Werewolf-p/InfraWeaver-platform";
 const APP_SOURCE_RESOLUTION_ATTEMPTS = 6;
 const APP_SOURCE_RESOLUTION_DELAY_MS = 5000;
 
@@ -138,27 +137,6 @@ const DeployBody = z.object({
   path: ["appName"],
 });
 
-interface GitHubFile {
-  sha?: string;
-}
-
-/** Retry fetch on transient network errors (DNS failures, connection resets). */
-async function fetchWithRetry(url: string, init?: RequestInit, retries = 3): Promise<Response> {
-  let lastError: unknown;
-  for (let i = 0; i < retries; i++) {
-    try {
-      return await fetch(url, init);
-    } catch (err) {
-      lastError = err;
-      const msg = err instanceof Error ? err.message : String(err);
-      const isTransient = /EAI_AGAIN|ECONNRESET|ECONNREFUSED|ETIMEDOUT|fetch failed/i.test(msg);
-      if (!isTransient || i >= retries - 1) throw err;
-      await new Promise((r) => setTimeout(r, (i + 1) * 1000));
-    }
-  }
-  throw lastError;
-}
-
 function sanitizeKubernetesName(value: string): string {
   return value
     .toLowerCase()
@@ -168,133 +146,8 @@ function sanitizeKubernetesName(value: string): string {
     .replace(/-+$/g, "") || "app";
 }
 
-async function ghGet(path: string): Promise<GitHubFile | null> {
-  const res = await fetchWithRetry(`https://api.github.com/repos/${GITHUB_REPO}/contents/${path}`, {
-    headers: {
-      Authorization: `Bearer ${GITHUB_TOKEN}`,
-      Accept: "application/vnd.github.v3+json",
-    },
-    cache: "no-store",
-  });
-  if (res.status === 404) return null;
-  if (!res.ok) throw new Error(`GitHub GET ${path}: ${res.status}`);
-  return res.json() as Promise<GitHubFile>;
-}
-
-async function ghPut(path: string, content: string, message: string, sha?: string): Promise<void> {
-  const encoded = Buffer.from(content).toString("base64");
-  const doRequest = async (fileSha?: string) => {
-    const body: Record<string, unknown> = {
-      message,
-      content: encoded,
-      committer: { name: "InfraWeaver Console", email: "console@rlservers.com" },
-    };
-    if (fileSha) body.sha = fileSha;
-    return fetchWithRetry(`https://api.github.com/repos/${GITHUB_REPO}/contents/${path}`, {
-      method: "PUT",
-      headers: {
-        Authorization: `Bearer ${GITHUB_TOKEN}`,
-        Accept: "application/vnd.github.v3+json",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    });
-  };
-
-  let res = await doRequest(sha);
-  if (res.status === 409) {
-    // SHA conflict: another concurrent request already committed this file.
-    // Refresh the SHA and retry once.
-    const fresh = await ghGet(path);
-    res = await doRequest(fresh?.sha);
-  }
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`GitHub PUT ${path}: ${res.status} — ${text}`);
-  }
-}
-
 async function findAppInFeed(identifier: string) {
   return findAppByIdentifier(identifier);
-}
-
-/**
- * Commit multiple files in one atomic GitHub commit using the Git Trees API.
- * This avoids creating N separate commits (one per file) which would trigger
- * the apply-changes workflow N times and pollute git history.
- *
- * Flow: get current branch HEAD → create blobs → create tree → create commit → update ref
- */
-async function ghCommitAll(files: Array<[string, string]>, message: string): Promise<void> {
-  const base = `https://api.github.com/repos/${GITHUB_REPO}`;
-  const headers = {
-    Authorization: `Bearer ${GITHUB_TOKEN}`,
-    Accept: "application/vnd.github.v3+json",
-    "Content-Type": "application/json",
-  };
-
-  // 1. Get current branch HEAD SHA
-  const refRes = await fetchWithRetry(`${base}/git/ref/heads/main`, { headers, cache: "no-store" });
-  if (!refRes.ok) throw new Error(`GitHub: get ref failed: ${refRes.status}`);
-  const refData = await refRes.json() as { object: { sha: string } };
-  const headSha = refData.object.sha;
-
-  // 2. Get the tree SHA from the HEAD commit
-  const commitRes = await fetchWithRetry(`${base}/git/commits/${headSha}`, { headers, cache: "no-store" });
-  if (!commitRes.ok) throw new Error(`GitHub: get commit failed: ${commitRes.status}`);
-  const commitData = await commitRes.json() as { tree: { sha: string } };
-  const baseTreeSha = commitData.tree.sha;
-
-  // 3. Create blobs for all new/updated files in parallel
-  const blobs = await Promise.all(
-    files.map(async ([, content]) => {
-      const blobRes = await fetchWithRetry(`${base}/git/blobs`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ content: Buffer.from(content).toString("base64"), encoding: "base64" }),
-      });
-      if (!blobRes.ok) throw new Error(`GitHub: create blob failed: ${blobRes.status}`);
-      return (await blobRes.json() as { sha: string }).sha;
-    })
-  );
-
-  // 4. Create a new tree with all file blobs
-  const tree = files.map(([filePath], i) => ({
-    path: filePath,
-    mode: "100644" as const,
-    type: "blob" as const,
-    sha: blobs[i],
-  }));
-
-  const treeRes = await fetchWithRetry(`${base}/git/trees`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ base_tree: baseTreeSha, tree }),
-  });
-  if (!treeRes.ok) throw new Error(`GitHub: create tree failed: ${treeRes.status}`);
-  const newTreeSha = (await treeRes.json() as { sha: string }).sha;
-
-  // 5. Create a single commit
-  const newCommitRes = await fetchWithRetry(`${base}/git/commits`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      message,
-      tree: newTreeSha,
-      parents: [headSha],
-      committer: { name: "InfraWeaver Console", email: "console@rlservers.com" },
-    }),
-  });
-  if (!newCommitRes.ok) throw new Error(`GitHub: create commit failed: ${newCommitRes.status}`);
-  const newCommitSha = (await newCommitRes.json() as { sha: string }).sha;
-
-  // 6. Update the branch ref
-  const updateRefRes = await fetchWithRetry(`${base}/git/refs/heads/main`, {
-    method: "PATCH",
-    headers,
-    body: JSON.stringify({ sha: newCommitSha }),
-  });
-  if (!updateRefRes.ok) throw new Error(`GitHub: update ref failed: ${updateRefRes.status}`);
 }
 
 export async function POST(req: NextRequest) {
@@ -380,6 +233,8 @@ export async function POST(req: NextRequest) {
     .slice(0, 200)
     .replace(/"/g, "'");
 
+  const repoUrl = await getGitRepoUrl();
+
   // ArgoCD Application manifest (same pattern as catalog-*-manifests.yaml in bootstrap/)
   const argoAppYaml = `---
 # catalog-${slug}-manifests.yaml — deployed by InfraWeaver Community Apps
@@ -398,7 +253,7 @@ metadata:
 spec:
   project: platform
   source:
-    repoURL: https://github.com/${GITHUB_REPO}.git
+    repoURL: ${repoUrl}
     targetRevision: HEAD
     path: ${baseDir}
   destination:
@@ -457,9 +312,10 @@ installed_at: ${new Date().toISOString()}
   allFiles.push([`kubernetes/bootstrap/catalog-${slug}-manifests.yaml`, argoAppYaml]);
 
   try {
-    // Commit all files atomically in one GitHub commit so apply-changes.yml
-    // only triggers once (not once per file).
-    await ghCommitAll(allFiles, `feat(community-apps): install ${slug} from AppFeed`);
+    await gitCommitFiles({
+      message: `feat(community-apps): install ${slug} from AppFeed`,
+      addOrUpdateFiles: allFiles.map(([path, content]) => ({ path, content })),
+    });
 
     // Kick bootstrap to immediately pick up the new ArgoCD Application file
     // instead of waiting up to 3 minutes for the auto-poll interval.
@@ -485,7 +341,7 @@ installed_at: ${new Date().toISOString()}
           spec: {
             project: "platform",
             source: {
-              repoURL: `https://github.com/${GITHUB_REPO}.git`,
+              repoURL: repoUrl,
               targetRevision: "HEAD",
               path: baseDir,
             },

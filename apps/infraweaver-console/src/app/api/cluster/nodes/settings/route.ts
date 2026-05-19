@@ -3,6 +3,7 @@ import * as jsYaml from "js-yaml";
 import { auth } from "@/lib/auth";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { hasPermission } from "@/lib/rbac";
+import { getGitAccessToken, gitReadFile, gitWriteFile } from "@/lib/git-provider";
 import { safeError } from "@/lib/utils";
 import { z } from "zod";
 
@@ -28,17 +29,6 @@ interface NodeSpec {
   controlplane: boolean;
 }
 
-interface NodeChange {
-  name: string;
-  cpu?: number;
-  memory_mb?: number;
-}
-
-interface GitHubFileResponse {
-  content: string;
-  sha: string;
-}
-
 interface ClusterYaml {
   nodes: Record<
     string,
@@ -59,6 +49,7 @@ interface ClusterYaml {
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
+const GIT_TOKEN = getGitAccessToken();
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN ?? "";
 const GITHUB_REPO = process.env.GITHUB_REPO ?? "Werewolf-p/InfraWeaver-platform";
 const CLUSTER_YAML_PATH = "envs/productie/cluster.yaml";
@@ -66,41 +57,8 @@ const CLUSTER_YAML_PATH = "envs/productie/cluster.yaml";
 // Workflow file that handles the rolling node update via Terraform + kubectl drain/uncordon
 const NODE_UPDATE_WORKFLOW = "node-rolling-update.yml";
 
-// ── GitHub helpers ────────────────────────────────────────────────────────────
-
-async function getFileFromGitHub(filePath: string): Promise<GitHubFileResponse> {
-  const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/contents/${filePath}`, {
-    headers: {
-      Authorization: `Bearer ${GITHUB_TOKEN}`,
-      Accept: "application/vnd.github.v3+json",
-      "X-GitHub-Api-Version": "2022-11-28",
-    },
-    cache: "no-store",
-  });
-  if (!res.ok) throw new Error(`GitHub API ${res.status} for ${filePath}`);
-  return res.json() as Promise<GitHubFileResponse>;
-}
-
-async function commitFileToGitHub(filePath: string, content: string, sha: string, message: string) {
-  const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/contents/${filePath}`, {
-    method: "PUT",
-    headers: {
-      Authorization: `Bearer ${GITHUB_TOKEN}`,
-      Accept: "application/vnd.github.v3+json",
-      "X-GitHub-Api-Version": "2022-11-28",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      message,
-      content: Buffer.from(content).toString("base64"),
-      sha,
-      committer: { name: "InfraWeaver Console", email: "console@infraweaver.internal" },
-    }),
-  });
-  if (!res.ok) throw new Error(`GitHub commit failed: ${res.status}`);
-}
-
 async function dispatchWorkflow(workflowFile: string, inputs: Record<string, string>) {
+  if (!GITHUB_TOKEN) throw new Error("Missing GITHUB_TOKEN for workflow dispatch");
   const res = await fetch(
     `https://api.github.com/repos/${GITHUB_REPO}/actions/workflows/${workflowFile}/dispatches`,
     {
@@ -129,12 +87,12 @@ export async function GET() {
   if (!hasPermission(groups, "config:read")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
-  if (!GITHUB_TOKEN) return NextResponse.json({ error: "Missing GITHUB_TOKEN" }, { status: 503 });
+  if (!GIT_TOKEN) return NextResponse.json({ error: "Missing git provider token" }, { status: 503 });
 
   try {
-    const file = await getFileFromGitHub(CLUSTER_YAML_PATH);
-    const raw = Buffer.from(file.content, "base64").toString("utf-8");
-    const parsed = jsYaml.load(raw) as ClusterYaml;
+    const file = await gitReadFile(CLUSTER_YAML_PATH);
+    if (!file) throw new Error(`Repository file not found: ${CLUSTER_YAML_PATH}`);
+    const parsed = jsYaml.load(file.content) as ClusterYaml;
 
     const nodes: NodeSpec[] = Object.entries(parsed.nodes ?? {}).map(([name, cfg]) => ({
       name,
@@ -165,7 +123,7 @@ export async function PUT(req: NextRequest) {
   if (!hasSessionPermission(access, "config:write")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
-  if (!GITHUB_TOKEN) return NextResponse.json({ error: "Missing GITHUB_TOKEN" }, { status: 503 });
+  if (!GIT_TOKEN) return NextResponse.json({ error: "Missing git provider token" }, { status: 503 });
 
   try {
     const parseResult = NodesSettingsPutSchema.safeParse(await req.json().catch(() => null));
@@ -199,9 +157,9 @@ export async function PUT(req: NextRequest) {
     }
 
     // Read current cluster.yaml
-    const file = await getFileFromGitHub(CLUSTER_YAML_PATH);
-    const raw = Buffer.from(file.content, "base64").toString("utf-8");
-    const parsed = jsYaml.load(raw) as ClusterYaml;
+    const file = await gitReadFile(CLUSTER_YAML_PATH);
+    if (!file) throw new Error(`Repository file not found: ${CLUSTER_YAML_PATH}`);
+    const parsed = jsYaml.load(file.content) as ClusterYaml;
 
     if (!parsed.nodes) {
       return NextResponse.json({ error: "cluster.yaml has no nodes section" }, { status: 500 });
@@ -223,7 +181,7 @@ export async function PUT(req: NextRequest) {
     const nodesSummary = changedNodeNames.join(", ");
     const commitMsg = `feat(cluster): update node specs for ${nodesSummary} via InfraWeaver Console\n\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>`;
     const updatedYaml = jsYaml.dump(parsed, { lineWidth: -1, indent: 2 });
-    await commitFileToGitHub(CLUSTER_YAML_PATH, updatedYaml, file.sha, commitMsg);
+    await gitWriteFile(CLUSTER_YAML_PATH, updatedYaml, commitMsg, file.sha);
 
     // Dispatch the rolling-update workflow
     await dispatchWorkflow(NODE_UPDATE_WORKFLOW, {

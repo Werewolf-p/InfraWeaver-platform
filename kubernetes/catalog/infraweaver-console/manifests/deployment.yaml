@@ -98,6 +98,21 @@ spec:
               key: github-token
         - name: GITHUB_REPO
           value: Werewolf-p/InfraWeaver-platform
+        - name: GIT_PROVIDER
+          value: onedev
+        - name: ONEDEV_URL
+          value: http://onedev.onedev.svc.cluster.local
+        - name: ONEDEV_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: infraweaver-console-secret
+              key: onedev-token
+        - name: ONEDEV_PROJECT_ID
+          value: "2"
+        - name: ONEDEV_BRANCH
+          value: main
+        - name: GIT_WORKTREE_ROOT
+          value: /git-cache
         - name: GATUS_URL
           value: http://gatus.gatus.svc.cluster.local:8080
         # ─── Multi-Cluster Support (optional) ────────────────────────────────────
@@ -205,6 +220,8 @@ spec:
         # Next.js needs a writable cache dir at runtime (readOnlyRootFilesystem prevents direct writes)
         - name: nextjs-cache
           mountPath: /app/.next/cache
+        - name: git-cache
+          mountPath: /git-cache
         - name: tmp
           mountPath: /tmp
         securityContext:
@@ -219,6 +236,8 @@ spec:
             type: RuntimeDefault
       volumes:
       - name: nextjs-cache
+        emptyDir: {}
+      - name: git-cache
         emptyDir: {}
       - name: tmp
         emptyDir: {}

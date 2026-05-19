@@ -15,7 +15,7 @@ metadata:
 spec:
   project: platform
   source:
-    repoURL: https://github.com/Werewolf-p/InfraWeaver-platform.git
+    repoURL: http://onedev.onedev.svc.cluster.local/InfraWeaver-platform
     targetRevision: HEAD
     path: kubernetes/catalog/vaultwarden/manifests
   destination:

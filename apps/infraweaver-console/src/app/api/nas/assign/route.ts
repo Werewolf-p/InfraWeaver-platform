@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { parseAllowedInternalUrl } from "@/lib/internal-url-allowlist";
+import { gitCommitFiles } from "@/lib/git-provider";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
+import { loadUsersConfig } from "@/lib/users-config";
 import { safeError } from "@/lib/utils";
 import { z } from "zod";
 
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN ?? "";
-const GITHUB_REPO = process.env.GITHUB_REPO ?? "Werewolf-p/InfraWeaver-platform";
 const SAFE_NAME = /^[a-z0-9][a-z0-9\-_]*[a-z0-9]$/;
 const SAFE_SUBFOLDER = /^(?!.*\.\.)(?!\/)(?!.*\/\/)[a-z0-9](?:[a-z0-9/_-]{0,198}[a-z0-9])?$/i;
 const K8S_NAME_RE = /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/;
@@ -39,53 +39,6 @@ interface NasShareAssignment {
   pvc_namespace?: string;
   pvc_name?: string;
   created_at?: string;
-}
-
-async function getFileFromGitHub(path: string) {
-  const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/contents/${path}`, {
-    headers: { Authorization: `Bearer ${GITHUB_TOKEN}`, Accept: "application/vnd.github.v3+json" },
-    cache: "no-store",
-  });
-  if (!res.ok) return null;
-  return res.json() as Promise<{ content: string; sha: string }>;
-}
-
-async function putFileToGitHub(path: string, content: string, sha: string | undefined, message: string) {
-  const body: Record<string, unknown> = {
-    message,
-    content: Buffer.from(content).toString("base64"),
-    committer: { name: "InfraWeaver Console", email: "console@rlservers.com" },
-  };
-  if (sha) body.sha = sha;
-
-  const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/contents/${path}`, {
-    method: "PUT",
-    headers: {
-      Authorization: `Bearer ${GITHUB_TOKEN}`,
-      Accept: "application/vnd.github.v3+json",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(`GitHub PUT failed (${res.status}): ${await res.text()}`);
-  return res.json();
-}
-
-async function deleteFileFromGitHub(path: string, sha: string, message: string) {
-  const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/contents/${path}`, {
-    method: "DELETE",
-    headers: {
-      Authorization: `Bearer ${GITHUB_TOKEN}`,
-      Accept: "application/vnd.github.v3+json",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      message,
-      sha,
-      committer: { name: "InfraWeaver Console", email: "console@rlservers.com" },
-    }),
-  });
-  if (!res.ok && res.status !== 404) throw new Error(`GitHub DELETE failed (${res.status}): ${await res.text()}`);
 }
 
 function isSafeYamlScalar(value: string) {
@@ -188,11 +141,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid host" }, { status: 400 });
     }
 
-    const usersFile = await getFileFromGitHub("users.yaml");
-    if (!usersFile) return NextResponse.json({ error: "Could not read users.yaml" }, { status: 500 });
-
     const yaml = await import("js-yaml");
-    const usersData = yaml.load(Buffer.from(usersFile.content, "base64").toString("utf-8")) as { users?: Record<string, Record<string, unknown>> };
+    const { users, raw } = await loadUsersConfig();
+    if (!users[username]) return NextResponse.json({ error: `User '${username}' not found` }, { status: 404 });
+
+    const usersData = yaml.load(raw) as { users?: Record<string, Record<string, unknown>> };
     if (!usersData?.users?.[username]) return NextResponse.json({ error: `User '${username}' not found` }, { status: 404 });
 
     const userData = usersData.users[username];
@@ -205,11 +158,14 @@ export async function POST(req: NextRequest) {
     const manifestContent = generateK8sManifest({ username, provider, share, subfolder, pvc_name, pvc_namespace, host }, yaml);
     const manifestSubfolder = subfolder.replace(/\//g, "-");
     const manifestPath = `kubernetes/catalog/nas-shares/${username}-${share.toLowerCase()}-${manifestSubfolder}.yaml`;
-    const existingManifest = await getFileFromGitHub(manifestPath);
-    await putFileToGitHub(manifestPath, manifestContent, existingManifest?.sha, `feat(nas): assign ${share}/${subfolder} to ${username}`);
-
     const newUsersContent = yaml.dump(usersData, { lineWidth: -1, indent: 2 });
-    await putFileToGitHub("users.yaml", newUsersContent, usersFile.sha, `feat(nas): add NAS share assignment for ${username}`);
+    await gitCommitFiles({
+      message: `feat(nas): assign ${share}/${subfolder} to ${username}`,
+      addOrUpdateFiles: [
+        { path: manifestPath, content: manifestContent },
+        { path: "users.yaml", content: newUsersContent },
+      ],
+    });
 
     return NextResponse.json({ ok: true, pvc_name, pvc_namespace, manifest_path: manifestPath, yaml: manifestContent });
   } catch (error) {
@@ -239,11 +195,9 @@ export async function DELETE(req: NextRequest) {
       }
     }
 
-    const usersFile = await getFileFromGitHub("users.yaml");
-    if (!usersFile) return NextResponse.json({ error: "Could not read users.yaml" }, { status: 500 });
-
     const yaml = await import("js-yaml");
-    const usersData = yaml.load(Buffer.from(usersFile.content, "base64").toString("utf-8")) as { users?: Record<string, Record<string, unknown>> };
+    const { raw } = await loadUsersConfig();
+    const usersData = yaml.load(raw) as { users?: Record<string, Record<string, unknown>> };
     if (usersData?.users?.[username]) {
       const existing = (usersData.users[username].nas_shares as NasShareAssignment[]) ?? [];
       usersData.users[username].nas_shares = existing.filter((entry) => !(entry.provider === provider && entry.share === share && (entry.subfolder ?? username) === subfolder));
@@ -251,13 +205,12 @@ export async function DELETE(req: NextRequest) {
 
     const manifestSubfolder = subfolder.replace(/\//g, "-");
     const manifestPath = `kubernetes/catalog/nas-shares/${username}-${share.toLowerCase()}-${manifestSubfolder}.yaml`;
-    const manifestFile = await getFileFromGitHub(manifestPath);
-    if (manifestFile) {
-      await deleteFileFromGitHub(manifestPath, manifestFile.sha, `feat(nas): revoke ${share}/${subfolder} from ${username}`);
-    }
-
     const newUsersContent = yaml.dump(usersData, { lineWidth: -1, indent: 2 });
-    await putFileToGitHub("users.yaml", newUsersContent, usersFile.sha, `feat(nas): remove NAS share assignment for ${username}`);
+    await gitCommitFiles({
+      message: `feat(nas): revoke ${share}/${subfolder} from ${username}`,
+      addOrUpdateFiles: [{ path: "users.yaml", content: newUsersContent }],
+      deleteFiles: [manifestPath],
+    });
 
     return NextResponse.json({ ok: true });
   } catch (error) {

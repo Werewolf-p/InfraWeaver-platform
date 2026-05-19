@@ -16,7 +16,7 @@ spec:
   project: platform
   sources:
     # values from git
-    - repoURL: https://github.com/Werewolf-p/InfraWeaver-platform.git
+    - repoURL: http://onedev.onedev.svc.cluster.local/InfraWeaver-platform
       targetRevision: HEAD
       ref: values
     # chart from Helm registry

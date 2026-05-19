@@ -9,7 +9,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/Werewolf-p/InfraWeaver-platform.git
+    repoURL: http://onedev.onedev.svc.cluster.local/InfraWeaver-platform
     targetRevision: main
     path: kubernetes/platform/authentik-ldap-outpost/manifests
   destination:

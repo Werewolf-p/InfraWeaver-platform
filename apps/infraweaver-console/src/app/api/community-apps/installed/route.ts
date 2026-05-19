@@ -10,57 +10,9 @@
 
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { gitListDir, gitReadFile, getGitAccessToken } from "@/lib/git-provider";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { safeError } from "@/lib/utils";
-
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN ?? "";
-const GITHUB_REPO = process.env.GITHUB_REPO ?? "Werewolf-p/InfraWeaver-platform";
-const GH_API = `https://api.github.com/repos/${GITHUB_REPO}`;
-
-interface GHTreeItem {
-  path: string;
-  type: string;
-  url: string;
-}
-
-interface GHFileContent {
-  content: string;
-  encoding: string;
-}
-
-async function ghListTree(treePath: string): Promise<GHTreeItem[]> {
-  const res = await fetch(
-    `${GH_API}/contents/${treePath}`,
-    {
-      headers: {
-        Authorization: `Bearer ${GITHUB_TOKEN}`,
-        Accept: "application/vnd.github.v3+json",
-      },
-      cache: "no-store",
-    }
-  );
-  if (res.status === 404) return [];
-  if (!res.ok) throw new Error(`GitHub list ${treePath}: ${res.status}`);
-  return res.json() as Promise<GHTreeItem[]>;
-}
-
-async function ghGetFile(filePath: string): Promise<string | null> {
-  const res = await fetch(
-    `${GH_API}/contents/${filePath}`,
-    {
-      headers: {
-        Authorization: `Bearer ${GITHUB_TOKEN}`,
-        Accept: "application/vnd.github.v3+json",
-      },
-      cache: "no-store",
-    }
-  );
-  if (res.status === 404) return null;
-  if (!res.ok) return null;
-  const data = (await res.json()) as GHFileContent;
-  if (data.encoding !== "base64") return null;
-  return Buffer.from(data.content.replace(/\n/g, ""), "base64").toString("utf-8");
-}
 
 export interface InstalledApp {
   slug: string;
@@ -113,13 +65,13 @@ export async function GET() {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  if (!GITHUB_TOKEN.trim()) {
+  if (!getGitAccessToken().trim()) {
     return NextResponse.json({ apps: [], total: 0, reason: "github_token_missing" });
   }
 
   try {
     // List all bootstrap files
-    const bootstrapFiles = await ghListTree("kubernetes/bootstrap");
+    const bootstrapFiles = await gitListDir("kubernetes/bootstrap");
     const communityAppFiles = bootstrapFiles.filter(
       (f) => f.type === "file" && f.path.match(/^kubernetes\/bootstrap\/catalog-.+-manifests\.yaml$/)
     );
@@ -129,7 +81,7 @@ export async function GET() {
 
     await Promise.all(
       communityAppFiles.map(async (file) => {
-        const content = await ghGetFile(file.path);
+        const content = (await gitReadFile(file.path))?.content ?? null;
         if (!content) return;
 
         // Only include community apps (has infraweaver.io/source: community-apps label)
@@ -141,7 +93,7 @@ export async function GET() {
         const slug = slugMatch[1];
 
         // Read catalog.yaml for metadata
-        const catalogContent = await ghGetFile(`kubernetes/catalog/${slug}/catalog.yaml`);
+        const catalogContent = (await gitReadFile(`kubernetes/catalog/${slug}/catalog.yaml`))?.content ?? null;
         if (!catalogContent) {
           // Minimal entry from ArgoCD Application alone
           installedApps.push({

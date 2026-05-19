@@ -10,11 +10,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { summarizeApp, type AppFeedConfig, type AppFeedEntry } from "@/lib/appfeed-converter";
 import { getAppFeed } from "@/lib/appfeed-cache";
+import { getRequestClusterId } from "@/lib/cluster-context";
+import { gitDeleteFile, gitListDir, gitReadFile } from "@/lib/git-provider";
+import { loadKubeConfig } from "@/lib/k8s";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { safeError } from "@/lib/utils";
-import { loadKubeConfig } from "@/lib/k8s";
-import { getRequestClusterId } from "@/lib/cluster-context";
 import {
   createConfiguration,
   ServerConfiguration,
@@ -22,10 +23,6 @@ import {
   type ResponseContext,
 } from "@kubernetes/client-node";
 import * as k8s from "@kubernetes/client-node";
-
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN ?? "";
-const GITHUB_REPO = process.env.GITHUB_REPO ?? "Werewolf-p/InfraWeaver-platform";
-const GH_API = `https://api.github.com/repos/${GITHUB_REPO}`;
 
 /** Creates a CustomObjectsApi client that sends application/merge-patch+json on PATCH. */
 function makeArgoCustomApi(clusterId?: string) {
@@ -41,76 +38,41 @@ function makeArgoCustomApi(clusterId?: string) {
     },
     post: async (rsp: ResponseContext): Promise<ResponseContext> => rsp,
   };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const cfg = createConfiguration({
     baseServer: new ServerConfiguration(cluster.server, {}),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     authMethods: { default: kc as any },
     promiseMiddleware: [mergePatchMiddleware],
   });
   return new k8s.CustomObjectsApi(cfg);
 }
 
-interface GHFileContent {
-  sha: string;
-  content: string;
-  encoding: string;
+async function gitGetFileSha(filePath: string): Promise<string | null> {
+  const file = await gitReadFile(filePath);
+  return file?.sha ?? null;
 }
 
-interface GHTreeItem {
-  path: string;
-  type: string;
-  sha: string;
-}
+async function gitDeleteDir(dirPath: string, commitMsg: string): Promise<{ deleted: string[]; errors: string[] }> {
+  const deleted: string[] = [];
+  const errors: string[] = [];
 
-/** Retry fetch on transient network errors (DNS failures, connection resets). */
-async function fetchWithRetry(url: string, init?: RequestInit, retries = 3): Promise<Response> {
-  let lastError: unknown;
-  for (let i = 0; i < retries; i++) {
-    try {
-      return await fetch(url, init);
-    } catch (err) {
-      lastError = err;
-      const msg = err instanceof Error ? err.message : String(err);
-      const isTransient = /EAI_AGAIN|ECONNRESET|ECONNREFUSED|ETIMEDOUT|fetch failed/i.test(msg);
-      if (!isTransient || i >= retries - 1) throw err;
-      await new Promise((r) => setTimeout(r, (i + 1) * 1000));
+  const entries = await gitListDir(dirPath);
+  for (const entry of entries) {
+    if (entry.type === "file") {
+      try {
+        await gitDeleteFile(entry.path, commitMsg, entry.sha);
+        deleted.push(entry.path);
+      } catch {
+        errors.push(`Failed to delete ${entry.path}`);
+      }
+    } else if (entry.type === "dir") {
+      const sub = await gitDeleteDir(entry.path, commitMsg);
+      deleted.push(...sub.deleted);
+      errors.push(...sub.errors);
     }
   }
-  throw lastError;
-}
 
-async function ghGetFileSha(path: string): Promise<string | null> {
-  const res = await fetchWithRetry(`${GH_API}/contents/${path}`, {
-    headers: { Authorization: `Bearer ${GITHUB_TOKEN}`, Accept: "application/vnd.github.v3+json" },
-    cache: "no-store",
-  });
-  if (res.status === 404) return null;
-  if (!res.ok) return null;
-  const data = (await res.json()) as GHFileContent;
-  return data.sha ?? null;
-}
-
-async function ghDeleteFile(path: string, message: string, sha: string): Promise<boolean> {
-  const res = await fetchWithRetry(`${GH_API}/contents/${path}`, {
-    method: "DELETE",
-    headers: {
-      Authorization: `Bearer ${GITHUB_TOKEN}`,
-      Accept: "application/vnd.github.v3+json",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ message, sha }),
-  });
-  return res.ok;
-}
-
-async function ghListDir(dirPath: string): Promise<GHTreeItem[]> {
-  const res = await fetchWithRetry(`${GH_API}/contents/${dirPath}`, {
-    headers: { Authorization: `Bearer ${GITHUB_TOKEN}`, Accept: "application/vnd.github.v3+json" },
-    cache: "no-store",
-  });
-  if (res.status === 404) return [];
-  if (!res.ok) return [];
-  return res.json() as Promise<GHTreeItem[]>;
+  return { deleted, errors };
 }
 
 function slugIsValid(slug: string): boolean {
@@ -307,48 +269,25 @@ export async function DELETE(
 
   // 2. Delete the bootstrap ArgoCD Application file
   const bootstrapPath = `kubernetes/bootstrap/catalog-${slug}-manifests.yaml`;
-  const bootstrapSha = await ghGetFileSha(bootstrapPath);
+  const bootstrapSha = await gitGetFileSha(bootstrapPath);
   if (bootstrapSha) {
-    const ok = await ghDeleteFile(
-      bootstrapPath,
-      `chore(apps): uninstall community app ${slug}`,
-      bootstrapSha
-    );
-    if (ok) deleted.push(bootstrapPath);
-    else errors.push(`Failed to delete ${bootstrapPath}`);
+    try {
+      await gitDeleteFile(
+        bootstrapPath,
+        `chore(apps): uninstall community app ${slug}`,
+        bootstrapSha
+      );
+      deleted.push(bootstrapPath);
+    } catch {
+      errors.push(`Failed to delete ${bootstrapPath}`);
+    }
   }
 
   // 3. Delete all files in kubernetes/catalog/<slug>/
   const catalogDir = `kubernetes/catalog/${slug}`;
-  const entries = await ghListDir(catalogDir);
-
-  // Delete each file individually (GitHub API doesn't support directory delete)
-  for (const entry of entries) {
-    if (entry.type === "file" && entry.sha) {
-      const ok = await ghDeleteFile(
-        entry.path,
-        `chore(apps): remove ${slug} catalog files`,
-        entry.sha
-      );
-      if (ok) deleted.push(entry.path);
-      else errors.push(`Failed to delete ${entry.path}`);
-    }
-    // Recurse one level for manifests subdirectory
-    if (entry.type === "dir") {
-      const subEntries = await ghListDir(entry.path);
-      for (const sub of subEntries) {
-        if (sub.type === "file" && sub.sha) {
-          const ok = await ghDeleteFile(
-            sub.path,
-            `chore(apps): remove ${slug} catalog files`,
-            sub.sha
-          );
-          if (ok) deleted.push(sub.path);
-          else errors.push(`Failed to delete ${sub.path}`);
-        }
-      }
-    }
-  }
+  const dirResult = await gitDeleteDir(catalogDir, `chore(apps): remove ${slug} catalog files`);
+  deleted.push(...dirResult.deleted);
+  errors.push(...dirResult.errors);
 
   if (errors.length > 0 && deleted.length === 0) {
     return NextResponse.json({ error: "Uninstall failed", details: errors }, { status: 500 });

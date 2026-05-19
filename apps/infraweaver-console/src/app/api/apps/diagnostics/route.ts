@@ -8,6 +8,7 @@ import {
   getClusterConfig,
   getDefaultClusterId,
 } from "@/lib/cluster-context";
+import { getGitAccessToken, getGitProviderName } from "@/lib/git-provider";
 import { loadKubeConfig } from "@/lib/k8s";
 import { safeError } from "@/lib/utils";
 
@@ -55,6 +56,8 @@ export async function GET(request: NextRequest) {
       argocdTokenSet: Boolean(argocdToken.trim()),
       argocdCrdExists,
       githubTokenSet: Boolean(process.env.GITHUB_TOKEN?.trim()),
+      gitProvider: getGitProviderName(),
+      gitTokenSet: Boolean(getGitAccessToken().trim()),
       dataSource,
     });
   } catch (error) {

@@ -2,6 +2,7 @@ import type * as k8s from "@kubernetes/client-node";
 import yaml from "js-yaml";
 import { GAME_HUB_NAMESPACE } from "@/lib/game-hub";
 import type { GameHubClients } from "@/lib/game-hub-server";
+import { getGitProviderName, gitDeleteFile, gitReadFile, gitWriteFile } from "@/lib/git-provider";
 
 const DEFAULT_GITHUB_API_URL = "https://api.github.com";
 const DEFAULT_GITHUB_REPO = "Werewolf-p/InfraWeaver-platform";
@@ -17,10 +18,6 @@ const TRANSIENT_ANNOTATION_KEYS = new Set([
   "kubectl.kubernetes.io/restartedAt",
 ]);
 
-interface GitHubFileContent {
-  sha: string;
-}
-
 interface MetadataLike {
   name?: string;
   namespace?: string;
@@ -29,6 +26,14 @@ interface MetadataLike {
 }
 
 export function getGitHubConfig() {
+  if (getGitProviderName() === "onedev") {
+    return {
+      apiUrl: process.env.ONEDEV_URL ?? "",
+      repo: process.env.ONEDEV_PROJECT_ID ?? "",
+      token: process.env.ONEDEV_TOKEN ?? "",
+      repoApi: process.env.ONEDEV_URL ?? "",
+    };
+  }
   const apiUrl = (process.env.GITHUB_API_URL ?? DEFAULT_GITHUB_API_URL).replace(/\/$/, "");
   const repo = process.env.GITHUB_REPO ?? DEFAULT_GITHUB_REPO;
   const token = process.env.GITHUB_TOKEN ?? "";
@@ -42,15 +47,6 @@ export function getGitHubConfig() {
 
 function manifestPath(name: string) {
   return `${GIT_SERVERS_PATH}/${name}.yaml`;
-}
-
-function githubHeaders(token: string, includeJson = false): HeadersInit {
-  const headers: Record<string, string> = {
-    Accept: "application/vnd.github.v3+json",
-  };
-  if (token) headers.Authorization = `Bearer ${token}`;
-  if (includeJson) headers["Content-Type"] = "application/json";
-  return headers;
 }
 
 function cloneJson<T>(value: T): T {
@@ -201,22 +197,15 @@ export async function generateServerManifestYaml(name: string, clients: GameHubC
 }
 
 export async function readServerManifestSha(name: string): Promise<string | null> {
-  const { repoApi, token } = getGitHubConfig();
   const path = manifestPath(name);
-  const response = await fetch(`${repoApi}/contents/${path}`, {
-    headers: githubHeaders(token),
-    cache: "no-store",
-  });
-  if (response.status === 404) return null;
-  if (!response.ok) throw new Error(`GitHub GET ${path}: ${response.status}`);
-  const data = (await response.json()) as GitHubFileContent;
-  return data.sha ?? null;
+  const file = await gitReadFile(path);
+  return file?.sha ?? null;
 }
 
 export async function writeServerManifest(name: string, clients: GameHubClients): Promise<void> {
-  const { repoApi, token } = getGitHubConfig();
-  if (!token) {
-    console.warn(`writeServerManifest skipped for ${name}: GITHUB_TOKEN is not set`);
+  const { token } = getGitHubConfig();
+  if (!token.trim()) {
+    console.warn(`writeServerManifest skipped for ${name}: git credentials are not set`);
     return;
   }
 
@@ -225,39 +214,14 @@ export async function writeServerManifest(name: string, clients: GameHubClients)
     readServerManifestSha(name),
   ]);
   const path = manifestPath(name);
-  const response = await fetch(`${repoApi}/contents/${path}`, {
-    method: "PUT",
-    headers: githubHeaders(token, true),
-    body: JSON.stringify({
-      message: `chore(game-hub): update server manifest for ${name}`,
-      content: Buffer.from(yamlContent, "utf8").toString("base64"),
-      ...(sha ? { sha } : {}),
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`GitHub PUT ${path}: ${response.status} — ${await response.text()}`);
-  }
+  await gitWriteFile(path, yamlContent, `chore(game-hub): update server manifest for ${name}`, sha ?? undefined);
 }
 
 export async function deleteServerManifest(name: string): Promise<void> {
-  const { repoApi, token } = getGitHubConfig();
-  if (!token) return;
-
-  const sha = await readServerManifestSha(name);
-  if (!sha) return;
+  const { token } = getGitHubConfig();
+  if (!token.trim()) return;
 
   const path = manifestPath(name);
-  const response = await fetch(`${repoApi}/contents/${path}`, {
-    method: "DELETE",
-    headers: githubHeaders(token, true),
-    body: JSON.stringify({
-      message: `chore(game-hub): delete server manifest for ${name}`,
-      sha,
-    }),
-  });
-
-  if (!response.ok && response.status !== 404) {
-    throw new Error(`GitHub DELETE ${path}: ${response.status} — ${await response.text()}`);
-  }
+  const sha = await readServerManifestSha(name);
+  await gitDeleteFile(path, `chore(game-hub): delete server manifest for ${name}`, sha ?? undefined);
 }

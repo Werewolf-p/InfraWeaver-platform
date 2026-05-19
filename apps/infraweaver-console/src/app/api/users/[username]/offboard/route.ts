@@ -3,53 +3,8 @@ import { auth } from "@/lib/auth";
 import { getSessionRBACContext, hasAnySessionPermission } from "@/lib/session-rbac";
 import { findUserByUsername, authentikFetch } from "@/lib/authentik";
 import { auditLog } from "@/lib/audit-log";
+import { loadUsersConfig, saveUsersConfig } from "@/lib/users-config";
 import { safeError } from "@/lib/utils";
-
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN ?? "";
-const GITHUB_REPO = process.env.GITHUB_REPO ?? "Werewolf-p/InfraWeaver-platform";
-const USERS_FILE_PATH = "users.yaml";
-
-async function getGitHubFile() {
-  const res = await fetch(
-    `https://api.github.com/repos/${GITHUB_REPO}/contents/${USERS_FILE_PATH}`,
-    {
-      headers: {
-        Authorization: `Bearer ${GITHUB_TOKEN}`,
-        Accept: "application/vnd.github.v3+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-      },
-      cache: "no-store",
-    }
-  );
-  if (!res.ok) throw new Error(`GitHub API error: ${res.status}`);
-  return res.json();
-}
-
-async function updateGitHubFile(content: string, sha: string, message: string) {
-  const res = await fetch(
-    `https://api.github.com/repos/${GITHUB_REPO}/contents/${USERS_FILE_PATH}`,
-    {
-      method: "PUT",
-      headers: {
-        Authorization: `Bearer ${GITHUB_TOKEN}`,
-        Accept: "application/vnd.github.v3+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        message,
-        content: Buffer.from(content).toString("base64"),
-        sha,
-        committer: { name: "InfraWeaver Console", email: "console@infraweaver.internal" },
-      }),
-    }
-  );
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`GitHub PUT failed: ${text}`);
-  }
-  return res.json();
-}
 
 interface OffboardStep {
   name: string;
@@ -122,15 +77,10 @@ export async function POST(
 
   // Step 4: Remove from users.yaml
   try {
-    const file = await getGitHubFile();
-    const yaml = await import("js-yaml");
-    const parsed = yaml.load(Buffer.from(file.content, "base64").toString("utf-8")) as {
-      users?: Record<string, unknown>;
-    };
-    if (parsed?.users?.[username]) {
-      delete parsed.users[username];
-      const newContent = yaml.dump({ users: parsed.users }, { lineWidth: -1, indent: 2 });
-      await updateGitHubFile(newContent, file.sha, `chore: offboard user ${username}`);
+    const { users, sha } = await loadUsersConfig();
+    if (users[username]) {
+      delete users[username];
+      await saveUsersConfig(users, sha, `chore: offboard user ${username}`);
       steps.push({ name: "Remove from users.yaml", success: true, message: "User removed from config" });
     } else {
       steps.push({ name: "Remove from users.yaml", success: true, message: "User not in config (skipped)" });

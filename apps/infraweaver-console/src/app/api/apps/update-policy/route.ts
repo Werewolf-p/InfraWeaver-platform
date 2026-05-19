@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { getGitAccessToken, gitReadFile, gitWriteFile } from "@/lib/git-provider";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { safeError } from "@/lib/utils";
@@ -46,8 +47,7 @@ const PutBodySchema = z.object({
 
 const K8S_HOST = "https://kubernetes.default.svc";
 const SA_TOKEN = process.env.CONSOLE_SA_TOKEN ?? "";
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN ?? "";
-const GITHUB_REPO = process.env.GITHUB_REPO ?? "Werewolf-p/InfraWeaver-platform";
+const GIT_TOKEN = getGitAccessToken();
 
 // ── k8s helpers ───────────────────────────────────────────────────────────────
 
@@ -60,45 +60,6 @@ function k8sReq(path: string, opts?: RequestInit) {
       ...(opts?.headers ?? {}),
     },
   });
-}
-
-// ── GitHub helpers ────────────────────────────────────────────────────────────
-
-async function githubGet(path: string): Promise<{ content: string; sha: string } | null> {
-  const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/contents/${path}`, {
-    headers: {
-      Authorization: `Bearer ${GITHUB_TOKEN}`,
-      Accept: "application/vnd.github.v3+json",
-      "X-GitHub-Api-Version": "2022-11-28",
-    },
-    cache: "no-store",
-  });
-  if (!res.ok) return null;
-  return res.json() as Promise<{ content: string; sha: string }>;
-}
-
-async function githubPut(path: string, content: string, message: string, sha?: string) {
-  const body: Record<string, unknown> = {
-    message,
-    content: Buffer.from(content).toString("base64"),
-    committer: { name: "InfraWeaver Console", email: "console@infraweaver.internal" },
-  };
-  if (sha) body.sha = sha;
-  const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/contents/${path}`, {
-    method: "PUT",
-    headers: {
-      Authorization: `Bearer ${GITHUB_TOKEN}`,
-      Accept: "application/vnd.github.v3+json",
-      "X-GitHub-Api-Version": "2022-11-28",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`GitHub API error ${res.status}: ${text}`);
-  }
-  return res.json();
 }
 
 // ── Schedule / strategy mappings ──────────────────────────────────────────────
@@ -300,9 +261,10 @@ interface RenovateConfig {
 }
 
 async function getRenovateConfig(): Promise<{ config: RenovateConfig; sha: string } | null> {
-  const file = await githubGet("renovate.json");
+  if (!GIT_TOKEN) return null;
+  const file = await gitReadFile("renovate.json");
   if (!file) return null;
-  const content = Buffer.from(file.content, "base64").toString("utf-8");
+  const content = file.content;
   try {
     const config = JSON.parse(content) as RenovateConfig;
     return { config, sha: file.sha };
@@ -329,13 +291,13 @@ async function updateRenovateRule(slug: string, rule: RenovatePackageRule | null
 
   config.packageRules = filtered;
   const newContent = JSON.stringify(config, null, 2) + "\n";
-  await githubPut(
+  await gitWriteFile(
     "renovate.json",
     newContent,
     rule
       ? `chore: update auto-update policy for ${slug} via InfraWeaver Console`
       : `chore: remove auto-update policy for ${slug} via InfraWeaver Console`,
-    sha
+    sha,
   );
 }
 
