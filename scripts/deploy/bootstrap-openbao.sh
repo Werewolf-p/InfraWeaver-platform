@@ -397,6 +397,91 @@ else
   echo "⚠ CLOUDFLARE_API_TOKEN secret not set — cert-manager DNS-01 will fail"
 fi
 
+# ── Discord webhook (optional) ────────────────────────────────────────────────
+EXISTING_DISCORD=$(curl -s -H "X-Vault-Token: $ROOT_TOKEN" \
+  "${LOCAL_OPENBAO}/v1/secret/data/platform/discord" | \
+  python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('data',{}).get('webhook_url',''))" 2>/dev/null || echo "")
+if [ -z "$EXISTING_DISCORD" ]; then
+  WEBHOOK="${DISCORD_WEBHOOK_URL:-placeholder-discord-webhook}"
+  curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/platform/discord" \
+    -H "X-Vault-Token: $ROOT_TOKEN" -H "Content-Type: application/json" \
+    -d "{\"data\": {\"webhook_url\": \"${WEBHOOK}\"}}" > /dev/null
+  [ "${WEBHOOK}" = "placeholder-discord-webhook" ] && \
+    echo "⚠ DISCORD_WEBHOOK_URL not set — alerting will not work until updated" || \
+    echo "==> Discord webhook stored in OpenBao (platform/discord)"
+fi
+
+# ── Minio/Velero S3 credentials ────────────────────────────────────────────────
+EXISTING_MINIO=$(curl -s -H "X-Vault-Token: $ROOT_TOKEN" \
+  "${LOCAL_OPENBAO}/v1/secret/data/platform/minio-velero" | \
+  python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('data',{}).get('access_key',''))" 2>/dev/null || echo "")
+if [ -z "$EXISTING_MINIO" ]; then
+  # Generate random credentials for in-cluster Minio
+  MINIO_ACCESS="${MINIO_VELERO_ACCESS_KEY:-velero-$(openssl rand -hex 8)}"
+  MINIO_SECRET="${MINIO_VELERO_SECRET_KEY:-$(openssl rand -base64 24 | tr -d '/+=' | head -c 32)}"
+  curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/platform/minio-velero" \
+    -H "X-Vault-Token: $ROOT_TOKEN" -H "Content-Type: application/json" \
+    -d "{\"data\": {\"access_key\": \"${MINIO_ACCESS}\", \"secret_key\": \"${MINIO_SECRET}\"}}" > /dev/null
+  echo "==> Minio Velero credentials generated and stored in OpenBao (platform/minio-velero)"
+fi
+
+# ── NAS credentials (optional, placeholders if not set) ──────────────────────
+EXISTING_NAS=$(curl -s -H "X-Vault-Token: $ROOT_TOKEN" \
+  "${LOCAL_OPENBAO}/v1/secret/data/platform/nas/synology" | \
+  python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('data',{}).get('user',''))" 2>/dev/null || echo "")
+if [ -z "$EXISTING_NAS" ]; then
+  curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/platform/nas/synology" \
+    -H "X-Vault-Token: $ROOT_TOKEN" -H "Content-Type: application/json" \
+    -d "{\"data\": {\"user\": \"${SYNOLOGY_USER:-placeholder}\", \"password\": \"${SYNOLOGY_PASSWORD:-placeholder}\", \"host\": \"${SYNOLOGY_HOST:-placeholder}\"}}" > /dev/null
+  echo "==> NAS/Synology credentials seeded (platform/nas/synology)"
+fi
+
+EXISTING_TRUENAS=$(curl -s -H "X-Vault-Token: $ROOT_TOKEN" \
+  "${LOCAL_OPENBAO}/v1/secret/data/platform/nas/truenas" | \
+  python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('data',{}).get('api-key',''))" 2>/dev/null || echo "")
+if [ -z "$EXISTING_TRUENAS" ]; then
+  curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/platform/nas/truenas" \
+    -H "X-Vault-Token: $ROOT_TOKEN" -H "Content-Type: application/json" \
+    -d "{\"data\": {\"api-key\": \"${TRUENAS_API_KEY:-placeholder}\", \"host\": \"${TRUENAS_HOST:-placeholder}\"}}" > /dev/null
+  echo "==> NAS/TrueNAS credentials seeded (platform/nas/truenas)"
+fi
+
+# ── InfraWeaver Console additional secrets ───────────────────────────────────
+# Patch infraweaver-console with cloudflare-api-token and cf-zone-id
+EXISTING_IW=$(curl -s -H "X-Vault-Token: $ROOT_TOKEN" \
+  "${LOCAL_OPENBAO}/v1/secret/data/platform/infraweaver-console" | \
+  python3 -c "import json,sys; d=json.load(sys.stdin); print(json.dumps(d.get('data',{}).get('data',{})))" 2>/dev/null || echo "{}")
+if [ "$(echo "$EXISTING_IW" | python3 -c "import json,sys; print('cf-zone-id' in json.loads(sys.argv[1]))" "$EXISTING_IW" 2>/dev/null)" != "True" ]; then
+  CF_ZONE_ID="${CLOUDFLARE_ZONE_ID:-placeholder-zone-id}"
+  CF_TOKEN_VAL="${CLOUDFLARE_API_TOKEN:-placeholder}"
+  PATCHED=$(python3 -c "
+import json, sys
+d = json.loads(sys.argv[1])
+d.setdefault('cloudflare-api-token', sys.argv[2])
+d.setdefault('cf-zone-id', sys.argv[3])
+print(json.dumps({'data': d}))
+" "$EXISTING_IW" "$CF_TOKEN_VAL" "$CF_ZONE_ID" 2>/dev/null || echo "")
+  if [ -n "$PATCHED" ]; then
+    curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/platform/infraweaver-console" \
+      -H "X-Vault-Token: $ROOT_TOKEN" -H "Content-Type: application/json" \
+      -d "$PATCHED" > /dev/null
+    echo "==> cloudflare-api-token and cf-zone-id added to infraweaver-console"
+  fi
+fi
+
+# ── Infraweaver API console secret ───────────────────────────────────────────
+EXISTING_API=$(curl -s -H "X-Vault-Token: $ROOT_TOKEN" \
+  "${LOCAL_OPENBAO}/v1/secret/data/infraweaver/api/console-secret" | \
+  python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('data',{}).get('value',''))" 2>/dev/null || echo "")
+if [ -z "$EXISTING_API" ]; then
+  API_SECRET=$(openssl rand -base64 32 | tr -d '/+=' | head -c 32)
+  curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/infraweaver/api/console-secret" \
+    -H "X-Vault-Token: $ROOT_TOKEN" -H "Content-Type: application/json" \
+    -d "{\"data\": {\"value\": \"${API_SECRET}\"}}" > /dev/null
+  echo "==> InfraWeaver API console secret generated (infraweaver/api/console-secret)"
+fi
+
+
           # Write least-privilege policy for ESO (use env to properly pass VAULT_TOKEN/VAULT_ADDR)
 kubectl --kubeconfig "$KB" exec -n openbao openbao-0 -- \
   env VAULT_TOKEN="$ROOT_TOKEN" VAULT_ADDR=http://127.0.0.1:8200 sh -c \

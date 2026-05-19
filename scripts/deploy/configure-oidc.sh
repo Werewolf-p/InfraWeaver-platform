@@ -305,6 +305,138 @@ else
   fi
 fi
 
+# ── LDAP Outpost Token ────────────────────────────────────────────────────────
+# Generates the service connection token for the Authentik LDAP outpost and
+# stores it in OpenBao so the authentik-ldap-token ExternalSecret can sync it.
+echo "==> Generating Authentik LDAP outpost token..."
+LDAP_OUTPOST_TOKEN=$(curl -sf \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  "${AUTHENTIK_URL}/api/v3/outposts/instances/" \
+  2>/dev/null | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+for r in d.get('results',[]):
+    if 'ldap' in r.get('name','').lower() or r.get('type','') == 'ldap':
+        print(r.get('token_identifier',''))
+        break
+" 2>/dev/null || echo "")
+
+if [ -z "$LDAP_OUTPOST_TOKEN" ]; then
+  # No LDAP outpost exists yet — ensure LDAP provider exists and create outpost
+  echo "  No LDAP outpost found — creating..."
+
+  # Get existing LDAP provider or create one
+  LDAP_PROVIDER_PK=$(curl -sf \
+    -H "Authorization: Bearer $TOKEN" \
+    "${AUTHENTIK_URL}/api/v3/providers/ldap/?page_size=5" \
+    2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); r=d.get('results',[]); print(r[0]['pk'] if r else '')" 2>/dev/null || echo "")
+
+  if [ -z "$LDAP_PROVIDER_PK" ]; then
+    echo "  Creating LDAP provider..."
+    # Find the default authentication flow slug
+    AUTH_FLOW_PK=$(curl -sf \
+      -H "Authorization: Bearer $TOKEN" \
+      "${AUTHENTIK_URL}/api/v3/flows/instances/?designation=authentication&slug=default-authentication-flow" \
+      2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); r=d.get('results',[]); print(r[0]['pk'] if r else '')" 2>/dev/null || echo "")
+
+    if [ -z "$AUTH_FLOW_PK" ]; then
+      AUTH_FLOW_PK=$(curl -sf \
+        -H "Authorization: Bearer $TOKEN" \
+        "${AUTHENTIK_URL}/api/v3/flows/instances/?designation=authentication" \
+        2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); r=d.get('results',[]); print(r[0]['pk'] if r else '')" 2>/dev/null || echo "")
+    fi
+
+    # Find or create the search group (use "authentik Admins" as bind group for search)
+    SEARCH_GROUP=$(curl -sf \
+      -H "Authorization: Bearer $TOKEN" \
+      "${AUTHENTIK_URL}/api/v3/core/groups/?name=infraweaver-admins" \
+      2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); r=d.get('results',[]); print(r[0]['pk'] if r else '')" 2>/dev/null || echo "")
+
+    # Find the invalidation flow
+    INVAL_FLOW_PK=$(curl -sf \
+      -H "Authorization: Bearer $TOKEN" \
+      "${AUTHENTIK_URL}/api/v3/flows/instances/?designation=invalidation&slug=default-provider-invalidation-flow" \
+      2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); r=d.get('results',[]); print(r[0]['pk'] if r else '')" 2>/dev/null || echo "")
+    if [ -z "$INVAL_FLOW_PK" ]; then
+      INVAL_FLOW_PK=$(curl -sf \
+        -H "Authorization: Bearer $TOKEN" \
+        "${AUTHENTIK_URL}/api/v3/flows/instances/?designation=invalidation" \
+        2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); r=d.get('results',[]); print(r[0]['pk'] if r else '')" 2>/dev/null || echo "")
+    fi
+
+    if [ -n "$AUTH_FLOW_PK" ]; then
+      # Build JSON using python to avoid bash quoting issues with optional fields
+      LDAP_PAYLOAD=$(python3 -c "
+import json
+d = {
+  'name': 'LDAP Provider',
+  'authorization_flow': '${AUTH_FLOW_PK}',
+  'invalidation_flow': '${INVAL_FLOW_PK}',
+  'base_dn': 'DC=rlservers,DC=com',
+  'uid_start_number': 2000,
+  'gid_start_number': 4000,
+}
+if '${SEARCH_GROUP:-}': d['search_group'] = '${SEARCH_GROUP:-}'
+print(json.dumps(d))
+" 2>/dev/null || echo "")
+      LDAP_PROVIDER_RESP=$(curl -sf -X POST \
+        -H "Authorization: Bearer $TOKEN" \
+        -H "Content-Type: application/json" \
+        -d "$LDAP_PAYLOAD" \
+        "${AUTHENTIK_URL}/api/v3/providers/ldap/" 2>/dev/null || echo "")
+      LDAP_PROVIDER_PK=$(echo "$LDAP_PROVIDER_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('pk',''))" 2>/dev/null || echo "")
+      [ -n "$LDAP_PROVIDER_PK" ] && echo "  ✅ LDAP provider created (pk=$LDAP_PROVIDER_PK)" || echo "  ⚠️ LDAP provider creation failed"
+    fi
+  fi
+
+  if [ -n "$LDAP_PROVIDER_PK" ]; then
+    # Create LDAP backchannel application (required for outpost to get provider config)
+    LDAP_APP_EXISTS=$(curl -sf -H "Authorization: Bearer $TOKEN" \
+      "${AUTHENTIK_URL}/api/v3/core/applications/?slug=ldap" 2>/dev/null \
+      | python3 -c "import json,sys; d=json.load(sys.stdin); print('yes' if d.get('count',0)>0 else '')" 2>/dev/null || echo "")
+    if [ -z "$LDAP_APP_EXISTS" ]; then
+      curl -sf -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+        -d "{\"name\":\"LDAP\",\"slug\":\"ldap\",\"provider\":${LDAP_PROVIDER_PK},\"backchannel_providers\":[${LDAP_PROVIDER_PK}],\"open_in_new_tab\":false}" \
+        "${AUTHENTIK_URL}/api/v3/core/applications/" > /dev/null 2>&1 && echo "  ✅ LDAP application created" || echo "  ⚠️ LDAP application creation failed"
+    fi
+
+    LDAP_OUTPOST_JSON=$(curl -sf -X POST \
+      -H "Authorization: Bearer $TOKEN" \
+      -H "Content-Type: application/json" \
+      -d "{\"name\":\"authentik LDAP Outpost\",\"type\":\"ldap\",\"providers\":[$LDAP_PROVIDER_PK],\"config\":{\"authentik_host\":\"https://auth.rlservers.com\",\"authentik_host_insecure\":false,\"log_level\":\"info\",\"kubernetes_replicas\":2,\"object_naming_template\":\"ak-outpost-%(name)s\"}}" \
+      "${AUTHENTIK_URL}/api/v3/outposts/instances/" 2>/dev/null || echo "")
+    LDAP_OUTPOST_TOKEN=$(echo "$LDAP_OUTPOST_JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('token_identifier',''))" 2>/dev/null || echo "")
+    [ -n "$LDAP_OUTPOST_TOKEN" ] && echo "  ✅ LDAP outpost created" || echo "  ⚠️ LDAP outpost creation failed: $(echo "$LDAP_OUTPOST_JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('detail',d))" 2>/dev/null)"
+  fi
+fi
+
+if [ -n "$LDAP_OUTPOST_TOKEN" ]; then
+  # Get the actual token value — the key is not exposed via REST API list
+  # Use ak shell to query directly from Authentik's database
+  LDAP_TOKEN_VALUE=$($KT exec -i -n authentik deploy/authentik-worker -c worker -- \
+    sh -c "echo 'from authentik.core.models import Token; t=Token.objects.filter(identifier=\"${LDAP_OUTPOST_TOKEN}\").first(); print(\"KEY:\"+t.key if t else \"\")' | ak shell" \
+    2>/dev/null | grep "^KEY:" | sed 's/KEY://' || echo "")
+
+  if [ -n "$LDAP_TOKEN_VALUE" ]; then
+    ROOT_TOKEN=$($KT get secret openbao-unseal -n openbao \
+      -o jsonpath='{.data.root_token}' 2>/dev/null | base64 -d || echo "")
+    if [ -n "$ROOT_TOKEN" ]; then
+      $KT exec -n openbao openbao-0 -- \
+        env VAULT_TOKEN="$ROOT_TOKEN" VAULT_ADDR=http://127.0.0.1:8200 \
+        bao kv put secret/platform/authentik-ldap-outpost token="$LDAP_TOKEN_VALUE" > /dev/null 2>&1 && \
+        echo "✅ LDAP outpost token stored in OpenBao" || echo "⚠️ Failed to store LDAP token in OpenBao"
+      # Force ExternalSecret refresh
+      $KT annotate externalsecret authentik-ldap-token -n authentik \
+        force-sync="$(date +%s)" --overwrite > /dev/null 2>&1 || true
+    fi
+  else
+    echo "⚠️ Could not retrieve LDAP outpost token value"
+  fi
+else
+  echo "⚠️ No LDAP outpost or LDAP provider found — skipping (create LDAP provider in Authentik first)"
+fi
+
 # ── Cleanup port-forward ──────────────────────────────────────────
 kill $AUTHENTIK_PF_PID 2>/dev/null || true
 
