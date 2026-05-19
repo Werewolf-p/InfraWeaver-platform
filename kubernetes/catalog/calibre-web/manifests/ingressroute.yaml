@@ -19,4 +19,7 @@ spec:
       services:
         - name: calibre-web
           port: 8083
-  tls: {}
+  tls:
+    store:
+      name: default
+      namespace: traefik

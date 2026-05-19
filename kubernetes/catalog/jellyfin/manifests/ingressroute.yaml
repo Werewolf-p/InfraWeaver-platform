@@ -19,4 +19,7 @@ spec:
       services:
         - name: jellyfin
           port: 8096
-  tls: {}
+  tls:
+    store:
+      name: default
+      namespace: traefik

@@ -19,4 +19,7 @@ spec:
       services:
         - name: linkding
           port: 9090
-  tls: {}
+  tls:
+    store:
+      name: default
+      namespace: traefik

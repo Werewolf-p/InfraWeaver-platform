@@ -19,4 +19,7 @@ spec:
       services:
         - name: lidarr
           port: 8686
-  tls: {}
+  tls:
+    store:
+      name: default
+      namespace: traefik

@@ -19,4 +19,7 @@ spec:
       services:
         - name: plex
           port: 32400
-  tls: {}
+  tls:
+    store:
+      name: default
+      namespace: traefik

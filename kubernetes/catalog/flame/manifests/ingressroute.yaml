@@ -19,4 +19,7 @@ spec:
       services:
         - name: flame
           port: 5005
-  tls: {}
+  tls:
+    store:
+      name: default
+      namespace: traefik
