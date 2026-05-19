@@ -249,6 +249,8 @@ spec:
                   value: "10"
                 - name: MIN_POD_MEMORY_MI
                   value: "256"
+                - name: REBALANCE_COOLDOWN_SECONDS
+                  value: "7200"
                 - name: DISCORD_WEBHOOK_URL
                   valueFrom:
                     secretKeyRef:
@@ -339,12 +341,26 @@ spec:
                     exit 0
                   fi
 
+                  resource=$(echo "$owner_kind" | tr '[:upper:]' '[:lower:]')
+
+                  # Per-deployment cooldown: skip if this workload was rebalanced recently
+                  last_rebalance=$(kubectl get "$resource" "$owner_name" -n "$namespace" \
+                    -o jsonpath='{.spec.template.metadata.annotations.infraweaver\.io/last-memory-rebalance-at}' 2>/dev/null || true)
+                  if [ -n "$last_rebalance" ]; then
+                    last_epoch=$(date -u -d "$last_rebalance" +%s 2>/dev/null || echo 0)
+                    now_epoch=$(date -u +%s)
+                    elapsed=$(( now_epoch - last_epoch ))
+                    if [ "$elapsed" -lt "${REBALANCE_COOLDOWN_SECONDS:-7200}" ]; then
+                      echo "Skipping $namespace/$owner_name: last rebalanced ${elapsed}s ago (cooldown=${REBALANCE_COOLDOWN_SECONDS:-7200}s)"
+                      exit 0
+                    fi
+                  fi
+
                   patch=$(cat <<PATCH
                   {"spec":{"template":{"metadata":{"annotations":{"infraweaver.io/last-memory-rebalance-at":"$(date -u +%Y-%m-%dT%H:%M:%SZ)","infraweaver.io/last-memory-rebalance-target":"${target_node}"}},"spec":{"affinity":{"nodeAffinity":{"preferredDuringSchedulingIgnoredDuringExecution":[{"weight":100,"preference":{"matchExpressions":[{"key":"kubernetes.io/hostname","operator":"In","values":["${target_node}"]}]}}]}}}}}}
                   PATCH
                   )
 
-                  resource=$(echo "$owner_kind" | tr '[:upper:]' '[:lower:]')
                   kubectl patch "$resource" "$owner_name" -n "$namespace" --type merge -p "$patch"
                   kubectl delete pod "$pod" -n "$namespace" --wait=false
 

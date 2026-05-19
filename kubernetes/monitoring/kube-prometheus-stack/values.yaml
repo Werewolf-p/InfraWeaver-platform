@@ -216,6 +216,10 @@ alertmanager:
         - matchers: ['alertname = "InfoInhibitor"']
           receiver: "null"
           continue: false
+        # Talos binds kube-controller-manager, kube-proxy, kube-scheduler to localhost — scraping is not possible
+        - matchers: ['alertname =~ "KubeControllerManagerDown|KubeProxyDown|KubeSchedulerDown"']
+          receiver: "null"
+          continue: false
         - matchers: ['severity = "critical"']
           receiver: "all"
           repeat_interval: 1h
