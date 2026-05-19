@@ -19,5 +19,4 @@ spec:
       services:
         - name: freshrss
           port: 80
-  tls:
-    secretName: int-rlservers-com-tls
+  tls: {}

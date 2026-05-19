@@ -19,5 +19,4 @@ spec:
       services:
         - name: jackett
           port: 9117
-  tls:
-    secretName: int-rlservers-com-tls
+  tls: {}

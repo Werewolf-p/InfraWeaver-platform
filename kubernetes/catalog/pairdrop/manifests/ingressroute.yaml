@@ -19,5 +19,4 @@ spec:
       services:
         - name: pairdrop
           port: 3000
-  tls:
-    secretName: int-rlservers-com-tls
+  tls: {}

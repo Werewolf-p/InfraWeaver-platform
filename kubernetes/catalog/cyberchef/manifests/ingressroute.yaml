@@ -19,5 +19,4 @@ spec:
       services:
         - name: cyberchef
           port: 8080
-  tls:
-    secretName: int-rlservers-com-tls
+  tls: {}

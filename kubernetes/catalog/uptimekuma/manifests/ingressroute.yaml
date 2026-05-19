@@ -19,5 +19,4 @@ spec:
       services:
         - name: uptimekuma
           port: 3001
-  tls:
-    secretName: int-rlservers-com-tls
+  tls: {}

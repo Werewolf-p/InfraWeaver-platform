@@ -19,5 +19,4 @@ spec:
       services:
         - name: linkding
           port: 9090
-  tls:
-    secretName: int-rlservers-com-tls
+  tls: {}

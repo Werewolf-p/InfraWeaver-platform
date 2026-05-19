@@ -19,5 +19,4 @@ spec:
       services:
         - name: calibre-web
           port: 8083
-  tls:
-    secretName: int-rlservers-com-tls
+  tls: {}

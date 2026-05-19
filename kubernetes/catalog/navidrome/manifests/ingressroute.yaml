@@ -19,5 +19,4 @@ spec:
       services:
         - name: navidrome
           port: 4533
-  tls:
-    secretName: int-rlservers-com-tls
+  tls: {}

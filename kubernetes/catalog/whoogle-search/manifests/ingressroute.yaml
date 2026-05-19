@@ -19,5 +19,4 @@ spec:
       services:
         - name: whoogle-search
           port: 5000
-  tls:
-    secretName: int-rlservers-com-tls
+  tls: {}

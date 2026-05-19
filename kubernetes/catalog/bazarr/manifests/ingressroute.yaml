@@ -19,5 +19,4 @@ spec:
       services:
         - name: bazarr
           port: 6767
-  tls:
-    secretName: int-rlservers-com-tls
+  tls: {}

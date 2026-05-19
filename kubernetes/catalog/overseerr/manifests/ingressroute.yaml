@@ -19,5 +19,4 @@ spec:
       services:
         - name: overseerr
           port: 5055
-  tls:
-    secretName: int-rlservers-com-tls
+  tls: {}

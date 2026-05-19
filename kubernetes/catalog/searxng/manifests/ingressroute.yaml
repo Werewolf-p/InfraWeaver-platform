@@ -19,5 +19,4 @@ spec:
       services:
         - name: searxng
           port: 8080
-  tls:
-    secretName: int-rlservers-com-tls
+  tls: {}

@@ -19,5 +19,4 @@ spec:
       services:
         - name: prowlarr
           port: 9696
-  tls:
-    secretName: int-rlservers-com-tls
+  tls: {}

@@ -19,5 +19,4 @@ spec:
       services:
         - name: flame
           port: 5005
-  tls:
-    secretName: int-rlservers-com-tls
+  tls: {}
