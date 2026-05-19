@@ -242,9 +242,9 @@ spec:
                   drop: ["ALL"]
               env:
                 - name: HIGH_THRESHOLD
-                  value: "80"
+                  value: "85"
                 - name: LOW_THRESHOLD
-                  value: "70"
+                  value: "75"
                 - name: MIN_POD_MEMORY_MI
                   value: "256"
                 - name: DISCORD_WEBHOOK_URL

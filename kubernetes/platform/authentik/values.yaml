@@ -153,6 +153,8 @@ redis:
 server:
   replicas: 1  # Memory-optimised: single replica saves ~800Mi; requiredAntiAffinity is trivially satisfied
   priorityClassName: platform-high
+  podAnnotations:
+    infraweaver.io/rebalance-memory: "true"
   ingress:
     enabled: false
   # Explicit rolling-update strategy: never take a pod down before a new one is ready.
