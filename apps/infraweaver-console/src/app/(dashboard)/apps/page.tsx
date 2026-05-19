@@ -193,6 +193,10 @@ function argocdAppUrl(row: AppRow): string {
   return `https://argocd.int.rlservers.com/applications/${encodeURIComponent(row.namespace)}/${encodeURIComponent(row.name)}`;
 }
 
+function isProtectedCatalogApp(name: string): boolean {
+  return name.startsWith("core-") || name === "bootstrap" || name.startsWith("appset-") || name === "catalog-infraweaver-console-manifests";
+}
+
 function SwipeableAppCard({
   row,
   syncingApp,
@@ -348,6 +352,9 @@ function AllInstalledTab() {
   const [deletingApp, setDeletingApp] = useState<string | null>(null);
   const [uninstallingApp, setUninstallingApp] = useState<string | null>(null);
   const [bulkSyncing, setBulkSyncing] = useState(false);
+  const [bulkHardRefreshing, setBulkHardRefreshing] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [bulkUninstalling, setBulkUninstalling] = useState(false);
   const [optimisticSyncing, setOptimisticSyncing] = useState<Set<string>>(new Set());
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [updatePolicyApp, setUpdatePolicyApp] = useState<{ name: string; slug: string } | null>(null);
@@ -479,6 +486,21 @@ function AllInstalledTab() {
     [activeSelectedIds, filtered],
   );
 
+  const selectedCatalogRows = useMemo(
+    () => selectedRows.filter(row => row.source === "Catalog"),
+    [selectedRows],
+  );
+
+  const selectedDeletableCatalogRows = useMemo(
+    () => selectedCatalogRows.filter(row => !isProtectedCatalogApp(row.name)),
+    [selectedCatalogRows],
+  );
+
+  const selectedCommunityRows = useMemo(
+    () => selectedRows.filter(row => row.source === "Community"),
+    [selectedRows],
+  );
+
   const summary = useMemo(() => ({
     total: allRows.length,
     healthy: allRows.filter(row => healthBucket(row.health) === "healthy").length,
@@ -495,6 +517,24 @@ function AllInstalledTab() {
   const syncOne = async (name: string) => {
     const res = await fetch(`/api/argocd/apps/${encodeURIComponent(name)}/sync`, { method: "POST" });
     if (!res.ok) throw new Error("Sync failed");
+  };
+
+  const hardRefreshOne = async (name: string) => {
+    const res = await fetch(`/api/argocd/hard-refresh/${encodeURIComponent(name)}`, { method: "POST" });
+    const data = await res.json().catch(() => null) as { error?: string } | null;
+    if (!res.ok) throw new Error(data?.error ?? "Hard refresh failed");
+  };
+
+  const deleteCatalogAppOne = async (name: string) => {
+    const res = await fetch(`/api/argocd/apps/${encodeURIComponent(name)}/delete`, { method: "DELETE" });
+    const data = await res.json().catch(() => null) as { error?: string } | null;
+    if (!res.ok) throw new Error(data?.error ?? "Delete failed");
+  };
+
+  const uninstallCommunityAppOne = async (slug: string) => {
+    const res = await fetch(`/api/community-apps/${encodeURIComponent(slug)}`, { method: "DELETE" });
+    const data = await res.json().catch(() => null) as { error?: string } | null;
+    if (!res.ok) throw new Error(data?.error ?? "Uninstall failed");
   };
 
   const handleSync = async (name: string) => {
@@ -538,7 +578,7 @@ function AllInstalledTab() {
       toast.error("You do not have permission to sync apps");
       return;
     }
-    const targets = selectedRows.filter(row => row.source === "Catalog");
+    const targets = selectedCatalogRows;
     if (targets.length === 0) {
       toast.error("Select at least one catalog app to bulk sync");
       return;
@@ -561,7 +601,7 @@ function AllInstalledTab() {
   };
 
   const requestBulkSync = () => {
-    const targets = selectedRows.filter(row => row.source === "Catalog");
+    const targets = selectedCatalogRows;
     if (targets.length === 0) {
       toast.error("Select at least one catalog app to bulk sync");
       return;
@@ -574,6 +614,117 @@ function AllInstalledTab() {
       onConfirm: () => {
         setConfirmDialog(dialog => ({ ...dialog, open: false }));
         void handleBulkSync();
+      },
+    });
+  };
+
+  const handleBulkHardRefresh = async () => {
+    if (!canSyncApps) {
+      toast.error("You do not have permission to hard-refresh apps");
+      return;
+    }
+    const targets = selectedCatalogRows;
+    if (!targets.length) {
+      toast.error("Select at least one catalog app");
+      return;
+    }
+    setBulkHardRefreshing(true);
+    const results = await Promise.allSettled(targets.map(target => hardRefreshOne(target.name)));
+    const ok = results.filter(result => result.status === "fulfilled").length;
+    const failed = results.length - ok;
+    if (ok > 0) toast.success(`Hard-refreshed ${ok} app${ok === 1 ? "" : "s"}`);
+    if (failed > 0) toast.error(`${failed} app${failed === 1 ? "" : "s"} failed to hard-refresh`);
+    setBulkHardRefreshing(false);
+    setSelectedIds(new Set());
+    void refetch();
+  };
+
+  const handleBulkDelete = async (targets: AppRow[]) => {
+    if (!canManageApps) {
+      toast.error("You do not have permission to delete apps");
+      return;
+    }
+    if (!targets.length) {
+      toast.error("No deletable catalog apps selected");
+      return;
+    }
+    setBulkDeleting(true);
+    const results = await Promise.allSettled(targets.map(target => deleteCatalogAppOne(target.name)));
+    const ok = results.filter(result => result.status === "fulfilled").length;
+    const failed = results.length - ok;
+    if (ok > 0) toast.success(`Deleted ${ok} app${ok === 1 ? "" : "s"}`);
+    if (failed > 0) toast.error(`${failed} app${failed === 1 ? "" : "s"} failed to delete`);
+    setBulkDeleting(false);
+    setSelectedIds(new Set());
+    void refetch();
+  };
+
+  const requestBulkDelete = () => {
+    if (!canManageApps) {
+      toast.error("You do not have permission to delete apps");
+      return;
+    }
+    const targets = selectedDeletableCatalogRows;
+    if (!targets.length) {
+      toast.error("No deletable catalog apps selected");
+      return;
+    }
+    setConfirmDialog({
+      open: true,
+      title: `Delete ${targets.length} app${targets.length === 1 ? "" : "s"}?`,
+      description: `This removes ${targets.length} apps from ArgoCD. Kubernetes resources may remain.`,
+      confirmText: "Delete selected",
+      danger: true,
+      onConfirm: () => {
+        setConfirmDialog(dialog => ({ ...dialog, open: false }));
+        void handleBulkDelete(targets);
+      },
+    });
+  };
+
+  const handleBulkCommunityUninstall = async (targets: AppRow[]) => {
+    if (!canManageApps) {
+      toast.error("You do not have permission to uninstall community apps");
+      return;
+    }
+    if (!targets.length) {
+      toast.error("No community apps selected");
+      return;
+    }
+    setBulkUninstalling(true);
+    const results = await Promise.allSettled(targets.map(target => uninstallCommunityAppOne(target.name)));
+    const ok = results.filter(result => result.status === "fulfilled").length;
+    const failed = results.length - ok;
+    if (ok > 0) {
+      toast.success(`Uninstalled ${ok} community app${ok === 1 ? "" : "s"}`);
+      setRecentlyUninstalled(prev => new Set([...prev, ...targets.map(target => `catalog-${target.name}-manifests`)]));
+    }
+    if (failed > 0) toast.error(`${failed} community app${failed === 1 ? "" : "s"} failed to uninstall`);
+    setBulkUninstalling(false);
+    setSelectedIds(new Set());
+    void communityAppsQuery.refetch();
+    void refetch();
+  };
+
+  const requestBulkCommunityUninstall = () => {
+    if (!canManageApps) {
+      toast.error("You do not have permission to uninstall community apps");
+      return;
+    }
+    const targets = selectedCommunityRows;
+    if (!targets.length) {
+      toast.error("No community apps selected");
+      return;
+    }
+    setConfirmDialog({
+      open: true,
+      title: `Uninstall ${targets.length} community app${targets.length === 1 ? "" : "s"}?`,
+      description: "This removes the selected community apps from git. ArgoCD will clean up deployed resources within a few minutes.",
+      confirmText: "Uninstall selected",
+      danger: true,
+      onConfirm: () => {
+        setConfirmDialog(dialog => ({ ...dialog, open: false }));
+        void handleBulkCommunityUninstall(targets);
       },
     });
   };
@@ -640,7 +791,7 @@ function AllInstalledTab() {
       return;
     }
 
-    const isCoreApp = name.startsWith("core-") || name === "bootstrap" || name.startsWith("appset-") || name === "catalog-infraweaver-console-manifests";
+    const isCoreApp = isProtectedCatalogApp(name);
     if (isCoreApp) {
       toast.error(`"${name}" is core infrastructure and cannot be removed from the console.`);
       return;
@@ -759,7 +910,7 @@ function AllInstalledTab() {
             <DashboardStatCard label="Installed apps" value={summary.total} icon={Layers} tone="info" description="Catalog and community apps currently visible to the operator." footer={<span>{summary.catalog} catalog · {summary.community} community</span>} />
             <DashboardStatCard label="Healthy" value={summary.healthy} icon={CheckCircle} tone={summary.degraded > 0 ? "warning" : "success"} description="Apps reporting healthy/synced state." footer={<span>{summary.degraded} degraded or out-of-sync</span>} />
             <DashboardStatCard label="Syncing" value={summary.syncing} icon={RefreshCw} tone={summary.syncing > 0 ? "warning" : "neutral"} description="Applications actively progressing or syncing." footer={<span>{summary.outOfSync} out of sync</span>} />
-            <DashboardStatCard label="Selected" value={activeSelectedIds.size} icon={Package} tone={activeSelectedIds.size > 0 ? "info" : "neutral"} description="Desktop bulk actions work on the current filtered result set." footer={<span>{selectedRows.filter(row => row.source === "Catalog").length} catalog app(s) ready for bulk sync</span>} />
+            <DashboardStatCard label="Selected" value={activeSelectedIds.size} icon={Package} tone={activeSelectedIds.size > 0 ? "info" : "neutral"} description="Desktop bulk actions work on the current filtered result set." footer={<span>{selectedCatalogRows.length} catalog · {selectedCommunityRows.length} community selected</span>} />
           </div>
           <div className="rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#141414] p-4">
             <div className="flex items-center justify-between gap-3">
@@ -908,11 +1059,35 @@ function AllInstalledTab() {
             <button onClick={() => setSelectedIds(new Set())} className="text-slate-500 dark:text-slate-400 transition hover:text-gray-900 dark:hover:text-white">Reset selection</button>
             <button
               onClick={requestBulkSync}
-              disabled={bulkSyncing || selectedRows.filter(row => row.source === "Catalog").length === 0}
+              disabled={bulkSyncing || !canSyncApps || selectedCatalogRows.length === 0}
               className="ml-auto inline-flex items-center gap-2 rounded-xl border border-indigo-500/30 bg-indigo-500/10 px-4 py-2 text-sm text-indigo-200 transition hover:bg-indigo-500/20 disabled:opacity-50"
             >
               {bulkSyncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
               Bulk sync selected catalog apps
+            </button>
+            <button
+              onClick={() => void handleBulkHardRefresh()}
+              disabled={bulkHardRefreshing || !canSyncApps || selectedCatalogRows.length === 0}
+              className="inline-flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2 text-sm text-amber-200 transition hover:bg-amber-500/20 disabled:opacity-50"
+            >
+              {bulkHardRefreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+              Hard refresh
+            </button>
+            <button
+              onClick={requestBulkDelete}
+              disabled={bulkDeleting || !canManageApps || selectedDeletableCatalogRows.length === 0}
+              className="inline-flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-300 transition hover:bg-red-500/20 disabled:opacity-50"
+            >
+              {bulkDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />}
+              Delete selected
+            </button>
+            <button
+              onClick={requestBulkCommunityUninstall}
+              disabled={bulkUninstalling || !canManageApps || selectedCommunityRows.length === 0}
+              className="inline-flex items-center gap-2 rounded-xl border border-fuchsia-500/30 bg-fuchsia-500/10 px-4 py-2 text-sm text-fuchsia-200 transition hover:bg-fuchsia-500/20 disabled:opacity-50"
+            >
+              {bulkUninstalling ? <Loader2 className="h-4 w-4 animate-spin" /> : <Store className="h-4 w-4" />}
+              Uninstall community
             </button>
           </div>
         </div>
