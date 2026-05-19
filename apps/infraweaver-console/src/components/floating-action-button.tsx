@@ -169,7 +169,7 @@ export function FloatingActionButton() {
   // Single action: direct button (no expand menu needed)
   if (!hasMenu) {
     return (
-      <div className="fixed bottom-24 right-4 z-40 sm:hidden">
+      <div className="fixed bottom-24 right-4 sm:bottom-6 sm:right-6 z-40">
         <motion.button
           onClick={primaryAction.onClick}
           whileTap={{ scale: 0.9 }}
@@ -187,7 +187,7 @@ export function FloatingActionButton() {
 
   // Multiple actions: expandable FAB
   return (
-    <div className="fixed bottom-24 right-4 z-40 sm:hidden flex flex-col items-end gap-3">
+    <div className="fixed bottom-24 right-4 sm:bottom-6 sm:right-6 z-40 flex flex-col items-end gap-3">
       <AnimatePresence>
         {open && (
           <>

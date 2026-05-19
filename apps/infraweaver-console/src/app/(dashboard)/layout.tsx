@@ -153,8 +153,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       g.items.some(i => pathname === i.href || (i.href !== "/" && pathname.startsWith(i.href)))
     )?.id;
     if (activeGroupId) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setOpenGroups(prev => ({ ...prev, [activeGroupId]: true }));
+      setOpenGroups(prev => {
+        if (prev[activeGroupId]) return prev; // bail out — avoid creating a new object when nothing changes
+        return { ...prev, [activeGroupId]: true };
+      });
     }
   }, [pathname, filteredNavGroups]);
   const [sessionWarning, setSessionWarning] = useState(false);

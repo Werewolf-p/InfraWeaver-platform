@@ -17,6 +17,7 @@ interface UpdateItem {
   section: string;
   currentVersion: string;
   targetVersion?: string | null;
+  deployedVersion?: string | null;
   chart: string | null;
   repoUrl: string | null;
   syncStatus: string;
@@ -45,8 +46,6 @@ interface UpdateCardProps {
 }
 
 function UpdateCard({ app, canUpdate, isUpdating, selectedVersion, onSelectVersion, onUpdate }: UpdateCardProps) {
-  const [versionsEnabled, setVersionsEnabled] = useState(false);
-
   const versionsQuery = useQuery({
     queryKey: ["updates", "versions", app.name],
     queryFn: () =>
@@ -54,7 +53,6 @@ function UpdateCard({ app, canUpdate, isUpdating, selectedVersion, onSelectVersi
         `/api/updates/${encodeURIComponent(app.name)}/versions`,
         { cache: "no-store" },
       ),
-    enabled: versionsEnabled,
     staleTime: 5 * 60 * 1000,
     retry: 0,
   });
@@ -70,14 +68,14 @@ function UpdateCard({ app, canUpdate, isUpdating, selectedVersion, onSelectVersi
 
   const latestUpstream = versionsQuery.data?.versions?.[0];
   const isUpToDate =
-    versionsEnabled &&
     !versionsQuery.isLoading &&
     latestUpstream != null &&
-    (latestUpstream === app.targetVersion || latestUpstream === app.currentVersion);
+    (latestUpstream === app.targetVersion || latestUpstream === app.deployedVersion);
 
-  // Disable Update only when the selected version is already the git target (a true no-op).
+  // Disable Update only when the selected version is already the deployed/git target (a true no-op).
   const disableUpdate =
-    !canUpdate || isUpdating || !selectedVersion || selectedVersion === app.targetVersion;
+    !canUpdate || isUpdating || !selectedVersion ||
+    (selectedVersion === app.targetVersion && selectedVersion === app.deployedVersion);
 
   const lastSyncLabel = app.lastSync ? timeAgo(app.lastSync) : "Unavailable";
 
@@ -99,7 +97,7 @@ function UpdateCard({ app, canUpdate, isUpdating, selectedVersion, onSelectVersi
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <StatusBadge status={app.syncStatus} label={app.syncStatus} size="sm" />
-            {versionsEnabled && versionsQuery.data?.source ? (
+            {versionsQuery.data?.source ? (
               <span className="text-xs uppercase tracking-[0.2em] text-slate-400 dark:text-[#666]">
                 via {versionsQuery.data.source}
               </span>
@@ -126,28 +124,19 @@ function UpdateCard({ app, canUpdate, isUpdating, selectedVersion, onSelectVersi
 
       <div className="mt-4 grid gap-4 sm:grid-cols-2">
         <div className="rounded-2xl border border-slate-200/80 bg-slate-50/80 p-4 dark:border-white/5 dark:bg-white/5">
-          <p className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-[#888]">Current version</p>
+          <p className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-[#888]">Deployed version</p>
           <p className="mt-2 truncate text-2xl font-semibold text-slate-950 dark:text-[#f2f2f2]">
-            {app.currentVersion || "unknown"}
+            {app.deployedVersion ?? app.currentVersion ?? "unknown"}
           </p>
           <div className="mt-3 flex items-center gap-2 text-xs text-slate-500 dark:text-[#888]">
             <GitBranch className="h-3.5 w-3.5 shrink-0" />
-            <span className="truncate">Git target: {app.targetVersion ?? "unavailable"}</span>
+            <span className="truncate">Git constraint: {app.targetVersion ?? app.currentVersion ?? "unavailable"}</span>
           </div>
         </div>
 
         <div className="rounded-2xl border border-slate-200/80 bg-slate-50/80 p-4 dark:border-white/5 dark:bg-white/5">
           <p className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-[#888]">Available versions</p>
-          {!versionsEnabled ? (
-            <button
-              type="button"
-              onClick={() => setVersionsEnabled(true)}
-              className="mt-2 inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 bg-white/60 text-sm font-medium text-slate-500 transition-colors hover:border-indigo-400 hover:text-indigo-600 dark:border-white/10 dark:bg-white/5 dark:text-[#888] dark:hover:border-indigo-500/50 dark:hover:text-indigo-300"
-            >
-              <RefreshCw className="h-3.5 w-3.5" />
-              Load versions
-            </button>
-          ) : versionsQuery.isLoading ? (
+          {versionsQuery.isLoading ? (
             <div className="mt-2 flex min-h-[44px] items-center gap-2 text-sm text-slate-500 dark:text-[#888]">
               <Loader2 className="h-4 w-4 animate-spin" />
               Fetching upstream…
@@ -162,7 +151,7 @@ function UpdateCard({ app, canUpdate, isUpdating, selectedVersion, onSelectVersi
               {options.map((version) => (
                 <option key={version} value={version}>
                   {version}
-                  {version === app.targetVersion ? " (current)" : ""}
+                  {version === app.deployedVersion ? " (deployed)" : version === app.targetVersion ? " (git target)" : ""}
                 </option>
               ))}
             </select>
@@ -170,9 +159,9 @@ function UpdateCard({ app, canUpdate, isUpdating, selectedVersion, onSelectVersi
           <p className="mt-3 truncate text-xs text-slate-500 dark:text-[#888]">
             {versionsQuery.data?.note
               ? versionsQuery.data.note
-              : versionsEnabled && !versionsQuery.isLoading && options.length === 0
+              : !versionsQuery.isLoading && options.length === 0
                 ? "Version list unavailable."
-                : versionsEnabled && !versionsQuery.isLoading
+                : !versionsQuery.isLoading
                   ? `${app.chart ?? "custom source"}${app.repoUrl ? ` · ${app.repoUrl}` : ""}`
                   : null}
           </p>
@@ -222,11 +211,11 @@ export default function UpdateManagerPage() {
 
   useEffect(() => {
     if (!updatesQuery.data?.length) return;
-    setSelectedVersions((current) => {
+    setSelectedVersions((current: Record<string, string>) => {
       const next = { ...current };
       for (const app of updatesQuery.data) {
         if (!next[app.name]) {
-          next[app.name] = app.targetVersion ?? app.currentVersion;
+          next[app.name] = app.deployedVersion ?? app.targetVersion ?? app.currentVersion;
         }
       }
       return next;
@@ -266,7 +255,7 @@ export default function UpdateManagerPage() {
   }, [apps, searchQuery]);
 
   const handleSelectVersion = (appName: string, version: string) => {
-    setSelectedVersions((current) => ({ ...current, [appName]: version }));
+    setSelectedVersions((current: Record<string, string>) => ({ ...current, [appName]: version }));
   };
 
   const handleUpdate = (app: UpdateItem) => {

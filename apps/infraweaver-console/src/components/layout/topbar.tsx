@@ -37,15 +37,8 @@ export function TopBar({ onMenuClick, onSearchClick }: { title?: string; onMenuC
   const currentTitle = titleForPathname(pathname);
   const appVersion = process.env.NEXT_PUBLIC_APP_VERSION ?? "dev";
   const [quickOpen, setQuickOpen] = useState(false);
-  const [clock, setClock] = useState(() => new Date());
-  const [showChangelogDot, setShowChangelogDot] = useState(() => {
-    if (typeof window === "undefined") return false;
-    try {
-      return localStorage.getItem("infraweaver:last-seen-version") !== appVersion;
-    } catch {
-      return false;
-    }
-  });
+  const [clock, setClock] = useState<Date | null>(null);
+  const [showChangelogDot, setShowChangelogDot] = useState(false);
   const dropRef = useRef<HTMLDivElement>(null);
   const pageContext = useMemo(
     () => PAGE_CONTEXT.find((item) => item.match(pathname)) ?? PAGE_CONTEXT[PAGE_CONTEXT.length - 1],
@@ -58,6 +51,12 @@ export function TopBar({ onMenuClick, onSearchClick }: { title?: string; onMenuC
     const interval = window.setInterval(updateClock, 60000);
     return () => window.clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    try {
+      setShowChangelogDot(localStorage.getItem("infraweaver:last-seen-version") !== appVersion);
+    } catch { /* localStorage unavailable */ }
+  }, [appVersion]);
 
   useEffect(() => {
     const handler = (event: MouseEvent) => {
@@ -91,7 +90,7 @@ export function TopBar({ onMenuClick, onSearchClick }: { title?: string; onMenuC
   }, [pathname]);
 
   return (
-    <header className="sticky top-0 z-30 flex min-h-16 flex-shrink-0 items-center justify-between gap-3 border-b border-gray-200 dark:border-white/5 bg-black/60 backdrop-blur-xl px-3 pt-[env(safe-area-inset-top,0px)] sm:min-h-14 sm:px-4">
+    <header className="relative z-10 flex min-h-16 flex-shrink-0 items-center justify-between gap-3 border-b border-gray-200 dark:border-white/5 bg-black/60 backdrop-blur-xl px-3 pt-[env(safe-area-inset-top,0px)] sm:min-h-14 sm:px-4">
       <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
         <motion.button
           type="button"
@@ -150,7 +149,7 @@ export function TopBar({ onMenuClick, onSearchClick }: { title?: string; onMenuC
         <div className="hidden xl:flex items-center gap-2 rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#101010] px-3 py-2 text-xs text-gray-500 dark:text-[#888]">
           <Clock3 className="h-3.5 w-3.5 text-[#0078D4]" />
           <span className="font-medium text-gray-900 dark:text-[#f2f2f2]">
-            {clock.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}
+            {clock ? clock.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false }) : "--:--"}
           </span>
           <span className="h-1 w-1 rounded-full bg-gray-100 dark:bg-[#2a2a2a]" />
           <span>{pageContext.badge}</span>

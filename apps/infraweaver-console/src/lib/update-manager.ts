@@ -32,7 +32,12 @@ export interface ArgoApplication {
   status: {
     history?: Array<{ deployedAt?: string }>;
     operationState?: { finishedAt?: string };
-    sync?: { status?: string };
+    sync?: {
+      status?: string;
+      revision?: string;      // single-source: deployed chart version
+      revisions?: string[];   // multi-source: [gitSHA, chartVersion, ...]
+    };
+    health?: { status?: string };
   };
 }
 

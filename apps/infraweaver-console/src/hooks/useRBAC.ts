@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { useSession } from "next-auth/react";
 import { queryStaleTimes } from "@/lib/query-defaults";
 import { queryKeys } from "@/lib/query-keys";
@@ -66,9 +67,12 @@ export function useRBAC() {
     staleTime: queryStaleTimes.minute,
   });
 
-  const permissions = data?.permissions ?? FALLBACK_PERMISSIONS.filter((permission) => hasPermission(groups, permission));
-  const assignments = data?.assignments ?? [];
-  const permissionSet = new Set<string>(permissions);
+  // Memoize to prevent new references on every render (avoids infinite update loops in consumers)
+  const groupKey = groups.join(",");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const permissions = useMemo<Permission[]>(() => data?.permissions ?? FALLBACK_PERMISSIONS.filter((p) => hasPermission(groups, p)), [data?.permissions, groupKey]);
+  const assignments = useMemo<RoleAssignment[]>(() => data?.assignments ?? [], [data?.assignments]);
+  const permissionSet = useMemo(() => new Set<string>(permissions), [permissions]);
 
   function can(permission: Permission, scope = "/") {
     if (permissionSet.has("*") || permissionSet.has(permission)) return true;

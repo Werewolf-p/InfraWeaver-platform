@@ -27,6 +27,17 @@ export async function GET(req: NextRequest) {
         const parsedName = parseManagedAppName(argoApp.metadata.name);
         const lastHistory = argoApp.status.history?.at(-1);
 
+        // Derive the actual deployed chart version from ArgoCD status
+        const helmSourceIndex = argoApp.spec.sources
+          ? argoApp.spec.sources.findIndex((s) => s.chart && s.repoURL)
+          : -1;
+        const deployedVersion = helmSourceIndex >= 0
+          ? (argoApp.status.sync?.revisions?.[helmSourceIndex] ?? null)
+          : (argoApp.status.sync?.revision ?? null);
+
+        const syncStatus = argoApp.status.sync?.status
+          ?? (argoApp.status.health?.status === "Healthy" ? "Synced" : "Unknown");
+
         return {
           id: argoApp.metadata.name,
           name: argoApp.metadata.name,
@@ -34,9 +45,10 @@ export async function GET(req: NextRequest) {
           section: parsedName?.section ?? "other",
           currentVersion: helmSource.targetRevision ?? managedApp?.targetRevision ?? "unknown",
           targetVersion: managedApp?.targetRevision ?? helmSource.targetRevision ?? null,
+          deployedVersion,
           chart: helmSource.chart ?? managedApp?.chart ?? null,
           repoUrl: helmSource.repoURL ?? managedApp?.repoURL ?? null,
-          syncStatus: argoApp.status.sync?.status ?? "Unknown",
+          syncStatus,
           lastSync: argoApp.status.operationState?.finishedAt ?? lastHistory?.deployedAt ?? null,
         };
       })
