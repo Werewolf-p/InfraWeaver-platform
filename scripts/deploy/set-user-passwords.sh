@@ -8,9 +8,10 @@
 set -euo pipefail
 
 # Cleanup on exit
+PF_PID=""
 cleanup() {
-  kill ${PF_PID} 2>/dev/null || true;
-  rm -f /tmp/ak_setpw.py;
+  [[ -n "${PF_PID:-}" ]] && kill "$PF_PID" 2>/dev/null || true
+  rm -f /tmp/ak_setpw.py
 }
 trap cleanup EXIT
 KB=~/.kube/config-platform-${ENV_NAME:?ENV_NAME required}

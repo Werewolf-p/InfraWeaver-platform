@@ -44,6 +44,14 @@ if [[ -z "$ONEDEV_URL" ]]; then
   LOCAL_PORT=16610
   ONEDEV_URL="http://127.0.0.1:${LOCAL_PORT}"
   log "Port-forwarding Onedev on localhost:${LOCAL_PORT}..."
+  # Wait for the onedev service to exist (up to 3 min) before port-forwarding
+  _SVC_WAIT=0
+  until kubectl --kubeconfig "$KB" get svc onedev -n "$ONEDEV_NAMESPACE" &>/dev/null; do
+    _SVC_WAIT=$((_SVC_WAIT + 1))
+    [[ $_SVC_WAIT -ge 18 ]] && { warn "onedev service not found after 3 min — giving up"; exit 1; }
+    log "  Waiting for onedev service to appear (${_SVC_WAIT}/18)..."
+    sleep 10
+  done
   kubectl --kubeconfig "$KB" port-forward svc/onedev "${LOCAL_PORT}:80" -n "$ONEDEV_NAMESPACE" &
   PF_PID=$!
   sleep 5

@@ -8,14 +8,24 @@
 set -euo pipefail
 
 # Cleanup on exit
+AUTHENTIK_PF_PID=""
 cleanup() {
-  kill ${AUTHENTIK_PF_PID} 2>/dev/null || true;
-  rm -f /tmp/authentik-pf.log; rm -f /tmp/authentik-pf;
+  [[ -n "${AUTHENTIK_PF_PID:-}" ]] && kill "$AUTHENTIK_PF_PID" 2>/dev/null || true
+  rm -f /tmp/authentik-pf.log /tmp/authentik-pf
 }
 trap cleanup EXIT
 KB=~/.kube/config-platform-${ENV_NAME:?ENV_NAME required}
-TOKEN="$AUTHENTIK_ADMIN_TOKEN"
 KT="kubectl --kubeconfig $KB --insecure-skip-tls-verify"
+
+# AUTHENTIK_ADMIN_TOKEN can be passed in from configure-authentik.sh (GitHub Actions)
+# or we retrieve it directly from the worker pod (local deploy)
+TOKEN="${AUTHENTIK_ADMIN_TOKEN:-}"
+if [ -z "$TOKEN" ]; then
+  echo "==> Retrieving Authentik admin token from worker pod..."
+  _AK_TOKEN_PY='from authentik.core.models import Token; t = Token.objects.filter(identifier="gh-actions-api-token").first(); print("TOKEN:" + t.key) if t else print("")'
+  TOKEN=$($KT exec -i -n authentik deploy/authentik-worker -c worker -- \
+    sh -c "echo '${_AK_TOKEN_PY}' | ak shell" 2>/dev/null | grep "^TOKEN:" | sed 's/TOKEN://' || echo "")
+fi
 
 if [ -z "$TOKEN" ]; then
   echo "⚠️ No Authentik token available — skipping OIDC bootstrap (non-critical)"

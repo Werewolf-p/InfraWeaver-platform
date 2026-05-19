@@ -494,30 +494,6 @@ data:
           slug: infraweaver-console
           provider: !Find [authentik_providers_oauth2.oauth2provider, [name, InfraWeaver Console Provider]]
           policy_engine_mode: any
-
-      # ── Embedded Outpost — registers all proxy providers automatically ───────
-      # The embedded outpost handles Traefik forward-auth for all proxy providers.
-      # Authentik serves forward-auth at /outpost.goauthentik.io/auth/traefik
-      # Adding proxy providers to the outpost makes them visible to Traefik middleware.
-      - model: authentik_outposts.outpost
-        state: present
-        identifiers:
-          name: authentik Embedded Outpost
-        attrs:
-          name: authentik Embedded Outpost
-          type: proxy
-          providers:
-            - !Find [authentik_providers_proxy.proxyprovider, [name, Actual Budget Provider]]
-            - !Find [authentik_providers_proxy.proxyprovider, [name, Excalidraw Provider]]
-            - !Find [authentik_providers_proxy.proxyprovider, [name, IT-Tools Provider]]
-            - !Find [authentik_providers_proxy.proxyprovider, [name, Longhorn Provider]]
-            - !Find [authentik_providers_proxy.proxyprovider, [name, n8n Provider]]
-            - !Find [authentik_providers_proxy.proxyprovider, [name, Stirling-PDF Provider]]
-            - !Find [authentik_providers_proxy.proxyprovider, [name, Uptime Kuma Provider]]
-            - !Find [authentik_providers_proxy.proxyprovider, [name, Vaultwarden Provider]]
-          config:
-            authentik_host: "https://auth.rlservers.com"
-            authentik_host_insecure: false
-            log_level: info
-            object_naming_template: "ak-outpost-%(name)s"
-            kubernetes_replicas: 1
+      # NOTE: Embedded Outpost configuration (proxy providers) is handled by
+      # configure-oidc.sh at deploy time, after proxy providers are created.
+      # Do NOT define it here — proxy providers don't exist when this blueprint runs.

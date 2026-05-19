@@ -219,6 +219,14 @@ log "Current branch: $CURRENT_BRANCH"
 # Use port-forward to Onedev for git push (external DNS may not be ready yet)
 _ONEDEV_PF=""
 _ONEDEV_LOCAL_URL=""
+# Wait for onedev service before attempting git push (it may still be deploying)
+_OD_SVC_WAIT=0
+until kubectl get svc onedev -n "$ONEDEV_NAMESPACE" &>/dev/null; do
+  _OD_SVC_WAIT=$((_OD_SVC_WAIT + 1))
+  [[ $_OD_SVC_WAIT -ge 18 ]] && break
+  log "  Waiting for onedev service (${_OD_SVC_WAIT}/18)..."
+  sleep 10
+done
 _ONEDEV_SVC=$(kubectl get svc onedev -n "$ONEDEV_NAMESPACE" --no-headers 2>/dev/null | awk '{print $1}' || true)
 if [[ -n "$_ONEDEV_SVC" ]]; then
   kubectl port-forward svc/onedev 19300:80 -n "$ONEDEV_NAMESPACE" &

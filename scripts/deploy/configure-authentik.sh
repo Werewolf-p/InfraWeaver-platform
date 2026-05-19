@@ -8,9 +8,12 @@
 set -euo pipefail
 
 # Cleanup on exit
+SETUP_PF_PID=""
+AK_PF_PID=""
 cleanup() {
-  kill ${SETUP_PF_PID} 2>/dev/null || true; kill ${AK_PF_PID} 2>/dev/null || true;
-  rm -f /tmp/ak_groups.py; rm -f /tmp/authentik-pf-setup.log; rm -f /tmp/users.yaml; rm -f /tmp/ak_token.py;
+  [[ -n "${SETUP_PF_PID:-}" ]] && kill "$SETUP_PF_PID" 2>/dev/null || true
+  [[ -n "${AK_PF_PID:-}" ]] && kill "$AK_PF_PID" 2>/dev/null || true
+  rm -f /tmp/ak_groups.py /tmp/authentik-pf-setup.log /tmp/users.yaml /tmp/ak_token.py
 }
 trap cleanup EXIT
 KB=~/.kube/config-platform-${ENV_NAME:?ENV_NAME required}
@@ -83,7 +86,7 @@ AUTHENTIK_ADMIN_TOKEN=$(echo "$_AK_PY" | base64 -d | \
   $KT exec -i -n authentik deploy/authentik-worker -c worker -- \
   sh -c 'cat > /tmp/ak_token.py && ak shell < /tmp/ak_token.py' \
   2>&1 | grep "^TOKEN:" | sed 's/TOKEN://' || echo "")
-echo "AUTHENTIK_ADMIN_TOKEN=${AUTHENTIK_ADMIN_TOKEN}" >> $GITHUB_ENV
+echo "AUTHENTIK_ADMIN_TOKEN=${AUTHENTIK_ADMIN_TOKEN}" >> "${GITHUB_ENV:-/dev/null}"
 
 $KT port-forward svc/authentik-server -n authentik 8089:80 > /tmp/authentik-pf-setup.log 2>&1 &
 SETUP_PF_PID=$!
@@ -110,7 +113,7 @@ if [ -n "$AUTHENTIK_ADMIN_TOKEN" ]; then
         LINK=$(echo "$RECOVERY" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('link',''))" 2>/dev/null || echo "")
         LINK=$(echo "$LINK" | sed 's|http://localhost:8089|https://auth.rlservers.com|g')
         ENV_VAR="AUTHENTIK_$(echo "$USERNAME" | tr '[:lower:]' '[:upper:]')_RECOVERY_LINK"
-        echo "${ENV_VAR}=${LINK}" >> $GITHUB_ENV
+        echo "${ENV_VAR}=${LINK}" >> "${GITHUB_ENV:-/dev/null}"
         echo "✅ Recovery link generated for ${USERNAME}"
       else
         echo "⚠️ Recovery link request failed for ${USERNAME} (non-critical)"

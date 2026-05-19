@@ -133,22 +133,8 @@ postgresql:
               values:
               - talos-prod-cp3
 
-redis:
-  enabled: true
-  auth:
-    enabled: false
-  master:
-    priorityClassName: platform-high
-    persistence:
-      storageClass: longhorn   # HA: 3 replicas (rebuild-able cache)
-      size: 256Mi
-    resources:
-      requests:
-        cpu: 50m
-        memory: 64Mi
-      limits:
-        cpu: 200m
-        memory: 128Mi
+# Redis is deployed as a standalone StatefulSet in manifests/redis.yaml
+# (authentik chart 2026.x dropped the bundled Redis subchart)
 
 server:
   replicas: 1  # Memory-optimised: single replica saves ~800Mi; requiredAntiAffinity is trivially satisfied
