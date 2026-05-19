@@ -30,14 +30,16 @@ spec:
         fsGroup: 1000
       containers:
         - name: vaultwarden
-          image: vaultwarden/server
+          image: vaultwarden/server:1.32.7
           env:
+            - name: DOMAIN
+              value: "https://vaultwarden.int.rlservers.com"
             - name: SIGNUPS_ALLOWED
-              value: "true|false"
-            - name: INVITATIONS_ALLOWED
-              value: "true|false"
-            - name: WEBSOCKET_ENABLED
               value: "false"
+            - name: INVITATIONS_ALLOWED
+              value: "false"
+            - name: WEBSOCKET_ENABLED
+              value: "true"
             - name: ADMIN_TOKEN
               valueFrom:
                 secretKeyRef:
@@ -46,7 +48,10 @@ spec:
           ports:
             - containerPort: 80
               protocol: TCP
-              name: webui-http-po
+              name: http
+            - containerPort: 3012
+              protocol: TCP
+              name: websocket
           startupProbe:
             tcpSocket:
               port: 80
@@ -93,5 +98,9 @@ spec:
     - port: 80
       targetPort: 80
       protocol: TCP
-      name: webui-http-po
+      name: http
+    - port: 3012
+      targetPort: 3012
+      protocol: TCP
+      name: websocket
   type: ClusterIP

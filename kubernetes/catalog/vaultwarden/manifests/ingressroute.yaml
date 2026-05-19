@@ -11,6 +11,14 @@ spec:
   entryPoints:
     - websecure
   routes:
+    - match: Host(`vaultwarden.int.rlservers.com`) && PathPrefix(`/notifications/hub`)
+      kind: Rule
+      middlewares:
+        - name: netbird-vpn-only
+          namespace: traefik
+      services:
+        - name: vaultwarden
+          port: 3012
     - match: Host(`vaultwarden.int.rlservers.com`)
       kind: Rule
       middlewares:
