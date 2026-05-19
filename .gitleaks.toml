@@ -1,0 +1,12 @@
+title = "InfraWeaver Gitleaks Config"
+
+[extend]
+# Extend the default rules
+useDefault = true
+
+[allowlist]
+description = "Exclude build artifacts and example/test files"
+paths = [
+  '''apps/infraweaver-console/\.next/''',
+  '''apps/infraweaver-api/dist/''',
+]
