@@ -64,12 +64,12 @@ spec:
                     [ -z "$timestamp" ] && continue
                     item_epoch=$(date -u -d "$timestamp" +%s 2>/dev/null || echo 0)
                     age=$((now_epoch - item_epoch))
-                    if [ "${succeeded:-0}" != "" ] && [ "${succeeded:-0}" -gt 0 ] && [ "$age" -gt "$SUCCESS_TTL_SECONDS" ]; then
+                    if [[ "${succeeded:-0}" =~ ^[0-9]+$ ]] && [ "${succeeded:-0}" -gt 0 ] && [ "$age" -gt "$SUCCESS_TTL_SECONDS" ]; then
                       kubectl delete job "$name" -n "$namespace" --ignore-not-found >/dev/null 2>&1 || true
                       cleaned=$((cleaned + 1))
                       continue
                     fi
-                    if [ "${failed:-0}" != "" ] && [ "${failed:-0}" -gt 0 ] && [ "$age" -gt "$FAILED_TTL_SECONDS" ]; then
+                    if [[ "${failed:-0}" =~ ^[0-9]+$ ]] && [ "${failed:-0}" -gt 0 ] && [ "$age" -gt "$FAILED_TTL_SECONDS" ]; then
                       kubectl delete job "$name" -n "$namespace" --ignore-not-found >/dev/null 2>&1 || true
                       cleaned=$((cleaned + 1))
                     fi
