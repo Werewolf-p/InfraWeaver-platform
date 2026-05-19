@@ -210,29 +210,17 @@ alertmanager:
       repeat_interval: 6h
       receiver: "discord"
       routes:
-        # Silence watchdog/heartbeat — these are always firing and just noise
-        - matchers:
-            - name: alertname
-              value: Watchdog
+        - matchers: ['alertname = "Watchdog"']
           receiver: "null"
           continue: false
-        # Silence info-level inhibitors — internal Prometheus mechanism, not actionable
-        - matchers:
-            - name: alertname
-              value: InfoInhibitor
+        - matchers: ['alertname = "InfoInhibitor"']
           receiver: "null"
           continue: false
-        # Critical alerts → email + Discord, repeat every 1h
-        - matchers:
-            - name: severity
-              value: critical
+        - matchers: ['severity = "critical"']
           receiver: "all"
           repeat_interval: 1h
           continue: false
-        # Warning alerts → Discord only, repeat every 6h
-        - matchers:
-            - name: severity
-              value: warning
+        - matchers: ['severity = "warning"']
           receiver: "discord"
           repeat_interval: 6h
           continue: false
@@ -254,12 +242,8 @@ alertmanager:
           - url: "http://alertmanager-discord.monitoring.svc.cluster.local:9094"
             send_resolved: true
     inhibit_rules:
-      - source_matchers:
-          - name: severity
-            value: critical
-        target_matchers:
-          - name: severity
-            value: warning
+      - source_matchers: ['severity = "critical"']
+        target_matchers: ['severity = "warning"']
         equal: ["alertname", "namespace"]
 
 # ── Node Exporter ─────────────────────────────────────────────────────────────
