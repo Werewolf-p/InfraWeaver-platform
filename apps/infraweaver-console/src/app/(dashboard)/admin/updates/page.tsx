@@ -187,10 +187,11 @@ function UpdateCard({ app, canUpdate, isUpdating, selectedVersion, onSelectVersi
   );
 }
 
-const SECTION_ORDER = ["core", "platform", "catalog"];
+const SECTION_ORDER = ["core", "monitoring", "platform", "catalog"];
 
 const SECTION_LABELS: Record<string, string> = {
   core: "Core Infrastructure",
+  monitoring: "Monitoring Stack",
   platform: "Platform Services",
   catalog: "Application Catalog",
 };
