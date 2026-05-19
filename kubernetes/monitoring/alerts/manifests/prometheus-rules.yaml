@@ -51,6 +51,15 @@ spec:
             summary: "Node {{ $labels.node }} has DiskPressure"
             description: "Node {{ $labels.node }} is reporting DiskPressure."
 
+        - alert: NodeCriticalMemory
+          expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 92
+          for: 3m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Critical memory on {{ $labels.instance }}"
+            description: "Memory usage > 92% for 3 minutes on {{ $labels.instance }}. Proxmox OOM kill risk is high."
+
     - name: node.oom
       rules:
         - alert: NodeOOMKillDetected
@@ -86,6 +95,15 @@ spec:
           annotations:
             summary: "PVC {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }} > 95% full"
             description: "PVC is critically full ({{ printf \"%.0f\" $value }}%). Immediate action needed."
+
+        - alert: LonghornVolumesDegraded
+          expr: longhorn_volume_robustness{robustness="degraded"} > 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Longhorn volume {{ $labels.volume }} is degraded"
+            description: "Volume {{ $labels.volume }} has been in degraded state for > 15m. A replica rebuild may be in progress or a replica is lost."
 
     # ── Pod / Workload health ────────────────────────────────────────────────────
     - name: pod.health
