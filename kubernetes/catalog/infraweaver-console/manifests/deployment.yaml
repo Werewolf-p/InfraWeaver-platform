@@ -91,11 +91,14 @@ spec:
             secretKeyRef:
               name: infraweaver-console-secret
               key: argocd-token
+        # Optional: GitHub PAT for pipeline listing, pelican eggs, and workflow dispatch.
+        # Seed in OpenBao: openbao kv patch secret/platform/infraweaver-console github-token=<pat>
         - name: GITHUB_TOKEN
           valueFrom:
             secretKeyRef:
               name: infraweaver-console-secret
               key: github-token
+              optional: true
         - name: GITHUB_REPO
           value: Werewolf-p/InfraWeaver-platform
         - name: GIT_PROVIDER
@@ -109,8 +112,12 @@ spec:
               key: onedev-token
         - name: ONEDEV_PROJECT_ID
           value: "2"
+        - name: ONEDEV_PROJECT_PATH
+          value: "InfraWeaver-platform"
         - name: ONEDEV_BRANCH
           value: main
+        - name: ONEDEV_USERNAME
+          value: infraweaver
         - name: GIT_WORKTREE_ROOT
           value: /git-cache
         - name: GATUS_URL
