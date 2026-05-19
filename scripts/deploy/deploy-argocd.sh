@@ -19,6 +19,13 @@ fi
 kubectl --kubeconfig "$KB" create namespace argocd --dry-run=client -o yaml \
   | kubectl --kubeconfig "$KB" apply -f -
 
+# Apply PriorityClasses early to prevent chicken-and-egg with ArgoCD application-controller
+# (ArgoCD manifests reference platform-critical, but that class is deployed via ArgoCD)
+PRIORITY_MANIFEST="${BASH_SOURCE[0]%/scripts/*}/kubernetes/core/priority-classes/manifests/priority-classes.yaml"
+if [[ -f "$PRIORITY_MANIFEST" ]]; then
+  kubectl --kubeconfig "$KB" apply -f "$PRIORITY_MANIFEST" 2>/dev/null || true
+fi
+
 helm repo add argo https://argoproj.github.io/argo-helm 2>/dev/null || true
 helm repo update argo
 
@@ -46,7 +53,7 @@ for rtype in clusterrole clusterrolebinding; do
 done
 
 helm --kubeconfig "$KB" upgrade --install argocd argo/argo-cd \
-  --namespace argocd --skip-crds --timeout 5m \
+  --namespace argocd --skip-crds --timeout 10m --no-hooks \
   -f kubernetes/core/argocd/values.yaml
 
 kubectl --kubeconfig "$KB" patch svc argocd-repo-server -n argocd \
@@ -58,15 +65,19 @@ kubectl --kubeconfig "$KB" patch svc argocd-applicationset-controller -n argocd 
 kubectl --kubeconfig "$KB" patch svc argocd-redis -n argocd \
   --type json -p '[{"op":"replace","path":"/spec/ports/0/targetPort","value":6379}]' 2>/dev/null || true
 
-REPO_TOKEN="${ARGOCD_GITHUB_TOKEN:-$GITHUB_TOKEN}"
-kubectl --kubeconfig "$KB" create secret generic repo-creds-github \
-  --namespace argocd \
-  --from-literal=url="https://github.com/Werewolf-p/" \
-  --from-literal=username="x-access-token" \
-  --from-literal=password="${REPO_TOKEN}" \
-  --dry-run=client -o yaml | kubectl --kubeconfig "$KB" apply -f -
-kubectl --kubeconfig "$KB" label secret repo-creds-github --namespace argocd \
-  "argocd.argoproj.io/secret-type=repo-creds" --overwrite
+REPO_TOKEN="${ARGOCD_GITHUB_TOKEN:-${GITHUB_TOKEN:-}}"
+if [[ -n "$REPO_TOKEN" ]]; then
+  kubectl --kubeconfig "$KB" create secret generic repo-creds-github \
+    --namespace argocd \
+    --from-literal=url="https://github.com/Werewolf-p/" \
+    --from-literal=username="x-access-token" \
+    --from-literal=password="${REPO_TOKEN}" \
+    --dry-run=client -o yaml | kubectl --kubeconfig "$KB" apply -f -
+  kubectl --kubeconfig "$KB" label secret repo-creds-github --namespace argocd \
+    "argocd.argoproj.io/secret-type=repo-creds" --overwrite
+else
+  echo "⚠️  No GITHUB_TOKEN / ARGOCD_GITHUB_TOKEN set — skipping repo-creds-github secret (ArgoCD will use public/SSH access)"
+fi
 
 # Apply bootstrap manifests with env-specific revision so ArgoCD tracks the correct branch
 GIT_REVISION="$( [ "${ENV_NAME}" = "productie" ] && echo "main" || echo "ontwikkel" )"

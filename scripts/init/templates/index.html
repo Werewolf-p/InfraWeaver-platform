@@ -1,0 +1,1152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>InfraWeaver — Platform Setup</title>
+  <style>
+    :root {
+      --bg: #0a0e1a;
+      --bg2: #0f1422;
+      --bg3: #141929;
+      --border: #1e2d4a;
+      --border-bright: #2a4080;
+      --green: #00ff88;
+      --green-dim: #00cc66;
+      --blue: #4488ff;
+      --blue-dim: #2255cc;
+      --cyan: #00d4ff;
+      --yellow: #ffcc00;
+      --red: #ff4444;
+      --text: #c8d8f0;
+      --text-dim: #6080a0;
+      --text-bright: #e8f4ff;
+      --accent: #1a3060;
+      --input-bg: #080c18;
+      --glow: 0 0 20px rgba(0,255,136,0.15);
+      --glow-blue: 0 0 20px rgba(68,136,255,0.2);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+      font-size: 13px;
+      line-height: 1.6;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── Animated background grid ── */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(0,255,136,0.02) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,255,136,0.02) 1px, transparent 1px);
+      background-size: 40px 40px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ── Scanline effect ── */
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0,0,0,0.05) 2px,
+        rgba(0,0,0,0.05) 4px
+      );
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .container {
+      position: relative;
+      z-index: 1;
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+
+    /* ── Header ── */
+    .header {
+      text-align: center;
+      padding: 40px 20px 30px;
+      position: relative;
+    }
+    .ascii-logo {
+      color: var(--green);
+      font-size: 11px;
+      line-height: 1.2;
+      text-shadow: 0 0 10px rgba(0,255,136,0.5);
+      display: inline-block;
+      letter-spacing: 0.5px;
+      margin-bottom: 20px;
+      animation: flicker 8s infinite;
+    }
+    @keyframes flicker {
+      0%, 97%, 100% { opacity: 1; }
+      98% { opacity: 0.7; }
+      99% { opacity: 0.9; }
+    }
+    .header-subtitle {
+      color: var(--text-dim);
+      font-size: 12px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .header-title {
+      color: var(--text-bright);
+      font-size: 22px;
+      font-weight: bold;
+      letter-spacing: 2px;
+      margin-bottom: 6px;
+    }
+    .header-desc {
+      color: var(--text-dim);
+      font-size: 12px;
+      max-width: 500px;
+      margin: 0 auto;
+    }
+    .blink {
+      animation: blink 1s step-end infinite;
+    }
+    @keyframes blink { 50% { opacity: 0; } }
+
+    /* ── Status bar ── */
+    .statusbar {
+      display: flex;
+      gap: 20px;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px 16px;
+      margin-bottom: 24px;
+      font-size: 11px;
+      color: var(--text-dim);
+    }
+    .status-item { display: flex; align-items: center; gap: 6px; }
+    .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-dim); }
+    .status-dot.ok { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    .status-dot.warn { background: var(--yellow); box-shadow: 0 0 6px var(--yellow); }
+    .status-dot.err { background: var(--red); box-shadow: 0 0 6px var(--red); animation: pulse 1s infinite; }
+    @keyframes pulse { 50% { opacity: 0.4; } }
+
+    /* ── Tabs ── */
+    .tabs {
+      display: flex;
+      gap: 0;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 0;
+    }
+    .tab {
+      padding: 10px 20px;
+      cursor: pointer;
+      color: var(--text-dim);
+      font-size: 12px;
+      border: 1px solid transparent;
+      border-bottom: none;
+      border-radius: 4px 4px 0 0;
+      transition: all 0.2s;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      user-select: none;
+    }
+    .tab:hover { color: var(--text); background: var(--bg2); }
+    .tab.active {
+      color: var(--green);
+      background: var(--bg2);
+      border-color: var(--border);
+      border-bottom-color: var(--bg2);
+      text-shadow: 0 0 8px rgba(0,255,136,0.4);
+    }
+    .tab-icon { margin-right: 6px; }
+
+    /* ── Cards ── */
+    .card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 24px;
+      margin-bottom: 16px;
+      transition: border-color 0.2s;
+    }
+    .card:hover { border-color: var(--border-bright); }
+    .card-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 20px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .card-icon {
+      font-size: 18px;
+      width: 32px;
+      text-align: center;
+    }
+    .card-title {
+      color: var(--text-bright);
+      font-size: 14px;
+      font-weight: bold;
+      letter-spacing: 1px;
+    }
+    .card-desc {
+      color: var(--text-dim);
+      font-size: 11px;
+      margin-top: 2px;
+    }
+
+    /* ── Form fields ── */
+    .form-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    .form-grid.single { grid-template-columns: 1fr; }
+    .form-row {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .form-row.full { grid-column: 1 / -1; }
+    label {
+      color: var(--cyan);
+      font-size: 11px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    label .required { color: var(--red); font-size: 10px; }
+    label .help-icon { color: var(--text-dim); cursor: help; font-size: 11px; }
+    input, textarea, select {
+      background: var(--input-bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 13px;
+      padding: 8px 12px;
+      transition: border-color 0.2s, box-shadow 0.2s;
+      width: 100%;
+    }
+    input:focus, textarea:focus, select:focus {
+      outline: none;
+      border-color: var(--green-dim);
+      box-shadow: 0 0 0 2px rgba(0,204,102,0.1);
+    }
+    input::placeholder { color: var(--text-dim); opacity: 0.6; }
+    textarea { resize: vertical; min-height: 80px; }
+    .field-hint {
+      color: var(--text-dim);
+      font-size: 11px;
+      line-height: 1.4;
+    }
+    .field-hint a { color: var(--blue); text-decoration: none; }
+    .field-hint a:hover { text-decoration: underline; }
+
+    /* Password field with toggle */
+    .input-wrap { position: relative; }
+    .input-wrap input { padding-right: 36px; }
+    .toggle-pass {
+      position: absolute;
+      right: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: none;
+      border: none;
+      color: var(--text-dim);
+      cursor: pointer;
+      padding: 4px;
+      font-size: 14px;
+    }
+    .toggle-pass:hover { color: var(--text); }
+
+    /* ── Panels ── */
+    .panel {
+      display: none;
+    }
+    .panel.active { display: block; }
+
+    .setup-panel {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-top: none;
+      border-radius: 0 0 8px 8px;
+      padding: 24px;
+    }
+
+    /* ── Buttons ── */
+    .btn-row {
+      display: flex;
+      gap: 12px;
+      margin-top: 24px;
+      flex-wrap: wrap;
+    }
+    .btn {
+      padding: 10px 24px;
+      border: 1px solid;
+      border-radius: 4px;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: bold;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .btn-primary {
+      background: rgba(0,255,136,0.1);
+      border-color: var(--green-dim);
+      color: var(--green);
+    }
+    .btn-primary:hover:not(:disabled) {
+      background: rgba(0,255,136,0.2);
+      box-shadow: var(--glow);
+    }
+    .btn-secondary {
+      background: rgba(68,136,255,0.08);
+      border-color: var(--blue-dim);
+      color: var(--blue);
+    }
+    .btn-secondary:hover:not(:disabled) {
+      background: rgba(68,136,255,0.15);
+      box-shadow: var(--glow-blue);
+    }
+    .btn-danger {
+      background: rgba(255,68,68,0.08);
+      border-color: #cc2222;
+      color: var(--red);
+    }
+    .btn-danger:hover:not(:disabled) {
+      background: rgba(255,68,68,0.15);
+    }
+    .btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+    .btn-large {
+      padding: 14px 32px;
+      font-size: 15px;
+    }
+    .btn-spinner {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border: 2px solid currentColor;
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Deploy panel ── */
+    .deploy-hero {
+      text-align: center;
+      padding: 20px 0 30px;
+    }
+    .deploy-hero-icon { font-size: 48px; margin-bottom: 12px; }
+    .deploy-hero-title {
+      color: var(--text-bright);
+      font-size: 20px;
+      font-weight: bold;
+      margin-bottom: 8px;
+    }
+    .deploy-hero-desc { color: var(--text-dim); font-size: 13px; max-width: 500px; margin: 0 auto; }
+
+    .checklist {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 16px;
+      margin: 20px 0;
+    }
+    .checklist-title {
+      color: var(--text-dim);
+      font-size: 11px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+    }
+    .check-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 5px 0;
+      font-size: 12px;
+      color: var(--text-dim);
+    }
+    .check-item.ok { color: var(--text); }
+    .check-icon { font-size: 14px; width: 20px; text-align: center; }
+
+    /* ── Log terminal ── */
+    .log-terminal {
+      background: #050810;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      margin-top: 20px;
+      overflow: hidden;
+    }
+    .log-titlebar {
+      background: var(--bg3);
+      border-bottom: 1px solid var(--border);
+      padding: 8px 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .log-dots { display: flex; gap: 6px; }
+    .log-dot { width: 10px; height: 10px; border-radius: 50%; }
+    .log-dot.red { background: #ff5555; }
+    .log-dot.yellow { background: #ffcc00; }
+    .log-dot.green { background: #00cc44; }
+    .log-titlebar-text { color: var(--text-dim); font-size: 11px; letter-spacing: 1px; margin-left: auto; }
+    .log-body {
+      padding: 16px;
+      height: 400px;
+      overflow-y: auto;
+      font-size: 12px;
+      line-height: 1.7;
+    }
+    .log-body::-webkit-scrollbar { width: 4px; }
+    .log-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+    .log-line { padding: 1px 0; }
+    .log-line.step { color: var(--cyan); font-weight: bold; }
+    .log-line.ok { color: var(--green); }
+    .log-line.warn { color: var(--yellow); }
+    .log-line.err { color: var(--red); }
+    .log-line.info { color: var(--text-dim); }
+    .log-line.dim { color: #304060; }
+    .log-cursor { display: inline-block; width: 8px; height: 14px; background: var(--green); animation: blink 1s step-end infinite; vertical-align: text-bottom; }
+
+    /* ── Progress bar ── */
+    .progress-wrap {
+      margin: 16px 0;
+    }
+    .progress-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      color: var(--text-dim);
+      margin-bottom: 6px;
+    }
+    .progress-bar {
+      height: 4px;
+      background: var(--bg3);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--green-dim), var(--cyan));
+      border-radius: 2px;
+      transition: width 0.5s ease;
+      width: 0%;
+      box-shadow: 0 0 8px rgba(0,255,136,0.4);
+    }
+
+    /* ── Alerts ── */
+    .alert {
+      padding: 12px 16px;
+      border-radius: 4px;
+      border: 1px solid;
+      margin: 16px 0;
+      font-size: 12px;
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+    }
+    .alert-icon { font-size: 16px; flex-shrink: 0; }
+    .alert.info { background: rgba(68,136,255,0.08); border-color: var(--blue-dim); color: var(--text); }
+    .alert.success { background: rgba(0,255,136,0.06); border-color: var(--green-dim); color: var(--green); }
+    .alert.warning { background: rgba(255,204,0,0.06); border-color: #aa8800; color: var(--yellow); }
+    .alert.error { background: rgba(255,68,68,0.06); border-color: #cc2222; color: var(--red); }
+
+    /* ── Footer ── */
+    .footer {
+      text-align: center;
+      padding: 30px 20px;
+      color: var(--text-dim);
+      font-size: 11px;
+      border-top: 1px solid var(--border);
+      margin-top: 40px;
+    }
+
+    /* ── Tooltip ── */
+    [title] { cursor: help; }
+
+    /* ── SSH key field special styling ── */
+    .ssh-key-area {
+      font-size: 11px;
+      min-height: 100px;
+    }
+
+    /* ── Responsive ── */
+    @media (max-width: 640px) {
+      .form-grid { grid-template-columns: 1fr; }
+      .btn-row { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+
+  <!-- Header -->
+  <div class="header">
+    <pre class="ascii-logo">
+ ██╗███╗   ██╗███████╗██████╗  █████╗ ██╗    ██╗███████╗ █████╗ ██╗   ██╗███████╗██████╗
+ ██║████╗  ██║██╔════╝██╔══██╗██╔══██╗██║    ██║██╔════╝██╔══██╗██║   ██║██╔════╝██╔══██╗
+ ██║██╔██╗ ██║█████╗  ██████╔╝███████║██║ █╗ ██║█████╗  ███████║██║   ██║█████╗  ██████╔╝
+ ██║██║╚██╗██║██╔══╝  ██╔══██╗██╔══██║██║███╗██║██╔══╝  ██╔══██║╚██╗ ██╔╝██╔══╝  ██╔══██╗
+ ██║██║ ╚████║██║     ██║  ██║██║  ██║╚███╔███╔╝███████╗██║  ██║ ╚████╔╝ ███████╗██║  ██║
+ ╚═╝╚═╝  ╚═══╝╚═╝     ╚═╝  ╚═╝╚═╝  ╚═╝ ╚══╝╚══╝ ╚══════╝╚═╝  ╚═╝  ╚═══╝  ╚══════╝╚═╝  ╚═╝</pre>
+    <div class="header-subtitle">Platform Setup Wizard</div>
+    <div class="header-title">Configure & Deploy Your Cluster<span class="blink">_</span></div>
+    <div class="header-desc">Fill in your credentials below, then hit Deploy to provision your Talos cluster on Proxmox VE.</div>
+  </div>
+
+  <!-- Status bar -->
+  <div class="statusbar" id="statusbar">
+    <div class="status-item"><div class="status-dot" id="dot-env"></div><span id="label-env">env: loading</span></div>
+    <div class="status-item"><div class="status-dot" id="dot-proxmox"></div><span id="label-proxmox">proxmox: —</span></div>
+    <div class="status-item"><div class="status-dot" id="dot-deploy"></div><span id="label-deploy">deploy: idle</span></div>
+    <div class="status-item" style="margin-left: auto"><span id="label-version" style="color:#304060">v0.1.0</span></div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab('config')" id="tab-config"><span class="tab-icon">⚙</span>Config</div>
+    <div class="tab" onclick="switchTab('deploy')" id="tab-deploy"><span class="tab-icon">🚀</span>Deploy</div>
+    <div class="tab" onclick="switchTab('redeploy')" id="tab-redeploy"><span class="tab-icon">🔄</span>Redeploy</div>
+  </div>
+
+  <!-- ═══════════════ CONFIG TAB ═══════════════ -->
+  <div class="panel active setup-panel" id="panel-config">
+
+    <!-- Domain -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-icon">🌐</div>
+        <div>
+          <div class="card-title">Domain</div>
+          <div class="card-desc">Your base domain for all platform services</div>
+        </div>
+      </div>
+      <div class="form-grid single">
+        <div class="form-row">
+          <label>BASE_DOMAIN <span class="required">*</span></label>
+          <input type="text" id="BASE_DOMAIN" name="BASE_DOMAIN" placeholder="rlservers.com" />
+          <div class="field-hint">All services deploy at <code>*.yourdomain.com</code> and <code>*.int.yourdomain.com</code></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Proxmox -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-icon">🖥</div>
+        <div>
+          <div class="card-title">Proxmox VE</div>
+          <div class="card-desc">API token for cluster provisioning via OpenTofu</div>
+        </div>
+      </div>
+      <div class="form-grid single">
+        <div class="form-row">
+          <label>PROXMOX_API_TOKEN <span class="required">*</span></label>
+          <div class="input-wrap">
+            <input type="password" id="PROXMOX_API_TOKEN" name="PROXMOX_API_TOKEN" placeholder="root@pam!terraform=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+            <button class="toggle-pass" onclick="togglePass('PROXMOX_API_TOKEN')" type="button">👁</button>
+          </div>
+          <div class="field-hint">Proxmox UI → Datacenter → Permissions → API Tokens → Add. Format: <code>USER@pve!TOKENNAME=uuid</code></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SSH Keys -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-icon">🔑</div>
+        <div>
+          <div class="card-title">SSH Key (Deployer)</div>
+          <div class="card-desc">Private key for SSH access to Proxmox host during provisioning</div>
+        </div>
+      </div>
+      <div class="form-grid single">
+        <div class="form-row">
+          <label>DEPLOYER_SSH_KEY <span class="required">*</span></label>
+          <textarea id="DEPLOYER_SSH_KEY" name="DEPLOYER_SSH_KEY" class="ssh-key-area" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----
+<paste your private key here>
+-----END OPENSSH PRIVATE KEY-----"></textarea>
+          <div class="field-hint">Generate: <code>ssh-keygen -t ed25519 -f ~/.ssh/infraweaver -N ""</code> — paste the private key (<code>infraweaver</code> file, not .pub)</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Cloudflare -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-icon">☁</div>
+        <div>
+          <div class="card-title">Cloudflare</div>
+          <div class="card-desc">API token for TLS certificates and DNS management</div>
+        </div>
+      </div>
+      <div class="form-grid single">
+        <div class="form-row">
+          <label>CLOUDFLARE_API_TOKEN <span class="required">*</span></label>
+          <div class="input-wrap">
+            <input type="password" id="CLOUDFLARE_API_TOKEN" name="CLOUDFLARE_API_TOKEN" placeholder="cloudflare api token" />
+            <button class="toggle-pass" onclick="togglePass('CLOUDFLARE_API_TOKEN')" type="button">👁</button>
+          </div>
+          <div class="field-hint">Cloudflare dashboard → My Profile → API Tokens. Required permission: Zone:DNS:Edit</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Email / SMTP -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-icon">📧</div>
+        <div>
+          <div class="card-title">Email / SMTP</div>
+          <div class="card-desc">For welcome emails and alert notifications</div>
+        </div>
+      </div>
+      <div class="form-grid">
+        <div class="form-row">
+          <label>SMTP_USERNAME <span class="required">*</span></label>
+          <input type="email" id="SMTP_USERNAME" name="SMTP_USERNAME" placeholder="you@outlook.com" />
+          <div class="field-hint">Outlook: <code>smtp-mail.outlook.com:587</code></div>
+        </div>
+        <div class="form-row">
+          <label>SMTP_PASSWORD <span class="required">*</span></label>
+          <div class="input-wrap">
+            <input type="password" id="SMTP_PASSWORD" name="SMTP_PASSWORD" placeholder="app password" />
+            <button class="toggle-pass" onclick="togglePass('SMTP_PASSWORD')" type="button">👁</button>
+          </div>
+        </div>
+        <div class="form-row">
+          <label>SMTP_TO</label>
+          <input type="email" id="SMTP_TO" name="SMTP_TO" placeholder="alerts@yourdomain.com" />
+          <div class="field-hint">Alert and deployment summary emails sent here</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- NetBird -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-icon">🔒</div>
+        <div>
+          <div class="card-title">NetBird VPN</div>
+          <div class="card-desc">API token for managing VPN peers during deploys</div>
+        </div>
+      </div>
+      <div class="form-grid single">
+        <div class="form-row">
+          <label>NETBIRD_API_TOKEN</label>
+          <div class="input-wrap">
+            <input type="password" id="NETBIRD_API_TOKEN" name="NETBIRD_API_TOKEN" placeholder="nbp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
+            <button class="toggle-pass" onclick="togglePass('NETBIRD_API_TOKEN')" type="button">👁</button>
+          </div>
+          <div class="field-hint">NetBird dashboard → Settings → API Keys. Optional but needed for stale peer cleanup.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- GitHub -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-icon">🐙</div>
+        <div>
+          <div class="card-title">GitHub (Optional)</div>
+          <div class="card-desc">For pipeline integration and Pelican egg fetching</div>
+        </div>
+      </div>
+      <div class="form-grid">
+        <div class="form-row">
+          <label>GITHUB_PAT</label>
+          <div class="input-wrap">
+            <input type="password" id="GITHUB_PAT" name="GITHUB_PAT" placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
+            <button class="toggle-pass" onclick="togglePass('GITHUB_PAT')" type="button">👁</button>
+          </div>
+          <div class="field-hint">Personal Access Token. Scopes: <code>repo</code>, <code>workflow</code></div>
+        </div>
+        <div class="form-row">
+          <label>RUNNER_REGISTRATION_TOKEN</label>
+          <input type="text" id="RUNNER_REGISTRATION_TOKEN" name="RUNNER_REGISTRATION_TOKEN" placeholder="AXXXXXXXXXXXXXXXXXXXXXXXXXX" />
+          <div class="field-hint">Expires after 1 hour. Regenerate before setup.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Environment -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-icon">🏗</div>
+        <div>
+          <div class="card-title">Environment</div>
+          <div class="card-desc">Which cluster configuration to deploy</div>
+        </div>
+      </div>
+      <div class="form-grid">
+        <div class="form-row">
+          <label>ENV_NAME</label>
+          <select id="ENV_NAME" name="ENV_NAME">
+            <option value="productie">productie (production)</option>
+            <option value="ontwikkel">ontwikkel (development)</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label>LETSENCRYPT_ENV</label>
+          <select id="LETSENCRYPT_ENV" name="LETSENCRYPT_ENV">
+            <option value="production">production (trusted certs)</option>
+            <option value="staging">staging (no rate limits, untrusted)</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn btn-primary" onclick="saveEnv()">💾 Save .env</button>
+      <button class="btn btn-secondary" onclick="validateProxmox()">🔍 Validate Proxmox</button>
+      <button class="btn btn-secondary" onclick="loadEnv()">📂 Load existing .env</button>
+    </div>
+
+    <div id="config-alert"></div>
+  </div>
+
+  <!-- ═══════════════ DEPLOY TAB ═══════════════ -->
+  <div class="panel setup-panel" id="panel-deploy">
+    <div class="deploy-hero">
+      <div class="deploy-hero-icon">🚀</div>
+      <div class="deploy-hero-title">Deploy InfraWeaver Platform</div>
+      <div class="deploy-hero-desc">This will provision your Talos cluster on Proxmox, bootstrap all services, and configure the full platform stack.</div>
+    </div>
+
+    <div class="checklist" id="deploy-checklist">
+      <div class="checklist-title">Pre-flight checks</div>
+      <div class="check-item" id="chk-env"><div class="check-icon">⬜</div><span>.env file saved</span></div>
+      <div class="check-item" id="chk-proxmox"><div class="check-icon">⬜</div><span>Proxmox API reachable</span></div>
+      <div class="check-item" id="chk-ssh"><div class="check-icon">⬜</div><span>SSH key configured</span></div>
+      <div class="check-item" id="chk-domain"><div class="check-icon">⬜</div><span>Domain configured</span></div>
+      <div class="check-item" id="chk-dns"><div class="check-icon">⬜</div><span>Cloudflare DNS token set</span></div>
+    </div>
+
+    <div class="progress-wrap" id="deploy-progress-wrap" style="display:none">
+      <div class="progress-label">
+        <span id="progress-step">Provisioning cluster...</span>
+        <span id="progress-pct">0%</span>
+      </div>
+      <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+    </div>
+
+    <div class="alert info" id="deploy-info">
+      <div class="alert-icon">ℹ</div>
+      <div>Deployment takes approximately <strong>15–25 minutes</strong>. The log below shows real-time progress. Do not close this tab during deployment.</div>
+    </div>
+
+    <div id="deploy-result"></div>
+
+    <div class="btn-row">
+      <button class="btn btn-primary btn-large" id="btn-deploy" onclick="startDeploy('deploy')">
+        <span>🚀</span> Deploy Cluster
+      </button>
+      <button class="btn btn-secondary" onclick="switchTab('config')">⚙ Edit Config</button>
+    </div>
+
+    <div class="log-terminal" id="deploy-log" style="display:none">
+      <div class="log-titlebar">
+        <div class="log-dots">
+          <div class="log-dot red"></div>
+          <div class="log-dot yellow"></div>
+          <div class="log-dot green"></div>
+        </div>
+        <div class="log-titlebar-text">deploy-local.sh — InfraWeaver Platform</div>
+      </div>
+      <div class="log-body" id="deploy-log-body">
+        <div class="log-line dim">Waiting for deployment to start...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════ REDEPLOY TAB ═══════════════ -->
+  <div class="panel setup-panel" id="panel-redeploy">
+    <div class="alert warning">
+      <div class="alert-icon">⚠</div>
+      <div>
+        <strong>FULL REDEPLOYMENT</strong> — This will <strong>destroy all cluster VMs</strong> (9300–9312), 
+        wipe all Kubernetes data, and redeploy from scratch. Your <code>.env</code> and <code>users.yaml</code> are preserved.
+        <br><br>This is irreversible. All persistent volumes and cluster state will be lost.
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="card-icon">🔄</div>
+        <div>
+          <div class="card-title">Redeploy Options</div>
+        </div>
+      </div>
+      <div class="form-grid single">
+        <div class="form-row">
+          <label>Confirmation</label>
+          <input type="text" id="redeploy-confirm" placeholder="Type DESTROY to confirm" />
+        </div>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-danger btn-large" id="btn-redeploy" onclick="startRedeploy()">
+          <span>💣</span> Full Redeploy
+        </button>
+      </div>
+    </div>
+
+    <div id="redeploy-result"></div>
+
+    <div class="log-terminal" id="redeploy-log" style="display:none">
+      <div class="log-titlebar">
+        <div class="log-dots">
+          <div class="log-dot red"></div>
+          <div class="log-dot yellow"></div>
+          <div class="log-dot green"></div>
+        </div>
+        <div class="log-titlebar-text">redeploy-local.sh — InfraWeaver Platform</div>
+      </div>
+      <div class="log-body" id="redeploy-log-body"></div>
+    </div>
+  </div>
+
+  <div class="footer">
+    InfraWeaver Platform — Local Init Console &nbsp;|&nbsp;
+    <a href="https://github.com/Werewolf-p/InfraWeaver-platform" style="color: var(--blue-dim); text-decoration: none">GitHub</a>
+  </div>
+</div>
+
+<script>
+const FIELDS = ['BASE_DOMAIN','PROXMOX_API_TOKEN','DEPLOYER_SSH_KEY','CLOUDFLARE_API_TOKEN',
+  'SMTP_USERNAME','SMTP_PASSWORD','SMTP_TO','NETBIRD_API_TOKEN','GITHUB_PAT',
+  'RUNNER_REGISTRATION_TOKEN','ENV_NAME','LETSENCRYPT_ENV'];
+
+// ── Tab switching ──
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  document.getElementById('panel-' + name).classList.add('active');
+  if (name === 'deploy') refreshChecklist();
+}
+
+// ── Password toggle ──
+function togglePass(id) {
+  const el = document.getElementById(id);
+  el.type = el.type === 'password' ? 'text' : 'password';
+}
+
+// ── Show alert ──
+function showAlert(containerId, type, msg) {
+  const icons = {info:'ℹ',success:'✅',warning:'⚠',error:'✗'};
+  document.getElementById(containerId).innerHTML =
+    `<div class="alert ${type}"><div class="alert-icon">${icons[type]||'ℹ'}</div><div>${msg}</div></div>`;
+}
+
+// ── Collect form values ──
+function collectEnv() {
+  const data = {};
+  FIELDS.forEach(f => {
+    const el = document.getElementById(f);
+    if (el) data[f] = el.value.trim();
+  });
+  return data;
+}
+
+// ── Save .env ──
+async function saveEnv() {
+  const data = collectEnv();
+  const missing = ['BASE_DOMAIN','PROXMOX_API_TOKEN','DEPLOYER_SSH_KEY','CLOUDFLARE_API_TOKEN','SMTP_USERNAME','SMTP_PASSWORD']
+    .filter(k => !data[k]);
+  if (missing.length) {
+    showAlert('config-alert', 'warning', 'Missing required fields: ' + missing.join(', '));
+    return;
+  }
+  try {
+    const r = await fetch('/api/save-env', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+    const j = await r.json();
+    if (j.ok) {
+      showAlert('config-alert', 'success', '.env saved ✅ — Ready to deploy');
+      updateStatus('dot-env', 'ok', 'env: configured');
+      refreshChecklist();
+    } else {
+      showAlert('config-alert', 'error', 'Failed to save .env: ' + (j.error || 'unknown'));
+    }
+  } catch(e) {
+    showAlert('config-alert', 'error', 'Network error: ' + e.message);
+  }
+}
+
+// ── Load existing .env ──
+async function loadEnv() {
+  try {
+    const r = await fetch('/api/load-env');
+    const j = await r.json();
+    if (j.ok && j.data) {
+      Object.entries(j.data).forEach(([k,v]) => {
+        const el = document.getElementById(k);
+        if (el) el.value = v;
+      });
+      showAlert('config-alert', 'success', 'Loaded existing .env ✅');
+      updateStatus('dot-env', 'ok', 'env: configured');
+    } else {
+      showAlert('config-alert', 'info', 'No existing .env found');
+    }
+  } catch(e) {
+    showAlert('config-alert', 'error', 'Could not load .env: ' + e.message);
+  }
+}
+
+// ── Validate Proxmox ──
+async function validateProxmox() {
+  const data = collectEnv();
+  if (!data.PROXMOX_API_TOKEN) {
+    showAlert('config-alert', 'warning', 'Enter your PROXMOX_API_TOKEN first');
+    return;
+  }
+  showAlert('config-alert', 'info', '🔍 Testing Proxmox API connectivity...');
+  try {
+    const r = await fetch('/api/validate-proxmox', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+    const j = await r.json();
+    if (j.ok) {
+      showAlert('config-alert', 'success', '✅ Proxmox API reachable! Nodes: ' + (j.nodes || '(listed in logs)'));
+      updateStatus('dot-proxmox', 'ok', 'proxmox: ✅');
+    } else {
+      showAlert('config-alert', 'error', '✗ Proxmox unreachable: ' + (j.error || 'check token and IP'));
+      updateStatus('dot-proxmox', 'err', 'proxmox: ✗');
+    }
+  } catch(e) {
+    showAlert('config-alert', 'error', 'Validation failed: ' + e.message);
+  }
+}
+
+// ── Status updates ──
+function updateStatus(dotId, cls, label) {
+  const dot = document.getElementById(dotId);
+  dot.className = 'status-dot ' + cls;
+  // Find the label next to this dot
+  const item = dot.closest('.status-item');
+  if (item) {
+    const span = item.querySelector('span');
+    if (span) span.textContent = label;
+  }
+}
+
+// ── Checklist refresh ──
+async function refreshChecklist() {
+  try {
+    const r = await fetch('/api/status');
+    const j = await r.json();
+    setCheck('chk-env', j.env_saved, '.env file saved');
+    setCheck('chk-ssh', j.ssh_key, 'SSH key configured');
+    setCheck('chk-domain', j.domain, 'Domain configured');
+    setCheck('chk-dns', j.cloudflare, 'Cloudflare DNS token set');
+    setCheck('chk-proxmox', j.proxmox, 'Proxmox API reachable');
+    if (j.env_saved) updateStatus('dot-env', 'ok', 'env: configured');
+  } catch(e) {}
+}
+
+function setCheck(id, ok, label) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.querySelector('.check-icon').textContent = ok ? '✅' : '⬜';
+  el.querySelector('span').textContent = label;
+  el.className = 'check-item' + (ok ? ' ok' : '');
+}
+
+// ── Deploy ──
+async function startDeploy(mode) {
+  const btn = document.getElementById('btn-deploy');
+  const logDiv = document.getElementById('deploy-log');
+  const logBody = document.getElementById('deploy-log-body');
+  const progressWrap = document.getElementById('deploy-progress-wrap');
+
+  btn.disabled = true;
+  btn.innerHTML = '<div class="btn-spinner"></div> Deploying...';
+  logDiv.style.display = 'block';
+  progressWrap.style.display = 'block';
+  logBody.innerHTML = '';
+  updateStatus('dot-deploy', 'warn', 'deploy: running');
+
+  const STEPS = [
+    'Installing tools', 'Destroying old VMs', 'Provisioning Talos VMs',
+    'Bootstrapping cluster', 'Waiting for CRDs', 'Deploying ArgoCD',
+    'Bootstrapping OpenBao', 'Configuring DNS', 'Applying MetalLB',
+    'Configuring TLS', 'NetBird reconnect', 'Configuring Authentik',
+    'Running post-deploy tests', 'Complete'
+  ];
+  let currentStep = 0;
+
+  const appendLog = (text, cls='') => {
+    const line = document.createElement('div');
+    line.className = 'log-line ' + cls;
+    line.textContent = text;
+    logBody.appendChild(line);
+    logBody.scrollTop = logBody.scrollHeight;
+  };
+
+  const updateProgress = (pct, stepText) => {
+    document.getElementById('progress-fill').style.width = pct + '%';
+    document.getElementById('progress-pct').textContent = pct + '%';
+    if (stepText) document.getElementById('progress-step').textContent = stepText;
+  };
+
+  try {
+    const resp = await fetch('/api/deploy', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode})});
+    if (!resp.ok || !resp.body) throw new Error('Deploy API failed');
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, {stream: true});
+      const lines = buf.split('\n');
+      buf = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data:')) continue;
+        const raw = line.slice(5).trim();
+        if (!raw) continue;
+        let evt;
+        try { evt = JSON.parse(raw); } catch { appendLog(raw); continue; }
+
+        if (evt.type === 'log') {
+          let cls = 'info';
+          if (evt.text.match(/✅|✓|SUCCESS|complete/i)) cls = 'ok';
+          else if (evt.text.match(/⚠|warn/i)) cls = 'warn';
+          else if (evt.text.match(/✗|error|fail|FAIL/i)) cls = 'err';
+          else if (evt.text.match(/^==>|^\[|Step \d/i)) cls = 'step';
+          appendLog(evt.text, cls);
+        } else if (evt.type === 'progress') {
+          updateProgress(evt.pct, evt.step);
+          currentStep = evt.pct;
+        } else if (evt.type === 'done') {
+          updateProgress(100, 'Complete!');
+          appendLog('', '');
+          appendLog('════════════════════════════════════════════', 'ok');
+          appendLog('  ✅ Deployment complete!', 'ok');
+          appendLog('════════════════════════════════════════════', 'ok');
+          if (evt.summary) appendLog(evt.summary, 'ok');
+          btn.disabled = false;
+          btn.innerHTML = '✅ Deploy Complete';
+          updateStatus('dot-deploy', 'ok', 'deploy: done ✅');
+          document.getElementById('deploy-result').innerHTML =
+            `<div class="alert success"><div class="alert-icon">✅</div><div>${evt.summary || 'Platform deployed successfully!'}</div></div>`;
+        } else if (evt.type === 'error') {
+          appendLog('✗ Error: ' + evt.text, 'err');
+          btn.disabled = false;
+          btn.innerHTML = '🚀 Retry Deploy';
+          updateStatus('dot-deploy', 'err', 'deploy: failed');
+          document.getElementById('deploy-result').innerHTML =
+            `<div class="alert error"><div class="alert-icon">✗</div><div>Deploy failed: ${evt.text}</div></div>`;
+        }
+      }
+    }
+  } catch(e) {
+    appendLog('Connection error: ' + e.message, 'err');
+    btn.disabled = false;
+    btn.innerHTML = '🚀 Retry Deploy';
+  }
+}
+
+// ── Redeploy ──
+async function startRedeploy() {
+  const conf = document.getElementById('redeploy-confirm').value;
+  if (conf !== 'DESTROY') {
+    document.getElementById('redeploy-result').innerHTML =
+      '<div class="alert error"><div class="alert-icon">✗</div><div>Type DESTROY in the confirmation field to proceed</div></div>';
+    return;
+  }
+
+  const btn = document.getElementById('btn-redeploy');
+  const logDiv = document.getElementById('redeploy-log');
+  const logBody = document.getElementById('redeploy-log-body');
+  btn.disabled = true;
+  btn.innerHTML = '<div class="btn-spinner"></div> Redeploying...';
+  logDiv.style.display = 'block';
+  logBody.innerHTML = '';
+
+  const appendLog = (text, cls='') => {
+    const line = document.createElement('div');
+    line.className = 'log-line ' + cls;
+    line.textContent = text;
+    logBody.appendChild(line);
+    logBody.scrollTop = logBody.scrollHeight;
+  };
+
+  appendLog('⚠ Starting full redeployment — destroying all cluster VMs...', 'warn');
+
+  try {
+    const resp = await fetch('/api/deploy', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:'redeploy'})});
+    if (!resp.ok || !resp.body) throw new Error('Redeploy API failed');
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, {stream: true});
+      const lines = buf.split('\n');
+      buf = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data:')) continue;
+        const raw = line.slice(5).trim();
+        if (!raw) continue;
+        let evt;
+        try { evt = JSON.parse(raw); } catch { appendLog(raw); continue; }
+        if (evt.type === 'log') {
+          let cls = 'info';
+          if (evt.text.match(/✅|✓|SUCCESS/i)) cls = 'ok';
+          else if (evt.text.match(/⚠|warn/i)) cls = 'warn';
+          else if (evt.text.match(/✗|error|fail/i)) cls = 'err';
+          else if (evt.text.match(/^==>|Step \d/)) cls = 'step';
+          appendLog(evt.text, cls);
+        } else if (evt.type === 'done') {
+          appendLog('✅ Redeployment complete!', 'ok');
+          btn.disabled = false;
+          btn.innerHTML = '✅ Redeploy Complete';
+        } else if (evt.type === 'error') {
+          appendLog('✗ ' + evt.text, 'err');
+          btn.disabled = false;
+          btn.innerHTML = '💣 Retry Redeploy';
+        }
+      }
+    }
+  } catch(e) {
+    appendLog('Error: ' + e.message, 'err');
+    btn.disabled = false;
+    btn.innerHTML = '💣 Retry Redeploy';
+  }
+}
+
+// ── Init on load ──
+window.addEventListener('load', () => {
+  loadEnv().catch(()=>{});
+  refreshChecklist().catch(()=>{});
+  updateStatus('dot-env', 'warn', 'env: checking...');
+});
+</script>
+</body>
+</html>

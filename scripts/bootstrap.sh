@@ -1,0 +1,372 @@
+#!/usr/bin/env bash
+# ─────────────────────────────────────────────────────────────────────────────
+# bootstrap.sh — Wire up Onedev as the authoritative git source for ArgoCD
+#
+# USAGE:
+#   bash scripts/bootstrap.sh [--dry-run]
+#
+# What this does:
+#   1. Regenerates admin-config.yaml from users.yaml (keeps config in sync)
+#   2. Deploys Onedev to the cluster (idempotent kubectl apply)
+#   3. Runs setup-onedev.sh to create the infraweaver service account + token
+#   4. Adds the 'onedev' remote and mirrors the current branch
+#   5. Switches the ArgoCD root ApplicationSet source from GitHub to Onedev
+#   6. Commits and pushes all changes
+#
+# Prerequisites:
+#   - kubectl configured and pointing at the target cluster
+#   - OpenBao initialized and unsealed (run deploy/bootstrap-openbao.sh first)
+#   - VAULT_TOKEN and OPENBAO_ADDR set (or defaults to http://127.0.0.1:8200)
+# ─────────────────────────────────────────────────────────────────────────────
+set -euo pipefail
+
+SCRIPT_NAME="bootstrap"
+# shellcheck source=scripts/lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+
+DRY_RUN=false
+for arg in "$@"; do
+  [[ "$arg" == "--dry-run" ]] && DRY_RUN=true
+done
+
+ONEDEV_URL="${ONEDEV_URL:-http://onedev.onedev.svc.cluster.local}"
+ONEDEV_EXTERNAL_URL="${ONEDEV_EXTERNAL_URL:-https://onedev.rlservers.com}"
+ONEDEV_PROJECT="${ONEDEV_PROJECT:-InfraWeaver-platform}"
+ONEDEV_NAMESPACE="${ONEDEV_NAMESPACE:-onedev}"
+CONSOLE_NAMESPACE="${CONSOLE_NAMESPACE:-infraweaver-console}"
+CONSOLE_DEPLOYMENT="${CONSOLE_DEPLOYMENT:-infraweaver-console}"
+APPSET_ROOT="kubernetes/bootstrap/applicationset-root.yaml"
+
+run() {
+  if $DRY_RUN; then
+    log "[dry-run] $*"
+  else
+    "$@"
+  fi
+}
+
+require_cmd kubectl git python3
+
+echo ""
+echo "╔══════════════════════════════════════════════════════╗"
+echo "║     InfraWeaver — Onedev Bootstrap                   ║"
+echo "╚══════════════════════════════════════════════════════╝"
+echo ""
+
+$DRY_RUN && warn "DRY RUN — no changes will be made"
+
+# ── 0. Regenerate admin-config.yaml from users.yaml ──────────────────────────
+log "Step 0: Regenerating onedev admin-config.yaml from users.yaml..."
+if ! $DRY_RUN; then
+  bash "$(dirname "${BASH_SOURCE[0]}")/generate-admin-config.sh"
+  git_commit_if_changed "chore(onedev): regenerate admin-config.yaml from users.yaml" \
+    "kubernetes/catalog/onedev/manifests/admin-config.yaml" \
+    || log "admin-config.yaml unchanged"
+else
+  bash "$(dirname "${BASH_SOURCE[0]}")/generate-admin-config.sh" --check \
+    || warn "[dry-run] admin-config.yaml would be updated from users.yaml"
+fi
+
+# ── 1. Deploy Onedev ──────────────────────────────────────────────────────────
+log "Step 1: Deploy Onedev to cluster..."
+
+ONEDEV_MANIFEST_DIR="kubernetes/catalog/onedev/manifests"
+if [[ -d "$ONEDEV_MANIFEST_DIR" ]]; then
+  # Create namespace first (needed for secrets below)
+  run kubectl create namespace "$ONEDEV_NAMESPACE" --dry-run=client -o yaml \
+    | kubectl apply -f -
+
+  # Pre-create onedev-admin-secret directly from OpenBao
+  # (ExternalSecrets CRDs may not be installed yet on first deploy)
+  if [[ -n "${VAULT_TOKEN:-}" ]] && ! $DRY_RUN; then
+    _BAO_ADDR="${OPENBAO_ADDR:-}"
+    _BAO_PF=""
+    # Open a fresh port-forward to OpenBao if needed (test reachability first)
+    if [[ -z "$_BAO_ADDR" ]] || echo "$_BAO_ADDR" | grep -q "svc.cluster.local" || \
+       ! curl -s --connect-timeout 2 "$_BAO_ADDR/v1/sys/health" &>/dev/null; then
+      _BAO_POD=$(kubectl get pod -n openbao -l app.kubernetes.io/name=openbao \
+        --no-headers -o custom-columns=":metadata.name" 2>/dev/null | head -1 || true)
+      if [[ -n "$_BAO_POD" ]]; then
+        kubectl port-forward -n openbao "pod/${_BAO_POD}" 19200:8200 &
+        _BAO_PF=$!
+        sleep 3
+        _BAO_ADDR="http://127.0.0.1:19200"
+      fi
+    fi
+
+    _ONEDEV_ADMIN_PASS=$(curl -s -H "X-Vault-Token: $VAULT_TOKEN" \
+      "${_BAO_ADDR}/v1/secret/data/platform/onedev" 2>/dev/null | \
+      python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('data',{}).get('admin-password',''))" \
+      2>/dev/null || echo "")
+    _ONEDEV_ADMIN_EMAIL=$(curl -s -H "X-Vault-Token: $VAULT_TOKEN" \
+      "${_BAO_ADDR}/v1/secret/data/platform/onedev" 2>/dev/null | \
+      python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('data',{}).get('admin-email','admin@infraweaver.local'))" \
+      2>/dev/null || echo "admin@infraweaver.local")
+
+    [[ -n "$_BAO_PF" ]] && { kill "$_BAO_PF" 2>/dev/null || true; wait "$_BAO_PF" 2>/dev/null || true; }
+
+    if [[ -n "$_ONEDEV_ADMIN_PASS" ]]; then
+      kubectl create secret generic onedev-admin-secret \
+        -n "$ONEDEV_NAMESPACE" \
+        --from-literal=admin-login="admin" \
+        --from-literal=admin-password="$_ONEDEV_ADMIN_PASS" \
+        --from-literal=admin-email="$_ONEDEV_ADMIN_EMAIL" \
+        --dry-run=client -o yaml | kubectl apply -f -
+      log "onedev-admin-secret created/updated from OpenBao"
+    else
+      warn "Could not read onedev admin password from OpenBao — Onedev may not start correctly"
+    fi
+  fi
+
+  # Apply core manifests — use kubectl apply per-file, skipping files that
+  # depend on CRDs not yet installed (ExternalSecret, IngressRoute).
+  # Those CRDs will be installed by ArgoCD once Onedev is running.
+  for _MFILE in "$ONEDEV_MANIFEST_DIR"/*.yaml; do
+    _MNAME=$(basename "$_MFILE")
+    # Check if file has types that need CRDs we might not have yet
+    if grep -q "ExternalSecret\|IngressRoute\|VaultAuth" "$_MFILE" 2>/dev/null; then
+      log "Skipping $_MNAME (contains CRD types not yet installed — ArgoCD will apply later)"
+      continue
+    fi
+    run kubectl apply -f "$_MFILE" --server-side || warn "Failed to apply $_MNAME"
+  done
+  ok "Onedev core manifests applied"
+
+  # Wait for Onedev to be ready (best-effort)
+  if ! $DRY_RUN; then
+    log "Waiting for Onedev pod to be ready (up to 5 min)..."
+    kubectl wait --for=condition=ready pod \
+      -l app.kubernetes.io/name=onedev \
+      -n "$ONEDEV_NAMESPACE" \
+      --timeout=300s 2>/dev/null \
+      || warn "Onedev pod not ready yet — continuing anyway"
+  fi
+else
+  warn "No manifests found at $ONEDEV_MANIFEST_DIR — skipping Onedev deployment"
+  warn "Apply Onedev manually before running this script, or create $ONEDEV_MANIFEST_DIR"
+fi
+
+# ── 1b. Create infraweaver service account + access token ────────────────────
+log "Step 1b: Setting up infraweaver service account in Onedev..."
+if ! $DRY_RUN; then
+  if [[ -n "${VAULT_TOKEN:-}" ]]; then
+    # Create a fresh OpenBao port-forward for setup-onedev.sh
+    _SETUP_BAO_ADDR=""
+    _SETUP_BAO_PF=""
+    _SETUP_BAO_POD=$(kubectl get pod -n openbao -l app.kubernetes.io/name=openbao \
+      --no-headers -o custom-columns=":metadata.name" 2>/dev/null | head -1 || true)
+    if [[ -n "$_SETUP_BAO_POD" ]]; then
+      kubectl port-forward -n openbao "pod/${_SETUP_BAO_POD}" 19201:8200 &
+      _SETUP_BAO_PF=$!
+      sleep 3
+      _SETUP_BAO_ADDR="http://127.0.0.1:19201"
+    fi
+
+    ENV_NAME="${ENV_NAME:-productie}" \
+    OPENBAO_ADDR="${_SETUP_BAO_ADDR:-http://127.0.0.1:8200}" \
+    VAULT_TOKEN="$VAULT_TOKEN" \
+    bash "$(dirname "${BASH_SOURCE[0]}")/setup-onedev.sh" \
+      || warn "setup-onedev.sh failed — Onedev token may need to be set manually"
+
+    [[ -n "$_SETUP_BAO_PF" ]] && { kill "$_SETUP_BAO_PF" 2>/dev/null || true; wait "$_SETUP_BAO_PF" 2>/dev/null || true; }
+  else
+    warn "VAULT_TOKEN not set — skipping setup-onedev.sh (run manually: VAULT_TOKEN=... bash scripts/setup-onedev.sh)"
+  fi
+else
+  log "[dry-run] Would run setup-onedev.sh to create infraweaver service account"
+fi
+
+# Read the Onedev infraweaver token from OpenBao (needed for git push auth)
+ONEDEV_TOKEN=""
+if [[ -n "${VAULT_TOKEN:-}" ]]; then
+  _TOKEN_BAO_ADDR=""
+  _TOKEN_BAO_PF=""
+  _TOKEN_BAO_POD=$(kubectl get pod -n openbao -l app.kubernetes.io/name=openbao \
+    --no-headers -o custom-columns=":metadata.name" 2>/dev/null | head -1 || true)
+  if [[ -n "$_TOKEN_BAO_POD" ]]; then
+    kubectl port-forward -n openbao "pod/${_TOKEN_BAO_POD}" 19202:8200 &
+    _TOKEN_BAO_PF=$!
+    sleep 3
+    ONEDEV_TOKEN=$(curl -s -H "X-Vault-Token: $VAULT_TOKEN" \
+      "http://127.0.0.1:19202/v1/secret/data/platform/infraweaver-console" 2>/dev/null | \
+      python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('data',{}).get('onedev-token',''))" \
+      2>/dev/null || echo "")
+    [[ -n "$_TOKEN_BAO_PF" ]] && { kill "$_TOKEN_BAO_PF" 2>/dev/null || true; wait "$_TOKEN_BAO_PF" 2>/dev/null || true; }
+  fi
+fi
+
+# ── 2. Mirror repo to Onedev ──────────────────────────────────────────────────
+log "Step 2: Mirror repository to Onedev..."
+
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+log "Current branch: $CURRENT_BRANCH"
+
+# Use port-forward to Onedev for git push (external DNS may not be ready yet)
+_ONEDEV_PF=""
+_ONEDEV_LOCAL_URL=""
+_ONEDEV_SVC=$(kubectl get svc onedev -n "$ONEDEV_NAMESPACE" --no-headers 2>/dev/null | awk '{print $1}' || true)
+if [[ -n "$_ONEDEV_SVC" ]]; then
+  kubectl port-forward svc/onedev 19300:80 -n "$ONEDEV_NAMESPACE" &
+  _ONEDEV_PF=$!
+  sleep 3
+  if [[ -n "$ONEDEV_TOKEN" ]]; then
+    _ONEDEV_LOCAL_URL="http://infraweaver:${ONEDEV_TOKEN}@localhost:19300/${ONEDEV_PROJECT}"
+  else
+    _ONEDEV_LOCAL_URL="http://localhost:19300/${ONEDEV_PROJECT}"
+  fi
+fi
+
+# Set/update the remote to use local port-forward for initial push
+if git remote | grep -q "^onedev$"; then
+  if [[ -n "$_ONEDEV_LOCAL_URL" ]]; then
+    run git remote set-url onedev "$_ONEDEV_LOCAL_URL"
+  fi
+else
+  ONEDEV_REMOTE_URL="${_ONEDEV_LOCAL_URL:-${ONEDEV_EXTERNAL_URL}/${ONEDEV_PROJECT}}"
+  run git remote add onedev "$ONEDEV_REMOTE_URL"
+  ok "Added remote 'onedev' → $ONEDEV_REMOTE_URL"
+fi
+
+run git push onedev "$CURRENT_BRANCH":main --force 2>&1 | grep -v "^remote:" | head -10 \
+  || run git push onedev "$CURRENT_BRANCH":main 2>&1 | grep -v "^remote:" | head -10 \
+  || warn "git push to Onedev failed — repo mirroring may need manual completion"
+ok "Branch '$CURRENT_BRANCH' pushed to Onedev as 'main'"
+
+[[ -n "$_ONEDEV_PF" ]] && { kill "$_ONEDEV_PF" 2>/dev/null || true; wait "$_ONEDEV_PF" 2>/dev/null || true; }
+
+# Update remote to external URL (for future pushes after DNS is working)
+if git remote | grep -q "^onedev$" && [[ -n "${ONEDEV_TOKEN:-}" ]]; then
+  _EXT_URL="${ONEDEV_EXTERNAL_URL}/${ONEDEV_PROJECT}"
+  PROTO="${_EXT_URL%%://*}"; REST="${_EXT_URL#*://}"
+  run git remote set-url onedev "${PROTO}://infraweaver:${ONEDEV_TOKEN}@${REST}" \
+    && log "Remote 'onedev' updated to external URL with auth token"
+fi
+
+# ── 3b. Create ArgoCD repo creds secret directly (bypass ESO chicken-and-egg) ─
+# ExternalSecret for this lives in kubernetes/core/argocd/manifests/onedev-repo-creds.yaml
+# but ESO itself is deployed by ArgoCD — so we must seed the secret directly first.
+if [[ -n "${ONEDEV_TOKEN:-}" ]]; then
+  log "Step 3b: Seeding ArgoCD repo credentials secret for Onedev..."
+  if ! $DRY_RUN; then
+    kubectl create secret generic argocd-onedev-repo-creds \
+      --namespace argocd \
+      --from-literal=type=git \
+      --from-literal=url="http://onedev.${ONEDEV_NAMESPACE}.svc.cluster.local/${ONEDEV_PROJECT}" \
+      --from-literal=username=infraweaver \
+      --from-literal=password="${ONEDEV_TOKEN}" \
+      --dry-run=client -o yaml | kubectl apply -f - 2>/dev/null
+    kubectl label secret argocd-onedev-repo-creds -n argocd \
+      argocd.argoproj.io/secret-type=repository --overwrite 2>/dev/null || true
+    ok "ArgoCD repo creds seeded (argocd-onedev-repo-creds)"
+  else
+    log "[dry-run] Would create argocd-onedev-repo-creds secret in argocd namespace"
+  fi
+else
+  warn "No ONEDEV_TOKEN — skipping ArgoCD repo creds seed (run setup-onedev.sh first)"
+fi
+
+log "Step 3: Update ArgoCD root ApplicationSet repoURL to Onedev..."
+
+if [[ ! -f "$APPSET_ROOT" ]]; then
+  warn "$APPSET_ROOT not found — skipping ApplicationSet patch"
+else
+  ONEDEV_CLUSTER_URL="${ONEDEV_URL}/${ONEDEV_PROJECT}"
+
+  # Check if already pointing at Onedev
+  if grep -q "onedev" "$APPSET_ROOT" 2>/dev/null; then
+    ok "$APPSET_ROOT already references Onedev — no change needed"
+  else
+    if ! $DRY_RUN; then
+      python3 - <<PYEOF
+import re, sys
+
+path = '${APPSET_ROOT}'
+onedev_url = '${ONEDEV_CLUSTER_URL}'
+
+with open(path) as f:
+    content = f.read()
+
+# Replace repoURL values that look like GitHub URLs
+updated = re.sub(
+    r'(repoURL:\s*)https://github\.com/[^\s]+',
+    rf'\g<1>{onedev_url}',
+    content,
+)
+
+if updated == content:
+    print('No GitHub repoURL found to replace in ' + path)
+    sys.exit(0)
+
+with open(path, 'w') as f:
+    f.write(updated)
+print('Updated repoURL in ' + path)
+PYEOF
+    else
+      log "[dry-run] Would replace GitHub repoURL in $APPSET_ROOT with $ONEDEV_CLUSTER_URL"
+    fi
+    ok "ApplicationSet root patched"
+  fi
+fi
+
+# ── 4. Patch console Deployment env vars ─────────────────────────────────────
+log "Step 4: Patch console Deployment for GIT_PROVIDER=onedev..."
+
+CONSOLE_DEPLOYMENT_FILE="kubernetes/catalog/infraweaver-console/manifests/deployment.yaml"
+if [[ -f "$CONSOLE_DEPLOYMENT_FILE" ]]; then
+  if grep -q "GIT_PROVIDER.*onedev" "$CONSOLE_DEPLOYMENT_FILE" 2>/dev/null; then
+    ok "GIT_PROVIDER=onedev already set in $CONSOLE_DEPLOYMENT_FILE"
+  else
+    if ! $DRY_RUN; then
+      python3 - <<PYEOF
+import re
+
+path = '${CONSOLE_DEPLOYMENT_FILE}'
+with open(path) as f:
+    content = f.read()
+
+# Replace GIT_PROVIDER: github with GIT_PROVIDER: onedev
+updated = re.sub(
+    r'(name:\s*GIT_PROVIDER\s*\n\s*value:\s*)github',
+    r'\g<1>onedev',
+    content,
+)
+with open(path, 'w') as f:
+    f.write(updated)
+print('Patched GIT_PROVIDER in ' + path)
+PYEOF
+    else
+      log "[dry-run] Would set GIT_PROVIDER=onedev in $CONSOLE_DEPLOYMENT_FILE"
+    fi
+    ok "Console Deployment patched"
+  fi
+else
+  warn "$CONSOLE_DEPLOYMENT_FILE not found — skipping Deployment patch"
+fi
+
+# ── 5. Commit and push changes ────────────────────────────────────────────────
+log "Step 5: Commit bootstrap changes..."
+
+if ! $DRY_RUN; then
+  git_commit_if_changed "chore(bootstrap): switch ArgoCD + console to Onedev git source" \
+    "$APPSET_ROOT" "$CONSOLE_DEPLOYMENT_FILE" \
+    || log "No file changes to commit (already up to date)"
+
+  # Push to both remotes so GitHub and Onedev stay in sync
+  git push origin "$CURRENT_BRANCH" 2>/dev/null || warn "Push to origin failed — push manually"
+  git push onedev "$CURRENT_BRANCH":main 2>/dev/null || warn "Push to onedev failed — push manually"
+fi
+
+# ── Summary ───────────────────────────────────────────────────────────────────
+echo ""
+echo "╔══════════════════════════════════════════════════════╗"
+echo "║     Bootstrap complete                               ║"
+echo "╚══════════════════════════════════════════════════════╝"
+ok "admin-config.yaml regenerated from users.yaml"
+ok "Onedev deployed (or already running)"
+ok "infraweaver service account created with access token"
+ok "Repo mirrored to Onedev remote"
+ok "ArgoCD ApplicationSet points to Onedev"
+echo ""
+log "Verify Onedev is accessible at $ONEDEV_EXTERNAL_URL"
+log "Trigger ArgoCD hard-refresh if needed: argocd app sync --hard-refresh bootstrap"
+echo ""

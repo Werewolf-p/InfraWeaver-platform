@@ -93,7 +93,8 @@ openbao_key_exists() {
   local path="$1"
   local key="$2"
   local response
-  response=$(curl -sf \
+  # Note: curl -s (not -sf) — 404 means key doesn't exist (not a script error)
+  response=$(curl -s \
     -H "X-Vault-Token: $VAULT_TOKEN" \
     "${OPENBAO_ADDR}/v1/secret/data/${path}" 2>/dev/null || echo '{}')
   python3 - "$response" "$key" <<'PYEOF'
@@ -110,7 +111,9 @@ PYEOF
 # ── Helper: read all existing keys from OpenBao KV v2 ────────────────────────
 openbao_read_all() {
   local path="$1"
-  curl -sf \
+  # Note: -f is intentionally NOT used here — a 404 (path not yet created) is expected
+  # and should return an empty dict, not a script failure.
+  curl -s \
     -H "X-Vault-Token: $VAULT_TOKEN" \
     "${OPENBAO_ADDR}/v1/secret/data/${path}" 2>/dev/null \
   | python3 -c "
@@ -120,7 +123,7 @@ try:
     print(json.dumps(d.get('data', {}).get('data', {})))
 except Exception:
     print('{}')
-"
+" || echo '{}'
 }
 
 # ── Helper: write key-value pairs to OpenBao KV v2 (patch: read-modify-write) ─
@@ -268,10 +271,8 @@ PYEOF
       elif python3 -c "import passlib" &>/dev/null 2>&1; then
         KEY_VALUE="$(python3 -c "
 from passlib.apache import HtpasswdFile
-import sys, io
 h = HtpasswdFile()
 h.set_password('$HTPASSWD_USERNAME', '$HTPASSWD_PASS')
-h.save()
 print(h.to_string().decode().strip())
 ")"
       else

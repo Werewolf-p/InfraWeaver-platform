@@ -8,9 +8,9 @@
 set -euo pipefail
 
 # Cleanup on exit
+PF_PID=""
 cleanup() {
-  kill ${PF_PID} 2>/dev/null || true;
-  
+  [[ -n "${PF_PID:-}" ]] && kill "${PF_PID}" 2>/dev/null || true
 }
 trap cleanup EXIT
 ENV=${ENV_NAME:?ENV_NAME required}
@@ -25,14 +25,22 @@ kubectl --kubeconfig "$KB" apply -f kubernetes/core/openbao/manifests/rbac.yaml 
 # Pre-create openbao-unseal secret with placeholder values so the autounseal
 # sidecar volume mount doesn't block the pod from starting. Real values are
 # written below after OpenBao is initialised.
+# IMPORTANT: Only create with placeholders if no real values exist yet —
+# re-running this script must NOT overwrite real tokens with placeholders.
 kubectl --kubeconfig "$KB" create namespace openbao --dry-run=client -o yaml \
   | kubectl --kubeconfig "$KB" apply -f -
-kubectl --kubeconfig "$KB" create secret generic openbao-unseal \
-  -n openbao \
-  --from-literal=unseal_key="placeholder" \
-  --from-literal=root_token="placeholder" \
-  --dry-run=client -o yaml | kubectl --kubeconfig "$KB" apply -f -
-echo "==> openbao-unseal placeholder secret created"
+_EXISTING_RT=$(kubectl --kubeconfig "$KB" get secret openbao-unseal \
+  -n openbao -o jsonpath='{.data.root_token}' 2>/dev/null | base64 -d || echo "")
+if [ -z "$_EXISTING_RT" ] || [ "$_EXISTING_RT" = "placeholder" ]; then
+  kubectl --kubeconfig "$KB" create secret generic openbao-unseal \
+    -n openbao \
+    --from-literal=unseal_key="placeholder" \
+    --from-literal=root_token="placeholder" \
+    --dry-run=client -o yaml | kubectl --kubeconfig "$KB" apply -f -
+  echo "==> openbao-unseal placeholder secret created"
+else
+  echo "==> openbao-unseal already has real values — preserving"
+fi
 
 # Wait for Longhorn to be ready (OpenBao PVC needs Longhorn storage)
 echo "==> Waiting for Longhorn manager to be Running..."
@@ -49,29 +57,35 @@ for i in $(seq 1 30); do
 done
 
 # Wait for ArgoCD to discover and create the core-openbao Application
-echo "==> Waiting for ArgoCD to discover core-openbao Application..."
-BAO_APP=""
-for i in $(seq 1 30); do
-  BAO_APP=$(kubectl --kubeconfig "$KB" get applications -n argocd \
-    --no-headers -o custom-columns=":metadata.name" 2>/dev/null | \
-    grep -i "openbao" | head -1 || echo "")
-  if [ -n "$BAO_APP" ]; then
-    echo "  ArgoCD Application '$BAO_APP' found"
-    break
-  fi
-  echo "  Waiting for ArgoCD to discover openbao ($i/30)..."
-  sleep 10
-done
-
-if [ -n "$BAO_APP" ]; then
-  echo "==> Waiting for ArgoCD Application '$BAO_APP' to sync..."
-  for i in $(seq 1 18); do
-    SYNC=$(kubectl --kubeconfig "$KB" get application "$BAO_APP" -n argocd \
-      -o jsonpath='{.status.sync.status}' 2>/dev/null || echo "Unknown")
-    echo "  [$i/18] sync=$SYNC"
-    if [ "$SYNC" = "Synced" ]; then break; fi
+# Skip this wait if OpenBao is already deployed and running (local deploy scenario)
+if kubectl --kubeconfig "$KB" get pods -n openbao \
+    -l app.kubernetes.io/name=openbao --no-headers 2>/dev/null | grep -q "Running"; then
+  echo "==> OpenBao already running — skipping ArgoCD sync wait"
+else
+  echo "==> Waiting for ArgoCD to discover core-openbao Application..."
+  BAO_APP=""
+  for i in $(seq 1 30); do
+    BAO_APP=$(kubectl --kubeconfig "$KB" get applications -n argocd \
+      --no-headers -o custom-columns=":metadata.name" 2>/dev/null | \
+      grep -i "openbao" | head -1 || echo "")
+    if [ -n "$BAO_APP" ]; then
+      echo "  ArgoCD Application '$BAO_APP' found"
+      break
+    fi
+    echo "  Waiting for ArgoCD to discover openbao ($i/30)..."
     sleep 10
   done
+
+  if [ -n "$BAO_APP" ]; then
+    echo "==> Waiting for ArgoCD Application '$BAO_APP' to sync..."
+    for i in $(seq 1 18); do
+      SYNC=$(kubectl --kubeconfig "$KB" get application "$BAO_APP" -n argocd \
+        -o jsonpath='{.status.sync.status}' 2>/dev/null || echo "Unknown")
+      echo "  [$i/18] sync=$SYNC"
+      if [ "$SYNC" = "Synced" ]; then break; fi
+      sleep 10
+    done
+  fi
 fi
 
 # Wait for OpenBao pod to be Running (not necessarily Ready — readiness requires unsealed)
@@ -272,7 +286,7 @@ REMON_PASS=$(openssl rand -base64 20 | tr -d '=+/')
 REMON_PASS_FILE=$(mktemp)
 REMON_PATCH_FILE=$(mktemp)
 printf '%s' "$REMON_PASS" > "$REMON_PASS_FILE"
-python3 - "$REMON_PASS_FILE" "$REMON_PATCH_FILE" 2>/dev/null || true << 'REMON_PYEOF'
+python3 - "$REMON_PASS_FILE" "$REMON_PATCH_FILE" 2>/dev/null << 'REMON_PYEOF' || true
 import bcrypt, json, sys
 from datetime import datetime, timezone
 with open(sys.argv[1]) as f:
@@ -342,6 +356,36 @@ else
   echo "⚠ SMTP_PASSWORD not set — authentik-smtp-secret will use placeholder"
 fi
 
+# GitHub PAT: optional — for console pipeline listing, pelican eggs, workflow dispatch.
+# Does NOT overwrite an existing non-empty token (preserves manually rotated PATs).
+if [ -n "${PLATFORM_GITHUB_PAT:-}" ]; then
+  EXISTING_GH=$(curl -s -H "X-Vault-Token: $ROOT_TOKEN" \
+    "${LOCAL_OPENBAO}/v1/secret/data/platform/infraweaver-console" | \
+    python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('data',{}).get('github-token',''))" \
+    2>/dev/null || echo "")
+  if [ -z "$EXISTING_GH" ]; then
+    # Read-modify-write to preserve all other keys
+    EXISTING_DATA=$(curl -s -H "X-Vault-Token: $ROOT_TOKEN" \
+      "${LOCAL_OPENBAO}/v1/secret/data/platform/infraweaver-console" | \
+      python3 -c "import json,sys; d=json.load(sys.stdin); print(json.dumps(d.get('data',{}).get('data',{})))" \
+      2>/dev/null || echo "{}")
+    PATCHED=$(python3 -c "
+import json,sys
+d=json.loads(sys.argv[1]); d['github-token']=sys.argv[2]
+print(json.dumps({'data':d}))
+" "$EXISTING_DATA" "$PLATFORM_GITHUB_PAT")
+    curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/platform/infraweaver-console" \
+      -H "X-Vault-Token: $ROOT_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d "$PATCHED" > /dev/null
+    echo "==> GitHub token stored in OpenBao (platform/infraweaver-console[github-token])"
+  else
+    echo "==> GitHub token already exists in OpenBao — preserving existing value"
+  fi
+else
+  echo "==> GITHUB_PAT not set — console pipeline/pelican features will be unavailable (optional; set GITHUB_PAT secret in repo settings)"
+fi
+
 # Cloudflare: store API token from GitHub secret (idempotent, always refresh)
 if [ -n "${CLOUDFLARE_API_TOKEN}" ]; then
   curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/platform/cloudflare" \
@@ -396,7 +440,19 @@ fi
 # Close port-forward before kubectl operations
 kill $PF_PID 2>/dev/null || true
 
-# Export for next step (Bootstrap ExternalSecrets + TLS Restore)
-echo "ESO_SERVICE_TOKEN=${SERVICE_TOKEN}" >> $GITHUB_ENV
-echo "OPENBAO_CLUSTER_ADDR=http://openbao.openbao.svc.cluster.local:8200" >> $GITHUB_ENV
+# Store the ESO service token in a k8s secret so local deploys can retrieve it
+# (GitHub Actions reads it from GITHUB_ENV; local deploys read from this secret)
+kubectl --kubeconfig "$KB" create namespace external-secrets --dry-run=client -o yaml \
+  | kubectl --kubeconfig "$KB" apply -f - 2>/dev/null || true
+kubectl --kubeconfig "$KB" create secret generic openbao-eso-token \
+  -n kube-system \
+  --from-literal=token="${SERVICE_TOKEN}" \
+  --dry-run=client -o yaml | kubectl --kubeconfig "$KB" apply -f -
+echo "==> ESO service token stored in k8s secret (kube-system/openbao-eso-token)"
+
+# Export for GitHub Actions (if running in CI)
+if [[ -n "${GITHUB_ENV:-}" ]]; then
+  echo "ESO_SERVICE_TOKEN=${SERVICE_TOKEN}" >> "$GITHUB_ENV"
+  echo "OPENBAO_CLUSTER_ADDR=http://openbao.openbao.svc.cluster.local:8200" >> "$GITHUB_ENV"
+fi
 
