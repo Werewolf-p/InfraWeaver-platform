@@ -66,6 +66,10 @@ cleanupController:
 
 reportsController:
   replicas: 1
+  # Increase API rate limits to prevent leader-election lease timeouts during
+  # post-crash reconciliation bursts (269+ restarts observed in 3 days).
+  clientRateLimitQPS: 30
+  clientRateLimitBurst: 60
   affinity:
     nodeAffinity:
       preferredDuringSchedulingIgnoredDuringExecution:
@@ -78,7 +82,7 @@ reportsController:
   resources:
     limits:
       cpu: 200m
-      memory: 128Mi
+      memory: 256Mi
     requests:
       cpu: 50m
       memory: 64Mi
