@@ -10,7 +10,7 @@ controller:
     limits:
       cpu: 1500m
       memory: 1500Mi
-  # Avoid CP2 — it was chronically OOM-killing; prefer CP1/CP3 for all ArgoCD components
+  # Prefer CP3 (lowest memory pressure); avoid stacking on CP1 (kube-apiserver lives there)
   affinity:
     nodeAffinity:
       preferredDuringSchedulingIgnoredDuringExecution:
@@ -18,7 +18,14 @@ controller:
         preference:
           matchExpressions:
           - key: kubernetes.io/hostname
-            operator: NotIn
+            operator: In
+            values:
+            - talos-prod-cp3
+      - weight: 50
+        preference:
+          matchExpressions:
+          - key: kubernetes.io/hostname
+            operator: In
             values:
             - talos-prod-cp2
 
@@ -34,7 +41,13 @@ server:
           preference:
             matchExpressions:
               - key: kubernetes.io/hostname
-                operator: NotIn
+                operator: In
+                values: [talos-prod-cp3]
+        - weight: 50
+          preference:
+            matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: In
                 values: [talos-prod-cp2]
     podAntiAffinity:
       preferredDuringSchedulingIgnoredDuringExecution:
@@ -67,7 +80,13 @@ repoServer:
           preference:
             matchExpressions:
               - key: kubernetes.io/hostname
-                operator: NotIn
+                operator: In
+                values: [talos-prod-cp3]
+        - weight: 50
+          preference:
+            matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: In
                 values: [talos-prod-cp2]
     podAntiAffinity:
       preferredDuringSchedulingIgnoredDuringExecution:
@@ -102,7 +121,13 @@ applicationSet:
           preference:
             matchExpressions:
               - key: kubernetes.io/hostname
-                operator: NotIn
+                operator: In
+                values: [talos-prod-cp3]
+        - weight: 50
+          preference:
+            matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: In
                 values: [talos-prod-cp2]
     podAntiAffinity:
       preferredDuringSchedulingIgnoredDuringExecution:

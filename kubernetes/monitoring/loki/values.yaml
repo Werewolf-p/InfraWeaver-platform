@@ -8,7 +8,13 @@ loki:
         preference:
           matchExpressions:
           - key: kubernetes.io/hostname
-            operator: NotIn
+            operator: In
+            values: [talos-prod-cp3]
+      - weight: 50
+        preference:
+          matchExpressions:
+          - key: kubernetes.io/hostname
+            operator: In
             values: [talos-prod-cp2]
   persistence:
     enabled: true

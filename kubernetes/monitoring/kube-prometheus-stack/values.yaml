@@ -271,3 +271,12 @@ nodeExporter:
 kubeStateMetrics:
   enabled: true
   priorityClassName: platform-standard
+
+kube-state-metrics:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi

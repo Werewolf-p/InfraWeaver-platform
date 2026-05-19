@@ -63,9 +63,9 @@ spec:
             periodSeconds: 30
             failureThreshold: 3
           volumeMounts:
-            - name: tmp-data
+            - name: data
               mountPath: "/data"
-            - name: tmp-music
+            - name: music
               mountPath: "/music"
           resources:
             requests:
@@ -75,9 +75,10 @@ spec:
               memory: "512Mi"
               cpu: "500m"
       volumes:
-      - name: tmp-data
-        emptyDir:
-      - name: tmp-music
+      - name: data
+        persistentVolumeClaim:
+          claimName: navidrome-data-0
+      - name: music
         emptyDir:
 ---
 apiVersion: v1
