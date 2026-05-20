@@ -28,6 +28,13 @@ export interface PingCheckResponse {
   error?: string
 }
 
+export interface PingProxmoxResponse {
+  ok: boolean
+  version?: string
+  release?: string
+  error?: string
+}
+
 export interface SaveEnvResponse {
   ok: boolean
   error?: string
@@ -48,6 +55,10 @@ export interface DiscoverProxmoxResponse {
   node_ips?: Record<string, string>
   pve_nodes_str?: string
   vmid_suggestions?: number[]
+  node_memory_total_mb?: number
+  node_memory_free_mb?: number
+  node_disk_total_gb?: number
+  node_disk_free_gb?: number
   error?: string
 }
 
@@ -91,6 +102,18 @@ export interface CheckDnsProviderResponse {
   error?: string
 }
 
+export interface CatalogItemResponse {
+  ok: boolean
+  items?: Array<Record<string, string>>
+  error?: string
+}
+
+export interface GetKubeconfigResponse {
+  ok: boolean
+  kubeconfig?: string
+  error?: string
+}
+
 export type DeployEvent =
   | { type: 'log'; text: string }
   | { type: 'progress'; pct: number; step: string }
@@ -128,6 +151,13 @@ export async function detectSubnet() {
 
 export async function pingCheck(ip: string) {
   return fetchJson<PingCheckResponse>(`/api/ping-check?ip=${encodeURIComponent(ip)}`, {
+    method: 'GET',
+    headers: {},
+  })
+}
+
+export async function pingProxmox(host: string) {
+  return fetchJson<PingProxmoxResponse>(`/api/ping-proxmox?host=${encodeURIComponent(host)}`, {
     method: 'GET',
     headers: {},
   })
@@ -189,11 +219,19 @@ export async function checkDnsProvider(provider: string, credentials: Record<str
   })
 }
 
+export async function getCatalogItems() {
+  return fetchJson<CatalogItemResponse>('/api/catalog-items', { method: 'GET', headers: {} })
+}
+
+export async function getKubeconfig() {
+  return fetchJson<GetKubeconfigResponse>('/api/get-kubeconfig', { method: 'GET', headers: {} })
+}
+
 export async function deployStream(
   mode: 'deploy' | 'redeploy',
   onEvent: (event: DeployEvent) => void,
 ) {
-  const response = await fetch('/api/deploy', {
+  const response = await fetch(mode === 'redeploy' ? '/api/redeploy' : '/api/deploy', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ mode }),

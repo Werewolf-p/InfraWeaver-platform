@@ -2,6 +2,8 @@
 
 import { useState } from 'react'
 import {
+  ChevronDown,
+  ChevronRight,
   Cloud,
   Copy,
   Eye,
@@ -66,6 +68,7 @@ export function CredentialsStep() {
   const setGeneratedPublicKey = useWizardStore((state) => state.setGeneratedPublicKey)
   const setDnsProviderCheck = useWizardStore((state) => state.setDnsProviderCheck)
   const autofillRepoUrl = useWizardStore((state) => state.autofillRepoUrl)
+  const [advancedOpen, setAdvancedOpen] = useState(false)
 
   const handleGenerateKey = async () => {
     setLoading('generateSshKey', true)
@@ -202,143 +205,76 @@ export function CredentialsStep() {
             </select>
           </FormField>
 
-          {data.DNS_PROVIDER === 'cloudflare' && (
+          {data.DNS_PROVIDER === 'cloudflare' ? (
             <motion.div variants={fadeUpItem} className="mt-4">
               <FormField label="CLOUDFLARE_API_TOKEN" htmlFor="CLOUDFLARE_API_TOKEN" required hint="Required permission: Zone:DNS:Edit.">
-                <SecretInput
-                  id="CLOUDFLARE_API_TOKEN"
-                  value={data.CLOUDFLARE_API_TOKEN}
-                  onChange={(value) => setField('CLOUDFLARE_API_TOKEN', value)}
-                  placeholder="cloudflare api token"
-                />
+                <SecretInput id="CLOUDFLARE_API_TOKEN" value={data.CLOUDFLARE_API_TOKEN} onChange={(value) => setField('CLOUDFLARE_API_TOKEN', value)} placeholder="cloudflare api token" />
               </FormField>
             </motion.div>
-          )}
+          ) : null}
 
-          {data.DNS_PROVIDER === 'route53' && (
+          {data.DNS_PROVIDER === 'route53' ? (
             <motion.div variants={fadeUpItem} className="mt-4 grid gap-4">
               <FormField label="AWS_ACCESS_KEY_ID" htmlFor="AWS_ACCESS_KEY_ID" required hint="IAM access key with Route 53 record management permissions.">
-                <input
-                  id="AWS_ACCESS_KEY_ID"
-                  value={data.AWS_ACCESS_KEY_ID}
-                  onChange={(event) => setField('AWS_ACCESS_KEY_ID', event.target.value)}
-                  placeholder="AKIAIOSFODNN7EXAMPLE"
-                  className={controlClassName}
-                />
+                <input id="AWS_ACCESS_KEY_ID" value={data.AWS_ACCESS_KEY_ID} onChange={(event) => setField('AWS_ACCESS_KEY_ID', event.target.value)} placeholder="AKIAIOSFODNN7EXAMPLE" className={controlClassName} />
               </FormField>
               <FormField label="AWS_SECRET_ACCESS_KEY" htmlFor="AWS_SECRET_ACCESS_KEY" required>
-                <SecretInput
-                  id="AWS_SECRET_ACCESS_KEY"
-                  value={data.AWS_SECRET_ACCESS_KEY}
-                  onChange={(value) => setField('AWS_SECRET_ACCESS_KEY', value)}
-                  placeholder="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
-                />
+                <SecretInput id="AWS_SECRET_ACCESS_KEY" value={data.AWS_SECRET_ACCESS_KEY} onChange={(value) => setField('AWS_SECRET_ACCESS_KEY', value)} placeholder="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY" />
               </FormField>
               <FormField label="AWS_HOSTED_ZONE_ID" htmlFor="AWS_HOSTED_ZONE_ID" hint="Optional. If omitted, cert-manager will auto-discover the hosted zone.">
-                <input
-                  id="AWS_HOSTED_ZONE_ID"
-                  value={data.AWS_HOSTED_ZONE_ID}
-                  onChange={(event) => setField('AWS_HOSTED_ZONE_ID', event.target.value)}
-                  placeholder="Z2FDTNDATAQYW2"
-                  className={controlClassName}
-                />
+                <input id="AWS_HOSTED_ZONE_ID" value={data.AWS_HOSTED_ZONE_ID} onChange={(event) => setField('AWS_HOSTED_ZONE_ID', event.target.value)} placeholder="Z2FDTNDATAQYW2" className={controlClassName} />
               </FormField>
               <FormField label="AWS_REGION" htmlFor="AWS_REGION" hint="AWS region for the Route 53 API endpoint. Defaults to us-east-1.">
-                <input
-                  id="AWS_REGION"
-                  value={data.AWS_REGION}
-                  onChange={(event) => setField('AWS_REGION', event.target.value)}
-                  placeholder="us-east-1"
-                  className={controlClassName}
-                />
+                <input id="AWS_REGION" value={data.AWS_REGION} onChange={(event) => setField('AWS_REGION', event.target.value)} placeholder="us-east-1" className={controlClassName} />
               </FormField>
             </motion.div>
-          )}
+          ) : null}
 
-          {data.DNS_PROVIDER === 'azure' && (
+          {data.DNS_PROVIDER === 'azure' ? (
             <motion.div variants={fadeUpItem} className="mt-4 grid gap-4">
               <FormField label="AZURE_CLIENT_ID" htmlFor="AZURE_CLIENT_ID" required hint="Service principal client ID with DNS Zone Contributor permissions.">
-                <input
-                  id="AZURE_CLIENT_ID"
-                  value={data.AZURE_CLIENT_ID}
-                  onChange={(event) => setField('AZURE_CLIENT_ID', event.target.value)}
-                  placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-                  className={controlClassName}
-                />
+                <input id="AZURE_CLIENT_ID" value={data.AZURE_CLIENT_ID} onChange={(event) => setField('AZURE_CLIENT_ID', event.target.value)} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" className={controlClassName} />
               </FormField>
               <FormField label="AZURE_CLIENT_SECRET" htmlFor="AZURE_CLIENT_SECRET" required>
-                <SecretInput
-                  id="AZURE_CLIENT_SECRET"
-                  value={data.AZURE_CLIENT_SECRET}
-                  onChange={(value) => setField('AZURE_CLIENT_SECRET', value)}
-                  placeholder="service principal secret"
-                />
+                <SecretInput id="AZURE_CLIENT_SECRET" value={data.AZURE_CLIENT_SECRET} onChange={(value) => setField('AZURE_CLIENT_SECRET', value)} placeholder="service principal secret" />
               </FormField>
               <div className="grid gap-4 md:grid-cols-2">
                 <FormField label="AZURE_SUBSCRIPTION_ID" htmlFor="AZURE_SUBSCRIPTION_ID" required>
-                  <input
-                    id="AZURE_SUBSCRIPTION_ID"
-                    value={data.AZURE_SUBSCRIPTION_ID}
-                    onChange={(event) => setField('AZURE_SUBSCRIPTION_ID', event.target.value)}
-                    placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-                    className={controlClassName}
-                  />
+                  <input id="AZURE_SUBSCRIPTION_ID" value={data.AZURE_SUBSCRIPTION_ID} onChange={(event) => setField('AZURE_SUBSCRIPTION_ID', event.target.value)} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" className={controlClassName} />
                 </FormField>
                 <FormField label="AZURE_TENANT_ID" htmlFor="AZURE_TENANT_ID" required>
-                  <input
-                    id="AZURE_TENANT_ID"
-                    value={data.AZURE_TENANT_ID}
-                    onChange={(event) => setField('AZURE_TENANT_ID', event.target.value)}
-                    placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-                    className={controlClassName}
-                  />
+                  <input id="AZURE_TENANT_ID" value={data.AZURE_TENANT_ID} onChange={(event) => setField('AZURE_TENANT_ID', event.target.value)} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" className={controlClassName} />
                 </FormField>
               </div>
               <FormField label="AZURE_RESOURCE_GROUP" htmlFor="AZURE_RESOURCE_GROUP" required hint="Resource group that contains the Azure DNS zone.">
-                <input
-                  id="AZURE_RESOURCE_GROUP"
-                  value={data.AZURE_RESOURCE_GROUP}
-                  onChange={(event) => setField('AZURE_RESOURCE_GROUP', event.target.value)}
-                  placeholder="my-dns-resource-group"
-                  className={controlClassName}
-                />
+                <input id="AZURE_RESOURCE_GROUP" value={data.AZURE_RESOURCE_GROUP} onChange={(event) => setField('AZURE_RESOURCE_GROUP', event.target.value)} placeholder="my-dns-resource-group" className={controlClassName} />
               </FormField>
             </motion.div>
-          )}
+          ) : null}
 
-          {data.DNS_PROVIDER === 'digitalocean' && (
+          {data.DNS_PROVIDER === 'digitalocean' ? (
             <motion.div variants={fadeUpItem} className="mt-4">
               <FormField label="DIGITALOCEAN_TOKEN" htmlFor="DIGITALOCEAN_TOKEN" required hint="DigitalOcean personal access token with DNS write permissions.">
-                <SecretInput
-                  id="DIGITALOCEAN_TOKEN"
-                  value={data.DIGITALOCEAN_TOKEN}
-                  onChange={(value) => setField('DIGITALOCEAN_TOKEN', value)}
-                  placeholder="dop_v1_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-                />
+                <SecretInput id="DIGITALOCEAN_TOKEN" value={data.DIGITALOCEAN_TOKEN} onChange={(value) => setField('DIGITALOCEAN_TOKEN', value)} placeholder="dop_v1_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
               </FormField>
             </motion.div>
-          )}
+          ) : null}
 
-          {data.DNS_PROVIDER === 'hetzner' && (
+          {data.DNS_PROVIDER === 'hetzner' ? (
             <motion.div variants={fadeUpItem} className="mt-4">
               <FormField label="HETZNER_DNS_API_KEY" htmlFor="HETZNER_DNS_API_KEY" required hint="Hetzner DNS API key from dns.hetzner.com.">
-                <SecretInput
-                  id="HETZNER_DNS_API_KEY"
-                  value={data.HETZNER_DNS_API_KEY}
-                  onChange={(value) => setField('HETZNER_DNS_API_KEY', value)}
-                  placeholder="hetzner dns api key"
-                />
+                <SecretInput id="HETZNER_DNS_API_KEY" value={data.HETZNER_DNS_API_KEY} onChange={(value) => setField('HETZNER_DNS_API_KEY', value)} placeholder="hetzner dns api key" />
               </FormField>
             </motion.div>
-          )}
+          ) : null}
 
-          {data.DNS_PROVIDER === 'none' && (
+          {data.DNS_PROVIDER === 'none' ? (
             <motion.div variants={fadeUpItem} className="mt-4 rounded-2xl border border-white/8 bg-black/20 p-4">
               <p className="text-sm leading-6 text-[var(--az-text-secondary)]">No DNS provider selected. cert-manager DNS-01 challenges will not be configured. TLS certificates must be managed manually or via HTTP-01 challenges.</p>
             </motion.div>
-          )}
+          ) : null}
 
-          {data.DNS_PROVIDER !== 'none' && (
+          {data.DNS_PROVIDER !== 'none' ? (
             <motion.div variants={fadeUpItem} className="mt-4 flex flex-wrap items-center gap-3">
               <ActionButton variant="primary" onClick={() => void handleCheckDnsProvider()} disabled={loading.checkDnsProvider}>
                 {loading.checkDnsProvider ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
@@ -350,7 +286,7 @@ export function CredentialsStep() {
                 </div>
               ) : null}
             </motion.div>
-          )}
+          ) : null}
         </GlassCard>
       </div>
 
@@ -368,32 +304,13 @@ export function CredentialsStep() {
 
           <div className="grid gap-5">
             <FormField label="SMTP_USERNAME" htmlFor="SMTP_USERNAME" required error={data.SMTP_USERNAME && !isEmail(data.SMTP_USERNAME) ? 'Use a valid sender email address.' : undefined}>
-              <input
-                id="SMTP_USERNAME"
-                type="email"
-                value={data.SMTP_USERNAME}
-                onChange={(event) => setField('SMTP_USERNAME', event.target.value)}
-                placeholder="you@outlook.com"
-                className={controlClassName}
-              />
+              <input id="SMTP_USERNAME" type="email" value={data.SMTP_USERNAME} onChange={(event) => setField('SMTP_USERNAME', event.target.value)} placeholder="you@outlook.com" className={controlClassName} />
             </FormField>
             <FormField label="SMTP_PASSWORD" htmlFor="SMTP_PASSWORD" required>
-              <SecretInput
-                id="SMTP_PASSWORD"
-                value={data.SMTP_PASSWORD}
-                onChange={(value) => setField('SMTP_PASSWORD', value)}
-                placeholder="app password"
-              />
+              <SecretInput id="SMTP_PASSWORD" value={data.SMTP_PASSWORD} onChange={(value) => setField('SMTP_PASSWORD', value)} placeholder="app password" />
             </FormField>
             <FormField label="SMTP_TO" htmlFor="SMTP_TO" error={data.SMTP_TO && !isEmail(data.SMTP_TO) ? 'Use a valid destination email address.' : undefined} hint="Alert and deployment summary emails land here. Defaults to the admin email.">
-              <input
-                id="SMTP_TO"
-                type="email"
-                value={data.SMTP_TO}
-                onChange={(event) => setField('SMTP_TO', event.target.value)}
-                placeholder="alerts@yourdomain.com"
-                className={controlClassName}
-              />
+              <input id="SMTP_TO" type="email" value={data.SMTP_TO} onChange={(event) => setField('SMTP_TO', event.target.value)} placeholder="alerts@yourdomain.com" className={controlClassName} />
             </FormField>
           </div>
         </GlassCard>
@@ -420,53 +337,33 @@ export function CredentialsStep() {
                 className={controlClassName}
               />
             </FormField>
-            <FormField label="GIT_REPO_URL" htmlFor="GIT_REPO_URL" required hint="HTTPS URL for the Git repository.">
-              <input
-                id="GIT_REPO_URL"
-                value={data.GIT_REPO_URL}
-                onChange={(event) => setField('GIT_REPO_URL', event.target.value)}
-                placeholder="https://github.com/owner/repo"
-                className={controlClassName}
-              />
-            </FormField>
-            <FormField label="ENV_NAME" htmlFor="ENV_NAME" hint="Select the target environment overlay used by the deploy scripts.">
-              <select id="ENV_NAME" value={data.ENV_NAME} onChange={(event) => setField('ENV_NAME', event.target.value)} className={controlClassName}>
-                <option value="productie">productie (production)</option>
-                <option value="ontwikkel">ontwikkel (development)</option>
-              </select>
-            </FormField>
-            <FormField label="LETSENCRYPT_ENV" htmlFor="LETSENCRYPT_ENV" hint="Use staging to avoid certificate rate limits while testing.">
-              <select id="LETSENCRYPT_ENV" value={data.LETSENCRYPT_ENV} onChange={(event) => setField('LETSENCRYPT_ENV', event.target.value)} className={controlClassName}>
-                <option value="production">production</option>
-                <option value="staging">staging</option>
-              </select>
-            </FormField>
             <FormField label="NETBIRD_API_TOKEN" htmlFor="NETBIRD_API_TOKEN" hint="Optional. Useful when ENABLE_NETBIRD is turned on for peer cleanup and automation.">
-              <SecretInput
-                id="NETBIRD_API_TOKEN"
-                value={data.NETBIRD_API_TOKEN}
-                onChange={(value) => setField('NETBIRD_API_TOKEN', value)}
-                placeholder="nbp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-              />
+              <SecretInput id="NETBIRD_API_TOKEN" value={data.NETBIRD_API_TOKEN} onChange={(value) => setField('NETBIRD_API_TOKEN', value)} placeholder="nbp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
             </FormField>
-            <FormField label="GITHUB_PAT" htmlFor="GITHUB_PAT" hint="Optional personal access token for GitHub Actions integration.">
-              <SecretInput
-                id="GITHUB_PAT"
-                value={data.GITHUB_PAT}
-                onChange={(value) => setField('GITHUB_PAT', value)}
-                placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-              />
-            </FormField>
-            <FormField label="RUNNER_REGISTRATION_TOKEN" htmlFor="RUNNER_REGISTRATION_TOKEN" className="md:col-span-2" hint="Optional self-hosted GitHub Actions runner registration token.">
-              <input
-                id="RUNNER_REGISTRATION_TOKEN"
-                value={data.RUNNER_REGISTRATION_TOKEN}
-                onChange={(event) => setField('RUNNER_REGISTRATION_TOKEN', event.target.value)}
-                placeholder="AXXXXXXXXXXXXXXXXXXXXXXXXXX"
-                className={controlClassName}
-              />
+            <FormField label="GITHUB_PAT" htmlFor="GITHUB_PAT" className="md:col-span-2" hint="Optional personal access token for GitHub Actions integration.">
+              <SecretInput id="GITHUB_PAT" value={data.GITHUB_PAT} onChange={(value) => setField('GITHUB_PAT', value)} placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
             </FormField>
           </div>
+
+          <button
+            type="button"
+            onClick={() => setAdvancedOpen((current) => !current)}
+            className="mt-6 flex items-center gap-1.5 text-xs text-[var(--az-text-secondary)] transition hover:text-white"
+          >
+            {advancedOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+            ⚙ Advanced
+          </button>
+
+          {advancedOpen ? (
+            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="mt-4 grid gap-4 md:grid-cols-2">
+              <FormField label="GIT_REPO_URL" htmlFor="GIT_REPO_URL" required hint="HTTPS URL for the Git repository.">
+                <input id="GIT_REPO_URL" value={data.GIT_REPO_URL} onChange={(event) => setField('GIT_REPO_URL', event.target.value)} placeholder="https://github.com/owner/repo" className={controlClassName} />
+              </FormField>
+              <FormField label="RUNNER_REGISTRATION_TOKEN" htmlFor="RUNNER_REGISTRATION_TOKEN" hint="Optional self-hosted GitHub Actions runner registration token.">
+                <input id="RUNNER_REGISTRATION_TOKEN" value={data.RUNNER_REGISTRATION_TOKEN} onChange={(event) => setField('RUNNER_REGISTRATION_TOKEN', event.target.value)} placeholder="AXXXXXXXXXXXXXXXXXXXXXXXXXX" className={controlClassName} />
+              </FormField>
+            </motion.div>
+          ) : null}
         </GlassCard>
       </div>
     </motion.div>

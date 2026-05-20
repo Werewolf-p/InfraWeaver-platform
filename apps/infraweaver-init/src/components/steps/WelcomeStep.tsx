@@ -3,6 +3,7 @@
 import {
   ArrowRight,
   Boxes,
+  CheckCircle2,
   Globe,
   KeyRound,
   Rocket,
@@ -15,6 +16,7 @@ import { motion } from 'framer-motion'
 import { ActionButton } from '@/components/ui/ActionButton'
 import { GlassCard } from '@/components/ui/GlassCard'
 import { StepHeader } from '@/components/ui/StepHeader'
+import { useWizardStore, type PresetType } from '@/lib/store'
 import { fadeUpItem, staggerContainer } from '@/lib/utils'
 
 const logo = String.raw`
@@ -34,7 +36,40 @@ const setupItems = [
   { icon: Rocket, title: 'Review & deploy', copy: 'Save the .env file, run pre-flight checks, and stream deploy progress in a live terminal.' },
 ]
 
+const presets: Array<{
+  key: PresetType
+  title: string
+  accent: string
+  summary: string
+  specs: string[]
+}> = [
+  {
+    key: 'dev',
+    title: '🏠 Homelab Dev',
+    accent: 'text-white',
+    summary: 'Single control-plane node with the lightest footprint for local labs.',
+    specs: ['1 node', '2C / 4 GB / 50 GB', 'Monitoring off', 'NetBird off', 'External DNS off'],
+  },
+  {
+    key: 'standard',
+    title: '⚡ Standard',
+    accent: 'text-[var(--az-primary)]',
+    summary: 'Balanced default: 3-node control plane with monitoring and secure remote access.',
+    specs: ['3 control-plane nodes', '4C / 8 GB / 100 GB', 'Monitoring on', 'NetBird on', 'External DNS off'],
+  },
+  {
+    key: 'power',
+    title: '🏢 Power User',
+    accent: 'text-[var(--az-success)]',
+    summary: 'HA control plane plus 2 workers and every optional platform capability enabled.',
+    specs: ['3 control-plane + 2 workers', 'CP: 4C / 8 GB / 100 GB', 'Workers: 2C / 4 GB / 80 GB', 'All optional features on'],
+  },
+]
+
 export function WelcomeStep({ onStart }: { onStart: () => void }) {
+  const preset = useWizardStore((state) => state.preset)
+  const setPreset = useWizardStore((state) => state.setPreset)
+
   return (
     <motion.div
       variants={staggerContainer}
@@ -46,14 +81,49 @@ export function WelcomeStep({ onStart }: { onStart: () => void }) {
         icon={WandSparkles}
         eyebrow="Step 1 of 8"
         title="Spin up your InfraWeaver cluster"
-        description="This wizard replaces the legacy single-page init form with a guided, desktop-first bootstrap flow. Every step mirrors the InfraWeaver console theme, validates critical inputs, and keeps your progress safe in local storage."
+        description="Choose a launch preset to pre-shape cluster size, resource budgets, and feature flags. You can still fine-tune every step before deployment."
       />
+
+      <div className="grid gap-4 xl:grid-cols-3">
+        {presets.map((card) => {
+          const active = (preset ?? 'standard') === card.key
+          return (
+            <motion.button
+              key={card.key}
+              type="button"
+              variants={fadeUpItem}
+              onClick={() => setPreset(card.key)}
+              className={`rounded-[24px] border p-5 text-left transition ${active ? 'border-[rgba(0,120,212,0.55)] bg-[rgba(0,120,212,0.14)] shadow-[0_0_28px_rgba(0,120,212,0.18)]' : 'border-white/8 bg-black/20 hover:border-white/20 hover:bg-black/30'}`}
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className={`text-lg font-semibold ${card.accent}`}>{card.title}</div>
+                  <p className="mt-2 text-sm leading-6 text-[var(--az-text-secondary)]">{card.summary}</p>
+                </div>
+                {active ? <CheckCircle2 className="h-5 w-5 shrink-0 text-[var(--az-success)]" /> : null}
+              </div>
+              <div className="mt-4 flex flex-wrap gap-2">
+                {card.specs.map((spec) => (
+                  <span key={spec} className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-[var(--az-text-secondary)]">
+                    {spec}
+                  </span>
+                ))}
+              </div>
+              {card.key === 'standard' ? (
+                <div className="mt-4 inline-flex rounded-full border border-[rgba(0,120,212,0.3)] bg-[rgba(0,120,212,0.12)] px-3 py-1 text-xs font-medium text-[var(--az-primary)]">
+                  Recommended default
+                </div>
+              ) : null}
+            </motion.button>
+          )
+        })}
+      </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
         <GlassCard className="p-6 md:p-8">
           <motion.pre
             variants={fadeUpItem}
-            className="logo-flicker overflow-x-auto rounded-2xl border border-[rgba(87,163,0,0.18)] bg-black/30 px-4 py-5 font-mono text-[10px] leading-relaxed whitespace-pre text-[var(--az-success)] shadow-[inset_0_0_40px_rgba(87,163,0,0.05)] md:text-[12px]"
+            className="logo-flicker overflow-x-auto whitespace-pre rounded-2xl border border-[rgba(87,163,0,0.18)] bg-black/30 px-4 py-5 font-mono text-[10px] leading-relaxed text-[var(--az-success)] shadow-[inset_0_0_40px_rgba(87,163,0,0.05)] md:text-[12px]"
           >
             {logo}
           </motion.pre>

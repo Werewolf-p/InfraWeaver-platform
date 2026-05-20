@@ -12,6 +12,27 @@ export type BackupProvider = 'none' | 'longhorn' | 'velero' | 'both'
 export type DnsProvider = 'cloudflare' | 'route53' | 'azure' | 'digitalocean' | 'hetzner' | 'none'
 export type PingState = boolean | null | 'loading'
 export type DeployLogLevel = 'info' | 'step' | 'ok' | 'warn' | 'err'
+export type PresetType = 'dev' | 'standard' | 'power'
+
+export interface NodeConfig {
+  id: string
+  ip: string
+  vmid: string
+  pveNode: string
+  datastore: string
+  cpu: string
+  memory: string
+  disk: string
+  role: 'control-plane' | 'worker'
+}
+
+export interface DeployStage {
+  name: string
+  label: string
+  status: 'pending' | 'running' | 'done' | 'failed'
+  startedAt?: number
+  completedAt?: number
+}
 
 export interface DeployLogLine {
   id: string
@@ -29,28 +50,6 @@ export interface WizardData {
   NODE_GATEWAY: string
   NODE_SUBNET_PREFIX: string
   TALOS_DATASTORE: string
-  NODE_1_IP: string
-  NODE_1_VMID: string
-  NODE_2_IP: string
-  NODE_2_VMID: string
-  NODE_3_IP: string
-  NODE_3_VMID: string
-  PVE_NODES: string
-  NODE_1_PVE_NODE: string
-  NODE_1_DATASTORE: string
-  NODE_1_CPU: string
-  NODE_1_MEMORY: string
-  NODE_1_DISK: string
-  NODE_2_PVE_NODE: string
-  NODE_2_DATASTORE: string
-  NODE_2_CPU: string
-  NODE_2_MEMORY: string
-  NODE_2_DISK: string
-  NODE_3_PVE_NODE: string
-  NODE_3_DATASTORE: string
-  NODE_3_CPU: string
-  NODE_3_MEMORY: string
-  NODE_3_DISK: string
   METALLB_VIP_RANGE: string
   METALLB_TRAEFIK_VIP: string
   METALLB_COREDNS_VIP: string
@@ -90,7 +89,6 @@ export interface WizardData {
   BACKUP_PROVIDER: BackupProvider
 }
 
-const nodePingFields = ['NODE_1_IP', 'NODE_2_IP', 'NODE_3_IP'] as const
 const vipPingFields = [
   'METALLB_TRAEFIK_VIP',
   'METALLB_COREDNS_VIP',
@@ -99,8 +97,56 @@ const vipPingFields = [
   'METALLB_NETBIRD_RELAY_VIP',
 ] as const
 
-type NodePingField = (typeof nodePingFields)[number]
 type VipPingField = (typeof vipPingFields)[number]
+
+type LegacyNodeField =
+  | 'NODE_1_IP'
+  | 'NODE_1_VMID'
+  | 'NODE_2_IP'
+  | 'NODE_2_VMID'
+  | 'NODE_3_IP'
+  | 'NODE_3_VMID'
+  | 'PVE_NODES'
+  | 'NODE_1_PVE_NODE'
+  | 'NODE_1_DATASTORE'
+  | 'NODE_1_CPU'
+  | 'NODE_1_MEMORY'
+  | 'NODE_1_DISK'
+  | 'NODE_2_PVE_NODE'
+  | 'NODE_2_DATASTORE'
+  | 'NODE_2_CPU'
+  | 'NODE_2_MEMORY'
+  | 'NODE_2_DISK'
+  | 'NODE_3_PVE_NODE'
+  | 'NODE_3_DATASTORE'
+  | 'NODE_3_CPU'
+  | 'NODE_3_MEMORY'
+  | 'NODE_3_DISK'
+
+const legacyNodeFields: LegacyNodeField[] = [
+  'NODE_1_IP',
+  'NODE_1_VMID',
+  'NODE_2_IP',
+  'NODE_2_VMID',
+  'NODE_3_IP',
+  'NODE_3_VMID',
+  'PVE_NODES',
+  'NODE_1_PVE_NODE',
+  'NODE_1_DATASTORE',
+  'NODE_1_CPU',
+  'NODE_1_MEMORY',
+  'NODE_1_DISK',
+  'NODE_2_PVE_NODE',
+  'NODE_2_DATASTORE',
+  'NODE_2_CPU',
+  'NODE_2_MEMORY',
+  'NODE_2_DISK',
+  'NODE_3_PVE_NODE',
+  'NODE_3_DATASTORE',
+  'NODE_3_CPU',
+  'NODE_3_MEMORY',
+  'NODE_3_DISK',
+]
 
 export const initialWizardData: WizardData = {
   BASE_DOMAIN: '',
@@ -112,28 +158,6 @@ export const initialWizardData: WizardData = {
   NODE_GATEWAY: '10.10.0.1',
   NODE_SUBNET_PREFIX: '24',
   TALOS_DATASTORE: 'lvm-proxmox',
-  NODE_1_IP: '10.10.0.90',
-  NODE_1_VMID: '9310',
-  NODE_2_IP: '10.10.0.91',
-  NODE_2_VMID: '9311',
-  NODE_3_IP: '10.10.0.92',
-  NODE_3_VMID: '9312',
-  PVE_NODES: '',
-  NODE_1_PVE_NODE: '',
-  NODE_1_DATASTORE: '',
-  NODE_1_CPU: '4',
-  NODE_1_MEMORY: '8192',
-  NODE_1_DISK: '100',
-  NODE_2_PVE_NODE: '',
-  NODE_2_DATASTORE: '',
-  NODE_2_CPU: '4',
-  NODE_2_MEMORY: '8192',
-  NODE_2_DISK: '100',
-  NODE_3_PVE_NODE: '',
-  NODE_3_DATASTORE: '',
-  NODE_3_CPU: '4',
-  NODE_3_MEMORY: '8192',
-  NODE_3_DISK: '100',
   METALLB_VIP_RANGE: '10.10.0.200-10.10.0.210',
   METALLB_TRAEFIK_VIP: '10.10.0.200',
   METALLB_COREDNS_VIP: '10.10.0.201',
@@ -167,17 +191,26 @@ export const initialWizardData: WizardData = {
   RUNNER_REGISTRATION_TOKEN: '',
   ENV_NAME: 'productie',
   LETSENCRYPT_ENV: 'production',
-  ENABLE_NETBIRD: false,
-  ENABLE_MONITORING: false,
+  ENABLE_NETBIRD: true,
+  ENABLE_MONITORING: true,
   ENABLE_EXTERNAL_DNS: false,
   BACKUP_PROVIDER: 'longhorn',
 }
 
-const emptyNodePing: Record<NodePingField, PingState> = {
-  NODE_1_IP: null,
-  NODE_2_IP: null,
-  NODE_3_IP: null,
-}
+export const initialNodes: NodeConfig[] = [
+  { id: 'node-1', ip: '10.10.0.90', vmid: '9310', pveNode: '', datastore: '', cpu: '4', memory: '8192', disk: '100', role: 'control-plane' },
+  { id: 'node-2', ip: '10.10.0.91', vmid: '9311', pveNode: '', datastore: '', cpu: '4', memory: '8192', disk: '100', role: 'control-plane' },
+  { id: 'node-3', ip: '10.10.0.92', vmid: '9312', pveNode: '', datastore: '', cpu: '4', memory: '8192', disk: '100', role: 'control-plane' },
+]
+
+export const initialDeployStages: DeployStage[] = [
+  { name: 'generate', label: 'Generate config', status: 'pending' },
+  { name: 'opentofu', label: 'OpenTofu (VMs)', status: 'pending' },
+  { name: 'bootstrap', label: 'Secrets & ESO', status: 'pending' },
+  { name: 'argocd', label: 'ArgoCD sync', status: 'pending' },
+  { name: 'apps', label: 'Apps & ingress', status: 'pending' },
+  { name: 'postdeploy', label: 'Post-deploy', status: 'pending' },
+]
 
 const emptyVipPing: Record<VipPingField, PingState> = {
   METALLB_TRAEFIK_VIP: null,
@@ -200,13 +233,25 @@ const emptyLoadingState = {
   deploy: false,
 }
 
+interface PersistedWizardState {
+  currentStep?: number
+  data?: Record<string, unknown>
+  localIpRanges?: string[]
+  vpnOnly?: boolean
+  generatedPublicKey?: string
+  nodes?: NodeConfig[]
+  preset?: PresetType | null
+}
+
 interface WizardStore {
   currentStep: number
   data: WizardData
+  nodes: NodeConfig[]
+  preset: PresetType | null
   localIpRanges: string[]
   vpnOnly: boolean
   status: StatusResponse | null
-  nodePing: Record<NodePingField, PingState>
+  nodePing: Record<string, PingState>
   vipPing: Record<VipPingField, PingState>
   loading: typeof emptyLoadingState
   proxmoxDiscovery: DiscoverProxmoxResponse | null
@@ -220,14 +265,19 @@ interface WizardStore {
   deployRunning: boolean
   deploySummary: string
   deployError: string
+  deployStages: DeployStage[]
   setCurrentStep: (step: number) => void
   setField: <K extends keyof WizardData>(key: K, value: WizardData[K]) => void
   setFields: (fields: Partial<WizardData>) => void
+  addNode: () => void
+  removeNode: (id: string) => void
+  updateNode: (id: string, fields: Partial<NodeConfig>) => void
+  setPreset: (preset: PresetType) => void
   autofillIdentityFromEmail: () => void
   autofillRepoUrl: () => void
   setStatus: (status: StatusResponse | null) => void
   setLoading: (key: keyof typeof emptyLoadingState, value: boolean) => void
-  setNodePing: (field: NodePingField, value: PingState) => void
+  setNodePing: (id: string, value: PingState) => void
   setVipPing: (field: VipPingField, value: PingState) => void
   setProxmoxDiscovery: (value: DiscoverProxmoxResponse | null) => void
   setProxmoxValidation: (value: ValidateProxmoxResponse | null) => void
@@ -243,6 +293,175 @@ interface WizardStore {
   resetDeploy: () => void
   appendDeployLog: (text: string, level?: DeployLogLevel) => void
   setDeployState: (state: Partial<Pick<WizardStore, 'deployProgress' | 'deployStepText' | 'deployRunning' | 'deploySummary' | 'deployError'>>) => void
+  setDeployStages: (stages: DeployStage[]) => void
+  updateDeployStage: (name: string, update: Partial<DeployStage>) => void
+}
+
+const cloneDeployStages = (stages: DeployStage[]) => stages.map((stage) => ({ ...stage }))
+
+const buildNodePing = (nodes: NodeConfig[]) =>
+  Object.fromEntries(nodes.map((node) => [node.id, null])) as Record<string, PingState>
+
+const sanitizeWizardData = (input?: Record<string, unknown> | null): WizardData => {
+  const next: WizardData = { ...initialWizardData }
+  if (!input) return next
+  for (const [key, value] of Object.entries(input)) {
+    if (legacyNodeFields.includes(key as LegacyNodeField)) continue
+    if (key in next) {
+      ;(next as unknown as Record<string, unknown>)[key] = value
+    }
+  }
+  return next
+}
+
+const normalizeNode = (node: Partial<NodeConfig>, index: number): NodeConfig => ({
+  id: typeof node.id === 'string' && node.id.trim() ? node.id : `node-${index + 1}`,
+  ip: typeof node.ip === 'string' ? node.ip : initialNodes[Math.min(index, initialNodes.length - 1)]?.ip ?? '',
+  vmid: typeof node.vmid === 'string' ? node.vmid : String(9310 + index),
+  pveNode: typeof node.pveNode === 'string' ? node.pveNode : '',
+  datastore: typeof node.datastore === 'string' ? node.datastore : '',
+  cpu: typeof node.cpu === 'string' && node.cpu ? node.cpu : index >= 3 ? '2' : '4',
+  memory: typeof node.memory === 'string' && node.memory ? node.memory : index >= 3 ? '4096' : '8192',
+  disk: typeof node.disk === 'string' && node.disk ? node.disk : index >= 3 ? '80' : '100',
+  role: node.role === 'worker' ? 'worker' : 'control-plane',
+})
+
+const isNodeConfigArray = (value: unknown): value is NodeConfig[] =>
+  Array.isArray(value) && value.every((item) => item && typeof item === 'object')
+
+const extractLegacyNodes = (data?: Record<string, unknown> | null): NodeConfig[] => {
+  if (!data || !legacyNodeFields.some((field) => field in data)) return initialNodes.map((node) => ({ ...node }))
+
+  const nodes: NodeConfig[] = []
+  for (let index = 1; index <= 3; index += 1) {
+    const ip = typeof data[`NODE_${index}_IP`] === 'string' ? (data[`NODE_${index}_IP`] as string) : ''
+    const vmid = typeof data[`NODE_${index}_VMID`] === 'string' ? (data[`NODE_${index}_VMID`] as string) : String(9309 + index)
+    const pveNode = typeof data[`NODE_${index}_PVE_NODE`] === 'string' ? (data[`NODE_${index}_PVE_NODE`] as string) : ''
+    const datastore = typeof data[`NODE_${index}_DATASTORE`] === 'string' ? (data[`NODE_${index}_DATASTORE`] as string) : ''
+    const cpu = typeof data[`NODE_${index}_CPU`] === 'string' ? (data[`NODE_${index}_CPU`] as string) : '4'
+    const memory = typeof data[`NODE_${index}_MEMORY`] === 'string' ? (data[`NODE_${index}_MEMORY`] as string) : '8192'
+    const disk = typeof data[`NODE_${index}_DISK`] === 'string' ? (data[`NODE_${index}_DISK`] as string) : '100'
+    if ([ip, vmid, pveNode, datastore, cpu, memory, disk].some((value) => value !== '')) {
+      nodes.push(
+        normalizeNode(
+          {
+            id: `node-${index}`,
+            ip,
+            vmid,
+            pveNode,
+            datastore,
+            cpu,
+            memory,
+            disk,
+            role: 'control-plane',
+          },
+          index - 1,
+        ),
+      )
+    }
+  }
+
+  return nodes.length ? nodes : initialNodes.map((node) => ({ ...node }))
+}
+
+const getHighestNodeOrdinal = (nodes: NodeConfig[]) =>
+  nodes.reduce((max, node) => {
+    const match = node.id.match(/node-(\d+)/)
+    const value = match ? Number.parseInt(match[1], 10) : 0
+    return Number.isFinite(value) ? Math.max(max, value) : max
+  }, 0)
+
+const createNodeFromTemplate = (
+  ordinal: number,
+  template: Pick<NodeConfig, 'cpu' | 'memory' | 'disk' | 'role'>,
+  basePveNode: string,
+  baseDatastore: string,
+): NodeConfig => ({
+  id: `node-${ordinal}`,
+  ip: `10.10.0.${89 + ordinal}`,
+  vmid: String(9309 + ordinal),
+  pveNode: basePveNode,
+  datastore: baseDatastore,
+  cpu: template.cpu,
+  memory: template.memory,
+  disk: template.disk,
+  role: template.role,
+})
+
+const buildPresetNodes = (preset: PresetType, data: WizardData, currentNodes: NodeConfig[]) => {
+  const basePveNode = currentNodes[0]?.pveNode || data.PROXMOX_NODE_NAME || ''
+  const baseDatastore = currentNodes[0]?.datastore || data.TALOS_DATASTORE || ''
+
+  if (preset === 'dev') {
+    return [createNodeFromTemplate(1, { cpu: '2', memory: '4096', disk: '50', role: 'control-plane' }, basePveNode, baseDatastore)]
+  }
+
+  if (preset === 'power') {
+    return [
+      createNodeFromTemplate(1, { cpu: '4', memory: '8192', disk: '100', role: 'control-plane' }, basePveNode, baseDatastore),
+      createNodeFromTemplate(2, { cpu: '4', memory: '8192', disk: '100', role: 'control-plane' }, basePveNode, baseDatastore),
+      createNodeFromTemplate(3, { cpu: '4', memory: '8192', disk: '100', role: 'control-plane' }, basePveNode, baseDatastore),
+      createNodeFromTemplate(4, { cpu: '2', memory: '4096', disk: '80', role: 'worker' }, basePveNode, baseDatastore),
+      createNodeFromTemplate(5, { cpu: '2', memory: '4096', disk: '80', role: 'worker' }, basePveNode, baseDatastore),
+    ]
+  }
+
+  return [
+    createNodeFromTemplate(1, { cpu: '4', memory: '8192', disk: '100', role: 'control-plane' }, basePveNode, baseDatastore),
+    createNodeFromTemplate(2, { cpu: '4', memory: '8192', disk: '100', role: 'control-plane' }, basePveNode, baseDatastore),
+    createNodeFromTemplate(3, { cpu: '4', memory: '8192', disk: '100', role: 'control-plane' }, basePveNode, baseDatastore),
+  ]
+}
+
+const buildPresetFields = (preset: PresetType): Partial<WizardData> => {
+  if (preset === 'dev') {
+    return {
+      ENABLE_MONITORING: false,
+      ENABLE_NETBIRD: false,
+      ENABLE_EXTERNAL_DNS: false,
+      BACKUP_PROVIDER: 'none',
+    }
+  }
+
+  if (preset === 'power') {
+    return {
+      ENABLE_MONITORING: true,
+      ENABLE_NETBIRD: true,
+      ENABLE_EXTERNAL_DNS: true,
+      BACKUP_PROVIDER: 'both',
+    }
+  }
+
+  return {
+    ENABLE_MONITORING: true,
+    ENABLE_NETBIRD: true,
+    ENABLE_EXTERNAL_DNS: false,
+    BACKUP_PROVIDER: 'longhorn',
+  }
+}
+
+const createNextNode = (nodes: NodeConfig[], data: WizardData): NodeConfig => {
+  const lastNode = nodes[nodes.length - 1]
+  const lastIp = lastNode?.ip ?? '10.10.0.90'
+  const nextIp = /\d+$/.test(lastIp) ? lastIp.replace(/\d+$/, (match) => String(Number.parseInt(match, 10) + 1)) : '10.10.0.90'
+  const lastVmid = Number.parseInt(lastNode?.vmid ?? '9310', 10)
+  const nextVmid = String((Number.isFinite(lastVmid) ? lastVmid : 9310) + 1)
+  const nextOrdinal = getHighestNodeOrdinal(nodes) + 1
+  const workerDefaults = nodes.length >= 3
+  return normalizeNode(
+    {
+      id: `node-${nextOrdinal}`,
+      ip: nextIp,
+      vmid: nextVmid,
+      pveNode: nodes[0]?.pveNode || data.PROXMOX_NODE_NAME || '',
+      datastore: nodes[0]?.datastore || data.TALOS_DATASTORE || '',
+      cpu: workerDefaults ? '2' : '4',
+      memory: workerDefaults ? '4096' : '8192',
+      disk: workerDefaults ? '80' : '100',
+      role: workerDefaults ? 'worker' : 'control-plane',
+    },
+    nodes.length,
+  )
 }
 
 export function isWizardDataPristine(data: WizardData) {
@@ -254,10 +473,12 @@ export const useWizardStore = create<WizardStore>()(
     (set, get) => ({
       currentStep: 0,
       data: initialWizardData,
+      nodes: initialNodes.map((node) => ({ ...node })),
+      preset: 'standard',
       localIpRanges: [''],
       vpnOnly: false,
       status: null,
-      nodePing: emptyNodePing,
+      nodePing: buildNodePing(initialNodes),
       vipPing: emptyVipPing,
       loading: emptyLoadingState,
       proxmoxDiscovery: null,
@@ -271,6 +492,7 @@ export const useWizardStore = create<WizardStore>()(
       deployRunning: false,
       deploySummary: '',
       deployError: '',
+      deployStages: cloneDeployStages(initialDeployStages),
       setCurrentStep: (step) => set({ currentStep: step }),
       setField: (key, value) =>
         set((state) => ({
@@ -280,6 +502,41 @@ export const useWizardStore = create<WizardStore>()(
           },
         })),
       setFields: (fields) => set((state) => ({ data: { ...state.data, ...fields } })),
+      addNode: () =>
+        set((state) => {
+          if (state.nodes.length >= 6) return state
+          const newNode = createNextNode(state.nodes, state.data)
+          return {
+            nodes: [...state.nodes, newNode],
+            nodePing: { ...state.nodePing, [newNode.id]: null },
+          }
+        }),
+      removeNode: (id) =>
+        set((state) => {
+          if (state.nodes.length <= 1) return state
+          const target = state.nodes.find((node) => node.id === id)
+          if (!target) return state
+          const controlPlaneCount = state.nodes.filter((node) => node.role === 'control-plane').length
+          if (target.role === 'control-plane' && controlPlaneCount <= 1) return state
+          const nextNodes = state.nodes.filter((node) => node.id !== id)
+          const nextPing = { ...state.nodePing }
+          delete nextPing[id]
+          return { nodes: nextNodes, nodePing: nextPing }
+        }),
+      updateNode: (id, fields) =>
+        set((state) => ({
+          nodes: state.nodes.map((node, index) => (node.id === id ? normalizeNode({ ...node, ...fields }, index) : node)),
+        })),
+      setPreset: (preset) =>
+        set((state) => {
+          const nextNodes = buildPresetNodes(preset, state.data, state.nodes)
+          return {
+            preset,
+            data: { ...state.data, ...buildPresetFields(preset) },
+            nodes: nextNodes,
+            nodePing: buildNodePing(nextNodes),
+          }
+        }),
       autofillIdentityFromEmail: () =>
         set((state) => {
           const email = state.data.ADMIN_EMAIL.trim()
@@ -305,8 +562,8 @@ export const useWizardStore = create<WizardStore>()(
       setStatus: (status) => set({ status }),
       setLoading: (key, value) =>
         set((state) => ({ loading: { ...state.loading, [key]: value } })),
-      setNodePing: (field, value) =>
-        set((state) => ({ nodePing: { ...state.nodePing, [field]: value } })),
+      setNodePing: (id, value) =>
+        set((state) => ({ nodePing: { ...state.nodePing, [id]: value } })),
       setVipPing: (field, value) =>
         set((state) => ({ vipPing: { ...state.vipPing, [field]: value } })),
       setProxmoxDiscovery: (value) => set({ proxmoxDiscovery: value }),
@@ -345,6 +602,7 @@ export const useWizardStore = create<WizardStore>()(
           const nextData: WizardData = { ...state.data }
           let nextRanges = state.localIpRanges
           let nextVpnOnly = state.vpnOnly
+          let nextNodes = state.nodes.length ? state.nodes : initialNodes.map((node) => ({ ...node }))
 
           for (const [key, value] of Object.entries(payload)) {
             if (key === 'ENABLE_NETBIRD') nextData.ENABLE_NETBIRD = parseBoolean(value)
@@ -369,6 +627,29 @@ export const useWizardStore = create<WizardStore>()(
             }
           }
 
+          const parsedNodes: NodeConfig[] = []
+          let n = 1
+          while (payload[`NODE_${n}_IP`] !== undefined) {
+            parsedNodes.push(
+              normalizeNode(
+                {
+                  id: `node-${n}`,
+                  ip: payload[`NODE_${n}_IP`] ?? '',
+                  vmid: payload[`NODE_${n}_VMID`] ?? '',
+                  pveNode: payload[`NODE_${n}_PVE_NODE`] ?? '',
+                  datastore: payload[`NODE_${n}_DATASTORE`] ?? '',
+                  cpu: payload[`NODE_${n}_CPU`] ?? '4',
+                  memory: payload[`NODE_${n}_MEMORY`] ?? '8192',
+                  disk: payload[`NODE_${n}_DISK`] ?? '100',
+                  role: payload[`NODE_${n}_ROLE`] === 'worker' ? 'worker' : n > 3 ? 'worker' : 'control-plane',
+                },
+                n - 1,
+              ),
+            )
+            n += 1
+          }
+          if (parsedNodes.length) nextNodes = parsedNodes
+
           if (nextData.ADMIN_EMAIL) {
             const prefix = nextData.ADMIN_EMAIL.split('@')[0] ?? ''
             if (!nextData.ADMIN_USERNAME) nextData.ADMIN_USERNAME = sanitizeUsername(prefix)
@@ -376,16 +657,40 @@ export const useWizardStore = create<WizardStore>()(
             if (!nextData.SMTP_TO) nextData.SMTP_TO = nextData.ADMIN_EMAIL
           }
 
-          return { data: nextData, localIpRanges: nextRanges, vpnOnly: nextVpnOnly }
+          return {
+            data: nextData,
+            nodes: nextNodes,
+            nodePing: buildNodePing(nextNodes),
+            localIpRanges: nextRanges,
+            vpnOnly: nextVpnOnly,
+            preset: null,
+          }
         }),
       getEnvPayload: () => {
-        const { data, localIpRanges, vpnOnly } = get()
-        return {
+        const { data, nodes, localIpRanges, vpnOnly } = get()
+        const payload: Record<string, string> = {
           ...Object.fromEntries(
             Object.entries(data).map(([key, value]) => [key, typeof value === 'boolean' ? String(value) : value]),
           ),
           LOCAL_IP_RANGES: vpnOnly ? '' : localIpRanges.map((item) => item.trim()).filter(Boolean).join(','),
+          NODE_COUNT: String(nodes.length),
         }
+        nodes.forEach((node, index) => {
+          const n = index + 1
+          payload[`NODE_${n}_IP`] = node.ip
+          payload[`NODE_${n}_VMID`] = node.vmid
+          payload[`NODE_${n}_PVE_NODE`] = node.pveNode
+          payload[`NODE_${n}_DATASTORE`] = node.datastore
+          payload[`NODE_${n}_CPU`] = node.cpu
+          payload[`NODE_${n}_MEMORY`] = node.memory
+          payload[`NODE_${n}_DISK`] = node.disk
+          payload[`NODE_${n}_ROLE`] = node.role
+        })
+        const pveNodes = [...new Set(nodes.map((node) => node.pveNode).filter(Boolean))]
+        if (pveNodes.length) {
+          payload.PVE_NODES = pveNodes.map((pveName) => `${pveName}:${data.PROXMOX_HOST}`).join(',')
+        }
+        return payload
       },
       resetDeploy: () =>
         set({
@@ -395,6 +700,7 @@ export const useWizardStore = create<WizardStore>()(
           deployRunning: false,
           deploySummary: '',
           deployError: '',
+          deployStages: cloneDeployStages(initialDeployStages),
         }),
       appendDeployLog: (text, level = 'info') =>
         set((state) => ({
@@ -404,22 +710,44 @@ export const useWizardStore = create<WizardStore>()(
           ],
         })),
       setDeployState: (state) => set(state),
+      setDeployStages: (stages) => set({ deployStages: stages.map((stage) => ({ ...stage })) }),
+      updateDeployStage: (name, update) =>
+        set((state) => ({
+          deployStages: state.deployStages.map((stage) =>
+            stage.name === name ? { ...stage, ...update } : stage,
+          ),
+        })),
     }),
     {
       name: 'infraweaver-init-wizard',
-      version: 3,
+      version: 4,
       storage: createJSONStorage(() => localStorage),
       skipHydration: true,
       migrate: (persistedState: unknown, version: number) => {
-        const state = persistedState as { data?: Partial<WizardData>; [key: string]: unknown }
-        if (version < 3) {
-          return { ...state, data: { ...initialWizardData, ...(state.data ?? {}) } }
+        const state = (persistedState as PersistedWizardState | null) ?? {}
+        if (version < 4) {
+          const nextData = sanitizeWizardData(state.data)
+          const nextNodes = isNodeConfigArray(state.nodes)
+            ? state.nodes.map((node, index) => normalizeNode(node, index))
+            : extractLegacyNodes(state.data)
+          return {
+            ...state,
+            currentStep: typeof state.currentStep === 'number' ? state.currentStep : 0,
+            data: nextData,
+            localIpRanges: Array.isArray(state.localIpRanges) && state.localIpRanges.length ? state.localIpRanges : [''],
+            vpnOnly: Boolean(state.vpnOnly),
+            generatedPublicKey: typeof state.generatedPublicKey === 'string' ? state.generatedPublicKey : '',
+            nodes: nextNodes,
+            preset: state.preset === 'dev' || state.preset === 'standard' || state.preset === 'power' ? state.preset : null,
+          }
         }
         return persistedState
       },
       partialize: (state) => ({
         currentStep: state.currentStep,
         data: state.data,
+        nodes: state.nodes,
+        preset: state.preset,
         localIpRanges: state.localIpRanges,
         vpnOnly: state.vpnOnly,
         generatedPublicKey: state.generatedPublicKey,

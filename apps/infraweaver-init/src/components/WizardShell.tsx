@@ -30,6 +30,7 @@ interface WizardShellProps {
   onStepClick?: (index: number) => void
   children: React.ReactNode
   footer?: React.ReactNode
+  headerActions?: React.ReactNode
 }
 
 export function WizardShell({
@@ -45,6 +46,7 @@ export function WizardShell({
   onStepClick,
   children,
   footer,
+  headerActions,
 }: WizardShellProps) {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -74,8 +76,11 @@ export function WizardShell({
           <div className="text-xs font-semibold uppercase tracking-[0.32em] text-[var(--az-primary)]">InfraWeaver Init</div>
           <h2 className="mt-2 text-2xl font-semibold tracking-tight text-white">Cluster bootstrap wizard</h2>
         </div>
-        <div className="hidden rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs text-[var(--az-text-secondary)] md:block">
-          Progress auto-saves locally
+        <div className="flex items-center gap-3">
+          <div className="hidden rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs text-[var(--az-text-secondary)] md:block">
+            Progress auto-saves locally
+          </div>
+          {headerActions}
         </div>
       </div>
 

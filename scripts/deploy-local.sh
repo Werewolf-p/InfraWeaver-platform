@@ -225,11 +225,13 @@ ok "TF_VARs set"
 
 # ── Step 3a: Substitute .env placeholders into tfvars/yaml templates ─────────
 log "Step 3a: Substituting .env placeholders into config templates..."
+echo "STAGE:generate"
 bash "${REPO_DIR}/scripts/generate-from-env.sh"
 ok "Step 3a: Templates substituted"
 
 # ── Step 4: Deploy Platform (Terraform) ──────────────────────────────────────
 log "Step 4: Deploying platform via OpenTofu (this takes 10–15 minutes)..."
+echo "STAGE:opentofu"
 
 KB_FILE=~/.kube/config-platform-"$ENV_NAME"
 mkdir -p ~/.kube "envs/$ENV_NAME/generated"
@@ -256,6 +258,8 @@ ok "Stage 1: Talos VMs provisioned"
 
 # Save configs
 tofu output -raw kubeconfig > "$KB_FILE" 2>/dev/null || true
+mkdir -p "$REPO_DIR/generated"
+cp "$KB_FILE" "$REPO_DIR/generated/kubeconfig" 2>/dev/null || true
 chmod 600 "$KB_FILE" 2>/dev/null || true
 tofu output -raw talosconfig > "../envs/$ENV_NAME/generated/talosconfig" 2>/dev/null || true
 chmod 600 "../envs/$ENV_NAME/generated/talosconfig" 2>/dev/null || true
@@ -338,6 +342,7 @@ log "Step 5b: Configuring platform from .env feature flags..."
 bash scripts/configure-platform.sh || warn "configure-platform.sh had issues (continuing)"
 ok "Step 5b: Platform configured"
 
+echo "STAGE:argocd"
 # ── Step 6: Deploy ArgoCD & Bootstrap ─────────────────────────────────────────
 log "Step 6: Deploy ArgoCD & bootstrap ApplicationSet..."
 ENV_NAME="$ENV_NAME" bash scripts/deploy/deploy-argocd.sh
@@ -366,6 +371,7 @@ helm --kubeconfig "$KB_FILE" upgrade --install longhorn longhorn/longhorn \
 kubectl --kubeconfig "$KB_FILE" apply -f kubernetes/core/longhorn/manifests/ 2>/dev/null || true
 ok "Step 7b: Longhorn deployed"
 
+echo "STAGE:bootstrap"
 # ── Step 8: Deploy OpenBao directly + Bootstrap ───────────────────────────────
 log "Step 8: Deploying OpenBao directly via Helm + bootstrapping..."
 helm repo add openbao https://openbao.github.io/openbao-helm 2>/dev/null || true
@@ -389,6 +395,7 @@ PLATFORM_GITHUB_PAT="${GITHUB_PAT:-}" \
   bash scripts/deploy/bootstrap-openbao.sh
 ok "Step 8: OpenBao deployed and bootstrapped"
 
+echo "STAGE:apps"
 # ── Step 9: Deploy Onedev + wire ArgoCD → Onedev ──────────────────────────────
 log "Step 9: Deploying Onedev and wiring ArgoCD to it..."
 # Refresh kubeconfig — Talos may have rotated certs since step 4
@@ -540,6 +547,7 @@ ENV_NAME="$ENV_NAME" PROXMOX_API_TOKEN="$PROXMOX_API_TOKEN" \
   bash scripts/deploy/configure-oidc.sh 2>/dev/null || warn "OIDC configuration failed (may retry)"
 ok "Step 19: OIDC configured"
 
+echo "STAGE:postdeploy"
 # ── Step 20: Post-deploy tests ────────────────────────────────────────────────
 log "Step 20: Running post-deploy tests..."
 bash scripts/test-post-deploy.sh "$KB_FILE" "$ENV_NAME" 2>/dev/null || warn "Post-deploy tests had failures (non-fatal)"

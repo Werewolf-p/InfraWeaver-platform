@@ -64,7 +64,8 @@ search_dirs = ['kubernetes', 'envs']
 
 # ── Per-node defaults & PVE_NODES_MAP ────────────────────────────────────────
 # Fill per-node vars from global defaults if not explicitly set in .env
-for n in range(1, 4):
+node_count = int(env_vars.get('NODE_COUNT', '3'))
+for n in range(1, node_count + 1):
     p = f"NODE_{n}_"
     if not env_vars.get(f"{p}PVE_NODE"):
         env_vars[f"{p}PVE_NODE"] = env_vars.get("PROXMOX_NODE_NAME", "pve")

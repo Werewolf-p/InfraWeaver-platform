@@ -97,7 +97,7 @@ GENERAL_DEFAULTS = {
 CLUSTER_ENV_FIELDS = [
     "PROXMOX_HOST", "PROXMOX_NODE_NAME", "K8S_CLUSTER_NAME",
     "NODE_GATEWAY", "NODE_SUBNET_PREFIX", "TALOS_DATASTORE",
-    "PVE_NODES",
+    "PVE_NODES", "NODE_COUNT",
     "NODE_1_IP", "NODE_1_VMID", "NODE_1_PVE_NODE", "NODE_1_DATASTORE", "NODE_1_CPU", "NODE_1_MEMORY", "NODE_1_DISK",
     "NODE_2_IP", "NODE_2_VMID", "NODE_2_PVE_NODE", "NODE_2_DATASTORE", "NODE_2_CPU", "NODE_2_MEMORY", "NODE_2_DISK",
     "NODE_3_IP", "NODE_3_VMID", "NODE_3_PVE_NODE", "NODE_3_DATASTORE", "NODE_3_CPU", "NODE_3_MEMORY", "NODE_3_DISK",
@@ -111,6 +111,7 @@ CLUSTER_DEFAULTS = {
     "NODE_SUBNET_PREFIX": "24",
     "TALOS_DATASTORE": "lvm-proxmox",
     "PVE_NODES": "",
+    "NODE_COUNT": "3",
     "NODE_1_IP": "10.10.0.90",   "NODE_1_VMID": "9310",   "NODE_1_PVE_NODE": "", "NODE_1_DATASTORE": "", "NODE_1_CPU": "4", "NODE_1_MEMORY": "8192", "NODE_1_DISK": "100",
     "NODE_2_IP": "10.10.0.91",   "NODE_2_VMID": "9311",   "NODE_2_PVE_NODE": "", "NODE_2_DATASTORE": "", "NODE_2_CPU": "4", "NODE_2_MEMORY": "8192", "NODE_2_DISK": "100",
     "NODE_3_IP": "10.10.0.92",   "NODE_3_VMID": "9312",   "NODE_3_PVE_NODE": "", "NODE_3_DATASTORE": "", "NODE_3_CPU": "4", "NODE_3_MEMORY": "8192", "NODE_3_DISK": "100",
@@ -309,6 +310,30 @@ def _ping_check_single(ip: str) -> Dict:
         return {"ok": False, "error": str(e)}
 
 
+def _ping_proxmox(host: str) -> Dict:
+    import urllib.request
+    import ssl
+
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    req = urllib.request.Request(
+        f"https://{host}:8006/api2/json/version",
+        headers={"Accept": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, context=ctx, timeout=10) as resp:
+            body = json.loads(resp.read())
+            version_data = body.get("data", {})
+            return {
+                "ok": True,
+                "version": str(version_data.get("version", "")),
+                "release": str(version_data.get("release", "")),
+            }
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 def _setup_proxmox_user(host: str, username: str, password: str) -> Dict:
     """Log in with username/password (ticket auth), create a dedicated
     infraweaver@pve user + InfraWeaver role + API token.
@@ -503,6 +528,18 @@ def _discover_proxmox(host: str, token: str) -> Dict:
         # Build PVE_NODES string  (name1:ip1,name2:ip2)
         pve_nodes_str = ",".join(f"{n}:{ip}" for n, ip in node_ips.items())
 
+        resource_info: Dict[str, int] = {}
+        try:
+            node_status = pve_get(f"/nodes/{primary_node}/status")
+            mem = node_status.get("memory", {})
+            resource_info["node_memory_total_mb"] = int(mem.get("total", 0)) // (1024 * 1024)
+            resource_info["node_memory_free_mb"] = int(mem.get("free", 0) + mem.get("buffers", 0) + mem.get("cached", 0)) // (1024 * 1024)
+            rootfs = node_status.get("rootfs", {})
+            resource_info["node_disk_total_gb"] = int(rootfs.get("total", 0)) // (1024 * 1024 * 1024)
+            resource_info["node_disk_free_gb"] = int(rootfs.get("avail", 0)) // (1024 * 1024 * 1024)
+        except Exception:
+            pass
+
         # Find 3 consecutive free VMIDs starting from 9300
         resources = pve_get("/cluster/resources?type=vm")
         used_vmids = {int(r["vmid"]) for r in resources if "vmid" in r}
@@ -522,6 +559,7 @@ def _discover_proxmox(host: str, token: str) -> Dict:
             "node_ips": node_ips,
             "pve_nodes_str": pve_nodes_str,
             "vmid_suggestions": vmids,
+            **resource_info,
         }
     except Exception as e:
         return {"ok": False, "error": str(e)}
@@ -889,6 +927,52 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._send_json(_ping_check_single(ip))
             return
 
+        if path == "/api/ping-proxmox":
+            qs = urllib.parse.urlparse(self.path).query
+            params = urllib.parse.parse_qs(qs)
+            host = params.get("host", [""])[0].strip()
+            if not host:
+                self._send_json({"ok": False, "error": "host required"}, 400)
+                return
+            self._send_json(_ping_proxmox(host))
+            return
+
+        if path == "/api/catalog-items":
+            catalog = []
+            catalog_dir = REPO_DIR / "kubernetes" / "catalog"
+            if catalog_dir.exists():
+                for item_dir in sorted(catalog_dir.iterdir()):
+                    if not item_dir.is_dir() or item_dir.name.startswith("_"):
+                        continue
+                    meta = {"slug": item_dir.name}
+                    yaml_file = item_dir / "catalog.yaml"
+                    if yaml_file.exists():
+                        try:
+                            content = yaml_file.read_text()
+                            for field in ["name", "description", "categories", "tier"]:
+                                m = re.search(rf"^{field}:\s*(.+)$", content, re.MULTILINE)
+                                if m:
+                                    meta[field] = m.group(1).strip().strip('"\'')
+                        except Exception:
+                            pass
+                    catalog.append(meta)
+            self._send_json({"ok": True, "items": catalog})
+            return
+
+        if path == "/api/get-kubeconfig":
+            env_name = _parse_env_file(ENV_FILE).get("ENV_NAME", "productie")
+            candidates = [
+                REPO_DIR / "generated" / "kubeconfig",
+                REPO_DIR / "envs" / env_name / "generated" / "kubeconfig",
+                Path.home() / ".kube" / f"config-platform-{env_name}",
+            ]
+            for kube in candidates:
+                if kube.exists():
+                    self._send_json({"ok": True, "kubeconfig": kube.read_text()})
+                    return
+            self._send_json({"ok": False, "error": "kubeconfig not found at generated/kubeconfig"})
+            return
+
         if OUT_DIR.exists():
             relative_path = path.lstrip("/")
             candidate = (OUT_DIR / relative_path).resolve()
@@ -914,11 +998,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if path == "/api/save-env":
             try:
                 data = {}
+                for k, v in payload.items():
+                    if isinstance(v, bool):
+                        data[k] = "true" if v else "false"
+                    elif v is None:
+                        data[k] = ""
+                    else:
+                        data[k] = str(v)
                 for k in ALL_ENV_FIELDS:
-                    v = payload.get(k, "")
-                    if v or k in FEATURE_ENV_FIELDS or k in DNS_ENV_FIELDS or k in CLUSTER_ENV_FIELDS or k in INFRA_ENV_FIELDS:
-                        data[k] = v if v else ALL_ENV_DEFAULTS.get(k, "")
-                _write_env_file(ENV_FILE, {k: v for k, v in data.items() if v})
+                    data.setdefault(k, ALL_ENV_DEFAULTS.get(k, ""))
+
+                def keep_empty(key: str) -> bool:
+                    return key in FEATURE_ENV_FIELDS or key in DNS_ENV_FIELDS or key in OPTIONAL_ENV_FIELDS or key in CLUSTER_ENV_FIELDS or key in INFRA_ENV_FIELDS or key in {"LOCAL_IP_RANGES", "NODE_COUNT"} or bool(re.match(r"^NODE_\d+_(IP|VMID|PVE_NODE|DATASTORE|CPU|MEMORY|DISK|ROLE)$", key))
+
+                _write_env_file(ENV_FILE, {k: v for k, v in data.items() if v != "" or keep_empty(k)})
                 self._send_json({"ok": True})
             except Exception as e:
                 self._send_json({"ok": False, "error": str(e)})
@@ -984,8 +1077,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._send_json(_check_dns_provider(provider, credentials))
             return
 
-        if path == "/api/deploy":
-            mode = payload.get("mode", "deploy")
+        if path in ("/api/deploy", "/api/redeploy"):
+            mode = payload.get("mode", "redeploy" if path == "/api/redeploy" else "deploy")
 
             if not DEPLOY_LOCK.acquire(blocking=False):
                 self._send_json({"error": "A deploy is already running"}, 409)

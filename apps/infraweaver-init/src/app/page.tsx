@@ -11,6 +11,8 @@ import {
   Sparkles,
   UserRound,
 } from 'lucide-react'
+import { ActionButton } from '@/components/ui/ActionButton'
+import { ExpertEnvModal } from '@/components/ExpertEnvModal'
 import { WizardShell, type WizardStepMeta } from '@/components/WizardShell'
 import { ClusterStep } from '@/components/steps/ClusterStep'
 import { CredentialsStep } from '@/components/steps/CredentialsStep'
@@ -61,27 +63,25 @@ const steps: Array<WizardStepMeta & { icon: React.ComponentType<{ className?: st
   { title: 'Review & Deploy', shortTitle: 'Deploy', icon: Rocket },
 ]
 
-function isStepValid(step: number, data: typeof initialWizardData, localIpRanges: string[], vpnOnly: boolean) {
+function isStepValid(step: number, data: typeof initialWizardData, nodes: ReturnType<typeof useWizardStore.getState>['nodes'], localIpRanges: string[], vpnOnly: boolean) {
+  const controlPlaneCount = nodes.filter((node) => node.role === 'control-plane').length
+
   switch (step) {
     case 0:
       return true
     case 1:
       return isDomain(data.BASE_DOMAIN) && isEmail(data.ADMIN_EMAIL)
     case 2:
-      return isIPv4(data.PROXMOX_HOST) && data.PROXMOX_API_TOKEN.trim().length > 0
+      return isIPv4(data.PROXMOX_HOST) && data.PROXMOX_API_TOKEN.trim().length > 0 && data.PROXMOX_NODE_NAME.trim().length > 0
     case 3:
       return (
-        data.PROXMOX_NODE_NAME.trim().length > 0 &&
         data.K8S_CLUSTER_NAME.trim().length > 0 &&
         data.TALOS_DATASTORE.trim().length > 0 &&
         isIPv4(data.NODE_GATEWAY) &&
         isPositiveInteger(data.NODE_SUBNET_PREFIX) &&
-        isIPv4(data.NODE_1_IP) &&
-        isIPv4(data.NODE_2_IP) &&
-        isIPv4(data.NODE_3_IP) &&
-        isPositiveInteger(data.NODE_1_VMID) &&
-        isPositiveInteger(data.NODE_2_VMID) &&
-        isPositiveInteger(data.NODE_3_VMID) &&
+        nodes.length > 0 &&
+        controlPlaneCount >= 1 &&
+        nodes.every((node) => isIPv4(node.ip) && isPositiveInteger(node.vmid)) &&
         data.METALLB_VIP_RANGE.trim().length > 0 &&
         isIPv4(data.METALLB_TRAEFIK_VIP) &&
         isIPv4(data.METALLB_COREDNS_VIP) &&
@@ -114,6 +114,7 @@ function isStepValid(step: number, data: typeof initialWizardData, localIpRanges
 export default function HomePage() {
   const currentStep = useWizardStore((state) => state.currentStep)
   const data = useWizardStore((state) => state.data)
+  const nodes = useWizardStore((state) => state.nodes)
   const localIpRanges = useWizardStore((state) => state.localIpRanges)
   const vpnOnly = useWizardStore((state) => state.vpnOnly)
   const setCurrentStep = useWizardStore((state) => state.setCurrentStep)
@@ -121,6 +122,7 @@ export default function HomePage() {
   const loadFromEnvPayload = useWizardStore((state) => state.loadFromEnv)
   const [direction, setDirection] = useState(1)
   const [hydrated, setHydrated] = useState(false)
+  const [expertOpen, setExpertOpen] = useState(false)
 
   useEffect(() => {
     let active = true
@@ -150,7 +152,10 @@ export default function HomePage() {
     }
   }, [loadFromEnvPayload, setStatus])
 
-  const canGoNext = useMemo(() => isStepValid(currentStep, data, localIpRanges, vpnOnly), [currentStep, data, localIpRanges, vpnOnly])
+  const canGoNext = useMemo(
+    () => isStepValid(currentStep, data, nodes, localIpRanges, vpnOnly),
+    [currentStep, data, localIpRanges, nodes, vpnOnly],
+  )
 
   const nextLabel = currentStep === 6 ? 'Review & deploy' : currentStep === 0 ? 'Get started' : 'Continue'
 
@@ -204,19 +209,28 @@ export default function HomePage() {
   }
 
   return (
-    <WizardShell
-      steps={steps}
-      currentStep={currentStep}
-      direction={direction}
-      canGoNext={canGoNext}
-      nextLabel={nextLabel}
-      hideFooter={currentStep === 0}
-      hideNext={currentStep === steps.length - 1}
-      onPrev={handlePrev}
-      onNext={handleNext}
-      onStepClick={(index) => index <= currentStep && goToStep(index)}
-    >
-      {renderStep()}
-    </WizardShell>
+    <>
+      <WizardShell
+        steps={steps}
+        currentStep={currentStep}
+        direction={direction}
+        canGoNext={canGoNext}
+        nextLabel={nextLabel}
+        hideFooter={currentStep === 0}
+        hideNext={currentStep === steps.length - 1}
+        onPrev={handlePrev}
+        onNext={handleNext}
+        onStepClick={(index) => index <= currentStep && goToStep(index)}
+        headerActions={
+          <ActionButton variant="secondary" onClick={() => setExpertOpen(true)} className="px-3 py-2.5">
+            <Settings2 className="h-4 w-4" />
+            <span className="hidden md:inline">Expert mode</span>
+          </ActionButton>
+        }
+      >
+        {renderStep()}
+      </WizardShell>
+      <ExpertEnvModal open={expertOpen} onClose={() => setExpertOpen(false)} />
+    </>
   )
 }
