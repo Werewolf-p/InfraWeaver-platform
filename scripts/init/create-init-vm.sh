@@ -34,21 +34,35 @@ IMAGE_CACHE="/var/lib/vz/template/iso/ubuntu-24.04-cloud.img"
 CPU="${IW_CPU:-2}"
 MEM="${IW_MEM:-1024}"
 DISK="${IW_DISK:-8}"
+# SSH public key to inject into the iw user (for remote access)
+# Auto-detects from common locations if not set via IW_SSH_PUBKEY
+if [[ -n "${IW_SSH_PUBKEY:-}" ]]; then
+  DEPLOYER_SSH_PUBKEY="$IW_SSH_PUBKEY"
+elif [[ -f /root/.ssh/id_ed25519.pub ]]; then
+  DEPLOYER_SSH_PUBKEY="$(cat /root/.ssh/id_ed25519.pub)"
+elif [[ -f /root/.ssh/id_rsa.pub ]]; then
+  DEPLOYER_SSH_PUBKEY="$(cat /root/.ssh/id_rsa.pub)"
+elif [[ -f /root/.ssh/authorized_keys ]]; then
+  DEPLOYER_SSH_PUBKEY="$(head -1 /root/.ssh/authorized_keys)"
+else
+  DEPLOYER_SSH_PUBKEY="ssh-ed25519 AAAA# no-key-found"
+fi
 
 # ── Parse args ────────────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
   case $1 in
-    --vmid)    VMID="$2"; shift 2 ;;
-    --storage) STORAGE="$2"; shift 2 ;;
-    --bridge)  BRIDGE="$2"; shift 2 ;;
-    --vlan)    VLAN_TAG="$2"; shift 2 ;;
-    --ip)      VM_IP="$2"; shift 2 ;;
-    --gw)      VM_GW="$2"; shift 2 ;;
-    --repo)    REPO_URL="$2"; shift 2 ;;
-    --branch)  REPO_BRANCH="$2"; shift 2 ;;
-    --cpu)     CPU="$2"; shift 2 ;;
-    --mem)     MEM="$2"; shift 2 ;;
-    --disk)    DISK="$2"; shift 2 ;;
+    --vmid)       VMID="$2"; shift 2 ;;
+    --storage)    STORAGE="$2"; shift 2 ;;
+    --bridge)     BRIDGE="$2"; shift 2 ;;
+    --vlan)       VLAN_TAG="$2"; shift 2 ;;
+    --ip)         VM_IP="$2"; shift 2 ;;
+    --gw)         VM_GW="$2"; shift 2 ;;
+    --repo)       REPO_URL="$2"; shift 2 ;;
+    --branch)     REPO_BRANCH="$2"; shift 2 ;;
+    --cpu)        CPU="$2"; shift 2 ;;
+    --mem)        MEM="$2"; shift 2 ;;
+    --disk)       DISK="$2"; shift 2 ;;
+    --ssh-pubkey) DEPLOYER_SSH_PUBKEY="$2"; shift 2 ;;
     *) echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
@@ -126,13 +140,16 @@ cat > "$USERDATA_FILE" << CLOUDINIT
 hostname: ${VM_NAME}
 manage_etc_hosts: true
 
+ssh_pwauth: false
+
 users:
   - name: iw
     groups: [sudo]
     shell: /bin/bash
     sudo: ['ALL=(ALL) NOPASSWD:ALL']
-    lock_passwd: false
-    passwd: $(echo 'infraweaver' | openssl passwd -6 -stdin 2>/dev/null || python3 -c "import crypt,getpass; print(crypt.crypt('infraweaver'))" 2>/dev/null || echo '$6$rounds=4096$salt$hashedpassword')
+    lock_passwd: true
+    ssh_authorized_keys:
+      - ${DEPLOYER_SSH_PUBKEY}
 
 package_update: true
 package_upgrade: false
@@ -145,6 +162,7 @@ packages:
   - jq
   - openssh-server
   - nano
+  - qemu-guest-agent
 
 runcmd:
   # Wait for network
