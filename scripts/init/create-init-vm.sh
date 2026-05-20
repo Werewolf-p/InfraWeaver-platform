@@ -184,7 +184,7 @@ runcmd:
     echo "╔══════════════════════════════════════════════════════════════╗"
     echo "║  InfraWeaver Init VM is ready!                              ║"
     echo "║                                                              ║"
-    echo "║  Web UI → http://${IP}:8080                    ║"
+    echo "║  Web UI → http://\${IP}:8080                    ║"
     echo "║  Login  → iw / infraweaver                                  ║"
     echo "╚══════════════════════════════════════════════════════════════╝"
     echo ""
