@@ -567,20 +567,22 @@ resource "null_resource" "start_and_configure_talos" {
         echo "==> [${each.key}] VM $VMID already running."
       fi
 
-      # ── Discover IP: scan VLAN3 from runner, match by MAC ────────────────
-      # The runner has a VLAN 3 NIC (eth1/10.10.0.x) so it can reach nodes
-      # directly. Scan 10.10.0.0/24 for port 50000, then ip-neigh-match MAC.
+      # ── Discover IP: scan cluster network from init VM, match by MAC ────────
+      # Init VM has a NIC on the cluster VLAN (ens19/10.x.x.50) so it can
+      # reach nodes directly. Derive scan subnet from gateway (first 3 octets).
+      # Scan for port 50000 (Talos API in maintenance mode), then ARP-match MAC.
+      CLUSTER_SUBNET=$(echo "${var.gateway}" | cut -d. -f1-3)
       MAC=$(ssh $SSH_OPTS root@"$PVE_IP" \
         "qm config $VMID 2>/dev/null | grep '^net0:' | grep -oiP '(?<=virtio=)[A-Fa-f0-9:]+'" \
         2>/dev/null | tr '[:upper:]' '[:lower:]' || echo "")
       echo "==> [${each.key}] VM MAC: $MAC"
 
       DHCP_IP=""
-      echo "==> [${each.key}] Scanning VLAN3 for Talos API (up to 10 min)..."
+      echo "==> [${each.key}] Scanning $${CLUSTER_SUBNET}.0/24 for Talos API (up to 10 min)..."
       for attempt in $(seq 1 40); do
         TMPF=$(mktemp /tmp/talos_XXXXXX)
         for last in $(seq 1 254); do
-          ip_="10.10.0.$last"
+          ip_="$${CLUSTER_SUBNET}.$last"
           (timeout 0.3 bash -c "echo >/dev/tcp/$ip_/50000" 2>/dev/null && echo "$ip_" >> "$TMPF") &
         done
         wait 2>/dev/null; sleep 0.5
@@ -588,7 +590,7 @@ resource "null_resource" "start_and_configure_talos" {
           while IFS= read -r cip; do
             # Ping to ensure ARP entry is populated, then check MAC
             ping -c1 -W1 "$cip" >/dev/null 2>&1 || true
-            cmac=$(sudo ip neigh show "$cip" 2>/dev/null | awk '{print tolower($5)}' | head -1)
+            cmac=$(ip neigh show "$cip" 2>/dev/null | awk '{print tolower($5)}' | head -1)
             if [ -n "$cmac" ] && [ "$cmac" = "$MAC" ]; then
               DHCP_IP="$cip"
               break
@@ -606,7 +608,7 @@ resource "null_resource" "start_and_configure_talos" {
       done
 
       if [ -z "$DHCP_IP" ]; then
-        echo "ERROR: Could not find Talos API for ${each.key} (MAC: $MAC) on 10.10.0.0/24" >&2
+        echo "ERROR: Could not find Talos API for ${each.key} (MAC: $MAC) on $${CLUSTER_SUBNET}.0/24" >&2
         exit 1
       fi
 

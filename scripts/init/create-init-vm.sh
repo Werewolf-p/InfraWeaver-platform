@@ -27,6 +27,10 @@ VLAN_TAG="${IW_VLAN_TAG:-}"          # leave empty for no VLAN tag
 VM_IP="${IW_VM_IP:-}"                # leave empty for DHCP
 VM_GW="${IW_VM_GW:-}"
 VM_CIDR="${IW_VM_CIDR:-24}"
+# Cluster network (VLAN 3) — init VM needs a NIC here to reach Talos nodes
+CLUSTER_VLAN="${IW_CLUSTER_VLAN:-3}"
+CLUSTER_IP="${IW_CLUSTER_IP:-10.10.0.50}"
+CLUSTER_CIDR="${IW_CLUSTER_CIDR:-24}"
 REPO_URL="${IW_REPO_URL:-https://github.com/your-org/your-repo}"
 REPO_BRANCH="${IW_REPO_BRANCH:-main}"
 IMAGE_URL="https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"
@@ -57,6 +61,9 @@ while [[ $# -gt 0 ]]; do
     --vlan)       VLAN_TAG="$2"; shift 2 ;;
     --ip)         VM_IP="$2"; shift 2 ;;
     --gw)         VM_GW="$2"; shift 2 ;;
+    --cluster-vlan) CLUSTER_VLAN="$2"; shift 2 ;;
+    --cluster-ip)   CLUSTER_IP="$2"; shift 2 ;;
+    --cluster-cidr) CLUSTER_CIDR="$2"; shift 2 ;;
     --repo)       REPO_URL="$2"; shift 2 ;;
     --branch)     REPO_BRANCH="$2"; shift 2 ;;
     --cpu)        CPU="$2"; shift 2 ;;
@@ -167,6 +174,17 @@ packages:
 runcmd:
   # Wait for network
   - sleep 5
+  # Configure cluster NIC (ens19 / net1) for VLAN3 access to Talos nodes
+  - |
+    cat > /etc/netplan/60-cluster.yaml << 'NETPLAN'
+network:
+  version: 2
+  ethernets:
+    ens19:
+      addresses: [${CLUSTER_IP}/${CLUSTER_CIDR}]
+NETPLAN
+  - chmod 600 /etc/netplan/60-cluster.yaml
+  - netplan apply || true
   # Clone the InfraWeaver repository
   - GIT_TERMINAL_PROMPT=0 git clone --branch ${REPO_BRANCH} --depth=1 ${REPO_URL} /opt/infraweaver 2>&1 | tee /var/log/iw-clone.log
   - chown -R iw:iw /opt/infraweaver
@@ -234,10 +252,13 @@ qm create "$VMID" \
   --tablet 0 \
   --description "InfraWeaver Init VM — web UI at :8080"
 
-# Set network
+# Set management network (net0)
 NET_OPTS="virtio,bridge=${BRIDGE}"
 [[ -n "$VLAN_TAG" ]] && NET_OPTS="${NET_OPTS},tag=${VLAN_TAG}"
 qm set "$VMID" --net0 "$NET_OPTS"
+
+# Set cluster network (net1) — VLAN3 for reaching Talos nodes
+qm set "$VMID" --net1 "virtio,bridge=${BRIDGE},tag=${CLUSTER_VLAN}"
 
 # Import cloud image disk
 log "Importing disk image to storage $STORAGE..."
