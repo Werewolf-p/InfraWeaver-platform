@@ -44,7 +44,17 @@ export interface DiscoverProxmoxResponse {
   node_name?: string
   all_nodes?: string[]
   datastores?: string[]
+  datastores_by_node?: Record<string, string[]>
+  node_ips?: Record<string, string>
+  pve_nodes_str?: string
   vmid_suggestions?: number[]
+  error?: string
+}
+
+export interface SetupProxmoxUserResponse {
+  ok: boolean
+  token?: string
+  user?: string
   error?: string
 }
 
@@ -127,6 +137,13 @@ export async function saveEnv(payload: Record<string, string>) {
   return fetchJson<SaveEnvResponse>('/api/save-env', {
     method: 'POST',
     body: JSON.stringify(payload),
+  })
+}
+
+export async function setupProxmoxUser(host: string, username: string, password: string) {
+  return fetchJson<SetupProxmoxUserResponse>('/api/setup-proxmox-user', {
+    method: 'POST',
+    body: JSON.stringify({ host, username, password }),
   })
 }
 

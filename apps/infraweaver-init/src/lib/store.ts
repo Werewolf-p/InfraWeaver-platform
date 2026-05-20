@@ -35,6 +35,22 @@ export interface WizardData {
   NODE_2_VMID: string
   NODE_3_IP: string
   NODE_3_VMID: string
+  PVE_NODES: string
+  NODE_1_PVE_NODE: string
+  NODE_1_DATASTORE: string
+  NODE_1_CPU: string
+  NODE_1_MEMORY: string
+  NODE_1_DISK: string
+  NODE_2_PVE_NODE: string
+  NODE_2_DATASTORE: string
+  NODE_2_CPU: string
+  NODE_2_MEMORY: string
+  NODE_2_DISK: string
+  NODE_3_PVE_NODE: string
+  NODE_3_DATASTORE: string
+  NODE_3_CPU: string
+  NODE_3_MEMORY: string
+  NODE_3_DISK: string
   METALLB_VIP_RANGE: string
   METALLB_TRAEFIK_VIP: string
   METALLB_COREDNS_VIP: string
@@ -102,6 +118,22 @@ export const initialWizardData: WizardData = {
   NODE_2_VMID: '9311',
   NODE_3_IP: '10.10.0.92',
   NODE_3_VMID: '9312',
+  PVE_NODES: '',
+  NODE_1_PVE_NODE: '',
+  NODE_1_DATASTORE: '',
+  NODE_1_CPU: '4',
+  NODE_1_MEMORY: '8192',
+  NODE_1_DISK: '100',
+  NODE_2_PVE_NODE: '',
+  NODE_2_DATASTORE: '',
+  NODE_2_CPU: '4',
+  NODE_2_MEMORY: '8192',
+  NODE_2_DISK: '100',
+  NODE_3_PVE_NODE: '',
+  NODE_3_DATASTORE: '',
+  NODE_3_CPU: '4',
+  NODE_3_MEMORY: '8192',
+  NODE_3_DISK: '100',
   METALLB_VIP_RANGE: '10.10.0.200-10.10.0.210',
   METALLB_TRAEFIK_VIP: '10.10.0.200',
   METALLB_COREDNS_VIP: '10.10.0.201',
@@ -158,6 +190,7 @@ const emptyVipPing: Record<VipPingField, PingState> = {
 const emptyLoadingState = {
   discoverProxmox: false,
   validateProxmox: false,
+  setupProxmoxUser: false,
   suggestNodeIps: false,
   suggestVips: false,
   generateSshKey: false,
@@ -374,12 +407,12 @@ export const useWizardStore = create<WizardStore>()(
     }),
     {
       name: 'infraweaver-init-wizard',
-      version: 2,
+      version: 3,
       storage: createJSONStorage(() => localStorage),
       skipHydration: true,
       migrate: (persistedState: unknown, version: number) => {
         const state = persistedState as { data?: Partial<WizardData>; [key: string]: unknown }
-        if (version < 2) {
+        if (version < 3) {
           return { ...state, data: { ...initialWizardData, ...(state.data ?? {}) } }
         }
         return persistedState

@@ -1,6 +1,7 @@
 'use client'
 
-import { LoaderCircle, Network, Sparkles, Waypoints } from 'lucide-react'
+import { useState } from 'react'
+import { ChevronDown, ChevronRight, LoaderCircle, Network, Sparkles, Waypoints } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { pingCheck, suggestNodeIps, suggestVips } from '@/lib/api'
 import { ActionButton } from '@/components/ui/ActionButton'
@@ -12,9 +13,9 @@ import { useWizardStore } from '@/lib/store'
 import { controlClassName, fadeUpItem, isIPv4, staggerContainer } from '@/lib/utils'
 
 const nodeRows = [
-  { ipKey: 'NODE_1_IP', vmidKey: 'NODE_1_VMID', label: 'Node 1' },
-  { ipKey: 'NODE_2_IP', vmidKey: 'NODE_2_VMID', label: 'Node 2' },
-  { ipKey: 'NODE_3_IP', vmidKey: 'NODE_3_VMID', label: 'Node 3' },
+  { ipKey: 'NODE_1_IP', vmidKey: 'NODE_1_VMID', pveNodeKey: 'NODE_1_PVE_NODE', datastoreKey: 'NODE_1_DATASTORE', cpuKey: 'NODE_1_CPU', memKey: 'NODE_1_MEMORY', diskKey: 'NODE_1_DISK', label: 'Node 1' },
+  { ipKey: 'NODE_2_IP', vmidKey: 'NODE_2_VMID', pveNodeKey: 'NODE_2_PVE_NODE', datastoreKey: 'NODE_2_DATASTORE', cpuKey: 'NODE_2_CPU', memKey: 'NODE_2_MEMORY', diskKey: 'NODE_2_DISK', label: 'Node 2' },
+  { ipKey: 'NODE_3_IP', vmidKey: 'NODE_3_VMID', pveNodeKey: 'NODE_3_PVE_NODE', datastoreKey: 'NODE_3_DATASTORE', cpuKey: 'NODE_3_CPU', memKey: 'NODE_3_MEMORY', diskKey: 'NODE_3_DISK', label: 'Node 3' },
 ] as const
 
 const vipRows = [
@@ -36,6 +37,8 @@ export function ClusterStep() {
   const setLoading = useWizardStore((state) => state.setLoading)
   const setNodePing = useWizardStore((state) => state.setNodePing)
   const setVipPing = useWizardStore((state) => state.setVipPing)
+
+  const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set())
 
   const pingNodeField = async (field: keyof typeof nodePing) => {
     const ip = data[field].trim()
@@ -205,34 +208,101 @@ export function ClusterStep() {
           </motion.div>
 
           <div className="space-y-4">
-            {nodeRows.map((row) => (
-              <motion.div key={row.ipKey} variants={fadeUpItem} className="grid gap-4 rounded-2xl border border-white/8 bg-black/20 p-4 md:grid-cols-[1.2fr_0.8fr]">
-                <FormField
-                  label={row.label + ' IP'}
-                  htmlFor={row.ipKey}
-                  hint="Green means the address did not reply to ping. Red means it is already in use."
-                >
-                  <div className="flex items-center gap-3">
-                    <PingDot state={nodePing[row.ipKey]} />
-                    <input
-                      id={row.ipKey}
-                      value={data[row.ipKey]}
-                      onChange={(event) => setField(row.ipKey, event.target.value)}
-                      onBlur={() => void pingNodeField(row.ipKey)}
-                      className={controlClassName}
-                    />
+            {nodeRows.map((row) => {
+              const isExpanded = expandedNodes.has(row.ipKey)
+              const availableNodes = proxmoxDiscovery?.all_nodes ?? []
+              const pveNode = data[row.pveNodeKey] || data.PROXMOX_NODE_NAME
+              const availableDs = (proxmoxDiscovery?.datastores_by_node?.[pveNode] ?? proxmoxDiscovery?.datastores) ?? []
+              return (
+                <motion.div key={row.ipKey} variants={fadeUpItem} className="rounded-2xl border border-white/8 bg-black/20 p-4">
+                  <div className="grid gap-4 md:grid-cols-[1.2fr_0.8fr]">
+                    <FormField
+                      label={row.label + ' IP'}
+                      htmlFor={row.ipKey}
+                      hint="Green = free, Red = in use."
+                    >
+                      <div className="flex items-center gap-3">
+                        <PingDot state={nodePing[row.ipKey]} />
+                        <input
+                          id={row.ipKey}
+                          value={data[row.ipKey]}
+                          onChange={(event) => setField(row.ipKey, event.target.value)}
+                          onBlur={() => void pingNodeField(row.ipKey)}
+                          className={controlClassName}
+                        />
+                      </div>
+                    </FormField>
+                    <FormField label={row.label + ' VMID'} htmlFor={row.vmidKey} hint="Unique in the Proxmox cluster.">
+                      <input
+                        id={row.vmidKey}
+                        value={data[row.vmidKey]}
+                        onChange={(event) => setField(row.vmidKey, event.target.value)}
+                        className={controlClassName}
+                      />
+                    </FormField>
                   </div>
-                </FormField>
-                <FormField label={row.label + ' VMID'} htmlFor={row.vmidKey} hint="Must be unique in the Proxmox cluster.">
-                  <input
-                    id={row.vmidKey}
-                    value={data[row.vmidKey]}
-                    onChange={(event) => setField(row.vmidKey, event.target.value)}
-                    className={controlClassName}
-                  />
-                </FormField>
-              </motion.div>
-            ))}
+
+                  {/* PVE node selector */}
+                  <div className="mt-3">
+                    <FormField label="PVE node" htmlFor={row.pveNodeKey} hint="Which Proxmox node hosts this VM.">
+                      {availableNodes.length > 0 ? (
+                        <select
+                          id={row.pveNodeKey}
+                          value={data[row.pveNodeKey] || availableNodes[0]}
+                          onChange={(e) => setField(row.pveNodeKey, e.target.value)}
+                          className={controlClassName}
+                        >
+                          {availableNodes.map((n) => (
+                            <option key={n} value={n}>{n}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          id={row.pveNodeKey}
+                          value={data[row.pveNodeKey]}
+                          onChange={(e) => setField(row.pveNodeKey, e.target.value)}
+                          placeholder={data.PROXMOX_NODE_NAME || 'pve'}
+                          className={controlClassName}
+                        />
+                      )}
+                    </FormField>
+                  </div>
+
+                  {/* Advanced toggle */}
+                  <button
+                    type="button"
+                    onClick={() => setExpandedNodes((prev) => { const next = new Set(prev); next.has(row.ipKey) ? next.delete(row.ipKey) : next.add(row.ipKey); return next })}
+                    className="mt-3 flex items-center gap-1.5 text-xs text-[var(--az-text-secondary)] hover:text-white transition-colors"
+                  >
+                    {isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                    ⚙ Advanced (CPU / RAM / Disk / Datastore)
+                  </button>
+
+                  {isExpanded && (
+                    <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="mt-3 grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+                      <FormField label="CPU cores" htmlFor={row.cpuKey}>
+                        <input id={row.cpuKey} value={data[row.cpuKey]} onChange={(e) => setField(row.cpuKey, e.target.value)} className={controlClassName} placeholder="4" />
+                      </FormField>
+                      <FormField label="RAM (MB)" htmlFor={row.memKey}>
+                        <input id={row.memKey} value={data[row.memKey]} onChange={(e) => setField(row.memKey, e.target.value)} className={controlClassName} placeholder="8192" />
+                      </FormField>
+                      <FormField label="Disk (GB)" htmlFor={row.diskKey}>
+                        <input id={row.diskKey} value={data[row.diskKey]} onChange={(e) => setField(row.diskKey, e.target.value)} className={controlClassName} placeholder="100" />
+                      </FormField>
+                      <FormField label="Datastore" htmlFor={row.datastoreKey}>
+                        {availableDs.length > 0 ? (
+                          <select id={row.datastoreKey} value={data[row.datastoreKey] || availableDs[0]} onChange={(e) => setField(row.datastoreKey, e.target.value)} className={controlClassName}>
+                            {availableDs.map((ds) => <option key={ds} value={ds}>{ds}</option>)}
+                          </select>
+                        ) : (
+                          <input id={row.datastoreKey} value={data[row.datastoreKey]} onChange={(e) => setField(row.datastoreKey, e.target.value)} placeholder={data.TALOS_DATASTORE} className={controlClassName} />
+                        )}
+                      </FormField>
+                    </motion.div>
+                  )}
+                </motion.div>
+              )
+            })}
           </div>
         </GlassCard>
 
