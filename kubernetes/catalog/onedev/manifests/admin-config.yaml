@@ -15,4 +15,4 @@ metadata:
     app.kubernetes.io/component: bootstrap
 data:
   admin-users: |
-    ${ADMIN_USERNAME}
+    admin
