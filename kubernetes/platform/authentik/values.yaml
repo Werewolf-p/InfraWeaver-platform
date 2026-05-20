@@ -50,7 +50,7 @@ global:
       valueFrom:
         secretKeyRef:
           name: authentik-secrets
-          # No optional: true — pod must fail if password key is missing.
+          key: ardaty-password
 
     - name: AUTHENTIK_POSTGRESQL__PASSWORD
       valueFrom:
