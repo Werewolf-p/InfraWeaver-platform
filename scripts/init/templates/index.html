@@ -654,19 +654,85 @@
         <div class="card-icon">🖥</div>
         <div>
           <div class="card-title">Proxmox VE</div>
-          <div class="card-desc">API token for cluster provisioning via OpenTofu</div>
+          <div class="card-desc">API access for cluster provisioning via OpenTofu</div>
         </div>
       </div>
-      <div class="form-grid single">
+
+      <!-- Mode tabs -->
+      <div style="display:flex;gap:8px;margin-bottom:18px;border-bottom:1px solid var(--border);padding-bottom:14px">
+        <button id="tab-pve-setup"  class="btn-discover" style="background:rgba(68,136,255,0.18);border-color:var(--blue)"
+                onclick="setPveMode('setup')" type="button">✨ Auto-setup (recommended)</button>
+        <button id="tab-pve-manual" class="btn-discover"
+                onclick="setPveMode('manual')" type="button">🔑 I already have a token</button>
+      </div>
+
+      <!-- ── Auto-setup mode ─────────────────────────────────────────────── -->
+      <div id="pve-setup-mode">
+        <div style="background:rgba(0,255,136,0.05);border:1px solid rgba(0,255,136,0.2);border-radius:8px;padding:12px 14px;margin-bottom:16px;font-size:12px;color:var(--text-dim);line-height:1.6">
+          🔒 <strong style="color:var(--text)">Credentials are not stored.</strong>
+          They are used <em>once</em> to create a dedicated <code style="color:var(--green)">infraweaver@pve</code> API user
+          with the minimum required permissions, then immediately discarded.
+          Only the generated API token is saved to your <code>.env</code>.
+        </div>
+        <div class="form-grid single">
+          <div class="form-row">
+            <label>Proxmox Host / IP <span class="required">*</span></label>
+            <input type="text" id="pve-setup-host" placeholder="192.168.1.100"
+                   oninput="document.getElementById('PROXMOX_HOST').value=this.value" />
+            <div class="field-hint">IP or hostname of your Proxmox server (port 8006)</div>
+          </div>
+          <div class="form-row">
+            <label>Admin username <span class="required">*</span></label>
+            <input type="text" id="pve-setup-user" placeholder="root@pam" value="root@pam" />
+            <div class="field-hint">Proxmox user with administrator rights (e.g. <code>root@pam</code>)</div>
+          </div>
+          <div class="form-row">
+            <label>Password <span class="required">*</span></label>
+            <div class="input-wrap">
+              <input type="password" id="pve-setup-pass" placeholder="••••••••" autocomplete="current-password" />
+              <button class="toggle-pass" onclick="togglePass('pve-setup-pass')" type="button">👁</button>
+            </div>
+          </div>
+        </div>
+        <div class="action-row" style="margin-top:12px">
+          <button class="btn-discover" id="btn-pve-setup" onclick="setupProxmoxUser()" type="button"
+                  style="background:rgba(0,255,136,0.1);border-color:rgba(0,255,136,0.4);color:var(--green)">
+            ✨ Check access &amp; create API user
+          </button>
+        </div>
+        <div id="pve-setup-result" style="margin-top:10px;font-size:12px;min-height:16px"></div>
+
+        <!-- Success block (hidden until creation succeeds) -->
+        <div id="pve-setup-success" style="display:none;margin-top:14px;background:rgba(0,255,136,0.06);border:1px solid rgba(0,255,136,0.25);border-radius:8px;padding:14px">
+          <div style="font-size:12px;color:var(--green);font-weight:600;margin-bottom:6px">✅ infraweaver@pve created — token auto-filled below</div>
+          <div style="font-size:11px;color:var(--text-dim)">
+            Role <code>InfraWeaver</code> · User <code>infraweaver@pve</code><br>
+            Your admin credentials were not saved.
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Manual token mode ──────────────────────────────────────────── -->
+      <div id="pve-manual-mode" style="display:none">
+        <div class="form-grid single">
+          <div class="form-row">
+            <label style="color:var(--text-dim);font-size:11px">Enter your existing Proxmox API token below.</label>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Token field — always present, written by both modes ──────── -->
+      <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
         <div class="form-row">
-          <label>PROXMOX_API_TOKEN <span class="required">*</span></label>
+          <label id="pve-token-label">PROXMOX_API_TOKEN <span class="required">*</span></label>
           <div class="input-wrap">
-            <input type="password" id="PROXMOX_API_TOKEN" name="PROXMOX_API_TOKEN" placeholder="root@pam!terraform=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+            <input type="password" id="PROXMOX_API_TOKEN" name="PROXMOX_API_TOKEN"
+                   placeholder="infraweaver@pve!infraweaver=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
             <button class="toggle-pass" onclick="togglePass('PROXMOX_API_TOKEN')" type="button">👁</button>
           </div>
-          <div class="field-hint">Proxmox UI → Datacenter → Permissions → API Tokens → Add. Format: <code>USER@pve!TOKENNAME=uuid</code></div>
+          <div id="pve-token-hint" class="field-hint">Format: <code>USER@realm!TOKENNAME=uuid</code></div>
           <div class="action-row" style="margin-top:10px">
-            <button class="btn-discover" id="btn-discover-proxmox" onclick="discoverProxmox()" type="button">🔍 Discover from Proxmox</button>
+            <button class="btn-discover" id="btn-discover-proxmox" onclick="discoverProxmox()" type="button">🔍 Discover node &amp; storage</button>
             <span style="font-size:11px;color:var(--text-dim)">Auto-fills node name, storage pools &amp; free VMIDs</span>
           </div>
           <div id="discover-result" style="margin-top:6px;font-size:11px;min-height:14px"></div>
@@ -1652,9 +1718,87 @@ async function suggestNodeIps() {
 }
 
 // ── Proxmox Discovery ──
+// ── Proxmox mode switcher ──
+function setPveMode(mode) {
+  const isSetup = mode === 'setup';
+  document.getElementById('pve-setup-mode').style.display  = isSetup ? '' : 'none';
+  document.getElementById('pve-manual-mode').style.display = isSetup ? 'none' : '';
+
+  const tabSetup  = document.getElementById('tab-pve-setup');
+  const tabManual = document.getElementById('tab-pve-manual');
+  tabSetup.style.background  = isSetup ? 'rgba(68,136,255,0.18)' : '';
+  tabSetup.style.borderColor = isSetup ? 'var(--blue)' : '';
+  tabManual.style.background  = isSetup ? '' : 'rgba(68,136,255,0.18)';
+  tabManual.style.borderColor = isSetup ? '' : 'var(--blue)';
+
+  const tokenField = document.getElementById('PROXMOX_API_TOKEN');
+  const tokenHint  = document.getElementById('pve-token-hint');
+  if (!isSetup) {
+    tokenField.readOnly = false;
+    tokenField.style.color = '';
+    if (tokenHint) tokenHint.innerHTML = 'Proxmox UI → Datacenter → Permissions → API Tokens → Add. Format: <code>USER@realm!TOKENNAME=uuid</code>';
+  }
+}
+
+// ── Proxmox auto-setup (create infraweaver@pve user + token) ──
+async function setupProxmoxUser() {
+  const host = (document.getElementById('pve-setup-host')?.value || '').trim();
+  const user = (document.getElementById('pve-setup-user')?.value || '').trim();
+  const pass = (document.getElementById('pve-setup-pass')?.value || '');
+  const resultEl = document.getElementById('pve-setup-result');
+  const successEl = document.getElementById('pve-setup-success');
+  const btn = document.getElementById('btn-pve-setup');
+
+  if (!host) { showAlert('config-alert', 'warning', 'Enter Proxmox host / IP first'); return; }
+  if (!user) { showAlert('config-alert', 'warning', 'Enter admin username'); return; }
+  if (!pass) { showAlert('config-alert', 'warning', 'Enter admin password'); return; }
+
+  resultEl.textContent = '';
+  if (successEl) successEl.style.display = 'none';
+  btn.innerHTML = '<div class="btn-spinner" style="border-color:var(--green);border-top-color:transparent"></div> Connecting…';
+  btn.disabled = true;
+
+  try {
+    const r = await fetch('/api/setup-proxmox-user', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ host, username: user, password: pass })
+    });
+    const j = await r.json();
+
+    if (j.ok) {
+      // Populate the shared token field
+      const tokenField = document.getElementById('PROXMOX_API_TOKEN');
+      tokenField.value    = j.token;
+      tokenField.readOnly = true;
+      tokenField.style.color = 'var(--green)';
+      // Also populate PROXMOX_HOST if not set
+      const hostField = document.getElementById('PROXMOX_HOST');
+      if (hostField && !hostField.value) hostField.value = host;
+
+      if (successEl) successEl.style.display = '';
+      resultEl.innerHTML = '';
+      updateStatus('dot-proxmox', 'ok', 'proxmox: ✅');
+      showAlert('config-alert', 'success', '✅ infraweaver@pve created! Token auto-filled. Click "Discover node &amp; storage" to continue.');
+
+      // Clear credentials from DOM immediately
+      document.getElementById('pve-setup-pass').value = '';
+    } else {
+      resultEl.innerHTML = `<span style="color:var(--red)">✗ ${j.error || 'Unknown error'}</span>`;
+      updateStatus('dot-proxmox', 'err', 'proxmox: ✗');
+      showAlert('config-alert', 'error', '✗ Setup failed: ' + (j.error || 'check host and credentials'));
+    }
+  } catch(e) {
+    resultEl.innerHTML = `<span style="color:var(--red)">✗ ${e.message}</span>`;
+    showAlert('config-alert', 'error', 'Request error: ' + e.message);
+  }
+  btn.innerHTML = '✨ Check access &amp; create API user';
+  btn.disabled = false;
+}
+
 async function discoverProxmox() {
   const token = document.getElementById('PROXMOX_API_TOKEN')?.value?.trim();
-  const host = document.getElementById('PROXMOX_HOST')?.value?.trim();
+  const host  = (document.getElementById('PROXMOX_HOST')?.value?.trim()) ||
+                (document.getElementById('pve-setup-host')?.value?.trim());
   const resultEl = document.getElementById('discover-result');
   if (!token) { showAlert('config-alert', 'warning', 'Enter PROXMOX_API_TOKEN first'); return; }
   if (!host) { showAlert('config-alert', 'warning', 'Enter PROXMOX_HOST first'); return; }

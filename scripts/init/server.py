@@ -310,6 +310,131 @@ def _ping_check_single(ip: str) -> Dict:
         return {"ok": False, "error": str(e)}
 
 
+def _setup_proxmox_user(host: str, username: str, password: str) -> Dict:
+    """Log in with username/password (ticket auth), create a dedicated
+    infraweaver@pve user + InfraWeaver role + API token.
+    Credentials are NEVER stored — only the resulting token is returned."""
+    import urllib.request, urllib.parse, urllib.error
+    import ssl, secrets
+
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    base = f"https://{host}:8006/api2/json"
+
+    def pve_req(method: str, path: str, data=None, ticket=None, csrf=None):
+        url = f"{base}{path}"
+        headers: Dict[str, str] = {}
+        if ticket:
+            headers["Cookie"] = f"PVEAuthCookie={ticket}"
+        if csrf:
+            headers["CSRFPreventionToken"] = csrf
+        body = None
+        if data is not None:
+            body = urllib.parse.urlencode(data).encode()
+            headers["Content-Type"] = "application/x-www-form-urlencoded"
+        req = urllib.request.Request(url, data=body, headers=headers, method=method)
+        with urllib.request.urlopen(req, context=ctx, timeout=12) as r:
+            return json.loads(r.read())
+
+    try:
+        # ── 1. Authenticate (ticket) ──────────────────────────────────────────
+        try:
+            auth_resp = pve_req("POST", "/access/ticket",
+                                {"username": username, "password": password})
+        except urllib.error.HTTPError as e:
+            if e.code == 401:
+                return {"ok": False, "error": "Authentication failed — wrong username or password"}
+            raise
+        ticket = auth_resp["data"]["ticket"]
+        csrf   = auth_resp["data"]["CSRFPreventionToken"]
+
+        # ── 2. Verify admin-level access (can list users) ─────────────────────
+        try:
+            pve_req("GET", "/access/users", ticket=ticket)
+        except urllib.error.HTTPError as e:
+            if e.code in (401, 403):
+                return {"ok": False, "error":
+                        "User authenticated but lacks admin privileges. "
+                        "Use root@pam or a user with User.Modify + Sys.Modify permissions."}
+            raise
+
+        # ── 3. Create InfraWeaver role ────────────────────────────────────────
+        PRIVS = ",".join([
+            "VM.Allocate", "VM.Clone", "VM.Config.CDROM", "VM.Config.CPU",
+            "VM.Config.Cloudinit", "VM.Config.Disk", "VM.Config.HWType",
+            "VM.Config.Memory", "VM.Config.Network", "VM.Config.Options",
+            "VM.Monitor", "VM.Audit", "VM.PowerMgmt", "VM.Console",
+            "VM.Migrate", "VM.Snapshot", "VM.Snapshot.Rollback",
+            "Datastore.AllocateSpace", "Datastore.AllocateTemplate", "Datastore.Audit",
+            "Pool.Allocate", "SDN.Use", "Sys.Audit",
+        ])
+        try:
+            pve_req("POST", "/access/roles",
+                    {"roleid": "InfraWeaver", "privs": PRIVS}, ticket, csrf)
+        except Exception:
+            # Role already exists — update its privileges instead
+            try:
+                pve_req("PUT", "/access/roles/InfraWeaver",
+                        {"privs": PRIVS}, ticket, csrf)
+            except Exception:
+                pass  # Ignore — role is fine as-is
+
+        # ── 4. Create infraweaver@pve user ────────────────────────────────────
+        user_id = "infraweaver@pve"
+        try:
+            pve_req("POST", "/access/users", {
+                "userid": user_id,
+                "password": secrets.token_urlsafe(32),
+                "comment": "InfraWeaver deployer — managed by InfraWeaver Platform",
+                "enable": 1,
+            }, ticket, csrf)
+        except Exception:
+            pass  # User already exists — that's fine
+
+        # ── 5. Assign InfraWeaver role on / (root path, propagating) ─────────
+        pve_req("PUT", "/access/acl", {
+            "path": "/",
+            "users": user_id,
+            "roles": "InfraWeaver",
+            "propagate": 1,
+        }, ticket, csrf)
+
+        # ── 6. Create (or recreate) API token ────────────────────────────────
+        token_name = "infraweaver"
+        try:
+            tok = pve_req("POST", f"/access/users/{user_id}/token/{token_name}", {
+                "privsep": 0,
+                "comment": "InfraWeaver deployer token",
+            }, ticket, csrf)
+            token_uuid = tok["data"]["value"]
+        except Exception:
+            # Token already exists — delete it and regenerate
+            try:
+                pve_req("DELETE", f"/access/users/{user_id}/token/{token_name}",
+                        None, ticket, csrf)
+            except Exception:
+                pass
+            tok = pve_req("POST", f"/access/users/{user_id}/token/{token_name}", {
+                "privsep": 0,
+                "comment": "InfraWeaver deployer token",
+            }, ticket, csrf)
+            token_uuid = tok["data"]["value"]
+
+        # Credentials are discarded here — only the token is returned
+        return {
+            "ok": True,
+            "token": f"{user_id}!{token_name}={token_uuid}",
+            "user": user_id,
+        }
+
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", "replace")
+        return {"ok": False, "error": f"Proxmox API error {e.code}: {body[:300]}"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 def _discover_proxmox(host: str, token: str) -> Dict:
     """Query Proxmox API to discover node name, datastores, and next free VMIDs."""
     import urllib.request
@@ -754,6 +879,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._send_json({"ok": True})
             except Exception as e:
                 self._send_json({"ok": False, "error": str(e)})
+            return
+
+        if path == "/api/setup-proxmox-user":
+            host     = payload.get("host", "").strip()
+            username = payload.get("username", "").strip()
+            password = payload.get("password", "")
+            if not host or not username or not password:
+                self._send_json({"ok": False, "error": "host, username and password are required"}, 400)
+                return
+            self._send_json(_setup_proxmox_user(host, username, password))
             return
 
         if path == "/api/validate-proxmox":
