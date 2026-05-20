@@ -790,11 +790,11 @@ while (( _ELAPSED < _WAIT_SECS )); do
   AGENT_IP=""
   if [[ -n "$VM_MAC" ]]; then
     AGENT_IP=$(ip neigh show 2>/dev/null \
-      | awk -v m="$VM_MAC" 'tolower($5)==m && $1!~/^(127\.|169\.254\.)/ {print $1; exit}' \
+      | awk -v m="$VM_MAC" 'tolower($5)==m && $1!~/^127\./ && $1!~/^169\.254\./ {print $1; exit}' \
       || true)
     if [[ -z "$AGENT_IP" ]]; then
       AGENT_IP=$(arp -n 2>/dev/null \
-        | awk -v m="$VM_MAC" 'tolower($3)==m && $1!="?" && $1!~/^(127\.|169\.254\.)/ {print $1; exit}' \
+        | awk -v m="$VM_MAC" 'tolower($3)==m && $1!="?" && $1!~/^127\./ && $1!~/^169\.254\./ {print $1; exit}' \
         || true)
     fi
   fi
