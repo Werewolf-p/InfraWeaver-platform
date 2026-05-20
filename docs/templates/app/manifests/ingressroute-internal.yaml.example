@@ -1,0 +1,44 @@
+---
+# INTERNAL IngressRoute — only accessible via NetBird VPN
+#
+# Rename this file from .yaml.example → .yaml to activate it.
+# URL: https://APP_NAME.int.rlservers.com  (only reachable when connected to NetBird)
+#
+# The `netbird-vpn-only` middleware allows only VPN traffic through.
+# The `secure-headers` middleware adds browser security headers (HSTS, X-Frame-Options, etc.)
+# No Authentik login required — the VPN itself is the authentication layer.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: APP_NAME-internal
+  namespace: apps-APP_NAME
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`APP_NAME.int.rlservers.com`)
+      kind: Rule
+      middlewares:
+        - name: secure-headers
+          namespace: traefik
+        - name: netbird-vpn-only
+          namespace: traefik
+      services:
+        - name: APP_NAME
+          port: 80
+  tls:
+    secretName: APP_NAME-int-tls
+---
+# Certificate for APP_NAME.int.rlservers.com
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: APP_NAME-int-tls
+  namespace: apps-APP_NAME
+spec:
+  secretName: APP_NAME-int-tls
+  issuerRef:
+    name: letsencrypt-dns
+    kind: ClusterIssuer
+  dnsNames:
+    - APP_NAME.int.rlservers.com

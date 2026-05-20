@@ -1,0 +1,87 @@
+---
+# configure-proxmox-oidc.yml — Configure Authentik OIDC authentication realm on Proxmox VE
+#
+# Prerequisites:
+#   1. Run full-redeploy.yml first so Proxmox OIDC client secret is stored in OpenBao
+#   2. Retrieve the client secret:
+#      kubectl exec -n openbao openbao-0 -- \
+#        env VAULT_TOKEN=<root-token> VAULT_ADDR=http://127.0.0.1:8200 \
+#        bao kv get -field=client_secret secret/platform/proxmox-oidc
+#   3. Run this playbook with the secret:
+#      ansible-playbook ansible/playbooks/configure-proxmox-oidc.yml \
+#        -i "10.25.0.3," \
+#        --extra-vars "proxmox_oidc_secret=<secret>"
+#
+# What this does:
+#   - Adds (or updates) an 'authentik' OpenID Connect realm in Proxmox
+#   - Users logging in with Authentik get auto-created as PVE users
+#   - They are mapped to the 'PVEAuditor' role by default (safe read-only)
+#   - Admins should be promoted manually in the PVE UI or via pveum
+
+- name: Configure Proxmox VE Authentik OIDC Realm
+  hosts: all
+  gather_facts: false
+  become: false
+
+  vars:
+    proxmox_oidc_realm: authentik
+    proxmox_oidc_issuer: "https://auth.rlservers.com/application/o/proxmox/"
+    proxmox_oidc_client_id: proxmox
+    proxmox_oidc_secret: "{{ proxmox_oidc_secret | mandatory }}"
+    proxmox_oidc_username_claim: preferred_username
+    proxmox_oidc_autocreate: "1"
+    # Default role for auto-created users from OIDC (PVEAuditor = read-only)
+    proxmox_oidc_default_role: PVEAuditor
+
+  tasks:
+    - name: Check if authentik OIDC realm already exists
+      ansible.builtin.command:
+        cmd: pveum realm list --output-format json
+      register: realm_list
+      changed_when: false
+
+    - name: Set realm_exists fact
+      ansible.builtin.set_fact:
+        realm_exists: >-
+          {{ (realm_list.stdout | from_json) | selectattr('realm', 'equalto', proxmox_oidc_realm) | list | length > 0 }}
+
+    - name: Add Authentik OIDC realm (first time)
+      ansible.builtin.command:
+        cmd: >
+          pveum realm add {{ proxmox_oidc_realm }}
+          --type openid
+          --issuer-url {{ proxmox_oidc_issuer }}
+          --client-id {{ proxmox_oidc_client_id }}
+          --client-key {{ proxmox_oidc_secret }}
+          --username-claim {{ proxmox_oidc_username_claim }}
+          --autocreate {{ proxmox_oidc_autocreate }}
+          --default 0
+          --comment "Authentik SSO (managed by InfraWeaver)"
+      when: not realm_exists
+      no_log: true
+
+    - name: Update Authentik OIDC realm (idempotent)
+      ansible.builtin.command:
+        cmd: >
+          pveum realm set {{ proxmox_oidc_realm }}
+          --issuer-url {{ proxmox_oidc_issuer }}
+          --client-id {{ proxmox_oidc_client_id }}
+          --client-key {{ proxmox_oidc_secret }}
+          --username-claim {{ proxmox_oidc_username_claim }}
+          --autocreate {{ proxmox_oidc_autocreate }}
+      when: realm_exists
+      no_log: true
+
+    - name: Verify realm is present
+      ansible.builtin.command:
+        cmd: pveum realm list --output-format json
+      register: realm_verify
+      changed_when: false
+
+    - name: Show realm status
+      ansible.builtin.debug:
+        msg: >-
+          Authentik realm '{{ proxmox_oidc_realm }}' configured.
+          Users can now log in at https://proxmox.int.rlservers.com using Authentik SSO.
+          Auto-created users are assigned PVEAuditor role (read-only).
+          Promote admin users manually: pveum aclmod / -role Administrator -user <user>@{{ proxmox_oidc_realm }}

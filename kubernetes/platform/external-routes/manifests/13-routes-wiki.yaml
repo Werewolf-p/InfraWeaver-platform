@@ -1,0 +1,26 @@
+---
+# Wiki.js — InfraWeaver documentation wiki
+# NetBird-VPN-only: accessible only via NetBird VPN (netbird-vpn-only middleware).
+# Domain: wiki.int.${BASE_DOMAIN} — covered by *.int.${BASE_DOMAIN} wildcard cert (DNS-01).
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: wiki
+  namespace: traefik
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`wiki.int.${BASE_DOMAIN}`)
+      kind: Rule
+      middlewares:
+        - name: secure-headers
+          namespace: traefik
+        - name: netbird-vpn-only
+          namespace: traefik
+      services:
+        - name: wiki
+          namespace: wiki
+          port: 80
+  tls:
+    secretName: platform-int-wildcard-tls

@@ -1,0 +1,17 @@
+# ── APP_NAME Helm Values ──────────────────────────────────────────────────────
+# These values override the chart's defaults.
+# Full list of options: see the chart's own values.yaml or documentation.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Always set resource requests/limits to prevent noisy-neighbour problems
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+replicaCount: 1
+
+# TODO: add chart-specific values here

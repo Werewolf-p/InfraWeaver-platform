@@ -1,0 +1,76 @@
+---
+# Self-signed ClusterIssuer — kept for internal .${CLUSTER_LOCAL_DOMAIN} hostnames
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: selfsigned-issuer
+spec:
+  selfSigned: {}
+---
+# Let's Encrypt PRODUCTION ClusterIssuer using HTTP-01 challenge via Traefik
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-http
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: ${ADMIN_EMAIL}
+    privateKeySecretRef:
+      name: letsencrypt-http-account-key
+    solvers:
+      - http01:
+          ingress:
+            ingressClassName: traefik
+---
+# Let's Encrypt STAGING ClusterIssuer using HTTP-01 (for testing without rate limits)
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-http-staging
+spec:
+  acme:
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    email: ${ADMIN_EMAIL}
+    privateKeySecretRef:
+      name: letsencrypt-http-staging-account-key
+    solvers:
+      - http01:
+          ingress:
+            ingressClassName: traefik
+---
+# Let's Encrypt PRODUCTION ClusterIssuer using DNS-01 via Cloudflare (for CF-proxied domains)
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-cloudflare
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: ${ADMIN_EMAIL}
+    privateKeySecretRef:
+      name: letsencrypt-cloudflare-account-key
+    solvers:
+      - dns01:
+          cloudflare:
+            apiTokenSecretRef:
+              name: cloudflare-api-token-secret
+              key: api-token
+---
+# Let's Encrypt STAGING ClusterIssuer using DNS-01 via Cloudflare (for testing without rate limits)
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-cloudflare-staging
+spec:
+  acme:
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    email: ${ADMIN_EMAIL}
+    privateKeySecretRef:
+      name: letsencrypt-cloudflare-staging-account-key
+    solvers:
+      - dns01:
+          cloudflare:
+            apiTokenSecretRef:
+              name: cloudflare-api-token-secret
+              key: api-token

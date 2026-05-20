@@ -1,0 +1,70 @@
+cluster_name: "${K8S_CLUSTER_NAME}"
+environment: "productie"
+talos_version: "v1.12.7"
+kubernetes_version: "v1.35.4"
+proxmox_host: "${PROXMOX_HOST}"
+
+# Talos VMs — 3 stacked control planes for HA etcd
+nodes:
+  talos-prod-cp1:
+    proxmox_node: "${PROXMOX_NODE_NAME}"
+    ip: "${NODE_1_IP}"
+    vm_id: ${NODE_1_VMID}
+    controlplane: true
+    cpu: 4
+    # Safe max: 62.7 GiB host - 4 GiB Proxmox OS - 7 GiB TrueNAS - 8 GiB github-runner
+    # - 1 GiB netbird = 42.7 GiB for 3 nodes → ~14 GiB/node (14336 MB).
+    # TrueNAS reduced from 8→7 GiB to free up 1 GiB per node.
+    # Apply via console Cluster → Node Hardware Editor to trigger rolling Proxmox update.
+    memory_mb: 8192
+    disk_gb: 100
+    datastore: "${TALOS_DATASTORE}"
+  talos-prod-cp2:
+    proxmox_node: "${PROXMOX_NODE_NAME}"
+    ip: "${NODE_2_IP}"
+    vm_id: ${NODE_2_VMID}
+    controlplane: true
+    cpu: 4
+    memory_mb: 8192
+    disk_gb: 100
+    datastore: "${TALOS_DATASTORE}"
+  talos-prod-cp3:
+    proxmox_node: "${PROXMOX_NODE_NAME}"
+    ip: "${NODE_3_IP}"
+    vm_id: ${NODE_3_VMID}
+    controlplane: true
+    cpu: 4
+    memory_mb: 8192
+    disk_gb: 100
+    datastore: "${TALOS_DATASTORE}"
+
+# SSH IPs for individual PVE nodes — used by qm importdisk and Talos ISO download operations.
+# These are the management IPs of each Proxmox node in the cluster.
+#
+# ── Multi-Proxmox-node support ─────────────────────────────────────────────
+# This map supports clusters spanning multiple physical Proxmox hosts.
+# Requirements for adding a second PVE host:
+#   1. All PVE hosts must be in the SAME Proxmox cluster (they share one API endpoint)
+#      — proxmox_host above points to any node's management IP (they share the API)
+#   2. The deployer SSH key (~/.ssh/deployer_ed25519.pub) must be in
+#      /root/.ssh/authorized_keys on EVERY PVE host listed here
+#   3. The datastore name used in each node's `datastore:` field must exist on
+#      the PVE host that node is assigned to (datastores are per-node, not shared)
+#
+# To add a second PVE host:
+#   1. Add it here:        pve_nodes:
+#                            pve:  "${PROXMOX_HOST}"
+#                            pve2: "192.168.1.101"   ← add this
+#   2. Assign nodes to it: proxmox_node: "pve2"  in the nodes section above
+#   3. Verify pre-flight:  bash scripts/validate-cluster.sh --fix
+#   4. Run tofu plan to verify changes before applying
+pve_nodes:
+  "${PROXMOX_NODE_NAME}": "${PROXMOX_HOST}"
+  # "pve2": "192.168.1.101"  ← uncomment to add a second PVE host
+
+gateway: "${NODE_GATEWAY}"
+nameservers:
+  - "8.8.8.8"
+  - "1.1.1.1"
+subnet_prefix: ${NODE_SUBNET_PREFIX}
+talos_image_datastore: "${TALOS_DATASTORE}"

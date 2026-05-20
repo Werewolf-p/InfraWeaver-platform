@@ -1,0 +1,15 @@
+# etcd-alarm-healer — automated via GitHub Actions (maintenance.yml)
+#
+# The etcd CORRUPT alarm fix runs as a scheduled GitHub Actions job (every 10 min)
+# in .github/workflows/maintenance.yml job: etcd-alarm-check
+#
+# This approach is chosen over an in-cluster CronJob because:
+#   1. No image pull required (runs on self-hosted runner with kubectl configured)
+#   2. Avoids Talos kubelet proxy restrictions that block pod exec from k8s CronJobs
+#   3. Full audit trail in GitHub Actions logs
+#   4. Can be manually triggered via workflow_dispatch
+#
+# Permanent IaC fix: experimental-compact-hash-check-enabled=false in
+# terraform/modules/talos-cluster/main.tf — applied on next full-redeploy.
+#
+# To manually trigger: GitHub → Actions → Maintenance → Run workflow → etcd-alarm-check

@@ -1,0 +1,82 @@
+---
+# ── NetBird Signal Server ─────────────────────────────────────────────────────
+# Handles WebRTC signaling for peer-to-peer connection establishment.
+# External: ${METALLB_NETBIRD_SIGNAL_VIP}:10000
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: netbird-signal
+  namespace: netbird
+  labels:
+    app: netbird-signal
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: netbird-signal
+  template:
+    metadata:
+      labels:
+        app: netbird-signal
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: signal
+          image: "netbirdio/signal:0.70.4@sha256:f2ffaf0b184f5fd403d7f65e768778e39dd11c561b60cacb7fefc4c9eb0feffd"
+          imagePullPolicy: IfNotPresent
+          args:
+            - --port=10000
+            - --log-file=console
+            - --log-level=info
+          ports:
+            - name: grpc
+              containerPort: 10000
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+          readinessProbe:
+            tcpSocket:
+              port: 10000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 10000
+            initialDelaySeconds: 15
+            periodSeconds: 30
+---
+# ── Signal ClusterIP Service ──────────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: netbird-signal
+  namespace: netbird
+spec:
+  selector:
+    app: netbird-signal
+  ports:
+    - name: grpc
+      port: 10000
+      targetPort: 10000
+---
+# ── Signal LoadBalancer (external access at ${METALLB_NETBIRD_SIGNAL_VIP}) ─────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: netbird-signal-lb
+  namespace: netbird
+spec:
+  type: LoadBalancer
+  loadBalancerIP: "${METALLB_NETBIRD_SIGNAL_VIP}"
+  selector:
+    app: netbird-signal
+  ports:
+    - name: grpc
+      port: 10000
+      targetPort: 10000

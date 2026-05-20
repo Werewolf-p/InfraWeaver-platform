@@ -1,0 +1,16 @@
+---
+# Namespace-level resource quota — prevents a single app from consuming all cluster resources.
+# Adjust values based on your app's actual needs.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: default-quota
+  namespace: apps-APP_NAME
+spec:
+  hard:
+    requests.cpu: "500m"
+    requests.memory: "512Mi"
+    limits.cpu: "2"
+    limits.memory: "2Gi"
+    count/pods: "10"
+    count/services: "5"

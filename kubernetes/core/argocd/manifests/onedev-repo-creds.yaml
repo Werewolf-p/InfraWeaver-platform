@@ -1,0 +1,36 @@
+---
+# ArgoCD repository credential for Onedev (cluster-internal git server).
+# Without this, a cluster rebuild leaves ArgoCD unable to pull from Onedev.
+#
+# The Secret must be in the argocd namespace and carry the
+# argocd.argoproj.io/secret-type: repository label so ArgoCD discovers it.
+# Token belongs to the "infraweaver" service account (created by scripts/setup-onedev.sh).
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: argocd-onedev-repo-creds
+  namespace: argocd
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: openbao
+    kind: ClusterSecretStore
+  target:
+    name: argocd-onedev-repo-creds
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    template:
+      metadata:
+        labels:
+          argocd.argoproj.io/secret-type: repository
+      type: Opaque
+      data:
+        type: git
+        url: http://onedev.onedev.svc.cluster.local/InfraWeaver-platform
+        username: "infraweaver"
+        password: "{{ .onedev_token }}"
+  data:
+    - secretKey: onedev_token
+      remoteRef:
+        key: secret/platform/infraweaver-console
+        property: onedev-token

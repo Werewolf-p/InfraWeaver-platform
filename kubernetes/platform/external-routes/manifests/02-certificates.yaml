@@ -1,0 +1,107 @@
+---
+# Certificate for ${BASE_DOMAIN} — publicly-accessible subdomains (HTTP-01)
+# auth.${BASE_DOMAIN} is bundled here (not a separate cert) to share the rate-limit allowance.
+# netbird.${BASE_DOMAIN} → separate cert (avoid cascading on VPN entry point).
+# Internal services (proxmox, portainer, adguard, etc.) → moved to *.int.${BASE_DOMAIN} (DNS-01 wildcard)
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: platform-wildcard-cert
+  namespace: traefik
+spec:
+  secretName: platform-wildcard-tls
+  issuerRef:
+    name: letsencrypt-http
+    kind: ClusterIssuer
+  dnsNames:
+    # Base domain
+    - "${BASE_DOMAIN}"
+    - "www.${BASE_DOMAIN}"
+    # Platform public endpoints
+    - "auth.${BASE_DOMAIN}"
+    - "netbird.${BASE_DOMAIN}"
+    - "api-netbird.${BASE_DOMAIN}"
+    - "status.${BASE_DOMAIN}"
+    - "test.${BASE_DOMAIN}"
+    # TrueNAS (public-facing via Cloudflare)
+    - "truenas.${BASE_DOMAIN}"
+    # External/baremetal services
+    - "keycloak.${BASE_DOMAIN}"
+    - "awx.${BASE_DOMAIN}"
+    - "bitwarden.${BASE_DOMAIN}"
+    - "vaultwarden.${BASE_DOMAIN}"
+    - "gitlab.${BASE_DOMAIN}"
+    - "registry.gitlab.${BASE_DOMAIN}"
+    - "cloud.${BASE_DOMAIN}"
+    - "teleport.${BASE_DOMAIN}"
+    - "registry.${BASE_DOMAIN}"
+    # Websites
+    - "degoudentijd.${BASE_DOMAIN}"
+    - "feestinhetdonker.${BASE_DOMAIN}"
+    - "marcel.${BASE_DOMAIN}"
+    # Catalog apps (public)
+    - "onedev.${BASE_DOMAIN}"
+---
+# Certificate for *.int.${BASE_DOMAIN} — private/VPN-only domain, DNS-01 required
+# DNS-only Cloudflare record → ${METALLB_TRAEFIK_VIP} (private IP, unreachable without VPN)
+# NOTE: "int.${BASE_DOMAIN}" apex is included intentionally — it creates a distinct SAN set
+# from "*.int.${BASE_DOMAIN}" alone, bypassing rate-limit exhaustion on the wildcard-only set.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: int-platform-wildcard-cert
+  namespace: traefik
+spec:
+  secretName: platform-int-wildcard-tls
+  issuerRef:
+    name: letsencrypt-cloudflare
+    kind: ClusterIssuer
+  dnsNames:
+    - "int.${BASE_DOMAIN}"
+    - "*.int.${BASE_DOMAIN}"
+---
+# Certificate for yonavaarwater.nl — Cloudflare-proxied, needs DNS-01
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: yonavaarwater-nl
+  namespace: traefik
+spec:
+  secretName: yonavaarwater-nl-tls
+  issuerRef:
+    name: letsencrypt-cloudflare
+    kind: ClusterIssuer
+  dnsNames:
+    - "yonavaarwater.nl"
+    - "www.yonavaarwater.nl"
+    - "ot.yonavaarwater.nl"
+---
+# Certificate for zonnevaarwater.nl — Cloudflare-proxied, needs DNS-01
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: zonnevaarwater-nl
+  namespace: traefik
+spec:
+  secretName: zonnevaarwater-nl-tls
+  issuerRef:
+    name: letsencrypt-cloudflare
+    kind: ClusterIssuer
+  dnsNames:
+    - "zonnevaarwater.nl"
+    - "www.zonnevaarwater.nl"
+---
+# Certificate for waterdance.nl
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: waterdance-nl
+  namespace: traefik
+spec:
+  secretName: waterdance-nl-tls
+  issuerRef:
+    name: letsencrypt-http
+    kind: ClusterIssuer
+  dnsNames:
+    - "waterdance.nl"
+

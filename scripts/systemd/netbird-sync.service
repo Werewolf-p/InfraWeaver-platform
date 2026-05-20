@@ -1,0 +1,11 @@
+[Unit]
+Description=Sync NetBird status into repository memory
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /home/runner/platform/.github/scripts/sync_netbird_status.py
+User=runner
+
+[Install]
+WantedBy=multi-user.target

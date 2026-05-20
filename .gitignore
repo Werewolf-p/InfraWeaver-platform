@@ -1,0 +1,107 @@
+# =============================================================================
+# InfraWeaver Platform — .gitignore
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# OpenTofu / Terraform
+# ---------------------------------------------------------------------------
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfstate.lock.info
+.terraform.lock.hcl
+tfplan
+plan.txt
+crash.log
+crash.*.log
+.terraformrc
+terraform.rc
+
+# tfvars contain non-sensitive config but are env-specific — track them
+# EXCEPT .auto.tfvars which may be generated
+*.auto.tfvars
+*.auto.tfvars.json
+
+# Override files are local-only
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# ---------------------------------------------------------------------------
+# Generated deployment artifacts (written during deploy/bootstrap — never commit)
+# ---------------------------------------------------------------------------
+envs/*/generated/*.yaml
+envs/*/generated/kubeconfig
+envs/*/generated/talosconfig
+envs/*/generated/*.conf
+!envs/*/generated/README.md
+!envs/*/generated/.gitkeep
+
+# ---------------------------------------------------------------------------
+# SOPS secrets — encrypted files ARE committed; raw plaintext never is
+# ---------------------------------------------------------------------------
+# Unencrypted secrets must never be committed. The .sops.yaml rule ensures
+# sops encrypt is always required before commit.
+# If you have a plaintext copy locally, name it *.secrets.plain.yaml
+*.secrets.plain.yaml
+
+# ---------------------------------------------------------------------------
+# Kubeconfig / Talos credentials
+# ---------------------------------------------------------------------------
+kubeconfig
+talosconfig
+*.kubeconfig
+*-kubeconfig.yaml
+*-talosconfig.yaml
+
+# ---------------------------------------------------------------------------
+# Keys and certificates
+# ---------------------------------------------------------------------------
+*.key
+*.pem
+*.crt
+*.p12
+age.key
+
+# ---------------------------------------------------------------------------
+# Python cache files
+# ---------------------------------------------------------------------------
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# ---------------------------------------------------------------------------
+# IDE and OS noise
+# ---------------------------------------------------------------------------
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Generated credentials (kubeconfig, talosconfig)
+# Catalog files for AI agents
+terraform/backend.hcl
+
+# Local development environment (contains real secrets — never commit)
+.env
+
+# ---------------------------------------------------------------------------
+# Node.js / NPM
+# ---------------------------------------------------------------------------
+node_modules/
+**/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+*.tsbuildinfo
+
+# ---------------------------------------------------------------------------
+# Editor / Tool state (never commit)
+# ---------------------------------------------------------------------------
+.copilot/
+

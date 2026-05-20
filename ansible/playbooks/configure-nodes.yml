@@ -1,0 +1,332 @@
+---
+# Post-install configuration for fresh Proxmox VE nodes.
+# Runs inside a Docker container with Ansible.
+# All host-specific values come from the generated inventory.
+
+# -----------------------------------------------------------------------
+# 1. Per-node base configuration
+# -----------------------------------------------------------------------
+- name: Configure Proxmox VE nodes
+  hosts: proxmox_nodes
+  gather_facts: false
+  serial: 1
+
+  tasks:
+    # ZFS swap for memory-constrained hosts
+    - name: Create ZFS swap zvol if not present
+      shell: |
+        if ! swapon --show | grep -q swap; then
+          if zpool list rpool &>/dev/null; then
+            zfs create -V 2G -b $(getconf PAGESIZE) \
+              -o compression=zle -o logbias=throughput -o sync=always \
+              -o primarycache=metadata -o secondarycache=none \
+              -o com.sun:auto-snapshot=false rpool/swap 2>/dev/null || true
+            mkswap -f /dev/zvol/rpool/swap
+            swapon /dev/zvol/rpool/swap
+            grep -q 'rpool/swap' /etc/fstab || \
+              echo '/dev/zvol/rpool/swap none swap sw 0 0' >> /etc/fstab
+            echo "ZFS swap created"
+          fi
+        else
+          echo "Swap already active"
+        fi
+      changed_when: false
+
+    # /etc/hosts
+    - name: Set /etc/hosts entries for all cluster members
+      blockinfile:
+        path: /etc/hosts
+        marker: "# {mark} INFRASTRUCTURE CLUSTER NODES"
+        block: |
+          {{ proxmox_host_ip }}   {{ proxmox_host_name }} {{ proxmox_host_name }}.localdomain
+          {% for name, cfg in all_nodes.items() %}
+          {{ cfg.ip }}  {{ name }} {{ name }}.localdomain
+          {% endfor %}
+
+    # Repositories — disable enterprise, enable no-subscription
+    - name: Disable Proxmox enterprise repository
+      copy:
+        dest: /etc/apt/sources.list.d/pve-enterprise.sources
+        content: |
+          Types: deb
+          URIs: https://enterprise.proxmox.com/debian/pve
+          Suites: trixie
+          Components: pve-enterprise
+          Enabled: no
+          Signed-By: /usr/share/keyrings/proxmox-archive-keyring.gpg
+        mode: "0644"
+
+    - name: Disable Ceph enterprise repository
+      copy:
+        dest: /etc/apt/sources.list.d/ceph.sources
+        content: |
+          Types: deb
+          URIs: https://enterprise.proxmox.com/debian/ceph-squid
+          Suites: trixie
+          Components: enterprise
+          Enabled: no
+          Signed-By: /usr/share/keyrings/proxmox-archive-keyring.gpg
+        mode: "0644"
+
+    - name: Add Proxmox no-subscription repository
+      copy:
+        dest: /etc/apt/sources.list.d/pve-no-subscription.list
+        content: |
+          deb http://download.proxmox.com/debian/pve trixie pve-no-subscription
+        mode: "0644"
+
+    - name: Remove subscription nag
+      shell: |
+        if dpkg -l pve-manager &>/dev/null; then
+          sed -i "s/Ext.Msg.show({/void({\/\//g" \
+            /usr/share/javascript/proxmox-widget-toolkit/proxmoxlib.js 2>/dev/null || true
+        fi
+      changed_when: false
+
+    # System update
+    - name: Remove apt-listchanges
+      apt:
+        name: apt-listchanges
+        state: absent
+      failed_when: false
+
+    - name: Fix broken dpkg state
+      shell: "dpkg --configure -a 2>/dev/null || true; apt-get install -f -y 2>/dev/null || true"
+      changed_when: false
+      failed_when: false
+
+    - name: Update apt cache
+      apt:
+        update_cache: true
+        cache_valid_time: 0
+
+    - name: Full system upgrade
+      shell: |
+        timeout 300 bash -c '
+          DEBIAN_FRONTEND=noninteractive apt-get dist-upgrade -y \
+            -o Dpkg::Options::="--force-confdef" \
+            -o Dpkg::Options::="--force-confold" 2>&1
+        '
+        rc=$?
+        DEBIAN_FRONTEND=noninteractive apt-get -f install -y 2>&1 || true
+        dpkg --configure -a 2>&1 || true
+        exit $rc
+      register: upgrade_result
+      retries: 3
+      delay: 30
+      until: upgrade_result.rc == 0
+      changed_when: "'0 upgraded' not in upgrade_result.stdout"
+
+    # Useful packages
+    - name: Install useful packages
+      apt:
+        name:
+          - vim
+          - htop
+          - curl
+          - wget
+          - net-tools
+          - tcpdump
+          - iotop
+          - lsof
+          - git
+        state: present
+
+    # SSH keys
+    - name: Ensure all runner SSH keys are authorized
+      authorized_key:
+        user: root
+        key: "{{ item }}"
+        state: present
+      loop: "{{ runner_ssh_keys }}"
+      when: runner_ssh_keys is defined and runner_ssh_keys | length > 0
+
+    # Nested virtualisation
+    - name: Enable nested KVM for Intel
+      copy:
+        dest: /etc/modprobe.d/nested-kvm.conf
+        content: |
+          options kvm-intel nested=1
+          options kvm-intel enable_shadow_vmcs=1
+          options kvm-intel enable_apicv=1
+          options kvm-intel ept=1
+        mode: "0644"
+      ignore_errors: true
+
+    # NTP
+    - name: Ensure chrony is installed
+      apt:
+        name: chrony
+        state: present
+
+    - name: Ensure chrony service is running
+      service:
+        name: chrony
+        state: started
+        enabled: true
+
+    # Node info
+    - name: Collect node info
+      shell: pvesh get /nodes/localhost/version --output-format json 2>/dev/null || true
+      register: node_version
+      changed_when: false
+
+    - name: Show node info
+      debug:
+        msg: "Node {{ inventory_hostname }} ({{ node_ip }}) configured. PVE: {{ node_version.stdout | default('unknown') }}"
+
+# -----------------------------------------------------------------------
+# 2. SSH key exchange between cluster nodes
+# -----------------------------------------------------------------------
+- name: Exchange SSH public keys between cluster nodes
+  hosts: proxmox_nodes
+  gather_facts: false
+  tasks:
+    - name: Read node SSH public key
+      shell: |
+        if [ -f /root/.ssh/id_ed25519.pub ]; then
+          cat /root/.ssh/id_ed25519.pub
+        elif [ -f /root/.ssh/id_rsa.pub ]; then
+          cat /root/.ssh/id_rsa.pub
+        fi
+      register: node_ssh_pubkey
+      changed_when: false
+      failed_when: false
+
+    - name: Authorize every node's key on every other node
+      authorized_key:
+        user: root
+        key: "{{ hostvars[item].node_ssh_pubkey.stdout | trim }}"
+        state: present
+      loop: "{{ groups['proxmox_nodes'] }}"
+      when:
+        - item != inventory_hostname
+        - hostvars[item].node_ssh_pubkey is defined
+        - hostvars[item].node_ssh_pubkey.stdout is defined
+        - hostvars[item].node_ssh_pubkey.stdout | trim | length > 0
+
+# -----------------------------------------------------------------------
+# 3. Cluster creation on primary nodes
+# -----------------------------------------------------------------------
+- name: Create Proxmox cluster on primary nodes
+  hosts: cluster_primaries
+  gather_facts: false
+  tasks:
+    - name: Check if already in a cluster
+      shell: >
+        pvesh get /cluster/status --output-format json 2>/dev/null |
+        python3 -c "import sys,json; d=json.load(sys.stdin);
+        print('yes' if any(x.get('type')=='cluster' for x in d) else 'no')" 2>/dev/null || echo no
+      register: in_cluster
+      changed_when: false
+
+    - name: Create cluster
+      shell: pvecm create {{ cluster_name }} --link0 {{ node_ip }}
+      when: in_cluster.stdout.strip() == 'no'
+      register: cluster_create
+
+    - name: Wait for cluster to settle
+      pause:
+        seconds: 45
+      when: cluster_create is changed
+
+# -----------------------------------------------------------------------
+# 4. Join secondary nodes to their cluster (serial=1)
+# -----------------------------------------------------------------------
+- name: Join secondary nodes to their cluster
+  hosts: proxmox_nodes
+  gather_facts: false
+  serial: 1
+  tasks:
+    - name: Skip primary nodes
+      meta: end_host
+      when: is_primary | bool
+
+    - name: Skip standalone nodes
+      meta: end_host
+      when: cluster_name | length == 0
+
+    - name: Check if already in a cluster
+      shell: >
+        pvesh get /cluster/status --output-format json 2>/dev/null |
+        python3 -c "import sys,json; d=json.load(sys.stdin);
+        print('yes' if any(x.get('type')=='cluster' for x in d) else 'no')" 2>/dev/null || echo no
+      register: in_cluster
+      changed_when: false
+
+    - name: Get cluster join fingerprint from primary
+      shell: >
+        echo | openssl s_client -connect {{ cluster_primary_ip }}:8006 2>/dev/null |
+        openssl x509 -noout -fingerprint -sha256 2>/dev/null |
+        awk -F= '{print $2}'
+      register: cluster_fp
+      changed_when: false
+      retries: 10
+      delay: 10
+      until: cluster_fp.rc == 0 and cluster_fp.stdout | trim | length > 0
+      when: in_cluster.stdout.strip() == 'no'
+
+    - name: Join cluster
+      shell: |
+        out=$(pvesh create /cluster/config/join \
+          --hostname {{ cluster_primary_ip }} \
+          --password {{ root_password }} \
+          --fingerprint {{ cluster_fp.stdout | trim }} \
+          --link0 address={{ node_ip }} 2>&1)
+        echo "$out"
+        if echo "$out" | grep -qi "aborted\|error occurred\|invalid"; then
+          exit 1
+        fi
+      when: in_cluster.stdout.strip() == 'no'
+      register: cluster_join
+      retries: 5
+      delay: 20
+      until: cluster_join.rc == 0
+
+    - name: Wait for cluster services to settle
+      pause:
+        seconds: 30
+      when: cluster_join is changed
+
+    - name: Verify cluster join
+      shell: >
+        pvesh get /cluster/status --output-format json 2>/dev/null |
+        python3 -c "import sys,json; d=json.load(sys.stdin);
+        print('JOINED' if any(x.get('type')=='cluster' for x in d) else 'NOT_JOINED')" 2>/dev/null || echo NOT_JOINED
+      register: cluster_join_check
+      retries: 12
+      delay: 10
+      until: "'JOINED' in cluster_join_check.stdout"
+      failed_when: false
+      when: cluster_join is changed
+
+    - name: Assert cluster join passed
+      assert:
+        that: "'JOINED' in cluster_join_check.stdout"
+        fail_msg: "Node failed to join cluster — status: {{ cluster_join_check.stdout }}"
+      when: cluster_join is changed
+
+# -----------------------------------------------------------------------
+# 5. Configure 2-node quorum (persistent) when cluster has exactly 2 nodes
+# -----------------------------------------------------------------------
+- name: Configure 2-node corosync quorum
+  hosts: cluster_primaries
+  gather_facts: false
+  tasks:
+    - name: Check cluster node count
+      shell: pvecm nodes 2>/dev/null | grep -c '^[[:space:]]*[0-9]' || echo 0
+      register: node_count
+      changed_when: false
+
+    - name: Patch corosync.conf for two_node quorum
+      shell: |
+        if ! grep -q 'two_node' /etc/corosync/corosync.conf; then
+          sed -i '/provider: corosync_votequorum/a\\t\ttwo_node: 1' /etc/corosync/corosync.conf
+          systemctl reload corosync || true
+          echo "patched"
+        else
+          echo "already set"
+        fi
+      register: corosync_patch
+      changed_when: "'patched' in corosync_patch.stdout"
+      when: node_count.stdout | trim | int == 2

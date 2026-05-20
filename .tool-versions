@@ -1,0 +1,13 @@
+# .tool-versions — Tool version pinning for InfraWeaver Platform
+# Compatible with asdf (https://asdf-vm.com) and mise (https://mise.jdx.dev)
+#
+# Install tools: mise install  (or: asdf install)
+# Sync with CI: these versions must match .github/workflows/platform.yml TOFU_VERSION
+
+opentofu 1.11.6
+kubectl 1.32.4
+talosctl 1.9.0
+helm 3.17.2
+sops 3.10.2
+age 1.2.1
+pre-commit 4.2.0

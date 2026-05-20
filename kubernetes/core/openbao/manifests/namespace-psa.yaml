@@ -1,0 +1,11 @@
+---
+# Pod Security Admission labels for the openbao namespace.
+# baseline: OpenBao runs as an unprivileged container.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: openbao
+  labels:
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: baseline
+    pod-security.kubernetes.io/warn: baseline

@@ -1,0 +1,41 @@
+---
+# PUBLIC IngressRoute — accessible from the internet WITHOUT authentication
+#
+# Rename this file from .yaml.example → .yaml to activate it.
+# URL: https://APP_NAME.rlservers.com  (⚠️ world-reachable! No login required.)
+#
+# ⚠️  Think twice before enabling this.
+#    Only use for apps explicitly designed to be fully public (e.g., a portfolio, API).
+#
+# Want Authentik SSO protection instead? Use ingressroute-auth.yaml.example.
+# It adds forward-auth middleware so only logged-in users can reach the app.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: APP_NAME-public
+  namespace: apps-APP_NAME
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`APP_NAME.rlservers.com`)
+      kind: Rule
+      services:
+        - name: APP_NAME
+          port: 80
+  tls:
+    secretName: APP_NAME-tls
+---
+# Certificate for APP_NAME.rlservers.com
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: APP_NAME-tls
+  namespace: apps-APP_NAME
+spec:
+  secretName: APP_NAME-tls
+  issuerRef:
+    name: letsencrypt-dns
+    kind: ClusterIssuer
+  dnsNames:
+    - APP_NAME.rlservers.com

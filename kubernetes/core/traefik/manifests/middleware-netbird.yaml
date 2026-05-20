@@ -1,0 +1,20 @@
+---
+# Traefik IPAllowList Middleware — restricts access to NetBird VPN clients only
+# Apply this middleware to private services (ArgoCD, Grafana, Longhorn)
+# The test-website does NOT use this middleware (it's public)
+#
+# With VLAN 3 migration: K8s nodes have eth1 on 10.10.0.0/24 (VLAN 3), unreachable
+# from local LAN. NetBird VPN clients reach services via masquerade through 10.10.0.x.
+# Keep 10.25.0.0/24 for internal cluster traffic (eth0) and pod CIDR.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: netbird-only
+  namespace: traefik
+spec:
+  ipAllowList:
+    sourceRange:
+      - 100.64.0.0/10    # NetBird CGNAT CIDR (direct WireGuard peers, no masquerade)
+      - 10.10.0.0/24     # VLAN 3: K8s nodes masquerade VPN traffic via eth1
+      - 10.244.0.0/16    # K8s pod CIDR (hairpin/cross-node masquerade paths)
+      - 127.0.0.1/32     # Localhost

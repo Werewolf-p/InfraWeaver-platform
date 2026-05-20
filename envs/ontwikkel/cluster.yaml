@@ -1,0 +1,40 @@
+cluster_name: "infraweaver-dev"
+environment: "ontwikkel"
+talos_version: "v1.10.9"
+kubernetes_version: "v1.33.0"
+proxmox_host: "10.25.0.41"
+
+# Talos VMs on top of the PVE cluster
+nodes:
+  talos-dev-cp1:
+    proxmox_node: "pve-dev1"
+    ip: "10.25.0.50"
+    vm_id: 9300
+    controlplane: true
+    cpu: 4
+    memory_mb: 4096
+    disk_gb: 50
+    datastore: "local-lvm"
+  talos-dev-worker1:
+    proxmox_node: "pve-dev2"
+    ip: "10.25.0.51"
+    vm_id: 9301
+    controlplane: false
+    cpu: 4
+    memory_mb: 4096
+    disk_gb: 50
+    datastore: "local-lvm"
+
+# SSH IPs for individual PVE nodes — used by qm importdisk operations
+# These are the management IPs of each Proxmox node in the cluster.
+pve_nodes:
+  pve-dev1: "10.25.0.41"
+  pve-dev2: "10.25.0.42"
+
+gateway: "10.25.0.1"
+nameservers:
+  - "8.8.8.8"
+  - "1.1.1.1"
+subnet_prefix: 24
+talos_image_datastore: "local-lvm"
+openbao_address: "http://10.25.0.241:8200"

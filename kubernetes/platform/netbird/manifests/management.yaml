@@ -1,0 +1,348 @@
+# ── Management ConfigMap (template) ──────────────────────────────────────────
+# The init container substitutes the TURN password from the netbird-secrets Secret
+# before writing management.json to the PVC. After first boot, the PVC copy is
+# authoritative. To force config update: delete the PVC file and restart.
+#
+# OIDC split: RedirectURLs (below) is the CLIENT-side list (desktop app only).
+# It MUST contain ONLY "http://localhost:53000" — the NetBird client iterates
+# this list and picks the first port not in use locally. Including HTTPS dashboard
+# URLs (port 443) causes the client to send redirect_uri to the web dashboard
+# instead of localhost, breaking the PKCE flow (infinite /auth redirect loop).
+# Authentik provider redirect_uris (blueprint-netbird.yaml) separately allows
+# the web dashboard URLs (https://netbird.${BASE_DOMAIN}/auth, /silent-auth, /#callback).
+# See netbird-architecture.md memory for full explanation.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: netbird-management-config
+  namespace: netbird
+data:
+  management.json.template: |
+    {
+      "Stuns": [{"Proto":"udp","URI":"stun:stun.l.google.com:19302","Username":"","Password":null}],
+      "TURNs": [],
+      "Relay": {
+        "Addresses": ["rels://api-netbird.${BASE_DOMAIN}:443/relay"],
+        "CredentialsTTL": "12h",
+        "Secret": "RELAY_SECRET_PLACEHOLDER"
+      },
+      "Signal": {"Proto":"https","URI":"api-netbird.${BASE_DOMAIN}:443","Username":"","Password":null},
+      "Datadir": "/var/lib/netbird/",
+      "HttpConfig": {
+        "LetsEncryptDomain":"","CertFile":"","CertKey":"",
+        "AuthAudience":"netbird","AuthIssuer":"","AuthKeysLocation":"","AuthUserIDClaim":"",
+        "IdpSignKeyRefreshEnabled":true,"OIDCConfigEndpoint":"https://auth.${BASE_DOMAIN}/application/o/netbird/.well-known/openid-configuration"
+      },
+      "IdpManagerConfig": {"Manager":"none","ExtraConfig":{},"ClientConfig":null},
+      "DeviceAuthorizationFlow": null,
+      "PKCEAuthorizationFlow": {
+        "ProviderConfig": {
+          "ClientID": "netbird",
+          "ClientSecret": "",
+          "Domain": "auth.${BASE_DOMAIN}",
+          "Audience": "netbird",
+          "TokenEndpoint": "https://auth.${BASE_DOMAIN}/application/o/token/",
+          "AuthorizationEndpoint": "https://auth.${BASE_DOMAIN}/application/o/authorize/",
+          "Scope": "openid profile email offline_access",
+          "RedirectURLs": ["http://localhost:53000"],
+          "UseIDToken": true,
+          "DisableRefreshToken": false
+        }
+      },
+      "DataStoreEncryptionKey": "DATASTORE_KEY_PLACEHOLDER"
+    }
+---
+# ── Management PVC ────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: netbird-management-data
+  namespace: netbird
+  annotations:
+    # Include in nightly TrueNAS NFS backup (RecurringJob: truenas-backup-daily).
+    # NetBird management DB contains all peers, groups, and setup keys — critical.
+    recurring-job-group.longhorn.io/truenas-backup: "enabled"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: longhorn-retain   # HA: 3 replicas across nodes via Longhorn
+---
+# ── Management StatefulSet ────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: netbird-management
+  namespace: netbird
+  labels:
+    app: netbird-management
+spec:
+  serviceName: netbird-management
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: netbird-management
+  template:
+    metadata:
+      labels:
+        app: netbird-management
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      initContainers:
+        # Wait for Authentik OIDC endpoint before starting management.
+        # Uses curlimages/curl instead of busybox because busybox wget's TLS library
+        # (uClibc) cannot negotiate modern TLS cipher suites with Traefik.
+        - name: wait-for-oidc
+          image: curlimages/curl:8.10.1
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for Authentik OIDC endpoint..."
+              until curl -sfk --max-time 5 "https://auth.${BASE_DOMAIN}/application/o/netbird/.well-known/openid-configuration" > /dev/null 2>&1; do
+                echo "OIDC endpoint not ready, retrying in 5s..."
+                sleep 5
+              done
+              echo "OIDC endpoint ready!"
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 50m
+              memory: 64Mi
+        # Substitute sensitive placeholders and copy to PVC only if not already present
+        - name: copy-config
+          image: busybox:1.36
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              echo "Generating management.json from template (substituting secrets)"
+              sed -e "s|DATASTORE_KEY_PLACEHOLDER|${NB_DATASTORE_ENC_KEY}|g" \
+                  -e "s|RELAY_SECRET_PLACEHOLDER|${NB_RELAY_SECRET}|g" \
+                  /config-source/management.json.template > /var/lib/netbird/management.json
+              echo "management.json generated"
+          env:
+            - name: NB_DATASTORE_ENC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: netbird-secrets
+                  key: datastore-enc-key
+            - name: NB_RELAY_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: netbird-secrets
+                  key: turn-password
+          volumeMounts:
+            - name: config-source
+              mountPath: /config-source
+            - name: data
+              mountPath: /var/lib/netbird
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 50m
+              memory: 32Mi
+      containers:
+        - name: management
+          image: "netbirdio/management:0.70.4@sha256:d50bc24d772d2cdfcb95a6f281182611a24ac3e0c096d07da98d70d4fb40a416"
+          imagePullPolicy: IfNotPresent
+          args:
+            - --port=80
+            - --log-file=console
+            - --log-level=info
+            - --disable-anonymous-metrics=true
+            - --single-account-mode-domain=infraweaver.local
+            - --dns-domain=netbird.infraweaver.local
+            - --config=/var/lib/netbird/management.json
+            - --datadir=/var/lib/netbird/
+          ports:
+            - name: http
+              containerPort: 80
+            - name: grpc-compat
+              containerPort: 33073
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            tcpSocket:
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 80
+            initialDelaySeconds: 20
+            periodSeconds: 30
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/netbird
+      volumes:
+        - name: config-source
+          configMap:
+            name: netbird-management-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: netbird-management-data
+---
+# ── Management ClusterIP Service ──────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: netbird-management
+  namespace: netbird
+spec:
+  selector:
+    app: netbird-management
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+    - name: grpc-compat
+      port: 33073
+      targetPort: 33073
+---
+# ── Management LoadBalancer (external access at ${METALLB_NETBIRD_MGMT_VIP}) ─────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: netbird-management-lb
+  namespace: netbird
+spec:
+  type: LoadBalancer
+  loadBalancerIP: "${METALLB_NETBIRD_MGMT_VIP}"
+  selector:
+    app: netbird-management
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+    - name: grpc-compat
+      port: 33073
+      targetPort: 33073
+---
+# ── Dashboard Deployment ──────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: netbird-dashboard
+  namespace: netbird
+  labels:
+    app: netbird-dashboard
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: netbird-dashboard
+  template:
+    metadata:
+      labels:
+        app: netbird-dashboard
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      containers:
+      - name: dashboard
+        image: "netbirdio/dashboard:v2.36.0@sha256:0def57db6bbd4ab1559554e161e9e05e066f5411db7885b52e81bddb9791cad2"
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 80
+          name: http
+        env:
+        - name: AUTH_SUPPORTED_SCOPES
+          value: "openid profile email offline_access"
+        - name: AUTH_REDIRECT_URI
+          value: "/auth"
+        - name: AUTH_SILENT_REDIRECT_URI
+          value: "/silent-auth"
+        - name: NETBIRD_MGMT_API_ENDPOINT
+          value: "https://api-netbird.${BASE_DOMAIN}"
+        - name: NETBIRD_MGMT_GRPC_API_ENDPOINT
+          value: "https://api-netbird.${BASE_DOMAIN}"
+        - name: AUTH_AUDIENCE
+          value: "netbird"
+        - name: USE_AUTH0
+          value: "false"
+        - name: AUTH_AUTHORITY
+          value: "https://auth.${BASE_DOMAIN}/application/o/netbird/"
+        - name: AUTH_CLIENT_ID
+          value: "netbird"
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 15
+          periodSeconds: 30
+---
+# ── Dashboard Service ──────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: netbird-dashboard
+  namespace: netbird
+spec:
+  selector:
+    app: netbird-dashboard
+  ports:
+  - port: 80
+    targetPort: 80
+    name: http
+---
+# ── Management Ingress (for web dashboard via Traefik) ────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: netbird-management
+  namespace: netbird
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.middlewares: traefik-netbird-only@kubernetescrd
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: netbird.${CLUSTER_LOCAL_DOMAIN}
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: netbird-management
+                port:
+                  number: 80
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: netbird-dashboard
+                port:
+                  number: 80
+    # netbird.${BASE_DOMAIN} is handled exclusively by IngressRoutes in external-routes/09-routes-netbird.yaml
+    # which apply the stricter netbird-vpn-only middleware (no local LAN access).

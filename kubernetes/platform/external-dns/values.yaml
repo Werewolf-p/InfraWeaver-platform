@@ -1,0 +1,81 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# ExternalDNS — Automates Cloudflare DNS records for *.int.${BASE_DOMAIN}
+#
+# Scope: ONLY int.${BASE_DOMAIN} records (public ${BASE_DOMAIN} untouched).
+# Source: traefik-proxy — reads IngressRoute objects, extracts Host() rules.
+# Target: ${METALLB_TRAEFIK_VIP} (Traefik/MetalLB — all int. services go here).
+# Policy: upsert-only — never deletes existing records (safe default).
+# TXT owner: infraweaver-prod — marks managed records so other ExternalDNS
+#            instances don't interfere.
+# ─────────────────────────────────────────────────────────────────────────────
+
+sources:
+  - traefik-proxy
+  - service
+
+provider:
+  name: cloudflare
+
+# Cloudflare API token — injected from ExternalSecret (pulled from OpenBao)
+env:
+  - name: CF_API_TOKEN
+    valueFrom:
+      secretKeyRef:
+        name: cloudflare-api-token
+        key: CF_API_TOKEN
+
+# Only manage records under int.${BASE_DOMAIN} — never touch public records
+domainFilters:
+  - "int.${BASE_DOMAIN}"
+  - "games.int.${BASE_DOMAIN}"
+
+# All int. services route through Traefik at ${METALLB_TRAEFIK_VIP} (MetalLB)
+# This avoids annotating every IngressRoute with the target IP
+extraArgs:
+  - --default-targets=${METALLB_TRAEFIK_VIP}
+
+# upsert-only: create/update records but NEVER delete them
+# Change to "sync" later once you're confident in the managed records
+policy: upsert-only
+
+# TXT records claim ownership — prevents other ExternalDNS instances interfering
+txtOwnerId: "infraweaver-prod"
+txtPrefix: "edns-"
+
+# How often to reconcile DNS records against IngressRoutes
+interval: "2m"
+
+logLevel: "info"
+logFormat: "text"
+
+# RBAC — create ClusterRole for ExternalDNS to read K8s + Traefik resources
+rbac:
+  create: true
+
+serviceAccount:
+  create: true
+  name: external-dns
+
+# Extra RBAC rules to read Traefik IngressRoute CRDs
+# (not included in default ExternalDNS ClusterRole)
+extraRules:
+  - apiGroups:
+      - traefik.io
+    resources:
+      - ingressroutes
+      - ingressroutetcps
+      - ingressrouteudps
+    verbs:
+      - get
+      - list
+      - watch
+
+resources:
+  requests:
+    cpu: 25m
+    memory: 50Mi
+  limits:
+    memory: 128Mi
+
+# Single replica is fine — DNS reconciliation is stateless and idempotent
+replicaCount: 1

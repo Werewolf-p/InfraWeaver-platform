@@ -1,0 +1,26 @@
+---
+# netbird.${BASE_DOMAIN} — public dashboard (NetBird handles auth via its own Authentik OIDC)
+# No middleware needed — dashboard is safe to expose publicly since it requires Authentik login.
+# VPN users get the faster internal URL at netbird.int.${BASE_DOMAIN} (no re-auth required).
+# Management API at api-netbird.${BASE_DOMAIN} (required for client enrollment).
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: netbird-dashboard
+  namespace: traefik
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`netbird.${BASE_DOMAIN}`)
+      kind: Rule
+      priority: 10
+      middlewares:
+        - name: secure-headers
+          namespace: traefik
+      services:
+        - name: netbird-dashboard
+          port: 80
+  tls:
+    secretName: platform-wildcard-tls
+
