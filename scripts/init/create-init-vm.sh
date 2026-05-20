@@ -508,6 +508,10 @@ if [[ "$VM_IP" == "_ask_" ]]; then
   # Recalculate gateway from the user's actual IP + prefix (always correct regardless of VLAN)
   _suggested_gw=$(_calc_gw_from_ip "$VM_IP" "${VM_CIDR:-24}")
   ask VM_GW   "Gateway"                "${_suggested_gw:-}"
+else
+  # IP was pre-set via --ip / IW_VM_IP — fill in any missing CIDR + gateway
+  [[ -z "$VM_CIDR" ]] && VM_CIDR="24"
+  [[ -z "$VM_GW"   ]] && VM_GW=$(_calc_gw_from_ip "$VM_IP" "$VM_CIDR")
 fi
 
 hdr "Cluster Network  (net1 - Talos node communication)"
