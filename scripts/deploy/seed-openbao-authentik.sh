@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # Seed or patch the Authentik secret in OpenBao.
 # Usage: seed-openbao-authentik.sh <LOCAL_OPENBAO> <ROOT_TOKEN>
-# Creates secret/platform/authentik if absent; patches missing fields in if needed.
+# Creates secret/platform/authentik if absent; patches missing fields if needed.
+# Required keys:
+#   secret-key, postgresql-password, bootstrap-password, bootstrap-token,
+#   admin-password (used by ExternalSecret for authentik-secrets),
+#   smtp-{host,port,username,password,from}
 set -euo pipefail
 
 LOCAL_OPENBAO="${1:?missing LOCAL_OPENBAO}"
@@ -13,6 +17,7 @@ EXISTING_AUTH=$(curl -s -H "X-Vault-Token: $ROOT_TOKEN" \
   2>/dev/null || echo "")
 
 if [ -z "$EXISTING_AUTH" ]; then
+  _ADMIN_PASS="$(openssl rand -base64 18 | tr -d '/+=')"
   curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/platform/authentik" \
     -H "X-Vault-Token: $ROOT_TOKEN" \
     -H "Content-Type: application/json" \
@@ -21,8 +26,7 @@ if [ -z "$EXISTING_AUTH" ]; then
       \"postgresql-password\": \"$(openssl rand -base64 18 | tr -d '/+=')\",
       \"bootstrap-password\": \"$(openssl rand -base64 18 | tr -d '/+=')\",
       \"bootstrap-token\": \"$(openssl rand -base64 30 | tr -d '/+=')\",
-      \"remon-password\": \"$(openssl rand -base64 18 | tr -d '/+=')\",
-      \"ardaty-password\": \"$(openssl rand -base64 18 | tr -d '/+=')\",
+      \"admin-password\": \"${_ADMIN_PASS}\",
       \"smtp-host\": \"smtp-mail.outlook.com\",
       \"smtp-port\": \"587\",
       \"smtp-username\": \"placeholder@rlservers.com\",
@@ -45,11 +49,10 @@ changed = False
 def rand_b64(n):
     return subprocess.check_output(['openssl','rand','-base64',str(n)]).decode().strip().replace('/','').replace('+','').replace('=','')
 
-if 'remon-password' not in d:
-    d['remon-password'] = rand_b64(18)
-    changed = True
-if 'ardaty-password' not in d:
-    d['ardaty-password'] = rand_b64(18)
+# admin-password: used by ExternalSecret authentik-secrets (required by Authentik)
+if 'admin-password' not in d:
+    # Use an existing user password as admin if available, otherwise generate one
+    d['admin-password'] = d.get('bootstrap-password', rand_b64(18))
     changed = True
 if 'postgresql-password' not in d:
     d['postgresql-password'] = rand_b64(18)
@@ -77,3 +80,4 @@ sys.stdout.write(json.dumps({'data': d}) if changed else '')
     echo "==> Authentik secrets already exist — preserving"
   fi
 fi
+
