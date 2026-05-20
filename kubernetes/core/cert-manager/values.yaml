@@ -73,6 +73,6 @@ cainjector:
 prometheus:
   enabled: true
   servicemonitor:
-    enabled: true
+    enabled: false
 
 # Self-healing: priorityClassName moved to global block above
