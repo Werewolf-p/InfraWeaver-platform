@@ -239,13 +239,13 @@ SETUP_KEY="SETUP_KEY_PLACEHOLDER"
 CHECK_INTERVAL=60
 
 while true; do
-  sleep $CHECK_INTERVAL
-  STATUS=$(netbird status 2>/dev/null | grep -i "Management.*Connected" || echo "")
-  if [ -z "$STATUS" ]; then
+  sleep \$CHECK_INTERVAL
+  STATUS=\$(netbird status 2>/dev/null | grep -i "Management.*Connected" || echo "")
+  if [ -z "\$STATUS" ]; then
     logger -t netbird-watchdog "Management disconnected, attempting re-enroll..."
     netbird down 2>/dev/null || true
     sleep 3
-    netbird up --management-url "$MGMT_URL" --setup-key "$SETUP_KEY" --interface-name wt0 2>&1 | logger -t netbird-watchdog || true
+    netbird up --management-url "\$MGMT_URL" --setup-key "\$SETUP_KEY" --interface-name wt0 2>&1 | logger -t netbird-watchdog || true
     sleep 30
   fi
 done
