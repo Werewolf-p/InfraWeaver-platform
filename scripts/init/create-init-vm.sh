@@ -55,6 +55,27 @@ askyn() {
   _yn="${_yn:-$_default}"
   [[ "${_yn,,}" == "y" || "${_yn,,}" == "yes" ]]
 }
+choose() {
+  # choose VAR "Header line" item1 item2 item3...
+  # Shows a numbered list; user picks by number or types a value; Enter = item 1
+  local _var="$1" _header="$2"; shift 2
+  local _opts=("$@") _n="$#"
+  echo -e "  ${C}${_header}${NC}" >/dev/tty
+  local i; for (( i=0; i<_n; i++ )); do
+    local _mark=""; (( i == 0 )) && _mark=" ${D}(default)${NC}"
+    printf "    %b%d)%b %s%b\n" "${B}" "$((i+1))" "${NC}" "${_opts[$i]}" "${_mark}" >/dev/tty
+  done
+  printf "  %bChoice [1]:%b " "${M}" "${NC}" >/dev/tty
+  local _input; IFS= read -r _input </dev/tty
+  _input="${_input:-1}"
+  local _choice
+  if [[ "$_input" =~ ^[0-9]+$ ]] && (( _input >= 1 && _input <= _n )); then
+    _choice="${_opts[$(( _input - 1 ))]}"
+  else
+    _choice="$_input"   # allow typing a value directly
+  fi
+  printf -v "$_var" '%s' "$_choice"
+}
 
 # ── Hardcoded non-interactive defaults ───────────────────────────────────────
 IMAGE_URL="https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"
@@ -117,10 +138,10 @@ done
 # ── Banner ────────────────────────────────────────────────────────────────────
 echo ""
 echo -e "${C}${B}"
-echo "  ╔══════════════════════════════════════════════════════════════╗"
-echo "  ║          InfraWeaver — Init VM Deployer                     ║"
-echo "  ║          Creates a lightweight bootstrap VM on Proxmox      ║"
-echo "  ╚══════════════════════════════════════════════════════════════╝"
+echo "  +==============================================================+"
+echo "  |          InfraWeaver -- Init VM Deployer                    |"
+echo "  |          Creates a lightweight bootstrap VM on Proxmox      |"
+echo "  +==============================================================+"
 echo -e "${NC}"
 echo -e "  ${D}This wizard will create a small Ubuntu VM that hosts the${NC}"
 echo -e "  ${D}InfraWeaver web UI and deploys your Kubernetes cluster.${NC}"
@@ -130,75 +151,168 @@ echo ""
 command -v qm &>/dev/null || die "This script must run on a Proxmox VE host (qm not found)"
 
 # ── Auto-detect Proxmox environment ──────────────────────────────────────────
-# Available storages (those that can hold VMs)
-AVAIL_STORAGES=$(pvesm status --content images 2>/dev/null \
-  | awk 'NR>1 && $3=="active" {print $1}' | tr '\n' ' ' || echo "lvm-proxmox")
-# Available bridges
-AVAIL_BRIDGES=$(ip link show type bridge 2>/dev/null \
-  | awk -F: '/^[0-9]/{print $2}' | tr -d ' ' | tr '\n' ' ' || echo "vmbr0")
-# Current management IP/subnet for auto-detecting gateway
-MGMT_IP=$(ip route | awk '/^default/{print $3; exit}')
-MGMT_IFACE=$(ip route | awk '/^default/{print $5; exit}')
-MGMT_SUBNET=$(ip -o -4 addr show "$MGMT_IFACE" 2>/dev/null \
-  | awk '{print $4}' | head -1 | cut -d/ -f1 | cut -d. -f1-3)
 
-# Next free VMID above 9000
-NEXT_VMID=9001
+# Available storages that can hold VM images
+mapfile -t AVAIL_STORAGES_ARR < <(pvesm status --content images 2>/dev/null \
+  | awk 'NR>1 && $3=="active" {print $1}' || echo "lvm-proxmox")
+[[ ${#AVAIL_STORAGES_ARR[@]} -eq 0 ]] && AVAIL_STORAGES_ARR=("lvm-proxmox")
+
+# Available bridges with IP/subnet info for display
+mapfile -t AVAIL_BRIDGES_ARR < <(ip link show type bridge 2>/dev/null \
+  | awk -F: '/^[0-9]+:/{gsub(/ /,"",$2); print $2}' | sort)
+[[ ${#AVAIL_BRIDGES_ARR[@]} -eq 0 ]] && AVAIL_BRIDGES_ARR=("vmbr0")
+
+# Build human-readable bridge labels: "vmbr0 (10.25.0.1/24)" or "vmbr0 (no IP)"
+declare -A BRIDGE_SUBNET    # bridge → subnet CIDR (for IP suggestion)
+BRIDGE_LABELS=()
+for _br in "${AVAIL_BRIDGES_ARR[@]}"; do
+  _bip=$(ip -o -4 addr show dev "$_br" 2>/dev/null | awk '{print $4}' | head -1)
+  if [[ -n "$_bip" ]]; then
+    BRIDGE_LABELS+=("${_br} (${_bip})")
+    BRIDGE_SUBNET[$_br]="$_bip"
+  else
+    BRIDGE_LABELS+=("${_br} (no IP)")
+    BRIDGE_SUBNET[$_br]=""
+  fi
+done
+
+# VLANs defined in /etc/network/interfaces — extract unique VLAN IDs
+mapfile -t AVAIL_VLANS_ARR < <(grep -oP 'vlan-id \K[0-9]+' /etc/network/interfaces 2>/dev/null \
+  | sort -un)
+# Also detect from VLAN sub-interfaces (e.g. vmbr0.3)
+mapfile -t _extra_vlans < <(ip -d link show 2>/dev/null \
+  | awk '/802.1Q.*id [0-9]/{match($0,/id ([0-9]+)/,a); print a[1]}' | sort -un)
+for v in "${_extra_vlans[@]}"; do
+  [[ ! " ${AVAIL_VLANS_ARR[*]} " =~ " $v " ]] && AVAIL_VLANS_ARR+=("$v")
+done
+# Common VLAN options to always offer
+for v in 1 2 3 10 20 100; do
+  [[ ! " ${AVAIL_VLANS_ARR[*]} " =~ " $v " ]] && AVAIL_VLANS_ARR+=("$v")
+done
+mapfile -t AVAIL_VLANS_ARR < <(printf '%s\n' "${AVAIL_VLANS_ARR[@]}" | sort -n)
+VLAN_OPTS=("none (untagged)" "${AVAIL_VLANS_ARR[@]}")
+
+# Management network (default route interface)
+MGMT_GW=$(ip route 2>/dev/null | awk '/^default/{print $3; exit}')
+MGMT_IFACE=$(ip route 2>/dev/null | awk '/^default/{print $5; exit}')
+
+# Next free VMID ≥ 9000
+NEXT_VMID=9000
 while qm status "$NEXT_VMID" &>/dev/null 2>&1; do (( NEXT_VMID++ )); done
+
+# ── Helper: suggest a free IP in a subnet ──────────────────────────────────────
+suggest_free_ip() {
+  # suggest_free_ip <cidr>  e.g. "10.10.0.1/24"
+  # Returns an IP in the .50-.99 range that does not respond to ping
+  local _cidr="$1"
+  local _base; _base=$(echo "$_cidr" | cut -d/ -f1 | cut -d. -f1-3)
+  for _last in $(seq 50 99); do
+    local _ip="${_base}.${_last}"
+    if ! ping -c1 -W1 "$_ip" &>/dev/null; then
+      echo "$_ip"; return
+    fi
+  done
+  echo "${_base}.50"  # fallback
+}
 
 # ── Interactive Wizard ────────────────────────────────────────────────────────
 hdr "VM Settings"
-[[ -z "$VMID"      ]] && ask VMID      "VM ID"          "$NEXT_VMID"
-[[ -z "$VM_NAME"   ]] && ask VM_NAME   "VM name"        "infraweaver-init"
-[[ -z "$STORAGE"   ]] && ask STORAGE   "Storage  (available: ${AVAIL_STORAGES})" \
-                                        "$(echo "$AVAIL_STORAGES" | awk '{print $1}')"
-[[ -z "$CPU"       ]] && ask CPU       "CPU cores"      "2"
-[[ -z "$MEM"       ]] && ask MEM       "RAM (MB)"       "1024"
-[[ -z "$DISK"      ]] && ask DISK      "Disk size (GB)" "8"
 
-hdr "Management Network  (net0 — web UI access)"
-[[ -z "$BRIDGE"    ]] && ask BRIDGE    "Bridge  (available: ${AVAIL_BRIDGES})" \
-                                        "$(echo "$AVAIL_BRIDGES" | awk '{print $1}')"
-if [[ "$VLAN_TAG" == "_ask_" ]]; then
-  ask VLAN_TAG "VLAN tag (leave blank for untagged/access port)" ""
+# VMID — just show and confirm
+if [[ -z "$VMID" ]]; then
+  echo -e "  Next available VM ID: ${B}${NEXT_VMID}${NC}" >/dev/tty
+  printf "  %bVM ID [%d]:%b " "${M}" "$NEXT_VMID" "${NC}" >/dev/tty
+  IFS= read -r _vmid_in </dev/tty
+  VMID="${_vmid_in:-$NEXT_VMID}"
 fi
 
+# VM name — default, just confirm
+[[ -z "$VM_NAME" ]] && ask VM_NAME "VM name" "infraweaver-init"
+
+# Storage — numbered choice
+if [[ -z "$STORAGE" ]]; then
+  choose STORAGE "Storage pool:" "${AVAIL_STORAGES_ARR[@]}"
+fi
+
+# Resources — sane defaults, just confirm
+[[ -z "$CPU"  ]] && ask CPU  "CPU cores" "2"
+[[ -z "$MEM"  ]] && ask MEM  "RAM (MB)"  "1024"
+[[ -z "$DISK" ]] && ask DISK "Disk (GB)" "8"
+
+hdr "Management Network  (net0 — web UI access)"
+
+# Bridge — numbered choice with IP info
+if [[ -z "$BRIDGE" ]]; then
+  choose _BRIDGE_LABEL "Management bridge:" "${BRIDGE_LABELS[@]}"
+  BRIDGE=$(echo "$_BRIDGE_LABEL" | awk '{print $1}')
+fi
+
+# VLAN — numbered choice (none or detected VLANs)
+if [[ "$VLAN_TAG" == "_ask_" ]]; then
+  choose _VLAN_CHOICE "VLAN tag:" "${VLAN_OPTS[@]}"
+  if [[ "$_VLAN_CHOICE" == "none (untagged)" || -z "$_VLAN_CHOICE" ]]; then
+    VLAN_TAG=""
+  else
+    VLAN_TAG="$_VLAN_CHOICE"
+  fi
+fi
+
+# Management IP — DHCP or static with subnet suggestion
 if [[ "$VM_IP" == "_ask_" ]]; then
   if askyn "Use DHCP for the management IP?" "Y"; then
-    VM_IP=""
-    VM_GW=""
-    VM_CIDR=""
+    VM_IP=""; VM_GW=""; VM_CIDR=""
   else
-    ask VM_IP   "Static IP address  (e.g. ${MGMT_SUBNET}.200)" ""
-    [[ -z "$VM_CIDR" ]] && ask VM_CIDR "Prefix length"  "24"
-    [[ -z "$VM_GW"   ]] && ask VM_GW   "Gateway"        "$MGMT_IP"
+    _br_subnet="${BRIDGE_SUBNET[$BRIDGE]:-}"
+    _suggested_ip=""
+    if [[ -n "$_br_subnet" ]]; then
+      log "Scanning for a free IP in ${_br_subnet%/*}/24 (this takes a few seconds)..."
+      _suggested_ip=$(suggest_free_ip "$_br_subnet")
+    fi
+    ask VM_IP  "Static IP address" "${_suggested_ip:-}"
+    [[ -z "$VM_CIDR" ]] && ask VM_CIDR "Prefix length" "24"
+    [[ -z "$VM_GW"   ]] && ask VM_GW   "Gateway"       "${MGMT_GW:-}"
   fi
 fi
 
 hdr "Cluster Network  (net1 — Talos node communication)"
-echo -e "  ${D}The init VM needs a second NIC on the same network as your${NC}"
-echo -e "  ${D}Talos nodes so it can discover and configure them.${NC}"
+echo -e "  ${D}A second NIC on your Talos node network lets the init VM${NC}"
+echo -e "  ${D}discover and configure cluster nodes directly.${NC}"
 echo ""
+
 if [[ "$CLUSTER_NIC" == "_ask_" ]]; then
-  if askyn "Add a cluster network NIC?" "Y"; then
-    CLUSTER_NIC="yes"
-  else
-    CLUSTER_NIC="no"
-  fi
+  if askyn "Add a cluster NIC?" "Y"; then CLUSTER_NIC="yes"; else CLUSTER_NIC="no"; fi
 fi
 
 if [[ "$CLUSTER_NIC" == "yes" ]]; then
-  [[ -z "$CLUSTER_BRIDGE" ]] && ask CLUSTER_BRIDGE \
-    "Cluster bridge  (available: ${AVAIL_BRIDGES})" \
-    "$(echo "$AVAIL_BRIDGES" | awk '{print $1}')"
-  [[ -z "$CLUSTER_VLAN"   ]] && ask CLUSTER_VLAN   "Cluster VLAN tag" "3"
+  # Cluster bridge — numbered choice
+  if [[ -z "$CLUSTER_BRIDGE" ]]; then
+    choose _CBR_LABEL "Cluster bridge:" "${BRIDGE_LABELS[@]}"
+    CLUSTER_BRIDGE=$(echo "$_CBR_LABEL" | awk '{print $1}')
+  fi
+
+  # Cluster VLAN — numbered choice
+  if [[ -z "$CLUSTER_VLAN" ]]; then
+    choose _CVLAN_CHOICE "Cluster VLAN tag:" "${VLAN_OPTS[@]}"
+    if [[ "$_CVLAN_CHOICE" == "none (untagged)" || -z "$_CVLAN_CHOICE" ]]; then
+      CLUSTER_VLAN=""
+    else
+      CLUSTER_VLAN="$_CVLAN_CHOICE"
+    fi
+  fi
 
   if [[ "$CLUSTER_IP" == "_ask_" ]]; then
     if askyn "Use DHCP for the cluster NIC?" "N"; then
-      CLUSTER_IP=""
-      CLUSTER_CIDR=""
+      CLUSTER_IP=""; CLUSTER_CIDR=""
     else
-      ask CLUSTER_IP   "Static IP for cluster NIC  (e.g. 10.10.0.50)" "10.10.0.50"
+      # Suggest a free IP on the cluster bridge subnet
+      _cbr_subnet="${BRIDGE_SUBNET[$CLUSTER_BRIDGE]:-}"
+      _suggested_cluster_ip=""
+      if [[ -n "$_cbr_subnet" ]]; then
+        log "Scanning for a free cluster IP in ${_cbr_subnet%/*}/24..."
+        _suggested_cluster_ip=$(suggest_free_ip "$_cbr_subnet")
+      fi
+      [[ -z "$_suggested_cluster_ip" ]] && _suggested_cluster_ip="10.10.0.50"
+      ask CLUSTER_IP  "Static IP for cluster NIC" "$_suggested_cluster_ip"
       [[ -z "$CLUSTER_CIDR" ]] && ask CLUSTER_CIDR "Prefix length" "24"
     fi
   fi
