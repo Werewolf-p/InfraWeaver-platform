@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { canAccessLogsTarget, getGameHubAccessContext } from "@/lib/game-hub";
 import { createMockPodLogStreamResponse, createPodLogStreamResponse } from "@/lib/pod-log-stream";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
@@ -8,6 +9,8 @@ import { isValidContainerName, isValidK8sName, isValidNamespace } from "@/lib/va
 export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const access = await getSessionRBACContext(session);
+  if (!hasSessionPermission(access, "apps:read")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   if (!checkRateLimit(rateLimitKey("logs-stream", req), 30, 60_000)) {
     return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
   }
@@ -22,8 +25,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Invalid resource name" }, { status: 400 });
   }
 
-  const access = await getGameHubAccessContext(session, 60);
-  if (!canAccessLogsTarget(access.groups, access.username, access.roleAssignments, namespace, pod)) {
+  const gameHubAccess = await getGameHubAccessContext(session, 60);
+  if (!canAccessLogsTarget(gameHubAccess.groups, gameHubAccess.username, gameHubAccess.roleAssignments, namespace, pod)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

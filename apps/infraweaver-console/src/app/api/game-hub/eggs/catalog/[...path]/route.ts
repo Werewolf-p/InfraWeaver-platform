@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { getPelicanGameEgg } from "@/lib/pelican-eggs";
 import { safeError } from "@/lib/utils";
 
 export async function GET(_req: Request, { params }: { params: Promise<{ path: string[] }> }) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const access = await getSessionRBACContext(session);
+  if (!hasSessionPermission(access, "game-hub:read")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const { path } = await params;
   const requestedPath = path.join("/");

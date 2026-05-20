@@ -4,6 +4,7 @@ import { auditLog } from "@/lib/audit-log";
 import { getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
 import { appendServerAudit, execShell, getPrimaryContainerName, getServerPod, makeGameHubClients, shellQuote } from "@/lib/game-hub-server";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
+import { validateContainerPath } from "@/lib/validate";
 import { safeError } from "@/lib/utils";
 
 async function requireRead(name: string) {
@@ -24,6 +25,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ name
   const filePath = req.nextUrl.searchParams.get("path");
   const download = req.nextUrl.searchParams.get("download") === "1";
   if (!filePath) return NextResponse.json({ error: "path required" }, { status: 400 });
+  if (!validateContainerPath(filePath)) return NextResponse.json({ error: "Invalid path" }, { status: 400 });
 
   try {
     const clients = makeGameHubClients();
@@ -69,6 +71,10 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ name
 
   const body = await req.json() as { path: string; content: string };
   if (!body.path) return NextResponse.json({ error: "path required" }, { status: 400 });
+  if (!validateContainerPath(body.path)) return NextResponse.json({ error: "Invalid path" }, { status: 400 });
+  if (Buffer.byteLength(body.content ?? "", "utf8") > 10 * 1024 * 1024) {
+    return NextResponse.json({ error: "Content too large (max 10MB)" }, { status: 413 });
+  }
 
   try {
     const clients = makeGameHubClients();

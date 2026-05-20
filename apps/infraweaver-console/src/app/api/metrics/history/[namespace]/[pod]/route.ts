@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { getRequestClusterId } from "@/lib/cluster-context";
 import { canAccessLogsTarget, getGameHubAccessContext } from "@/lib/game-hub";
 import { parseCpuQuantity, parseMemoryBytes } from "@/lib/game-hub-server";
@@ -61,14 +62,16 @@ export async function GET(
 ) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const access = await getSessionRBACContext(session);
+  if (!hasSessionPermission(access, "apps:read")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const { namespace, pod } = await params;
   if (!isValidNamespace(namespace) || !isValidK8sName(pod)) {
     return NextResponse.json({ error: "Invalid name: only lowercase alphanumeric and dashes allowed" }, { status: 400 });
   }
 
-  const access = await getGameHubAccessContext(session, 60);
-  if (!canAccessLogsTarget(access.groups, access.username, access.roleAssignments, namespace, pod)) {
+  const gameHubAccess = await getGameHubAccessContext(session, 60);
+  if (!canAccessLogsTarget(gameHubAccess.groups, gameHubAccess.username, gameHubAccess.roleAssignments, namespace, pod)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

@@ -18,7 +18,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ name
     const k8s = await import("@kubernetes/client-node");
     const coreApi = loadKubeConfig(getRequestClusterId(req)).makeApiClient(k8s.CoreV1Api);
     const pods = await coreApi.listNamespacedPod({ namespace: GAME_HUB_NAMESPACE, labelSelector: `app=${name}` });
-    const pod = pods.items?.[0];
+    // Prefer running pods; exclude Terminating (deletionTimestamp set)
+    const active = (pods.items ?? []).filter((p) => !p.metadata?.deletionTimestamp);
+    const pod = active.find((p) => p.status?.phase === "Running") ?? active[0];
     if (!pod?.metadata?.name) return NextResponse.json({ error: "No pod found" }, { status: 404 });
     return NextResponse.json({
       podName: pod.metadata.name,

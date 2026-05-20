@@ -54,9 +54,57 @@ function generateNonce(): string {
     .replace(/=/g, "");
 }
 
+/**
+ * Builds per-request CSP with the nonce in script-src.
+ * 'strict-dynamic' + nonce causes CSP3 browsers to ignore 'unsafe-inline',
+ * while 'unsafe-inline' remains as fallback for CSP1/2 browsers.
+ */
+function buildCSP(nonce: string): string {
+  return [
+    "default-src 'self'",
+    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' 'unsafe-inline' 'unsafe-eval'`,
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob:",
+    "connect-src 'self' wss: ws:",
+    "font-src 'self' data:",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "frame-ancestors 'none'",
+    "form-action 'self'",
+    "upgrade-insecure-requests",
+  ].join("; ");
+}
+
+/**
+ * Creates a NextResponse.next() that also forwards the nonce and requestId
+ * in request headers so Server Components can read them via next/headers.
+ */
+function nextWithContext(req: NextRequest, nonce: string, requestId: string): NextResponse {
+  const requestHeaders = new Headers(req.headers);
+  requestHeaders.set("x-nonce", nonce);
+  requestHeaders.set("x-request-id", requestId);
+  return NextResponse.next({ request: { headers: requestHeaders } });
+}
+
 function withSecurityHeaders(response: NextResponse, nonce: string, requestId: string): NextResponse {
   response.headers.set("X-Request-Id", requestId);
   response.headers.set("x-nonce", nonce);
+  // Dynamic per-request CSP with nonce (overrides static header set in next.config.js)
+  response.headers.set("Content-Security-Policy", buildCSP(nonce));
+  // Prevent clickjacking — DENY is more restrictive than SAMEORIGIN; frame-ancestors 'none' in CSP covers modern browsers
+  response.headers.set("X-Frame-Options", "DENY");
+  // Stop browsers from guessing MIME types
+  response.headers.set("X-Content-Type-Options", "nosniff");
+  // Don't send referrer to other origins
+  response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  // Restrict powerful browser APIs to same origin
+  response.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
+  // Remove server fingerprint header
+  response.headers.delete("X-Powered-By");
+  // HSTS — only set on HTTPS responses (the browser ignores it on HTTP)
+  if (response.headers.get("content-type")?.includes("text/html") || !response.headers.has("content-type")) {
+    response.headers.set("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload");
+  }
   return response;
 }
 
@@ -120,23 +168,24 @@ export default auth(async (req) => {
           requestId,
         );
       }
-      return NextResponse.redirect(buildLoginUrl(req));
+      return withSecurityHeaders(NextResponse.redirect(buildLoginUrl(req)), nonce, requestId);
     }
 
     if (isLoggedIn && (pathname === "/login" || pathname === "/auth/signin")) {
       const callbackUrl = nextUrl.searchParams.get("callbackUrl");
-      // Guard: reject callbackUrls that would loop back into the auth flow
+      // Guard: reject callbackUrls that would loop back into the auth flow or chain redirects
       const isValidCallback =
         callbackUrl != null &&
         callbackUrl.startsWith("/") &&
         !callbackUrl.startsWith("/login") &&
         !callbackUrl.startsWith("/auth/signin") &&
-        !callbackUrl.startsWith("/api/auth");
+        !callbackUrl.startsWith("/api/auth") &&
+        !callbackUrl.includes("callbackUrl=");
       const target = isValidCallback ? new URL(callbackUrl, nextUrl) : new URL("/", nextUrl);
-      return NextResponse.redirect(target);
+      return withSecurityHeaders(NextResponse.redirect(target), nonce, requestId);
     }
 
-    return withSecurityHeaders(withApiCacheControl(pathname, NextResponse.next()), nonce, requestId);
+    return withSecurityHeaders(withApiCacheControl(pathname, nextWithContext(req, nonce, requestId)), nonce, requestId);
   } catch (error) {
     console.error("middleware recovery fallback", error);
     if (isApiRoute) {
@@ -146,7 +195,7 @@ export default auth(async (req) => {
         requestId,
       );
     }
-    return withSecurityHeaders(NextResponse.next(), nonce, requestId);
+    return withSecurityHeaders(nextWithContext(req, nonce, requestId), nonce, requestId);
   }
 });
 

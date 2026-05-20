@@ -5,6 +5,7 @@ import { auditLog } from "@/lib/audit-log";
 import { getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
 import { GAME_HUB_NS, gracefulStopServer, makeGameHubClients, readServerEgg } from "@/lib/game-hub-server";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
+import { isValidK8sName } from "@/lib/validate";
 import { safeError } from "@/lib/utils";
 
 const bulkBodySchema = z.object({
@@ -27,6 +28,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Validation failed", details: parsed.error.flatten() }, { status: 400 });
   }
   const { action, names } = parsed.data;
+  const invalidName = names.find((n) => !isValidK8sName(n));
+  if (invalidName) {
+    return NextResponse.json({ error: `Invalid server name: ${invalidName}` }, { status: 400 });
+  }
 
   try {
     const { appsApi, coreApi } = makeGameHubClients();

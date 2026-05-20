@@ -116,7 +116,8 @@ async function createServer(body: {
   const storageClass = body.storageClass ?? "longhorn-game";
   const pvcName = `${slug}-${pvcSuffixForMountPath(egg.mountPath)}`;
   const imageVersion = parseImageVersion(egg.dockerImage);
-  const dnsHostname = typeof body.dnsHostname === "string" ? body.dnsHostname.trim().toLowerCase() : `${slug}.games.int.rlservers.com`;
+  const baseDomain = process.env.BASE_DOMAIN ?? "local";
+  const dnsHostname = typeof body.dnsHostname === "string" ? body.dnsHostname.trim().toLowerCase() : `${slug}.games.int.${baseDomain}`;
   const annotations = {
     "infraweaver.io/groups": (body.groups ?? []).join(","),
     "infraweaver.io/image-version": imageVersion.version,
@@ -133,7 +134,7 @@ async function createServer(body: {
   await coreApi.createNamespacedPersistentVolumeClaim({
     namespace: GAME_HUB_NAMESPACE,
     body: {
-      metadata: { name: pvcName, namespace: GAME_HUB_NAMESPACE, labels: { app: slug, "infraweaver/game": "true", "infraweaver/egg": eggLabel } },
+      metadata: { name: pvcName, namespace: GAME_HUB_NAMESPACE, labels: { app: slug, "infraweaver/game": "true", "infraweaver.io/game": "true", "infraweaver/egg": eggLabel, "infraweaver.io/egg": eggLabel } },
       spec: { accessModes: ["ReadWriteOnce"], storageClassName: storageClass, resources: { requests: { storage } } },
     },
   });
@@ -141,13 +142,13 @@ async function createServer(body: {
   await appsApi.createNamespacedDeployment({
     namespace: GAME_HUB_NAMESPACE,
     body: {
-      metadata: { name: slug, namespace: GAME_HUB_NAMESPACE, labels: { app: slug, "infraweaver/game": "true", "infraweaver/game-type": eggLabel, "infraweaver/egg": eggLabel }, annotations },
+      metadata: { name: slug, namespace: GAME_HUB_NAMESPACE, labels: { app: slug, "infraweaver/game": "true", "infraweaver.io/game": "true", "infraweaver/game-type": eggLabel, "infraweaver.io/game-type": eggLabel, "infraweaver/egg": eggLabel, "infraweaver.io/egg": eggLabel }, annotations },
       spec: {
         replicas: 1,
         strategy: { type: "Recreate" },
         selector: { matchLabels: { app: slug } },
         template: {
-          metadata: { labels: { app: slug, "infraweaver/game": "true", "infraweaver/game-type": eggLabel, "infraweaver/egg": eggLabel }, annotations },
+          metadata: { labels: { app: slug, "infraweaver/game": "true", "infraweaver.io/game": "true", "infraweaver/game-type": eggLabel, "infraweaver.io/game-type": eggLabel, "infraweaver/egg": eggLabel, "infraweaver.io/egg": eggLabel }, annotations },
           spec: {
             priorityClassName: "game-server",
             terminationGracePeriodSeconds: 60,
@@ -158,7 +159,7 @@ async function createServer(body: {
               whenUnsatisfiable: "ScheduleAnyway",
               labelSelector: { matchLabels: { "infraweaver/game": "true" } },
             }],
-            securityContext: eggLabel === "valheim" ? { runAsUser: 0, runAsGroup: 0 } : { runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000 },
+            securityContext: egg.features?.includes("run_as_root") ? { runAsUser: 0, runAsGroup: 0 } : { runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000 },
             containers: [{
               name: slug,
               image: egg.dockerImage,
@@ -216,12 +217,13 @@ async function cloneServer(source: string, newName: string) {
   const pvcName = `${slug}-${pvcSuffixForMountPath(sourceEgg.mountPath)}`;
   const container = sourceDeployment.spec?.template?.spec?.containers?.[0];
   const imageVersion = parseImageVersion(container?.image ?? sourceEgg.dockerImage);
-  const dnsHostname = `${slug}.games.int.rlservers.com`;
+  const baseDomainClone = process.env.BASE_DOMAIN ?? "local";
+  const dnsHostname = `${slug}.games.int.${baseDomainClone}`;
 
   await coreApi.createNamespacedPersistentVolumeClaim({
     namespace: GAME_HUB_NAMESPACE,
     body: {
-      metadata: { name: pvcName, namespace: GAME_HUB_NAMESPACE, labels: { app: slug, "infraweaver/game": "true", "infraweaver/egg": sanitizeLabelValue(sourceEgg.id) } },
+      metadata: { name: pvcName, namespace: GAME_HUB_NAMESPACE, labels: { app: slug, "infraweaver/game": "true", "infraweaver.io/game": "true", "infraweaver/egg": sanitizeLabelValue(sourceEgg.id), "infraweaver.io/egg": sanitizeLabelValue(sourceEgg.id) } },
       spec: {
         accessModes: sourcePvc?.spec?.accessModes ?? ["ReadWriteOnce"],
         storageClassName: sourcePvc?.spec?.storageClassName ?? "longhorn",
@@ -241,7 +243,7 @@ async function cloneServer(source: string, newName: string) {
       metadata: {
         name: slug,
         namespace: GAME_HUB_NAMESPACE,
-        labels: { ...(sourceDeployment.metadata?.labels ?? {}), app: slug, "infraweaver/game": "true" },
+        labels: { ...(sourceDeployment.metadata?.labels ?? {}), app: slug, "infraweaver/game": "true", "infraweaver.io/game": "true" },
         annotations: {
           ...(sourceDeployment.metadata?.annotations ?? {}),
           "infraweaver/notes": `${sourceDeployment.metadata?.annotations?.["infraweaver/notes"] ?? ""}`,
@@ -256,7 +258,7 @@ async function cloneServer(source: string, newName: string) {
         selector: { matchLabels: { app: slug } },
         template: {
           metadata: {
-            labels: { ...(sourceDeployment.spec?.template?.metadata?.labels ?? {}), app: slug, "infraweaver/game": "true" },
+            labels: { ...(sourceDeployment.spec?.template?.metadata?.labels ?? {}), app: slug, "infraweaver/game": "true", "infraweaver.io/game": "true" },
             annotations: {
               ...(sourceDeployment.spec?.template?.metadata?.annotations ?? {}),
               "infraweaver.io/image-version": imageVersion.version,
@@ -292,7 +294,7 @@ async function cloneServer(source: string, newName: string) {
       metadata: {
         name: slug,
         namespace: GAME_HUB_NAMESPACE,
-        labels: { ...(sourceService.metadata?.labels ?? {}), app: slug, "infraweaver/game": "true" },
+        labels: { ...(sourceService.metadata?.labels ?? {}), app: slug, "infraweaver/game": "true", "infraweaver.io/game": "true" },
         annotations: {
           "external-dns.alpha.kubernetes.io/hostname": dnsHostname,
           "external-dns.alpha.kubernetes.io/ttl": "60",
@@ -373,7 +375,7 @@ export async function GET() {
         console.warn(`readServerManifestSha failed for ${name}`, error);
         return null;
       });
-      const gameType = deployment.metadata?.labels?.["infraweaver/game-type"] ?? "unknown";
+      const gameType = deployment.metadata?.labels?.["infraweaver/game-type"] ?? deployment.metadata?.labels?.["infraweaver.io/game-type"] ?? "unknown";
       const egg = getEggForGameType(gameType);
       const replicas = deployment.status?.replicas ?? 0;
       const readyReplicas = deployment.status?.readyReplicas ?? 0;
@@ -536,7 +538,10 @@ export async function POST(req: NextRequest) {
       try {
         await writeServerManifest(result.name, makeGameHubClients());
       } catch (gitErr) {
-        console.warn("writeServerManifest failed after clone", gitErr);
+        // K8s objects were created successfully. Git backing failed — ArgoCD will not track
+        // this server until a manual writeServerManifest is triggered or the server is edited.
+        console.error(`writeServerManifest failed after clone of ${result.name}:`, gitErr);
+        return NextResponse.json({ ...result, warning: "Server created but git sync failed — IAC backing is incomplete" }, { status: 201 });
       }
 
       return NextResponse.json(result, { status: 201 });
@@ -548,7 +553,8 @@ export async function POST(req: NextRequest) {
     try {
       await writeServerManifest(result.name, makeGameHubClients());
     } catch (gitErr) {
-      console.warn("writeServerManifest failed after create", gitErr);
+      console.error(`writeServerManifest failed after create of ${result.name}:`, gitErr);
+      return NextResponse.json({ ...result, warning: "Server created but git sync failed — IAC backing is incomplete" }, { status: 201 });
     }
 
     return NextResponse.json(result, { status: 201 });

@@ -2,7 +2,7 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect, useMemo, useRef } from "react";
-import { Server, Plus, RefreshCw, Zap, Link2, Loader2, Copy, Check, ChevronDown, Activity, Layers, BarChart2, GitBranch, Pencil, Save, X, Download, Settings2, ArrowRightLeft, MemoryStick, AlertTriangle, Bell, Globe } from "lucide-react";
+import { Server, Plus, Lock, RefreshCw, Zap, Link2, Loader2, Copy, Check, ChevronDown, Activity, Layers, BarChart2, GitBranch, Pencil, Save, X, Download, Settings2, ArrowRightLeft, MemoryStick, AlertTriangle, Bell, Globe } from "lucide-react";
 import { useRBAC } from "@/hooks/use-rbac";
 import { cn, timeAgo } from "@/lib/utils";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -1074,33 +1074,44 @@ export default function ClusterPage() {
                         </div>
                       </div>
                     ) : null}
-                    {isAdmin && (
-                      <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                        <button
-                          onClick={() => setCordonTarget(node)}
-                          disabled={cordoningNode === node.name}
-                          className={cn(
-                            "rounded-lg border px-3 py-2 text-xs font-medium transition-colors",
-                            node.unschedulable
-                              ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/15"
-                              : "border-amber-500/30 bg-amber-500/10 text-amber-300 hover:bg-amber-500/15",
-                            cordoningNode === node.name && "opacity-60"
-                          )}
-                        >
-                          {cordoningNode === node.name ? "Updating..." : node.unschedulable ? "Disable maintenance" : "Enable maintenance"}
-                        </button>
-                        <button
-                          onClick={() => setDrainTarget(node)}
-                          disabled={drainingNode === node.name}
-                          className={cn(
-                            "rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-2 text-xs font-medium text-cyan-300 transition-colors hover:bg-cyan-500/15",
-                            drainingNode === node.name && "opacity-60"
-                          )}
-                        >
-                          {drainingNode === node.name ? "Draining..." : "Smart drain"}
-                        </button>
-                      </div>
-                    )}
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      {isAdmin ? (
+                        <>
+                          <button
+                            onClick={() => setCordonTarget(node)}
+                            disabled={cordoningNode === node.name}
+                            className={cn(
+                              "rounded-lg border px-3 py-2 text-xs font-medium transition-colors",
+                              node.unschedulable
+                                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/15"
+                                : "border-amber-500/30 bg-amber-500/10 text-amber-300 hover:bg-amber-500/15",
+                              cordoningNode === node.name && "opacity-60"
+                            )}
+                          >
+                            {cordoningNode === node.name ? "Updating..." : node.unschedulable ? "Disable maintenance" : "Enable maintenance"}
+                          </button>
+                          <button
+                            onClick={() => setDrainTarget(node)}
+                            disabled={drainingNode === node.name}
+                            className={cn(
+                              "rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-2 text-xs font-medium text-cyan-300 transition-colors hover:bg-cyan-500/15",
+                              drainingNode === node.name && "opacity-60"
+                            )}
+                          >
+                            {drainingNode === node.name ? "Draining..." : "Smart drain"}
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button disabled title="Requires cluster:admin permission" className="flex cursor-not-allowed select-none items-center justify-center gap-1.5 rounded-lg border border-gray-700/30 bg-gray-800/20 px-3 py-2 text-xs font-medium text-gray-600 opacity-60">
+                            <Lock className="w-3 h-3" />Maintenance
+                          </button>
+                          <button disabled title="Requires cluster:drain permission" className="flex cursor-not-allowed select-none items-center justify-center gap-1.5 rounded-lg border border-gray-700/30 bg-gray-800/20 px-3 py-2 text-xs font-medium text-gray-600 opacity-60">
+                            <Lock className="w-3 h-3" />Smart drain
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </motion.div>
                 ))}
               </div>

@@ -1,23 +1,15 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { getRequestClusterId } from "@/lib/cluster-context";
 import { iwApiFetch } from "@/lib/iw-api";
+import { withRoute } from "@/lib/route-utils";
 
-export async function GET(req: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
+export const GET = withRoute("cluster:read", async (req, session) => {
   const res = await iwApiFetch("/cluster/hpa", session, getRequestClusterId(req));
-  const data = await res.json();
-  return NextResponse.json(data, { status: res.status });
-}
+  return NextResponse.json(await res.json(), { status: res.status });
+});
 
-export async function PATCH(req: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
+export const PATCH = withRoute("cluster:admin", async (req, session) => {
   const body = await req.text();
   const res = await iwApiFetch("/cluster/hpa", session, getRequestClusterId(req), { method: "PATCH", body });
-  const data = await res.json();
-  return NextResponse.json(data, { status: res.status });
-}
+  return NextResponse.json(await res.json(), { status: res.status });
+});

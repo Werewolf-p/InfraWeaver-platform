@@ -85,6 +85,7 @@ export async function POST(req: NextRequest) {
       pvcSizeGi,
       storageClass: storageClass?.trim() || undefined,
       ingressHost: ingressHost?.trim() || undefined,
+      ingressDomain: process.env.BASE_DOMAIN,
       createIngress,
       userVariables,
     });
@@ -148,7 +149,7 @@ tier: ${result.tier}
 image: ${app.Repository}
 categories:
 ${(app.CategoryList ?? []).map((c) => `  - "${c}"`).join("\n")}
-${result.manifests.ingressroute ? `ingressroute:\n  host: ${ingressHost ?? `${slug}.int.rlservers.com`}` : ""}
+${result.manifests.ingressroute ? `ingressroute:\n  host: ${ingressHost ?? `${slug}.int.${process.env.BASE_DOMAIN ?? "local"}`}` : ""}
 installed_at: ${new Date().toISOString()}
 `;
 

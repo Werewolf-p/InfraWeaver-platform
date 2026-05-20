@@ -232,6 +232,8 @@ export const GAME_EGGS: Record<string, GameEgg> = {
       ...standardQuickCommands({ status: "players", list: "players", help: "help" }),
       { label: "Save World", cmd: "save", description: "Persist the current world state" },
     ],
+    // lloesche/valheim-server must run as root (uid 0)
+    features: ["run_as_root"],
   },
   satisfactory: {
     id: "satisfactory",

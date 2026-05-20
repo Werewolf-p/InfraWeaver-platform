@@ -71,7 +71,34 @@ export const authConfig: NextAuthConfig = {
       if (account && profile) {
         const authentikProfile = profile as AuthentikProfile;
         token.groups = authentikProfile.groups ?? [];
+        token.accessToken = account.access_token;
+        token.groupsRefreshedAt = Date.now();
         if (authentikProfile.email) token.email = authentikProfile.email;
+      } else if (token.accessToken && typeof token.groupsRefreshedAt === "number") {
+        // Refresh groups every 15 minutes using the stored access token.
+        // Access tokens from Authentik have a short TTL; once expired the refresh
+        // is skipped silently and groups remain as-is until the next sign-in.
+        const staleMs = Date.now() - token.groupsRefreshedAt;
+        if (staleMs > 15 * 60 * 1000) {
+          const userInfoUrl = process.env.AUTHENTIK_USERINFO_URL
+            ?? `${process.env.AUTHENTIK_ISSUER}/application/o/userinfo/`;
+          try {
+            const res = await fetch(userInfoUrl, {
+              headers: { Authorization: `Bearer ${token.accessToken as string}` },
+              signal: AbortSignal.timeout(5000),
+            });
+            if (res.ok) {
+              const userinfo = await res.json() as AuthentikProfile;
+              if (Array.isArray(userinfo.groups)) token.groups = userinfo.groups;
+              token.groupsRefreshedAt = Date.now();
+            } else if (res.status === 401) {
+              // Access token expired — stop attempting refreshes until next sign-in
+              delete token.accessToken;
+            }
+          } catch {
+            // Network error — keep existing groups, retry on next JWT evaluation
+          }
+        }
       }
       return token;
     },

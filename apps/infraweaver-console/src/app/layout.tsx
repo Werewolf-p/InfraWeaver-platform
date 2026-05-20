@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
+import { headers } from "next/headers";
 import "./globals.css";
 import { Providers } from "@/components/providers";
 
@@ -21,14 +22,20 @@ export const viewport: Viewport = {
   themeColor: "#020617",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+// Inlined theme-detection script — runs before React hydrates to avoid flash.
+// The nonce is forwarded from middleware via the x-nonce request header so
+// the dynamic CSP (which includes 'nonce-{value}') allows this script.
+const THEME_SCRIPT = `(function(){try{var t=localStorage.getItem('theme');var d=t==='dark'||(!t&&window.matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.classList.add(d?'dark':'light')}catch(e){}})()`;
+
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const nonce = (await headers()).get("x-nonce") ?? "";
+
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
         <script
-          dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem('theme');var d=t==='dark'||(!t&&window.matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.classList.add(d?'dark':'light')}catch(e){}})()`,
-          }}
+          nonce={nonce || undefined}
+          dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }}
         />
       </head>
       <body className={`${inter.className} bg-white text-gray-900 dark:bg-slate-950 dark:text-white antialiased overflow-x-hidden`}>

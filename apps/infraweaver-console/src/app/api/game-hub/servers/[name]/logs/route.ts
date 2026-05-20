@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { getRequestClusterId } from "@/lib/cluster-context";
 import { GAME_HUB_NAMESPACE, getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
 import { loadKubeConfig } from "@/lib/k8s";
+import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { safeError } from "@/lib/utils";
 import { PassThrough } from "stream";
 
@@ -49,6 +50,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ name
   const access = await getGameHubAccessContext(session, 60);
   if (!hasGameHubPermission(access.groups, access.username, access.roleAssignments, "game-hub:read", name)) {
     return new Response("Forbidden", { status: 403 });
+  }
+  if (!checkRateLimit(rateLimitKey(`game-hub-logs:${name}`, req), 10, 60_000)) {
+    return new Response("Rate limit exceeded", { status: 429 });
   }
 
   const requestedTail = Number.parseInt(req.nextUrl.searchParams.get("tail") ?? String(LOG_HISTORY_LIMIT), 10);

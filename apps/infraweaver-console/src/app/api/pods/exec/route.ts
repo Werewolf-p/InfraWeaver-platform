@@ -1,13 +1,11 @@
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { NextResponse } from "next/server";
 import { getRequestClusterId } from "@/lib/cluster-context";
 import { iwApiFetch } from "@/lib/iw-api";
+import { withRoute } from "@/lib/route-utils";
 
-export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+export const POST = withRoute("cluster:admin", async (req, session) => {
   const clusterId = getRequestClusterId(req);
   const body = await req.text();
   const res = await iwApiFetch("/exec", session, clusterId, { method: "POST", body });
   return NextResponse.json(await res.json(), { status: res.status });
-}
+});

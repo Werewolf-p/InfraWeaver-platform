@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, Gamepad2, Play, Square, RotateCcw, Trash2, Terminal, Loader2, AlertTriangle, HardDrive, CheckSquare, Square as SquareIcon, Search, ChevronDown, ChevronUp, BarChart2, BookOpen, Star, LayoutGrid, Rows3, MoreVertical } from "lucide-react";
+import { Plus, Lock, Gamepad2, Play, Square, RotateCcw, Trash2, Terminal, Loader2, AlertTriangle, HardDrive, CheckSquare, Square as SquareIcon, Search, ChevronDown, ChevronUp, BarChart2, BookOpen, Star, LayoutGrid, Rows3, MoreVertical } from "lucide-react";
 import { cn, timeAgo } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
 import { useRBAC } from "@/hooks/use-rbac";
@@ -902,7 +902,15 @@ export default function GameHubPage() {
                 <Plus className="w-4 h-4" />
                 New Server
               </Link>
-            ) : null}
+            ) : (
+              <span
+                title="Requires game-hub:admin permission"
+                className="hidden cursor-not-allowed select-none items-center gap-2 rounded-lg bg-gray-100 dark:bg-[#252525] px-4 py-2 text-sm font-medium text-gray-400 dark:text-[#555] opacity-60 sm:flex min-h-[44px]"
+              >
+                <Lock className="w-4 h-4" />
+                New Server
+              </span>
+            )}
           </div>
         }
       />

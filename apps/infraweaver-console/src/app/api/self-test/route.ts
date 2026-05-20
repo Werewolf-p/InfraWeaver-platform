@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { getRequestClusterId } from "@/lib/cluster-context";
 import { loadKubeConfig } from "@/lib/k8s";
 import { safeError } from "@/lib/utils";
@@ -8,6 +9,8 @@ import * as k8s from "@kubernetes/client-node";
 export async function GET(request: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const access = await getSessionRBACContext(session);
+  if (!hasSessionPermission(access, "infra:read")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   try {
     const kc = loadKubeConfig(getRequestClusterId(request));

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { Session } from "next-auth";
 import { auth } from "@/lib/auth";
 import type { Permission } from "@/lib/rbac";
+import type { SessionRBACContext } from "@/lib/session-rbac";
 import { getSessionRBACContext, hasAnySessionPermission, hasSessionPermission } from "@/lib/session-rbac";
 import { safeError } from "@/lib/utils";
 
@@ -70,4 +72,52 @@ export async function requireRoutePermissions(options: RoutePermissionOptions = 
 export function routeErrorResponse(error: unknown, fallback = "Internal error", status = 500) {
   const message = safeError(error);
   return apiError(message || fallback, { status });
+}
+
+// Next.js 15+ passes params as a Promise; use unknown for compatibility across versions.
+type RouteContext = { params?: unknown };
+type RouteHandler = (
+  req: NextRequest,
+  session: Session,
+  access: SessionRBACContext,
+  ctx: RouteContext,
+) => Promise<NextResponse | Response>;
+
+/**
+ * Wraps a route handler with auth + optional RBAC check.
+ * Eliminates the auth/permission boilerplate from every handler.
+ *
+ * Permission can be:
+ *  - a single Permission string → must have that permission
+ *  - an array → must have ANY of those permissions
+ *  - null → auth-only (no permission check, useful for self-service routes)
+ *
+ * Usage:
+ *   export const GET = withRoute("cluster:read", async (req, session) => { ... });
+ *   export const POST = withRoute(["apps:write", "catalog:write"], async (req, session) => { ... });
+ *   export const PATCH = withRoute(null, async (req, session) => { ... }); // auth-only
+ */
+export function withRoute(
+  permission: Permission | Permission[] | null,
+  handler: RouteHandler,
+): (req: NextRequest, ctx: RouteContext) => Promise<NextResponse | Response> {
+  return async (req: NextRequest, ctx: RouteContext = {}) => {
+    const session = await auth();
+    if (!session) return apiError("Unauthorized", { status: 401 });
+
+    const access = await getSessionRBACContext(session, 60);
+
+    if (permission !== null) {
+      const perms = Array.isArray(permission) ? permission : [permission];
+      if (!hasAnySessionPermission(access, perms)) {
+        return apiError("Forbidden", { status: 403 });
+      }
+    }
+
+    try {
+      return await handler(req, session, access, ctx);
+    } catch (error) {
+      return routeErrorResponse(error);
+    }
+  };
 }

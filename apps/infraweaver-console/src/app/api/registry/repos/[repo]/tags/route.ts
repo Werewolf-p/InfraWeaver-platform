@@ -22,6 +22,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ repo
   }
   const { repo: encodedRepo } = await params;
   const repo = decodeURIComponent(encodedRepo);
+  if (!/^[a-z0-9][a-z0-9/_-]*$/.test(repo)) {
+    return NextResponse.json({ error: "Invalid repo name" }, { status: 400 });
+  }
   try {
     const res = await fetch(`https://${REGISTRY_HOST}/v2/${repo}/tags/list`, {
       headers: { ...getAuthHeader(), Accept: "application/json" },

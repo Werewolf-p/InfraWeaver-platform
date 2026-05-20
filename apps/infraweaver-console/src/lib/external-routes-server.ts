@@ -1,4 +1,4 @@
-import { execSync } from "child_process";
+import { execFileSync } from "child_process";
 import { promises as fs } from "fs";
 import path from "path";
 import * as yaml from "js-yaml";
@@ -422,8 +422,12 @@ async function persistAndCommit(repoDir: string, manifests: ManifestFile[], mess
     if (await saveManifest(manifest)) changed.push(manifest.file);
   }
   if (changed.length === 0) return changed;
-  const repoArg = JSON.stringify(repoDir);
-  execSync(`git -C ${repoArg} add -A && git -C ${repoArg} commit -m "feat(routes): ${message}" -m "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>" && git -C ${repoArg} push`, { stdio: "pipe" });
+  execFileSync("git", ["-C", repoDir, "add", "-A"], { stdio: "pipe" });
+  execFileSync("git", ["-C", repoDir, "commit",
+    "-m", `feat(routes): ${message}`,
+    "-m", "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+  ], { stdio: "pipe" });
+  execFileSync("git", ["-C", repoDir, "push"], { stdio: "pipe" });
   return changed;
 }
 

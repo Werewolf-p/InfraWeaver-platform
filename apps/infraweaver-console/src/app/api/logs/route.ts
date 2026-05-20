@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { getRequestClusterId } from "@/lib/cluster-context";
 import { canAccessLogsTarget, getGameHubAccessContext } from "@/lib/game-hub";
 import { loadKubeConfig } from "@/lib/k8s";
@@ -9,6 +10,8 @@ import { isValidContainerName, isValidK8sName, isValidNamespace } from "@/lib/va
 export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const access = await getSessionRBACContext(session);
+  if (!hasSessionPermission(access, "apps:read")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   if (!checkRateLimit(rateLimitKey("logs-read", req), 30, 60_000)) {
     return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
   }
@@ -20,7 +23,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Invalid name: only lowercase alphanumeric and dashes allowed" }, { status: 400 });
   }
 
-  const access = await getGameHubAccessContext(session, 60);
+  const gameHubAccess = await getGameHubAccessContext(session, 60);
   const lineParam = req.nextUrl.searchParams.get("lines") ?? req.nextUrl.searchParams.get("tail") ?? "500";
   const lines = Math.min(Math.max(parseInt(lineParam, 10) || 500, 1), 1000);
 
@@ -38,10 +41,9 @@ export async function GET(req: NextRequest) {
           if (leftRunning !== rightRunning) return leftRunning - rightRunning;
           return (left.metadata?.name ?? "").localeCompare(right.metadata?.name ?? "");
         })
-        .find((item) => canAccessLogsTarget(
-          access.groups,
-          access.username,
-          access.roleAssignments,
+        .find((item) => canAccessLogsTarget(gameHubAccess.groups,
+          gameHubAccess.username,
+          gameHubAccess.roleAssignments,
           namespace,
           item.metadata?.name ?? "",
         ));
@@ -52,7 +54,7 @@ export async function GET(req: NextRequest) {
 
       pod = candidate.metadata.name;
       container = candidate.spec?.containers?.[0]?.name ?? "";
-    } else if (!canAccessLogsTarget(access.groups, access.username, access.roleAssignments, namespace, pod)) {
+    } else if (!canAccessLogsTarget(gameHubAccess.groups, gameHubAccess.username, gameHubAccess.roleAssignments, namespace, pod)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 

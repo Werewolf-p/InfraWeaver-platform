@@ -79,6 +79,19 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
 
   const payload = await parseJsonResponse(response);
 
+  if (response.status === 401) {
+    // Session expired — redirect to the login URL the API provided, or /login
+    if (typeof window !== "undefined") {
+      const loginUrl = (payload as { loginUrl?: string } | null)?.loginUrl ?? "/login";
+      window.location.href = loginUrl;
+    }
+    throw new Error("Session expired");
+  }
+
+  if (response.status === 403) {
+    throw new Error("You don't have permission to perform this action");
+  }
+
   if (!response.ok) {
     throw new Error(getErrorMessage(payload, response.statusText || "Request failed"));
   }

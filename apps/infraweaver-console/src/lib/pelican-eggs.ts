@@ -261,6 +261,105 @@ async function getCatalogEntriesInternal() {
   return entries;
 }
 
+// Games whose primary gameplay port uses UDP by default.
+// Anything not matched here defaults to TCP (covers most Java/Node game servers).
+const UDP_GAME_PATTERN =
+  /\b(valheim|terraria|garrysmod|gmod|ark\b|rust\b|factorio|quake|cs.{0,6}go|csgo|cs2|counter.?strike|bedrock|minecraft.{0,20}bedrock|7\s*days|dayz|squad\b|arma|conan|hurtworld|unturned|space.?engineer|starbound|stationeers|projectzomboid|p\.?zomboid|zombie|killing.?floor|kf[12]\b|red.?orchestra|insurgency|ground.?branch|rising.?storm|dcs\b|stargate|nmrih|ut[234]\b|unreal.?tournam)/i;
+
+// Resource presets keyed by rough "weight" of the game
+const HEAVY_GAME_PATTERN =
+  /\b(ark\b|conan|atlas\b|rust\b|valheim|satisfact|space.?engineer|7\s*days|dayz|squad\b|arma|hurtworld|unturned|scum\b|icarus\b|palworld|deadmatter)/i;
+
+function inferProtocol(label: string): "UDP" | "TCP" {
+  return UDP_GAME_PATTERN.test(label) ? "UDP" : "TCP";
+}
+
+function inferResources(
+  features: string[],
+  label: string,
+): { memory: string; cpu: string; storage: string } {
+  if (features.includes("steam_disk_space") || HEAVY_GAME_PATTERN.test(label)) {
+    return { memory: "4Gi", cpu: "2", storage: "20Gi" };
+  }
+  return { memory: "2Gi", cpu: "1", storage: "10Gi" };
+}
+
+function extractPorts(
+  pelican: PelicanEgg,
+  primaryProtocol: "UDP" | "TCP",
+): { ports: GameEgg["ports"]; gamePort: number } {
+  const portVars = (pelican.variables ?? []).filter((v) => {
+    const env = v.env_variable.toUpperCase();
+    const name = v.name.toLowerCase();
+    return env.includes("PORT") || name.includes("port");
+  });
+
+  const ports: NonNullable<GameEgg["ports"]> = [];
+  let gamePort = 0;
+
+  for (const v of portVars) {
+    const port = Number.parseInt(v.default_value, 10);
+    if (!Number.isFinite(port) || port <= 0 || port > 65535) continue;
+
+    const env = v.env_variable.toUpperCase();
+    const name = v.name.toLowerCase();
+
+    let portName: string;
+    let protocol: "TCP" | "UDP";
+
+    if (env.includes("RCON") || name.includes("rcon")) {
+      portName = "rcon";
+      protocol = "TCP";
+    } else if (env.includes("QUERY") || name.includes("query")) {
+      portName = "query";
+      protocol = "UDP";
+    } else if (env.includes("VOICE") || name.includes("voice")) {
+      portName = "voice";
+      protocol = "UDP";
+    } else if (env.includes("HTTP") || name.includes("web") || name.includes("http")) {
+      portName = "http";
+      protocol = "TCP";
+    } else if (!gamePort) {
+      portName = "game";
+      protocol = primaryProtocol;
+      gamePort = port;
+    } else {
+      portName = `port-${port}`;
+      protocol = primaryProtocol;
+    }
+
+    ports.push({ name: portName, port, protocol });
+  }
+
+  if (!gamePort) {
+    gamePort = parsePortFromStartup(pelican.startup) ?? 25565;
+    if (!ports.some((p) => p.port === gamePort)) {
+      ports.unshift({ name: "game", port: gamePort, protocol: primaryProtocol });
+    }
+  }
+
+  return { ports, gamePort };
+}
+
+function inferQuickCommands(pelican: PelicanEgg, label: string): GameEgg["quickCommands"] {
+  const cmds: NonNullable<GameEgg["quickCommands"]> = [];
+
+  if (pelican.config?.stop && pelican.config.stop !== "^C") {
+    cmds.push({ label: "Stop", command: pelican.config.stop });
+  }
+
+  if (/minecraft|paper|purpur|spigot|bukkit|fabric|forge|bungeecord|velocity|waterfall/i.test(label)) {
+    cmds.push({ label: "List Players", command: "list" });
+    cmds.push({ label: "Save World", command: "save-all" });
+  } else if (/gmod|garrys|csgo|cs2|tf2|l4d|insurgency|source\b/i.test(label)) {
+    cmds.push({ label: "Status", command: "status" });
+  } else if (/valheim/i.test(label)) {
+    cmds.push({ label: "List Players", command: "listplayers" });
+  }
+
+  return cmds;
+}
+
 export function pelicanToGameEgg(pelican: PelicanEgg, id: string): GameEgg {
   // PTDL_v2 uses docker_images (map); PTDL_v1 uses docker_image (string).
   // Build a normalised map so we always have both dockerImage and dockerImages.
@@ -274,11 +373,11 @@ export function pelicanToGameEgg(pelican: PelicanEgg, id: string): GameEgg {
   const dockerImage =
     Object.values(dockerImages)[0] ?? pelican.docker_image ?? "ubuntu:22.04";
 
-  const portVar = pelican.variables?.find((variable) =>
-    variable.env_variable.toUpperCase().includes("PORT") || variable.name.toLowerCase().includes("port")
-  );
-  const gamePort = Number.parseInt(portVar?.default_value ?? "", 10) || parsePortFromStartup(pelican.startup) || 25565;
-  const protocol = /valheim|terraria|cs.*go|ark|rust|factorio|quake/i.test(`${pelican.name} ${id}`) ? "UDP" : "TCP";
+  const label = `${pelican.name} ${id}`;
+  const features = (pelican.features ?? []).filter((f): f is string => typeof f === "string" && f.length > 0);
+  const protocol = inferProtocol(label);
+  const { ports, gamePort } = extractPorts(pelican, protocol);
+  const resources = inferResources(features, label);
 
   // Parse `config.startup` — it can be a JSON-encoded string or an object
   let startupReadySignal: string | undefined;
@@ -296,8 +395,6 @@ export function pelicanToGameEgg(pelican: PelicanEgg, id: string): GameEgg {
     }
   }
 
-  const features = (pelican.features ?? []).filter((f): f is string => typeof f === "string" && f.length > 0);
-
   return {
     id,
     name: pelican.name,
@@ -310,7 +407,7 @@ export function pelicanToGameEgg(pelican: PelicanEgg, id: string): GameEgg {
     gamePort,
     mountPath: "/home/container",
     protocol,
-    ports: [{ name: "game", port: gamePort, protocol }],
+    ports,
     environment: (pelican.variables ?? []).map((variable) => ({
       name: variable.env_variable,
       description: variable.name + (variable.description ? `: ${variable.description}` : ""),
@@ -321,10 +418,10 @@ export function pelicanToGameEgg(pelican: PelicanEgg, id: string): GameEgg {
       userEditable: variable.user_editable,
       rules: variable.rules,
     })),
-    quickCommands: [],
-    defaultMemory: "2Gi",
-    defaultCpu: "1",
-    defaultStorage: "10Gi",
+    quickCommands: inferQuickCommands(pelican, label),
+    defaultMemory: resources.memory,
+    defaultCpu: resources.cpu,
+    defaultStorage: resources.storage,
     features: features.length > 0 ? features : undefined,
     fileDenylist: pelican.file_denylist?.length ? pelican.file_denylist : undefined,
     author: pelican.author || undefined,

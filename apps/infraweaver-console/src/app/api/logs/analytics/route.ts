@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import * as k8s from "@kubernetes/client-node";
 
 function parseLevel(line: string): string {
@@ -13,6 +14,8 @@ function parseLevel(line: string): string {
 export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const access = await getSessionRBACContext(session);
+  if (!hasSessionPermission(access, "apps:read")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const { searchParams } = req.nextUrl;
   const namespace = searchParams.get("namespace") ?? "default";
   const pod = searchParams.get("pod") ?? "";

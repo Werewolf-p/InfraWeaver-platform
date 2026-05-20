@@ -208,8 +208,10 @@ export async function scaleServerWorkload(appsApi: k8s.AppsV1Api, name: string, 
 
 export async function getServerPod(coreApi: k8s.CoreV1Api, name: string, runningOnly = false) {
   const pods = await coreApi.listNamespacedPod({ namespace: GAME_HUB_NS, labelSelector: `app=${name}` });
+  // Exclude pods being terminated — their phase stays "Running" during graceful shutdown
+  const active = pods.items.filter((pod) => !pod.metadata?.deletionTimestamp);
   if (runningOnly) {
-    const fullyRunning = pods.items.find((pod) => {
+    const fullyRunning = active.find((pod) => {
       if (pod.status?.phase !== "Running") return false;
       const containerStatuses = pod.status?.containerStatuses ?? [];
       if (containerStatuses.length === 0) return false;
@@ -217,7 +219,7 @@ export async function getServerPod(coreApi: k8s.CoreV1Api, name: string, running
     });
     return fullyRunning ?? null;
   }
-  return pods.items.find((pod) => pod.status?.phase === "Running") ?? pods.items[0] ?? null;
+  return active.find((pod) => pod.status?.phase === "Running") ?? active[0] ?? null;
 }
 
 export function getPrimaryContainerName(pod: k8s.V1Pod | null | undefined, fallback: string) {

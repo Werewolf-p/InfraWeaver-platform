@@ -4,6 +4,7 @@ import { auditLog } from "@/lib/audit-log";
 import { getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
 import { appendServerAudit, execShell, getPrimaryContainerName, getServerPod, makeGameHubClients, shellQuote } from "@/lib/game-hub-server";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
+import { validateContainerPath } from "@/lib/validate";
 import { safeError } from "@/lib/utils";
 
 interface FileEntry {
@@ -96,6 +97,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ name
   }
 
   const path = req.nextUrl.searchParams.get("path") ?? "/";
+  if (path !== "/" && !validateContainerPath(path)) {
+    return NextResponse.json({ error: "Invalid path" }, { status: 400 });
+  }
   try {
     const clients = makeGameHubClients();
     const pod = await getServerPod(clients.coreApi, name, true);
@@ -128,6 +132,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ nam
   if (authz.error) return authz.error;
   const body = await req.json() as { action?: "mkdir"; path?: string };
   if (body.action !== "mkdir" || !body.path) return NextResponse.json({ error: "mkdir path required" }, { status: 400 });
+  if (!validateContainerPath(body.path)) return NextResponse.json({ error: "Invalid path" }, { status: 400 });
 
   try {
     const clients = makeGameHubClients();
@@ -159,6 +164,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
 
     if (body.action === "rename") {
       if (!body.from || !body.to) return NextResponse.json({ error: "rename from/to required" }, { status: 400 });
+      if (!validateContainerPath(body.from) || !validateContainerPath(body.to)) {
+        return NextResponse.json({ error: "Invalid path" }, { status: 400 });
+      }
       await execShell(clients.kc, pod.metadata.name, getPrimaryContainerName(pod, name), `mv ${shellQuote(body.from)} ${shellQuote(body.to)}`);
       await auditLog("game-hub:rename", authz.session?.user?.email ?? "unknown", `${name} ${body.from} -> ${body.to}`);
       await appendServerAudit(clients.coreApi, name, { timestamp: new Date().toISOString(), user: authz.session?.user?.email ?? "unknown", action: "file:rename", details: `${body.from} -> ${body.to}` });
@@ -167,13 +175,20 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
 
     if (body.action === "extract") {
       if (!body.path) return NextResponse.json({ error: "path required" }, { status: 400 });
-      const command = body.path.endsWith(".tar.gz") || body.path.endsWith(".tgz")
-        ? `tar -xzf ${shellQuote(body.path)} -C ${shellQuote(body.path.replace(/\/[^/]+$/, "") || "/")}`
+      if (!validateContainerPath(body.path)) return NextResponse.json({ error: "Invalid path" }, { status: 400 });
+      const destDir = body.path.replace(/\/[^/]+$/, "") || "/";
+      const MAX_ARCHIVE_BYTES = 512 * 1024 * 1024;
+      const extractCmd = body.path.endsWith(".tar.gz") || body.path.endsWith(".tgz")
+        ? `tar -xzf ${shellQuote(body.path)} -C ${shellQuote(destDir)}`
         : body.path.endsWith(".zip")
-          ? `unzip -o ${shellQuote(body.path)} -d ${shellQuote(body.path.replace(/\/[^/]+$/, "") || "/")}`
+          ? `unzip -o ${shellQuote(body.path)} -d ${shellQuote(destDir)}`
           : null;
-      if (!command) return NextResponse.json({ error: "Unsupported archive format" }, { status: 400 });
-      await execShell(clients.kc, pod.metadata.name, getPrimaryContainerName(pod, name), command, 30_000);
+      if (!extractCmd) return NextResponse.json({ error: "Unsupported archive format" }, { status: 400 });
+      const command = `SIZE=$(stat -c %s ${shellQuote(body.path)} 2>/dev/null || echo 0); if [ "$SIZE" -gt ${MAX_ARCHIVE_BYTES} ]; then echo ARCHIVE_TOO_LARGE; else ${extractCmd}; fi`;
+      const result = await execShell(clients.kc, pod.metadata.name, getPrimaryContainerName(pod, name), command, 30_000);
+      if (result.stdout.includes("ARCHIVE_TOO_LARGE")) {
+        return NextResponse.json({ error: "Archive too large (max 512MB)" }, { status: 413 });
+      }
       await auditLog("game-hub:extract", authz.session?.user?.email ?? "unknown", `${name} ${body.path}`);
       await appendServerAudit(clients.coreApi, name, { timestamp: new Date().toISOString(), user: authz.session?.user?.email ?? "unknown", action: "file:extract", details: body.path });
       return NextResponse.json({ ok: true, path: body.path });
@@ -196,6 +211,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ n
 
   const path = req.nextUrl.searchParams.get("path");
   if (!path) return NextResponse.json({ error: "path required" }, { status: 400 });
+  if (!validateContainerPath(path)) return NextResponse.json({ error: "Invalid path" }, { status: 400 });
   if (["/", "/data", "/config", "/etc", "/usr", "/bin", "/lib", "/proc", "/sys"].includes(path.replace(/\/$/, ""))) {
     return NextResponse.json({ error: "Cannot delete this path" }, { status: 403 });
   }

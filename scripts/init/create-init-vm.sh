@@ -4,7 +4,21 @@
 #
 # USAGE (run this ON the Proxmox host, or via SSH):
 #   bash create-init-vm.sh
-#   bash create-init-vm.sh --vmid 9001 --storage lvm-proxmox --repo https://github.com/yourorg/InfraWeaver-platform
+#   bash create-init-vm.sh --vmid 9001 --name infraweaver-init \
+#       --storage lvm-proxmox --bridge vmbr0 --vlan 3 \
+#       --ip 10.10.0.50 --cidr 24 \
+#       --no-cluster-nic \
+#       --repo https://github.com/yourorg/InfraWeaver-platform --branch main \
+#       --cpu 2 --mem 1024 --disk 8 \
+#       --yes
+#
+# All --flags can also be set as IW_* environment variables:
+#   IW_VMID, IW_VM_NAME, IW_STORAGE, IW_BRIDGE, IW_VLAN_TAG,
+#   IW_VM_IP, IW_VM_GW, IW_VM_CIDR, IW_REPO_URL, IW_REPO_BRANCH,
+#   IW_CPU, IW_MEM, IW_DISK, IW_SSH_PUBKEY, IW_YES=1
+#
+# Use --yes (or IW_YES=1) to skip the confirmation summary prompt.
+# In non-interactive mode (no TTY) all prompts default automatically.
 #
 # WHAT THIS DOES:
 #   1. Downloads Ubuntu 24.04 cloud image (cached)
@@ -37,10 +51,14 @@ warn() { echo -e "${Y}WARN:${NC} $*"; }
 die()  { echo -e "${R}ERROR:${NC} $*" >&2; exit 1; }
 ok()   { echo -e "${G}OK:${NC} $*"; }
 hdr()  { echo -e "\n${C}${B}=== $* ===${NC}"; }
+_HAS_TTY=false
+{ printf '' >/dev/tty && _HAS_TTY=true; } 2>/dev/null || true
+
 ask()  {
   # ask VAR "Question" "default"  → reads into VAR, shows default in brackets
-  # Reads from /dev/tty so it works correctly when the script is piped via wget|bash
+  # Falls back to default silently when no TTY is available (non-interactive / SSH pipe)
   local _var="$1" _prompt="$2" _default="${3:-}"
+  if ! "$_HAS_TTY"; then printf -v "$_var" '%s' "$_default"; return; fi
   local _display="${_default:+${D} [${_default}]${NC}}"
   printf "%b  %s%b: " "${M}" "$_prompt" "${_display}${NC}" >/dev/tty
   IFS= read -r _input </dev/tty
@@ -48,8 +66,9 @@ ask()  {
 }
 askyn() {
   # askyn "Question" "Y/n"  → returns 0=yes 1=no
-  # Reads from /dev/tty so it works correctly when the script is piped via wget|bash
+  # Falls back to default (Y) when no TTY is available
   local _prompt="$1" _default="${2:-Y}"
+  if ! "$_HAS_TTY"; then [[ "${_default,,}" == "y" ]]; return; fi
   printf "%b  %s %b[%s]%b: " "${M}" "$_prompt" "${D}" "$_default" "${NC}" >/dev/tty
   IFS= read -r _yn </dev/tty
   _yn="${_yn:-$_default}"
@@ -58,8 +77,10 @@ askyn() {
 choose() {
   # choose VAR "Header line" item1 item2 item3...
   # Shows a numbered list; user picks by number or types a value; Enter = item 1
+  # Falls back to the first item (default) when no TTY is available
   local _var="$1" _header="$2"; shift 2
   local _opts=("$@") _n="$#"
+  if ! "$_HAS_TTY"; then printf -v "$_var" '%s' "${_opts[0]}"; return; fi
   echo -e "  ${C}${_header}${NC}" >/dev/tty
   local i; for (( i=0; i<_n; i++ )); do
     local _mark=""; (( i == 0 )) && _mark=" ${D}(default)${NC}"
@@ -133,8 +154,9 @@ IMAGE_CACHE="/var/lib/vz/template/iso/ubuntu-24.04-cloud.img"
 VMID="${IW_VMID:-}"
 VM_NAME="${IW_VM_NAME:-}"
 STORAGE="${IW_STORAGE:-}"
+AUTO_YES="${IW_YES:-}"  # set to "1" to skip confirm prompt
 BRIDGE="${IW_BRIDGE:-}"
-VLAN_TAG="${IW_VLAN_TAG:-_ask_}"        # sentinel: always ask unless env-set
+VLAN_TAG="${IW_VLAN_TAG-_ask_}"         # sentinel: ask if UNSET; empty string = untagged
 VM_IP="${IW_VM_IP:-_ask_}"
 VM_GW="${IW_VM_GW:-}"
 VM_CIDR="${IW_VM_CIDR:-}"
@@ -164,11 +186,13 @@ fi
 while [[ $# -gt 0 ]]; do
   case $1 in
     --vmid)           VMID="$2";            shift 2 ;;
+    --name)           VM_NAME="$2";         shift 2 ;;
     --storage)        STORAGE="$2";         shift 2 ;;
     --bridge)         BRIDGE="$2";          shift 2 ;;
     --vlan)           VLAN_TAG="$2";        shift 2 ;;
     --ip)             VM_IP="$2";           shift 2 ;;
     --gw)             VM_GW="$2";           shift 2 ;;
+    --cidr)           VM_CIDR="$2";         shift 2 ;;
     --cluster-vlan)   CLUSTER_VLAN="$2";    shift 2 ;;
     --cluster-ip)     CLUSTER_IP="$2";      shift 2 ;;
     --cluster-cidr)   CLUSTER_CIDR="$2";    shift 2 ;;
@@ -179,6 +203,9 @@ while [[ $# -gt 0 ]]; do
     --mem)            MEM="$2";             shift 2 ;;
     --disk)           DISK="$2";            shift 2 ;;
     --ssh-pubkey)     DEPLOYER_SSH_PUBKEY="$2"; shift 2 ;;
+    --yes|-y)         AUTO_YES=1;           shift   ;;
+    --help|-h)
+      sed -n '3,25p' "$0"; exit 0 ;;
     *) echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
@@ -399,10 +426,14 @@ hdr "VM Settings"
 
 # VMID — just show and confirm
 if [[ -z "$VMID" ]]; then
-  echo -e "  Next available VM ID: ${B}${NEXT_VMID}${NC}" >/dev/tty
-  printf "  %bVM ID [%d]:%b " "${M}" "$NEXT_VMID" "${NC}" >/dev/tty
-  IFS= read -r _vmid_in </dev/tty
-  VMID="${_vmid_in:-$NEXT_VMID}"
+  if "$_HAS_TTY"; then
+    echo -e "  Next available VM ID: ${B}${NEXT_VMID}${NC}" >/dev/tty
+    printf "  %bVM ID [%d]:%b " "${M}" "$NEXT_VMID" "${NC}" >/dev/tty
+    IFS= read -r _vmid_in </dev/tty
+    VMID="${_vmid_in:-$NEXT_VMID}"
+  else
+    VMID="$NEXT_VMID"
+  fi
 fi
 
 # VM name — default, just confirm
@@ -568,7 +599,11 @@ fi
 echo -e "  |  Repo       : ${B}${REPO_URL}${NC} @ ${REPO_BRANCH}"
 echo "  +-----------------------------------------------------------+"
 echo ""
-askyn "Proceed with these settings?" "Y" || die "Aborted."
+if [[ -n "$AUTO_YES" ]]; then
+  log "Auto-confirming (--yes flag)"
+else
+  askyn "Proceed with these settings?" "Y" || die "Aborted."
+fi
 echo ""
 
 # ── Pre-flight ────────────────────────────────────────────────────────────────

@@ -858,7 +858,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
       try {
         await writeServerManifest(name, clients);
       } catch (gitErr) {
-        console.warn(`writeServerManifest failed for action ${body.action} on ${name}`, gitErr);
+        console.error(`writeServerManifest failed for action ${body.action} on ${name}:`, gitErr);
       }
     }
 

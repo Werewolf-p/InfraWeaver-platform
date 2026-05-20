@@ -323,15 +323,21 @@ function computeVolumeInfos(configs: AppFeedConfig[], slug: string): VolumeInfo[
     });
   }
 
-  // Post-pass: if the app already has at least one emptyDir volume (a media sink),
-  // reclassify any root-level /data PVC as emptyDir too.
+  // Post-pass: if the app already has at least one emptyDir from a media-sink prefix
+  // (e.g. /movies, /downloads), reclassify any root-level /data PVC as emptyDir too.
   // Rationale: media manager apps (Lidarr, Sonarr, Radarr…) use /data as a
   // library/download root — a NAS path on Unraid, not a config store.
-  // Any app that has /config PVC + /data PVC + other emptyDir media paths
-  // is almost certainly using /data as a media root, not for config.
-  const hasMediaEmptyDir = infos.some(i =>
-    i.kind === "emptyDir" && i.originalTarget !== "/dev/shm"
-  );
+  // Scratch paths (/tmp, /cache, /logs) do NOT trigger this — only named media paths do.
+  const hasMediaEmptyDir = infos.some(i => {
+    if (i.kind !== "emptyDir") return false;
+    const p = i.originalTarget;
+    if (EMPTY_DIR_MOUNTS.some(ed => p === ed.prefix || p.startsWith(ed.prefix + "/"))) return false;
+    return (
+      MEDIA_SINK_PREFIXES.some(m => p === m || p.startsWith(m + "/")) ||
+      (p.split("/").filter(Boolean).length > 1 &&
+        p.split("/").filter(Boolean).some(s => MEDIA_SEGMENT_KEYWORDS.has(s.toLowerCase())))
+    );
+  });
   if (hasMediaEmptyDir) {
     for (const info of infos) {
       if (info.kind === "pvc" && info.originalTarget === "/data") {
@@ -399,7 +405,10 @@ export interface ConvertOptions {
   namespace?: string;
   pvcSizeGi?: number;
   storageClass?: string;
-  ingressHost?: string;    // override auto-derived host
+  ingressHost?: string;          // override auto-derived host
+  ingressDomain?: string;        // base domain, e.g. "yourdomain.com" → host becomes "${slug}.int.yourdomain.com"
+  ingressMiddleware?: string;    // Traefik middleware name (default: "netbird-vpn-only")
+  ingressMiddlewareNamespace?: string; // namespace of the middleware (default: "traefik")
   createIngress?: boolean;
   /**
    * User-supplied values for Variable configs, keyed by AppFeed Target (env var name).
@@ -1018,7 +1027,14 @@ ${portLines.map(p => indent(p, 2)).join("\n")}
   type: ClusterIP`;
 }
 
-function buildIngressRoute(slug: string, namespace: string, port: number, host: string): string {
+function buildIngressRoute(
+  slug: string,
+  namespace: string,
+  port: number,
+  host: string,
+  middleware = "netbird-vpn-only",
+  middlewareNamespace = "traefik",
+): string {
   return `---
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
@@ -1035,13 +1051,15 @@ spec:
     - match: Host(\`${host}\`)
       kind: Rule
       middlewares:
-        - name: netbird-vpn-only
-          namespace: traefik
+        - name: ${middleware}
+          namespace: ${middlewareNamespace}
       services:
         - name: ${slug}
           port: ${port}
   tls:
-    secretName: int-rlservers-com-tls`;
+    store:
+      name: default
+      namespace: traefik`;
 }
 
 // ── main converter ───────────────────────────────────────────────────────────
@@ -1389,8 +1407,16 @@ spec:
     name: http
   type: ClusterIP`;
       }
-      const host = options.ingressHost ?? `${slug}.int.rlservers.com`;
-      ingressRouteYaml = buildIngressRoute(slug, namespace, ingressPort, host);
+      const baseDomain = options.ingressDomain ?? process.env.BASE_DOMAIN ?? "local";
+      const host = options.ingressHost ?? `${slug}.int.${baseDomain}`;
+      ingressRouteYaml = buildIngressRoute(
+        slug,
+        namespace,
+        ingressPort,
+        host,
+        options.ingressMiddleware,
+        options.ingressMiddlewareNamespace,
+      );
     }
   }
 

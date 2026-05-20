@@ -6,6 +6,7 @@ import { getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
 import { appendServerAudit, execShell, getPrimaryContainerName, getServerPod, makeGameHubClients, shellQuote } from "@/lib/game-hub-server";
 import { validateK8sName } from "@/lib/api-security";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
+import { validateContainerPath } from "@/lib/validate";
 import { safeError } from "@/lib/utils";
 
 const uploadPathSchema = z.object({
@@ -36,13 +37,21 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ nam
     if (!(file instanceof File)) {
       return NextResponse.json({ error: "file is required" }, { status: 400 });
     }
+    if (!validateContainerPath(directory)) {
+      return NextResponse.json({ error: "Invalid upload path" }, { status: 400 });
+    }
+    // Strip path separators from filename to prevent traversal via filename itself
+    const safeFilename = file.name.split(/[/\\]/).filter(Boolean).pop() ?? "";
+    if (!safeFilename || safeFilename === ".." || safeFilename === ".") {
+      return NextResponse.json({ error: "Invalid filename" }, { status: 400 });
+    }
 
     const arrayBuffer = await file.arrayBuffer();
     const base64 = Buffer.from(arrayBuffer).toString("base64");
     const clients = makeGameHubClients();
     const pod = await getServerPod(clients.coreApi, name, true);
     if (!pod?.metadata?.name) return NextResponse.json({ error: "No running pod found" }, { status: 404 });
-    const targetPath = `${directory.replace(/\/$/, "")}/${file.name}`;
+    const targetPath = `${directory.replace(/\/$/, "")}/${safeFilename}`;
     await execShell(
       clients.kc,
       pod.metadata.name,
