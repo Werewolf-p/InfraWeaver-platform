@@ -194,54 +194,136 @@ echo ""
 command -v qm &>/dev/null || die "This script must run on a Proxmox VE host (qm not found)"
 
 # ── Auto-detect Proxmox environment ──────────────────────────────────────────
+PVE_NODE=$(hostname -s)
 
 # Available storages that can hold VM images
 mapfile -t AVAIL_STORAGES_ARR < <(pvesm status --content images 2>/dev/null \
   | awk 'NR>1 && $3=="active" {print $1}' || echo "lvm-proxmox")
 [[ ${#AVAIL_STORAGES_ARR[@]} -eq 0 ]] && AVAIL_STORAGES_ARR=("lvm-proxmox")
 
-# Available bridges with IP/subnet info for display
-mapfile -t AVAIL_BRIDGES_ARR < <(ip link show type bridge 2>/dev/null \
-  | awk -F: '/^[0-9]+:/{gsub(/ /,"",$2); print $2}' | sort)
-[[ ${#AVAIL_BRIDGES_ARR[@]} -eq 0 ]] && AVAIL_BRIDGES_ARR=("vmbr0")
+# ── Bridge detection via pvesh (Proxmox-native API) ──────────────────────────
+# pvesh returns only Proxmox-managed interfaces — excludes docker0, fwbr*, virbr*
+# Each bridge entry has: iface, type=bridge, address, cidr, bridge_vids (VLAN IDs)
+declare -A BRIDGE_IP      # bridge → "addr/cidr" or ""
+declare -A BRIDGE_SUBNET  # bridge → same as BRIDGE_IP (for suggest_free_ip)
+declare -A BRIDGE_VIDS    # bridge → space-separated list of VLAN IDs (empty = not VLAN-aware)
 
-# Build human-readable bridge labels: "vmbr0 (10.25.0.1/24)" or "vmbr0 (no IP)"
-declare -A BRIDGE_SUBNET    # bridge → subnet CIDR (for IP suggestion)
-BRIDGE_LABELS=()
-for _br in "${AVAIL_BRIDGES_ARR[@]}"; do
-  _bip=$(ip -o -4 addr show dev "$_br" 2>/dev/null | awk '{print $4}' | head -1)
-  if [[ -n "$_bip" ]]; then
-    BRIDGE_LABELS+=("${_br} (${_bip})")
-    BRIDGE_SUBNET[$_br]="$_bip"
-  else
-    BRIDGE_LABELS+=("${_br} (no IP)")
-    BRIDGE_SUBNET[$_br]=""
+# Expand VLAN range strings like "2-3 10 20-22" → "2 3 10 20 21 22"
+_expand_vids() {
+  python3 -c "
+import sys
+result = []
+for tok in sys.argv[1].split():
+    tok = tok.strip()
+    if '-' in tok:
+        a, b = tok.split('-', 1)
+        result.extend(range(int(a), int(b)+1))
+    elif tok.isdigit():
+        result.append(int(tok))
+print(' '.join(str(x) for x in sorted(set(result))))
+" "$1" 2>/dev/null || echo ""
+}
+
+# Query pvesh; fall back to ip-link if pvesh unavailable
+_pvesh_json=$(pvesh get /nodes/"$PVE_NODE"/network --output-format json 2>/dev/null || echo "[]")
+
+mapfile -t _pvesh_bridges < <(echo "$_pvesh_json" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    data = []
+for iface in data:
+    if iface.get('type') == 'bridge':
+        name  = iface.get('iface', '')
+        ip    = iface.get('address', '')
+        cidr  = iface.get('cidr', '')
+        vids  = iface.get('bridge_vids', iface.get('vids', ''))
+        addr  = f'{ip}/{cidr}' if ip and cidr else ''
+        print(f'{name}|{addr}|{vids}')
+")
+
+AVAIL_BRIDGES_ARR=()
+for _entry in "${_pvesh_bridges[@]}"; do
+  IFS='|' read -r _br _addr _vids <<< "$_entry"
+  [[ -z "$_br" ]] && continue
+  AVAIL_BRIDGES_ARR+=("$_br")
+  BRIDGE_IP[$_br]="$_addr"
+  BRIDGE_SUBNET[$_br]="$_addr"
+  BRIDGE_VIDS[$_br]="$(_expand_vids "$_vids")"
+done
+
+# Fallback: scan ip link for vmbr* bridges if pvesh gave nothing
+if [[ ${#AVAIL_BRIDGES_ARR[@]} -eq 0 ]]; then
+  while IFS= read -r _br; do
+    AVAIL_BRIDGES_ARR+=("$_br")
+    _bip=$(ip -o -4 addr show dev "$_br" 2>/dev/null | awk '{print $4}' | head -1)
+    BRIDGE_IP[$_br]="${_bip:-}"
+    BRIDGE_SUBNET[$_br]="${_bip:-}"
+    _vids_raw=$(grep -A5 "iface $_br" /etc/network/interfaces 2>/dev/null \
+      | grep 'bridge-vids' | awk '{$1=""; print $0}')
+    BRIDGE_VIDS[$_br]="$(_expand_vids "${_vids_raw:-}")"
+  done < <(ip link show type bridge 2>/dev/null \
+    | awk -F: '/^[0-9]+:/{gsub(/ /,"",$2); print $2}' | grep '^vmbr' | sort)
+  [[ ${#AVAIL_BRIDGES_ARR[@]} -eq 0 ]] && AVAIL_BRIDGES_ARR=("vmbr0")
+fi
+
+# Identify the management bridge: the one hosting this Proxmox node's own IP
+MGMT_GW=$(ip route 2>/dev/null | awk '/^default/{print $3; exit}')
+_MGMT_BRIDGE=""
+_MGMT_BRIDGE_IDX=0
+for _i in "${!AVAIL_BRIDGES_ARR[@]}"; do
+  _br="${AVAIL_BRIDGES_ARR[$_i]}"
+  if [[ -n "${BRIDGE_IP[$_br]:-}" ]]; then
+    _MGMT_BRIDGE="$_br"
+    _MGMT_BRIDGE_IDX=$_i
+    break
   fi
 done
 
-# VLANs defined in /etc/network/interfaces — extract unique VLAN IDs
-mapfile -t AVAIL_VLANS_ARR < <(grep -oP 'vlan-id \K[0-9]+' /etc/network/interfaces 2>/dev/null \
-  | sort -un)
-# Also detect from VLAN sub-interfaces (e.g. vmbr0.3)
-mapfile -t _extra_vlans < <(ip -d link show 2>/dev/null \
-  | awk '/802.1Q.*id [0-9]/{match($0,/id ([0-9]+)/,a); print a[1]}' | sort -un)
-for v in "${_extra_vlans[@]}"; do
-  [[ ! " ${AVAIL_VLANS_ARR[*]} " =~ " $v " ]] && AVAIL_VLANS_ARR+=("$v")
+# Build human-readable labels; management bridge sorted first
+BRIDGE_LABELS=()
+_sorted_bridges=()
+[[ -n "$_MGMT_BRIDGE" ]] && _sorted_bridges+=("$_MGMT_BRIDGE")
+for _br in "${AVAIL_BRIDGES_ARR[@]}"; do
+  [[ "$_br" == "$_MGMT_BRIDGE" ]] && continue
+  _sorted_bridges+=("$_br")
 done
-# Common VLAN options to always offer
-for v in 1 2 3 10 20 100; do
-  [[ ! " ${AVAIL_VLANS_ARR[*]} " =~ " $v " ]] && AVAIL_VLANS_ARR+=("$v")
+AVAIL_BRIDGES_ARR=("${_sorted_bridges[@]}")
+
+for _br in "${AVAIL_BRIDGES_ARR[@]}"; do
+  _addr="${BRIDGE_IP[$_br]:-}"
+  _vids="${BRIDGE_VIDS[$_br]:-}"
+  _label="$_br"
+  if [[ -n "$_addr" ]]; then
+    _label+=" (${_addr})"
+  else
+    _label+=" (no IP)"
+  fi
+  if [[ -n "$_vids" ]]; then
+    _label+=" [VLAN-aware: ${_vids// /,}]"
+  fi
+  [[ "$_br" == "$_MGMT_BRIDGE" ]] && _label+=" [this host]"
+  BRIDGE_LABELS+=("$_label")
 done
-mapfile -t AVAIL_VLANS_ARR < <(printf '%s\n' "${AVAIL_VLANS_ARR[@]}" | sort -n)
-VLAN_OPTS=("none (untagged)" "${AVAIL_VLANS_ARR[@]}")
 
-# Management network (default route interface)
-MGMT_GW=$(ip route 2>/dev/null | awk '/^default/{print $3; exit}')
-MGMT_IFACE=$(ip route 2>/dev/null | awk '/^default/{print $5; exit}')
+# Build VLAN option list for a given bridge
+# Sets global _VLAN_OPTS_ARR
+_build_vlan_opts() {
+  local _br="$1"
+  local _vids="${BRIDGE_VIDS[$_br]:-}"
+  _VLAN_OPTS_ARR=("none (untagged)")
+  if [[ -n "$_vids" ]]; then
+    for _v in $_vids; do
+      _VLAN_OPTS_ARR+=("$_v")
+    done
+  fi
+}
 
-# Next free VMID ≥ 9000
+# Next free VMID >= 9000
 NEXT_VMID=9000
 while qm status "$NEXT_VMID" &>/dev/null 2>&1; do (( NEXT_VMID++ )); done
+
 
 # ── Helper: suggest a free IP in a subnet ──────────────────────────────────────
 suggest_free_ip() {
@@ -285,17 +367,24 @@ fi
 [[ -z "$MEM"  ]] && ask MEM  "RAM (MB)"  "1024"
 [[ -z "$DISK" ]] && ask DISK "Disk (GB)" "8"
 
-hdr "Management Network  (net0 — web UI access)"
+hdr "Management Network  (net0 - web UI access)"
 
-# Bridge — numbered choice with IP info
+# Bridge — management bridge auto-selected as default (first in list = [this host])
 if [[ -z "$BRIDGE" ]]; then
   choose _BRIDGE_LABEL "Management bridge:" "${BRIDGE_LABELS[@]}"
   BRIDGE=$(echo "$_BRIDGE_LABEL" | awk '{print $1}')
 fi
 
-# VLAN — numbered choice (none or detected VLANs)
+# VLAN — options derived from the selected bridge's configured VIDs
 if [[ "$VLAN_TAG" == "_ask_" ]]; then
-  choose _VLAN_CHOICE "VLAN tag:" "${VLAN_OPTS[@]}"
+  _build_vlan_opts "$BRIDGE"
+  if [[ ${#_VLAN_OPTS_ARR[@]} -gt 1 ]]; then
+    echo -e "  ${D}Bridge ${BRIDGE} is VLAN-aware with VIDs: ${BRIDGE_VIDS[$BRIDGE]// /,}${NC}" >/dev/tty
+    choose _VLAN_CHOICE "VLAN tag for management NIC:" "${_VLAN_OPTS_ARR[@]}"
+  else
+    echo -e "  ${D}Bridge ${BRIDGE} is not VLAN-aware -- using untagged (no VLAN).${NC}" >/dev/tty
+    _VLAN_CHOICE="none (untagged)"
+  fi
   if [[ "$_VLAN_CHOICE" == "none (untagged)" || -z "$_VLAN_CHOICE" ]]; then
     VLAN_TAG=""
   else
@@ -320,7 +409,7 @@ if [[ "$VM_IP" == "_ask_" ]]; then
   fi
 fi
 
-hdr "Cluster Network  (net1 — Talos node communication)"
+hdr "Cluster Network  (net1 - Talos node communication)"
 echo -e "  ${D}A second NIC on your Talos node network lets the init VM${NC}"
 echo -e "  ${D}discover and configure cluster nodes directly.${NC}"
 echo ""
@@ -330,15 +419,22 @@ if [[ "$CLUSTER_NIC" == "_ask_" ]]; then
 fi
 
 if [[ "$CLUSTER_NIC" == "yes" ]]; then
-  # Cluster bridge — numbered choice
+  # Cluster bridge — same list; default to management bridge (usually the only VLAN-aware one)
   if [[ -z "$CLUSTER_BRIDGE" ]]; then
     choose _CBR_LABEL "Cluster bridge:" "${BRIDGE_LABELS[@]}"
     CLUSTER_BRIDGE=$(echo "$_CBR_LABEL" | awk '{print $1}')
   fi
 
-  # Cluster VLAN — numbered choice
+  # Cluster VLAN — options derived from the selected cluster bridge's VIDs
   if [[ -z "$CLUSTER_VLAN" ]]; then
-    choose _CVLAN_CHOICE "Cluster VLAN tag:" "${VLAN_OPTS[@]}"
+    _build_vlan_opts "$CLUSTER_BRIDGE"
+    if [[ ${#_VLAN_OPTS_ARR[@]} -gt 1 ]]; then
+      echo -e "  ${D}Bridge ${CLUSTER_BRIDGE} VIDs: ${BRIDGE_VIDS[$CLUSTER_BRIDGE]// /,}${NC}" >/dev/tty
+      choose _CVLAN_CHOICE "Cluster VLAN tag (for Talos node traffic):" "${_VLAN_OPTS_ARR[@]}"
+    else
+      echo -e "  ${D}Bridge ${CLUSTER_BRIDGE} is not VLAN-aware -- cluster NIC will be untagged.${NC}" >/dev/tty
+      _CVLAN_CHOICE="none (untagged)"
+    fi
     if [[ "$_CVLAN_CHOICE" == "none (untagged)" || -z "$_CVLAN_CHOICE" ]]; then
       CLUSTER_VLAN=""
     else
@@ -376,7 +472,7 @@ if [[ -z "$DEPLOYER_SSH_PUBKEY" ]]; then
   ask DEPLOYER_SSH_PUBKEY "SSH public key (paste full key)" ""
   [[ -z "$DEPLOYER_SSH_PUBKEY" ]] && die "An SSH public key is required."
 else
-  echo -e "  ${G}✓${NC} Auto-detected: ${D}${DEPLOYER_SSH_PUBKEY:0:60}...${NC}"
+  echo -e "  ${G}[OK]${NC} Auto-detected: ${D}${DEPLOYER_SSH_PUBKEY:0:60}...${NC}"
 fi
 
 # ── Confirm summary ───────────────────────────────────────────────────────────
@@ -528,12 +624,12 @@ runcmd:
   - |
     IP=$(hostname -I | awk '{print $1}')
     echo ""
-    echo "╔══════════════════════════════════════════════════════════════╗"
-    echo "║  InfraWeaver Init VM is ready!                              ║"
-    echo "║                                                              ║"
-    echo "║  Web UI → http://\${IP}:8080                    ║"
-    echo "║  Login  → iw / infraweaver                                  ║"
-    echo "╚══════════════════════════════════════════════════════════════╝"
+    echo "+==============================================================+"
+    echo "| InfraWeaver Init VM is ready!                              |"
+    echo "|                                                             |"
+    echo "| Web UI -> http://\${IP}:8080                                |"
+    echo "| Login  -> iw / infraweaver                                 |"
+    echo "+==============================================================+"
     echo ""
   - echo "iw-init ready" > /var/lib/cloud/instance/init-done
 
