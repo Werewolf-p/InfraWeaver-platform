@@ -17,6 +17,8 @@
 #   → Or just: cp .env.example .env && nano .env && bash scripts/deploy-local.sh
 # =============================================================================
 set -euo pipefail
+set +x   # force xtrace OFF — bash inherits SHELLOPTS=xtrace from parent shells
+          # which causes every command to be printed, garbling wizard output
 
 # Disable bracketed paste mode — prevents $'\E[200~' artifacts when pasting
 # into Proxmox noVNC / shell consoles that have it enabled
@@ -37,17 +39,19 @@ ok()   { echo -e "${G}OK:${NC} $*"; }
 hdr()  { echo -e "\n${C}${B}=== $* ===${NC}"; }
 ask()  {
   # ask VAR "Question" "default"  → reads into VAR, shows default in brackets
+  # Reads from /dev/tty so it works correctly when the script is piped via wget|bash
   local _var="$1" _prompt="$2" _default="${3:-}"
   local _display="${_default:+${D} [${_default}]${NC}}"
-  printf "%b  %s%b: " "${M}" "$_prompt" "${_display}${NC}"
-  IFS= read -r _input
+  printf "%b  %s%b: " "${M}" "$_prompt" "${_display}${NC}" >/dev/tty
+  IFS= read -r _input </dev/tty
   printf -v "$_var" '%s' "${_input:-$_default}"
 }
 askyn() {
   # askyn "Question" "Y/n"  → returns 0=yes 1=no
+  # Reads from /dev/tty so it works correctly when the script is piped via wget|bash
   local _prompt="$1" _default="${2:-Y}"
-  printf "%b  %s %b[%s]%b: " "${M}" "$_prompt" "${D}" "$_default" "${NC}"
-  IFS= read -r _yn
+  printf "%b  %s %b[%s]%b: " "${M}" "$_prompt" "${D}" "$_default" "${NC}" >/dev/tty
+  IFS= read -r _yn </dev/tty
   _yn="${_yn:-$_default}"
   [[ "${_yn,,}" == "y" || "${_yn,,}" == "yes" ]]
 }
