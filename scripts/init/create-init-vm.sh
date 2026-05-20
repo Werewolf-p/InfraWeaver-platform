@@ -436,17 +436,25 @@ fi
 
 # Management IP — always static
 if [[ "$VM_IP" == "_ask_" ]]; then
-  _br_subnet="${BRIDGE_SUBNET[$BRIDGE]:-}"
   _suggested_ip=""
   _suggested_gw="${MGMT_GW:-}"
-  if [[ -n "$_br_subnet" ]]; then
-    log "Scanning for a free IP in ${_br_subnet} (this takes a few seconds)..."
-    _suggested_ip=$(suggest_free_ip "$_br_subnet")
-    # suggest gateway as first host in subnet (e.g. 10.25.3.1)
-    _net_prefix="${_br_subnet%.*}"
-    [[ -z "$_suggested_gw" ]] && _suggested_gw="${_net_prefix}.1"
+
+  if [[ -z "$VLAN_TAG" ]]; then
+    # Untagged — bridge IP is on the same subnet as the VM will be; scan is valid
+    _br_subnet="${BRIDGE_SUBNET[$BRIDGE]:-}"
+    if [[ -n "$_br_subnet" ]]; then
+      log "Scanning for a free IP in ${_br_subnet} (this takes a few seconds)..."
+      _suggested_ip=$(suggest_free_ip "$_br_subnet")
+      _net_prefix="${_br_subnet%.*}"
+      [[ -z "$_suggested_gw" ]] && _suggested_gw="${_net_prefix}.1"
+    fi
+  else
+    # Tagged VLAN — the bridge's own IP is on the native VLAN, a different subnet.
+    # We don't know the VLAN subnet, so ask without a wrong suggestion.
+    echo -e "  ${D}(VLAN ${VLAN_TAG} has its own subnet — enter the IP/gateway for that VLAN)${NC}" >/dev/tty
   fi
-  ask VM_IP  "Static IP for this VM"  "${_suggested_ip:-}"
+
+  ask VM_IP   "Static IP for this VM"  "${_suggested_ip:-}"
   ask VM_CIDR "Prefix length"          "24"
   ask VM_GW   "Gateway"                "${_suggested_gw:-}"
 fi
