@@ -250,6 +250,29 @@ else
   ok "Added remote 'onedev' → $ONEDEV_REMOTE_URL"
 fi
 
+# Unshallow the clone so Onedev doesn't reject the push with "shallow update not allowed"
+if git rev-parse --is-shallow-repository 2>/dev/null | grep -q "true"; then
+  log "  Unshallowing repository (required for Onedev push)..."
+  run git fetch --unshallow origin 2>/dev/null || run git fetch --unshallow 2>/dev/null || \
+    warn "  Could not unshallow — push may fail"
+fi
+
+# Commit all substituted files (generate-from-env.sh changes) before pushing
+log "  Committing any env-substituted files before push..."
+if ! $DRY_RUN; then
+  git config user.email "deploy@infraweaver.local" 2>/dev/null || true
+  git config user.name "InfraWeaver Deploy" 2>/dev/null || true
+  if ! git diff --quiet || ! git diff --cached --quiet; then
+    # Stage all modified tracked files (excluding generated secrets)
+    git add -A -- ':!envs/*/generated/'
+    git diff --cached --quiet || \
+      git commit -m "chore: apply generate-from-env.sh substitutions [skip ci]" 2>/dev/null || true
+    ok "  Committed env-substituted files"
+  else
+    log "  No uncommitted changes to commit"
+  fi
+fi
+
 run git push onedev "$CURRENT_BRANCH":main --force 2>&1 | grep -v "^remote:" | head -10 \
   || run git push onedev "$CURRENT_BRANCH":main 2>&1 | grep -v "^remote:" | head -10 \
   || warn "git push to Onedev failed — repo mirroring may need manual completion"
@@ -374,9 +397,59 @@ if ! $DRY_RUN; then
     "$APPSET_ROOT" "$CONSOLE_DEPLOYMENT_FILE" \
     || log "No file changes to commit (already up to date)"
 
-  # Push to both remotes so GitHub and Onedev stay in sync
+  # Open port-forward to Onedev for second push
+  _ONEDEV_PF2=""
+  _ONEDEV_LOCAL_URL2=""
+  if [[ -n "${ONEDEV_TOKEN:-}" ]]; then
+    _ONEDEV_SVC2=$(kubectl get svc onedev -n "$ONEDEV_NAMESPACE" --no-headers 2>/dev/null | awk '{print $1}' || true)
+    if [[ -n "$_ONEDEV_SVC2" ]]; then
+      kubectl port-forward svc/onedev 19301:80 -n "$ONEDEV_NAMESPACE" &>/dev/null &
+      _ONEDEV_PF2=$!; sleep 4
+      _ONEDEV_LOCAL_URL2="http://infraweaver:${ONEDEV_TOKEN}@localhost:19301/${ONEDEV_PROJECT}"
+      git remote set-url onedev "$_ONEDEV_LOCAL_URL2" 2>/dev/null || true
+    fi
+  fi
+
+  # Push to Onedev (primary)
+  git push onedev "$CURRENT_BRANCH":main --force 2>/dev/null || warn "Push to onedev failed — push manually"
+  # Push to GitHub (secondary — for clean repo state)
   git push origin "$CURRENT_BRANCH" 2>/dev/null || warn "Push to origin failed — push manually"
-  git push onedev "$CURRENT_BRANCH":main 2>/dev/null || warn "Push to onedev failed — push manually"
+
+  [[ -n "$_ONEDEV_PF2" ]] && { kill "$_ONEDEV_PF2" 2>/dev/null || true; wait "$_ONEDEV_PF2" 2>/dev/null || true; }
+fi
+
+# ── 5b. Patch the platform Kubernetes ApplicationSet to use Onedev ──────────
+# The Terraform-created 'platform' ApplicationSet uses the GitHub URL from
+# terraform.tfvars. After Onedev is bootstrapped we must patch it so all
+# ArgoCD Applications it manages use Onedev instead of GitHub.
+log "Step 5b: Patching 'platform' ApplicationSet in Kubernetes to use Onedev..."
+if ! $DRY_RUN; then
+  ONEDEV_CLUSTER_URL="${ONEDEV_URL}/${ONEDEV_PROJECT}"
+  # Patch the generator repoURL
+  kubectl patch applicationset platform -n argocd --type=json \
+    -p "[{\"op\":\"replace\",\"path\":\"/spec/generators/0/git/repoURL\",\"value\":\"${ONEDEV_CLUSTER_URL}\"},{\"op\":\"replace\",\"path\":\"/spec/generators/0/git/revision\",\"value\":\"HEAD\"}]" \
+    2>/dev/null && ok "  platform ApplicationSet generator patched to Onedev" || \
+    warn "  Could not patch platform ApplicationSet generator (may not exist yet)"
+  # Patch the template source repoURL
+  kubectl patch applicationset platform -n argocd --type=json \
+    -p "[{\"op\":\"replace\",\"path\":\"/spec/template/spec/source/repoURL\",\"value\":\"${ONEDEV_CLUSTER_URL}\"},{\"op\":\"replace\",\"path\":\"/spec/template/spec/source/targetRevision\",\"value\":\"HEAD\"}]" \
+    2>/dev/null && ok "  platform ApplicationSet template patched to Onedev" || \
+    warn "  Could not patch platform ApplicationSet template (may not exist yet)"
+
+  # Re-apply updated bootstrap YAMLs directly so ApplicationSets pick up Onedev URL
+  log "  Applying updated bootstrap ApplicationSet manifests..."
+  for f in kubernetes/bootstrap/appset-core.yaml kubernetes/bootstrap/appset-core-platform.yaml \
+            kubernetes/bootstrap/applicationset-root.yaml; do
+    [[ -f "$f" ]] && kubectl apply -f "$f" 2>/dev/null && log "  Applied $f" || true
+  done
+
+  # Hard refresh ArgoCD apps to pick up new source URL
+  log "  Refreshing all ArgoCD applications..."
+  kubectl annotate applications -n argocd --all \
+    "argocd.argoproj.io/refresh=hard" --overwrite 2>/dev/null || true
+  ok "ArgoCD applications refreshed"
+else
+  log "[dry-run] Would patch 'platform' ApplicationSet and apply bootstrap YAMLs"
 fi
 
 # ── Summary ───────────────────────────────────────────────────────────────────
