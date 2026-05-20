@@ -1,171 +1,198 @@
-# InfraWeaver Platform 🚀
+<p align="center">
+  <img src="images/logo.png" alt="InfraWeaver" width="120" />
+</p>
 
-A **GitOps-driven, fully automated Kubernetes platform** deployed on Proxmox VE via Talos Linux.  
-All secrets are randomly generated and stored in OpenBao — **zero hardcoded credentials in this repo**.
+<h1 align="center">InfraWeaver Platform</h1>
+
+<p align="center">
+  A self-hosted, GitOps-driven Kubernetes platform that deploys itself on your Proxmox homelab.<br/>
+  One command. Zero hardcoded secrets. Fully automated from bare Proxmox to running cluster.
+</p>
+
+<p align="center">
+  <a href="#-quick-start"><strong>Quick Start</strong></a> ·
+  <a href="#-how-it-works"><strong>How It Works</strong></a> ·
+  <a href="#-whats-included"><strong>What's Included</strong></a> ·
+  <a href="#%EF%B8%8F-configuration"><strong>Configuration</strong></a> ·
+  <a href="#-after-deployment"><strong>After Deployment</strong></a>
+</p>
 
 ---
 
-## Architecture
+## What is InfraWeaver?
 
-```mermaid
-flowchart TD
-    subgraph Proxmox["☁️ Proxmox VE (10.25.0.3)"]
-        PVE_OPTIONAL["Optional VM — GitHub runner integration"]
-        PVE_OPENBAO["VM 9200 — OpenBao (Vault)"]
-        PVE_NB["VM 9250 — NetBird Router Peer"]
-        PVE_K8S["VMs 9300/9301/9302 — Talos K8s (3 CP nodes)"]
-    end
+InfraWeaver is a complete, production-grade homelab platform that turns a Proxmox host into a fully managed Kubernetes environment. It is designed to be:
 
-    subgraph K8s["🐳 Kubernetes Cluster (VLAN3 10.10.0.0/24)"]
-        TRAEFIK["Traefik Ingress (MetalLB 10.10.0.200)"]
-        ARGOCD["ArgoCD (GitOps)"]
-        AUTHENTIK["Authentik (SSO/IdP)"]
-        NETBIRD["NetBird (VPN)"]
-        CERTMGR["cert-manager (TLS)"]
-        ESO["External Secrets Operator"]
-        LONGHORN["Longhorn (HA Storage)"]
-        PROMETHEUS["Prometheus + Grafana"]
-    end
+- **One-command deployable** — run a single script on Proxmox to start an init website, fill in your settings, and click deploy
+- **Fully local after setup** — GitHub is only used to clone the template once. Everything after that (git, CI/CD, secrets) runs inside your cluster
+- **Secrets-zero-trust** — all credentials are randomly generated at deploy time and stored in OpenBao (open-source Vault). Nothing is hardcoded in this repository
+- **Modular** — toggle optional components (VPN, monitoring, backup, etc.) via `platform.yaml` or the init website
+- **GitOps-native** — ArgoCD continuously reconciles your cluster state against a local Onedev git server
 
-    subgraph Secrets["🔐 Secrets Flow"]
-        OPENBAO_SVC["OpenBao"] --> ESO
-        ESO --> K8S_SECRET["K8s Secrets"]
-        K8S_SECRET --> AUTHENTIK
-        K8S_SECRET --> NETBIRD
-    end
+### What it deploys
 
-    subgraph Access["🌐 Traffic Flow"]
-        USER["User / Browser"]
-        CF["Cloudflare DNS"]
-        NB_CLIENT["NetBird VPN Client"]
-    end
+| Layer | Technology | Purpose |
+|---|---|---|
+| **Hypervisor** | Proxmox VE | VM host — you manage this |
+| **OS / Kubernetes** | Talos Linux | Immutable, API-driven K8s nodes (3-node control-plane) |
+| **Infrastructure** | OpenTofu (Terraform) | Provisions VMs + bootstraps the cluster |
+| **GitOps** | ArgoCD | Continuously syncs cluster state from local git |
+| **Secrets** | OpenBao | All platform credentials live here, never in git |
+| **Ingress** | Traefik | Routes all HTTP/S traffic; gRPC + WebSocket support |
+| **Load Balancer** | MetalLB | Bare-metal LoadBalancer IP assignment |
+| **TLS** | cert-manager | Automated Let's Encrypt certificates (DNS-01 wildcard) |
+| **Secret Sync** | External Secrets Operator | Bridges OpenBao secrets → Kubernetes Secrets |
+| **Storage** | Longhorn | Distributed, replicated block storage across nodes |
+| **Identity** | Authentik | SSO/OIDC provider — single login for all apps |
+| **Local Git + CI** | Onedev | Self-hosted Git, issue tracker, and CI/CD pipelines |
 
-    USER -->|"HTTPS (public)"| CF
-    CF -->|"→ YOUR_PUBLIC_IP"| TRAEFIK
-    NB_CLIENT -->|"NetBird VPN"| PVE_NB
-    PVE_NB -->|"routes 10.10.0.0/24"| TRAEFIK
-    TRAEFIK -->|"auth.rlservers.com"| AUTHENTIK
-    TRAEFIK -->|"*.int.rlservers.com (VPN only)"| ARGOCD
-    TRAEFIK -->|"netbird.rlservers.com"| NETBIRD
-    TEMPLATE[("GitHub template repo")] -->|"clone once"| ONEDEV["Local Onedev"]
-    ONEDEV -->|"ArgoCD polls local git"| ARGOCD
-    PVE_OPTIONAL -.->|"only if enabled"| ONEDEV
-    CERTMGR -->|"DNS-01 challenge"| DNS_PROV["DNS Provider (CF/Route53/Azure/DO/Hetzner)"]
-    LONGHORN -->|"replicated PVCs"| K8s
+---
+
+## ✅ Prerequisites
+
+Before you start, you need:
+
+- **Proxmox VE 8.x** host (bare metal or nested) with:
+  - At least **32 GB RAM** free for the 3 Kubernetes nodes
+  - At least **300 GB storage** free (LVM or ZFS)
+  - A network bridge accessible from the internet (or just your LAN)
+- **A domain name** you control (e.g. `yourdomain.com`) with DNS managed by one of the [supported providers](#-dns-provider--tls-certificates)
+- **SSH key pair** — the deploy script will use this to provision VMs
+
+> **Minimum hardware per Kubernetes node:** 4 vCPUs, 8 GB RAM, 100 GB disk  
+> Default: 3 nodes × (4 CPU / 8 GB / 100 GB) = 12 vCPU, 24 GB RAM, 300 GB storage
+
+---
+
+## 🚀 Quick Start
+
+Run this **on your Proxmox host** (or via SSH into it):
+
+```bash
+wget -qO- https://raw.githubusercontent.com/Werewolf-p/InfraWeaver-platform/main/scripts/init/create-init-vm.sh | bash
 ```
 
-> **Traffic:** User → Cloudflare → Traefik → App  
-> **Internal (VPN):** Device → NetBird → VLAN3 → Traefik → `*.int.rlservers.com`  
-> **Secrets:** OpenBao → ESO → K8s Secret → Pod env var  
-> **GitOps:** initial clone from GitHub → local Onedev hosts ongoing CI/CD → ArgoCD auto-sync (~3 min)
+This will:
+1. Ask a few questions (network interface, IP, storage pool)
+2. Create a lightweight Ubuntu VM on your Proxmox
+3. Clone this repository inside the VM
+4. Start the **InfraWeaver Init Website** at `http://<vm-ip>:8080`
 
+Open that URL in your browser. The init website guides you through:
 
-## Public Services
+| Step | What you configure |
+|---|---|
+| **1. General** | Base domain, admin email, admin username |
+| **2. Proxmox** | Host IP, API token, storage pool |
+| **3. Cluster Nodes** | IPs and VMIDs for the 3 Kubernetes nodes |
+| **4. Network** | MetalLB VIP range, local IP ranges for internal access |
+| **5. DNS Provider** | Choose your DNS provider and paste credentials |
+| **6. SMTP (optional)** | Email for alerts and welcome messages |
+| **7. Features** | Toggle NetBird VPN, monitoring, backups, external DNS |
+| **8. Deploy** | Click **Deploy** — watch the live log as everything provisions |
 
-| Service | URL | Notes |
-|---------|-----|-------|
-| Authentik SSO | `https://auth.rlservers.com` | Identity provider |
-| NetBird Dashboard | `https://netbird.rlservers.com` | VPN web dashboard |
-| NetBird API/gRPC | `https://api-netbird.rlservers.com` | Client connections (management, signal, relay) |
+> **Skip the website?** Copy `.env.example` → `.env`, fill in the values, and run `bash scripts/deploy-local.sh` directly.
 
-## Internal Services (NetBird VPN required)
+---
 
-| Service | URL | Notes |
-|---------|-----|-------|
-| 🏠 Homepage Dashboard | `https://home.rlservers.com` | All services + health status |
-| ArgoCD | `https://argocd.int.rlservers.com` | GitOps UI |
-| Grafana | `https://grafana.int.rlservers.com` | Metrics & logs |
-| Longhorn | `https://longhorn.int.rlservers.com` | Distributed storage UI |
-| OpenBao | `https://openbao.int.rlservers.com` | Secrets vault |
-| AdGuard DNS | `https://adguard.int.rlservers.com` | Internal DNS |
-| AWX (Ansible) | `https://awx.int.rlservers.com` | Automation |
+## 🔍 How It Works
 
-## Access
-
-### First Steps After Deployment
-
-1. **Connect to NetBird VPN** — opens browser → Authentik SSO login → VPN connects
-2. **Open Homepage Dashboard** — `https://home.rlservers.com` (all services + health status)
-3. **Open OpenBao** — `https://openbao.int.rlservers.com` — use root token from deployment email
-4. All other credentials are in OpenBao under `secret/platform/<service>`
-
-### Authentik SSO (admin)
-- **URL:** `https://auth.rlservers.com/if/admin/`
-- **Username:** `remon` (or email: `remonhulst@gmail.com`)
-- **Password:** `vault kv get -field=bootstrap-password secret/platform/authentik`
-
-### NetBird VPN
-- **SSO Login:** `netbird up --management-url https://api-netbird.rlservers.com` → browser opens automatically
-- **Setup Key (headless):** In OpenBao `secret/platform/netbird` field `SETUP_KEY`
-
-## GitOps Workflow
-
-```text
-Initial clone from GitHub → Configure locally → Deploy with scripts/deploy-local.sh
-                                 ↓
-                         Onedev becomes the day-to-day git + CI/CD server
-                                 ↓
-                         ArgoCD detects diffs and reconciles the cluster
-```
-
-For the clean template branch, deployments are started locally from the init website or `bash scripts/deploy-local.sh`.
-See [DEPLOYMENT.md](DEPLOYMENT.md) for the local-only deployment model.
-
-## Repository Structure
+### Deployment flow
 
 ```
-├── terraform/                    # OpenTofu — Proxmox VMs + Talos cluster
-│   ├── modules/
-│   │   ├── talos-cluster/        # Talos VMs, bootstrap, kubeconfig
-│   │   ├── platform-bootstrap/   # ArgoCD install + App-of-Apps
-│   │   ├── cloud-init-template/  # Ubuntu template on Proxmox
-│   │   ├── github-runner/        # Optional GitHub integration VM
-│   │   ├── openbao/              # Vault-compatible secrets engine
-│   │   └── netbird-router/       # VPN routing peer VM
-│   └── envs/
-│       └── productie/            # Prod cluster spec
-├── kubernetes/
-│   ├── bootstrap/                # Root ApplicationSet (applied by OpenTofu once)
-│   ├── core/                     # System components (ArgoCD-managed)
-│   │   ├── argocd/
-│   │   ├── cert-manager/
-│   │   ├── external-secrets/     # ExternalSecrets → OpenBao
-│   │   ├── longhorn/             # Distributed block storage
-│   │   ├── metallb/              # LoadBalancer for bare-metal
-│   │   ├── openbao/              # Vault in K8s (for cluster secrets)
-│   │   └── traefik/              # Ingress + gRPC proxy
-│   ├── apps/                     # Application workloads
-│   │   ├── authentik/            # SSO identity provider
-│   │   ├── homepage/             # Homelab dashboard (home.rlservers.com, VPN-only)
-│   │   ├── netbird/              # VPN server (management/signal/relay/dashboard)
-│   │   ├── grafana/              # Dashboards
-│   │   ├── bitwarden/            # Password manager
-│   │   ├── gitlab/               # Git server
-│   │   └── ...
-│   ├── external-routes/          # Traefik IngressRoutes + TLS certs
-│   └── monitoring/               # Prometheus + Grafana + Loki
-├── ansible/                      # Optional GitHub integration Ansible
-├── .github/
-│   ├── optional/scripts/         # Optional GitHub integration helpers
-│   └── memories/                 # Self-learning architecture notes
-└── README.md
+Proxmox host
+    │
+    └── scripts/init/create-init-vm.sh
+            │  Creates a tiny Ubuntu VM (init VM)
+            │  Clones this repo into /opt/infraweaver
+            │  Starts: python3 scripts/init/server.py
+            │
+            └── Init Website at http://<init-vm-ip>:8080
+                    │  You fill in your configuration
+                    │  Writes: .env
+                    │
+                    └── scripts/deploy-local.sh
+                            │
+                            ├── 1. generate-from-env.sh
+                            │       Substitutes ${PLACEHOLDERS} in all Kubernetes YAMLs
+                            │       and Terraform variables using your .env values
+                            │
+                            ├── 2. OpenTofu (terraform/)
+                            │       ├── Provisions 3 Talos VMs on Proxmox
+                            │       ├── Bootstraps the Talos Kubernetes cluster
+                            │       ├── Installs ArgoCD via Helm
+                            │       └── Applies the root ApplicationSet (app-of-apps)
+                            │
+                            ├── 3. bootstrap-openbao.sh
+                            │       Seeds all generated secrets into OpenBao
+                            │       (passwords, tokens, API keys, certificates)
+                            │
+                            ├── 4. bootstrap-externalsecrets.sh
+                            │       Wires ExternalSecretStore → OpenBao
+                            │       ESO starts syncing secrets into K8s namespaces
+                            │
+                            ├── 5. ArgoCD (automatic from here)
+                            │       Pulls from local Onedev git server
+                            │       Deploys all apps in kubernetes/ over ~10–15 min
+                            │
+                            └── 6. Post-bootstrap
+                                    ├── Authentik admin account configured
+                                    ├── OIDC/SSO wired to ArgoCD, Grafana, Onedev
+                                    └── Cluster ready — access via console.yourdomain.com
 ```
 
-## Secrets Model
+### GitOps model
 
-**No secrets in Git.** All secrets are:
-1. Randomly generated during local bootstrap/deploy
-2. Stored in OpenBao (`secret/platform/<service>`)
-3. Synced to K8s via ExternalSecret CRDs
+After initial deployment, GitHub plays no further role. Your cluster manages itself:
 
+```
+GitHub (read-only template)
+    │  cloned once at deploy time
+    ▼
+Onedev (inside your cluster)      ← your private git server
+    │  ArgoCD watches this
+    ▼
+ArgoCD                            ← syncs every ~3 minutes
+    │  reconciles cluster state
+    ▼
+Kubernetes cluster                ← running apps
+```
+
+To update an app, push a commit to your local Onedev. ArgoCD picks it up automatically.
+
+### Secrets model
+
+**No secrets are stored in Git.** The flow is:
+
+```
+.env (deploy time only, never committed)
+    │
+    ▼
+bootstrap-openbao.sh
+    │  Writes: secret/platform/<service>  (passwords, tokens, keys)
+    ▼
+OpenBao (runs in cluster)
+    │
+    ▼
+External Secrets Operator
+    │  ExternalSecret CRDs pull from OpenBao
+    ▼
+Kubernetes Secrets                ← pods consume these via env vars or volume mounts
+```
+
+Example ExternalSecret:
 ```yaml
-# Pattern: ExternalSecret pulls from OpenBao
 apiVersion: external-secrets.io/v1beta1
 kind: ExternalSecret
+metadata:
+  name: my-app-secret
+  namespace: my-app
 spec:
   secretStoreRef:
-    name: openbao-cluster
+    name: openbao-backend
     kind: ClusterSecretStore
+  target:
+    name: my-app-secret
   data:
     - secretKey: admin-password
       remoteRef:
@@ -173,64 +200,303 @@ spec:
         property: admin-password
 ```
 
-## Adding a New App
+After deployment, retrieve any credential with:
+```bash
+# From inside the cluster (via kubectl exec on openbao pod) or via the OpenBao UI
+vault kv get -field=<key> secret/platform/<service>
+```
 
-1. Create `kubernetes/apps/my-app/application.yaml` (ArgoCD Application)
-2. Create `kubernetes/apps/my-app/values.yaml` (Helm values)
-3. Create `kubernetes/apps/my-app/manifests/` for any extra K8s resources
-4. Add an ExternalSecret if the app needs secrets from OpenBao
-5. Add a Traefik IngressRoute in `kubernetes/external-routes/manifests/`
-6. Push to `main` → ArgoCD deploys automatically
+### Traffic routing
 
-## DNS Provider & TLS
+```
+Internet
+    │
+    ▼
+Your DNS provider  ──  yourdomain.com → your public IP
+                       *.yourdomain.com → your public IP
+    │
+    ▼
+Your router / firewall (port 443 → MetalLB Traefik VIP)
+    │
+    ▼
+Traefik (MetalLB IP)
+    │
+    ├── auth.yourdomain.com        → Authentik (SSO)
+    ├── netbird.yourdomain.com     → NetBird VPN dashboard (if enabled)
+    ├── console.yourdomain.com     → InfraWeaver Console
+    │
+    └── *.int.yourdomain.com       → Internal-only (LAN or VPN only)
+            ├── argocd.int.yourdomain.com
+            ├── openbao.int.yourdomain.com
+            ├── onedev.int.yourdomain.com
+            └── ... all other platform services
+```
 
-cert-manager handles all TLS certificates via ACME. The DNS-01 challenge is used for wildcard certificates (`*.yourdomain.com`). Set `DNS_PROVIDER` in your `.env` or via the init website.
+**Access tiers:**
 
-| Provider | `DNS_PROVIDER` value | Required credentials |
+| Tier | Subdomain pattern | Who can reach it |
 |---|---|---|
-| **Cloudflare** *(default)* | `cloudflare` | `CLOUDFLARE_API_TOKEN` — Zone:DNS:Edit permission |
+| Public | `auth.yourdomain.com`, `netbird.yourdomain.com` | Anyone on the internet |
+| Internal | `*.int.yourdomain.com` | Your local network IP ranges (configured at init) |
+| VPN-only | `*.int.yourdomain.com` | Only via NetBird VPN (if NetBird enabled) |
+
+---
+
+## 📦 What's Included
+
+### Core (always deployed)
+
+| Component | Description |
+|---|---|
+| **ArgoCD** | GitOps engine — deploys and reconciles everything |
+| **Traefik** | Ingress controller for all HTTP/S + gRPC routing |
+| **cert-manager** | Automated TLS certificates via Let's Encrypt |
+| **MetalLB** | Load balancer for bare-metal (assigns real IPs) |
+| **Longhorn** | Distributed block storage with replication |
+| **OpenBao** | Secrets vault (Vault-compatible, fully open source) |
+| **External Secrets Operator** | Syncs OpenBao secrets into Kubernetes |
+| **Authentik** | Identity provider and SSO gateway for all apps |
+| **Kyverno** | Kubernetes policy enforcement |
+| **Onedev** | Local Git server + CI/CD (replaces GitHub dependency) |
+| **InfraWeaver Console** | Web dashboard to manage the whole platform |
+| **InfraWeaver API** | REST API backing the console |
+| **Gatus** | Uptime and health monitoring for all services |
+| **Container Registry** | Private OCI/Docker image registry |
+
+### Optional (toggle in `platform.yaml` or init website)
+
+| Component | Default | Description |
+|---|---|---|
+| **NetBird VPN** | off | Zero-trust mesh VPN for secure remote access |
+| **Monitoring Stack** | off | Prometheus + Loki + Alertmanager (+ Grafana) |
+| **External DNS** | off | Auto-creates DNS records via your DNS provider API |
+| **Velero + MinIO** | off | Kubernetes-level backup to local S3-compatible storage |
+| **Falco** | off | Runtime security and threat detection |
+| **Wazuh** | off | SIEM and security event management |
+| **Homepage** | off | Homelab service dashboard (console has this built-in) |
+
+### Catalog apps (install on demand via Console)
+
+Apps you can add at any time from the InfraWeaver Console:
+
+| App | Description |
+|---|---|
+| Vaultwarden | Bitwarden-compatible password manager |
+| Immich | Self-hosted photo backup and management |
+| Jellyfin / Plex | Media server |
+| Outline | Team knowledge base with OIDC |
+| Wiki.js | Documentation wiki |
+| Gitea / Forgejo | Additional self-hosted Git forges |
+| n8n | Workflow automation |
+| Code-Server | VS Code in your browser |
+| Stirling PDF | PDF manipulation tools |
+| Navidrome | Music streaming |
+| Searxng | Private meta search engine |
+| IT Tools | Developer utilities |
+| Excalidraw | Collaborative whiteboard |
+| Ntfy | Push notifications |
+| And more... | See `platform.yaml` for full list |
+
+---
+
+## ⚙️ Configuration
+
+### `.env` reference
+
+The `.env` file (generated by the init website or from `.env.example`) controls everything:
+
+```bash
+# ── Domain & Identity ──────────────────────────────────────────────────────
+BASE_DOMAIN=yourdomain.com           # All services deploy under this domain
+ADMIN_EMAIL=admin@yourdomain.com     # Let's Encrypt registration + alert emails
+ADMIN_USERNAME=admin                 # Platform admin username in Authentik
+ADMIN_NAME=Platform Admin            # Display name
+
+# ── Proxmox ────────────────────────────────────────────────────────────────
+PROXMOX_HOST=192.168.1.100           # Proxmox management IP
+PROXMOX_NODE_NAME=proxmox            # Proxmox node name
+PROXMOX_API_TOKEN=root@pam!tf=...    # API token (create in Proxmox UI)
+
+# ── Cluster Nodes ──────────────────────────────────────────────────────────
+NODE_1_IP=10.10.0.90                 # Static IP for node 1
+NODE_1_VMID=9310                     # Proxmox VM ID for node 1
+# ... NODE_2, NODE_3 same pattern
+
+# ── Network / MetalLB VIPs ─────────────────────────────────────────────────
+METALLB_VIP_RANGE=10.10.0.200-10.10.0.210
+METALLB_TRAEFIK_VIP=10.10.0.200      # Traefik ingress IP
+METALLB_COREDNS_VIP=10.10.0.201      # Internal CoreDNS (resolves *.yourdomain.com)
+
+# ── DNS Provider ───────────────────────────────────────────────────────────
+DNS_PROVIDER=cloudflare              # See supported providers below
+CLOUDFLARE_API_TOKEN=...
+
+# ── Features ───────────────────────────────────────────────────────────────
+ENABLE_NETBIRD=false                 # Zero-trust VPN
+ENABLE_MONITORING=false              # Prometheus + Loki + Grafana
+ENABLE_EXTERNAL_DNS=false            # Auto DNS record management
+BACKUP_PROVIDER=longhorn             # longhorn | velero | none
+```
+
+See [`.env.example`](.env.example) for the full reference with all options.
+
+### DNS Provider & TLS Certificates
+
+cert-manager issues **wildcard TLS certificates** (`*.yourdomain.com`) via ACME DNS-01 challenge. Set `DNS_PROVIDER` to match your registrar:
+
+| Provider | `DNS_PROVIDER` | Required credentials |
+|---|---|---|
+| **Cloudflare** *(default)* | `cloudflare` | `CLOUDFLARE_API_TOKEN` — Zone:DNS:Edit |
 | **AWS Route 53** | `route53` | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_HOSTED_ZONE_ID` |
 | **Azure DNS** | `azure` | `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_SUBSCRIPTION_ID`, `AZURE_TENANT_ID`, `AZURE_RESOURCE_GROUP` |
-| **DigitalOcean** | `digitalocean` | `DIGITALOCEAN_TOKEN` — write-scope personal access token |
-| **Hetzner DNS** | `hetzner` | `HETZNER_DNS_API_KEY` — from [dns.hetzner.com](https://dns.hetzner.com/settings/api-token) |
-| **HTTP-01 only** | `none` | No credentials needed — wildcard certs not available |
+| **DigitalOcean** | `digitalocean` | `DIGITALOCEAN_TOKEN` |
+| **Hetzner DNS** | `hetzner` | `HETZNER_DNS_API_KEY` |
+| **HTTP-01 only** | `none` | No credentials — wildcard certs unavailable |
 
-> **How it works:** `generate-from-env.sh` reads `DNS_PROVIDER` and injects the correct cert-manager `dns01` solver block into `kubernetes/core/cert-manager/manifests/cluster-issuer.yaml`. Credentials are seeded into OpenBao under `secret/platform/dns-provider` and synced to the cluster via the `dns-provider-credentials` ExternalSecret in the `cert-manager` namespace.
+> `generate-from-env.sh` reads `DNS_PROVIDER` and generates the correct cert-manager ClusterIssuer (`letsencrypt-dns` / `letsencrypt-dns-staging`) with the right solver block for your provider. Credentials are seeded into OpenBao under `secret/platform/dns-provider`.
 
-The active ClusterIssuers are always named `letsencrypt-dns` (production) and `letsencrypt-dns-staging` — provider-independent names referenced throughout the manifests.
+### Feature flags (`platform.yaml`)
 
-## Networking
+Fine-tune which apps and groups are deployed by editing `platform.yaml` (or the InfraWeaver Console after deployment):
 
-### Public DNS / Proxy
-All public traffic should point to your public IP via your DNS provider. If using Cloudflare:
-- **SSL mode: Full** (required for gRPC — Flexible breaks it)
-- **HTTP/2: ON** (required for NetBird gRPC)
-- gRPC works on Free plan when HTTP/2 + Full SSL is enabled
+```yaml
+groups:
+  core-monitoring:
+    enabled: true    # Deploys Prometheus + Loki + Alertmanager
 
-### Traefik IngressRoutes
-- gRPC backends use `scheme: h2c` (cleartext HTTP/2 inside cluster)
-- WebSocket (NetBird relay) uses `scheme: http` with Upgrade header passthrough
-- VPN-only routes use `netbird-vpn-only` middleware (allowlist: 10.10.0.10/32)
+  core-platform:
+    apps:
+      netbird:
+        enabled: true    # Deploys NetBird VPN
+      external-dns:
+        enabled: true    # Auto-manages DNS records
+```
 
-### NetBird VPN
-- SSO enrollment: client opens browser → Authentik PKCE flow → JWT
-- Router peer (10.10.0.10) advertises entire internal subnet
-- DNS: CoreDNS at 10.10.0.201 resolves `*.rlservers.com` internally
+---
 
-## Monitoring
+## 🗂 Repository Structure
 
-- **Prometheus:** Scrapes all K8s components + service monitors
-- **Grafana:** `https://grafana.rlservers.com` — dashboards for cluster + apps
-- **Loki:** Log aggregation for all pods
-- **AlertManager:** Alerts via email (`remonhulst@gmail.com`)
+```
+InfraWeaver-platform/
+├── scripts/
+│   ├── init/                     # Init website + VM bootstrap
+│   │   ├── create-init-vm.sh     # Proxmox VM creation script (entry point)
+│   │   ├── server.py             # Init website backend (writes .env, triggers deploy)
+│   │   └── templates/            # Init website HTML/CSS/JS
+│   ├── deploy/                   # Deploy-time helpers
+│   │   ├── bootstrap-openbao.sh  # Seeds all secrets into OpenBao
+│   │   ├── bootstrap-externalsecrets.sh
+│   │   ├── configure-oidc.sh     # Wires Authentik OIDC to apps
+│   │   └── ensure-cloudflare-dns.sh
+│   ├── deploy-local.sh           # Main deployment orchestrator
+│   ├── generate-from-env.sh      # Substitutes ${PLACEHOLDERS} from .env into YAMLs
+│   └── new-app.sh                # Scaffold a new catalog app
+│
+├── terraform/
+│   ├── modules/
+│   │   ├── talos-cluster/        # Creates 3 Talos VMs + bootstraps K8s
+│   │   ├── platform-bootstrap/   # Installs ArgoCD + root ApplicationSet
+│   │   ├── cloud-init-template/  # Ubuntu cloud-init VM template
+│   │   ├── openbao/              # OpenBao VM (secrets vault)
+│   │   └── netbird-router/       # NetBird router peer VM
+│   └── envs/productie/           # Environment-specific Terraform variables
+│
+├── kubernetes/
+│   ├── bootstrap/                # Root ApplicationSet — applied once by OpenTofu
+│   ├── core/                     # Mandatory system components
+│   │   ├── argocd/
+│   │   ├── cert-manager/         # ClusterIssuers + DNS ExternalSecret
+│   │   ├── external-secrets/     # ClusterSecretStore → OpenBao
+│   │   ├── longhorn/
+│   │   ├── metallb/
+│   │   ├── openbao/
+│   │   └── traefik/
+│   ├── platform/                 # Platform services (Authentik, NetBird, DNS, etc.)
+│   ├── monitoring/               # Prometheus, Loki, Alertmanager (optional group)
+│   ├── catalog/                  # On-demand apps (Vaultwarden, Immich, etc.)
+│   └── external-routes/          # Traefik IngressRoutes + TLS Certificates
+│
+├── platform.yaml                 # Feature flags and catalog app config
+├── users.yaml                    # Platform users (seeded into Authentik)
+├── .env.example                  # Template — copy to .env and fill in
+└── DEPLOYMENT.md                 # Local-only deployment model details
+```
 
-## Environment
+---
 
-| Attribute | Value |
-|-----------|-------|
-| Proxmox host | 10.25.0.3 (`proxmox` node) |
-| K8s version | v1.35.4 (Talos 1.9.x) |
-| Management VLAN | VLAN3 (10.10.0.0/24) |
-| External IP | `<YOUR-PUBLIC-IP>` (set in Cloudflare DNS) |
-| Domain | rlservers.com (Cloudflare) |
-| Backup domain | yonavaarwater.nl, zonnevaarwater.nl, waterdance.nl |
+## 🔌 After Deployment
+
+### First steps
+
+1. **Open the Console** — `https://console.yourdomain.com`
+   - Log in with your admin credentials
+   - All services and their health status are visible here
+
+2. **Access internal services** — `https://*.int.yourdomain.com`
+   - Accessible from your local network (or via VPN if NetBird is enabled)
+   - ArgoCD: `https://argocd.int.yourdomain.com`
+   - OpenBao: `https://openbao.int.yourdomain.com`
+   - Onedev: `https://onedev.int.yourdomain.com`
+
+3. **Connect to NetBird VPN** (if enabled)
+   ```bash
+   netbird up --management-url https://api-netbird.yourdomain.com
+   # Browser opens → log in with Authentik SSO → VPN connects
+   ```
+
+4. **Retrieve a credential**
+   ```bash
+   # Via kubectl on any node, or OpenBao UI at openbao.int.yourdomain.com
+   vault kv get -field=bootstrap-password secret/platform/authentik
+   ```
+
+### Adding an app
+
+1. **From the Console** — go to Catalog → click Install on any listed app
+2. **Manually** — create `kubernetes/catalog/my-app/` with an `application.yaml`, optional `values.yaml`, and `manifests/`. Push to Onedev → ArgoCD deploys it.
+
+Quick scaffold:
+```bash
+bash scripts/new-app.sh my-app
+# Creates the skeleton files in kubernetes/catalog/my-app/
+```
+
+### Full redeployment
+
+To wipe all cluster data and redeploy from scratch (keeps your `.env` and `users.yaml`):
+```bash
+bash scripts/redeploy.sh
+```
+
+---
+
+## 🌐 Networking notes
+
+### Internal-only middleware
+
+Routes served on `*.int.yourdomain.com` are protected by a Traefik middleware that only allows requests from your configured `LOCAL_IP_RANGES`. This is enforced at the ingress level — not just DNS — so even if someone resolves the domain, they cannot reach the service unless their IP is in the allowed list.
+
+### If using Cloudflare as your DNS proxy
+
+- **SSL mode: Full** (required — Flexible breaks TLS termination)
+- **HTTP/2: enabled** (required for NetBird gRPC connections)
+- gRPC works on the Cloudflare Free plan with HTTP/2 + Full SSL
+
+### CoreDNS internal resolution
+
+CoreDNS runs at your `METALLB_COREDNS_VIP`. It resolves `*.yourdomain.com` to internal cluster IPs, so internal services resolve correctly without going through the public internet.
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome. Please open an issue before submitting large PRs.
+
+- See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines
+- See [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) for a deep-dive on the codebase
+
+---
+
+## 📄 License
+
+[MIT](LICENSE)
