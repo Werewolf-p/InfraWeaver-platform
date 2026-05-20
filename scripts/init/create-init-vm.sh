@@ -782,13 +782,21 @@ while (( _ELAPSED < _WAIT_SECS )); do
   _bar=$(printf '#%.0s' $(seq 1 "$_pct"))
   printf '\r  [%-30s] %3ds ' "$_bar" "$_ELAPSED"
 
-  # ── Method 1: ARP table ─────────────────────────────────────────────────
+  # ── Method 1: ARP / neighbour table ─────────────────────────────────────
   # Works the instant the VM gets a DHCP lease and sends any network traffic.
-  # No guest agent dependency at all.
+  # Uses 'ip neigh' (iproute2, always present) — field 5 is the MAC.
+  # Falls back to 'arp -n' (net-tools, optional on Debian/Proxmox).
+  # Both wrapped in || true so set -euo pipefail can't kill the loop.
   AGENT_IP=""
   if [[ -n "$VM_MAC" ]]; then
-    AGENT_IP=$(arp -n 2>/dev/null \
-      | awk -v m="$VM_MAC" 'tolower($3)==m && $1!="?" {print $1; exit}')
+    AGENT_IP=$(ip neigh show 2>/dev/null \
+      | awk -v m="$VM_MAC" 'tolower($5)==m && $1!~/^(127\.|169\.254\.)/ {print $1; exit}' \
+      || true)
+    if [[ -z "$AGENT_IP" ]]; then
+      AGENT_IP=$(arp -n 2>/dev/null \
+        | awk -v m="$VM_MAC" 'tolower($3)==m && $1!="?" && $1!~/^(127\.|169\.254\.)/ {print $1; exit}' \
+        || true)
+    fi
   fi
 
   # ── Method 2: pvesh agent/network-get-interfaces ─────────────────────────
