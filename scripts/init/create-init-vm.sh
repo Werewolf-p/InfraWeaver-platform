@@ -18,14 +18,23 @@
 # =============================================================================
 set -euo pipefail
 
+# Disable bracketed paste mode — prevents $'\E[200~' artifacts when pasting
+# into Proxmox noVNC / shell consoles that have it enabled
+printf '\e[?2004l' 2>/dev/null || true
+
 # ── Colors (defined early — used in wizard) ───────────────────────────────────
-G='\033[0;32m'; Y='\033[1;33m'; R='\033[0;31m'; C='\033[0;36m'
-D='\033[2m'; NC='\033[0m'; B='\033[1m'; M='\033[0;35m'
-log()  { echo -e "${G}▶${NC} $*"; }
-warn() { echo -e "${Y}⚠${NC} $*"; }
-die()  { echo -e "${R}✗${NC} $*" >&2; exit 1; }
-ok()   { echo -e "${G}✅${NC} $*"; }
-hdr()  { echo -e "\n${C}${B}── $* ──${NC}"; }
+# Detect if the terminal supports colors; fall back to plain output if not
+if [[ -t 1 && "${TERM:-dumb}" != "dumb" ]]; then
+  G='\033[0;32m'; Y='\033[1;33m'; R='\033[0;31m'; C='\033[0;36m'
+  D='\033[2m'; NC='\033[0m'; B='\033[1m'; M='\033[0;35m'
+else
+  G=''; Y=''; R=''; C=''; D=''; NC=''; B=''; M=''
+fi
+log()  { echo -e "${G}>>${NC} $*"; }
+warn() { echo -e "${Y}WARN:${NC} $*"; }
+die()  { echo -e "${R}ERROR:${NC} $*" >&2; exit 1; }
+ok()   { echo -e "${G}OK:${NC} $*"; }
+hdr()  { echo -e "\n${C}${B}=== $* ===${NC}"; }
 ask()  {
   # ask VAR "Question" "default"  → reads into VAR, shows default in brackets
   local _var="$1" _prompt="$2" _default="${3:-}"
@@ -208,16 +217,18 @@ fi
 
 # ── Confirm summary ───────────────────────────────────────────────────────────
 echo ""
-echo -e "${C}${B}  ┌─ Summary ─────────────────────────────────────────────────┐${NC}"
-echo -e "  │  VM ID      : ${B}${VMID}${NC} / ${VM_NAME}"
-echo -e "  │  Resources  : ${B}${CPU} CPU / ${MEM} MB RAM / ${DISK} GB${NC}"
-echo -e "  │  Storage    : ${B}${STORAGE}${NC}"
-echo -e "  │  net0       : bridge=${B}${BRIDGE}${NC}${VLAN_TAG:+, VLAN=${VLAN_TAG}} → ${B}${VM_IP:-DHCP}${NC}"
+echo "  +-----------------------------------------------------------+"
+echo "  |  SUMMARY                                                  |"
+echo "  +-----------------------------------------------------------+"
+echo -e "  |  VM ID      : ${B}${VMID}${NC} / ${VM_NAME}"
+echo -e "  |  Resources  : ${B}${CPU} CPU / ${MEM} MB RAM / ${DISK} GB${NC}"
+echo -e "  |  Storage    : ${B}${STORAGE}${NC}"
+echo -e "  |  net0 (mgmt): bridge=${B}${BRIDGE}${NC}${VLAN_TAG:+, VLAN=${VLAN_TAG}} -> ${B}${VM_IP:-DHCP}${NC}"
 if [[ "$CLUSTER_NIC" == "yes" ]]; then
-  echo -e "  │  net1       : bridge=${B}${CLUSTER_BRIDGE}${NC}, VLAN=${B}${CLUSTER_VLAN}${NC} → ${B}${CLUSTER_IP:-DHCP}${NC}${CLUSTER_CIDR:+/${CLUSTER_CIDR}}"
+  echo -e "  |  net1 (k8s) : bridge=${B}${CLUSTER_BRIDGE}${NC}, VLAN=${B}${CLUSTER_VLAN}${NC} -> ${B}${CLUSTER_IP:-DHCP}${NC}${CLUSTER_CIDR:+/${CLUSTER_CIDR}}"
 fi
-echo -e "  │  Repo       : ${B}${REPO_URL}${NC} @ ${REPO_BRANCH}"
-echo -e "${C}${B}  └───────────────────────────────────────────────────────────┘${NC}"
+echo -e "  |  Repo       : ${B}${REPO_URL}${NC} @ ${REPO_BRANCH}"
+echo "  +-----------------------------------------------------------+"
 echo ""
 askyn "Proceed with these settings?" "Y" || die "Aborted."
 echo ""
