@@ -116,7 +116,7 @@ spin_fail() {
 
 # Step counter for the VM creation phase
 _STEP_N=0
-_STEP_TOTAL=8
+_STEP_TOTAL=7
 step() {
   (( _STEP_N++ )) || true
   printf '\n  %b[%d/%d]%b %s\n' "$C" "$_STEP_N" "$_STEP_TOTAL" "$NC" "$1"
@@ -434,21 +434,21 @@ if [[ "$VLAN_TAG" == "_ask_" ]]; then
   fi
 fi
 
-# Management IP — DHCP or static with subnet suggestion
+# Management IP — always static
 if [[ "$VM_IP" == "_ask_" ]]; then
-  if askyn "Use DHCP for the management IP?" "Y"; then
-    VM_IP=""; VM_GW=""; VM_CIDR=""
-  else
-    _br_subnet="${BRIDGE_SUBNET[$BRIDGE]:-}"
-    _suggested_ip=""
-    if [[ -n "$_br_subnet" ]]; then
-      log "Scanning for a free IP in ${_br_subnet%/*}/24 (this takes a few seconds)..."
-      _suggested_ip=$(suggest_free_ip "$_br_subnet")
-    fi
-    ask VM_IP  "Static IP address" "${_suggested_ip:-}"
-    [[ -z "$VM_CIDR" ]] && ask VM_CIDR "Prefix length" "24"
-    [[ -z "$VM_GW"   ]] && ask VM_GW   "Gateway"       "${MGMT_GW:-}"
+  _br_subnet="${BRIDGE_SUBNET[$BRIDGE]:-}"
+  _suggested_ip=""
+  _suggested_gw="${MGMT_GW:-}"
+  if [[ -n "$_br_subnet" ]]; then
+    log "Scanning for a free IP in ${_br_subnet} (this takes a few seconds)..."
+    _suggested_ip=$(suggest_free_ip "$_br_subnet")
+    # suggest gateway as first host in subnet (e.g. 10.25.3.1)
+    _net_prefix="${_br_subnet%.*}"
+    [[ -z "$_suggested_gw" ]] && _suggested_gw="${_net_prefix}.1"
   fi
+  ask VM_IP  "Static IP for this VM"  "${_suggested_ip:-}"
+  ask VM_CIDR "Prefix length"          "24"
+  ask VM_GW   "Gateway"                "${_suggested_gw:-}"
 fi
 
 hdr "Cluster Network  (net1 - Talos node communication)"
@@ -533,7 +533,7 @@ echo "  +-----------------------------------------------------------+"
 echo -e "  |  VM ID      : ${B}${VMID}${NC} / ${VM_NAME}"
 echo -e "  |  Resources  : ${B}${CPU} CPU / ${MEM} MB RAM / ${DISK} GB${NC}"
 echo -e "  |  Storage    : ${B}${STORAGE}${NC}"
-echo -e "  |  net0 (mgmt): bridge=${B}${BRIDGE}${NC}${VLAN_TAG:+, VLAN=${VLAN_TAG}} -> ${B}${VM_IP:-DHCP}${NC}"
+echo -e "  |  net0 (mgmt): bridge=${B}${BRIDGE}${NC}${VLAN_TAG:+, VLAN=${VLAN_TAG}} -> ${B}${VM_IP}/${VM_CIDR}${NC}"
 if [[ "$CLUSTER_NIC" == "yes" ]]; then
   echo -e "  |  net1 (k8s) : bridge=${B}${CLUSTER_BRIDGE}${NC}, VLAN=${B}${CLUSTER_VLAN}${NC} -> ${B}${CLUSTER_IP:-DHCP}${NC}${CLUSTER_CIDR:+/${CLUSTER_CIDR}}"
 fi
@@ -685,7 +685,7 @@ runcmd:
     echo ""
   - echo "iw-init ready" > /var/lib/cloud/instance/init-done
 
-final_message: "InfraWeaver init VM ready. Access web UI at http://DHCP-IP:8080"
+final_message: "InfraWeaver init VM ready. Access web UI at http://${VM_IP}:8080"
 CLOUDINIT
 
 log "Cloud-init user-data written to $USERDATA_FILE"
@@ -746,12 +746,7 @@ mkdir -p /var/lib/vz/snippets
 cp "$USERDATA_FILE" "/var/lib/vz/snippets/iw-init-${VMID}.yaml"
 rm -f "$USERDATA_FILE"
 
-# Set static IP or DHCP
-if [[ -n "$VM_IP" ]]; then
-  qm set "$VMID" --ipconfig0 "ip=${VM_IP}/${VM_CIDR},gw=${VM_GW}"
-else
-  qm set "$VMID" --ipconfig0 "ip=dhcp"
-fi
+qm set "$VMID" --ipconfig0 "ip=${VM_IP}/${VM_CIDR},gw=${VM_GW}"
 
 qm set "$VMID" --nameserver "8.8.8.8 1.1.1.1"
 qm set "$VMID" --searchdomain "local"
@@ -763,98 +758,20 @@ spin_start "Sending start command to VM $VMID"
 qm start "$VMID"
 spin_stop "VM $VMID started"
 
-# ── Wait for IP ───────────────────────────────────────────────────────────────
-step "Waiting for VM to come online"
-echo ""
-VM_IP_FINAL=""
-_WAIT_SECS=180
-_ELAPSED=0
-
-printf '  Detecting VM IP   MAC: %s   (timeout %ds)\n' "${VM_MAC:-unknown}" "$_WAIT_SECS"
-printf '  Methods: 1) ARP table  2) pvesh guest-agent  3) dnsmasq leases\n\n'
-
-# 8s grace period — let QEMU initialize the virtual NIC before the VM even boots
-sleep 8; _ELAPSED=8
-
-while (( _ELAPSED < _WAIT_SECS )); do
-  sleep 4; _ELAPSED=$((_ELAPSED+4))
-  _pct=$(( _ELAPSED * 30 / _WAIT_SECS ))
-  _bar=$(printf '#%.0s' $(seq 1 "$_pct"))
-  printf '\r  [%-30s] %3ds ' "$_bar" "$_ELAPSED"
-
-  # ── Method 1: ARP / neighbour table ─────────────────────────────────────
-  # Works the instant the VM gets a DHCP lease and sends any network traffic.
-  # Uses 'ip neigh' (iproute2, always present) — field 5 is the MAC.
-  # Falls back to 'arp -n' (net-tools, optional on Debian/Proxmox).
-  # Both wrapped in || true so set -euo pipefail can't kill the loop.
-  AGENT_IP=""
-  if [[ -n "$VM_MAC" ]]; then
-    AGENT_IP=$(ip neigh show 2>/dev/null \
-      | awk -v m="$VM_MAC" 'tolower($5)==m && $1!~/^127\./ && $1!~/^169\.254\./ {print $1; exit}' \
-      || true)
-    if [[ -z "$AGENT_IP" ]]; then
-      AGENT_IP=$(arp -n 2>/dev/null \
-        | awk -v m="$VM_MAC" 'tolower($3)==m && $1!="?" && $1!~/^127\./ && $1!~/^169\.254\./ {print $1; exit}' \
-        || true)
-    fi
-  fi
-
-  # ── Method 2: pvesh agent/network-get-interfaces ─────────────────────────
-  # Available only after cloud-init packages phase finishes (~3-4 min).
-  if [[ -z "$AGENT_IP" ]]; then
-    AGENT_IP=$(pvesh get /nodes/"$PVE_NODE"/qemu/"$VMID"/agent/network-get-interfaces \
-      --output-format json 2>/dev/null | python3 -c "
-import sys, json
-try:
-    data = json.load(sys.stdin)
-    for iface in data.get('result', []):
-        for addr in iface.get('ip-addresses', []):
-            ip = addr.get('ip-address', '')
-            if addr.get('ip-address-type') == 'ipv4' and ip \
-               and not ip.startswith('127.') and not ip.startswith('169.254.'):
-                print(ip); sys.exit(0)
-except Exception:
-    pass
-" 2>/dev/null || true)
-  fi
-
-  # ── Method 3: dnsmasq DHCP leases (if Proxmox runs local DHCP) ───────────
-  if [[ -z "$AGENT_IP" ]] && [[ -n "$VM_MAC" ]]; then
-    AGENT_IP=$(grep -i "$VM_MAC" /var/lib/misc/dnsmasq.leases 2>/dev/null \
-      | awk '{print $3; exit}' || true)
-    [[ "$AGENT_IP" == "0.0.0.0" ]] && AGENT_IP=""
-  fi
-
-  if [[ -n "$AGENT_IP" ]]; then
-    VM_IP_FINAL="$AGENT_IP"
-    printf '\r  [%-30s] found -> %s\n' "##############################" "$VM_IP_FINAL"
-    break
-  fi
-done
-[[ -z "$VM_IP_FINAL" ]] && printf '\r  [%-30s] timeout\n' "##############################"
-
-if [[ -z "$VM_IP_FINAL" ]] && [[ -n "$VM_IP" ]]; then
-  VM_IP_FINAL="$VM_IP"
-fi
-
+# ── All done ─────────────────────────────────────────────────────────────────
 step "All done!"
 echo ""
-# Wait a moment, then display the ready banner with a brief animated reveal
 sleep 0.2
 echo -e "${G}${B}+===============================================================+${NC}"
 sleep 0.05
-echo -e "${G}${B}  InfraWeaver Init VM is starting up!${NC}"
+echo -e "${G}${B}  InfraWeaver Init VM is booting!${NC}"
 echo ""
 sleep 0.05
-if [[ -n "$VM_IP_FINAL" ]]; then
-  echo -e "  Web UI  ->  ${C}${B}http://${VM_IP_FINAL}:8080${NC}"
-  echo -e "  SSH     ->  ${C}ssh iw@${VM_IP_FINAL}${NC}  (password: infraweaver)"
-else
-  echo -e "  Web UI  ->  ${C}${B}http://<vm-ip>:8080${NC}  (check Proxmox DHCP for IP)"
-fi
+echo -e "  Web UI  ->  ${C}${B}http://${VM_IP}:8080${NC}"
+echo -e "  SSH     ->  ${C}ssh iw@${VM_IP}${NC}  (password: infraweaver)"
 echo ""
 sleep 0.05
-echo -e "  The init server will be ready in ~60 seconds."
+echo -e "  The init server will be ready in ~60-90 seconds (cloud-init)."
 echo -e "  Open the web UI, fill in your .env values, then click Deploy."
 echo ""
 sleep 0.05
