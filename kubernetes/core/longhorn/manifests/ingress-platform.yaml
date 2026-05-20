@@ -10,7 +10,7 @@ metadata:
 spec:
   ingressClassName: traefik
   rules:
-    - host: longhorn.${BASE_DOMAIN}
+    - host: longhorn.infraweaver.local
       http:
         paths:
           - path: /

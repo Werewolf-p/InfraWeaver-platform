@@ -9,5 +9,5 @@ image: deluan/navidrome
 categories:
   - "MediaServer-Music"
 ingressroute:
-  host: navidrome.int.${BASE_DOMAIN}
+  host: navidrome.int.infraweaver.local
 installed_at: 2026-05-17T22:42:33.921Z

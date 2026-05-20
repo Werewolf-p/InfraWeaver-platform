@@ -1,5 +1,5 @@
 global:
-  domain: argocd.int.${BASE_DOMAIN}
+  domain: argocd.int.infraweaver.local
   priorityClassName: platform-critical
 
 controller:
@@ -61,7 +61,7 @@ server:
   ingress:
     # Ingress disabled — routing handled by Traefik IngressRoute in external-routes
     # (kubernetes/platform/external-routes/manifests/10-routes-vpn-only.yaml → argocd-int)
-    # which uses argocd.int.${BASE_DOMAIN} with netbird-vpn-only middleware.
+    # which uses argocd.int.infraweaver.local with netbird-vpn-only middleware.
     enabled: false
   resources:
     requests:
@@ -195,13 +195,13 @@ configs:
       end
       return hs
     # Local user accounts — passwords set by full-redeploy bootstrap (stored in OpenBao)
-    accounts.${ADMIN_USERNAME}: login
+    accounts.admin: login
     # Disable built-in admin account — OIDC (Authentik) is the sole login path
     admin.enabled: "false"
     # OIDC via Authentik — client secret read from argocd-secret by ArgoCD
     oidc.config: |
       name: Authentik
-      issuer: https://auth.${BASE_DOMAIN}/application/o/argocd/
+      issuer: https://auth.infraweaver.local/application/o/argocd/
       clientID: argocd
       clientSecret: $oidc.authentik.clientSecret
       requestedScopes:
@@ -227,7 +227,7 @@ configs:
   rbac:
     policy.csv: |
       # Individual user mappings (username = sub from OIDC token)
-      g, ${ADMIN_USERNAME}, role:admin
+      g, admin, role:admin
       # Group mappings (group name from OIDC groups claim, if configured)
       g, platform-admins, role:admin
       g, platform-users, role:readonly

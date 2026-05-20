@@ -44,7 +44,7 @@ spec:
   ipAllowList:
     sourceRange:
       - 10.25.0.0/24        # Homelab LAN — from LOCAL_IP_RANGES in .env
-      - 192.168.1.0/24      # Homelab LAN — from LOCAL_IP_RANGES in .env
+      - 10.10.0.0/24        # Homelab LAN — from LOCAL_IP_RANGES in .env
       - 127.0.0.1/32        # Localhost
       - 10.10.0.0/24        # K8s node VLAN — in-cluster traffic + health probes
       - 10.244.0.0/16       # K8s pod CIDR — health probes (Gatus, liveness, etc.)
@@ -58,8 +58,8 @@ spec:
 #   - Pod CIDR (10.244.0.0/16) allowed for in-cluster health probes
 #   - 100.64.0.0/10 allowed for direct WireGuard peer connections (NetBird CGNAT)
 #
-# This middleware is applied ONLY to *.int.${BASE_DOMAIN} routes.
-# The security model: ${METALLB_TRAEFIK_VIP} is a private IP (unreachable from internet) AND
+# This middleware is applied ONLY to *.int.infraweaver.local routes.
+# The security model: 10.10.0.200 is a private IP (unreachable from internet) AND
 # only VLAN3 node IPs and NetBird CGNAT pass this allowlist. Both layers are required.
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
@@ -126,7 +126,7 @@ spec:
 #
 # Uses Authentik's embedded outpost forward-auth endpoint.
 # Any user with a valid Authentik session passes; unauthenticated users are
-# redirected to auth.${BASE_DOMAIN} to log in, then returned here.
+# redirected to auth.infraweaver.local to log in, then returned here.
 #
 # authResponseHeaders: passes Authentik user info to the backend so apps can
 # read who is logged in without doing their own auth.

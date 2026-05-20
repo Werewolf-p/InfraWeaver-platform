@@ -1,7 +1,7 @@
 ---
 # NetBird API IngressRoute — management gRPC, signal gRPC, relay, REST API
-# at api-netbird.${BASE_DOMAIN} (public, used by NetBird clients/peers)
-# Dashboard → netbird.${BASE_DOMAIN} (see 09-routes-netbird.yaml)
+# at api-netbird.infraweaver.local (public, used by NetBird clients/peers)
+# Dashboard → netbird.infraweaver.local (see 09-routes-netbird.yaml)
 #
 # Priority order (highest first):
 #   1. Management gRPC (PathPrefix /management.ManagementService) → h2c:33073
@@ -19,7 +19,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`api-netbird.${BASE_DOMAIN}`) && PathPrefix(`/management.ManagementService`)
+    - match: Host(`api-netbird.infraweaver.local`) && PathPrefix(`/management.ManagementService`)
       kind: Rule
       priority: 50
       services:
@@ -39,7 +39,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`api-netbird.${BASE_DOMAIN}`) && (PathPrefix(`/signalexchange.SignalExchange`) || PathPrefix(`/grpc.reflection`))
+    - match: Host(`api-netbird.infraweaver.local`) && (PathPrefix(`/signalexchange.SignalExchange`) || PathPrefix(`/grpc.reflection`))
       kind: Rule
       priority: 50
       services:
@@ -59,7 +59,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`api-netbird.${BASE_DOMAIN}`) && PathPrefix(`/relay`)
+    - match: Host(`api-netbird.infraweaver.local`) && PathPrefix(`/relay`)
       kind: Rule
       priority: 40
       services:
@@ -79,7 +79,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`api-netbird.${BASE_DOMAIN}`) && (PathPrefix(`/api`) || PathPrefix(`/ws-proxy`))
+    - match: Host(`api-netbird.infraweaver.local`) && (PathPrefix(`/api`) || PathPrefix(`/ws-proxy`))
       kind: Rule
       priority: 30
       services:

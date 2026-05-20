@@ -11,7 +11,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`bookstack.int.${BASE_DOMAIN}`)
+    - match: Host(`bookstack.int.infraweaver.local`)
       kind: Rule
       middlewares:
         - name: netbird-vpn-only

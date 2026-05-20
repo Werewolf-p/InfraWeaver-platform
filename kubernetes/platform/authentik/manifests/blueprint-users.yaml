@@ -21,15 +21,15 @@ data:
       name: Platform Users Setup
     entries:
       # ── Platform admin user ───────────────────────────────────────────────────
-      # Username = ${ADMIN_USERNAME} (from .env). sub_mode=user_username means
+      # Username = admin (from .env). sub_mode=user_username means
       # this username is also the NetBird identity and ArgoCD principal ID.
       - model: authentik_core.user
         state: present
         identifiers:
-          username: "${ADMIN_USERNAME}"
+          username: "admin"
         attrs:
-          name: "${ADMIN_NAME}"
-          email: "${ADMIN_EMAIL}"
+          name: "Platform Admin"
+          email: "admin@infraweaver.local"
           password: !Env AUTHENTIK_ADMIN_PASSWORD
           is_active: true
 

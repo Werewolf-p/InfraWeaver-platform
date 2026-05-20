@@ -11,5 +11,5 @@ categories:
   - "MediaServer-Music"
   - "MediaServer-Photos"
 ingressroute:
-  host: jellyfin.int.${BASE_DOMAIN}
+  host: jellyfin.int.infraweaver.local
 installed_at: 2026-05-17T22:56:14.413Z

@@ -84,7 +84,7 @@ metadata:
   namespace: traefik
 subsets:
   - addresses:
-      - ip: ${PROXMOX_HOST}
+      - ip: 10.25.0.3
     ports:
       - port: 8006
 ---
@@ -445,7 +445,7 @@ subsets:
     ports:
       - port: 80
 ---
-# ── WordPress: ${BASE_DOMAIN} ──────────────────────────────────────────────────
+# ── WordPress: infraweaver.local ──────────────────────────────────────────────────
 apiVersion: v1
 kind: Service
 metadata:
@@ -508,7 +508,7 @@ subsets:
     ports:
       - port: 80
 ---
-# ── feestinhetdonker.${BASE_DOMAIN} / marcel.${BASE_DOMAIN} ─────────────────────
+# ── feestinhetdonker.infraweaver.local / marcel.infraweaver.local ─────────────────────
 apiVersion: v1
 kind: Service
 metadata:
@@ -570,7 +570,7 @@ subsets:
     ports:
       - port: 443
 ---
-# ── degoudentijd.${BASE_DOMAIN} ────────────────────────────────────────────────
+# ── degoudentijd.infraweaver.local ────────────────────────────────────────────────
 apiVersion: v1
 kind: Service
 metadata:

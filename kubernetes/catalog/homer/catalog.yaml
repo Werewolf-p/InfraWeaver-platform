@@ -9,5 +9,5 @@ image: b4bz/homer:latest
 categories:
   - "Network-Web"
 ingressroute:
-  host: homer.int.${BASE_DOMAIN}
+  host: homer.int.infraweaver.local
 installed_at: 2026-05-18T07:04:57.405Z

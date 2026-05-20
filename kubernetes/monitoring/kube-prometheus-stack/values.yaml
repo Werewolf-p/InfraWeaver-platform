@@ -52,7 +52,7 @@ grafana:
     enabled: true
     ingressClassName: traefik
     hosts:
-      - grafana.${CLUSTER_LOCAL_DOMAIN}
+      - grafana.prod.local
     paths:
       - /
     annotations:
@@ -197,9 +197,9 @@ alertmanager:
               storage: 2Gi
   config:
     global:
-      smtp_from: "alertmanager@${BASE_DOMAIN}"
+      smtp_from: "alertmanager@infraweaver.local"
       smtp_smarthost: "smtp.gmail.com:587"
-      smtp_auth_username: "${SMTP_USERNAME}"
+      smtp_auth_username: "noreply@infraweaver.local"
       smtp_auth_password: "changeme"   # set via ExternalSecret when Gmail app-password is ready
       smtp_require_tls: true
       resolve_timeout: 5m
@@ -232,7 +232,7 @@ alertmanager:
       - name: "null"
       - name: "email-admin"
         email_configs:
-          - to: "${SMTP_TO}"
+          - to: "admin@infraweaver.local"
             send_resolved: true
       - name: "discord"
         webhook_configs:

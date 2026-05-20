@@ -67,7 +67,7 @@ spec:
 
 ---
 # ── Allow VPN peers → management LoadBalancer (via node IP / MetalLB) ────────
-# External peers reach management-lb (${METALLB_NETBIRD_MGMT_VIP}) on port 80 and 33073.
+# External peers reach management-lb (10.10.0.202) on port 80 and 33073.
 # MetalLB traffic arrives from the cluster node IP or directly from peers
 # depending on externalTrafficPolicy. Allow from cluster node CIDR + VPN subnet.
 apiVersion: networking.k8s.io/v1

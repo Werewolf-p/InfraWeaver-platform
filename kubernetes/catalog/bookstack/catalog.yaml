@@ -10,5 +10,5 @@ categories:
   - "Tools-Utilities"
   - "Productivity"
 ingressroute:
-  host: bookstack.int.${BASE_DOMAIN}
+  host: bookstack.int.infraweaver.local
 installed_at: 2026-05-17T22:00:38.433Z

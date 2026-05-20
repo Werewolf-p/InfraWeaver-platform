@@ -18,7 +18,7 @@ spec:
               app: infraweaver-console
       ports:
         - port: 3001
-    # Allow Traefik ingress (for external access via api.int.${BASE_DOMAIN})
+    # Allow Traefik ingress (for external access via api.int.infraweaver.local)
     - from:
         - namespaceSelector:
             matchLabels:

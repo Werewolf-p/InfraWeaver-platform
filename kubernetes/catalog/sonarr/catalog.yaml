@@ -10,5 +10,5 @@ categories:
   - "MediaServer-Video"
   - "Downloaders"
 ingressroute:
-  host: sonarr.int.${BASE_DOMAIN}
+  host: sonarr.int.infraweaver.local
 installed_at: 2026-05-17T22:55:56.557Z

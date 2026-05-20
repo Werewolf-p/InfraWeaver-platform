@@ -11,5 +11,5 @@ categories:
   - "MediaServer-Music"
   - "MediaServer-Photos"
 ingressroute:
-  host: plex.int.${BASE_DOMAIN}
+  host: plex.int.infraweaver.local
 installed_at: 2026-05-17T21:52:13.591Z

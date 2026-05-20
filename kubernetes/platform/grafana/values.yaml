@@ -26,7 +26,7 @@ ingress:
   enabled: true
   ingressClassName: traefik
   hosts:
-    - grafana.${CLUSTER_LOCAL_DOMAIN}
+    - grafana.prod.local
   paths:
     - /
   pathType: Prefix
@@ -37,7 +37,7 @@ ingress:
   tls:
     - secretName: grafana-tls
       hosts:
-        - grafana.${CLUSTER_LOCAL_DOMAIN}
+        - grafana.prod.local
 
 # ── Resources ─────────────────────────────────────────────────────────────────
 resources:
@@ -56,7 +56,7 @@ grafana.ini:
   analytics:
     check_for_updates: false
   server:
-    root_url: "https://grafana.int.${BASE_DOMAIN}"
+    root_url: "https://grafana.int.infraweaver.local"
   # ── Authentik OIDC login ────────────────────────────────────────────────────
   auth.generic_oauth:
     enabled: true
@@ -66,9 +66,9 @@ grafana.ini:
     # GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET injected from grafana-oidc-secret
     client_secret: "${GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET}"
     scopes: openid profile email
-    auth_url: "https://auth.${BASE_DOMAIN}/application/o/authorize/"
-    token_url: "https://auth.${BASE_DOMAIN}/application/o/token/"
-    api_url: "https://auth.${BASE_DOMAIN}/application/o/userinfo/"
+    auth_url: "https://auth.infraweaver.local/application/o/authorize/"
+    token_url: "https://auth.infraweaver.local/application/o/token/"
+    api_url: "https://auth.infraweaver.local/application/o/userinfo/"
     # Map Authentik groups to Grafana roles
     role_attribute_path: >-
       contains(groups[*], 'platform-admins') && 'Admin'

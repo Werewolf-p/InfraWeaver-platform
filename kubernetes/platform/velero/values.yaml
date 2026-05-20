@@ -21,7 +21,7 @@ configuration:
         region: minio
         s3ForcePathStyle: "true"
         s3Url: http://minio-velero.velero.svc.cluster.local:9000
-        publicUrl: https://minio-velero.int.${BASE_DOMAIN}
+        publicUrl: https://minio-velero.int.infraweaver.local
   volumeSnapshotLocation:
     - name: default
       provider: aws

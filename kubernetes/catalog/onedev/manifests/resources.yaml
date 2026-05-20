@@ -121,7 +121,7 @@ spec:
               protocol: TCP
           env:
             - name: ONEDEV_URL
-              value: "https://onedev.${BASE_DOMAIN}"
+              value: "https://onedev.infraweaver.local"
             # Pre-seed admin account on first boot (only applies when data dir is empty)
             - name: INITIAL_ADMIN_LOGIN
               valueFrom:
@@ -193,7 +193,7 @@ spec:
       targetPort: ssh
       protocol: TCP
 ---
-# IngressRoute — public via Traefik (onedev.${BASE_DOMAIN})
+# IngressRoute — public via Traefik (onedev.infraweaver.local)
 # Native Authentik OIDC is configured in-app, so only security headers are added here.
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
@@ -206,7 +206,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`onedev.${BASE_DOMAIN}`)
+    - match: Host(`onedev.infraweaver.local`)
       kind: Rule
       middlewares:
         - name: secure-headers
@@ -215,4 +215,4 @@ spec:
         - name: onedev
           port: 80
   tls:
-    secretName: platform-wildcard-tls  # wildcard *.${BASE_DOMAIN} cert
+    secretName: platform-wildcard-tls  # wildcard *.infraweaver.local cert

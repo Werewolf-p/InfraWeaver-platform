@@ -11,7 +11,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`calibre-web.int.${BASE_DOMAIN}`)
+    - match: Host(`calibre-web.int.infraweaver.local`)
       kind: Rule
       middlewares:
         - name: netbird-vpn-only

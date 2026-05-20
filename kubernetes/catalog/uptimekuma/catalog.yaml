@@ -11,5 +11,5 @@ categories:
   - "Tools-Utilities"
   - "Network-Other"
 ingressroute:
-  host: uptimekuma.int.${BASE_DOMAIN}
+  host: uptimekuma.int.infraweaver.local
 installed_at: 2026-05-17T20:12:24.463Z

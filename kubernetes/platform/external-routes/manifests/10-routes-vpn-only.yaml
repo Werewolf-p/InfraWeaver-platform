@@ -1,10 +1,10 @@
 ---
-# IngressRoutes for *.int.${BASE_DOMAIN} — private/VPN-only services.
+# IngressRoutes for *.int.infraweaver.local — private/VPN-only services.
 #
 # Security model (two layers):
 #   Layer 1 — Private IP boundary:
-#     Cloudflare DNS-only wildcard: *.int.${BASE_DOMAIN} → ${METALLB_TRAEFIK_VIP} (no proxy)
-#     ${METALLB_TRAEFIK_VIP} is a private VLAN3 IP — unreachable from the public internet
+#     Cloudflare DNS-only wildcard: *.int.infraweaver.local → 10.10.0.200 (no proxy)
+#     10.10.0.200 is a private VLAN3 IP — unreachable from the public internet
 #
 #   Layer 2 — IP allowlist via netbird-vpn-only middleware:
 #     Only traffic from the NetBird routing peer (10.10.0.10) is allowed.
@@ -26,7 +26,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`netbird.int.${BASE_DOMAIN}`) && PathPrefix(`/management.ManagementService`)
+    - match: Host(`netbird.int.infraweaver.local`) && PathPrefix(`/management.ManagementService`)
       kind: Rule
       priority: 50
       middlewares:
@@ -51,7 +51,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`netbird.int.${BASE_DOMAIN}`) && (PathPrefix(`/signalexchange.SignalExchange`) || PathPrefix(`/grpc.reflection`))
+    - match: Host(`netbird.int.infraweaver.local`) && (PathPrefix(`/signalexchange.SignalExchange`) || PathPrefix(`/grpc.reflection`))
       kind: Rule
       priority: 50
       middlewares:
@@ -76,7 +76,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`netbird.int.${BASE_DOMAIN}`) && PathPrefix(`/relay`)
+    - match: Host(`netbird.int.infraweaver.local`) && PathPrefix(`/relay`)
       kind: Rule
       priority: 40
       middlewares:
@@ -101,7 +101,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`netbird.int.${BASE_DOMAIN}`) && (PathPrefix(`/api`) || PathPrefix(`/ws-proxy/management`))
+    - match: Host(`netbird.int.infraweaver.local`) && (PathPrefix(`/api`) || PathPrefix(`/ws-proxy/management`))
       kind: Rule
       priority: 30
       middlewares:
@@ -125,7 +125,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`netbird.int.${BASE_DOMAIN}`)
+    - match: Host(`netbird.int.infraweaver.local`)
       kind: Rule
       priority: 10
       middlewares:
@@ -151,7 +151,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`argocd.int.${BASE_DOMAIN}`)
+    - match: Host(`argocd.int.infraweaver.local`)
       kind: Rule
       middlewares:
         - name: secure-headers
@@ -176,7 +176,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`grafana.int.${BASE_DOMAIN}`)
+    - match: Host(`grafana.int.infraweaver.local`)
       kind: Rule
       middlewares:
         - name: secure-headers
@@ -201,7 +201,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`longhorn.int.${BASE_DOMAIN}`)
+    - match: Host(`longhorn.int.infraweaver.local`)
       kind: Rule
       middlewares:
         - name: secure-headers
@@ -228,7 +228,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`openbao.int.${BASE_DOMAIN}`)
+    - match: Host(`openbao.int.infraweaver.local`)
       kind: Rule
       middlewares:
         - name: secure-headers
@@ -255,7 +255,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`infraweaver.int.${BASE_DOMAIN}`)
+    - match: Host(`infraweaver.int.infraweaver.local`)
       kind: Rule
       middlewares:
         - name: internal-only
@@ -281,7 +281,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`api.int.${BASE_DOMAIN}`)
+    - match: Host(`api.int.infraweaver.local`)
       kind: Rule
       middlewares:
         - name: internal-only

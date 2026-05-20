@@ -11,7 +11,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`gotify.int.${BASE_DOMAIN}`)
+    - match: Host(`gotify.int.infraweaver.local`)
       kind: Rule
       middlewares:
         - name: netbird-vpn-only

@@ -1,7 +1,7 @@
 ---
 # Rate Limiting Middleware — protects public endpoints from brute-force attacks
 #
-# Applied to: auth.${BASE_DOMAIN} (Authentik login page)
+# Applied to: auth.infraweaver.local (Authentik login page)
 # Limit: 20 requests per second average, burst of 50
 # This is permissive enough for normal users but blocks automated attacks.
 #

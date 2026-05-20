@@ -255,7 +255,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`registry.int.${BASE_DOMAIN}`)
+    - match: Host(`registry.int.infraweaver.local`)
       kind: Rule
       services:
         - name: registry

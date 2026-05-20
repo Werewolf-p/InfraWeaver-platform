@@ -11,7 +11,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`searxng.int.${BASE_DOMAIN}`)
+    - match: Host(`searxng.int.infraweaver.local`)
       kind: Rule
       middlewares:
         - name: netbird-vpn-only

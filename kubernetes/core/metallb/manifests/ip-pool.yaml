@@ -1,10 +1,10 @@
 # MetalLB IP Address Pools for productie
 #
 # Single pool on VLAN 3 (10.10.0.0/24):
-#   vlan3-pool (${METALLB_TRAEFIK_VIP}-210) — VLAN 3 NIC (eth1)
+#   vlan3-pool (10.10.0.200-210) — VLAN 3 NIC (eth1)
 #
-# ${METALLB_TRAEFIK_VIP} → Traefik ingress VIP (NetBird-only protected services)
-# ${METALLB_COREDNS_VIP} → Custom CoreDNS (reachable by VLAN 2 via firewall rule on port 53)
+# 10.10.0.200 → Traefik ingress VIP (NetBird-only protected services)
+# 10.10.0.201 → Custom CoreDNS (reachable by VLAN 2 via firewall rule on port 53)
 apiVersion: metallb.io/v1beta1
 kind: IPAddressPool
 metadata:
@@ -12,7 +12,7 @@ metadata:
   namespace: metallb-system
 spec:
   addresses:
-    - ${METALLB_VIP_RANGE}
+    - 10.10.0.200-10.10.0.210
 ---
 apiVersion: metallb.io/v1beta1
 kind: L2Advertisement

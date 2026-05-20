@@ -10,5 +10,5 @@ categories:
   - "Productivity"
   - "Tools-Utilities"
 ingressroute:
-  host: grocy.int.${BASE_DOMAIN}
+  host: grocy.int.infraweaver.local
 installed_at: 2026-05-17T20:35:27.169Z

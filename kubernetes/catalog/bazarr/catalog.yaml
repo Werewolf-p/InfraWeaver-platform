@@ -10,5 +10,5 @@ categories:
   - "MediaServer-Video"
   - "Tools-Utilities"
 ingressroute:
-  host: bazarr.int.${BASE_DOMAIN}
+  host: bazarr.int.infraweaver.local
 installed_at: 2026-05-17T22:41:59.112Z

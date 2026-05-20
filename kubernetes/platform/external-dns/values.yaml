@@ -1,9 +1,9 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# ExternalDNS — Automates Cloudflare DNS records for *.int.${BASE_DOMAIN}
+# ExternalDNS — Automates Cloudflare DNS records for *.int.infraweaver.local
 #
-# Scope: ONLY int.${BASE_DOMAIN} records (public ${BASE_DOMAIN} untouched).
+# Scope: ONLY int.infraweaver.local records (public infraweaver.local untouched).
 # Source: traefik-proxy — reads IngressRoute objects, extracts Host() rules.
-# Target: ${METALLB_TRAEFIK_VIP} (Traefik/MetalLB — all int. services go here).
+# Target: 10.10.0.200 (Traefik/MetalLB — all int. services go here).
 # Policy: upsert-only — never deletes existing records (safe default).
 # TXT owner: infraweaver-prod — marks managed records so other ExternalDNS
 #            instances don't interfere.
@@ -24,15 +24,15 @@ env:
         name: cloudflare-api-token
         key: CF_API_TOKEN
 
-# Only manage records under int.${BASE_DOMAIN} — never touch public records
+# Only manage records under int.infraweaver.local — never touch public records
 domainFilters:
-  - "int.${BASE_DOMAIN}"
-  - "games.int.${BASE_DOMAIN}"
+  - "int.infraweaver.local"
+  - "games.int.infraweaver.local"
 
-# All int. services route through Traefik at ${METALLB_TRAEFIK_VIP} (MetalLB)
+# All int. services route through Traefik at 10.10.0.200 (MetalLB)
 # This avoids annotating every IngressRoute with the target IP
 extraArgs:
-  - --default-targets=${METALLB_TRAEFIK_VIP}
+  - --default-targets=10.10.0.200
 
 # upsert-only: create/update records but NEVER delete them
 # Change to "sync" later once you're confident in the managed records

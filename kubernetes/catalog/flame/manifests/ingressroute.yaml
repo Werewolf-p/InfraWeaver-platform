@@ -11,7 +11,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`flame.int.${BASE_DOMAIN}`)
+    - match: Host(`flame.int.infraweaver.local`)
       kind: Rule
       middlewares:
         - name: netbird-vpn-only

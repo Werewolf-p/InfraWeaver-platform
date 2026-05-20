@@ -73,7 +73,7 @@ spec:
               ADMIN_PASSWORD=$(cat /secrets/admin-password)
               OIDC_CLIENT_ID=$(cat /secrets/oidc-client-id)
               OIDC_CLIENT_SECRET=$(cat /secrets/oidc-client-secret)
-              DISCOVERY_URL="https://auth.${BASE_DOMAIN}/application/o/onedev/.well-known/openid-configuration"
+              DISCOVERY_URL="https://auth.infraweaver.local/application/o/onedev/.well-known/openid-configuration"
               BUTTON_IMAGE="/wicket/resource/io.onedev.server.plugin.sso.openid.OpenIdConnector/openid.png"
 
               echo "=== Waiting for OneDev to be ready ==="

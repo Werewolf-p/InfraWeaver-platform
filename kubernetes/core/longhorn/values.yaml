@@ -65,7 +65,7 @@ longhornUI:
 ingress:
   enabled: true
   ingressClassName: traefik
-  host: longhorn.${CLUSTER_LOCAL_DOMAIN}
+  host: longhorn.prod.local
   annotations:
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
     traefik.ingress.kubernetes.io/router.middlewares: traefik-netbird-only@kubernetescrd

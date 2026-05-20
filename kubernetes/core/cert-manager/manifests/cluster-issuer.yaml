@@ -15,7 +15,7 @@ metadata:
 spec:
   acme:
     server: https://acme-v02.api.letsencrypt.org/directory
-    email: ${ADMIN_EMAIL}
+    email: admin@infraweaver.local
     privateKeySecretRef:
       name: letsencrypt-http-account-key
     solvers:
@@ -30,7 +30,7 @@ metadata:
 spec:
   acme:
     server: https://acme-staging-v02.api.letsencrypt.org/directory
-    email: ${ADMIN_EMAIL}
+    email: admin@infraweaver.local
     privateKeySecretRef:
       name: letsencrypt-http-staging-account-key
     solvers:
@@ -45,12 +45,15 @@ metadata:
 spec:
   acme:
     server: https://acme-v02.api.letsencrypt.org/directory
-    email: ${ADMIN_EMAIL}
+    email: admin@infraweaver.local
     privateKeySecretRef:
       name: letsencrypt-dns-account-key
     solvers:
       - dns01:
-${DNS_SOLVER_SPEC}
+          cloudflare:
+              apiTokenSecretRef:
+                name: dns-provider-credentials
+                key: cloudflare-api-token
 ---
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
@@ -59,9 +62,12 @@ metadata:
 spec:
   acme:
     server: https://acme-staging-v02.api.letsencrypt.org/directory
-    email: ${ADMIN_EMAIL}
+    email: admin@infraweaver.local
     privateKeySecretRef:
       name: letsencrypt-dns-staging-account-key
     solvers:
       - dns01:
-${DNS_SOLVER_SPEC}
+          cloudflare:
+              apiTokenSecretRef:
+                name: dns-provider-credentials
+                key: cloudflare-api-token

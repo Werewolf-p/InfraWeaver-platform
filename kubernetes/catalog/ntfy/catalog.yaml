@@ -9,5 +9,5 @@ image: binwiederhier/ntfy
 categories:
   - "Tools-Utilities"
 ingressroute:
-  host: ntfy.int.${BASE_DOMAIN}
+  host: ntfy.int.infraweaver.local
 installed_at: 2026-05-17T22:41:06.550Z

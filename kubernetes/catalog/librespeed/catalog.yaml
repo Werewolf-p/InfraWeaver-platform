@@ -9,5 +9,5 @@ image: ghcr.io/librespeed/speedtest
 categories:
   - "Network-Other"
 ingressroute:
-  host: librespeed.int.${BASE_DOMAIN}
+  host: librespeed.int.infraweaver.local
 installed_at: 2026-05-18T06:45:24.299Z

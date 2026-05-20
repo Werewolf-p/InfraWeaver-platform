@@ -5,8 +5,8 @@ metadata:
   namespace: dns-system
   annotations:
     # Static MetalLB IP on VLAN 3 — VLAN 2 (homelab) has a firewall rule to access DNS on VLAN 3
-    # NetBird VPN clients and all homelab LAN devices can reach DNS at ${METALLB_COREDNS_VIP}
-    metallb.universe.tf/loadBalancerIPs: "${METALLB_COREDNS_VIP}"
+    # NetBird VPN clients and all homelab LAN devices can reach DNS at 10.10.0.201
+    metallb.universe.tf/loadBalancerIPs: "10.10.0.201"
   labels:
     app: coredns
 spec:

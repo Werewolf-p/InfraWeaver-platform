@@ -9,5 +9,5 @@ image: mace/qbittorrent
 categories:
   - "Downloaders"
 ingressroute:
-  host: qbittorrent.int.${BASE_DOMAIN}
+  host: qbittorrent.int.infraweaver.local
 installed_at: 2026-05-17T20:13:35.097Z

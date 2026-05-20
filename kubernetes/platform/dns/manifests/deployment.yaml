@@ -98,9 +98,9 @@ spec:
           configMap:
             name: coredns-custom-config
             items:
-              - key: ${BASE_DOMAIN}.hosts
-                path: ${BASE_DOMAIN}.hosts
-              - key: ${CLUSTER_LOCAL_DOMAIN}.hosts
-                path: ${CLUSTER_LOCAL_DOMAIN}.hosts
-              - key: int.${BASE_DOMAIN}.hosts
-                path: int.${BASE_DOMAIN}.hosts
+              - key: infraweaver.local.hosts
+                path: infraweaver.local.hosts
+              - key: prod.local.hosts
+                path: prod.local.hosts
+              - key: int.infraweaver.local.hosts
+                path: int.infraweaver.local.hosts

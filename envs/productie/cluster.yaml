@@ -1,38 +1,38 @@
-cluster_name: "${K8S_CLUSTER_NAME}"
+cluster_name: "infraweaver-prod"
 environment: "productie"
 talos_version: "v1.12.7"
 kubernetes_version: "v1.35.4"
-proxmox_host: "${PROXMOX_HOST}"
+proxmox_host: "10.25.0.3"
 
 # Talos VMs — 3 stacked control planes for HA etcd
 nodes:
   talos-prod-cp1:
-    proxmox_node: "${NODE_1_PVE_NODE}"
-    ip: "${NODE_1_IP}"
-    vm_id: ${NODE_1_VMID}
+    proxmox_node: "proxmox"
+    ip: "10.10.0.90"
+    vm_id: 9310
     controlplane: true
-    cpu: ${NODE_1_CPU}
-    memory_mb: ${NODE_1_MEMORY}
-    disk_gb: ${NODE_1_DISK}
-    datastore: "${NODE_1_DATASTORE}"
+    cpu: 4
+    memory_mb: 8192
+    disk_gb: 100
+    datastore: "lvm-proxmox"
   talos-prod-cp2:
-    proxmox_node: "${NODE_2_PVE_NODE}"
-    ip: "${NODE_2_IP}"
-    vm_id: ${NODE_2_VMID}
+    proxmox_node: "proxmox"
+    ip: "10.10.0.91"
+    vm_id: 9311
     controlplane: true
-    cpu: ${NODE_2_CPU}
-    memory_mb: ${NODE_2_MEMORY}
-    disk_gb: ${NODE_2_DISK}
-    datastore: "${NODE_2_DATASTORE}"
+    cpu: 4
+    memory_mb: 8192
+    disk_gb: 100
+    datastore: "lvm-proxmox"
   talos-prod-cp3:
-    proxmox_node: "${NODE_3_PVE_NODE}"
-    ip: "${NODE_3_IP}"
-    vm_id: ${NODE_3_VMID}
+    proxmox_node: "proxmox"
+    ip: "10.10.0.92"
+    vm_id: 9312
     controlplane: true
-    cpu: ${NODE_3_CPU}
-    memory_mb: ${NODE_3_MEMORY}
-    disk_gb: ${NODE_3_DISK}
-    datastore: "${NODE_3_DATASTORE}"
+    cpu: 4
+    memory_mb: 8192
+    disk_gb: 100
+    datastore: "lvm-proxmox"
 
 # SSH IPs for individual PVE nodes — used by qm importdisk and Talos ISO download operations.
 # These are the management IPs of each Proxmox node in the cluster.
@@ -49,17 +49,17 @@ nodes:
 #
 # To add a second PVE host:
 #   1. Add it here:        pve_nodes:
-#                            pve:  "${PROXMOX_HOST}"
+#                            pve:  "10.25.0.3"
 #                            pve2: "192.168.1.101"   ← add this
 #   2. Assign nodes to it: proxmox_node: "pve2"  in the nodes section above
 #   3. Verify pre-flight:  bash scripts/validate-cluster.sh --fix
 #   4. Run tofu plan to verify changes before applying
 pve_nodes:
-${PVE_NODES_MAP}
+  proxmox: "10.25.0.3"
 
-gateway: "${NODE_GATEWAY}"
+gateway: "10.10.0.1"
 nameservers:
   - "8.8.8.8"
   - "1.1.1.1"
-subnet_prefix: ${NODE_SUBNET_PREFIX}
-talos_image_datastore: "${TALOS_DATASTORE}"
+subnet_prefix: 24
+talos_image_datastore: "lvm-proxmox"

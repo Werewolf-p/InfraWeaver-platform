@@ -54,7 +54,7 @@ spec:
                   - |
                     echo "Waiting for kube-apiserver TCP port to open..."
                     NODE_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
-                    [ -z "$NODE_IP" ] && NODE_IP=${NODE_1_IP}
+                    [ -z "$NODE_IP" ] && NODE_IP=10.10.0.90
                     echo "  Using node IP: ${NODE_IP}"
                     until nc -z -w 5 "${NODE_IP}" 6443 2>/dev/null; do
                       echo "  Port 6443 not open yet, retrying in 5s..."

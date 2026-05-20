@@ -75,10 +75,10 @@ server:
       traefik.ingress.kubernetes.io/router.entrypoints: websecure
       traefik.ingress.kubernetes.io/router.middlewares: traefik-netbird-only@kubernetescrd
     hosts:
-      - host: openbao.${CLUSTER_LOCAL_DOMAIN}
+      - host: openbao.prod.local
         paths:
           - /
-      - host: openbao.int.${BASE_DOMAIN}
+      - host: openbao.int.infraweaver.local
         paths:
           - /
     pathType: Prefix

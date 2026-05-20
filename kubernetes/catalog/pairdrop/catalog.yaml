@@ -10,5 +10,5 @@ categories:
   - "Tools-Utilities"
   - "Network-Web"
 ingressroute:
-  host: pairdrop.int.${BASE_DOMAIN}
+  host: pairdrop.int.infraweaver.local
 installed_at: 2026-05-18T06:36:06.472Z

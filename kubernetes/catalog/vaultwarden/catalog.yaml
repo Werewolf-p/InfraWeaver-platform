@@ -9,5 +9,5 @@ image: vaultwarden/server
 categories:
   - "Tools-Utilities"
 ingressroute:
-  host: vaultwarden.int.${BASE_DOMAIN}
+  host: vaultwarden.int.infraweaver.local
 installed_at: 2026-05-17T22:56:32.156Z

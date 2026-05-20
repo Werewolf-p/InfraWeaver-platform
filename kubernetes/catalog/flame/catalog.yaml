@@ -10,5 +10,5 @@ categories:
   - "Tools-Utilities"
   - "Network-Web"
 ingressroute:
-  host: flame.int.${BASE_DOMAIN}
+  host: flame.int.infraweaver.local
 installed_at: 2026-05-18T06:41:30.750Z

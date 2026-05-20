@@ -16,7 +16,7 @@ environment  = "productie"
 # ---------------------------------------------------------------------------
 # Git repo for ArgoCD ApplicationSet
 # ---------------------------------------------------------------------------
-git_repo_url = "${GIT_REPO_URL}"
+git_repo_url = "https://github.com/Werewolf-p/InfraWeaver-platform"
 git_revision = "main"
 
 # ---------------------------------------------------------------------------

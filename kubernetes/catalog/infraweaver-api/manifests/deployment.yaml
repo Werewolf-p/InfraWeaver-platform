@@ -37,7 +37,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: api
-          image: onedev.${BASE_DOMAIN}/infraweaver/infraweaver-api:main-44fe2ee
+          image: onedev.infraweaver.local/infraweaver/infraweaver-api:main-44fe2ee
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 3001
@@ -48,7 +48,7 @@ spec:
             - name: NODE_ENV
               value: "production"
             - name: CONSOLE_URL
-              value: "https://infraweaver.int.${BASE_DOMAIN}"
+              value: "https://infraweaver.int.infraweaver.local"
             - name: ARGOCD_SERVER
               value: "http://argocd-server.argocd.svc.cluster.local:80"
             # Optional: GitHub PAT for workflow dispatch (node rolling updates).
@@ -60,7 +60,7 @@ spec:
                   key: github-token
                   optional: true
             - name: GITHUB_REPO
-              value: "${GITHUB_REPO}"
+              value: "Werewolf-p/InfraWeaver-platform"
             - name: GIT_PROVIDER
               value: onedev
             - name: ONEDEV_URL

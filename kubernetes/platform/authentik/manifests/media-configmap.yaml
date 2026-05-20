@@ -1,7 +1,7 @@
 ---
 # Authentik media ConfigMap — custom branding images
 # Mounted at /media/public/ in server and worker pods via values.yaml global.volumes
-# Accessible at https://auth.${BASE_DOMAIN}/media/public/<filename>
+# Accessible at https://auth.infraweaver.local/media/public/<filename>
 # ServerSideApply=true: avoids 256KB annotation limit on binaryData ConfigMaps
 apiVersion: v1
 kind: ConfigMap

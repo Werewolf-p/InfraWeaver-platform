@@ -10,5 +10,5 @@ categories:
   - "Downloaders"
   - "MediaApp-Other"
 ingressroute:
-  host: prowlarr.int.${BASE_DOMAIN}
+  host: prowlarr.int.infraweaver.local
 installed_at: 2026-05-17T22:57:51.934Z

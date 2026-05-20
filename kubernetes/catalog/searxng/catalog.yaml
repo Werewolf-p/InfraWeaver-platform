@@ -10,5 +10,5 @@ categories:
   - "Productivity"
   - "Other"
 ingressroute:
-  host: searxng.int.${BASE_DOMAIN}
+  host: searxng.int.infraweaver.local
 installed_at: 2026-05-17T22:58:30.697Z

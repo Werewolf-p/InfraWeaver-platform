@@ -53,7 +53,7 @@ spec:
               topologyKey: kubernetes.io/hostname
       containers:
       - name: console
-        image: onedev.${BASE_DOMAIN}/infraweaver/infraweaver-console:main-b52c6b2
+        image: onedev.infraweaver.local/infraweaver/infraweaver-console:main-b52c6b2
         imagePullPolicy: IfNotPresent
         command: ["sh", "-c", "HOSTNAME=0.0.0.0 node server.js"]
         ports:
@@ -61,7 +61,7 @@ spec:
           name: http
         env:
         - name: NEXTAUTH_URL
-          value: https://infraweaver.int.${BASE_DOMAIN}
+          value: https://infraweaver.int.infraweaver.local
         - name: NEXTAUTH_SECRET
           valueFrom:
             secretKeyRef:
@@ -83,7 +83,7 @@ spec:
               name: infraweaver-console-secret
               key: oidc-client-secret
         - name: AUTHENTIK_ISSUER
-          value: https://auth.${BASE_DOMAIN}/application/o/infraweaver-console/
+          value: https://auth.infraweaver.local/application/o/infraweaver-console/
         - name: ARGOCD_SERVER
           value: http://argocd-server.argocd.svc.cluster.local:80
         - name: ARGOCD_TOKEN
@@ -100,7 +100,7 @@ spec:
               key: github-token
               optional: true
         - name: GITHUB_REPO
-          value: ${GITHUB_REPO}
+          value: Werewolf-p/InfraWeaver-platform
         - name: GIT_PROVIDER
           value: onedev
         - name: ONEDEV_URL
@@ -170,7 +170,7 @@ spec:
               name: infraweaver-console-secret
               key: dns-provider
         - name: ADMIN_EMAILS
-          value: ${ADMIN_EMAIL}
+          value: admin@infraweaver.local
         - name: AUTH_TRUST_HOST
           value: "true"
         # NAS provider configuration — for Synology/TrueNAS share management

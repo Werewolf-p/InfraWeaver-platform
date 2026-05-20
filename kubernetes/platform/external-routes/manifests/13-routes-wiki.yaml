@@ -1,7 +1,7 @@
 ---
 # Wiki.js — InfraWeaver documentation wiki
 # NetBird-VPN-only: accessible only via NetBird VPN (netbird-vpn-only middleware).
-# Domain: wiki.int.${BASE_DOMAIN} — covered by *.int.${BASE_DOMAIN} wildcard cert (DNS-01).
+# Domain: wiki.int.infraweaver.local — covered by *.int.infraweaver.local wildcard cert (DNS-01).
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
@@ -11,7 +11,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`wiki.int.${BASE_DOMAIN}`)
+    - match: Host(`wiki.int.infraweaver.local`)
       kind: Rule
       middlewares:
         - name: secure-headers

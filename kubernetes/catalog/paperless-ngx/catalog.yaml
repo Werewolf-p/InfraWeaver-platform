@@ -9,5 +9,5 @@ image: ghcr.io/paperless-ngx/paperless-ngx
 categories:
   - "Productivity"
 ingressroute:
-  host: paperless-ngx.int.${BASE_DOMAIN}
+  host: paperless-ngx.int.infraweaver.local
 installed_at: 2026-05-17T21:13:17.251Z

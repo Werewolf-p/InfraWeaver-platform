@@ -10,5 +10,5 @@ categories:
   - "MediaServer-Video"
   - "Downloaders"
 ingressroute:
-  host: radarr.int.${BASE_DOMAIN}
+  host: radarr.int.infraweaver.local
 installed_at: 2026-05-17T22:39:55.956Z
