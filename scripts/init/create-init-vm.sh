@@ -84,10 +84,12 @@ _SP_CHARS='|/-\'
 spin_start() {
   # spin_start "message" — starts a background spinner; call spin_stop when done
   local _msg="$1"
-  ( local _i=0
+  ( set +e   # disable set -e inside spinner; (( i++ )) returns 1 when i=0
+    local _i=0
     while true; do
       printf '\r  [%s] %s  ' "${_SP_CHARS:$((_i%4)):1}" "$_msg"
-      ((_i++)); sleep 0.1
+      _i=$(( _i + 1 ))   # plain assignment, always exits 0; avoids set -e trap
+      sleep 0.1
     done
   ) &
   _SP_PID=$!
@@ -96,14 +98,18 @@ spin_start() {
 spin_stop() {
   # spin_stop "done message" — kills spinner and prints final OK line
   if [[ -n "$_SP_PID" ]]; then
-    kill "$_SP_PID" 2>/dev/null; wait "$_SP_PID" 2>/dev/null || true; _SP_PID=""
+    kill "$_SP_PID" 2>/dev/null || true   # || true: PID may already be dead
+    wait "$_SP_PID" 2>/dev/null || true
+    _SP_PID=""
   fi
   printf '\r  %b[OK]%b  %s        \n' "$G" "$NC" "${1:-done}"
 }
 
 spin_fail() {
   if [[ -n "$_SP_PID" ]]; then
-    kill "$_SP_PID" 2>/dev/null; wait "$_SP_PID" 2>/dev/null || true; _SP_PID=""
+    kill "$_SP_PID" 2>/dev/null || true
+    wait "$_SP_PID" 2>/dev/null || true
+    _SP_PID=""
   fi
   printf '\r  %b[FAIL]%b %s      \n' "$R" "$NC" "${1:-failed}"
 }
@@ -308,15 +314,41 @@ for _br in "${AVAIL_BRIDGES_ARR[@]}"; do
   BRIDGE_LABELS+=("$_label")
 done
 
+# Scan Proxmox VM/LXC configs to find which VMs use a given VLAN tag
+_get_vlan_tenants() {
+  local _vlan="$1"
+  local _names=()
+  local _conf
+  for _conf in /etc/pve/qemu-server/*.conf /etc/pve/lxc/*.conf; do
+    [[ -f "$_conf" ]] || continue
+    # Match netN lines containing tag=<vlan> (exact number, not e.g. tag=30 matching 3)
+    if grep -qP "^net[0-9]+:.*\btag=${_vlan}\b" "$_conf" 2>/dev/null; then
+      local _name
+      _name=$(grep -m1 '^name:' "$_conf" 2>/dev/null | awk '{print $2}')
+      [[ -z "$_name" ]] && _name="vm$(basename "${_conf%.conf}")"
+      _names+=("$_name")
+    fi
+  done
+  local IFS=','
+  echo "${_names[*]}"
+}
+
 # Build VLAN option list for a given bridge
+# Each entry: "3  [github-runner,netbird-router-vlan3]" or "2  [no VMs]"
 # Sets global _VLAN_OPTS_ARR
 _build_vlan_opts() {
   local _br="$1"
   local _vids="${BRIDGE_VIDS[$_br]:-}"
-  _VLAN_OPTS_ARR=("none (untagged)")
+  _VLAN_OPTS_ARR=("none (untagged)  [host/management network]")
   if [[ -n "$_vids" ]]; then
     for _v in $_vids; do
-      _VLAN_OPTS_ARR+=("$_v")
+      local _tenants
+      _tenants=$(_get_vlan_tenants "$_v")
+      if [[ -n "$_tenants" ]]; then
+        _VLAN_OPTS_ARR+=("${_v}  [${_tenants}]")
+      else
+        _VLAN_OPTS_ARR+=("${_v}  [no VMs on this VLAN]")
+      fi
     done
   fi
 }
@@ -395,10 +427,10 @@ if [[ "$VLAN_TAG" == "_ask_" ]]; then
     echo -e "  ${D}Bridge ${BRIDGE} is not VLAN-aware -- management NIC will be untagged.${NC}" >/dev/tty
     _VLAN_CHOICE="none (untagged)"
   fi
-  if [[ "$_VLAN_CHOICE" == "none (untagged)" || -z "$_VLAN_CHOICE" ]]; then
+  if [[ "$_VLAN_CHOICE" == none* || -z "$_VLAN_CHOICE" ]]; then
     VLAN_TAG=""
   else
-    VLAN_TAG="$_VLAN_CHOICE"
+    VLAN_TAG=$(echo "$_VLAN_CHOICE" | awk '{print $1}')   # strip tenant annotation
   fi
 fi
 
@@ -453,10 +485,10 @@ if [[ "$CLUSTER_NIC" == "yes" ]]; then
       echo -e "  ${D}Bridge ${CLUSTER_BRIDGE} is not VLAN-aware -- cluster NIC will be untagged.${NC}" >/dev/tty
       _CVLAN_CHOICE="none (untagged)"
     fi
-    if [[ "$_CVLAN_CHOICE" == "none (untagged)" || -z "$_CVLAN_CHOICE" ]]; then
+    if [[ "$_CVLAN_CHOICE" == none* || -z "$_CVLAN_CHOICE" ]]; then
       CLUSTER_VLAN=""
     else
-      CLUSTER_VLAN="$_CVLAN_CHOICE"
+      CLUSTER_VLAN=$(echo "$_CVLAN_CHOICE" | awk '{print $1}')   # strip tenant annotation
     fi
   fi
 
