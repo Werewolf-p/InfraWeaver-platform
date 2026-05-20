@@ -80,7 +80,7 @@ jobs:
       - self-hosted
       - prod-worker
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - uses: ./.github/actions/setup-kubectl
         with:
@@ -124,7 +124,7 @@ jobs:
       - self-hosted
       - prod-worker
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Setup talosctl
         run: |
@@ -161,7 +161,7 @@ jobs:
           [ -f "$SNAPSHOT_FILE" ] || { echo "❌ All nodes failed for etcd snapshot"; exit 1; }
 
       - name: Upload snapshot artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: etcd-snapshot-${{ env.ENV_NAME }}-${{ github.run_id }}
           path: /tmp/etcd-snapshot-*.db
@@ -178,7 +178,7 @@ jobs:
       - self-hosted
       - prod-worker
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Create OpenBao Raft snapshot
         run: |
@@ -200,7 +200,7 @@ jobs:
           echo "✅ OpenBao snapshot: $(du -sh "$SNAPSHOT_FILE" | cut -f1)"
 
       - name: Upload snapshot artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: openbao-snapshot-${{ env.ENV_NAME }}-${{ github.run_id }}
           path: /tmp/openbao-snapshot-*.snap
@@ -217,7 +217,7 @@ jobs:
       - self-hosted
       - prod-worker
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Setup tools
         uses: ./.github/actions/setup-platform
@@ -262,7 +262,7 @@ jobs:
 
       - name: Upload drift plan
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: drift-plan-${{ env.ENV_NAME }}-${{ github.run_id }}
           path: /tmp/drift-plan.txt
@@ -338,7 +338,7 @@ jobs:
     environment: productie
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Renew ESO token in OpenBao
         env:
@@ -410,7 +410,7 @@ jobs:
       - self-hosted
       - prod-worker
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: ./.github/actions/setup-kubectl
         with:
@@ -557,7 +557,7 @@ jobs:
       github.event_name == 'workflow_dispatch' && inputs.task == 'etcd-alarm-check'
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: ./.github/actions/setup-kubectl
         with:
@@ -597,7 +597,7 @@ jobs:
       (github.event_name == 'workflow_dispatch' && inputs.task == 'openbao-eso-recovery')
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: ./.github/actions/setup-kubectl
         with:
@@ -670,7 +670,7 @@ jobs:
       (github.event_name == 'workflow_dispatch' && inputs.task == 'cert-expiry-check')
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: ./.github/actions/setup-kubectl
         with:
@@ -736,7 +736,7 @@ jobs:
       (github.event_name == 'workflow_dispatch' && inputs.task == 'velero-backup-verify')
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: ./.github/actions/setup-kubectl
         with:
@@ -803,7 +803,7 @@ jobs:
       (github.event_name == 'workflow_dispatch' && inputs.task == 'sync-health-check')
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Compare GitHub HEAD with Onedev main
         env:

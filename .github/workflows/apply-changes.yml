@@ -93,7 +93,7 @@ jobs:
       groups_sync:    ${{ steps.changes.outputs.groups_sync }}
       dns_changed:    ${{ steps.changes.outputs.dns_changed }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 2
 
@@ -194,7 +194,7 @@ jobs:
       - self-hosted
       - prod-worker
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: ./.github/actions/setup-kubectl
         with:
           kubeconfig-b64: ${{ secrets.KUBECONFIG_PRODUCTIE }}
@@ -225,7 +225,7 @@ jobs:
       - self-hosted
       - prod-worker
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: ./.github/actions/setup-kubectl
         with:
           kubeconfig-b64: ${{ secrets.KUBECONFIG_PRODUCTIE }}
@@ -260,7 +260,7 @@ jobs:
       - self-hosted
       - prod-worker
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: ./.github/actions/setup-kubectl
         with:
           kubeconfig-b64: ${{ secrets.KUBECONFIG_PRODUCTIE }}
@@ -377,7 +377,7 @@ jobs:
       - prod-worker
     steps:
 
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 2
       - uses: ./.github/actions/setup-kubectl
@@ -427,7 +427,7 @@ jobs:
       contents: write
     steps:
 
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -471,7 +471,7 @@ jobs:
       contents: write
     steps:
 
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -518,7 +518,7 @@ jobs:
       - prod-worker
     steps:
 
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: ./.github/actions/setup-kubectl
         with:
           kubeconfig-b64: ${{ secrets.KUBECONFIG_PRODUCTIE }}
