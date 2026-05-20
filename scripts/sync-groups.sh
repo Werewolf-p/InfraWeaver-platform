@@ -6,6 +6,10 @@
 #   - Creates appset-core-<group>.yaml in kubernetes/bootstrap/ for enabled groups
 #   - Deletes appset-core-<group>.yaml for disabled groups
 #   - Updates replicas: field in kubernetes/<tier>/<app>/application.yaml
+#   - Manages companion bootstrap files (app-*.yaml.disabled) for optional apps
+#     Companions are tracked in COMPANIONS map in the Python block below.
+#     When an app/group is enabled:  app-X.yaml.disabled → app-X.yaml (applied by deploy-argocd.sh)
+#     When an app/group is disabled: app-X.yaml           → app-X.yaml.disabled (skipped by glob)
 #
 # Also syncs catalog ha: replicas to catalog application.yaml files.
 #
@@ -272,6 +276,97 @@ for group_name, group_cfg in groups.items():
                 changed_files.append(appset_f)
         else:
             print(f"  ⏭  {appset_f} already absent")
+
+# ── Companion bootstrap file management ───────────────────────────────────────
+# Maps group names and group.app_name keys to standalone bootstrap files that
+# must be enabled/disabled together with their parent group or app.
+# Files are in kubernetes/bootstrap/ and toggled via .disabled extension.
+COMPANIONS = {
+    # When core-monitoring group is enabled/disabled, toggle all its companion bootstrap files
+    "core-monitoring": [
+        "app-alertmanager-discord.yaml",
+        "app-monitoring-alerts.yaml",
+        "app-monitoring-grafana-dashboards.yaml",
+        "app-monitoring-manifests.yaml",
+    ],
+    # Per-app companions within core-platform
+    "core-platform.grafana": [
+        "app-grafana-manifests.yaml",
+    ],
+    "core-platform.falco": [
+        "app-falco-manifests.yaml",
+    ],
+    "core-platform.netbird": [
+        "app-netbird.yaml",
+    ],
+    "core-platform.velero": [
+        "app-velero.yaml",
+    ],
+    "core-platform.minio-velero": [
+        "app-minio-velero.yaml",
+    ],
+    "core-platform.argocd-image-updater": [
+        "app-argocd-image-updater.yaml",
+    ],
+    "core-platform.external-dns": [
+        "app-external-dns-helm.yaml",
+        "app-external-dns-manifests.yaml",
+    ],
+}
+
+def manage_companions(key, enabled):
+    """Enable or disable companion bootstrap files for a group or app key."""
+    companions = COMPANIONS.get(key, [])
+    if not companions:
+        return
+    print(f"\n  ==> Companion files for {key} (enabled={enabled}):")
+    for fname in companions:
+        active   = os.path.join(bootstrap_dir, fname)
+        disabled = os.path.join(bootstrap_dir, fname + '.disabled')
+        if enabled:
+            if os.path.exists(disabled):
+                if dry_run:
+                    print(f"  [DRY-RUN] Would restore companion: {fname}")
+                else:
+                    os.rename(disabled, active)
+                    print(f"    ✅ Restored companion: {fname}")
+                    changed_files.append(active)
+            elif os.path.exists(active):
+                print(f"    ⏭  Companion {fname} already active")
+            else:
+                print(f"    ⚠  Companion {fname} not found (neither active nor .disabled)")
+        else:
+            if os.path.exists(active):
+                if dry_run:
+                    print(f"  [DRY-RUN] Would disable companion: {fname}")
+                else:
+                    os.rename(active, disabled)
+                    print(f"    🚫 Disabled companion: {fname}")
+                    changed_files.append(disabled)
+            elif os.path.exists(disabled):
+                print(f"    ⏭  Companion {fname} already disabled")
+            else:
+                print(f"    ⚠  Companion {fname} not found (neither active nor .disabled)")
+
+print("\n==> Processing companion bootstrap files...")
+for group_name, group_cfg in groups.items():
+    group_enabled = group_cfg.get('enabled', False)
+    # Manage group-level companions
+    manage_companions(group_name, group_enabled)
+
+    if group_enabled:
+        # When group is enabled, manage per-app companions too
+        for app_name, app_cfg in (group_cfg.get('apps') or {}).items():
+            if not app_cfg:
+                continue
+            app_enabled = app_cfg.get('enabled', True)
+            companion_key = f"{group_name}.{app_name}"
+            manage_companions(companion_key, app_enabled)
+    else:
+        # When whole group is disabled, disable all per-app companions too
+        for app_name in (group_cfg.get('apps') or {}):
+            companion_key = f"{group_name}.{app_name}"
+            manage_companions(companion_key, False)
 
 # ── Process catalog ha: replicas ──────────────────────────────────────────────
 print("\n==> Processing catalog HA replicas...")

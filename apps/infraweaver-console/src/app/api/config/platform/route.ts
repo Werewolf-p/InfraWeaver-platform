@@ -46,7 +46,7 @@ export async function GET() {
       sha: "",
       catalog: { enabled: ["wiki", "gatus", "stirling-pdf", "onedev"] },
       groups: {
-        "core-monitoring": { enabled: true },
+        "core-monitoring": { enabled: false },
         "core-platform": { enabled: true },
       },
     });
