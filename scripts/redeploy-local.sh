@@ -81,6 +81,14 @@ def bash_ansi_quote(s):
         else:           out.append(c)
     return "$'" + ''.join(out) + "'"
 
+def decode_dq_escapes(s):
+    return (s
+        .replace('\\n', '\n')
+        .replace('\\t', '\t')
+        .replace('\\r', '\r')
+        .replace('\\"', '"')
+        .replace('\\\\', '\\'))
+
 path = sys.argv[1]
 content = open(path).read()
 for m in re.finditer(
@@ -88,8 +96,12 @@ for m in re.finditer(
     content, re.MULTILINE
 ):
     k, v = m.group(1), m.group(2).strip()
-    if (v.startswith('"') and v.endswith('"')) or (v.startswith("'") and v.endswith("'")):
+    is_dq = v.startswith('"') and v.endswith('"')
+    is_sq = v.startswith("'") and v.endswith("'")
+    if is_dq or is_sq:
         v = v[1:-1]
+    if is_dq:
+        v = decode_dq_escapes(v)
     print(f'export {k}={bash_ansi_quote(v)}')
 PYEOF
 )"
