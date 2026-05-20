@@ -168,7 +168,8 @@ runcmd:
   # Wait for network
   - sleep 5
   # Clone the InfraWeaver repository
-  - git clone --branch ${REPO_BRANCH} --depth=1 ${REPO_URL} /opt/infraweaver 2>&1 | tee /var/log/iw-clone.log
+  - GIT_TERMINAL_PROMPT=0 git clone --branch ${REPO_BRANCH} --depth=1 ${REPO_URL} /opt/infraweaver 2>&1 | tee /var/log/iw-clone.log
+  - chown -R iw:iw /opt/infraweaver
   # Install Python dependencies for the init server
   - pip3 install --quiet --break-system-packages 2>/dev/null || pip3 install --quiet || true
   # Create systemd service for the init web server

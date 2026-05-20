@@ -173,6 +173,11 @@ STATE_DIR=~/.tofu/state/platform-"$ENV_NAME"
 mkdir -p "$STATE_DIR"
 ok "TF_VARs set"
 
+# ── Step 3a: Substitute .env placeholders into tfvars/yaml templates ─────────
+log "Step 3a: Substituting .env placeholders into config templates..."
+bash "${REPO_DIR}/scripts/generate-from-env.sh"
+ok "Step 3a: Templates substituted"
+
 # ── Step 4: Deploy Platform (Terraform) ──────────────────────────────────────
 log "Step 4: Deploying platform via OpenTofu (this takes 10–15 minutes)..."
 
@@ -277,11 +282,6 @@ sleep 10
 kubectl --kubeconfig "$KB_FILE" rollout restart deployment/coredns -n kube-system 2>/dev/null || true
 kubectl --kubeconfig "$KB_FILE" rollout status deployment/coredns -n kube-system --timeout=120s 2>/dev/null || true
 ok "Step 5: CoreDNS restarted"
-
-# ── Step 5a: Substitute .env placeholders into template YAML files ──────────
-log "Step 5a: Generating manifests from .env template variables..."
-bash "${REPO_DIR}/scripts/generate-from-env.sh"
-ok "Step 5a: Manifests generated"
 
 # ── Step 5b: Configure platform from .env feature flags ──────────────────────
 log "Step 5b: Configuring platform from .env feature flags..."
