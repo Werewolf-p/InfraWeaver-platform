@@ -225,6 +225,67 @@
       gap: 12px;
       margin-top: 8px;
     }
+    /* Per-node cards */
+    .node-cards {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 4px;
+    }
+    .node-card {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px 16px 12px;
+    }
+    .node-card-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .node-num {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: var(--cyan);
+    }
+    .node-role {
+      font-size: 10px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      background: rgba(68,136,255,0.12);
+      border: 1px solid rgba(68,136,255,0.25);
+      border-radius: 4px;
+      padding: 1px 6px;
+    }
+    .node-main-row {
+      display: grid;
+      grid-template-columns: 1fr 130px;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+    .node-adv-summary {
+      font-size: 11px;
+      color: var(--text-dim);
+      cursor: pointer;
+      padding: 4px 0;
+      letter-spacing: 0.5px;
+      user-select: none;
+    }
+    .node-adv-summary:hover { color: var(--cyan); }
+    .node-adv-grid {
+      display: grid;
+      grid-template-columns: 80px 120px 80px 1fr;
+      gap: 10px;
+      margin-top: 10px;
+    }
+    @media (max-width: 640px) {
+      .node-adv-grid { grid-template-columns: 1fr 1fr; }
+      .node-main-row { grid-template-columns: 1fr 100px; }
+    }
     .form-row {
       display: flex;
       flex-direction: column;
@@ -788,35 +849,147 @@
           <div class="ping-legend" style="margin-bottom:8px">
             <span>Ping status:</span><span>🟢 free</span><span>🔴 in use</span><span>⚪ unchecked</span>
           </div>
-          <div class="node-grid">
-            <div class="form-row">
-              <label>NODE_1_IP <span id="ndot-NODE_1_IP" class="vip-dot">⚪</span></label>
-              <input type="text" id="NODE_1_IP" name="NODE_1_IP" placeholder="10.10.0.90" onblur="pingNodeIp('NODE_1_IP')" />
+          <!-- Shared datalist for PVE node names — populated by discovery -->
+          <datalist id="pve-nodes-list"></datalist>
+          <div class="node-cards">
+            <!-- Node 1 -->
+            <div class="node-card">
+              <div class="node-card-header">
+                <span class="node-num">Node 1</span>
+                <span class="node-role">Control Plane</span>
+              </div>
+              <div class="node-main-row">
+                <div class="form-row">
+                  <label>IP <span id="ndot-NODE_1_IP" class="vip-dot">⚪</span></label>
+                  <input type="text" id="NODE_1_IP" name="NODE_1_IP" placeholder="10.10.0.90" onblur="pingNodeIp('NODE_1_IP')" />
+                </div>
+                <div class="form-row">
+                  <label>VM ID</label>
+                  <input type="text" id="NODE_1_VMID" name="NODE_1_VMID" placeholder="9310" />
+                </div>
+              </div>
+              <div class="form-row" style="margin-bottom:6px">
+                <label>Proxmox Host Node</label>
+                <input type="text" id="NODE_1_PVE_NODE" name="NODE_1_PVE_NODE" list="pve-nodes-list" placeholder="pve" onchange="onPveNodeChange(1)" />
+                <div class="field-hint">Which PVE node hosts this VM — run <em>Discover from Proxmox</em> to auto-fill</div>
+              </div>
+              <details>
+                <summary class="node-adv-summary">⚙ Advanced — CPU / RAM / Disk / Datastore</summary>
+                <datalist id="node-1-ds-list"></datalist>
+                <div class="node-adv-grid">
+                  <div class="form-row">
+                    <label>CPU</label>
+                    <input type="number" id="NODE_1_CPU" name="NODE_1_CPU" value="4" min="1" max="128" />
+                  </div>
+                  <div class="form-row">
+                    <label>RAM (MB)</label>
+                    <input type="number" id="NODE_1_MEMORY" name="NODE_1_MEMORY" value="8192" min="1024" step="1024" />
+                  </div>
+                  <div class="form-row">
+                    <label>Disk (GB)</label>
+                    <input type="number" id="NODE_1_DISK" name="NODE_1_DISK" value="100" min="20" />
+                  </div>
+                  <div class="form-row">
+                    <label>Datastore</label>
+                    <input type="text" id="NODE_1_DATASTORE" name="NODE_1_DATASTORE" list="node-1-ds-list" placeholder="lvm-proxmox" />
+                    <div class="field-hint">VM disk pool — defaults to TALOS_DATASTORE</div>
+                  </div>
+                </div>
+              </details>
             </div>
-            <div class="form-row">
-              <label>NODE_1_VMID</label>
-              <input type="text" id="NODE_1_VMID" name="NODE_1_VMID" placeholder="9310" />
-              <div class="field-hint">Must be unique in Proxmox cluster</div>
+            <!-- Node 2 -->
+            <div class="node-card">
+              <div class="node-card-header">
+                <span class="node-num">Node 2</span>
+                <span class="node-role">Control Plane</span>
+              </div>
+              <div class="node-main-row">
+                <div class="form-row">
+                  <label>IP <span id="ndot-NODE_2_IP" class="vip-dot">⚪</span></label>
+                  <input type="text" id="NODE_2_IP" name="NODE_2_IP" placeholder="10.10.0.91" onblur="pingNodeIp('NODE_2_IP')" />
+                </div>
+                <div class="form-row">
+                  <label>VM ID</label>
+                  <input type="text" id="NODE_2_VMID" name="NODE_2_VMID" placeholder="9311" />
+                </div>
+              </div>
+              <div class="form-row" style="margin-bottom:6px">
+                <label>Proxmox Host Node</label>
+                <input type="text" id="NODE_2_PVE_NODE" name="NODE_2_PVE_NODE" list="pve-nodes-list" placeholder="pve" onchange="onPveNodeChange(2)" />
+                <div class="field-hint">Which PVE node hosts this VM</div>
+              </div>
+              <details>
+                <summary class="node-adv-summary">⚙ Advanced — CPU / RAM / Disk / Datastore</summary>
+                <datalist id="node-2-ds-list"></datalist>
+                <div class="node-adv-grid">
+                  <div class="form-row">
+                    <label>CPU</label>
+                    <input type="number" id="NODE_2_CPU" name="NODE_2_CPU" value="4" min="1" max="128" />
+                  </div>
+                  <div class="form-row">
+                    <label>RAM (MB)</label>
+                    <input type="number" id="NODE_2_MEMORY" name="NODE_2_MEMORY" value="8192" min="1024" step="1024" />
+                  </div>
+                  <div class="form-row">
+                    <label>Disk (GB)</label>
+                    <input type="number" id="NODE_2_DISK" name="NODE_2_DISK" value="100" min="20" />
+                  </div>
+                  <div class="form-row">
+                    <label>Datastore</label>
+                    <input type="text" id="NODE_2_DATASTORE" name="NODE_2_DATASTORE" list="node-2-ds-list" placeholder="lvm-proxmox" />
+                    <div class="field-hint">VM disk pool — defaults to TALOS_DATASTORE</div>
+                  </div>
+                </div>
+              </details>
             </div>
-            <div class="form-row">
-              <label>NODE_2_IP <span id="ndot-NODE_2_IP" class="vip-dot">⚪</span></label>
-              <input type="text" id="NODE_2_IP" name="NODE_2_IP" placeholder="10.10.0.91" onblur="pingNodeIp('NODE_2_IP')" />
-            </div>
-            <div class="form-row">
-              <label>NODE_2_VMID</label>
-              <input type="text" id="NODE_2_VMID" name="NODE_2_VMID" placeholder="9311" />
-              <div class="field-hint">Must be unique in Proxmox cluster</div>
-            </div>
-            <div class="form-row">
-              <label>NODE_3_IP <span id="ndot-NODE_3_IP" class="vip-dot">⚪</span></label>
-              <input type="text" id="NODE_3_IP" name="NODE_3_IP" placeholder="10.10.0.92" onblur="pingNodeIp('NODE_3_IP')" />
-            </div>
-            <div class="form-row">
-              <label>NODE_3_VMID</label>
-              <input type="text" id="NODE_3_VMID" name="NODE_3_VMID" placeholder="9312" />
-              <div class="field-hint">Must be unique in Proxmox cluster</div>
+            <!-- Node 3 -->
+            <div class="node-card">
+              <div class="node-card-header">
+                <span class="node-num">Node 3</span>
+                <span class="node-role">Control Plane</span>
+              </div>
+              <div class="node-main-row">
+                <div class="form-row">
+                  <label>IP <span id="ndot-NODE_3_IP" class="vip-dot">⚪</span></label>
+                  <input type="text" id="NODE_3_IP" name="NODE_3_IP" placeholder="10.10.0.92" onblur="pingNodeIp('NODE_3_IP')" />
+                </div>
+                <div class="form-row">
+                  <label>VM ID</label>
+                  <input type="text" id="NODE_3_VMID" name="NODE_3_VMID" placeholder="9312" />
+                </div>
+              </div>
+              <div class="form-row" style="margin-bottom:6px">
+                <label>Proxmox Host Node</label>
+                <input type="text" id="NODE_3_PVE_NODE" name="NODE_3_PVE_NODE" list="pve-nodes-list" placeholder="pve" onchange="onPveNodeChange(3)" />
+                <div class="field-hint">Which PVE node hosts this VM</div>
+              </div>
+              <details>
+                <summary class="node-adv-summary">⚙ Advanced — CPU / RAM / Disk / Datastore</summary>
+                <datalist id="node-3-ds-list"></datalist>
+                <div class="node-adv-grid">
+                  <div class="form-row">
+                    <label>CPU</label>
+                    <input type="number" id="NODE_3_CPU" name="NODE_3_CPU" value="4" min="1" max="128" />
+                  </div>
+                  <div class="form-row">
+                    <label>RAM (MB)</label>
+                    <input type="number" id="NODE_3_MEMORY" name="NODE_3_MEMORY" value="8192" min="1024" step="1024" />
+                  </div>
+                  <div class="form-row">
+                    <label>Disk (GB)</label>
+                    <input type="number" id="NODE_3_DISK" name="NODE_3_DISK" value="100" min="20" />
+                  </div>
+                  <div class="form-row">
+                    <label>Datastore</label>
+                    <input type="text" id="NODE_3_DATASTORE" name="NODE_3_DATASTORE" list="node-3-ds-list" placeholder="lvm-proxmox" />
+                    <div class="field-hint">VM disk pool — defaults to TALOS_DATASTORE</div>
+                  </div>
+                </div>
+              </details>
             </div>
           </div>
+          <!-- Hidden field: PVE_NODES map — auto-populated by discovery -->
+          <input type="hidden" id="PVE_NODES" name="PVE_NODES" value="" />
         </div>
 
         <!-- MetalLB VIP section -->
@@ -1795,6 +1968,9 @@ async function setupProxmoxUser() {
   btn.disabled = false;
 }
 
+// Module-level store for discovered datastore info (used by onPveNodeChange)
+let _discoveredDatastoresByNode = {};
+
 async function discoverProxmox() {
   const token = document.getElementById('PROXMOX_API_TOKEN')?.value?.trim();
   const host  = (document.getElementById('PROXMOX_HOST')?.value?.trim()) ||
@@ -1813,20 +1989,35 @@ async function discoverProxmox() {
     });
     const j = await r.json();
     if (j.ok) {
-      if (j.node_name) document.getElementById('PROXMOX_NODE_NAME').value = j.node_name;
+      // Primary node name
+      if (j.node_name) {
+        const pn = document.getElementById('PROXMOX_NODE_NAME');
+        if (pn && !pn.value) pn.value = j.node_name;
+      }
+      // Global Talos image datastore (first node's first pool)
       if (j.datastores?.length) {
         const el = document.getElementById('TALOS_DATASTORE');
         if (el && !el.value) el.value = j.datastores[0];
         const hint = el?.closest('.form-row')?.querySelector('.field-hint');
-        if (hint) hint.textContent = `Available storage pools: ${j.datastores.join(', ')}`;
+        if (hint) hint.textContent = `Available: ${j.datastores.join(', ')}`;
       }
+      // VMID suggestions
       if (j.vmid_suggestions?.length >= 3) {
-        document.getElementById('NODE_1_VMID').value = j.vmid_suggestions[0];
-        document.getElementById('NODE_2_VMID').value = j.vmid_suggestions[1];
-        document.getElementById('NODE_3_VMID').value = j.vmid_suggestions[2];
+        ['NODE_1_VMID','NODE_2_VMID','NODE_3_VMID'].forEach((fid, i) => {
+          const el = document.getElementById(fid);
+          if (el && !el.value) el.value = j.vmid_suggestions[i];
+        });
+      }
+      // Per-node PVE selectors, datastores, and PVE_NODES hidden field
+      if (j.datastores_by_node) _discoveredDatastoresByNode = j.datastores_by_node;
+      if (j.all_nodes) populatePveNodeDropdowns(j.all_nodes, j.datastores_by_node || {});
+      if (j.pve_nodes_str) {
+        const pveField = document.getElementById('PVE_NODES');
+        if (pveField) pveField.value = j.pve_nodes_str;
       }
       updateStatus('dot-proxmox', 'ok', 'proxmox: ✅');
-      const summary = `✅ <strong>${j.node_name}</strong> · Storage: <strong>${j.datastores?.join(', ')||'–'}</strong> · VMIDs: <strong>${j.vmid_suggestions?.slice(0,3).join(', ')||'–'}</strong>`;
+      const nodesList = j.all_nodes?.join(', ') || j.node_name || '–';
+      const summary = `✅ Nodes: <strong>${nodesList}</strong> · VMIDs: <strong>${j.vmid_suggestions?.slice(0,3).join(', ')||'–'}</strong>`;
       if (resultEl) { resultEl.innerHTML = summary; resultEl.style.color = 'var(--green)'; }
       showAlert('config-alert', 'success', '✅ Proxmox discovered! Node, storage &amp; VMIDs auto-filled.');
     } else {
@@ -1839,6 +2030,39 @@ async function discoverProxmox() {
     showAlert('config-alert', 'error', 'Discovery error: ' + e.message);
   }
   btn.innerHTML = '🔍 Discover from Proxmox'; btn.disabled = false;
+}
+
+function populatePveNodeDropdowns(allNodes, datastoresByNode) {
+  // Populate shared PVE node datalist
+  const dl = document.getElementById('pve-nodes-list');
+  if (dl) dl.innerHTML = allNodes.map(n => `<option value="${n}">`).join('');
+
+  for (let n = 1; n <= 3; n++) {
+    // Auto-fill PVE node if only one option or field is empty
+    const pveInp = document.getElementById(`NODE_${n}_PVE_NODE`);
+    if (pveInp && !pveInp.value) pveInp.value = allNodes[0] || '';
+
+    // Populate per-node datastore datalist
+    const pveNode = pveInp?.value || allNodes[0] || '';
+    const stores = (datastoresByNode && datastoresByNode[pveNode]) || datastoresByNode?.[allNodes[0]] || [];
+    const dsList = document.getElementById(`node-${n}-ds-list`);
+    if (dsList) dsList.innerHTML = stores.map(s => `<option value="${s}">`).join('');
+
+    // Auto-fill datastore if empty
+    const dsInp = document.getElementById(`NODE_${n}_DATASTORE`);
+    if (dsInp && !dsInp.value && stores.length > 0) dsInp.value = stores[0];
+  }
+}
+
+function onPveNodeChange(n) {
+  const pveInp = document.getElementById(`NODE_${n}_PVE_NODE`);
+  const pveNode = pveInp?.value?.trim();
+  if (!pveNode || !Object.keys(_discoveredDatastoresByNode).length) return;
+  const stores = _discoveredDatastoresByNode[pveNode] || [];
+  const dsList = document.getElementById(`node-${n}-ds-list`);
+  if (dsList) dsList.innerHTML = stores.map(s => `<option value="${s}">`).join('');
+  const dsInp = document.getElementById(`NODE_${n}_DATASTORE`);
+  if (dsInp && !dsInp.value && stores.length > 0) dsInp.value = stores[0];
 }
 
 // ── SSH key generation ──

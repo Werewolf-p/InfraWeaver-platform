@@ -97,9 +97,10 @@ GENERAL_DEFAULTS = {
 CLUSTER_ENV_FIELDS = [
     "PROXMOX_HOST", "PROXMOX_NODE_NAME", "K8S_CLUSTER_NAME",
     "NODE_GATEWAY", "NODE_SUBNET_PREFIX", "TALOS_DATASTORE",
-    "NODE_1_IP", "NODE_1_VMID",
-    "NODE_2_IP", "NODE_2_VMID",
-    "NODE_3_IP", "NODE_3_VMID",
+    "PVE_NODES",
+    "NODE_1_IP", "NODE_1_VMID", "NODE_1_PVE_NODE", "NODE_1_DATASTORE", "NODE_1_CPU", "NODE_1_MEMORY", "NODE_1_DISK",
+    "NODE_2_IP", "NODE_2_VMID", "NODE_2_PVE_NODE", "NODE_2_DATASTORE", "NODE_2_CPU", "NODE_2_MEMORY", "NODE_2_DISK",
+    "NODE_3_IP", "NODE_3_VMID", "NODE_3_PVE_NODE", "NODE_3_DATASTORE", "NODE_3_CPU", "NODE_3_MEMORY", "NODE_3_DISK",
 ]
 
 CLUSTER_DEFAULTS = {
@@ -109,12 +110,10 @@ CLUSTER_DEFAULTS = {
     "NODE_GATEWAY": "10.10.0.1",
     "NODE_SUBNET_PREFIX": "24",
     "TALOS_DATASTORE": "lvm-proxmox",
-    "NODE_1_IP": "10.10.0.90",
-    "NODE_1_VMID": "9310",
-    "NODE_2_IP": "10.10.0.91",
-    "NODE_2_VMID": "9311",
-    "NODE_3_IP": "10.10.0.92",
-    "NODE_3_VMID": "9312",
+    "PVE_NODES": "",
+    "NODE_1_IP": "10.10.0.90",   "NODE_1_VMID": "9310",   "NODE_1_PVE_NODE": "", "NODE_1_DATASTORE": "", "NODE_1_CPU": "4", "NODE_1_MEMORY": "8192", "NODE_1_DISK": "100",
+    "NODE_2_IP": "10.10.0.91",   "NODE_2_VMID": "9311",   "NODE_2_PVE_NODE": "", "NODE_2_DATASTORE": "", "NODE_2_CPU": "4", "NODE_2_MEMORY": "8192", "NODE_2_DISK": "100",
+    "NODE_3_IP": "10.10.0.92",   "NODE_3_VMID": "9312",   "NODE_3_PVE_NODE": "", "NODE_3_DATASTORE": "", "NODE_3_CPU": "4", "NODE_3_MEMORY": "8192", "NODE_3_DISK": "100",
 }
 
 # Infrastructure VIP and admin fields
@@ -453,15 +452,51 @@ def _discover_proxmox(host: str, token: str) -> Dict:
     try:
         nodes = pve_get("/nodes")
         node_names = [n["node"] for n in nodes]
-        node_name = node_names[0] if node_names else "pve"
+        primary_node = node_names[0] if node_names else "pve"
 
-        # Get storage pools for the first node
-        storages = pve_get(f"/nodes/{node_name}/storage")
+        # Collect per-node SSH IPs and datastores
+        node_ips: Dict[str, str] = {}
+        datastores_by_node: Dict[str, list] = {}
         USABLE_TYPES = {"lvmthin", "lvm", "dir", "zfspool", "nfs", "cephfs"}
-        datastores = [
-            s["storage"] for s in storages
-            if s.get("enabled", 1) and s.get("type") in USABLE_TYPES
-        ]
+
+        for node_name in node_names:
+            # ── SSH/management IP ──────────────────────────────────────────────
+            ip_found = ""
+            try:
+                ifaces = pve_get(f"/nodes/{node_name}/network")
+                # Prefer bridge interfaces with a routable IPv4
+                sorted_ifaces = sorted(
+                    ifaces,
+                    key=lambda i: (
+                        0 if i.get("type") in ("bridge", "bond") else 1,
+                        i.get("iface", "")
+                    )
+                )
+                for iface in sorted_ifaces:
+                    addr = iface.get("address", "").strip()
+                    if (addr
+                            and not addr.startswith("127.")
+                            and not addr.startswith("169.254.")
+                            and not addr.startswith("172.17.")   # docker
+                            and not addr.startswith("172.18.")):
+                        ip_found = addr
+                        break
+            except Exception:
+                pass
+            node_ips[node_name] = ip_found or host  # fallback to API host
+
+            # ── Datastores ────────────────────────────────────────────────────
+            try:
+                storages = pve_get(f"/nodes/{node_name}/storage")
+                datastores_by_node[node_name] = [
+                    s["storage"] for s in storages
+                    if s.get("enabled", 1) and s.get("type") in USABLE_TYPES
+                ]
+            except Exception:
+                datastores_by_node[node_name] = []
+
+        # Build PVE_NODES string  (name1:ip1,name2:ip2)
+        pve_nodes_str = ",".join(f"{n}:{ip}" for n, ip in node_ips.items())
 
         # Find 3 consecutive free VMIDs starting from 9300
         resources = pve_get("/cluster/resources?type=vm")
@@ -475,9 +510,12 @@ def _discover_proxmox(host: str, token: str) -> Dict:
 
         return {
             "ok": True,
-            "node_name": node_name,
+            "node_name": primary_node,
             "all_nodes": node_names,
-            "datastores": datastores,
+            "datastores": datastores_by_node.get(primary_node, []),
+            "datastores_by_node": datastores_by_node,
+            "node_ips": node_ips,
+            "pve_nodes_str": pve_nodes_str,
             "vmid_suggestions": vmids,
         }
     except Exception as e:

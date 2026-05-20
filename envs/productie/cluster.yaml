@@ -7,36 +7,32 @@ proxmox_host: "${PROXMOX_HOST}"
 # Talos VMs — 3 stacked control planes for HA etcd
 nodes:
   talos-prod-cp1:
-    proxmox_node: "${PROXMOX_NODE_NAME}"
+    proxmox_node: "${NODE_1_PVE_NODE}"
     ip: "${NODE_1_IP}"
     vm_id: ${NODE_1_VMID}
     controlplane: true
-    cpu: 4
-    # Safe max: 62.7 GiB host - 4 GiB Proxmox OS - 7 GiB TrueNAS - 8 GiB github-runner
-    # - 1 GiB netbird = 42.7 GiB for 3 nodes → ~14 GiB/node (14336 MB).
-    # TrueNAS reduced from 8→7 GiB to free up 1 GiB per node.
-    # Apply via console Cluster → Node Hardware Editor to trigger rolling Proxmox update.
-    memory_mb: 8192
-    disk_gb: 100
-    datastore: "${TALOS_DATASTORE}"
+    cpu: ${NODE_1_CPU}
+    memory_mb: ${NODE_1_MEMORY}
+    disk_gb: ${NODE_1_DISK}
+    datastore: "${NODE_1_DATASTORE}"
   talos-prod-cp2:
-    proxmox_node: "${PROXMOX_NODE_NAME}"
+    proxmox_node: "${NODE_2_PVE_NODE}"
     ip: "${NODE_2_IP}"
     vm_id: ${NODE_2_VMID}
     controlplane: true
-    cpu: 4
-    memory_mb: 8192
-    disk_gb: 100
-    datastore: "${TALOS_DATASTORE}"
+    cpu: ${NODE_2_CPU}
+    memory_mb: ${NODE_2_MEMORY}
+    disk_gb: ${NODE_2_DISK}
+    datastore: "${NODE_2_DATASTORE}"
   talos-prod-cp3:
-    proxmox_node: "${PROXMOX_NODE_NAME}"
+    proxmox_node: "${NODE_3_PVE_NODE}"
     ip: "${NODE_3_IP}"
     vm_id: ${NODE_3_VMID}
     controlplane: true
-    cpu: 4
-    memory_mb: 8192
-    disk_gb: 100
-    datastore: "${TALOS_DATASTORE}"
+    cpu: ${NODE_3_CPU}
+    memory_mb: ${NODE_3_MEMORY}
+    disk_gb: ${NODE_3_DISK}
+    datastore: "${NODE_3_DATASTORE}"
 
 # SSH IPs for individual PVE nodes — used by qm importdisk and Talos ISO download operations.
 # These are the management IPs of each Proxmox node in the cluster.
@@ -59,8 +55,7 @@ nodes:
 #   3. Verify pre-flight:  bash scripts/validate-cluster.sh --fix
 #   4. Run tofu plan to verify changes before applying
 pve_nodes:
-  "${PROXMOX_NODE_NAME}": "${PROXMOX_HOST}"
-  # "pve2": "192.168.1.101"  ← uncomment to add a second PVE host
+${PVE_NODES_MAP}
 
 gateway: "${NODE_GATEWAY}"
 nameservers:

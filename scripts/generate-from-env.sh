@@ -61,6 +61,38 @@ def process_file(path):
     return False
 
 search_dirs = ['kubernetes', 'envs']
+
+# ── Per-node defaults & PVE_NODES_MAP ────────────────────────────────────────
+# Fill per-node vars from global defaults if not explicitly set in .env
+for n in range(1, 4):
+    p = f"NODE_{n}_"
+    if not env_vars.get(f"{p}PVE_NODE"):
+        env_vars[f"{p}PVE_NODE"] = env_vars.get("PROXMOX_NODE_NAME", "pve")
+    if not env_vars.get(f"{p}DATASTORE"):
+        env_vars[f"{p}DATASTORE"] = env_vars.get("TALOS_DATASTORE", "lvm-proxmox")
+    if not env_vars.get(f"{p}CPU"):
+        env_vars[f"{p}CPU"] = "4"
+    if not env_vars.get(f"{p}MEMORY"):
+        env_vars[f"{p}MEMORY"] = "8192"
+    if not env_vars.get(f"{p}DISK"):
+        env_vars[f"{p}DISK"] = "100"
+
+# Build PVE_NODES_MAP YAML block  (  name: "ip"  per line, 2-space indent  )
+pve_nodes_raw = env_vars.get("PVE_NODES", "").strip()
+if not pve_nodes_raw:
+    node_name   = env_vars.get("PROXMOX_NODE_NAME", "pve")
+    proxmox_host = env_vars.get("PROXMOX_HOST", "")
+    if proxmox_host:
+        pve_nodes_raw = f"{node_name}:{proxmox_host}"
+pve_map_lines = []
+for entry in pve_nodes_raw.split(","):
+    entry = entry.strip()
+    if ":" in entry:
+        n_part, ip_part = entry.split(":", 1)
+        pve_map_lines.append(f'  {n_part.strip()}: "{ip_part.strip()}"')
+env_vars["PVE_NODES_MAP"] = "\n".join(pve_map_lines) if pve_map_lines else "  # no pve_nodes configured"
+# ─────────────────────────────────────────────────────────────────────────────
+
 changed = 0
 for search_dir in search_dirs:
     abs_dir = os.path.join(repo_dir, search_dir)
