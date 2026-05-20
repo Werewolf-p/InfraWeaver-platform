@@ -66,32 +66,73 @@ Before you start, you need:
 
 ## 🚀 Quick Start
 
+Choose the method that fits your setup — all three end up at the same web UI:
+
+### Option A — Create a dedicated init VM on Proxmox *(recommended)*
+
 Run this **on your Proxmox host** (or via SSH into it):
 
 ```bash
 wget -qO- https://raw.githubusercontent.com/Werewolf-p/InfraWeaver-platform/main/scripts/init/create-init-vm.sh | bash
 ```
 
-This will:
-1. Ask a few questions (network interface, IP, storage pool)
-2. Create a lightweight Ubuntu VM on your Proxmox
-3. Clone this repository inside the VM
-4. Start the **InfraWeaver Init Website** at `http://<vm-ip>:8080`
+The wizard asks a few questions (VLAN, IP, storage pool), then creates a lightweight Ubuntu VM, clones the repo inside it, and starts the init server automatically.
 
-Open that URL in your browser. The init website guides you through:
+---
+
+### Option B — Run on any existing Linux / macOS machine
+
+Got a spare Ubuntu VM, your laptop, WSL, or any machine with network access to Proxmox port 8006? No extra VM needed:
+
+```bash
+wget -qO- https://raw.githubusercontent.com/Werewolf-p/InfraWeaver-platform/main/scripts/init/start-local.sh | bash
+# or
+curl -sSL https://raw.githubusercontent.com/Werewolf-p/InfraWeaver-platform/main/scripts/init/start-local.sh | bash
+```
+
+This clones the repo to `~/.infraweaver` (or `$IW_WORK_DIR`) and starts the web UI on port 8080. The init VM on Proxmox is **not required** — the wizard talks to Proxmox over the API remotely.
+
+> **ENV overrides:** `IW_WORK_DIR`, `IW_REPO_URL`, `IW_REPO_BRANCH`, `IW_PORT`, `IW_HOST`
+
+---
+
+### Option C — Already have the repo cloned
+
+```bash
+git clone https://github.com/Werewolf-p/InfraWeaver-platform
+cd InfraWeaver-platform
+python3 scripts/init/server.py
+# open http://localhost:8080
+```
+
+---
+
+Open the URL in your browser. The init website guides you through:
 
 | Step | What you configure |
 |---|---|
-| **1. General** | Base domain, admin email, admin username |
-| **2. Proxmox** | Host IP, API token, storage pool |
-| **3. Cluster Nodes** | IPs and VMIDs for the 3 Kubernetes nodes |
-| **4. Network** | MetalLB VIP range, local IP ranges for internal access |
-| **5. DNS Provider** | Choose your DNS provider and paste credentials |
-| **6. SMTP (optional)** | Email for alerts and welcome messages |
-| **7. Features** | Toggle NetBird VPN, monitoring, backups, external DNS |
+| **1. Welcome** | Overview and prerequisites check |
+| **2. Domain** | Base domain, admin email |
+| **3. Proxmox** | Host IP + API token (or auto-create one from root credentials) |
+| **4. Cluster** | Node IPs, VMIDs, per-node CPU/RAM/disk/PVE-node assignment |
+| **5. Identity** | Admin username and SSO settings |
+| **6. Credentials** | DNS provider, SMTP, optional secrets |
+| **7. Features** | Toggle optional components (VPN, monitoring, backups, etc.) |
 | **8. Deploy** | Click **Deploy** — watch the live log as everything provisions |
 
 > **Skip the website?** Copy `.env.example` → `.env`, fill in the values, and run `bash scripts/deploy-local.sh` directly.
+
+---
+
+### Proxmox API token setup
+
+The wizard can create the API token for you. On the **Proxmox** step, use the **Auto-setup** tab:
+1. Enter your Proxmox IP and a `root@pam` username + password
+2. Click **Check access & create API user**
+3. InfraWeaver creates `infraweaver@pve` with minimal permissions and auto-fills the token
+4. **Your credentials are never stored** — used once and immediately discarded
+
+Or create a token manually in Proxmox: **Datacenter → Permissions → API Tokens** and paste it in the **Manual token** tab.
 
 ---
 
@@ -100,45 +141,44 @@ Open that URL in your browser. The init website guides you through:
 ### Deployment flow
 
 ```
-Proxmox host
-    │
-    └── scripts/init/create-init-vm.sh
-            │  Creates a tiny Ubuntu VM (init VM)
-            │  Clones this repo into /opt/infraweaver
-            │  Starts: python3 scripts/init/server.py
-            │
-            └── Init Website at http://<init-vm-ip>:8080
-                    │  You fill in your configuration
-                    │  Writes: .env
-                    │
-                    └── scripts/deploy-local.sh
-                            │
-                            ├── 1. generate-from-env.sh
-                            │       Substitutes ${PLACEHOLDERS} in all Kubernetes YAMLs
-                            │       and Terraform variables using your .env values
-                            │
-                            ├── 2. OpenTofu (terraform/)
-                            │       ├── Provisions 3 Talos VMs on Proxmox
-                            │       ├── Bootstraps the Talos Kubernetes cluster
-                            │       ├── Installs ArgoCD via Helm
-                            │       └── Applies the root ApplicationSet (app-of-apps)
-                            │
-                            ├── 3. bootstrap-openbao.sh
-                            │       Seeds all generated secrets into OpenBao
-                            │       (passwords, tokens, API keys, certificates)
-                            │
-                            ├── 4. bootstrap-externalsecrets.sh
-                            │       Wires ExternalSecretStore → OpenBao
-                            │       ESO starts syncing secrets into K8s namespaces
-                            │
-                            ├── 5. ArgoCD (automatic from here)
-                            │       Pulls from local Onedev git server
-                            │       Deploys all apps in kubernetes/ over ~10–15 min
-                            │
-                            └── 6. Post-bootstrap
-                                    ├── Authentik admin account configured
-                                    ├── OIDC/SSO wired to ArgoCD, Grafana, Onedev
-                                    └── Cluster ready — access via console.yourdomain.com
+WHERE YOU START THE WIZARD (choose one):
+  A) Proxmox host  →  wget | bash create-init-vm.sh  →  creates Ubuntu init VM
+  B) Any Linux/Mac →  wget | bash start-local.sh     →  starts server locally
+  C) Repo cloned   →  python3 scripts/init/server.py →  starts server locally
+              │
+              ▼
+     Init Website at http://<ip>:8080
+              │  Fill in settings (Proxmox, cluster, DNS, features)
+              │  Writes: .env
+              ▼
+     scripts/deploy-local.sh  (runs on init VM or your machine)
+              │
+              ├── 1. generate-from-env.sh
+              │       Substitutes ${PLACEHOLDERS} in all Kubernetes YAMLs
+              │       and Terraform variables using your .env values
+              │
+              ├── 2. OpenTofu (terraform/)
+              │       ├── Provisions 3 Talos VMs on Proxmox
+              │       ├── Bootstraps the Talos Kubernetes cluster
+              │       ├── Installs ArgoCD via Helm
+              │       └── Applies the root ApplicationSet (app-of-apps)
+              │
+              ├── 3. bootstrap-openbao.sh
+              │       Seeds all generated secrets into OpenBao
+              │       (passwords, tokens, API keys, certificates)
+              │
+              ├── 4. bootstrap-externalsecrets.sh
+              │       Wires ExternalSecretStore → OpenBao
+              │       ESO starts syncing secrets into K8s namespaces
+              │
+              ├── 5. ArgoCD (automatic from here)
+              │       Pulls from local Onedev git server
+              │       Deploys all apps in kubernetes/ over ~10-15 min
+              │
+              └── 6. Post-bootstrap
+                      ├── Authentik admin account configured
+                      ├── OIDC/SSO wired to ArgoCD, Grafana, Onedev
+                      └── Cluster ready — access via console.yourdomain.com
 ```
 
 ### GitOps model

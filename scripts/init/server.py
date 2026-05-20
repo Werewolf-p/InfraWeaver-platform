@@ -371,13 +371,18 @@ def _setup_proxmox_user(host: str, username: str, password: str) -> Dict:
         try:
             pve_req("POST", "/access/roles",
                     {"roleid": "InfraWeaver", "privs": PRIVS}, ticket, csrf)
-        except Exception:
-            # Role already exists — update its privileges instead
-            try:
-                pve_req("PUT", "/access/roles/InfraWeaver",
-                        {"privs": PRIVS}, ticket, csrf)
-            except Exception:
-                pass  # Ignore — role is fine as-is
+        except urllib.error.HTTPError as _role_err:
+            _role_body = _role_err.read().decode("utf-8", "replace")
+            if "already exist" in _role_body.lower():
+                # Role already exists — refresh its privilege set (best effort)
+                try:
+                    pve_req("PUT", "/access/roles/InfraWeaver",
+                            {"privs": PRIVS, "append": 0}, ticket, csrf)
+                except Exception:
+                    pass  # PUT not critical — role exists and ACL will work
+            else:
+                return {"ok": False,
+                        "error": f"Failed to create InfraWeaver role: {_role_body[:300]}"}
 
         # ── 4. Create infraweaver@pve user ────────────────────────────────────
         user_id = "infraweaver@pve"

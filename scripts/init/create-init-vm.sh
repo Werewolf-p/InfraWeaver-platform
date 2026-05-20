@@ -376,6 +376,24 @@ suggest_free_ip() {
   echo "${_base}.50"
 }
 
+# ── Helper: derive gateway (.1) from an IP + prefix length ────────────────────
+_calc_gw_from_ip() {
+  # _calc_gw_from_ip <ip> <prefix>  →  prints network-address.1
+  # Example: 10.10.0.50 24  →  10.10.0.1
+  #          192.168.5.100 16  →  192.168.0.1
+  local _ip="$1" _prefix="${2:-24}"
+  [[ -z "$_ip" ]] && echo "" && return
+  awk -v ip="$_ip" -v prefix="$_prefix" 'BEGIN {
+    n = split(ip, a, ".")
+    if (n != 4) { print ""; exit }
+    ip_int = a[1]*16777216 + a[2]*65536 + a[3]*256 + (a[4]+0)
+    blk = 1; for (i = 0; i < (32 - prefix); i++) blk *= 2
+    net = int(ip_int / blk) * blk
+    gw  = net + 1
+    printf "%d.%d.%d.%d", int(gw/16777216)%256, int(gw/65536)%256, int(gw/256)%256, gw%256
+  }'
+}
+
 # ── Interactive Wizard ────────────────────────────────────────────────────────
 hdr "VM Settings"
 
@@ -456,6 +474,8 @@ if [[ "$VM_IP" == "_ask_" ]]; then
 
   ask VM_IP   "Static IP for this VM"  "${_suggested_ip:-}"
   ask VM_CIDR "Prefix length"          "24"
+  # Recalculate gateway from the user's actual IP + prefix (always correct regardless of VLAN)
+  _suggested_gw=$(_calc_gw_from_ip "$VM_IP" "${VM_CIDR:-24}")
   ask VM_GW   "Gateway"                "${_suggested_gw:-}"
 fi
 
