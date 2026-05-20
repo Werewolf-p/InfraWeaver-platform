@@ -50,7 +50,7 @@ flowchart TD
     TEMPLATE[("GitHub template repo")] -->|"clone once"| ONEDEV["Local Onedev"]
     ONEDEV -->|"ArgoCD polls local git"| ARGOCD
     PVE_OPTIONAL -.->|"only if enabled"| ONEDEV
-    CERTMGR -->|"DNS-01 challenge"| CF
+    CERTMGR -->|"DNS-01 challenge"| DNS_PROV["DNS Provider (CF/Route53/Azure/DO/Hetzner)"]
     LONGHORN -->|"replicated PVCs"| K8s
 ```
 
@@ -182,10 +182,27 @@ spec:
 5. Add a Traefik IngressRoute in `kubernetes/external-routes/manifests/`
 6. Push to `main` → ArgoCD deploys automatically
 
+## DNS Provider & TLS
+
+cert-manager handles all TLS certificates via ACME. The DNS-01 challenge is used for wildcard certificates (`*.yourdomain.com`). Set `DNS_PROVIDER` in your `.env` or via the init website.
+
+| Provider | `DNS_PROVIDER` value | Required credentials |
+|---|---|---|
+| **Cloudflare** *(default)* | `cloudflare` | `CLOUDFLARE_API_TOKEN` — Zone:DNS:Edit permission |
+| **AWS Route 53** | `route53` | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_HOSTED_ZONE_ID` |
+| **Azure DNS** | `azure` | `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_SUBSCRIPTION_ID`, `AZURE_TENANT_ID`, `AZURE_RESOURCE_GROUP` |
+| **DigitalOcean** | `digitalocean` | `DIGITALOCEAN_TOKEN` — write-scope personal access token |
+| **Hetzner DNS** | `hetzner` | `HETZNER_DNS_API_KEY` — from [dns.hetzner.com](https://dns.hetzner.com/settings/api-token) |
+| **HTTP-01 only** | `none` | No credentials needed — wildcard certs not available |
+
+> **How it works:** `generate-from-env.sh` reads `DNS_PROVIDER` and injects the correct cert-manager `dns01` solver block into `kubernetes/core/cert-manager/manifests/cluster-issuer.yaml`. Credentials are seeded into OpenBao under `secret/platform/dns-provider` and synced to the cluster via the `dns-provider-credentials` ExternalSecret in the `cert-manager` namespace.
+
+The active ClusterIssuers are always named `letsencrypt-dns` (production) and `letsencrypt-dns-staging` — provider-independent names referenced throughout the manifests.
+
 ## Networking
 
-### Cloudflare Proxy
-All public traffic goes through Cloudflare (`rlservers.com`):
+### Public DNS / Proxy
+All public traffic should point to your public IP via your DNS provider. If using Cloudflare:
 - **SSL mode: Full** (required for gRPC — Flexible breaks it)
 - **HTTP/2: ON** (required for NetBird gRPC)
 - gRPC works on Free plan when HTTP/2 + Full SSL is enabled
