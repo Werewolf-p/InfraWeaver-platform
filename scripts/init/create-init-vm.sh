@@ -716,6 +716,10 @@ NET_OPTS="virtio,bridge=${BRIDGE}"
 [[ -n "$VLAN_TAG" ]] && NET_OPTS="${NET_OPTS},tag=${VLAN_TAG}"
 qm set "$VMID" --net0 "$NET_OPTS"
 
+# Capture the MAC Proxmox auto-assigned to net0 — used for ARP-based IP detection later
+VM_MAC=$(qm config "$VMID" 2>/dev/null | grep '^net0:' \
+  | grep -oP '(?<=virtio=)[^,]+' | tr '[:upper:]' '[:lower:]')
+
 # Set cluster network (net1) — only if requested
 if [[ "$CLUSTER_NIC" == "yes" ]]; then
   CLUSTER_NET_OPTS="virtio,bridge=${CLUSTER_BRIDGE:-$BRIDGE},tag=${CLUSTER_VLAN}"
@@ -765,20 +769,33 @@ echo ""
 VM_IP_FINAL=""
 _WAIT_SECS=180
 _ELAPSED=0
-printf '  Waiting for guest agent  (cloud-init + packages ~2-3 min, timeout %ds)\n' "$_WAIT_SECS"
 
-# 10s grace period before polling — let the VM start posting to the guest channel
-sleep 10; _ELAPSED=10
+printf '  Detecting VM IP   MAC: %s   (timeout %ds)\n' "${VM_MAC:-unknown}" "$_WAIT_SECS"
+printf '  Methods: 1) ARP table  2) pvesh guest-agent  3) dnsmasq leases\n\n'
+
+# 8s grace period — let QEMU initialize the virtual NIC before the VM even boots
+sleep 8; _ELAPSED=8
 
 while (( _ELAPSED < _WAIT_SECS )); do
-  sleep 5; _ELAPSED=$((_ELAPSED+5))
+  sleep 4; _ELAPSED=$((_ELAPSED+4))
   _pct=$(( _ELAPSED * 30 / _WAIT_SECS ))
   _bar=$(printf '#%.0s' $(seq 1 "$_pct"))
   printf '\r  [%-30s] %3ds ' "$_bar" "$_ELAPSED"
 
-  # Method 1: pvesh agent/network-get-interfaces (structured JSON, most reliable)
-  AGENT_IP=$(pvesh get /nodes/"$PVE_NODE"/qemu/"$VMID"/agent/network-get-interfaces \
-    --output-format json 2>/dev/null | python3 -c "
+  # ── Method 1: ARP table ─────────────────────────────────────────────────
+  # Works the instant the VM gets a DHCP lease and sends any network traffic.
+  # No guest agent dependency at all.
+  AGENT_IP=""
+  if [[ -n "$VM_MAC" ]]; then
+    AGENT_IP=$(arp -n 2>/dev/null \
+      | awk -v m="$VM_MAC" 'tolower($3)==m && $1!="?" {print $1; exit}')
+  fi
+
+  # ── Method 2: pvesh agent/network-get-interfaces ─────────────────────────
+  # Available only after cloud-init packages phase finishes (~3-4 min).
+  if [[ -z "$AGENT_IP" ]]; then
+    AGENT_IP=$(pvesh get /nodes/"$PVE_NODE"/qemu/"$VMID"/agent/network-get-interfaces \
+      --output-format json 2>/dev/null | python3 -c "
 import sys, json
 try:
     data = json.load(sys.stdin)
@@ -786,35 +803,27 @@ try:
         for addr in iface.get('ip-addresses', []):
             ip = addr.get('ip-address', '')
             if addr.get('ip-address-type') == 'ipv4' and ip \
-               and not ip.startswith('127.') and not ip.startswith('169.'):
+               and not ip.startswith('127.') and not ip.startswith('169.254.'):
                 print(ip); sys.exit(0)
 except Exception:
     pass
 " 2>/dev/null || true)
+  fi
 
-  # Method 2: fallback to qm guest exec hostname -I
-  if [[ -z "$AGENT_IP" ]]; then
-    AGENT_IP=$(qm guest exec "$VMID" -- hostname -I 2>/dev/null \
-      | python3 -c "
-import sys, json
-try:
-    d = json.load(sys.stdin)
-    ips = d.get('out-data','').strip().split()
-    for ip in ips:
-        if ip and not ip.startswith('127.') and not ip.startswith('169.'):
-            print(ip); sys.exit(0)
-except Exception:
-    pass
-" 2>/dev/null || true)
+  # ── Method 3: dnsmasq DHCP leases (if Proxmox runs local DHCP) ───────────
+  if [[ -z "$AGENT_IP" ]] && [[ -n "$VM_MAC" ]]; then
+    AGENT_IP=$(grep -i "$VM_MAC" /var/lib/misc/dnsmasq.leases 2>/dev/null \
+      | awk '{print $3; exit}' || true)
+    [[ "$AGENT_IP" == "0.0.0.0" ]] && AGENT_IP=""
   fi
 
   if [[ -n "$AGENT_IP" ]]; then
     VM_IP_FINAL="$AGENT_IP"
-    printf '\r  [%-30s] got IP -> %s\n' "##############################" "$VM_IP_FINAL"
+    printf '\r  [%-30s] found -> %s\n' "##############################" "$VM_IP_FINAL"
     break
   fi
 done
-[[ -z "$VM_IP_FINAL" ]] && printf '\r  [%-30s] timeout (check Proxmox DHCP leases for VM IP)\n' "##############################"
+[[ -z "$VM_IP_FINAL" ]] && printf '\r  [%-30s] timeout\n' "##############################"
 
 if [[ -z "$VM_IP_FINAL" ]] && [[ -n "$VM_IP" ]]; then
   VM_IP_FINAL="$VM_IP"
