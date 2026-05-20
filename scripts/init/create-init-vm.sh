@@ -116,7 +116,7 @@ spin_fail() {
 
 # Step counter for the VM creation phase
 _STEP_N=0
-_STEP_TOTAL=7
+_STEP_TOTAL=8
 step() {
   (( _STEP_N++ )) || true
   printf '\n  %b[%d/%d]%b %s\n' "$C" "$_STEP_N" "$_STEP_TOTAL" "$NC" "$1"
@@ -622,6 +622,12 @@ users:
     ssh_authorized_keys:
       - ${DEPLOYER_SSH_PUBKEY}
 
+# Start qemu-guest-agent as early as possible so Proxmox can detect the VM IP
+# before/during package installation (which can take 2-3 minutes on first boot)
+bootcmd:
+  - [ systemctl, enable, qemu-guest-agent ]
+  - [ systemctl, start, qemu-guest-agent ]
+
 package_update: true
 package_upgrade: false
 packages:
@@ -636,16 +642,12 @@ packages:
   - qemu-guest-agent
 
 runcmd:
-  # Wait for network
-  - sleep 5
   # Configure cluster NIC (ens19 / net1) if requested
   - |
     ${CLUSTER_NETPLAN_CMD}
   # Clone the InfraWeaver repository
   - GIT_TERMINAL_PROMPT=0 git clone --branch ${REPO_BRANCH} --depth=1 ${REPO_URL} /opt/infraweaver 2>&1 | tee /var/log/iw-clone.log
   - chown -R iw:iw /opt/infraweaver
-  # Install Python dependencies for the init server
-  - pip3 install --quiet --break-system-packages 2>/dev/null || pip3 install --quiet || true
   # Create systemd service for the init web server
   - |
     cat > /etc/systemd/system/iw-init.service << 'SVC'
@@ -669,10 +671,10 @@ runcmd:
   - systemctl daemon-reload
   - systemctl enable iw-init
   - systemctl start iw-init
-  # Print IP and access URL to console
+  # Print IP and access URL to console (escaped so it runs on the VM, not on Proxmox)
   - sleep 3
   - |
-    IP=$(hostname -I | awk '{print $1}')
+    IP=\$(hostname -I | awk '{print \$1}')
     echo ""
     echo "+==============================================================+"
     echo "| InfraWeaver Init VM is ready!                              |"
@@ -761,24 +763,58 @@ spin_stop "VM $VMID started"
 step "Waiting for VM to come online"
 echo ""
 VM_IP_FINAL=""
-_WAIT_SECS=90
+_WAIT_SECS=180
 _ELAPSED=0
-printf '  Waiting for guest agent IP  (timeout %ds)\n' "$_WAIT_SECS"
+printf '  Waiting for guest agent  (cloud-init + packages ~2-3 min, timeout %ds)\n' "$_WAIT_SECS"
+
+# 10s grace period before polling — let the VM start posting to the guest channel
+sleep 10; _ELAPSED=10
+
 while (( _ELAPSED < _WAIT_SECS )); do
   sleep 5; _ELAPSED=$((_ELAPSED+5))
-  # Draw a simple progress bar: filled with # based on time
   _pct=$(( _ELAPSED * 30 / _WAIT_SECS ))
-  _bar=$(printf '#%.0s' $(seq 1 $_pct))
+  _bar=$(printf '#%.0s' $(seq 1 "$_pct"))
   printf '\r  [%-30s] %3ds ' "$_bar" "$_ELAPSED"
-  AGENT_IP=$(qm guest exec "$VMID" -- hostname -I 2>/dev/null \
-    | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('out-data','').strip().split()[0] if d.get('out-data') else '')" 2>/dev/null || true)
-  if [[ -n "$AGENT_IP" ]] && [[ "$AGENT_IP" != "127.0.0.1" ]]; then
+
+  # Method 1: pvesh agent/network-get-interfaces (structured JSON, most reliable)
+  AGENT_IP=$(pvesh get /nodes/"$PVE_NODE"/qemu/"$VMID"/agent/network-get-interfaces \
+    --output-format json 2>/dev/null | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    for iface in data.get('result', []):
+        for addr in iface.get('ip-addresses', []):
+            ip = addr.get('ip-address', '')
+            if addr.get('ip-address-type') == 'ipv4' and ip \
+               and not ip.startswith('127.') and not ip.startswith('169.'):
+                print(ip); sys.exit(0)
+except Exception:
+    pass
+" 2>/dev/null || true)
+
+  # Method 2: fallback to qm guest exec hostname -I
+  if [[ -z "$AGENT_IP" ]]; then
+    AGENT_IP=$(qm guest exec "$VMID" -- hostname -I 2>/dev/null \
+      | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    ips = d.get('out-data','').strip().split()
+    for ip in ips:
+        if ip and not ip.startswith('127.') and not ip.startswith('169.'):
+            print(ip); sys.exit(0)
+except Exception:
+    pass
+" 2>/dev/null || true)
+  fi
+
+  if [[ -n "$AGENT_IP" ]]; then
     VM_IP_FINAL="$AGENT_IP"
-    printf '\r  [%-30s] found! -> %s\n' "##############################" "$VM_IP_FINAL"
+    printf '\r  [%-30s] got IP -> %s\n' "##############################" "$VM_IP_FINAL"
     break
   fi
 done
-[[ -z "$VM_IP_FINAL" ]] && printf '\r  [%-30s] timeout, using static config\n' "##############################"
+[[ -z "$VM_IP_FINAL" ]] && printf '\r  [%-30s] timeout (check Proxmox DHCP leases for VM IP)\n' "##############################"
 
 if [[ -z "$VM_IP_FINAL" ]] && [[ -n "$VM_IP" ]]; then
   VM_IP_FINAL="$VM_IP"
