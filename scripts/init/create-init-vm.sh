@@ -236,10 +236,11 @@ except Exception:
 for iface in data:
     if iface.get('type') == 'bridge':
         name  = iface.get('iface', '')
+        cidr  = iface.get('cidr', '')     # pvesh returns full 'IP/prefix' in cidr
         ip    = iface.get('address', '')
-        cidr  = iface.get('cidr', '')
         vids  = iface.get('bridge_vids', iface.get('vids', ''))
-        addr  = f'{ip}/{cidr}' if ip and cidr else ''
+        # cidr is already '10.25.0.3/24'; use it directly to avoid duplicate IP
+        addr  = cidr if cidr else ''
         print(f'{name}|{addr}|{vids}')
 ")
 
@@ -369,20 +370,29 @@ fi
 
 hdr "Management Network  (net0 - web UI access)"
 
-# Bridge — management bridge auto-selected as default (first in list = [this host])
+# Bridge — if only one Proxmox bridge exists, auto-select it (the VLAN is the real choice)
 if [[ -z "$BRIDGE" ]]; then
-  choose _BRIDGE_LABEL "Management bridge:" "${BRIDGE_LABELS[@]}"
-  BRIDGE=$(echo "$_BRIDGE_LABEL" | awk '{print $1}')
+  if [[ ${#AVAIL_BRIDGES_ARR[@]} -eq 1 ]]; then
+    BRIDGE="${AVAIL_BRIDGES_ARR[0]}"
+    echo -e "  ${D}Bridge: ${B}${BRIDGE}${NC} ${D}(${BRIDGE_IP[$BRIDGE]:-no IP}) -- only Proxmox bridge, auto-selected${NC}" >/dev/tty
+  else
+    choose _BRIDGE_LABEL "Management bridge:" "${BRIDGE_LABELS[@]}"
+    BRIDGE=$(echo "$_BRIDGE_LABEL" | awk '{print $1}')
+  fi
 fi
 
 # VLAN — options derived from the selected bridge's configured VIDs
+# Always ask when bridge is VLAN-aware; untagged = Proxmox management plane,
+# numbered VIDs = VM/cluster traffic on that VLAN segment
 if [[ "$VLAN_TAG" == "_ask_" ]]; then
   _build_vlan_opts "$BRIDGE"
   if [[ ${#_VLAN_OPTS_ARR[@]} -gt 1 ]]; then
-    echo -e "  ${D}Bridge ${BRIDGE} is VLAN-aware with VIDs: ${BRIDGE_VIDS[$BRIDGE]// /,}${NC}" >/dev/tty
-    choose _VLAN_CHOICE "VLAN tag for management NIC:" "${_VLAN_OPTS_ARR[@]}"
+    _vids_display="${BRIDGE_VIDS[$BRIDGE]// /,}"
+    echo -e "  ${D}${BRIDGE} is VLAN-aware (VIDs: ${_vids_display}). Choose the VLAN for the init VM's management NIC.${NC}" >/dev/tty
+    echo -e "  ${D}Use 'none' if the init VM should be on the untagged/native VLAN (same as this host).${NC}" >/dev/tty
+    choose _VLAN_CHOICE "Management VLAN tag:" "${_VLAN_OPTS_ARR[@]}"
   else
-    echo -e "  ${D}Bridge ${BRIDGE} is not VLAN-aware -- using untagged (no VLAN).${NC}" >/dev/tty
+    echo -e "  ${D}Bridge ${BRIDGE} is not VLAN-aware -- management NIC will be untagged.${NC}" >/dev/tty
     _VLAN_CHOICE="none (untagged)"
   fi
   if [[ "$_VLAN_CHOICE" == "none (untagged)" || -z "$_VLAN_CHOICE" ]]; then
@@ -419,18 +429,26 @@ if [[ "$CLUSTER_NIC" == "_ask_" ]]; then
 fi
 
 if [[ "$CLUSTER_NIC" == "yes" ]]; then
-  # Cluster bridge — same list; default to management bridge (usually the only VLAN-aware one)
+  # Cluster bridge — auto-select when only one option (same bridge, different VLAN)
   if [[ -z "$CLUSTER_BRIDGE" ]]; then
-    choose _CBR_LABEL "Cluster bridge:" "${BRIDGE_LABELS[@]}"
-    CLUSTER_BRIDGE=$(echo "$_CBR_LABEL" | awk '{print $1}')
+    if [[ ${#AVAIL_BRIDGES_ARR[@]} -eq 1 ]]; then
+      CLUSTER_BRIDGE="${AVAIL_BRIDGES_ARR[0]}"
+      echo -e "  ${D}Bridge: ${B}${CLUSTER_BRIDGE}${NC} ${D}-- auto-selected (same bridge, different VLAN)${NC}" >/dev/tty
+    else
+      choose _CBR_LABEL "Cluster bridge:" "${BRIDGE_LABELS[@]}"
+      CLUSTER_BRIDGE=$(echo "$_CBR_LABEL" | awk '{print $1}')
+    fi
   fi
 
-  # Cluster VLAN — options derived from the selected cluster bridge's VIDs
+  # Cluster VLAN — pick from bridge VIDs; nudge toward a different VLAN than management
   if [[ -z "$CLUSTER_VLAN" ]]; then
     _build_vlan_opts "$CLUSTER_BRIDGE"
     if [[ ${#_VLAN_OPTS_ARR[@]} -gt 1 ]]; then
-      echo -e "  ${D}Bridge ${CLUSTER_BRIDGE} VIDs: ${BRIDGE_VIDS[$CLUSTER_BRIDGE]// /,}${NC}" >/dev/tty
-      choose _CVLAN_CHOICE "Cluster VLAN tag (for Talos node traffic):" "${_VLAN_OPTS_ARR[@]}"
+      _vids_display="${BRIDGE_VIDS[$CLUSTER_BRIDGE]// /,}"
+      echo -e "  ${D}Pick the VLAN where your Talos cluster nodes live (VIDs: ${_vids_display}).${NC}" >/dev/tty
+      [[ -n "$VLAN_TAG" ]] && echo -e "  ${D}(Management is on VLAN ${VLAN_TAG} -- choose a different one for cluster traffic.)${NC}" >/dev/tty
+      [[ -z "$VLAN_TAG" ]] && echo -e "  ${D}(Management is untagged -- choose a VLAN for cluster traffic.)${NC}" >/dev/tty
+      choose _CVLAN_CHOICE "Cluster VLAN tag (Talos node traffic):" "${_VLAN_OPTS_ARR[@]}"
     else
       echo -e "  ${D}Bridge ${CLUSTER_BRIDGE} is not VLAN-aware -- cluster NIC will be untagged.${NC}" >/dev/tty
       _CVLAN_CHOICE="none (untagged)"
