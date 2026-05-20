@@ -14,12 +14,12 @@ import {
   WandSparkles,
 } from 'lucide-react'
 import { motion } from 'framer-motion'
-import { checkCloudflare, generateSshKey } from '@/lib/api'
+import { checkDnsProvider, generateSshKey } from '@/lib/api'
 import { ActionButton } from '@/components/ui/ActionButton'
 import { FormField } from '@/components/ui/FormField'
 import { GlassCard } from '@/components/ui/GlassCard'
 import { StepHeader } from '@/components/ui/StepHeader'
-import { useWizardStore } from '@/lib/store'
+import { useWizardStore, type DnsProvider } from '@/lib/store'
 import { controlClassName, fadeUpItem, isEmail, staggerContainer, textareaClassName } from '@/lib/utils'
 
 function SecretInput({
@@ -60,11 +60,11 @@ export function CredentialsStep() {
   const data = useWizardStore((state) => state.data)
   const loading = useWizardStore((state) => state.loading)
   const generatedPublicKey = useWizardStore((state) => state.generatedPublicKey)
-  const cloudflareCheck = useWizardStore((state) => state.cloudflareCheck)
+  const dnsProviderCheck = useWizardStore((state) => state.dnsProviderCheck)
   const setField = useWizardStore((state) => state.setField)
   const setLoading = useWizardStore((state) => state.setLoading)
   const setGeneratedPublicKey = useWizardStore((state) => state.setGeneratedPublicKey)
-  const setCloudflareCheck = useWizardStore((state) => state.setCloudflareCheck)
+  const setDnsProviderCheck = useWizardStore((state) => state.setDnsProviderCheck)
   const autofillRepoUrl = useWizardStore((state) => state.autofillRepoUrl)
 
   const handleGenerateKey = async () => {
@@ -85,15 +85,42 @@ export function CredentialsStep() {
     await navigator.clipboard.writeText(generatedPublicKey)
   }
 
-  const handleCheckCloudflare = async () => {
-    if (!data.CLOUDFLARE_API_TOKEN.trim()) return
-    setLoading('checkCloudflare', true)
-    try {
-      const result = await checkCloudflare(data.CLOUDFLARE_API_TOKEN.trim())
-      setCloudflareCheck(result)
-    } finally {
-      setLoading('checkCloudflare', false)
+  const handleCheckDnsProvider = async () => {
+    const provider = data.DNS_PROVIDER
+    if (provider === 'none') return
+
+    const credentials: Record<string, string> = {}
+    if (provider === 'cloudflare') {
+      credentials.CLOUDFLARE_API_TOKEN = data.CLOUDFLARE_API_TOKEN.trim()
+    } else if (provider === 'route53') {
+      credentials.AWS_ACCESS_KEY_ID = data.AWS_ACCESS_KEY_ID.trim()
+      credentials.AWS_SECRET_ACCESS_KEY = data.AWS_SECRET_ACCESS_KEY.trim()
+      if (data.AWS_HOSTED_ZONE_ID.trim()) credentials.AWS_HOSTED_ZONE_ID = data.AWS_HOSTED_ZONE_ID.trim()
+      credentials.AWS_REGION = data.AWS_REGION.trim() || 'us-east-1'
+    } else if (provider === 'azure') {
+      credentials.AZURE_CLIENT_ID = data.AZURE_CLIENT_ID.trim()
+      credentials.AZURE_CLIENT_SECRET = data.AZURE_CLIENT_SECRET.trim()
+      credentials.AZURE_SUBSCRIPTION_ID = data.AZURE_SUBSCRIPTION_ID.trim()
+      credentials.AZURE_TENANT_ID = data.AZURE_TENANT_ID.trim()
+      credentials.AZURE_RESOURCE_GROUP = data.AZURE_RESOURCE_GROUP.trim()
+    } else if (provider === 'digitalocean') {
+      credentials.DIGITALOCEAN_TOKEN = data.DIGITALOCEAN_TOKEN.trim()
+    } else if (provider === 'hetzner') {
+      credentials.HETZNER_DNS_API_KEY = data.HETZNER_DNS_API_KEY.trim()
     }
+
+    setLoading('checkDnsProvider', true)
+    try {
+      const result = await checkDnsProvider(provider, credentials)
+      setDnsProviderCheck(result)
+    } finally {
+      setLoading('checkDnsProvider', false)
+    }
+  }
+
+  const handleProviderChange = (value: DnsProvider) => {
+    setField('DNS_PROVIDER', value)
+    setDnsProviderCheck(null)
   }
 
   return (
@@ -102,7 +129,7 @@ export function CredentialsStep() {
         icon={KeyRound}
         eyebrow="Step 6 of 8"
         title="Credentials, repository metadata, and delivery channels"
-        description="Collect the secrets and metadata required to bootstrap InfraWeaver. The SSH key is used for Proxmox host access, Cloudflare manages DNS and TLS, SMTP handles alerts, and repository settings wire the cluster back to GitOps automation."
+        description="Collect the secrets and metadata required to bootstrap InfraWeaver. The SSH key is used for Proxmox host access, the DNS provider manages TLS certificate challenges, SMTP handles alerts, and repository settings wire the cluster back to GitOps automation."
       />
 
       <div className="grid gap-6 2xl:grid-cols-2">
@@ -154,31 +181,176 @@ export function CredentialsStep() {
               <Cloud className="h-5 w-5" />
             </div>
             <div>
-              <div className="text-lg font-semibold text-white">Cloudflare</div>
-              <div className="text-sm text-[var(--az-text-secondary)]">Verify the token that will manage DNS records and certificate workflows.</div>
+              <div className="text-lg font-semibold text-white">DNS provider</div>
+              <div className="text-sm text-[var(--az-text-secondary)]">Select the provider used for cert-manager DNS-01 challenges and wildcard TLS certificates.</div>
             </div>
           </motion.div>
 
-          <FormField label="CLOUDFLARE_API_TOKEN" htmlFor="CLOUDFLARE_API_TOKEN" required hint="Required permission: Zone:DNS:Edit.">
-            <SecretInput
-              id="CLOUDFLARE_API_TOKEN"
-              value={data.CLOUDFLARE_API_TOKEN}
-              onChange={(value) => setField('CLOUDFLARE_API_TOKEN', value)}
-              placeholder="cloudflare api token"
-            />
+          <FormField label="DNS_PROVIDER" htmlFor="DNS_PROVIDER" required hint="The DNS provider that manages your base domain. Used by cert-manager for ACME DNS-01 certificate issuance.">
+            <select
+              id="DNS_PROVIDER"
+              value={data.DNS_PROVIDER}
+              onChange={(event) => handleProviderChange(event.target.value as DnsProvider)}
+              className={controlClassName}
+            >
+              <option value="cloudflare">Cloudflare</option>
+              <option value="route53">AWS Route 53</option>
+              <option value="azure">Azure DNS</option>
+              <option value="digitalocean">DigitalOcean DNS</option>
+              <option value="hetzner">Hetzner DNS</option>
+              <option value="none">None (skip DNS automation)</option>
+            </select>
           </FormField>
 
-          <motion.div variants={fadeUpItem} className="mt-4 flex flex-wrap items-center gap-3">
-            <ActionButton variant="primary" onClick={handleCheckCloudflare} disabled={loading.checkCloudflare}>
-              {loading.checkCloudflare ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
-              ✅ Verify
-            </ActionButton>
-            {cloudflareCheck ? (
-              <div className={`rounded-xl border px-3 py-2 text-sm ${cloudflareCheck.ok ? 'border-[rgba(87,163,0,0.25)] bg-[rgba(87,163,0,0.08)] text-[var(--az-success)]' : 'border-[rgba(209,52,56,0.25)] bg-[rgba(209,52,56,0.08)] text-[var(--az-danger)]'}`}>
-                {cloudflareCheck.ok ? `Valid token · ${cloudflareCheck.status ?? 'active'}` : cloudflareCheck.error ?? 'Validation failed'}
+          {data.DNS_PROVIDER === 'cloudflare' && (
+            <motion.div variants={fadeUpItem} className="mt-4">
+              <FormField label="CLOUDFLARE_API_TOKEN" htmlFor="CLOUDFLARE_API_TOKEN" required hint="Required permission: Zone:DNS:Edit.">
+                <SecretInput
+                  id="CLOUDFLARE_API_TOKEN"
+                  value={data.CLOUDFLARE_API_TOKEN}
+                  onChange={(value) => setField('CLOUDFLARE_API_TOKEN', value)}
+                  placeholder="cloudflare api token"
+                />
+              </FormField>
+            </motion.div>
+          )}
+
+          {data.DNS_PROVIDER === 'route53' && (
+            <motion.div variants={fadeUpItem} className="mt-4 grid gap-4">
+              <FormField label="AWS_ACCESS_KEY_ID" htmlFor="AWS_ACCESS_KEY_ID" required hint="IAM access key with Route 53 record management permissions.">
+                <input
+                  id="AWS_ACCESS_KEY_ID"
+                  value={data.AWS_ACCESS_KEY_ID}
+                  onChange={(event) => setField('AWS_ACCESS_KEY_ID', event.target.value)}
+                  placeholder="AKIAIOSFODNN7EXAMPLE"
+                  className={controlClassName}
+                />
+              </FormField>
+              <FormField label="AWS_SECRET_ACCESS_KEY" htmlFor="AWS_SECRET_ACCESS_KEY" required>
+                <SecretInput
+                  id="AWS_SECRET_ACCESS_KEY"
+                  value={data.AWS_SECRET_ACCESS_KEY}
+                  onChange={(value) => setField('AWS_SECRET_ACCESS_KEY', value)}
+                  placeholder="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+                />
+              </FormField>
+              <FormField label="AWS_HOSTED_ZONE_ID" htmlFor="AWS_HOSTED_ZONE_ID" hint="Optional. If omitted, cert-manager will auto-discover the hosted zone.">
+                <input
+                  id="AWS_HOSTED_ZONE_ID"
+                  value={data.AWS_HOSTED_ZONE_ID}
+                  onChange={(event) => setField('AWS_HOSTED_ZONE_ID', event.target.value)}
+                  placeholder="Z2FDTNDATAQYW2"
+                  className={controlClassName}
+                />
+              </FormField>
+              <FormField label="AWS_REGION" htmlFor="AWS_REGION" hint="AWS region for the Route 53 API endpoint. Defaults to us-east-1.">
+                <input
+                  id="AWS_REGION"
+                  value={data.AWS_REGION}
+                  onChange={(event) => setField('AWS_REGION', event.target.value)}
+                  placeholder="us-east-1"
+                  className={controlClassName}
+                />
+              </FormField>
+            </motion.div>
+          )}
+
+          {data.DNS_PROVIDER === 'azure' && (
+            <motion.div variants={fadeUpItem} className="mt-4 grid gap-4">
+              <FormField label="AZURE_CLIENT_ID" htmlFor="AZURE_CLIENT_ID" required hint="Service principal client ID with DNS Zone Contributor permissions.">
+                <input
+                  id="AZURE_CLIENT_ID"
+                  value={data.AZURE_CLIENT_ID}
+                  onChange={(event) => setField('AZURE_CLIENT_ID', event.target.value)}
+                  placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                  className={controlClassName}
+                />
+              </FormField>
+              <FormField label="AZURE_CLIENT_SECRET" htmlFor="AZURE_CLIENT_SECRET" required>
+                <SecretInput
+                  id="AZURE_CLIENT_SECRET"
+                  value={data.AZURE_CLIENT_SECRET}
+                  onChange={(value) => setField('AZURE_CLIENT_SECRET', value)}
+                  placeholder="service principal secret"
+                />
+              </FormField>
+              <div className="grid gap-4 md:grid-cols-2">
+                <FormField label="AZURE_SUBSCRIPTION_ID" htmlFor="AZURE_SUBSCRIPTION_ID" required>
+                  <input
+                    id="AZURE_SUBSCRIPTION_ID"
+                    value={data.AZURE_SUBSCRIPTION_ID}
+                    onChange={(event) => setField('AZURE_SUBSCRIPTION_ID', event.target.value)}
+                    placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                    className={controlClassName}
+                  />
+                </FormField>
+                <FormField label="AZURE_TENANT_ID" htmlFor="AZURE_TENANT_ID" required>
+                  <input
+                    id="AZURE_TENANT_ID"
+                    value={data.AZURE_TENANT_ID}
+                    onChange={(event) => setField('AZURE_TENANT_ID', event.target.value)}
+                    placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                    className={controlClassName}
+                  />
+                </FormField>
               </div>
-            ) : null}
-          </motion.div>
+              <FormField label="AZURE_RESOURCE_GROUP" htmlFor="AZURE_RESOURCE_GROUP" required hint="Resource group that contains the Azure DNS zone.">
+                <input
+                  id="AZURE_RESOURCE_GROUP"
+                  value={data.AZURE_RESOURCE_GROUP}
+                  onChange={(event) => setField('AZURE_RESOURCE_GROUP', event.target.value)}
+                  placeholder="my-dns-resource-group"
+                  className={controlClassName}
+                />
+              </FormField>
+            </motion.div>
+          )}
+
+          {data.DNS_PROVIDER === 'digitalocean' && (
+            <motion.div variants={fadeUpItem} className="mt-4">
+              <FormField label="DIGITALOCEAN_TOKEN" htmlFor="DIGITALOCEAN_TOKEN" required hint="DigitalOcean personal access token with DNS write permissions.">
+                <SecretInput
+                  id="DIGITALOCEAN_TOKEN"
+                  value={data.DIGITALOCEAN_TOKEN}
+                  onChange={(value) => setField('DIGITALOCEAN_TOKEN', value)}
+                  placeholder="dop_v1_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                />
+              </FormField>
+            </motion.div>
+          )}
+
+          {data.DNS_PROVIDER === 'hetzner' && (
+            <motion.div variants={fadeUpItem} className="mt-4">
+              <FormField label="HETZNER_DNS_API_KEY" htmlFor="HETZNER_DNS_API_KEY" required hint="Hetzner DNS API key from dns.hetzner.com.">
+                <SecretInput
+                  id="HETZNER_DNS_API_KEY"
+                  value={data.HETZNER_DNS_API_KEY}
+                  onChange={(value) => setField('HETZNER_DNS_API_KEY', value)}
+                  placeholder="hetzner dns api key"
+                />
+              </FormField>
+            </motion.div>
+          )}
+
+          {data.DNS_PROVIDER === 'none' && (
+            <motion.div variants={fadeUpItem} className="mt-4 rounded-2xl border border-white/8 bg-black/20 p-4">
+              <p className="text-sm leading-6 text-[var(--az-text-secondary)]">No DNS provider selected. cert-manager DNS-01 challenges will not be configured. TLS certificates must be managed manually or via HTTP-01 challenges.</p>
+            </motion.div>
+          )}
+
+          {data.DNS_PROVIDER !== 'none' && (
+            <motion.div variants={fadeUpItem} className="mt-4 flex flex-wrap items-center gap-3">
+              <ActionButton variant="primary" onClick={() => void handleCheckDnsProvider()} disabled={loading.checkDnsProvider}>
+                {loading.checkDnsProvider ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+                ✅ Verify
+              </ActionButton>
+              {dnsProviderCheck ? (
+                <div className={`rounded-xl border px-3 py-2 text-sm ${dnsProviderCheck.ok ? 'border-[rgba(87,163,0,0.25)] bg-[rgba(87,163,0,0.08)] text-[var(--az-success)]' : 'border-[rgba(209,52,56,0.25)] bg-[rgba(209,52,56,0.08)] text-[var(--az-danger)]'}`}>
+                  {dnsProviderCheck.ok ? `Valid credentials · ${dnsProviderCheck.status ?? 'active'}` : dnsProviderCheck.error ?? 'Validation failed'}
+                </div>
+              ) : null}
+            </motion.div>
+          )}
         </GlassCard>
       </div>
 

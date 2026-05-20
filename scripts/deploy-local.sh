@@ -22,7 +22,7 @@
 #   6.  Deploy ArgoCD + bootstrap ApplicationSet
 #   7.  Bootstrap local-path-provisioner storage
 #   8.  Bootstrap OpenBao + ExternalSecrets
-#   9.  Ensure Cloudflare DNS records
+#   9.  Ensure DNS records (Cloudflare only)
 #   10. Apply MetalLB IP pool + Traefik middleware
 #   11. Configure TLS certificate issuers
 #   12. Reconnect NetBird router VM
@@ -99,16 +99,54 @@ else
 fi
 
 # ── Validate required vars ────────────────────────────────────────────────────
-REQUIRED_VARS=(ADMIN_EMAIL GITHUB_REPO GIT_REPO_URL PROXMOX_API_TOKEN DEPLOYER_SSH_KEY CLOUDFLARE_API_TOKEN SMTP_USERNAME SMTP_PASSWORD)
+DNS_PROVIDER="${DNS_PROVIDER:-cloudflare}"
+REQUIRED_VARS=(ADMIN_EMAIL GITHUB_REPO GIT_REPO_URL PROXMOX_API_TOKEN DEPLOYER_SSH_KEY DNS_PROVIDER SMTP_USERNAME SMTP_PASSWORD)
 MISSING=()
+is_missing_value() {
+  local val="$1"
+  [[ -z "$val" || "$val" == *"<your"* || "$val" == *"xxxx"* || "$val" == *"yourdomain.com"* || "$val" == *"your-org/your-repo"* ]]
+}
 for v in "${REQUIRED_VARS[@]}"; do
   val="${!v:-}"
-  if [[ -z "$val" || "$val" == *"<your"* || "$val" == *"xxxx"* || "$val" == *"yourdomain.com"* || "$val" == *"your-org/your-repo"* ]]; then
+  if is_missing_value "$val"; then
     MISSING+=("$v")
   fi
 done
+case "$DNS_PROVIDER" in
+  cloudflare)
+    PROVIDER_REQUIRED=(CLOUDFLARE_API_TOKEN)
+    ;;
+  route53)
+    PROVIDER_REQUIRED=(AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY)
+    ;;
+  azure)
+    PROVIDER_REQUIRED=(AZURE_CLIENT_ID AZURE_CLIENT_SECRET AZURE_SUBSCRIPTION_ID AZURE_TENANT_ID AZURE_RESOURCE_GROUP)
+    ;;
+  digitalocean)
+    PROVIDER_REQUIRED=(DIGITALOCEAN_TOKEN)
+    ;;
+  hetzner)
+    PROVIDER_REQUIRED=(HETZNER_DNS_API_KEY)
+    ;;
+  none)
+    PROVIDER_REQUIRED=()
+    ;;
+  *)
+    die "Invalid DNS_PROVIDER '$DNS_PROVIDER' (expected: cloudflare|route53|azure|digitalocean|hetzner|none)"
+    ;;
+esac
+for v in "${PROVIDER_REQUIRED[@]}"; do
+  val="${!v:-}"
+  if is_missing_value "$val"; then
+    MISSING+=("$v")
+  fi
+done
+if [[ "${ENABLE_EXTERNAL_DNS:-false}" == "true" && "$DNS_PROVIDER" != "cloudflare" ]]; then
+  die "ENABLE_EXTERNAL_DNS=true requires DNS_PROVIDER=cloudflare"
+fi
 if [[ ${#MISSING[@]} -gt 0 ]]; then
-  die "Missing required .env values: ${MISSING[*]}\nEdit $ENV_FILE and fill in all required fields."
+  die "Missing required .env values: ${MISSING[*]}
+Edit $ENV_FILE and fill in all required fields."
 fi
 
 ENV_NAME="${ENV_NAME:-productie}"
@@ -167,7 +205,11 @@ fi
 # ── Step 3: Set TF variables from .env ───────────────────────────────────────
 log "Step 3: Preparing Terraform variables..."
 export TF_VAR_proxmox_api_token="$PROXMOX_API_TOKEN"
-export TF_VAR_cloudflare_api_token="$CLOUDFLARE_API_TOKEN"
+if [[ "$DNS_PROVIDER" == "cloudflare" ]]; then
+  export TF_VAR_cloudflare_api_token="${CLOUDFLARE_API_TOKEN:-}"
+else
+  unset TF_VAR_cloudflare_api_token 2>/dev/null || true
+fi
 unset TF_VAR_github_runner_token 2>/dev/null || true
 GITHUB_INTEGRATION_ENABLED=false
 if [[ -n "${GITHUB_PAT:-}" && -n "${RUNNER_REGISTRATION_TOKEN:-}" && "${RUNNER_REGISTRATION_TOKEN:-}" != placeholder* ]]; then
@@ -390,9 +432,13 @@ ENV_NAME="$ENV_NAME" \
   bash scripts/deploy/bootstrap-externalsecrets.sh
 ok "Step 10: ExternalSecrets bootstrapped"
 
-# ── Step 11: Ensure Cloudflare DNS ────────────────────────────────────────────
-log "Step 11: Ensuring Cloudflare DNS records..."
-ENV_NAME="$ENV_NAME" CF_TOKEN="$CLOUDFLARE_API_TOKEN" bash scripts/deploy/ensure-cloudflare-dns.sh
+# ── Step 11: Ensure DNS records ───────────────────────────────────────────────
+log "Step 11: Ensuring DNS records (provider: $DNS_PROVIDER)..."
+if [[ "$DNS_PROVIDER" == "cloudflare" ]]; then
+  ENV_NAME="$ENV_NAME" CF_TOKEN="$CLOUDFLARE_API_TOKEN" bash scripts/deploy/ensure-cloudflare-dns.sh
+else
+  log "  Skipping Cloudflare DNS helper for provider: $DNS_PROVIDER"
+fi
 ok "Step 11: DNS configured"
 
 # ── Step 12: Apply MetalLB IP Pool + Traefik Middleware ───────────────────────
@@ -429,7 +475,7 @@ if [[ "$LETSENCRYPT_ENV" == "staging" ]]; then
       -o jsonpath='{.spec.issuerRef.name}' 2>/dev/null || true)
     case "$CURRENT" in
       letsencrypt-http) NEW="letsencrypt-http-staging" ;;
-      letsencrypt-cloudflare) NEW="letsencrypt-cloudflare-staging" ;;
+      letsencrypt-dns|letsencrypt-cloudflare) NEW="letsencrypt-dns-staging" ;;
       *) continue ;;
     esac
     kubectl --kubeconfig "$KB_FILE" --insecure-skip-tls-verify patch "$cert" -n traefik \

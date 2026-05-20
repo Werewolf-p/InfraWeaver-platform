@@ -12,7 +12,7 @@
 #     which masquerades their traffic — Traefik sees source = 10.10.0.10.
 #     Direct VLAN3 hosts (10.25.0.x bridged, 10.10.0.85 runner) are BLOCKED.
 #
-# TLS: platform-int-wildcard-tls (wildcard cert via letsencrypt-cloudflare DNS-01)
+# TLS: platform-int-wildcard-tls (wildcard cert via letsencrypt-dns DNS-01)
 
 # ── NetBird Management gRPC (int) ─────────────────────────────────────────────
 apiVersion: traefik.io/v1alpha1

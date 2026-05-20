@@ -29,7 +29,7 @@ const setupItems = [
   { icon: Globe, title: 'Domain & ingress', copy: 'Wire your public domain, admin email, and internal cluster DNS defaults.' },
   { icon: Server, title: 'Proxmox discovery', copy: 'Validate the API token, discover the node, storage pools, and next free VMIDs.' },
   { icon: Boxes, title: 'Cluster topology', copy: 'Shape the Talos control plane, MetalLB VIPs, and ping-check node addresses before deploy.' },
-  { icon: UserRound, title: 'Identity & access', copy: 'Bootstrap your immutable admin identity, SSH key, Cloudflare token, and SMTP credentials.' },
+  { icon: UserRound, title: 'Identity & access', copy: 'Bootstrap your immutable admin identity, SSH key, DNS provider credentials, and SMTP credentials.' },
   { icon: Settings2, title: 'Feature flags', copy: 'Toggle NetBird, monitoring, external DNS, backups, and LAN or VPN-only access.' },
   { icon: Rocket, title: 'Review & deploy', copy: 'Save the .env file, run pre-flight checks, and stream deploy progress in a live terminal.' },
 ]

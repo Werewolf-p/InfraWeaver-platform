@@ -123,7 +123,7 @@ if kubectl --kubeconfig "$KB" get crd clusterissuers.cert-manager.io >/dev/null 
   kubectl --kubeconfig "$KB" apply \
     -f kubernetes/core/cert-manager/manifests/cluster-issuer.yaml 2>/dev/null || true
   kubectl --kubeconfig "$KB" apply \
-    -f kubernetes/core/cert-manager/manifests/external-secret-cloudflare.yaml 2>/dev/null || true
+    -f kubernetes/core/cert-manager/manifests/external-secret-dns.yaml 2>/dev/null || true
 fi
 
 # Restore backed-up TLS secrets so cert-manager doesn't need to re-issue certs

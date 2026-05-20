@@ -2,7 +2,8 @@ export interface StatusResponse {
   env_saved: boolean
   ssh_key: boolean
   domain: boolean
-  cloudflare: boolean
+  dns_provider: string
+  dns_provider_configured: boolean
   proxmox: boolean
   deploy_running: boolean
 }
@@ -74,7 +75,7 @@ export interface GenerateSshKeyResponse {
   error?: string
 }
 
-export interface CheckCloudflareResponse {
+export interface CheckDnsProviderResponse {
   ok: boolean
   status?: string
   error?: string
@@ -164,10 +165,10 @@ export async function generateSshKey() {
   })
 }
 
-export async function checkCloudflare(token: string) {
-  return fetchJson<CheckCloudflareResponse>('/api/check-cloudflare', {
+export async function checkDnsProvider(provider: string, credentials: Record<string, string>) {
+  return fetchJson<CheckDnsProviderResponse>('/api/check-dns-provider', {
     method: 'POST',
-    body: JSON.stringify({ token }),
+    body: JSON.stringify({ provider, ...credentials }),
   })
 }
 

@@ -36,11 +36,36 @@ export function DeployStep() {
       { label: '.env file saved', ok: Boolean(status?.env_saved) },
       { label: 'SSH key configured', ok: Boolean(status?.ssh_key || data.DEPLOYER_SSH_KEY.trim()) },
       { label: 'Domain configured', ok: Boolean(status?.domain || data.BASE_DOMAIN.trim()) },
-      { label: 'Cloudflare token set', ok: Boolean(status?.cloudflare || data.CLOUDFLARE_API_TOKEN.trim()) },
+      {
+        label: 'DNS provider configured',
+        ok: Boolean(
+          status?.dns_provider_configured ||
+          (data.DNS_PROVIDER === 'none') ||
+          (data.DNS_PROVIDER === 'cloudflare' && data.CLOUDFLARE_API_TOKEN.trim()) ||
+          (data.DNS_PROVIDER === 'route53' && data.AWS_ACCESS_KEY_ID.trim() && data.AWS_SECRET_ACCESS_KEY.trim()) ||
+          (data.DNS_PROVIDER === 'azure' && data.AZURE_CLIENT_ID.trim() && data.AZURE_CLIENT_SECRET.trim()) ||
+          (data.DNS_PROVIDER === 'digitalocean' && data.DIGITALOCEAN_TOKEN.trim()) ||
+          (data.DNS_PROVIDER === 'hetzner' && data.HETZNER_DNS_API_KEY.trim()),
+        ),
+      },
       { label: 'Proxmox API checked', ok: Boolean(status?.proxmox || proxmoxValidation?.ok || proxmoxDiscovery?.ok) },
       { label: 'Deploy currently idle', ok: !status?.deploy_running },
     ],
-    [data.BASE_DOMAIN, data.CLOUDFLARE_API_TOKEN, data.DEPLOYER_SSH_KEY, proxmoxDiscovery?.ok, proxmoxValidation?.ok, status],
+    [
+      data.AWS_ACCESS_KEY_ID,
+      data.AWS_SECRET_ACCESS_KEY,
+      data.AZURE_CLIENT_ID,
+      data.AZURE_CLIENT_SECRET,
+      data.BASE_DOMAIN,
+      data.CLOUDFLARE_API_TOKEN,
+      data.DEPLOYER_SSH_KEY,
+      data.DIGITALOCEAN_TOKEN,
+      data.DNS_PROVIDER,
+      data.HETZNER_DNS_API_KEY,
+      proxmoxDiscovery?.ok,
+      proxmoxValidation?.ok,
+      status,
+    ],
   )
 
   useEffect(() => {

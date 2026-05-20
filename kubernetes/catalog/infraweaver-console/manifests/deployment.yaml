@@ -164,6 +164,11 @@ spec:
             secretKeyRef:
               name: infraweaver-console-secret
               key: cf-zone-id
+        - name: DNS_PROVIDER
+          valueFrom:
+            secretKeyRef:
+              name: infraweaver-console-secret
+              key: dns-provider
         - name: ADMIN_EMAILS
           value: ${ADMIN_EMAIL}
         - name: AUTH_TRUST_HOST

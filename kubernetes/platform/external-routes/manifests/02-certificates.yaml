@@ -54,7 +54,7 @@ metadata:
 spec:
   secretName: platform-int-wildcard-tls
   issuerRef:
-    name: letsencrypt-cloudflare
+    name: letsencrypt-dns
     kind: ClusterIssuer
   dnsNames:
     - "int.${BASE_DOMAIN}"
@@ -69,7 +69,7 @@ metadata:
 spec:
   secretName: yonavaarwater-nl-tls
   issuerRef:
-    name: letsencrypt-cloudflare
+    name: letsencrypt-dns
     kind: ClusterIssuer
   dnsNames:
     - "yonavaarwater.nl"
@@ -85,7 +85,7 @@ metadata:
 spec:
   secretName: zonnevaarwater-nl-tls
   issuerRef:
-    name: letsencrypt-cloudflare
+    name: letsencrypt-dns
     kind: ClusterIssuer
   dnsNames:
     - "zonnevaarwater.nl"

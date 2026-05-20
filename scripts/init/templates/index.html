@@ -866,27 +866,114 @@
       </div>
     </div>
 
-    <!-- Cloudflare -->
+    <!-- DNS Provider -->
     <div class="card">
       <div class="card-header">
         <div class="card-icon">☁</div>
         <div>
-          <div class="card-title">Cloudflare</div>
-          <div class="card-desc">API token for TLS certificates and DNS management</div>
+          <div class="card-title">DNS Provider</div>
+          <div class="card-desc">Select the cert-manager DNS-01 solver and enter provider credentials</div>
         </div>
       </div>
-      <div class="form-grid single">
+      <div class="form-grid">
         <div class="form-row">
+          <label>DNS_PROVIDER <span class="required">*</span></label>
+          <select id="DNS_PROVIDER" name="DNS_PROVIDER" onchange="onDnsProviderChange()">
+            <option value="cloudflare">cloudflare</option>
+            <option value="route53">route53</option>
+            <option value="azure">azure</option>
+            <option value="digitalocean">digitalocean</option>
+            <option value="hetzner">hetzner</option>
+            <option value="none">none (HTTP-01 only)</option>
+          </select>
+          <div class="field-hint" id="dns-provider-help">Cloudflare token for cert-manager DNS-01 wildcard certificates.</div>
+        </div>
+        <div class="form-row">
+          <label>&nbsp;</label>
+          <div class="action-row" style="margin-top:28px">
+            <button class="ip-range-detect" id="btn-check-dns" onclick="checkDnsProvider()" type="button">✅ Verify provider</button>
+            <span id="dns-verify-result" style="font-size:11px;color:var(--text-dim)"></span>
+          </div>
+        </div>
+      </div>
+      <div class="form-grid">
+        <div class="form-row dns-provider-fields" data-provider="cloudflare">
           <label>CLOUDFLARE_API_TOKEN <span class="required">*</span></label>
           <div class="input-wrap">
             <input type="password" id="CLOUDFLARE_API_TOKEN" name="CLOUDFLARE_API_TOKEN" placeholder="cloudflare api token" />
             <button class="toggle-pass" onclick="togglePass('CLOUDFLARE_API_TOKEN')" type="button">👁</button>
           </div>
-          <div class="action-row">
-            <button class="ip-range-detect" id="btn-check-cf" onclick="checkCloudflare()" type="button">✅ Verify token</button>
-            <span id="cf-verify-result" style="font-size:11px;color:var(--text-dim)"></span>
+          <div class="field-hint">Cloudflare → My Profile → API Tokens → Edit Zone DNS template</div>
+        </div>
+
+        <div class="form-row dns-provider-fields" data-provider="route53" style="display:none">
+          <label>AWS_ACCESS_KEY_ID <span class="required">*</span></label>
+          <input type="text" id="AWS_ACCESS_KEY_ID" name="AWS_ACCESS_KEY_ID" placeholder="AKIA..." />
+          <div class="field-hint">IAM user needs Route53 change/get/list permissions for the hosted zone</div>
+        </div>
+        <div class="form-row dns-provider-fields" data-provider="route53" style="display:none">
+          <label>AWS_SECRET_ACCESS_KEY <span class="required">*</span></label>
+          <div class="input-wrap">
+            <input type="password" id="AWS_SECRET_ACCESS_KEY" name="AWS_SECRET_ACCESS_KEY" placeholder="aws secret access key" />
+            <button class="toggle-pass" onclick="togglePass('AWS_SECRET_ACCESS_KEY')" type="button">👁</button>
           </div>
-          <div class="field-hint">Cloudflare dashboard → My Profile → API Tokens. Required permission: Zone:DNS:Edit</div>
+        </div>
+        <div class="form-row dns-provider-fields" data-provider="route53" style="display:none">
+          <label>AWS_HOSTED_ZONE_ID</label>
+          <input type="text" id="AWS_HOSTED_ZONE_ID" name="AWS_HOSTED_ZONE_ID" placeholder="optional hosted zone id" />
+          <div class="field-hint">Optional but recommended when the account can see multiple hosted zones</div>
+        </div>
+        <div class="form-row dns-provider-fields" data-provider="route53" style="display:none">
+          <label>AWS_REGION</label>
+          <input type="text" id="AWS_REGION" name="AWS_REGION" placeholder="us-east-1" value="us-east-1" />
+        </div>
+
+        <div class="form-row dns-provider-fields" data-provider="azure" style="display:none">
+          <label>AZURE_CLIENT_ID <span class="required">*</span></label>
+          <input type="text" id="AZURE_CLIENT_ID" name="AZURE_CLIENT_ID" placeholder="service principal client id" />
+        </div>
+        <div class="form-row dns-provider-fields" data-provider="azure" style="display:none">
+          <label>AZURE_CLIENT_SECRET <span class="required">*</span></label>
+          <div class="input-wrap">
+            <input type="password" id="AZURE_CLIENT_SECRET" name="AZURE_CLIENT_SECRET" placeholder="azure client secret" />
+            <button class="toggle-pass" onclick="togglePass('AZURE_CLIENT_SECRET')" type="button">👁</button>
+          </div>
+        </div>
+        <div class="form-row dns-provider-fields" data-provider="azure" style="display:none">
+          <label>AZURE_SUBSCRIPTION_ID <span class="required">*</span></label>
+          <input type="text" id="AZURE_SUBSCRIPTION_ID" name="AZURE_SUBSCRIPTION_ID" placeholder="subscription id" />
+        </div>
+        <div class="form-row dns-provider-fields" data-provider="azure" style="display:none">
+          <label>AZURE_TENANT_ID <span class="required">*</span></label>
+          <input type="text" id="AZURE_TENANT_ID" name="AZURE_TENANT_ID" placeholder="tenant id" />
+        </div>
+        <div class="form-row dns-provider-fields" data-provider="azure" style="display:none">
+          <label>AZURE_RESOURCE_GROUP <span class="required">*</span></label>
+          <input type="text" id="AZURE_RESOURCE_GROUP" name="AZURE_RESOURCE_GROUP" placeholder="dns zone resource group" />
+          <div class="field-hint">Grant the service principal DNS Zone Contributor on the zone resource</div>
+        </div>
+
+        <div class="form-row dns-provider-fields" data-provider="digitalocean" style="display:none">
+          <label>DIGITALOCEAN_TOKEN <span class="required">*</span></label>
+          <div class="input-wrap">
+            <input type="password" id="DIGITALOCEAN_TOKEN" name="DIGITALOCEAN_TOKEN" placeholder="digitalocean api token" />
+            <button class="toggle-pass" onclick="togglePass('DIGITALOCEAN_TOKEN')" type="button">👁</button>
+          </div>
+          <div class="field-hint">Personal access token with write scope</div>
+        </div>
+
+        <div class="form-row dns-provider-fields" data-provider="hetzner" style="display:none">
+          <label>HETZNER_DNS_API_KEY <span class="required">*</span></label>
+          <div class="input-wrap">
+            <input type="password" id="HETZNER_DNS_API_KEY" name="HETZNER_DNS_API_KEY" placeholder="hetzner dns api key" />
+            <button class="toggle-pass" onclick="togglePass('HETZNER_DNS_API_KEY')" type="button">👁</button>
+          </div>
+          <div class="field-hint">Create token at https://dns.hetzner.com/settings/api-token</div>
+        </div>
+
+        <div class="form-row dns-provider-fields" data-provider="none" style="display:none;grid-column:1/-1">
+          <label>HTTP-01 only</label>
+          <div class="field-hint">No DNS credentials needed. Wildcard certificates are disabled when DNS_PROVIDER=none.</div>
         </div>
       </div>
     </div>
@@ -1054,9 +1141,9 @@
           </label>
         </div>
         <div class="feature-info">
-          <div class="feature-title">🌐 External DNS (Cloudflare Sync)</div>
-          <div class="feature-desc">Automatically creates and updates DNS records in Cloudflare when new ingress routes are added. Without this, you manage DNS records manually.</div>
-          <div class="feature-tags"><span class="feature-tag">Requires: CLOUDFLARE_API_TOKEN</span></div>
+          <div class="feature-title">🌐 External DNS (Cloudflare only)</div>
+          <div class="feature-desc">Automatically creates and updates DNS records in Cloudflare when new ingress routes are added. Requires DNS_PROVIDER=cloudflare; other DNS providers are cert-manager only.</div>
+          <div class="feature-tags"><span class="feature-tag">Requires: DNS_PROVIDER=cloudflare + CLOUDFLARE_API_TOKEN</span></div>
         </div>
       </div>
 
@@ -1159,7 +1246,7 @@
       <div class="check-item" id="chk-proxmox"><div class="check-icon">⬜</div><span>Proxmox API reachable</span></div>
       <div class="check-item" id="chk-ssh"><div class="check-icon">⬜</div><span>SSH key configured</span></div>
       <div class="check-item" id="chk-domain"><div class="check-icon">⬜</div><span>Domain configured</span></div>
-      <div class="check-item" id="chk-dns"><div class="check-icon">⬜</div><span>Cloudflare DNS token set</span></div>
+      <div class="check-item" id="chk-dns"><div class="check-icon">⬜</div><span>DNS provider configured</span></div>
     </div>
 
     <div class="progress-wrap" id="deploy-progress-wrap" style="display:none">
@@ -1260,12 +1347,31 @@ const FIELDS = [
   'METALLB_VIP_RANGE','METALLB_TRAEFIK_VIP','METALLB_COREDNS_VIP',
   'METALLB_NETBIRD_MGMT_VIP','METALLB_NETBIRD_SIGNAL_VIP','METALLB_NETBIRD_RELAY_VIP',
   'CLUSTER_LOCAL_DOMAIN','ADMIN_USERNAME','ADMIN_NAME',
-  'DEPLOYER_SSH_KEY','CLOUDFLARE_API_TOKEN',
+  'DEPLOYER_SSH_KEY','DNS_PROVIDER','CLOUDFLARE_API_TOKEN',
+  'AWS_ACCESS_KEY_ID','AWS_SECRET_ACCESS_KEY','AWS_HOSTED_ZONE_ID','AWS_REGION',
+  'AZURE_CLIENT_ID','AZURE_CLIENT_SECRET','AZURE_SUBSCRIPTION_ID','AZURE_TENANT_ID','AZURE_RESOURCE_GROUP',
+  'DIGITALOCEAN_TOKEN','HETZNER_DNS_API_KEY',
   'SMTP_USERNAME','SMTP_PASSWORD','SMTP_TO','NETBIRD_API_TOKEN','GITHUB_PAT',
   'RUNNER_REGISTRATION_TOKEN','ENV_NAME','LETSENCRYPT_ENV'
 ];
 
 const FEATURE_FIELDS = ['ENABLE_NETBIRD','ENABLE_MONITORING','ENABLE_EXTERNAL_DNS','BACKUP_PROVIDER','LOCAL_IP_RANGES'];
+const DNS_PROVIDER_FIELDS = {
+  cloudflare: ['CLOUDFLARE_API_TOKEN'],
+  route53: ['AWS_ACCESS_KEY_ID','AWS_SECRET_ACCESS_KEY'],
+  azure: ['AZURE_CLIENT_ID','AZURE_CLIENT_SECRET','AZURE_SUBSCRIPTION_ID','AZURE_TENANT_ID','AZURE_RESOURCE_GROUP'],
+  digitalocean: ['DIGITALOCEAN_TOKEN'],
+  hetzner: ['HETZNER_DNS_API_KEY'],
+  none: [],
+};
+const DNS_PROVIDER_HELP = {
+  cloudflare: 'Cloudflare token for cert-manager DNS-01 wildcard certificates.',
+  route53: 'AWS Route53 credentials for cert-manager DNS-01 challenge records.',
+  azure: 'Azure DNS service principal details for cert-manager DNS-01 challenges.',
+  digitalocean: 'DigitalOcean personal access token for cert-manager DNS-01 challenges.',
+  hetzner: 'Hetzner DNS API key for the cert-manager Hetzner webhook solver.',
+  none: 'HTTP-01 only. No wildcard certificates will be issued.',
+};
 
 // ── Tab switching ──
 function switchTab(name) {
@@ -1286,6 +1392,43 @@ function updateRepoLink() {
 function togglePass(id) {
   const el = document.getElementById(id);
   el.type = el.type === 'password' ? 'text' : 'password';
+}
+
+function getSelectedDnsProvider() {
+  return document.getElementById('DNS_PROVIDER')?.value || 'cloudflare';
+}
+
+function collectDnsCredentials(provider = getSelectedDnsProvider()) {
+  const credentials = {};
+  (DNS_PROVIDER_FIELDS[provider] || []).forEach(field => {
+    const el = document.getElementById(field);
+    credentials[field] = el ? el.value.trim() : '';
+  });
+  ['AWS_HOSTED_ZONE_ID','AWS_REGION'].forEach(field => {
+    const el = document.getElementById(field);
+    if (el) credentials[field] = el.value.trim();
+  });
+  return credentials;
+}
+
+function getMissingDnsFields(data) {
+  const provider = data.DNS_PROVIDER || 'cloudflare';
+  if (provider === 'none') return [];
+  return (DNS_PROVIDER_FIELDS[provider] || []).filter(field => !data[field]);
+}
+
+function onDnsProviderChange(resetResult = true) {
+  const provider = getSelectedDnsProvider();
+  document.querySelectorAll('.dns-provider-fields').forEach(el => {
+    el.style.display = el.dataset.provider === provider ? '' : 'none';
+  });
+  const help = document.getElementById('dns-provider-help');
+  if (help) help.textContent = DNS_PROVIDER_HELP[provider] || '';
+  const result = document.getElementById('dns-verify-result');
+  if (resetResult && result) {
+    result.textContent = '';
+    result.style.color = 'var(--text-dim)';
+  }
 }
 
 // ── Show alert ──
@@ -1585,29 +1728,32 @@ function copyPubKey() {
   }).catch(() => { el.select(); document.execCommand('copy'); });
 }
 
-// ── Cloudflare token verify ──
-async function checkCloudflare() {
-  const token = document.getElementById('CLOUDFLARE_API_TOKEN')?.value?.trim();
-  const resultEl = document.getElementById('cf-verify-result');
-  if (!token) { showAlert('config-alert', 'warning', 'Enter CLOUDFLARE_API_TOKEN first'); return; }
-  const btn = document.getElementById('btn-check-cf');
+// ── DNS provider verify ──
+async function checkDnsProvider() {
+  const provider = getSelectedDnsProvider();
+  const resultEl = document.getElementById('dns-verify-result');
+  const credentials = collectDnsCredentials(provider);
+  const missing = getMissingDnsFields({ DNS_PROVIDER: provider, ...credentials });
+  if (missing.length) { showAlert('config-alert', 'warning', 'Missing DNS provider fields: ' + missing.join(', ')); return; }
+  const btn = document.getElementById('btn-check-dns');
   btn.innerHTML = '<div class="btn-spinner" style="border-color:var(--green);border-top-color:transparent"></div>';
   btn.disabled = true;
-  if (resultEl) resultEl.textContent = 'Checking…';
+  if (resultEl) resultEl.textContent = provider === 'none' ? 'Skipping verification…' : 'Checking…';
   try {
-    const r = await fetch('/api/check-cloudflare', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({token})});
+    const r = await fetch('/api/check-dns-provider', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({provider, credentials})});
     const j = await r.json();
     if (j.ok) {
-      if (resultEl) { resultEl.textContent = `✅ Valid — status: ${j.status}`; resultEl.style.color = 'var(--green)'; }
-      showAlert('config-alert', 'success', `✅ Cloudflare token valid (${j.status})`);
+      const status = j.status || 'verified';
+      if (resultEl) { resultEl.textContent = `✅ ${provider} — ${status}`; resultEl.style.color = 'var(--green)'; }
+      showAlert('config-alert', 'success', `✅ ${provider} verification succeeded (${status})`);
     } else {
       if (resultEl) { resultEl.textContent = '✗ ' + (j.error || 'invalid'); resultEl.style.color = 'var(--red)'; }
-      showAlert('config-alert', 'error', '✗ Cloudflare token invalid: ' + (j.error || 'check permissions'));
+      showAlert('config-alert', 'error', `✗ ${provider} verification failed: ` + (j.error || 'check credentials'));
     }
   } catch(e) {
     if (resultEl) { resultEl.textContent = '✗ ' + e.message; resultEl.style.color = 'var(--red)'; }
   }
-  btn.innerHTML = '✅ Verify token'; btn.disabled = false;
+  btn.innerHTML = '✅ Verify provider'; btn.disabled = false;
 }
 
 // ── Auto-fill admin fields from email ──
@@ -1659,8 +1805,10 @@ function collectEnv() {
 // ── Save .env ──
 async function saveEnv() {
   const data = collectEnv();
-  const missing = ['BASE_DOMAIN','ADMIN_EMAIL','GITHUB_REPO','GIT_REPO_URL','PROXMOX_API_TOKEN','DEPLOYER_SSH_KEY','CLOUDFLARE_API_TOKEN','SMTP_USERNAME','SMTP_PASSWORD']
+  const missing = ['BASE_DOMAIN','ADMIN_EMAIL','GITHUB_REPO','GIT_REPO_URL','PROXMOX_API_TOKEN','DEPLOYER_SSH_KEY','DNS_PROVIDER','SMTP_USERNAME','SMTP_PASSWORD']
     .filter(k => !data[k]);
+  const missingDns = getMissingDnsFields(data);
+  if (missingDns.length) missing.push(...missingDns);
   if (missing.length) {
     showAlert('config-alert', 'warning', 'Missing required fields: ' + missing.join(', '));
     return;
@@ -1713,6 +1861,7 @@ async function loadEnv() {
       ['METALLB_TRAEFIK_VIP','METALLB_COREDNS_VIP','METALLB_NETBIRD_MGMT_VIP',
        'METALLB_NETBIRD_SIGNAL_VIP','METALLB_NETBIRD_RELAY_VIP'].forEach(f => setVipDot(f, null));
       updateRepoLink();
+      onDnsProviderChange(false);
       showAlert('config-alert', 'success', 'Loaded existing .env ✅');
       updateStatus('dot-env', 'ok', 'env: configured');
     } else {
@@ -1764,7 +1913,7 @@ async function refreshChecklist() {
     setCheck('chk-env', j.env_saved, '.env file saved');
     setCheck('chk-ssh', j.ssh_key, 'SSH key configured');
     setCheck('chk-domain', j.domain, 'Domain configured');
-    setCheck('chk-dns', j.cloudflare, 'Cloudflare DNS token set');
+    setCheck('chk-dns', j.dns_provider_configured, `DNS provider configured (${j.dns_provider || 'cloudflare'})`);
     setCheck('chk-proxmox', j.proxmox, 'Proxmox API reachable');
     if (j.env_saved) updateStatus('dot-env', 'ok', 'env: configured');
   } catch(e) {}
@@ -1968,7 +2117,8 @@ window.addEventListener('load', () => {
 
   // Initialize IP range list
   if (ipRanges.length === 0) { ipRanges = ['']; renderIpRangeList(); }
-  loadEnv().catch(() => { renderIpRangeList(); updateRepoLink(); });
+  onDnsProviderChange(false);
+  loadEnv().catch(() => { renderIpRangeList(); updateRepoLink(); onDnsProviderChange(false); });
   refreshChecklist().catch(() => {});
   updateStatus('dot-env', 'warn', 'env: checking...');
 });

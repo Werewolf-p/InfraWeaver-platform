@@ -23,6 +23,32 @@ import { WelcomeStep } from '@/components/steps/WelcomeStep'
 import { getStatus, loadEnv } from '@/lib/api'
 import { initialWizardData, isWizardDataPristine, useWizardStore } from '@/lib/store'
 import { isCIDR, isDomain, isEmail, isIPv4, isPositiveInteger } from '@/lib/utils'
+import type { DnsProvider } from '@/lib/store'
+
+function hasDnsProviderCredentials(data: typeof initialWizardData): boolean {
+  switch (data.DNS_PROVIDER as DnsProvider) {
+    case 'cloudflare':
+      return data.CLOUDFLARE_API_TOKEN.trim().length > 0
+    case 'route53':
+      return data.AWS_ACCESS_KEY_ID.trim().length > 0 && data.AWS_SECRET_ACCESS_KEY.trim().length > 0
+    case 'azure':
+      return (
+        data.AZURE_CLIENT_ID.trim().length > 0 &&
+        data.AZURE_CLIENT_SECRET.trim().length > 0 &&
+        data.AZURE_SUBSCRIPTION_ID.trim().length > 0 &&
+        data.AZURE_TENANT_ID.trim().length > 0 &&
+        data.AZURE_RESOURCE_GROUP.trim().length > 0
+      )
+    case 'digitalocean':
+      return data.DIGITALOCEAN_TOKEN.trim().length > 0
+    case 'hetzner':
+      return data.HETZNER_DNS_API_KEY.trim().length > 0
+    case 'none':
+      return true
+    default:
+      return false
+  }
+}
 
 const steps: Array<WizardStepMeta & { icon: React.ComponentType<{ className?: string }> }> = [
   { title: 'Welcome', icon: Sparkles },
@@ -69,7 +95,7 @@ function isStepValid(step: number, data: typeof initialWizardData, localIpRanges
     case 5:
       return (
         data.DEPLOYER_SSH_KEY.trim().length > 0 &&
-        data.CLOUDFLARE_API_TOKEN.trim().length > 0 &&
+        hasDnsProviderCredentials(data) &&
         isEmail(data.SMTP_USERNAME) &&
         data.SMTP_PASSWORD.trim().length > 0 &&
         isEmail(data.SMTP_TO || data.ADMIN_EMAIL) &&

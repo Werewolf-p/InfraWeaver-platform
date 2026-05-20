@@ -31,7 +31,7 @@ ingress:
     - /
   pathType: Prefix
   annotations:
-    cert-manager.io/cluster-issuer: selfsigned-issuer
+    cert-manager.io/cluster-issuer: selfsigned
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
     traefik.ingress.kubernetes.io/router.middlewares: traefik-netbird-only@kubernetescrd
   tls:

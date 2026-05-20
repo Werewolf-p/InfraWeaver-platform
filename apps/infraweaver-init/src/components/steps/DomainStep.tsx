@@ -97,7 +97,7 @@ export function DomainStep() {
             <motion.div variants={fadeUpItem} className="rounded-2xl border border-white/8 bg-black/20 p-4">
               <div className="text-sm font-medium text-white">DNS expectations</div>
               <p className="mt-2 text-sm leading-6 text-[var(--az-text-secondary)]">
-                Make sure the base domain is managed in Cloudflare and that wildcard or service records can be created for ingress endpoints during deployment.
+                Make sure the base domain is managed by your chosen DNS provider and that wildcard or service records can be created for ingress endpoints during deployment.
               </p>
             </motion.div>
           </div>

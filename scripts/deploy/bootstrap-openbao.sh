@@ -386,15 +386,79 @@ else
   echo "==> GITHUB_PAT not set — console pipeline/pelican features will be unavailable (optional; set GITHUB_PAT secret in repo settings)"
 fi
 
-# Cloudflare: store API token from GitHub secret (idempotent, always refresh)
-if [ -n "${CLOUDFLARE_API_TOKEN}" ]; then
+# ── DNS Provider credentials ────────────────────────────────────────────────
+DNS_PROV="${DNS_PROVIDER:-cloudflare}"
+echo "==> Seeding DNS provider credentials (provider: ${DNS_PROV})"
+
+DNS_SECRETS_JSON=$(DNS_PROV="$DNS_PROV" \
+  CLOUDFLARE_API_TOKEN="${CLOUDFLARE_API_TOKEN:-}" \
+  AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-}" \
+  AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-}" \
+  AWS_HOSTED_ZONE_ID="${AWS_HOSTED_ZONE_ID:-}" \
+  AWS_REGION="${AWS_REGION:-us-east-1}" \
+  AZURE_CLIENT_ID="${AZURE_CLIENT_ID:-}" \
+  AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET:-}" \
+  AZURE_SUBSCRIPTION_ID="${AZURE_SUBSCRIPTION_ID:-}" \
+  AZURE_TENANT_ID="${AZURE_TENANT_ID:-}" \
+  AZURE_RESOURCE_GROUP="${AZURE_RESOURCE_GROUP:-}" \
+  DIGITALOCEAN_TOKEN="${DIGITALOCEAN_TOKEN:-}" \
+  HETZNER_DNS_API_KEY="${HETZNER_DNS_API_KEY:-}" \
+  python3 - <<'PYEOF'
+import json
+import os
+
+provider = os.environ.get("DNS_PROV", "cloudflare")
+blank = {
+    "cloudflare-api-token": "",
+    "aws-access-key-id": "",
+    "aws-secret-access-key": "",
+    "aws-hosted-zone-id": "",
+    "aws-region": "",
+    "azure-client-id": "",
+    "azure-client-secret": "",
+    "azure-subscription-id": "",
+    "azure-tenant-id": "",
+    "azure-resource-group": "",
+    "do-token": "",
+    "hetzner-api-key": "",
+}
+provider_values = {
+    "cloudflare": {"cloudflare-api-token": os.environ.get("CLOUDFLARE_API_TOKEN", "")},
+    "route53": {
+        "aws-access-key-id": os.environ.get("AWS_ACCESS_KEY_ID", ""),
+        "aws-secret-access-key": os.environ.get("AWS_SECRET_ACCESS_KEY", ""),
+        "aws-hosted-zone-id": os.environ.get("AWS_HOSTED_ZONE_ID", ""),
+        "aws-region": os.environ.get("AWS_REGION", "us-east-1"),
+    },
+    "azure": {
+        "azure-client-id": os.environ.get("AZURE_CLIENT_ID", ""),
+        "azure-client-secret": os.environ.get("AZURE_CLIENT_SECRET", ""),
+        "azure-subscription-id": os.environ.get("AZURE_SUBSCRIPTION_ID", ""),
+        "azure-tenant-id": os.environ.get("AZURE_TENANT_ID", ""),
+        "azure-resource-group": os.environ.get("AZURE_RESOURCE_GROUP", ""),
+    },
+    "digitalocean": {"do-token": os.environ.get("DIGITALOCEAN_TOKEN", "")},
+    "hetzner": {"hetzner-api-key": os.environ.get("HETZNER_DNS_API_KEY", "")},
+    "none": {},
+}
+provider = provider if provider in provider_values else "none"
+payload = {"provider": provider, **blank, **provider_values[provider]}
+print(json.dumps({"data": payload}))
+PYEOF
+)
+
+curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/platform/dns-provider" \
+  -H "X-Vault-Token: $ROOT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "$DNS_SECRETS_JSON" > /dev/null
+echo "==> DNS provider credentials stored in OpenBao (platform/dns-provider)"
+
+if [ "$DNS_PROV" = "cloudflare" ] && [ -n "${CLOUDFLARE_API_TOKEN:-}" ]; then
   curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/platform/cloudflare" \
     -H "X-Vault-Token: $ROOT_TOKEN" \
     -H "Content-Type: application/json" \
     -d "{\"data\": {\"CF_API_TOKEN\": \"${CLOUDFLARE_API_TOKEN}\", \"CF_EMAIL\": \"${ADMIN_EMAIL:-$SMTP_USERNAME}\"}}" > /dev/null
   echo "==> Cloudflare token stored in OpenBao (platform/cloudflare)"
-else
-  echo "⚠ CLOUDFLARE_API_TOKEN secret not set — cert-manager DNS-01 will fail"
 fi
 
 # ── Discord webhook (optional) ────────────────────────────────────────────────
@@ -447,26 +511,30 @@ if [ -z "$EXISTING_TRUENAS" ]; then
 fi
 
 # ── InfraWeaver Console additional secrets ───────────────────────────────────
-# Patch infraweaver-console with cloudflare-api-token and cf-zone-id
+# Patch infraweaver-console with DNS provider metadata (and Cloudflare fields when applicable)
 EXISTING_IW=$(curl -s -H "X-Vault-Token: $ROOT_TOKEN" \
   "${LOCAL_OPENBAO}/v1/secret/data/platform/infraweaver-console" | \
   python3 -c "import json,sys; d=json.load(sys.stdin); print(json.dumps(d.get('data',{}).get('data',{})))" 2>/dev/null || echo "{}")
-if [ "$(echo "$EXISTING_IW" | python3 -c "import json,sys; print('cf-zone-id' in json.loads(sys.argv[1]))" "$EXISTING_IW" 2>/dev/null)" != "True" ]; then
-  CF_ZONE_ID="${CLOUDFLARE_ZONE_ID:-placeholder-zone-id}"
-  CF_TOKEN_VAL="${CLOUDFLARE_API_TOKEN:-placeholder}"
-  PATCHED=$(python3 -c "
+CF_ZONE_ID=""
+CF_TOKEN_VAL=""
+if [ "$DNS_PROV" = "cloudflare" ]; then
+  CF_ZONE_ID="${CLOUDFLARE_ZONE_ID:-}"
+  CF_TOKEN_VAL="${CLOUDFLARE_API_TOKEN:-}"
+fi
+PATCHED=$(python3 -c "
 import json, sys
 d = json.loads(sys.argv[1])
-d.setdefault('cloudflare-api-token', sys.argv[2])
-d.setdefault('cf-zone-id', sys.argv[3])
+d['dns-provider'] = sys.argv[2]
+d['cloudflare-api-token'] = sys.argv[3]
+d['cf-zone-id'] = sys.argv[4]
 print(json.dumps({'data': d}))
-" "$EXISTING_IW" "$CF_TOKEN_VAL" "$CF_ZONE_ID" 2>/dev/null || echo "")
-  if [ -n "$PATCHED" ]; then
-    curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/platform/infraweaver-console" \
-      -H "X-Vault-Token: $ROOT_TOKEN" -H "Content-Type: application/json" \
-      -d "$PATCHED" > /dev/null
-    echo "==> cloudflare-api-token and cf-zone-id added to infraweaver-console"
-  fi
+" "$EXISTING_IW" "$DNS_PROV" "$CF_TOKEN_VAL" "$CF_ZONE_ID" 2>/dev/null || echo "")
+if [ -n "$PATCHED" ]; then
+  curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/platform/infraweaver-console" \
+    -H "X-Vault-Token: $ROOT_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d "$PATCHED" > /dev/null
+  echo "==> dns-provider metadata added to infraweaver-console"
 fi
 
 # ── Infraweaver API console secret ───────────────────────────────────────────

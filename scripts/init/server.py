@@ -60,7 +60,27 @@ CURRENT_DEPLOY: Optional[subprocess.Popen] = None
 REQUIRED_ENV_FIELDS = [
     "BASE_DOMAIN", "ADMIN_EMAIL", "GITHUB_REPO", "GIT_REPO_URL",
     "PROXMOX_API_TOKEN", "DEPLOYER_SSH_KEY",
-    "CLOUDFLARE_API_TOKEN", "SMTP_USERNAME", "SMTP_PASSWORD"
+    "DNS_PROVIDER", "SMTP_USERNAME", "SMTP_PASSWORD"
+]
+
+DNS_PROVIDER_FIELDS = {
+    "cloudflare": ["CLOUDFLARE_API_TOKEN"],
+    "route53": ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
+    "azure": [
+        "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET", "AZURE_SUBSCRIPTION_ID",
+        "AZURE_TENANT_ID", "AZURE_RESOURCE_GROUP",
+    ],
+    "digitalocean": ["DIGITALOCEAN_TOKEN"],
+    "hetzner": ["HETZNER_DNS_API_KEY"],
+    "none": [],
+}
+
+DNS_ENV_FIELDS = [
+    "CLOUDFLARE_API_TOKEN",
+    "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_HOSTED_ZONE_ID", "AWS_REGION",
+    "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET", "AZURE_SUBSCRIPTION_ID",
+    "AZURE_TENANT_ID", "AZURE_RESOURCE_GROUP",
+    "DIGITALOCEAN_TOKEN", "HETZNER_DNS_API_KEY",
 ]
 
 OPTIONAL_ENV_FIELDS = [
@@ -131,9 +151,14 @@ FEATURE_DEFAULTS = {
     "LOCAL_IP_RANGES": "",
 }
 
-ALL_ENV_FIELDS = (REQUIRED_ENV_FIELDS + OPTIONAL_ENV_FIELDS + CLUSTER_ENV_FIELDS
+DNS_ENV_DEFAULTS = {
+    "DNS_PROVIDER": "cloudflare",
+    "AWS_REGION": "us-east-1",
+}
+
+ALL_ENV_FIELDS = (REQUIRED_ENV_FIELDS + DNS_ENV_FIELDS + OPTIONAL_ENV_FIELDS + CLUSTER_ENV_FIELDS
                   + INFRA_ENV_FIELDS + FEATURE_ENV_FIELDS)
-ALL_ENV_DEFAULTS = {**GENERAL_DEFAULTS, **CLUSTER_DEFAULTS, **INFRA_DEFAULTS, **FEATURE_DEFAULTS}
+ALL_ENV_DEFAULTS = {**GENERAL_DEFAULTS, **DNS_ENV_DEFAULTS, **CLUSTER_DEFAULTS, **INFRA_DEFAULTS, **FEATURE_DEFAULTS}
 
 
 def _detect_local_subnets() -> list:
@@ -356,24 +381,88 @@ def _generate_ssh_key() -> Dict:
         return {"ok": False, "error": str(e)}
 
 
-def _check_cloudflare(token: str) -> Dict:
-    """Verify a Cloudflare API token via /user/tokens/verify."""
+def _normalize_dns_provider(provider: str) -> str:
+    provider = (provider or "cloudflare").strip().lower()
+    return provider if provider in DNS_PROVIDER_FIELDS else "cloudflare"
+
+
+def _check_dns_provider(provider: str, credentials: Dict[str, str]) -> Dict:
+    """Validate DNS provider credentials or token connectivity."""
     import urllib.request
-    try:
-        req = urllib.request.Request(
-            "https://api.cloudflare.com/client/v4/user/tokens/verify",
-            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-        )
-        with urllib.request.urlopen(req, timeout=10) as r:
-            body = json.loads(r.read())
-            if body.get("success"):
-                status = body.get("result", {}).get("status", "active")
-                return {"ok": True, "status": status}
-            errors = body.get("errors", [])
-            msg = errors[0].get("message", "Invalid token") if errors else "Invalid token"
-            return {"ok": False, "error": msg}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
+
+    provider = _normalize_dns_provider(provider)
+
+    if provider == "none":
+        return {"ok": True, "status": "skipped", "provider": provider}
+
+    if provider == "cloudflare":
+        token = credentials.get("CLOUDFLARE_API_TOKEN", "").strip()
+        try:
+            req = urllib.request.Request(
+                "https://api.cloudflare.com/client/v4/user/tokens/verify",
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=10) as r:
+                body = json.loads(r.read())
+                if body.get("success"):
+                    status = body.get("result", {}).get("status", "active")
+                    return {"ok": True, "status": status, "provider": provider}
+                errors = body.get("errors", [])
+                msg = errors[0].get("message", "Invalid token") if errors else "Invalid token"
+                return {"ok": False, "error": msg, "provider": provider}
+        except Exception as e:
+            return {"ok": False, "error": str(e), "provider": provider}
+
+    if provider == "route53":
+        access_key = credentials.get("AWS_ACCESS_KEY_ID", "").strip()
+        secret_key = credentials.get("AWS_SECRET_ACCESS_KEY", "").strip()
+        if not re.match(r"^[A-Z0-9]{16,32}$", access_key):
+            return {"ok": False, "error": "AWS_ACCESS_KEY_ID format looks invalid", "provider": provider}
+        if len(secret_key) < 16:
+            return {"ok": False, "error": "AWS_SECRET_ACCESS_KEY format looks invalid", "provider": provider}
+        return {"ok": True, "status": "format valid", "provider": provider}
+
+    if provider == "azure":
+        guid_re = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+        for key in ("AZURE_CLIENT_ID", "AZURE_SUBSCRIPTION_ID", "AZURE_TENANT_ID"):
+            if not guid_re.match(credentials.get(key, "").strip()):
+                return {"ok": False, "error": f"{key} must be a GUID", "provider": provider}
+        if not credentials.get("AZURE_CLIENT_SECRET", "").strip():
+            return {"ok": False, "error": "AZURE_CLIENT_SECRET is required", "provider": provider}
+        if not credentials.get("AZURE_RESOURCE_GROUP", "").strip():
+            return {"ok": False, "error": "AZURE_RESOURCE_GROUP is required", "provider": provider}
+        return {"ok": True, "status": "format valid", "provider": provider}
+
+    if provider == "digitalocean":
+        token = credentials.get("DIGITALOCEAN_TOKEN", "").strip()
+        try:
+            req = urllib.request.Request(
+                "https://api.digitalocean.com/v2/account",
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=10) as r:
+                body = json.loads(r.read())
+                account_email = body.get("account", {}).get("email")
+                status = f"verified{f' ({account_email})' if account_email else ''}"
+                return {"ok": True, "status": status, "provider": provider}
+        except Exception as e:
+            return {"ok": False, "error": str(e), "provider": provider}
+
+    if provider == "hetzner":
+        token = credentials.get("HETZNER_DNS_API_KEY", "").strip()
+        try:
+            req = urllib.request.Request(
+                "https://dns.hetzner.com/api/v1/zones",
+                headers={"Auth-API-Token": token, "Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=10) as r:
+                body = json.loads(r.read())
+                zone_count = len(body.get("zones", []))
+                return {"ok": True, "status": f"verified ({zone_count} zones visible)", "provider": provider}
+        except Exception as e:
+            return {"ok": False, "error": str(e), "provider": provider}
+
+    return {"ok": False, "error": f"Unsupported DNS provider: {provider}", "provider": provider}
 
 
 def _parse_env_file(path: Path) -> Dict[str, str]:
@@ -410,11 +499,15 @@ def _write_env_file(path: Path, data: Dict[str, str]) -> None:
 
 def _get_status() -> Dict:
     env = _parse_env_file(ENV_FILE)
+    provider = _normalize_dns_provider(env.get("DNS_PROVIDER", "cloudflare"))
+    required_fields = DNS_PROVIDER_FIELDS.get(provider, [])
+    dns_provider_configured = provider == "none" or all(env.get(field, "").strip() for field in required_fields)
     return {
         "env_saved": ENV_FILE.exists() and bool(env),
         "ssh_key": bool(env.get("DEPLOYER_SSH_KEY")),
         "domain": bool(env.get("BASE_DOMAIN")),
-        "cloudflare": bool(env.get("CLOUDFLARE_API_TOKEN")),
+        "dns_provider": provider,
+        "dns_provider_configured": dns_provider_configured,
         "proxmox": False,  # checked via /api/validate-proxmox
         "deploy_running": CURRENT_DEPLOY is not None and CURRENT_DEPLOY.poll() is None,
     }
@@ -487,7 +580,7 @@ def _stream_deploy(mode: str):
         ("Stage 2b",                   50, "Full platform bootstrap"),
         ("Deploy ArgoCD",              55, "Deploying ArgoCD"),
         ("Bootstrap OpenBao",          65, "Bootstrapping OpenBao"),
-        ("Ensure Cloudflare DNS",      70, "Configuring DNS"),
+        ("Ensuring DNS records",      70, "Configuring DNS"),
         ("Apply MetalLB",              75, "Applying MetalLB"),
         ("Reconnect NetBird",          80, "NetBird reconnect"),
         ("Patch cluster CoreDNS",      82, "Patching CoreDNS"),
@@ -655,7 +748,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 data = {}
                 for k in ALL_ENV_FIELDS:
                     v = payload.get(k, "")
-                    if v or k in FEATURE_ENV_FIELDS or k in CLUSTER_ENV_FIELDS or k in INFRA_ENV_FIELDS:
+                    if v or k in FEATURE_ENV_FIELDS or k in DNS_ENV_FIELDS or k in CLUSTER_ENV_FIELDS or k in INFRA_ENV_FIELDS:
                         data[k] = v if v else ALL_ENV_DEFAULTS.get(k, "")
                 _write_env_file(ENV_FILE, {k: v for k, v in data.items() if v})
                 self._send_json({"ok": True})
@@ -699,12 +792,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._send_json(_generate_ssh_key())
             return
 
-        if path == "/api/check-cloudflare":
-            token = payload.get("token", "").strip()
-            if not token:
-                self._send_json({"ok": False, "error": "token required"}, 400)
+        if path in ("/api/check-dns-provider", "/api/check-cloudflare"):
+            provider = _normalize_dns_provider(payload.get("provider", "cloudflare" if path.endswith("cloudflare") else payload.get("provider", "cloudflare")))
+            credentials = payload.get("credentials", payload)
+            if path.endswith("cloudflare"):
+                credentials = {"CLOUDFLARE_API_TOKEN": payload.get("token", "").strip()}
+                provider = "cloudflare"
+            required_fields = DNS_PROVIDER_FIELDS.get(provider, [])
+            missing = [field for field in required_fields if not str(credentials.get(field, "")).strip()]
+            if provider != "none" and missing:
+                self._send_json({"ok": False, "error": f"Missing required fields: {', '.join(missing)}"}, 400)
                 return
-            self._send_json(_check_cloudflare(token))
+            self._send_json(_check_dns_provider(provider, credentials))
             return
 
         if path == "/api/deploy":

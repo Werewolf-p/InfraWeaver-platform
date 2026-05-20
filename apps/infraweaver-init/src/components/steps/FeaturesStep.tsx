@@ -77,7 +77,7 @@ export function FeaturesStep() {
         icon={Settings2}
         eyebrow="Step 7 of 8"
         title="Platform feature toggles"
-        description="Choose which optional services ship with your cluster. You can enable mesh VPN, monitoring, Cloudflare DNS sync, and tune local-network access policies before the first deploy."
+        description="Choose which optional services ship with your cluster. You can enable mesh VPN, monitoring, external DNS sync (Cloudflare), and tune local-network access policies before the first deploy."
       />
 
       <div className="grid gap-6 xl:grid-cols-[1fr_0.95fr]">
@@ -97,7 +97,7 @@ export function FeaturesStep() {
             />
             <ToggleRow
               title="ENABLE_EXTERNAL_DNS"
-              description="Synchronize ingress DNS records directly into Cloudflare."
+              description="Synchronize ingress DNS records directly into Cloudflare. Requires Cloudflare as the DNS provider."
               checked={data.ENABLE_EXTERNAL_DNS}
               onChange={(next) => setField('ENABLE_EXTERNAL_DNS', next)}
             />

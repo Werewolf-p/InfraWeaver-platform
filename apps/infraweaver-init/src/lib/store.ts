@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 import type {
-  CheckCloudflareResponse,
+  CheckDnsProviderResponse,
   DiscoverProxmoxResponse,
   StatusResponse,
   ValidateProxmoxResponse,
@@ -9,6 +9,7 @@ import type {
 import { deriveAdminName, parseBoolean, sanitizeUsername } from '@/lib/utils'
 
 export type BackupProvider = 'none' | 'longhorn' | 'velero' | 'both'
+export type DnsProvider = 'cloudflare' | 'route53' | 'azure' | 'digitalocean' | 'hetzner' | 'none'
 export type PingState = boolean | null | 'loading'
 export type DeployLogLevel = 'info' | 'step' | 'ok' | 'warn' | 'err'
 
@@ -44,7 +45,19 @@ export interface WizardData {
   ADMIN_USERNAME: string
   ADMIN_NAME: string
   DEPLOYER_SSH_KEY: string
+  DNS_PROVIDER: DnsProvider
   CLOUDFLARE_API_TOKEN: string
+  AWS_ACCESS_KEY_ID: string
+  AWS_SECRET_ACCESS_KEY: string
+  AWS_HOSTED_ZONE_ID: string
+  AWS_REGION: string
+  AZURE_CLIENT_ID: string
+  AZURE_CLIENT_SECRET: string
+  AZURE_SUBSCRIPTION_ID: string
+  AZURE_TENANT_ID: string
+  AZURE_RESOURCE_GROUP: string
+  DIGITALOCEAN_TOKEN: string
+  HETZNER_DNS_API_KEY: string
   SMTP_USERNAME: string
   SMTP_PASSWORD: string
   SMTP_TO: string
@@ -99,7 +112,19 @@ export const initialWizardData: WizardData = {
   ADMIN_USERNAME: '',
   ADMIN_NAME: '',
   DEPLOYER_SSH_KEY: '',
+  DNS_PROVIDER: 'cloudflare',
   CLOUDFLARE_API_TOKEN: '',
+  AWS_ACCESS_KEY_ID: '',
+  AWS_SECRET_ACCESS_KEY: '',
+  AWS_HOSTED_ZONE_ID: '',
+  AWS_REGION: 'us-east-1',
+  AZURE_CLIENT_ID: '',
+  AZURE_CLIENT_SECRET: '',
+  AZURE_SUBSCRIPTION_ID: '',
+  AZURE_TENANT_ID: '',
+  AZURE_RESOURCE_GROUP: '',
+  DIGITALOCEAN_TOKEN: '',
+  HETZNER_DNS_API_KEY: '',
   SMTP_USERNAME: '',
   SMTP_PASSWORD: '',
   SMTP_TO: '',
@@ -136,7 +161,7 @@ const emptyLoadingState = {
   suggestNodeIps: false,
   suggestVips: false,
   generateSshKey: false,
-  checkCloudflare: false,
+  checkDnsProvider: false,
   detectSubnets: false,
   saveEnv: false,
   deploy: false,
@@ -153,7 +178,7 @@ interface WizardStore {
   loading: typeof emptyLoadingState
   proxmoxDiscovery: DiscoverProxmoxResponse | null
   proxmoxValidation: ValidateProxmoxResponse | null
-  cloudflareCheck: CheckCloudflareResponse | null
+  dnsProviderCheck: CheckDnsProviderResponse | null
   detectedSubnets: Array<{ cidr: string; ip: string }>
   generatedPublicKey: string
   deployLogs: DeployLogLine[]
@@ -173,7 +198,7 @@ interface WizardStore {
   setVipPing: (field: VipPingField, value: PingState) => void
   setProxmoxDiscovery: (value: DiscoverProxmoxResponse | null) => void
   setProxmoxValidation: (value: ValidateProxmoxResponse | null) => void
-  setCloudflareCheck: (value: CheckCloudflareResponse | null) => void
+  setDnsProviderCheck: (value: CheckDnsProviderResponse | null) => void
   setGeneratedPublicKey: (value: string) => void
   addLocalIpRange: () => void
   updateLocalIpRange: (index: number, value: string) => void
@@ -188,7 +213,7 @@ interface WizardStore {
 }
 
 export function isWizardDataPristine(data: WizardData) {
-  return !data.BASE_DOMAIN && !data.PROXMOX_API_TOKEN && !data.DEPLOYER_SSH_KEY && !data.CLOUDFLARE_API_TOKEN && !data.SMTP_USERNAME
+  return !data.BASE_DOMAIN && !data.PROXMOX_API_TOKEN && !data.DEPLOYER_SSH_KEY && !data.CLOUDFLARE_API_TOKEN && !data.SMTP_USERNAME && data.DNS_PROVIDER === 'cloudflare'
 }
 
 export const useWizardStore = create<WizardStore>()(
@@ -204,7 +229,7 @@ export const useWizardStore = create<WizardStore>()(
       loading: emptyLoadingState,
       proxmoxDiscovery: null,
       proxmoxValidation: null,
-      cloudflareCheck: null,
+      dnsProviderCheck: null,
       detectedSubnets: [],
       generatedPublicKey: '',
       deployLogs: [],
@@ -253,7 +278,7 @@ export const useWizardStore = create<WizardStore>()(
         set((state) => ({ vipPing: { ...state.vipPing, [field]: value } })),
       setProxmoxDiscovery: (value) => set({ proxmoxDiscovery: value }),
       setProxmoxValidation: (value) => set({ proxmoxValidation: value }),
-      setCloudflareCheck: (value) => set({ cloudflareCheck: value }),
+      setDnsProviderCheck: (value) => set({ dnsProviderCheck: value }),
       setGeneratedPublicKey: (value) => set({ generatedPublicKey: value }),
       addLocalIpRange: () => set((state) => ({ localIpRanges: [...state.localIpRanges, ''] })),
       updateLocalIpRange: (index, value) =>
@@ -293,6 +318,7 @@ export const useWizardStore = create<WizardStore>()(
             else if (key === 'ENABLE_MONITORING') nextData.ENABLE_MONITORING = parseBoolean(value)
             else if (key === 'ENABLE_EXTERNAL_DNS') nextData.ENABLE_EXTERNAL_DNS = parseBoolean(value)
             else if (key === 'BACKUP_PROVIDER') nextData.BACKUP_PROVIDER = value as BackupProvider
+            else if (key === 'DNS_PROVIDER') nextData.DNS_PROVIDER = value as DnsProvider
             else if (key === 'LOCAL_IP_RANGES') {
               if (!value.trim()) {
                 nextVpnOnly = true
@@ -348,9 +374,16 @@ export const useWizardStore = create<WizardStore>()(
     }),
     {
       name: 'infraweaver-init-wizard',
-      version: 1,
+      version: 2,
       storage: createJSONStorage(() => localStorage),
       skipHydration: true,
+      migrate: (persistedState: unknown, version: number) => {
+        const state = persistedState as { data?: Partial<WizardData>; [key: string]: unknown }
+        if (version < 2) {
+          return { ...state, data: { ...initialWizardData, ...(state.data ?? {}) } }
+        }
+        return persistedState
+      },
       partialize: (state) => ({
         currentStep: state.currentStep,
         data: state.data,
