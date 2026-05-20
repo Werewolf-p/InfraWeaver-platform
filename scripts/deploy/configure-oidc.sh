@@ -18,13 +18,22 @@ KB=~/.kube/config-platform-${ENV_NAME:?ENV_NAME required}
 KT="kubectl --kubeconfig $KB --insecure-skip-tls-verify"
 
 # AUTHENTIK_ADMIN_TOKEN can be passed in from configure-authentik.sh (GitHub Actions)
-# or we retrieve it directly from the worker pod (local deploy)
+# or we retrieve it directly from the worker pod (local deploy).
+# Falls back to the K8s bootstrap-token secret for local/first-run deploys.
 TOKEN="${AUTHENTIK_ADMIN_TOKEN:-}"
 if [ -z "$TOKEN" ]; then
-  echo "==> Retrieving Authentik admin token from worker pod..."
+  echo "==> Retrieving Authentik admin token from worker pod (gh-actions-api-token)..."
   _AK_TOKEN_PY='from authentik.core.models import Token; t = Token.objects.filter(identifier="gh-actions-api-token").first(); print("TOKEN:" + t.key) if t else print("")'
   TOKEN=$($KT exec -i -n authentik deploy/authentik-worker -c worker -- \
     sh -c "echo '${_AK_TOKEN_PY}' | ak shell" 2>/dev/null | grep "^TOKEN:" | sed 's/TOKEN://' || echo "")
+fi
+
+# Fallback: use the bootstrap-token from the authentik-secrets K8s Secret (local deploy)
+if [ -z "$TOKEN" ]; then
+  echo "==> Falling back to bootstrap-token from K8s secret..."
+  TOKEN=$($KT get secret authentik-secrets -n authentik \
+    -o jsonpath='{.data.bootstrap-token}' 2>/dev/null | base64 -d || echo "")
+  [ -n "$TOKEN" ] && echo "  ✅ Using bootstrap-token for local deploy"
 fi
 
 if [ -z "$TOKEN" ]; then
