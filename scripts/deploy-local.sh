@@ -61,28 +61,36 @@ trap cleanup EXIT
 ENV_FILE="${ENV_FILE:-${REPO_DIR}/.env}"
 if [[ -f "$ENV_FILE" ]]; then
   log "Loading environment from $ENV_FILE"
-  # shellcheck disable=SC1090
-  set -a
-  # Parse .env safely (handle multi-line values for SSH key)
-  while IFS= read -r line || [[ -n "$line" ]]; do
-    [[ -z "$line" || "$line" =~ ^# ]] && continue
-    if [[ "$line" =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
-      export "${BASH_REMATCH[1]}"="${BASH_REMATCH[2]//\"/}"
-    fi
-  done < <(python3 - "$ENV_FILE" << 'PYEOF'
+  # Use Python to emit bash $'...' exports — handles multi-line values (SSH keys etc.)
+  # shellcheck disable=SC1090,SC2046
+  eval "$(python3 - "$ENV_FILE" << 'PYEOF'
 import sys, re
+
+def bash_ansi_quote(s):
+    """Encode any string as bash $'...' literal so eval handles newlines/special chars."""
+    out = []
+    for c in s:
+        if   c == '\n': out.append('\\n')
+        elif c == '\r': out.append('\\r')
+        elif c == '\t': out.append('\\t')
+        elif c == '\\': out.append('\\\\')
+        elif c == "'":  out.append("\\'")
+        else:           out.append(c)
+    return "$'" + ''.join(out) + "'"
+
 path = sys.argv[1]
 content = open(path).read()
-# Find all KEY=value pairs (including multi-line quoted values)
-for m in re.finditer(r'^([A-Za-z_][A-Za-z0-9_]*)=((?:"(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'|[^\n]*))', content, re.MULTILINE):
-    k, v = m.group(1), m.group(2)
-    v = v.strip()
+# Match KEY="..." including multi-line quoted values, and KEY=unquoted
+for m in re.finditer(
+    r'^([A-Za-z_][A-Za-z0-9_]*)=((?:"(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'|[^\n]*))',
+    content, re.MULTILINE
+):
+    k, v = m.group(1), m.group(2).strip()
     if (v.startswith('"') and v.endswith('"')) or (v.startswith("'") and v.endswith("'")):
         v = v[1:-1]
-    print(f"{k}={v}")
+    print(f'export {k}={bash_ansi_quote(v)}')
 PYEOF
-)
-  set +a
+  )"
   ok "Loaded $ENV_FILE"
 else
   warn ".env not found at $ENV_FILE"

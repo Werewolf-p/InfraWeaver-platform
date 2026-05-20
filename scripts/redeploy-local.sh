@@ -66,26 +66,33 @@ if [[ ! -f "$ENV_FILE" ]]; then
   die "No .env file found at $ENV_FILE — cannot proceed without configuration"
 fi
 
-# shellcheck disable=SC1090
-set -a
-while IFS= read -r line || [[ -n "$line" ]]; do
-  [[ -z "$line" || "$line" =~ ^# ]] && continue
-  if [[ "$line" =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
-    export "${BASH_REMATCH[1]}"="${BASH_REMATCH[2]//\"/}"
-  fi
-done < <(python3 - "$ENV_FILE" << 'PYEOF'
+# shellcheck disable=SC1090,SC2046
+eval "$(python3 - "$ENV_FILE" << 'PYEOF'
 import sys, re
+
+def bash_ansi_quote(s):
+    out = []
+    for c in s:
+        if   c == '\n': out.append('\\n')
+        elif c == '\r': out.append('\\r')
+        elif c == '\t': out.append('\\t')
+        elif c == '\\': out.append('\\\\')
+        elif c == "'":  out.append("\\'")
+        else:           out.append(c)
+    return "$'" + ''.join(out) + "'"
+
 path = sys.argv[1]
 content = open(path).read()
-for m in re.finditer(r'^([A-Za-z_][A-Za-z0-9_]*)=((?:"(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'|[^\n]*))', content, re.MULTILINE):
-    k, v = m.group(1), m.group(2)
-    v = v.strip()
+for m in re.finditer(
+    r'^([A-Za-z_][A-Za-z0-9_]*)=((?:"(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'|[^\n]*))',
+    content, re.MULTILINE
+):
+    k, v = m.group(1), m.group(2).strip()
     if (v.startswith('"') and v.endswith('"')) or (v.startswith("'") and v.endswith("'")):
         v = v[1:-1]
-    print(f"{k}={v}")
+    print(f'export {k}={bash_ansi_quote(v)}')
 PYEOF
-)
-set +a
+)"
 
 ENV_NAME="${ENV_NAME:-productie}"
 
