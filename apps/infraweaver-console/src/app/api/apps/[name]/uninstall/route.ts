@@ -22,7 +22,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { validateK8sName } from "@/lib/api-security";
 import { auditLog } from "@/lib/audit-log";
-import { gitDeleteFile, gitListDir, gitReadFile } from "@/lib/git-provider";
+import { gitCommitFiles, gitDeleteDir, gitReadFile } from "@/lib/git-provider";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 
@@ -38,32 +38,6 @@ const PROTECTED_APPS = new Set([
 ]);
 const PROTECTED_PREFIXES = ["core-", "appset-"];
 
-async function gitGetFileSha(filePath: string): Promise<string | null> {
-  const file = await gitReadFile(filePath);
-  return file?.sha ?? null;
-}
-
-async function gitDeleteDir(dirPath: string, commitMsg: string): Promise<{ deleted: string[]; errors: string[] }> {
-  const deleted: string[] = [];
-  const errors: string[] = [];
-
-  const entries = await gitListDir(dirPath);
-  for (const entry of entries) {
-    if (entry.type === "file") {
-      try {
-        await gitDeleteFile(entry.path, commitMsg, entry.sha);
-        deleted.push(entry.path);
-      } catch {
-        errors.push(`Failed to delete ${entry.path}`);
-      }
-    } else if (entry.type === "dir") {
-      const sub = await gitDeleteDir(entry.path, commitMsg);
-      deleted.push(...sub.deleted);
-      errors.push(...sub.errors);
-    }
-  }
-  return { deleted, errors };
-}
 
 async function argoDelete(argoAppName: string): Promise<void> {
   if (!ARGOCD_TOKEN) return;
@@ -127,24 +101,23 @@ export async function DELETE(
     // Normalise: catalog-wiki-manifests → wiki, catalog-wiki → wiki
     const slug = name.replace(/^catalog-/, "").replace(/-manifests$/, "");
 
-    // 1. Remove bootstrap files for this slug
-    for (const bsFile of [
+    // 1. Remove bootstrap files for this slug (batch into one commit)
+    const bootstrapFiles = await Promise.all([
       `kubernetes/bootstrap/catalog-${slug}.yaml`,
       `kubernetes/bootstrap/catalog-${slug}-manifests.yaml`,
       `kubernetes/bootstrap/catalog-${slug}-secrets.yaml`,
-    ]) {
-      const sha = await gitGetFileSha(bsFile);
-      if (sha) {
-        try {
-          await gitDeleteFile(bsFile, `chore(apps): uninstall ${slug}`, sha);
-          deleted.push(bsFile);
-        } catch {
-          errors.push(`Failed to delete ${bsFile}`);
-        }
+    ].map(async (f) => ({ path: f, exists: !!(await gitReadFile(f)) })));
+    const toDelete = bootstrapFiles.filter((f) => f.exists).map((f) => f.path);
+    if (toDelete.length > 0) {
+      try {
+        await gitCommitFiles({ message: `chore(apps): uninstall ${slug}`, deleteFiles: toDelete });
+        deleted.push(...toDelete);
+      } catch {
+        errors.push(`Failed to delete bootstrap files for ${slug}`);
       }
     }
 
-    // 2. Remove catalog directory
+    // 2. Remove catalog directory (single clone for Onedev)
     const catalogDir = `kubernetes/catalog/${slug}`;
     const dirResult = await gitDeleteDir(catalogDir, `chore(apps): remove ${slug} catalog files`);
     deleted.push(...dirResult.deleted);

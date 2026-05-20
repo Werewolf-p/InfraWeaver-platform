@@ -31,9 +31,15 @@ core:
 # Stateless apps (Grafana, Homepage) support 2+ replicas.
 # Stateful apps with a DB (Authentik, Loki) typically use 1.
 groups:
+  # ── Monitoring Stack (OPTIONAL) ────────────────────────────────────────────
+  # Set enabled: true to deploy Prometheus, Loki, Alertmanager, and Grafana dashboards.
+  # Resource cost: ~2 GB RAM, ~10 GB storage.
+  # The InfraWeaver console degrades gracefully without it (metrics/log features hidden).
+  # Companion bootstrap files (app-alertmanager-discord.yaml, app-monitoring-*.yaml)
+  # are managed automatically by sync-groups.sh when this group is enabled/disabled.
   core-monitoring:
-    description: "Prometheus, Loki, Alertmanager — cluster observability"
-    enabled: true
+    description: "Prometheus, Loki, Alertmanager — cluster observability (optional)"
+    enabled: false    # Change to true to enable the full monitoring stack
     # kubernetes/monitoring/ apps
     apps:
       kube-prometheus-stack:
@@ -48,38 +54,58 @@ groups:
       alerts:
         description: "PrometheusRule alert definitions (no pods)"
 
+  # ── Core Platform Services ─────────────────────────────────────────────────
+  # Required apps (authentik, dns, external-routes) always deploy.
+  # Optional apps below default to enabled: false — set true to enable.
+  # Companion bootstrap files are managed automatically by sync-groups.sh.
   core-platform:
-    description: "SSO, VPN, DNS, Homepage, Backups — core platform services"
+    description: "SSO (required) + optional platform services"
     enabled: true
     # kubernetes/platform/ apps
     apps:
+      # ── REQUIRED — do not disable ──────────────────────────────────────────
       authentik:
         description: "Identity provider and SSO gateway"
         replicas: 1       # Set 2 for HA (PostgreSQL handles state)
       authentik-ldap-outpost:
         description: "LDAP outpost for Authentik"
         replicas: 1
+
+      # ── OPTIONAL — set enabled: true to deploy ─────────────────────────────
       netbird:
-        description: "Zero-trust VPN mesh"
+        description: "Zero-trust VPN mesh — needed for external access from anywhere"
+        enabled: false    # requires: OpenBao secret/platform/netbird, Netbird management server
         replicas: 1
       velero:
         description: "Kubernetes backup controller"
+        enabled: false    # requires: minio-velero enabled first
       minio-velero:
         description: "S3-compatible storage for Velero backups"
+        enabled: false    # enable together with velero
         replicas: 1
       external-dns:
-        description: "Automatic DNS record management"
+        description: "Automatic DNS record management via Cloudflare"
+        enabled: false    # requires: real CLOUDFLARE_API_TOKEN in .env
         replicas: 1
       homepage:
-        description: "Homelab dashboard (optional — console /home tab replaces it)"
-        enabled: true         # Set false to stop deploying homepage pod; console home tab serves the same content
+        description: "Homelab dashboard (console /home tab provides same content)"
+        enabled: false    # optional: console has built-in home tab
         replicas: 2       # Stateless — 2 replicas for HA
       argocd-image-updater:
-        description: "Automatic container image tag updates"
+        description: "Automatic container image tag updates via GitOps"
+        enabled: false    # optional: needed only when using Onedev CI + auto image updates
         replicas: 1
       grafana:
         description: "Standalone Grafana for custom dashboards"
+        enabled: false    # optional: enable core-monitoring for full Prometheus+Grafana stack instead
         replicas: 2       # Stateless — 2 replicas for HA
+      falco:
+        description: "Runtime security and threat detection"
+        enabled: false    # optional: advanced security monitoring
+        replicas: 1
+      wazuh:
+        description: "SIEM and security event management"
+        enabled: false    # optional: enterprise-grade security operations
 
 catalog:
   # List of catalog apps to install.

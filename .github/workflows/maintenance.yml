@@ -23,6 +23,7 @@ on:
     - cron: "0 5 1,15 * *"  # 1st+15th of month — ESO token renewal
     - cron: "30 8 * * *"   # Daily 08:30 UTC   — certificate expiry check
     - cron: "45 */6 * * *"  # Every 6 hours     — Velero backup verification
+    - cron: "0 6 * * *"    # Daily 06:00 UTC   — GitHub↔Onedev sync health check
   workflow_dispatch:
     inputs:
       task:
@@ -44,6 +45,7 @@ on:
           - openbao-eso-recovery # validate OpenBao store + refresh failed ExternalSecrets
           - cert-expiry-check
           - velero-backup-verify
+          - sync-health-check
       environment:
         description: "Environment (for drift detection)"
         required: false
@@ -787,4 +789,76 @@ jobs:
               pass
           if stale:
             sys.exit(1)
+          PY
+
+  # ── GitHub↔Onedev Sync Health Check ──────────────────────────────────────────
+  # Compares the HEAD SHA on GitHub (runner checkout) against the latest commit
+  # on the main branch in Onedev. A mismatch means the git mirror is behind and
+  # ArgoCD may be syncing from stale manifests.
+  sync-health-check:
+    name: GitHub↔Onedev Sync Health Check
+    runs-on: [self-hosted, prod-worker]
+    if: >-
+      (github.event_name == 'schedule' && github.event.schedule == '0 6 * * *') ||
+      (github.event_name == 'workflow_dispatch' && inputs.task == 'sync-health-check')
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Compare GitHub HEAD with Onedev main
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL || secrets.DISCORD_WEBHOOK }}
+          ONEDEV_TOKEN: ${{ secrets.ONEDEV_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import subprocess
+          import sys
+          import urllib.request
+
+          summary_file = os.environ['GITHUB_STEP_SUMMARY']
+          webhook = os.environ.get('DISCORD_WEBHOOK_URL', '').strip()
+          onedev_token = os.environ.get('ONEDEV_TOKEN', '').strip()
+
+          github_sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+
+          onedev_url = 'https://onedev.rlservers.com/~api/projects/InfraWeaver-platform/commits/main'
+          req = urllib.request.Request(onedev_url)
+          if onedev_token:
+              import base64
+              credentials = base64.b64encode(f'infraweaver:{onedev_token}'.encode()).decode()
+              req.add_header('Authorization', f'Basic {credentials}')
+          try:
+              with urllib.request.urlopen(req, timeout=10) as resp:
+                  data = json.loads(resp.read())
+              onedev_sha = data.get('hash', '')
+          except Exception as exc:
+              msg = f'Failed to reach Onedev API: {exc}'
+              with open(summary_file, 'a') as fh:
+                  fh.write(f'## GitHub↔Onedev Sync\n- ⚠️ {msg}\n')
+              if webhook:
+                  payload = json.dumps({'content': f'⚠️ **GitHub↔Onedev sync check** could not reach Onedev: {exc}'}).encode()
+                  try:
+                      urllib.request.urlopen(urllib.request.Request(webhook, data=payload, headers={'Content-Type': 'application/json'}), timeout=10)
+                  except Exception:
+                      pass
+              sys.exit(1)
+
+          in_sync = github_sha == onedev_sha
+          with open(summary_file, 'a') as fh:
+              fh.write('## GitHub↔Onedev Sync\n')
+              fh.write(f'- GitHub HEAD : `{github_sha}`\n')
+              fh.write(f'- Onedev main : `{onedev_sha}`\n')
+              fh.write(f'- Status      : {"✅ in sync" if in_sync else "❌ MISMATCH"}\n')
+
+          if not in_sync:
+              msg = f'GitHub HEAD `{github_sha[:8]}` does not match Onedev main `{onedev_sha[:8]}`. ArgoCD may be syncing stale manifests.'
+              if webhook:
+                  payload = json.dumps({'content': f'⚠️ **GitHub↔Onedev sync mismatch**\n{msg}'}).encode()
+                  try:
+                      urllib.request.urlopen(urllib.request.Request(webhook, data=payload, headers={'Content-Type': 'application/json'}), timeout=10)
+                  except Exception:
+                      pass
+              sys.exit(1)
           PY

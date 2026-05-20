@@ -18,6 +18,4 @@ secrets:
       type: password
     argocd-token:
       type: password
-    github-token:
-      type: password
 replicas: "2"

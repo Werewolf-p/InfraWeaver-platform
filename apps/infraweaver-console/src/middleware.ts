@@ -125,7 +125,14 @@ export default auth(async (req) => {
 
     if (isLoggedIn && (pathname === "/login" || pathname === "/auth/signin")) {
       const callbackUrl = nextUrl.searchParams.get("callbackUrl");
-      const target = callbackUrl?.startsWith("/") ? new URL(callbackUrl, nextUrl) : new URL("/", nextUrl);
+      // Guard: reject callbackUrls that would loop back into the auth flow
+      const isValidCallback =
+        callbackUrl != null &&
+        callbackUrl.startsWith("/") &&
+        !callbackUrl.startsWith("/login") &&
+        !callbackUrl.startsWith("/auth/signin") &&
+        !callbackUrl.startsWith("/api/auth");
+      const target = isValidCallback ? new URL(callbackUrl, nextUrl) : new URL("/", nextUrl);
       return NextResponse.redirect(target);
     }
 

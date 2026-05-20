@@ -331,6 +331,8 @@ jobs:
         run: bash scripts/validate-platform-yaml.sh
       - name: Validate users.yaml
         run: bash scripts/validate-users-yaml.sh
+      - name: Check admin-config.yaml is in sync with users.yaml
+        run: bash scripts/generate-admin-config.sh --check
       - name: Validate ExternalSecret secretStoreRef names (BLOCKING)
         # Catches copy-paste errors like secretStoreRef.name: openbao-backend (wrong)
         # vs openbao (the actual ClusterSecretStore). Historical bug: Gatus CrashLoopBackOff.

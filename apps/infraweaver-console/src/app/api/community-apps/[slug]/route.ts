@@ -1,9 +1,6 @@
 /**
- * DELETE /api/community-apps/[slug]
- *
- * Uninstalls a community app by removing its bootstrap ArgoCD Application file
- * and catalog directory from the GitHub repository. ArgoCD will remove the
- * deployed resources once it detects the Application is gone.
+ * GET  /api/community-apps/[slug]  — fetch app metadata from AppFeed
+ * DELETE /api/community-apps/[slug] — uninstall: K8s cleanup via API, then git file removal
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -11,69 +8,11 @@ import { auth } from "@/lib/auth";
 import { summarizeApp, type AppFeedConfig, type AppFeedEntry } from "@/lib/appfeed-converter";
 import { getAppFeed } from "@/lib/appfeed-cache";
 import { getRequestClusterId } from "@/lib/cluster-context";
-import { gitDeleteFile, gitListDir, gitReadFile } from "@/lib/git-provider";
-import { loadKubeConfig } from "@/lib/k8s";
+import { gitCommitFiles, gitDeleteDir } from "@/lib/git-provider";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { safeError } from "@/lib/utils";
-import {
-  createConfiguration,
-  ServerConfiguration,
-  type RequestContext,
-  type ResponseContext,
-} from "@kubernetes/client-node";
-import * as k8s from "@kubernetes/client-node";
-
-/** Creates a CustomObjectsApi client that sends application/merge-patch+json on PATCH. */
-function makeArgoCustomApi(clusterId?: string) {
-  const kc = loadKubeConfig(clusterId);
-  const cluster = kc.getCurrentCluster();
-  if (!cluster) throw new Error("No active cluster");
-  const mergePatchMiddleware = {
-    pre: async (ctx: RequestContext): Promise<RequestContext> => {
-      if (ctx.getHttpMethod() === "PATCH") {
-        ctx.setHeaderParam("Content-Type", "application/merge-patch+json");
-      }
-      return ctx;
-    },
-    post: async (rsp: ResponseContext): Promise<ResponseContext> => rsp,
-  };
-  const cfg = createConfiguration({
-    baseServer: new ServerConfiguration(cluster.server, {}),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    authMethods: { default: kc as any },
-    promiseMiddleware: [mergePatchMiddleware],
-  });
-  return new k8s.CustomObjectsApi(cfg);
-}
-
-async function gitGetFileSha(filePath: string): Promise<string | null> {
-  const file = await gitReadFile(filePath);
-  return file?.sha ?? null;
-}
-
-async function gitDeleteDir(dirPath: string, commitMsg: string): Promise<{ deleted: string[]; errors: string[] }> {
-  const deleted: string[] = [];
-  const errors: string[] = [];
-
-  const entries = await gitListDir(dirPath);
-  for (const entry of entries) {
-    if (entry.type === "file") {
-      try {
-        await gitDeleteFile(entry.path, commitMsg, entry.sha);
-        deleted.push(entry.path);
-      } catch {
-        errors.push(`Failed to delete ${entry.path}`);
-      }
-    } else if (entry.type === "dir") {
-      const sub = await gitDeleteDir(entry.path, commitMsg);
-      deleted.push(...sub.deleted);
-      errors.push(...sub.errors);
-    }
-  }
-
-  return { deleted, errors };
-}
+import { iwApiFetch } from "@/lib/iw-api";
 
 function slugIsValid(slug: string): boolean {
   return /^[a-z0-9-]+$/.test(slug) && slug.length > 0 && slug.length < 64;
@@ -84,19 +23,16 @@ function getAppConfigs(app: AppFeedEntry): AppFeedConfig[] {
   return Array.isArray(app.Config) ? app.Config : [app.Config];
 }
 
+
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
 ) {
   const { slug } = await params;
-
-  if (!slugIsValid(slug)) {
-    return NextResponse.json({ error: "Invalid slug" }, { status: 400 });
-  }
+  if (!slugIsValid(slug)) return NextResponse.json({ error: "Invalid slug" }, { status: 400 });
 
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
   const access = await getSessionRBACContext(session, 60);
   if (!hasSessionPermission(access, "apps:read")) {
     return NextResponse.json({ error: "Forbidden — requires apps:read" }, { status: 403 });
@@ -111,9 +47,7 @@ export async function GET(
         && summarizeApp(candidate).slug === slug;
     });
 
-    if (!app) {
-      return NextResponse.json({ error: "App not found" }, { status: 404 });
-    }
+    if (!app) return NextResponse.json({ error: "App not found" }, { status: 404 });
 
     const summary = summarizeApp(app);
     return NextResponse.json({
@@ -148,103 +82,15 @@ export async function GET(
   }
 }
 
-async function cleanupArgoApplication(argoAppName: string, namespace: string, clusterId?: string): Promise<void> {
-  const customApi = makeArgoCustomApi(clusterId);
-  const kc = loadKubeConfig(clusterId);
-  const cluster = kc.getCurrentCluster();
-
-  // 1. Remove the finalizer so the ArgoCD app can be deleted instantly
-  try {
-    await customApi.patchNamespacedCustomObject({
-      group: "argoproj.io",
-      version: "v1alpha1",
-      namespace: "argocd",
-      plural: "applications",
-      name: argoAppName,
-      body: { metadata: { finalizers: [] } },
-    });
-  } catch {
-    // 404 means app doesn't exist — fine
-  }
-
-  // 2. Delete the app namespace (cascade-deletes deployment, service, PVCs, etc.)
-  if (cluster) {
-    try {
-      const cfg = createConfiguration({
-        baseServer: new ServerConfiguration(cluster.server, {}),
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        authMethods: { default: kc as any },
-      });
-      const coreApi = new k8s.CoreV1Api(cfg);
-      await coreApi.deleteNamespace({ name: namespace });
-    } catch {
-      // 404 = already gone; other errors are non-fatal (bootstrap will prune)
-    }
-  }
-
-  // 3. Delete the ArgoCD Application resource (no finalizer → instant)
-  try {
-    await customApi.deleteNamespacedCustomObject({
-      group: "argoproj.io",
-      version: "v1alpha1",
-      namespace: "argocd",
-      plural: "applications",
-      name: argoAppName,
-    });
-  } catch {
-    // Ignore 404 / already deleted
-  }
-}
-
-/** Annotate the bootstrap ArgoCD app to force an immediate hard refresh so it
- *  picks up git changes (prune of removed files) without waiting for the poll. */
-async function triggerBootstrapRefresh(clusterId?: string): Promise<void> {
-  try {
-    const kc = loadKubeConfig(clusterId);
-    const cluster = kc.getCurrentCluster();
-    if (!cluster) return;
-    const mergePatchMiddleware = {
-      pre: async (ctx: RequestContext): Promise<RequestContext> => {
-        if (ctx.getHttpMethod() === "PATCH") {
-          ctx.setHeaderParam("Content-Type", "application/merge-patch+json");
-        }
-        return ctx;
-      },
-      post: async (rsp: ResponseContext): Promise<ResponseContext> => rsp,
-    };
-    const cfg = createConfiguration({
-      baseServer: new ServerConfiguration(cluster.server, {}),
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      authMethods: { default: kc as any },
-      promiseMiddleware: [mergePatchMiddleware],
-    });
-    const customApi = new k8s.CustomObjectsApi(cfg);
-    await customApi.patchNamespacedCustomObject({
-      group: "argoproj.io",
-      version: "v1alpha1",
-      namespace: "argocd",
-      plural: "applications",
-      name: "bootstrap",
-      body: { metadata: { annotations: { "argocd.argoproj.io/refresh": "hard" } } },
-    });
-  } catch {
-    // Non-fatal — bootstrap will pick up changes on next poll
-  }
-}
-
 export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
 ) {
   const { slug } = await params;
-
-  if (!slugIsValid(slug)) {
-    return NextResponse.json({ error: "Invalid slug" }, { status: 400 });
-  }
+  if (!slugIsValid(slug)) return NextResponse.json({ error: "Invalid slug" }, { status: 400 });
 
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
   const access = await getSessionRBACContext(session, 60);
   if (!hasSessionPermission(access, "apps:write")) {
     return NextResponse.json({ error: "Forbidden — requires apps:write" }, { status: 403 });
@@ -257,33 +103,23 @@ export async function DELETE(
   const deleted: string[] = [];
   const clusterId = getRequestClusterId(req);
 
-  // 1. Remove ArgoCD finalizer + delete namespace (cascade resources) + delete ArgoCD app.
-  //    Deleting namespace first ensures clean resource removal before git files disappear.
-  //    Deleting the ArgoCD app ensures bootstrap's next prune finds nothing to do (no 404
-  //    failure that exhausts bootstrap's retry counter and causes Degraded state).
-  try {
-    await cleanupArgoApplication(`catalog-${slug}-manifests`, slug, clusterId);
-  } catch (error) {
-    errors.push(safeError(error));
+  // 1. K8s cleanup: remove finalizer, delete namespace, delete ArgoCD app
+  const k8sRes = await iwApiFetch(`/community-apps/${slug}`, session, clusterId, { method: "DELETE" });
+  if (!k8sRes.ok) {
+    const body = await k8sRes.json().catch(() => ({})) as { error?: string };
+    errors.push(body.error ?? "K8s cleanup failed");
   }
 
-  // 2. Delete the bootstrap ArgoCD Application file
+  // 2. Delete the bootstrap file + entire catalog dir in two batched git operations
   const bootstrapPath = `kubernetes/bootstrap/catalog-${slug}-manifests.yaml`;
-  const bootstrapSha = await gitGetFileSha(bootstrapPath);
-  if (bootstrapSha) {
-    try {
-      await gitDeleteFile(
-        bootstrapPath,
-        `chore(apps): uninstall community app ${slug}`,
-        bootstrapSha
-      );
-      deleted.push(bootstrapPath);
-    } catch {
-      errors.push(`Failed to delete ${bootstrapPath}`);
-    }
+  try {
+    await gitCommitFiles({ message: `chore(apps): uninstall community app ${slug}`, deleteFiles: [bootstrapPath] });
+    deleted.push(bootstrapPath);
+  } catch {
+    errors.push(`Failed to delete ${bootstrapPath}`);
   }
 
-  // 3. Delete all files in kubernetes/catalog/<slug>/
+  // 3. Delete all files in kubernetes/catalog/<slug>/ — single clone for Onedev
   const catalogDir = `kubernetes/catalog/${slug}`;
   const dirResult = await gitDeleteDir(catalogDir, `chore(apps): remove ${slug} catalog files`);
   deleted.push(...dirResult.deleted);
@@ -293,10 +129,8 @@ export async function DELETE(
     return NextResponse.json({ error: "Uninstall failed", details: errors }, { status: 500 });
   }
 
-  // Trigger bootstrap hard-refresh so it updates its resource tracking.
-  // Since we already deleted the ArgoCD app above, bootstrap's prune finds
-  // nothing to do — no 404 failure that would exhaust its retry counter.
-  void triggerBootstrapRefresh(clusterId);
+  // 4. Trigger bootstrap hard-refresh so it picks up the git changes
+  void iwApiFetch("/community-apps/bootstrap-refresh", session, clusterId, { method: "POST", body: "{}" });
 
   return NextResponse.json({
     success: true,

@@ -369,3 +369,74 @@ export async function gitCommitFiles(options: GitCommitOptions): Promise<void> {
   }
   await githubCommitFiles(options);
 }
+
+async function collectFilePaths(baseDir: string, gitOrFsDir: string): Promise<string[]> {
+  const results: string[] = [];
+  const walk = async (dir: string) => {
+    const entries = await fsPromises.readdir(path.join(gitOrFsDir, dir), { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+      const entryPath = path.posix.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        await walk(entryPath);
+      } else {
+        results.push(entryPath);
+      }
+    }
+  };
+  await walk(normalizePath(baseDir));
+  return results;
+}
+
+export async function gitDeleteDir(dirPath: string, message: string): Promise<{ deleted: string[]; errors: string[] }> {
+  if (getGitProviderName() === "onedev") {
+    const errors: string[] = [];
+    let deleted: string[] = [];
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        const { http } = await loadIsomorphicGit();
+        await withOneDevWorktree(async (dir, gitClient) => {
+          const { branch, token, username } = getOneDevConfig();
+          const filePaths = await collectFilePaths(dirPath, dir);
+          if (filePaths.length === 0) return;
+
+          for (const filePath of filePaths) {
+            const fullPath = path.join(dir, filePath);
+            await fsPromises.rm(fullPath, { force: true });
+            await gitClient.remove({ fs, dir, filepath: filePath }).catch(() => undefined);
+          }
+
+          await gitClient.commit({ fs, dir, message, author: COMMIT_AUTHOR });
+          await gitClient.push({ fs, http, dir, remote: "origin", ref: branch, onAuth: () => ({ username, password: token }) });
+          deleted = filePaths;
+        });
+        break;
+      } catch (error) {
+        if (attempt < 2 && isPushRejection(error)) continue;
+        errors.push(error instanceof Error ? error.message : String(error));
+        break;
+      }
+    }
+    return { deleted, errors };
+  }
+
+  // GitHub: collect all paths first, then delete in one commit batch
+  const allFiles: string[] = [];
+  const collectGithub = async (dir: string) => {
+    const entries = await gitListDir(dir);
+    for (const entry of entries) {
+      if (entry.type === "file") allFiles.push(entry.path);
+      else await collectGithub(entry.path);
+    }
+  };
+  await collectGithub(dirPath);
+
+  if (allFiles.length === 0) return { deleted: [], errors: [] };
+
+  try {
+    await githubCommitFiles({ message, deleteFiles: allFiles });
+    return { deleted: allFiles, errors: [] };
+  } catch (error) {
+    return { deleted: [], errors: [error instanceof Error ? error.message : String(error)] };
+  }
+}

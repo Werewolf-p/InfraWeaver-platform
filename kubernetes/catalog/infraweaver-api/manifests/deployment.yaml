@@ -51,13 +51,35 @@ spec:
               value: "https://infraweaver.int.rlservers.com"
             - name: ARGOCD_SERVER
               value: "http://argocd-server.argocd.svc.cluster.local:80"
-            - name: GITHUB_REPO
-              value: "Werewolf-p/InfraWeaver-platform"
+            # Optional: GitHub PAT for workflow dispatch (node rolling updates).
+            # Seed in OpenBao: openbao kv patch secret/platform/infraweaver-console github-token=<pat>
             - name: GITHUB_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: infraweaver-console-secret
                   key: github-token
+                  optional: true
+            - name: GITHUB_REPO
+              value: "Werewolf-p/InfraWeaver-platform"
+            - name: GIT_PROVIDER
+              value: onedev
+            - name: ONEDEV_URL
+              value: "http://onedev.onedev.svc.cluster.local"
+            - name: ONEDEV_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: infraweaver-console-secret
+                  key: onedev-token
+            - name: ONEDEV_PROJECT_ID
+              value: "2"
+            - name: ONEDEV_PROJECT_PATH
+              value: "InfraWeaver-platform"
+            - name: ONEDEV_BRANCH
+              value: main
+            - name: ONEDEV_USERNAME
+              value: infraweaver
+            - name: GIT_WORKTREE_ROOT
+              value: /git-cache
             - name: CONSOLE_API_SECRET
               valueFrom:
                 secretKeyRef:
@@ -106,3 +128,9 @@ spec:
             capabilities:
               drop: ["ALL"]
             readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: git-cache
+              mountPath: /git-cache
+      volumes:
+        - name: git-cache
+          emptyDir: {}

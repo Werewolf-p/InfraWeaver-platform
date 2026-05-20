@@ -11,7 +11,7 @@ spec:
   goTemplateOptions: ["missingkey=zero"]
   generators:
     - git:
-        repoURL: http://onedev.onedev.svc.cluster.local/InfraWeaver-platform
+        repoURL: https://github.com/Werewolf-p/InfraWeaver-platform.git
         revision: HEAD
         files:
           - path: "kubernetes/platform/*/application.yaml"
@@ -22,7 +22,7 @@ spec:
     spec:
       project: platform
       sources:
-        - repoURL: http://onedev.onedev.svc.cluster.local/InfraWeaver-platform
+        - repoURL: https://github.com/Werewolf-p/InfraWeaver-platform.git
           targetRevision: HEAD
           ref: values
         - repoURL: "{{ .repoURL }}"
@@ -70,7 +70,5 @@ spec:
           kind: StatefulSet
           jsonPointers:
             - /spec/persistentVolumeClaimRetentionPolicy
-            - /spec/selector
-            - /spec/volumeClaimTemplates
           managedFieldsManagers:
             - kube-controller-manager

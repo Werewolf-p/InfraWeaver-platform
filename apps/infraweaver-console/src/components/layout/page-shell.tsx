@@ -1,10 +1,7 @@
-"use client";
-
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useEffect, useRef, useState } from "react";
 
 interface BreadcrumbItem {
   label: string;
@@ -21,29 +18,9 @@ interface PageShellProps {
 }
 
 export function PageShell({ title, subtitle, actions, breadcrumb, children, className }: PageShellProps) {
-  const [sticky, setSticky] = useState(false);
-  const shellRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    const scrollContainer = document.getElementById("dashboard-main");
-    if (!scrollContainer) return;
-
-    const handleScroll = () => setSticky(scrollContainer.scrollTop > 12);
-    handleScroll();
-    scrollContainer.addEventListener("scroll", handleScroll, { passive: true });
-    return () => scrollContainer.removeEventListener("scroll", handleScroll);
-  }, []);
-
   return (
-    <div ref={shellRef} className={cn("space-y-6", className)}>
-      <div
-        className={cn(
-          "sticky top-0 z-20 -mx-4 -mt-4 mb-6 border-b px-4 py-4 backdrop-blur transition-all sm:-mx-4 md:-mx-6 md:px-6",
-          sticky
-            ? "border-[rgb(var(--color-border))] bg-[rgba(var(--color-surface-base),0.92)] shadow-sm"
-            : "border-transparent bg-transparent",
-        )}
-      >
+    <div className={cn("space-y-6", className)}>
+      <div className="-mx-4 -mt-4 mb-6 border-b border-transparent px-4 py-4 sm:-mx-4 md:-mx-6 md:px-6">
         {breadcrumb?.length ? (
           <nav className="mb-3 flex items-center gap-1 overflow-x-auto whitespace-nowrap text-xs text-[rgb(var(--color-text-secondary))] scrollbar-none">
             {breadcrumb.map((item, index) => (

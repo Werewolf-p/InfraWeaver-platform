@@ -18,6 +18,9 @@ podsRoute.get('/', async (c) => {
   }
 
   const namespace = c.req.query('namespace');
+  const page = Math.max(1, Number.parseInt(c.req.query('page') ?? '1', 10) || 1);
+  const limit = Math.min(500, Math.max(1, Number.parseInt(c.req.query('limit') ?? '0', 10) || 0));
+  const paginated = c.req.query('page') !== undefined || c.req.query('limit') !== undefined;
 
   try {
     const coreApi = await getCoreApiForCluster(user.clusterId);
@@ -29,26 +32,25 @@ podsRoute.get('/', async (c) => {
       const pod = item as {
         metadata?: { name?: string; namespace?: string; creationTimestamp?: Date };
         spec?: { containers?: Array<{ name: string }>; nodeName?: string };
-        status?: {
-          phase?: string;
-          containerStatuses?: Array<{ restartCount?: number; state?: { waiting?: { reason?: string } } }>;
-        };
+        status?: { phase?: string; containerStatuses?: Array<{ restartCount?: number; state?: { waiting?: { reason?: string } } }> };
       };
-
-      const containerStatuses = pod.status?.containerStatuses ?? [];
-      const waitingReason = containerStatuses.find((status) => status.state?.waiting?.reason)?.state?.waiting?.reason ?? '';
-
+      const cs = pod.status?.containerStatuses ?? [];
       return {
         name: pod.metadata?.name ?? '',
         namespace: pod.metadata?.namespace ?? '',
-        status: waitingReason || pod.status?.phase || 'Unknown',
-        containers: (pod.spec?.containers ?? []).map((container) => container.name),
+        status: cs.find((s) => s.state?.waiting?.reason)?.state?.waiting?.reason || pod.status?.phase || 'Unknown',
+        containers: (pod.spec?.containers ?? []).map((c) => c.name),
         nodeName: pod.spec?.nodeName ?? '',
         createdAt: pod.metadata?.creationTimestamp?.toISOString?.() ?? '',
-        restartCount: containerStatuses.reduce((sum, status) => sum + (status.restartCount ?? 0), 0),
+        restartCount: cs.reduce((sum, s) => sum + (s.restartCount ?? 0), 0),
       };
     });
 
+    if (paginated && limit > 0) {
+      const total = pods.length;
+      const offset = (page - 1) * limit;
+      return c.json({ pods: pods.slice(offset, offset + limit), total, page, pages: Math.max(1, Math.ceil(total / limit)), clusterId: user.clusterId });
+    }
     return c.json({ pods, clusterId: user.clusterId });
   } catch {
     return c.json({ error: 'Failed to fetch pods' }, 502);

@@ -363,9 +363,33 @@ jobs:
             bash scripts/deploy/bootstrap-storage.sh
       - name: Bootstrap OpenBao + ExternalSecrets
         if: success()
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          PLATFORM_GITHUB_PAT: ${{ secrets.GITHUB_PAT }}
         run: |
           ENV_NAME="${{ env.ENV_NAME }}" \
             bash scripts/deploy/bootstrap-openbao.sh
+      - name: Setup Onedev service account + access token
+        if: success()
+        run: |
+          KB=~/.kube/config-platform-${{ env.ENV_NAME }}
+          # Port-forward OpenBao (bootstrap-openbao.sh closed its own forward on exit)
+          BAO_POD=$(kubectl --kubeconfig "$KB" get pod -n openbao \
+            -l app.kubernetes.io/name=openbao --no-headers \
+            -o custom-columns=":metadata.name" 2>/dev/null | head -1)
+          kubectl --kubeconfig "$KB" port-forward -n openbao "pod/${BAO_POD}" 8200:8200 &
+          BAO_PF=$!
+          sleep 3
+          # setup-onedev.sh is idempotent — skips if token already in OpenBao
+          ENV_NAME="${{ env.ENV_NAME }}" \
+          OPENBAO_ADDR="http://127.0.0.1:8200" \
+          VAULT_TOKEN="${{ env.ESO_SERVICE_TOKEN }}" \
+            bash scripts/setup-onedev.sh \
+            || echo "⚠ setup-onedev.sh failed — Onedev may not be ready yet (ArgoCD will sync it). Re-run manually if needed."
+          kill $BAO_PF 2>/dev/null || true
+
       - name: Bootstrap ExternalSecrets + TLS Restore
         if: success()
         run: |

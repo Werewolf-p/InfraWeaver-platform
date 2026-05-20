@@ -41,19 +41,15 @@ export const authMiddleware = createMiddleware<AppBindings>(async (c, next) => {
   let validSecret: string | null = null;
   let keyUsed: 'current' | 'previous' = 'current';
 
-  // Try current secret first
-  if (await verifyHmac(message, sig, currentSecret)) {
+  if (verifyHmac(message, sig, currentSecret)) {
     validSecret = currentSecret;
     keyUsed = 'current';
   } else {
-    // Try previous secret within grace window for zero-downtime rotation
     const prevSecret = process.env.CONSOLE_API_SECRET_PREV;
-    if (prevSecret && age <= ROTATION_GRACE_MS) {
-      if (await verifyHmac(message, sig, prevSecret)) {
-        validSecret = prevSecret;
-        keyUsed = 'previous';
-        console.warn('[auth] Request authenticated with previous HMAC secret — rotate CONSOLE_API_SECRET_PREV out soon');
-      }
+    if (prevSecret && age <= ROTATION_GRACE_MS && verifyHmac(message, sig, prevSecret)) {
+      validSecret = prevSecret;
+      keyUsed = 'previous';
+      console.warn('[auth] Request authenticated with previous HMAC secret — rotate CONSOLE_API_SECRET_PREV out soon');
     }
   }
 

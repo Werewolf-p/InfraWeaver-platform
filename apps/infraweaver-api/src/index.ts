@@ -11,16 +11,22 @@ import { requestLogger } from './middleware/logger.js';
 import { securityHeaders } from './middleware/security-headers.js';
 import { agentsRoute } from './routes/agents.js';
 import { argocdRoute } from './routes/argocd.js';
+import { clusterRoute } from './routes/cluster.js';
 import { clustersRoute } from './routes/clusters.js';
+import { communityAppsRoute } from './routes/community-apps.js';
+import { configMapsRoute } from './routes/config-maps.js';
 import { eventsRoute } from './routes/events.js';
+import { execRoute } from './routes/exec.js';
 import { healthRoute } from './routes/health.js';
 import { longhornRoute } from './routes/longhorn.js';
 import { metricsRoute } from './routes/metrics.js';
+import { networkRoute } from './routes/network.js';
 import { nodesRoute } from './routes/nodes.js';
 import { podsRoute } from './routes/pods.js';
 import { modeRoute } from './routes/mode.js';
 import { prometheusRoute } from './routes/prometheus.js';
 import { rbacSyncRoute } from './routes/rbac-sync.js';
+import { secretsRoute } from './routes/secrets.js';
 import { updatesRoute } from './routes/updates.js';
 import type { AppBindings } from './types/index.js';
 
@@ -62,10 +68,14 @@ api.route('/mode', modeRoute);
 api.route('/rbac', rbacSyncRoute);
 api.route('/agents', agentsRoute);
 api.route('/updates', updatesRoute);
+api.route('/cluster', clusterRoute);
+api.route('/network', networkRoute);
+api.route('/config-maps', configMapsRoute);
+api.route('/secrets', secretsRoute);
+api.route('/exec', execRoute);
+api.route('/community-apps', communityAppsRoute);
 
-app.route('/v1', api);
 app.route('/api/v1', api);
-app.route('/api', api);
 
 app.notFound((c) => c.json({ error: 'Not found' }, 404));
 

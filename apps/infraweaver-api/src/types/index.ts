@@ -17,11 +17,6 @@ export interface UserContext {
   clusterId: string;
 }
 
-export interface ApiRequest {
-  user: UserContext;
-  clusterId: string;
-}
-
 export interface AppBindings {
   Variables: {
     user: UserContext;

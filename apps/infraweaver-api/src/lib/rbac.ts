@@ -33,12 +33,3 @@ export function hasPermission(user: UserContext, permission: Permission): boolea
   return false;
 }
 
-export function checkPermission(user: UserContext, permission: string): boolean {
-  for (const role of user.roles) {
-    const perms = ROLE_PERMISSIONS[role] ?? [];
-    if (perms.includes('*') || perms.includes(permission as Permission)) {
-      return true;
-    }
-  }
-  return false;
-}

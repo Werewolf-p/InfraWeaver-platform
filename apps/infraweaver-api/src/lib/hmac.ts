@@ -4,13 +4,8 @@ export function signHmac(message: string, secret: string): string {
   return createHmac('sha256', secret).update(message).digest('hex');
 }
 
-export async function verifyHmac(message: string, sig: string, secret: string): Promise<boolean> {
+export function verifyHmac(message: string, sig: string, secret: string): boolean {
   const expected = signHmac(message, secret);
-  if (sig.length !== expected.length) {
-    return false;
-  }
-
-  const a = Buffer.from(expected, 'hex');
-  const b = Buffer.from(sig, 'hex');
-  return timingSafeEqual(a, b);
+  if (sig.length !== expected.length) return false;
+  return timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(sig, 'hex'));
 }

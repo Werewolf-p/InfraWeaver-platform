@@ -43,3 +43,23 @@ export async function getMetricsApiForCluster(clusterId: string) {
   const kc = await getKcForCluster(clusterId);
   return new k8s.Metrics(kc);
 }
+
+export async function getBatchApiForCluster(clusterId: string) {
+  const kc = await getKcForCluster(clusterId);
+  return kc.makeApiClient(k8s.BatchV1Api);
+}
+
+export async function getNetworkApiForCluster(clusterId: string) {
+  const kc = await getKcForCluster(clusterId);
+  return kc.makeApiClient(k8s.NetworkingV1Api);
+}
+
+export async function getAutoscalingApiForCluster(clusterId: string) {
+  const kc = await getKcForCluster(clusterId);
+  return kc.makeApiClient(k8s.AutoscalingV2Api);
+}
+
+export async function getPolicyApiForCluster(clusterId: string) {
+  const kc = await getKcForCluster(clusterId);
+  return kc.makeApiClient(k8s.PolicyV1Api);
+}

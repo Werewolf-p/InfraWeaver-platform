@@ -2,6 +2,10 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { VERSION_SOURCES, type VersionSource, type VersionSourceType } from '../config/version-sources.js';
 import { getCluster } from '../lib/cluster-registry.js';
+import {
+  githubGetFile, githubGetTree, githubPutFile,
+  isOnedev, onedevGetFile, onedevGetTreeAndFiles, onedevPutFile,
+} from '../lib/git-provider.js';
 import { getCustomApiForCluster } from '../lib/k8s-client.js';
 import { hasPermission } from '../lib/rbac.js';
 import type { AppBindings } from '../types/index.js';
@@ -49,10 +53,6 @@ const updateBodySchema = z.object({
   version: z.string().trim().min(1).max(100).regex(/^[A-Za-z0-9.*:+_-]+$/, 'Invalid version'),
 });
 
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN ?? '';
-const GITHUB_REPO = process.env.GITHUB_REPO ?? 'Werewolf-p/InfraWeaver-platform';
-const GITHUB_BRANCH = process.env.GITHUB_BRANCH ?? 'main';
-const GITHUB_API = 'https://api.github.com';
 const argoAppsCache = new Map<string, { fetchedAt: number; items: ArgoApplication[] }>();
 let manifestsCache: { fetchedAt: number; items: ApplicationManifest[] } | null = null;
 
@@ -318,75 +318,24 @@ async function getAvailableVersions(source: VersionSource | null): Promise<Versi
   }
 }
 
-async function getRepoTree(): Promise<Array<{ path: string; sha: string }>> {
-  const response = await fetch(`${GITHUB_API}/repos/${GITHUB_REPO}/git/trees/${GITHUB_BRANCH}?recursive=1`, {
-    headers: {
-      Authorization: `Bearer ${GITHUB_TOKEN}`,
-      Accept: 'application/vnd.github.v3+json',
-    },
-    signal: AbortSignal.timeout(8000),
-  });
 
-  if (!response.ok) {
-    throw new Error(`GitHub tree fetch failed: ${response.status}`);
-  }
-
-  const data = await response.json() as { tree: Array<{ path: string; sha: string; type: string }> };
-  return data.tree
-    .filter((item) => item.type === 'blob' && item.path.startsWith('kubernetes/') && item.path.endsWith('application.yaml'))
-    .map(({ path, sha }) => ({ path, sha }));
-}
-
-async function ghGetFile(path: string): Promise<{ content: string; sha: string } | null> {
-  const response = await fetch(`${GITHUB_API}/repos/${GITHUB_REPO}/contents/${path}?ref=${GITHUB_BRANCH}`, {
-    headers: {
-      Authorization: `Bearer ${GITHUB_TOKEN}`,
-      Accept: 'application/vnd.github.v3+json',
-    },
-    signal: AbortSignal.timeout(8000),
-  });
-
-  if (response.status === 404) {
-    return null;
-  }
-
-  if (!response.ok) {
-    throw new Error(`GitHub GET ${path}: ${response.status}`);
-  }
-
-  const data = await response.json() as { content: string; sha: string };
+function parseManifestEntry(filePath: string, content: string): ApplicationManifest {
+  const values = parseFlatYaml(content);
+  const relativePath = filePath.replace(/^kubernetes\//, '');
+  const pathParts = relativePath.split('/');
+  const section = pathParts[0] ?? 'apps';
+  const appName = pathParts[pathParts.length - 2] ?? section;
   return {
-    content: Buffer.from(data.content.replace(/\n/g, ''), 'base64').toString('utf-8'),
-    sha: data.sha,
+    appName,
+    chart: values.chart ?? null,
+    filePath,
+    id: `${section}-${appName}`,
+    namespace: values.namespace ?? null,
+    releaseName: values.releaseName ?? null,
+    repoUrl: values.repoURL ?? null,
+    section,
+    targetRevision: values.targetRevision ?? null,
   };
-}
-
-async function ghPutFile(path: string, content: string, message: string, sha: string): Promise<string> {
-  const encoded = Buffer.from(content).toString('base64');
-  const response = await fetch(`${GITHUB_API}/repos/${GITHUB_REPO}/contents/${path}`, {
-    method: 'PUT',
-    headers: {
-      Authorization: `Bearer ${GITHUB_TOKEN}`,
-      Accept: 'application/vnd.github.v3+json',
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      message,
-      content: encoded,
-      sha,
-      committer: { name: 'InfraWeaver Console', email: 'console@rlservers.com' },
-      branch: GITHUB_BRANCH,
-    }),
-    signal: AbortSignal.timeout(8000),
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`GitHub PUT ${path}: ${response.status} — ${text}`);
-  }
-
-  const data = await response.json() as { commit?: { sha?: string } };
-  return data.commit?.sha ?? '';
 }
 
 async function collectApplicationManifests(): Promise<ApplicationManifest[]> {
@@ -395,35 +344,23 @@ async function collectApplicationManifests(): Promise<ApplicationManifest[]> {
     return manifestsCache.items;
   }
 
-  const treeItems = await getRepoTree();
-  const results = await Promise.all(treeItems.map(async ({ path }): Promise<ApplicationManifest | null> => {
-    const file = await ghGetFile(path);
-    if (!file) {
-      return null;
-    }
+  let rawEntries: Array<{ path: string; content: string }>;
 
-    const values = parseFlatYaml(file.content);
-    const relativePath = path.replace(/^kubernetes\//, '');
-    const pathParts = relativePath.split('/');
-    const section = pathParts[0] ?? 'apps';
-    const appName = pathParts[pathParts.length - 2] ?? section;
+  if (isOnedev()) {
+    rawEntries = await onedevGetTreeAndFiles();
+  } else {
+    const treeItems = await githubGetTree();
+    rawEntries = (await Promise.all(
+      treeItems.map(async ({ path: p }) => {
+        const file = await githubGetFile(p);
+        return file ? { path: p, content: file.content } : null;
+      }),
+    )).filter((e): e is { path: string; content: string } => e !== null);
+  }
 
-    return {
-      appName,
-      chart: values.chart ?? null,
-      filePath: path,
-      id: `${section}-${appName}`,
-      namespace: values.namespace ?? null,
-      releaseName: values.releaseName ?? null,
-      repoUrl: values.repoURL ?? null,
-      section,
-      targetRevision: values.targetRevision ?? null,
-    };
-  }));
-
-  const items = results
-    .filter((manifest): manifest is ApplicationManifest => manifest !== null)
-    .sort((left, right) => left.appName.localeCompare(right.appName));
+  const items = rawEntries
+    .map(({ path: p, content }) => parseManifestEntry(p, content))
+    .sort((a, b) => a.appName.localeCompare(b.appName));
 
   manifestsCache = { fetchedAt: now, items };
   return items;
@@ -512,30 +449,20 @@ function replaceTargetRevision(content: string, version: string) {
 }
 
 async function updateManifestVersion(manifest: ApplicationManifest, version: string) {
-  const file = await ghGetFile(manifest.filePath);
-  if (!file) {
-    throw new Error('Application manifest not found');
-  }
+  const getFile = isOnedev() ? onedevGetFile : githubGetFile;
+  const file = await getFile(manifest.filePath);
+  if (!file) throw new Error('Application manifest not found');
 
   const updated = replaceTargetRevision(file.content, version);
-  if (!updated) {
-    throw new Error('targetRevision not found in application.yaml');
-  }
+  if (!updated) throw new Error('targetRevision not found in application.yaml');
+  if (updated.currentVersion === version) throw new Error('Version already set in GitOps manifest');
 
-  if (updated.currentVersion === version) {
-    throw new Error('Version already set in GitOps manifest');
-  }
+  const message = `chore(updates): bump ${manifest.appName} to ${version}`;
+  const commitSha = isOnedev()
+    ? await onedevPutFile(manifest.filePath, updated.updatedContent, message)
+    : await githubPutFile(manifest.filePath, updated.updatedContent, message, file.sha);
 
-  const commitSha = await ghPutFile(
-    manifest.filePath,
-    updated.updatedContent,
-    `chore(updates): bump ${manifest.appName} to ${version}`,
-    file.sha,
-  );
-
-  // Invalidate manifest cache so the next GET picks up the new targetRevision.
   manifestsCache = null;
-
   return { currentVersion: updated.currentVersion, commitSha };
 }
 

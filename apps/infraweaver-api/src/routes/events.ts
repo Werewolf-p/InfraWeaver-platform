@@ -12,10 +12,15 @@ eventsRoute.get('/', async (c) => {
   }
 
   const limit = Math.min(Math.max(Number.parseInt(c.req.query('limit') ?? '50', 10) || 50, 1), 200);
+  const namespace = c.req.query('namespace');
+  const involvedName = c.req.query('name');
 
   try {
     const coreApi = await getCoreApiForCluster(user.clusterId);
-    const eventsRes = await coreApi.listEventForAllNamespaces();
+    const fieldSelector = involvedName ? `involvedObject.name=${involvedName}` : undefined;
+    const eventsRes = namespace
+      ? await coreApi.listNamespacedEvent({ namespace, fieldSelector })
+      : await coreApi.listEventForAllNamespaces({ fieldSelector });
     const events = ((eventsRes as { items?: unknown[] }).items ?? [])
       .map((item: unknown) => {
         const event = item as {
