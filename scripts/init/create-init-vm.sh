@@ -77,7 +77,49 @@ choose() {
   printf -v "$_var" '%s' "$_choice"
 }
 
-# ── Hardcoded non-interactive defaults ───────────────────────────────────────
+# ── Animation helpers ─────────────────────────────────────────────────────────
+_SP_PID=""
+_SP_CHARS='|/-\'
+
+spin_start() {
+  # spin_start "message" — starts a background spinner; call spin_stop when done
+  local _msg="$1"
+  ( local _i=0
+    while true; do
+      printf '\r  [%s] %s  ' "${_SP_CHARS:$((_i%4)):1}" "$_msg"
+      ((_i++)); sleep 0.1
+    done
+  ) &
+  _SP_PID=$!
+}
+
+spin_stop() {
+  # spin_stop "done message" — kills spinner and prints final OK line
+  if [[ -n "$_SP_PID" ]]; then
+    kill "$_SP_PID" 2>/dev/null; wait "$_SP_PID" 2>/dev/null || true; _SP_PID=""
+  fi
+  printf '\r  %b[OK]%b  %s        \n' "$G" "$NC" "${1:-done}"
+}
+
+spin_fail() {
+  if [[ -n "$_SP_PID" ]]; then
+    kill "$_SP_PID" 2>/dev/null; wait "$_SP_PID" 2>/dev/null || true; _SP_PID=""
+  fi
+  printf '\r  %b[FAIL]%b %s      \n' "$R" "$NC" "${1:-failed}"
+}
+
+# Step counter for the VM creation phase
+_STEP_N=0
+_STEP_TOTAL=7
+step() {
+  (( _STEP_N++ )) || true
+  printf '\n  %b[%d/%d]%b %s\n' "$C" "$_STEP_N" "$_STEP_TOTAL" "$NC" "$1"
+}
+
+# Kill any running spinner on Ctrl+C or exit
+trap '[[ -n "$_SP_PID" ]] && kill "$_SP_PID" 2>/dev/null; printf "\r\n"' EXIT
+
+
 IMAGE_URL="https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"
 IMAGE_CACHE="/var/lib/vz/template/iso/ubuntu-24.04-cloud.img"
 
@@ -136,12 +178,13 @@ while [[ $# -gt 0 ]]; do
 done
 
 # ── Banner ────────────────────────────────────────────────────────────────────
+# ── Banner (line-by-line reveal) ─────────────────────────────────────────────
 echo ""
 echo -e "${C}${B}"
-echo "  +==============================================================+"
-echo "  |          InfraWeaver -- Init VM Deployer                    |"
-echo "  |          Creates a lightweight bootstrap VM on Proxmox      |"
-echo "  +==============================================================+"
+sleep 0.05; echo "  +==============================================================+"
+sleep 0.05; echo "  |          InfraWeaver -- Init VM Deployer                    |"
+sleep 0.05; echo "  |          Creates a lightweight bootstrap VM on Proxmox      |"
+sleep 0.05; echo "  +==============================================================+"
 echo -e "${NC}"
 echo -e "  ${D}This wizard will create a small Ubuntu VM that hosts the${NC}"
 echo -e "  ${D}InfraWeaver web UI and deploys your Kubernetes cluster.${NC}"
@@ -202,17 +245,20 @@ while qm status "$NEXT_VMID" &>/dev/null 2>&1; do (( NEXT_VMID++ )); done
 
 # ── Helper: suggest a free IP in a subnet ──────────────────────────────────────
 suggest_free_ip() {
-  # suggest_free_ip <cidr>  e.g. "10.10.0.1/24"
-  # Returns an IP in the .50-.99 range that does not respond to ping
+  # suggest_free_ip <cidr> — returns first free IP in .50-.99; shows scan progress
   local _cidr="$1"
   local _base; _base=$(echo "$_cidr" | cut -d/ -f1 | cut -d. -f1-3)
+  printf '  Scanning %s.50-%s.99 for a free IP ' "$_base" "$_base"
   for _last in $(seq 50 99); do
     local _ip="${_base}.${_last}"
+    printf '.'
     if ! ping -c1 -W1 "$_ip" &>/dev/null; then
+      printf ' found: %s\n' "$_ip"
       echo "$_ip"; return
     fi
   done
-  echo "${_base}.50"  # fallback
+  printf ' using fallback\n'
+  echo "${_base}.50"
 }
 
 # ── Interactive Wizard ────────────────────────────────────────────────────────
@@ -356,29 +402,34 @@ if qm status "$VMID" &>/dev/null; then
   warn "VM $VMID already exists!"
   read -rp "  Destroy and recreate it? [y/N] " ans
   if [[ "${ans,,}" == "y" ]]; then
-    log "Stopping and destroying VM $VMID..."
+    spin_start "Stopping and destroying VM $VMID"
     qm stop "$VMID" --skiplock 2>/dev/null || true
     sleep 2
     qm destroy "$VMID" --purge --skiplock 2>/dev/null || true
-    ok "VM $VMID destroyed"
+    spin_stop "VM $VMID removed"
   else
     die "Aborting. Use a different --vmid or remove the existing VM."
   fi
 fi
 
+echo ""
+echo -e "  ${B}Creating your InfraWeaver Init VM -- ${_STEP_TOTAL} steps${NC}"
+
 # ── Download cloud image (cached) ─────────────────────────────────────────────
+step "Checking cloud image cache"
 if [[ -f "$IMAGE_CACHE" ]]; then
-  ok "Cloud image already cached at $IMAGE_CACHE"
+  echo "    Cloud image already cached at $IMAGE_CACHE"
 else
-  log "Downloading Ubuntu 24.04 cloud image..."
+  spin_start "Downloading Ubuntu 24.04 cloud image (~500 MB)"
   mkdir -p "$(dirname "$IMAGE_CACHE")"
+  spin_stop ""  # stop spinner before wget takes over terminal output
   wget -q --show-progress -O "$IMAGE_CACHE" "$IMAGE_URL" \
     || curl -fL --progress-bar -o "$IMAGE_CACHE" "$IMAGE_URL"
-  ok "Cloud image downloaded"
+  echo -e "  ${G}[OK]${NC}  Cloud image saved to $IMAGE_CACHE"
 fi
 
 # ── Build cloud-init user-data ────────────────────────────────────────────────
-log "Generating cloud-init user-data..."
+step "Generating cloud-init user-data"
 
 USERDATA_FILE="$(mktemp /tmp/iw-userdata-XXXXX.yaml)"
 
@@ -492,7 +543,8 @@ CLOUDINIT
 log "Cloud-init user-data written to $USERDATA_FILE"
 
 # ── Create VM ──────────────────────────────────────────────────────────────────
-log "Creating VM $VMID ($VM_NAME)..."
+step "Creating VM configuration"
+spin_start "Running qm create $VMID"
 
 qm create "$VMID" \
   --name "$VM_NAME" \
@@ -509,7 +561,7 @@ qm create "$VMID" \
   --vga serial0 \
   --onboot 1 \
   --tablet 0 \
-  --description "InfraWeaver Init VM — web UI at :8080"
+  --description "InfraWeaver Init VM - web UI at :8080"
 
 # Set management network (net0)
 NET_OPTS="virtio,bridge=${BRIDGE}"
@@ -520,18 +572,20 @@ qm set "$VMID" --net0 "$NET_OPTS"
 if [[ "$CLUSTER_NIC" == "yes" ]]; then
   CLUSTER_NET_OPTS="virtio,bridge=${CLUSTER_BRIDGE:-$BRIDGE},tag=${CLUSTER_VLAN}"
   qm set "$VMID" --net1 "$CLUSTER_NET_OPTS"
-  log "Cluster NIC (net1): bridge=${CLUSTER_BRIDGE:-$BRIDGE} VLAN=${CLUSTER_VLAN} IP=${CLUSTER_IP:-DHCP}"
 fi
+spin_stop "VM $VMID configured"
 
-# Import cloud image disk
-log "Importing disk image to storage $STORAGE..."
-qm importdisk "$VMID" "$IMAGE_CACHE" "$STORAGE" --format raw 2>&1 | tail -3
+# ── Import disk ──────────────────────────────────────────────────────────────
+step "Importing disk image to storage $STORAGE"
+spin_start "Importing disk (this may take 15-30s)"
+qm importdisk "$VMID" "$IMAGE_CACHE" "$STORAGE" --format raw &>/dev/null
 qm set "$VMID" --scsi0 "${STORAGE}:vm-${VMID}-disk-0,size=${DISK}G"
-
-# Resize disk to requested size
 qm resize "$VMID" scsi0 "${DISK}G" 2>/dev/null || true
+spin_stop "Disk imported and resized to ${DISK}G"
 
-# Cloud-init drive
+# ── Cloud-init drive ─────────────────────────────────────────────────────────
+step "Writing cloud-init configuration"
+spin_start "Attaching cloud-init drive"
 qm set "$VMID" --ide2 "${STORAGE}:cloudinit"
 qm set "$VMID" --cicustom "user=local:snippets/iw-init-${VMID}.yaml"
 
@@ -549,50 +603,68 @@ fi
 
 qm set "$VMID" --nameserver "8.8.8.8 1.1.1.1"
 qm set "$VMID" --searchdomain "local"
-
-ok "VM $VMID created"
+spin_stop "Cloud-init configured"
 
 # ── Start VM ──────────────────────────────────────────────────────────────────
-log "Starting VM $VMID..."
+step "Starting VM"
+spin_start "Sending start command to VM $VMID"
 qm start "$VMID"
+spin_stop "VM $VMID started"
 
+# ── Wait for IP ───────────────────────────────────────────────────────────────
+step "Waiting for VM to come online"
 echo ""
-log "Waiting for VM to boot and start init server (this takes ~60s)..."
-
-# Wait for VM to get an IP (max 90s)
 VM_IP_FINAL=""
-for i in $(seq 1 18); do
-  sleep 5
-  AGENT_IP=$(qm guest exec "$VMID" -- hostname -I 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('out-data','').strip().split()[0] if d.get('out-data') else '')" 2>/dev/null || true)
+_WAIT_SECS=90
+_ELAPSED=0
+printf '  Waiting for guest agent IP  (timeout %ds)\n' "$_WAIT_SECS"
+while (( _ELAPSED < _WAIT_SECS )); do
+  sleep 5; _ELAPSED=$((_ELAPSED+5))
+  # Draw a simple progress bar: filled with # based on time
+  _pct=$(( _ELAPSED * 30 / _WAIT_SECS ))
+  _bar=$(printf '#%.0s' $(seq 1 $_pct))
+  printf '\r  [%-30s] %3ds ' "$_bar" "$_ELAPSED"
+  AGENT_IP=$(qm guest exec "$VMID" -- hostname -I 2>/dev/null \
+    | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('out-data','').strip().split()[0] if d.get('out-data') else '')" 2>/dev/null || true)
   if [[ -n "$AGENT_IP" ]] && [[ "$AGENT_IP" != "127.0.0.1" ]]; then
     VM_IP_FINAL="$AGENT_IP"
+    printf '\r  [%-30s] found! -> %s\n' "##############################" "$VM_IP_FINAL"
     break
   fi
-  echo "  Waiting for IP... ($i/18)"
 done
+[[ -z "$VM_IP_FINAL" ]] && printf '\r  [%-30s] timeout, using static config\n' "##############################"
 
 if [[ -z "$VM_IP_FINAL" ]] && [[ -n "$VM_IP" ]]; then
   VM_IP_FINAL="$VM_IP"
 fi
 
+step "All done!"
 echo ""
-echo -e "${G}${B}═══════════════════════════════════════════════════════════════${NC}"
-echo -e "${G}${B}  ✅ InfraWeaver Init VM is starting up!${NC}"
+# Wait a moment, then display the ready banner with a brief animated reveal
+sleep 0.2
+echo -e "${G}${B}+===============================================================+${NC}"
+sleep 0.05
+echo -e "${G}${B}  InfraWeaver Init VM is starting up!${NC}"
 echo ""
+sleep 0.05
 if [[ -n "$VM_IP_FINAL" ]]; then
-  echo -e "  🌐 Web UI   → ${C}${B}http://${VM_IP_FINAL}:8080${NC}"
-  echo -e "  🔑 SSH      → ${C}ssh iw@${VM_IP_FINAL}${NC} (password: infraweaver)"
+  echo -e "  Web UI  ->  ${C}${B}http://${VM_IP_FINAL}:8080${NC}"
+  echo -e "  SSH     ->  ${C}ssh iw@${VM_IP_FINAL}${NC}  (password: infraweaver)"
 else
-  echo -e "  🌐 Web UI   → ${C}${B}http://<vm-ip>:8080${NC} (check Proxmox DHCP for IP)"
+  echo -e "  Web UI  ->  ${C}${B}http://<vm-ip>:8080${NC}  (check Proxmox DHCP for IP)"
 fi
 echo ""
+sleep 0.05
 echo -e "  The init server will be ready in ~60 seconds."
 echo -e "  Open the web UI, fill in your .env values, then click Deploy."
 echo ""
+sleep 0.05
 echo -e "  ${Y}Alternative (no web UI):${NC}"
 echo -e "  SSH into the VM and run:"
-echo -e "  ${C}  cp /opt/infraweaver/.env.example /opt/infraweaver/.env"
-echo -e "  nano /opt/infraweaver/.env${NC}"
-echo -e "  ${C}  bash /opt/infraweaver/scripts/deploy-local.sh${NC}"
-echo -e "${G}${B}═══════════════════════════════════════════════════════════════${NC}"
+echo -e "  ${C}  cp /opt/infraweaver/.env.example /opt/infraweaver/.env && \\"
+echo -e "     nano /opt/infraweaver/.env && \\"
+echo -e "     bash /opt/infraweaver/scripts/deploy-local.sh${NC}"
+echo ""
+sleep 0.05
+echo -e "${G}${B}+===============================================================+${NC}"
 echo ""
