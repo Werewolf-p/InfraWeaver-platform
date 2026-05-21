@@ -13,7 +13,7 @@ import {
   Waypoints,
 } from 'lucide-react'
 import { motion } from 'framer-motion'
-import { discoverProxmox, pingCheck, suggestNodeIps, suggestVips, type NodeDatastore } from '@/lib/api'
+import { pingCheck, suggestNodeIps, suggestVips, type NodeDatastore } from '@/lib/api'
 import { ActionButton } from '@/components/ui/ActionButton'
 import { FormField } from '@/components/ui/FormField'
 import { GlassCard } from '@/components/ui/GlassCard'
@@ -76,7 +76,6 @@ export function ClusterStep() {
   const setLoading = useWizardStore((state) => state.setLoading)
   const setNodePing = useWizardStore((state) => state.setNodePing)
   const setVipPing = useWizardStore((state) => state.setVipPing)
-  const setProxmoxDiscovery = useWizardStore((state) => state.setProxmoxDiscovery)
 
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set())
   const [advancedOpen, setAdvancedOpen] = useState(false)
@@ -121,18 +120,6 @@ export function ClusterStep() {
       if (isIPv4(node.ip.trim()) && nodePing[node.id] === undefined) {
         void pingNode(node)
       }
-    })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  // Background-fetch Proxmox node list if not already populated (makes PVE dropdown always work)
-  useEffect(() => {
-    if (proxmoxDiscovery?.all_nodes?.length) return
-    const host = data.PROXMOX_HOST?.trim()
-    const token = data.PROXMOX_API_TOKEN?.trim()
-    if (!host || !token) return
-    void discoverProxmox(host, token).then((result) => {
-      if (result.ok) setProxmoxDiscovery(result)
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -406,7 +393,11 @@ export function ClusterStep() {
                       ? `🖥 ${nodeResources.cpu_cores} cores · 🧮 ${Math.round(nodeResources.mem_total_mb / 1024)} GB RAM · 💾 ${Math.round(nodeResources.mem_free_mb / 1024)} GB free`
                       : 'Which Proxmox node hosts this VM.'}
                   >
-                    {availableNodes.length ? (
+                    {loading.discoverProxmox ? (
+                      <select disabled className={controlClassName}>
+                        <option>Discovering nodes…</option>
+                      </select>
+                    ) : availableNodes.length ? (
                       <select
                         id={`${node.id}-pve`}
                         value={selectedPveNode}
@@ -420,13 +411,9 @@ export function ClusterStep() {
                         ))}
                       </select>
                     ) : (
-                      <input
-                        id={`${node.id}-pve`}
-                        value={node.pveNode}
-                        onChange={(event) => updateNode(node.id, { pveNode: event.target.value })}
-                        placeholder={data.PROXMOX_NODE_NAME || 'pve'}
-                        className={controlClassName}
-                      />
+                      <select disabled className={controlClassName}>
+                        <option>— complete Proxmox step first —</option>
+                      </select>
                     )}
                   </FormField>
                 </div>
@@ -497,9 +484,11 @@ export function ClusterStep() {
                         value={node.datastore || dsValue(availableDatastores[0] ?? '')}
                         onChange={(event) => updateNode(node.id, { datastore: event.target.value })}
                         className={controlClassName}
-                        disabled={availableDatastores.length === 0}
+                        disabled={loading.discoverProxmox || availableDatastores.length === 0}
                       >
-                        {availableDatastores.length ? (
+                        {loading.discoverProxmox ? (
+                          <option>Discovering datastores…</option>
+                        ) : availableDatastores.length ? (
                           availableDatastores.map((ds) => (
                             <option key={dsValue(ds)} value={dsValue(ds)}>
                               {dsLabel(ds)}
@@ -507,7 +496,7 @@ export function ClusterStep() {
                           ))
                         ) : (
                           <option value={node.datastore || data.TALOS_DATASTORE}>
-                            {node.datastore || data.TALOS_DATASTORE || '— waiting for discovery —'}
+                            {node.datastore || data.TALOS_DATASTORE || '— complete Proxmox step first —'}
                           </option>
                         )}
                       </select>

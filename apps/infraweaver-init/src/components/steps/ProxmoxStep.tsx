@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useRef, useMemo, useState } from 'react'
 import {
   CheckCircle2,
   ChevronDown,
@@ -126,11 +126,11 @@ export function ProxmoxStep() {
     }
   }
 
-  const handleDiscover = async () => {
-    if (!data.PROXMOX_HOST.trim() || !data.PROXMOX_API_TOKEN.trim()) return
+  const handleDiscover = useCallback(async (host: string, token: string) => {
+    if (!host || !token) return
     setLoading('discoverProxmox', true)
     try {
-      const result = await discoverProxmox(data.PROXMOX_HOST.trim(), data.PROXMOX_API_TOKEN.trim())
+      const result = await discoverProxmox(host, token)
       setProxmoxDiscovery(result)
       if (result.ok) {
         const firstNode = result.all_nodes?.[0] ?? result.node_name ?? data.PROXMOX_NODE_NAME
@@ -140,7 +140,8 @@ export function ProxmoxStep() {
           return typeof raw === 'object' ? raw.name : raw
         })() ?? data.TALOS_DATASTORE
         setFields({ PROXMOX_NODE_NAME: firstNode, TALOS_DATASTORE: firstDatastore })
-        nodes.forEach((node, index) => {
+        const currentNodes = useWizardStore.getState().nodes
+        currentNodes.forEach((node, index) => {
           const rawDs = result.datastores_by_node?.[firstNode]?.[0] ?? firstDatastore
           const nodeDs = rawDs && typeof rawDs === 'object' ? rawDs.name : rawDs
           updateNode(node.id, {
@@ -154,7 +155,22 @@ export function ProxmoxStep() {
     } finally {
       setLoading('discoverProxmox', false)
     }
-  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Auto-discover as soon as host + token are both valid — debounced 800 ms
+  const autoDiscoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    const host = data.PROXMOX_HOST.trim()
+    const token = data.PROXMOX_API_TOKEN.trim()
+    if (!isIPv4(host) || !token) return
+    if (autoDiscoverTimer.current) clearTimeout(autoDiscoverTimer.current)
+    autoDiscoverTimer.current = setTimeout(() => void handleDiscover(host, token), 800)
+    return () => {
+      if (autoDiscoverTimer.current) clearTimeout(autoDiscoverTimer.current)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data.PROXMOX_HOST, data.PROXMOX_API_TOKEN])
 
   const handleValidate = async () => {
     if (!data.PROXMOX_API_TOKEN.trim()) return
@@ -331,7 +347,7 @@ export function ProxmoxStep() {
           )}
 
           <motion.div variants={fadeUpItem} className="mt-6 flex flex-wrap gap-3">
-            <ActionButton variant="primary" onClick={handleDiscover} disabled={loading.discoverProxmox || !data.PROXMOX_API_TOKEN}>
+            <ActionButton variant="primary" onClick={() => void handleDiscover(data.PROXMOX_HOST.trim(), data.PROXMOX_API_TOKEN.trim())} disabled={loading.discoverProxmox || !data.PROXMOX_API_TOKEN}>
               {loading.discoverProxmox ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Waypoints className="h-4 w-4" />}
               🔍 Discover from Proxmox
             </ActionButton>
