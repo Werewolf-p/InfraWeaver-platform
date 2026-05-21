@@ -263,6 +263,24 @@ fi
 export TF_PLUGIN_CACHE_DIR="$HOME/.terraform.d/plugin-cache"
 mkdir -p "$TF_PLUGIN_CACHE_DIR"
 
+# Pre-flight: warn if disk is too full before downloading providers + deploying.
+# OpenTofu providers + deployment workspace need ≥ 4 GB free.
+_FREE_KB=$(df -k "$HOME" 2>/dev/null | awk 'NR==2 {print $4}')
+_FREE_GB=$(( ${_FREE_KB:-0} / 1024 / 1024 ))
+if (( _FREE_GB < 4 )); then
+  warn "Low disk space: only ${_FREE_GB} GB free in \$HOME (${HOME})."
+  warn "OpenTofu provider cache + deployment artifacts need ≥ 4 GB."
+  warn "Consider: 'tofu providers mirror /tmp/providers && export TF_PLUGIN_CACHE_DIR=/tmp/providers'"
+  warn "Or resize this VM's disk in Proxmox (recommended: 60 GB)."
+  # Attempt to clean stale /tmp provider downloads before aborting
+  rm -f /tmp/terraform-provider* /tmp/tofu-provider* 2>/dev/null || true
+  _FREE_KB=$(df -k "$HOME" 2>/dev/null | awk 'NR==2 {print $4}')
+  _FREE_GB=$(( ${_FREE_KB:-0} / 1024 / 1024 ))
+  if (( _FREE_GB < 2 )); then
+    die "Not enough disk space (${_FREE_GB} GB free). Resize the init VM disk and retry."
+  fi
+fi
+
 STATE_DIR=~/.tofu/state/platform-"$ENV_NAME"
 mkdir -p "$STATE_DIR"
 ok "TF_VARs set"
@@ -509,7 +527,7 @@ for i in $(seq 1 30); do
   log "  Waiting for MetalLB CRDs ($i/30)..."
   sleep 10
 done
-kubectl --kubeconfig "$KB_FILE" apply -f kubernetes/core/metallb/ip-pool.yaml 2>/dev/null || true
+kubectl --kubeconfig "$KB_FILE" apply -f kubernetes/core/metallb/manifests/ip-pool.yaml 2>/dev/null || true
 kubectl --kubeconfig "$KB_FILE" label namespace metallb-system \
   pod-security.kubernetes.io/enforce=privileged \
   pod-security.kubernetes.io/warn=privileged \
@@ -627,10 +645,25 @@ bash scripts/test-post-deploy.sh "$KB_FILE" "$ENV_NAME" 2>/dev/null || warn "Pos
 # ── Step 21: Send deployment summary email ────────────────────────────────────
 log "Step 21: Sending deployment summary email..."
 
+# Build list of control-plane IPs from .env NODE_X_* vars (loaded at top).
+# Falls back to NODE_1_IP, then the first IP from cluster.yaml.
+_cp_ips=""
+for _idx in $(seq 1 "${NODE_COUNT:-3}"); do
+  _ip_var="NODE_${_idx}_IP"
+  _role_var="NODE_${_idx}_ROLE"
+  _ip="${!_ip_var:-}"
+  _role="${!_role_var:-control-plane}"
+  if [[ -n "$_ip" && "$_role" == "control-plane" ]]; then
+    _cp_ips="${_cp_ips:+$_cp_ips,}$_ip"
+  fi
+done
+_cp_ips="${_cp_ips:-${NODE_1_IP:-$(grep 'ip:' envs/"$ENV_NAME"/cluster.yaml 2>/dev/null | head -1 | awk '{print $2}' | tr -d '"')}}"
+CONTROLPLANE_IPS="$_cp_ips"
+
 # Try all control-plane endpoints so a crashed cp1 doesn't block the email
 _bao_token=""
 _bao_unseal=""
-for _api_ip in $(echo "${CONTROLPLANE_IPS:-10.10.0.90}" | tr ',' ' ') ""; do
+for _api_ip in $(echo "${CONTROLPLANE_IPS}" | tr ',' ' ') ""; do
   _kb_flag="--kubeconfig $KB_FILE"
   [ -n "$_api_ip" ] && _kb_flag="--kubeconfig $KB_FILE --server=https://$_api_ip:6443 --insecure-skip-tls-verify"
   _bao_token=$(kubectl $_kb_flag get secret openbao-unseal -n openbao \
@@ -639,7 +672,7 @@ for _api_ip in $(echo "${CONTROLPLANE_IPS:-10.10.0.90}" | tr ',' ' ') ""; do
 done
 BAO_TOKEN="${_bao_token:-unavailable}"
 
-for _api_ip in $(echo "${CONTROLPLANE_IPS:-10.10.0.90}" | tr ',' ' ') ""; do
+for _api_ip in $(echo "${CONTROLPLANE_IPS}" | tr ',' ' ') ""; do
   _kb_flag="--kubeconfig $KB_FILE"
   [ -n "$_api_ip" ] && _kb_flag="--kubeconfig $KB_FILE --server=https://$_api_ip:6443 --insecure-skip-tls-verify"
   _bao_unseal=$(kubectl $_kb_flag get secret openbao-unseal -n openbao \
@@ -649,8 +682,9 @@ done
 BAO_UNSEAL="${_bao_unseal:-unavailable}"
 
 # Read Authentik admin password from OpenBao
+_FIRST_CP_IP=$(echo "$CONTROLPLANE_IPS" | cut -d',' -f1)
 if [ -n "$BAO_TOKEN" ] && [ "$BAO_TOKEN" != "unavailable" ]; then
-  _auth_admin_pass=$(kubectl --kubeconfig "$KB_FILE" --server=https://"${NODE_1_IP:-10.10.0.90}":6443 \
+  _auth_admin_pass=$(kubectl --kubeconfig "$KB_FILE" --server=https://"${_FIRST_CP_IP}":6443 \
     --insecure-skip-tls-verify exec -n openbao openbao-0 -- \
     sh -c "BAO_TOKEN='$BAO_TOKEN' bao kv get -field=admin-password secret/platform/authentik" \
     2>/dev/null || echo "")

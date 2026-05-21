@@ -9,7 +9,7 @@
 #       --ip 10.10.0.50 --cidr 24 \
 #       --no-cluster-nic \
 #       --repo https://github.com/yourorg/InfraWeaver-platform --branch main \
-#       --cpu 2 --mem 2048 --disk 20 \
+#       --cpu 2 --mem 2048 --disk 60 \
 #       --yes
 #
 # All --flags can also be set as IW_* environment variables:
@@ -22,7 +22,7 @@
 #
 # WHAT THIS DOES:
 #   1. Downloads Ubuntu 24.04 cloud image (cached)
-#   2. Creates a minimal VM (2 CPU, 2GB RAM, 20GB disk)
+#   2. Creates a minimal VM (2 CPU, 2GB RAM, 60GB disk)
 #   3. Cloud-init: auto-installs tools, clones repo, starts init web server
 #   4. Prints the VM IP and web UI URL when done
 #
@@ -447,7 +447,7 @@ fi
 # Resources — sane defaults, just confirm
 [[ -z "$CPU"  ]] && ask CPU  "CPU cores" "2"
 [[ -z "$MEM"  ]] && ask MEM  "RAM (MB)"  "2048"
-[[ -z "$DISK" ]] && ask DISK "Disk (GB)" "20"
+[[ -z "$DISK" ]] && ask DISK "Disk (GB)" "60"
 
 hdr "Management Network  (net0 - web UI access)"
 
