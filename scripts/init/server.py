@@ -572,7 +572,6 @@ def _discover_proxmox(host: str, token: str) -> Dict:
         # Collect per-node SSH IPs and datastores
         node_ips: Dict[str, str] = {}
         datastores_by_node: Dict[str, list] = {}
-        USABLE_TYPES = {"lvmthin", "lvm", "dir", "zfspool", "nfs", "cephfs"}
         node_resources: Dict[str, Dict] = {}
 
         for node_name in node_names:
@@ -605,7 +604,11 @@ def _discover_proxmox(host: str, token: str) -> Dict:
                 storages = pve_get(f"/nodes/{node_name}/storage")
                 usable = []
                 for s in storages:
-                    if s.get("enabled", 1) and s.get("type") in USABLE_TYPES:
+                    # Include storages that are enabled/active AND support VM disk images.
+                    # Filter by content "images" instead of type so any new/custom storage
+                    # types (btrfs, rbd, etc.) are also included automatically.
+                    content = s.get("content", "images")
+                    if s.get("enabled", 1) and s.get("active", 1) and "images" in content:
                         avail_bytes = int(s.get("avail", 0))
                         total_bytes = int(s.get("total", 0))
                         usable.append({

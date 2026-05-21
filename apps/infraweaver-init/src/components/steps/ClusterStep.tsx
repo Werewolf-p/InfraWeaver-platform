@@ -38,8 +38,12 @@ function freeSpaceLabel(free_gb: number): string {
   return `${Math.round(free_gb)} GB free`
 }
 function dsLabel(ds: NodeDatastore | string): string {
-  if (typeof ds === 'object' && ds.free_gb != null) return `${ds.name}  (${freeSpaceLabel(ds.free_gb)})`
-  return typeof ds === 'object' ? ds.name : ds
+  if (typeof ds === 'object') {
+    if (ds.total_gb > 0 && ds.free_gb === 0) return `${ds.name}  (full)`
+    if (ds.free_gb > 0) return `${ds.name}  (${freeSpaceLabel(ds.free_gb)})`
+    return ds.name
+  }
+  return ds
 }
 
 function ResourceBadge({ color, children }: { color: string; children: React.ReactNode }) {
@@ -79,6 +83,7 @@ export function ClusterStep() {
 
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set())
   const [advancedOpen, setAdvancedOpen] = useState(false)
+  const [ramUnit, setRamUnit] = useState<'MB' | 'GB'>('GB')
 
   const pingTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
 
@@ -434,75 +439,111 @@ export function ClusterStep() {
                   ⚙ Advanced (CPU / RAM / Disk / Datastore)
                 </button>
 
-                {isExpanded ? (
-                  <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                    <FormField
-                      label={`CPU cores${nodeResources ? ` (node has ${nodeResources.cpu_cores})` : ''}`}
-                      htmlFor={`${node.id}-cpu`}
-                    >
-                      <input
-                        id={`${node.id}-cpu`}
-                        type="number"
-                        min={1}
-                        max={nodeResources?.cpu_cores ?? 128}
-                        value={node.cpu}
-                        onChange={(event) => updateNode(node.id, { cpu: event.target.value })}
-                        className={controlClassName}
-                      />
-                    </FormField>
-                    <FormField
-                      label={`RAM MB${nodeResources ? ` (node has ${Math.round(nodeResources.mem_total_mb / 1024)} GB)` : ''}`}
-                      htmlFor={`${node.id}-memory`}
-                    >
-                      <input
-                        id={`${node.id}-memory`}
-                        type="number"
-                        min={512}
-                        step={512}
-                        value={node.memory}
-                        onChange={(event) => updateNode(node.id, { memory: event.target.value })}
-                        className={controlClassName}
-                      />
-                    </FormField>
-                    <FormField label="Disk GB" htmlFor={`${node.id}-disk`}>
-                      <input
-                        id={`${node.id}-disk`}
-                        type="number"
-                        min={10}
-                        value={node.disk}
-                        onChange={(event) => updateNode(node.id, { disk: event.target.value })}
-                        className={controlClassName}
-                      />
-                    </FormField>
-                    <FormField
-                      label="Datastore"
-                      htmlFor={`${node.id}-datastore`}
-                      hint={availableDatastores.length ? `${availableDatastores.length} pool${availableDatastores.length > 1 ? 's' : ''} on ${selectedPveNode}` : undefined}
-                    >
-                      <select
-                        id={`${node.id}-datastore`}
-                        value={node.datastore || dsValue(availableDatastores[0] ?? '')}
-                        onChange={(event) => updateNode(node.id, { datastore: event.target.value })}
-                        className={controlClassName}
-                        disabled={loading.discoverProxmox || availableDatastores.length === 0}
+                {isExpanded ? (() => {
+                  const selectedDs = availableDatastores.find(
+                    (ds) => dsValue(ds) === (node.datastore || dsValue(availableDatastores[0] ?? '')),
+                  )
+                  const maxDiskGb = typeof selectedDs === 'object' && selectedDs.free_gb > 0 ? selectedDs.free_gb : undefined
+                  const diskOverLimit = maxDiskGb != null && Number(node.disk) > maxDiskGb
+                  const ramDisplayVal = ramUnit === 'GB' ? Math.round(Number(node.memory) / 1024) : Number(node.memory)
+                  const ramMaxGb = nodeResources ? Math.round(nodeResources.mem_total_mb / 1024) : undefined
+
+                  return (
+                    <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                      <FormField
+                        label={`CPU cores${nodeResources ? ` · ${nodeResources.cpu_cores} available` : ''}`}
+                        htmlFor={`${node.id}-cpu`}
                       >
-                        {loading.discoverProxmox ? (
-                          <option>Discovering datastores…</option>
-                        ) : availableDatastores.length ? (
-                          availableDatastores.map((ds) => (
-                            <option key={dsValue(ds)} value={dsValue(ds)}>
-                              {dsLabel(ds)}
+                        <input
+                          id={`${node.id}-cpu`}
+                          type="number"
+                          min={1}
+                          max={nodeResources?.cpu_cores ?? 128}
+                          value={node.cpu}
+                          onChange={(event) => updateNode(node.id, { cpu: event.target.value })}
+                          className={controlClassName}
+                        />
+                      </FormField>
+
+                      <FormField
+                        label={`RAM${nodeResources ? ` · ${Math.round(nodeResources.mem_total_mb / 1024)} GB total · ${Math.round(nodeResources.mem_free_mb / 1024)} GB free` : ''}`}
+                        htmlFor={`${node.id}-memory`}
+                      >
+                        <div className="flex gap-1.5">
+                          <input
+                            id={`${node.id}-memory`}
+                            type="number"
+                            min={ramUnit === 'GB' ? 1 : 512}
+                            step={ramUnit === 'GB' ? 1 : 512}
+                            max={ramUnit === 'GB' ? ramMaxGb : (ramMaxGb != null ? ramMaxGb * 1024 : undefined)}
+                            value={ramDisplayVal}
+                            onChange={(event) => {
+                              const v = Number(event.target.value)
+                              updateNode(node.id, { memory: String(ramUnit === 'GB' ? v * 1024 : v) })
+                            }}
+                            className={`${controlClassName} flex-1 min-w-0`}
+                          />
+                          <div className="flex overflow-hidden rounded-xl border border-white/10 text-xs shrink-0">
+                            {(['MB', 'GB'] as const).map((unit) => (
+                              <button
+                                key={unit}
+                                type="button"
+                                onClick={() => setRamUnit(unit)}
+                                className={`px-2.5 py-1 transition ${ramUnit === unit ? 'bg-[rgba(0,120,212,0.35)] text-white' : 'bg-black/20 text-[var(--az-text-secondary)] hover:text-white'}`}
+                              >
+                                {unit}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </FormField>
+
+                      <FormField
+                        label={`Disk GB${maxDiskGb != null ? ` · ${freeSpaceLabel(maxDiskGb)} available` : ''}`}
+                        htmlFor={`${node.id}-disk`}
+                        error={diskOverLimit ? `Exceeds available ${freeSpaceLabel(maxDiskGb!)} on selected datastore` : undefined}
+                      >
+                        <input
+                          id={`${node.id}-disk`}
+                          type="number"
+                          min={10}
+                          max={maxDiskGb ?? undefined}
+                          value={node.disk}
+                          onChange={(event) => updateNode(node.id, { disk: event.target.value })}
+                          className={`${controlClassName}${diskOverLimit ? ' border-[var(--az-danger)]/60 focus:border-[var(--az-danger)]' : ''}`}
+                        />
+                      </FormField>
+
+                      <FormField
+                        label="Datastore"
+                        htmlFor={`${node.id}-datastore`}
+                        hint={availableDatastores.length ? `${availableDatastores.length} pool${availableDatastores.length > 1 ? 's' : ''} on ${selectedPveNode}` : undefined}
+                      >
+                        <select
+                          id={`${node.id}-datastore`}
+                          value={node.datastore || dsValue(availableDatastores[0] ?? '')}
+                          onChange={(event) => updateNode(node.id, { datastore: event.target.value })}
+                          className={controlClassName}
+                          disabled={loading.discoverProxmox || availableDatastores.length === 0}
+                        >
+                          {loading.discoverProxmox ? (
+                            <option>Discovering datastores…</option>
+                          ) : availableDatastores.length ? (
+                            availableDatastores.map((ds) => (
+                              <option key={dsValue(ds)} value={dsValue(ds)}>
+                                {dsLabel(ds)}
+                              </option>
+                            ))
+                          ) : (
+                            <option value={node.datastore || data.TALOS_DATASTORE}>
+                              {node.datastore || data.TALOS_DATASTORE || '— complete Proxmox step first —'}
                             </option>
-                          ))
-                        ) : (
-                          <option value={node.datastore || data.TALOS_DATASTORE}>
-                            {node.datastore || data.TALOS_DATASTORE || '— complete Proxmox step first —'}
-                          </option>
-                        )}
-                      </select>
-                    </FormField>
-                  </div>
-                ) : null}
+                          )}
+                        </select>
+                      </FormField>
+                    </div>
+                  )
+                })() : null}
               </motion.div>
             )
           })}
