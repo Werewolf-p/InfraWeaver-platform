@@ -109,6 +109,53 @@ export function ClusterStep() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // On mount: for every unique PVE node assigned to a VM node that is missing
+  // datastore data, kick off a per-node scan automatically (same logic as the
+  // on-change handler, but runs upfront so the user never has to toggle nodes).
+  useEffect(() => {
+    const host = data.PROXMOX_HOST?.trim()
+    const token = data.PROXMOX_API_TOKEN?.trim()
+    if (!host || !token || !proxmoxDiscovery) return
+
+    const uniquePveNodes = [...new Set(
+      nodes.map((n) => n.pveNode || data.PROXMOX_NODE_NAME || '').filter(Boolean)
+    )]
+
+    uniquePveNodes.forEach((pveNode) => {
+      const alreadyLoaded = (proxmoxDiscovery.datastores_by_node?.[pveNode] ?? []).length > 0
+      if (alreadyLoaded) return
+
+      setLoadingNodeDs((prev) => new Set(prev).add(pveNode))
+      import('@/lib/api')
+        .then(({ discoverProxmoxNode }) => discoverProxmoxNode(host, token, pveNode))
+        .then((result) => {
+          if (result.ok) {
+            setProxmoxDiscovery({
+              ...proxmoxDiscovery,
+              datastores_by_node: {
+                ...proxmoxDiscovery.datastores_by_node,
+                [pveNode]: result.datastores ?? [],
+              },
+              node_resources_by_node: {
+                ...proxmoxDiscovery.node_resources_by_node,
+                ...(result.resources ? { [pveNode]: result.resources as import('@/lib/api').NodeResources } : {}),
+              },
+            })
+          }
+        })
+        .catch(() => {/* ignore — user can type manually */})
+        .finally(() =>
+          setLoadingNodeDs((prev) => {
+            const next = new Set(prev)
+            next.delete(pveNode)
+            return next
+          })
+        )
+    })
+  // Only run on mount — node list and credentials are stable by this point
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // Tracks the last IP that was actually dispatched to the ping API per node.
   // Prevents duplicate pings when unrelated node fields change (pveNode, vmid, etc.)
   // and enables re-pinging when the IP is cleared and re-entered.
