@@ -11,6 +11,118 @@ metadata:
     pod-security.kubernetes.io/audit: restricted
     pod-security.kubernetes.io/warn: restricted
 ---
+# Internal PostgreSQL credentials — not externally accessible, cluster-internal only
+apiVersion: v1
+kind: Secret
+metadata:
+  name: onedev-db-secret
+  namespace: onedev
+type: Opaque
+stringData:
+  username: "onedev"
+  password: "onedev-internal-db"
+  database: "onedev"
+---
+# PostgreSQL StatefulSet for Onedev — Onedev 11+ dropped embedded H2
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: onedev-postgres
+  namespace: onedev
+  labels:
+    app: onedev-postgres
+spec:
+  selector:
+    matchLabels:
+      app: onedev-postgres
+  serviceName: onedev-postgres-headless
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: onedev-postgres
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: false
+      containers:
+        - name: postgres
+          image: postgres:14
+          env:
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: onedev-db-secret
+                  key: database
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: onedev-db-secret
+                  key: username
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: onedev-db-secret
+                  key: password
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - containerPort: 5432
+              name: postgres
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "onedev", "-d", "onedev"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 512Mi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        storageClassName: local-path
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi
+---
+# Headless Service required by StatefulSet
+apiVersion: v1
+kind: Service
+metadata:
+  name: onedev-postgres-headless
+  namespace: onedev
+spec:
+  clusterIP: None
+  selector:
+    app: onedev-postgres
+  ports:
+    - port: 5432
+      targetPort: postgres
+---
+# ClusterIP Service for Onedev → Postgres connection
+apiVersion: v1
+kind: Service
+metadata:
+  name: onedev-postgres
+  namespace: onedev
+spec:
+  selector:
+    app: onedev-postgres
+  ports:
+    - port: 5432
+      targetPort: postgres
+---
 # ExternalSecret — OneDev initial admin credentials from OpenBao
 # Only used to pre-seed the admin password via environment variable on first boot.
 apiVersion: external-secrets.io/v1
@@ -49,27 +161,22 @@ spec:
         key: secret/platform/onedev
         property: oidc-client-secret
 ---
-# PersistentVolumeClaim — OneDev data (repos, DB, CI artifacts, attachments)
-# Uses longhorn-retain so data survives app removal and can be restored from backup.
+# PersistentVolumeClaim — OneDev data (repos, CI artifacts, attachments)
+# Uses local-path for reliability; Onedev state is backed by PostgreSQL.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: onedev-data
   namespace: onedev
-  annotations:
-    # Include in nightly TrueNAS NFS backup via RecurringJob truenas-backup-daily.
-    # On fresh redeploy, scripts/restore-from-truenas.sh uses this backup to restore
-    # the volume before OneDev starts — preserving all repos, CI config, and issues.
-    recurring-job-group.longhorn.io/truenas-backup: "enabled"
 spec:
-  storageClassName: longhorn-retain
+  storageClassName: local-path
   accessModes:
     - ReadWriteOnce
   resources:
     requests:
       storage: 20Gi
 ---
-# Deployment — OneDev server (single container, embedded H2 + built-in CI agent)
+# Deployment — OneDev server (PostgreSQL external DB + built-in CI agent)
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -108,9 +215,59 @@ spec:
               topologyKey: kubernetes.io/hostname
       securityContext:
         runAsNonRoot: false  # OneDev requires root for Docker-in-Docker CI agents
+      initContainers:
+        # Patch boot classpath: copy PostgreSQL JDBC driver to /app/boot/ so the
+        # Upgrade command handler can find it. The driver lives in /app/site/lib/
+        # (plugin classloader path) but Upgrade runs with the boot classloader only.
+        - name: patch-boot-classpath
+          image: 1dev/server:latest
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: false
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              echo "Copying boot JARs to patched boot dir..."
+              cp -a /app/boot/. /patched-boot/
+              echo "Copying PostgreSQL JDBC driver to patched boot dir..."
+              find /app/site/lib -name "postgresql*.jar" -exec cp {} /patched-boot/ \;
+              echo "Patched boot dir contents (jdbc drivers):"
+              ls /patched-boot/postgresql*.jar 2>/dev/null || echo "WARNING: no postgresql jar found"
+              echo "Done."
+          volumeMounts:
+            - name: patched-boot
+              mountPath: /patched-boot
+        # Wait for PostgreSQL to be ready before starting Onedev
+        - name: wait-for-postgres
+          image: postgres:14
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            runAsNonRoot: false
+          command:
+            - sh
+            - -c
+            - |
+              until pg_isready -h onedev-postgres -U onedev -d onedev; do
+                echo "PostgreSQL not ready, retrying in 5s..."
+                sleep 5
+              done
+              echo "PostgreSQL is ready!"
+          env:
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: onedev-db-secret
+                  key: password
       containers:
         - name: onedev
-          image: 1dev/server:15.0
+          image: 1dev/server:latest
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -122,6 +279,28 @@ spec:
           env:
             - name: ONEDEV_URL
               value: "https://onedev.infraweaver.local"
+            # cluster_ip must be set explicitly for Kubernetes (env var is exactly cluster_ip lowercase)
+            - name: cluster_ip
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            # PostgreSQL connection — driver patched into /app/boot/ by init container
+            - name: hibernate_dialect
+              value: "io.onedev.server.persistence.PostgreSQLDialect"
+            - name: hibernate_connection_driver_class
+              value: "org.postgresql.Driver"
+            - name: hibernate_connection_url
+              value: "jdbc:postgresql://onedev-postgres:5432/onedev"
+            - name: hibernate_connection_username
+              valueFrom:
+                secretKeyRef:
+                  name: onedev-db-secret
+                  key: username
+            - name: hibernate_connection_password
+              valueFrom:
+                secretKeyRef:
+                  name: onedev-db-secret
+                  key: password
             # Pre-seed admin account on first boot (only applies when data dir is empty)
             - name: INITIAL_ADMIN_LOGIN
               valueFrom:
@@ -142,6 +321,8 @@ spec:
                   key: admin-email
                   optional: true
           volumeMounts:
+            - name: patched-boot
+              mountPath: /app/boot
             - name: data
               mountPath: /opt/onedev
           resources:
@@ -168,6 +349,8 @@ spec:
             timeoutSeconds: 10
             failureThreshold: 5
       volumes:
+        - name: patched-boot
+          emptyDir: {}
         - name: data
           persistentVolumeClaim:
             claimName: onedev-data
