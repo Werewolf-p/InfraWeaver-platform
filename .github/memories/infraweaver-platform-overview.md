@@ -80,12 +80,32 @@ git add scripts/init/out/ && git commit && git push
    - LDAP provider (PK 37) must have an Application assigned (`infraweaver-ldap-directory`) — required for `/api/v3/outposts/ldap/` to return results
    - Outpost PK: `1b1ef077-08a1-462f-b1ca-d4e5b9718ca3`
    - Outpost token stored in OpenBao: `secret/platform/authentik-ldap-outpost` key `token`
+   - **MetalLB LoadBalancer VIP**: `METALLB_VIP_205=10.10.0.205` (add to .env) — `${METALLB_VIP_205}` placeholder in outpost.yaml
 5. **Talos registry mirrors:** `onedev.infraweaver.local` → `http://onedev.infraweaver.local`
    - HTTP mirror avoids TLS Host-header mismatch (IP vs hostname)
    - Configured via `onedev_registry_hostname` in terraform/main.tf → talos-cluster module
+6. **generate-from-env.sh:** Skips letsencrypt ClusterIssuers when `ADMIN_EMAIL` uses a local TLD (.local, .internal, etc.)
+   - letsencrypt issuers are only generated when email has a valid public TLD
+7. **bootstrap app targetRevision:** All bootstrap Application manifests use `targetRevision: main` (NOT `HEAD`)
+   - Onedev returns `main` for HEAD; using HEAD causes ArgoCD to show OutOfSync
+   - Fixed in commit `d2667b5e` 
+8. **bootstrap ignoreDifferences:** Added to bootstrap Application spec to ignore `notified.notifications.argoproj.io` and `tracking-id` annotation churn on managed apps
+9. **core-limitranges:** Removed `netbird` LimitRange from manifest — namespace doesn't exist when ENABLE_NETBIRD=false
+10. **ExternalSecret defaults:** ESO adds `conversionStrategy`, `decodingStrategy`, `engineVersion`, `mergePolicy` to live objects — include these in git to prevent ArgoCD OutOfSync
+    - Example: `onedev-repo-creds.yaml` updated with ESO-added defaults
+
+### Kubeconfig Issue
+The kubeconfig at `envs/productie/generated/kubeconfig` may have TLS cert issues after cluster operations.
+Regenerate with: `talosctl --talosconfig .../talosconfig -e 10.10.0.90 -n 10.10.0.90 kubeconfig .../kubeconfig --force`
+
+### ArgoCD App Health (as of latest state)
+- **38/38 apps Synced** ✓
+- **36/38 apps Healthy** ✓ (external-routes + bootstrap = Progressing — public domain certs need Cloudflare token)
+- **external-routes Progressing**: `waterdance-nl`, `yonavaarwater-nl`, `zonnevaarwater-nl` certs need `secret/platform/dns-provider-credentials.cloudflare-api-token` in OpenBao
 
 ### ArgoCD Git Sources (CRITICAL)
 - **Helm values files** (cert-manager, etc.) → read from **GitHub** `https://github.com/Werewolf-p/InfraWeaver-platform`
 - **Kubernetes manifests** → read from **Onedev** `http://onedev.onedev.svc.cluster.local/InfraWeaver-platform`
 - Changes MUST be pushed to BOTH remotes: `git push origin main && git push onedev main`
-- Onedev push: requires port-forward `kubectl port-forward -n onedev svc/onedev 19301:6610`
+- Onedev push: requires port-forward `kubectl port-forward -n onedev pod/$(kubectl get pods -n onedev -o name | head -1 | cut -d/ -f2) 19301:6610`
+- Onedev remote: `http://infraweaver:hb3FSvxPzhVMvd85AuZOAFDdyshEvP4iljypO7Fw@localhost:19301/InfraWeaver-platform`
