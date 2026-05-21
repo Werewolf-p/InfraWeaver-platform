@@ -482,8 +482,7 @@ def _setup_proxmox_user(host: str, username: str, password: str) -> Dict:
             "VM.Audit", "VM.PowerMgmt", "VM.Console",
             "VM.Migrate", "VM.Snapshot", "VM.Snapshot.Rollback",
             "VM.GuestAgent.Audit",
-            "Datastore.AllocateSpace", "Datastore.AllocateTemplate",
-            "Datastore.Audit", "Datastore.Download",
+            "Datastore.AllocateSpace", "Datastore.AllocateTemplate", "Datastore.Audit",
             "Pool.Allocate", "SDN.Use", "Sys.Audit",
         ])
         try:
