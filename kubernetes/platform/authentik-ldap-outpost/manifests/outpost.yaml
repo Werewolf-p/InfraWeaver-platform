@@ -114,7 +114,7 @@ metadata:
     metallb.universe.tf/address-pool: vlan3-pool
 spec:
   type: LoadBalancer
-  loadBalancerIP: ${METALLB_VIP_205}
+  loadBalancerIP: 10.10.0.205
   selector:
     app: authentik-ldap-outpost
   ports:
