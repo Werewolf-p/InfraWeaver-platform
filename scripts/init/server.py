@@ -379,6 +379,11 @@ def _ping_proxmox(host: str) -> Dict:
                 "version": str(version_data.get("version", "")),
                 "release": str(version_data.get("release", "")),
             }
+    except urllib.error.HTTPError as e:
+        # 401 means Proxmox requires auth for /version — server IS reachable
+        if e.code == 401:
+            return {"ok": True, "version": "", "release": "", "note": "reachable (auth required)"}
+        return {"ok": False, "error": str(e)}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 

@@ -33,6 +33,7 @@ export interface PingProxmoxResponse {
   ok: boolean
   version?: string
   release?: string
+  note?: string
   error?: string
 }
 

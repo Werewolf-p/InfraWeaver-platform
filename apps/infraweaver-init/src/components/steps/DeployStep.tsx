@@ -175,7 +175,7 @@ export function DeployStep() {
       if (result.ok) {
         setProxmoxReachability({
           status: 'ok',
-          detail: `Reachable${result.version ? ` · version ${result.version}` : ''}${result.release ? ` (${result.release})` : ''}`,
+          detail: `Reachable${result.version ? ` · version ${result.version}` : ''}${result.release ? ` (${result.release})` : ''}${result.note ? ` · ${result.note}` : ''}`,
         })
       } else {
         setProxmoxReachability({ status: 'fail', detail: result.error ?? 'Proxmox did not respond.' })
