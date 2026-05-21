@@ -282,6 +282,91 @@
       gap: 10px;
       margin-top: 10px;
     }
+    /* ── Per-node resource badge ── */
+    .node-res-badge {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin: 3px 0 6px;
+    }
+    .node-res-chip {
+      font-size: 10px;
+      color: var(--cyan);
+      background: rgba(0,212,255,0.07);
+      border: 1px solid rgba(0,212,255,0.18);
+      border-radius: 10px;
+      padding: 2px 8px;
+      letter-spacing: 0.5px;
+      white-space: nowrap;
+    }
+    /* ── Quick preset buttons ── */
+    .preset-row {
+      display: flex;
+      gap: 5px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+      margin-bottom: 8px;
+    }
+    .preset-row-label {
+      font-size: 10px;
+      color: var(--text-dim);
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      align-self: center;
+    }
+    .preset-btn {
+      font-size: 10px;
+      font-family: inherit;
+      background: rgba(68,136,255,0.07);
+      border: 1px solid rgba(68,136,255,0.22);
+      color: var(--blue);
+      border-radius: 4px;
+      padding: 4px 10px;
+      cursor: pointer;
+      letter-spacing: 0.5px;
+      transition: all 0.15s;
+      white-space: nowrap;
+      line-height: 1.4;
+      text-align: center;
+    }
+    .preset-btn:hover { background: rgba(68,136,255,0.18); border-color: var(--blue); }
+    /* ── CPU/RAM range sliders ── */
+    .slider-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .slider-row input[type=range] {
+      flex: 1;
+      padding: 0;
+      accent-color: var(--green);
+      cursor: pointer;
+    }
+    .slider-val {
+      font-size: 13px;
+      color: var(--text-bright);
+      min-width: 46px;
+      text-align: right;
+      font-weight: 600;
+    }
+    .slider-max-hint {
+      font-size: 10px;
+      color: var(--text-dim);
+      margin-left: 4px;
+    }
+    /* ── Datastore select option styling ── */
+    .ds-select option[data-free]::after { content: attr(data-free); }
+    /* ── Advanced grid revised ── */
+    .node-adv-grid-v2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 4px;
+    }
+    .node-adv-grid-v2 .full { grid-column: 1 / -1; }
+    @media (max-width: 500px) {
+      .node-adv-grid-v2 { grid-template-columns: 1fr; }
+    }
     @media (max-width: 640px) {
       .node-adv-grid { grid-template-columns: 1fr 1fr; }
       .node-main-row { grid-template-columns: 1fr 100px; }
@@ -818,7 +903,9 @@
         </div>
         <div class="form-row">
           <label>PROXMOX_NODE_NAME</label>
-          <input type="text" id="PROXMOX_NODE_NAME" name="PROXMOX_NODE_NAME" placeholder="pve" />
+          <select id="PROXMOX_NODE_NAME" name="PROXMOX_NODE_NAME">
+            <option value="">— run 🔍 Discover to auto-fill —</option>
+          </select>
           <div class="field-hint">Single-node Proxmox host name or target node inside a PVE cluster</div>
         </div>
         <div class="form-row">
@@ -849,8 +936,6 @@
           <div class="ping-legend" style="margin-bottom:8px">
             <span>Ping status:</span><span>🟢 free</span><span>🔴 in use</span><span>⚪ unchecked</span>
           </div>
-          <!-- Shared datalist for PVE node names — populated by discovery -->
-          <datalist id="pve-nodes-list"></datalist>
           <div class="node-cards">
             <!-- Node 1 -->
             <div class="node-card">
@@ -868,22 +953,42 @@
                   <input type="text" id="NODE_1_VMID" name="NODE_1_VMID" placeholder="9310" />
                 </div>
               </div>
-              <div class="form-row" style="margin-bottom:6px">
+              <div class="form-row" style="margin-bottom:4px">
                 <label>Proxmox Host Node</label>
-                <input type="text" id="NODE_1_PVE_NODE" name="NODE_1_PVE_NODE" list="pve-nodes-list" placeholder="pve" onchange="onPveNodeChange(1)" />
-                <div class="field-hint">Which PVE node hosts this VM — run <em>Discover from Proxmox</em> to auto-fill</div>
+                <select id="NODE_1_PVE_NODE" name="NODE_1_PVE_NODE" onchange="onPveNodeChange(1)">
+                  <option value="">— run 🔍 Discover first —</option>
+                </select>
+                <div class="node-res-badge" id="node-1-res-badge" style="display:none">
+                  <span class="node-res-chip" id="node-1-res-cpu">🖥 ? cores</span>
+                  <span class="node-res-chip" id="node-1-res-ram">🧮 ? GB RAM</span>
+                  <span class="node-res-chip" id="node-1-res-free">💾 ? GB free</span>
+                </div>
               </div>
-              <details>
+              <details id="node-1-adv">
                 <summary class="node-adv-summary">⚙ Advanced — CPU / RAM / Disk / Datastore</summary>
-                <datalist id="node-1-ds-list"></datalist>
-                <div class="node-adv-grid">
+                <div class="preset-row">
+                  <span class="preset-row-label">Preset:</span>
+                  <button class="preset-btn" onclick="applyNodePreset(1,'minimal')" type="button">💻 Minimal<br><small style="opacity:0.7">2 CPU · 4 GB · 40 GB</small></button>
+                  <button class="preset-btn" onclick="applyNodePreset(1,'standard')" type="button">⚡ Standard<br><small style="opacity:0.7">4 CPU · 8 GB · 80 GB</small></button>
+                  <button class="preset-btn" onclick="applyNodePreset(1,'balanced')" type="button">🚀 Balanced<br><small style="opacity:0.7">6 CPU · 12 GB · 100 GB</small></button>
+                  <button class="preset-btn" onclick="applyNodePreset(1,'performance')" type="button">🏎 Performance<br><small style="opacity:0.7">8 CPU · 16 GB · 150 GB</small></button>
+                </div>
+                <div class="node-adv-grid-v2">
                   <div class="form-row">
-                    <label>CPU</label>
-                    <input type="number" id="NODE_1_CPU" name="NODE_1_CPU" value="4" min="1" max="128" />
+                    <label>CPU cores<span id="node-1-cpu-max-label" class="slider-max-hint"></span></label>
+                    <div class="slider-row">
+                      <input type="range" id="NODE_1_CPU_SLIDER" min="1" max="16" value="4" oninput="syncCpuSlider(1)" />
+                      <span class="slider-val" id="node-1-cpu-val">4</span>
+                    </div>
+                    <input type="hidden" id="NODE_1_CPU" name="NODE_1_CPU" value="4" />
                   </div>
                   <div class="form-row">
-                    <label>RAM (MB)</label>
-                    <input type="number" id="NODE_1_MEMORY" name="NODE_1_MEMORY" value="8192" min="1024" step="1024" />
+                    <label>RAM<span id="node-1-ram-max-label" class="slider-max-hint"></span></label>
+                    <div class="slider-row">
+                      <input type="range" id="NODE_1_MEM_SLIDER" min="1024" max="32768" step="1024" value="8192" oninput="syncRamSlider(1)" />
+                      <span class="slider-val" id="node-1-ram-val">8 GB</span>
+                    </div>
+                    <input type="hidden" id="NODE_1_MEMORY" name="NODE_1_MEMORY" value="8192" />
                   </div>
                   <div class="form-row">
                     <label>Disk (GB)</label>
@@ -891,8 +996,10 @@
                   </div>
                   <div class="form-row">
                     <label>Datastore</label>
-                    <input type="text" id="NODE_1_DATASTORE" name="NODE_1_DATASTORE" list="node-1-ds-list" placeholder="lvm-proxmox" />
-                    <div class="field-hint">VM disk pool — defaults to TALOS_DATASTORE</div>
+                    <select id="NODE_1_DATASTORE" name="NODE_1_DATASTORE">
+                      <option value="">— discover PVE first —</option>
+                    </select>
+                    <div class="field-hint" id="node-1-ds-hint">VM disk pool — run Discover to load options</div>
                   </div>
                 </div>
               </details>
@@ -913,22 +1020,42 @@
                   <input type="text" id="NODE_2_VMID" name="NODE_2_VMID" placeholder="9311" />
                 </div>
               </div>
-              <div class="form-row" style="margin-bottom:6px">
+              <div class="form-row" style="margin-bottom:4px">
                 <label>Proxmox Host Node</label>
-                <input type="text" id="NODE_2_PVE_NODE" name="NODE_2_PVE_NODE" list="pve-nodes-list" placeholder="pve" onchange="onPveNodeChange(2)" />
-                <div class="field-hint">Which PVE node hosts this VM</div>
+                <select id="NODE_2_PVE_NODE" name="NODE_2_PVE_NODE" onchange="onPveNodeChange(2)">
+                  <option value="">— run 🔍 Discover first —</option>
+                </select>
+                <div class="node-res-badge" id="node-2-res-badge" style="display:none">
+                  <span class="node-res-chip" id="node-2-res-cpu">🖥 ? cores</span>
+                  <span class="node-res-chip" id="node-2-res-ram">🧮 ? GB RAM</span>
+                  <span class="node-res-chip" id="node-2-res-free">💾 ? GB free</span>
+                </div>
               </div>
-              <details>
+              <details id="node-2-adv">
                 <summary class="node-adv-summary">⚙ Advanced — CPU / RAM / Disk / Datastore</summary>
-                <datalist id="node-2-ds-list"></datalist>
-                <div class="node-adv-grid">
+                <div class="preset-row">
+                  <span class="preset-row-label">Preset:</span>
+                  <button class="preset-btn" onclick="applyNodePreset(2,'minimal')" type="button">💻 Minimal<br><small style="opacity:0.7">2 CPU · 4 GB · 40 GB</small></button>
+                  <button class="preset-btn" onclick="applyNodePreset(2,'standard')" type="button">⚡ Standard<br><small style="opacity:0.7">4 CPU · 8 GB · 80 GB</small></button>
+                  <button class="preset-btn" onclick="applyNodePreset(2,'balanced')" type="button">🚀 Balanced<br><small style="opacity:0.7">6 CPU · 12 GB · 100 GB</small></button>
+                  <button class="preset-btn" onclick="applyNodePreset(2,'performance')" type="button">🏎 Performance<br><small style="opacity:0.7">8 CPU · 16 GB · 150 GB</small></button>
+                </div>
+                <div class="node-adv-grid-v2">
                   <div class="form-row">
-                    <label>CPU</label>
-                    <input type="number" id="NODE_2_CPU" name="NODE_2_CPU" value="4" min="1" max="128" />
+                    <label>CPU cores<span id="node-2-cpu-max-label" class="slider-max-hint"></span></label>
+                    <div class="slider-row">
+                      <input type="range" id="NODE_2_CPU_SLIDER" min="1" max="16" value="4" oninput="syncCpuSlider(2)" />
+                      <span class="slider-val" id="node-2-cpu-val">4</span>
+                    </div>
+                    <input type="hidden" id="NODE_2_CPU" name="NODE_2_CPU" value="4" />
                   </div>
                   <div class="form-row">
-                    <label>RAM (MB)</label>
-                    <input type="number" id="NODE_2_MEMORY" name="NODE_2_MEMORY" value="8192" min="1024" step="1024" />
+                    <label>RAM<span id="node-2-ram-max-label" class="slider-max-hint"></span></label>
+                    <div class="slider-row">
+                      <input type="range" id="NODE_2_MEM_SLIDER" min="1024" max="32768" step="1024" value="8192" oninput="syncRamSlider(2)" />
+                      <span class="slider-val" id="node-2-ram-val">8 GB</span>
+                    </div>
+                    <input type="hidden" id="NODE_2_MEMORY" name="NODE_2_MEMORY" value="8192" />
                   </div>
                   <div class="form-row">
                     <label>Disk (GB)</label>
@@ -936,8 +1063,10 @@
                   </div>
                   <div class="form-row">
                     <label>Datastore</label>
-                    <input type="text" id="NODE_2_DATASTORE" name="NODE_2_DATASTORE" list="node-2-ds-list" placeholder="lvm-proxmox" />
-                    <div class="field-hint">VM disk pool — defaults to TALOS_DATASTORE</div>
+                    <select id="NODE_2_DATASTORE" name="NODE_2_DATASTORE">
+                      <option value="">— discover PVE first —</option>
+                    </select>
+                    <div class="field-hint" id="node-2-ds-hint">VM disk pool — run Discover to load options</div>
                   </div>
                 </div>
               </details>
@@ -958,22 +1087,42 @@
                   <input type="text" id="NODE_3_VMID" name="NODE_3_VMID" placeholder="9312" />
                 </div>
               </div>
-              <div class="form-row" style="margin-bottom:6px">
+              <div class="form-row" style="margin-bottom:4px">
                 <label>Proxmox Host Node</label>
-                <input type="text" id="NODE_3_PVE_NODE" name="NODE_3_PVE_NODE" list="pve-nodes-list" placeholder="pve" onchange="onPveNodeChange(3)" />
-                <div class="field-hint">Which PVE node hosts this VM</div>
+                <select id="NODE_3_PVE_NODE" name="NODE_3_PVE_NODE" onchange="onPveNodeChange(3)">
+                  <option value="">— run 🔍 Discover first —</option>
+                </select>
+                <div class="node-res-badge" id="node-3-res-badge" style="display:none">
+                  <span class="node-res-chip" id="node-3-res-cpu">🖥 ? cores</span>
+                  <span class="node-res-chip" id="node-3-res-ram">🧮 ? GB RAM</span>
+                  <span class="node-res-chip" id="node-3-res-free">💾 ? GB free</span>
+                </div>
               </div>
-              <details>
+              <details id="node-3-adv">
                 <summary class="node-adv-summary">⚙ Advanced — CPU / RAM / Disk / Datastore</summary>
-                <datalist id="node-3-ds-list"></datalist>
-                <div class="node-adv-grid">
+                <div class="preset-row">
+                  <span class="preset-row-label">Preset:</span>
+                  <button class="preset-btn" onclick="applyNodePreset(3,'minimal')" type="button">💻 Minimal<br><small style="opacity:0.7">2 CPU · 4 GB · 40 GB</small></button>
+                  <button class="preset-btn" onclick="applyNodePreset(3,'standard')" type="button">⚡ Standard<br><small style="opacity:0.7">4 CPU · 8 GB · 80 GB</small></button>
+                  <button class="preset-btn" onclick="applyNodePreset(3,'balanced')" type="button">🚀 Balanced<br><small style="opacity:0.7">6 CPU · 12 GB · 100 GB</small></button>
+                  <button class="preset-btn" onclick="applyNodePreset(3,'performance')" type="button">🏎 Performance<br><small style="opacity:0.7">8 CPU · 16 GB · 150 GB</small></button>
+                </div>
+                <div class="node-adv-grid-v2">
                   <div class="form-row">
-                    <label>CPU</label>
-                    <input type="number" id="NODE_3_CPU" name="NODE_3_CPU" value="4" min="1" max="128" />
+                    <label>CPU cores<span id="node-3-cpu-max-label" class="slider-max-hint"></span></label>
+                    <div class="slider-row">
+                      <input type="range" id="NODE_3_CPU_SLIDER" min="1" max="16" value="4" oninput="syncCpuSlider(3)" />
+                      <span class="slider-val" id="node-3-cpu-val">4</span>
+                    </div>
+                    <input type="hidden" id="NODE_3_CPU" name="NODE_3_CPU" value="4" />
                   </div>
                   <div class="form-row">
-                    <label>RAM (MB)</label>
-                    <input type="number" id="NODE_3_MEMORY" name="NODE_3_MEMORY" value="8192" min="1024" step="1024" />
+                    <label>RAM<span id="node-3-ram-max-label" class="slider-max-hint"></span></label>
+                    <div class="slider-row">
+                      <input type="range" id="NODE_3_MEM_SLIDER" min="1024" max="32768" step="1024" value="8192" oninput="syncRamSlider(3)" />
+                      <span class="slider-val" id="node-3-ram-val">8 GB</span>
+                    </div>
+                    <input type="hidden" id="NODE_3_MEMORY" name="NODE_3_MEMORY" value="8192" />
                   </div>
                   <div class="form-row">
                     <label>Disk (GB)</label>
@@ -981,8 +1130,10 @@
                   </div>
                   <div class="form-row">
                     <label>Datastore</label>
-                    <input type="text" id="NODE_3_DATASTORE" name="NODE_3_DATASTORE" list="node-3-ds-list" placeholder="lvm-proxmox" />
-                    <div class="field-hint">VM disk pool — defaults to TALOS_DATASTORE</div>
+                    <select id="NODE_3_DATASTORE" name="NODE_3_DATASTORE">
+                      <option value="">— discover PVE first —</option>
+                    </select>
+                    <div class="field-hint" id="node-3-ds-hint">VM disk pool — run Discover to load options</div>
                   </div>
                 </div>
               </details>
@@ -1582,7 +1733,10 @@ const FIELDS = [
   'BASE_DOMAIN','ADMIN_EMAIL','GITHUB_REPO','GIT_REPO_URL','PROXMOX_API_TOKEN',
   'PROXMOX_HOST','PROXMOX_NODE_NAME','K8S_CLUSTER_NAME',
   'NODE_GATEWAY','NODE_SUBNET_PREFIX','TALOS_DATASTORE',
-  'NODE_1_IP','NODE_1_VMID','NODE_2_IP','NODE_2_VMID','NODE_3_IP','NODE_3_VMID',
+  'NODE_1_IP','NODE_1_VMID','NODE_1_PVE_NODE','NODE_1_DATASTORE','NODE_1_CPU','NODE_1_MEMORY','NODE_1_DISK',
+  'NODE_2_IP','NODE_2_VMID','NODE_2_PVE_NODE','NODE_2_DATASTORE','NODE_2_CPU','NODE_2_MEMORY','NODE_2_DISK',
+  'NODE_3_IP','NODE_3_VMID','NODE_3_PVE_NODE','NODE_3_DATASTORE','NODE_3_CPU','NODE_3_MEMORY','NODE_3_DISK',
+  'PVE_NODES',
   'METALLB_VIP_RANGE','METALLB_TRAEFIK_VIP','METALLB_COREDNS_VIP',
   'METALLB_NETBIRD_MGMT_VIP','METALLB_NETBIRD_SIGNAL_VIP','METALLB_NETBIRD_RELAY_VIP',
   'CLUSTER_LOCAL_DOMAIN','ADMIN_USERNAME','ADMIN_NAME',
@@ -1968,8 +2122,9 @@ async function setupProxmoxUser() {
   btn.disabled = false;
 }
 
-// Module-level store for discovered datastore info (used by onPveNodeChange)
+// Module-level store for discovered Proxmox data (used by onPveNodeChange)
 let _discoveredDatastoresByNode = {};
+let _discoveredNodeResources = {};
 
 async function discoverProxmox() {
   const token = document.getElementById('PROXMOX_API_TOKEN')?.value?.trim();
@@ -1994,12 +2149,14 @@ async function discoverProxmox() {
         const pn = document.getElementById('PROXMOX_NODE_NAME');
         if (pn && !pn.value) pn.value = j.node_name;
       }
-      // Global Talos image datastore (first node's first pool)
+      // Global Talos image datastore (first node's first pool) — datastores is now [{name,free_gb,...}]
       if (j.datastores?.length) {
         const el = document.getElementById('TALOS_DATASTORE');
-        if (el && !el.value) el.value = j.datastores[0];
+        const firstDs = typeof j.datastores[0] === 'object' ? j.datastores[0].name : j.datastores[0];
+        if (el && !el.value) el.value = firstDs;
         const hint = el?.closest('.form-row')?.querySelector('.field-hint');
-        if (hint) hint.textContent = `Available: ${j.datastores.join(', ')}`;
+        const names = j.datastores.map(d => typeof d === 'object' ? `${d.name} (${d.free_gb} GB free)` : d);
+        if (hint) hint.textContent = `Available: ${names.join(' · ')}`;
       }
       // VMID suggestions
       if (j.vmid_suggestions?.length >= 3) {
@@ -2010,14 +2167,17 @@ async function discoverProxmox() {
       }
       // Per-node PVE selectors, datastores, and PVE_NODES hidden field
       if (j.datastores_by_node) _discoveredDatastoresByNode = j.datastores_by_node;
-      if (j.all_nodes) populatePveNodeDropdowns(j.all_nodes, j.datastores_by_node || {});
+      if (j.node_resources_by_node) _discoveredNodeResources = j.node_resources_by_node;
+      if (j.all_nodes) populatePveNodeDropdowns(j.all_nodes, j.datastores_by_node || {}, j.node_resources_by_node || {});
       if (j.pve_nodes_str) {
         const pveField = document.getElementById('PVE_NODES');
         if (pveField) pveField.value = j.pve_nodes_str;
       }
       updateStatus('dot-proxmox', 'ok', 'proxmox: ✅');
       const nodesList = j.all_nodes?.join(', ') || j.node_name || '–';
-      const summary = `✅ Nodes: <strong>${nodesList}</strong> · VMIDs: <strong>${j.vmid_suggestions?.slice(0,3).join(', ')||'–'}</strong>`;
+      const cpuInfo = j.node_resources_by_node?.[j.node_name];
+      const resStr = cpuInfo ? ` · ${cpuInfo.cpu_cores} cores · ${Math.round(cpuInfo.mem_total_mb/1024)} GB RAM` : '';
+      const summary = `✅ Nodes: <strong>${nodesList}</strong>${resStr} · VMIDs: <strong>${j.vmid_suggestions?.slice(0,3).join(', ')||'–'}</strong>`;
       if (resultEl) { resultEl.innerHTML = summary; resultEl.style.color = 'var(--green)'; }
       showAlert('config-alert', 'success', '✅ Proxmox discovered! Node, storage &amp; VMIDs auto-filled.');
     } else {
@@ -2032,37 +2192,192 @@ async function discoverProxmox() {
   btn.innerHTML = '🔍 Discover from Proxmox'; btn.disabled = false;
 }
 
-function populatePveNodeDropdowns(allNodes, datastoresByNode) {
-  // Populate shared PVE node datalist
-  const dl = document.getElementById('pve-nodes-list');
-  if (dl) dl.innerHTML = allNodes.map(n => `<option value="${n}">`).join('');
+function populatePveNodeDropdowns(allNodes, datastoresByNode, nodeResourcesByNode) {
+  nodeResourcesByNode = nodeResourcesByNode || {};
+
+  // Populate PROXMOX_NODE_NAME select
+  const pveNameSel = document.getElementById('PROXMOX_NODE_NAME');
+  if (pveNameSel) {
+    const cur = pveNameSel.value;
+    pveNameSel.innerHTML = allNodes.map(n => `<option value="${n}">${n}</option>`).join('');
+    if (cur && allNodes.includes(cur)) pveNameSel.value = cur;
+    else if (!pveNameSel.value) pveNameSel.value = allNodes[0] || '';
+  }
 
   for (let n = 1; n <= 3; n++) {
-    // Auto-fill PVE node if only one option or field is empty
-    const pveInp = document.getElementById(`NODE_${n}_PVE_NODE`);
-    if (pveInp && !pveInp.value) pveInp.value = allNodes[0] || '';
+    const pveSel = document.getElementById(`NODE_${n}_PVE_NODE`);
+    if (!pveSel) continue;
 
-    // Populate per-node datastore datalist
-    const pveNode = pveInp?.value || allNodes[0] || '';
-    const stores = (datastoresByNode && datastoresByNode[pveNode]) || datastoresByNode?.[allNodes[0]] || [];
-    const dsList = document.getElementById(`node-${n}-ds-list`);
-    if (dsList) dsList.innerHTML = stores.map(s => `<option value="${s}">`).join('');
+    // Populate the <select> options
+    const prevVal = pveSel.value;
+    pveSel.innerHTML = `<option value="">— select node —</option>` +
+      allNodes.map(nd => `<option value="${nd}">${nd}</option>`).join('');
 
-    // Auto-fill datastore if empty
-    const dsInp = document.getElementById(`NODE_${n}_DATASTORE`);
-    if (dsInp && !dsInp.value && stores.length > 0) dsInp.value = stores[0];
+    // Auto-select: restore prior value, or default to first node
+    if (prevVal && allNodes.includes(prevVal)) pveSel.value = prevVal;
+    else if (!pveSel.value) pveSel.value = allNodes[0] || '';
+
+    const pveNode = pveSel.value;
+    // Update resource badge for this node
+    _updateNodeResBadge(n, pveNode, nodeResourcesByNode);
+    // Populate datastore <select>
+    _populateDatastoreSelect(n, pveNode, datastoresByNode);
+    // Update CPU/RAM slider max
+    _updateNodeSliderLimits(n, pveNode, nodeResourcesByNode);
   }
 }
 
+function _updateNodeResBadge(n, pveNode, nodeResourcesByNode) {
+  const badge = document.getElementById(`node-${n}-res-badge`);
+  const res = (nodeResourcesByNode || _discoveredNodeResources)[pveNode];
+  if (!badge) return;
+  if (!res || !pveNode) { badge.style.display = 'none'; return; }
+  badge.style.display = 'flex';
+  const cpuEl = document.getElementById(`node-${n}-res-cpu`);
+  const ramEl = document.getElementById(`node-${n}-res-ram`);
+  const freeEl = document.getElementById(`node-${n}-res-free`);
+  if (cpuEl) cpuEl.textContent = `🖥 ${res.cpu_cores} cores`;
+  if (ramEl) ramEl.textContent = `🧮 ${Math.round(res.mem_total_mb / 1024)} GB RAM`;
+  if (freeEl) freeEl.textContent = `💾 ${Math.round(res.mem_free_mb / 1024)} GB free`;
+}
+
+function _populateDatastoreSelect(n, pveNode, datastoresByNode) {
+  datastoresByNode = datastoresByNode || _discoveredDatastoresByNode;
+  const dsSel = document.getElementById(`NODE_${n}_DATASTORE`);
+  if (!dsSel) return;
+  const stores = (datastoresByNode[pveNode]) || datastoresByNode[Object.keys(datastoresByNode)[0]] || [];
+  const prevDs = dsSel.value;
+  if (stores.length === 0) {
+    dsSel.innerHTML = `<option value="">— discover PVE first —</option>`;
+    const hint = document.getElementById(`node-${n}-ds-hint`);
+    if (hint) hint.textContent = 'No datastores found — run Discover';
+    return;
+  }
+  dsSel.innerHTML = stores.map(s => {
+    const name = typeof s === 'object' ? s.name : s;
+    const freeGb = typeof s === 'object' ? s.free_gb : null;
+    const label = freeGb != null ? `${name}  (${freeGb} GB free)` : name;
+    return `<option value="${name}">${label}</option>`;
+  }).join('');
+  // Restore or auto-select
+  if (prevDs && dsSel.querySelector(`option[value="${prevDs}"]`)) dsSel.value = prevDs;
+  else dsSel.value = (typeof stores[0] === 'object' ? stores[0].name : stores[0]) || '';
+  // Update hint
+  const hint = document.getElementById(`node-${n}-ds-hint`);
+  if (hint) hint.textContent = `${stores.length} datastore${stores.length > 1 ? 's' : ''} available on ${pveNode}`;
+}
+
+function _updateNodeSliderLimits(n, pveNode, nodeResourcesByNode) {
+  nodeResourcesByNode = nodeResourcesByNode || _discoveredNodeResources;
+  const res = nodeResourcesByNode[pveNode];
+  if (!res) return;
+  const cpuMax = res.cpu_cores || 16;
+  const ramMaxMb = res.mem_total_mb || 32768;
+
+  const cpuSlider = document.getElementById(`NODE_${n}_CPU_SLIDER`);
+  const ramSlider = document.getElementById(`NODE_${n}_MEM_SLIDER`);
+  const cpuLabel = document.getElementById(`node-${n}-cpu-max-label`);
+  const ramLabel = document.getElementById(`node-${n}-ram-max-label`);
+
+  if (cpuSlider) { cpuSlider.max = cpuMax; }
+  if (ramSlider) { ramSlider.max = ramMaxMb; }
+  if (cpuLabel) cpuLabel.textContent = `/ ${cpuMax} max`;
+  if (ramLabel) ramLabel.textContent = `/ ${Math.round(ramMaxMb/1024)} GB max`;
+}
+
 function onPveNodeChange(n) {
-  const pveInp = document.getElementById(`NODE_${n}_PVE_NODE`);
-  const pveNode = pveInp?.value?.trim();
-  if (!pveNode || !Object.keys(_discoveredDatastoresByNode).length) return;
-  const stores = _discoveredDatastoresByNode[pveNode] || [];
-  const dsList = document.getElementById(`node-${n}-ds-list`);
-  if (dsList) dsList.innerHTML = stores.map(s => `<option value="${s}">`).join('');
-  const dsInp = document.getElementById(`NODE_${n}_DATASTORE`);
-  if (dsInp && !dsInp.value && stores.length > 0) dsInp.value = stores[0];
+  const pveSel = document.getElementById(`NODE_${n}_PVE_NODE`);
+  const pveNode = pveSel?.value?.trim();
+  if (!pveNode) return;
+  _updateNodeResBadge(n, pveNode, _discoveredNodeResources);
+  _populateDatastoreSelect(n, pveNode, _discoveredDatastoresByNode);
+  _updateNodeSliderLimits(n, pveNode, _discoveredNodeResources);
+  // Also sync PROXMOX_NODE_NAME if all nodes share same PVE node
+  const allSame = [1,2,3].every(i => {
+    const s = document.getElementById(`NODE_${i}_PVE_NODE`);
+    return s && (s.value === pveNode || s.value === '');
+  });
+  if (allSame) {
+    const masterSel = document.getElementById('PROXMOX_NODE_NAME');
+    if (masterSel && masterSel.querySelector(`option[value="${pveNode}"]`)) masterSel.value = pveNode;
+  }
+}
+
+// ── CPU slider sync ──
+function syncCpuSlider(n) {
+  const slider = document.getElementById(`NODE_${n}_CPU_SLIDER`);
+  const hidden = document.getElementById(`NODE_${n}_CPU`);
+  const display = document.getElementById(`node-${n}-cpu-val`);
+  if (!slider) return;
+  const v = parseInt(slider.value, 10);
+  if (hidden) hidden.value = v;
+  if (display) display.textContent = v;
+}
+
+// ── RAM slider sync ──
+function syncRamSlider(n) {
+  const slider = document.getElementById(`NODE_${n}_MEM_SLIDER`);
+  const hidden = document.getElementById(`NODE_${n}_MEMORY`);
+  const display = document.getElementById(`node-${n}-ram-val`);
+  if (!slider) return;
+  const v = parseInt(slider.value, 10);
+  if (hidden) hidden.value = v;
+  if (display) display.textContent = `${Math.round(v / 1024)} GB`;
+}
+
+// ── Sync all sliders from hidden inputs (called after loadEnv) ──
+function syncAllSlidersFromValues() {
+  for (let n = 1; n <= 3; n++) {
+    const cpu = document.getElementById(`NODE_${n}_CPU`);
+    const mem = document.getElementById(`NODE_${n}_MEMORY`);
+    const cpuSlider = document.getElementById(`NODE_${n}_CPU_SLIDER`);
+    const memSlider = document.getElementById(`NODE_${n}_MEM_SLIDER`);
+    if (cpu && cpuSlider) {
+      cpuSlider.value = cpu.value || 4;
+      const d = document.getElementById(`node-${n}-cpu-val`);
+      if (d) d.textContent = cpu.value || 4;
+    }
+    if (mem && memSlider) {
+      memSlider.value = mem.value || 8192;
+      const d = document.getElementById(`node-${n}-ram-val`);
+      if (d) d.textContent = `${Math.round((parseInt(mem.value) || 8192) / 1024)} GB`;
+    }
+  }
+}
+
+// ── Quick preset: fill CPU/RAM/Disk for a node ──
+const NODE_PRESETS = {
+  minimal:     { cpu: 2,  mem: 4096,  disk: 40  },
+  standard:    { cpu: 4,  mem: 8192,  disk: 80  },
+  balanced:    { cpu: 6,  mem: 12288, disk: 100 },
+  performance: { cpu: 8,  mem: 16384, disk: 150 },
+};
+
+function applyNodePreset(n, preset) {
+  const p = NODE_PRESETS[preset];
+  if (!p) return;
+  // hidden inputs
+  const cpu = document.getElementById(`NODE_${n}_CPU`);
+  const mem = document.getElementById(`NODE_${n}_MEMORY`);
+  const disk = document.getElementById(`NODE_${n}_DISK`);
+  if (cpu) cpu.value = p.cpu;
+  if (mem) mem.value = p.mem;
+  if (disk) disk.value = p.disk;
+  // sliders
+  const cpuSlider = document.getElementById(`NODE_${n}_CPU_SLIDER`);
+  const memSlider = document.getElementById(`NODE_${n}_MEM_SLIDER`);
+  if (cpuSlider) cpuSlider.value = p.cpu;
+  if (memSlider) memSlider.value = p.mem;
+  // display values
+  const cpuVal = document.getElementById(`node-${n}-cpu-val`);
+  const ramVal = document.getElementById(`node-${n}-ram-val`);
+  if (cpuVal) cpuVal.textContent = p.cpu;
+  if (ramVal) ramVal.textContent = `${Math.round(p.mem / 1024)} GB`;
+  // flash preset button
+  const btns = document.querySelectorAll(`#node-${n}-adv .preset-btn`);
+  btns.forEach(b => b.style.borderColor = '');
+  event?.target?.closest('.preset-btn')?.style && (event.target.closest('.preset-btn').style.borderColor = 'var(--green)');
+  setTimeout(() => btns.forEach(b => b.style.borderColor = ''), 1500);
 }
 
 // ── SSH key generation ──
@@ -2206,7 +2521,15 @@ async function loadEnv() {
         const el = document.getElementById(k);
         if (el) {
           if (el.type === 'checkbox') { el.checked = v === 'true'; }
-          else { el.value = v; }
+          else if (el.tagName === 'SELECT' && v) {
+            const selector = 'option[value="' + (((window.CSS && CSS.escape) ? CSS.escape(v) : v).replace(/"/g, '\\"')) + '"]';
+            if (!el.querySelector(selector)) {
+              const opt = document.createElement('option');
+              opt.value = v; opt.textContent = v;
+              el.appendChild(opt);
+            }
+            el.value = v;
+          } else { el.value = v; }
         }
         if (k === 'BACKUP_PROVIDER') {
           const radio = document.querySelector(`input[name="BACKUP_PROVIDER"][value="${v}"]`);
@@ -2232,6 +2555,7 @@ async function loadEnv() {
       onDnsProviderChange(false);
       showAlert('config-alert', 'success', 'Loaded existing .env ✅');
       updateStatus('dot-env', 'ok', 'env: configured');
+      syncAllSlidersFromValues();
     } else {
       showAlert('config-alert', 'info', 'No existing .env found — fill in the form to get started');
     }

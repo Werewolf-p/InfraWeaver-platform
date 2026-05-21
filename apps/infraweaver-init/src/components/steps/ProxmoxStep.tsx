@@ -134,12 +134,18 @@ export function ProxmoxStep() {
       setProxmoxDiscovery(result)
       if (result.ok) {
         const firstNode = result.all_nodes?.[0] ?? result.node_name ?? data.PROXMOX_NODE_NAME
-        const firstDatastore = result.datastores_by_node?.[firstNode]?.[0] ?? result.datastores?.[0] ?? data.TALOS_DATASTORE
+        const firstDatastore = (() => {
+          const raw = result.datastores_by_node?.[firstNode]?.[0] ?? result.datastores?.[0]
+          if (!raw) return undefined
+          return typeof raw === 'object' ? raw.name : raw
+        })() ?? data.TALOS_DATASTORE
         setFields({ PROXMOX_NODE_NAME: firstNode, TALOS_DATASTORE: firstDatastore })
         nodes.forEach((node, index) => {
+          const rawDs = result.datastores_by_node?.[firstNode]?.[0] ?? firstDatastore
+          const nodeDs = rawDs && typeof rawDs === 'object' ? rawDs.name : rawDs
           updateNode(node.id, {
             pveNode: firstNode,
-            datastore: result.datastores_by_node?.[firstNode]?.[0] ?? firstDatastore,
+            datastore: nodeDs,
             vmid: result.vmid_suggestions?.[index]?.toString() ?? node.vmid,
           })
         })

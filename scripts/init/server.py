@@ -573,13 +573,13 @@ def _discover_proxmox(host: str, token: str) -> Dict:
         node_ips: Dict[str, str] = {}
         datastores_by_node: Dict[str, list] = {}
         USABLE_TYPES = {"lvmthin", "lvm", "dir", "zfspool", "nfs", "cephfs"}
+        node_resources: Dict[str, Dict] = {}
 
         for node_name in node_names:
             # ── SSH/management IP ──────────────────────────────────────────────
             ip_found = ""
             try:
                 ifaces = pve_get(f"/nodes/{node_name}/network")
-                # Prefer bridge interfaces with a routable IPv4
                 sorted_ifaces = sorted(
                     ifaces,
                     key=lambda i: (
@@ -592,38 +592,54 @@ def _discover_proxmox(host: str, token: str) -> Dict:
                     if (addr
                             and not addr.startswith("127.")
                             and not addr.startswith("169.254.")
-                            and not addr.startswith("172.17.")   # docker
+                            and not addr.startswith("172.17.")
                             and not addr.startswith("172.18.")):
                         ip_found = addr
                         break
             except Exception:
                 pass
-            node_ips[node_name] = ip_found or host  # fallback to API host
+            node_ips[node_name] = ip_found or host
 
-            # ── Datastores ────────────────────────────────────────────────────
+            # ── Datastores WITH free space ────────────────────────────────────────
             try:
                 storages = pve_get(f"/nodes/{node_name}/storage")
-                datastores_by_node[node_name] = [
-                    s["storage"] for s in storages
-                    if s.get("enabled", 1) and s.get("type") in USABLE_TYPES
-                ]
+                usable = []
+                for s in storages:
+                    if s.get("enabled", 1) and s.get("type") in USABLE_TYPES:
+                        avail_bytes = int(s.get("avail", 0))
+                        total_bytes = int(s.get("total", 0))
+                        usable.append({
+                            "name": s["storage"],
+                            "type": s.get("type", ""),
+                            "free_gb": avail_bytes // (1024 ** 3),
+                            "total_gb": total_bytes // (1024 ** 3),
+                        })
+                datastores_by_node[node_name] = usable
             except Exception:
                 datastores_by_node[node_name] = []
+
+            # ── Node resources (CPU cores + RAM) ─────────────────────────────────
+            try:
+                ns = pve_get(f"/nodes/{node_name}/status")
+                mem = ns.get("memory", {})
+                cpuinfo = ns.get("cpuinfo", {})
+                node_resources[node_name] = {
+                    "cpu_cores": int(cpuinfo.get("cpus", 0)),
+                    "mem_total_mb": int(mem.get("total", 0)) // (1024 * 1024),
+                    "mem_free_mb": (int(mem.get("free", 0)) + int(mem.get("buffers", 0)) + int(mem.get("cached", 0))) // (1024 * 1024),
+                }
+            except Exception:
+                node_resources[node_name] = {}
 
         # Build PVE_NODES string  (name1:ip1,name2:ip2)
         pve_nodes_str = ",".join(f"{n}:{ip}" for n, ip in node_ips.items())
 
-        resource_info: Dict[str, int] = {}
-        try:
-            node_status = pve_get(f"/nodes/{primary_node}/status")
-            mem = node_status.get("memory", {})
-            resource_info["node_memory_total_mb"] = int(mem.get("total", 0)) // (1024 * 1024)
-            resource_info["node_memory_free_mb"] = int(mem.get("free", 0) + mem.get("buffers", 0) + mem.get("cached", 0)) // (1024 * 1024)
-            rootfs = node_status.get("rootfs", {})
-            resource_info["node_disk_total_gb"] = int(rootfs.get("total", 0)) // (1024 * 1024 * 1024)
-            resource_info["node_disk_free_gb"] = int(rootfs.get("avail", 0)) // (1024 * 1024 * 1024)
-        except Exception:
-            pass
+        # resource_info for primary node (backward compat)
+        primary_res = node_resources.get(primary_node, {})
+        resource_info: Dict[str, int] = {
+            "node_memory_total_mb": primary_res.get("mem_total_mb", 0),
+            "node_memory_free_mb": primary_res.get("mem_free_mb", 0),
+        }
 
         # Find 3 consecutive free VMIDs starting from 9300
         resources = pve_get("/cluster/resources?type=vm")
@@ -639,8 +655,9 @@ def _discover_proxmox(host: str, token: str) -> Dict:
             "ok": True,
             "node_name": primary_node,
             "all_nodes": node_names,
-            "datastores": datastores_by_node.get(primary_node, []),
+            "datastores": [ds["name"] for ds in datastores_by_node.get(primary_node, [])],
             "datastores_by_node": datastores_by_node,
+            "node_resources_by_node": node_resources,
             "node_ips": node_ips,
             "pve_nodes_str": pve_nodes_str,
             "vmid_suggestions": vmids,

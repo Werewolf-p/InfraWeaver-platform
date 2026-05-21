@@ -47,12 +47,26 @@ export interface ValidateProxmoxResponse {
   error?: string
 }
 
+export interface NodeDatastore {
+  name: string
+  type: string
+  free_gb: number
+  total_gb: number
+}
+
+export interface NodeResources {
+  cpu_cores: number
+  mem_total_mb: number
+  mem_free_mb: number
+}
+
 export interface DiscoverProxmoxResponse {
   ok: boolean
   node_name?: string
   all_nodes?: string[]
   datastores?: string[]
-  datastores_by_node?: Record<string, string[]>
+  datastores_by_node?: Record<string, NodeDatastore[]>
+  node_resources_by_node?: Record<string, NodeResources>
   node_ips?: Record<string, string>
   pve_nodes_str?: string
   vmid_suggestions?: number[]

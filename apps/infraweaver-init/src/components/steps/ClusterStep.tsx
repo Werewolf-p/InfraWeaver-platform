@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   ChevronDown,
@@ -13,7 +13,7 @@ import {
   Waypoints,
 } from 'lucide-react'
 import { motion } from 'framer-motion'
-import { pingCheck, suggestNodeIps, suggestVips } from '@/lib/api'
+import { pingCheck, suggestNodeIps, suggestVips, type NodeDatastore } from '@/lib/api'
 import { ActionButton } from '@/components/ui/ActionButton'
 import { FormField } from '@/components/ui/FormField'
 import { GlassCard } from '@/components/ui/GlassCard'
@@ -29,6 +29,21 @@ const vipRows = [
   { key: 'METALLB_NETBIRD_SIGNAL_VIP', label: 'NetBird signal' },
   { key: 'METALLB_NETBIRD_RELAY_VIP', label: 'NetBird relay' },
 ] as const
+
+const NODE_PRESETS = [
+  { key: 'minimal',     emoji: '💻', label: 'Minimal',     cpu: '2', memory: '4096',  disk: '40'  },
+  { key: 'standard',   emoji: '⚡', label: 'Standard',    cpu: '4', memory: '8192',  disk: '80'  },
+  { key: 'balanced',   emoji: '🚀', label: 'Balanced',    cpu: '6', memory: '12288', disk: '100' },
+  { key: 'performance',emoji: '🏎', label: 'Performance', cpu: '8', memory: '16384', disk: '150' },
+] as const
+
+function dsValue(ds: NodeDatastore | string): string {
+  return typeof ds === 'object' ? ds.name : ds
+}
+function dsLabel(ds: NodeDatastore | string): string {
+  if (typeof ds === 'object' && ds.free_gb != null) return `${ds.name}  (${ds.free_gb} GB free)`
+  return typeof ds === 'object' ? ds.name : ds
+}
 
 function ResourceBadge({ color, children }: { color: string; children: React.ReactNode }) {
   return (
@@ -68,6 +83,8 @@ export function ClusterStep() {
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set())
   const [advancedOpen, setAdvancedOpen] = useState(false)
 
+  const pingTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
+
   const controlPlaneCount = useMemo(
     () => nodes.filter((node) => node.role === 'control-plane').length,
     [nodes],
@@ -85,20 +102,30 @@ export function ClusterStep() {
     [nodes],
   )
 
-  const pingNode = async (node: NodeConfig) => {
-    const ip = node.ip.trim()
+  const pingNode = useCallback(async (nodeData: { id: string; ip: string }) => {
+    const ip = nodeData.ip.trim()
     if (!isIPv4(ip)) {
-      setNodePing(node.id, null)
+      setNodePing(nodeData.id, null)
       return
     }
-    setNodePing(node.id, 'loading')
+    setNodePing(nodeData.id, 'loading')
     try {
       const result = await pingCheck(ip)
-      setNodePing(node.id, typeof result.free === 'boolean' ? result.free : null)
+      setNodePing(nodeData.id, typeof result.free === 'boolean' ? result.free : null)
     } catch {
-      setNodePing(node.id, null)
+      setNodePing(nodeData.id, null)
     }
-  }
+  }, [setNodePing])
+
+  // Auto-ping any nodes that already have a valid IP when the step first mounts
+  useEffect(() => {
+    nodes.forEach((node) => {
+      if (isIPv4(node.ip.trim()) && nodePing[node.id] === undefined) {
+        void pingNode(node)
+      }
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const pingVipField = async (field: keyof typeof vipPing) => {
     const ip = data[field].trim()
@@ -290,7 +317,8 @@ export function ClusterStep() {
             const isExpanded = expandedNodes.has(node.id)
             const availableNodes = proxmoxDiscovery?.all_nodes ?? []
             const selectedPveNode = node.pveNode || data.PROXMOX_NODE_NAME
-            const availableDatastores =
+            const nodeResources = proxmoxDiscovery?.node_resources_by_node?.[selectedPveNode]
+            const availableDatastores: Array<NodeDatastore | string> =
               proxmoxDiscovery?.datastores_by_node?.[selectedPveNode] ?? proxmoxDiscovery?.datastores ?? []
             const canRemove = nodes.length > 1 && !(node.role === 'control-plane' && controlPlaneCount === 1)
 
@@ -316,8 +344,16 @@ export function ClusterStep() {
                       <input
                         id={`${node.id}-ip`}
                         value={node.ip}
-                        onChange={(event) => updateNode(node.id, { ip: event.target.value })}
-                        onBlur={() => void pingNode(node)}
+                        onChange={(event) => {
+                          const newIp = event.target.value
+                          updateNode(node.id, { ip: newIp })
+                          if (pingTimersRef.current[node.id]) clearTimeout(pingTimersRef.current[node.id])
+                          if (!isIPv4(newIp.trim())) { setNodePing(node.id, null); return }
+                          pingTimersRef.current[node.id] = setTimeout(
+                            () => void pingNode({ id: node.id, ip: newIp }),
+                            700,
+                          )
+                        }}
                         className={controlClassName}
                       />
                     </div>
@@ -353,7 +389,13 @@ export function ClusterStep() {
                     </div>
                   </FormField>
 
-                  <FormField label="PVE node" htmlFor={`${node.id}-pve`} hint="Which Proxmox node hosts this VM.">
+                  <FormField
+                    label="PVE node"
+                    htmlFor={`${node.id}-pve`}
+                    hint={nodeResources
+                      ? `🖥 ${nodeResources.cpu_cores} cores · 🧮 ${Math.round(nodeResources.mem_total_mb / 1024)} GB RAM · 💾 ${Math.round(nodeResources.mem_free_mb / 1024)} GB free`
+                      : 'Which Proxmox node hosts this VM.'}
+                  >
                     {availableNodes.length ? (
                       <select
                         id={`${node.id}-pve`}
@@ -396,55 +438,97 @@ export function ClusterStep() {
                 </button>
 
                 {isExpanded ? (
-                  <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                    <FormField label="CPU cores" htmlFor={`${node.id}-cpu`}>
-                      <input
-                        id={`${node.id}-cpu`}
-                        value={node.cpu}
-                        onChange={(event) => updateNode(node.id, { cpu: event.target.value })}
-                        className={controlClassName}
-                      />
-                    </FormField>
-                    <FormField label="RAM (MB)" htmlFor={`${node.id}-memory`}>
-                      <input
-                        id={`${node.id}-memory`}
-                        value={node.memory}
-                        onChange={(event) => updateNode(node.id, { memory: event.target.value })}
-                        className={controlClassName}
-                      />
-                    </FormField>
-                    <FormField label="Disk (GB)" htmlFor={`${node.id}-disk`}>
-                      <input
-                        id={`${node.id}-disk`}
-                        value={node.disk}
-                        onChange={(event) => updateNode(node.id, { disk: event.target.value })}
-                        className={controlClassName}
-                      />
-                    </FormField>
-                    <FormField label="Datastore" htmlFor={`${node.id}-datastore`}>
-                      {availableDatastores.length ? (
-                        <select
-                          id={`${node.id}-datastore`}
-                          value={node.datastore || availableDatastores[0]}
-                          onChange={(event) => updateNode(node.id, { datastore: event.target.value })}
-                          className={controlClassName}
+                  <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="mt-4">
+                    {/* Preset quick-fill buttons */}
+                    <div className="mb-4 flex flex-wrap items-center gap-2">
+                      <span className="mr-1 text-[11px] uppercase tracking-widest text-[var(--az-text-secondary)]">Preset:</span>
+                      {NODE_PRESETS.map((preset) => (
+                        <button
+                          key={preset.key}
+                          type="button"
+                          onClick={() => updateNode(node.id, { cpu: preset.cpu, memory: preset.memory, disk: preset.disk })}
+                          className="flex flex-col items-center rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-[11px] text-[var(--az-text-secondary)] transition hover:border-[var(--az-primary)] hover:text-white"
                         >
-                          {availableDatastores.map((datastore) => (
-                            <option key={datastore} value={datastore}>
-                              {datastore}
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
+                          <span>{preset.emoji} {preset.label}</span>
+                          <span className="mt-0.5 opacity-60">{preset.cpu}c · {Math.round(Number(preset.memory) / 1024)}GB · {preset.disk}GB</span>
+                        </button>
+                      ))}
+                    </div>
+                    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                      <FormField
+                        label={`CPU cores${nodeResources ? ` / ${nodeResources.cpu_cores} max` : ''}`}
+                        htmlFor={`${node.id}-cpu`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <input
+                            type="range"
+                            id={`${node.id}-cpu`}
+                            min={1}
+                            max={nodeResources?.cpu_cores ?? 32}
+                            value={Number(node.cpu) || 4}
+                            onChange={(event) => updateNode(node.id, { cpu: event.target.value })}
+                            className="flex-1 accent-[var(--az-primary)]"
+                          />
+                          <span className="w-10 text-right text-sm font-semibold text-white">{node.cpu}</span>
+                        </div>
+                      </FormField>
+                      <FormField
+                        label={`RAM${nodeResources ? ` / ${Math.round(nodeResources.mem_total_mb / 1024)} GB max` : ' (MB)'}`}
+                        htmlFor={`${node.id}-memory`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <input
+                            type="range"
+                            id={`${node.id}-memory`}
+                            min={1024}
+                            max={nodeResources?.mem_total_mb ?? 65536}
+                            step={1024}
+                            value={Number(node.memory) || 8192}
+                            onChange={(event) => updateNode(node.id, { memory: event.target.value })}
+                            className="flex-1 accent-[var(--az-primary)]"
+                          />
+                          <span className="w-14 text-right text-sm font-semibold text-white">
+                            {Math.round((Number(node.memory) || 8192) / 1024)} GB
+                          </span>
+                        </div>
+                      </FormField>
+                      <FormField label="Disk (GB)" htmlFor={`${node.id}-disk`}>
                         <input
-                          id={`${node.id}-datastore`}
-                          value={node.datastore}
-                          onChange={(event) => updateNode(node.id, { datastore: event.target.value })}
-                          placeholder={data.TALOS_DATASTORE}
+                          id={`${node.id}-disk`}
+                          value={node.disk}
+                          onChange={(event) => updateNode(node.id, { disk: event.target.value })}
                           className={controlClassName}
                         />
-                      )}
-                    </FormField>
+                      </FormField>
+                      <FormField
+                        label="Datastore"
+                        htmlFor={`${node.id}-datastore`}
+                        hint={availableDatastores.length ? `${availableDatastores.length} pool${availableDatastores.length > 1 ? 's' : ''} on ${selectedPveNode}` : undefined}
+                      >
+                        {availableDatastores.length ? (
+                          <select
+                            id={`${node.id}-datastore`}
+                            value={node.datastore || dsValue(availableDatastores[0])}
+                            onChange={(event) => updateNode(node.id, { datastore: event.target.value })}
+                            className={controlClassName}
+                          >
+                            {availableDatastores.map((ds) => (
+                              <option key={dsValue(ds)} value={dsValue(ds)}>
+                                {dsLabel(ds)}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <input
+                            id={`${node.id}-datastore`}
+                            value={node.datastore}
+                            onChange={(event) => updateNode(node.id, { datastore: event.target.value })}
+                            placeholder={data.TALOS_DATASTORE}
+                            className={controlClassName}
+                          />
+                        )}
+                      </FormField>
+                    </div>
                   </motion.div>
                 ) : null}
               </motion.div>
