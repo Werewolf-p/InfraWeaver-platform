@@ -574,6 +574,19 @@ else
   warn "Step 16: Could not get ClusterIPs — CoreDNS patching skipped"
 fi
 
+# ── Step 16b: Pre-apply platform manifests (blueprints, ExternalSecrets) ─────
+log "Step 16b: Pre-applying platform manifests (ArgoCD may not have synced yet)..."
+# Authentik: blueprint ConfigMaps + media + ExternalSecrets must exist before worker starts
+kubectl --kubeconfig "$KB_FILE" apply -f kubernetes/platform/authentik/manifests/ 2>/dev/null || true
+# Ensure authentik-media ConfigMap exists (Helm chart should create it; belt-and-suspenders)
+kubectl --kubeconfig "$KB_FILE" create configmap authentik-media -n authentik \
+  --dry-run=client -o yaml | kubectl --kubeconfig "$KB_FILE" apply -f - 2>/dev/null || true
+# Apply ExternalSecrets for all platform namespaces so secrets sync before apps start
+for ns_dir in kubernetes/platform/*/manifests; do
+  kubectl --kubeconfig "$KB_FILE" apply -f "$ns_dir/" 2>/dev/null || true
+done
+ok "Step 16b: Platform manifests pre-applied"
+
 # ── Step 17: Configure Authentik ──────────────────────────────────────────────
 log "Step 17: Configuring Authentik..."
 # Use a temp file so recovery links and tokens survive to the email step (local deploys
