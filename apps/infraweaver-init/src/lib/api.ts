@@ -267,10 +267,25 @@ export async function validateProxmox(payload: Record<string, string>) {
   })
 }
 
+export interface DiscoverNodeResponse {
+  ok: boolean
+  node?: string
+  datastores?: NodeDatastore[]
+  resources?: NodeResources
+  error?: string
+}
+
 export async function discoverProxmox(host: string, token: string) {
   return fetchJson<DiscoverProxmoxResponse>('/api/discover-proxmox', {
     method: 'POST',
     body: JSON.stringify({ host, token }),
+  })
+}
+
+export async function discoverProxmoxNode(host: string, token: string, node: string) {
+  return fetchJson<DiscoverNodeResponse>('/api/discover-proxmox-node', {
+    method: 'POST',
+    body: JSON.stringify({ host, token, node }),
   })
 }
 

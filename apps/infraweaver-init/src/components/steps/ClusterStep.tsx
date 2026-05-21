@@ -13,7 +13,7 @@ import {
   Waypoints,
 } from 'lucide-react'
 import { motion } from 'framer-motion'
-import { pingCheck, suggestNodeIps, suggestVips, type NodeDatastore } from '@/lib/api'
+import { pingCheck, suggestNodeIps, suggestVips, type NodeDatastore, type NodeResources } from '@/lib/api'
 import { ActionButton } from '@/components/ui/ActionButton'
 import { FormField } from '@/components/ui/FormField'
 import { GlassCard } from '@/components/ui/GlassCard'
@@ -85,6 +85,8 @@ export function ClusterStep() {
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set())
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [ramUnit, setRamUnit] = useState<'MB' | 'GB'>('GB')
+  // Track which PVE nodes are currently being re-scanned for datastores
+  const [loadingNodeDs, setLoadingNodeDs] = useState<Set<string>>(new Set())
 
   // Fallback: if discovery data is missing but credentials are present (e.g. fresh
   // session that never ran ProxmoxStep discovery), trigger discovery now.
@@ -447,12 +449,47 @@ export function ClusterStep() {
                           const newPveNode = event.target.value
                           const newNodeDs = proxmoxDiscovery?.datastores_by_node?.[newPveNode]
                           if (newNodeDs && newNodeDs.length > 0) {
-                            // Known datastores for the new node — pre-select the first one
+                            // Known datastores — pre-select the first one immediately
                             updateNode(node.id, { pveNode: newPveNode, datastore: dsValue(newNodeDs[0]) })
                           } else {
-                            // No datastore info yet — change node but keep current datastore value
-                            // so the user doesn't lose what they typed / the field isn't blanked out
+                            // No datastore info — change node but keep existing datastore value
                             updateNode(node.id, { pveNode: newPveNode })
+                            // If discovery has run but this node's data is empty, fetch it now
+                            const host = data.PROXMOX_HOST?.trim()
+                            const token = data.PROXMOX_API_TOKEN?.trim()
+                            if (host && token && proxmoxDiscovery && !loadingNodeDs.has(newPveNode)) {
+                              setLoadingNodeDs((prev) => new Set(prev).add(newPveNode))
+                              import('@/lib/api')
+                                .then(({ discoverProxmoxNode }) => discoverProxmoxNode(host, token, newPveNode))
+                                .then((result) => {
+                                  if (result.ok) {
+                                    setProxmoxDiscovery({
+                                      ...proxmoxDiscovery,
+                                      datastores_by_node: {
+                                        ...proxmoxDiscovery.datastores_by_node,
+                                        [newPveNode]: result.datastores ?? [],
+                                      },
+                                      node_resources_by_node: {
+                                        ...proxmoxDiscovery.node_resources_by_node,
+                                        ...(result.resources
+                                          ? { [newPveNode]: result.resources as NodeResources }
+                                          : {}),
+                                      },
+                                    })
+                                    if (result.datastores?.length) {
+                                      updateNode(node.id, { datastore: dsValue(result.datastores[0]) })
+                                    }
+                                  }
+                                })
+                                .catch(() => {/* ignore — user can type manually */})
+                                .finally(() =>
+                                  setLoadingNodeDs((prev) => {
+                                    const next = new Set(prev)
+                                    next.delete(newPveNode)
+                                    return next
+                                  }),
+                                )
+                            }
                           }
                         }}
                         className={controlClassName}
@@ -566,18 +603,18 @@ export function ClusterStep() {
                         label="Datastore"
                         htmlFor={`${node.id}-datastore`}
                         hint={
-                          loading.discoverProxmox
+                          loading.discoverProxmox || loadingNodeDs.has(selectedPveNode)
                             ? undefined
                             : availableDatastores.length
                               ? `${availableDatastores.length} pool${availableDatastores.length > 1 ? 's' : ''} on ${selectedPveNode}`
                               : proxmoxDiscovery
-                                ? `No pools scanned for ${selectedPveNode} — type manually`
+                                ? `No pools found on ${selectedPveNode} — type manually`
                                 : undefined
                         }
                       >
-                        {loading.discoverProxmox ? (
+                        {loading.discoverProxmox || loadingNodeDs.has(selectedPveNode) ? (
                           <select disabled className={controlClassName}>
-                            <option>Discovering datastores…</option>
+                            <option>Loading datastores…</option>
                           </select>
                         ) : availableDatastores.length ? (
                           <select

@@ -564,10 +564,19 @@ def _discover_proxmox(host: str, token: str) -> Dict:
     headers = {"Authorization": f"PVEAPIToken={token}"}
     base = f"https://{host}:8006/api2/json"
 
-    def pve_get(path: str):
+    # Use a shorter per-request timeout inside per-node threads so that
+    # 3 sequential API calls (network + storage + status) always complete
+    # within the join(timeout=20) window.  10s × 3 = 30s > 20s was the bug.
+    def pve_get(path: str, _timeout: int = 10):
         req = urllib.request.Request(f"{base}{path}", headers=headers)
-        with urllib.request.urlopen(req, context=ctx, timeout=10) as r:
+        with urllib.request.urlopen(req, context=ctx, timeout=_timeout) as r:
             return json.loads(r.read())["data"]
+
+    # Storage types that can hold VM disk images.
+    IMAGE_CAPABLE_TYPES = {
+        "lvmthin", "lvm", "dir", "zfspool", "zfs",
+        "nfs", "cifs", "cephfs", "btrfs", "rbd", "glusterfs",
+    }
 
     try:
         nodes = pve_get("/nodes")
@@ -588,23 +597,17 @@ def _discover_proxmox(host: str, token: str) -> Dict:
             datastores_by_node[_n] = []
             node_resources[_n] = {}
 
-        # Storage types that can hold VM disk images.
-        # Use type-based filter (permissive) OR explicit "images" content config.
-        # This avoids breaking setups where `local` (dir) isn't content-configured
-        # for images but is still the only/primary image store on a node.
-        IMAGE_CAPABLE_TYPES = {
-            "lvmthin", "lvm", "dir", "zfspool", "zfs",
-            "nfs", "cifs", "cephfs", "btrfs", "rbd", "glusterfs",
-        }
-
         def fetch_node(node_name: str) -> None:
             ip_found = ""
             usable: list = []
             resources: Dict = {}
+            # Use tight per-request timeout so 3 calls fit inside join(timeout=20).
+            # 5s × 3 calls = 15s max, safely below the 20s join window.
+            _t = 5
             try:
                 # ── SSH/management IP ────────────────────────────────────────────
                 try:
-                    ifaces = pve_get(f"/nodes/{node_name}/network")
+                    ifaces = pve_get(f"/nodes/{node_name}/network", _t)
                     sorted_ifaces = sorted(
                         ifaces,
                         key=lambda i: (
@@ -626,17 +629,15 @@ def _discover_proxmox(host: str, token: str) -> Dict:
 
                 # ── Datastores WITH free space ────────────────────────────────
                 try:
-                    storages = pve_get(f"/nodes/{node_name}/storage")
+                    storages = pve_get(f"/nodes/{node_name}/storage", _t)
                     for s in storages:
                         if not s.get("enabled", 1):
                             continue
                         # Skip storages that are not currently active/mounted
-                        # (they would show 0 free/total which misleads the UI)
                         if not s.get("active", 1):
                             continue
                         stype = s.get("type", "")
                         content = s.get("content", "")
-                        # Include if type is known-image-capable OR explicitly configured for images
                         if stype not in IMAGE_CAPABLE_TYPES and "images" not in content:
                             continue
                         avail_bytes = int(s.get("avail", 0))
@@ -652,7 +653,7 @@ def _discover_proxmox(host: str, token: str) -> Dict:
 
                 # ── Node resources (CPU cores + RAM) ─────────────────────────
                 try:
-                    ns = pve_get(f"/nodes/{node_name}/status")
+                    ns = pve_get(f"/nodes/{node_name}/status", _t)
                     mem = ns.get("memory", {})
                     cpuinfo = ns.get("cpuinfo", {})
                     resources = {
@@ -713,6 +714,74 @@ def _discover_proxmox(host: str, token: str) -> Dict:
             "vmid_suggestions": vmids,
             **resource_info,
         }
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def _discover_proxmox_node(host: str, token: str, node_name: str) -> Dict:
+    """Fetch datastores and resources for a single Proxmox node on demand.
+
+    Used by the UI when the user switches to a PVE node whose data wasn't
+    captured during the initial full discovery (e.g., due to timeouts).
+    """
+    import urllib.request
+    import ssl
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    headers = {"Authorization": f"PVEAPIToken={token}"}
+    base = f"https://{host}:8006/api2/json"
+
+    IMAGE_CAPABLE_TYPES = {
+        "lvmthin", "lvm", "dir", "zfspool", "zfs",
+        "nfs", "cifs", "cephfs", "btrfs", "rbd", "glusterfs",
+    }
+
+    def pve_get(path: str):
+        req = urllib.request.Request(f"{base}{path}", headers=headers)
+        with urllib.request.urlopen(req, context=ctx, timeout=10) as r:
+            return json.loads(r.read())["data"]
+
+    try:
+        usable: list = []
+        try:
+            storages = pve_get(f"/nodes/{node_name}/storage")
+            for s in storages:
+                if not s.get("enabled", 1) or not s.get("active", 1):
+                    continue
+                stype = s.get("type", "")
+                content = s.get("content", "")
+                if stype not in IMAGE_CAPABLE_TYPES and "images" not in content:
+                    continue
+                avail_bytes = int(s.get("avail", 0))
+                total_bytes = int(s.get("total", 0))
+                usable.append({
+                    "name": s["storage"],
+                    "type": stype,
+                    "free_gb": avail_bytes // (1024 ** 3),
+                    "total_gb": total_bytes // (1024 ** 3),
+                })
+        except Exception:
+            pass
+
+        resources: Dict = {}
+        try:
+            ns = pve_get(f"/nodes/{node_name}/status")
+            mem = ns.get("memory", {})
+            cpuinfo = ns.get("cpuinfo", {})
+            resources = {
+                "cpu_cores": int(cpuinfo.get("cpus", 0)),
+                "mem_total_mb": int(mem.get("total", 0)) // (1024 * 1024),
+                "mem_free_mb": (
+                    int(mem.get("free", 0))
+                    + int(mem.get("buffers", 0))
+                    + int(mem.get("cached", 0))
+                ) // (1024 * 1024),
+            }
+        except Exception:
+            pass
+
+        return {"ok": True, "node": node_name, "datastores": usable, "resources": resources}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
@@ -1460,6 +1529,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._send_json({"ok": False, "error": "host and token required"}, 400)
                 return
             self._send_json(_discover_proxmox(host, token))
+            return
+
+        if path == "/api/discover-proxmox-node":
+            host = payload.get("host", "").strip()
+            token = payload.get("token", "").strip()
+            node = payload.get("node", "").strip()
+            if not host or not token or not node:
+                self._send_json({"ok": False, "error": "host, token, and node required"}, 400)
+                return
+            self._send_json(_discover_proxmox_node(host, token, node))
             return
 
         if path == "/api/suggest-vips":
