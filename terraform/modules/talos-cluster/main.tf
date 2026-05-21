@@ -64,10 +64,13 @@ resource "proxmox_download_file" "talos_image" {
   node_name           = each.key
   url                 = local.talos_image_url
   file_name           = "talos-${var.talos_version}.img"
-  overwrite           = false
-  # Allow adopting a pre-existing file that was created outside of Terraform
-  # (e.g. from a previous run with wiped state). Without this flag the provider
-  # would return an error if the file exists but is not in the current TF state.
+  # overwrite=true: Proxmox always downloads/overwrites the file.
+  # Combined with null_resource.decompress_talos_image (which decompresses
+  # the XZ in-place after download), this ensures the stored file is always
+  # a valid raw disk image — even if a previous run left a stale XZ file.
+  # After this resource is in TF state the file is stable; subsequent applies
+  # are no-ops (TF sees the resource unchanged and skips).
+  overwrite           = true
   overwrite_unmanaged = true
   upload_timeout      = 1800
 }
