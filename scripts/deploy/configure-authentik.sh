@@ -87,6 +87,10 @@ AUTHENTIK_ADMIN_TOKEN=$(echo "$_AK_PY" | base64 -d | \
   sh -c 'cat > /tmp/ak_token.py && ak shell < /tmp/ak_token.py' \
   2>&1 | grep "^TOKEN:" | sed 's/TOKEN://' || echo "")
 echo "AUTHENTIK_ADMIN_TOKEN=${AUTHENTIK_ADMIN_TOKEN}" >> "${GITHUB_ENV:-/dev/null}"
+# Also persist to temp file for local deploys (GITHUB_ENV is /dev/null locally)
+if [ -n "${IW_AUTH_ENV_FILE:-}" ]; then
+  echo "export AUTHENTIK_ADMIN_TOKEN=${AUTHENTIK_ADMIN_TOKEN}" >> "$IW_AUTH_ENV_FILE"
+fi
 
 $KT port-forward svc/authentik-server -n authentik 8089:80 > /tmp/authentik-pf-setup.log 2>&1 &
 SETUP_PF_PID=$!
@@ -114,6 +118,10 @@ if [ -n "$AUTHENTIK_ADMIN_TOKEN" ]; then
         LINK=$(echo "$LINK" | sed "s|http://localhost:8089|https://auth.${BASE_DOMAIN}|g")
         ENV_VAR="AUTHENTIK_$(echo "$USERNAME" | tr '[:lower:]' '[:upper:]')_RECOVERY_LINK"
         echo "${ENV_VAR}=${LINK}" >> "${GITHUB_ENV:-/dev/null}"
+        # Also persist to temp file for local deploys
+        if [ -n "${IW_AUTH_ENV_FILE:-}" ]; then
+          printf 'export %s=%q\n' "$ENV_VAR" "$LINK" >> "$IW_AUTH_ENV_FILE"
+        fi
         echo "✅ Recovery link generated for ${USERNAME}"
       else
         echo "⚠️ Recovery link request failed for ${USERNAME} (non-critical)"

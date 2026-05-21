@@ -576,7 +576,12 @@ fi
 
 # ── Step 17: Configure Authentik ──────────────────────────────────────────────
 log "Step 17: Configuring Authentik..."
-ENV_NAME="$ENV_NAME" bash scripts/deploy/configure-authentik.sh 2>/dev/null || warn "configure-authentik.sh failed (may retry)"
+# Use a temp file so recovery links and tokens survive to the email step (local deploys
+# don't have GITHUB_ENV flowing between subshells)
+export IW_AUTH_ENV_FILE="/tmp/iw-auth-env-$ENV_NAME.sh"
+rm -f "$IW_AUTH_ENV_FILE"
+ENV_NAME="$ENV_NAME" IW_AUTH_ENV_FILE="$IW_AUTH_ENV_FILE" \
+  bash scripts/deploy/configure-authentik.sh 2>/dev/null || warn "configure-authentik.sh failed (may retry)"
 ENV_NAME="$ENV_NAME" bash scripts/deploy/set-user-passwords.sh 2>/dev/null  || warn "set-user-passwords.sh failed (may retry)"
 ok "Step 17: Authentik configured"
 
@@ -598,14 +603,46 @@ bash scripts/test-post-deploy.sh "$KB_FILE" "$ENV_NAME" 2>/dev/null || warn "Pos
 
 # ── Step 21: Send deployment summary email ────────────────────────────────────
 log "Step 21: Sending deployment summary email..."
-BAO_TOKEN=$(kubectl --kubeconfig "$KB_FILE" get secret openbao-unseal -n openbao \
-  -o jsonpath='{.data.root_token}' 2>/dev/null | base64 -d || echo "unavailable")
-BAO_UNSEAL=$(kubectl --kubeconfig "$KB_FILE" get secret openbao-unseal -n openbao \
-  -o jsonpath='{.data.unseal_key}' 2>/dev/null | base64 -d || echo "unavailable")
+
+# Try all control-plane endpoints so a crashed cp1 doesn't block the email
+_bao_token=""
+_bao_unseal=""
+for _api_ip in $(echo "${CONTROLPLANE_IPS:-10.10.0.90}" | tr ',' ' ') ""; do
+  _kb_flag="--kubeconfig $KB_FILE"
+  [ -n "$_api_ip" ] && _kb_flag="--kubeconfig $KB_FILE --server=https://$_api_ip:6443 --insecure-skip-tls-verify"
+  _bao_token=$(kubectl $_kb_flag get secret openbao-unseal -n openbao \
+    -o jsonpath='{.data.root_token}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
+  [ -n "$_bao_token" ] && break
+done
+BAO_TOKEN="${_bao_token:-unavailable}"
+
+for _api_ip in $(echo "${CONTROLPLANE_IPS:-10.10.0.90}" | tr ',' ' ') ""; do
+  _kb_flag="--kubeconfig $KB_FILE"
+  [ -n "$_api_ip" ] && _kb_flag="--kubeconfig $KB_FILE --server=https://$_api_ip:6443 --insecure-skip-tls-verify"
+  _bao_unseal=$(kubectl $_kb_flag get secret openbao-unseal -n openbao \
+    -o jsonpath='{.data.unseal_key}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
+  [ -n "$_bao_unseal" ] && break
+done
+BAO_UNSEAL="${_bao_unseal:-unavailable}"
+
+# Read Authentik admin password from OpenBao
+if [ -n "$BAO_TOKEN" ] && [ "$BAO_TOKEN" != "unavailable" ]; then
+  _auth_admin_pass=$(kubectl --kubeconfig "$KB_FILE" --server=https://"${NODE_1_IP:-10.10.0.90}":6443 \
+    --insecure-skip-tls-verify exec -n openbao openbao-0 -- \
+    sh -c "BAO_TOKEN='$BAO_TOKEN' bao kv get -field=admin-password secret/platform/authentik" \
+    2>/dev/null || echo "")
+  [ -n "$_auth_admin_pass" ] && export AUTHENTIK_ADMIN_PASS="$_auth_admin_pass"
+fi
+
+# Source recovery links and tokens written by configure-authentik.sh
+if [ -f "${IW_AUTH_ENV_FILE:-}" ]; then
+  # shellcheck source=/dev/null
+  set -a; source "$IW_AUTH_ENV_FILE"; set +a
+fi
 
 export DEPLOY_ENV="$ENV_NAME"
 export DEPLOY_RUN_URL="local://${HOSTNAME:-$(hostname)}/$(date +%Y-%m-%dT%H:%M:%S)"
-export BAO_TOKEN BAO_UNSEAL
+export BAO_TOKEN BAO_UNSEAL BASE_DOMAIN ADMIN_EMAIL
 SMTP_USERNAME="$SMTP_USERNAME" SMTP_PASSWORD="$SMTP_PASSWORD" SMTP_TO="${SMTP_TO:-$SMTP_USERNAME}" \
   python3 scripts/send-deploy-email.py 2>/dev/null || warn "Deploy summary email failed (non-fatal)"
 

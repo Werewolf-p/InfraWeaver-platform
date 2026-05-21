@@ -49,10 +49,11 @@ timestamp       = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 base_domain     = os.environ.get("BASE_DOMAIN", "yourdomain.com")
 admin_email     = os.environ.get("ADMIN_EMAIL", f"admin@{base_domain}")
 
-homepage_url = f"https://home.int.{base_domain}"
-auth_url     = f"https://auth.{base_domain}"
-netbird_url  = f"https://netbird.{base_domain}"
-openbao_url  = f"https://openbao.int.{base_domain}"
+homepage_url     = f"https://home.int.{base_domain}"
+auth_url         = f"https://auth.{base_domain}"
+netbird_url      = f"https://netbird.{base_domain}"
+netbird_mgmt_url = f"https://api-netbird.{base_domain}"
+openbao_url      = f"https://openbao.int.{base_domain}"
 
 deploy_type = os.environ.get("DEPLOY_TYPE", "full-redeploy")
 if deploy_type == "user-config-update":
@@ -261,7 +262,7 @@ html = f"""\
                          f'{netbird_url}</a>')}
               {field_row("Login Method", 'Click &quot;Log in with SSO&quot; → Authentik')}
               {field_row("NetBird Management URL (for client setup)",
-                         "https://api.netbird.{base_domain}")}
+                         netbird_mgmt_url)}
             </table>
             <p style="margin:12px 0 0;color:#475569;font-size:11px;">
               &#128230; Download NetBird client:
@@ -355,7 +356,7 @@ STEP 1: Log in to Authentik SSO
 STEP 2: Connect NetBird VPN
   Dashboard : {netbird_url}
   Login via : SSO (Authentik)
-  Mgmt URL  : https://api.netbird.{base_domain}
+  Mgmt URL  : {netbird_mgmt_url}
   Client    : https://netbird.io/docs/installation
 
 STEP 3: Open Homelab Dashboard (requires VPN)
