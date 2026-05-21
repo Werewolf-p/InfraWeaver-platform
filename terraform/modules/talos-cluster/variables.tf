@@ -35,23 +35,12 @@ variable "proxmox_tls_insecure" {
   default     = true
 }
 
-variable "proxmox_ssh_username" {
-  description = "SSH username on Proxmox nodes (must have qm/pvesm access)."
-  type        = string
-  default     = "root"
-}
-
-variable "proxmox_ssh_private_key_file" {
-  description = "Path to the SSH private key used to connect to Proxmox nodes."
-  type        = string
-  default     = "~/.ssh/deployer_ed25519"
-}
-
 variable "proxmox_nodes_ips" {
   description = <<-EOT
-    Map of Proxmox node names to their management SSH IP addresses.
-    Required so disk import operations (qm importdisk) can be run via SSH on
-    the correct PVE node, which must host the VM being configured.
+    Map of Proxmox node names to their management IP addresses.
+    Kept for compatibility with existing environment definitions, but no longer
+    needed for Talos disk operations now that downloads and VM control use the
+    Proxmox API instead of SSH.
 
     Example:
       {
@@ -60,6 +49,7 @@ variable "proxmox_nodes_ips" {
       }
   EOT
   type        = map(string)
+  default     = {}
 
   validation {
     condition = alltrue([
@@ -208,9 +198,12 @@ variable "vlan3_tag" {
 
 variable "talos_image_datastore" {
   description = <<-EOT
-    Proxmox storage ID used only for staging the raw Talos disk image during
-    import. The final VM disk lands on each node's per-node `datastore`.
-    Defaults to the first node's datastore if not set explicitly.
+    Proxmox storage ID for downloading the Talos raw disk image via the Proxmox API.
+    MUST be an ISO-capable storage (type=dir, e.g. "local") — LVM/ZFS/RBD storages
+    do not support the "iso" content type and will fail at runtime.
+    The image is stored here temporarily; the final VM disk is created in each
+    node's per-node `datastore` (e.g. lvm-proxmox) during VM creation.
+    Default "local" works on every Proxmox node.
   EOT
   type        = string
   default     = "local"

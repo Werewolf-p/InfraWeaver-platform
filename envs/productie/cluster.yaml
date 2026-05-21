@@ -6,64 +6,65 @@ proxmox_host: "10.25.0.3"
 
 # Base domain — used to derive internal service hostnames (e.g. onedev.${base_domain})
 # Must match BASE_DOMAIN in your .env file.
-base_domain: "infraweaver.local"
+base_domain: "rlservers.com"
 
 # Talos VMs — 3 stacked control planes for HA etcd
 nodes:
   talos-prod-cp1:
     proxmox_node: "proxmox"
-    ip: "10.10.0.90"
-    vm_id: 9310
+    ip: "10.10.0.92"
+    vm_id: 9300
     controlplane: true
-    cpu: 4
-    memory_mb: 8192
-    disk_gb: 100
+    cpu: 10
+    memory_mb: 22528
+    disk_gb: 300
     datastore: "lvm-proxmox"
   talos-prod-cp2:
     proxmox_node: "proxmox"
-    ip: "10.10.0.91"
-    vm_id: 9311
+    ip: "10.10.0.93"
+    vm_id: 9301
     controlplane: true
-    cpu: 4
-    memory_mb: 8192
-    disk_gb: 100
+    cpu: 10
+    memory_mb: 22528
+    disk_gb: 300
     datastore: "lvm-proxmox"
   talos-prod-cp3:
-    proxmox_node: "proxmox"
-    ip: "10.10.0.92"
-    vm_id: 9312
+    proxmox_node: "microserver"
+    ip: "10.10.0.94"
+    vm_id: 9302
     controlplane: true
-    cpu: 4
-    memory_mb: 8192
-    disk_gb: 100
-    datastore: "lvm-proxmox"
+    cpu: 6
+    memory_mb: 10240
+    disk_gb: 130
+    datastore: "lvm-microserver"
 
-# SSH IPs for individual PVE nodes — used by qm importdisk and Talos ISO download operations.
-# These are the management IPs of each Proxmox node in the cluster.
+# Management IPs of each Proxmox node in the cluster.
+# Used for display/reference only — Talos VM disk operations use the Proxmox API,
+# no SSH to root@proxmox is required.
 #
 # ── Multi-Proxmox-node support ─────────────────────────────────────────────
 # This map supports clusters spanning multiple physical Proxmox hosts.
 # Requirements for adding a second PVE host:
 #   1. All PVE hosts must be in the SAME Proxmox cluster (they share one API endpoint)
-#      — proxmox_host above points to any node's management IP (they share the API)
-#   2. The deployer SSH key (~/.ssh/deployer_ed25519.pub) must be in
-#      /root/.ssh/authorized_keys on EVERY PVE host listed here
-#   3. The datastore name used in each node's `datastore:` field must exist on
+#      — proxmox_host above points to any node's management IP (API proxies to all)
+#   2. The datastore name used in each node's `datastore:` field must exist on
 #      the PVE host that node is assigned to (datastores are per-node, not shared)
 #
 # To add a second PVE host:
-#   1. Add it here:        pve_nodes:
-#                            pve:  "10.25.0.3"
-#                            pve2: "192.168.1.101"   ← add this
+#   1. Add it here via PVE_NODES in .env:  proxmox:10.25.0.3,pve2:192.168.1.101
 #   2. Assign nodes to it: proxmox_node: "pve2"  in the nodes section above
-#   3. Verify pre-flight:  bash scripts/validate-cluster.sh --fix
-#   4. Run tofu plan to verify changes before applying
+#   3. Run tofu plan to verify changes before applying
 pve_nodes:
   proxmox: "10.25.0.3"
+  microserver: "10.25.0.3"
 
 gateway: "10.10.0.1"
 nameservers:
   - "8.8.8.8"
   - "1.1.1.1"
 subnet_prefix: 24
-talos_image_datastore: "lvm-proxmox"
+
+# Proxmox storage for staging the Talos disk image via the Proxmox API.
+# MUST be an ISO-capable storage (type=dir) — "local" works on every PVE node.
+# This is separate from per-node VM disk storage (NODE_X_DATASTORE / TALOS_DATASTORE).
+talos_image_datastore: "local"

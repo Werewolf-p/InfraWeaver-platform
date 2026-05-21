@@ -235,14 +235,14 @@ if "$IS_LOCAL"; then
   if ssh $SSH_OPTS root@"$PVE_IP" echo "ssh-ok" &>/dev/null; then
     ok "SSH loopback to Proxmox $PVE_IP verified"
   else
-    warn "SSH loopback test failed — will retry after key propagation"
+    warn "SSH loopback test failed — OpenTofu deployment no longer requires Proxmox SSH, so continuing (SSH remains optional for debugging)"
   fi
 else
   SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ConnectTimeout=15 -i ~/.ssh/deployer_ed25519"
   if ssh $SSH_OPTS root@"$PVE_IP" echo "ssh-ok" &>/dev/null; then
-    ok "SSH connection to Proxmox $PVE_IP verified"
+    ok "SSH connection to Proxmox $PVE_IP verified (optional; not required for OpenTofu deployment)"
   else
-    warn "SSH to Proxmox $PVE_IP failed — deployment will continue but may fail at VM provisioning"
+    warn "SSH to Proxmox $PVE_IP failed — OpenTofu deployment will continue because Talos VM disk operations now use the Proxmox API; SSH remains optional for debugging"
   fi
 fi
 
@@ -289,6 +289,16 @@ tofu init \
 VARS=""
 [[ -f "../envs/$ENV_NAME/terraform.tfvars" ]]       && VARS="$VARS -var-file=../envs/$ENV_NAME/terraform.tfvars"
 [[ -f "../envs/$ENV_NAME/services.auto.tfvars" ]]   && VARS="$VARS -var-file=../envs/$ENV_NAME/services.auto.tfvars"
+
+# Migrate: remove old SSH-based null_resources from state if present
+for old_resource in \
+  'module.talos_cluster.null_resource.download_talos_image' \
+  'module.talos_cluster.null_resource.import_talos_disk'; do
+  if tofu state list 2>/dev/null | grep -qF "$old_resource"; then
+    log "Migrating: removing stale SSH-based resource from state: $old_resource"
+    tofu state rm "$old_resource" 2>/dev/null || true
+  fi
+done
 
 # Stage 1: provision Talos cluster VMs
 log "==> Stage 1: provisioning Talos cluster VMs on Proxmox..."

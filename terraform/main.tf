@@ -72,8 +72,6 @@ module "talos_cluster" {
   proxmox_endpoint             = "https://${local.proxmox_host}:8006/"
   proxmox_api_token            = var.proxmox_api_token
   proxmox_tls_insecure         = true
-  proxmox_ssh_username         = "root"
-  proxmox_ssh_private_key_file = "~/.ssh/deployer_ed25519"
   proxmox_nodes_ips            = local.pve_nodes_ips
 
   # Cluster identity

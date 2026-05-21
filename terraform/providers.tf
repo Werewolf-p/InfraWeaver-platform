@@ -41,8 +41,9 @@ terraform {
 # Proxmox provider
 #
 # Connects to the Proxmox cluster management API at proxmox_host:8006.
-# SSH is configured with the deployer key; the provider resolves per-node SSH
-# connections via the Proxmox API for operations that require node-level SSH.
+# SSH is configured with the deployer key for provider-internal operations
+# (e.g. file upload helpers). Our Talos VM provisioners use the REST API
+# exclusively — SSH to root@proxmox is not required for deployment.
 # ---------------------------------------------------------------------------
 
 locals {
