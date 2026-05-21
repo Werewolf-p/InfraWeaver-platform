@@ -372,6 +372,24 @@ for old_resource in \
   fi
 done
 
+# Pre-Stage 1: delete any stale Talos images from PVE nodes when starting fresh.
+# This ensures proxmox_download_file (overwrite=false) can download cleanly on a
+# first run or after a tofu destroy.  Skipped when state already has the resource.
+if ! tofu state list 2>/dev/null | grep -q "proxmox_download_file"; then
+  log "Fresh deployment — removing any stale Talos images from PVE nodes..."
+  _IFS_SAVE="$IFS"; IFS=','
+  for node_spec in $PVE_NODES; do
+    NODE_NAME="${node_spec%%:*}"
+    NODE_IP="${node_spec##*:}"
+    log "  Cleaning images from $NODE_NAME ($NODE_IP)..."
+    ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
+        -i ~/.ssh/deployer_ed25519 root@"$NODE_IP" \
+        'rm -f /var/lib/vz/template/iso/talos-*.img && echo "  cleaned"' 2>/dev/null \
+      || warn "  Could not clean images from $NODE_NAME (non-fatal)"
+  done
+  IFS="$_IFS_SAVE"
+fi
+
 # Stage 1: provision Talos cluster VMs
 log "==> Stage 1: provisioning Talos cluster VMs on Proxmox..."
 # shellcheck disable=SC2086
@@ -389,6 +407,22 @@ cp "$KB_FILE" "$REPO_DIR/generated/kubeconfig" 2>/dev/null || true
 chmod 600 "$KB_FILE" 2>/dev/null || true
 tofu output -raw talosconfig > "../envs/$ENV_NAME/generated/talosconfig" 2>/dev/null || true
 chmod 600 "../envs/$ENV_NAME/generated/talosconfig" 2>/dev/null || true
+
+# Wait for Kubernetes API before Stage 2a — Talos bootstrap can take 5-8 min.
+log "==> Waiting for Kubernetes API to become ready (up to 10 min)..."
+_k8s_ready=0
+for _i in $(seq 1 60); do
+  if kubectl --kubeconfig "$KB_FILE" get nodes --request-timeout=5s >/dev/null 2>&1; then
+    log "✅ Kubernetes API is ready"
+    _k8s_ready=1
+    break
+  fi
+  log "  Kubernetes API not ready yet ($_i/60), waiting 10s..."
+  sleep 10
+done
+if [ "$_k8s_ready" -eq 0 ]; then
+  warn "Kubernetes API did not become ready in 10 min — Stage 2a may fail"
+fi
 
 # Stage 2a: install ArgoCD namespace + Helm (gets CRDs registered)
 log "==> Stage 2a: installing ArgoCD namespace + Helm chart..."

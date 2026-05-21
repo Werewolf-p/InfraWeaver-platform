@@ -64,15 +64,19 @@ resource "proxmox_download_file" "talos_image" {
   node_name           = each.key
   url                 = local.talos_image_url
   file_name           = "talos-${var.talos_version}.img"
-  # overwrite=true: Proxmox always downloads/overwrites the file.
-  # Combined with null_resource.decompress_talos_image (which decompresses
-  # the XZ in-place after download), this ensures the stored file is always
-  # a valid raw disk image — even if a previous run left a stale XZ file.
-  # After this resource is in TF state the file is stable; subsequent applies
-  # are no-ops (TF sees the resource unchanged and skips).
-  overwrite           = true
+  # overwrite=false: don't re-download on every apply — the file is stable once
+  # decompressed. overwrite_unmanaged=true allows a fresh deployment to overwrite
+  # a stale file that exists outside TF state (e.g., from a wiped state).
+  # lifecycle.ignore_changes[size]: after null_resource.decompress_talos_image
+  # expands the XZ (193 MB) to a raw disk (~4.4 GB), the stored size in state
+  # no longer matches; ignoring it prevents spurious VM force-replacements.
+  overwrite           = false
   overwrite_unmanaged = true
   upload_timeout      = 1800
+
+  lifecycle {
+    ignore_changes = [size]
+  }
 }
 
 # ---------------------------------------------------------------------------
@@ -93,6 +97,10 @@ resource "null_resource" "decompress_talos_image" {
   triggers = {
     node          = each.key
     talos_version = var.talos_version
+    # Re-run decompress whenever the download_file resource itself is recreated
+    # (e.g. after tofu destroy + re-apply) — the file ID path stays the same but
+    # the download_file resource ID changes, forcing re-decompression.
+    download_id   = proxmox_download_file.talos_image[each.key].id
   }
 
   depends_on = [proxmox_download_file.talos_image]
@@ -426,6 +434,10 @@ resource "null_resource" "start_and_configure_talos" {
     vm_id   = each.value.vm_id
     node_ip = each.value.ip
     mc_hash = sha256(local_sensitive_file.node_machine_config[each.key].content)
+    # Include the VM's MAC address so this null_resource is re-triggered whenever
+    # the VM is replaced (MAC is randomly re-assigned on recreation even if VMID
+    # stays the same — ensuring Talos is reconfigured on the fresh VM).
+    vm_mac  = proxmox_virtual_environment_vm.talos[each.key].network_device[0].mac_address
   }
 
   depends_on = [
@@ -627,9 +639,13 @@ print(m.group(1).lower() if m else '')
 
 resource "null_resource" "bootstrap_etcd" {
   triggers = {
-    cluster_name = var.cluster_name
-    first_cp_ip  = local.first_cp_ip
-    secrets_hash = sha256(jsonencode(talos_machine_secrets.this.machine_secrets))
+    cluster_name    = var.cluster_name
+    first_cp_ip     = local.first_cp_ip
+    secrets_hash    = sha256(jsonencode(talos_machine_secrets.this.machine_secrets))
+    # Re-bootstrap whenever any node's configure step was re-triggered (e.g.
+    # after VM replacement). Without this, bootstrap_etcd keeps its old state
+    # even if the VMs are fresh and un-bootstrapped.
+    configure_ids   = join(",", [for k, v in null_resource.start_and_configure_talos : v.id])
   }
 
   depends_on = [null_resource.start_and_configure_talos]
