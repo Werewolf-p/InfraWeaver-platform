@@ -65,6 +65,19 @@ export function isCIDR(value: string) {
   return prefixNumber >= 0 && prefixNumber <= 32
 }
 
+export function isVipRange(value: string) {
+  const trimmed = value.trim()
+  const [start, end] = trimmed.split('-')
+  if (!start || !end || !isIPv4(start) || !isIPv4(end)) return false
+  const startParts = start.split('.').map(Number)
+  const endParts = end.split('.').map(Number)
+  for (let index = 0; index < 4; index += 1) {
+    if (startParts[index] < endParts[index]) return true
+    if (startParts[index] > endParts[index]) return false
+  }
+  return true
+}
+
 export function sanitizeUsername(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9_-]/g, '')
 }

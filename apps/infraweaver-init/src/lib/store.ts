@@ -241,6 +241,16 @@ interface PersistedWizardState {
   generatedPublicKey?: string
   nodes?: NodeConfig[]
   preset?: PresetType | null
+  deployStarted?: boolean
+  deployId?: number | null
+  deployLastEventSeq?: number
+  deployLogs?: DeployLogLine[]
+  deployProgress?: number
+  deployStepText?: string
+  deployRunning?: boolean
+  deploySummary?: string
+  deployError?: string
+  deployStages?: DeployStage[]
 }
 
 interface WizardStore {
@@ -263,6 +273,9 @@ interface WizardStore {
   deployProgress: number
   deployStepText: string
   deployRunning: boolean
+  deployStarted: boolean
+  deployId: number | null
+  deployLastEventSeq: number
   deploySummary: string
   deployError: string
   deployStages: DeployStage[]
@@ -292,9 +305,11 @@ interface WizardStore {
   getEnvPayload: () => Record<string, string>
   resetDeploy: () => void
   appendDeployLog: (text: string, level?: DeployLogLevel) => void
-  setDeployState: (state: Partial<Pick<WizardStore, 'deployProgress' | 'deployStepText' | 'deployRunning' | 'deploySummary' | 'deployError'>>) => void
+  setDeployState: (state: Partial<Pick<WizardStore, 'deployProgress' | 'deployStepText' | 'deployRunning' | 'deployStarted' | 'deployId' | 'deployLastEventSeq' | 'deploySummary' | 'deployError'>>) => void
   setDeployStages: (stages: DeployStage[]) => void
   updateDeployStage: (name: string, update: Partial<DeployStage>) => void
+  transitionDeployStage: (name: string) => void
+  finalizeDeployStages: (status: 'done' | 'failed') => void
 }
 
 const cloneDeployStages = (stages: DeployStage[]) => stages.map((stage) => ({ ...stage }))
@@ -490,6 +505,9 @@ export const useWizardStore = create<WizardStore>()(
       deployProgress: 0,
       deployStepText: 'Waiting to deploy…',
       deployRunning: false,
+      deployStarted: false,
+      deployId: null,
+      deployLastEventSeq: 0,
       deploySummary: '',
       deployError: '',
       deployStages: cloneDeployStages(initialDeployStages),
@@ -635,7 +653,7 @@ export const useWizardStore = create<WizardStore>()(
                 {
                   id: `node-${n}`,
                   ip: payload[`NODE_${n}_IP`] ?? '',
-                  vmid: payload[`NODE_${n}_VMID`] ?? '',
+                  vmid: payload[`NODE_${n}_VMID`] ?? String(9309 + n),
                   pveNode: payload[`NODE_${n}_PVE_NODE`] ?? '',
                   datastore: payload[`NODE_${n}_DATASTORE`] ?? '',
                   cpu: payload[`NODE_${n}_CPU`] ?? '4',
@@ -698,6 +716,9 @@ export const useWizardStore = create<WizardStore>()(
           deployProgress: 0,
           deployStepText: 'Starting deploy…',
           deployRunning: false,
+          deployStarted: false,
+          deployId: null,
+          deployLastEventSeq: 0,
           deploySummary: '',
           deployError: '',
           deployStages: cloneDeployStages(initialDeployStages),
@@ -717,10 +738,38 @@ export const useWizardStore = create<WizardStore>()(
             stage.name === name ? { ...stage, ...update } : stage,
           ),
         })),
+      transitionDeployStage: (name) =>
+        set((state) => {
+          const now = Date.now()
+          const nextStages = state.deployStages.map((stage) => ({ ...stage }))
+          const runningStage = nextStages.find((stage) => stage.status === 'running')
+          if (runningStage && runningStage.name !== name) {
+            runningStage.status = 'done'
+            runningStage.completedAt = now
+          }
+          const nextStage = nextStages.find((stage) => stage.name === name)
+          if (nextStage) {
+            nextStage.status = 'running'
+            nextStage.startedAt = nextStage.startedAt ?? now
+            nextStage.completedAt = undefined
+          }
+          return { deployStages: nextStages }
+        }),
+      finalizeDeployStages: (status) =>
+        set((state) => {
+          const now = Date.now()
+          const nextStages = state.deployStages.map((stage) => ({ ...stage }))
+          const runningStage = nextStages.find((stage) => stage.status === 'running')
+          if (runningStage) {
+            runningStage.status = status
+            runningStage.completedAt = now
+          }
+          return { deployStages: nextStages }
+        }),
     }),
     {
       name: 'infraweaver-init-wizard',
-      version: 4,
+      version: 5,
       storage: createJSONStorage(() => localStorage),
       skipHydration: true,
       migrate: (persistedState: unknown, version: number) => {
@@ -739,6 +788,31 @@ export const useWizardStore = create<WizardStore>()(
             generatedPublicKey: typeof state.generatedPublicKey === 'string' ? state.generatedPublicKey : '',
             nodes: nextNodes,
             preset: state.preset === 'dev' || state.preset === 'standard' || state.preset === 'power' ? state.preset : null,
+            deployStarted: false,
+            deployId: null,
+            deployLastEventSeq: 0,
+            deployLogs: [],
+            deployProgress: 0,
+            deployStepText: 'Waiting to deploy…',
+            deployRunning: false,
+            deploySummary: '',
+            deployError: '',
+            deployStages: cloneDeployStages(initialDeployStages),
+          }
+        }
+        if (version < 5) {
+          return {
+            ...state,
+            deployStarted: Boolean(state.deployStarted),
+            deployId: typeof state.deployId === 'number' ? state.deployId : null,
+            deployLastEventSeq: typeof state.deployLastEventSeq === 'number' ? state.deployLastEventSeq : 0,
+            deployLogs: Array.isArray(state.deployLogs) ? state.deployLogs : [],
+            deployProgress: typeof state.deployProgress === 'number' ? state.deployProgress : 0,
+            deployStepText: typeof state.deployStepText === 'string' ? state.deployStepText : 'Waiting to deploy…',
+            deployRunning: Boolean(state.deployRunning),
+            deploySummary: typeof state.deploySummary === 'string' ? state.deploySummary : '',
+            deployError: typeof state.deployError === 'string' ? state.deployError : '',
+            deployStages: Array.isArray(state.deployStages) ? state.deployStages.map((stage) => ({ ...stage })) : cloneDeployStages(initialDeployStages),
           }
         }
         return persistedState
@@ -751,6 +825,16 @@ export const useWizardStore = create<WizardStore>()(
         localIpRanges: state.localIpRanges,
         vpnOnly: state.vpnOnly,
         generatedPublicKey: state.generatedPublicKey,
+        deployStarted: state.deployStarted,
+        deployId: state.deployId,
+        deployLastEventSeq: state.deployLastEventSeq,
+        deployLogs: state.deployLogs,
+        deployProgress: state.deployProgress,
+        deployStepText: state.deployStepText,
+        deployRunning: state.deployRunning,
+        deploySummary: state.deploySummary,
+        deployError: state.deployError,
+        deployStages: state.deployStages,
       }),
     },
   ),

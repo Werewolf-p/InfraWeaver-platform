@@ -15,14 +15,18 @@ import json
 import mimetypes
 import os
 import re
+import shutil
 import subprocess
 import sys
 import threading
 import time
+import urllib.error
 import urllib.parse
+import urllib.request
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 import socketserver
+import ssl
 
 mimetypes.init()
 EXT_TYPES = {
@@ -56,6 +60,29 @@ OUT_DIR = _script_dir / "out"
 ENV_FILE = REPO_DIR / ".env"
 DEPLOY_LOCK = threading.Lock()
 CURRENT_DEPLOY: Optional[subprocess.Popen] = None
+DEPLOY_STATE_COND = threading.Condition()
+DEPLOY_STATE = {
+    "deployment_id": 0,
+    "running": False,
+    "mode": None,
+    "progress": 0,
+    "step": "Waiting to deploy…",
+    "summary": "",
+    "error": "",
+    "events": [],
+    "next_seq": 1,
+    "started_at": None,
+    "completed_at": None,
+}
+
+IMPORT_REQUIRED_ENV_FIELDS = [
+    "BASE_DOMAIN",
+    "PROXMOX_HOST",
+    "PROXMOX_API_TOKEN",
+    "NODE_COUNT",
+    "NODE_1_IP",
+    "METALLB_VIP_RANGE",
+]
 
 REQUIRED_ENV_FIELDS = [
     "BASE_DOMAIN", "ADMIN_EMAIL", "GITHUB_REPO", "GIT_REPO_URL",
@@ -202,6 +229,31 @@ def _int_to_ip(n: int) -> str:
     return socket.inet_ntoa(struct.pack("!I", n))
 
 
+def _is_valid_ipv4(value: str) -> bool:
+    try:
+        parts = value.strip().split(".")
+        if len(parts) != 4:
+            return False
+        return all(part.isdigit() and 0 <= int(part) <= 255 for part in parts)
+    except Exception:
+        return False
+
+
+def _is_positive_integer(value: str) -> bool:
+    return value.strip().isdigit() and int(value.strip()) > 0
+
+
+def _is_valid_domain(value: str) -> bool:
+    return bool(re.match(r"^(?=.{1,253}$)(?!-)(?:[a-zA-Z0-9-]{1,63}\.)+[a-zA-Z]{2,63}$", value.strip()))
+
+
+def _is_valid_vip_range(value: str) -> bool:
+    start, _, end = value.strip().partition("-")
+    if not start or not end or not _is_valid_ipv4(start) or not _is_valid_ipv4(end):
+        return False
+    return _ip_to_int(start) <= _ip_to_int(end)
+
+
 def _ping_host(ip: str, timeout_ms: int = 500) -> bool:
     """Return True if the host responds to ping (= IP is already in use)."""
     try:
@@ -311,9 +363,6 @@ def _ping_check_single(ip: str) -> Dict:
 
 
 def _ping_proxmox(host: str) -> Dict:
-    import urllib.request
-    import ssl
-
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
@@ -332,6 +381,41 @@ def _ping_proxmox(host: str) -> Dict:
             }
     except Exception as e:
         return {"ok": False, "error": str(e)}
+
+
+def _proxmox_context():
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    return ctx
+
+
+def _proxmox_json_request(host: str, token: str, path: str, method: str = "GET", data: Optional[Dict] = None):
+    headers = {"Authorization": f"PVEAPIToken={token}"}
+    body = None
+    if data is not None:
+        headers["Content-Type"] = "application/x-www-form-urlencoded"
+        body = urllib.parse.urlencode(data).encode()
+    req = urllib.request.Request(
+        f"https://{host}:8006/api2/json{path}",
+        data=body,
+        headers=headers,
+        method=method,
+    )
+    with urllib.request.urlopen(req, context=_proxmox_context(), timeout=15) as resp:
+        payload = json.loads(resp.read())
+        return payload.get("data")
+
+
+def _find_proxmox_vm_node(host: str, token: str, vmid: int) -> Optional[str]:
+    try:
+        resources = _proxmox_json_request(host, token, "/cluster/resources?type=vm") or []
+        for resource in resources:
+            if int(resource.get("vmid", 0)) == vmid:
+                return resource.get("node")
+    except Exception:
+        return None
+    return None
 
 
 def _setup_proxmox_user(host: str, username: str, password: str) -> Dict:
@@ -709,6 +793,9 @@ def _get_status() -> Dict:
     provider = _normalize_dns_provider(env.get("DNS_PROVIDER", "cloudflare"))
     required_fields = DNS_PROVIDER_FIELDS.get(provider, [])
     dns_provider_configured = provider == "none" or all(env.get(field, "").strip() for field in required_fields)
+    with DEPLOY_STATE_COND:
+        deployment_id = DEPLOY_STATE.get("deployment_id") or None
+        deploy_running = bool(DEPLOY_STATE.get("running")) or (CURRENT_DEPLOY is not None and CURRENT_DEPLOY.poll() is None)
     return {
         "env_saved": ENV_FILE.exists() and bool(env),
         "ssh_key": bool(env.get("DEPLOYER_SSH_KEY")),
@@ -716,16 +803,16 @@ def _get_status() -> Dict:
         "dns_provider": provider,
         "dns_provider_configured": dns_provider_configured,
         "proxmox": False,  # checked via /api/validate-proxmox
-        "deploy_running": CURRENT_DEPLOY is not None and CURRENT_DEPLOY.poll() is None,
+        "deploy_running": deploy_running,
+        "deploy_id": deployment_id,
     }
 
 
 def _validate_proxmox(env_data: Dict) -> Dict:
-    token = env_data.get("PROXMOX_API_TOKEN", "")
-    # Extract host from cluster.yaml
+    token = str(env_data.get("PROXMOX_API_TOKEN", "")).strip()
     env_name = env_data.get("ENV_NAME", "productie")
     cluster_yaml = REPO_DIR / "envs" / env_name / "cluster.yaml"
-    host = env_data.get("PROXMOX_HOST", "").strip() or "192.168.1.100"
+    host = str(env_data.get("PROXMOX_HOST", "")).strip() or "192.168.1.100"
     if cluster_yaml.exists():
         for line in cluster_yaml.read_text().splitlines():
             if "proxmox_host:" in line:
@@ -734,38 +821,184 @@ def _validate_proxmox(env_data: Dict) -> Dict:
                     host = m.group(1)
                     break
 
-    import urllib.request
-    import ssl
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
-    url = f"https://{host}:8006/api2/json/nodes"
-    req = urllib.request.Request(url, headers={"Authorization": f"PVEAPIToken={token}"})
     try:
-        with urllib.request.urlopen(req, context=ctx, timeout=10) as resp:
-            body = json.loads(resp.read())
-            nodes = [n.get("node") for n in body.get("data", [])]
-            return {"ok": True, "nodes": ", ".join(nodes)}
+        nodes = _proxmox_json_request(host, token, "/nodes") or []
+        return {"ok": True, "nodes": ", ".join(str(node.get("node", "")) for node in nodes if node.get("node"))}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
 
-def _stream_deploy(mode: str):
-    """Generator: runs deploy-local.sh or redeploy-local.sh, yields SSE lines."""
+def _validate_import_env(payload: Dict) -> Dict:
+    env_payload = payload.get("env", payload)
+    env = {str(k): "" if v is None else str(v) for k, v in dict(env_payload or {}).items()}
+    errors: List[Dict[str, str]] = []
+    warnings: List[Dict[str, str]] = []
+
+    def add_error(field: str, message: str):
+        errors.append({"field": field, "message": message})
+
+    def add_warning(field: str, message: str):
+        warnings.append({"field": field, "message": message})
+
+    for field in IMPORT_REQUIRED_ENV_FIELDS:
+        if not env.get(field, "").strip():
+            add_error(field, "Missing required field.")
+
+    if env.get("BASE_DOMAIN", "").strip() and not _is_valid_domain(env["BASE_DOMAIN"]):
+        add_error("BASE_DOMAIN", "Expected a valid domain name.")
+
+    if env.get("PROXMOX_HOST", "").strip() and not _is_valid_ipv4(env["PROXMOX_HOST"]):
+        add_error("PROXMOX_HOST", "Expected a valid IPv4 address.")
+
+    node_count_raw = env.get("NODE_COUNT", "").strip()
+    node_count = 0
+    if node_count_raw:
+        if not _is_positive_integer(node_count_raw):
+            add_error("NODE_COUNT", "Expected a positive integer.")
+        else:
+            node_count = int(node_count_raw)
+
+    vip_range = env.get("METALLB_VIP_RANGE", "").strip()
+    if vip_range and not _is_valid_vip_range(vip_range):
+        add_error("METALLB_VIP_RANGE", "Expected x.x.x.x-x.x.x.x.")
+
+    if node_count > 0:
+        for index in range(1, node_count + 1):
+            ip_field = f"NODE_{index}_IP"
+            ip_value = env.get(ip_field, "").strip()
+            if not ip_value:
+                add_error(ip_field, f"Node {index} IP is required when NODE_COUNT={node_count}.")
+            elif not _is_valid_ipv4(ip_value):
+                add_error(ip_field, "Expected a valid IPv4 address.")
+
+            vmid_field = f"NODE_{index}_VMID"
+            vmid_value = env.get(vmid_field, "").strip()
+            if vmid_value and not _is_positive_integer(vmid_value):
+                add_error(vmid_field, "VMID must be numeric.")
+            elif not vmid_value:
+                add_warning(vmid_field, "Missing VMID; the wizard will use its default sequence.")
+
+    if not any(issue["field"] in {"PROXMOX_HOST", "PROXMOX_API_TOKEN"} for issue in errors):
+        proxmox_check = _validate_proxmox({
+            "PROXMOX_HOST": env.get("PROXMOX_HOST", ""),
+            "PROXMOX_API_TOKEN": env.get("PROXMOX_API_TOKEN", ""),
+            "ENV_NAME": env.get("ENV_NAME", "productie"),
+        })
+        if not proxmox_check.get("ok"):
+            add_error("PROXMOX_API_TOKEN", proxmox_check.get("error", "Unable to reach the Proxmox API."))
+
+    return {"valid": not errors, "errors": errors, "warnings": warnings}
+
+
+def _detect_init_vm_id() -> Optional[int]:
+    env_value = os.environ.get("IW_VM_ID", "").strip()
+    if _is_positive_integer(env_value):
+        return int(env_value)
+
+    product_name_path = Path("/sys/class/dmi/id/product_name")
+    if product_name_path.exists():
+        try:
+            product_name = product_name_path.read_text(errors="ignore").strip()
+            match = re.search(r"(\d{3,6})", product_name)
+            if match:
+                return int(match.group(1))
+        except Exception:
+            pass
+    return None
+
+
+def _cleanup_init_server(stop_server: bool = False) -> Dict:
+    env = _parse_env_file(ENV_FILE)
+    vm_id = _detect_init_vm_id()
+
+    try:
+        for candidate in Path("/tmp").glob("iw-*"):
+            if candidate.is_dir():
+                shutil.rmtree(candidate, ignore_errors=True)
+            else:
+                try:
+                    candidate.unlink()
+                except FileNotFoundError:
+                    pass
+    except Exception as e:
+        return {"ok": False, "error": f"Failed to remove temporary files: {e}"}
+
+    if vm_id is not None:
+        host = env.get("PROXMOX_HOST", "").strip()
+        token = env.get("PROXMOX_API_TOKEN", "").strip()
+        if not host or not token:
+            return {"ok": False, "error": "Detected the init VM but PROXMOX_HOST or PROXMOX_API_TOKEN is missing from .env"}
+
+        node_name = env.get("PROXMOX_NODE_NAME", "").strip() or _find_proxmox_vm_node(host, token, vm_id)
+        if not node_name:
+            return {"ok": False, "error": f"Unable to determine the Proxmox node for VM {vm_id}"}
+
+        try:
+            try:
+                _proxmox_json_request(host, token, f"/nodes/{node_name}/qemu/{vm_id}/status/stop", method="POST")
+            except Exception:
+                pass
+
+            for _ in range(15):
+                status = _proxmox_json_request(host, token, f"/nodes/{node_name}/qemu/{vm_id}/status/current") or {}
+                if status.get("status") != "running":
+                    break
+                time.sleep(2)
+
+            _proxmox_json_request(host, token, f"/nodes/{node_name}/qemu/{vm_id}?purge=1", method="DELETE")
+        except Exception as e:
+            return {"ok": False, "error": f"Failed to remove init VM {vm_id}: {e}"}
+
+    return {"ok": True, "vmId": vm_id, "stopServer": stop_server}
+
+
+def _sse_json(payload: Dict) -> str:
+    return f"data: {json.dumps(payload)}\n\n"
+
+
+def _record_deploy_event(deployment_id: int, event_type: str, **payload):
+    with DEPLOY_STATE_COND:
+        if DEPLOY_STATE["deployment_id"] != deployment_id:
+            return None
+        seq = DEPLOY_STATE["next_seq"]
+        DEPLOY_STATE["next_seq"] += 1
+        event = {"type": event_type, "seq": seq, "deploymentId": deployment_id, **payload}
+        DEPLOY_STATE["events"].append(event)
+
+        if event_type == "progress":
+            DEPLOY_STATE["progress"] = int(payload.get("pct", DEPLOY_STATE["progress"]))
+            DEPLOY_STATE["step"] = str(payload.get("step", DEPLOY_STATE["step"]))
+        elif event_type == "done":
+            DEPLOY_STATE["running"] = False
+            DEPLOY_STATE["progress"] = 100
+            DEPLOY_STATE["step"] = "Complete!"
+            DEPLOY_STATE["summary"] = str(payload.get("summary", ""))
+            DEPLOY_STATE["error"] = ""
+            DEPLOY_STATE["completed_at"] = time.time()
+        elif event_type == "error":
+            DEPLOY_STATE["running"] = False
+            DEPLOY_STATE["error"] = str(payload.get("text", ""))
+            DEPLOY_STATE["completed_at"] = time.time()
+
+        DEPLOY_STATE_COND.notify_all()
+        return event
+
+
+def _run_deploy(mode: str, deployment_id: int):
     global CURRENT_DEPLOY
 
     env = _parse_env_file(ENV_FILE)
     if not env and mode == "deploy":
-        yield f"data: {json.dumps({'type':'error','text':'No .env file found. Save your configuration first.'})}\n\n"
+        _record_deploy_event(deployment_id, "error", text="No .env file found. Save your configuration first.")
+        if DEPLOY_LOCK.locked():
+            DEPLOY_LOCK.release()
         return
 
-    if mode == "redeploy":
-        script = REPO_DIR / "scripts" / "redeploy-local.sh"
-    else:
-        script = REPO_DIR / "scripts" / "deploy-local.sh"
-
+    script = REPO_DIR / "scripts" / ("redeploy-local.sh" if mode == "redeploy" else "deploy-local.sh")
     if not script.exists():
-        yield f"data: {json.dumps({'type':'error','text':f'Script not found: {script}'})}\n\n"
+        _record_deploy_event(deployment_id, "error", text=f"Script not found: {script}")
+        if DEPLOY_LOCK.locked():
+            DEPLOY_LOCK.release()
         return
 
     proc_env = os.environ.copy()
@@ -774,31 +1007,29 @@ def _stream_deploy(mode: str):
         "IW_REPO_DIR": str(REPO_DIR),
         "PYTHONUNBUFFERED": "1",
     })
-    # Export env vars directly so scripts can use them
     for k, v in env.items():
         proc_env[k] = v
 
-    # Progress markers emitted when these strings appear in output
-    PROGRESS = [
-        ("Installing tools",           5,  "Installing tools"),
-        ("Clearing state",             10, "Clearing old state"),
-        ("tofu apply",                 20, "Provisioning VMs"),
-        ("Stage 2a",                   35, "Deploying ArgoCD Helm"),
-        ("Stage 2b",                   50, "Full platform bootstrap"),
-        ("Deploy ArgoCD",              55, "Deploying ArgoCD"),
-        ("Bootstrap OpenBao",          65, "Bootstrapping OpenBao"),
-        ("Ensuring DNS records",      70, "Configuring DNS"),
-        ("Apply MetalLB",              75, "Applying MetalLB"),
-        ("Reconnect NetBird",          80, "NetBird reconnect"),
-        ("Patch cluster CoreDNS",      82, "Patching CoreDNS"),
-        ("Configure certificate",      85, "TLS certificates"),
-        ("Set Authentik admin",        90, "Configuring Authentik"),
-        ("Run post-deploy",            95, "Post-deploy tests"),
-        ("Deployment complete",       100, "Complete!"),
+    progress_markers = [
+        ("Installing tools", 5, "Installing tools"),
+        ("Clearing state", 10, "Clearing old state"),
+        ("tofu apply", 20, "Provisioning VMs"),
+        ("Stage 2a", 35, "Deploying ArgoCD Helm"),
+        ("Stage 2b", 50, "Full platform bootstrap"),
+        ("Deploy ArgoCD", 55, "Deploying ArgoCD"),
+        ("Bootstrap OpenBao", 65, "Bootstrapping OpenBao"),
+        ("Ensuring DNS records", 70, "Configuring DNS"),
+        ("Apply MetalLB", 75, "Applying MetalLB"),
+        ("Reconnect NetBird", 80, "NetBird reconnect"),
+        ("Patch cluster CoreDNS", 82, "Patching CoreDNS"),
+        ("Configure certificate", 85, "TLS certificates"),
+        ("Set Authentik admin", 90, "Configuring Authentik"),
+        ("Run post-deploy", 95, "Post-deploy tests"),
+        ("Deployment complete", 100, "Complete!"),
     ]
 
-    yield f"data: {json.dumps({'type':'progress','pct':0,'step':'Starting deploy...'})}\n\n"
-    yield f"data: {json.dumps({'type':'log','text':f'==> Running {script.name} in {REPO_DIR}'})}\n\n"
+    _record_deploy_event(deployment_id, "progress", pct=0, step="Starting deploy...")
+    _record_deploy_event(deployment_id, "log", text=f"==> Running {script.name} in {REPO_DIR}")
 
     try:
         proc = subprocess.Popen(
@@ -812,28 +1043,87 @@ def _stream_deploy(mode: str):
         )
         CURRENT_DEPLOY = proc
 
-        for line in proc.stdout:
+        for line in proc.stdout or []:
             line = line.rstrip("\n")
-            yield f"data: {json.dumps({'type':'log','text':line})}\n\n"
-
-            # Emit progress events
-            for marker, pct, step_text in PROGRESS:
+            _record_deploy_event(deployment_id, "log", text=line)
+            for marker, pct, step_text in progress_markers:
                 if marker.lower() in line.lower():
-                    yield f"data: {json.dumps({'type':'progress','pct':pct,'step':step_text})}\n\n"
+                    _record_deploy_event(deployment_id, "progress", pct=pct, step=step_text)
                     break
 
         proc.wait()
         CURRENT_DEPLOY = None
 
         if proc.returncode == 0:
-            yield f"data: {json.dumps({'type':'progress','pct':100,'step':'Complete!'})}\n\n"
-            yield f"data: {json.dumps({'type':'done','summary':'Platform deployed successfully! Check the log above for service URLs.'})}\n\n"
+            _record_deploy_event(deployment_id, "progress", pct=100, step="Complete!")
+            _record_deploy_event(deployment_id, "done", summary="Platform deployed successfully! Check the log above for service URLs.")
         else:
-            yield f"data: {json.dumps({'type':'error','text':f'Deploy script exited with code {proc.returncode}. See log for details.'})}\n\n"
-
+            _record_deploy_event(deployment_id, "error", text=f"Deploy script exited with code {proc.returncode}. See log for details.")
     except Exception as e:
         CURRENT_DEPLOY = None
-        yield f"data: {json.dumps({'type':'error','text':str(e)})}\n\n"
+        _record_deploy_event(deployment_id, "error", text=str(e))
+    finally:
+        with DEPLOY_STATE_COND:
+            if DEPLOY_STATE["deployment_id"] == deployment_id and DEPLOY_STATE["completed_at"] is None and not DEPLOY_STATE["running"]:
+                DEPLOY_STATE["completed_at"] = time.time()
+            DEPLOY_STATE_COND.notify_all()
+        if DEPLOY_LOCK.locked():
+            DEPLOY_LOCK.release()
+
+
+def _start_deploy(mode: str) -> int:
+    with DEPLOY_STATE_COND:
+        deployment_id = int(DEPLOY_STATE["deployment_id"]) + 1
+        DEPLOY_STATE.update({
+            "deployment_id": deployment_id,
+            "running": True,
+            "mode": mode,
+            "progress": 0,
+            "step": "Starting deploy...",
+            "summary": "",
+            "error": "",
+            "events": [],
+            "next_seq": 1,
+            "started_at": time.time(),
+            "completed_at": None,
+        })
+        DEPLOY_STATE_COND.notify_all()
+    threading.Thread(target=_run_deploy, args=(mode, deployment_id), daemon=True).start()
+    return deployment_id
+
+
+def _iter_deploy_events(deployment_id: Optional[int] = None, since_seq: int = 0):
+    last_seq = since_seq
+    target_id = deployment_id
+    while True:
+        heartbeat = False
+        with DEPLOY_STATE_COND:
+            current_id = int(DEPLOY_STATE.get("deployment_id") or 0)
+            if target_id is None:
+                target_id = current_id or None
+            events = []
+            running = False
+            if target_id is not None and current_id == target_id:
+                events = [event for event in DEPLOY_STATE["events"] if int(event.get("seq", 0)) > last_seq]
+                running = bool(DEPLOY_STATE["running"])
+            if not events and running:
+                DEPLOY_STATE_COND.wait(timeout=15)
+                current_id = int(DEPLOY_STATE.get("deployment_id") or 0)
+                if current_id == target_id:
+                    events = [event for event in DEPLOY_STATE["events"] if int(event.get("seq", 0)) > last_seq]
+                    running = bool(DEPLOY_STATE["running"])
+                else:
+                    events = []
+                    running = False
+                heartbeat = not events and running
+            if not events and not running:
+                break
+
+        for event in events:
+            last_seq = max(last_seq, int(event.get("seq", 0)))
+            yield _sse_json(event)
+        if heartbeat:
+            yield ": keep-alive\n\n"
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -974,6 +1264,29 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._send_json({"ok": False, "error": "kubeconfig not found at generated/kubeconfig"})
             return
 
+        if path == "/api/deploy-events":
+            qs = urllib.parse.urlparse(self.path).query
+            params = urllib.parse.parse_qs(qs)
+            deployment_id_raw = params.get("deploymentId", [""])[0].strip()
+            since_raw = params.get("since", ["0"])[0].strip()
+            deployment_id = int(deployment_id_raw) if deployment_id_raw.isdigit() else None
+            since_seq = int(since_raw) if since_raw.isdigit() else 0
+
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("X-Accel-Buffering", "no")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+
+            try:
+                for chunk in _iter_deploy_events(deployment_id=deployment_id, since_seq=since_seq):
+                    self.wfile.write(chunk.encode())
+                    self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+            return
+
         if OUT_DIR.exists():
             relative_path = path.lstrip("/")
             candidate = (OUT_DIR / relative_path).resolve()
@@ -1033,6 +1346,21 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._send_json(result)
             return
 
+        if path == "/api/validate-env":
+            env_payload = payload.get("env") if isinstance(payload, dict) else None
+            if not isinstance(env_payload, dict):
+                self._send_json({"valid": False, "errors": [{"field": "env", "message": "env object is required"}], "warnings": []}, 400)
+                return
+            self._send_json(_validate_import_env(payload))
+            return
+
+        if path == "/api/cleanup-init":
+            result = _cleanup_init_server(bool(payload.get("stopServer")))
+            if result.get("ok") and payload.get("stopServer"):
+                threading.Thread(target=self.server.shutdown, daemon=True).start()
+            self._send_json(result)
+            return
+
         if path == "/api/discover-proxmox":
             host = payload.get("host", "").strip()
             token = payload.get("token", "").strip()
@@ -1085,6 +1413,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._send_json({"error": "A deploy is already running"}, 409)
                 return
 
+            deployment_id = _start_deploy(mode)
+
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-cache")
@@ -1093,13 +1423,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
 
             try:
-                for chunk in _stream_deploy(mode):
+                for chunk in _iter_deploy_events(deployment_id=deployment_id, since_seq=0):
                     self.wfile.write(chunk.encode())
                     self.wfile.flush()
             except (BrokenPipeError, ConnectionResetError):
                 pass
-            finally:
-                DEPLOY_LOCK.release()
             return
 
         self._send_json({"error": "Not found"}, 404)

@@ -6,6 +6,7 @@ export interface StatusResponse {
   dns_provider_configured: boolean
   proxmox: boolean
   deploy_running: boolean
+  deploy_id?: number | null
 }
 
 export interface LoadEnvResponse {
@@ -114,11 +115,28 @@ export interface GetKubeconfigResponse {
   error?: string
 }
 
+export interface ValidateEnvIssue {
+  field: string
+  message: string
+}
+
+export interface ValidateEnvResponse {
+  valid: boolean
+  errors: ValidateEnvIssue[]
+  warnings: ValidateEnvIssue[]
+}
+
+export interface CleanupInitResponse {
+  ok: boolean
+  vmId?: number | null
+  error?: string
+}
+
 export type DeployEvent =
-  | { type: 'log'; text: string }
-  | { type: 'progress'; pct: number; step: string }
-  | { type: 'done'; summary?: string }
-  | { type: 'error'; text: string }
+  | { type: 'log'; text: string; seq?: number; deploymentId?: number }
+  | { type: 'progress'; pct: number; step: string; seq?: number; deploymentId?: number }
+  | { type: 'done'; summary?: string; seq?: number; deploymentId?: number }
+  | { type: 'error'; text: string; seq?: number; deploymentId?: number }
 
 async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
   const response = await fetch(input, {
@@ -135,6 +153,50 @@ async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
     throw new Error(data.error ?? `Request failed with status ${response.status}`)
   }
   return data
+}
+
+async function streamEvents(input: string, init: RequestInit, onEvent: (event: DeployEvent) => void) {
+  const response = await fetch(input, {
+    ...init,
+    cache: 'no-store',
+  })
+
+  if (!response.ok || !response.body) {
+    let errorText = 'Deploy API failed'
+    try {
+      const errorJson = (await response.json()) as { error?: string }
+      errorText = errorJson.error ?? errorText
+    } catch {
+      // Ignore JSON parse failures for SSE responses.
+    }
+    throw new Error(errorText)
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+
+    buffer += decoder.decode(value, { stream: true })
+    const chunks = buffer.split('\n\n')
+    buffer = chunks.pop() ?? ''
+
+    for (const chunk of chunks) {
+      const lines = chunk.split('\n')
+      const dataLines = lines.filter((line) => line.startsWith('data:')).map((line) => line.slice(5).trim())
+      if (!dataLines.length) continue
+      const raw = dataLines.join('\n').trim()
+      if (!raw) continue
+      try {
+        onEvent(JSON.parse(raw) as DeployEvent)
+      } catch {
+        onEvent({ type: 'log', text: raw })
+      }
+    }
+  }
 }
 
 export async function getStatus() {
@@ -227,42 +289,38 @@ export async function getKubeconfig() {
   return fetchJson<GetKubeconfigResponse>('/api/get-kubeconfig', { method: 'GET', headers: {} })
 }
 
+export async function validateEnv(env: Record<string, string>) {
+  return fetchJson<ValidateEnvResponse>('/api/validate-env', {
+    method: 'POST',
+    body: JSON.stringify({ env }),
+  })
+}
+
+export async function cleanupInit(stopServer = false) {
+  return fetchJson<CleanupInitResponse>('/api/cleanup-init', {
+    method: 'POST',
+    body: JSON.stringify({ stopServer }),
+  })
+}
+
+export async function connectDeployEvents(
+  deploymentId: number | null,
+  since: number,
+  onEvent: (event: DeployEvent) => void,
+) {
+  const params = new URLSearchParams()
+  if (deploymentId) params.set('deploymentId', String(deploymentId))
+  if (since > 0) params.set('since', String(since))
+  return streamEvents(`/api/deploy-events${params.size ? `?${params.toString()}` : ''}`, { method: 'GET' }, onEvent)
+}
+
 export async function deployStream(
   mode: 'deploy' | 'redeploy',
   onEvent: (event: DeployEvent) => void,
 ) {
-  const response = await fetch(mode === 'redeploy' ? '/api/redeploy' : '/api/deploy', {
+  return streamEvents(mode === 'redeploy' ? '/api/redeploy' : '/api/deploy', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ mode }),
-    cache: 'no-store',
-  })
-
-  if (!response.ok || !response.body) {
-    throw new Error('Deploy API failed')
-  }
-
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
-
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-
-    buffer += decoder.decode(value, { stream: true })
-    const lines = buffer.split('\n')
-    buffer = lines.pop() ?? ''
-
-    for (const line of lines) {
-      if (!line.startsWith('data:')) continue
-      const raw = line.slice(5).trim()
-      if (!raw) continue
-      try {
-        onEvent(JSON.parse(raw) as DeployEvent)
-      } catch {
-        onEvent({ type: 'log', text: raw })
-      }
-    }
-  }
+  }, onEvent)
 }

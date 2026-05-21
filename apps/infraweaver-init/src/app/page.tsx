@@ -1,7 +1,8 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
+  BarChart3,
   Boxes,
   Globe,
   KeyRound,
@@ -22,9 +23,9 @@ import { FeaturesStep } from '@/components/steps/FeaturesStep'
 import { IdentityStep } from '@/components/steps/IdentityStep'
 import { ProxmoxStep } from '@/components/steps/ProxmoxStep'
 import { WelcomeStep } from '@/components/steps/WelcomeStep'
-import { getStatus, loadEnv } from '@/lib/api'
-import { initialWizardData, isWizardDataPristine, useWizardStore } from '@/lib/store'
-import { isCIDR, isDomain, isEmail, isIPv4, isPositiveInteger } from '@/lib/utils'
+import { connectDeployEvents, getStatus, loadEnv, type DeployEvent } from '@/lib/api'
+import { initialDeployStages, initialWizardData, isWizardDataPristine, useWizardStore } from '@/lib/store'
+import { classifyLog, isCIDR, isDomain, isEmail, isIPv4, isPositiveInteger } from '@/lib/utils'
 import type { DnsProvider } from '@/lib/store'
 
 function hasDnsProviderCredentials(data: typeof initialWizardData): boolean {
@@ -111,18 +112,72 @@ function isStepValid(step: number, data: typeof initialWizardData, nodes: Return
   }
 }
 
+function applyDeployEventToStore(event: DeployEvent) {
+  const store = useWizardStore.getState()
+  if (typeof event.deploymentId === 'number' || typeof event.seq === 'number') {
+    store.setDeployState({
+      deployStarted: true,
+      deployId: typeof event.deploymentId === 'number' ? event.deploymentId : store.deployId,
+      deployLastEventSeq: typeof event.seq === 'number' ? Math.max(store.deployLastEventSeq, event.seq) : store.deployLastEventSeq,
+    })
+  }
+
+  if (event.type === 'log') {
+    if (event.text.startsWith('STAGE:')) {
+      const stageName = event.text.slice(6).trim()
+      const stage = initialDeployStages.find((item) => item.name === stageName)
+      if (stage) {
+        store.appendDeployLog(`==> ${stage.label}`, 'step')
+        store.transitionDeployStage(stageName)
+      }
+      return
+    }
+    store.appendDeployLog(event.text, classifyLog(event.text))
+    return
+  }
+
+  if (event.type === 'progress') {
+    store.setDeployState({ deployProgress: event.pct, deployStepText: event.step, deployRunning: true, deployStarted: true })
+    return
+  }
+
+  if (event.type === 'done') {
+    store.finalizeDeployStages('done')
+    store.appendDeployLog('✅ Deployment complete!', 'ok')
+    if (event.summary) store.appendDeployLog(event.summary, 'ok')
+    store.setDeployState({
+      deployRunning: false,
+      deployProgress: 100,
+      deployStepText: 'Complete!',
+      deploySummary: event.summary ?? 'Platform deployed successfully!',
+      deployError: '',
+    })
+    return
+  }
+
+  if (event.type === 'error') {
+    store.finalizeDeployStages('failed')
+    store.appendDeployLog(`✗ ${event.text}`, 'err')
+    store.setDeployState({ deployRunning: false, deployError: event.text, deploySummary: '', deployStepText: 'Deploy failed' })
+  }
+}
+
 export default function HomePage() {
   const currentStep = useWizardStore((state) => state.currentStep)
   const data = useWizardStore((state) => state.data)
   const nodes = useWizardStore((state) => state.nodes)
   const localIpRanges = useWizardStore((state) => state.localIpRanges)
   const vpnOnly = useWizardStore((state) => state.vpnOnly)
+  const status = useWizardStore((state) => state.status)
+  const deployStarted = useWizardStore((state) => state.deployStarted)
+  const deployRunning = useWizardStore((state) => state.deployRunning)
   const setCurrentStep = useWizardStore((state) => state.setCurrentStep)
   const setStatus = useWizardStore((state) => state.setStatus)
   const loadFromEnvPayload = useWizardStore((state) => state.loadFromEnv)
   const [direction, setDirection] = useState(1)
   const [hydrated, setHydrated] = useState(false)
   const [expertOpen, setExpertOpen] = useState(false)
+  const reconnectingDeploymentIdRef = useRef<number | null>(null)
 
   useEffect(() => {
     let active = true
@@ -152,12 +207,74 @@ export default function HomePage() {
     }
   }, [loadFromEnvPayload, setStatus])
 
+  useEffect(() => {
+    if (!hydrated || !status) return
+    if (!status.deploy_running && useWizardStore.getState().deployRunning) {
+      useWizardStore.getState().setDeployState({ deployRunning: false })
+    }
+  }, [hydrated, status])
+
+  useEffect(() => {
+    if (!hydrated || !status?.deploy_running || !status.deploy_id) return
+    if (reconnectingDeploymentIdRef.current === status.deploy_id) return
+
+    const store = useWizardStore.getState()
+    const sameDeployment = store.deployId === status.deploy_id
+    const since = sameDeployment ? store.deployLastEventSeq : 0
+
+    if (!sameDeployment) {
+      store.resetDeploy()
+      store.setDeployStages(initialDeployStages.map((stage) => ({ ...stage })))
+      store.setDeployState({
+        deployStarted: true,
+        deployId: status.deploy_id,
+        deployLastEventSeq: 0,
+        deployRunning: true,
+        deployProgress: 0,
+        deployStepText: 'Reconnecting to deployment…',
+        deploySummary: '',
+        deployError: '',
+      })
+    } else {
+      store.setDeployState({ deployStarted: true, deployRunning: true, deployId: status.deploy_id })
+    }
+
+    reconnectingDeploymentIdRef.current = status.deploy_id
+    let cancelled = false
+
+    void connectDeployEvents(status.deploy_id, since, (event) => {
+      if (cancelled) return
+      applyDeployEventToStore(event)
+    })
+      .catch((error) => {
+        if (cancelled) return
+        const message = error instanceof Error ? error.message : 'Unable to reconnect to deployment status.'
+        const currentStore = useWizardStore.getState()
+        currentStore.appendDeployLog(`✗ ${message}`, 'err')
+        currentStore.setDeployState({ deployRunning: false, deployError: message })
+      })
+      .finally(async () => {
+        if (cancelled) return
+        reconnectingDeploymentIdRef.current = null
+        try {
+          setStatus(await getStatus())
+        } catch {
+          // Ignore post-stream refresh failures.
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [hydrated, setStatus, status?.deploy_id, status?.deploy_running])
+
   const canGoNext = useMemo(
     () => isStepValid(currentStep, data, nodes, localIpRanges, vpnOnly),
     [currentStep, data, localIpRanges, nodes, vpnOnly],
   )
 
   const nextLabel = currentStep === 6 ? 'Review & deploy' : currentStep === 0 ? 'Get started' : 'Continue'
+  const showDeploymentBadge = Boolean(status?.env_saved || deployStarted)
 
   const goToStep = (nextStep: number) => {
     if (nextStep === currentStep) return
@@ -178,7 +295,7 @@ export default function HomePage() {
   const renderStep = () => {
     switch (currentStep) {
       case 0:
-        return <WelcomeStep onStart={() => goToStep(1)} />
+        return <WelcomeStep onStart={() => goToStep(1)} onImportSuccess={() => goToStep(7)} />
       case 1:
         return <DomainStep />
       case 2:
@@ -230,6 +347,15 @@ export default function HomePage() {
       >
         {renderStep()}
       </WizardShell>
+      {showDeploymentBadge ? (
+        <div className="fixed bottom-6 right-6 z-50">
+          <ActionButton variant={deployRunning ? 'primary' : 'secondary'} onClick={() => goToStep(7)} className="rounded-full px-5 py-3 shadow-[0_20px_50px_rgba(0,0,0,0.35)]">
+            <BarChart3 className="h-4 w-4" />
+            📊 Deployment
+            <span className="hidden text-xs text-[var(--az-text-secondary)] md:inline">{deployRunning ? 'Live status' : status?.env_saved ? 'Saved .env ready' : 'Last known state'}</span>
+          </ActionButton>
+        </div>
+      ) : null}
       <ExpertEnvModal open={expertOpen} onClose={() => setExpertOpen(false)} />
     </>
   )

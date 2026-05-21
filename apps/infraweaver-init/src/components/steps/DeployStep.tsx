@@ -13,11 +13,12 @@ import {
   RefreshCw,
   Rocket,
   Save,
+  Trash2,
   Upload,
   XCircle,
 } from 'lucide-react'
 import { motion } from 'framer-motion'
-import { deployStream, getKubeconfig, getStatus, pingProxmox, saveEnv } from '@/lib/api'
+import { cleanupInit, deployStream, getKubeconfig, getStatus, pingProxmox, saveEnv } from '@/lib/api'
 import { ActionButton } from '@/components/ui/ActionButton'
 import { GlassCard } from '@/components/ui/GlassCard'
 import { StepHeader } from '@/components/ui/StepHeader'
@@ -96,11 +97,14 @@ export function DeployStep() {
   const appendDeployLog = useWizardStore((state) => state.appendDeployLog)
   const setDeployState = useWizardStore((state) => state.setDeployState)
   const setDeployStages = useWizardStore((state) => state.setDeployStages)
-  const updateDeployStage = useWizardStore((state) => state.updateDeployStage)
+  const transitionDeployStage = useWizardStore((state) => state.transitionDeployStage)
+  const finalizeDeployStages = useWizardStore((state) => state.finalizeDeployStages)
   const loadFromEnv = useWizardStore((state) => state.loadFromEnv)
 
   const [saveMessage, setSaveMessage] = useState('')
   const [actionMessage, setActionMessage] = useState('')
+  const [cleanupMessage, setCleanupMessage] = useState('')
+  const [cleanupBusy, setCleanupBusy] = useState(false)
   const [expandedChecks, setExpandedChecks] = useState<Set<string>>(new Set())
   const [proxmoxReachability, setProxmoxReachability] = useState<{ status: CheckStatus; detail: string }>({
     status: 'pending',
@@ -204,32 +208,13 @@ export function DeployStep() {
     }
   }
 
-  const transitionToStage = (name: string) => {
-    const now = Date.now()
-    const currentStages = useWizardStore.getState().deployStages.map((stage) => ({ ...stage }))
-    const runningStage = currentStages.find((stage) => stage.status === 'running')
-    if (runningStage && runningStage.name !== name) {
-      runningStage.status = 'done'
-      runningStage.completedAt = now
-    }
-    const nextStage = currentStages.find((stage) => stage.name === name)
-    if (nextStage) {
-      nextStage.status = 'running'
-      nextStage.startedAt = nextStage.startedAt ?? now
-      nextStage.completedAt = undefined
-    }
-    setDeployStages(currentStages)
-  }
-
-  const finalizeStages = (status: 'done' | 'failed') => {
-    const now = Date.now()
-    const currentStages = useWizardStore.getState().deployStages.map((stage) => ({ ...stage }))
-    const runningStage = currentStages.find((stage) => stage.status === 'running')
-    if (runningStage) {
-      runningStage.status = status
-      runningStage.completedAt = now
-    }
-    setDeployStages(currentStages)
+  const trackDeployEvent = (seq?: number, deploymentId?: number) => {
+    if (typeof seq !== 'number' && typeof deploymentId !== 'number') return
+    const current = useWizardStore.getState()
+    setDeployState({
+      deployId: typeof deploymentId === 'number' ? deploymentId : current.deployId,
+      deployLastEventSeq: typeof seq === 'number' ? Math.max(current.deployLastEventSeq, seq) : current.deployLastEventSeq,
+    })
   }
 
   const startDeploy = async (mode: 'deploy' | 'redeploy') => {
@@ -243,13 +228,15 @@ export function DeployStep() {
     logLineRefs.current = []
     resetDeploy()
     setDeployStages(initialDeployStages.map((stage) => ({ ...stage })))
-    setDeployState({ deployRunning: true, deployProgress: 0, deployStepText: mode === 'redeploy' ? 'Starting redeploy…' : 'Starting deploy…', deploySummary: '', deployError: '' })
+    setDeployState({ deployStarted: true, deployId: null, deployLastEventSeq: 0, deployRunning: true, deployProgress: 0, deployStepText: mode === 'redeploy' ? 'Starting redeploy…' : 'Starting deploy…', deploySummary: '', deployError: '' })
     setLoading('deploy', true)
     appendDeployLog(`==> ${mode === 'redeploy' ? 'Redeploying' : 'Deploying'} ${data.K8S_CLUSTER_NAME} from ${data.PROXMOX_HOST}`, 'step')
     setActionMessage('')
 
     try {
       await deployStream(mode, (event) => {
+        trackDeployEvent(event.seq, event.deploymentId)
+
         if (event.type === 'log') {
           if (event.text.startsWith('STAGE:')) {
             const stageName = event.text.slice(6).trim()
@@ -257,7 +244,7 @@ export function DeployStep() {
             if (stage) {
               stageAnchors.current[stageName] = useWizardStore.getState().deployLogs.length
               appendDeployLog(`==> ${stage.label}`, 'step')
-              transitionToStage(stageName)
+              transitionDeployStage(stageName)
             }
             return
           }
@@ -271,7 +258,7 @@ export function DeployStep() {
         }
 
         if (event.type === 'done') {
-          finalizeStages('done')
+          finalizeDeployStages('done')
           appendDeployLog('✅ Deployment complete!', 'ok')
           if (event.summary) appendDeployLog(event.summary, 'ok')
           setDeployState({
@@ -285,7 +272,7 @@ export function DeployStep() {
         }
 
         if (event.type === 'error') {
-          finalizeStages('failed')
+          finalizeDeployStages('failed')
           appendDeployLog(`✗ ${event.text}`, 'err')
           setDeployState({ deployRunning: false, deployError: event.text, deploySummary: '', deployStepText: 'Deploy failed' })
         }
@@ -293,7 +280,7 @@ export function DeployStep() {
       await refreshStatusAndChecks()
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Deploy failed'
-      finalizeStages('failed')
+      finalizeDeployStages('failed')
       appendDeployLog(`✗ ${message}`, 'err')
       setDeployState({ deployRunning: false, deployError: message, deploySummary: '', deployStepText: 'Deploy failed' })
     } finally {
@@ -471,6 +458,24 @@ export function DeployStep() {
     await startDeploy('redeploy')
   }
 
+  const handleCleanup = async () => {
+    if (!window.confirm('This will remove the init VM and all temp files. Your cluster will keep running. Continue?')) return
+    setCleanupBusy(true)
+    setCleanupMessage('')
+    try {
+      const result = await cleanupInit()
+      if (result.ok) {
+        setCleanupMessage(result.vmId ? `Cleanup complete. Init VM ${result.vmId} was scheduled for removal.` : 'Cleanup complete. Temporary init files were removed.')
+      } else {
+        setCleanupMessage(result.error ?? 'Cleanup failed.')
+      }
+    } catch (error) {
+      setCleanupMessage(error instanceof Error ? error.message : 'Cleanup failed.')
+    } finally {
+      setCleanupBusy(false)
+    }
+  }
+
   const toggleCheck = (id: string) => {
     setExpandedChecks((current) => {
       const next = new Set(current)
@@ -540,8 +545,13 @@ export function DeployStep() {
                 <Upload className="h-4 w-4" />
                 📥 Import .env
               </ActionButton>
+              <ActionButton variant="danger" onClick={() => void handleCleanup()} disabled={cleanupBusy}>
+                {cleanupBusy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                🗑️ Cleanup Init VM
+              </ActionButton>
             </div>
             {actionMessage ? <div className="mt-4 rounded-2xl border border-white/8 bg-black/20 px-4 py-3 text-sm text-[var(--az-text-secondary)]">{actionMessage}</div> : null}
+            {cleanupMessage ? <div className="mt-4 rounded-2xl border border-white/8 bg-black/20 px-4 py-3 text-sm text-[var(--az-text-secondary)]">{cleanupMessage}</div> : null}
           </GlassCard>
         </div>
       ) : null}
@@ -615,6 +625,9 @@ export function DeployStep() {
             <div className="mt-4 rounded-2xl border border-[rgba(209,52,56,0.22)] bg-[rgba(209,52,56,0.08)] px-4 py-3 text-sm text-[var(--az-danger)]">
               {deployError}
             </div>
+          ) : null}
+          {cleanupMessage && !deploySummary ? (
+            <div className="mt-4 rounded-2xl border border-white/8 bg-black/20 px-4 py-3 text-sm text-[var(--az-text-secondary)]">{cleanupMessage}</div>
           ) : null}
           {actionMessage && !deploySummary ? (
             <div className="mt-4 rounded-2xl border border-white/8 bg-black/20 px-4 py-3 text-sm text-[var(--az-text-secondary)]">{actionMessage}</div>
