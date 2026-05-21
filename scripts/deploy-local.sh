@@ -615,7 +615,7 @@ for i in $(seq 1 30); do
   log "  Waiting for MetalLB CRDs ($i/30)..."
   sleep 10
 done
-kubectl --kubeconfig "$KB_FILE" apply -f kubernetes/core/metallb/manifests/ip-pool.yaml 2>/dev/null || true
+envsubst < kubernetes/core/metallb/manifests/ip-pool.yaml | kubectl --kubeconfig "$KB_FILE" apply -f - 2>/dev/null || true
 kubectl --kubeconfig "$KB_FILE" label namespace metallb-system \
   pod-security.kubernetes.io/enforce=privileged \
   pod-security.kubernetes.io/warn=privileged \
