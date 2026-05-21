@@ -388,8 +388,9 @@ def _setup_proxmox_user(host: str, username: str, password: str) -> Dict:
             "VM.Allocate", "VM.Clone", "VM.Config.CDROM", "VM.Config.CPU",
             "VM.Config.Cloudinit", "VM.Config.Disk", "VM.Config.HWType",
             "VM.Config.Memory", "VM.Config.Network", "VM.Config.Options",
-            "VM.Monitor", "VM.Audit", "VM.PowerMgmt", "VM.Console",
+            "VM.Audit", "VM.PowerMgmt", "VM.Console",
             "VM.Migrate", "VM.Snapshot", "VM.Snapshot.Rollback",
+            "VM.GuestAgent.Audit",  # replaces VM.Monitor (removed in PVE 9.x)
             "Datastore.AllocateSpace", "Datastore.AllocateTemplate", "Datastore.Audit",
             "Pool.Allocate", "SDN.Use", "Sys.Audit",
         ])
