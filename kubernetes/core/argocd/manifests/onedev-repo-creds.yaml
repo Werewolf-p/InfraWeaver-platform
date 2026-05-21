@@ -24,6 +24,8 @@ spec:
         labels:
           argocd.argoproj.io/secret-type: repository
       type: Opaque
+      engineVersion: v2
+      mergePolicy: Replace
       data:
         type: git
         url: http://onedev.onedev.svc.cluster.local/InfraWeaver-platform
@@ -34,3 +36,6 @@ spec:
       remoteRef:
         key: secret/platform/infraweaver-console
         property: onedev-token
+        conversionStrategy: Default
+        decodingStrategy: None
+        metadataPolicy: None
