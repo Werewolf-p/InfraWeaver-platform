@@ -1,8 +1,7 @@
 ---
-# Certificate for infraweaver.local — publicly-accessible subdomains (HTTP-01)
-# auth.infraweaver.local is bundled here (not a separate cert) to share the rate-limit allowance.
-# netbird.infraweaver.local → separate cert (avoid cascading on VPN entry point).
-# Internal services (proxmox, portainer, adguard, etc.) → moved to *.int.infraweaver.local (DNS-01 wildcard)
+# Certificate for infraweaver.local — signed by local self-signed CA
+# (.local TLD is not valid for Let's Encrypt ACME; use infraweaver-ca instead)
+# For public domains (yonavaarwater.nl etc.) use letsencrypt-dns below.
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -11,7 +10,7 @@ metadata:
 spec:
   secretName: platform-wildcard-tls
   issuerRef:
-    name: letsencrypt-http
+    name: infraweaver-ca
     kind: ClusterIssuer
   dnsNames:
     # Base domain
@@ -42,10 +41,7 @@ spec:
     # Catalog apps (public)
     - "onedev.infraweaver.local"
 ---
-# Certificate for *.int.infraweaver.local — private/VPN-only domain, DNS-01 required
-# DNS-only Cloudflare record → 10.10.0.200 (private IP, unreachable without VPN)
-# NOTE: "int.infraweaver.local" apex is included intentionally — it creates a distinct SAN set
-# from "*.int.infraweaver.local" alone, bypassing rate-limit exhaustion on the wildcard-only set.
+# Certificate for *.int.infraweaver.local — signed by local CA (not publicly reachable)
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -54,7 +50,7 @@ metadata:
 spec:
   secretName: platform-int-wildcard-tls
   issuerRef:
-    name: letsencrypt-dns
+    name: infraweaver-ca
     kind: ClusterIssuer
   dnsNames:
     - "int.infraweaver.local"

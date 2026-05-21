@@ -227,3 +227,8 @@ variable "registry_mirror_url" {
   default     = ""
 }
 
+variable "onedev_registry_hostname" {
+  description = "Onedev hostname used as a local container registry (e.g. onedev.infraweaver.local). When set, Talos nodes configure containerd to pull from this host over HTTP (insecure) — avoids Traefik TLS cert chain issues for internally-built images."
+  type        = string
+  default     = ""
+}

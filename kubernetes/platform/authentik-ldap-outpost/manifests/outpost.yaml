@@ -71,9 +71,10 @@ spec:
               protocol: TCP
           env:
             - name: AUTHENTIK_HOST
-              value: "https://auth.infraweaver.local"
+              # Use internal cluster service (HTTP) — avoids TLS cert chain issues with self-signed CA
+              value: "http://authentik-server.authentik.svc.cluster.local"
             - name: AUTHENTIK_INSECURE
-              value: "false"
+              value: "true"
             - name: AUTHENTIK_TOKEN
               valueFrom:
                 secretKeyRef:

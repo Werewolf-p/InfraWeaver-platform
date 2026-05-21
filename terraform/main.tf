@@ -96,6 +96,11 @@ module "talos_cluster" {
   # preventing 429 rate-limit failures during full cluster redeployments.
   registry_mirror_url = "http://${local.proxmox_host}:5000"
 
+  # Onedev acts as the local container registry for InfraWeaver-built images.
+  # Derive hostname from base_domain in cluster.yaml; default to empty if not set.
+  # Using HTTP + insecureSkipVerify avoids TLS chain issues with the self-signed CA.
+  onedev_registry_hostname = try("onedev.${local.cluster_config.base_domain}", "")
+
   environment = var.environment
 }
 

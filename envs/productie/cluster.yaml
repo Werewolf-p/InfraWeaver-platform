@@ -4,6 +4,10 @@ talos_version: "v1.12.7"
 kubernetes_version: "v1.35.4"
 proxmox_host: "10.25.0.3"
 
+# Base domain — used to derive internal service hostnames (e.g. onedev.${base_domain})
+# Must match BASE_DOMAIN in your .env file.
+base_domain: "infraweaver.local"
+
 # Talos VMs — 3 stacked control planes for HA etcd
 nodes:
   talos-prod-cp1:

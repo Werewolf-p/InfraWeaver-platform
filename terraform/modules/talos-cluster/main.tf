@@ -411,21 +411,43 @@ data "talos_machine_configuration" "this" {
         # Docker Hub pull-through cache mirror to avoid 429 rate limits.
         # Each unique Docker Hub image is pulled once from the origin and cached;
         # subsequent node pulls are served locally without hitting Docker Hub.
-        registries = var.registry_mirror_url != "" ? {
-          mirrors = {
-            # Mirror docker.io pulls through the local cache first to avoid Hub rate limits.
-            # Falls back to registry-1.docker.io if the mirror is unavailable or returns errors.
-            "docker.io" = {
-              endpoints = [var.registry_mirror_url, "https://registry-1.docker.io"]
-            }
-          }
-          config = {
-            (trimprefix(trimprefix(var.registry_mirror_url, "https://"), "http://")) = {
-              tls = {
-                insecureSkipVerify = true
+        #
+        # Onedev registry mirror: containerd sends the Onedev hostname in the Host
+        # header so Traefik can route it correctly. Using HTTP (not HTTPS) avoids
+        # the self-signed CA trust issue inside Talos containerd.
+        registries = (var.registry_mirror_url != "" || var.onedev_registry_hostname != "") ? {
+          mirrors = merge(
+            var.registry_mirror_url != "" ? {
+              # Mirror docker.io pulls through the local cache first to avoid Hub rate limits.
+              # Falls back to registry-1.docker.io if the mirror is unavailable or returns errors.
+              "docker.io" = {
+                endpoints = [var.registry_mirror_url, "https://registry-1.docker.io"]
               }
-            }
-          }
+            } : {},
+            var.onedev_registry_hostname != "" ? {
+              # Onedev acts as the registry for InfraWeaver-built images.
+              # Use HTTP so containerd sends the correct Host header; Traefik routes to Onedev.
+              (var.onedev_registry_hostname) = {
+                endpoints = ["http://${var.onedev_registry_hostname}"]
+              }
+            } : {}
+          )
+          config = merge(
+            var.registry_mirror_url != "" ? {
+              (trimprefix(trimprefix(var.registry_mirror_url, "https://"), "http://")) = {
+                tls = {
+                  insecureSkipVerify = true
+                }
+              }
+            } : {},
+            var.onedev_registry_hostname != "" ? {
+              (var.onedev_registry_hostname) = {
+                tls = {
+                  insecureSkipVerify = true
+                }
+              }
+            } : {}
+          )
         } : null
         kubelet = {
           extraArgs = {
