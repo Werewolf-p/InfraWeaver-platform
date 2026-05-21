@@ -13,18 +13,3 @@ spec:
       default:
         memory: 512Mi
         cpu: 500m
----
-apiVersion: v1
-kind: LimitRange
-metadata:
-  name: workload-defaults
-  namespace: netbird
-spec:
-  limits:
-    - type: Container
-      defaultRequest:
-        memory: 64Mi
-        cpu: 50m
-      default:
-        memory: 512Mi
-        cpu: 500m
