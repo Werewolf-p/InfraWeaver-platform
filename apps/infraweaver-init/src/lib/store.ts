@@ -825,6 +825,7 @@ export const useWizardStore = create<WizardStore>()(
         localIpRanges: state.localIpRanges,
         vpnOnly: state.vpnOnly,
         generatedPublicKey: state.generatedPublicKey,
+        proxmoxDiscovery: state.proxmoxDiscovery,
         deployStarted: state.deployStarted,
         deployId: state.deployId,
         deployLastEventSeq: state.deployLastEventSeq,

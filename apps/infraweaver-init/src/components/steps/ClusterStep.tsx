@@ -86,20 +86,24 @@ export function ClusterStep() {
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [ramUnit, setRamUnit] = useState<'MB' | 'GB'>('GB')
 
-  // If this step loads without discovery data (e.g. after page reload) but
-  // credentials are already filled in, re-run discovery automatically.
+  // Fallback: if discovery data is missing but credentials are present (e.g. fresh
+  // session that never ran ProxmoxStep discovery), trigger discovery now.
+  // After the partialize fix, proxmoxDiscovery survives page reloads and this
+  // will almost never fire in normal use.
   useEffect(() => {
     const host = data.PROXMOX_HOST?.trim()
     const token = data.PROXMOX_API_TOKEN?.trim()
     if (!proxmoxDiscovery && host && token && !loading.discoverProxmox) {
       setLoading('discoverProxmox', true)
-      import('@/lib/api').then(({ discoverProxmox }) =>
-        discoverProxmox(host, token)
-          .then((result) => setProxmoxDiscovery(result))
-          .finally(() => setLoading('discoverProxmox', false))
-      )
+      import('@/lib/api')
+        .then(({ discoverProxmox }) =>
+          discoverProxmox(host, token)
+            .then((result) => setProxmoxDiscovery(result))
+        )
+        .catch(() => {/* ignore – user can retry from ProxmoxStep */})
+        .finally(() => setLoading('discoverProxmox', false))
     }
-  // Only run on mount
+  // Only run on mount — credentials are stable by the time this step is shown
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
