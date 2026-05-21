@@ -139,9 +139,9 @@ CLUSTER_DEFAULTS = {
     "TALOS_DATASTORE": "lvm-proxmox",
     "PVE_NODES": "",
     "NODE_COUNT": "3",
-    "NODE_1_IP": "10.10.0.90",   "NODE_1_VMID": "9310",   "NODE_1_PVE_NODE": "", "NODE_1_DATASTORE": "", "NODE_1_CPU": "4", "NODE_1_MEMORY": "8192", "NODE_1_DISK": "100",
-    "NODE_2_IP": "10.10.0.91",   "NODE_2_VMID": "9311",   "NODE_2_PVE_NODE": "", "NODE_2_DATASTORE": "", "NODE_2_CPU": "4", "NODE_2_MEMORY": "8192", "NODE_2_DISK": "100",
-    "NODE_3_IP": "10.10.0.92",   "NODE_3_VMID": "9312",   "NODE_3_PVE_NODE": "", "NODE_3_DATASTORE": "", "NODE_3_CPU": "4", "NODE_3_MEMORY": "8192", "NODE_3_DISK": "100",
+    "NODE_1_IP": "10.10.0.90",   "NODE_1_VMID": "9310",   "NODE_1_PVE_NODE": "", "NODE_1_DATASTORE": "", "NODE_1_CPU": "4", "NODE_1_MEMORY": "12288", "NODE_1_DISK": "100",
+    "NODE_2_IP": "10.10.0.91",   "NODE_2_VMID": "9311",   "NODE_2_PVE_NODE": "", "NODE_2_DATASTORE": "", "NODE_2_CPU": "4", "NODE_2_MEMORY": "12288", "NODE_2_DISK": "100",
+    "NODE_3_IP": "10.10.0.92",   "NODE_3_VMID": "9312",   "NODE_3_PVE_NODE": "", "NODE_3_DATASTORE": "", "NODE_3_CPU": "4", "NODE_3_MEMORY": "12288", "NODE_3_DISK": "100",
 }
 
 # Infrastructure VIP and admin fields
