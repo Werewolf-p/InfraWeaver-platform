@@ -80,10 +80,28 @@ export function ClusterStep() {
   const setLoading = useWizardStore((state) => state.setLoading)
   const setNodePing = useWizardStore((state) => state.setNodePing)
   const setVipPing = useWizardStore((state) => state.setVipPing)
+  const setProxmoxDiscovery = useWizardStore((state) => state.setProxmoxDiscovery)
 
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set())
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [ramUnit, setRamUnit] = useState<'MB' | 'GB'>('GB')
+
+  // If this step loads without discovery data (e.g. after page reload) but
+  // credentials are already filled in, re-run discovery automatically.
+  useEffect(() => {
+    const host = data.PROXMOX_HOST?.trim()
+    const token = data.PROXMOX_API_TOKEN?.trim()
+    if (!proxmoxDiscovery && host && token && !loading.discoverProxmox) {
+      setLoading('discoverProxmox', true)
+      import('@/lib/api').then(({ discoverProxmox }) =>
+        discoverProxmox(host, token)
+          .then((result) => setProxmoxDiscovery(result))
+          .finally(() => setLoading('discoverProxmox', false))
+      )
+    }
+  // Only run on mount
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Tracks the last IP that was actually dispatched to the ping API per node.
   // Prevents duplicate pings when unrelated node fields change (pveNode, vmid, etc.)

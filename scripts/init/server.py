@@ -576,74 +576,90 @@ def _discover_proxmox(host: str, token: str) -> Dict:
         node_resources: Dict[str, Dict] = {}
         lock = threading.Lock()
 
-        def fetch_node(node_name: str) -> None:
-            # ── SSH/management IP ──────────────────────────────────────────────
-            ip_found = ""
-            try:
-                ifaces = pve_get(f"/nodes/{node_name}/network")
-                sorted_ifaces = sorted(
-                    ifaces,
-                    key=lambda i: (
-                        0 if i.get("type") in ("bridge", "bond") else 1,
-                        i.get("iface", "")
-                    )
-                )
-                for iface in sorted_ifaces:
-                    addr = iface.get("address", "").strip()
-                    if (addr
-                            and not addr.startswith("127.")
-                            and not addr.startswith("169.254.")
-                            and not addr.startswith("172.17.")
-                            and not addr.startswith("172.18.")):
-                        ip_found = addr
-                        break
-            except Exception:
-                pass
+        # Storage types that can hold VM disk images.
+        # Use type-based filter (permissive) OR explicit "images" content config.
+        # This avoids breaking setups where `local` (dir) isn't content-configured
+        # for images but is still the only/primary image store on a node.
+        IMAGE_CAPABLE_TYPES = {
+            "lvmthin", "lvm", "dir", "zfspool", "zfs",
+            "nfs", "cifs", "cephfs", "btrfs", "rbd", "glusterfs",
+        }
 
-            # ── Datastores WITH free space ────────────────────────────────────
-            usable = []
+        def fetch_node(node_name: str) -> None:
+            ip_found = ""
+            usable: list = []
+            resources: Dict = {}
             try:
-                storages = pve_get(f"/nodes/{node_name}/storage")
-                for s in storages:
-                    # Filter by content "images" — supports VM disks regardless of
-                    # storage type (covers dir, lvmthin, zfspool, btrfs, rbd, nfs…)
-                    content = s.get("content", "images")
-                    if s.get("enabled", 1) and s.get("active", 1) and "images" in content:
+                # ── SSH/management IP ────────────────────────────────────────────
+                try:
+                    ifaces = pve_get(f"/nodes/{node_name}/network")
+                    sorted_ifaces = sorted(
+                        ifaces,
+                        key=lambda i: (
+                            0 if i.get("type") in ("bridge", "bond") else 1,
+                            i.get("iface", "")
+                        )
+                    )
+                    for iface in sorted_ifaces:
+                        addr = iface.get("address", "").strip()
+                        if (addr
+                                and not addr.startswith("127.")
+                                and not addr.startswith("169.254.")
+                                and not addr.startswith("172.17.")
+                                and not addr.startswith("172.18.")):
+                            ip_found = addr
+                            break
+                except Exception:
+                    pass
+
+                # ── Datastores WITH free space ────────────────────────────────
+                try:
+                    storages = pve_get(f"/nodes/{node_name}/storage")
+                    for s in storages:
+                        if not s.get("enabled", 1):
+                            continue
+                        stype = s.get("type", "")
+                        content = s.get("content", "")
+                        # Include if type is known-image-capable OR explicitly configured for images
+                        if stype not in IMAGE_CAPABLE_TYPES and "images" not in content:
+                            continue
                         avail_bytes = int(s.get("avail", 0))
                         total_bytes = int(s.get("total", 0))
                         usable.append({
                             "name": s["storage"],
-                            "type": s.get("type", ""),
+                            "type": stype,
                             "free_gb": avail_bytes // (1024 ** 3),
                             "total_gb": total_bytes // (1024 ** 3),
                         })
+                except Exception:
+                    pass
+
+                # ── Node resources (CPU cores + RAM) ─────────────────────────
+                try:
+                    ns = pve_get(f"/nodes/{node_name}/status")
+                    mem = ns.get("memory", {})
+                    cpuinfo = ns.get("cpuinfo", {})
+                    resources = {
+                        "cpu_cores": int(cpuinfo.get("cpus", 0)),
+                        "mem_total_mb": int(mem.get("total", 0)) // (1024 * 1024),
+                        "mem_free_mb": (
+                            int(mem.get("free", 0))
+                            + int(mem.get("buffers", 0))
+                            + int(mem.get("cached", 0))
+                        ) // (1024 * 1024),
+                    }
+                except Exception:
+                    pass
             except Exception:
                 pass
+            finally:
+                # Always write results so every node_name key is present in all dicts
+                with lock:
+                    node_ips[node_name] = ip_found or host
+                    datastores_by_node[node_name] = usable
+                    node_resources[node_name] = resources
 
-            # ── Node resources (CPU cores + RAM) ─────────────────────────────
-            resources: Dict = {}
-            try:
-                ns = pve_get(f"/nodes/{node_name}/status")
-                mem = ns.get("memory", {})
-                cpuinfo = ns.get("cpuinfo", {})
-                resources = {
-                    "cpu_cores": int(cpuinfo.get("cpus", 0)),
-                    "mem_total_mb": int(mem.get("total", 0)) // (1024 * 1024),
-                    "mem_free_mb": (
-                        int(mem.get("free", 0))
-                        + int(mem.get("buffers", 0))
-                        + int(mem.get("cached", 0))
-                    ) // (1024 * 1024),
-                }
-            except Exception:
-                pass
-
-            with lock:
-                node_ips[node_name] = ip_found or host
-                datastores_by_node[node_name] = usable
-                node_resources[node_name] = resources
-
-        threads = [threading.Thread(target=fetch_node, args=(n,)) for n in node_names]
+        threads = [threading.Thread(target=fetch_node, args=(n,), daemon=True) for n in node_names]
         for t in threads:
             t.start()
         for t in threads:
