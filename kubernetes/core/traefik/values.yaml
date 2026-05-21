@@ -22,7 +22,7 @@ affinity:
 
 service:
   type: LoadBalancer
-  loadBalancerIP: "${METALLB_TRAEFIK_VIP}"
+  loadBalancerIP: "10.10.0.200"
   spec:
     externalTrafficPolicy: Local  # Preserve real client IPs for IP allowlist middleware
 

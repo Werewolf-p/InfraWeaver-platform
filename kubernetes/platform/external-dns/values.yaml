@@ -32,7 +32,7 @@ domainFilters:
 # All int. services route through Traefik at 10.10.0.200 (MetalLB)
 # This avoids annotating every IngressRoute with the target IP
 extraArgs:
-  - --default-targets=${METALLB_TRAEFIK_VIP}
+  - --default-targets=10.10.0.200
 
 # upsert-only: create/update records but NEVER delete them
 # Change to "sync" later once you're confident in the managed records

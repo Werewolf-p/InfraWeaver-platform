@@ -39,7 +39,7 @@ groups:
   # are managed automatically by sync-groups.sh when this group is enabled/disabled.
   core-monitoring:
     description: "Prometheus, Loki, Alertmanager — cluster observability (optional)"
-    enabled: false
+    enabled: true
     # kubernetes/monitoring/ apps
     apps:
       kube-prometheus-stack:
@@ -74,7 +74,7 @@ groups:
       # ── OPTIONAL — set enabled: true to deploy ─────────────────────────────
       netbird:
         description: "Zero-trust VPN mesh — needed for external access from anywhere"
-        enabled: false
+        enabled: true
         replicas: 1
       velero:
         description: "Kubernetes backup controller"
@@ -85,7 +85,7 @@ groups:
         replicas: 1
       external-dns:
         description: "Automatic DNS record management via Cloudflare"
-        enabled: false
+        enabled: true
         replicas: 1
       homepage:
         description: "Homelab dashboard (console /home tab provides same content)"

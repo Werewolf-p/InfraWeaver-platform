@@ -608,8 +608,8 @@ spec:
                   http://netbird-management.netbird.svc:80/api/dns/nameservers \
                   -H "Authorization: Token ${PAT_TOKEN}" \
                   -H "Content-Type: application/json" \
-                  -d "{\"name\":\"prod-local\",\"description\":\"prod.local via cluster CoreDNS\",\"nameservers\":[{\"ip\":\"${METALLB_COREDNS_VIP}\",\"ns_type\":\"udp\",\"port\":53}],\"enabled\":true,\"groups\":[\"${GRP}\"],\"primary\":false,\"domains\":[\"prod.local\"],\"search_domains_enabled\":true}" \
-                  -o /dev/null && echo "DNS nameserver group created: prod-local → ${METALLB_COREDNS_VIP}"
+                  -d "{\"name\":\"prod-local\",\"description\":\"prod.local via cluster CoreDNS\",\"nameservers\":[{\"ip\":\"10.10.0.201\",\"ns_type\":\"udp\",\"port\":53}],\"enabled\":true,\"groups\":[\"${GRP}\"],\"primary\":false,\"domains\":[\"prod.local\"],\"search_domains_enabled\":true}" \
+                  -o /dev/null && echo "DNS nameserver group created: prod-local → 10.10.0.201"
               else
                 echo "DNS nameserver group prod-local already exists — skipping"
               fi
@@ -626,8 +626,8 @@ spec:
                   http://netbird-management.netbird.svc:80/api/dns/nameservers \
                   -H "Authorization: Token ${PAT_TOKEN}" \
                   -H "Content-Type: application/json" \
-                  -d "{\"name\":\"platform-domain\",\"description\":\"infraweaver.local via cluster DNS (bypasses Cloudflare CDN for VPN clients)\",\"nameservers\":[{\"ip\":\"${METALLB_COREDNS_VIP}\",\"ns_type\":\"udp\",\"port\":53}],\"enabled\":true,\"groups\":[\"${GRP}\"],\"primary\":false,\"domains\":[\"infraweaver.local\"],\"search_domains_enabled\":false}" \
-                  -o /dev/null && echo "DNS nameserver group created: platform-domain → ${METALLB_COREDNS_VIP}"
+                  -d "{\"name\":\"platform-domain\",\"description\":\"infraweaver.local via cluster DNS (bypasses Cloudflare CDN for VPN clients)\",\"nameservers\":[{\"ip\":\"10.10.0.201\",\"ns_type\":\"udp\",\"port\":53}],\"enabled\":true,\"groups\":[\"${GRP}\"],\"primary\":false,\"domains\":[\"infraweaver.local\"],\"search_domains_enabled\":false}" \
+                  -o /dev/null && echo "DNS nameserver group created: platform-domain → 10.10.0.201"
               else
                 echo "DNS nameserver group platform-domain already exists — skipping"
               fi
@@ -645,8 +645,8 @@ spec:
                   http://netbird-management.netbird.svc:80/api/dns/nameservers \
                   -H "Authorization: Token ${PAT_TOKEN}" \
                   -H "Content-Type: application/json" \
-                  -d "{\"name\":\"platform-int-domain\",\"description\":\"int.infraweaver.local via cluster CoreDNS (VPN-only private subdomain)\",\"nameservers\":[{\"ip\":\"${METALLB_COREDNS_VIP}\",\"ns_type\":\"udp\",\"port\":53}],\"enabled\":true,\"groups\":[\"${GRP}\"],\"primary\":false,\"domains\":[\"int.infraweaver.local\"],\"search_domains_enabled\":false}" \
-                  -o /dev/null && echo "DNS nameserver group created: platform-int-domain → ${METALLB_COREDNS_VIP}"
+                  -d "{\"name\":\"platform-int-domain\",\"description\":\"int.infraweaver.local via cluster CoreDNS (VPN-only private subdomain)\",\"nameservers\":[{\"ip\":\"10.10.0.201\",\"ns_type\":\"udp\",\"port\":53}],\"enabled\":true,\"groups\":[\"${GRP}\"],\"primary\":false,\"domains\":[\"int.infraweaver.local\"],\"search_domains_enabled\":false}" \
+                  -o /dev/null && echo "DNS nameserver group created: platform-int-domain → 10.10.0.201"
               else
                 echo "DNS nameserver group platform-int-domain already exists — skipping"
               fi

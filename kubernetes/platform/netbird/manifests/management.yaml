@@ -223,7 +223,7 @@ metadata:
   namespace: netbird
 spec:
   type: LoadBalancer
-  loadBalancerIP: "${METALLB_NETBIRD_MGMT_VIP}"
+  loadBalancerIP: "10.10.0.202"
   selector:
     app: netbird-management
   ports:

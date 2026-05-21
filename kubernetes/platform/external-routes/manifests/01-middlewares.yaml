@@ -43,11 +43,10 @@ metadata:
 spec:
   ipAllowList:
     sourceRange:
-      - 10.25.0.0/24        # Homelab LAN — from LOCAL_IP_RANGES in .env
-      - 10.10.0.0/24        # Homelab LAN — from LOCAL_IP_RANGES in .env
       - 127.0.0.1/32        # Localhost
       - 10.10.0.0/24        # K8s node VLAN — in-cluster traffic + health probes
       - 10.244.0.0/16       # K8s pod CIDR — health probes (Gatus, liveness, etc.)
+      - 100.64.0.0/10       # NetBird CGNAT (direct WireGuard peers)
 ---
 # Middleware: netbird-vpn-only — allows ONLY traffic that came through the NetBird VPN.
 #

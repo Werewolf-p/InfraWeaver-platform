@@ -3,3 +3,4 @@ targetRevision: "1.*"
 chart: external-dns
 releaseName: external-dns
 namespace: external-dns
+replicas: "1"
