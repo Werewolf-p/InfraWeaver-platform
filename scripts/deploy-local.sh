@@ -115,7 +115,8 @@ fi
 
 # ── Validate required vars ────────────────────────────────────────────────────
 DNS_PROVIDER="${DNS_PROVIDER:-cloudflare}"
-REQUIRED_VARS=(ADMIN_EMAIL GITHUB_REPO GIT_REPO_URL PROXMOX_API_TOKEN DEPLOYER_SSH_KEY DNS_PROVIDER SMTP_USERNAME SMTP_PASSWORD)
+# GITHUB_REPO, GIT_REPO_URL, SMTP_USERNAME, SMTP_PASSWORD are optional integrations
+REQUIRED_VARS=(ADMIN_EMAIL PROXMOX_API_TOKEN DEPLOYER_SSH_KEY DNS_PROVIDER)
 MISSING=()
 is_missing_value() {
   local val="$1"
@@ -205,16 +206,44 @@ fi
 chmod 600 ~/.ssh/deployer_ed25519
 ok "SSH key configured at ~/.ssh/deployer_ed25519"
 
+# Generate public key from private key (needed for authorized_keys)
+ssh-keygen -y -f ~/.ssh/deployer_ed25519 > ~/.ssh/deployer_ed25519.pub 2>/dev/null || true
+
 # Verify SSH connectivity to Proxmox
 PVE_IP="${PROXMOX_HOST:-}"
 if [[ -z "$PVE_IP" ]]; then
   PVE_IP=$(grep 'proxmox_host:' "envs/$ENV_NAME/cluster.yaml" 2>/dev/null | head -1 | sed 's/.*: *"\(.*\)"/\1/' | xargs || true)
 fi
-SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=15 -i ~/.ssh/deployer_ed25519"
-if ssh $SSH_OPTS root@"$PVE_IP" echo "ssh-ok" &>/dev/null; then
-  ok "SSH connection to Proxmox $PVE_IP verified"
+
+# If running ON the Proxmox host, auto-authorize the deployer key (no SSH round-trip needed)
+LOCAL_IPS=$(hostname -I 2>/dev/null || true)
+IS_LOCAL=false
+if [[ -n "$PVE_IP" ]] && echo "$LOCAL_IPS" | grep -qw "$PVE_IP"; then
+  IS_LOCAL=true
+fi
+
+if "$IS_LOCAL"; then
+  # Running on the Proxmox host itself — add key to authorized_keys so OpenTofu can SSH back
+  mkdir -p ~/.ssh
+  PUBKEY=$(cat ~/.ssh/deployer_ed25519.pub 2>/dev/null || true)
+  if [[ -n "$PUBKEY" ]]; then
+    grep -qF "$PUBKEY" ~/.ssh/authorized_keys 2>/dev/null || echo "$PUBKEY" >> ~/.ssh/authorized_keys
+    chmod 600 ~/.ssh/authorized_keys
+    ok "Deployer public key added to local authorized_keys (running on PVE host)"
+  fi
+  SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ConnectTimeout=10 -i ~/.ssh/deployer_ed25519"
+  if ssh $SSH_OPTS root@"$PVE_IP" echo "ssh-ok" &>/dev/null; then
+    ok "SSH loopback to Proxmox $PVE_IP verified"
+  else
+    warn "SSH loopback test failed — will retry after key propagation"
+  fi
 else
-  warn "SSH to Proxmox $PVE_IP failed — deployment will continue but may fail at VM provisioning"
+  SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ConnectTimeout=15 -i ~/.ssh/deployer_ed25519"
+  if ssh $SSH_OPTS root@"$PVE_IP" echo "ssh-ok" &>/dev/null; then
+    ok "SSH connection to Proxmox $PVE_IP verified"
+  else
+    warn "SSH to Proxmox $PVE_IP failed — deployment will continue but may fail at VM provisioning"
+  fi
 fi
 
 # ── Step 3: Set TF variables from .env ───────────────────────────────────────
