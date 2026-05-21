@@ -36,6 +36,29 @@ with open(env_file) as f:
             k, _, v = line.partition('=')
             env_vars[k.strip()] = v.strip().strip("\"'")
 
+# Extract deployer SSH public key from private key in DEPLOYER_SSH_KEY
+deployer_priv = env_vars.get('DEPLOYER_SSH_KEY', '').strip()
+if deployer_priv:
+    import subprocess, tempfile, os as _os
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.key', delete=False) as _tf:
+        _tf.write(deployer_priv + '\n')
+        _tf_path = _tf.name
+    try:
+        _os.chmod(_tf_path, 0o600)
+        _res = subprocess.run(['ssh-keygen', '-y', '-f', _tf_path],
+                              capture_output=True, text=True, timeout=10)
+        if _res.returncode == 0:
+            env_vars['DEPLOYER_SSH_PUBKEY'] = _res.stdout.strip() + ' infraweaver-deployer'
+            print(f"  ✓ Extracted deployer SSH public key for tfvars")
+        else:
+            env_vars['DEPLOYER_SSH_PUBKEY'] = ''
+    except Exception:
+        env_vars['DEPLOYER_SSH_PUBKEY'] = ''
+    finally:
+        _os.unlink(_tf_path)
+else:
+    env_vars['DEPLOYER_SSH_PUBKEY'] = ''
+
 # Substitute ${VAR} in a file, in-place
 def process_file(path):
     try:

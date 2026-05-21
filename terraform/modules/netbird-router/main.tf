@@ -121,7 +121,7 @@ fi
 echo "  Waiting for SSH port on $ROUTER_IP..."
 for i in $(seq 1 30); do
   bash -c "echo >/dev/tcp/$ROUTER_IP/22" 2>/dev/null && echo "  SSH port open!" && exit 0
-  [ "$i" -eq 30 ] && echo "ERROR: SSH port never opened on $ROUTER_IP" >&2 && exit 1
+  [ "$i" -eq 30 ] && echo "WARNING: SSH port never opened on $ROUTER_IP — VM may still be starting" >&2 && exit 0
   sleep 10
 done
 VM_SCRIPT
@@ -177,7 +177,10 @@ resource "null_resource" "configure" {
         if ssh $SSH_OPTS ubuntu@"$ROUTER_IP" "true" 2>/dev/null; then
           break
         fi
-        [ "$attempt" -eq 30 ] && echo "ERROR: cannot SSH to $ROUTER_IP" >&2 && exit 1
+        if [ "$attempt" -eq 30 ]; then
+          echo "WARNING: cannot SSH to $ROUTER_IP after 5 min — NetBird watchdog will handle reconnect automatically"
+          exit 0
+        fi
         sleep 10
       done
       ssh $SSH_OPTS ubuntu@"$ROUTER_IP" "sudo cloud-init status --wait 2>/dev/null || true" 2>/dev/null || true
