@@ -8,7 +8,7 @@ spec:
   project: default
   source:
     repoURL: http://onedev.onedev.svc.cluster.local/InfraWeaver-platform
-    targetRevision: HEAD
+    targetRevision: main
     path: kubernetes/core/metallb/manifests
   destination:
     server: https://kubernetes.default.svc

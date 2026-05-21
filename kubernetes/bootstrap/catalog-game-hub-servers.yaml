@@ -17,7 +17,7 @@ spec:
   project: platform
   source:
     repoURL: http://onedev.onedev.svc.cluster.local/InfraWeaver-platform
-    targetRevision: HEAD
+    targetRevision: main
     path: kubernetes/catalog/game-hub/servers
     directory:
       recurse: false

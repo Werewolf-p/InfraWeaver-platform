@@ -12,7 +12,7 @@ spec:
   project: platform
   source:
     repoURL: http://onedev.onedev.svc.cluster.local/InfraWeaver-platform
-    targetRevision: HEAD
+    targetRevision: main
     path: kubernetes/platform/authentik/manifests
   destination:
     server: https://kubernetes.default.svc
