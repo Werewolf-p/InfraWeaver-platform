@@ -68,31 +68,21 @@ Before you start, you need:
 
 Choose the method that fits your setup — all three end up at the same web UI:
 
-### Option A — Create a dedicated init VM on Proxmox *(recommended)*
-
-Run this **on your Proxmox host** (or via SSH into it):
+### One command, works anywhere
 
 ```bash
-wget -qO- https://raw.githubusercontent.com/Werewolf-p/InfraWeaver-platform/main/scripts/init/create-init-vm.sh | bash
-```
-
-The wizard asks a few questions (VLAN, IP, storage pool), then creates a lightweight Ubuntu VM, clones the repo inside it, and starts the init server automatically.
-
----
-
-### Option B — Run on any existing Linux / macOS machine
-
-Got a spare Ubuntu VM, your laptop, WSL, or any machine with network access to Proxmox port 8006? No extra VM needed:
-
-```bash
-wget -qO- https://raw.githubusercontent.com/Werewolf-p/InfraWeaver-platform/main/scripts/init/start-local.sh | bash
+wget -qO- https://raw.githubusercontent.com/Werewolf-p/InfraWeaver-platform/main/scripts/init/setup.sh | bash
 # or
-curl -sSL https://raw.githubusercontent.com/Werewolf-p/InfraWeaver-platform/main/scripts/init/start-local.sh | bash
+curl -sSL https://raw.githubusercontent.com/Werewolf-p/InfraWeaver-platform/main/scripts/init/setup.sh | bash
 ```
 
-This clones the repo to `~/.infraweaver` (or `$IW_WORK_DIR`) and starts the web UI on port 8080. The init VM on Proxmox is **not required** — the wizard talks to Proxmox over the API remotely.
+**On a Proxmox host:** the script detects Proxmox and asks you to choose:
+- `1` — Create a dedicated lightweight init VM *(recommended — keeps host clean)*
+- `2` — Run the wizard directly on this Proxmox host *(no VM created)*
 
-> **ENV overrides:** `IW_WORK_DIR`, `IW_REPO_URL`, `IW_REPO_BRANCH`, `IW_PORT`, `IW_HOST`
+**On any other Linux/macOS machine:** the wizard starts immediately on port 8080. Your machine needs network access to the Proxmox API (port 8006).
+
+> **ENV overrides:** `IW_WORK_DIR`, `IW_REPO_URL`, `IW_REPO_BRANCH`, `IW_PORT`, `IW_HOST`, `IW_YES=1` (skip prompts)
 
 ---
 
@@ -141,12 +131,13 @@ Or create a token manually in Proxmox: **Datacenter → Permissions → API Toke
 ### Deployment flow
 
 ```
-WHERE YOU START THE WIZARD (choose one):
-  A) Proxmox host  →  wget | bash create-init-vm.sh  →  creates Ubuntu init VM
-  B) Any Linux/Mac →  wget | bash start-local.sh     →  starts server locally
-  C) Repo cloned   →  python3 scripts/init/server.py →  starts server locally
-              │
-              ▼
+WHERE YOU START THE WIZARD (one URL, works everywhere):
+  wget -qO- .../scripts/init/setup.sh | bash
+               │
+               ├─ On Proxmox host → choose: create init VM  OR  run here
+               └─ On Linux/macOS  → starts wizard locally
+               │
+               ▼
      Init Website at http://<ip>:8080
               │  Fill in settings (Proxmox, cluster, DNS, features)
               │  Writes: .env
