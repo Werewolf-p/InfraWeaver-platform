@@ -68,8 +68,22 @@ CORES=$5; MEMORY=$6; DISK_GB=$7; STORAGE=$8; SUBNET_MASK=$9
 echo "  Checking VM $VMID..."
 VM_STATUS=$(qm status "$VMID" 2>/dev/null | awk '{print $2}' || echo "")
 if [ -n "$VM_STATUS" ]; then
-  echo "  VM $VMID already exists (status: $VM_STATUS) — ensuring it's running"
+  echo "  VM $VMID already exists (status: $VM_STATUS) — ensuring it's running and keys updated"
   [ "$VM_STATUS" != "running" ] && qm start "$VMID" 2>/dev/null || true
+  # Always inject deployer key so configure step can SSH even for pre-existing VMs
+  if [ -f "/tmp/netbird-router-keys-$VMID.pub" ]; then
+    echo "  Injecting deployer key into existing VM $VMID authorized_keys..."
+    DEPLOYER_PUB=$(cat "/tmp/netbird-router-keys-$VMID.pub")
+    # Wait for SSH port then inject key via qemu-agent or existing authorized key
+    bash -c "echo >/dev/tcp/$ROUTER_IP/22" 2>/dev/null && \
+      ssh -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=10 ubuntu@"$ROUTER_IP" \
+        "grep -qF '$DEPLOYER_PUB' ~/.ssh/authorized_keys 2>/dev/null || echo '$DEPLOYER_PUB' >> ~/.ssh/authorized_keys" \
+        2>/dev/null || \
+      ssh -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=10 root@"$ROUTER_IP" \
+        "grep -qF '$DEPLOYER_PUB' /home/ubuntu/.ssh/authorized_keys 2>/dev/null || echo '$DEPLOYER_PUB' >> /home/ubuntu/.ssh/authorized_keys" \
+        2>/dev/null || true
+    echo "  Deployer key injection attempted."
+  fi
 else
   echo "  Cloning template $TEMPLATE → VM $VMID (netbird-router-vlan3)..."
   qm clone "$TEMPLATE" "$VMID" \
