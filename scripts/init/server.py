@@ -618,6 +618,10 @@ def _discover_proxmox(host: str, token: str) -> Dict:
                     for s in storages:
                         if not s.get("enabled", 1):
                             continue
+                        # Skip storages that are not currently active/mounted
+                        # (they would show 0 free/total which misleads the UI)
+                        if not s.get("active", 1):
+                            continue
                         stype = s.get("type", "")
                         content = s.get("content", "")
                         # Include if type is known-image-capable OR explicitly configured for images

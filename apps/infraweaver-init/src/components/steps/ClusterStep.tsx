@@ -436,7 +436,14 @@ export function ClusterStep() {
                       <select
                         id={`${node.id}-pve`}
                         value={selectedPveNode}
-                        onChange={(event) => updateNode(node.id, { pveNode: event.target.value })}
+                        onChange={(event) => {
+                          const newPveNode = event.target.value
+                          // Pre-select the first available datastore on the new node so
+                          // the datastore select stays in sync instead of showing a stale name
+                          const newNodeDs = proxmoxDiscovery?.datastores_by_node?.[newPveNode]
+                          const defaultDs = newNodeDs?.length ? dsValue(newNodeDs[0]) : ''
+                          updateNode(node.id, { pveNode: newPveNode, datastore: defaultDs })
+                        }}
                         className={controlClassName}
                       >
                         {availableNodes.map((availableNode) => (
