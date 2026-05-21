@@ -7,6 +7,7 @@ spec:
   limits:
   - type: Container
     default:
-      memory: 1500Mi
-    defaultRequest:
+      # Conservative limit: actual instance-manager usage is ~50-100Mi
       memory: 256Mi
+    defaultRequest:
+      memory: 50Mi
