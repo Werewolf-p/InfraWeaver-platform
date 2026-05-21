@@ -423,6 +423,106 @@ def _find_proxmox_vm_node(host: str, token: str, vmid: int) -> Optional[str]:
     return None
 
 
+def _install_deployer_ssh_key(node_ips: list, root_password: str) -> list:
+    """Install the deployer SSH public key to all Proxmox cluster nodes.
+
+    Uses SSH_ASKPASS (OpenSSH native, no extra packages needed) to authenticate
+    with root password, then appends the deployer public key to authorized_keys.
+    Replaces any stale infraweaver-deployer entries with the current key.
+
+    Returns a list of {"node", "ip", "ok", "error"} dicts, one per node.
+    """
+    import subprocess, tempfile, os, stat, shlex
+
+    env_data = _parse_env_file(ENV_FILE)
+    deployer_key_content = env_data.get("DEPLOYER_SSH_KEY", "").strip()
+    if not deployer_key_content:
+        return [{"node": "all", "ip": "", "ok": False,
+                 "error": "DEPLOYER_SSH_KEY not set in .env — save your env first"}]
+
+    results = []
+    key_file = askpass_script = None
+    try:
+        # Write private key to temp file and extract public key
+        with tempfile.NamedTemporaryFile(mode="w", suffix="_iw_key", delete=False) as f:
+            f.write(deployer_key_content.strip() + "\n")
+            key_file = f.name
+        os.chmod(key_file, 0o600)
+
+        pub_result = subprocess.run(
+            ["ssh-keygen", "-y", "-f", key_file],
+            capture_output=True, text=True, timeout=10,
+        )
+        pubkey = pub_result.stdout.strip()
+        if not pubkey:
+            return [{"node": "all", "ip": "", "ok": False,
+                     "error": "Could not extract public key from DEPLOYER_SSH_KEY"}]
+        # Ensure comment is set
+        parts = pubkey.split()
+        if len(parts) == 2:
+            pubkey = f"{parts[0]} {parts[1]} infraweaver-deployer"
+
+        # Create a temporary SSH_ASKPASS helper script
+        with tempfile.NamedTemporaryFile(mode="w", suffix="_askpass.sh", delete=False) as f:
+            f.write(f"#!/bin/sh\necho {shlex.quote(root_password)}\n")
+            askpass_script = f.name
+        os.chmod(askpass_script, stat.S_IRWXU)
+
+        ssh_env = os.environ.copy()
+        ssh_env["SSH_ASKPASS"] = askpass_script
+        ssh_env["SSH_ASKPASS_REQUIRE"] = "force"  # OpenSSH 8.4+
+        ssh_env["DISPLAY"] = "bogus"               # Fallback for older OpenSSH
+
+        for node_info in node_ips:
+            node_name = node_info.get("node", "unknown")
+            node_ip   = node_info.get("ip", "")
+            if not node_ip:
+                continue
+
+            # Replace all stale infraweaver-deployer keys, then append current key
+            remote_cmd = (
+                "mkdir -p ~/.ssh && chmod 700 ~/.ssh && "
+                "grep -v 'infraweaver-deployer' ~/.ssh/authorized_keys "
+                "  > /tmp/_iw_ak_clean 2>/dev/null && "
+                "mv /tmp/_iw_ak_clean ~/.ssh/authorized_keys 2>/dev/null || true && "
+                f"echo '{pubkey}' >> ~/.ssh/authorized_keys && "
+                "chmod 600 ~/.ssh/authorized_keys && "
+                "echo 'iw-key-installed'"
+            )
+            try:
+                res = subprocess.run(
+                    ["setsid", "ssh",
+                     "-o", "StrictHostKeyChecking=no",
+                     "-o", "UserKnownHostsFile=/dev/null",
+                     "-o", "BatchMode=no",
+                     "-o", "ConnectTimeout=12",
+                     "-o", "PubkeyAuthentication=no",
+                     f"root@{node_ip}", remote_cmd],
+                    capture_output=True, text=True, timeout=30, env=ssh_env,
+                )
+                if "iw-key-installed" in res.stdout:
+                    results.append({"node": node_name, "ip": node_ip, "ok": True})
+                else:
+                    err = (res.stderr or res.stdout)[:300].strip()
+                    results.append({"node": node_name, "ip": node_ip,
+                                    "ok": False, "error": err})
+            except subprocess.TimeoutExpired:
+                results.append({"node": node_name, "ip": node_ip,
+                                 "ok": False, "error": "SSH timeout"})
+            except Exception as e:
+                results.append({"node": node_name, "ip": node_ip,
+                                 "ok": False, "error": str(e)})
+    finally:
+        for path in [key_file, askpass_script]:
+            try:
+                if path:
+                    os.unlink(path)
+            except Exception:
+                pass
+
+    return results
+
+
 def _setup_proxmox_user(host: str, username: str, password: str) -> Dict:
     """Log in with username/password (ticket auth), create a dedicated
     infraweaver@pve user + InfraWeaver role + API token.
@@ -534,11 +634,29 @@ def _setup_proxmox_user(host: str, username: str, password: str) -> Dict:
         }, ticket, csrf)
         token_uuid = tok["data"]["value"]
 
+        # ── 7. Install deployer SSH public key on all cluster nodes ─────────────
+        # The bpg/proxmox Terraform provider requires SSH to the Proxmox nodes
+        # to perform disk import operations (creating custom VM disks from images).
+        # Install the deployer public key now while we still have root credentials.
+        ssh_results = []
+        try:
+            cluster_status = pve_req("GET", "/cluster/status", ticket=ticket)
+            node_ips = [
+                {"node": n["name"], "ip": n["ip"]}
+                for n in (cluster_status.get("data") or [])
+                if n.get("type") == "node" and n.get("ip")
+            ]
+            if node_ips:
+                ssh_results = _install_deployer_ssh_key(node_ips, password)
+        except Exception as _ssh_err:
+            ssh_results = [{"ok": False, "error": str(_ssh_err)}]
+
         # Credentials are discarded here — only the token is returned
         return {
             "ok": True,
             "token": f"{user_id}!{token_name}={token_uuid}",
             "user": user_id,
+            "ssh_key_install": ssh_results,
         }
 
     except urllib.error.HTTPError as e:

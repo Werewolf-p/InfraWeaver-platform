@@ -705,6 +705,8 @@ packages:
   - wget
   - jq
   - openssh-server
+  - openssh-client
+  - sshpass
   - nano
   - qemu-guest-agent
 

@@ -208,42 +208,90 @@ ok "SSH key configured at ~/.ssh/deployer_ed25519"
 
 # Generate public key from private key (needed for authorized_keys)
 ssh-keygen -y -f ~/.ssh/deployer_ed25519 > ~/.ssh/deployer_ed25519.pub 2>/dev/null || true
+DEPLOYER_PUBKEY=$(cat ~/.ssh/deployer_ed25519.pub 2>/dev/null || true)
 
-# Verify SSH connectivity to Proxmox
-PVE_IP="${PROXMOX_HOST:-}"
-if [[ -z "$PVE_IP" ]]; then
-  PVE_IP=$(grep 'proxmox_host:' "envs/$ENV_NAME/cluster.yaml" 2>/dev/null | head -1 | sed 's/.*: *"\(.*\)"/\1/' | xargs || true)
+# ── Collect all unique Proxmox node SSH IPs ───────────────────────────────────
+# PVE_NODES format: "proxmox:10.25.0.3,microserver:10.25.0.3"
+# The bpg/proxmox provider resolves ACTUAL node IPs from the Proxmox cluster API
+# and uses them for SSH (e.g. microserver may be at 10.25.0.4 even if PVE_NODES
+# lists 10.25.0.3).  Query the real IPs here so we can install the SSH key on all.
+PVE_API_HOST="${PROXMOX_HOST:-}"
+PROXMOX_TOKEN_VALUE="${PROXMOX_API_TOKEN:-}"
+
+declare -A SEEN_IPS
+ALL_NODE_IPS=()
+
+# Always include the API host
+if [[ -n "$PVE_API_HOST" ]]; then
+  SEEN_IPS["$PVE_API_HOST"]=1
+  ALL_NODE_IPS+=("$PVE_API_HOST")
 fi
 
-# If running ON the Proxmox host, auto-authorize the deployer key (no SSH round-trip needed)
-LOCAL_IPS=$(hostname -I 2>/dev/null || true)
-IS_LOCAL=false
-if [[ -n "$PVE_IP" ]] && echo "$LOCAL_IPS" | grep -qw "$PVE_IP"; then
-  IS_LOCAL=true
+# Query the Proxmox cluster status for actual per-node IPs
+if [[ -n "$PVE_API_HOST" && -n "$PROXMOX_TOKEN_VALUE" ]]; then
+  CLUSTER_IPS=$(python3 - <<PYEOF 2>/dev/null
+import urllib.request, urllib.parse, ssl, json, sys
+ctx = ssl.create_default_context(); ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
+url = "https://${PVE_API_HOST}:8006/api2/json/cluster/status"
+req = urllib.request.Request(url, headers={"Authorization": "PVEAPIToken=${PROXMOX_TOKEN_VALUE}"})
+try:
+    data = json.loads(urllib.request.urlopen(req, context=ctx, timeout=8).read())
+    for n in (data.get("data") or []):
+        if n.get("type") == "node" and n.get("ip"):
+            print(n["ip"])
+except Exception as e:
+    pass
+PYEOF
+  )
+  while IFS= read -r ip; do
+    [[ -z "$ip" ]] && continue
+    if [[ -z "${SEEN_IPS[$ip]+x}" ]]; then
+      SEEN_IPS["$ip"]=1
+      ALL_NODE_IPS+=("$ip")
+    fi
+  done <<< "$CLUSTER_IPS"
 fi
 
-if "$IS_LOCAL"; then
-  # Running on the Proxmox host itself — add key to authorized_keys so OpenTofu can SSH back
-  mkdir -p ~/.ssh
-  PUBKEY=$(cat ~/.ssh/deployer_ed25519.pub 2>/dev/null || true)
-  if [[ -n "$PUBKEY" ]]; then
-    grep -qF "$PUBKEY" ~/.ssh/authorized_keys 2>/dev/null || echo "$PUBKEY" >> ~/.ssh/authorized_keys
-    chmod 600 ~/.ssh/authorized_keys
-    ok "Deployer public key added to local authorized_keys (running on PVE host)"
+# Fall back to IPs listed in PVE_NODES
+if [[ -n "${PVE_NODES:-}" ]]; then
+  IFS=',' read -ra _pve_entries <<< "$PVE_NODES"
+  for _entry in "${_pve_entries[@]}"; do
+    _ip="${_entry#*:}"
+    [[ -z "$_ip" || -n "${SEEN_IPS[$_ip]+x}" ]] && continue
+    SEEN_IPS["$_ip"]=1
+    ALL_NODE_IPS+=("$_ip")
+  done
+fi
+
+SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ConnectTimeout=10 -i ~/.ssh/deployer_ed25519"
+SSH_FAILURES=()
+
+for NODE_IP in "${ALL_NODE_IPS[@]}"; do
+  LOCAL_IPS=$(hostname -I 2>/dev/null || true)
+  if echo "$LOCAL_IPS" | grep -qw "$NODE_IP"; then
+    # Running ON this Proxmox node — add key directly
+    if [[ -n "$DEPLOYER_PUBKEY" ]]; then
+      grep -v "infraweaver-deployer" ~/.ssh/authorized_keys > /tmp/_iw_ak 2>/dev/null && \
+        mv /tmp/_iw_ak ~/.ssh/authorized_keys 2>/dev/null || true
+      echo "$DEPLOYER_PUBKEY" >> ~/.ssh/authorized_keys
+      chmod 600 ~/.ssh/authorized_keys
+      ok "Deployer key added to local authorized_keys on $NODE_IP"
+    fi
   fi
-  SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ConnectTimeout=10 -i ~/.ssh/deployer_ed25519"
-  if ssh $SSH_OPTS root@"$PVE_IP" echo "ssh-ok" &>/dev/null; then
-    ok "SSH loopback to Proxmox $PVE_IP verified"
+
+  if ssh $SSH_OPTS root@"$NODE_IP" echo "ssh-ok" &>/dev/null; then
+    ok "SSH to Proxmox node $NODE_IP verified ✓"
   else
-    warn "SSH loopback test failed — OpenTofu deployment no longer requires Proxmox SSH, so continuing (SSH remains optional for debugging)"
+    warn "SSH to Proxmox node $NODE_IP failed — the bpg/proxmox provider needs SSH for VM disk import."
+    warn "  Fix: run 'Setup Proxmox User' in the wizard to auto-install the deployer key,"
+    warn "  or manually: ssh root@$NODE_IP \"echo '$DEPLOYER_PUBKEY' >> ~/.ssh/authorized_keys\""
+    SSH_FAILURES+=("$NODE_IP")
   fi
-else
-  SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ConnectTimeout=15 -i ~/.ssh/deployer_ed25519"
-  if ssh $SSH_OPTS root@"$PVE_IP" echo "ssh-ok" &>/dev/null; then
-    ok "SSH connection to Proxmox $PVE_IP verified (optional; not required for OpenTofu deployment)"
-  else
-    warn "SSH to Proxmox $PVE_IP failed — OpenTofu deployment will continue because Talos VM disk operations now use the Proxmox API; SSH remains optional for debugging"
-  fi
+done
+
+if [[ ${#SSH_FAILURES[@]} -gt 0 ]]; then
+  warn "SSH verification failed for: ${SSH_FAILURES[*]}"
+  warn "Deployment will likely fail at VM disk creation. Fix SSH access first."
 fi
 
 # ── Step 3: Set TF variables from .env ───────────────────────────────────────
