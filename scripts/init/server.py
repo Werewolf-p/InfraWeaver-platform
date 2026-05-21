@@ -924,7 +924,24 @@ def _detect_init_vm_id() -> Optional[int]:
     return None
 
 
-def _cleanup_init_server(stop_server: bool = False) -> Dict:
+def _self_update() -> Dict:
+    """git pull the repo and return output. Caller schedules process restart."""
+    try:
+        result = subprocess.run(
+            ["git", "pull", "--ff-only", "origin", "main"],
+            cwd=str(REPO_DIR),
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        if result.returncode != 0:
+            return {"ok": False, "error": (result.stderr.strip() or result.stdout.strip()) or "git pull failed"}
+        return {"ok": True, "output": result.stdout.strip()}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+
     env = _parse_env_file(ENV_FILE)
     vm_id = _detect_init_vm_id()
 
@@ -1369,6 +1386,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._send_json({"valid": False, "errors": [{"field": "env", "message": "env object is required"}], "warnings": []}, 400)
                 return
             self._send_json(_validate_import_env(payload))
+            return
+
+        if path == "/api/self-update":
+            result = _self_update()
+            self._send_json(result)
+            if result.get("ok"):
+                # Replace the running process with a fresh copy of itself after the response flushes
+                threading.Timer(0.8, lambda: os.execv(sys.executable, [sys.executable] + sys.argv)).start()
             return
 
         if path == "/api/cleanup-init":

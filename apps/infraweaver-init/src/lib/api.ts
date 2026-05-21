@@ -146,6 +146,12 @@ export interface CleanupInitResponse {
   error?: string
 }
 
+export interface SelfUpdateResponse {
+  ok: boolean
+  output?: string
+  error?: string
+}
+
 export type DeployEvent =
   | { type: 'log'; text: string; seq?: number; deploymentId?: number }
   | { type: 'progress'; pct: number; step: string; seq?: number; deploymentId?: number }
@@ -314,6 +320,13 @@ export async function cleanupInit(stopServer = false) {
   return fetchJson<CleanupInitResponse>('/api/cleanup-init', {
     method: 'POST',
     body: JSON.stringify({ stopServer }),
+  })
+}
+
+export async function selfUpdate() {
+  return fetchJson<SelfUpdateResponse>('/api/self-update', {
+    method: 'POST',
+    body: JSON.stringify({}),
   })
 }
 

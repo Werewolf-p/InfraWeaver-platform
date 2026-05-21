@@ -6,6 +6,7 @@ import {
   Boxes,
   Globe,
   KeyRound,
+  RefreshCw,
   Rocket,
   Server,
   Settings2,
@@ -23,7 +24,7 @@ import { FeaturesStep } from '@/components/steps/FeaturesStep'
 import { IdentityStep } from '@/components/steps/IdentityStep'
 import { ProxmoxStep } from '@/components/steps/ProxmoxStep'
 import { WelcomeStep } from '@/components/steps/WelcomeStep'
-import { connectDeployEvents, getStatus, loadEnv, type DeployEvent } from '@/lib/api'
+import { connectDeployEvents, getStatus, loadEnv, selfUpdate, type DeployEvent } from '@/lib/api'
 import { initialDeployStages, initialWizardData, isWizardDataPristine, useWizardStore } from '@/lib/store'
 import { classifyLog, isCIDR, isDomain, isEmail, isIPv4, isPositiveInteger } from '@/lib/utils'
 import type { DnsProvider } from '@/lib/store'
@@ -177,6 +178,8 @@ export default function HomePage() {
   const [direction, setDirection] = useState(1)
   const [hydrated, setHydrated] = useState(false)
   const [expertOpen, setExpertOpen] = useState(false)
+  const [updateState, setUpdateState] = useState<'idle' | 'pulling' | 'restarting' | 'error'>('idle')
+  const [updateError, setUpdateError] = useState('')
   const reconnectingDeploymentIdRef = useRef<number | null>(null)
 
   useEffect(() => {
@@ -268,6 +271,39 @@ export default function HomePage() {
     }
   }, [hydrated, setStatus, status?.deploy_id, status?.deploy_running])
 
+  const handleSelfUpdate = async () => {
+    setUpdateState('pulling')
+    setUpdateError('')
+    try {
+      const result = await selfUpdate()
+      if (!result.ok) {
+        setUpdateError(result.error ?? 'Update failed')
+        setUpdateState('error')
+        return
+      }
+      // Server is restarting — poll /api/status until it responds, then reload
+      setUpdateState('restarting')
+      const poll = async () => {
+        await new Promise((resolve) => setTimeout(resolve, 1500))
+        for (let attempt = 0; attempt < 30; attempt++) {
+          try {
+            await getStatus()
+            window.location.reload()
+            return
+          } catch {
+            await new Promise((resolve) => setTimeout(resolve, 1000))
+          }
+        }
+        setUpdateError('Server did not come back in time — refresh manually.')
+        setUpdateState('error')
+      }
+      void poll()
+    } catch (err) {
+      setUpdateError(err instanceof Error ? err.message : 'Update failed')
+      setUpdateState('error')
+    }
+  }
+
   const canGoNext = useMemo(
     () => isStepValid(currentStep, data, nodes, localIpRanges, vpnOnly),
     [currentStep, data, localIpRanges, nodes, vpnOnly],
@@ -339,10 +375,27 @@ export default function HomePage() {
         onNext={handleNext}
         onStepClick={(index) => index <= currentStep && goToStep(index)}
         headerActions={
-          <ActionButton variant="secondary" onClick={() => setExpertOpen(true)} className="px-3 py-2.5">
-            <Settings2 className="h-4 w-4" />
-            <span className="hidden md:inline">Expert mode</span>
-          </ActionButton>
+          <div className="flex items-center gap-2">
+            {updateState === 'error' ? (
+              <span className="hidden max-w-[180px] truncate text-xs text-red-400 md:block" title={updateError}>{updateError}</span>
+            ) : null}
+            <ActionButton
+              variant="secondary"
+              onClick={() => void handleSelfUpdate()}
+              disabled={updateState === 'pulling' || updateState === 'restarting'}
+              className="px-3 py-2.5"
+              title={updateState === 'restarting' ? 'Restarting server…' : updateState === 'pulling' ? 'Pulling latest…' : 'Pull latest from git and restart'}
+            >
+              <RefreshCw className={`h-4 w-4 ${updateState === 'pulling' || updateState === 'restarting' ? 'animate-spin' : ''}`} />
+              <span className="hidden md:inline">
+                {updateState === 'pulling' ? 'Pulling…' : updateState === 'restarting' ? 'Restarting…' : 'Update'}
+              </span>
+            </ActionButton>
+            <ActionButton variant="secondary" onClick={() => setExpertOpen(true)} className="px-3 py-2.5">
+              <Settings2 className="h-4 w-4" />
+              <span className="hidden md:inline">Expert mode</span>
+            </ActionButton>
+          </div>
         }
       >
         {renderStep()}
