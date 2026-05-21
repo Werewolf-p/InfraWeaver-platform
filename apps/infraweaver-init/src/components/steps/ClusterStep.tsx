@@ -488,28 +488,25 @@ export function ClusterStep() {
                       htmlFor={`${node.id}-datastore`}
                       hint={availableDatastores.length ? `${availableDatastores.length} pool${availableDatastores.length > 1 ? 's' : ''} on ${selectedPveNode}` : undefined}
                     >
-                      {availableDatastores.length ? (
-                        <select
-                          id={`${node.id}-datastore`}
-                          value={node.datastore || dsValue(availableDatastores[0])}
-                          onChange={(event) => updateNode(node.id, { datastore: event.target.value })}
-                          className={controlClassName}
-                        >
-                          {availableDatastores.map((ds) => (
+                      <select
+                        id={`${node.id}-datastore`}
+                        value={node.datastore || dsValue(availableDatastores[0] ?? '')}
+                        onChange={(event) => updateNode(node.id, { datastore: event.target.value })}
+                        className={controlClassName}
+                        disabled={availableDatastores.length === 0}
+                      >
+                        {availableDatastores.length ? (
+                          availableDatastores.map((ds) => (
                             <option key={dsValue(ds)} value={dsValue(ds)}>
                               {dsLabel(ds)}
                             </option>
-                          ))}
-                        </select>
-                      ) : (
-                        <input
-                          id={`${node.id}-datastore`}
-                          value={node.datastore}
-                          onChange={(event) => updateNode(node.id, { datastore: event.target.value })}
-                          placeholder={data.TALOS_DATASTORE}
-                          className={controlClassName}
-                        />
-                      )}
+                          ))
+                        ) : (
+                          <option value={node.datastore || data.TALOS_DATASTORE}>
+                            {node.datastore || data.TALOS_DATASTORE || '— waiting for discovery —'}
+                          </option>
+                        )}
+                      </select>
                     </FormField>
                   </div>
                 ) : null}
