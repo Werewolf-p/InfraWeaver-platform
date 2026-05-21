@@ -569,12 +569,14 @@ def _discover_proxmox(host: str, token: str) -> Dict:
         node_names = [n["node"] for n in nodes]
         primary_node = node_names[0] if node_names else "pve"
 
-        # Collect per-node SSH IPs and datastores
+        # Collect per-node SSH IPs, datastores, and resources — all nodes in parallel.
+        import threading
         node_ips: Dict[str, str] = {}
         datastores_by_node: Dict[str, list] = {}
         node_resources: Dict[str, Dict] = {}
+        lock = threading.Lock()
 
-        for node_name in node_names:
+        def fetch_node(node_name: str) -> None:
             # ── SSH/management IP ──────────────────────────────────────────────
             ip_found = ""
             try:
@@ -597,16 +599,14 @@ def _discover_proxmox(host: str, token: str) -> Dict:
                         break
             except Exception:
                 pass
-            node_ips[node_name] = ip_found or host
 
-            # ── Datastores WITH free space ────────────────────────────────────────
+            # ── Datastores WITH free space ────────────────────────────────────
+            usable = []
             try:
                 storages = pve_get(f"/nodes/{node_name}/storage")
-                usable = []
                 for s in storages:
-                    # Include storages that are enabled/active AND support VM disk images.
-                    # Filter by content "images" instead of type so any new/custom storage
-                    # types (btrfs, rbd, etc.) are also included automatically.
+                    # Filter by content "images" — supports VM disks regardless of
+                    # storage type (covers dir, lvmthin, zfspool, btrfs, rbd, nfs…)
                     content = s.get("content", "images")
                     if s.get("enabled", 1) and s.get("active", 1) and "images" in content:
                         avail_bytes = int(s.get("avail", 0))
@@ -617,22 +617,37 @@ def _discover_proxmox(host: str, token: str) -> Dict:
                             "free_gb": avail_bytes // (1024 ** 3),
                             "total_gb": total_bytes // (1024 ** 3),
                         })
-                datastores_by_node[node_name] = usable
             except Exception:
-                datastores_by_node[node_name] = []
+                pass
 
-            # ── Node resources (CPU cores + RAM) ─────────────────────────────────
+            # ── Node resources (CPU cores + RAM) ─────────────────────────────
+            resources: Dict = {}
             try:
                 ns = pve_get(f"/nodes/{node_name}/status")
                 mem = ns.get("memory", {})
                 cpuinfo = ns.get("cpuinfo", {})
-                node_resources[node_name] = {
+                resources = {
                     "cpu_cores": int(cpuinfo.get("cpus", 0)),
                     "mem_total_mb": int(mem.get("total", 0)) // (1024 * 1024),
-                    "mem_free_mb": (int(mem.get("free", 0)) + int(mem.get("buffers", 0)) + int(mem.get("cached", 0))) // (1024 * 1024),
+                    "mem_free_mb": (
+                        int(mem.get("free", 0))
+                        + int(mem.get("buffers", 0))
+                        + int(mem.get("cached", 0))
+                    ) // (1024 * 1024),
                 }
             except Exception:
-                node_resources[node_name] = {}
+                pass
+
+            with lock:
+                node_ips[node_name] = ip_found or host
+                datastores_by_node[node_name] = usable
+                node_resources[node_name] = resources
+
+        threads = [threading.Thread(target=fetch_node, args=(n,)) for n in node_names]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=12)
 
         # Build PVE_NODES string  (name1:ip1,name2:ip2)
         pve_nodes_str = ",".join(f"{n}:{ip}" for n, ip in node_ips.items())

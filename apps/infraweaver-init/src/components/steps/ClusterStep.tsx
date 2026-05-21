@@ -85,7 +85,10 @@ export function ClusterStep() {
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [ramUnit, setRamUnit] = useState<'MB' | 'GB'>('GB')
 
-  const pingTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
+  // Tracks the last IP that was actually dispatched to the ping API per node.
+  // Prevents duplicate pings when unrelated node fields change (pveNode, vmid, etc.)
+  // and enables re-pinging when the IP is cleared and re-entered.
+  const lastPingedIpRef = useRef<Record<string, string>>({})
 
   const controlPlaneCount = useMemo(
     () => nodes.filter((node) => node.role === 'control-plane').length,
@@ -119,15 +122,20 @@ export function ClusterStep() {
     }
   }, [setNodePing])
 
-  // Auto-ping any nodes that already have a valid IP when the step first mounts
+  // Auto-ping whenever nodes change (covers initial mount, "Suggest IPs", and manual edits).
+  // Fires only when a valid IP is seen for the first time or has changed.
+  // nodePing starts as `null` (not undefined), so we track dispatched IPs in a ref.
   useEffect(() => {
     nodes.forEach((node) => {
-      if (isIPv4(node.ip.trim()) && nodePing[node.id] === undefined) {
-        void pingNode(node)
-      }
+      const ip = node.ip.trim()
+      if (!isIPv4(ip)) return
+      if (lastPingedIpRef.current[node.id] === ip) return  // already pinged this exact IP
+      const state = useWizardStore.getState().nodePing[node.id]
+      if (state === 'loading') return  // ping already in flight
+      lastPingedIpRef.current[node.id] = ip
+      void pingNode(node)
     })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [nodes, pingNode])
 
   const pingVipField = async (field: keyof typeof vipPing) => {
     const ip = data[field].trim()
@@ -349,12 +357,12 @@ export function ClusterStep() {
                         onChange={(event) => {
                           const newIp = event.target.value
                           updateNode(node.id, { ip: newIp })
-                          if (pingTimersRef.current[node.id]) clearTimeout(pingTimersRef.current[node.id])
-                          if (!isIPv4(newIp.trim())) { setNodePing(node.id, null); return }
-                          pingTimersRef.current[node.id] = setTimeout(
-                            () => void pingNode({ id: node.id, ip: newIp }),
-                            700,
-                          )
+                          if (!isIPv4(newIp.trim())) {
+                            // Clear ping dot and ref so the same IP can be re-pinged later
+                            setNodePing(node.id, null)
+                            delete lastPingedIpRef.current[node.id]
+                          }
+                          // Valid IPs: the useEffect on nodes handles pinging automatically
                         }}
                         className={controlClassName}
                       />
