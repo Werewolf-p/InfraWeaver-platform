@@ -69,6 +69,76 @@ resource "proxmox_download_file" "talos_image" {
 }
 
 # ---------------------------------------------------------------------------
+# Step 1b — Decompress XZ-compressed Talos image on each PVE node
+#
+# The Talos factory image URL ends in .raw.xz.  The Proxmox download-url API
+# stores it as-is; the bpg provider then passes it directly as VM disk bytes,
+# resulting in a corrupt (XZ-wrapped) disk unless we decompress first.
+#
+# This resource SSHes to each PVE node (using the deployer key at
+# ~/.ssh/deployer_ed25519) and decompresses the file in-place if XZ magic
+# bytes are detected. Idempotent: safe to run on an already-decompressed file.
+# ---------------------------------------------------------------------------
+
+resource "null_resource" "decompress_talos_image" {
+  for_each = local.unique_pve_nodes
+
+  triggers = {
+    node          = each.key
+    talos_version = var.talos_version
+  }
+
+  depends_on = [proxmox_download_file.talos_image]
+
+  provisioner "local-exec" {
+    interpreter = ["bash", "-c"]
+    environment = {
+      PROXMOX_TOKEN    = var.proxmox_api_token
+      PROXMOX_ENDPOINT = var.proxmox_endpoint
+      NODE_NAME        = each.key
+      TALOS_VERSION    = var.talos_version
+    }
+    command = <<-BASH
+      set -euo pipefail
+
+      # Discover the actual management IP of the PVE node from the cluster API
+      NODE_IP=$(python3 -c "
+import urllib.request, ssl, json, sys
+ctx = ssl.create_default_context(); ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
+url = '$${PROXMOX_ENDPOINT}api2/json/cluster/status'
+req = urllib.request.Request(url, headers={'Authorization': 'PVEAPIToken=$${PROXMOX_TOKEN}'})
+data = json.loads(urllib.request.urlopen(req, context=ctx, timeout=8).read())
+for n in (data.get('data') or []):
+    if n.get('name') == '$${NODE_NAME}' and n.get('ip'):
+        print(n['ip'])
+        break
+" 2>/dev/null || echo "")
+
+      if [ -z "$NODE_IP" ]; then
+        echo "ERROR: Cannot find IP for PVE node '$${NODE_NAME}' in cluster status"
+        exit 1
+      fi
+      echo "==> [decompress] Node $${NODE_NAME} IP: $NODE_IP"
+
+      ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+          -o ConnectTimeout=15 -o BatchMode=yes \
+          -i ~/.ssh/deployer_ed25519 \
+          root@"$NODE_IP" \
+          "IMG=/var/lib/vz/template/iso/talos-$${TALOS_VERSION}.img; \
+           if [ ! -f \"\$IMG\" ]; then echo \"ERROR: Image not found at \$IMG\"; exit 1; fi; \
+           MAGIC=\$(od -An -tx1 -N6 \"\$IMG\" | tr -d ' \\n'); \
+           if echo \"\$MAGIC\" | grep -qi 'fd377a585a00'; then \
+             echo \"XZ detected [\$(du -sh \"\$IMG\" | cut -f1)] — decompressing...\"; \
+             xzcat \"\$IMG\" > \"\$IMG.raw.tmp\" && mv \"\$IMG.raw.tmp\" \"\$IMG\"; \
+             echo \"Done — raw size: \$(du -sh \"\$IMG\" | cut -f1)\"; \
+           else \
+             echo \"Image already raw (magic: \$MAGIC) — skipping.\"; \
+           fi"
+    BASH
+  }
+}
+
+# ---------------------------------------------------------------------------
 # Step 2 — Create Proxmox VMs with the downloaded Talos disk attached
 # ---------------------------------------------------------------------------
 
@@ -142,7 +212,7 @@ resource "proxmox_virtual_environment_vm" "talos" {
     ]
   }
 
-  depends_on = [proxmox_download_file.talos_image]
+  depends_on = [null_resource.decompress_talos_image]
 }
 
 # ---------------------------------------------------------------------------
