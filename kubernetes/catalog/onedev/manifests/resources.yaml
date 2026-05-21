@@ -147,7 +147,7 @@ spec:
           resources:
             requests:
               cpu: 200m
-              memory: 128Mi
+              memory: 512Mi
             limits:
               cpu: 2000m
               memory: 1200Mi  # Reduced from 2Gi; actual usage ~644Mi, leaving headroom for CI

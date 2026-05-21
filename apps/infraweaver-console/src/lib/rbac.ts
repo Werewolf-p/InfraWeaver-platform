@@ -7,7 +7,7 @@ export type Permission =
   | "cluster:read" | "cluster:drain" | "cluster:scale" | "cluster:admin"
   | "security:read" | "security:write"
   | "nas:read" | "nas:write"
-  | "infra:read" | "rbac:admin"
+  | "infra:read" | "infra:write" | "rbac:admin"
   | "game-hub:read" | "game-hub:write" | "game-hub:admin"
   | "game-hub:players"
   | "game-hub:console" | "game-hub:files" | "game-hub:start" | "game-hub:stop" | "game-hub:scale"
