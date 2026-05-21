@@ -28,9 +28,9 @@ data:
         errors
     }
 
-    # int.infraweaver.local zone — private/VPN-only services (DNS-only Cloudflare → 10.10.0.200)
+    # int.infraweaver.local zone — private/VPN-only services (DNS-only Cloudflare → ${METALLB_TRAEFIK_VIP})
     # hosts: explicit entries for known services (loaded from hosts file)
-    # template: wildcard fallback — any *.int.infraweaver.local not in hosts → 10.10.0.200
+    # template: wildcard fallback — any *.int.infraweaver.local not in hosts → ${METALLB_TRAEFIK_VIP}
     # This means new catalog apps resolve automatically without a hosts-file update.
     int.infraweaver.local:53 {
         hosts /etc/coredns/zones/int.infraweaver.local.hosts {
@@ -39,7 +39,7 @@ data:
             fallthrough
         }
         template IN A int.infraweaver.local {
-            answer "{{ .Name }} 60 IN A 10.10.0.200"
+            answer "{{ .Name }} 60 IN A ${METALLB_TRAEFIK_VIP}"
             fallthrough
         }
         log
@@ -59,76 +59,76 @@ data:
     }
 
   infraweaver.local.hosts: |
-    # infraweaver.local — all services route through K8s Traefik at 10.10.0.200
+    # infraweaver.local — all services route through K8s Traefik at ${METALLB_TRAEFIK_VIP}
     # K8s Traefik proxies to the actual bare-metal or cluster backend.
 
     # ── Cluster apps ─────────────────────────────────────────────────────────
-    10.10.0.200  test.infraweaver.local
+    ${METALLB_TRAEFIK_VIP}  test.infraweaver.local
 
     # ── Bare-metal services (proxied through K8s Traefik → bare-metal) ───────
-    10.10.0.200  auth.infraweaver.local
-    10.10.0.200  netbird.infraweaver.local
-    10.10.0.200  api-netbird.infraweaver.local
-    10.10.0.200  bitwarden.infraweaver.local
-    10.10.0.200  cloud.infraweaver.local
-    10.10.0.200  degoudentijd.infraweaver.local
-    10.10.0.200  www.degoudentijd.infraweaver.local
-    10.10.0.200  feestinhetdonker.infraweaver.local
-    10.10.0.200  gitlab.infraweaver.local
-    10.10.0.200  registry.gitlab.infraweaver.local
-    10.10.0.200  keycloak.infraweaver.local
-    10.10.0.200  marcel.infraweaver.local
-    10.10.0.200  registry.infraweaver.local
-    10.10.0.200  infraweaver.local
-    10.10.0.200  www.infraweaver.local
-    10.10.0.200  teleport.infraweaver.local
-    10.10.0.200  truenas.infraweaver.local
-    10.10.0.200  status.infraweaver.local
-    10.10.0.200  keycloak.infraweaver.local
-    10.10.0.200  awx.infraweaver.local
-    10.10.0.200  bitwarden.infraweaver.local
-    10.10.0.200  gitlab.infraweaver.local
-    10.10.0.200  registry.gitlab.infraweaver.local
-    10.10.0.200  cloud.infraweaver.local
-    10.10.0.200  teleport.infraweaver.local
-    10.10.0.200  registry.infraweaver.local
-    10.10.0.200  wiki.infraweaver.local
+    ${METALLB_TRAEFIK_VIP}  auth.infraweaver.local
+    ${METALLB_TRAEFIK_VIP}  netbird.infraweaver.local
+    ${METALLB_TRAEFIK_VIP}  api-netbird.infraweaver.local
+    ${METALLB_TRAEFIK_VIP}  bitwarden.infraweaver.local
+    ${METALLB_TRAEFIK_VIP}  cloud.infraweaver.local
+    ${METALLB_TRAEFIK_VIP}  degoudentijd.infraweaver.local
+    ${METALLB_TRAEFIK_VIP}  www.degoudentijd.infraweaver.local
+    ${METALLB_TRAEFIK_VIP}  feestinhetdonker.infraweaver.local
+    ${METALLB_TRAEFIK_VIP}  gitlab.infraweaver.local
+    ${METALLB_TRAEFIK_VIP}  registry.gitlab.infraweaver.local
+    ${METALLB_TRAEFIK_VIP}  keycloak.infraweaver.local
+    ${METALLB_TRAEFIK_VIP}  marcel.infraweaver.local
+    ${METALLB_TRAEFIK_VIP}  registry.infraweaver.local
+    ${METALLB_TRAEFIK_VIP}  infraweaver.local
+    ${METALLB_TRAEFIK_VIP}  www.infraweaver.local
+    ${METALLB_TRAEFIK_VIP}  teleport.infraweaver.local
+    ${METALLB_TRAEFIK_VIP}  truenas.infraweaver.local
+    ${METALLB_TRAEFIK_VIP}  status.infraweaver.local
+    ${METALLB_TRAEFIK_VIP}  keycloak.infraweaver.local
+    ${METALLB_TRAEFIK_VIP}  awx.infraweaver.local
+    ${METALLB_TRAEFIK_VIP}  bitwarden.infraweaver.local
+    ${METALLB_TRAEFIK_VIP}  gitlab.infraweaver.local
+    ${METALLB_TRAEFIK_VIP}  registry.gitlab.infraweaver.local
+    ${METALLB_TRAEFIK_VIP}  cloud.infraweaver.local
+    ${METALLB_TRAEFIK_VIP}  teleport.infraweaver.local
+    ${METALLB_TRAEFIK_VIP}  registry.infraweaver.local
+    ${METALLB_TRAEFIK_VIP}  wiki.infraweaver.local
 
     # ── Static / non-Traefik ──────────────────────────────────────────────────
     10.25.0.43   dc1.infraweaver.local
 
   prod.local.hosts: |
     # prod.local — Talos Kubernetes cluster services
-    # All route through cluster Traefik at 10.10.0.200
+    # All route through cluster Traefik at ${METALLB_TRAEFIK_VIP}
 
-    10.10.0.200  argocd.prod.local
-    10.10.0.200  grafana.prod.local
-    10.10.0.200  longhorn.prod.local
-    10.10.0.200  netbird.prod.local
-    10.10.0.200  openbao.prod.local
-    10.10.0.200  test.prod.local
+    ${METALLB_TRAEFIK_VIP}  argocd.prod.local
+    ${METALLB_TRAEFIK_VIP}  grafana.prod.local
+    ${METALLB_TRAEFIK_VIP}  longhorn.prod.local
+    ${METALLB_TRAEFIK_VIP}  netbird.prod.local
+    ${METALLB_TRAEFIK_VIP}  openbao.prod.local
+    ${METALLB_TRAEFIK_VIP}  test.prod.local
 
   int.infraweaver.local.hosts: |
     # int.infraweaver.local — VPN-only private services
-    # Cloudflare DNS-only record *.int.infraweaver.local → 10.10.0.200 (private IP)
+    # Cloudflare DNS-only record *.int.infraweaver.local → ${METALLB_TRAEFIK_VIP} (private IP)
     # Only reachable via NetBird VPN or VLAN3 network.
-    # NOTE: The CoreDNS template plugin also handles wildcard *.int.infraweaver.local → 10.10.0.200
+    # NOTE: The CoreDNS template plugin also handles wildcard *.int.infraweaver.local → ${METALLB_TRAEFIK_VIP}
     # so new apps do NOT require a manual entry here. This file is kept for documentation.
-    10.10.0.200  int.infraweaver.local
+    ${METALLB_TRAEFIK_VIP}  int.infraweaver.local
     # ── Core platform ──────────────────────────────────────────────────────────
-    10.10.0.200  netbird.int.infraweaver.local
-    10.10.0.200  argocd.int.infraweaver.local
-    10.10.0.200  grafana.int.infraweaver.local
-    10.10.0.200  home.int.infraweaver.local
-    10.10.0.200  longhorn.int.infraweaver.local
-    10.10.0.200  openbao.int.infraweaver.local
+    ${METALLB_TRAEFIK_VIP}  netbird.int.infraweaver.local
+    ${METALLB_TRAEFIK_VIP}  argocd.int.infraweaver.local
+    ${METALLB_TRAEFIK_VIP}  grafana.int.infraweaver.local
+    ${METALLB_TRAEFIK_VIP}  home.int.infraweaver.local
+    ${METALLB_TRAEFIK_VIP}  longhorn.int.infraweaver.local
+    ${METALLB_TRAEFIK_VIP}  openbao.int.infraweaver.local
     # ── Catalog apps ──────────────────────────────────────────────────────────
-    10.10.0.200  wiki.int.infraweaver.local
-    10.10.0.200  gitea.int.infraweaver.local
-    10.10.0.200  vaultwarden.int.infraweaver.local
-    10.10.0.200  it-tools.int.infraweaver.local
-    10.10.0.200  stirling-pdf.int.infraweaver.local
-    10.10.0.200  excalidraw.int.infraweaver.local
-    10.10.0.200  actual.int.infraweaver.local
-    10.10.0.200  n8n.int.infraweaver.local
-    10.10.0.200  forgejo.int.infraweaver.local
+    ${METALLB_TRAEFIK_VIP}  wiki.int.infraweaver.local
+    ${METALLB_TRAEFIK_VIP}  gitea.int.infraweaver.local
+    ${METALLB_TRAEFIK_VIP}  vaultwarden.int.infraweaver.local
+    ${METALLB_TRAEFIK_VIP}  it-tools.int.infraweaver.local
+    ${METALLB_TRAEFIK_VIP}  stirling-pdf.int.infraweaver.local
+    ${METALLB_TRAEFIK_VIP}  excalidraw.int.infraweaver.local
+    ${METALLB_TRAEFIK_VIP}  actual.int.infraweaver.local
+    ${METALLB_TRAEFIK_VIP}  n8n.int.infraweaver.local
+    ${METALLB_TRAEFIK_VIP}  forgejo.int.infraweaver.local

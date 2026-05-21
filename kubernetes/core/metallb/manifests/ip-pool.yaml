@@ -12,7 +12,7 @@ metadata:
   namespace: metallb-system
 spec:
   addresses:
-    - 10.10.0.200-10.10.0.210
+    - ${METALLB_VIP_RANGE}
 ---
 apiVersion: metallb.io/v1beta1
 kind: L2Advertisement

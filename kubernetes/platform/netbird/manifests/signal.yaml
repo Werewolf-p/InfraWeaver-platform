@@ -73,7 +73,7 @@ metadata:
   namespace: netbird
 spec:
   type: LoadBalancer
-  loadBalancerIP: "10.10.0.203"
+  loadBalancerIP: "${METALLB_NETBIRD_SIGNAL_VIP}"
   selector:
     app: netbird-signal
   ports:

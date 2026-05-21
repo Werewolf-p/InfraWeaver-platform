@@ -65,7 +65,7 @@ metadata:
   namespace: netbird
 spec:
   type: LoadBalancer
-  loadBalancerIP: "10.10.0.204"
+  loadBalancerIP: "${METALLB_NETBIRD_RELAY_VIP}"
   selector:
     app: netbird-relay
   ports:
