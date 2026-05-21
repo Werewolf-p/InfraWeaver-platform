@@ -444,7 +444,7 @@ export function ClusterStep() {
                 </button>
 
                 {isExpanded ? (
-                  <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                  <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                     <FormField
                       label={`CPU cores${nodeResources ? ` (node has ${nodeResources.cpu_cores})` : ''}`}
                       htmlFor={`${node.id}-cpu`}
@@ -511,7 +511,7 @@ export function ClusterStep() {
                         />
                       )}
                     </FormField>
-                  </motion.div>
+                  </div>
                 ) : null}
               </motion.div>
             )
