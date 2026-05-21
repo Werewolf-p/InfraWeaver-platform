@@ -727,7 +727,7 @@ runcmd:
     Type=simple
     User=iw
     WorkingDirectory=/opt/infraweaver
-    ExecStartPre=/usr/bin/git -C /opt/infraweaver pull --ff-only origin ${REPO_BRANCH} || true
+    ExecStartPre=-/bin/bash -c '/usr/bin/git -C /opt/infraweaver pull --ff-only origin main'
     ExecStart=/usr/bin/python3 scripts/init/server.py
     Restart=on-failure
     RestartSec=5
