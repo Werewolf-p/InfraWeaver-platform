@@ -33,8 +33,12 @@ const vipRows = [
 function dsValue(ds: NodeDatastore | string): string {
   return typeof ds === 'object' ? ds.name : ds
 }
+function freeSpaceLabel(free_gb: number): string {
+  if (free_gb >= 1024) return `${(free_gb / 1024).toFixed(1)} TB free`
+  return `${Math.round(free_gb)} GB free`
+}
 function dsLabel(ds: NodeDatastore | string): string {
-  if (typeof ds === 'object' && ds.free_gb != null) return `${ds.name}  (${ds.free_gb} GB free)`
+  if (typeof ds === 'object' && ds.free_gb != null) return `${ds.name}  (${freeSpaceLabel(ds.free_gb)})`
   return typeof ds === 'object' ? ds.name : ds
 }
 
