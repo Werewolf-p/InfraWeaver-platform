@@ -581,6 +581,13 @@ def _discover_proxmox(host: str, token: str) -> Dict:
         node_resources: Dict[str, Dict] = {}
         lock = threading.Lock()
 
+        # Pre-populate with safe defaults so all node keys are always present in
+        # the result dict, even if a thread doesn't finish within the join timeout.
+        for _n in node_names:
+            node_ips[_n] = host
+            datastores_by_node[_n] = []
+            node_resources[_n] = {}
+
         # Storage types that can hold VM disk images.
         # Use type-based filter (permissive) OR explicit "images" content config.
         # This avoids breaking setups where `local` (dir) isn't content-configured
@@ -672,7 +679,7 @@ def _discover_proxmox(host: str, token: str) -> Dict:
         for t in threads:
             t.start()
         for t in threads:
-            t.join(timeout=12)
+            t.join(timeout=20)
 
         # Build PVE_NODES string  (name1:ip1,name2:ip2)
         pve_nodes_str = ",".join(f"{n}:{ip}" for n, ip in node_ips.items())

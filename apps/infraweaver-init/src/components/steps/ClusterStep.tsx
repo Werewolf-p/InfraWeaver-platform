@@ -350,8 +350,15 @@ export function ClusterStep() {
             const availableNodes = proxmoxDiscovery?.all_nodes ?? []
             const selectedPveNode = node.pveNode || data.PROXMOX_NODE_NAME
             const nodeResources = proxmoxDiscovery?.node_resources_by_node?.[selectedPveNode]
+            // Use the per-node datastores from discovery.
+            // Fallback to the flat primary-node list ONLY when the selected node is
+            // the primary node AND the per-node map hasn't been populated yet.
+            // Never show a different node's datastores as if they belonged to selectedPveNode.
+            const dsbn = proxmoxDiscovery?.datastores_by_node
             const availableDatastores: Array<NodeDatastore | string> =
-              proxmoxDiscovery?.datastores_by_node?.[selectedPveNode] ?? proxmoxDiscovery?.datastores ?? []
+              dsbn != null
+                ? (dsbn[selectedPveNode] ?? [])
+                : (proxmoxDiscovery?.datastores ?? [])
             const canRemove = nodes.length > 1 && !(node.role === 'control-plane' && controlPlaneCount === 1)
 
             return (
@@ -438,11 +445,15 @@ export function ClusterStep() {
                         value={selectedPveNode}
                         onChange={(event) => {
                           const newPveNode = event.target.value
-                          // Pre-select the first available datastore on the new node so
-                          // the datastore select stays in sync instead of showing a stale name
                           const newNodeDs = proxmoxDiscovery?.datastores_by_node?.[newPveNode]
-                          const defaultDs = newNodeDs?.length ? dsValue(newNodeDs[0]) : ''
-                          updateNode(node.id, { pveNode: newPveNode, datastore: defaultDs })
+                          if (newNodeDs && newNodeDs.length > 0) {
+                            // Known datastores for the new node — pre-select the first one
+                            updateNode(node.id, { pveNode: newPveNode, datastore: dsValue(newNodeDs[0]) })
+                          } else {
+                            // No datastore info yet — change node but keep current datastore value
+                            // so the user doesn't lose what they typed / the field isn't blanked out
+                            updateNode(node.id, { pveNode: newPveNode })
+                          }
                         }}
                         className={controlClassName}
                       >
@@ -554,29 +565,42 @@ export function ClusterStep() {
                       <FormField
                         label="Datastore"
                         htmlFor={`${node.id}-datastore`}
-                        hint={availableDatastores.length ? `${availableDatastores.length} pool${availableDatastores.length > 1 ? 's' : ''} on ${selectedPveNode}` : undefined}
+                        hint={
+                          loading.discoverProxmox
+                            ? undefined
+                            : availableDatastores.length
+                              ? `${availableDatastores.length} pool${availableDatastores.length > 1 ? 's' : ''} on ${selectedPveNode}`
+                              : proxmoxDiscovery
+                                ? `No pools scanned for ${selectedPveNode} — type manually`
+                                : undefined
+                        }
                       >
-                        <select
-                          id={`${node.id}-datastore`}
-                          value={node.datastore || dsValue(availableDatastores[0] ?? '')}
-                          onChange={(event) => updateNode(node.id, { datastore: event.target.value })}
-                          className={controlClassName}
-                          disabled={loading.discoverProxmox || availableDatastores.length === 0}
-                        >
-                          {loading.discoverProxmox ? (
+                        {loading.discoverProxmox ? (
+                          <select disabled className={controlClassName}>
                             <option>Discovering datastores…</option>
-                          ) : availableDatastores.length ? (
-                            availableDatastores.map((ds) => (
+                          </select>
+                        ) : availableDatastores.length ? (
+                          <select
+                            id={`${node.id}-datastore`}
+                            value={node.datastore || dsValue(availableDatastores[0])}
+                            onChange={(event) => updateNode(node.id, { datastore: event.target.value })}
+                            className={controlClassName}
+                          >
+                            {availableDatastores.map((ds) => (
                               <option key={dsValue(ds)} value={dsValue(ds)}>
                                 {dsLabel(ds)}
                               </option>
-                            ))
-                          ) : (
-                            <option value={node.datastore || data.TALOS_DATASTORE}>
-                              {node.datastore || data.TALOS_DATASTORE || '— complete Proxmox step first —'}
-                            </option>
-                          )}
-                        </select>
+                            ))}
+                          </select>
+                        ) : (
+                          <input
+                            id={`${node.id}-datastore`}
+                            value={node.datastore}
+                            onChange={(event) => updateNode(node.id, { datastore: event.target.value })}
+                            placeholder={data.TALOS_DATASTORE || 'e.g. lvm-proxmox'}
+                            className={controlClassName}
+                          />
+                        )}
                       </FormField>
                     </div>
                   )
