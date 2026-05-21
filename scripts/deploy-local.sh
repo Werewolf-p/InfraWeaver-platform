@@ -249,6 +249,12 @@ fi
 # ── Step 3: Set TF variables from .env ───────────────────────────────────────
 log "Step 3: Preparing Terraform variables..."
 export TF_VAR_proxmox_api_token="$PROXMOX_API_TOKEN"
+# bpg/proxmox provider also reads these native env vars directly.
+# Setting them here ensures the provider always has credentials even if the
+# TF_VAR path is skipped, and avoids "No ticket" errors in sub-scripts.
+export PROXMOX_VE_ENDPOINT="https://${PROXMOX_HOST}:8006/"
+export PROXMOX_VE_API_TOKEN="$PROXMOX_API_TOKEN"
+export PROXMOX_VE_INSECURE="true"
 if [[ "$DNS_PROVIDER" == "cloudflare" ]]; then
   export TF_VAR_cloudflare_api_token="${CLOUDFLARE_API_TOKEN:-}"
 else
