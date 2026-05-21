@@ -472,15 +472,18 @@ def _setup_proxmox_user(host: str, username: str, password: str) -> Dict:
                         "Use root@pam or a user with User.Modify + Sys.Modify permissions."}
             raise
 
-        # ── 3. Create InfraWeaver role ────────────────────────────────────────
+        # ── 3. Create/update InfraWeaver role ────────────────────────────────
+        # Datastore.Download is required by bpg/proxmox proxmox_download_file
+        # (PVE 8.1+).  Older nodes ignore unknown privs, so it's safe to include.
         PRIVS = ",".join([
             "VM.Allocate", "VM.Clone", "VM.Config.CDROM", "VM.Config.CPU",
             "VM.Config.Cloudinit", "VM.Config.Disk", "VM.Config.HWType",
             "VM.Config.Memory", "VM.Config.Network", "VM.Config.Options",
             "VM.Audit", "VM.PowerMgmt", "VM.Console",
             "VM.Migrate", "VM.Snapshot", "VM.Snapshot.Rollback",
-            "VM.GuestAgent.Audit",  # replaces VM.Monitor (removed in PVE 9.x)
-            "Datastore.AllocateSpace", "Datastore.AllocateTemplate", "Datastore.Audit",
+            "VM.GuestAgent.Audit",
+            "Datastore.AllocateSpace", "Datastore.AllocateTemplate",
+            "Datastore.Audit", "Datastore.Download",
             "Pool.Allocate", "SDN.Use", "Sys.Audit",
         ])
         try:
@@ -489,12 +492,9 @@ def _setup_proxmox_user(host: str, username: str, password: str) -> Dict:
         except urllib.error.HTTPError as _role_err:
             _role_body = _role_err.read().decode("utf-8", "replace")
             if "already exist" in _role_body.lower():
-                # Role already exists — refresh its privilege set (best effort)
-                try:
-                    pve_req("PUT", "/access/roles/InfraWeaver",
-                            {"privs": PRIVS, "append": 0}, ticket, csrf)
-                except Exception:
-                    pass  # PUT not critical — role exists and ACL will work
+                # Role exists — always force-update to the latest privilege set
+                pve_req("PUT", "/access/roles/InfraWeaver",
+                        {"privs": PRIVS, "append": 0}, ticket, csrf)
             else:
                 return {"ok": False,
                         "error": f"Failed to create InfraWeaver role: {_role_body[:300]}"}
@@ -519,26 +519,21 @@ def _setup_proxmox_user(host: str, username: str, password: str) -> Dict:
             "propagate": 1,
         }, ticket, csrf)
 
-        # ── 6. Create (or recreate) API token ────────────────────────────────
+        # ── 6. Always delete then recreate the API token (clean slate) ────────
+        # This ensures privsep=0 is set correctly even if the token was
+        # previously created manually in the Proxmox UI (which defaults privsep=1
+        # and causes 403 "Permission check failed" on all API calls).
         token_name = "infraweaver"
         try:
-            tok = pve_req("POST", f"/access/users/{user_id}/token/{token_name}", {
-                "privsep": 0,
-                "comment": "InfraWeaver deployer token",
-            }, ticket, csrf)
-            token_uuid = tok["data"]["value"]
+            pve_req("DELETE", f"/access/users/{user_id}/token/{token_name}",
+                    None, ticket, csrf)
         except Exception:
-            # Token already exists — delete it and regenerate
-            try:
-                pve_req("DELETE", f"/access/users/{user_id}/token/{token_name}",
-                        None, ticket, csrf)
-            except Exception:
-                pass
-            tok = pve_req("POST", f"/access/users/{user_id}/token/{token_name}", {
-                "privsep": 0,
-                "comment": "InfraWeaver deployer token",
-            }, ticket, csrf)
-            token_uuid = tok["data"]["value"]
+            pass  # Token didn't exist — that's fine
+        tok = pve_req("POST", f"/access/users/{user_id}/token/{token_name}", {
+            "privsep": 0,
+            "comment": "InfraWeaver deployer token — managed by InfraWeaver Platform",
+        }, ticket, csrf)
+        token_uuid = tok["data"]["value"]
 
         # Credentials are discarded here — only the token is returned
         return {
