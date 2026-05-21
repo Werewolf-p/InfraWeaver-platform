@@ -1576,6 +1576,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         if path == "/api/save-env":
             try:
+                # Accept either {"env": "<raw .env string>"} OR a flat key-value dict
+                if "env" in payload and isinstance(payload.get("env"), str) and "\n" in payload["env"]:
+                    # Raw .env file content — write directly
+                    ENV_FILE.write_text(payload["env"])
+                    self._send_json({"ok": True})
+                    return
                 data = {}
                 for k, v in payload.items():
                     if isinstance(v, bool):

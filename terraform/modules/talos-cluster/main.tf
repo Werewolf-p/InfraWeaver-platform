@@ -59,13 +59,17 @@ locals {
 resource "proxmox_download_file" "talos_image" {
   for_each = local.unique_pve_nodes
 
-  content_type   = "iso"
-  datastore_id   = var.talos_image_datastore
-  node_name      = each.key
-  url            = local.talos_image_url
-  file_name      = "talos-${var.talos_version}.img"
-  overwrite      = false
-  upload_timeout = 1800
+  content_type        = "iso"
+  datastore_id        = var.talos_image_datastore
+  node_name           = each.key
+  url                 = local.talos_image_url
+  file_name           = "talos-${var.talos_version}.img"
+  overwrite           = false
+  # Allow adopting a pre-existing file that was created outside of Terraform
+  # (e.g. from a previous run with wiped state). Without this flag the provider
+  # would return an error if the file exists but is not in the current TF state.
+  overwrite_unmanaged = true
+  upload_timeout      = 1800
 }
 
 # ---------------------------------------------------------------------------
