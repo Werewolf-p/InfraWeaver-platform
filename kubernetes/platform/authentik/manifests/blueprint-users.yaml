@@ -26,10 +26,10 @@ data:
       - model: authentik_core.user
         state: present
         identifiers:
-          username: "${ADMIN_USERNAME}"
+          username: "remon"
         attrs:
-          name: "${ADMIN_NAME}"
-          email: "${ADMIN_EMAIL}"
+          name: "remon"
+          email: "remonhulst@gmail.com"
           password: !Env AUTHENTIK_ADMIN_PASSWORD
           is_active: true
 
