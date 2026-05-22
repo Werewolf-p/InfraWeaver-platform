@@ -602,7 +602,7 @@ if [[ -n "$BAO_ROOT_TOKEN" ]]; then
     || warn "bootstrap.sh had issues — Onedev/ArgoCD wiring may need manual completion"
 else
   warn "No OpenBao root token — deploying Onedev manifests directly without service account"
-  kubectl --kubeconfig "$KB_FILE" apply -f kubernetes/catalog/onedev/ --server-side 2>/dev/null || true
+  kubectl --kubeconfig "$KB_FILE" apply -Rf kubernetes/catalog/onedev/ --server-side 2>/dev/null || true
 fi
 ok "Step 9: Onedev deployed and ArgoCD wired"
 
