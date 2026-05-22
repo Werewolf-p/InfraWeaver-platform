@@ -1,0 +1,53 @@
+# ── users.yaml — Platform user roster ────────────────────────────────────────
+# This file is preserved across redeployments (redeploy-local.sh backs it up).
+# Add users here before deploying — each user gets an Authentik account,
+# ArgoCD RBAC binding, and (if enabled) a NetBird VPN account.
+#
+# Username (the YAML key) becomes the Authentik username and NetBird identity.
+# Choose something stable — it's used as the principal ID in role assignments.
+#
+# FIRST USER: should be the platform admin. Their username is also used by the
+# NetBird bootstrap job to pre-create the admin account (ADMIN_USERNAME in .env).
+users:
+  admin:
+    name: Platform Admin
+    email: "${ADMIN_EMAIL}"
+    access_level: admin
+    authentik_groups:
+      - platform-admins
+      - authentik Admins
+      - platform-users
+      - wiki-admins
+    argocd_role: admin
+    openbao_policy: default
+    wiki_role: admin
+    send_recovery_email: true
+    notes: Platform owner — full access to everything
+    role_assignments:
+      - id: ra-admin-platform-owner
+        roleId: platform-owner
+        scope: /
+        principalType: user
+        principalId: admin
+        grantedBy: "${ADMIN_EMAIL}"
+        grantedAt: '2026-01-01T00:00:00.000Z'
+      - id: ra-admin-wiki-editor
+        roleId: wiki-editor
+        scope: /wiki
+        principalType: user
+        principalId: admin
+        grantedBy: "${ADMIN_EMAIL}"
+        grantedAt: '2026-01-01T00:00:00.000Z'
+  # ── Example additional user (remove or replace) ──────────────────────────
+  # example-user:
+  #   name: Example User
+  #   email: user@yourdomain.com
+  #   access_level: platform-user
+  #   authentik_groups:
+  #     - platform-users
+  #     - wiki-readers
+  #   argocd_role: readonly
+  #   openbao_policy: null
+  #   wiki_role: reader
+  #   send_recovery_email: true
+  #   notes: Standard platform user
