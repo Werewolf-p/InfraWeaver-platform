@@ -4,7 +4,8 @@
 # =============================================================================
 
 proxmox_nodes = {
-  proxmox = { ip = "10.25.0.3", cluster = "productie" }
+  proxmox    = { ip = "10.25.0.3", cluster = "productie" }
+  microserver = { ip = "10.25.0.4", cluster = "productie" }
 }
 
 node_defaults = {

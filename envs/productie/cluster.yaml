@@ -28,6 +28,15 @@ nodes:
     memory_mb: 22528
     disk_gb: 300
     datastore: "lvm-proxmox"
+  talos-prod-cp3:
+    proxmox_node: "microserver"
+    ip: "10.10.0.94"
+    vm_id: 9302
+    controlplane: true
+    cpu: 6
+    memory_mb: 10240
+    disk_gb: 130
+    datastore: "lvm-microserver"
 
 # Management IPs of each Proxmox node in the cluster.
 # Used for display/reference only — Talos VM disk operations use the Proxmox API,
@@ -47,6 +56,7 @@ nodes:
 #   3. Run tofu plan to verify changes before applying
 pve_nodes:
   proxmox: "10.25.0.3"
+  microserver: "10.25.0.4"
 
 gateway: "10.10.0.1"
 nameservers:
