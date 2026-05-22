@@ -424,15 +424,22 @@ fi
 # Stage 2a: install ArgoCD namespace + Helm (gets CRDs registered)
 log "==> Stage 2a: installing ArgoCD namespace + Helm chart..."
 # shellcheck disable=SC2086
+for _stage2a_attempt in 1 2 3; do
 _stage2a_exit=0
 tofu apply $VARS \
   -target='module.platform_bootstrap[0].kubernetes_namespace.argocd' \
   -target='module.platform_bootstrap[0].helm_release.argocd' \
   -auto-approve 2>&1 || _stage2a_exit=$?
+  if [[ "$_stage2a_exit" -eq 0 ]]; then break; fi
+  warn "Stage 2a attempt ${_stage2a_attempt}/3 failed (transient error) — retrying in 20s..."
+  sleep 20
+done
 if [[ "$_stage2a_exit" -ne 0 ]]; then
   # Helm provider sometimes crashes ("Plugin did not respond") even when install succeeded
   # Check if ArgoCD pods are actually running
-  _argocd_pods=$(kubectl --kubeconfig "$KB_FILE" get pods -n argocd --no-headers 2>/dev/null | grep -c "Running" || echo "0")
+  _argocd_pods=$(kubectl --kubeconfig "$KB_FILE" get pods -n argocd --no-headers 2>/dev/null | grep "Running" 2>/dev/null | wc -l || echo "0")
+  _argocd_pods=${_argocd_pods//[^0-9]/}
+  _argocd_pods=${_argocd_pods:-0}
   if [[ "$_argocd_pods" -ge 5 ]]; then
     warn "==> Helm provider crashed but ArgoCD has ${_argocd_pods} running pods — importing TF state..."
     tofu import $VARS "module.platform_bootstrap[0].kubernetes_namespace.argocd" "argocd" 2>&1 | grep -E "Import|Error|warn" || true
