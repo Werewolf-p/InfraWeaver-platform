@@ -106,7 +106,7 @@ postgresql:
     persistence:
       annotations:
         recurring-job-group.longhorn.io/truenas-backup: "enabled"
-      storageClass: longhorn-retain   # HA: 3 replicas across nodes (critical user data)
+      storageClass: local-path   # local-path: stable with 2 nodes/cp3 offline
       size: 2Gi
     resources:
       requests:
@@ -125,7 +125,8 @@ postgresql:
             - key: kubernetes.io/hostname
               operator: In
               values:
-              - talos-prod-cp3
+              - talos-prod-cp2
+              - talos-prod-cp1
 
 # Redis is deployed as a standalone StatefulSet in manifests/redis.yaml
 # (authentik chart 2026.x dropped the bundled Redis subchart)

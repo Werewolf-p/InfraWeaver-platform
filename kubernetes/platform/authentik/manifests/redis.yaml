@@ -78,7 +78,7 @@ spec:
           recurring-job-group.longhorn.io/truenas-backup: "enabled"
       spec:
         accessModes: [ReadWriteOnce]
-        storageClassName: longhorn
+        storageClassName: local-path
         resources:
           requests:
             storage: 256Mi
