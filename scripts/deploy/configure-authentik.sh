@@ -135,3 +135,117 @@ else
 fi
 kill $SETUP_PF_PID 2>/dev/null || true
 
+
+# ── LDAP Outpost Setup ───────────────────────────────────────────────────────
+# Creates the LDAP provider + outpost in Authentik, then stores the outpost
+# API token in OpenBao so the ExternalSecret can sync it into the cluster.
+echo "==> Setting up Authentik LDAP outpost..."
+
+# Re-establish port-forward (SETUP_PF_PID may have been killed above)
+$KT port-forward svc/authentik-server -n authentik 8089:80 > /tmp/authentik-pf-setup.log 2>&1 &
+AK_PF_PID=$!
+sleep 4
+
+if [ -z "${AUTHENTIK_ADMIN_TOKEN:-}" ]; then
+  echo "  ⚠️ No Authentik token available, skipping LDAP setup"
+else
+  LDAP_RESULT=$(curl -sf -H "Authorization: Bearer $AUTHENTIK_ADMIN_TOKEN" \
+    "http://localhost:8089/api/v3/providers/ldap/?name=InfraWeaver+LDAP" 2>/dev/null || echo "")
+  LDAP_PROVIDER_PK=$(echo "$LDAP_RESULT" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+r=d.get('results',[])
+print(r[0]['pk'] if r else '')
+" 2>/dev/null || echo "")
+
+  if [ -z "$LDAP_PROVIDER_PK" ]; then
+    # Get authentication flow
+    AUTH_FLOW=$(curl -sf -H "Authorization: Bearer $AUTHENTIK_ADMIN_TOKEN" \
+      "http://localhost:8089/api/v3/flows/instances/?designation=authentication&slug=default-authentication-flow" \
+      2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); r=d.get('results',[]); print(r[0]['pk'] if r else '')" 2>/dev/null || echo "")
+    AUTHZ_FLOW=$(curl -sf -H "Authorization: Bearer $AUTHENTIK_ADMIN_TOKEN" \
+      "http://localhost:8089/api/v3/flows/instances/?designation=authorization" \
+      2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); r=d.get('results',[]); print(r[0]['pk'] if r else '')" 2>/dev/null || echo "")
+    INVAL_FLOW=$(curl -sf -H "Authorization: Bearer $AUTHENTIK_ADMIN_TOKEN" \
+      "http://localhost:8089/api/v3/flows/instances/?designation=invalidation" \
+      2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); r=d.get('results',[]); print(r[0]['pk'] if r else '')" 2>/dev/null || echo "")
+
+    LDAP_PROVIDER_PK=$(curl -sf -X POST \
+      -H "Authorization: Bearer $AUTHENTIK_ADMIN_TOKEN" \
+      -H "Content-Type: application/json" \
+      "http://localhost:8089/api/v3/providers/ldap/" \
+      -d "{\"name\":\"InfraWeaver LDAP\",\"base_dn\":\"dc=infraweaver,dc=local\",\"authentication_flow\":\"${AUTH_FLOW}\",\"authorization_flow\":\"${AUTHZ_FLOW}\",\"invalidation_flow\":\"${INVAL_FLOW}\"}" \
+      2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('pk',''))" 2>/dev/null || echo "")
+    echo "  ✅ Created LDAP provider PK: $LDAP_PROVIDER_PK"
+  else
+    echo "  ℹ️ LDAP provider already exists: PK=$LDAP_PROVIDER_PK"
+    # Ensure authentication_flow is set
+    AUTH_FLOW=$(curl -sf -H "Authorization: Bearer $AUTHENTIK_ADMIN_TOKEN" \
+      "http://localhost:8089/api/v3/flows/instances/?designation=authentication&slug=default-authentication-flow" \
+      2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); r=d.get('results',[]); print(r[0]['pk'] if r else '')" 2>/dev/null || echo "")
+    curl -sf -X PATCH -H "Authorization: Bearer $AUTHENTIK_ADMIN_TOKEN" \
+      -H "Content-Type: application/json" \
+      "http://localhost:8089/api/v3/providers/ldap/${LDAP_PROVIDER_PK}/" \
+      -d "{\"authentication_flow\":\"${AUTH_FLOW}\"}" > /dev/null 2>/dev/null || true
+  fi
+
+  if [ -n "$LDAP_PROVIDER_PK" ]; then
+    # Create or find outpost
+    OUTPOST_RESULT=$(curl -sf -H "Authorization: Bearer $AUTHENTIK_ADMIN_TOKEN" \
+      "http://localhost:8089/api/v3/outposts/instances/?type=ldap&name=authentik-ldap-outpost" 2>/dev/null || echo "")
+    OUTPOST_TOKEN_ID=$(echo "$OUTPOST_RESULT" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+r=[x for x in d.get('results',[]) if x.get('type')=='ldap']
+print(r[0]['token_identifier'] if r else '')
+" 2>/dev/null || echo "")
+
+    if [ -z "$OUTPOST_TOKEN_ID" ]; then
+      # Get k8s service connection
+      K8S_SVC_CONN=$(curl -sf -H "Authorization: Bearer $AUTHENTIK_ADMIN_TOKEN" \
+        "http://localhost:8089/api/v3/outposts/service_connections/all/" \
+        2>/dev/null | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+r=[x for x in d.get('results',[]) if 'kubernetes' in x.get('meta_model_name','').lower()]
+print(r[0]['pk'] if r else '')
+" 2>/dev/null || echo "")
+
+      OUTPOST_JSON=$(curl -sf -X POST \
+        -H "Authorization: Bearer $AUTHENTIK_ADMIN_TOKEN" \
+        -H "Content-Type: application/json" \
+        "http://localhost:8089/api/v3/outposts/instances/" \
+        -d "{\"name\":\"authentik-ldap-outpost\",\"type\":\"ldap\",\"providers\":[${LDAP_PROVIDER_PK}],\"service_connection\":\"${K8S_SVC_CONN}\",\"config\":{\"log_level\":\"info\",\"authentik_host\":\"http://authentik-server.authentik.svc.cluster.local\",\"authentik_host_insecure\":true,\"kubernetes_replicas\":0,\"kubernetes_namespace\":\"authentik\",\"kubernetes_disabled_components\":[\"deployment\",\"secret\"]}}" \
+        2>/dev/null || echo "")
+      OUTPOST_TOKEN_ID=$(echo "$OUTPOST_JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('token_identifier',''))" 2>/dev/null || echo "")
+      echo "  ✅ Created LDAP outpost, token_id: $OUTPOST_TOKEN_ID"
+    else
+      echo "  ℹ️ LDAP outpost already exists"
+    fi
+
+    if [ -n "$OUTPOST_TOKEN_ID" ]; then
+      OUTPOST_TOKEN=$(curl -sf -H "Authorization: Bearer $AUTHENTIK_ADMIN_TOKEN" \
+        "http://localhost:8089/api/v3/core/tokens/${OUTPOST_TOKEN_ID}/view_key/" \
+        2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('key',''))" 2>/dev/null || echo "")
+
+      if [ -n "$OUTPOST_TOKEN" ]; then
+        # Store in OpenBao
+        BAO_POD=$($KT get pod -n openbao -l app.kubernetes.io/name=openbao -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+        BAO_ROOT_TOKEN=$($KT get secret openbao-unseal -n openbao -o jsonpath='{.data.root_token}' 2>/dev/null | base64 -d || echo "")
+        if [ -n "$BAO_POD" ] && [ -n "$BAO_ROOT_TOKEN" ]; then
+          $KT exec -n openbao "$BAO_POD" -c openbao -- \
+            sh -c "VAULT_TOKEN='${BAO_ROOT_TOKEN}' VAULT_ADDR='http://127.0.0.1:8200' bao kv put secret/platform/authentik-ldap-outpost token='${OUTPOST_TOKEN}'" \
+            > /dev/null 2>&1
+          echo "  ✅ LDAP outpost token stored in OpenBao"
+          # Force ExternalSecret refresh
+          $KT annotate externalsecret authentik-ldap-token -n authentik \
+            force-sync="$(date +%s)" --overwrite > /dev/null 2>&1 || true
+        else
+          echo "  ⚠️ Could not store token in OpenBao (pod/token not available)"
+        fi
+      fi
+    fi
+  fi
+fi
+kill $AK_PF_PID 2>/dev/null || true
+echo "✅ LDAP outpost setup complete"

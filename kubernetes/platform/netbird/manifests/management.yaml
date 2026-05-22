@@ -31,7 +31,7 @@ data:
       "HttpConfig": {
         "LetsEncryptDomain":"","CertFile":"","CertKey":"",
         "AuthAudience":"netbird","AuthIssuer":"","AuthKeysLocation":"","AuthUserIDClaim":"",
-        "IdpSignKeyRefreshEnabled":true,"OIDCConfigEndpoint":"https://auth.infraweaver.local/application/o/netbird/.well-known/openid-configuration"
+        "IdpSignKeyRefreshEnabled":true,"OIDCConfigEndpoint":"http://authentik-server.authentik.svc.cluster.local/application/o/netbird/.well-known/openid-configuration"
       },
       "IdpManagerConfig": {"Manager":"none","ExtraConfig":{},"ClientConfig":null},
       "DeviceAuthorizationFlow": null,
@@ -104,7 +104,7 @@ spec:
             - -c
             - |
               echo "Waiting for Authentik OIDC endpoint..."
-              until curl -sfk --max-time 5 "https://auth.infraweaver.local/application/o/netbird/.well-known/openid-configuration" > /dev/null 2>&1; do
+              until curl -sfk --max-time 5 "http://authentik-server.authentik.svc.cluster.local/application/o/netbird/.well-known/openid-configuration" > /dev/null 2>&1; do
                 echo "OIDC endpoint not ready, retrying in 5s..."
                 sleep 5
               done
