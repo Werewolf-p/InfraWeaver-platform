@@ -63,9 +63,7 @@ server:
   dataStorage:
     enabled: true
     size: 5Gi
-    annotations:
-      recurring-job-group.longhorn.io/truenas-backup: "enabled"
-    storageClass: longhorn-retain   # HA: 3 replicas across nodes via Longhorn
+    storageClass: local-path   # local-path avoids Longhorn I/O errors on Raft BoltDB
     accessMode: ReadWriteOnce
 
   ingress:
