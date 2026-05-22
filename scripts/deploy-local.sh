@@ -714,6 +714,44 @@ for ns_dir in kubernetes/platform/*/manifests; do
 done
 ok "Step 16b: Platform manifests pre-applied"
 
+
+# ── Step 16c: Fix Authentik PostgreSQL storageClass (longhorn→local-path) ────
+# When ArgoCD first deploys from GitHub before bootstrap.sh updates to Onedev,
+# it uses the GitHub values.yaml which has longhorn-retain. We must delete the
+# bad PVC and force a re-sync so Onedev's local-path is used instead.
+log "Step 16c: Ensuring Authentik PostgreSQL uses local-path storageClass..."
+AK_PVC=$($KT get pvc data-authentik-postgresql-0 -n authentik \
+  -o jsonpath='{.spec.storageClassName}' 2>/dev/null || echo "")
+if [[ "$AK_PVC" == "longhorn-retain" ]]; then
+  warn "  Authentik PostgreSQL PVC uses longhorn-retain — fixing to local-path..."
+  $KT delete statefulset authentik-postgresql -n authentik --cascade=orphan 2>/dev/null || true
+  $KT delete pvc data-authentik-postgresql-0 -n authentik --force 2>/dev/null || true
+  sleep 3
+  # Force ArgoCD to re-sync platform-authentik (will use Onedev/local-path now)
+  $KT annotate application platform-authentik -n argocd \
+    argocd.argoproj.io/refresh="normal" --overwrite 2>/dev/null || true
+  sleep 5
+  $KT patch application platform-authentik -n argocd \
+    --type merge -p '{"operation":{"initiatedBy":{"username":"deploy-script"},"sync":{"syncStrategy":{"hook":{}}}}}' \
+    2>/dev/null || true
+  # Wait for PVC to be recreated with local-path
+  for i in $(seq 1 20); do
+    NEW_SC=$($KT get pvc data-authentik-postgresql-0 -n authentik \
+      -o jsonpath='{.spec.storageClassName}' 2>/dev/null || echo "")
+    if [[ "$NEW_SC" == "local-path" ]]; then
+      ok "  Authentik PostgreSQL PVC now uses local-path ✅"
+      break
+    elif [[ -n "$NEW_SC" ]]; then
+      warn "  PVC recreated with $NEW_SC (unexpected)"
+      break
+    fi
+    sleep 5
+  done
+else
+  ok "  Authentik PostgreSQL PVC storageClass: ${AK_PVC:-local-path} ✅"
+fi
+ok "Step 16c: Authentik PostgreSQL storageClass verified"
+
 # ── Step 17: Configure Authentik ──────────────────────────────────────────────
 log "Step 17: Configuring Authentik..."
 # Use a temp file so recovery links and tokens survive to the email step (local deploys
