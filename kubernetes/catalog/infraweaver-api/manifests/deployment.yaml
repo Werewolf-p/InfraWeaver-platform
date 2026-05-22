@@ -37,7 +37,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: api
-          image: onedev.infraweaver.local/infraweaver/infraweaver-api:main-7dd40f4
+          image: onedev.rlservers.com/infraweaver/infraweaver-api:main-7dd40f4
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 3001
@@ -48,7 +48,7 @@ spec:
             - name: NODE_ENV
               value: "production"
             - name: CONSOLE_URL
-              value: "https://infraweaver.int.infraweaver.local"
+              value: "https://infraweaver.int.rlservers.com"
             - name: ARGOCD_SERVER
               value: "http://argocd-server.argocd.svc.cluster.local:80"
             # Optional: GitHub PAT for workflow dispatch (node rolling updates).

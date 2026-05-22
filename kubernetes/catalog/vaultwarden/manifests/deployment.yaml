@@ -33,7 +33,7 @@ spec:
           image: vaultwarden/server:1.32.7
           env:
             - name: DOMAIN
-              value: "https://vaultwarden.int.infraweaver.local"
+              value: "https://vaultwarden.int.rlservers.com"
             - name: SIGNUPS_ALLOWED
               value: "false"
             - name: INVITATIONS_ALLOWED

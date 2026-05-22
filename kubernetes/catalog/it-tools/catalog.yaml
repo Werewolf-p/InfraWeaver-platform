@@ -9,5 +9,5 @@ image: ghcr.io/sharevb/it-tools:latest
 categories:
   - "Tools-Utilities"
 ingressroute:
-  host: it-tools.int.infraweaver.local
+  host: it-tools.int.rlservers.com
 installed_at: 2026-05-18T08:18:50.303Z

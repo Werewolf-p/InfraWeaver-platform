@@ -11,7 +11,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`grocy.int.infraweaver.local`)
+    - match: Host(`grocy.int.rlservers.com`)
       kind: Rule
       middlewares:
         - name: netbird-vpn-only

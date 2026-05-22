@@ -14,7 +14,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`adguard.int.infraweaver.local`)
+    - match: Host(`adguard.int.rlservers.com`)
       kind: Rule
       middlewares:
         - name: secure-headers
@@ -39,7 +39,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`ansible.int.infraweaver.local`)
+    - match: Host(`ansible.int.rlservers.com`)
       kind: Rule
       middlewares:
         - name: secure-headers
@@ -67,7 +67,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`traefik.int.infraweaver.local`)
+    - match: Host(`traefik.int.rlservers.com`)
       kind: Rule
       middlewares:
         - name: secure-headers
@@ -94,7 +94,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`proxmox.int.infraweaver.local`)
+    - match: Host(`proxmox.int.rlservers.com`)
       kind: Rule
       middlewares:
         - name: secure-headers
@@ -121,7 +121,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`portainer.int.infraweaver.local`)
+    - match: Host(`portainer.int.rlservers.com`)
       kind: Rule
       middlewares:
         - name: secure-headers
@@ -148,7 +148,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`portainer2.int.infraweaver.local`)
+    - match: Host(`portainer2.int.rlservers.com`)
       kind: Rule
       middlewares:
         - name: secure-headers
@@ -175,7 +175,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`truenas.infraweaver.local`)
+    - match: Host(`truenas.rlservers.com`)
       kind: Rule
       middlewares:
         - name: secure-headers
@@ -202,7 +202,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`vault1.int.infraweaver.local`)
+    - match: Host(`vault1.int.rlservers.com`)
       kind: Rule
       middlewares:
         - name: secure-headers

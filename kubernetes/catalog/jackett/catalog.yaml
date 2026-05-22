@@ -10,5 +10,5 @@ categories:
   - "Downloaders"
   - "Tools-Utilities"
 ingressroute:
-  host: jackett.int.infraweaver.local
+  host: jackett.int.rlservers.com
 installed_at: 2026-05-17T22:58:11.371Z

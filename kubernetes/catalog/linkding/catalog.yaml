@@ -10,5 +10,5 @@ categories:
   - "Productivity"
   - "Network-Web"
 ingressroute:
-  host: linkding.int.infraweaver.local
+  host: linkding.int.rlservers.com
 installed_at: 2026-05-18T06:52:44.288Z

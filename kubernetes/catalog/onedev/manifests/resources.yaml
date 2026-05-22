@@ -278,7 +278,7 @@ spec:
               protocol: TCP
           env:
             - name: ONEDEV_URL
-              value: "https://onedev.infraweaver.local"
+              value: "https://onedev.rlservers.com"
             # cluster_ip must be set explicitly for Kubernetes (env var is exactly cluster_ip lowercase)
             - name: cluster_ip
               valueFrom:
@@ -376,7 +376,7 @@ spec:
       targetPort: ssh
       protocol: TCP
 ---
-# IngressRoute — public via Traefik (onedev.infraweaver.local)
+# IngressRoute — public via Traefik (onedev.rlservers.com)
 # Native Authentik OIDC is configured in-app, so only security headers are added here.
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
@@ -389,7 +389,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`onedev.infraweaver.local`)
+    - match: Host(`onedev.rlservers.com`)
       kind: Rule
       middlewares:
         - name: secure-headers
@@ -398,4 +398,4 @@ spec:
         - name: onedev
           port: 80
   tls:
-    secretName: platform-wildcard-tls  # wildcard *.infraweaver.local cert
+    secretName: platform-wildcard-tls  # wildcard *.rlservers.com cert

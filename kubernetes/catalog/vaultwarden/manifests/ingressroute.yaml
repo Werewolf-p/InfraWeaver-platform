@@ -11,7 +11,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`vaultwarden.int.infraweaver.local`) && PathPrefix(`/notifications/hub`)
+    - match: Host(`vaultwarden.int.rlservers.com`) && PathPrefix(`/notifications/hub`)
       kind: Rule
       middlewares:
         - name: netbird-vpn-only
@@ -19,7 +19,7 @@ spec:
       services:
         - name: vaultwarden
           port: 3012
-    - match: Host(`vaultwarden.int.infraweaver.local`)
+    - match: Host(`vaultwarden.int.rlservers.com`)
       kind: Rule
       middlewares:
         - name: netbird-vpn-only

@@ -35,7 +35,7 @@ data:
 
     endpoints:
       - name: ArgoCD
-        url: https://argocd.int.infraweaver.local
+        url: https://argocd.int.rlservers.com
         interval: 60s
         group: core
         client:
@@ -58,7 +58,7 @@ data:
             description: "Traefik ingress is unreachable — all internal services affected"
 
       - name: OpenBao
-        url: https://openbao.int.infraweaver.local/v1/sys/health
+        url: https://openbao.int.rlservers.com/v1/sys/health
         interval: 60s
         group: core
         client:
@@ -72,7 +72,7 @@ data:
             description: "OpenBao is sealed or unreachable — secrets unavailable"
 
       - name: Authentik SSO
-        url: https://auth.infraweaver.local/-/health/ready/
+        url: https://auth.rlservers.com/-/health/ready/
         interval: 60s
         group: platform
         conditions:
@@ -82,7 +82,7 @@ data:
             description: "Authentik SSO is down — all platform logins affected"
 
       - name: NetBird VPN
-        url: https://api-netbird.infraweaver.local/api/v1/accounts
+        url: https://api-netbird.rlservers.com/api/v1/accounts
         interval: 120s
         group: platform
         conditions:
@@ -92,7 +92,7 @@ data:
             description: "NetBird VPN management API unreachable"
 
       - name: Grafana
-        url: https://grafana.int.infraweaver.local/api/health
+        url: https://grafana.int.rlservers.com/api/health
         interval: 60s
         group: platform
         client:
@@ -124,7 +124,7 @@ data:
             description: "Loki is unreachable — log aggregation stopped"
 
       - name: Stirling PDF
-        url: https://stirling-pdf.int.infraweaver.local
+        url: https://stirling-pdf.int.rlservers.com
         interval: 120s
         group: catalog
         client:
@@ -136,7 +136,7 @@ data:
             description: "Stirling PDF is unreachable"
 
       - name: OneDev (Git + CI)
-        url: https://onedev.infraweaver.local
+        url: https://onedev.rlservers.com
         interval: 120s
         group: catalog
         conditions:
@@ -146,7 +146,7 @@ data:
             description: "OneDev is unreachable"
 
       - name: InfraWeaver Console
-        url: https://infraweaver.int.infraweaver.local/api/ping
+        url: https://infraweaver.int.rlservers.com/api/ping
         interval: 60s
         group: catalog
         client:
@@ -159,7 +159,7 @@ data:
             description: "InfraWeaver Console is unreachable"
 
       - name: Container Registry
-        url: https://registry.int.infraweaver.local/v2/
+        url: https://registry.int.rlservers.com/v2/
         interval: 120s
         group: catalog
         client:
@@ -244,17 +244,17 @@ spec:
         fsGroup: 1000
         seccompProfile:
           type: RuntimeDefault
-      # Resolve *.int.infraweaver.local to Traefik ClusterIP so health checks work
+      # Resolve *.int.rlservers.com to Traefik ClusterIP so health checks work
       # from inside the cluster (MetalLB VIP 10.10.0.200 has hairpin NAT limitations).
       hostAliases:
         - ip: "10.108.119.231"
           hostnames:
-            - "infraweaver.int.infraweaver.local"
-            - "argocd.int.infraweaver.local"
-            - "registry.int.infraweaver.local"
-            - "stirling-pdf.int.infraweaver.local"
-            - "grafana.int.infraweaver.local"
-            - "openbao.int.infraweaver.local"
+            - "infraweaver.int.rlservers.com"
+            - "argocd.int.rlservers.com"
+            - "registry.int.rlservers.com"
+            - "stirling-pdf.int.rlservers.com"
+            - "grafana.int.rlservers.com"
+            - "openbao.int.rlservers.com"
       containers:
         - name: gatus
           image: twinproduction/gatus:v5.12.1
@@ -311,7 +311,7 @@ spec:
       targetPort: 8080
       name: http
 ---
-# IngressRoute — status.int.infraweaver.local (VPN-only, Authentik forward-auth)
+# IngressRoute — status.int.rlservers.com (VPN-only, Authentik forward-auth)
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
@@ -321,7 +321,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`status.int.infraweaver.local`)
+    - match: Host(`status.int.rlservers.com`)
       kind: Rule
       middlewares:
         - name: authentik-forward-auth

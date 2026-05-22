@@ -1,5 +1,5 @@
 ---
-# Certificate for infraweaver.local — signed by local self-signed CA
+# Certificate for rlservers.com — signed by local self-signed CA
 # (.local TLD is not valid for Let's Encrypt ACME; use infraweaver-ca instead)
 # For public domains (yonavaarwater.nl etc.) use letsencrypt-dns below.
 apiVersion: cert-manager.io/v1
@@ -14,34 +14,34 @@ spec:
     kind: ClusterIssuer
   dnsNames:
     # Base domain
-    - "infraweaver.local"
-    - "www.infraweaver.local"
+    - "rlservers.com"
+    - "www.rlservers.com"
     # Platform public endpoints
-    - "auth.infraweaver.local"
-    - "netbird.infraweaver.local"
-    - "api-netbird.infraweaver.local"
-    - "status.infraweaver.local"
-    - "test.infraweaver.local"
+    - "auth.rlservers.com"
+    - "netbird.rlservers.com"
+    - "api-netbird.rlservers.com"
+    - "status.rlservers.com"
+    - "test.rlservers.com"
     # TrueNAS (public-facing via Cloudflare)
-    - "truenas.infraweaver.local"
+    - "truenas.rlservers.com"
     # External/baremetal services
-    - "keycloak.infraweaver.local"
-    - "awx.infraweaver.local"
-    - "bitwarden.infraweaver.local"
-    - "vaultwarden.infraweaver.local"
-    - "gitlab.infraweaver.local"
-    - "registry.gitlab.infraweaver.local"
-    - "cloud.infraweaver.local"
-    - "teleport.infraweaver.local"
-    - "registry.infraweaver.local"
+    - "keycloak.rlservers.com"
+    - "awx.rlservers.com"
+    - "bitwarden.rlservers.com"
+    - "vaultwarden.rlservers.com"
+    - "gitlab.rlservers.com"
+    - "registry.gitlab.rlservers.com"
+    - "cloud.rlservers.com"
+    - "teleport.rlservers.com"
+    - "registry.rlservers.com"
     # Websites
-    - "degoudentijd.infraweaver.local"
-    - "feestinhetdonker.infraweaver.local"
-    - "marcel.infraweaver.local"
+    - "degoudentijd.rlservers.com"
+    - "feestinhetdonker.rlservers.com"
+    - "marcel.rlservers.com"
     # Catalog apps (public)
-    - "onedev.infraweaver.local"
+    - "onedev.rlservers.com"
 ---
-# Certificate for *.int.infraweaver.local — signed by local CA (not publicly reachable)
+# Certificate for *.int.rlservers.com — signed by local CA (not publicly reachable)
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -53,8 +53,8 @@ spec:
     name: infraweaver-ca
     kind: ClusterIssuer
   dnsNames:
-    - "int.infraweaver.local"
-    - "*.int.infraweaver.local"
+    - "int.rlservers.com"
+    - "*.int.rlservers.com"
 ---
 # Certificate for yonavaarwater.nl — Cloudflare-proxied, needs DNS-01
 apiVersion: cert-manager.io/v1

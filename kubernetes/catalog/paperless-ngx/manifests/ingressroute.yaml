@@ -11,7 +11,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`paperless-ngx.int.infraweaver.local`)
+    - match: Host(`paperless-ngx.int.rlservers.com`)
       kind: Rule
       middlewares:
         - name: netbird-vpn-only

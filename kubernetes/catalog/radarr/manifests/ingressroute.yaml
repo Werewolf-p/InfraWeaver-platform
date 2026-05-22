@@ -11,7 +11,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`radarr.int.infraweaver.local`)
+    - match: Host(`radarr.int.rlservers.com`)
       kind: Rule
       middlewares:
         - name: netbird-vpn-only

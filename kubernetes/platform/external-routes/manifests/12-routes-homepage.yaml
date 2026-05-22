@@ -1,7 +1,7 @@
 ---
 # Homepage — homelab dashboard IngressRoute
 # NetBird-VPN-only: accessible only via NetBird VPN (netbird-vpn-only middleware).
-# Domain: home.int.infraweaver.local — covered by *.int.infraweaver.local wildcard cert (DNS-01).
+# Domain: home.int.rlservers.com — covered by *.int.rlservers.com wildcard cert (DNS-01).
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
@@ -11,7 +11,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`home.int.infraweaver.local`)
+    - match: Host(`home.int.rlservers.com`)
       kind: Rule
       middlewares:
         - name: secure-headers

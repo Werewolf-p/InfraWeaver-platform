@@ -57,7 +57,7 @@ spec:
 #   - Pod CIDR (10.244.0.0/16) allowed for in-cluster health probes
 #   - 100.64.0.0/10 allowed for direct WireGuard peer connections (NetBird CGNAT)
 #
-# This middleware is applied ONLY to *.int.infraweaver.local routes.
+# This middleware is applied ONLY to *.int.rlservers.com routes.
 # The security model: 10.10.0.200 is a private IP (unreachable from internet) AND
 # only VLAN3 node IPs and NetBird CGNAT pass this allowlist. Both layers are required.
 apiVersion: traefik.io/v1alpha1
@@ -125,7 +125,7 @@ spec:
 #
 # Uses Authentik's embedded outpost forward-auth endpoint.
 # Any user with a valid Authentik session passes; unauthenticated users are
-# redirected to auth.infraweaver.local to log in, then returned here.
+# redirected to auth.rlservers.com to log in, then returned here.
 #
 # authResponseHeaders: passes Authentik user info to the backend so apps can
 # read who is logged in without doing their own auth.

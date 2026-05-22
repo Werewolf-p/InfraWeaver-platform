@@ -75,7 +75,7 @@ server:
       - host: openbao.prod.local
         paths:
           - /
-      - host: openbao.int.infraweaver.local
+      - host: openbao.int.rlservers.com
         paths:
           - /
     pathType: Prefix

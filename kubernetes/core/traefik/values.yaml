@@ -32,7 +32,7 @@ ingressClass:
 
 # Traefik API + Dashboard — enabled for internal access via traefik-dashboard ClusterIP service
 # The traefik entrypoint (port 9000) serves /api, /dashboard and /ping.
-# NOT exposed externally — only accessible via traefik.int.infraweaver.local (internal-only middleware).
+# NOT exposed externally — only accessible via traefik.int.rlservers.com (internal-only middleware).
 api:
   dashboard: true
   insecure: false

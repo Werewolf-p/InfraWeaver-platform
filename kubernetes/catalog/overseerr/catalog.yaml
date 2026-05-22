@@ -10,5 +10,5 @@ categories:
   - "MediaServer-Video"
   - "Tools-Utilities"
 ingressroute:
-  host: overseerr.int.infraweaver.local
+  host: overseerr.int.rlservers.com
 installed_at: 2026-05-17T22:13:56.710Z

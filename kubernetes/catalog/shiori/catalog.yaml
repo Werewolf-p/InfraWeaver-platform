@@ -9,5 +9,5 @@ image: ghcr.io/go-shiori/shiori
 categories:
   - "Productivity"
 ingressroute:
-  host: shiori.int.infraweaver.local
+  host: shiori.int.rlservers.com
 installed_at: 2026-05-18T07:01:10.401Z

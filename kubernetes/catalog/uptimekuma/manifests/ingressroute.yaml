@@ -11,7 +11,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`uptimekuma.int.infraweaver.local`)
+    - match: Host(`uptimekuma.int.rlservers.com`)
       kind: Rule
       middlewares:
         - name: netbird-vpn-only

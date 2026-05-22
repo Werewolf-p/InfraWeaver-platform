@@ -98,9 +98,9 @@ spec:
           configMap:
             name: coredns-custom-config
             items:
-              - key: infraweaver.local.hosts
-                path: infraweaver.local.hosts
+              - key: rlservers.com.hosts
+                path: rlservers.com.hosts
               - key: prod.local.hosts
                 path: prod.local.hosts
-              - key: int.infraweaver.local.hosts
-                path: int.infraweaver.local.hosts
+              - key: int.rlservers.com.hosts
+                path: int.rlservers.com.hosts

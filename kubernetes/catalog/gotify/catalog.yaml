@@ -11,5 +11,5 @@ categories:
   - "Tools-Utilities"
   - "Network-Messenger"
 ingressroute:
-  host: gotify.int.infraweaver.local
+  host: gotify.int.rlservers.com
 installed_at: 2026-05-17T23:13:14.962Z

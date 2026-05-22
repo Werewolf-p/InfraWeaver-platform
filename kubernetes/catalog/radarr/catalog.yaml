@@ -10,5 +10,5 @@ categories:
   - "MediaServer-Video"
   - "Downloaders"
 ingressroute:
-  host: radarr.int.infraweaver.local
+  host: radarr.int.rlservers.com
 installed_at: 2026-05-17T22:39:55.956Z

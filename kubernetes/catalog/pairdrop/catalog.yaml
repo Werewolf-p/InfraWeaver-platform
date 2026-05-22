@@ -10,5 +10,5 @@ categories:
   - "Tools-Utilities"
   - "Network-Web"
 ingressroute:
-  host: pairdrop.int.infraweaver.local
+  host: pairdrop.int.rlservers.com
 installed_at: 2026-05-18T06:36:06.472Z
