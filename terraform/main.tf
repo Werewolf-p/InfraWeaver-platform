@@ -52,7 +52,7 @@ locals {
   pve_nodes_ips = try(local.cluster_config.pve_nodes, {})
 
   # HA mode: productie uses multiple control planes
-  ha_mode = var.environment == "productie"
+  ha_mode = length(local.nodes) >= 3
 
   service_ssh_keys = compact(concat(
     [var.proxmox_runner_ssh_public_key],

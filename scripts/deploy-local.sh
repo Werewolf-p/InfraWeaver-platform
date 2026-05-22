@@ -227,8 +227,9 @@ if [[ -n "$PVE_API_HOST" ]]; then
   ALL_NODE_IPS+=("$PVE_API_HOST")
 fi
 
-# Query the Proxmox cluster status for actual per-node IPs
-if [[ -n "$PVE_API_HOST" && -n "$PROXMOX_TOKEN_VALUE" ]]; then
+# Only add cluster API IPs if PVE_NODES is NOT explicitly set.
+# When PVE_NODES is set, use only those IPs to avoid SSH failures for offline nodes.
+if [[ -z "${PVE_NODES:-}" && -n "$PVE_API_HOST" && -n "$PROXMOX_TOKEN_VALUE" ]]; then
   CLUSTER_IPS=$(python3 - <<PYEOF 2>/dev/null
 import urllib.request, urllib.parse, ssl, json, sys
 ctx = ssl.create_default_context(); ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
@@ -393,11 +394,7 @@ fi
 # Stage 1: provision Talos cluster VMs
 log "==> Stage 1: provisioning Talos cluster VMs on Proxmox..."
 # shellcheck disable=SC2086
-tofu apply $VARS \
-  -target=module.talos_cluster \
-  -target=local_sensitive_file.kubeconfig \
-  -target=local_sensitive_file.talosconfig \
-  -auto-approve 2>&1
+tofu apply $VARS -target=module.talos_cluster -target=local_sensitive_file.kubeconfig -target=local_sensitive_file.talosconfig -auto-approve 2>&1
 ok "Stage 1: Talos VMs provisioned"
 
 # Save configs
