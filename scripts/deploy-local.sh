@@ -731,8 +731,29 @@ AK_PVC=$(kubectl --kubeconfig "$KB_FILE" get pvc data-authentik-postgresql-0 -n 
   -o jsonpath='{.spec.storageClassName}' 2>/dev/null || echo "")
 if [[ "$AK_PVC" == "longhorn-retain" ]]; then
   warn "  Authentik PostgreSQL PVC uses longhorn-retain — fixing to local-path..."
+  # Delete StatefulSet controller (orphan pods for now)
   kubectl --kubeconfig "$KB_FILE" delete statefulset authentik-postgresql -n authentik --cascade=orphan 2>/dev/null || true
-  kubectl --kubeconfig "$KB_FILE" delete pvc data-authentik-postgresql-0 -n authentik --force 2>/dev/null || true
+  # Remove Longhorn finalizers from PVC BEFORE force-delete to prevent stuck Terminating
+  kubectl --kubeconfig "$KB_FILE" patch pvc data-authentik-postgresql-0 -n authentik \
+    -p '{"metadata":{"finalizers":[]}}' --type=merge 2>/dev/null || true
+  kubectl --kubeconfig "$KB_FILE" delete pvc data-authentik-postgresql-0 -n authentik --force --grace-period=0 2>/dev/null || true
+  # Wait for PVC to actually disappear (not just Terminating)
+  for _i in $(seq 1 15); do
+    if ! kubectl --kubeconfig "$KB_FILE" get pvc data-authentik-postgresql-0 -n authentik &>/dev/null; then
+      break
+    fi
+    sleep 2
+  done
+  # Delete orphaned pod so StatefulSet recreates it fresh with a new PVC
+  kubectl --kubeconfig "$KB_FILE" delete pod authentik-postgresql-0 -n authentik --force --grace-period=0 2>/dev/null || true
+  # Clean up Released Longhorn PV to avoid confusion on next run
+  OLD_LH_PV=$(kubectl --kubeconfig "$KB_FILE" get pv --no-headers 2>/dev/null \
+    | awk '/longhorn-retain/ && /Released/{print $1}' | head -1)
+  if [[ -n "$OLD_LH_PV" ]]; then
+    kubectl --kubeconfig "$KB_FILE" patch pv "$OLD_LH_PV" \
+      -p '{"metadata":{"finalizers":[]}}' --type=merge 2>/dev/null || true
+    kubectl --kubeconfig "$KB_FILE" delete pv "$OLD_LH_PV" --force --grace-period=0 2>/dev/null || true
+  fi
   sleep 3
   # Force ArgoCD to re-sync platform-authentik (will use Onedev/local-path now)
   kubectl --kubeconfig "$KB_FILE" annotate application platform-authentik -n argocd \
@@ -742,11 +763,16 @@ if [[ "$AK_PVC" == "longhorn-retain" ]]; then
     --type merge -p '{"operation":{"initiatedBy":{"username":"deploy-script"},"sync":{"syncStrategy":{"hook":{}}}}}' \
     2>/dev/null || true
   # Wait for PVC to be recreated with local-path
-  for i in $(seq 1 20); do
+  for i in $(seq 1 30); do
     NEW_SC=$(kubectl --kubeconfig "$KB_FILE" get pvc data-authentik-postgresql-0 -n authentik \
       -o jsonpath='{.spec.storageClassName}' 2>/dev/null || echo "")
     if [[ "$NEW_SC" == "local-path" ]]; then
       ok "  Authentik PostgreSQL PVC now uses local-path ✅"
+      # Restart worker/server pods that may be in CrashLoopBackOff waiting for PostgreSQL
+      kubectl --kubeconfig "$KB_FILE" delete pod -n authentik -l app.kubernetes.io/component=worker \
+        --force --grace-period=0 2>/dev/null || true
+      kubectl --kubeconfig "$KB_FILE" delete pod -n authentik -l app.kubernetes.io/component=server \
+        --force --grace-period=0 2>/dev/null || true
       break
     elif [[ -n "$NEW_SC" ]]; then
       warn "  PVC recreated with $NEW_SC (unexpected)"
