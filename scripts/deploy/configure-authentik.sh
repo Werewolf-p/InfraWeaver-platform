@@ -192,12 +192,11 @@ print(r[0]['pk'] if r else '')
   if [ -n "$LDAP_PROVIDER_PK" ]; then
     # Create Application linked to LDAP provider (required: outposts/ldap/ only serves providers with an application)
     LDAP_APP_RESULT=$(curl -sf -H "Authorization: Bearer $AUTHENTIK_ADMIN_TOKEN" \
-      "http://localhost:8089/api/v3/core/applications/?provider=$LDAP_PROVIDER_PK" 2>/dev/null || echo "")
+      "http://localhost:8089/api/v3/providers/ldap/${LDAP_PROVIDER_PK}/" 2>/dev/null || echo "")
     LDAP_APP_SLUG=$(echo "$LDAP_APP_RESULT" | python3 -c "
 import json,sys
 d=json.load(sys.stdin)
-r=d.get('results',[])
-print(r[0]['slug'] if r else '')
+print(d.get('assigned_application_name') or '')
 " 2>/dev/null || echo "")
     if [ -z "$LDAP_APP_SLUG" ]; then
       LDAP_APP_BODY="{\"name\":\"InfraWeaver LDAP\",\"slug\":\"infraweaver-ldap\",\"provider\":${LDAP_PROVIDER_PK},\"meta_description\":\"InfraWeaver LDAP directory service\"}"
