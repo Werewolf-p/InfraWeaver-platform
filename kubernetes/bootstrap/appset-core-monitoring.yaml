@@ -11,7 +11,7 @@ spec:
   goTemplateOptions: ["missingkey=zero"]
   generators:
     - git:
-        repoURL: https://github.com/Werewolf-p/InfraWeaver-platform.git
+        repoURL: http://onedev.onedev.svc.cluster.local/InfraWeaver-platform
         revision: HEAD
         files:
           - path: "kubernetes/monitoring/*/application.yaml"
@@ -22,7 +22,7 @@ spec:
     spec:
       project: platform
       sources:
-        - repoURL: https://github.com/Werewolf-p/InfraWeaver-platform.git
+        - repoURL: http://onedev.onedev.svc.cluster.local/InfraWeaver-platform
           targetRevision: HEAD
           ref: values
         - repoURL: "{{ .repoURL }}"
