@@ -431,9 +431,15 @@ if ! $DRY_RUN; then
   # Re-apply updated bootstrap YAMLs directly so ApplicationSets pick up Onedev URL
   log "  Applying updated bootstrap ApplicationSet manifests..."
   for f in kubernetes/bootstrap/appset-core.yaml kubernetes/bootstrap/appset-core-platform.yaml \
+            kubernetes/bootstrap/appset-core-monitoring.yaml \
             kubernetes/bootstrap/applicationset-root.yaml; do
-    [[ -f "$f" ]] && kubectl apply -f "$f" 2>/dev/null && log "  Applied $f" || true
+    [[ -f "$f" ]] && kubectl apply -f "$f" 2>/dev/null && log "  Applied $f" || warn "  Could not apply $f"
   done
+  # Wait for AppSet controller to reconcile generated Applications
+  log "  Waiting for AppSet controller to reconcile..."
+  sleep 10
+  kubectl annotate applications -n argocd --all \
+    "argocd.argoproj.io/refresh=hard" --overwrite 2>/dev/null || true
 
   # Hard refresh ArgoCD apps to pick up new source URL
   log "  Refreshing all ArgoCD applications..."

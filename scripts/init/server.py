@@ -583,7 +583,8 @@ def _setup_proxmox_user(host: str, username: str, password: str) -> Dict:
             "VM.Migrate", "VM.Snapshot", "VM.Snapshot.Rollback",
             "VM.GuestAgent.Audit",
             "Datastore.AllocateSpace", "Datastore.AllocateTemplate", "Datastore.Audit",
-            "Pool.Allocate", "SDN.Use", "Sys.Audit", "Sys.Modify",
+            "Datastore.Allocate", "Pool.Allocate", "Pool.Audit", "SDN.Use", "Sys.Audit", "Sys.Modify",
+            "Realm.Allocate",
         ])
         try:
             pve_req("POST", "/access/roles",

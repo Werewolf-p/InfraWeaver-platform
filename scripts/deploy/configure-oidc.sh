@@ -234,38 +234,41 @@ else
     echo "     --issuer-url https://auth.${BASE_DOMAIN}/application/o/proxmox/ \\"
     echo "     --client-id proxmox --client-key '<secret>' --username-claim preferred_username --autocreate 1"
   else
-    echo "==> Configuring Proxmox OIDC realm via API (host=${PVE_HOST})..."
+echo "==> Configuring Proxmox OIDC realm via pveum SSH (host=${PVE_HOST})..."
     ISSUER="https://auth.${BASE_DOMAIN}/application/o/proxmox/"
-    REALM_CHECK=$(curl -sk -o /dev/null -w "%{http_code}" \
-      -H "Authorization: PVEAPIToken=${PVE_TOKEN}" \
-      "https://${PVE_HOST}:8006/api2/json/access/realms/authentik" 2>/dev/null || echo "000")
-
-    if [ "$REALM_CHECK" = "200" ]; then
-      # Realm exists — update it
-      HTTP=$(curl -sk -o /dev/null -w "%{http_code}" -X PUT \
-        -H "Authorization: PVEAPIToken=${PVE_TOKEN}" \
-        "https://${PVE_HOST}:8006/api2/json/access/realms/authentik" \
-        --data-urlencode "issuer-url=${ISSUER}" \
-        --data-urlencode "client-id=proxmox" \
-        --data-urlencode "client-key=${PROXMOX_SECRET}" \
-        --data-urlencode "username-claim=preferred_username" \
-        --data-urlencode "autocreate=1" 2>/dev/null || echo "000")
-      [ "$HTTP" = "200" ] && echo "✅ Proxmox OIDC realm 'authentik' updated" \
-        || echo "⚠️  Proxmox realm update returned HTTP $HTTP (may need manual check)"
+    # Use pveum via SSH — Proxmox 9.x JSON API /access/realms not universally available
+    _PVE_SSH_KEY="${PVE_SSH_KEY:-/tmp/iw_deployer}"
+    _pveum_cmd() {
+      if [ -f "$_PVE_SSH_KEY" ]; then
+        ssh -i "$_PVE_SSH_KEY" -o StrictHostKeyChecking=no -o ConnectTimeout=5 \
+          root@"${PVE_HOST}" "$@" 2>&1
+      elif command -v sshpass >/dev/null 2>&1 && [ -n "${PROXMOX_SSH_PASSWORD:-}" ]; then
+        sshpass -p "$PROXMOX_SSH_PASSWORD" \
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 root@"${PVE_HOST}" "$@" 2>&1
+      else
+        echo "SSH_NOT_AVAILABLE"; return 127
+      fi
+    }
+    _REALM_STATUS=$(_pveum_cmd pveum realm list 2>/dev/null)
+    if echo "$_REALM_STATUS" | grep -q "authentik"; then
+      _pveum_cmd pveum realm modify authentik \
+        --issuer-url "${ISSUER}" \
+        --client-id "proxmox" \
+        --client-key "${PROXMOX_SECRET}" \
+        --username-claim preferred_username \
+        --autocreate 1 > /dev/null 2>&1 \
+        && echo "✅ Proxmox OIDC realm updated" \
+        || echo "⚠️  pveum realm modify failed (non-fatal)"
     else
-      # Realm does not exist — create it
-      HTTP=$(curl -sk -o /dev/null -w "%{http_code}" -X POST \
-        -H "Authorization: PVEAPIToken=${PVE_TOKEN}" \
-        "https://${PVE_HOST}:8006/api2/json/access/realms" \
-        --data-urlencode "realm=authentik" \
-        --data-urlencode "type=openid" \
-        --data-urlencode "issuer-url=${ISSUER}" \
-        --data-urlencode "client-id=proxmox" \
-        --data-urlencode "client-key=${PROXMOX_SECRET}" \
-        --data-urlencode "username-claim=preferred_username" \
-        --data-urlencode "autocreate=1" 2>/dev/null || echo "000")
-      [ "$HTTP" = "200" ] && echo "✅ Proxmox OIDC realm 'authentik' created" \
-        || echo "⚠️  Proxmox realm creation returned HTTP $HTTP — check PVE API token permissions"
+      _pveum_cmd pveum realm add authentik \
+        --type openid \
+        --issuer-url "${ISSUER}" \
+        --client-id "proxmox" \
+        --client-key "${PROXMOX_SECRET}" \
+        --username-claim preferred_username \
+        --autocreate 1 > /dev/null 2>&1 \
+        && echo "✅ Proxmox OIDC realm created" \
+        || echo "⚠️  pveum realm add failed (may already exist or need manual setup)"
     fi
   fi
 fi
