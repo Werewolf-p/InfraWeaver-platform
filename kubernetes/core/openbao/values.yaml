@@ -19,15 +19,14 @@ server:
   # page faults in OpenBao's Raft/BBolt storage. Preferring stable nodes prevents this.
   affinity: |
     nodeAffinity:
-      preferredDuringSchedulingIgnoredDuringExecution:
-      - weight: 100
-        preference:
-          matchExpressions:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions:
           - key: kubernetes.io/hostname
             operator: In
             values:
-            - talos-prod-cp1
             - talos-prod-cp2
+            - talos-prod-cp3
 
   standalone:
     enabled: true
