@@ -237,7 +237,7 @@ else
 echo "==> Configuring Proxmox OIDC realm via pveum SSH (host=${PVE_HOST})..."
     ISSUER="https://auth.${BASE_DOMAIN}/application/o/proxmox/"
     # Use pveum via SSH — Proxmox 9.x JSON API /access/realms not universally available
-    _PVE_SSH_KEY="${PVE_SSH_KEY:-/tmp/iw_deployer}"
+    _PVE_SSH_KEY="${PVE_SSH_KEY:-${HOME}/.ssh/deployer_ed25519}"
     _pveum_cmd() {
       if [ -f "$_PVE_SSH_KEY" ]; then
         ssh -i "$_PVE_SSH_KEY" -o StrictHostKeyChecking=no -o ConnectTimeout=5 \
