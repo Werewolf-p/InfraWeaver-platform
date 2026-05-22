@@ -45,6 +45,8 @@ run_url         = os.environ.get("DEPLOY_RUN_URL", "#")
 bao_token       = os.environ.get("BAO_TOKEN", "unavailable")
 bao_unseal      = os.environ.get("BAO_UNSEAL", "unavailable")
 auth_admin_pass = os.environ.get("AUTHENTIK_ADMIN_PASS", "unavailable")
+admin_username  = os.environ.get("ADMIN_USERNAME", "admin")
+akadmin_pass    = os.environ.get("AUTHENTIK_AKADMIN_PASS", auth_admin_pass)
 timestamp       = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 base_domain     = os.environ.get("BASE_DOMAIN", "yourdomain.com")
 admin_email     = os.environ.get("ADMIN_EMAIL", f"admin@{base_domain}")
@@ -107,12 +109,37 @@ def build_user_rows():
         "SSO Login URL",
         f'<a href="{auth_url}" style="color:#00d8ff;text-decoration:none;">{auth_url}</a>',
     ))
-    rows.append(field_row("Admin Email", admin_email))
-    rows.append(field_row("Admin Password", auth_admin_pass))
+
+    # ── Section 1: Authentik Local Admin (akadmin) ── break-glass only ────────
+    rows.append(
+        '<tr><td style="padding:0 0 6px;">'
+        '<p style="margin:0;color:#f59e0b;font-size:11px;font-weight:700;'
+        'text-transform:uppercase;letter-spacing:1.5px;">&#128680; Authentik Local Admin (Break-Glass)</p>'
+        '</td></tr>'
+    )
+    rows.append(field_row("Username", "akadmin"))
+    rows.append(field_row("Password &#x26; emergency access only", akadmin_pass))
+    rows.append(
+        '<tr><td style="padding:0 0 20px;">'
+        '<p style="margin:0;background:#1a0800;border:1px solid #7c3300;border-radius:6px;'
+        'padding:10px 14px;color:#f59e0b;font-size:12px;line-height:1.6;">'
+        '&#9888; <strong>akadmin</strong> is the Authentik built-in local administrator. '
+        'Use it <strong>ONLY for emergency break-glass access</strong> if your personal account '
+        'is locked out. <strong>Do NOT use this for day-to-day management.</strong>'
+        '</p></td></tr>'
+    )
+
+    # ── Section 2: Platform Owner Account (personal daily-use account) ────────
+    rows.append(
+        '<tr><td style="padding:0 0 6px;">'
+        '<p style="margin:0;color:#9fef00;font-size:11px;font-weight:700;'
+        'text-transform:uppercase;letter-spacing:1.5px;">&#128100; Your Platform Account</p>'
+        '</td></tr>'
+    )
+    rows.append(field_row("Username", admin_username))
+    rows.append(field_row("Email", admin_email))
 
     for username, udata in all_users.items():
-        # Admin deploy email only shows recovery links for admin users.
-        # Non-admin users receive their own welcome email via send-welcome-email.py.
         if udata.get("access_level") != "admin":
             continue
         if not udata.get("send_recovery_email", False):
@@ -123,9 +150,19 @@ def build_user_rows():
             f'<a href="{recovery_link}" style="color:#9fef00;text-decoration:none;'
             f'word-break:break-all;">{recovery_link}</a>'
             if recovery_link
-            else "⚠️ Recovery link unavailable — use admin to reset manually"
+            else "&#9888; Recovery link unavailable &#x2014; log in as akadmin to reset manually"
         )
-        rows.append(field_row(f"Admin: {username} — Set Password", link_html))
+        rows.append(field_row(f"Set Your Password ({username})", link_html))
+
+    rows.append(
+        '<tr><td style="padding:0 0 12px;">'
+        '<p style="margin:0;background:#001a06;border:1px solid #003312;border-radius:6px;'
+        'padding:10px 14px;color:#9fef00;font-size:12px;line-height:1.6;">'
+        '&#8505; This account has <strong>Platform Owner</strong> RBAC &#x2014; '
+        'full access to all platform services (ArgoCD, NetBird, Wiki, etc). '
+        'Use this for all daily management.'
+        '</p></td></tr>'
+    )
 
     return "\n".join(rows)
 
@@ -133,7 +170,15 @@ def build_user_rows():
 def build_user_plain():
     lines = [
         f"  URL      : {auth_url}",
-        f"  Admin    : {admin_email} / {auth_admin_pass}",
+        "",
+        "  --- Authentik Break-Glass Admin (akadmin) ---",
+        "  Username : akadmin",
+        f"  Password : {akadmin_pass}",
+        "  WARNING  : Use ONLY for emergency access. NOT for daily use.",
+        "",
+        "  --- Your Platform Account ---",
+        f"  Username : {admin_username}",
+        f"  Email    : {admin_email}",
     ]
     for username, udata in all_users.items():
         if udata.get("access_level") != "admin":
@@ -142,7 +187,8 @@ def build_user_plain():
             continue
         env_var = f"AUTHENTIK_{username.upper()}_RECOVERY_LINK"
         recovery_link = os.environ.get(env_var, "(unavailable)")
-        lines.append(f"  {username} (admin): set password: {recovery_link}")
+        lines.append(f"  Set password: {recovery_link}")
+    lines.append("  NOTE: Platform Owner RBAC -- full access to all services.")
     return "\n".join(lines)
 
 

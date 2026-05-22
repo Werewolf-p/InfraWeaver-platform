@@ -26,10 +26,10 @@ data:
       - model: authentik_core.user
         state: present
         identifiers:
-          username: "admin"
+          username: "${ADMIN_USERNAME}"
         attrs:
-          name: "Platform Admin"
-          email: "admin@rlservers.com"
+          name: "${ADMIN_NAME}"
+          email: "${ADMIN_EMAIL}"
           password: !Env AUTHENTIK_ADMIN_PASSWORD
           is_active: true
 

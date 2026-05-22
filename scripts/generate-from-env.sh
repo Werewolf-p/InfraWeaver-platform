@@ -272,5 +272,12 @@ issuer_path = os.path.join(repo_dir, 'kubernetes/core/cert-manager/manifests/clu
 with open(issuer_path, 'w') as f:
     f.write(issuer_content)
 
+# Also process root-level users.yaml (not in kubernetes/ or envs/ dirs)
+users_yaml = os.path.join(repo_dir, "users.yaml")
+if os.path.isfile(users_yaml):
+    if process_file(users_yaml):
+        print("  substituted: users.yaml")
+        changed += 1
+
 print(f"==> generate-from-env: {changed} files updated")
 PYEOF

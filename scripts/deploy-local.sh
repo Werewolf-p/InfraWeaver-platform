@@ -877,6 +877,12 @@ if [ -n "$BAO_TOKEN" ] && [ "$BAO_TOKEN" != "unavailable" ]; then
     sh -c "BAO_TOKEN='$BAO_TOKEN' bao kv get -field=admin-password secret/platform/authentik" \
     2>/dev/null || echo "")
   [ -n "$_auth_admin_pass" ] && export AUTHENTIK_ADMIN_PASS="$_auth_admin_pass"
+  # Also read the akadmin bootstrap password for the break-glass section in the email
+  _auth_akadmin_pass=$(kubectl --kubeconfig "$KB_FILE" --server=https://"${_FIRST_CP_IP}":6443 \
+    --insecure-skip-tls-verify exec -n openbao openbao-0 -- \
+    sh -c "BAO_TOKEN= bao kv get -field=bootstrap-password secret/platform/authentik" \
+    2>/dev/null || echo "")
+  [ -n "$_auth_akadmin_pass" ] && export AUTHENTIK_AKADMIN_PASS="$_auth_akadmin_pass"
 fi
 
 # Source recovery links and tokens written by configure-authentik.sh
@@ -887,7 +893,7 @@ fi
 
 export DEPLOY_ENV="$ENV_NAME"
 export DEPLOY_RUN_URL="local://${HOSTNAME:-$(hostname)}/$(date +%Y-%m-%dT%H:%M:%S)"
-export BAO_TOKEN BAO_UNSEAL BASE_DOMAIN ADMIN_EMAIL
+export BAO_TOKEN BAO_UNSEAL BASE_DOMAIN ADMIN_EMAIL ADMIN_USERNAME AUTHENTIK_AKADMIN_PASS
 SMTP_USERNAME="$SMTP_USERNAME" SMTP_PASSWORD="$SMTP_PASSWORD" SMTP_TO="${SMTP_TO:-$SMTP_USERNAME}" \
   python3 scripts/send-deploy-email.py 2>/dev/null || warn "Deploy summary email failed (non-fatal)"
 

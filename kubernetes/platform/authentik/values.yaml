@@ -38,8 +38,8 @@ global:
           name: authentik-secrets
           key: bootstrap-token
     - name: AUTHENTIK_BOOTSTRAP_EMAIL
-      value: "admin@rlservers.com"
-    - name: AUTHENTIK_REMON_PASSWORD
+      value: "${ADMIN_EMAIL}"
+    - name: AUTHENTIK_ADMIN_PASSWORD
       valueFrom:
         secretKeyRef:
           name: authentik-secrets
