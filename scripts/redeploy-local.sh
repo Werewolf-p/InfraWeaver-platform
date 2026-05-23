@@ -201,6 +201,12 @@ log "  Running orphan LVM cleanup on all PVE nodes: $ALL_PVE_IPS"
 for _pve_ip in $ALL_PVE_IPS; do
   for VMID in $PLATFORM_VMIDS; do
     ssh $SSH_OPTS root@"$_pve_ip" "
+      # Stop and destroy the VM if it exists on this remote node (e.g. microserver)
+      if qm status \$VMID 2>/dev/null | grep -q "running\\|stopped\\|status"; then
+        qm stop \$VMID --skiplock --timeout 15 2>/dev/null || true
+        sleep 2
+        qm destroy \$VMID --purge --skiplock 2>/dev/null && echo "  VM \$VMID destroyed on $_pve_ip" || true
+      fi
       for VG_LV in \$(lvs --noheadings -o vg_name,lv_name 2>/dev/null \
           | awk '{print \$1"/"\$2}' | grep '/vm-\${VMID}-disk'); do
         lvremove -f "\$VG_LV" 2>/dev/null \
