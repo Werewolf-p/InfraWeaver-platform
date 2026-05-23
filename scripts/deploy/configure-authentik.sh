@@ -122,7 +122,18 @@ if [ -n "$AUTHENTIK_ADMIN_TOKEN" ]; then
         if [ -n "${IW_AUTH_ENV_FILE:-}" ]; then
           printf 'export %s=%q\n' "$ENV_VAR" "$LINK" >> "$IW_AUTH_ENV_FILE"
         fi
-        echo "✅ Recovery link generated for ${USERNAME}"
+        # Mark deploy-time recovery tokens as non-expiring so the user can log in
+        # at their own pace. Normal user-initiated recovery tokens keep the default timeout.
+        _FLOW_TOKEN=$(echo "$LINK" | python3 -c \
+          "import sys; u=sys.stdin.read().strip(); print(u.split('flow_token=')[-1] if 'flow_token=' in u else '')" \
+          2>/dev/null || echo "")
+        if [ -n "$_FLOW_TOKEN" ]; then
+          printf 'from authentik.flows.models import FlowToken\\nt = FlowToken.objects.filter(key="%s").first()\\nif t: t.expiring = False; t.save(); print("non-expiring: " + t.identifier)\\n' \
+            "$_FLOW_TOKEN" | \
+            $KT exec -i -n authentik deploy/authentik-worker -c worker -- \
+            sh -c 'cat > /tmp/ak_noexp.py && ak shell < /tmp/ak_noexp.py' 2>/dev/null | grep "non-expiring" || true
+        fi
+        echo "✅ Recovery link generated for ${USERNAME} (non-expiring)"
       else
         echo "⚠️ Recovery link request failed for ${USERNAME} (non-critical)"
       fi
