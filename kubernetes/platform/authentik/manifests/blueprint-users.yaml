@@ -29,7 +29,7 @@ data:
           username: "remon"
         attrs:
           name: "remon"
-          email: "remonhulst@gmail.com"
+          email: "${ADMIN_EMAIL}"
           password: !Env AUTHENTIK_ADMIN_PASSWORD
           is_active: true
 

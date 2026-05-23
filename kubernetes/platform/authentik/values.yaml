@@ -38,7 +38,7 @@ global:
           name: authentik-secrets
           key: bootstrap-token
     - name: AUTHENTIK_BOOTSTRAP_EMAIL
-      value: "akadmin@rlservers.com"
+      value: "akadmin@${BASE_DOMAIN}"
     - name: AUTHENTIK_ADMIN_PASSWORD
       valueFrom:
         secretKeyRef:
