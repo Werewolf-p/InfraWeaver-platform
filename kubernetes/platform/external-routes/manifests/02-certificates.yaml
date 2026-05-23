@@ -1,7 +1,6 @@
 ---
-# Certificate for rlservers.com — signed by local self-signed CA
-# (.local TLD is not valid for Let's Encrypt ACME; use infraweaver-ca instead)
-# For public domains (yonavaarwater.nl etc.) use letsencrypt-dns below.
+# Certificate for rlservers.com — Let's Encrypt wildcard via Cloudflare DNS-01
+# Covers *.rlservers.com + base domain (publicly trusted by all clients)
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -10,36 +9,11 @@ metadata:
 spec:
   secretName: platform-wildcard-tls
   issuerRef:
-    name: infraweaver-ca
+    name: letsencrypt-dns
     kind: ClusterIssuer
   dnsNames:
-    # Base domain
     - "rlservers.com"
-    - "www.rlservers.com"
-    # Platform public endpoints
-    - "auth.rlservers.com"
-    - "netbird.rlservers.com"
-    - "api-netbird.rlservers.com"
-    - "status.rlservers.com"
-    - "test.rlservers.com"
-    # TrueNAS (public-facing via Cloudflare)
-    - "truenas.rlservers.com"
-    # External/baremetal services
-    - "keycloak.rlservers.com"
-    - "awx.rlservers.com"
-    - "bitwarden.rlservers.com"
-    - "vaultwarden.rlservers.com"
-    - "gitlab.rlservers.com"
-    - "registry.gitlab.rlservers.com"
-    - "cloud.rlservers.com"
-    - "teleport.rlservers.com"
-    - "registry.rlservers.com"
-    # Websites
-    - "degoudentijd.rlservers.com"
-    - "feestinhetdonker.rlservers.com"
-    - "marcel.rlservers.com"
-    # Catalog apps (public)
-    - "onedev.rlservers.com"
+    - "*.rlservers.com"
 ---
 # Certificate for *.int.rlservers.com — signed by local CA (not publicly reachable)
 apiVersion: cert-manager.io/v1
