@@ -128,10 +128,8 @@ if [ -n "$AUTHENTIK_ADMIN_TOKEN" ]; then
           "import sys; u=sys.stdin.read().strip(); print(u.split('flow_token=')[-1] if 'flow_token=' in u else '')" \
           2>/dev/null || echo "")
         if [ -n "$_FLOW_TOKEN" ]; then
-          printf 'from authentik.flows.models import FlowToken\\nt = FlowToken.objects.filter(key="%s").first()\\nif t: t.expiring = False; t.save(); print("non-expiring: " + t.identifier)\\n' \
-            "$_FLOW_TOKEN" | \
-            $KT exec -i -n authentik deploy/authentik-worker -c worker -- \
-            sh -c 'cat > /tmp/ak_noexp.py && ak shell < /tmp/ak_noexp.py' 2>/dev/null | grep "non-expiring" || true
+          $KT exec -n authentik deploy/authentik-worker -c worker -- \
+            ak shell -c "from authentik.flows.models import FlowToken; t = FlowToken.objects.filter(key='${_FLOW_TOKEN}').first(); t.expiring = False; t.save() if t else None; print('ok' if t else 'miss')" 2>/dev/null | tail -1 || true
         fi
         echo "✅ Recovery link generated for ${USERNAME} (non-expiring)"
       else
