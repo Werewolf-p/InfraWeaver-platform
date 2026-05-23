@@ -26,6 +26,7 @@ spec:
         app: infraweaver-api
     spec:
       terminationGracePeriodSeconds: 60
+      automountServiceAccountToken: true
       serviceAccountName: infraweaver-api
       imagePullSecrets:
         - name: onedev-pull-secret
