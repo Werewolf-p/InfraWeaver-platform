@@ -15,7 +15,7 @@ spec:
     - "rlservers.com"
     - "*.rlservers.com"
 ---
-# Certificate for *.int.rlservers.com — signed by local CA (not publicly reachable)
+# Certificate for *.int.rlservers.com — Let's Encrypt wildcard via Cloudflare DNS-01
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -24,7 +24,7 @@ metadata:
 spec:
   secretName: platform-int-wildcard-tls
   issuerRef:
-    name: infraweaver-ca
+    name: letsencrypt-dns
     kind: ClusterIssuer
   dnsNames:
     - "int.rlservers.com"

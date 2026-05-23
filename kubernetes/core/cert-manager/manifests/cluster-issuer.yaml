@@ -15,7 +15,7 @@ metadata:
 spec:
   acme:
     server: https://acme-v02.api.letsencrypt.org/directory
-    email: remonhulst@gmail.com
+    email: ${ADMIN_EMAIL}
     privateKeySecretRef:
       name: letsencrypt-http-account-key
     solvers:
@@ -30,7 +30,7 @@ metadata:
 spec:
   acme:
     server: https://acme-staging-v02.api.letsencrypt.org/directory
-    email: remonhulst@gmail.com
+    email: ${ADMIN_EMAIL}
     privateKeySecretRef:
       name: letsencrypt-http-staging-account-key
     solvers:
@@ -45,7 +45,7 @@ metadata:
 spec:
   acme:
     server: https://acme-v02.api.letsencrypt.org/directory
-    email: remonhulst@gmail.com
+    email: ${ADMIN_EMAIL}
     privateKeySecretRef:
       name: letsencrypt-dns-account-key
     solvers:
@@ -62,7 +62,7 @@ metadata:
 spec:
   acme:
     server: https://acme-staging-v02.api.letsencrypt.org/directory
-    email: remonhulst@gmail.com
+    email: ${ADMIN_EMAIL}
     privateKeySecretRef:
       name: letsencrypt-dns-staging-account-key
     solvers:
