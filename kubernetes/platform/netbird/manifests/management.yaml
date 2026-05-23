@@ -31,7 +31,7 @@ data:
       "HttpConfig": {
         "LetsEncryptDomain":"","CertFile":"","CertKey":"",
         "AuthAudience":"netbird","AuthIssuer":"","AuthKeysLocation":"","AuthUserIDClaim":"",
-        "IdpSignKeyRefreshEnabled":true,"OIDCConfigEndpoint":"http://authentik-server.authentik.svc.cluster.local/application/o/netbird/.well-known/openid-configuration"
+        "IdpSignKeyRefreshEnabled":true,"OIDCConfigEndpoint":"https://auth.rlservers.com/application/o/netbird/.well-known/openid-configuration"
       },
       "IdpManagerConfig": {"Manager":"none","ExtraConfig":{},"ClientConfig":null},
       "DeviceAuthorizationFlow": null,
