@@ -880,7 +880,7 @@ if [ -n "$BAO_TOKEN" ] && [ "$BAO_TOKEN" != "unavailable" ]; then
   # Also read the akadmin bootstrap password for the break-glass section in the email
   _auth_akadmin_pass=$(kubectl --kubeconfig "$KB_FILE" --server=https://"${_FIRST_CP_IP}":6443 \
     --insecure-skip-tls-verify exec -n openbao openbao-0 -- \
-    sh -c "BAO_TOKEN= bao kv get -field=bootstrap-password secret/platform/authentik" \
+    sh -c "BAO_TOKEN='$BAO_TOKEN' bao kv get -field=bootstrap-password secret/platform/authentik" \
     2>/dev/null || echo "")
   [ -n "$_auth_akadmin_pass" ] && export AUTHENTIK_AKADMIN_PASS="$_auth_akadmin_pass"
 fi
