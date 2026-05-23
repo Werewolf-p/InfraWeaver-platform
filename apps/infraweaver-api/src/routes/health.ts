@@ -22,34 +22,40 @@ async function checkUrl(url: string, timeoutMs = 3000): Promise<{ ok: boolean; d
 
 const SA_TOKEN_PATH = '/var/run/secrets/kubernetes.io/serviceaccount/token';
 const SA_CA_PATH = '/var/run/secrets/kubernetes.io/serviceaccount/ca.crt';
-const K8S_HOST = process.env.KUBERNETES_SERVICE_HOST ?? 'kubernetes.default.svc';
-const K8S_PORT = process.env.KUBERNETES_SERVICE_PORT ?? '443';
 
-async function checkK8sApi(timeoutMs = 3000): Promise<{ ok: boolean }> {
-  try {
-    if (!existsSync(SA_TOKEN_PATH) || !existsSync(SA_CA_PATH)) {
-      return { ok: false };
-    }
-    const token = readFileSync(SA_TOKEN_PATH, 'utf8').trim();
-    const ca = readFileSync(SA_CA_PATH, 'utf8');
-    const agent = new https.Agent({ ca });
-
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+function checkK8sApiSync(timeoutMs = 3000): Promise<{ ok: boolean }> {
+  return new Promise((resolve) => {
     try {
-      const res = await fetch(`https://${K8S_HOST}:${K8S_PORT}/healthz`, {
-        signal: controller.signal,
-        headers: { Authorization: `Bearer ${token}` },
-        // @ts-ignore undici dispatcher option for node fetch
-        dispatcher: new (await import('undici').then(m => m.Agent))({ connect: { ca } }),
-      });
-      return { ok: res.status === 200 };
-    } finally {
-      clearTimeout(timer);
+      if (!existsSync(SA_TOKEN_PATH) || !existsSync(SA_CA_PATH)) {
+        return resolve({ ok: false });
+      }
+      const token = readFileSync(SA_TOKEN_PATH, 'utf8').trim();
+      const ca = readFileSync(SA_CA_PATH, 'utf8');
+      const host = process.env.KUBERNETES_SERVICE_HOST ?? 'kubernetes.default.svc';
+      const port = parseInt(process.env.KUBERNETES_SERVICE_PORT ?? '443', 10);
+
+      const req = https.request(
+        {
+          hostname: host,
+          port,
+          path: '/healthz',
+          method: 'GET',
+          ca,
+          headers: { Authorization: `Bearer ${token}` },
+          timeout: timeoutMs,
+        },
+        (res) => {
+          res.resume(); // drain
+          resolve({ ok: res.statusCode === 200 });
+        }
+      );
+      req.on('error', () => resolve({ ok: false }));
+      req.on('timeout', () => { req.destroy(); resolve({ ok: false }); });
+      req.end();
+    } catch {
+      resolve({ ok: false });
     }
-  } catch {
-    return { ok: false };
-  }
+  });
 }
 
 export const healthRoute = new Hono<AppBindings>();
@@ -61,7 +67,7 @@ healthRoute.get('/', async (c) => {
 
   const [argocdResult, k8sResult] = await Promise.allSettled([
     checkUrl(`${argocdUrl}/healthz`),
-    checkK8sApi(),
+    checkK8sApiSync(),
   ]);
 
   const p95 = computeP95();
