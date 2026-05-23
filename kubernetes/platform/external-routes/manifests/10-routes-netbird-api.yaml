@@ -26,6 +26,7 @@ spec:
         - name: netbird-management
           port: 33073
           scheme: h2c
+          serversTransport: grpc-h2c-keepalive
   tls:
     secretName: platform-wildcard-tls
 ---
@@ -46,6 +47,7 @@ spec:
         - name: netbird-signal
           port: 10000
           scheme: h2c
+          serversTransport: grpc-h2c-keepalive
   tls:
     secretName: platform-wildcard-tls
 ---
@@ -87,3 +89,19 @@ spec:
           port: 80
   tls:
     secretName: platform-wildcard-tls
+
+---
+# ServersTransport for NetBird gRPC h2c backends
+# Keeps long-lived gRPC streams alive through mobile NATs
+apiVersion: traefik.io/v1alpha1
+kind: ServersTransport
+metadata:
+  name: grpc-h2c-keepalive
+  namespace: traefik
+  annotations:
+    argocd.argoproj.io/tracking-id: external-routes:traefik.io/ServersTransport:traefik/grpc-h2c-keepalive
+spec:
+  forwardingTimeouts:
+    dialTimeout: 30s
+    responseHeaderTimeout: 0s
+    idleConnTimeout: 1800s
