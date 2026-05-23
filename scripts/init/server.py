@@ -938,18 +938,88 @@ def _check_dns_provider(provider: str, credentials: Dict[str, str]) -> Dict:
     if provider == "cloudflare":
         token = credentials.get("CLOUDFLARE_API_TOKEN", "").strip()
         try:
+            cf_headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+
+            # Step 1 — verify token is active
             req = urllib.request.Request(
                 "https://api.cloudflare.com/client/v4/user/tokens/verify",
-                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+                headers=cf_headers,
             )
             with urllib.request.urlopen(req, timeout=10) as r:
                 body = json.loads(r.read())
-                if body.get("success"):
-                    status = body.get("result", {}).get("status", "active")
-                    return {"ok": True, "status": status, "provider": provider}
+            if not body.get("success"):
                 errors = body.get("errors", [])
                 msg = errors[0].get("message", "Invalid token") if errors else "Invalid token"
                 return {"ok": False, "error": msg, "provider": provider}
+            token_status = body.get("result", {}).get("status", "active")
+
+            # Step 2 — list accessible zones (confirms Zone:Read)
+            req = urllib.request.Request(
+                "https://api.cloudflare.com/client/v4/zones?per_page=50",
+                headers=cf_headers,
+            )
+            with urllib.request.urlopen(req, timeout=10) as r:
+                zones_body = json.loads(r.read())
+            zones = zones_body.get("result", []) if zones_body.get("success") else []
+            if not zones:
+                return {"ok": False, "error": "Token is active but has no accessible zones — add Zone:Read permission", "provider": provider}
+            zone_names = [z["name"] for z in zones[:5]]
+            first_zone_id = zones[0]["id"]
+            first_zone_name = zones[0]["name"]
+
+            # Step 3 — test DNS:Edit by creating + immediately deleting a TXT record
+            import json as _json
+            test_record = _json.dumps({
+                "type": "TXT",
+                "name": f"_infraweaver-setup-test.{first_zone_name}",
+                "content": "cert-manager-dns01-setup-check",
+                "ttl": 60,
+            }).encode()
+            req = urllib.request.Request(
+                f"https://api.cloudflare.com/client/v4/zones/{first_zone_id}/dns_records",
+                data=test_record,
+                headers=cf_headers,
+                method="POST",
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=10) as r:
+                    create_body = json.loads(r.read())
+            except Exception as dns_err:
+                create_body = {"success": False, "errors": [{"message": str(dns_err)}]}
+
+            if not create_body.get("success"):
+                dns_errors = create_body.get("errors", [])
+                dns_msg = dns_errors[0].get("message", "unknown error") if dns_errors else "unknown error"
+                zones_label = ", ".join(zone_names) + ("…" if len(zones) > 5 else "")
+                return {
+                    "ok": False,
+                    "error": (
+                        f"Token is active (status: {token_status}) and can read zones ({zones_label}), "
+                        f"but lacks DNS:Edit permission — update the Cloudflare token to add "
+                        f"Zone > DNS > Edit for all required zones. API error: {dns_msg}"
+                    ),
+                    "provider": provider,
+                }
+
+            # Delete the test record immediately
+            record_id = create_body.get("result", {}).get("id", "")
+            if record_id:
+                del_req = urllib.request.Request(
+                    f"https://api.cloudflare.com/client/v4/zones/{first_zone_id}/dns_records/{record_id}",
+                    headers=cf_headers,
+                    method="DELETE",
+                )
+                try:
+                    urllib.request.urlopen(del_req, timeout=10).close()
+                except Exception:
+                    pass  # cleanup failure is non-fatal
+
+            zones_label = ", ".join(zone_names) + ("…" if len(zones) > 5 else "")
+            return {
+                "ok": True,
+                "status": f"active · DNS:Edit verified · {len(zones)} zone(s): {zones_label}",
+                "provider": provider,
+            }
         except Exception as e:
             return {"ok": False, "error": str(e), "provider": provider}
 
