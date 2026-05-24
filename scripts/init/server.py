@@ -934,7 +934,7 @@ def _check_netbird_token(token: str, base_domain: str) -> Dict:
     if not base_domain:
         return {"ok": False, "error": "BASE_DOMAIN not set — cannot resolve NetBird management URL"}
 
-    management_url = f"https://api-netbird.{base_domain}/api/v1/accounts"
+    management_url = f"https://api-netbird.{base_domain}/api/accounts"
     req = urllib.request.Request(management_url, headers={"Authorization": f"Token {token}"})
     try:
         with urllib.request.urlopen(req, context=_proxmox_context(), timeout=10) as resp:

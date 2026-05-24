@@ -82,7 +82,7 @@ data:
             description: "Authentik SSO is down — all platform logins affected"
 
       - name: NetBird VPN
-        url: https://api-netbird.rlservers.com/api/v1/accounts
+        url: https://api-netbird.rlservers.com/api/accounts
         interval: 120s
         group: platform
         conditions:
