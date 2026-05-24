@@ -12,14 +12,14 @@ core:
     external-secrets:
       description: "Syncs secrets from OpenBao → Kubernetes Secrets"
     longhorn:
-      description: "Distributed block storage for persistent volumes"
+      description: "HA distributed block storage — cross-node PVC replication + scheduled backups to NFS"
       enabled: true  # set ENABLE_LONGHORN=false in .env to skip on lightweight setups
     openbao:
       description: "Secrets vault (open-source Vault fork)"
     metallb:
       description: "Load balancer IP assignment for bare-metal"
     kyverno:
-      description: "Policy enforcement and resource validation"
+      description: "Policy engine — enforces resource limits on all pods, blocks privileged containers in app namespaces"
       enabled: true  # set ENABLE_KYVERNO=false in .env to rely on PSA labels only
     priority-classes:
       description: "Pod scheduling priority tiers"
@@ -70,7 +70,7 @@ groups:
         description: "Identity provider and SSO gateway"
         replicas: 1       # Set 2 for HA (PostgreSQL handles state)
       authentik-ldap-outpost:
-        description: "LDAP outpost for Authentik"
+        description: "LDAP directory server — needed for TrueNAS and apps that cannot use OIDC"
         replicas: 1
 
       # ── OPTIONAL — set enabled: true to deploy ─────────────────────────────

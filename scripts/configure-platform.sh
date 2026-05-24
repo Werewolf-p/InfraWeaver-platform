@@ -48,6 +48,8 @@ LOCAL_IP_RANGES=$(_env_val LOCAL_IP_RANGES "")
 ENABLE_LONGHORN=$(_env_val ENABLE_LONGHORN "true")
 ENABLE_KYVERNO=$(_env_val ENABLE_KYVERNO "true")
 ENABLE_GRAFANA=$(_env_val ENABLE_GRAFANA "false")
+ENABLE_LOKI=$(_env_val ENABLE_LOKI "true")
+ENABLE_AUTHENTIK_LDAP=$(_env_val ENABLE_AUTHENTIK_LDAP "true")
 # MONITORING_STACK: which Prometheus-compatible stack to use when ENABLE_MONITORING=true
 #   kube-prometheus-stack  — default, full-featured, ~600Mi RAM
 #   victoria-metrics       — lightweight PromQL-compatible alternative, ~280Mi RAM
@@ -63,6 +65,8 @@ echo "    LOCAL_IP_RANGES=${LOCAL_IP_RANGES:-<empty>}"
 echo "    ENABLE_LONGHORN=${ENABLE_LONGHORN}"
 echo "    ENABLE_KYVERNO=${ENABLE_KYVERNO}"
 echo "    ENABLE_GRAFANA=${ENABLE_GRAFANA}"
+echo "    ENABLE_LOKI=${ENABLE_LOKI}"
+echo "    ENABLE_AUTHENTIK_LDAP=${ENABLE_AUTHENTIK_LDAP}"
 
 # ── Helper: update a platform.yaml value using Python ───────────────────────
 _set_platform_flag() {
@@ -410,6 +414,10 @@ _toggle_platform_app() {
 _set_platform_flag "groups.core-platform.apps.grafana.enabled" "$ENABLE_GRAFANA"
 _toggle_platform_app "grafana" "$ENABLE_GRAFANA"
 
+# Authentik LDAP outpost — managed as bootstrap companion, not AppSet
+_set_platform_flag "groups.core-platform.apps.authentik-ldap-outpost.enabled" "$ENABLE_AUTHENTIK_LDAP"
+_toggle_bootstrap_companion "app-authentik-ldap.yaml" "$ENABLE_AUTHENTIK_LDAP"
+
 # ── 6b. Monitoring stack selection (kube-prometheus-stack vs victoria-metrics) ─
 # Toggle which monitoring application.yaml is active under kubernetes/monitoring/.
 # Only has effect when ENABLE_MONITORING=true.
@@ -438,10 +446,35 @@ _toggle_monitoring_stack() {
     done
 }
 
+# Toggle an individual app within kubernetes/monitoring/ (Loki, etc.)
+_toggle_monitoring_app() {
+    local app_name="$1" enabled="$2"
+    local app_yaml="${REPO_DIR}/kubernetes/monitoring/${app_name}/application.yaml"
+    local app_yaml_disabled="${app_yaml}.disabled"
+    if [[ "$enabled" == "false" ]]; then
+        if [[ -f "$app_yaml" ]]; then
+            mv "$app_yaml" "$app_yaml_disabled"
+            echo "  ⏸  monitoring/${app_name}: disabled (application.yaml → .disabled)"
+        else
+            echo "  ⏭  monitoring/${app_name}: already disabled"
+        fi
+    else
+        if [[ -f "$app_yaml_disabled" && ! -f "$app_yaml" ]]; then
+            mv "$app_yaml_disabled" "$app_yaml"
+            echo "  ▶  monitoring/${app_name}: enabled (application.yaml restored)"
+        else
+            echo "  ⏭  monitoring/${app_name}: already enabled"
+        fi
+    fi
+}
+
 if [[ "$ENABLE_MONITORING" == "true" ]]; then
     echo "==> configure-platform: selecting monitoring stack: ${MONITORING_STACK}"
     _toggle_monitoring_stack "$MONITORING_STACK"
 fi
+
+# Loki is toggled independently of the stack choice
+_toggle_monitoring_app "loki" "$ENABLE_LOKI"
 
 # ── 7. Run sync-groups.sh to sync AppSet and companion files ─────────────────
 if [[ -f "${REPO_DIR}/scripts/sync-groups.sh" ]]; then
