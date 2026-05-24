@@ -33,6 +33,7 @@ spec:
       automountServiceAccountToken: true
       imagePullSecrets:
       - name: onedev-pull-secret
+      - name: ghcr-pull-secret
       # Spread replicas across nodes so a single Flannel disruption
       # doesn't take down both console pods simultaneously
       topologySpreadConstraints:
@@ -53,7 +54,7 @@ spec:
               topologyKey: kubernetes.io/hostname
       containers:
       - name: console
-        image: onedev.infraweaver.local/infraweaver/infraweaver-console:main-7dd40f4
+        image: onedev.rlservers.com/infraweaver-platform/infraweaver-console:main-5ced2e5
         imagePullPolicy: IfNotPresent
         command: ["sh", "-c", "HOSTNAME=0.0.0.0 node server.js"]
         ports:
@@ -61,7 +62,7 @@ spec:
           name: http
         env:
         - name: NEXTAUTH_URL
-          value: https://infraweaver.int.infraweaver.local
+          value: https://infraweaver.int.rlservers.com
         - name: NEXTAUTH_SECRET
           valueFrom:
             secretKeyRef:
@@ -83,7 +84,7 @@ spec:
               name: infraweaver-console-secret
               key: oidc-client-secret
         - name: AUTHENTIK_ISSUER
-          value: https://auth.infraweaver.local/application/o/infraweaver-console/
+          value: https://auth.rlservers.com/application/o/infraweaver-console/
         - name: ARGOCD_SERVER
           value: http://argocd-server.argocd.svc.cluster.local:80
         - name: ARGOCD_TOKEN
@@ -170,7 +171,7 @@ spec:
               name: infraweaver-console-secret
               key: dns-provider
         - name: ADMIN_EMAILS
-          value: admin@infraweaver.local
+          value: admin@rlservers.com
         - name: AUTH_TRUST_HOST
           value: "true"
         # NAS provider configuration — for Synology/TrueNAS share management

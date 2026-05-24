@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import {
+import { RotateCcw,
   BarChart3,
   Boxes,
   Globe,
@@ -24,6 +24,7 @@ import { FeaturesStep } from '@/components/steps/FeaturesStep'
 import { IdentityStep } from '@/components/steps/IdentityStep'
 import { ProxmoxStep } from '@/components/steps/ProxmoxStep'
 import { WelcomeStep } from '@/components/steps/WelcomeStep'
+import { RestoreStep } from '@/components/steps/RestoreStep'
 import { connectDeployEvents, getStatus, loadEnv, selfUpdate, type DeployEvent } from '@/lib/api'
 import { initialDeployStages, initialWizardData, isWizardDataPristine, useWizardStore } from '@/lib/store'
 import { classifyLog, isCIDR, isDomain, isEmail, isIPv4, isPositiveInteger } from '@/lib/utils'
@@ -54,7 +55,7 @@ function hasDnsProviderCredentials(data: typeof initialWizardData): boolean {
   }
 }
 
-const steps: Array<WizardStepMeta & { icon: React.ComponentType<{ className?: string }> }> = [
+const BASE_STEPS: Array<WizardStepMeta & { icon: React.ComponentType<{ className?: string }> }> = [
   { title: 'Welcome', icon: Sparkles },
   { title: 'Domain & Email', shortTitle: 'Domain', icon: Globe },
   { title: 'Proxmox', icon: Server },
@@ -62,10 +63,9 @@ const steps: Array<WizardStepMeta & { icon: React.ComponentType<{ className?: st
   { title: 'Identity', icon: UserRound },
   { title: 'Credentials', icon: KeyRound },
   { title: 'Features', icon: Settings2 },
-  { title: 'Review & Deploy', shortTitle: 'Deploy', icon: Rocket },
 ]
 
-function isStepValid(step: number, data: typeof initialWizardData, nodes: ReturnType<typeof useWizardStore.getState>['nodes'], localIpRanges: string[], vpnOnly: boolean) {
+function isStepValid(step: number, data: typeof initialWizardData, nodes: ReturnType<typeof useWizardStore.getState>['nodes'], localIpRanges: string[], vpnOnly: boolean, hasRestoreStep = false) {
   const controlPlaneCount = nodes.filter((node) => node.role === 'control-plane').length
 
   switch (step) {
@@ -108,6 +108,9 @@ function isStepValid(step: number, data: typeof initialWizardData, nodes: Return
       return vpnOnly || localIpRanges.filter((range) => range.trim()).every((range) => isCIDR(range))
     case 7:
       return true
+    case 8:
+      // Deploy step when restore is inserted
+      return hasRestoreStep
     default:
       return false
   }
@@ -304,12 +307,32 @@ export default function HomePage() {
     }
   }
 
+  const restoreEnabled = Boolean(data.RESTORE_ENABLED)
+
+  const steps = useMemo(() => {
+    const s = [...BASE_STEPS]
+    if (restoreEnabled) {
+      s.push({ title: 'Restore', icon: RotateCcw })
+    }
+    s.push({ title: 'Review & Deploy', shortTitle: 'Deploy', icon: Rocket })
+    return s
+  }, [restoreEnabled])
+
+  const hasRestoreStep = restoreEnabled
+  const deployStepIndex = steps.length - 1
+  const restoreStepIndex = hasRestoreStep ? deployStepIndex - 1 : -1
+
   const canGoNext = useMemo(
-    () => isStepValid(currentStep, data, nodes, localIpRanges, vpnOnly),
-    [currentStep, data, localIpRanges, nodes, vpnOnly],
+    () => isStepValid(currentStep, data, nodes, localIpRanges, vpnOnly, hasRestoreStep),
+    [currentStep, data, localIpRanges, nodes, vpnOnly, hasRestoreStep],
   )
 
-  const nextLabel = currentStep === 6 ? 'Review & deploy' : currentStep === 0 ? 'Get started' : 'Continue'
+  const nextLabel =
+    currentStep === restoreStepIndex || (!hasRestoreStep && currentStep === 6)
+      ? 'Review & deploy'
+      : currentStep === 0
+        ? 'Get started'
+        : 'Continue'
   const showDeploymentBadge = Boolean(status?.env_saved || deployStarted)
 
   const goToStep = (nextStep: number) => {
@@ -331,7 +354,7 @@ export default function HomePage() {
   const renderStep = () => {
     switch (currentStep) {
       case 0:
-        return <WelcomeStep onStart={() => goToStep(1)} onImportSuccess={() => goToStep(7)} />
+        return <WelcomeStep onStart={() => goToStep(1)} onImportSuccess={() => goToStep(deployStepIndex)} />
       case 1:
         return <DomainStep />
       case 2:
@@ -345,7 +368,9 @@ export default function HomePage() {
       case 6:
         return <FeaturesStep />
       case 7:
-        return <DeployStep />
+        return hasRestoreStep ? <RestoreStep /> : <DeployStep />
+      case 8:
+        return hasRestoreStep ? <DeployStep /> : null
       default:
         return null
     }

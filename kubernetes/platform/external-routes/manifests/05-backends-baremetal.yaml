@@ -445,7 +445,7 @@ subsets:
     ports:
       - port: 80
 ---
-# ── WordPress: infraweaver.local ──────────────────────────────────────────────────
+# ── WordPress: rlservers.com ──────────────────────────────────────────────────
 apiVersion: v1
 kind: Service
 metadata:
@@ -508,7 +508,7 @@ subsets:
     ports:
       - port: 80
 ---
-# ── feestinhetdonker.infraweaver.local / marcel.infraweaver.local ─────────────────────
+# ── feestinhetdonker.rlservers.com / marcel.rlservers.com ─────────────────────
 apiVersion: v1
 kind: Service
 metadata:
@@ -570,7 +570,7 @@ subsets:
     ports:
       - port: 443
 ---
-# ── degoudentijd.infraweaver.local ────────────────────────────────────────────────
+# ── degoudentijd.rlservers.com ────────────────────────────────────────────────
 apiVersion: v1
 kind: Service
 metadata:

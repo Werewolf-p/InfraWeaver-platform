@@ -227,8 +227,9 @@ if [[ -n "$PVE_API_HOST" ]]; then
   ALL_NODE_IPS+=("$PVE_API_HOST")
 fi
 
-# Query the Proxmox cluster status for actual per-node IPs
-if [[ -n "$PVE_API_HOST" && -n "$PROXMOX_TOKEN_VALUE" ]]; then
+# Only add cluster API IPs if PVE_NODES is NOT explicitly set.
+# When PVE_NODES is set, use only those IPs to avoid SSH failures for offline nodes.
+if [[ -z "${PVE_NODES:-}" && -n "$PVE_API_HOST" && -n "$PROXMOX_TOKEN_VALUE" ]]; then
   CLUSTER_IPS=$(python3 - <<PYEOF 2>/dev/null
 import urllib.request, urllib.parse, ssl, json, sys
 ctx = ssl.create_default_context(); ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
@@ -393,11 +394,7 @@ fi
 # Stage 1: provision Talos cluster VMs
 log "==> Stage 1: provisioning Talos cluster VMs on Proxmox..."
 # shellcheck disable=SC2086
-tofu apply $VARS \
-  -target=module.talos_cluster \
-  -target=local_sensitive_file.kubeconfig \
-  -target=local_sensitive_file.talosconfig \
-  -auto-approve 2>&1
+tofu apply $VARS -target=module.talos_cluster -target=local_sensitive_file.kubeconfig -target=local_sensitive_file.talosconfig -auto-approve 2>&1
 ok "Stage 1: Talos VMs provisioned"
 
 # Save configs
@@ -427,10 +424,31 @@ fi
 # Stage 2a: install ArgoCD namespace + Helm (gets CRDs registered)
 log "==> Stage 2a: installing ArgoCD namespace + Helm chart..."
 # shellcheck disable=SC2086
+for _stage2a_attempt in 1 2 3; do
+_stage2a_exit=0
 tofu apply $VARS \
   -target='module.platform_bootstrap[0].kubernetes_namespace.argocd' \
   -target='module.platform_bootstrap[0].helm_release.argocd' \
-  -auto-approve 2>&1
+  -auto-approve 2>&1 || _stage2a_exit=$?
+  if [[ "$_stage2a_exit" -eq 0 ]]; then break; fi
+  warn "Stage 2a attempt ${_stage2a_attempt}/3 failed (transient error) — retrying in 20s..."
+  sleep 20
+done
+if [[ "$_stage2a_exit" -ne 0 ]]; then
+  # Helm provider sometimes crashes ("Plugin did not respond") even when install succeeded
+  # Check if ArgoCD pods are actually running
+  _argocd_pods=$(kubectl --kubeconfig "$KB_FILE" get pods -n argocd --no-headers 2>/dev/null | grep "Running" 2>/dev/null | wc -l || echo "0")
+  _argocd_pods=${_argocd_pods//[^0-9]/}
+  _argocd_pods=${_argocd_pods:-0}
+  if [[ "$_argocd_pods" -ge 5 ]]; then
+    warn "==> Helm provider crashed but ArgoCD has ${_argocd_pods} running pods — importing TF state..."
+    tofu import $VARS "module.platform_bootstrap[0].kubernetes_namespace.argocd" "argocd" 2>&1 | grep -E "Import|Error|warn" || true
+    tofu import $VARS "module.platform_bootstrap[0].helm_release.argocd" "argocd/argocd" 2>&1 | grep -E "Import|Error|warn" || true
+    warn "==> TF state imported — continuing"
+  else
+    die "Stage 2a failed: ArgoCD install failed (only ${_argocd_pods} pods running)"
+  fi
+fi
 ok "Stage 2a: ArgoCD Helm installed"
 
 # Wait for ArgoCD CRDs
@@ -531,6 +549,18 @@ helm --kubeconfig "$KB_FILE" upgrade --install longhorn longhorn/longhorn \
 kubectl --kubeconfig "$KB_FILE" apply -f kubernetes/core/longhorn/manifests/ 2>/dev/null || true
 ok "Step 7b: Longhorn deployed"
 
+# ── Step 7c: Restore volumes / TLS certs (if RESTORE_ENABLED=true) ───────────
+if [[ "${RESTORE_ENABLED:-false}" == "true" ]]; then
+  log "Step 7c: Restoring from backup (RESTORE_ENABLED=true)..."
+  KB_FILE="$KB_FILE" ENV_NAME="$ENV_NAME" \
+  RESTORE_TLS="${RESTORE_TLS:-false}" \
+  RESTORE_VOLUMES="${RESTORE_VOLUMES:-}" \
+    bash scripts/deploy/restore-volumes.sh
+  ok "Step 7c: Restore complete"
+else
+  log "Step 7c: Skipping restore (RESTORE_ENABLED=false)"
+fi
+
 echo "STAGE:bootstrap"
 # ── Step 8: Deploy OpenBao directly + Bootstrap ───────────────────────────────
 log "Step 8: Deploying OpenBao directly via Helm + bootstrapping..."
@@ -584,7 +614,7 @@ if [[ -n "$BAO_ROOT_TOKEN" ]]; then
     || warn "bootstrap.sh had issues — Onedev/ArgoCD wiring may need manual completion"
 else
   warn "No OpenBao root token — deploying Onedev manifests directly without service account"
-  kubectl --kubeconfig "$KB_FILE" apply -f kubernetes/catalog/onedev/ --server-side 2>/dev/null || true
+  kubectl --kubeconfig "$KB_FILE" apply -Rf kubernetes/catalog/onedev/ --server-side 2>/dev/null || true
 fi
 ok "Step 9: Onedev deployed and ArgoCD wired"
 
@@ -703,6 +733,88 @@ for ns_dir in kubernetes/platform/*/manifests; do
 done
 ok "Step 16b: Platform manifests pre-applied"
 
+
+# ── Step 16c: Fix Authentik PostgreSQL storageClass (longhorn→local-path) ────
+# When ArgoCD first deploys from GitHub before bootstrap.sh updates to Onedev,
+# it uses the GitHub values.yaml which has longhorn-retain. We must delete the
+# bad PVC and force a re-sync so Onedev's local-path is used instead.
+log "Step 16c: Ensuring Authentik PostgreSQL uses local-path storageClass..."
+AK_PVC=$(kubectl --kubeconfig "$KB_FILE" get pvc data-authentik-postgresql-0 -n authentik \
+  -o jsonpath='{.spec.storageClassName}' 2>/dev/null || echo "")
+if [[ "$AK_PVC" == "longhorn-retain" ]]; then
+  warn "  Authentik PostgreSQL PVC uses longhorn-retain — fixing to local-path..."
+  # Delete StatefulSet controller (orphan pods for now)
+  kubectl --kubeconfig "$KB_FILE" delete statefulset authentik-postgresql -n authentik --cascade=orphan 2>/dev/null || true
+  # Delete orphaned pod FIRST so kubernetes.io/pvc-protection finalizer releases
+  kubectl --kubeconfig "$KB_FILE" delete pod authentik-postgresql-0 -n authentik --force --grace-period=0 2>/dev/null || true
+  # Wait for pod to actually disappear so pvc-protection finalizer is released
+  for _i in $(seq 1 15); do
+    if ! kubectl --kubeconfig "$KB_FILE" get pod authentik-postgresql-0 -n authentik &>/dev/null; then
+      break
+    fi
+    sleep 2
+  done
+  # Now remove all PVC finalizers and force-delete
+  kubectl --kubeconfig "$KB_FILE" patch pvc data-authentik-postgresql-0 -n authentik \
+    -p '{"metadata":{"finalizers":null}}' --type=merge 2>/dev/null || true
+  kubectl --kubeconfig "$KB_FILE" delete pvc data-authentik-postgresql-0 -n authentik --force --grace-period=0 2>/dev/null || true
+  # Wait for PVC to actually disappear (not just Terminating)
+  for _i in $(seq 1 20); do
+    if ! kubectl --kubeconfig "$KB_FILE" get pvc data-authentik-postgresql-0 -n authentik &>/dev/null; then
+      break
+    fi
+    # If still stuck, also remove PV finalizers and Longhorn Volume CR
+    PV_NAME=$(kubectl --kubeconfig "$KB_FILE" get pv --no-headers 2>/dev/null \
+      | awk '/authentik\/data-authentik-postgresql-0/{print $1}' | head -1)
+    if [[ -n "$PV_NAME" ]]; then
+      kubectl --kubeconfig "$KB_FILE" patch pv "$PV_NAME" \
+        -p '{"metadata":{"finalizers":null}}' --type=merge 2>/dev/null || true
+      kubectl --kubeconfig "$KB_FILE" patch volume -n longhorn-system "$PV_NAME" \
+        -p '{"metadata":{"finalizers":null}}' --type=merge 2>/dev/null || true
+      kubectl --kubeconfig "$KB_FILE" delete volume -n longhorn-system "$PV_NAME" \
+        --force --grace-period=0 2>/dev/null || true
+    fi
+    sleep 2
+  done
+  # Clean up Released Longhorn PV to avoid confusion on next run
+  OLD_LH_PV=$(kubectl --kubeconfig "$KB_FILE" get pv --no-headers 2>/dev/null \
+    | awk '/longhorn-retain/ && /Released/{print $1}' | head -1)
+  if [[ -n "$OLD_LH_PV" ]]; then
+    kubectl --kubeconfig "$KB_FILE" patch pv "$OLD_LH_PV" \
+      -p '{"metadata":{"finalizers":[]}}' --type=merge 2>/dev/null || true
+    kubectl --kubeconfig "$KB_FILE" delete pv "$OLD_LH_PV" --force --grace-period=0 2>/dev/null || true
+  fi
+  sleep 3
+  # Force ArgoCD to re-sync platform-authentik (will use Onedev/local-path now)
+  kubectl --kubeconfig "$KB_FILE" annotate application platform-authentik -n argocd \
+    argocd.argoproj.io/refresh="normal" --overwrite 2>/dev/null || true
+  sleep 5
+  kubectl --kubeconfig "$KB_FILE" patch application platform-authentik -n argocd \
+    --type merge -p '{"operation":{"initiatedBy":{"username":"deploy-script"},"sync":{"syncStrategy":{"hook":{}}}}}' \
+    2>/dev/null || true
+  # Wait for PVC to be recreated with local-path
+  for i in $(seq 1 30); do
+    NEW_SC=$(kubectl --kubeconfig "$KB_FILE" get pvc data-authentik-postgresql-0 -n authentik \
+      -o jsonpath='{.spec.storageClassName}' 2>/dev/null || echo "")
+    if [[ "$NEW_SC" == "local-path" ]]; then
+      ok "  Authentik PostgreSQL PVC now uses local-path ✅"
+      # Restart worker/server pods that may be in CrashLoopBackOff waiting for PostgreSQL
+      kubectl --kubeconfig "$KB_FILE" delete pod -n authentik -l app.kubernetes.io/component=worker \
+        --force --grace-period=0 2>/dev/null || true
+      kubectl --kubeconfig "$KB_FILE" delete pod -n authentik -l app.kubernetes.io/component=server \
+        --force --grace-period=0 2>/dev/null || true
+      break
+    elif [[ -n "$NEW_SC" ]]; then
+      warn "  PVC recreated with $NEW_SC (unexpected)"
+      break
+    fi
+    sleep 5
+  done
+else
+  ok "  Authentik PostgreSQL PVC storageClass: ${AK_PVC:-local-path} ✅"
+fi
+ok "Step 16c: Authentik PostgreSQL storageClass verified"
+
 # ── Step 17: Configure Authentik ──────────────────────────────────────────────
 log "Step 17: Configuring Authentik..."
 # Use a temp file so recovery links and tokens survive to the email step (local deploys
@@ -777,6 +889,12 @@ if [ -n "$BAO_TOKEN" ] && [ "$BAO_TOKEN" != "unavailable" ]; then
     sh -c "BAO_TOKEN='$BAO_TOKEN' bao kv get -field=admin-password secret/platform/authentik" \
     2>/dev/null || echo "")
   [ -n "$_auth_admin_pass" ] && export AUTHENTIK_ADMIN_PASS="$_auth_admin_pass"
+  # Also read the akadmin bootstrap password for the break-glass section in the email
+  _auth_akadmin_pass=$(kubectl --kubeconfig "$KB_FILE" --server=https://"${_FIRST_CP_IP}":6443 \
+    --insecure-skip-tls-verify exec -n openbao openbao-0 -- \
+    sh -c "BAO_TOKEN='$BAO_TOKEN' bao kv get -field=bootstrap-password secret/platform/authentik" \
+    2>/dev/null || echo "")
+  [ -n "$_auth_akadmin_pass" ] && export AUTHENTIK_AKADMIN_PASS="$_auth_akadmin_pass"
 fi
 
 # Source recovery links and tokens written by configure-authentik.sh
@@ -787,7 +905,7 @@ fi
 
 export DEPLOY_ENV="$ENV_NAME"
 export DEPLOY_RUN_URL="local://${HOSTNAME:-$(hostname)}/$(date +%Y-%m-%dT%H:%M:%S)"
-export BAO_TOKEN BAO_UNSEAL BASE_DOMAIN ADMIN_EMAIL
+export BAO_TOKEN BAO_UNSEAL BASE_DOMAIN ADMIN_EMAIL ADMIN_USERNAME AUTHENTIK_AKADMIN_PASS
 SMTP_USERNAME="$SMTP_USERNAME" SMTP_PASSWORD="$SMTP_PASSWORD" SMTP_TO="${SMTP_TO:-$SMTP_USERNAME}" \
   python3 scripts/send-deploy-email.py 2>/dev/null || warn "Deploy summary email failed (non-fatal)"
 

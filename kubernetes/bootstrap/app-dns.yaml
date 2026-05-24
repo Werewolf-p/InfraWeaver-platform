@@ -1,6 +1,6 @@
 # Standalone ArgoCD Application for internal CoreDNS
 # Deploys a custom DNS server accessible at 10.25.0.201:53 (MetalLB)
-# Serves infraweaver.local and prod.local zones; forwards everything else upstream
+# Serves rlservers.com and prod.local zones; forwards everything else upstream
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:

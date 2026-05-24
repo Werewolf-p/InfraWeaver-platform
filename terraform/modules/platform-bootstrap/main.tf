@@ -229,6 +229,12 @@ resource "kubernetes_manifest" "platform_applicationset" {
     "status",
   ]
 
+  # bootstrap.sh uses kubectl patch to update repoURL to Onedev — force_conflicts
+  # allows OpenTofu to re-take ownership of those fields on re-apply.
+  field_manager {
+    force_conflicts = true
+  }
+
   manifest = {
     apiVersion = "argoproj.io/v1alpha1"
     kind       = "ApplicationSet"

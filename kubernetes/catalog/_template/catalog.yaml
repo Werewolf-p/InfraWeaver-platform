@@ -16,6 +16,6 @@ helm:
 
 # IngressRoute (optional — creates a Traefik route in the app namespace)
 # ingressroute:
-#   host: APP_NAME.int.infraweaver.local
+#   host: APP_NAME.int.rlservers.com
 #   entrypoint: websecure
 #   port: 80

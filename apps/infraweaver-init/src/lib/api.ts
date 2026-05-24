@@ -118,6 +118,14 @@ export interface CheckDnsProviderResponse {
   error?: string
 }
 
+export interface CheckNetbirdTokenResponse {
+  ok: boolean
+  status?: string
+  account_id?: string
+  management_url?: string
+  error?: string
+}
+
 export interface CatalogItemResponse {
   ok: boolean
   items?: Array<Record<string, string>>
@@ -317,6 +325,13 @@ export async function checkDnsProvider(provider: string, credentials: Record<str
   })
 }
 
+export async function checkNetbirdToken(token: string, baseDomain: string) {
+  return fetchJson<CheckNetbirdTokenResponse>('/api/check-netbird-token', {
+    method: 'POST',
+    body: JSON.stringify({ token, base_domain: baseDomain }),
+  })
+}
+
 export async function getCatalogItems() {
   return fetchJson<CatalogItemResponse>('/api/catalog-items', { method: 'GET', headers: {} })
 }
@@ -366,4 +381,28 @@ export async function deployStream(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ mode }),
   }, onEvent)
+}
+
+export interface TlsBackupItem {
+  name: string
+  file: string
+  size_bytes: number
+  modified_at: string
+}
+
+export interface PvcVolumeItem {
+  name: string
+  label: string
+  icon: string
+}
+
+export interface ListBackupsResponse {
+  ok: boolean
+  tls_backups?: TlsBackupItem[]
+  pvc_volumes?: PvcVolumeItem[]
+  error?: string
+}
+
+export async function listBackups() {
+  return fetchJson<ListBackupsResponse>('/api/list-backups', { method: 'GET', headers: {} })
 }

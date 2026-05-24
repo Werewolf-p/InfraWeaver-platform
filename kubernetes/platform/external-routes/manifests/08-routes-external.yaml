@@ -1,7 +1,7 @@
 ---
 # IngressRoutes for public-facing services (no IP restriction)
 
-# ── WordPress: infraweaver.local ──────────────────────────────────────────────────
+# ── WordPress: rlservers.com ──────────────────────────────────────────────────
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
@@ -13,7 +13,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`infraweaver.local`) || Host(`www.infraweaver.local`)
+    - match: Host(`rlservers.com`) || Host(`www.rlservers.com`)
       kind: Rule
       middlewares:
         - name: secure-headers
@@ -26,7 +26,7 @@ spec:
   tls:
     secretName: platform-wildcard-int-tls
 ---
-# ── degoudentijd.infraweaver.local ────────────────────────────────────────────────
+# ── degoudentijd.rlservers.com ────────────────────────────────────────────────
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
@@ -38,7 +38,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`degoudentijd.infraweaver.local`) || Host(`www.degoudentijd.infraweaver.local`)
+    - match: Host(`degoudentijd.rlservers.com`) || Host(`www.degoudentijd.rlservers.com`)
       kind: Rule
       middlewares:
         - name: secure-headers
@@ -51,7 +51,7 @@ spec:
   tls:
     secretName: platform-wildcard-int-tls
 ---
-# ── feestinhetdonker.infraweaver.local ────────────────────────────────────────────
+# ── feestinhetdonker.rlservers.com ────────────────────────────────────────────
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
@@ -63,7 +63,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`feestinhetdonker.infraweaver.local`)
+    - match: Host(`feestinhetdonker.rlservers.com`)
       kind: Rule
       middlewares:
         - name: secure-headers
@@ -76,7 +76,7 @@ spec:
   tls:
     secretName: platform-wildcard-int-tls
 ---
-# ── marcel.infraweaver.local ──────────────────────────────────────────────────────
+# ── marcel.rlservers.com ──────────────────────────────────────────────────────
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
@@ -88,7 +88,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`marcel.infraweaver.local`)
+    - match: Host(`marcel.rlservers.com`)
       kind: Rule
       middlewares:
         - name: secure-headers
@@ -113,7 +113,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`keycloak.infraweaver.local`)
+    - match: Host(`keycloak.rlservers.com`)
       kind: Rule
       middlewares:
         - name: secure-headers
@@ -136,7 +136,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`awx.infraweaver.local`)
+    - match: Host(`awx.rlservers.com`)
       kind: Rule
       middlewares:
         - name: secure-headers
@@ -159,7 +159,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`bitwarden.infraweaver.local`) || Host(`vaultwarden.infraweaver.local`)
+    - match: Host(`bitwarden.rlservers.com`) || Host(`vaultwarden.rlservers.com`)
       kind: Rule
       middlewares:
         - name: secure-headers
@@ -182,7 +182,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`gitlab.infraweaver.local`)
+    - match: Host(`gitlab.rlservers.com`)
       kind: Rule
       middlewares:
         - name: secure-headers
@@ -205,7 +205,7 @@ spec:
   entryPoints:
     - registry
   routes:
-    - match: Host(`registry.gitlab.infraweaver.local`)
+    - match: Host(`registry.gitlab.rlservers.com`)
       kind: Rule
       services:
         - name: bm-gitlab-registry
@@ -225,7 +225,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`cloud.infraweaver.local`)
+    - match: Host(`cloud.rlservers.com`)
       kind: Rule
       middlewares:
         - name: secure-headers
@@ -250,7 +250,7 @@ spec:
     - websecure
     - teleport-proxy
   routes:
-    - match: Host(`teleport.infraweaver.local`)
+    - match: Host(`teleport.rlservers.com`)
       kind: Rule
       middlewares:
         - name: secure-headers
@@ -274,7 +274,7 @@ spec:
   entryPoints:
     - registry
   routes:
-    - match: Host(`registry.infraweaver.local`)
+    - match: Host(`registry.rlservers.com`)
       kind: Rule
       services:
         - name: bm-registry

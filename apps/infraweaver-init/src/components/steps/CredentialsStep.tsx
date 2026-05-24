@@ -16,7 +16,7 @@ import {
   WandSparkles,
 } from 'lucide-react'
 import { motion } from 'framer-motion'
-import { checkDnsProvider, generateSshKey } from '@/lib/api'
+import { checkDnsProvider, checkNetbirdToken, generateSshKey } from '@/lib/api'
 import { ActionButton } from '@/components/ui/ActionButton'
 import { FormField } from '@/components/ui/FormField'
 import { GlassCard } from '@/components/ui/GlassCard'
@@ -63,10 +63,12 @@ export function CredentialsStep() {
   const loading = useWizardStore((state) => state.loading)
   const generatedPublicKey = useWizardStore((state) => state.generatedPublicKey)
   const dnsProviderCheck = useWizardStore((state) => state.dnsProviderCheck)
+  const netbirdTokenCheck = useWizardStore((state) => state.netbirdTokenCheck)
   const setField = useWizardStore((state) => state.setField)
   const setLoading = useWizardStore((state) => state.setLoading)
   const setGeneratedPublicKey = useWizardStore((state) => state.setGeneratedPublicKey)
   const setDnsProviderCheck = useWizardStore((state) => state.setDnsProviderCheck)
+  const setNetbirdTokenCheck = useWizardStore((state) => state.setNetbirdTokenCheck)
   const autofillRepoUrl = useWizardStore((state) => state.autofillRepoUrl)
   const [advancedOpen, setAdvancedOpen] = useState(false)
 
@@ -124,6 +126,18 @@ export function CredentialsStep() {
   const handleProviderChange = (value: DnsProvider) => {
     setField('DNS_PROVIDER', value)
     setDnsProviderCheck(null)
+  }
+
+  const handleCheckNetbirdToken = async () => {
+    setLoading("checkNetbird", true)
+    try {
+      const result = await checkNetbirdToken(data.NETBIRD_API_TOKEN, data.BASE_DOMAIN)
+      setNetbirdTokenCheck(result)
+    } catch (err) {
+      setNetbirdTokenCheck({ ok: false, error: err instanceof Error ? err.message : "Validation failed" })
+    } finally {
+      setLoading("checkNetbird", false)
+    }
   }
 
   return (
@@ -337,8 +351,25 @@ export function CredentialsStep() {
                 className={controlClassName}
               />
             </FormField>
-            <FormField label="NETBIRD_API_TOKEN" htmlFor="NETBIRD_API_TOKEN" hint="Optional. Useful when ENABLE_NETBIRD is turned on for peer cleanup and automation.">
-              <SecretInput id="NETBIRD_API_TOKEN" value={data.NETBIRD_API_TOKEN} onChange={(value) => setField('NETBIRD_API_TOKEN', value)} placeholder="nbp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
+            <FormField label="NETBIRD_API_TOKEN" htmlFor="NETBIRD_API_TOKEN" hint="Personal Access Token for NetBird — manage peers and rotate setup keys during deploys." className="md:col-span-2">
+              <div className="flex gap-2">
+                <div className="flex-1">
+                  <SecretInput id="NETBIRD_API_TOKEN" value={data.NETBIRD_API_TOKEN} onChange={(value) => { setField('NETBIRD_API_TOKEN', value); setNetbirdTokenCheck(null) }} placeholder="nbp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
+                </div>
+                {data.NETBIRD_API_TOKEN && (
+                  <ActionButton variant="ghost" onClick={() => void handleCheckNetbirdToken()} disabled={loading.checkNetbird}>
+                    {loading.checkNetbird ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+                    Verify
+                  </ActionButton>
+                )}
+              </div>
+              {netbirdTokenCheck && (
+                <div className={`mt-2 rounded-xl border px-3 py-2 text-sm ${netbirdTokenCheck.ok ? 'border-[rgba(87,163,0,0.25)] bg-[rgba(87,163,0,0.08)] text-[var(--az-success)]' : 'border-[rgba(209,52,56,0.25)] bg-[rgba(209,52,56,0.08)] text-[var(--az-danger)]'}`}>
+                  {netbirdTokenCheck.ok
+                    ? `Valid · account ${netbirdTokenCheck.account_id ?? ''} · ${netbirdTokenCheck.management_url ?? ''}`
+                    : netbirdTokenCheck.error ?? 'Validation failed'}
+                </div>
+              )}
             </FormField>
             <FormField label="GITHUB_PAT" htmlFor="GITHUB_PAT" className="md:col-span-2" hint="Optional personal access token for GitHub Actions integration.">
               <SecretInput id="GITHUB_PAT" value={data.GITHUB_PAT} onChange={(value) => setField('GITHUB_PAT', value)} placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />

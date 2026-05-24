@@ -311,47 +311,36 @@ else
   warn "No ONEDEV_TOKEN — skipping ArgoCD repo creds seed (run setup-onedev.sh first)"
 fi
 
-log "Step 3: Update ArgoCD root ApplicationSet repoURL to Onedev..."
+log "Step 3: Update ALL ApplicationSet files repoURL to Onedev..."
 
-if [[ ! -f "$APPSET_ROOT" ]]; then
-  warn "$APPSET_ROOT not found — skipping ApplicationSet patch"
+ONEDEV_CLUSTER_URL="${ONEDEV_URL}/${ONEDEV_PROJECT}"
+
+# Update all appset files - root + core group files
+_APPSET_FILES=()
+for _f in "$APPSET_ROOT" \
+          "kubernetes/bootstrap/appset-core.yaml" \
+          "kubernetes/bootstrap/appset-core-platform.yaml" \
+          "kubernetes/bootstrap/appset-core-monitoring.yaml"; do
+  [[ -f "$_f" ]] && _APPSET_FILES+=("$_f")
+done
+
+if [[ ${#_APPSET_FILES[@]} -eq 0 ]]; then
+  warn "No ApplicationSet files found -- skipping repoURL patch"
 else
-  ONEDEV_CLUSTER_URL="${ONEDEV_URL}/${ONEDEV_PROJECT}"
-
-  # Check if already pointing at Onedev
-  if grep -q "onedev" "$APPSET_ROOT" 2>/dev/null; then
-    ok "$APPSET_ROOT already references Onedev — no change needed"
+  if ! $DRY_RUN; then
+    for _af in "${_APPSET_FILES[@]}"; do
+      if grep -q "onedev" "$_af" 2>/dev/null; then
+        ok "  $_af already references Onedev"
+      else
+        sed -i "s|repoURL: https://github[.]com/[^ ]*|repoURL: ${ONEDEV_CLUSTER_URL}|g" "$_af" \
+          && ok "  Updated repoURL in $_af" \
+          || warn "  Could not update $_af"
+      fi
+    done
   else
-    if ! $DRY_RUN; then
-      python3 - <<PYEOF
-import re, sys
-
-path = '${APPSET_ROOT}'
-onedev_url = '${ONEDEV_CLUSTER_URL}'
-
-with open(path) as f:
-    content = f.read()
-
-# Replace repoURL values that look like GitHub URLs
-updated = re.sub(
-    r'(repoURL:\s*)https://github\.com/[^\s]+',
-    rf'\g<1>{onedev_url}',
-    content,
-)
-
-if updated == content:
-    print('No GitHub repoURL found to replace in ' + path)
-    sys.exit(0)
-
-with open(path, 'w') as f:
-    f.write(updated)
-print('Updated repoURL in ' + path)
-PYEOF
-    else
-      log "[dry-run] Would replace GitHub repoURL in $APPSET_ROOT with $ONEDEV_CLUSTER_URL"
-    fi
-    ok "ApplicationSet root patched"
+    log "[dry-run] Would replace GitHub repoURL in appset files with $ONEDEV_CLUSTER_URL"
   fi
+  ok "ApplicationSet files patched to Onedev"
 fi
 
 # ── 4. Patch console Deployment env vars ─────────────────────────────────────
@@ -395,6 +384,9 @@ log "Step 5: Commit bootstrap changes..."
 if ! $DRY_RUN; then
   git_commit_if_changed "chore(bootstrap): switch ArgoCD + console to Onedev git source" \
     "$APPSET_ROOT" "$CONSOLE_DEPLOYMENT_FILE" \
+    "kubernetes/bootstrap/appset-core.yaml" \
+    "kubernetes/bootstrap/appset-core-platform.yaml" \
+    "kubernetes/bootstrap/appset-core-monitoring.yaml" \
     || log "No file changes to commit (already up to date)"
 
   # Open port-forward to Onedev for second push
@@ -439,9 +431,15 @@ if ! $DRY_RUN; then
   # Re-apply updated bootstrap YAMLs directly so ApplicationSets pick up Onedev URL
   log "  Applying updated bootstrap ApplicationSet manifests..."
   for f in kubernetes/bootstrap/appset-core.yaml kubernetes/bootstrap/appset-core-platform.yaml \
+            kubernetes/bootstrap/appset-core-monitoring.yaml \
             kubernetes/bootstrap/applicationset-root.yaml; do
-    [[ -f "$f" ]] && kubectl apply -f "$f" 2>/dev/null && log "  Applied $f" || true
+    [[ -f "$f" ]] && kubectl apply -f "$f" 2>/dev/null && log "  Applied $f" || warn "  Could not apply $f"
   done
+  # Wait for AppSet controller to reconcile generated Applications
+  log "  Waiting for AppSet controller to reconcile..."
+  sleep 10
+  kubectl annotate applications -n argocd --all \
+    "argocd.argoproj.io/refresh=hard" --overwrite 2>/dev/null || true
 
   # Hard refresh ArgoCD apps to pick up new source URL
   log "  Refreshing all ArgoCD applications..."

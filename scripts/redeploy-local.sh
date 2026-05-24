@@ -157,6 +157,20 @@ if [[ -z "$PVE_IP" ]]; then
 fi
 SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=15 -i ~/.ssh/deployer_ed25519"
 
+# Gather ALL PVE node IPs from cluster.yaml pve_nodes for multi-node orphan cleanup
+ALL_PVE_IPS=$(python3 -c "
+import yaml, sys
+try:
+    with open('envs/$ENV_NAME/cluster.yaml') as f:
+        c = yaml.safe_load(f)
+    ips = list(c.get('pve_nodes', {}).values())
+    print('\\n'.join(str(i) for i in ips if i))
+except Exception:
+    pass
+" 2>/dev/null)
+ALL_PVE_IPS=$(printf '%s\n%s' "$PVE_IP" "$ALL_PVE_IPS" | awk '!seen[$0]++ && NF' | tr '\n' ' ')
+log "  PVE nodes for cleanup: $ALL_PVE_IPS"
+
 # These are the platform cluster VMs — do NOT include 9001 (init VM), 9100 (runner), 9200 (netbird-router)
 PLATFORM_VMIDS="9300 9301 9302 9310 9311 9312"
 log "  Destroying platform VMs: $PLATFORM_VMIDS (preserving 9001, 9100, 9200)"
@@ -176,14 +190,31 @@ for VMID in $PLATFORM_VMIDS; do
       "qm stop $VMID --skiplock --timeout 10 2>/dev/null; sleep 2; qm destroy $VMID --purge --skiplock 2>/dev/null" || true
     ok "  VM $VMID destroyed"
   else
-    log "  VM $VMID not found — removing orphan LVM volumes..."
-    ssh $SSH_OPTS root@"$PVE_IP" "
-      for DISK in \$(lvs Storage 2>/dev/null | grep 'vm-${VMID}-disk' | awk '{print \$1}'); do
-        lvremove -f Storage/\$DISK 2>/dev/null || true
-      done
-      rm -f /var/run/qemu-server/${VMID}.qmp /var/run/qemu-server/${VMID}.serial0 2>/dev/null || true
-    " 2>/dev/null || true
+    log "  VM $VMID not found on primary — orphan cleanup runs on all nodes below"
+    ssh $SSH_OPTS root@"$PVE_IP" \
+      "rm -f /var/run/qemu-server/$VMID.qmp /var/run/qemu-server/$VMID.serial0 2>/dev/null; true" 2>/dev/null || true
   fi
+done
+# ── Comprehensive orphan LVM cleanup on ALL PVE nodes ────────────────────────
+# Catches stale disks left on remote nodes that qm destroy --purge misses.
+log "  Running orphan LVM cleanup on all PVE nodes: $ALL_PVE_IPS"
+for _pve_ip in $ALL_PVE_IPS; do
+  for VMID in $PLATFORM_VMIDS; do
+    ssh $SSH_OPTS root@"$_pve_ip" "
+      # Stop and destroy the VM if it exists on this remote node (e.g. microserver)
+      if qm status \$VMID 2>/dev/null | grep -q "running\\|stopped\\|status"; then
+        qm stop \$VMID --skiplock --timeout 15 2>/dev/null || true
+        sleep 2
+        qm destroy \$VMID --purge --skiplock 2>/dev/null && echo "  VM \$VMID destroyed on $_pve_ip" || true
+      fi
+      for VG_LV in \$(lvs --noheadings -o vg_name,lv_name 2>/dev/null \
+          | awk '{print \$1"/"\$2}' | grep '/vm-\${VMID}-disk'); do
+        lvremove -f "\$VG_LV" 2>/dev/null \
+          && echo "  Removed orphan \$VG_LV on $_pve_ip" || true
+      done
+      rm -f /var/run/qemu-server/\${VMID}.qmp /var/run/qemu-server/\${VMID}.serial0 2>/dev/null || true
+    " 2>/dev/null || true
+  done
 done
 ok "Step 4: Platform VMs destroyed"
 

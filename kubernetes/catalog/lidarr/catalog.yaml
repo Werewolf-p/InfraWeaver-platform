@@ -10,5 +10,5 @@ categories:
   - "MediaServer-Music"
   - "MediaApp-Music"
 ingressroute:
-  host: lidarr.int.infraweaver.local
+  host: lidarr.int.rlservers.com
 installed_at: 2026-05-17T23:13:34.513Z

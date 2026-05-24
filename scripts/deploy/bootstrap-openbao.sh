@@ -386,6 +386,57 @@ else
   echo "==> GITHUB_PAT not set — console pipeline/pelican features will be unavailable (optional; set GITHUB_PAT secret in repo settings)"
 fi
 
+# ── Authentik API token for InfraWeaver console ─────────────────────────────
+echo "==> Seeding Authentik API token for InfraWeaver console..."
+EXISTING_AUTH_TOKEN=$(curl -s -H "X-Vault-Token: $ROOT_TOKEN" \
+  "${LOCAL_OPENBAO}/v1/secret/data/platform/infraweaver-console" | \
+  python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get(data,{}).get(data,{}).get(authentik-token,))" \
+  2>/dev/null || echo "")
+
+if [ -z "$EXISTING_AUTH_TOKEN" ]; then
+  AUTHENTIK_URL="${LOCAL_AUTHENTIK:-http://authentik-server.authentik.svc.cluster.local}"
+  BOOTSTRAP_TOKEN=$(curl -s -H "X-Vault-Token: $ROOT_TOKEN" \
+    "${LOCAL_OPENBAO}/v1/secret/data/platform/authentik" | \
+    python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('data',{}).get('bootstrap-token',''))" \
+    2>/dev/null || echo "")
+
+  if [ -n "$BOOTSTRAP_TOKEN" ]; then
+    AUTH_TOKEN_KEY=$(curl -s -H "Authorization: Bearer $BOOTSTRAP_TOKEN" \
+      "${AUTHENTIK_URL}/api/v3/core/tokens/infraweaver-console-api/view_key/" | \
+      python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('key',''))" 2>/dev/null || echo "")
+    if [ -z "$AUTH_TOKEN_KEY" ]; then
+      ADMIN_PK=$(curl -s -H "Authorization: Bearer $BOOTSTRAP_TOKEN" \
+        "${AUTHENTIK_URL}/api/v3/core/users/?username=akadmin" | \
+        python3 -c "import json,sys; d=json.load(sys.stdin); print(d['results'][0]['pk']) if d['results'] else print(4)" \
+        2>/dev/null || echo "4")
+      curl -s -X POST "${AUTHENTIK_URL}/api/v3/core/tokens/" \
+        -H "Authorization: Bearer $BOOTSTRAP_TOKEN" \
+        -H "Content-Type: application/json" \
+        -d "{\"identifier\":\"infraweaver-console-api\",\"intent\":\"api\",\"user\":${ADMIN_PK},\"description\":\"InfraWeaver Console API Token\",\"expiring\":false}" \
+        > /dev/null 2>&1
+      AUTH_TOKEN_KEY=$(curl -s -H "Authorization: Bearer $BOOTSTRAP_TOKEN" \
+        "${AUTHENTIK_URL}/api/v3/core/tokens/infraweaver-console-api/view_key/" | \
+        python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('key',''))" 2>/dev/null || echo "")
+    fi
+    if [ -n "$AUTH_TOKEN_KEY" ]; then
+      EXISTING_DATA=$(curl -s -H "X-Vault-Token: $ROOT_TOKEN" \
+        "${LOCAL_OPENBAO}/v1/secret/data/platform/infraweaver-console" | \
+        python3 -c "import json,sys; d=json.load(sys.stdin); print(json.dumps(d.get('data',{}).get('data',{})))" \
+        2>/dev/null || echo "{}")
+      PATCHED=$(python3 -c "import json,sys; d=json.loads(sys.argv[1]); d['authentik-token']=sys.argv[2]; print(json.dumps({'data':d}))" "$EXISTING_DATA" "$AUTH_TOKEN_KEY")
+      curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/platform/infraweaver-console" \
+        -H "X-Vault-Token: $ROOT_TOKEN" -H "Content-Type: application/json" -d "$PATCHED" > /dev/null
+      echo "==> Authentik API token stored in OpenBao (platform/infraweaver-console[authentik-token])"
+    else
+      echo "==> Could not get Authentik API token — console Authentik features may be limited"
+    fi
+  else
+    echo "==> Authentik bootstrap-token not found — skipping authentik-token seeding"
+  fi
+else
+  echo "==> Authentik API token already exists in OpenBao — preserving"
+fi
+
 # ── DNS Provider credentials ────────────────────────────────────────────────
 DNS_PROV="${DNS_PROVIDER:-cloudflare}"
 echo "==> Seeding DNS provider credentials (provider: ${DNS_PROV})"

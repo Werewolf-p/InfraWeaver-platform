@@ -50,7 +50,7 @@ data:
         identifiers:
           domain: authentik-default
         attrs:
-          branding_title: "infraweaver.local"
+          branding_title: "rlservers.com"
           branding_logo: "/static/dist/assets/icons/banner.jpg"
           branding_favicon: "/static/dist/assets/icons/favicon.png"
           ui_user_settings_enabled: true

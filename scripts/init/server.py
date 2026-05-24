@@ -10,6 +10,7 @@ Environment:
     IW_REPO_DIR   — path to the InfraWeaver repo (default: cwd or /opt/infraweaver)
     IW_PORT       — port to listen on (default: 8080)
 """
+from datetime import datetime
 import http.server
 import json
 import mimetypes
@@ -583,7 +584,8 @@ def _setup_proxmox_user(host: str, username: str, password: str) -> Dict:
             "VM.Migrate", "VM.Snapshot", "VM.Snapshot.Rollback",
             "VM.GuestAgent.Audit",
             "Datastore.AllocateSpace", "Datastore.AllocateTemplate", "Datastore.Audit",
-            "Pool.Allocate", "SDN.Use", "Sys.Audit", "Sys.Modify",
+            "Datastore.Allocate", "Pool.Allocate", "Pool.Audit", "SDN.Use", "Sys.Audit", "Sys.Modify",
+            "Realm.Allocate",
         ])
         try:
             pve_req("POST", "/access/roles",
@@ -920,6 +922,48 @@ def _generate_ssh_key() -> Dict:
         return {"ok": False, "error": str(e)}
 
 
+
+def _check_netbird_token(token: str, base_domain: str) -> Dict:
+    import urllib.request
+    import urllib.error
+
+    token = token.strip()
+    base_domain = (base_domain or "").strip().rstrip(".")
+    if not token:
+        return {"ok": False, "error": "No NetBird API token provided"}
+    if not base_domain:
+        return {"ok": False, "error": "BASE_DOMAIN not set — cannot resolve NetBird management URL"}
+
+    management_url = f"https://api-netbird.{base_domain}/api/accounts"
+    req = urllib.request.Request(management_url, headers={"Authorization": f"Token {token}"})
+    try:
+        with urllib.request.urlopen(req, context=_proxmox_context(), timeout=10) as resp:
+            body = json.loads(resp.read())
+        accounts = body if isinstance(body, list) else []
+        account_id = accounts[0].get("id", "unknown") if accounts else "unknown"
+        return {
+            "ok": True,
+            "status": "active",
+            "account_id": account_id,
+            "management_url": management_url,
+        }
+    except urllib.error.HTTPError as exc:
+        status = exc.code
+        try:
+            msg = json.loads(exc.read()).get("message", exc.reason)
+        except Exception:
+            msg = exc.reason
+        if status == 401:
+            return {"ok": False, "error": f"Token rejected (HTTP 401) — check NETBIRD_API_TOKEN at {management_url}"}
+        if status == 403:
+            return {"ok": False, "error": f"Token lacks permissions (HTTP 403) at {management_url}: {msg}"}
+        if status == 404:
+            return {"ok": False, "error": f"NetBird management API not found at {management_url} (HTTP 404) — check BASE_DOMAIN and that NetBird is deployed"}
+        return {"ok": False, "error": f"NetBird API returned HTTP {status}: {msg}"}
+    except Exception as exc:
+        return {"ok": False, "error": f"Cannot reach NetBird management API at {management_url}: {exc}"}
+
+
 def _normalize_dns_provider(provider: str) -> str:
     provider = (provider or "cloudflare").strip().lower()
     return provider if provider in DNS_PROVIDER_FIELDS else "cloudflare"
@@ -937,18 +981,88 @@ def _check_dns_provider(provider: str, credentials: Dict[str, str]) -> Dict:
     if provider == "cloudflare":
         token = credentials.get("CLOUDFLARE_API_TOKEN", "").strip()
         try:
+            cf_headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+
+            # Step 1 — verify token is active
             req = urllib.request.Request(
                 "https://api.cloudflare.com/client/v4/user/tokens/verify",
-                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+                headers=cf_headers,
             )
             with urllib.request.urlopen(req, timeout=10) as r:
                 body = json.loads(r.read())
-                if body.get("success"):
-                    status = body.get("result", {}).get("status", "active")
-                    return {"ok": True, "status": status, "provider": provider}
+            if not body.get("success"):
                 errors = body.get("errors", [])
                 msg = errors[0].get("message", "Invalid token") if errors else "Invalid token"
                 return {"ok": False, "error": msg, "provider": provider}
+            token_status = body.get("result", {}).get("status", "active")
+
+            # Step 2 — list accessible zones (confirms Zone:Read)
+            req = urllib.request.Request(
+                "https://api.cloudflare.com/client/v4/zones?per_page=50",
+                headers=cf_headers,
+            )
+            with urllib.request.urlopen(req, timeout=10) as r:
+                zones_body = json.loads(r.read())
+            zones = zones_body.get("result", []) if zones_body.get("success") else []
+            if not zones:
+                return {"ok": False, "error": "Token is active but has no accessible zones — add Zone:Read permission", "provider": provider}
+            zone_names = [z["name"] for z in zones[:5]]
+            first_zone_id = zones[0]["id"]
+            first_zone_name = zones[0]["name"]
+
+            # Step 3 — test DNS:Edit by creating + immediately deleting a TXT record
+            import json as _json
+            test_record = _json.dumps({
+                "type": "TXT",
+                "name": f"_infraweaver-setup-test.{first_zone_name}",
+                "content": "cert-manager-dns01-setup-check",
+                "ttl": 60,
+            }).encode()
+            req = urllib.request.Request(
+                f"https://api.cloudflare.com/client/v4/zones/{first_zone_id}/dns_records",
+                data=test_record,
+                headers=cf_headers,
+                method="POST",
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=10) as r:
+                    create_body = json.loads(r.read())
+            except Exception as dns_err:
+                create_body = {"success": False, "errors": [{"message": str(dns_err)}]}
+
+            if not create_body.get("success"):
+                dns_errors = create_body.get("errors", [])
+                dns_msg = dns_errors[0].get("message", "unknown error") if dns_errors else "unknown error"
+                zones_label = ", ".join(zone_names) + ("…" if len(zones) > 5 else "")
+                return {
+                    "ok": False,
+                    "error": (
+                        f"Token is active (status: {token_status}) and can read zones ({zones_label}), "
+                        f"but lacks DNS:Edit permission — update the Cloudflare token to add "
+                        f"Zone > DNS > Edit for all required zones. API error: {dns_msg}"
+                    ),
+                    "provider": provider,
+                }
+
+            # Delete the test record immediately
+            record_id = create_body.get("result", {}).get("id", "")
+            if record_id:
+                del_req = urllib.request.Request(
+                    f"https://api.cloudflare.com/client/v4/zones/{first_zone_id}/dns_records/{record_id}",
+                    headers=cf_headers,
+                    method="DELETE",
+                )
+                try:
+                    urllib.request.urlopen(del_req, timeout=10).close()
+                except Exception:
+                    pass  # cleanup failure is non-fatal
+
+            zones_label = ", ".join(zone_names) + ("…" if len(zones) > 5 else "")
+            return {
+                "ok": True,
+                "status": f"active · DNS:Edit verified · {len(zones)} zone(s): {zones_label}",
+                "provider": provider,
+            }
         except Exception as e:
             return {"ok": False, "error": str(e), "provider": provider}
 
@@ -1155,19 +1269,70 @@ def _detect_init_vm_id() -> Optional[int]:
     return None
 
 
+def _platform_version() -> Dict:
+    """Return current and remote commit SHA with pending changelog."""
+    try:
+        current_sha = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=str(REPO_DIR), capture_output=True, text=True, timeout=5,
+        ).stdout.strip()
+        branch = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=str(REPO_DIR), capture_output=True, text=True, timeout=5,
+        ).stdout.strip()
+        subprocess.run(
+            ["git", "fetch", "--quiet", "origin", "main"],
+            cwd=str(REPO_DIR), capture_output=True, timeout=15,
+        )
+        remote_sha = subprocess.run(
+            ["git", "rev-parse", "origin/main"],
+            cwd=str(REPO_DIR), capture_output=True, text=True, timeout=5,
+        ).stdout.strip()
+        ahead_out = subprocess.run(
+            ["git", "log", "--oneline", "--no-merges", f"{current_sha}..origin/main"],
+            cwd=str(REPO_DIR), capture_output=True, text=True, timeout=5,
+        ).stdout.strip()
+        changelog = [ln for ln in ahead_out.splitlines() if ln.strip()] if ahead_out else []
+        return {
+            "ok": True,
+            "currentSha": current_sha,
+            "remoteSha": remote_sha,
+            "branch": branch,
+            "updateAvailable": current_sha != remote_sha,
+            "pendingCommits": len(changelog),
+            "changelog": changelog[:20],
+        }
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
 def _self_update() -> Dict:
-    """git pull the repo and return output. Caller schedules process restart."""
+    """Run scripts/update.sh and return structured output. Caller schedules restart."""
+    import json as _json
+    update_script = REPO_DIR / "scripts" / "update.sh"
+    if not update_script.exists():
+        try:
+            result = subprocess.run(
+                ["git", "pull", "--ff-only", "origin", "main"],
+                cwd=str(REPO_DIR), capture_output=True, text=True, timeout=120,
+            )
+            if result.returncode != 0:
+                return {"ok": False, "error": result.stderr.strip() or result.stdout.strip() or "git pull failed"}
+            return {"ok": True, "updated": True, "output": result.stdout.strip()}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
     try:
         result = subprocess.run(
-            ["git", "pull", "--ff-only", "origin", "main"],
-            cwd=str(REPO_DIR),
-            capture_output=True,
-            text=True,
-            timeout=60,
+            ["/usr/bin/env", "bash", str(update_script), "--json"],
+            cwd=str(REPO_DIR), capture_output=True, text=True, timeout=300,
         )
-        if result.returncode != 0:
-            return {"ok": False, "error": (result.stderr.strip() or result.stdout.strip()) or "git pull failed"}
-        return {"ok": True, "output": result.stdout.strip()}
+        raw = result.stdout.strip()
+        try:
+            return _json.loads(raw)
+        except Exception:
+            if result.returncode != 0:
+                return {"ok": False, "error": result.stderr.strip() or raw or "update script failed"}
+            return {"ok": True, "updated": True, "output": raw}
     except Exception as exc:
         return {"ok": False, "error": str(exc)}
 
@@ -1468,6 +1633,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._send_json({"ok": True, "repo": str(REPO_DIR)})
             return
 
+        if path == "/api/platform-version":
+            self._send_json(_platform_version())
+            return
+
         if path == "/api/detect-subnet":
             subnets = _detect_local_subnets()
             self._send_json({"ok": True, "subnets": subnets})
@@ -1513,6 +1682,35 @@ class Handler(http.server.BaseHTTPRequestHandler):
                             pass
                     catalog.append(meta)
             self._send_json({"ok": True, "items": catalog})
+            return
+
+        if path == "/api/list-backups":
+            tls_backups = []
+            backup_dir = Path("/opt/platform-tls-backup")
+            if backup_dir.exists():
+                for backup_file in sorted(backup_dir.glob("*.yaml")):
+                    try:
+                        stat = backup_file.stat()
+                    except OSError:
+                        continue
+                    tls_backups.append({
+                        "name": backup_file.stem,
+                        "file": str(backup_file),
+                        "size_bytes": stat.st_size,
+                        "modified_at": datetime.fromtimestamp(stat.st_mtime).isoformat(timespec="seconds"),
+                    })
+            self._send_json({
+                "ok": True,
+                "tls_backups": tls_backups,
+                "pvc_volumes": [
+                    {"name": "onedev-data", "label": "OneDev", "icon": "🧑‍💻"},
+                    {"name": "vaultwarden-data", "label": "Vaultwarden", "icon": "🔑"},
+                    {"name": "n8n-data", "label": "n8n", "icon": "🔄"},
+                    {"name": "netbird-management-data", "label": "NetBird", "icon": "🌐"},
+                    {"name": "minio-velero-data", "label": "MinIO", "icon": "🪣"},
+                    {"name": "data-wiki-postgresql-0", "label": "Wiki.js", "icon": "📚"},
+                ],
+            })
             return
 
         if path == "/api/get-kubeconfig":
@@ -1625,11 +1823,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._send_json(_validate_import_env(payload))
             return
 
+        if path == "/api/platform-version":
+            self._send_json(_platform_version())
+            return
+
         if path == "/api/self-update":
             result = _self_update()
             self._send_json(result)
             if result.get("ok"):
-                # Replace the running process with a fresh copy of itself after the response flushes
+                # Restart process so updated server.py and init site are loaded
                 threading.Timer(0.8, lambda: os.execv(sys.executable, [sys.executable] + sys.argv)).start()
             return
 
@@ -1694,6 +1896,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return
             self._send_json(_check_dns_provider(provider, credentials))
             return
+
+        if path == "/api/check-netbird-token":
+            token = str(payload.get("token", "")).strip()
+            base_domain = str(payload.get("base_domain", "")).strip()
+            self._send_json(_check_netbird_token(token, base_domain))
+            return
+
 
         if path in ("/api/deploy", "/api/redeploy"):
             mode = payload.get("mode", "redeploy" if path == "/api/redeploy" else "deploy")

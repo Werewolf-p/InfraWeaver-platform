@@ -11,7 +11,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`overseerr.int.infraweaver.local`)
+    - match: Host(`overseerr.int.rlservers.com`)
       kind: Rule
       middlewares:
         - name: netbird-vpn-only

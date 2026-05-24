@@ -23,7 +23,7 @@ spec:
       project: platform
       sources:
         - repoURL: http://onedev.onedev.svc.cluster.local/InfraWeaver-platform
-          targetRevision: main
+          targetRevision: HEAD
           ref: values
         - repoURL: "{{ .repoURL }}"
           targetRevision: "{{ .targetRevision }}"

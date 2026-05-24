@@ -106,7 +106,7 @@ spec:
               name: transport
           env:
             - name: OPENSEARCH_JAVA_OPTS
-              value: "-Xms512m -Xmx512m"
+              value: "-Xms512m -Xmx512m -XX:MaxDirectMemorySize=536870912"
             - name: INDEXER_PASSWORD
               valueFrom:
                 secretKeyRef:
@@ -131,7 +131,7 @@ spec:
               memory: 512Mi
               cpu: 250m
             limits:
-              memory: 1Gi
+              memory: 1500Mi
               cpu: 500m
           readinessProbe:
             tcpSocket:

@@ -1,5 +1,5 @@
 global:
-  domain: argocd.int.infraweaver.local
+  domain: argocd.int.rlservers.com
   priorityClassName: platform-critical
 
 controller:
@@ -61,7 +61,7 @@ server:
   ingress:
     # Ingress disabled — routing handled by Traefik IngressRoute in external-routes
     # (kubernetes/platform/external-routes/manifests/10-routes-vpn-only.yaml → argocd-int)
-    # which uses argocd.int.infraweaver.local with netbird-vpn-only middleware.
+    # which uses argocd.int.rlservers.com with netbird-vpn-only middleware.
     enabled: false
   resources:
     requests:
@@ -201,7 +201,7 @@ configs:
     # OIDC via Authentik — client secret read from argocd-secret by ArgoCD
     oidc.config: |
       name: Authentik
-      issuer: https://auth.infraweaver.local/application/o/argocd/
+      issuer: https://auth.rlservers.com/application/o/argocd/
       clientID: argocd
       clientSecret: $oidc.authentik.clientSecret
       requestedScopes:

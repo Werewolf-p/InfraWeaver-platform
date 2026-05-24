@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
-import { execSync } from 'node:child_process';
+import { readFileSync, existsSync } from 'node:fs';
+import https from 'node:https';
 import { computeP95, getSampleCount } from '../lib/response-time.js';
 import type { AppBindings } from '../types/index.js';
 
@@ -19,6 +20,44 @@ async function checkUrl(url: string, timeoutMs = 3000): Promise<{ ok: boolean; d
   }
 }
 
+const SA_TOKEN_PATH = '/var/run/secrets/kubernetes.io/serviceaccount/token';
+const SA_CA_PATH = '/var/run/secrets/kubernetes.io/serviceaccount/ca.crt';
+
+function checkK8sApiSync(timeoutMs = 3000): Promise<{ ok: boolean }> {
+  return new Promise((resolve) => {
+    try {
+      if (!existsSync(SA_TOKEN_PATH) || !existsSync(SA_CA_PATH)) {
+        return resolve({ ok: false });
+      }
+      const token = readFileSync(SA_TOKEN_PATH, 'utf8').trim();
+      const ca = readFileSync(SA_CA_PATH, 'utf8');
+      const host = process.env.KUBERNETES_SERVICE_HOST ?? 'kubernetes.default.svc';
+      const port = parseInt(process.env.KUBERNETES_SERVICE_PORT ?? '443', 10);
+
+      const req = https.request(
+        {
+          hostname: host,
+          port,
+          path: '/healthz',
+          method: 'GET',
+          ca,
+          headers: { Authorization: `Bearer ${token}` },
+          timeout: timeoutMs,
+        },
+        (res) => {
+          res.resume(); // drain
+          resolve({ ok: res.statusCode === 200 });
+        }
+      );
+      req.on('error', () => resolve({ ok: false }));
+      req.on('timeout', () => { req.destroy(); resolve({ ok: false }); });
+      req.end();
+    } catch {
+      resolve({ ok: false });
+    }
+  });
+}
+
 export const healthRoute = new Hono<AppBindings>();
 
 healthRoute.get('/', async (c) => {
@@ -26,17 +65,10 @@ healthRoute.get('/', async (c) => {
 
   const argocdUrl = process.env.ARGOCD_SERVER ?? 'http://argocd-server.argocd.svc.cluster.local:80';
 
-  const [argocdResult] = await Promise.allSettled([
+  const [argocdResult, k8sResult] = await Promise.allSettled([
     checkUrl(`${argocdUrl}/healthz`),
+    checkK8sApiSync(),
   ]);
-
-  let k8sApiOk = false;
-  try {
-    execSync('kubectl get --raw /healthz', { timeout: 3000, stdio: 'pipe' });
-    k8sApiOk = true;
-  } catch {
-    k8sApiOk = false;
-  }
 
   const p95 = computeP95();
 
@@ -45,7 +77,7 @@ healthRoute.get('/', async (c) => {
     version: process.env.npm_package_version ?? '1.0.0',
     timestamp: new Date().toISOString(),
     checks: {
-      k8sApi: { ok: k8sApiOk },
+      k8sApi: k8sResult.status === 'fulfilled' ? k8sResult.value : { ok: false },
       argocd: argocdResult.status === 'fulfilled' ? argocdResult.value : { ok: false, durationMs: -1 },
     },
     performance: {

@@ -1,6 +1,6 @@
 ---
-# IngressRoutes for public K8s cluster apps on *.infraweaver.local
-# Internal-only apps (argocd, grafana, longhorn, openbao) use *.int.infraweaver.local
+# IngressRoutes for public K8s cluster apps on *.rlservers.com
+# Internal-only apps (argocd, grafana, longhorn, openbao) use *.int.rlservers.com
 # via 10-routes-vpn-only.yaml. Only public apps remain here.
 
 # ── Test website (public) ─────────────────────────────────────────────────────
@@ -15,7 +15,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`test.infraweaver.local`)
+    - match: Host(`test.rlservers.com`)
       kind: Rule
       middlewares:
         - name: secure-headers

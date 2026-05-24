@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 import type {
   CheckDnsProviderResponse,
+  CheckNetbirdTokenResponse,
   DiscoverProxmoxResponse,
   StatusResponse,
   ValidateProxmoxResponse,
@@ -87,6 +88,9 @@ export interface WizardData {
   ENABLE_MONITORING: boolean
   ENABLE_EXTERNAL_DNS: boolean
   BACKUP_PROVIDER: BackupProvider
+  RESTORE_ENABLED: boolean
+  RESTORE_TLS: boolean
+  RESTORE_VOLUMES: string
 }
 
 const vipPingFields = [
@@ -195,6 +199,9 @@ export const initialWizardData: WizardData = {
   ENABLE_MONITORING: true,
   ENABLE_EXTERNAL_DNS: false,
   BACKUP_PROVIDER: 'longhorn',
+  RESTORE_ENABLED: false,
+  RESTORE_TLS: false,
+  RESTORE_VOLUMES: '',
 }
 
 export const initialNodes: NodeConfig[] = [
@@ -228,6 +235,7 @@ const emptyLoadingState = {
   suggestVips: false,
   generateSshKey: false,
   checkDnsProvider: false,
+  checkNetbird: false,
   detectSubnets: false,
   saveEnv: false,
   deploy: false,
@@ -267,6 +275,7 @@ interface WizardStore {
   proxmoxDiscovery: DiscoverProxmoxResponse | null
   proxmoxValidation: ValidateProxmoxResponse | null
   dnsProviderCheck: CheckDnsProviderResponse | null
+  netbirdTokenCheck: CheckNetbirdTokenResponse | null
   detectedSubnets: Array<{ cidr: string; ip: string }>
   generatedPublicKey: string
   deployLogs: DeployLogLine[]
@@ -295,6 +304,7 @@ interface WizardStore {
   setProxmoxDiscovery: (value: DiscoverProxmoxResponse | null) => void
   setProxmoxValidation: (value: ValidateProxmoxResponse | null) => void
   setDnsProviderCheck: (value: CheckDnsProviderResponse | null) => void
+  setNetbirdTokenCheck: (value: CheckNetbirdTokenResponse | null) => void
   setGeneratedPublicKey: (value: string) => void
   addLocalIpRange: () => void
   updateLocalIpRange: (index: number, value: string) => void
@@ -452,6 +462,9 @@ const buildPresetFields = (preset: PresetType): Partial<WizardData> => {
     ENABLE_NETBIRD: true,
     ENABLE_EXTERNAL_DNS: false,
     BACKUP_PROVIDER: 'longhorn',
+  RESTORE_ENABLED: false,
+  RESTORE_TLS: false,
+  RESTORE_VOLUMES: '',
   }
 }
 
@@ -499,6 +512,7 @@ export const useWizardStore = create<WizardStore>()(
       proxmoxDiscovery: null,
       proxmoxValidation: null,
       dnsProviderCheck: null,
+      netbirdTokenCheck: null,
       detectedSubnets: [],
       generatedPublicKey: '',
       deployLogs: [],
@@ -587,6 +601,7 @@ export const useWizardStore = create<WizardStore>()(
       setProxmoxDiscovery: (value) => set({ proxmoxDiscovery: value }),
       setProxmoxValidation: (value) => set({ proxmoxValidation: value }),
       setDnsProviderCheck: (value) => set({ dnsProviderCheck: value }),
+      setNetbirdTokenCheck: (value) => set({ netbirdTokenCheck: value }),
       setGeneratedPublicKey: (value) => set({ generatedPublicKey: value }),
       addLocalIpRange: () => set((state) => ({ localIpRanges: [...state.localIpRanges, ''] })),
       updateLocalIpRange: (index, value) =>
@@ -626,6 +641,8 @@ export const useWizardStore = create<WizardStore>()(
             if (key === 'ENABLE_NETBIRD') nextData.ENABLE_NETBIRD = parseBoolean(value)
             else if (key === 'ENABLE_MONITORING') nextData.ENABLE_MONITORING = parseBoolean(value)
             else if (key === 'ENABLE_EXTERNAL_DNS') nextData.ENABLE_EXTERNAL_DNS = parseBoolean(value)
+            else if (key === 'RESTORE_ENABLED') nextData.RESTORE_ENABLED = parseBoolean(value)
+            else if (key === 'RESTORE_TLS') nextData.RESTORE_TLS = parseBoolean(value)
             else if (key === 'BACKUP_PROVIDER') nextData.BACKUP_PROVIDER = value as BackupProvider
             else if (key === 'DNS_PROVIDER') nextData.DNS_PROVIDER = value as DnsProvider
             else if (key === 'LOCAL_IP_RANGES') {

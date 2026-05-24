@@ -1,5 +1,5 @@
 import {
-  LayoutDashboard, Box, Settings, Users, HardDrive,
+  Archive, LayoutDashboard, Box, Settings, Users, HardDrive,
   Network, Activity, Terminal, History, Cog,
   Package, FileText, ShieldCheck, Server,
   Sparkles, Home, Trash2, GitBranch, ArrowUpCircle,
@@ -78,6 +78,7 @@ export const NAV_GROUPS: NavGroup[] = mergeRegisteredPages([
       { href: "/routes", icon: Globe, label: "Route Manager", description: "Add, edit, and delete external routes with access tier control", pinnable: true },
       { href: "/dns", icon: Globe, label: "DNS", shortcut: "G Z", description: "Manage internal and public Cloudflare records", pinnable: true },
       { href: "/certificates", icon: ShieldCheck, label: "Certificates", description: "TLS certificate status and expiry" },
+      { href: "/backups", icon: Archive, label: "Backups", description: "Browse Longhorn volume backups and trigger restores", pinnable: true },
       { href: "/network-policies", icon: Network, label: "Net Policies", description: "Kubernetes NetworkPolicy rules" },
       { href: "/secret-expiry", icon: ShieldCheck, label: "Secret Expiry", description: "Track certificate and secret expiry" },
       { href: "/secrets", icon: ShieldCheck, label: "Secrets", description: "Read-only secret browser with ExternalSecret ownership" },
@@ -180,6 +181,7 @@ export const NAV_GROUPS: NavGroup[] = mergeRegisteredPages([
     defaultOpen: false,
     items: [
       { href: "/admin/updates", icon: ArrowUpCircle, label: "Update Manager", description: "Review GitOps versions and commit application updates", pinnable: true },
+      { href: "/settings/platform", icon: ArrowUpCircle, label: "Platform Updates", description: "Pull latest InfraWeaver platform code and scripts from Onedev", pinnable: true },
     ],
   },
   {

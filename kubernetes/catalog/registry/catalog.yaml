@@ -1,8 +1,8 @@
 ---
 # catalog.yaml — Container registry (Docker Distribution v2)
-# Access: registry.int.infraweaver.local (VPN-only, internal)
-# Push:   docker push registry.int.infraweaver.local/<image>:<tag>
-# Pull:   docker pull registry.int.infraweaver.local/<image>:<tag>
+# Access: registry.int.rlservers.com (VPN-only, internal)
+# Push:   docker push registry.int.rlservers.com/<image>:<tag>
+# Pull:   docker pull registry.int.rlservers.com/<image>:<tag>
 #
 # Auth: htpasswd credentials stored in OpenBao → ExternalSecret → k8s secret
 # Storage: Longhorn PVC (configurable size, defaults to 50Gi)
@@ -12,7 +12,7 @@ description: "Private Docker/OCI container registry (Docker Distribution v2)"
 namespace: registry
 
 ingressroute:
-  host: registry.int.infraweaver.local
+  host: registry.int.rlservers.com
   entrypoint: websecure
 
 # ── Secrets ──────────────────────────────────────────────────────────────────

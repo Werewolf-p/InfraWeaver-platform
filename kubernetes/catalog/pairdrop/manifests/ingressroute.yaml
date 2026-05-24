@@ -11,7 +11,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`pairdrop.int.infraweaver.local`)
+    - match: Host(`pairdrop.int.rlservers.com`)
       kind: Rule
       middlewares:
         - name: netbird-vpn-only

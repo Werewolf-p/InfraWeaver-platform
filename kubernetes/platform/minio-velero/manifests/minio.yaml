@@ -218,7 +218,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`minio-velero.int.infraweaver.local`)
+    - match: Host(`minio-velero.int.rlservers.com`)
       kind: Rule
       middlewares:
         - name: secure-headers

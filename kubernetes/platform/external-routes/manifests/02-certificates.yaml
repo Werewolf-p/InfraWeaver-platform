@@ -1,7 +1,6 @@
 ---
-# Certificate for infraweaver.local — signed by local self-signed CA
-# (.local TLD is not valid for Let's Encrypt ACME; use infraweaver-ca instead)
-# For public domains (yonavaarwater.nl etc.) use letsencrypt-dns below.
+# Certificate for rlservers.com — Let's Encrypt wildcard via Cloudflare DNS-01
+# Covers *.rlservers.com + base domain (publicly trusted by all clients)
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -10,38 +9,13 @@ metadata:
 spec:
   secretName: platform-wildcard-tls
   issuerRef:
-    name: infraweaver-ca
+    name: letsencrypt-dns
     kind: ClusterIssuer
   dnsNames:
-    # Base domain
-    - "infraweaver.local"
-    - "www.infraweaver.local"
-    # Platform public endpoints
-    - "auth.infraweaver.local"
-    - "netbird.infraweaver.local"
-    - "api-netbird.infraweaver.local"
-    - "status.infraweaver.local"
-    - "test.infraweaver.local"
-    # TrueNAS (public-facing via Cloudflare)
-    - "truenas.infraweaver.local"
-    # External/baremetal services
-    - "keycloak.infraweaver.local"
-    - "awx.infraweaver.local"
-    - "bitwarden.infraweaver.local"
-    - "vaultwarden.infraweaver.local"
-    - "gitlab.infraweaver.local"
-    - "registry.gitlab.infraweaver.local"
-    - "cloud.infraweaver.local"
-    - "teleport.infraweaver.local"
-    - "registry.infraweaver.local"
-    # Websites
-    - "degoudentijd.infraweaver.local"
-    - "feestinhetdonker.infraweaver.local"
-    - "marcel.infraweaver.local"
-    # Catalog apps (public)
-    - "onedev.infraweaver.local"
+    - "rlservers.com"
+    - "*.rlservers.com"
 ---
-# Certificate for *.int.infraweaver.local — signed by local CA (not publicly reachable)
+# Certificate for *.int.rlservers.com — Let's Encrypt wildcard via Cloudflare DNS-01
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -50,11 +24,11 @@ metadata:
 spec:
   secretName: platform-int-wildcard-tls
   issuerRef:
-    name: infraweaver-ca
+    name: letsencrypt-dns
     kind: ClusterIssuer
   dnsNames:
-    - "int.infraweaver.local"
-    - "*.int.infraweaver.local"
+    - "int.rlservers.com"
+    - "*.int.rlservers.com"
 ---
 # Certificate for yonavaarwater.nl — Cloudflare-proxied, needs DNS-01
 apiVersion: cert-manager.io/v1

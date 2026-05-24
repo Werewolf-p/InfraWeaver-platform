@@ -9,7 +9,7 @@
 # URLs (port 443) causes the client to send redirect_uri to the web dashboard
 # instead of localhost, breaking the PKCE flow (infinite /auth redirect loop).
 # Authentik provider redirect_uris (blueprint-netbird.yaml) separately allows
-# the web dashboard URLs (https://netbird.infraweaver.local/auth, /silent-auth, /#callback).
+# the web dashboard URLs (https://netbird.rlservers.com/auth, /silent-auth, /#callback).
 # See netbird-architecture.md memory for full explanation.
 apiVersion: v1
 kind: ConfigMap
@@ -22,16 +22,16 @@ data:
       "Stuns": [{"Proto":"udp","URI":"stun:stun.l.google.com:19302","Username":"","Password":null}],
       "TURNs": [],
       "Relay": {
-        "Addresses": ["rels://api-netbird.infraweaver.local:443/relay"],
+        "Addresses": ["rels://api-netbird.rlservers.com:443/relay"],
         "CredentialsTTL": "12h",
         "Secret": "RELAY_SECRET_PLACEHOLDER"
       },
-      "Signal": {"Proto":"https","URI":"api-netbird.infraweaver.local:443","Username":"","Password":null},
+      "Signal": {"Proto":"https","URI":"api-netbird.rlservers.com:443","Username":"","Password":null},
       "Datadir": "/var/lib/netbird/",
       "HttpConfig": {
         "LetsEncryptDomain":"","CertFile":"","CertKey":"",
-        "AuthAudience":"netbird","AuthIssuer":"","AuthKeysLocation":"","AuthUserIDClaim":"",
-        "IdpSignKeyRefreshEnabled":true,"OIDCConfigEndpoint":"https://auth.infraweaver.local/application/o/netbird/.well-known/openid-configuration"
+        "AuthAudience":"netbird","AuthIssuer":"https://auth.rlservers.com/application/o/netbird/","AuthKeysLocation":"http://authentik-server.authentik.svc.cluster.local/application/o/netbird/jwks/","AuthUserIDClaim":"",
+        "IdpSignKeyRefreshEnabled":true,"OIDCConfigEndpoint":""
       },
       "IdpManagerConfig": {"Manager":"none","ExtraConfig":{},"ClientConfig":null},
       "DeviceAuthorizationFlow": null,
@@ -39,10 +39,10 @@ data:
         "ProviderConfig": {
           "ClientID": "netbird",
           "ClientSecret": "",
-          "Domain": "auth.infraweaver.local",
+          "Domain": "auth.rlservers.com",
           "Audience": "netbird",
-          "TokenEndpoint": "https://auth.infraweaver.local/application/o/token/",
-          "AuthorizationEndpoint": "https://auth.infraweaver.local/application/o/authorize/",
+          "TokenEndpoint": "https://auth.rlservers.com/application/o/token/",
+          "AuthorizationEndpoint": "https://auth.rlservers.com/application/o/authorize/",
           "Scope": "openid profile email offline_access",
           "RedirectURLs": ["http://localhost:53000"],
           "UseIDToken": true,
@@ -68,7 +68,7 @@ spec:
   resources:
     requests:
       storage: 1Gi
-  storageClassName: longhorn-retain   # HA: 3 replicas across nodes via Longhorn
+  storageClassName: local-path   # local-path: stable with 2 nodes (Longhorn unstable)
 ---
 # ── Management StatefulSet ────────────────────────────────────────────────────
 apiVersion: apps/v1
@@ -104,7 +104,7 @@ spec:
             - -c
             - |
               echo "Waiting for Authentik OIDC endpoint..."
-              until curl -sfk --max-time 5 "https://auth.infraweaver.local/application/o/netbird/.well-known/openid-configuration" > /dev/null 2>&1; do
+              until curl -sfk --max-time 5 "http://authentik-server.authentik.svc.cluster.local/application/o/netbird/.well-known/openid-configuration" > /dev/null 2>&1; do
                 echo "OIDC endpoint not ready, retrying in 5s..."
                 sleep 5
               done
@@ -161,8 +161,8 @@ spec:
             - --log-file=console
             - --log-level=info
             - --disable-anonymous-metrics=true
-            - --single-account-mode-domain=infraweaver.local
-            - --dns-domain=netbird.infraweaver.local
+            - --single-account-mode-domain=rlservers.com
+            - --dns-domain=netbird.rlservers.com
             - --config=/var/lib/netbird/management.json
             - --datadir=/var/lib/netbird/
           ports:
@@ -223,7 +223,7 @@ metadata:
   namespace: netbird
 spec:
   type: LoadBalancer
-  loadBalancerIP: "${METALLB_NETBIRD_MGMT_VIP}"
+  loadBalancerIP: "10.10.0.202"
   selector:
     app: netbird-management
   ports:
@@ -270,15 +270,15 @@ spec:
         - name: AUTH_SILENT_REDIRECT_URI
           value: "/silent-auth"
         - name: NETBIRD_MGMT_API_ENDPOINT
-          value: "https://api-netbird.infraweaver.local"
+          value: "https://api-netbird.rlservers.com"
         - name: NETBIRD_MGMT_GRPC_API_ENDPOINT
-          value: "https://api-netbird.infraweaver.local"
+          value: "https://api-netbird.rlservers.com"
         - name: AUTH_AUDIENCE
           value: "netbird"
         - name: USE_AUTH0
           value: "false"
         - name: AUTH_AUTHORITY
-          value: "https://auth.infraweaver.local/application/o/netbird/"
+          value: "https://auth.rlservers.com/application/o/netbird/"
         - name: AUTH_CLIENT_ID
           value: "netbird"
         resources:
@@ -344,5 +344,5 @@ spec:
                 name: netbird-dashboard
                 port:
                   number: 80
-    # netbird.infraweaver.local is handled exclusively by IngressRoutes in external-routes/09-routes-netbird.yaml
+    # netbird.rlservers.com is handled exclusively by IngressRoutes in external-routes/09-routes-netbird.yaml
     # which apply the stricter netbird-vpn-only middleware (no local LAN access).

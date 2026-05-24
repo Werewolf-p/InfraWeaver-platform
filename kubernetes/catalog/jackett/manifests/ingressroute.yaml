@@ -11,7 +11,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`jackett.int.infraweaver.local`)
+    - match: Host(`jackett.int.rlservers.com`)
       kind: Rule
       middlewares:
         - name: netbird-vpn-only

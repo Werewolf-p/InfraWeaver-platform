@@ -2,7 +2,7 @@
 # NetworkPolicies for the OpenBao namespace
 # OpenBao must only be reachable from:
 # - External Secrets Operator (external-secrets namespace)
-# - Traefik (for the ingress route to openbao.int.infraweaver.local)
+# - Traefik (for the ingress route to openbao.int.rlservers.com)
 # - Monitoring (Prometheus scraping)
 # - Other OpenBao pods (Raft cluster communication)
 

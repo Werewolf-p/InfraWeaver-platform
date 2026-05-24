@@ -48,13 +48,16 @@ spec:
               - name: wait-for-apiserver
                 image: busybox:1.36
                 imagePullPolicy: IfNotPresent
+                env:
+                  - name: NODE_IP
+                    valueFrom:
+                      fieldRef:
+                        fieldPath: status.hostIP
                 command:
                   - sh
                   - -c
                   - |
                     echo "Waiting for kube-apiserver TCP port to open..."
-                    NODE_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
-                    [ -z "$NODE_IP" ] && NODE_IP=10.10.0.90
                     echo "  Using node IP: ${NODE_IP}"
                     until nc -z -w 5 "${NODE_IP}" 6443 2>/dev/null; do
                       echo "  Port 6443 not open yet, retrying in 5s..."

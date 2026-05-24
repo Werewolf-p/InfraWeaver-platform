@@ -1,7 +1,7 @@
 ---
 # NetBird API IngressRoute — management gRPC, signal gRPC, relay, REST API
-# at api-netbird.infraweaver.local (public, used by NetBird clients/peers)
-# Dashboard → netbird.infraweaver.local (see 09-routes-netbird.yaml)
+# at api-netbird.rlservers.com (public, used by NetBird clients/peers)
+# Dashboard → netbird.rlservers.com (see 09-routes-netbird.yaml)
 #
 # Priority order (highest first):
 #   1. Management gRPC (PathPrefix /management.ManagementService) → h2c:33073
@@ -19,13 +19,14 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`api-netbird.infraweaver.local`) && PathPrefix(`/management.ManagementService`)
+    - match: Host(`api-netbird.rlservers.com`) && PathPrefix(`/management.ManagementService`)
       kind: Rule
       priority: 50
       services:
         - name: netbird-management
           port: 33073
           scheme: h2c
+          serversTransport: grpc-h2c-keepalive
   tls:
     secretName: platform-wildcard-tls
 ---
@@ -39,13 +40,14 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`api-netbird.infraweaver.local`) && (PathPrefix(`/signalexchange.SignalExchange`) || PathPrefix(`/grpc.reflection`))
+    - match: Host(`api-netbird.rlservers.com`) && (PathPrefix(`/signalexchange.SignalExchange`) || PathPrefix(`/grpc.reflection`))
       kind: Rule
       priority: 50
       services:
         - name: netbird-signal
           port: 10000
           scheme: h2c
+          serversTransport: grpc-h2c-keepalive
   tls:
     secretName: platform-wildcard-tls
 ---
@@ -59,7 +61,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`api-netbird.infraweaver.local`) && PathPrefix(`/relay`)
+    - match: Host(`api-netbird.rlservers.com`) && PathPrefix(`/relay`)
       kind: Rule
       priority: 40
       services:
@@ -79,7 +81,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`api-netbird.infraweaver.local`) && (PathPrefix(`/api`) || PathPrefix(`/ws-proxy`))
+    - match: Host(`api-netbird.rlservers.com`) && (PathPrefix(`/api`) || PathPrefix(`/ws-proxy`))
       kind: Rule
       priority: 30
       services:
@@ -87,3 +89,19 @@ spec:
           port: 80
   tls:
     secretName: platform-wildcard-tls
+
+---
+# ServersTransport for NetBird gRPC h2c backends
+# Keeps long-lived gRPC streams alive through mobile NATs
+apiVersion: traefik.io/v1alpha1
+kind: ServersTransport
+metadata:
+  name: grpc-h2c-keepalive
+  namespace: traefik
+  annotations:
+    argocd.argoproj.io/tracking-id: external-routes:traefik.io/ServersTransport:traefik/grpc-h2c-keepalive
+spec:
+  forwardingTimeouts:
+    dialTimeout: 30s
+    responseHeaderTimeout: 0s
+    idleConnTimeout: 1800s

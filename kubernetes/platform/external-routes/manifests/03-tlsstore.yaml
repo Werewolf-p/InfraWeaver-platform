@@ -1,7 +1,7 @@
 ---
-# TLSStore default — sets *.int.infraweaver.local wildcard as the default TLS certificate.
+# TLSStore default — sets *.int.rlservers.com wildcard as the default TLS certificate.
 # All catalog IngressRoutes use this cert via fallback when no namespace-local secret exists.
-# External routes (*.infraweaver.local) explicitly specify platform-wildcard-tls in their routes.
+# External routes (*.rlservers.com) explicitly specify platform-wildcard-tls in their routes.
 apiVersion: traefik.io/v1alpha1
 kind: TLSStore
 metadata:
@@ -10,4 +10,4 @@ metadata:
 spec:
   defaultCertificate:
     secretName: platform-int-wildcard-tls
-# Any HTTPS IngressRoute without an explicit cert will use the *.int.infraweaver.local wildcard.
+# Any HTTPS IngressRoute without an explicit cert will use the *.int.rlservers.com wildcard.

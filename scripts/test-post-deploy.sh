@@ -94,7 +94,7 @@ echo ""
 echo "── Cluster ──────────────────────────────────────────────────"
 NODE_COUNT=$(kubectl --kubeconfig "$KB" get nodes --no-headers 2>/dev/null | wc -l || echo 0)
 READY_COUNT=$(kubectl --kubeconfig "$KB" get nodes --no-headers 2>/dev/null | grep -c " Ready " || echo 0)
-if [ "${READY_COUNT:-0}" -ge 3 ]; then
+if [ "${READY_COUNT:-0}" -ge "${NODE_COUNT:-1}" ]; then
   ok "Cluster nodes ($READY_COUNT/$NODE_COUNT Ready)"
 else
   fail "Cluster nodes ($READY_COUNT/$NODE_COUNT Ready)"
@@ -129,10 +129,12 @@ argocd_app "core-openbao"       "core-openbao"
 argocd_app "core-cert-manager"  "core-cert-manager"
 argocd_app "core-traefik"       "core-traefik"
 argocd_app "core-argocd"        "core-argocd"
-argocd_app "apps-authentik"     "apps-authentik"
+argocd_app "apps-authentik"     "apps-authentik-manifests"
 argocd_app "external-routes"    "external-routes"
 argocd_app "apps-dns"           "apps-dns"
-argocd_app "apps-homepage"      "apps-homepage"
+# apps-homepage is optional — only warn if missing
+  health_hp=$(kubectl --kubeconfig "$KB" get application apps-homepage -n argocd -o jsonpath="{.status.health.status}" 2>/dev/null || echo "NotFound")
+  if [ "$health_hp" = "NotFound" ]; then warn "apps-homepage (not deployed — optional)"; elif [ "$health_hp" = "Healthy" ]; then ok "apps-homepage (ArgoCD: Healthy)"; else warn "apps-homepage (ArgoCD: $health_hp)"; fi
 argocd_app "apps-netbird"       "apps-netbird"
 
 # ── 4. Public URLs ────────────────────────────────────────────────────────────

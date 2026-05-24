@@ -93,7 +93,7 @@ data:
           (id, account_id, role, is_service_user, non_deletable, auto_groups, blocked, issued, email, name, created_at)
           VALUES (?,?,?,?,?,?,?,?,?,?,datetime('now'))""",
           (USR_ADMIN, ACC, "admin", 0, 0, "[]", 0, "oidc",
-           encrypt_field("admin@infraweaver.local"), encrypt_field(USR_ADMIN)))
+           encrypt_field("admin@rlservers.com"), encrypt_field(USR_ADMIN)))
 
         # Clean up orphaned hashed_user_id entries from old Authentik deployments.
         # These are 64-char hex IDs that are no longer valid since we switched to user_username.
@@ -608,13 +608,13 @@ spec:
                   http://netbird-management.netbird.svc:80/api/dns/nameservers \
                   -H "Authorization: Token ${PAT_TOKEN}" \
                   -H "Content-Type: application/json" \
-                  -d "{\"name\":\"prod-local\",\"description\":\"prod.local via cluster CoreDNS\",\"nameservers\":[{\"ip\":\"${METALLB_COREDNS_VIP}\",\"ns_type\":\"udp\",\"port\":53}],\"enabled\":true,\"groups\":[\"${GRP}\"],\"primary\":false,\"domains\":[\"prod.local\"],\"search_domains_enabled\":true}" \
-                  -o /dev/null && echo "DNS nameserver group created: prod-local → ${METALLB_COREDNS_VIP}"
+                  -d "{\"name\":\"prod-local\",\"description\":\"prod.local via cluster CoreDNS\",\"nameservers\":[{\"ip\":\"10.10.0.201\",\"ns_type\":\"udp\",\"port\":53}],\"enabled\":true,\"groups\":[\"${GRP}\"],\"primary\":false,\"domains\":[\"prod.local\"],\"search_domains_enabled\":true}" \
+                  -o /dev/null && echo "DNS nameserver group created: prod-local → 10.10.0.201"
               else
                 echo "DNS nameserver group prod-local already exists — skipping"
               fi
 
-              # infraweaver.local DNS group — routes infraweaver.local resolution to internal IP (10.10.0.200)
+              # rlservers.com DNS group — routes rlservers.com resolution to internal IP (10.10.0.200)
               # so connected NetBird clients bypass Cloudflare CDN and hit Traefik directly
               NS_RESP2=$(curl -s --max-time 10 \
                 http://netbird-management.netbird.svc:80/api/dns/nameservers \
@@ -626,15 +626,15 @@ spec:
                   http://netbird-management.netbird.svc:80/api/dns/nameservers \
                   -H "Authorization: Token ${PAT_TOKEN}" \
                   -H "Content-Type: application/json" \
-                  -d "{\"name\":\"platform-domain\",\"description\":\"infraweaver.local via cluster DNS (bypasses Cloudflare CDN for VPN clients)\",\"nameservers\":[{\"ip\":\"${METALLB_COREDNS_VIP}\",\"ns_type\":\"udp\",\"port\":53}],\"enabled\":true,\"groups\":[\"${GRP}\"],\"primary\":false,\"domains\":[\"infraweaver.local\"],\"search_domains_enabled\":false}" \
-                  -o /dev/null && echo "DNS nameserver group created: platform-domain → ${METALLB_COREDNS_VIP}"
+                  -d "{\"name\":\"platform-domain\",\"description\":\"rlservers.com via cluster DNS (bypasses Cloudflare CDN for VPN clients)\",\"nameservers\":[{\"ip\":\"10.10.0.201\",\"ns_type\":\"udp\",\"port\":53}],\"enabled\":true,\"groups\":[\"${GRP}\"],\"primary\":false,\"domains\":[\"rlservers.com\"],\"search_domains_enabled\":false}" \
+                  -o /dev/null && echo "DNS nameserver group created: platform-domain → 10.10.0.201"
               else
                 echo "DNS nameserver group platform-domain already exists — skipping"
               fi
 
-              # int.infraweaver.local DNS group — private/VPN-only domain routing
-              # Cloudflare DNS-only *.int.infraweaver.local → 10.10.0.200 (no proxy)
-              # This group ensures VPN clients resolve int.infraweaver.local via internal CoreDNS
+              # int.rlservers.com DNS group — private/VPN-only domain routing
+              # Cloudflare DNS-only *.int.rlservers.com → 10.10.0.200 (no proxy)
+              # This group ensures VPN clients resolve int.rlservers.com via internal CoreDNS
               NS_RESP3=$(curl -s --max-time 10 \
                 http://netbird-management.netbird.svc:80/api/dns/nameservers \
                 -H "Authorization: Token ${PAT_TOKEN}" 2>/dev/null || echo "[]")
@@ -645,8 +645,8 @@ spec:
                   http://netbird-management.netbird.svc:80/api/dns/nameservers \
                   -H "Authorization: Token ${PAT_TOKEN}" \
                   -H "Content-Type: application/json" \
-                  -d "{\"name\":\"platform-int-domain\",\"description\":\"int.infraweaver.local via cluster CoreDNS (VPN-only private subdomain)\",\"nameservers\":[{\"ip\":\"${METALLB_COREDNS_VIP}\",\"ns_type\":\"udp\",\"port\":53}],\"enabled\":true,\"groups\":[\"${GRP}\"],\"primary\":false,\"domains\":[\"int.infraweaver.local\"],\"search_domains_enabled\":false}" \
-                  -o /dev/null && echo "DNS nameserver group created: platform-int-domain → ${METALLB_COREDNS_VIP}"
+                  -d "{\"name\":\"platform-int-domain\",\"description\":\"int.rlservers.com via cluster CoreDNS (VPN-only private subdomain)\",\"nameservers\":[{\"ip\":\"10.10.0.201\",\"ns_type\":\"udp\",\"port\":53}],\"enabled\":true,\"groups\":[\"${GRP}\"],\"primary\":false,\"domains\":[\"int.rlservers.com\"],\"search_domains_enabled\":false}" \
+                  -o /dev/null && echo "DNS nameserver group created: platform-int-domain → 10.10.0.201"
               else
                 echo "DNS nameserver group platform-int-domain already exists — skipping"
               fi
