@@ -1,0 +1,22 @@
+# Dockerfile.prebuilt — uses pre-built Next.js .next/standalone output.
+# Build on host first:
+#   NEXT_PUBLIC_APP_VERSION=<tag> npm run build
+# Then:
+#   buildah build -f Dockerfile.prebuilt --build-arg APP_VERSION=<tag> apps/infraweaver-console/
+FROM public.ecr.aws/docker/library/node:20-alpine
+WORKDIR /app
+ENV NODE_ENV=production
+ARG APP_VERSION=dev
+ENV APP_VERSION=$APP_VERSION
+ENV NEXT_PUBLIC_APP_VERSION=$APP_VERSION
+
+# Run as non-root user (required by PodSecurity restricted policy)
+RUN addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 nextjs
+USER 1001
+
+COPY --chown=1001:1001 .next/standalone ./
+COPY --chown=1001:1001 .next/static ./.next/static
+COPY --chown=1001:1001 public ./public
+EXPOSE 3000
+CMD ["node", "server.js"]
