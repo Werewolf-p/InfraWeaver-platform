@@ -126,22 +126,7 @@ jobs:
                 "s|image: [^ ]*/infraweaver-${APP}:[^ ]+|image: ${REGISTRY}/infraweaver-${APP}:${VERSION}|g" \
                 "$MANIFEST"
               # Update APP_VERSION env var value if it exists in the manifest
-              python3 - "$MANIFEST" "$VERSION" << 'PYEOF'
-import sys, re
-
-path, version = sys.argv[1], sys.argv[2]
-with open(path) as f:
-    content = f.read()
-
-# Replace value under "name: APP_VERSION" → "value: <old>" → "value: <new>"
-updated = re.sub(
-    r'(name:\s*APP_VERSION\s*\n\s*value:\s*)[^\n]+',
-    lambda m: m.group(1) + '"' + version + '"',
-    content
-)
-with open(path, 'w') as f:
-    f.write(updated)
-PYEOF
+              perl -0777 -i -pe 's/(name:\s+APP_VERSION\s*\n\s+value:\s+)\S+/$1"'"${VERSION}"'"/g' "$MANIFEST" 2>/dev/null || true
               echo "Updated $MANIFEST → $VERSION"
             fi
           done
