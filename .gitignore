@@ -105,3 +105,7 @@ yarn-error.log*
 # ---------------------------------------------------------------------------
 .copilot/
 
+
+# Compiled TypeScript output - not committed; built locally or via CI
+apps/infraweaver-api/dist/
+apps/infraweaver-node/dist/

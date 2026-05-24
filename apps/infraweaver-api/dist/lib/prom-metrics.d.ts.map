@@ -1,1 +1,0 @@
-{"version":3,"file":"prom-metrics.d.ts","sourceRoot":"","sources":["../../src/lib/prom-metrics.ts"],"names":[],"mappings":"AAWA,wBAAgB,qBAAqB,CAAC,MAAM,EAAE,MAAM,EAAE,IAAI,EAAE,MAAM,EAAE,MAAM,EAAE,MAAM,GAAG,IAAI,CAGxF;AAED,wBAAgB,qBAAqB,CAAC,MAAM,EAAE,MAAM,EAAE,IAAI,EAAE,MAAM,EAAE,UAAU,EAAE,MAAM,GAAG,IAAI,CAK5F;AAQD,wBAAgB,uBAAuB,IAAI,MAAM,CA0BhD"}

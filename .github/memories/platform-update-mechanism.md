@@ -1,51 +1,42 @@
 # Platform Update Mechanism
 
 ## Architecture
-Two-part update system:
+- **Version source**: GitHub API (api.github.com) — public repo, no auth needed for GET
+- **CI trigger**: GitHub Actions `workflow_dispatch` (requires GITHUB_TOKEN PAT)
+- **GitOps**: ArgoCD reads from internal Onedev, `origin = https://admin:...@onedev.rlservers.com/InfraWeaver-platform`
+- **Apply update**: `POST /api/v1/platform/update` rewrites image tags in Onedev manifests → ArgoCD hard-refresh
 
-### Developer Side (CI Pipeline)
-- `.onedev-buildspec.yml` in repo root defines Onedev CI
-- On push to `main`: build API + console + node images with buildah
-- Tags: `<registry>/<app>:main-<short-sha>` (e.g. `main-99607ed`)
-- Pushes to `onedev.rlservers.com/infraweaver-platform/`
-- Updates image tags in `kubernetes/catalog/*/manifests/deployment.yaml`
-- Commits updated tags → ArgoCD auto-deploys
+## GitHub Repository
+- URL: `https://github.com/Werewolf-p/InfraWeaver-platform`
+- Status: Public, populated. No releases yet (first release = v0.1.0)
+- GitHub Actions CI: `.github/workflows/release.yml` — builds 3 images → ghcr.io on push/tag
 
-### Manual Build (until CI agent configured)
-- Build on init VM: `buildah build -f apps/<app>/Dockerfile.prebuilt --tag <registry>/<app>:main-<sha>`
-- Dockerfile.prebuilt: skips tsc inside container (uses pre-built dist/) — avoids Alpine tsc segfault
-- Push: `buildah push --tls-verify=false <image>`
-- Update manifest tags and commit → ArgoCD picks up automatically
+## API Endpoints (`apps/infraweaver-api/src/routes/platform.ts`)
+- `GET /api/v1/platform/version` — returns currentVersion, latestVersion, updateAvailable, changelog
+- `POST /api/v1/platform/update` — rewrites manifest image tags, triggers ArgoCD sync
+- `POST /api/v1/platform/trigger-ci` — dispatches GitHub Actions workflow (needs GITHUB_TOKEN)
+- `GET /api/v1/platform/workflow/:runId` — polls GitHub Actions run status
 
-### User Side (Update Manager)
-- `scripts/update.sh --json`: git pull + rebuild init site if changed + structured output
-- `GET /api/platform-version` on init VM (port 8080): returns current/remote SHA + changelog
-- `POST /api/self-update` on init VM: triggers update.sh + restarts server.py
-- `GET /api/v1/platform/version` in infraweaver-api: proxies to init VM
-- `POST /api/v1/platform/update` in infraweaver-api: proxies to init VM (requires cluster:admin)
-- Console: `/settings/platform` page shows version diff + Apply Update button
+## Environment Variables (API pod)
+- `APP_VERSION` — set from manifest, e.g. `main-5ced2e5`. Read by GET /version
+- `GITHUB_TOKEN` — from `infraweaver-console-secret.github-token` (optional; enables CI trigger)
+- `GITHUB_REPO` — `Werewolf-p/InfraWeaver-platform`
+- `ARGOCD_TOKEN` — from `infraweaver-console-secret.argocd-token`
 
-## Git Remote on Init VM
-- Stable remote: `https://admin:<token>@onedev.rlservers.com/InfraWeaver-platform`
-- Works because `/etc/hosts` has: `10.10.0.200 onedev.rlservers.com` (Traefik VIP)
-- Old localhost:19311 remote still exists as `onedev` (port-forward only)
+## Image Tags Format
+- Manual builds (init VM): `onedev.rlservers.com/infraweaver-platform/infraweaver-{app}:main-{8-char-sha}`
+- GitHub CI: `ghcr.io/werewolf-p/infraweaver-{app}:v{semver}` or `main-{sha}`
 
-## Key Files
-- `scripts/update.sh` — update script for init VM
-- `scripts/init/server.py` — `_platform_version()` + enhanced `_self_update()`
-- `apps/infraweaver-api/src/routes/platform.ts` — platform API route
-- `apps/infraweaver-console/src/app/(dashboard)/settings/platform/page.tsx` — update UI
-- `apps/infraweaver-api/Dockerfile.prebuilt` — production build without in-container tsc
-- `.onedev-buildspec.yml` — CI pipeline definition
+## Important Notes
+- buildah/Alpine segfaults when running npm ci / tsc inside container on init VM
+- Workaround: pre-build on host, use `Dockerfile.prebuilt` (copies pre-built artifacts)
+- `apps/infraweaver-api/dist/` and `apps/infraweaver-node/dist/` are gitignored (built locally, not committed)
+- To push GitHub update: `git push github main` (if github remote is set up with PAT)
+- ArgoCD self-heal is ON — manual kubectl edits are reverted within 3 minutes
+- To force re-apply: `kubectl apply -f <manifest>` then wait for ArgoCD self-heal to confirm
 
-## Known Issues / Notes
-- Onedev CI needs an agent with Docker/buildah configured to actually run the buildspec
-- tsc segfaults inside Alpine containers on the init VM — use Dockerfile.prebuilt instead
-- cp2 (talos-prod-cp2, Proxmox vmid 9301) hosts Onedev PVC (local-path) — if cp2 goes down, Onedev is unreachable
-- Onedev external DNS (onedev.rlservers.com) points to Cloudflare → 503; init VM uses /etc/hosts override
-- INIT_VM_URL env var in infraweaver-api deployment defaults to http://10.10.0.50:8080
-
-## Image Tags at Last Deploy
-- infraweaver-api: main-99607ed
-- infraweaver-console: main-99607ed
-- infraweaver-node: main-b67c090 (unchanged)
+## Current Status (2026-05-24)
+- API: main-5ced2e5 deployed ✅
+- Console: main-5ced2e5 deployed ✅
+- GITHUB_TOKEN: empty (CI trigger disabled; GET /version works without it)
+- No GitHub releases yet — set GITHUB_PAT and push a v0.1.0 tag to enable update detection
