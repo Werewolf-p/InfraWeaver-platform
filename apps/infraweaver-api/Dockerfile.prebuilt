@@ -1,0 +1,13 @@
+# Dockerfile.prebuilt — uses pre-built dist/ (tsc runs on the CI host, not inside Alpine)
+# Usage: npm run build && buildah build -f Dockerfile.prebuilt
+FROM node:22-alpine
+WORKDIR /app
+ENV NODE_ENV=production
+# Install production deps only
+COPY package*.json ./
+RUN npm ci --omit=dev
+# Copy pre-built artifacts
+COPY dist/ ./dist/
+USER node
+EXPOSE 3001
+CMD ["node", "dist/index.js"]
