@@ -22,7 +22,7 @@ export async function POST(
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
-  if (!hasPermission(groups, "apps:write")) {
+  if (!hasPermission(groups, "platform:update")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   if (!checkRateLimit(rateLimitKey("updates-apply", req), 5, 60_000)) {

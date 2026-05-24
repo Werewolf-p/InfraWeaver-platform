@@ -519,7 +519,7 @@ updatesRoute.get('/:appName/versions', async (c) => {
 
 updatesRoute.post('/:appName', async (c) => {
   const user = c.get('user');
-  if (!hasPermission(user, 'apps:write')) {
+  if (!hasPermission(user, 'platform:update')) {
     return c.json({ error: 'Forbidden' }, 403);
   }
 

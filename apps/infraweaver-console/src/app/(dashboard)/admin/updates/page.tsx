@@ -191,7 +191,7 @@ function sectionLabel(section: string) {
 
 export default function UpdateManagerPage() {
   const { can } = useRBAC();
-  const canUpdate = can("apps:write");
+  const canUpdate = can("platform:update");
   const [selectedVersions, setSelectedVersions] = useState<Record<string, string>>({});
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -314,7 +314,7 @@ export default function UpdateManagerPage() {
           {!canUpdate ? (
             <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-sm text-amber-700 dark:text-amber-300">
               You have read-only access. Version discovery is available, but updates require the{" "}
-              <code className="font-mono">apps:write</code> permission.
+              <code className="font-mono">platform:update</code> permission.
             </div>
           ) : null}
 

@@ -8,6 +8,7 @@ export type Permission =
   | "security:read" | "security:write"
   | "nas:read" | "nas:write"
   | "infra:read" | "infra:write" | "rbac:admin"
+  | "platform:update"
   | "game-hub:read" | "game-hub:write" | "game-hub:admin"
   | "game-hub:players"
   | "game-hub:console" | "game-hub:files" | "game-hub:start" | "game-hub:stop" | "game-hub:scale"
@@ -77,6 +78,7 @@ export const BUILT_IN_ROLES: Record<BuiltInRoleId, RoleDefinition> = {
       "security:read", "security:write",
       "nas:read", "nas:write",
       "infra:read", "rbac:admin",
+      "platform:update",
       "game-hub:read", "game-hub:write", "game-hub:admin", "game-hub:players",
       "game-hub:console", "game-hub:files", "game-hub:start", "game-hub:stop", "game-hub:scale",
     ],
