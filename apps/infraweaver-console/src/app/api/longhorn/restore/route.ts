@@ -43,11 +43,11 @@ export async function POST(req: NextRequest) {
   const data = await res.json();
 
   if (res.ok) {
-    await auditLog(session, "longhorn.restore", {
-      volumeName: parsed.data.volumeName,
-      backupURL: parsed.data.backupURL,
-      targetVolumeName: parsed.data.targetVolumeName,
-    });
+    await auditLog(
+      "longhorn:restore",
+      session.user?.email ?? "unknown",
+      `volume=${parsed.data.volumeName} backupURL=${parsed.data.backupURL}${parsed.data.targetVolumeName ? " target=" + parsed.data.targetVolumeName : ""}`,
+    );
   }
 
   return NextResponse.json(data, { status: res.status });
