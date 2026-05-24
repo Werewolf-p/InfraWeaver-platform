@@ -151,7 +151,7 @@ longhornRoute.get('/backups/:volumeName', async (c) => {
 
 longhornRoute.post('/restore', async (c) => {
   const user = c.get('user');
-  if (!hasPermission(user, 'cluster:write')) {
+  if (!hasPermission(user, 'cluster:admin')) {
     return c.json({ error: 'Forbidden' }, 403);
   }
 
