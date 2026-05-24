@@ -181,6 +181,7 @@ export const NAV_GROUPS: NavGroup[] = mergeRegisteredPages([
     defaultOpen: false,
     items: [
       { href: "/admin/updates", icon: ArrowUpCircle, label: "Update Manager", description: "Review GitOps versions and commit application updates", pinnable: true },
+      { href: "/settings/platform", icon: ArrowUpCircle, label: "Platform Updates", description: "Pull latest InfraWeaver platform code and scripts from Onedev", pinnable: true },
     ],
   },
   {

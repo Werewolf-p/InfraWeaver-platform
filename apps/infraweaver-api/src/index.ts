@@ -28,6 +28,7 @@ import { prometheusRoute } from './routes/prometheus.js';
 import { rbacSyncRoute } from './routes/rbac-sync.js';
 import { secretsRoute } from './routes/secrets.js';
 import { updatesRoute } from './routes/updates.js';
+import { platformRoute } from './routes/platform.js';
 import type { AppBindings } from './types/index.js';
 
 const app = new Hono<AppBindings>();
@@ -68,6 +69,7 @@ api.route('/mode', modeRoute);
 api.route('/rbac', rbacSyncRoute);
 api.route('/agents', agentsRoute);
 api.route('/updates', updatesRoute);
+api.route('/platform', platformRoute);
 api.route('/cluster', clusterRoute);
 api.route('/network', networkRoute);
 api.route('/config-maps', configMapsRoute);

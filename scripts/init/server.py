@@ -1269,19 +1269,70 @@ def _detect_init_vm_id() -> Optional[int]:
     return None
 
 
+def _platform_version() -> Dict:
+    """Return current and remote commit SHA with pending changelog."""
+    try:
+        current_sha = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=str(REPO_DIR), capture_output=True, text=True, timeout=5,
+        ).stdout.strip()
+        branch = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=str(REPO_DIR), capture_output=True, text=True, timeout=5,
+        ).stdout.strip()
+        subprocess.run(
+            ["git", "fetch", "--quiet", "origin", "main"],
+            cwd=str(REPO_DIR), capture_output=True, timeout=15,
+        )
+        remote_sha = subprocess.run(
+            ["git", "rev-parse", "origin/main"],
+            cwd=str(REPO_DIR), capture_output=True, text=True, timeout=5,
+        ).stdout.strip()
+        ahead_out = subprocess.run(
+            ["git", "log", "--oneline", "--no-merges", f"{current_sha}..origin/main"],
+            cwd=str(REPO_DIR), capture_output=True, text=True, timeout=5,
+        ).stdout.strip()
+        changelog = [ln for ln in ahead_out.splitlines() if ln.strip()] if ahead_out else []
+        return {
+            "ok": True,
+            "currentSha": current_sha,
+            "remoteSha": remote_sha,
+            "branch": branch,
+            "updateAvailable": current_sha != remote_sha,
+            "pendingCommits": len(changelog),
+            "changelog": changelog[:20],
+        }
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
 def _self_update() -> Dict:
-    """git pull the repo and return output. Caller schedules process restart."""
+    """Run scripts/update.sh and return structured output. Caller schedules restart."""
+    import json as _json
+    update_script = REPO_DIR / "scripts" / "update.sh"
+    if not update_script.exists():
+        try:
+            result = subprocess.run(
+                ["git", "pull", "--ff-only", "origin", "main"],
+                cwd=str(REPO_DIR), capture_output=True, text=True, timeout=120,
+            )
+            if result.returncode != 0:
+                return {"ok": False, "error": result.stderr.strip() or result.stdout.strip() or "git pull failed"}
+            return {"ok": True, "updated": True, "output": result.stdout.strip()}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
     try:
         result = subprocess.run(
-            ["git", "pull", "--ff-only", "origin", "main"],
-            cwd=str(REPO_DIR),
-            capture_output=True,
-            text=True,
-            timeout=60,
+            ["/usr/bin/env", "bash", str(update_script), "--json"],
+            cwd=str(REPO_DIR), capture_output=True, text=True, timeout=300,
         )
-        if result.returncode != 0:
-            return {"ok": False, "error": (result.stderr.strip() or result.stdout.strip()) or "git pull failed"}
-        return {"ok": True, "output": result.stdout.strip()}
+        raw = result.stdout.strip()
+        try:
+            return _json.loads(raw)
+        except Exception:
+            if result.returncode != 0:
+                return {"ok": False, "error": result.stderr.strip() or raw or "update script failed"}
+            return {"ok": True, "updated": True, "output": raw}
     except Exception as exc:
         return {"ok": False, "error": str(exc)}
 
@@ -1582,6 +1633,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._send_json({"ok": True, "repo": str(REPO_DIR)})
             return
 
+        if path == "/api/platform-version":
+            self._send_json(_platform_version())
+            return
+
         if path == "/api/detect-subnet":
             subnets = _detect_local_subnets()
             self._send_json({"ok": True, "subnets": subnets})
@@ -1768,11 +1823,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._send_json(_validate_import_env(payload))
             return
 
+        if path == "/api/platform-version":
+            self._send_json(_platform_version())
+            return
+
         if path == "/api/self-update":
             result = _self_update()
             self._send_json(result)
             if result.get("ok"):
-                # Replace the running process with a fresh copy of itself after the response flushes
+                # Restart process so updated server.py and init site are loaded
                 threading.Timer(0.8, lambda: os.execv(sys.executable, [sys.executable] + sys.argv)).start()
             return
 
