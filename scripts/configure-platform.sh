@@ -47,10 +47,15 @@ BACKUP_PROVIDER=$(_env_val BACKUP_PROVIDER "longhorn")
 LOCAL_IP_RANGES=$(_env_val LOCAL_IP_RANGES "")
 ENABLE_LONGHORN=$(_env_val ENABLE_LONGHORN "true")
 ENABLE_KYVERNO=$(_env_val ENABLE_KYVERNO "true")
+# MONITORING_STACK: which Prometheus-compatible stack to use when ENABLE_MONITORING=true
+#   kube-prometheus-stack  — default, full-featured, ~600Mi RAM
+#   victoria-metrics       — lightweight PromQL-compatible alternative, ~280Mi RAM
+MONITORING_STACK=$(_env_val MONITORING_STACK "kube-prometheus-stack")
 
 echo "==> configure-platform: syncing feature flags to platform.yaml"
 echo "    ENABLE_NETBIRD=${ENABLE_NETBIRD}"
 echo "    ENABLE_MONITORING=${ENABLE_MONITORING}"
+echo "    MONITORING_STACK=${MONITORING_STACK}"
 echo "    ENABLE_EXTERNAL_DNS=${ENABLE_EXTERNAL_DNS}"
 echo "    BACKUP_PROVIDER=${BACKUP_PROVIDER}"
 echo "    LOCAL_IP_RANGES=${LOCAL_IP_RANGES:-<empty>}"
@@ -376,6 +381,39 @@ _toggle_bootstrap_companion "app-longhorn-manifests.yaml" "$ENABLE_LONGHORN"
 
 _toggle_core_app "kyverno" "$ENABLE_KYVERNO"
 _toggle_bootstrap_companion "core-kyverno-policies.yaml" "$ENABLE_KYVERNO"
+
+# ── 6b. Monitoring stack selection (kube-prometheus-stack vs victoria-metrics) ─
+# Toggle which monitoring application.yaml is active under kubernetes/monitoring/.
+# Only has effect when ENABLE_MONITORING=true.
+_toggle_monitoring_stack() {
+    local stack="$1"   # "kube-prometheus-stack" or "victoria-metrics"
+    local mon_dir="${REPO_DIR}/kubernetes/monitoring"
+    local stacks=("kube-prometheus-stack" "victoria-metrics")
+    for s in "${stacks[@]}"; do
+        local active="${mon_dir}/${s}/application.yaml"
+        local disabled="${mon_dir}/${s}/application.yaml.disabled"
+        if [[ "$s" == "$stack" ]]; then
+            if [[ -f "$disabled" && ! -f "$active" ]]; then
+                mv "$disabled" "$active"
+                echo "  ▶  monitoring/${s}: enabled (application.yaml restored)"
+            else
+                echo "  ⏭  monitoring/${s}: already active"
+            fi
+        else
+            if [[ -f "$active" ]]; then
+                mv "$active" "$disabled"
+                echo "  ⏸  monitoring/${s}: disabled (application.yaml → .disabled)"
+            else
+                echo "  ⏭  monitoring/${s}: already inactive"
+            fi
+        fi
+    done
+}
+
+if [[ "$ENABLE_MONITORING" == "true" ]]; then
+    echo "==> configure-platform: selecting monitoring stack: ${MONITORING_STACK}"
+    _toggle_monitoring_stack "$MONITORING_STACK"
+fi
 
 # ── 7. Run sync-groups.sh to sync AppSet and companion files ─────────────────
 if [[ -f "${REPO_DIR}/scripts/sync-groups.sh" ]]; then

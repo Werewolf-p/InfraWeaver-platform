@@ -166,7 +166,7 @@ INFRA_DEFAULTS = {
 
 # Feature flag fields — written to .env and read by configure-platform.sh
 FEATURE_ENV_FIELDS = [
-    "ENABLE_NETBIRD", "ENABLE_MONITORING", "ENABLE_EXTERNAL_DNS", "BACKUP_PROVIDER",
+    "ENABLE_NETBIRD", "ENABLE_MONITORING", "MONITORING_STACK", "ENABLE_EXTERNAL_DNS", "BACKUP_PROVIDER",
     "ENABLE_WAZUH", "ENABLE_LONGHORN", "ENABLE_KYVERNO",
     "LOCAL_IP_RANGES",
 ]
@@ -175,6 +175,7 @@ FEATURE_ENV_FIELDS = [
 FEATURE_DEFAULTS = {
     "ENABLE_NETBIRD": "false",
     "ENABLE_MONITORING": "false",
+    "MONITORING_STACK": "kube-prometheus-stack",
     "ENABLE_EXTERNAL_DNS": "false",
     "BACKUP_PROVIDER": "longhorn",
     "ENABLE_WAZUH": "false",
