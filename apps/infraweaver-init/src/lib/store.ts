@@ -10,6 +10,7 @@ import type {
 import { deriveAdminName, parseBoolean, sanitizeUsername } from '@/lib/utils'
 
 export type BackupProvider = 'none' | 'longhorn' | 'velero' | 'both'
+export type MonitoringStack = 'kube-prometheus-stack' | 'victoria-metrics'
 export type DnsProvider = 'cloudflare' | 'route53' | 'azure' | 'digitalocean' | 'hetzner' | 'none'
 export type PingState = boolean | null | 'loading'
 export type DeployLogLevel = 'info' | 'step' | 'ok' | 'warn' | 'err'
@@ -86,7 +87,14 @@ export interface WizardData {
   LETSENCRYPT_ENV: string
   ENABLE_NETBIRD: boolean
   ENABLE_MONITORING: boolean
+  MONITORING_STACK: MonitoringStack
   ENABLE_EXTERNAL_DNS: boolean
+  ENABLE_LONGHORN: boolean
+  ENABLE_KYVERNO: boolean
+  ENABLE_LOKI: boolean
+  ENABLE_GRAFANA: boolean
+  ENABLE_WAZUH: boolean
+  ENABLE_AUTHENTIK_LDAP: boolean
   BACKUP_PROVIDER: BackupProvider
   RESTORE_ENABLED: boolean
   RESTORE_TLS: boolean
@@ -197,7 +205,14 @@ export const initialWizardData: WizardData = {
   LETSENCRYPT_ENV: 'production',
   ENABLE_NETBIRD: true,
   ENABLE_MONITORING: true,
+  MONITORING_STACK: 'kube-prometheus-stack' as MonitoringStack,
   ENABLE_EXTERNAL_DNS: false,
+  ENABLE_LONGHORN: true,
+  ENABLE_KYVERNO: true,
+  ENABLE_LOKI: true,
+  ENABLE_GRAFANA: false,
+  ENABLE_WAZUH: false,
+  ENABLE_AUTHENTIK_LDAP: false,
   BACKUP_PROVIDER: 'longhorn',
   RESTORE_ENABLED: false,
   RESTORE_TLS: false,
@@ -442,8 +457,15 @@ const buildPresetFields = (preset: PresetType): Partial<WizardData> => {
   if (preset === 'dev') {
     return {
       ENABLE_MONITORING: false,
+      MONITORING_STACK: 'victoria-metrics',
       ENABLE_NETBIRD: false,
       ENABLE_EXTERNAL_DNS: false,
+      ENABLE_LONGHORN: false,
+      ENABLE_KYVERNO: false,
+      ENABLE_LOKI: false,
+      ENABLE_GRAFANA: false,
+      ENABLE_WAZUH: false,
+      ENABLE_AUTHENTIK_LDAP: false,
       BACKUP_PROVIDER: 'none',
     }
   }
@@ -451,20 +473,34 @@ const buildPresetFields = (preset: PresetType): Partial<WizardData> => {
   if (preset === 'power') {
     return {
       ENABLE_MONITORING: true,
+      MONITORING_STACK: 'kube-prometheus-stack',
       ENABLE_NETBIRD: true,
       ENABLE_EXTERNAL_DNS: true,
+      ENABLE_LONGHORN: true,
+      ENABLE_KYVERNO: true,
+      ENABLE_LOKI: true,
+      ENABLE_GRAFANA: true,
+      ENABLE_WAZUH: false,
+      ENABLE_AUTHENTIK_LDAP: false,
       BACKUP_PROVIDER: 'both',
     }
   }
 
   return {
     ENABLE_MONITORING: true,
+    MONITORING_STACK: 'kube-prometheus-stack',
     ENABLE_NETBIRD: true,
     ENABLE_EXTERNAL_DNS: false,
+    ENABLE_LONGHORN: true,
+    ENABLE_KYVERNO: true,
+    ENABLE_LOKI: true,
+    ENABLE_GRAFANA: false,
+    ENABLE_WAZUH: false,
+    ENABLE_AUTHENTIK_LDAP: false,
     BACKUP_PROVIDER: 'longhorn',
-  RESTORE_ENABLED: false,
-  RESTORE_TLS: false,
-  RESTORE_VOLUMES: '',
+    RESTORE_ENABLED: false,
+    RESTORE_TLS: false,
+    RESTORE_VOLUMES: '',
   }
 }
 
@@ -641,9 +677,16 @@ export const useWizardStore = create<WizardStore>()(
             if (key === 'ENABLE_NETBIRD') nextData.ENABLE_NETBIRD = parseBoolean(value)
             else if (key === 'ENABLE_MONITORING') nextData.ENABLE_MONITORING = parseBoolean(value)
             else if (key === 'ENABLE_EXTERNAL_DNS') nextData.ENABLE_EXTERNAL_DNS = parseBoolean(value)
+            else if (key === 'ENABLE_LONGHORN') nextData.ENABLE_LONGHORN = parseBoolean(value)
+            else if (key === 'ENABLE_KYVERNO') nextData.ENABLE_KYVERNO = parseBoolean(value)
+            else if (key === 'ENABLE_LOKI') nextData.ENABLE_LOKI = parseBoolean(value)
+            else if (key === 'ENABLE_GRAFANA') nextData.ENABLE_GRAFANA = parseBoolean(value)
+            else if (key === 'ENABLE_WAZUH') nextData.ENABLE_WAZUH = parseBoolean(value)
+            else if (key === 'ENABLE_AUTHENTIK_LDAP') nextData.ENABLE_AUTHENTIK_LDAP = parseBoolean(value)
             else if (key === 'RESTORE_ENABLED') nextData.RESTORE_ENABLED = parseBoolean(value)
             else if (key === 'RESTORE_TLS') nextData.RESTORE_TLS = parseBoolean(value)
             else if (key === 'BACKUP_PROVIDER') nextData.BACKUP_PROVIDER = value as BackupProvider
+            else if (key === 'MONITORING_STACK') nextData.MONITORING_STACK = value as MonitoringStack
             else if (key === 'DNS_PROVIDER') nextData.DNS_PROVIDER = value as DnsProvider
             else if (key === 'LOCAL_IP_RANGES') {
               if (!value.trim()) {

@@ -2,130 +2,249 @@
 
 import { useMemo } from 'react'
 import { LoaderCircle, Lock, Plus, RefreshCw, Settings2, Shield, Trash2, Wifi } from 'lucide-react'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import { detectSubnet } from '@/lib/api'
 import { ActionButton } from '@/components/ui/ActionButton'
 import { GlassCard } from '@/components/ui/GlassCard'
 import { StepHeader } from '@/components/ui/StepHeader'
-import { useWizardStore, type BackupProvider, type WizardData } from '@/lib/store'
+import { useWizardStore, type BackupProvider, type MonitoringStack, type WizardData } from '@/lib/store'
 import { controlClassName, isCIDR, staggerContainer } from '@/lib/utils'
 
-interface CatalogApp {
-  key: keyof WizardData | null
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+interface CoreApp {
   slug: string
   name: string
-  category: 'networking' | 'observability' | 'security' | 'storage' | 'dev' | 'core'
+  icon: string
+  category: string
   description: string
   ramMb: number
-  cpuM: number
+}
+
+interface OptionalFeature {
+  key: keyof WizardData
+  slug: string
+  name: string
   icon: string
-  enabled: boolean
-  required: boolean
-  dependsOn?: string
+  category: 'networking' | 'observability' | 'security' | 'storage'
+  description: string
+  without: string
+  ramMb: number
+  defaultOn: boolean
 }
 
-const categoryLabels: Record<CatalogApp['category'], string> = {
-  networking: 'Networking',
-  observability: 'Observability',
-  security: 'Security',
-  storage: 'Storage',
-  dev: 'Developer',
-  core: 'Core',
-}
+// ── Static data ───────────────────────────────────────────────────────────────
 
-const backupOptions: Array<{ value: BackupProvider; title: string; copy: string }> = [
-  { value: 'none', title: 'None', copy: 'No automated backups.' },
-  { value: 'longhorn', title: 'Longhorn', copy: 'Block-level PVC backups to TrueNAS or NFS.' },
-  { value: 'velero', title: 'Velero', copy: 'Cluster object backups plus snapshot orchestration.' },
-  { value: 'both', title: 'Longhorn + Velero', copy: 'Highest coverage with the highest resource cost.' },
+const CORE_APPS: CoreApp[] = [
+  { slug: 'argocd',           name: 'ArgoCD',           icon: '🔄', category: 'Core',       description: 'GitOps engine that syncs the entire platform from Git.',                   ramMb: 512  },
+  { slug: 'authentik',        name: 'Authentik',        icon: '👤', category: 'Security',   description: 'SSO and OIDC identity provider for every app login.',                     ramMb: 512  },
+  { slug: 'openbao',          name: 'OpenBao',          icon: '🔐', category: 'Security',   description: 'Secrets vault — stores all credentials and tokens.',                      ramMb: 256  },
+  { slug: 'external-secrets', name: 'External Secrets', icon: '🔑', category: 'Security',   description: 'Pulls secrets from OpenBao into Kubernetes.',                             ramMb: 128  },
+  { slug: 'traefik',          name: 'Traefik',          icon: '🔀', category: 'Networking', description: 'Ingress edge router — routes all HTTP/S traffic to services.',            ramMb: 128  },
+  { slug: 'metallb',          name: 'MetalLB',          icon: '⚖️', category: 'Networking', description: 'Assigns LoadBalancer IPs on bare metal.',                                 ramMb: 64   },
+  { slug: 'cert-manager',     name: 'cert-manager',     icon: '🔒', category: 'Security',   description: 'Automates TLS certificate issuance via Let\'s Encrypt.',                 ramMb: 128  },
+  { slug: 'onedev',           name: 'OneDev',           icon: '📦', category: 'Dev',        description: 'Self-hosted Git, CI/CD, and issue tracker.',                              ramMb: 1024 },
 ]
 
-function CatalogCard({ app, action }: { app: CatalogApp; action?: React.ReactNode }) {
+const OPTIONAL_FEATURES: OptionalFeature[] = [
+  // Storage
+  { key: 'ENABLE_LONGHORN',       slug: 'longhorn',        name: 'Longhorn',              icon: '💾', category: 'storage',      description: 'Distributed HA block storage — replicates PVCs across nodes and backs up to NFS nightly.', without: 'No cross-node storage replication or scheduled backups. Local-path only.', ramMb: 512,  defaultOn: true  },
+  // Security
+  { key: 'ENABLE_KYVERNO',        slug: 'kyverno',         name: 'Kyverno',               icon: '🛡️', category: 'security',     description: 'Kubernetes policy engine — enforces resource limits and blocks privileged containers.', without: 'PSA namespace labels remain but no custom policy enforcement.', ramMb: 480,  defaultOn: true  },
+  { key: 'ENABLE_AUTHENTIK_LDAP', slug: 'ldap-outpost',    name: 'Authentik LDAP Outpost',icon: '📂', category: 'security',     description: 'Makes Authentik serve as an LDAP directory for apps that can\'t use OIDC (e.g. TrueNAS).', without: 'TrueNAS and legacy LDAP-only apps cannot authenticate.', ramMb: 256,  defaultOn: false },
+  { key: 'ENABLE_WAZUH',          slug: 'wazuh',           name: 'Wazuh SIEM',            icon: '🚨', category: 'security',     description: 'Full SIEM platform — security event collection, intrusion detection, compliance reporting.', without: 'No centralized security event monitoring.', ramMb: 4000, defaultOn: false },
+  // Observability
+  { key: 'ENABLE_MONITORING',     slug: 'monitoring',      name: 'Prometheus Monitoring', icon: '📊', category: 'observability', description: 'Prometheus + Alertmanager + kube-state-metrics — powers the console metrics dashboard.', without: 'Console metrics and alert tabs will show as unavailable.', ramMb: 700,  defaultOn: true  },
+  { key: 'ENABLE_LOKI',           slug: 'loki',            name: 'Loki Log Aggregation',  icon: '📋', category: 'observability', description: 'Collects and stores pod logs for the console log-analytics tab.', without: 'Console log tab unavailable. kubectl logs still work.', ramMb: 1000, defaultOn: true  },
+  { key: 'ENABLE_GRAFANA',        slug: 'grafana',         name: 'Standalone Grafana',    icon: '📈', category: 'observability', description: 'Grafana with pre-built dashboards for custom metric visualisation.', without: 'Console has its own charts — Grafana is purely for custom dashboards.', ramMb: 512,  defaultOn: false },
+  // Networking
+  { key: 'ENABLE_NETBIRD',        slug: 'netbird',         name: 'NetBird VPN',           icon: '🌐', category: 'networking',   description: 'Zero-trust WireGuard mesh — secure access to the cluster from anywhere without port forwarding.', without: 'Remote access requires a traditional VPN or direct LAN only.', ramMb: 256,  defaultOn: true  },
+  { key: 'ENABLE_EXTERNAL_DNS',   slug: 'external-dns',    name: 'External DNS',          icon: '🌍', category: 'networking',   description: 'Auto-creates DNS records in Cloudflare/Route53 when ingresses are created.', without: 'DNS records must be created manually.', ramMb: 64,   defaultOn: false },
+]
+
+const CATEGORY_ORDER: OptionalFeature['category'][] = ['storage', 'security', 'observability', 'networking']
+const CATEGORY_LABELS: Record<OptionalFeature['category'], string> = {
+  storage:      '💾 Storage',
+  security:     '🛡️ Security',
+  observability:'📊 Observability',
+  networking:   '🌐 Networking',
+}
+
+const CORE_RAM_MB = CORE_APPS.reduce((sum, app) => sum + app.ramMb, 0)
+// Rough k8s overhead (kubelet, kube-proxy, coredns, etc.)
+const K8S_OVERHEAD_MB = 768
+const TOTAL_FIXED_MB = CORE_RAM_MB + K8S_OVERHEAD_MB
+
+const backupOptions: Array<{ value: BackupProvider; title: string; ramMb: number; copy: string }> = [
+  { value: 'none',    title: 'None',             ramMb: 0,   copy: 'No automated backups.' },
+  { value: 'longhorn',title: 'Longhorn',         ramMb: 0,   copy: 'Block-level PVC backup to TrueNAS/NFS — included in Longhorn above.' },
+  { value: 'velero',  title: 'Velero',           ramMb: 256, copy: 'Kubernetes object backup to MinIO S3 — captures cluster state.' },
+  { value: 'both',    title: 'Longhorn + Velero', ramMb: 256, copy: 'Maximum coverage: block-level data + full cluster state.' },
+]
+
+// ── Sub-components ────────────────────────────────────────────────────────────
+
+function Toggle({ checked, onChange }: { checked: boolean; onChange: () => void }) {
   return (
-    <div className={`rounded-2xl border p-4 ${app.required ? 'border-[rgba(87,163,0,0.2)] bg-[rgba(87,163,0,0.08)] opacity-80' : 'border-white/8 bg-black/20'}`}>
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex items-start gap-4">
-          <div className="text-3xl">{app.icon}</div>
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="text-sm font-semibold text-white">{app.name}</div>
-              <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] text-[var(--az-text-secondary)]">
-                {categoryLabels[app.category]}
-              </span>
-              <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] text-[var(--az-text-secondary)]">
-                ~{app.ramMb} MB RAM
-              </span>
-            </div>
-            <p className="mt-2 text-sm leading-6 text-[var(--az-text-secondary)]">{app.description}</p>
+    <button
+      type="button"
+      onClick={onChange}
+      aria-checked={checked}
+      role="switch"
+      className={`relative h-7 w-[52px] shrink-0 rounded-full border transition-all duration-200 ${
+        checked ? 'border-[rgba(0,120,212,0.65)] bg-[rgba(0,120,212,0.3)]' : 'border-white/10 bg-white/8'
+      }`}
+    >
+      <span
+        className={`absolute top-0.5 h-[22px] w-[22px] rounded-full bg-white shadow-sm transition-all duration-200 ${
+          checked ? 'left-[28px]' : 'left-0.5'
+        }`}
+      />
+    </button>
+  )
+}
+
+function RamPill({ mb, dim }: { mb: number; dim?: boolean }) {
+  const label = mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${mb} MB`
+  return (
+    <span className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition-opacity ${dim ? 'border-white/5 text-white/20 opacity-50' : 'border-white/10 bg-white/5 text-[var(--az-text-secondary)]'}`}>
+      ~{label}
+    </span>
+  )
+}
+
+// ── RAM Meter ────────────────────────────────────────────────────────────────
+
+function RamMeter({ totalMb, optionalMb, breakdown }: { totalMb: number; optionalMb: number; breakdown: Array<{ name: string; mb: number; color: string }> }) {
+  const ceilingMb = Math.max(totalMb * 1.15, 32768) // show at least 32 GB ceiling
+  const fixedPct  = (TOTAL_FIXED_MB / ceilingMb) * 100
+  const optPct    = (optionalMb      / ceilingMb) * 100
+
+  const color = totalMb < 10240 ? 'var(--az-success)' : totalMb < 18432 ? '#f59e0b' : '#ef4444'
+  const colorClass = totalMb < 10240 ? 'text-[var(--az-success)]' : totalMb < 18432 ? 'text-amber-400' : 'text-red-400'
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-[0.28em] text-[var(--az-primary)]">Expected RAM usage</div>
+          <div className={`mt-1 text-3xl font-semibold tabular-nums transition-colors ${colorClass}`}>
+            {(totalMb / 1024).toFixed(1)} GB
+          </div>
+          <div className="mt-1 text-sm text-[var(--az-text-secondary)]">
+            {(TOTAL_FIXED_MB / 1024).toFixed(1)} GB core &nbsp;+&nbsp; {(optionalMb / 1024).toFixed(1)} GB optional
           </div>
         </div>
-        {action}
+        <div className="flex flex-wrap gap-2">
+          <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-[var(--az-text-secondary)]">
+            Core (fixed)  {(TOTAL_FIXED_MB / 1024).toFixed(1)} GB
+          </span>
+          <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-[var(--az-text-secondary)]">
+            Optional  {(optionalMb / 1024).toFixed(1)} GB
+          </span>
+        </div>
+      </div>
+
+      {/* Bar */}
+      <div className="h-4 w-full overflow-hidden rounded-full bg-white/5">
+        <div className="flex h-full">
+          <motion.div
+            className="h-full rounded-l-full bg-white/20"
+            animate={{ width: `${fixedPct}%` }}
+            transition={{ type: 'spring', stiffness: 120, damping: 20 }}
+          />
+          <motion.div
+            className="h-full"
+            style={{ backgroundColor: color, opacity: 0.7 }}
+            animate={{ width: `${optPct}%` }}
+            transition={{ type: 'spring', stiffness: 120, damping: 20 }}
+          />
+        </div>
+      </div>
+
+      {/* Breakdown chips */}
+      <div className="flex flex-wrap gap-2">
+        {breakdown.map((item) => (
+          <span key={item.name} className="flex items-center gap-1.5 rounded-full border border-white/8 bg-white/5 px-2.5 py-1 text-[11px] text-[var(--az-text-secondary)]">
+            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: item.color }} />
+            {item.name} {item.mb >= 1024 ? `${(item.mb / 1024).toFixed(1)}GB` : `${item.mb}MB`}
+          </span>
+        ))}
       </div>
     </div>
   )
 }
 
+// ── Main component ────────────────────────────────────────────────────────────
+
 export function FeaturesStep() {
-  const data = useWizardStore((state) => state.data)
-  const localIpRanges = useWizardStore((state) => state.localIpRanges)
-  const vpnOnly = useWizardStore((state) => state.vpnOnly)
-  const loading = useWizardStore((state) => state.loading)
-  const setField = useWizardStore((state) => state.setField)
-  const addLocalIpRange = useWizardStore((state) => state.addLocalIpRange)
+  const data             = useWizardStore((state) => state.data)
+  const localIpRanges    = useWizardStore((state) => state.localIpRanges)
+  const vpnOnly          = useWizardStore((state) => state.vpnOnly)
+  const loading          = useWizardStore((state) => state.loading)
+  const setField         = useWizardStore((state) => state.setField)
+  const addLocalIpRange  = useWizardStore((state) => state.addLocalIpRange)
   const updateLocalIpRange = useWizardStore((state) => state.updateLocalIpRange)
   const removeLocalIpRange = useWizardStore((state) => state.removeLocalIpRange)
-  const setVpnOnly = useWizardStore((state) => state.setVpnOnly)
+  const setVpnOnly       = useWizardStore((state) => state.setVpnOnly)
   const mergeDetectedSubnets = useWizardStore((state) => state.mergeDetectedSubnets)
-  const setLoading = useWizardStore((state) => state.setLoading)
+  const setLoading       = useWizardStore((state) => state.setLoading)
 
-  const coreApps = useMemo<CatalogApp[]>(
-    () => [
-      { key: null, slug: 'argocd', name: 'ArgoCD', category: 'core', description: 'Core GitOps engine for syncing the platform.', ramMb: 512, cpuM: 300, icon: '🔄', enabled: true, required: true },
-      { key: null, slug: 'openbao', name: 'OpenBao', category: 'security', description: 'Secrets vault used for local platform secret management.', ramMb: 256, cpuM: 200, icon: '🔐', enabled: true, required: true },
-      { key: null, slug: 'external-secrets', name: 'External Secrets', category: 'security', description: 'Synchronizes secrets into workloads after bootstrap.', ramMb: 128, cpuM: 100, icon: '🔑', enabled: true, required: true },
-      { key: null, slug: 'traefik', name: 'Traefik', category: 'networking', description: 'Ingress edge router for every service endpoint.', ramMb: 128, cpuM: 100, icon: '🔀', enabled: true, required: true },
-      { key: null, slug: 'metallb', name: 'MetalLB', category: 'networking', description: 'Bare-metal load balancer for VIP allocation.', ramMb: 64, cpuM: 50, icon: '⚖️', enabled: true, required: true },
-      { key: null, slug: 'cert-manager', name: 'cert-manager', category: 'security', description: 'Automates ACME and internal certificate issuance.', ramMb: 128, cpuM: 100, icon: '🔒', enabled: true, required: true },
-      { key: null, slug: 'longhorn', name: 'Longhorn', category: 'storage', description: 'Distributed block storage for stateful platform apps.', ramMb: 512, cpuM: 300, icon: '💾', enabled: true, required: true },
-      { key: null, slug: 'onedev', name: 'Onedev', category: 'dev', description: 'Local Git, CI, and delivery control plane.', ramMb: 1024, cpuM: 500, icon: '📦', enabled: true, required: true },
-      { key: null, slug: 'authentik', name: 'Authentik', category: 'security', description: 'SSO and identity provider for the platform.', ramMb: 512, cpuM: 250, icon: '👤', enabled: true, required: true },
-    ],
+  // Compute RAM for each optional feature currently enabled
+  const optionalRamMb = useMemo(() => {
+    let total = 0
+    for (const feat of OPTIONAL_FEATURES) {
+      const enabled = Boolean(data[feat.key])
+      if (!enabled) continue
+      // Monitoring: swap RAM if using victoria-metrics
+      if (feat.slug === 'monitoring' && data.MONITORING_STACK === 'victoria-metrics') {
+        total += 320
+      } else {
+        total += feat.ramMb
+      }
+    }
+    // Velero add-on
+    const backupOpt = backupOptions.find((b) => b.value === data.BACKUP_PROVIDER)
+    if (backupOpt) total += backupOpt.ramMb
+    return total
+  }, [data])
+
+  const totalRamMb = TOTAL_FIXED_MB + optionalRamMb
+
+  // Build breakdown chips for meter
+  const breakdown = useMemo(() => {
+    const chips: Array<{ name: string; mb: number; color: string }> = [
+      { name: 'Core', mb: TOTAL_FIXED_MB, color: 'rgba(255,255,255,0.3)' },
+    ]
+    const optColors: Record<OptionalFeature['category'], string> = {
+      storage: '#10b981', security: '#8b5cf6', observability: '#0078d4', networking: '#f59e0b',
+    }
+    for (const feat of OPTIONAL_FEATURES) {
+      if (!data[feat.key]) continue
+      const mb = feat.slug === 'monitoring' && data.MONITORING_STACK === 'victoria-metrics' ? 320 : feat.ramMb
+      chips.push({ name: feat.name.split(' ')[0], mb, color: optColors[feat.category] })
+    }
+    const backupOpt = backupOptions.find((b) => b.value === data.BACKUP_PROVIDER)
+    if (backupOpt && backupOpt.ramMb > 0) chips.push({ name: 'Velero', mb: backupOpt.ramMb, color: '#10b981' })
+    return chips
+  }, [data])
+
+  const groupedFeatures = useMemo(() =>
+    CATEGORY_ORDER.map((cat) => ({
+      category: cat,
+      features: OPTIONAL_FEATURES.filter((f) => f.category === cat),
+    })),
     [],
-  )
-
-  const optionalApps = useMemo<CatalogApp[]>(
-    () => [
-      { key: 'ENABLE_NETBIRD', slug: 'netbird', name: 'NetBird VPN', category: 'networking', description: 'Secure operator and service access over mesh VPN.', ramMb: 256, cpuM: 150, icon: '🌐', enabled: data.ENABLE_NETBIRD, required: false },
-      { key: 'ENABLE_MONITORING', slug: 'monitoring', name: 'Grafana + monitoring stack', category: 'observability', description: 'Prometheus, Grafana, Alertmanager, and service monitors.', ramMb: 512, cpuM: 250, icon: '📊', enabled: data.ENABLE_MONITORING, required: false },
-      { key: 'ENABLE_EXTERNAL_DNS', slug: 'external-dns', name: 'External DNS', category: 'networking', description: 'Writes ingress records to your DNS provider during sync.', ramMb: 64, cpuM: 50, icon: '🌍', enabled: data.ENABLE_EXTERNAL_DNS, required: false },
-      { key: null, slug: 'backups', name: 'Backups', category: 'storage', description: 'Enable Longhorn, Velero, or both for backup workflows.', ramMb: 256, cpuM: 200, icon: '💾', enabled: data.BACKUP_PROVIDER !== 'none', required: false },
-    ],
-    [data.BACKUP_PROVIDER, data.ENABLE_EXTERNAL_DNS, data.ENABLE_MONITORING, data.ENABLE_NETBIRD],
-  )
-
-  const enabledOptionalRamMb = useMemo(
-    () => optionalApps.filter((app) => app.enabled).reduce((sum, app) => sum + app.ramMb, 0),
-    [optionalApps],
   )
 
   const handleDetectSubnets = async () => {
     setLoading('detectSubnets', true)
     try {
       const result = await detectSubnet()
-      if (result.ok && result.subnets?.length) {
-        mergeDetectedSubnets(result.subnets)
-      }
+      if (result.ok && result.subnets?.length) mergeDetectedSubnets(result.subnets)
     } finally {
       setLoading('detectSubnets', false)
     }
-  }
-
-  const toggleOptional = (app: CatalogApp) => {
-    if (app.slug === 'backups') {
-      setField('BACKUP_PROVIDER', app.enabled ? 'none' : 'longhorn')
-      return
-    }
-    if (app.key) setField(app.key, !app.enabled as never)
   }
 
   return (
@@ -133,103 +252,160 @@ export function FeaturesStep() {
       <StepHeader
         icon={Settings2}
         eyebrow="Step 7 of 8"
-        title="Feature catalog and access policy"
-        description="Review the full platform catalog, enable optional services with clear resource budgets, and keep local-network access rules close to the feature plan."
+        title="Feature catalog and resource budget"
+        description="Toggle optional features and see your expected RAM usage update in real time. Core platform apps are always installed."
       />
 
+      {/* ── RAM Budget Meter ── */}
       <GlassCard className="p-6">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <div className="text-xs font-semibold uppercase tracking-[0.28em] text-[var(--az-primary)]">Optional feature budget</div>
-            <div className="mt-2 text-2xl font-semibold text-white">{(enabledOptionalRamMb / 1024).toFixed(1)} GB RAM total for enabled optional features</div>
-          </div>
-          <div className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-[var(--az-text-secondary)]">
-            {optionalApps.filter((app) => app.enabled).length} / {optionalApps.length} optional features enabled
-          </div>
-        </div>
+        <RamMeter totalMb={totalRamMb} optionalMb={optionalRamMb} breakdown={breakdown} />
       </GlassCard>
 
-      <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+      {/* ── Core + Optional side by side ── */}
+      <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+
+        {/* Core apps — always on */}
         <GlassCard className="p-6">
           <div className="mb-5 flex items-center gap-3">
             <Lock className="h-5 w-5 text-[var(--az-success)]" />
             <div>
-              <div className="text-lg font-semibold text-white">✅ Core Platform (always installed)</div>
-              <div className="text-sm text-[var(--az-text-secondary)]">These apps ship with every InfraWeaver cluster and are shown here for transparency.</div>
+              <div className="text-base font-semibold text-white">Core Platform</div>
+              <div className="text-sm text-[var(--az-text-secondary)]">Always installed — these cannot be disabled.</div>
             </div>
           </div>
-
-          <div className="space-y-4">
-            {coreApps.map((app) => (
-              <CatalogCard
-                key={app.slug}
-                app={app}
-                action={<span className="inline-flex items-center gap-2 rounded-full border border-[rgba(87,163,0,0.3)] bg-[rgba(87,163,0,0.12)] px-3 py-1 text-xs text-[var(--az-success)]"><Lock className="h-3.5 w-3.5" /> Included</span>}
-              />
+          <div className="space-y-3">
+            {CORE_APPS.map((app) => (
+              <div key={app.slug} className="flex items-center justify-between gap-4 rounded-2xl border border-[rgba(87,163,0,0.15)] bg-[rgba(87,163,0,0.06)] px-4 py-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <span className="text-xl">{app.icon}</span>
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-white">{app.name}</div>
+                    <div className="truncate text-xs text-[var(--az-text-secondary)]">{app.description}</div>
+                  </div>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <RamPill mb={app.ramMb} />
+                  <span className="rounded-full border border-[rgba(87,163,0,0.35)] bg-[rgba(87,163,0,0.12)] px-2.5 py-1 text-[11px] text-[var(--az-success)]">Included</span>
+                </div>
+              </div>
             ))}
           </div>
         </GlassCard>
 
+        {/* Optional features */}
         <GlassCard className="p-6">
           <div className="mb-5">
-            <div className="text-lg font-semibold text-white">🎛️ Optional Features</div>
-            <div className="mt-1 text-sm text-[var(--az-text-secondary)]">Turn add-ons on and off without leaving the catalog view.</div>
+            <div className="text-base font-semibold text-white">Optional Features</div>
+            <div className="mt-1 text-sm text-[var(--az-text-secondary)]">Toggle on/off — RAM budget updates instantly.</div>
           </div>
 
-          <div className="space-y-4">
-            {optionalApps.map((app) => (
-              <div key={app.slug} className="space-y-3">
-                <CatalogCard
-                  app={app}
-                  action={
-                    <ActionButton variant={app.enabled ? 'primary' : 'secondary'} onClick={() => toggleOptional(app)} className="min-w-24">
-                      {app.enabled ? 'Enabled' : 'Enable'}
-                    </ActionButton>
-                  }
-                />
+          <div className="space-y-6">
+            {groupedFeatures.map(({ category, features }) => (
+              <div key={category}>
+                <div className="mb-3 text-xs font-semibold uppercase tracking-[0.22em] text-[var(--az-text-secondary)]">
+                  {CATEGORY_LABELS[category]}
+                </div>
+                <div className="space-y-3">
+                  {features.map((feat) => {
+                    const enabled = Boolean(data[feat.key])
+                    return (
+                      <div key={feat.slug} className="space-y-0">
+                        <div className={`rounded-2xl border p-4 transition-all duration-200 ${enabled ? 'border-[rgba(0,120,212,0.3)] bg-[rgba(0,120,212,0.08)]' : 'border-white/8 bg-black/20'}`}>
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="flex items-start gap-3 min-w-0">
+                              <span className="mt-0.5 text-xl">{feat.icon}</span>
+                              <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="text-sm font-medium text-white">{feat.name}</span>
+                                  <RamPill mb={feat.slug === 'monitoring' && data.MONITORING_STACK === 'victoria-metrics' ? 320 : feat.ramMb} dim={!enabled} />
+                                </div>
+                                <p className="mt-1.5 text-xs leading-5 text-[var(--az-text-secondary)]">{feat.description}</p>
+                                <AnimatePresence>
+                                  {!enabled && (
+                                    <motion.p
+                                      initial={{ opacity: 0, height: 0, marginTop: 0 }}
+                                      animate={{ opacity: 1, height: 'auto', marginTop: 4 }}
+                                      exit={{ opacity: 0, height: 0, marginTop: 0 }}
+                                      transition={{ duration: 0.18 }}
+                                      className="overflow-hidden text-xs text-amber-400/70"
+                                    >
+                                      ⚠️ {feat.without}
+                                    </motion.p>
+                                  )}
+                                </AnimatePresence>
+                              </div>
+                            </div>
+                            <Toggle checked={enabled} onChange={() => setField(feat.key, !enabled as never)} />
+                          </div>
 
-                {app.slug === 'backups' && app.enabled ? (
-                  <div className="rounded-2xl border border-white/8 bg-black/20 p-4">
-                    <div className="text-sm font-medium text-white">Backup provider</div>
-                    <p className="mt-1 text-sm leading-6 text-[var(--az-text-secondary)]">Choose how persistent data and cluster state are protected after bootstrap.</p>
-                    <div className="mt-4 grid gap-3 md:grid-cols-2">
-                      {backupOptions.filter((option) => option.value !== 'none').map((option) => (
-                        <label
-                          key={option.value}
-                          className={`cursor-pointer rounded-2xl border p-4 transition ${data.BACKUP_PROVIDER === option.value ? 'border-[rgba(0,120,212,0.5)] bg-[rgba(0,120,212,0.12)]' : 'border-white/10 bg-white/5 hover:border-white/20'}`}
-                        >
-                          <input
-                            type="radio"
-                            name="backup-provider"
-                            checked={data.BACKUP_PROVIDER === option.value}
-                            onChange={() => setField('BACKUP_PROVIDER', option.value)}
-                            className="sr-only"
-                          />
-                          <div className="text-sm font-medium text-white">{option.title}</div>
-                          <div className="mt-2 text-sm leading-6 text-[var(--az-text-secondary)]">{option.copy}</div>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
+                          {/* Monitoring stack picker */}
+                          <AnimatePresence>
+                            {feat.slug === 'monitoring' && enabled && (
+                              <motion.div
+                                initial={{ opacity: 0, height: 0 }}
+                                animate={{ opacity: 1, height: 'auto' }}
+                                exit={{ opacity: 0, height: 0 }}
+                                transition={{ duration: 0.2 }}
+                                className="overflow-hidden"
+                              >
+                                <div className="mt-4 grid grid-cols-2 gap-2">
+                                  {([ ['kube-prometheus-stack', '🏋️', 'Prometheus Stack', '700 MB', 'Full-featured: Prometheus + kube-state-metrics + node-exporter'], ['victoria-metrics', '🪶', 'VictoriaMetrics', '320 MB', 'Lightweight drop-in replacement, PromQL compatible'] ] as const).map(([val, icon, label, ram, desc]) => (
+                                    <label key={val} className={`cursor-pointer rounded-xl border p-3 transition ${data.MONITORING_STACK === val ? 'border-[rgba(0,120,212,0.5)] bg-[rgba(0,120,212,0.12)]' : 'border-white/10 bg-white/5 hover:border-white/20'}`}>
+                                      <input type="radio" className="sr-only" name="monitoring-stack" checked={data.MONITORING_STACK === val} onChange={() => setField('MONITORING_STACK', val as MonitoringStack)} />
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-base">{icon}</span>
+                                        <span className="text-xs font-semibold text-white">{label}</span>
+                                        <span className="ml-auto rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] text-[var(--az-text-secondary)]">{ram}</span>
+                                      </div>
+                                      <p className="mt-1.5 text-[11px] leading-4 text-[var(--az-text-secondary)]">{desc}</p>
+                                    </label>
+                                  ))}
+                                </div>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
               </div>
             ))}
           </div>
         </GlassCard>
       </div>
 
+      {/* ── Backup provider ── */}
+      <GlassCard className="p-6">
+        <div className="mb-4 text-base font-semibold text-white">💾 Backup Provider</div>
+        <p className="mb-4 text-sm leading-6 text-[var(--az-text-secondary)]">Choose how persistent data and cluster state are protected. Longhorn NFS backup is configured via <code className="rounded bg-white/8 px-1 text-xs">persistence.truenas</code> in platform.yaml.</p>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {backupOptions.map((option) => (
+            <label key={option.value} className={`cursor-pointer rounded-2xl border p-4 transition ${data.BACKUP_PROVIDER === option.value ? 'border-[rgba(0,120,212,0.5)] bg-[rgba(0,120,212,0.12)]' : 'border-white/10 bg-white/5 hover:border-white/20'}`}>
+              <input type="radio" name="backup-provider" className="sr-only" checked={data.BACKUP_PROVIDER === option.value} onChange={() => setField('BACKUP_PROVIDER', option.value)} />
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-medium text-white">{option.title}</div>
+                {option.ramMb > 0 && <RamPill mb={option.ramMb} />}
+              </div>
+              <div className="mt-2 text-xs leading-5 text-[var(--az-text-secondary)]">{option.copy}</div>
+            </label>
+          ))}
+        </div>
+      </GlassCard>
+
+      {/* ── Local network access ── */}
       <GlassCard className="p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <div className="flex items-center gap-2 text-lg font-semibold text-white">
+            <div className="flex items-center gap-2 text-base font-semibold text-white">
               <Wifi className="h-5 w-5 text-[var(--az-primary)]" />
               Local network access
             </div>
-            <p className="mt-1 text-sm leading-6 text-[var(--az-text-secondary)]">Define LAN CIDR ranges that may access internal services. System and cluster ranges are still appended automatically at deploy time.</p>
+            <p className="mt-1 text-sm leading-6 text-[var(--az-text-secondary)]">Define LAN CIDR ranges that may access internal services. System and cluster ranges are appended automatically.</p>
           </div>
           <ActionButton variant="secondary" onClick={handleDetectSubnets} disabled={loading.detectSubnets}>
             {loading.detectSubnets ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Shield className="h-4 w-4" />}
-            🔍 Auto-detect
+            Auto-detect
           </ActionButton>
         </div>
 
@@ -237,15 +413,9 @@ export function FeaturesStep() {
           <div className="flex items-start justify-between gap-4">
             <div>
               <div className="text-sm font-medium text-white">VPN-only mode</div>
-              <p className="mt-1 text-sm leading-6 text-[var(--az-text-secondary)]">Require NetBird for all internal services and disable direct LAN access.</p>
+              <p className="mt-1 text-sm leading-6 text-[var(--az-text-secondary)]">Require NetBird for all internal services — disable direct LAN access.</p>
             </div>
-            <button
-              type="button"
-              onClick={() => setVpnOnly(!vpnOnly)}
-              className={`relative h-7 w-[52px] rounded-full border transition ${vpnOnly ? 'border-[rgba(0,120,212,0.65)] bg-[rgba(0,120,212,0.3)]' : 'border-white/10 bg-white/8'}`}
-            >
-              <span className={`absolute top-0.5 h-[22px] w-[22px] rounded-full bg-white transition ${vpnOnly ? 'left-[28px]' : 'left-0.5'}`} />
-            </button>
+            <Toggle checked={vpnOnly} onChange={() => setVpnOnly(!vpnOnly)} />
           </div>
         </div>
 
@@ -253,12 +423,7 @@ export function FeaturesStep() {
           {localIpRanges.map((range, index) => (
             <div key={`${index}-${range}`} className="flex items-start gap-3 rounded-2xl border border-white/8 bg-black/20 p-3">
               <div className="flex-1">
-                <input
-                  value={range}
-                  onChange={(event) => updateLocalIpRange(index, event.target.value)}
-                  placeholder="192.168.1.0/24"
-                  className={controlClassName}
-                />
+                <input value={range} onChange={(event) => updateLocalIpRange(index, event.target.value)} placeholder="192.168.1.0/24" className={controlClassName} />
                 {range && !isCIDR(range) ? <p className="mt-2 text-xs text-[var(--az-danger)]">Enter a valid CIDR range such as 192.168.1.0/24.</p> : null}
               </div>
               <ActionButton variant="ghost" onClick={() => removeLocalIpRange(index)} className="mt-1 px-3 py-3">
@@ -268,7 +433,7 @@ export function FeaturesStep() {
           ))}
         </div>
 
-        <div className="mt-4 flex flex-wrap gap-3">
+        <div className="mt-4">
           <ActionButton variant="secondary" onClick={addLocalIpRange} disabled={vpnOnly}>
             <Plus className="h-4 w-4" />
             Add range
@@ -276,43 +441,33 @@ export function FeaturesStep() {
         </div>
       </GlassCard>
 
+      {/* ── Restore ── */}
       <GlassCard className="p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <div className="flex items-center gap-2 text-lg font-semibold text-white">
+            <div className="flex items-center gap-2 text-base font-semibold text-white">
               <RefreshCw className="h-5 w-5 text-[var(--az-primary)]" />
               Restore previous deployment
             </div>
             <p className="mt-1 text-sm leading-6 text-[var(--az-text-secondary)]">
-              Restore application data and TLS certificates from TrueNAS NFS backups before services start. Adds a
-              dedicated restore step before deploy where you select exactly what to bring back.
+              Restore application data and TLS certificates from TrueNAS NFS backups before services start.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => setField('RESTORE_ENABLED', !data.RESTORE_ENABLED)}
-            className={`relative h-7 w-[52px] rounded-full border transition ${
-              data.RESTORE_ENABLED
-                ? 'border-[rgba(0,120,212,0.65)] bg-[rgba(0,120,212,0.3)]'
-                : 'border-white/10 bg-white/8'
-            }`}
-          >
-            <span
-              className={`absolute top-0.5 h-[22px] w-[22px] rounded-full bg-white transition ${
-                data.RESTORE_ENABLED ? 'left-[28px]' : 'left-0.5'
-              }`}
-            />
-          </button>
+          <Toggle checked={Boolean(data.RESTORE_ENABLED)} onChange={() => setField('RESTORE_ENABLED', !data.RESTORE_ENABLED)} />
         </div>
-        {data.RESTORE_ENABLED && (
-          <div className="mt-4 rounded-2xl border border-[rgba(0,120,212,0.3)] bg-[rgba(0,120,212,0.08)] p-4">
-            <p className="text-sm text-[var(--az-primary)]">
-              ✅ A <strong>Restore</strong> step will appear before <strong>Review &amp; Deploy</strong> — you can select
-              which data volumes and TLS certs to restore.
-            </p>
-          </div>
-        )}
+        <AnimatePresence>
+          {data.RESTORE_ENABLED && (
+            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
+              <div className="mt-4 rounded-2xl border border-[rgba(0,120,212,0.3)] bg-[rgba(0,120,212,0.08)] p-4">
+                <p className="text-sm text-[var(--az-primary)]">
+                  ✅ A <strong>Restore</strong> step will appear before <strong>Review &amp; Deploy</strong> — select which volumes and TLS certs to restore.
+                </p>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </GlassCard>
     </motion.div>
   )
 }
+
