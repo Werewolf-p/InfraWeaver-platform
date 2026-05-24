@@ -367,3 +367,27 @@ export async function deployStream(
     body: JSON.stringify({ mode }),
   }, onEvent)
 }
+
+export interface TlsBackupItem {
+  name: string
+  file: string
+  size_bytes: number
+  modified_at: string
+}
+
+export interface PvcVolumeItem {
+  name: string
+  label: string
+  icon: string
+}
+
+export interface ListBackupsResponse {
+  ok: boolean
+  tls_backups?: TlsBackupItem[]
+  pvc_volumes?: PvcVolumeItem[]
+  error?: string
+}
+
+export async function listBackups() {
+  return fetchJson<ListBackupsResponse>('/api/list-backups', { method: 'GET', headers: {} })
+}

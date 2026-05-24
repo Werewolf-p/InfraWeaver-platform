@@ -87,6 +87,9 @@ export interface WizardData {
   ENABLE_MONITORING: boolean
   ENABLE_EXTERNAL_DNS: boolean
   BACKUP_PROVIDER: BackupProvider
+  RESTORE_ENABLED: boolean
+  RESTORE_TLS: boolean
+  RESTORE_VOLUMES: string
 }
 
 const vipPingFields = [
@@ -195,6 +198,9 @@ export const initialWizardData: WizardData = {
   ENABLE_MONITORING: true,
   ENABLE_EXTERNAL_DNS: false,
   BACKUP_PROVIDER: 'longhorn',
+  RESTORE_ENABLED: false,
+  RESTORE_TLS: false,
+  RESTORE_VOLUMES: '',
 }
 
 export const initialNodes: NodeConfig[] = [
@@ -452,6 +458,9 @@ const buildPresetFields = (preset: PresetType): Partial<WizardData> => {
     ENABLE_NETBIRD: true,
     ENABLE_EXTERNAL_DNS: false,
     BACKUP_PROVIDER: 'longhorn',
+  RESTORE_ENABLED: false,
+  RESTORE_TLS: false,
+  RESTORE_VOLUMES: '',
   }
 }
 
@@ -626,6 +635,8 @@ export const useWizardStore = create<WizardStore>()(
             if (key === 'ENABLE_NETBIRD') nextData.ENABLE_NETBIRD = parseBoolean(value)
             else if (key === 'ENABLE_MONITORING') nextData.ENABLE_MONITORING = parseBoolean(value)
             else if (key === 'ENABLE_EXTERNAL_DNS') nextData.ENABLE_EXTERNAL_DNS = parseBoolean(value)
+            else if (key === 'RESTORE_ENABLED') nextData.RESTORE_ENABLED = parseBoolean(value)
+            else if (key === 'RESTORE_TLS') nextData.RESTORE_TLS = parseBoolean(value)
             else if (key === 'BACKUP_PROVIDER') nextData.BACKUP_PROVIDER = value as BackupProvider
             else if (key === 'DNS_PROVIDER') nextData.DNS_PROVIDER = value as DnsProvider
             else if (key === 'LOCAL_IP_RANGES') {

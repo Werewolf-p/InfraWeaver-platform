@@ -549,6 +549,18 @@ helm --kubeconfig "$KB_FILE" upgrade --install longhorn longhorn/longhorn \
 kubectl --kubeconfig "$KB_FILE" apply -f kubernetes/core/longhorn/manifests/ 2>/dev/null || true
 ok "Step 7b: Longhorn deployed"
 
+# ── Step 7c: Restore volumes / TLS certs (if RESTORE_ENABLED=true) ───────────
+if [[ "${RESTORE_ENABLED:-false}" == "true" ]]; then
+  log "Step 7c: Restoring from backup (RESTORE_ENABLED=true)..."
+  KB_FILE="$KB_FILE" ENV_NAME="$ENV_NAME" \
+  RESTORE_TLS="${RESTORE_TLS:-false}" \
+  RESTORE_VOLUMES="${RESTORE_VOLUMES:-}" \
+    bash scripts/deploy/restore-volumes.sh
+  ok "Step 7c: Restore complete"
+else
+  log "Step 7c: Skipping restore (RESTORE_ENABLED=false)"
+fi
+
 echo "STAGE:bootstrap"
 # ── Step 8: Deploy OpenBao directly + Bootstrap ───────────────────────────────
 log "Step 8: Deploying OpenBao directly via Helm + bootstrapping..."

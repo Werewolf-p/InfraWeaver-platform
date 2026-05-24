@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import {
+import { RotateCcw,
   BarChart3,
   Boxes,
   Globe,
@@ -24,6 +24,7 @@ import { FeaturesStep } from '@/components/steps/FeaturesStep'
 import { IdentityStep } from '@/components/steps/IdentityStep'
 import { ProxmoxStep } from '@/components/steps/ProxmoxStep'
 import { WelcomeStep } from '@/components/steps/WelcomeStep'
+import { RestoreStep } from '@/components/steps/RestoreStep'
 import { connectDeployEvents, getStatus, loadEnv, selfUpdate, type DeployEvent } from '@/lib/api'
 import { initialDeployStages, initialWizardData, isWizardDataPristine, useWizardStore } from '@/lib/store'
 import { classifyLog, isCIDR, isDomain, isEmail, isIPv4, isPositiveInteger } from '@/lib/utils'

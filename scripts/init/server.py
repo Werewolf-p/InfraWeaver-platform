@@ -10,6 +10,7 @@ Environment:
     IW_REPO_DIR   — path to the InfraWeaver repo (default: cwd or /opt/infraweaver)
     IW_PORT       — port to listen on (default: 8080)
 """
+from datetime import datetime
 import http.server
 import json
 import mimetypes
@@ -1584,6 +1585,35 @@ class Handler(http.server.BaseHTTPRequestHandler):
                             pass
                     catalog.append(meta)
             self._send_json({"ok": True, "items": catalog})
+            return
+
+        if path == "/api/list-backups":
+            tls_backups = []
+            backup_dir = Path("/opt/platform-tls-backup")
+            if backup_dir.exists():
+                for backup_file in sorted(backup_dir.glob("*.yaml")):
+                    try:
+                        stat = backup_file.stat()
+                    except OSError:
+                        continue
+                    tls_backups.append({
+                        "name": backup_file.stem,
+                        "file": str(backup_file),
+                        "size_bytes": stat.st_size,
+                        "modified_at": datetime.fromtimestamp(stat.st_mtime).isoformat(timespec="seconds"),
+                    })
+            self._send_json({
+                "ok": True,
+                "tls_backups": tls_backups,
+                "pvc_volumes": [
+                    {"name": "onedev-data", "label": "OneDev", "icon": "🧑‍💻"},
+                    {"name": "vaultwarden-data", "label": "Vaultwarden", "icon": "🔑"},
+                    {"name": "n8n-data", "label": "n8n", "icon": "🔄"},
+                    {"name": "netbird-management-data", "label": "NetBird", "icon": "🌐"},
+                    {"name": "minio-velero-data", "label": "MinIO", "icon": "🪣"},
+                    {"name": "data-wiki-postgresql-0", "label": "Wiki.js", "icon": "📚"},
+                ],
+            })
             return
 
         if path == "/api/get-kubeconfig":
