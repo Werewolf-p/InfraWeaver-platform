@@ -47,6 +47,7 @@ BACKUP_PROVIDER=$(_env_val BACKUP_PROVIDER "longhorn")
 LOCAL_IP_RANGES=$(_env_val LOCAL_IP_RANGES "")
 ENABLE_LONGHORN=$(_env_val ENABLE_LONGHORN "true")
 ENABLE_KYVERNO=$(_env_val ENABLE_KYVERNO "true")
+ENABLE_GRAFANA=$(_env_val ENABLE_GRAFANA "false")
 # MONITORING_STACK: which Prometheus-compatible stack to use when ENABLE_MONITORING=true
 #   kube-prometheus-stack  — default, full-featured, ~600Mi RAM
 #   victoria-metrics       — lightweight PromQL-compatible alternative, ~280Mi RAM
@@ -61,6 +62,7 @@ echo "    BACKUP_PROVIDER=${BACKUP_PROVIDER}"
 echo "    LOCAL_IP_RANGES=${LOCAL_IP_RANGES:-<empty>}"
 echo "    ENABLE_LONGHORN=${ENABLE_LONGHORN}"
 echo "    ENABLE_KYVERNO=${ENABLE_KYVERNO}"
+echo "    ENABLE_GRAFANA=${ENABLE_GRAFANA}"
 
 # ── Helper: update a platform.yaml value using Python ───────────────────────
 _set_platform_flag() {
@@ -381,6 +383,32 @@ _toggle_bootstrap_companion "app-longhorn-manifests.yaml" "$ENABLE_LONGHORN"
 
 _toggle_core_app "kyverno" "$ENABLE_KYVERNO"
 _toggle_bootstrap_companion "core-kyverno-policies.yaml" "$ENABLE_KYVERNO"
+
+# ── 6a-ii. Optional platform apps (kubernetes/platform/) ─────────────────────
+# Same rename toggle as _toggle_core_app but for the platform/ tier.
+_toggle_platform_app() {
+    local app_name="$1" enabled="$2"
+    local app_yaml="${REPO_DIR}/kubernetes/platform/${app_name}/application.yaml"
+    local app_yaml_disabled="${app_yaml}.disabled"
+    if [[ "$enabled" == "false" ]]; then
+        if [[ -f "$app_yaml" ]]; then
+            mv "$app_yaml" "$app_yaml_disabled"
+            echo "  ⏸  platform/${app_name}: disabled (application.yaml → .disabled)"
+        else
+            echo "  ⏭  platform/${app_name}: already disabled"
+        fi
+    else
+        if [[ -f "$app_yaml_disabled" && ! -f "$app_yaml" ]]; then
+            mv "$app_yaml_disabled" "$app_yaml"
+            echo "  ▶  platform/${app_name}: enabled (application.yaml restored)"
+        else
+            echo "  ⏭  platform/${app_name}: already enabled"
+        fi
+    fi
+}
+
+_set_platform_flag "groups.core-platform.apps.grafana.enabled" "$ENABLE_GRAFANA"
+_toggle_platform_app "grafana" "$ENABLE_GRAFANA"
 
 # ── 6b. Monitoring stack selection (kube-prometheus-stack vs victoria-metrics) ─
 # Toggle which monitoring application.yaml is active under kubernetes/monitoring/.

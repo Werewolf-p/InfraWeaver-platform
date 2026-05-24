@@ -167,7 +167,7 @@ INFRA_DEFAULTS = {
 # Feature flag fields — written to .env and read by configure-platform.sh
 FEATURE_ENV_FIELDS = [
     "ENABLE_NETBIRD", "ENABLE_MONITORING", "MONITORING_STACK", "ENABLE_EXTERNAL_DNS", "BACKUP_PROVIDER",
-    "ENABLE_WAZUH", "ENABLE_LONGHORN", "ENABLE_KYVERNO",
+    "ENABLE_WAZUH", "ENABLE_LONGHORN", "ENABLE_KYVERNO", "ENABLE_GRAFANA",
     "LOCAL_IP_RANGES",
 ]
 
@@ -181,6 +181,7 @@ FEATURE_DEFAULTS = {
     "ENABLE_WAZUH": "false",
     "ENABLE_LONGHORN": "true",
     "ENABLE_KYVERNO": "true",
+    "ENABLE_GRAFANA": "false",
     "LOCAL_IP_RANGES": "",
 }
 
