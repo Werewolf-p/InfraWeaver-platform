@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { hasPermission } from "../lib/rbac.js";
 import { onedevGetFile, onedevPutFile } from "../lib/git-provider.js";
+import { getCoreApiForCluster } from "../lib/k8s-client.js";
 import type { AppBindings } from "../types/index.js";
 
 /**
@@ -42,6 +43,9 @@ const ARGOCD_APPS = [
   "catalog-infraweaver-console-manifests",
   "catalog-infraweaver-node-manifests",
 ] as const;
+
+// Namespaces where platform pods run — need ghcr-pull-secret after image migration to ghcr.io
+const PLATFORM_NAMESPACES = ["infraweaver-console", "infraweaver-system"] as const;
 
 // ── GitHub API ────────────────────────────────────────────────────────────────
 
@@ -144,12 +148,12 @@ async function argocdHardRefresh(appName: string): Promise<boolean> {
 function rewriteImageTag(yaml: string, appName: string, newTag: string): string | null {
   // Matches: "image: <any-registry>/<any-path>/infraweaver-{app}:<old-tag>"
   const re = new RegExp(
-    `(\\bimage:\\s*)[^\\s]*/infraweaver-${appName}:[^\\s]+`,
+    `(\\bimage:\\s*)[^\\s]*/${appName}:[^\\s]+`,
     "gm",
   );
   if (!re.test(yaml)) return null;
   const updated = yaml.replace(
-    new RegExp(`(\\bimage:\\s*)[^\\s]*/infraweaver-${appName}:[^\\s]+`, "gm"),
+    new RegExp(`(\\bimage:\\s*)[^\\s]*/${appName}:[^\\s]+`, "gm"),
     `$1ghcr.io/${GHCR_ORG}/infraweaver-${appName}:${newTag}`,
   );
   // Also update APP_VERSION env var if present
@@ -157,6 +161,63 @@ function rewriteImageTag(yaml: string, appName: string, newTag: string): string 
     /(name:\s*APP_VERSION\s*\n\s*value:\s*")[^"]+(")/m,
     `$1${newTag}$2`,
   );
+}
+
+
+// ── ghcr.io pull secret ───────────────────────────────────────────────────────
+
+/**
+ * Creates or updates "ghcr-pull-secret" in all platform namespaces so pods can
+ * pull from ghcr.io/werewolf-p/... after an image-tag update.
+ * No-ops if GITHUB_TOKEN is not set (packages may be public).
+ */
+async function ensureGhcrPullSecret(): Promise<void> {
+  if (!GITHUB_TOKEN) return;
+  const dockerCfg = JSON.stringify({
+    auths: {
+      "ghcr.io": {
+        username: GHCR_ORG,
+        password: GITHUB_TOKEN,
+        auth: Buffer.from(`${GHCR_ORG}:${GITHUB_TOKEN}`).toString("base64"),
+      },
+    },
+  });
+  const encodedCfg = Buffer.from(dockerCfg).toString("base64");
+
+  // Use local in-cluster service account (the API always targets its own cluster)
+  const coreApi = await getCoreApiForCluster("local").catch(() => null);
+  if (!coreApi) return;
+
+  for (const ns of PLATFORM_NAMESPACES) {
+    const body = {
+      apiVersion: "v1" as const,
+      kind: "Secret" as const,
+      metadata: { name: "ghcr-pull-secret", namespace: ns },
+      type: "kubernetes.io/dockerconfigjson",
+      data: { ".dockerconfigjson": encodedCfg },
+    };
+    try {
+      await coreApi.createNamespacedSecret({ namespace: ns, body });
+    } catch (e: unknown) {
+      const code =
+        (e as { statusCode?: number })?.statusCode ??
+        (e as { response?: { statusCode?: number } })?.response?.statusCode;
+      if (code === 409) {
+        // Secret already exists — replace with updated credentials
+        try {
+          await coreApi.replaceNamespacedSecret({
+            name: "ghcr-pull-secret",
+            namespace: ns,
+            body: {
+              ...body,
+              metadata: { name: "ghcr-pull-secret", namespace: ns },
+            },
+          });
+        } catch { /* ignore replace errors */ }
+      }
+      // Other errors: log and continue — pull secret is best-effort
+    }
+  }
 }
 
 // ── Routes ────────────────────────────────────────────────────────────────────
@@ -266,6 +327,9 @@ route.post("/update", async (c) => {
       manifestErrors.push(`${appName}: ${msg}`);
     }
   }
+
+  // Create/update ghcr-pull-secret in platform namespaces (required when migrating from onedev to ghcr.io images)
+  await ensureGhcrPullSecret();
 
   // Hard-refresh all platform ArgoCD apps (fire-and-forget the results)
   const refreshResults = await Promise.allSettled(

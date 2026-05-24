@@ -26,6 +26,9 @@ spec:
         app: infraweaver-node
     spec:
       serviceAccountName: infraweaver-node
+      imagePullSecrets:
+        - name: onedev-pull-secret
+        - name: ghcr-pull-secret
       terminationGracePeriodSeconds: 60
       securityContext:
         runAsNonRoot: true
