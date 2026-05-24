@@ -922,6 +922,48 @@ def _generate_ssh_key() -> Dict:
         return {"ok": False, "error": str(e)}
 
 
+
+def _check_netbird_token(token: str, base_domain: str) -> Dict:
+    import urllib.request
+    import urllib.error
+
+    token = token.strip()
+    base_domain = (base_domain or "").strip().rstrip(".")
+    if not token:
+        return {"ok": False, "error": "No NetBird API token provided"}
+    if not base_domain:
+        return {"ok": False, "error": "BASE_DOMAIN not set — cannot resolve NetBird management URL"}
+
+    management_url = f"https://api-netbird.{base_domain}/api/v1/accounts"
+    req = urllib.request.Request(management_url, headers={"Authorization": f"Token {token}"})
+    try:
+        with urllib.request.urlopen(req, context=_proxmox_context(), timeout=10) as resp:
+            body = json.loads(resp.read())
+        accounts = body if isinstance(body, list) else []
+        account_id = accounts[0].get("id", "unknown") if accounts else "unknown"
+        return {
+            "ok": True,
+            "status": "active",
+            "account_id": account_id,
+            "management_url": management_url,
+        }
+    except urllib.error.HTTPError as exc:
+        status = exc.code
+        try:
+            msg = json.loads(exc.read()).get("message", exc.reason)
+        except Exception:
+            msg = exc.reason
+        if status == 401:
+            return {"ok": False, "error": f"Token rejected (HTTP 401) — check NETBIRD_API_TOKEN at {management_url}"}
+        if status == 403:
+            return {"ok": False, "error": f"Token lacks permissions (HTTP 403) at {management_url}: {msg}"}
+        if status == 404:
+            return {"ok": False, "error": f"NetBird management API not found at {management_url} (HTTP 404) — check BASE_DOMAIN and that NetBird is deployed"}
+        return {"ok": False, "error": f"NetBird API returned HTTP {status}: {msg}"}
+    except Exception as exc:
+        return {"ok": False, "error": f"Cannot reach NetBird management API at {management_url}: {exc}"}
+
+
 def _normalize_dns_provider(provider: str) -> str:
     provider = (provider or "cloudflare").strip().lower()
     return provider if provider in DNS_PROVIDER_FIELDS else "cloudflare"
@@ -1795,6 +1837,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return
             self._send_json(_check_dns_provider(provider, credentials))
             return
+
+        if path == "/api/check-netbird-token":
+            token = str(payload.get("token", "")).strip()
+            base_domain = str(payload.get("base_domain", "")).strip()
+            self._send_json(_check_netbird_token(token, base_domain))
+            return
+
 
         if path in ("/api/deploy", "/api/redeploy"):
             mode = payload.get("mode", "redeploy" if path == "/api/redeploy" else "deploy")

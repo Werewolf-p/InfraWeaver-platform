@@ -118,6 +118,14 @@ export interface CheckDnsProviderResponse {
   error?: string
 }
 
+export interface CheckNetbirdTokenResponse {
+  ok: boolean
+  status?: string
+  account_id?: string
+  management_url?: string
+  error?: string
+}
+
 export interface CatalogItemResponse {
   ok: boolean
   items?: Array<Record<string, string>>
@@ -314,6 +322,13 @@ export async function checkDnsProvider(provider: string, credentials: Record<str
   return fetchJson<CheckDnsProviderResponse>('/api/check-dns-provider', {
     method: 'POST',
     body: JSON.stringify({ provider, ...credentials }),
+  })
+}
+
+export async function checkNetbirdToken(token: string, baseDomain: string) {
+  return fetchJson<CheckNetbirdTokenResponse>('/api/check-netbird-token', {
+    method: 'POST',
+    body: JSON.stringify({ token, base_domain: baseDomain }),
   })
 }
 

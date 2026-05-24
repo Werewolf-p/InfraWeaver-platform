@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 import type {
   CheckDnsProviderResponse,
+  CheckNetbirdTokenResponse,
   DiscoverProxmoxResponse,
   StatusResponse,
   ValidateProxmoxResponse,
@@ -234,6 +235,7 @@ const emptyLoadingState = {
   suggestVips: false,
   generateSshKey: false,
   checkDnsProvider: false,
+  checkNetbird: false,
   detectSubnets: false,
   saveEnv: false,
   deploy: false,
@@ -273,6 +275,7 @@ interface WizardStore {
   proxmoxDiscovery: DiscoverProxmoxResponse | null
   proxmoxValidation: ValidateProxmoxResponse | null
   dnsProviderCheck: CheckDnsProviderResponse | null
+  netbirdTokenCheck: CheckNetbirdTokenResponse | null
   detectedSubnets: Array<{ cidr: string; ip: string }>
   generatedPublicKey: string
   deployLogs: DeployLogLine[]
@@ -301,6 +304,7 @@ interface WizardStore {
   setProxmoxDiscovery: (value: DiscoverProxmoxResponse | null) => void
   setProxmoxValidation: (value: ValidateProxmoxResponse | null) => void
   setDnsProviderCheck: (value: CheckDnsProviderResponse | null) => void
+  setNetbirdTokenCheck: (value: CheckNetbirdTokenResponse | null) => void
   setGeneratedPublicKey: (value: string) => void
   addLocalIpRange: () => void
   updateLocalIpRange: (index: number, value: string) => void
@@ -508,6 +512,7 @@ export const useWizardStore = create<WizardStore>()(
       proxmoxDiscovery: null,
       proxmoxValidation: null,
       dnsProviderCheck: null,
+      netbirdTokenCheck: null,
       detectedSubnets: [],
       generatedPublicKey: '',
       deployLogs: [],
@@ -596,6 +601,7 @@ export const useWizardStore = create<WizardStore>()(
       setProxmoxDiscovery: (value) => set({ proxmoxDiscovery: value }),
       setProxmoxValidation: (value) => set({ proxmoxValidation: value }),
       setDnsProviderCheck: (value) => set({ dnsProviderCheck: value }),
+      setNetbirdTokenCheck: (value) => set({ netbirdTokenCheck: value }),
       setGeneratedPublicKey: (value) => set({ generatedPublicKey: value }),
       addLocalIpRange: () => set((state) => ({ localIpRanges: [...state.localIpRanges, ''] })),
       updateLocalIpRange: (index, value) =>
