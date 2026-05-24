@@ -175,7 +175,7 @@ FEATURE_ENV_FIELDS = [
 # Default values for feature flags
 FEATURE_DEFAULTS = {
     "ENABLE_NETBIRD": "false",
-    "ENABLE_MONITORING": "false",
+    "ENABLE_MONITORING": "true",
     "MONITORING_STACK": "kube-prometheus-stack",
     "ENABLE_EXTERNAL_DNS": "false",
     "BACKUP_PROVIDER": "longhorn",
