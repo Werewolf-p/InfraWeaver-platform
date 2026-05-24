@@ -24,7 +24,7 @@ metadata:
     infraweaver/game: "true"
     infraweaver/game-type: terraria
 spec:
-  replicas: 1
+  replicas: 0  # Disabled: native SIGSEGV crash (corrupt world file or mono incompatibility)
   strategy:
     type: Recreate
   selector:
