@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo } from 'react'
-import { LoaderCircle, Lock, Plus, Settings2, Shield, Trash2, Wifi } from 'lucide-react'
+import { LoaderCircle, Lock, Plus, RefreshCw, Settings2, Shield, Trash2, Wifi } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { detectSubnet } from '@/lib/api'
 import { ActionButton } from '@/components/ui/ActionButton'
