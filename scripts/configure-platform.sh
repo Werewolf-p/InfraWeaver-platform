@@ -49,7 +49,7 @@ ENABLE_LONGHORN=$(_env_val ENABLE_LONGHORN "true")
 ENABLE_KYVERNO=$(_env_val ENABLE_KYVERNO "true")
 ENABLE_GRAFANA=$(_env_val ENABLE_GRAFANA "false")
 ENABLE_LOKI=$(_env_val ENABLE_LOKI "true")
-ENABLE_AUTHENTIK_LDAP=$(_env_val ENABLE_AUTHENTIK_LDAP "true")
+ENABLE_AUTHENTIK_LDAP=$(_env_val ENABLE_AUTHENTIK_LDAP "false")
 # MONITORING_STACK: which Prometheus-compatible stack to use when ENABLE_MONITORING=true
 #   kube-prometheus-stack  — default, full-featured, ~600Mi RAM
 #   victoria-metrics       — lightweight PromQL-compatible alternative, ~280Mi RAM

@@ -184,7 +184,7 @@ FEATURE_DEFAULTS = {
     "ENABLE_KYVERNO": "true",
     "ENABLE_GRAFANA": "false",
     "ENABLE_LOKI": "true",
-    "ENABLE_AUTHENTIK_LDAP": "true",
+    "ENABLE_AUTHENTIK_LDAP": "false",
     "LOCAL_IP_RANGES": "",
 }
 
