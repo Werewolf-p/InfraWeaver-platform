@@ -13,6 +13,7 @@ loki:
             values: [standard]
   persistence:
     enabled: true
+    storageClassName: longhorn  # Distributed storage — no node pinning; pods can run on CP1/CP2
     size: 10Gi
   config:
     limits_config:

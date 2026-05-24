@@ -155,6 +155,7 @@ prometheus:
       volumeClaimTemplate:
         spec:
           accessModes: ["ReadWriteOnce"]
+          storageClassName: longhorn  # Distributed storage — no node pinning; pods can run on CP1/CP2
           resources:
             requests:
               storage: 20Gi
@@ -189,6 +190,7 @@ alertmanager:
       volumeClaimTemplate:
         spec:
           accessModes: ["ReadWriteOnce"]
+          storageClassName: longhorn
           resources:
             requests:
               storage: 2Gi
