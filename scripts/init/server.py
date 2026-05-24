@@ -1736,6 +1736,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._send_json({"ok": False, "error": "kubeconfig not found at generated/kubeconfig"})
             return
 
+        if path == "/api/get-talosconfig":
+            env_name = _parse_env_file(ENV_FILE).get("ENV_NAME", "productie")
+            candidates = [
+                REPO_DIR / "generated" / "talosconfig",
+                REPO_DIR / "envs" / env_name / "generated" / "talosconfig",
+                Path.home() / ".talos" / f"config-platform-{env_name}",
+            ]
+            for tc in candidates:
+                if tc.exists():
+                    self._send_json({"ok": True, "talosconfig": tc.read_text()})
+                    return
+            self._send_json({"ok": False, "error": "talosconfig not found at generated/talosconfig"})
+            return
+
         if path == "/api/deploy-events":
             qs = urllib.parse.urlparse(self.path).query
             params = urllib.parse.parse_qs(qs)

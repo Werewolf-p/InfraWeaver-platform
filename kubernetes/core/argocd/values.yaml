@@ -10,24 +10,16 @@ controller:
     limits:
       cpu: 1500m
       memory: 900Mi
-  # Prefer CP3 (lowest memory pressure); avoid stacking on CP1 (kube-apiserver lives there)
+  # Prefer standard nodes (CP1/CP2, 18GB RAM each); avoid CP3 (only 6.6GB allocatable)
   affinity:
     nodeAffinity:
       preferredDuringSchedulingIgnoredDuringExecution:
       - weight: 100
         preference:
           matchExpressions:
-          - key: kubernetes.io/hostname
+          - key: infraweaver.io/node-class
             operator: In
-            values:
-            - talos-prod-cp3
-      - weight: 50
-        preference:
-          matchExpressions:
-          - key: kubernetes.io/hostname
-            operator: In
-            values:
-            - talos-prod-cp2
+            values: [standard]
 
 server:
   replicas: 1  # Memory-optimised: 3-node homelab, single replica is sufficient
@@ -40,23 +32,9 @@ server:
         - weight: 100
           preference:
             matchExpressions:
-              - key: kubernetes.io/hostname
+              - key: infraweaver.io/node-class
                 operator: In
-                values: [talos-prod-cp3]
-        - weight: 50
-          preference:
-            matchExpressions:
-              - key: kubernetes.io/hostname
-                operator: In
-                values: [talos-prod-cp2]
-    podAntiAffinity:
-      preferredDuringSchedulingIgnoredDuringExecution:
-        - weight: 100
-          podAffinityTerm:
-            labelSelector:
-              matchLabels:
-                app.kubernetes.io/name: argocd-server
-            topologyKey: kubernetes.io/hostname
+                values: [standard]
 
   ingress:
     # Ingress disabled — routing handled by Traefik IngressRoute in external-routes
@@ -79,15 +57,9 @@ repoServer:
         - weight: 100
           preference:
             matchExpressions:
-              - key: kubernetes.io/hostname
+              - key: infraweaver.io/node-class
                 operator: In
-                values: [talos-prod-cp3]
-        - weight: 50
-          preference:
-            matchExpressions:
-              - key: kubernetes.io/hostname
-                operator: In
-                values: [talos-prod-cp2]
+                values: [standard]
     podAntiAffinity:
       preferredDuringSchedulingIgnoredDuringExecution:
         - weight: 100
@@ -120,15 +92,9 @@ applicationSet:
         - weight: 100
           preference:
             matchExpressions:
-              - key: kubernetes.io/hostname
+              - key: infraweaver.io/node-class
                 operator: In
-                values: [talos-prod-cp3]
-        - weight: 50
-          preference:
-            matchExpressions:
-              - key: kubernetes.io/hostname
-                operator: In
-                values: [talos-prod-cp2]
+                values: [standard]
     podAntiAffinity:
       preferredDuringSchedulingIgnoredDuringExecution:
         - weight: 100

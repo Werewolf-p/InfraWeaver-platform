@@ -35,18 +35,16 @@ grafana:
     enabled: true
     size: 5Gi
 
-  # Prefer CP2/CP3 — keep heavy monitoring off CP1 (kube-apiserver lives there)
+  # Prefer standard nodes (CP1/CP2, 18GB RAM each)
   affinity:
     nodeAffinity:
       preferredDuringSchedulingIgnoredDuringExecution:
-        - weight: 80
+        - weight: 100
           preference:
             matchExpressions:
-              - key: kubernetes.io/hostname
+              - key: infraweaver.io/node-class
                 operator: In
-                values:
-                  - talos-prod-cp2
-                  - talos-prod-cp3
+                values: [standard]
 
   ingress:
     enabled: true
@@ -160,17 +158,16 @@ prometheus:
           resources:
             requests:
               storage: 20Gi
-    # Prefer CP3 to stay off CP1 (kube-apiserver + etcd heavy), and off CP2 (Minecraft)
+    # Prefer standard nodes (CP1/CP2, 18GB RAM each); CP3 only has 6.6GB allocatable
     affinity:
       nodeAffinity:
         preferredDuringSchedulingIgnoredDuringExecution:
-          - weight: 80
+          - weight: 100
             preference:
               matchExpressions:
-                - key: kubernetes.io/hostname
+                - key: infraweaver.io/node-class
                   operator: In
-                  values:
-                    - talos-prod-cp3
+                  values: [standard]
 
     resources:
       requests:
