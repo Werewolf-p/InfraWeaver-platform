@@ -46,7 +46,7 @@ spec:
           env:
             - name: PORT
               value: "3001"
-            - "main-5ced2e5"
+            - "main-5ced2e5"
             - name: NODE_ENV
               value: "production"
             - name: CONSOLE_URL
