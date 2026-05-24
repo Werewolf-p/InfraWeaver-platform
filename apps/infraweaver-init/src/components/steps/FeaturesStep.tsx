@@ -275,6 +275,44 @@ export function FeaturesStep() {
           </ActionButton>
         </div>
       </GlassCard>
+
+      <GlassCard className="p-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2 text-lg font-semibold text-white">
+              <RefreshCw className="h-5 w-5 text-[var(--az-primary)]" />
+              Restore previous deployment
+            </div>
+            <p className="mt-1 text-sm leading-6 text-[var(--az-text-secondary)]">
+              Restore application data and TLS certificates from TrueNAS NFS backups before services start. Adds a
+              dedicated restore step before deploy where you select exactly what to bring back.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setField('RESTORE_ENABLED', !data.RESTORE_ENABLED)}
+            className={`relative h-7 w-[52px] rounded-full border transition ${
+              data.RESTORE_ENABLED
+                ? 'border-[rgba(0,120,212,0.65)] bg-[rgba(0,120,212,0.3)]'
+                : 'border-white/10 bg-white/8'
+            }`}
+          >
+            <span
+              className={`absolute top-0.5 h-[22px] w-[22px] rounded-full bg-white transition ${
+                data.RESTORE_ENABLED ? 'left-[28px]' : 'left-0.5'
+              }`}
+            />
+          </button>
+        </div>
+        {data.RESTORE_ENABLED && (
+          <div className="mt-4 rounded-2xl border border-[rgba(0,120,212,0.3)] bg-[rgba(0,120,212,0.08)] p-4">
+            <p className="text-sm text-[var(--az-primary)]">
+              ✅ A <strong>Restore</strong> step will appear before <strong>Review &amp; Deploy</strong> — you can select
+              which data volumes and TLS certs to restore.
+            </p>
+          </div>
+        )}
+      </GlassCard>
     </motion.div>
   )
 }

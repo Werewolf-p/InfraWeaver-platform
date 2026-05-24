@@ -135,6 +135,7 @@ longhornRoute.get('/backups/:volumeName', async (c) => {
           createdAt: backup.status?.snapshotCreatedAt ?? backup.metadata?.creationTimestamp ?? '',
           size: Number.parseInt(String(backup.status?.size ?? '0'), 10) || 0,
           state: backup.status?.state ?? 'unknown',
+          backupURL: (backup.status as Record<string, unknown>)?.url as string ?? '',
           labels: backup.metadata?.labels ?? {},
         };
       })
