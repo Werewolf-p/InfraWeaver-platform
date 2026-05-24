@@ -1,12 +1,17 @@
 "use client";
 
 import type { ComponentType } from "react";
+import dynamic from "next/dynamic";
 import { motion } from "framer-motion";
 import Link from "next/link";
-import { Line, LineChart, ResponsiveContainer } from "recharts";
 import { Minus, TrendingDown, TrendingUp } from "lucide-react";
 import { springs } from "@/lib/spring";
 import { cn } from "@/lib/utils";
+
+const MetricCardSparkline = dynamic(
+  () => import("./metric-card-sparkline").then((m) => m.MetricCardSparkline),
+  { ssr: false },
+);
 
 interface MetricCardProps {
   title: string;
@@ -114,18 +119,7 @@ export function MetricCard({
             </div>
             <div className="h-12 w-28 shrink-0">
               {sparklineData && sparklineData.length > 1 ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={sparklineData}>
-                    <Line
-                      dataKey="value"
-                      type="monotone"
-                      stroke={styles.line}
-                      strokeWidth={2}
-                      dot={false}
-                      isAnimationActive={false}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
+                <MetricCardSparkline data={sparklineData} color={styles.line} />
               ) : (
                 <div className="flex h-full items-end">
                   <div className="h-8 w-full rounded-xl bg-[rgb(var(--color-surface-raised))]" />

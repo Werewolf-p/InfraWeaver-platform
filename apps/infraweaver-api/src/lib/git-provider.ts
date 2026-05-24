@@ -1,4 +1,3 @@
-import * as nodeFs from 'node:fs';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -83,22 +82,11 @@ export async function githubPutFile(filePath: string, content: string, message: 
   return data.commit?.sha ?? '';
 }
 
-// ─── Onedev (isomorphic-git) ──────────────────────────────────────────────────
+// ─── Onedev (simple-git) ─────────────────────────────────────────────────────
 
-async function loadGit() {
-  const [{ default: http }, git] = await Promise.all([
-    import('isomorphic-git/http/node'),
-    import('isomorphic-git'),
-  ]);
-  return { http, git };
-}
-
-function onedevRepoUrl(): string {
-  return `${ONEDEV_URL}/${ONEDEV_PROJECT_PATH}.git`;
-}
-
-function onedevAuth() {
-  return { username: ONEDEV_USERNAME, password: ONEDEV_TOKEN };
+function onedevRepoUrlWithAuth(): string {
+  // Embed credentials into the URL so git can authenticate without a credential helper.
+  return ONEDEV_URL.replace('://', `://${encodeURIComponent(ONEDEV_USERNAME)}:${encodeURIComponent(ONEDEV_TOKEN)}@`) + `/${ONEDEV_PROJECT_PATH}.git`;
 }
 
 function isPushRejection(err: unknown): boolean {
@@ -106,19 +94,14 @@ function isPushRejection(err: unknown): boolean {
   return /non-fast-forward|fetch first|push rejected|failed to push/i.test(msg);
 }
 
-async function withWorktree<T>(worker: (dir: string, git: Awaited<ReturnType<typeof loadGit>>['git']) => Promise<T>): Promise<T> {
+async function withWorktree<T>(worker: (dir: string) => Promise<T>): Promise<T> {
   if (!ONEDEV_TOKEN) throw new Error('ONEDEV_TOKEN is not set');
-  const { git, http } = await loadGit();
+  const { simpleGit } = await import('simple-git');
   const dir = path.join(GIT_WORKTREE_ROOT, randomUUID());
   await fs.mkdir(dir, { recursive: true });
   try {
-    await git.clone({
-      fs: nodeFs, http, dir,
-      url: onedevRepoUrl(),
-      singleBranch: true, depth: 1, ref: ONEDEV_BRANCH,
-      onAuth: onedevAuth,
-    });
-    return await worker(dir, git);
+    await simpleGit().clone(onedevRepoUrlWithAuth(), dir, ['--depth', '1', '--branch', ONEDEV_BRANCH]);
+    return await worker(dir);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
@@ -140,21 +123,23 @@ async function walkDir(fsDir: string, relDir: string, filter: (p: string) => boo
 }
 
 export async function onedevGetTreeAndFiles(): Promise<Array<{ path: string; content: string; sha: string }>> {
-  return withWorktree(async (dir, git) => {
-    const commitSha = await git.resolveRef({ fs: nodeFs, dir, ref: 'HEAD' });
+  return withWorktree(async (dir) => {
+    const { simpleGit } = await import('simple-git');
+    const sha = (await simpleGit(dir).revparse(['HEAD'])).trim();
     const appFiles = await walkDir(dir, 'kubernetes', (p) => p.endsWith('/application.yaml'));
     return Promise.all(appFiles.map(async (relPath) => {
       const content = await fs.readFile(path.join(dir, relPath), 'utf-8');
-      return { path: relPath, content, sha: commitSha };
+      return { path: relPath, content, sha };
     }));
   });
 }
 
 export async function onedevGetFile(filePath: string): Promise<GitFile | null> {
-  return withWorktree(async (dir, git) => {
+  return withWorktree(async (dir) => {
     try {
+      const { simpleGit } = await import('simple-git');
       const content = await fs.readFile(path.join(dir, filePath), 'utf-8');
-      const sha = await git.resolveRef({ fs: nodeFs, dir, ref: 'HEAD' });
+      const sha = (await simpleGit(dir).revparse(['HEAD'])).trim();
       return { content, sha };
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
@@ -166,14 +151,17 @@ export async function onedevGetFile(filePath: string): Promise<GitFile | null> {
 export async function onedevPutFile(filePath: string, content: string, message: string): Promise<string> {
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      return await withWorktree(async (dir, git) => {
-        const { http } = await loadGit();
+      return await withWorktree(async (dir) => {
+        const { simpleGit } = await import('simple-git');
+        const git = simpleGit(dir);
+        await git.addConfig('user.name', COMMIT_AUTHOR.name);
+        await git.addConfig('user.email', COMMIT_AUTHOR.email);
         await fs.mkdir(path.dirname(path.join(dir, filePath)), { recursive: true });
         await fs.writeFile(path.join(dir, filePath), content, 'utf-8');
-        await git.add({ fs: nodeFs, dir, filepath: filePath });
-        await git.commit({ fs: nodeFs, dir, message, author: COMMIT_AUTHOR });
-        await git.push({ fs: nodeFs, http, dir, remote: 'origin', ref: ONEDEV_BRANCH, onAuth: onedevAuth });
-        return await git.resolveRef({ fs: nodeFs, dir, ref: 'HEAD' });
+        await git.add(['.']);
+        await git.commit(message);
+        await git.push('origin', ONEDEV_BRANCH);
+        return (await git.revparse(['HEAD'])).trim();
       });
     } catch (err) {
       if (attempt < 2 && isPushRejection(err)) continue;

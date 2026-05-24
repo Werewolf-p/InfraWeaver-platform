@@ -4,17 +4,21 @@ ARG APP_VERSION=dev
 ENV APP_VERSION=$APP_VERSION
 COPY package*.json ./
 RUN npm ci
-COPY tsconfig.json .
+COPY tsconfig.json esbuild.config.mjs ./
 COPY src/ ./src/
-RUN npm run build && npm prune --omit=dev
+# Bundle all deps except @kubernetes/client-node into a single ESM file.
+RUN npm run bundle
 
 FROM node:22-alpine
 WORKDIR /app
 ENV NODE_ENV=production
 ARG APP_VERSION=dev
 ENV APP_VERSION=$APP_VERSION
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/dist ./dist
+# Install only @kubernetes/client-node and its transitive deps (~60 MB).
+# Everything else (hono, zod, ws, simple-git, …) is inlined in dist/index.mjs.
+COPY package.production.json ./package.json
+RUN npm install --omit=dev
+COPY --from=builder /app/dist/index.mjs ./dist/
 USER node
 EXPOSE 3001
-CMD ["node", "dist/index.js"]
+CMD ["node", "dist/index.mjs"]

@@ -13,12 +13,14 @@ core:
       description: "Syncs secrets from OpenBao → Kubernetes Secrets"
     longhorn:
       description: "Distributed block storage for persistent volumes"
+      enabled: true  # set ENABLE_LONGHORN=false in .env to skip on lightweight setups
     openbao:
       description: "Secrets vault (open-source Vault fork)"
     metallb:
       description: "Load balancer IP assignment for bare-metal"
     kyverno:
       description: "Policy enforcement and resource validation"
+      enabled: true  # set ENABLE_KYVERNO=false in .env to rely on PSA labels only
     priority-classes:
       description: "Pod scheduling priority tiers"
     local-path-provisioner:

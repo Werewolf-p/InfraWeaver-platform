@@ -1,0 +1,9 @@
+{
+  "name": "infraweaver-api",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Minimal runtime package.json — only lists deps that cannot be esbuild-bundled.",
+  "dependencies": {
+    "@kubernetes/client-node": "^1.4.0"
+  }
+}

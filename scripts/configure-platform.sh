@@ -9,11 +9,15 @@
 #   ENABLE_MONITORING   true|false  (default: false)
 #   ENABLE_EXTERNAL_DNS true|false  (default: false)
 #   BACKUP_PROVIDER     none|longhorn|velero|both  (default: longhorn)
+#   ENABLE_LONGHORN     true|false  (default: true)
+#   ENABLE_KYVERNO      true|false  (default: true)
 #
 # Effects:
 #   1. platform.yaml  — sets groups.core-platform.apps.<app>.enabled flags
 #   2. Traefik routes — switches private routes between netbird-vpn-only and internal-only
 #   3. bootstrap/     — companion .disabled files managed (via sync-groups.sh)
+#   4. core apps      — renames application.yaml ↔ application.yaml.disabled for
+#                       optional core components (longhorn, kyverno)
 
 set -euo pipefail
 
@@ -41,6 +45,8 @@ ENABLE_MONITORING=$(_env_val ENABLE_MONITORING "false")
 ENABLE_EXTERNAL_DNS=$(_env_val ENABLE_EXTERNAL_DNS "false")
 BACKUP_PROVIDER=$(_env_val BACKUP_PROVIDER "longhorn")
 LOCAL_IP_RANGES=$(_env_val LOCAL_IP_RANGES "")
+ENABLE_LONGHORN=$(_env_val ENABLE_LONGHORN "true")
+ENABLE_KYVERNO=$(_env_val ENABLE_KYVERNO "true")
 
 echo "==> configure-platform: syncing feature flags to platform.yaml"
 echo "    ENABLE_NETBIRD=${ENABLE_NETBIRD}"
@@ -48,6 +54,8 @@ echo "    ENABLE_MONITORING=${ENABLE_MONITORING}"
 echo "    ENABLE_EXTERNAL_DNS=${ENABLE_EXTERNAL_DNS}"
 echo "    BACKUP_PROVIDER=${BACKUP_PROVIDER}"
 echo "    LOCAL_IP_RANGES=${LOCAL_IP_RANGES:-<empty>}"
+echo "    ENABLE_LONGHORN=${ENABLE_LONGHORN}"
+echo "    ENABLE_KYVERNO=${ENABLE_KYVERNO}"
 
 # ── Helper: update a platform.yaml value using Python ───────────────────────
 _set_platform_flag() {
@@ -318,7 +326,58 @@ fi
 
 _configure_internal_middleware "$LOCAL_IP_RANGES" "$ENABLE_NETBIRD" "$MIDDLEWARES_FILE" "$NODE_VLAN"
 
-# ── 6. Run sync-groups.sh to sync AppSet and companion files ─────────────────
+# ── 6. Optional core components (Longhorn, Kyverno) ──────────────────────────
+# These apps live in kubernetes/core/ and are picked up by appset-core.yaml.
+# When disabled, their application.yaml is renamed to application.yaml.disabled
+# so the ApplicationSet glob skips them and ArgoCD stops managing them.
+_toggle_core_app() {
+    local app_name="$1" enabled="$2"
+    local app_yaml="${REPO_DIR}/kubernetes/core/${app_name}/application.yaml"
+    local app_yaml_disabled="${app_yaml}.disabled"
+    if [[ "$enabled" == "false" ]]; then
+        if [[ -f "$app_yaml" ]]; then
+            mv "$app_yaml" "$app_yaml_disabled"
+            echo "  ⏸  core/${app_name}: disabled (application.yaml → .disabled)"
+        else
+            echo "  ⏭  core/${app_name}: already disabled"
+        fi
+    else
+        if [[ -f "$app_yaml_disabled" && ! -f "$app_yaml" ]]; then
+            mv "$app_yaml_disabled" "$app_yaml"
+            echo "  ▶  core/${app_name}: enabled (application.yaml restored)"
+        else
+            echo "  ⏭  core/${app_name}: already enabled"
+        fi
+    fi
+}
+
+# Also toggle companion bootstrap files that depend on the core app
+_toggle_bootstrap_companion() {
+    local fname="$1" enabled="$2"
+    local active="${REPO_DIR}/kubernetes/bootstrap/${fname}"
+    local disabled="${active}.disabled"
+    if [[ "$enabled" == "false" ]]; then
+        if [[ -f "$active" ]]; then
+            mv "$active" "$disabled"
+            echo "  ⏸  bootstrap/${fname}: disabled"
+        fi
+    else
+        if [[ -f "$disabled" && ! -f "$active" ]]; then
+            mv "$disabled" "$active"
+            echo "  ▶  bootstrap/${fname}: restored"
+        fi
+    fi
+}
+
+echo "==> configure-platform: toggling optional core apps"
+
+_toggle_core_app "longhorn" "$ENABLE_LONGHORN"
+_toggle_bootstrap_companion "app-longhorn-manifests.yaml" "$ENABLE_LONGHORN"
+
+_toggle_core_app "kyverno" "$ENABLE_KYVERNO"
+_toggle_bootstrap_companion "core-kyverno-policies.yaml" "$ENABLE_KYVERNO"
+
+# ── 7. Run sync-groups.sh to sync AppSet and companion files ─────────────────
 if [[ -f "${REPO_DIR}/scripts/sync-groups.sh" ]]; then
     echo "==> Syncing ArgoCD appsets and companion bootstrap files..."
     bash "${REPO_DIR}/scripts/sync-groups.sh"
