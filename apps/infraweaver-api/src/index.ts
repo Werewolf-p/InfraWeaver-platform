@@ -29,6 +29,7 @@ import { rbacSyncRoute } from './routes/rbac-sync.js';
 import { secretsRoute } from './routes/secrets.js';
 import { updatesRoute } from './routes/updates.js';
 import { platformRoute } from './routes/platform.js';
+import { dnsRoute } from './routes/dns.js';
 import type { AppBindings } from './types/index.js';
 
 const app = new Hono<AppBindings>();
@@ -72,6 +73,7 @@ api.route('/updates', updatesRoute);
 api.route('/platform', platformRoute);
 api.route('/cluster', clusterRoute);
 api.route('/network', networkRoute);
+api.route('/dns', dnsRoute);
 api.route('/config-maps', configMapsRoute);
 api.route('/secrets', secretsRoute);
 api.route('/exec', execRoute);
