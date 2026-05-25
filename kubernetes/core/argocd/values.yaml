@@ -146,6 +146,12 @@ configs:
       jqPathExpressions:
         - '.spec.volumeClaimTemplates[].status'
         - '.spec.volumeClaimTemplates[].spec.volumeMode'
+    # Applications: notifications controller updates notified.notifications annotation with
+    # timestamps on every notification send, causing perpetual drift on bootstrap-managed apps.
+    resource.customizations.ignoreDifferences.argoproj.io_Application: |
+      jsonPointers:
+        - /metadata/annotations/notified.notifications.argoproj.io
+        - /metadata/annotations/kubectl.kubernetes.io~1last-applied-configuration
     # Namespaces: argocd.argoproj.io/tracking-id can only have one value but multiple apps
     # may legitimately manage different FIELDS of the same Namespace (e.g., app labels vs PSA
     # labels). Ignoring this annotation globally prevents SSA ownership ping-pong between

@@ -4,3 +4,4 @@ chart: external-dns
 releaseName: external-dns
 namespace: external-dns
 replicas: "1"
+serverSideApply: "false"
