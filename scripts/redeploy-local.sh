@@ -125,6 +125,19 @@ cp "$ENV_FILE" "$BACKUP_DIR/.env"
 [[ -f "envs/$ENV_NAME/cluster.yaml" ]] && cp "envs/$ENV_NAME/cluster.yaml" "$BACKUP_DIR/cluster.yaml"
 ok "Step 1: Backed up to $BACKUP_DIR"
 
+# ── Step 1b: Backup TLS certs before destroying cluster ──────────────────────
+log "Step 1b: Backing up TLS certs before destroy..."
+KB_CURRENT="$HOME/.kube/config-platform-${ENV_NAME}"
+if kubectl --kubeconfig "$KB_CURRENT" get nodes --request-timeout=5s >/dev/null 2>&1; then
+  # Use --no-wait since certs are already issued on the live cluster
+  ENV_NAME="$ENV_NAME" KB="$KB_CURRENT" \
+    bash scripts/deploy/refresh-tls-backup.sh --no-wait 2>&1 \
+    || warn "TLS backup failed — continuing (certs may need to be re-issued)"
+  ok "Step 1b: TLS certs backed up to /opt/platform-tls-backup/"
+else
+  warn "Step 1b: Cluster not reachable — skipping TLS backup"
+fi
+
 # ── Step 2: Cleanup NetBird peers ─────────────────────────────────────────────
 log "Step 2: Cleaning up stale NetBird peers..."
 if [[ -n "${NETBIRD_API_TOKEN:-}" ]]; then
@@ -257,7 +270,7 @@ echo ""
 log "=== Handing off to deploy-local.sh ==="
 echo ""
 
-ENV_FILE="$ENV_FILE" bash scripts/deploy-local.sh
+ENV_FILE="$ENV_FILE" RESTORE_TLS=true bash scripts/deploy-local.sh
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo ""

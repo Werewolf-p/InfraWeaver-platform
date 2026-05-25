@@ -403,6 +403,16 @@ mkdir -p "$REPO_DIR/generated"
 cp "$KB_FILE" "$REPO_DIR/generated/kubeconfig" 2>/dev/null || true
 chmod 600 "$KB_FILE" 2>/dev/null || true
 tofu output -raw talosconfig > "../envs/$ENV_NAME/generated/talosconfig" 2>/dev/null || true
+# Save talosconfig to GitHub Secrets so CI can apply machineconfig changes
+if [[ -n "${GITHUB_PAT:-}" ]] && [[ -n "${GITHUB_REPO:-}" ]] && \
+   [[ -f "../envs/$ENV_NAME/generated/talosconfig" ]]; then
+  log "Saving TALOSCONFIG to GitHub Secrets (TALOSCONFIG_PRODUCTIE)..."
+  GH_TOKEN="$GITHUB_PAT" gh secret set "TALOSCONFIG_PRODUCTIE" \
+    --body "$(cat ../envs/$ENV_NAME/generated/talosconfig)" \
+    --repo "$GITHUB_REPO" 2>/dev/null \
+    && log "  ✅ TALOSCONFIG_PRODUCTIE saved to GitHub Secrets" \
+    || warn "  Failed to save talosconfig to GitHub Secrets (GITHUB_PAT may be expired — update manually)"
+fi
 chmod 600 "../envs/$ENV_NAME/generated/talosconfig" 2>/dev/null || true
 
 # Wait for Kubernetes API before Stage 2a — Talos bootstrap can take 5-8 min.
@@ -549,16 +559,25 @@ helm --kubeconfig "$KB_FILE" upgrade --install longhorn longhorn/longhorn \
 kubectl --kubeconfig "$KB_FILE" apply -f kubernetes/core/longhorn/manifests/ 2>/dev/null || true
 ok "Step 7b: Longhorn deployed"
 
-# ── Step 7c: Restore volumes / TLS certs (if RESTORE_ENABLED=true) ───────────
-if [[ "${RESTORE_ENABLED:-false}" == "true" ]]; then
-  log "Step 7c: Restoring from backup (RESTORE_ENABLED=true)..."
+# ── Step 7c: Restore volumes / TLS certs ────────────────────────────────────
+# Auto-enable TLS restore if backup files exist (prevents LE rate limits on redeploy)
+if [[ "${RESTORE_TLS:-false}" != "true" ]]; then
+  if compgen -G "/opt/platform-tls-backup/*.yaml" > /dev/null 2>&1; then
+    RESTORE_TLS=true
+    log "Step 7c: TLS backups found in /opt/platform-tls-backup/ — auto-enabling restore"
+  fi
+fi
+
+if [[ "${RESTORE_ENABLED:-false}" == "true" ]] || [[ "${RESTORE_TLS:-false}" == "true" ]]; then
+  log "Step 7c: Restoring from backup..."
   KB_FILE="$KB_FILE" ENV_NAME="$ENV_NAME" \
+  RESTORE_ENABLED=true \
   RESTORE_TLS="${RESTORE_TLS:-false}" \
   RESTORE_VOLUMES="${RESTORE_VOLUMES:-}" \
     bash scripts/deploy/restore-volumes.sh
   ok "Step 7c: Restore complete"
 else
-  log "Step 7c: Skipping restore (RESTORE_ENABLED=false)"
+  log "Step 7c: Skipping restore (no backup files found and RESTORE_ENABLED=false)"
 fi
 
 echo "STAGE:bootstrap"

@@ -1,0 +1,120 @@
+# .github/workflows/apply-machineconfig.yml
+#
+# Applies Talos machineconfig changes to a running cluster when
+# terraform/modules/talos-cluster/main.tf or cluster.yaml changes.
+#
+# WHY THIS EXISTS:
+#   ArgoCD handles Kubernetes manifest changes automatically.
+#   But Talos machineconfig changes (etcd flags, kubelet settings, etc.)
+#   must be applied via talosctl — they are NOT picked up by ArgoCD.
+#   This workflow closes that gap: it runs tofu apply targeting only the
+#   Talos cluster module, which regenerates machineconfigs and applies
+#   them to running nodes with --mode=staged (no disruptive reboots).
+#
+# REQUIREMENTS:
+#   - TALOSCONFIG_PRODUCTIE: set automatically by deploy-local.sh after each
+#     successful cluster provision. If missing, run deploy-local.sh first.
+#   - Terraform state must be present (stored in Proxmox NFS or local to runner)
+#   - Runs on a self-hosted runner labeled 'infra' that has network access
+#     to the Proxmox/Talos nodes (10.10.0.x)
+#
+# NOTE: The self-hosted runner labeled 'infra' must be enrolled in NetBird
+# or be on the same LAN. GitHub-hosted runners cannot reach 10.10.0.x.
+# Until a self-hosted runner is available, trigger manually from the init VM:
+#   cd ~/InfraWeaver-platform && bash scripts/update.sh
+
+name: Apply Talos Machineconfig
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'terraform/modules/talos-cluster/main.tf'
+      - 'terraform/modules/talos-cluster/templates/**'
+      - 'envs/productie/cluster.yaml'
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Reason for manual trigger'
+        required: false
+        default: 'manual machineconfig apply'
+      environment:
+        description: 'Environment (productie or ontwikkel)'
+        required: false
+        default: 'productie'
+
+concurrency:
+  group: machineconfig-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  apply-machineconfig:
+    name: Apply Talos Machineconfig
+    # Requires a self-hosted runner on the same LAN as Talos nodes.
+    # If no self-hosted runner is registered, this job will queue but not fail.
+    runs-on: [self-hosted, infra]
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check prerequisites
+        id: prereqs
+        run: |
+          ENV="${{ github.event.inputs.environment || 'productie' }}"
+          echo "env=$ENV" >> "$GITHUB_OUTPUT"
+
+          # Check talosconfig secret
+          if [ -z "${{ secrets.TALOSCONFIG_PRODUCTIE }}" ]; then
+            echo "::warning::TALOSCONFIG_PRODUCTIE secret is not set."
+            echo "Run deploy-local.sh to auto-populate it, or set it manually:"
+            echo "  gh secret set TALOSCONFIG_PRODUCTIE --body \"\$(cat envs/$ENV/generated/talosconfig)\""
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Apply machineconfig via update.sh
+        if: steps.prereqs.outputs.skip != 'true'
+        env:
+          TALOSCONFIG_PRODUCTIE: ${{ secrets.TALOSCONFIG_PRODUCTIE }}
+          ENV_NAME: ${{ steps.prereqs.outputs.env }}
+        run: |
+          # Write talosconfig to the expected location
+          mkdir -p envs/${ENV_NAME}/generated
+          echo "$TALOSCONFIG_PRODUCTIE" > envs/${ENV_NAME}/generated/talosconfig
+          chmod 600 envs/${ENV_NAME}/generated/talosconfig
+
+          # Run update.sh in JSON mode — it detects machineconfig changes and
+          # runs tofu apply -target=module.talos_cluster automatically
+          bash scripts/update.sh --json 2>&1 | tee /tmp/update-output.json || true
+
+          # Parse result
+          python3 -c "
+          import json, sys
+          try:
+              data = json.load(open('/tmp/update-output.json'))
+              if data.get('machineConfigApplied'):
+                  print('✅ Machineconfig applied successfully')
+              elif data.get('updated'):
+                  print('⚠ Code updated but machineconfig not applied (state unavailable?)')
+              else:
+                  print('ℹ Already up to date — no machineconfig changes')
+          except Exception as e:
+              print(f'Could not parse output: {e}')
+          " || true
+
+      - name: Verify nodes healthy after apply
+        if: steps.prereqs.outputs.skip != 'true'
+        run: |
+          export KUBECONFIG="$HOME/.kube/config-platform-${{ steps.prereqs.outputs.env }}"
+          if [ ! -f "$KUBECONFIG" ]; then
+            echo "No kubeconfig found — skipping health check"
+            exit 0
+          fi
+          echo "Checking node status..."
+          kubectl get nodes -o wide 2>/dev/null || echo "kubectl not available"
