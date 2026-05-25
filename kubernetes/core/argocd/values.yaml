@@ -8,8 +8,16 @@ controller:
       cpu: 250m
       memory: 300Mi
     limits:
-      cpu: 1500m
-      memory: 900Mi
+      cpu: 2000m
+      memory: 1500Mi  # raised from 900Mi — controller was OOMKilled at 879Mi under load
+  # Increase probe timeouts — default 1s causes false-positive failures when controller
+  # is busy reconciling 50+ apps (1200m+ CPU observed, healthz can't respond in 1s)
+  readinessProbe:
+    timeoutSeconds: 10
+    failureThreshold: 5
+  livenessProbe:
+    timeoutSeconds: 10
+    failureThreshold: 5
   # Prefer standard nodes (CP1/CP2, 18GB RAM each); avoid CP3 (only 6.6GB allocatable)
   affinity:
     nodeAffinity:
