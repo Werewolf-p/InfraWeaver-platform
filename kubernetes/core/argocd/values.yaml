@@ -161,7 +161,7 @@ configs:
       hs = {}
       if obj.status ~= nil and obj.status.active ~= nil and #obj.status.active > 0 then
         hs.status = "Progressing"
-        hs.message = string.format("%d active job(s) running", #obj.status.active)
+        hs.message = #obj.status.active .. " active job(s) running"
         return hs
       end
       hs.status = "Healthy"
