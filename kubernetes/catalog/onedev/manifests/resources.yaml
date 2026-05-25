@@ -214,7 +214,7 @@ spec:
         # (plugin classloader path) but Upgrade runs with the boot classloader only.
         - name: patch-boot-classpath
           image: 1dev/server:latest
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           securityContext:
             runAsNonRoot: false
             allowPrivilegeEscalation: false
@@ -261,7 +261,7 @@ spec:
       containers:
         - name: onedev
           image: 1dev/server:latest
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           ports:
             - name: http
               containerPort: 6610
