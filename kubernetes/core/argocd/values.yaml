@@ -52,10 +52,10 @@ server:
   resources:
     requests:
       cpu: 50m
-      memory: 128Mi
+      memory: 256Mi  # raised from 128Mi — server OOMKilled (11 restarts, exitCode 255)
     limits:
       cpu: 500m
-      memory: 512Mi
+      memory: 768Mi  # raised from 512Mi — prevents liveness probe timeouts under load
 
 repoServer:
   replicas: 1  # Memory-optimised: single replica saves ~160Mi
@@ -140,6 +140,33 @@ configs:
     resource.customizations.ignoreDifferences.policy_PodDisruptionBudget: |
       jqPathExpressions:
         - '.status'
+    # StatefulSet volumeClaimTemplates: Kubernetes adds status.phase and defaults spec.volumeMode
+    # to "Filesystem" at creation time. These fields are not in git and cause perpetual drift.
+    resource.customizations.ignoreDifferences.apps_StatefulSet: |
+      jqPathExpressions:
+        - '.spec.volumeClaimTemplates[].status'
+        - '.spec.volumeClaimTemplates[].spec.volumeMode'
+    # Namespaces: argocd.argoproj.io/tracking-id can only have one value but multiple apps
+    # may legitimately manage different FIELDS of the same Namespace (e.g., app labels vs PSA
+    # labels). Ignoring this annotation globally prevents SSA ownership ping-pong between
+    # core-psa-manifests and any app that also creates/labels its own namespace.
+    resource.customizations.ignoreDifferences.core_Namespace: |
+      jsonPointers:
+        - /metadata/annotations/argocd.argoproj.io~1tracking-id
+    # CronJob health: ArgoCD's built-in check marks Degraded after any single missed run
+    # (lastScheduleTime > lastSuccessfulTime). This causes false alarms for transient failures.
+    # Override: only mark Progressing when jobs are actively running; otherwise Healthy.
+    # Real alerting for persistent CronJob failures is handled by PrometheusRule alerts.
+    resource.customizations.health.batch_CronJob: |
+      hs = {}
+      if obj.status ~= nil and obj.status.active ~= nil and #obj.status.active > 0 then
+        hs.status = "Progressing"
+        hs.message = string.format("%d active job(s) running", #obj.status.active)
+        return hs
+      end
+      hs.status = "Healthy"
+      hs.message = "CronJob scheduled"
+      return hs
     # On bare-metal (no cloud LB), ingresses never get an ADDRESS — mark them always healthy
     resource.customizations.health.networking.k8s.io_Ingress: |
       hs = {}

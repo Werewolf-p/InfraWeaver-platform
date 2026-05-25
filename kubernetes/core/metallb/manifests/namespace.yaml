@@ -1,9 +1,0 @@
----
-# MetalLB speaker requires NET_RAW capability and hostNetwork — needs privileged pod security.
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: metallb-system
-  labels:
-    pod-security.kubernetes.io/enforce: privileged
-    pod-security.kubernetes.io/warn: privileged

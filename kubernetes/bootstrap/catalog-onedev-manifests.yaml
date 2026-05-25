@@ -49,3 +49,7 @@ spec:
       kind: Deployment
       jsonPointers:
         - /spec/replicas
+    - group: apps
+      kind: StatefulSet
+      jqPathExpressions:
+        - ".spec.volumeClaimTemplates[].status"
