@@ -1,0 +1,150 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: etcd-flag-patcher
+  namespace: kube-system
+data:
+  patch.py: |
+    #!/usr/bin/env python3
+    """
+    Patches etcd config.json on Talos nodes to disable experimental flags
+    that cause spurious reboots on Proxmox VMs due to storage I/O jitter.
+    
+    Talos v1.12.x always sets --experimental-compact-hash-check-enabled=true
+    and --experimental-initial-corrupt-check=true in etcd's containerd spec.
+    These flags cannot be overridden via machineconfig extraArgs (Talos rejects them).
+    This patcher applies a live fix to config.json and restarts etcd.
+    
+    Runs at pod start (= after every node reboot via DaemonSet) and checks hourly.
+    """
+    import json, os, signal, subprocess, time, logging
+
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s')
+    log = logging.getLogger(__name__)
+
+    CONFIG = "/run/containerd/io.containerd.runtime.v2.task/system/etcd/config.json"
+    FLAGS_TO_DISABLE = [
+        "experimental-compact-hash-check-enabled",
+        "experimental-initial-corrupt-check",
+    ]
+
+    def wait_for_config():
+        for _ in range(60):
+            if os.path.exists(CONFIG):
+                return True
+            time.sleep(5)
+        return False
+
+    def patch_and_restart():
+        if not wait_for_config():
+            log.warning("config.json not found after 5 min, skipping")
+            return False
+
+        with open(CONFIG) as f:
+            data = json.load(f)
+
+        args = data['process']['args']
+        changed = 0
+        new_args = []
+        for a in args:
+            patched = False
+            for flag in FLAGS_TO_DISABLE:
+                if f'{flag}=true' in a:
+                    new_args.append(a.replace('=true', '=false'))
+                    changed += 1
+                    patched = True
+                    break
+            if not patched:
+                new_args.append(a)
+
+        if changed == 0:
+            log.info("Flags already correct (false or absent), no action needed")
+            return False
+
+        data['process']['args'] = new_args
+        with open(CONFIG, 'w') as f:
+            json.dump(data, f)
+
+        log.info(f"Patched {changed} flags to false in config.json")
+
+        # Find and SIGTERM etcd
+        try:
+            result = subprocess.run(['pgrep', '-f', 'etcd'], capture_output=True, text=True)
+            for p in result.stdout.strip().split():
+                try:
+                    with open(f'/proc/{p}/comm') as f:
+                        comm = f.read().strip()
+                    if 'etcd' in comm:
+                        os.kill(int(p), signal.SIGTERM)
+                        log.info(f"SIGTERM sent to etcd PID {p}")
+                        break
+                except Exception:
+                    pass
+        except Exception as e:
+            log.warning(f"Could not SIGTERM etcd: {e}")
+
+        return True
+
+    # Initial patch on pod start (after node reboot)
+    log.info("etcd-flag-patcher starting, waiting 30s for etcd to initialize...")
+    time.sleep(30)
+    patch_and_restart()
+
+    # Periodic check every 55 minutes (before hourly compaction)
+    while True:
+        log.info("Sleeping 55 minutes before next check...")
+        time.sleep(3300)
+        log.info("Periodic check: verifying etcd flags")
+        patch_and_restart()
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: etcd-flag-patcher
+  namespace: kube-system
+  labels:
+    app: etcd-flag-patcher
+spec:
+  selector:
+    matchLabels:
+      app: etcd-flag-patcher
+  template:
+    metadata:
+      labels:
+        app: etcd-flag-patcher
+    spec:
+      hostPID: true
+      priorityClassName: system-node-critical
+      tolerations:
+      - operator: Exists
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""
+      volumes:
+      - name: run
+        hostPath:
+          path: /run
+      - name: script
+        configMap:
+          name: etcd-flag-patcher
+          defaultMode: 0755
+      containers:
+      - name: patcher
+        image: python:3.11-alpine
+        securityContext:
+          privileged: true
+        command: ["python3", "/script/patch.py"]
+        volumeMounts:
+        - name: run
+          mountPath: /run
+        - name: script
+          mountPath: /script
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            cpu: 100m
+            memory: 64Mi
+      restartPolicy: Always
+  updateStrategy:
+    type: RollingUpdate
