@@ -140,12 +140,17 @@ configs:
     resource.customizations.ignoreDifferences.policy_PodDisruptionBudget: |
       jqPathExpressions:
         - '.status'
-    # StatefulSet volumeClaimTemplates: Kubernetes adds status.phase and defaults spec.volumeMode
-    # to "Filesystem" at creation time. These fields are not in git and cause perpetual drift.
+    # StatefulSet volumeClaimTemplates: Kubernetes injects apiVersion, kind, status.phase, and
+    # defaults spec.volumeMode="Filesystem" at creation time. These fields are not authored in
+    # git manifests but appear in the live resource, causing perpetual OutOfSync drift.
+    # VCTs are also IMMUTABLE — ArgoCD cannot apply changes even if it tries. Ignoring all
+    # Kubernetes-injected VCT fields is safe and prevents both drift detection and apply errors.
     resource.customizations.ignoreDifferences.apps_StatefulSet: |
       jqPathExpressions:
         - '.spec.volumeClaimTemplates[].status'
         - '.spec.volumeClaimTemplates[].spec.volumeMode'
+        - '.spec.volumeClaimTemplates[].apiVersion'
+        - '.spec.volumeClaimTemplates[].kind'
     # Applications: notifications controller updates notified.notifications annotation with
     # timestamps on every notification send, causing perpetual drift on bootstrap-managed apps.
     resource.customizations.ignoreDifferences.argoproj.io_Application: |

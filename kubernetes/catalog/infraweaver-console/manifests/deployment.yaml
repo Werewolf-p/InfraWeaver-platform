@@ -33,7 +33,6 @@ spec:
       automountServiceAccountToken: true
       imagePullSecrets:
       - name: onedev-pull-secret
-      - name: ghcr-pull-secret
       # Spread replicas across nodes so a single Flannel disruption
       # doesn't take down both console pods simultaneously
       topologySpreadConstraints:
