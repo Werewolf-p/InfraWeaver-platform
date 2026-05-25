@@ -80,6 +80,7 @@ spec:
       spec:
         storageClassName: local-path
         accessModes: ["ReadWriteOnce"]
+        volumeMode: Filesystem
         resources:
           requests:
             storage: 10Gi
