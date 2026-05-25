@@ -48,7 +48,7 @@ spec:
             - name: PORT
               value: "3001"
             - name: APP_VERSION
-              value: "main-f32eb75"
+              value: "main-698da9d"
             - name: NODE_ENV
               value: "production"
             - name: CONSOLE_URL
