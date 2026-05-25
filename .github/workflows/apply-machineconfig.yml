@@ -18,9 +18,10 @@
 #   - Runs on a self-hosted runner labeled 'infra' that has network access
 #     to the Proxmox/Talos nodes (10.10.0.x)
 #
-# NOTE: The self-hosted runner labeled 'infra' must be enrolled in NetBird
-# or be on the same LAN. GitHub-hosted runners cannot reach 10.10.0.x.
-# Until a self-hosted runner is available, trigger manually from the init VM:
+# NOTE: Runs on the self-hosted runner labeled 'management-host' which must be
+# on the same LAN as the Talos nodes (10.10.0.x). GitHub-hosted runners cannot
+# reach these addresses.
+# Trigger manually from the init VM if needed:
 #   cd ~/InfraWeaver-platform && bash scripts/update.sh
 
 name: Apply Talos Machineconfig
@@ -55,7 +56,7 @@ jobs:
     name: Apply Talos Machineconfig
     # Requires a self-hosted runner on the same LAN as Talos nodes.
     # If no self-hosted runner is registered, this job will queue but not fail.
-    runs-on: [self-hosted, infra]
+    runs-on: [self-hosted, management-host]
     timeout-minutes: 15
 
     steps:
