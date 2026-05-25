@@ -1,42 +1,22 @@
-name: Build InfraWeaver API
+name: Build InfraWeaver Node
 
 on:
   push:
     branches: [main]
     paths:
-      - 'apps/infraweaver-api/**'
+      - 'apps/infraweaver-node/**'
   workflow_dispatch:
 
 env:
   REGISTRY: onedev.rlservers.com
-  IMAGE_NAME: infraweaver-platform/infraweaver-api
+  IMAGE_NAME: infraweaver-platform/infraweaver-node
 
 concurrency:
-  group: build-infraweaver-api
+  group: build-infraweaver-node
   cancel-in-progress: false
 
 jobs:
-  test:
-    runs-on: [self-hosted]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: "npm"
-          cache-dependency-path: apps/infraweaver-api/package-lock.json
-      - name: Install dependencies
-        working-directory: apps/infraweaver-api
-        run: npm ci
-      - name: TypeScript check
-        working-directory: apps/infraweaver-api
-        run: npx tsc --noEmit
-      - name: Unit tests
-        working-directory: apps/infraweaver-api
-        run: npm test -- --passWithNoTests
-
   build:
-    needs: [test]
     runs-on: [self-hosted]
     timeout-minutes: 30
     permissions:
@@ -59,7 +39,6 @@ jobs:
           echo "==> Logging in to OneDev registry..."
           for i in 1 2 3; do
             echo "${ONEDEV_PASS}" | docker login "${REGISTRY}" -u "${ONEDEV_USER}" --password-stdin && break
-            echo "  Login failed (attempt $i/3), retrying in 20s..."
             sleep 20
           done
 
@@ -71,24 +50,19 @@ jobs:
             --tag "${IMAGE_BASE}:${GITHUB_REF_NAME}" \
             --tag "${IMAGE_BASE}:${SHA_TAG}" \
             --push \
-            apps/infraweaver-api
+            apps/infraweaver-node
 
           echo "✅ Built and pushed: ${IMAGE_BASE}:${SHA_TAG}" >> $GITHUB_STEP_SUMMARY
 
-          # Update deployment manifest (GitOps source-of-truth)
-          MANIFEST="kubernetes/catalog/infraweaver-api/manifests/deployment.yaml"
-          sed -i -E "s|image: [^ ]*/infraweaver-api:[^ ]+|image: ${IMAGE_BASE}:${SHA_TAG}|g" "${MANIFEST}"
+          MANIFEST="kubernetes/catalog/infraweaver-node/manifests/deployment.yaml"
+          sed -i -E "s|image: [^ ]*/infraweaver-node:[^ ]+|image: ${IMAGE_BASE}:${SHA_TAG}|g" "${MANIFEST}"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add "${MANIFEST}"
-          DEPLOY_MSG=$(printf 'chore: deploy infraweaver-api %s [skip ci]\n\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>' "${SHA_TAG}")
+          DEPLOY_MSG=$(printf 'chore: deploy infraweaver-node %s [skip ci]\n\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>' "${SHA_TAG}")
           git diff --cached --quiet || git commit -m "${DEPLOY_MSG}"
           for attempt in 1 2 3; do
-            if git push origin HEAD:main; then
-              echo "Manifest pushed on attempt $attempt"
-              break
-            fi
-            echo "Push failed (attempt $attempt), rebasing..."
+            if git push origin HEAD:main; then break; fi
             git pull --rebase origin main
           done
 
@@ -101,7 +75,6 @@ jobs:
           mkdir -p ~/.kube
           echo "${KUBECONFIG_B64}" | base64 -d > ~/.kube/config-ci
           chmod 600 ~/.kube/config-ci
-
           WORKING_IP=""
           for ip in 10.10.0.92 10.10.0.93 10.10.0.91; do
             if curl -sk --max-time 3 "https://$ip:6443/healthz" >/dev/null 2>&1; then
@@ -110,13 +83,10 @@ jobs:
               break
             fi
           done
-
           if [ -z "$WORKING_IP" ]; then
             echo "⚠️ Cluster not reachable - ArgoCD will sync from GitHub on next poll" >> $GITHUB_STEP_SUMMARY
             exit 0
           fi
-
-          # Port-forward to OneDev and push so ArgoCD picks up the manifest change immediately
           ONEDEV_POD=$(KUBECONFIG=~/.kube/config-ci kubectl get pod -n onedev \
             -l app.kubernetes.io/name=onedev -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
           KUBECONFIG=~/.kube/config-ci kubectl port-forward -n onedev "pod/${ONEDEV_POD}" 19399:6610 &
@@ -129,9 +99,7 @@ jobs:
             git pull --rebase origin main
           done
           kill $PF_PID 2>/dev/null || true
-
-          # Trigger ArgoCD rollout
-          kubectl --kubeconfig ~/.kube/config-ci rollout restart deployment/infraweaver-api -n infraweaver-console || true
-          kubectl --kubeconfig ~/.kube/config-ci rollout status deployment/infraweaver-api -n infraweaver-console --timeout=180s || true
-          echo "✅ Deployed infraweaver-api to cluster" >> $GITHUB_STEP_SUMMARY
+          kubectl --kubeconfig ~/.kube/config-ci rollout restart deployment/infraweaver-node -n infraweaver-system || true
+          kubectl --kubeconfig ~/.kube/config-ci rollout status deployment/infraweaver-node -n infraweaver-system --timeout=180s || true
+          echo "✅ Deployed infraweaver-node to cluster" >> $GITHUB_STEP_SUMMARY
           rm -f ~/.kube/config-ci

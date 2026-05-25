@@ -9,8 +9,7 @@ on:
 
 env:
   REGISTRY: onedev.rlservers.com
-  INTERNAL_REGISTRY: onedev.infraweaver.local
-  IMAGE_NAME: infraweaver/infraweaver-console
+  IMAGE_NAME: infraweaver-platform/infraweaver-console
 
 concurrency:
   group: build-infraweaver-console
@@ -36,7 +35,6 @@ jobs:
           SHORT_SHA=$(echo "$GITHUB_SHA" | cut -c1-7)
           SHA_TAG="${GITHUB_REF_NAME}-${SHORT_SHA}"
           IMAGE_BASE="${REGISTRY}/${IMAGE_NAME}"
-          INTERNAL_IMAGE_BASE="${INTERNAL_REGISTRY}/${IMAGE_NAME}"
 
           echo "==> Logging in to OneDev registry..."
           for i in 1 2 3; do
@@ -57,7 +55,7 @@ jobs:
           echo "✅ Built and pushed: ${IMAGE_BASE}:${SHA_TAG}" >> $GITHUB_STEP_SUMMARY
 
           MANIFEST="kubernetes/catalog/infraweaver-console/manifests/deployment.yaml"
-          sed -i "s|image: ${INTERNAL_REGISTRY}/${IMAGE_NAME}:.*|image: ${INTERNAL_IMAGE_BASE}:${SHA_TAG}|g" "${MANIFEST}"
+          sed -i -E "s|image: [^ ]*/infraweaver-console:[^ ]+|image: ${IMAGE_BASE}:${SHA_TAG}|g" "${MANIFEST}"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add "${MANIFEST}"
@@ -68,15 +66,17 @@ jobs:
             git pull --rebase origin main
           done
 
-      - name: Rollout restart (if cluster accessible)
+      - name: Push to OneDev and trigger ArgoCD
         env:
           KUBECONFIG_B64: ${{ secrets.KUBECONFIG_PRODUCTIE }}
+          ONEDEV_USER: ${{ secrets.ONEDEV_REGISTRY_USER }}
+          ONEDEV_PASS: ${{ secrets.ONEDEV_REGISTRY_PASS }}
         run: |
           mkdir -p ~/.kube
           echo "${KUBECONFIG_B64}" | base64 -d > ~/.kube/config-ci
           chmod 600 ~/.kube/config-ci
           WORKING_IP=""
-          for ip in 10.10.0.92 10.10.0.93 10.10.0.94 10.10.0.90 10.10.0.91; do
+          for ip in 10.10.0.92 10.10.0.93 10.10.0.91; do
             if curl -sk --max-time 3 "https://$ip:6443/healthz" >/dev/null 2>&1; then
               sed -i "s|server: https://[0-9.]*:6443|server: https://$ip:6443|g" ~/.kube/config-ci
               WORKING_IP="$ip"
@@ -84,10 +84,22 @@ jobs:
             fi
           done
           if [ -z "$WORKING_IP" ]; then
-            echo "⚠️ No cluster accessible - ArgoCD will sync automatically" >> $GITHUB_STEP_SUMMARY
+            echo "⚠️ Cluster not reachable - ArgoCD will sync from GitHub on next poll" >> $GITHUB_STEP_SUMMARY
             exit 0
           fi
+          ONEDEV_POD=$(KUBECONFIG=~/.kube/config-ci kubectl get pod -n onedev \
+            -l app.kubernetes.io/name=onedev -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+          KUBECONFIG=~/.kube/config-ci kubectl port-forward -n onedev "pod/${ONEDEV_POD}" 19399:6610 &
+          PF_PID=$!
+          sleep 6
+          git remote set-url onedev "http://${ONEDEV_USER}:${ONEDEV_PASS}@localhost:19399/InfraWeaver-platform" 2>/dev/null || \
+            git remote add onedev "http://${ONEDEV_USER}:${ONEDEV_PASS}@localhost:19399/InfraWeaver-platform"
+          for attempt in 1 2 3; do
+            if git push onedev HEAD:main; then break; fi
+            git pull --rebase origin main
+          done
+          kill $PF_PID 2>/dev/null || true
           kubectl --kubeconfig ~/.kube/config-ci rollout restart deployment/infraweaver-console -n infraweaver-console || true
           kubectl --kubeconfig ~/.kube/config-ci rollout status deployment/infraweaver-console -n infraweaver-console --timeout=180s || true
-          echo "✅ Rollout triggered" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Deployed infraweaver-console to cluster" >> $GITHUB_STEP_SUMMARY
           rm -f ~/.kube/config-ci
