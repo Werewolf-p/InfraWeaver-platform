@@ -46,7 +46,7 @@ spec:
               name: health
           env:
             - name: APP_VERSION
-              value: "main-18a83e3"
+              value: "main-ef21fb1"
             - name: PORT
               value: "3001"
             - name: NODE_ENV
