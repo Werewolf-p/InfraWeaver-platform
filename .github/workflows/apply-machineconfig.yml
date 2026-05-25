@@ -7,22 +7,27 @@
 #   ArgoCD handles Kubernetes manifest changes automatically.
 #   But Talos machineconfig changes (etcd flags, kubelet settings, etc.)
 #   must be applied via talosctl — they are NOT picked up by ArgoCD.
-#   This workflow closes that gap: it runs tofu apply targeting only the
-#   Talos cluster module, which regenerates machineconfigs and applies
-#   them to running nodes with --mode=staged (no disruptive reboots).
+#   This workflow closes that gap: it re-renders the machineconfig YAML and
+#   applies it to running nodes with --mode=staged (no disruptive reboots).
 #
-# REQUIREMENTS:
-#   - TALOSCONFIG_PRODUCTIE: set automatically by deploy-local.sh after each
-#     successful cluster provision. If missing, run deploy-local.sh first.
-#   - Terraform state must be present (stored in Proxmox NFS or local to runner)
-#   - Runs on a self-hosted runner labeled 'infra' that has network access
-#     to the Proxmox/Talos nodes (10.10.0.x)
+# HOW IT WORKS (Proxmox-free path):
+#   1. Re-render machineconfig files via:
+#        tofu apply -target=local_sensitive_file.node_machine_config
+#      This uses ONLY talos_machine_secrets from state — no Proxmox API call.
+#   2. Apply each file directly via:
+#        talosctl apply-config --mode=staged
+#      Requires a valid talosconfig and LAN access to the Talos nodes.
 #
-# NOTE: Runs on the self-hosted runner labeled 'management-host' which must be
-# on the same LAN as the Talos nodes (10.10.0.x). GitHub-hosted runners cannot
+# TALOSCONFIG SOURCE (in order of preference):
+#   1. Local file: $HOME/InfraWeaver-platform/envs/<env>/generated/talosconfig
+#      Written by deploy-local.sh on every successful cluster provision.
+#      Available since the workflow runs on the management-host runner.
+#   2. GitHub Secret: TALOSCONFIG_PRODUCTIE (fallback if local file is absent).
+#      Populated by deploy-local.sh when GITHUB_PAT is set in .env.
+#
+# NOTE: Runs on the management-host self-hosted runner which must be on the
+# same LAN as the Talos nodes (10.10.0.x). GitHub-hosted runners cannot
 # reach these addresses.
-# Trigger manually from the init VM if needed:
-#   cd ~/InfraWeaver-platform && bash scripts/update.sh
 
 name: Apply Talos Machineconfig
 
@@ -54,8 +59,6 @@ permissions:
 jobs:
   apply-machineconfig:
     name: Apply Talos Machineconfig
-    # Requires a self-hosted runner on the same LAN as Talos nodes.
-    # If no self-hosted runner is registered, this job will queue but not fail.
     runs-on: [self-hosted, management-host]
     timeout-minutes: 15
 
@@ -63,59 +66,150 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Check prerequisites
+      - name: Setup talosconfig and credentials
         id: prereqs
         run: |
           ENV="${{ github.event.inputs.environment || 'productie' }}"
           echo "env=$ENV" >> "$GITHUB_OUTPUT"
 
-          # Check talosconfig secret
-          if [ -z "${{ secrets.TALOSCONFIG_PRODUCTIE }}" ]; then
-            echo "::warning::TALOSCONFIG_PRODUCTIE secret is not set."
-            echo "Run deploy-local.sh to auto-populate it, or set it manually:"
-            echo "  gh secret set TALOSCONFIG_PRODUCTIE --body \"\$(cat envs/$ENV/generated/talosconfig)\""
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
+          # The management-host runner has the repo checked out locally at
+          # $HOME/InfraWeaver-platform. deploy-local.sh writes talosconfig there.
+          LOCAL_REPO="$HOME/InfraWeaver-platform"
+          LOCAL_TC="$LOCAL_REPO/envs/$ENV/generated/talosconfig"
+
+          # Copy .env from the live management-host repo (has Proxmox token etc.)
+          if [ -f "$LOCAL_REPO/.env" ]; then
+            cp "$LOCAL_REPO/.env" .env
           fi
 
-      - name: Apply machineconfig via update.sh
+          mkdir -p "envs/$ENV/generated"
+
+          if [ -f "$LOCAL_TC" ]; then
+            cp "$LOCAL_TC" "envs/$ENV/generated/talosconfig"
+            chmod 600 "envs/$ENV/generated/talosconfig"
+            echo "talosconfig_source=local" >> "$GITHUB_OUTPUT"
+            echo "✅ Using local talosconfig from $LOCAL_TC"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          elif [ -n "${{ secrets.TALOSCONFIG_PRODUCTIE }}" ]; then
+            echo "${{ secrets.TALOSCONFIG_PRODUCTIE }}" > "envs/$ENV/generated/talosconfig"
+            chmod 600 "envs/$ENV/generated/talosconfig"
+            echo "talosconfig_source=secret" >> "$GITHUB_OUTPUT"
+            echo "✅ Using TALOSCONFIG_PRODUCTIE GitHub Secret (fallback)"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::No talosconfig available. Redeploy with deploy-local.sh to regenerate it."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Re-render machineconfig files (no Proxmox needed)
         if: steps.prereqs.outputs.skip != 'true'
         env:
-          TALOSCONFIG_PRODUCTIE: ${{ secrets.TALOSCONFIG_PRODUCTIE }}
           ENV_NAME: ${{ steps.prereqs.outputs.env }}
         run: |
-          # Write talosconfig to the expected location
-          mkdir -p envs/${ENV_NAME}/generated
-          echo "$TALOSCONFIG_PRODUCTIE" > envs/${ENV_NAME}/generated/talosconfig
-          chmod 600 envs/${ENV_NAME}/generated/talosconfig
+          STATE_DIR="$HOME/.tofu/state/platform-${ENV_NAME}"
+          if [ ! -f "$STATE_DIR/terraform.tfstate" ]; then
+            echo "::error::No Terraform state at $STATE_DIR. Run deploy-local.sh first."
+            exit 1
+          fi
 
-          # Run update.sh in JSON mode — it detects machineconfig changes and
-          # runs tofu apply -target=module.talos_cluster automatically
-          bash scripts/update.sh --json 2>&1 | tee /tmp/update-output.json || true
+          # Load PROXMOX_API_TOKEN from .env (needed to satisfy variable validation,
+          # but NOT used during this targeted apply — no Proxmox resources are touched)
+          PROXMOX_API_TOKEN=""
+          [ -f .env ] && PROXMOX_API_TOKEN=$(grep '^PROXMOX_API_TOKEN=' .env | cut -d= -f2- | tr -d '"' 2>/dev/null || true)
 
-          # Parse result
-          python3 -c "
-          import json, sys
-          try:
-              data = json.load(open('/tmp/update-output.json'))
-              if data.get('machineConfigApplied'):
-                  print('✅ Machineconfig applied successfully')
-              elif data.get('updated'):
-                  print('⚠ Code updated but machineconfig not applied (state unavailable?)')
+          TF_PLUGIN_CACHE_DIR="$HOME/.terraform.d/plugin-cache"
+          mkdir -p "$TF_PLUGIN_CACHE_DIR"
+
+          cd terraform
+
+          TF_VAR_proxmox_api_token="$PROXMOX_API_TOKEN" \
+          TF_PLUGIN_CACHE_DIR="$TF_PLUGIN_CACHE_DIR" \
+          tofu init \
+            -backend-config="path=$STATE_DIR/terraform.tfstate" \
+            -reconfigure -input=false 2>&1 | tail -3
+
+          VARS=""
+          [ -f "../envs/$ENV_NAME/terraform.tfvars" ]     && VARS="$VARS -var-file=../envs/$ENV_NAME/terraform.tfvars"
+          [ -f "../envs/$ENV_NAME/services.auto.tfvars" ] && VARS="$VARS -var-file=../envs/$ENV_NAME/services.auto.tfvars"
+
+          # Build -target flags for ONLY local_sensitive_file resources.
+          # Dependency chain: local_sensitive_file → data.talos_machine_configuration
+          #                   → talos_machine_secrets  (all from Talos provider, no Proxmox)
+          TARGETS=()
+          while IFS= read -r node; do
+            TARGETS+=("-target=module.talos_cluster.local_sensitive_file.node_machine_config[\"$node\"]")
+          done < <(python3 -c "
+          import yaml
+          with open('../envs/$ENV_NAME/cluster.yaml') as f:
+              c = yaml.safe_load(f)
+          for n in c.get('nodes', {}):
+              print(n)
+          ")
+
+          echo "Re-rendering machineconfig for: ${TARGETS[*]:-none}"
+
+          TF_VAR_proxmox_api_token="$PROXMOX_API_TOKEN" \
+          TF_PLUGIN_CACHE_DIR="$TF_PLUGIN_CACHE_DIR" \
+          tofu apply $VARS "${TARGETS[@]}" -auto-approve -input=false 2>&1 \
+            && echo "✅ Machineconfig files re-rendered" \
+            || echo "::warning::Re-render failed — will attempt to apply existing files"
+
+      - name: Apply machineconfig to nodes via talosctl
+        if: steps.prereqs.outputs.skip != 'true'
+        env:
+          ENV_NAME: ${{ steps.prereqs.outputs.env }}
+        run: |
+          python3 - << 'PYEOF'
+          import yaml, subprocess, sys, os
+
+          env = os.environ.get('ENV_NAME', 'productie')
+          talosconfig = f"envs/{env}/generated/talosconfig"
+          cluster_yaml = f"envs/{env}/cluster.yaml"
+          mc_dir = f"envs/{env}/generated"
+
+          with open(cluster_yaml) as f:
+              cluster = yaml.safe_load(f)
+
+          total, failed = 0, 0
+          for name, node in cluster.get('nodes', {}).items():
+              mc_file = f"{mc_dir}/mc-{name}.yaml"
+              ip = node['ip']
+              total += 1
+              if not os.path.exists(mc_file):
+                  print(f"::warning::No machineconfig file for {name}: {mc_file}")
+                  failed += 1
+                  continue
+              print(f"Staging {name} ({ip})...")
+              r = subprocess.run(
+                  ["talosctl", "apply-config",
+                   "--talosconfig", talosconfig,
+                   "--endpoints", ip, "--nodes", ip,
+                   "--file", mc_file, "--mode=staged"],
+                  capture_output=True, text=True
+              )
+              if r.returncode == 0:
+                  print(f"  ✅ {name}: staged — effective on next Talos-managed restart")
               else:
-                  print('ℹ Already up to date — no machineconfig changes')
-          except Exception as e:
-              print(f'Could not parse output: {e}')
-          " || true
+                  stderr = (r.stderr or r.stdout or "").strip()[:300]
+                  print(f"  ⚠ {name}: {stderr}")
+                  failed += 1
 
-      - name: Verify nodes healthy after apply
+          if failed == 0:
+              print(f"\n✅ Machineconfig applied to all {total} nodes")
+          else:
+              print(f"\n⚠ {failed}/{total} nodes failed")
+              sys.exit(1)
+          PYEOF
+
+      - name: Verify nodes healthy
         if: steps.prereqs.outputs.skip != 'true'
         run: |
-          export KUBECONFIG="$HOME/.kube/config-platform-${{ steps.prereqs.outputs.env }}"
-          if [ ! -f "$KUBECONFIG" ]; then
-            echo "No kubeconfig found — skipping health check"
+          ENV="${{ steps.prereqs.outputs.env }}"
+          KUBECONFIG_FILE="$HOME/.kube/config-platform-${ENV}"
+          if [ ! -f "$KUBECONFIG_FILE" ]; then
+            echo "No kubeconfig at $KUBECONFIG_FILE — skipping health check"
             exit 0
           fi
-          echo "Checking node status..."
-          kubectl get nodes -o wide 2>/dev/null || echo "kubectl not available"
+          echo "Node status after machineconfig staging:"
+          kubectl --kubeconfig "$KUBECONFIG_FILE" get nodes -o wide 2>/dev/null \
+            || echo "kubectl not available"

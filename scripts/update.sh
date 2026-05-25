@@ -103,8 +103,19 @@ fi
 
 # 6. Apply Talos machineconfig if infrastructure files changed
 # When cluster.yaml or talos-cluster module changes, the machineconfig needs to
-# be re-applied to running nodes. This is done via tofu apply which detects the
-# mc_hash change and re-runs talosctl apply-config --mode=staged automatically.
+# be re-applied to running nodes.
+#
+# HOW IT WORKS (Proxmox-free path):
+#   Step A — Re-render machineconfig files by targeting ONLY local_sensitive_file
+#             resources. These depend only on talos_machine_secrets (in state) and
+#             the talos provider. No Proxmox API call is made.
+#   Step B — Apply each rendered file to its node directly via:
+#               talosctl apply-config --mode=staged
+#             This requires only a valid talosconfig and network access to the
+#             Talos nodes. Proxmox is not involved.
+#
+# This deliberately avoids -target=module.talos_cluster which would also refresh
+# proxmox_virtual_environment_vm resources (requiring a working Proxmox API token).
 MC_CHANGED=$(git diff --name-only "$OLD_SHA" "$NEW_SHA" -- \
   terraform/modules/talos-cluster/main.tf \
   terraform/modules/talos-cluster/templates/ \
@@ -118,61 +129,106 @@ if [ "$MC_CHANGED" -gt 0 ]; then
   TALOSCONFIG_FILE="$REPO_DIR/envs/${ENV_NAME:-productie}/generated/talosconfig"
 
   if [ ! -f "$STATE_DIR/terraform.tfstate" ]; then
-    log "⚠ No Terraform state found at $STATE_DIR — machineconfig auto-apply skipped"
-    log "  Manual: cd terraform && tofu apply -target=module.talos_cluster"
+    log "⚠ No Terraform state at $STATE_DIR — machineconfig auto-apply skipped"
+    log "  Run deploy-local.sh first to create state, then push again"
   elif [ ! -f "$TALOSCONFIG_FILE" ]; then
-    log "⚠ No talosconfig found at $TALOSCONFIG_FILE — machineconfig auto-apply skipped"
-    log "  Manual: obtain valid talosconfig, then run: cd terraform && tofu apply -target=module.talos_cluster"
+    log "⚠ No talosconfig at $TALOSCONFIG_FILE — machineconfig auto-apply skipped"
+    log "  Redeploy with deploy-local.sh to regenerate talosconfig"
   elif [ ! -f "$ENV_FILE" ]; then
     log "⚠ No .env found — machineconfig auto-apply skipped"
   else
-    log "Applying machineconfig changes via tofu apply (this may take 1-2 min)..."
-    # Load Proxmox credentials from .env
+    # Load env vars (Proxmox token, node list, etc.)
     PROXMOX_API_TOKEN=$(grep '^PROXMOX_API_TOKEN=' "$ENV_FILE" | cut -d= -f2- | tr -d '"' 2>/dev/null || echo "")
     ENV_NAME_VAL=$(grep '^ENV_NAME=' "$ENV_FILE" | cut -d= -f2- | tr -d '"' 2>/dev/null || echo "productie")
+    CLUSTER_YAML="$REPO_DIR/envs/$ENV_NAME_VAL/cluster.yaml"
+    MC_DIR="$REPO_DIR/envs/$ENV_NAME_VAL/generated"
     TF_PLUGIN_CACHE_DIR="$HOME/.terraform.d/plugin-cache"
     mkdir -p "$TF_PLUGIN_CACHE_DIR"
 
+    log "Applying machineconfig changes (Proxmox-free path)..."
     cd "$REPO_DIR/terraform"
+
+    # Init Terraform with local backend
+    run_update_cmd tofu init \
+      -backend-config="path=$STATE_DIR/terraform.tfstate" \
+      -reconfigure -input=false || true
+
     VARS=""
     [ -f "../envs/$ENV_NAME_VAL/terraform.tfvars" ]     && VARS="$VARS -var-file=../envs/$ENV_NAME_VAL/terraform.tfvars"
     [ -f "../envs/$ENV_NAME_VAL/services.auto.tfvars" ] && VARS="$VARS -var-file=../envs/$ENV_NAME_VAL/services.auto.tfvars"
 
-    if [ "$JSON_OUTPUT" = "true" ]; then
+    # ── Step A: Re-render machineconfig files ────────────────────────────────
+    # Target ONLY local_sensitive_file.node_machine_config — its dependency chain
+    # is talos_machine_secrets → talos provider only. No Proxmox refresh happens.
+    REGEN_TARGETS=()
+    while IFS= read -r node_name; do
+      REGEN_TARGETS+=("-target=module.talos_cluster.local_sensitive_file.node_machine_config[\"$node_name\"]")
+    done < <(python3 -c "
+import yaml, sys
+try:
+    with open('../envs/$ENV_NAME_VAL/cluster.yaml') as f:
+        c = yaml.safe_load(f)
+    for n in c.get('nodes', {}):
+        print(n)
+except Exception as e:
+    print(f'yaml error: {e}', file=sys.stderr)
+" 2>/dev/null)
+
+    if [ ${#REGEN_TARGETS[@]} -gt 0 ]; then
+      log "  Re-rendering machineconfig files (${#REGEN_TARGETS[@]} nodes)..."
       TF_VAR_proxmox_api_token="$PROXMOX_API_TOKEN" \
       TF_PLUGIN_CACHE_DIR="$TF_PLUGIN_CACHE_DIR" \
-      tofu init -backend-config="path=$STATE_DIR/terraform.tfstate" -reconfigure -input=false >/dev/null 2>&1 || true
+      run_update_cmd tofu apply $VARS "${REGEN_TARGETS[@]}" -auto-approve -input=false \
+        && log "  ✅ Machineconfig files re-rendered" \
+        || log "  ⚠ Re-render failed — will attempt apply with existing files"
     else
-      TF_VAR_proxmox_api_token="$PROXMOX_API_TOKEN" \
-      TF_PLUGIN_CACHE_DIR="$TF_PLUGIN_CACHE_DIR" \
-      tofu init -backend-config="path=$STATE_DIR/terraform.tfstate" -reconfigure -input=false 2>&1 | tail -3 || true
+      log "  ⚠ Could not read node list from cluster.yaml — applying existing files"
     fi
 
-    # Apply only the talos_cluster module — this regenerates machineconfigs and
-    # re-applies them to running nodes via talosctl apply-config --mode=staged
-    # when mc_hash trigger detects a content change.
-    if [ "$JSON_OUTPUT" = "true" ]; then
-      if TF_VAR_proxmox_api_token="$PROXMOX_API_TOKEN" \
-         TF_PLUGIN_CACHE_DIR="$TF_PLUGIN_CACHE_DIR" \
-         tofu apply $VARS -target=module.talos_cluster -auto-approve -input=false >/dev/null 2>&1; then
-        log "✅ Machineconfig applied successfully"
-        MACHINECONFIG_APPLIED=true
-      else
-        log "⚠ Machineconfig apply failed — check terraform output above"
-        log "  Manual: cd terraform && tofu apply -target=module.talos_cluster"
+    # ── Step B: Apply to each node via talosctl directly ────────────────────
+    # No Proxmox API needed — only talosconfig + network access to Talos nodes.
+    log "  Applying machineconfig to nodes via talosctl..."
+    NODE_TOTAL=0
+    NODE_FAILS=0
+
+    while IFS=' ' read -r NODE_NAME NODE_IP; do
+      MC_FILE="$MC_DIR/mc-${NODE_NAME}.yaml"
+      NODE_TOTAL=$((NODE_TOTAL + 1))
+      if [ ! -f "$MC_FILE" ]; then
+        log "  ⚠ $NODE_NAME: machineconfig file not found ($MC_FILE) — skipping"
+        NODE_FAILS=$((NODE_FAILS + 1))
+        continue
       fi
-    else
-      if TF_VAR_proxmox_api_token="$PROXMOX_API_TOKEN" \
-         TF_PLUGIN_CACHE_DIR="$TF_PLUGIN_CACHE_DIR" \
-         tofu apply $VARS -target=module.talos_cluster -auto-approve -input=false 2>&1; then
-        log "✅ Machineconfig applied successfully"
-        MACHINECONFIG_APPLIED=true
+      log "  Staging $NODE_NAME ($NODE_IP)..."
+      if talosctl apply-config \
+           --talosconfig "$TALOSCONFIG_FILE" \
+           --endpoints "$NODE_IP" --nodes "$NODE_IP" \
+           --file "$MC_FILE" \
+           --mode=staged 2>&1; then
+        log "  ✅ $NODE_NAME: staged (effective on next Talos-managed restart)"
       else
-        log "⚠ Machineconfig apply failed — check terraform output above"
-        log "  Manual: cd terraform && tofu apply -target=module.talos_cluster"
+        log "  ⚠ $NODE_NAME: apply failed — talosconfig may be stale or node unreachable"
+        NODE_FAILS=$((NODE_FAILS + 1))
       fi
-    fi
+    done < <(python3 -c "
+import yaml
+try:
+    with open('$CLUSTER_YAML') as f:
+        c = yaml.safe_load(f)
+    for name, node in c.get('nodes', {}).items():
+        print(f\"{name} {node['ip']}\")
+except: pass
+" 2>/dev/null)
+
     cd "$REPO_DIR"
+
+    if [ "$NODE_FAILS" -eq 0 ] && [ "$NODE_TOTAL" -gt 0 ]; then
+      log "✅ Machineconfig applied to $NODE_TOTAL nodes"
+      MACHINECONFIG_APPLIED=true
+    else
+      log "⚠ Machineconfig apply incomplete ($NODE_FAILS/$NODE_TOTAL nodes failed)"
+      log "  Manual: talosctl apply-config --talosconfig $TALOSCONFIG_FILE --mode=staged --file <mc.yaml> --nodes <ip>"
+    fi
   fi
 fi
 

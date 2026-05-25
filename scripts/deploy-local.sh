@@ -412,6 +412,14 @@ if [[ -n "${GITHUB_PAT:-}" ]] && [[ -n "${GITHUB_REPO:-}" ]] && \
     --repo "$GITHUB_REPO" 2>/dev/null \
     && log "  ✅ TALOSCONFIG_PRODUCTIE saved to GitHub Secrets" \
     || warn "  Failed to save talosconfig to GitHub Secrets (GITHUB_PAT may be expired — update manually)"
+elif [[ -f "../envs/$ENV_NAME/generated/talosconfig" ]]; then
+  # GITHUB_PAT is empty — the apply-machineconfig workflow uses the LOCAL file on the
+  # management-host runner directly, so this is non-fatal. The workflow reads from:
+  #   $HOME/InfraWeaver-platform/envs/<env>/generated/talosconfig
+  # which is this file. No GitHub Secret is required as long as the workflow runs on
+  # the management-host runner. The secret is only needed as a fallback.
+  log "  ℹ GITHUB_PAT not set — talosconfig saved locally only (workflow will use local path)"
+  log "  To also save to GitHub Secrets (fallback), set GITHUB_PAT in .env"
 fi
 chmod 600 "../envs/$ENV_NAME/generated/talosconfig" 2>/dev/null || true
 
