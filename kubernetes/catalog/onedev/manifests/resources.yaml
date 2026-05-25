@@ -30,6 +30,7 @@ spec:
       labels:
         app: onedev-postgres
     spec:
+      priorityClassName: platform-high
       automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: false
@@ -192,6 +193,7 @@ spec:
         app.kubernetes.io/name: onedev
         app.kubernetes.io/component: server
     spec:
+      priorityClassName: platform-high
       automountServiceAccountToken: false
       # Keep onedev away from registry — if they're on the same node and that node
       # has a Flannel disruption, both go down simultaneously causing image pull failures
@@ -391,3 +393,35 @@ spec:
           namespace: onedev
   tls:
     secretName: platform-wildcard-tls  # wildcard *.rlservers.com cert
+---
+# PodDisruptionBudget — protects OneDev during voluntary node drains.
+# OneDev is single-replica (Recreate strategy) so we allow maxUnavailable: 0
+# during drains — the operator must acknowledge this will briefly take OneDev offline.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: onedev
+  namespace: onedev
+  labels:
+    app.kubernetes.io/name: onedev
+spec:
+  maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: onedev
+---
+# PodDisruptionBudget — protects OneDev Postgres during voluntary node drains.
+# Local-path PVC is bound to cp1 — if cp1 is drained, Postgres cannot move.
+# maxUnavailable: 0 blocks the drain until the operator resolves this manually.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: onedev-postgres
+  namespace: onedev
+  labels:
+    app: onedev-postgres
+spec:
+  maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: onedev-postgres

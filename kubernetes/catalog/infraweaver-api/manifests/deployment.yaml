@@ -25,9 +25,28 @@ spec:
       labels:
         app: infraweaver-api
     spec:
+      priorityClassName: platform-high
       terminationGracePeriodSeconds: 60
       automountServiceAccountToken: true
       serviceAccountName: infraweaver-api
+      # Spread replicas across nodes — a single node disruption must not take
+      # down both API replicas simultaneously.
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            app: infraweaver-api
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: infraweaver-api
+              topologyKey: kubernetes.io/hostname
       imagePullSecrets:
         - name: onedev-pull-secret
       securityContext:

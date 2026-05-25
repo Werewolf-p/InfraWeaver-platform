@@ -25,6 +25,7 @@ spec:
       labels:
         app: infraweaver-console
     spec:
+      priorityClassName: platform-high
       terminationGracePeriodSeconds: 60
       serviceAccountName: infraweaver-console
       # MUST remain true — console uses in-cluster k8s API (game-hub, apps, cluster
