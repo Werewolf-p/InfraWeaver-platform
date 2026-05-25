@@ -119,7 +119,7 @@ metadata:
     pod-security.kubernetes.io/audit: baseline
     pod-security.kubernetes.io/warn: baseline
 ---
-# ── InfraWeaver application namespaces: restricted ──────────────────────────
+# ── InfraWeaver application namespaces ──────────────────────────────────────
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -129,6 +129,7 @@ metadata:
     pod-security.kubernetes.io/audit: restricted
     pod-security.kubernetes.io/warn: restricted
     infraweaver.io/type: catalog-app
+    app.kubernetes.io/name: infraweaver-console
 ---
 apiVersion: v1
 kind: Namespace
@@ -150,7 +151,7 @@ metadata:
     pod-security.kubernetes.io/audit: baseline
     pod-security.kubernetes.io/warn: restricted
 ---
-# ── Observability: baseline ──────────────────────────────────────────────────
+# ── Observability: privileged (Prometheus needs host metrics, Loki needs hostPath) ───
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -160,138 +161,7 @@ metadata:
     pod-security.kubernetes.io/audit: privileged
     pod-security.kubernetes.io/warn: privileged
 ---
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: onedev
-  labels:
-    pod-security.kubernetes.io/enforce: baseline
-    pod-security.kubernetes.io/audit: restricted
-    pod-security.kubernetes.io/warn: restricted
-
-# ── Host-level infra: privileged ────────────────────────────────────────────
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: kube-system
-  labels:
-    pod-security.kubernetes.io/enforce: privileged
-    pod-security.kubernetes.io/audit: privileged
-    pod-security.kubernetes.io/warn: privileged
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: longhorn-system
-  labels:
-    pod-security.kubernetes.io/enforce: privileged
-    pod-security.kubernetes.io/audit: privileged
-    pod-security.kubernetes.io/warn: privileged
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: local-path-storage
-  labels:
-    pod-security.kubernetes.io/enforce: privileged
-    pod-security.kubernetes.io/audit: privileged
-    pod-security.kubernetes.io/warn: privileged
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: metallb-system
-  labels:
-    pod-security.kubernetes.io/enforce: privileged
-    pod-security.kubernetes.io/audit: privileged
-    pod-security.kubernetes.io/warn: privileged
----
-# ── Platform services: baseline enforce + restricted warn ────────────────────
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: cert-manager
-  labels:
-    pod-security.kubernetes.io/enforce: baseline
-    pod-security.kubernetes.io/audit: restricted
-    pod-security.kubernetes.io/warn: restricted
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: external-secrets
-  labels:
-    pod-security.kubernetes.io/enforce: baseline
-    pod-security.kubernetes.io/audit: restricted
-    pod-security.kubernetes.io/warn: restricted
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: traefik
-  labels:
-    pod-security.kubernetes.io/enforce: baseline
-    pod-security.kubernetes.io/audit: baseline
-    pod-security.kubernetes.io/warn: restricted
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: openbao
-  labels:
-    pod-security.kubernetes.io/enforce: baseline
-    pod-security.kubernetes.io/audit: restricted
-    pod-security.kubernetes.io/warn: restricted
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: kyverno
-  labels:
-    pod-security.kubernetes.io/enforce: baseline
-    pod-security.kubernetes.io/audit: restricted
-    pod-security.kubernetes.io/warn: restricted
----
-# ── InfraWeaver application namespaces: restricted ──────────────────────────
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: infraweaver-console
-  labels:
-    pod-security.kubernetes.io/enforce: baseline
-    pod-security.kubernetes.io/audit: restricted
-    pod-security.kubernetes.io/warn: restricted
-    infraweaver.io/type: catalog-app
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: infraweaver-system
-  labels:
-    pod-security.kubernetes.io/enforce: baseline
-    pod-security.kubernetes.io/audit: restricted
-    pod-security.kubernetes.io/warn: restricted
----
-# ── Identity/SSO: baseline ───────────────────────────────────────────────────
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: authentik
-  labels:
-    pod-security.kubernetes.io/enforce: baseline
-    pod-security.kubernetes.io/audit: baseline
-    pod-security.kubernetes.io/warn: restricted
----
-# ── Observability: baseline ──────────────────────────────────────────────────
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: monitoring
-  labels:
-    pod-security.kubernetes.io/enforce: privileged
-    pod-security.kubernetes.io/audit: privileged
-    pod-security.kubernetes.io/warn: privileged
----
+# ── Source control: baseline ─────────────────────────────────────────────────
 apiVersion: v1
 kind: Namespace
 metadata:
