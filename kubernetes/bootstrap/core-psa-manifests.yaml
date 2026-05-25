@@ -35,3 +35,10 @@ spec:
       - CreateNamespace=false
       - ServerSideApply=true
       - RespectIgnoreDifferences=true
+  # Namespaces are co-managed with their app manifests (e.g. catalog-onedev-manifests).
+  # Ignore the tracking-id annotation so both apps can label the same namespace
+  # without fighting over annotation ownership.
+  ignoreDifferences:
+    - kind: Namespace
+      jsonPointers:
+        - /metadata/annotations/argocd.argoproj.io~1tracking-id
