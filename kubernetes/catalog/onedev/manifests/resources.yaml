@@ -1,16 +1,4 @@
 ---
-# Namespace
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: onedev
-  labels:
-    app.kubernetes.io/name: onedev
-    infraweaver.io/type: catalog-app
-    pod-security.kubernetes.io/enforce: baseline
-    pod-security.kubernetes.io/audit: restricted
-    pod-security.kubernetes.io/warn: restricted
----
 # Internal PostgreSQL credentials — not externally accessible, cluster-internal only
 apiVersion: v1
 kind: Secret
