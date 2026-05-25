@@ -1,15 +1,33 @@
-# etcd-alarm-healer — automated via GitHub Actions (maintenance.yml)
+# etcd-alarm-healer — diagnosis and permanent fix documentation
 #
-# The etcd CORRUPT alarm fix runs as a scheduled GitHub Actions job (every 10 min)
-# in .github/workflows/maintenance.yml job: etcd-alarm-check
+# ROOT CAUSE CONFIRMED (May 25, 2026):
+# All 3 Talos CP nodes were rebooting every ~71 minutes in a rolling cascade.
+# Flannel restarts (43+ times) were a SYMPTOM of node reboots, not the root cause.
 #
-# This approach is chosen over an in-cluster CronJob because:
-#   1. No image pull required (runs on self-hosted runner with kubectl configured)
-#   2. Avoids Talos kubelet proxy restrictions that block pod exec from k8s CronJobs
-#   3. Full audit trail in GitHub Actions logs
-#   4. Can be manually triggered via workflow_dispatch
+# CAUSE: etcd v3.6.9 in Talos v1.12.7 starts with:
+#   --experimental-compact-hash-check-enabled=true
+#   --experimental-initial-corrupt-check=true
+# After each hourly compaction (auto-compaction-retention=1h), the post-compaction
+# hash check fails on Proxmox-virtualized storage (timing jitter in I/O causes
+# hash mismatches between cluster members). etcd panics/exits → machined restart
+# loop → startup corrupt check also fails → Talos reboots node after N failures.
+# Pattern: 60min (compaction) + 11min (cascade) = 71min reboot cycle.
 #
-# Permanent IaC fix: experimental-compact-hash-check-enabled=false in
-# terraform/modules/talos-cluster/main.tf — applied on next full-redeploy.
+# IMMEDIATE FIX (applied May 25, 2026):
+# 1. SIGTERM sent to etcd on cp1+cp2 to reset compaction clock (buy 60min)
+# 2. DaemonSet etcd-config-patcher deployed (see etcd-config-patcher.yaml)
+#    - Watches OCI config.json, patches flags to false before runc reads them
+#    - Protects on EVERY etcd restart (compaction-triggered or machined restart)
 #
-# To manually trigger: GitHub → Actions → Maintenance → Run workflow → etcd-alarm-check
+# PERMANENT IaC FIX:
+# - terraform/modules/talos-cluster/main.tf updated:
+#     experimental-compact-hash-check-enabled = "false"
+#     experimental-initial-corrupt-check      = "false"
+# - Will apply on next full-redeploy (requires valid talosconfig)
+# - After applying via talosctl → delete etcd-config-patcher DaemonSet
+#
+# HOW TO APPLY PERMANENT FIX NOW (without full redeploy):
+# 1. Get valid talosconfig (from next CI/CD run that uses Terraform)
+# 2. talosctl apply-config --mode=no-reboot --nodes 10.10.0.92,10.10.0.93,10.10.0.94
+# 3. Verify etcd args changed: kubectl exec on privileged pod + check config.json
+# 4. Delete etcd-config-patcher DaemonSet from kube-system

@@ -368,6 +368,13 @@ data "talos_machine_configuration" "this" {
             # Periodic mode compacts all revisions older than 1h (retains latest state).
             auto-compaction-mode      = "periodic"
             auto-compaction-retention = "1h"
+            # CRITICAL: Disable compact hash check to prevent node reboot cascade.
+            # With both flags true (default in Talos etcd v3.6), the post-compaction hash check
+            # fails on Proxmox VMs due to timing/storage jitter → etcd panics → machined restart
+            # loop → Talos reboots the node every ~71 minutes. Setting both to false prevents this.
+            # See: kubernetes/core/argocd/manifests/etcd-healer.yaml for full incident history.
+            experimental-compact-hash-check-enabled = "false"
+            experimental-initial-corrupt-check      = "false"
           }
         }
         # Tune kube-apiserver to reduce memory pressure on all-control-plane homelab clusters.

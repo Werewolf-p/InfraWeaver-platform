@@ -1,0 +1,100 @@
+# etcd-config-patcher — TEMPORARY WORKAROUND for node reboot cascade
+#
+# ROOT CAUSE: etcd v3.6 runs with --experimental-compact-hash-check-enabled=true
+# and --experimental-initial-corrupt-check=true by default in Talos v1.12.7.
+# On Proxmox VMs with virtualized storage, the post-compaction hash check fails
+# (timing/jitter in storage I/O causes hash mismatches between cluster members).
+# This causes etcd to panic after every hourly compaction → machined restart loop
+# → Talos reboots the node every ~71 minutes (60min compaction + 11min cascade).
+#
+# CONFIRMED DIAGNOSIS (May 25, 2026):
+# - All 3 CP nodes rebooting every 71 minutes in rolling cascade
+# - etcd container args confirmed: experimental-compact-hash-check-enabled=true
+# - etcd DB healthy, no corruption (confirmed via etcdctl endpoint status)
+# - Flags are false positives on Proxmox virtualized storage
+#
+# THIS PATCHER:
+# - Runs as a privileged DaemonSet on all control-plane nodes
+# - Watches /run/containerd/io.containerd.runtime.v2.task/system/etcd/config.json
+# - IMMEDIATELY patches the OCI spec when machined writes a new one (on etcd restart)
+# - Changes both dangerous flags to false before runc reads the file and starts etcd
+# - Uses inotifywait for zero-latency detection of file writes
+#
+# PERMANENT FIX STATUS:
+# - Terraform: terraform/modules/talos-cluster/main.tf updated with correct flags
+# - Blocked on: no valid talosconfig (cluster was rebuilt without updating certs)
+# - Remove this DaemonSet AFTER applying machineconfig via talosctl on full redeploy
+#
+# HOW TO APPLY PERMANENT FIX:
+# 1. Run full-redeploy.yml workflow (generates new Terraform state + valid talosconfig)
+# 2. OR: recover talosconfig from cluster → talosctl apply-config --mode=no-reboot
+# 3. After permanent fix is confirmed working → delete this DaemonSet
+#
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: etcd-config-patcher
+  namespace: kube-system
+  labels:
+    app: etcd-config-patcher
+    managed-by: argocd
+  annotations:
+    description: "TEMPORARY: patches etcd OCI spec until machineconfig applied via talosctl"
+spec:
+  selector:
+    matchLabels:
+      app: etcd-config-patcher
+  template:
+    metadata:
+      labels:
+        app: etcd-config-patcher
+    spec:
+      hostPID: true
+      hostNetwork: true
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""
+      tolerations:
+      - operator: "Exists"
+      priorityClassName: system-node-critical
+      containers:
+      - name: patcher
+        image: alpine:3.19
+        securityContext:
+          privileged: true
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          apk add --no-cache inotify-tools 2>/dev/null
+
+          TASK_DIR="/host/run/containerd/io.containerd.runtime.v2.task/system/etcd"
+          CONFIG="$TASK_DIR/config.json"
+
+          patch_config() {
+            [ -f "$CONFIG" ] || return 1
+            if grep -q "experimental-compact-hash-check-enabled=true" "$CONFIG" || \
+               grep -q "experimental-initial-corrupt-check=true" "$CONFIG"; then
+              sed -i \
+                -e 's/experimental-compact-hash-check-enabled=true/experimental-compact-hash-check-enabled=false/g' \
+                -e 's/experimental-initial-corrupt-check=true/experimental-initial-corrupt-check=false/g' \
+                "$CONFIG"
+              echo "$(date): PATCHED etcd config.json on $(hostname) - disabled corrupt hash check"
+            fi
+          }
+
+          echo "etcd-config-patcher starting on $(hostname) at $(date)"
+          patch_config
+
+          while true; do
+            inotifywait -q -t 15 -e close_write,create,moved_to "$TASK_DIR" 2>/dev/null || true
+            patch_config
+          done
+        volumeMounts:
+        - name: host-root
+          mountPath: /host
+      volumes:
+      - name: host-root
+        hostPath:
+          path: /
+          type: Directory
+      terminationGracePeriodSeconds: 5
