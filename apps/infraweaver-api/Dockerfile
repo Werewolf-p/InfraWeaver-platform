@@ -18,7 +18,7 @@ ENV APP_VERSION=$APP_VERSION
 # Everything else (hono, zod, ws, simple-git, …) is inlined in dist/index.mjs.
 COPY package.production.json ./package.json
 RUN npm install --omit=dev
-COPY --from=builder /app/dist/index.mjs ./dist/
+COPY --from=builder /app/dist/index.cjs ./dist/
 USER node
 EXPOSE 3001
-CMD ["node", "dist/index.mjs"]
+CMD ["node", "dist/index.cjs"]

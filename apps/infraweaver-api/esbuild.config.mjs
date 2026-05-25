@@ -1,12 +1,15 @@
-// esbuild.config.mjs — Bundle the InfraWeaver API into a single ESM file.
+// esbuild.config.mjs — Bundle the InfraWeaver API into a single CJS file.
 //
-// @kubernetes/client-node is kept external because it is a pure-ESM package
-// that imports other ESM-only modules. Bundling it would require resolving
-// every sub-entry-point which adds significant complexity with no size benefit
-// (it's already a peer dep that must ship with the image anyway — 57 MB).
+// @kubernetes/client-node is kept external because bundling it requires
+// resolving every sub-entry-point which adds complexity with no size benefit
+// (it ships in the image anyway — ~60 MB).
 //
 // All other production dependencies (hono, zod, ws, simple-git, etc.) are
 // inlined so the final image only needs node_modules/@kubernetes/client-node.
+//
+// NOTE: format is 'cjs' (not 'esm') so that CJS packages like `ws` which do
+// require('events') inside function bodies work correctly at runtime.
+// ESM format causes "Dynamic require of events is not supported" from ws.
 
 import * as esbuild from 'esbuild';
 
@@ -14,9 +17,9 @@ const result = await esbuild.build({
   entryPoints: ['src/index.ts'],
   bundle: true,
   platform: 'node',
-  format: 'esm',
+  format: 'cjs',
   target: 'node22',
-  outfile: 'dist/index.mjs',
+  outfile: 'dist/index.cjs',
   external: [
     '@kubernetes/client-node',
     // Node built-ins are always external; listing them makes intent explicit
