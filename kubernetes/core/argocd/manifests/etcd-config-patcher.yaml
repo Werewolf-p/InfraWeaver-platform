@@ -69,6 +69,7 @@ spec:
 
           TASK_DIR="/host/run/containerd/io.containerd.runtime.v2.task/system/etcd"
           CONFIG="$TASK_DIR/config.json"
+          NODE=$(hostname)
 
           patch_config() {
             [ -f "$CONFIG" ] || return 1
@@ -78,12 +79,41 @@ spec:
                 -e 's/experimental-compact-hash-check-enabled=true/experimental-compact-hash-check-enabled=false/g' \
                 -e 's/experimental-initial-corrupt-check=true/experimental-initial-corrupt-check=false/g' \
                 "$CONFIG"
-              echo "$(date): PATCHED etcd config.json on $(hostname) - disabled corrupt hash check"
+              echo "$(date): PATCHED etcd config.json on $NODE"
+              return 0
+            fi
+            return 1
+          }
+
+          # If the live etcd process has =true flags, it must be restarted to pick up
+          # the patched config.json. Stagger by last IP octet to maintain quorum:
+          # only one node restarts etcd at a time.
+          restart_etcd_if_stale() {
+            ETCD_PID=$(for pid in $(ls /proc | grep -E '^[0-9]+$'); do
+              cmd=$(cat /proc/$pid/cmdline 2>/dev/null | tr '\0' ' ')
+              echo "$cmd" | grep -q 'local/bin/etcd ' && echo $pid && break
+            done)
+            [ -z "$ETCD_PID" ] && return
+
+            FLAGS=$(cat /proc/$ETCD_PID/cmdline 2>/dev/null | tr '\0' '\n')
+            if echo "$FLAGS" | grep -q 'compact-hash-check-enabled=true' || \
+               echo "$FLAGS" | grep -q 'initial-corrupt-check=true'; then
+              # Stagger: use last octet of node IP (e.g. cp1=92→0s, cp2=93→30s, cp3=94→60s)
+              OCTET=$(ip -4 addr show scope global 2>/dev/null | grep -oP '(?<=inet )\d+\.\d+\.\d+\.\K\d+' | head -1)
+              DELAY=$(( (${OCTET:-0} % 3) * 30 ))
+              echo "$(date): Live etcd on $NODE has stale =true flags (pid=$ETCD_PID). Waiting ${DELAY}s stagger then restarting etcd..."
+              sleep $DELAY
+              echo "$(date): Sending SIGTERM to etcd pid=$ETCD_PID on $NODE to reload patched config"
+              kill -SIGTERM $ETCD_PID 2>/dev/null || true
+              echo "$(date): SIGTERM sent — etcd will restart with =false flags"
+            else
+              echo "$(date): Live etcd on $NODE already has correct =false flags, no restart needed"
             fi
           }
 
-          echo "etcd-config-patcher starting on $(hostname) at $(date)"
+          echo "etcd-config-patcher starting on $NODE at $(date)"
           patch_config
+          restart_etcd_if_stale
 
           while true; do
             inotifywait -q -t 15 -e close_write,create,moved_to "$TASK_DIR" 2>/dev/null || true
