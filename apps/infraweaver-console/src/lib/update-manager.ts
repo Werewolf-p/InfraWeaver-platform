@@ -94,16 +94,37 @@ export function getHelmSource(app: ArgoApplication): ArgoSource | null {
 }
 
 export async function listArgoApplications(limit = 500): Promise<ArgoApplication[]> {
-  const response = await fetch(`${ARGOCD_SERVER}/api/v1/applications?limit=${limit}`, {
-    headers: argoHeaders(),
-    cache: "no-store",
-    signal: AbortSignal.timeout(10_000),
-  });
-  if (!response.ok) {
-    throw new Error(`ArgoCD applications list failed: ${response.status} — ${await response.text()}`);
+  try {
+    const response = await fetch(`${ARGOCD_SERVER}/api/v1/applications?limit=${limit}`, {
+      headers: argoHeaders(),
+      cache: "no-store",
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (response.ok) {
+      const data = await response.json() as { items?: ArgoApplication[] };
+      return data.items ?? [];
+    }
+    // Fall back to CRDs if REST API fails
+    console.warn(`ArgoCD REST API failed (${response.status}), falling back to Kubernetes API`);
+  } catch (err) {
+    console.warn(`ArgoCD REST API error, falling back to Kubernetes API:`, err);
   }
-  const data = await response.json() as { items?: ArgoApplication[] };
-  return data.items ?? [];
+
+  // Fallback: fetch applications directly from Kubernetes API
+  try {
+    const response = await fetch("/api/argocd/applications", {
+      cache: "no-store",
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (response.ok) {
+      const data = await response.json() as { items?: ArgoApplication[] };
+      return data.items ?? [];
+    }
+  } catch {
+    // Fallback also failed
+  }
+
+  throw new Error(`Failed to list ArgoCD applications from both REST API and Kubernetes API`);
 }
 
 export async function getArgoApplication(name: string): Promise<ArgoApplication | null> {
