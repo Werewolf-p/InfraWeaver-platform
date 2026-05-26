@@ -7,95 +7,68 @@ data:
   patch.py: |
     #!/usr/bin/env python3
     """
-    Patches etcd config.json on Talos nodes to disable experimental flags
-    that cause spurious reboots on Proxmox VMs due to storage I/O jitter.
-    
-    Talos v1.12.x always sets --experimental-compact-hash-check-enabled=true
-    and --experimental-initial-corrupt-check=true in etcd's containerd spec.
-    These flags cannot be overridden via machineconfig extraArgs (Talos rejects them).
-    This patcher applies a live fix to config.json and restarts etcd.
-    
-    Runs at pod start (= after every node reboot via DaemonSet) and checks hourly.
+    etcd-flag-patcher v2 - Talos v1.12.x hardcodes experimental-compact-hash-check-enabled=true
+    and experimental-initial-corrupt-check=true in etcd's containerd spec. These flags cause
+    etcd to crash after hourly compaction on Proxmox VMs (storage I/O jitter -> hash mismatch).
+    Talos does not allow disabling them via machineconfig extraArgs. This patcher re-applies
+    the live fix every 5 minutes to survive any Talos-initiated etcd restarts.
     """
     import json, os, signal, subprocess, time, logging
 
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s')
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
     log = logging.getLogger(__name__)
 
     CONFIG = "/run/containerd/io.containerd.runtime.v2.task/system/etcd/config.json"
-    FLAGS_TO_DISABLE = [
-        "experimental-compact-hash-check-enabled",
-        "experimental-initial-corrupt-check",
-    ]
+    FLAGS = ["experimental-compact-hash-check-enabled", "experimental-initial-corrupt-check"]
 
-    def wait_for_config():
-        for _ in range(60):
-            if os.path.exists(CONFIG):
-                return True
-            time.sleep(5)
-        return False
-
-    def patch_and_restart():
-        if not wait_for_config():
-            log.warning("config.json not found after 5 min, skipping")
+    def patch_if_needed():
+        if not os.path.exists(CONFIG):
             return False
-
         with open(CONFIG) as f:
             data = json.load(f)
-
         args = data['process']['args']
         changed = 0
         new_args = []
         for a in args:
-            patched = False
-            for flag in FLAGS_TO_DISABLE:
+            replaced = False
+            for flag in FLAGS:
                 if f'{flag}=true' in a:
                     new_args.append(a.replace('=true', '=false'))
                     changed += 1
-                    patched = True
+                    replaced = True
                     break
-            if not patched:
+            if not replaced:
                 new_args.append(a)
-
         if changed == 0:
-            log.info("Flags already correct (false or absent), no action needed")
             return False
-
         data['process']['args'] = new_args
         with open(CONFIG, 'w') as f:
             json.dump(data, f)
-
         log.info(f"Patched {changed} flags to false in config.json")
-
-        # Find and SIGTERM etcd
-        try:
-            result = subprocess.run(['pgrep', '-f', 'etcd'], capture_output=True, text=True)
-            for p in result.stdout.strip().split():
-                try:
-                    with open(f'/proc/{p}/comm') as f:
-                        comm = f.read().strip()
-                    if 'etcd' in comm:
+        result = subprocess.run(['pgrep', '-f', 'etcd'], capture_output=True, text=True)
+        for p in result.stdout.strip().split():
+            try:
+                with open(f'/proc/{p}/comm') as f:
+                    if 'etcd' in f.read():
                         os.kill(int(p), signal.SIGTERM)
-                        log.info(f"SIGTERM sent to etcd PID {p}")
+                        log.info(f"SIGTERM -> etcd PID {p}")
                         break
-                except Exception:
-                    pass
-        except Exception as e:
-            log.warning(f"Could not SIGTERM etcd: {e}")
-
+            except Exception:
+                pass
         return True
 
-    # Initial patch on pod start (after node reboot)
-    log.info("etcd-flag-patcher starting, waiting 30s for etcd to initialize...")
-    time.sleep(30)
-    patch_and_restart()
-
-    # Periodic check every 55 minutes (before hourly compaction)
+    log.info("etcd-flag-patcher v2 starting")
+    # Wait for config.json to appear (etcd starting up after node boot)
+    for _ in range(30):
+        if os.path.exists(CONFIG):
+            break
+        time.sleep(2)
+    # Initial patch
+    patch_if_needed()
+    # Re-check every 5 minutes (catches Talos-initiated etcd restarts)
     while True:
-        log.info("Sleeping 55 minutes before next check...")
-        time.sleep(3300)
-        log.info("Periodic check: verifying etcd flags")
-        patch_and_restart()
+        time.sleep(300)
+        patch_if_needed()
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -140,10 +113,10 @@ spec:
           mountPath: /script
         resources:
           requests:
-            cpu: 10m
+            cpu: 5m
             memory: 32Mi
           limits:
-            cpu: 100m
+            cpu: 50m
             memory: 64Mi
       restartPolicy: Always
   updateStrategy:
