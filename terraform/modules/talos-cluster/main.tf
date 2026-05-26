@@ -263,7 +263,21 @@ data "talos_machine_configuration" "this" {
           # adds a HostnameConfig document automatically. Having both causes a validation error.
           # The hostname is handled below by post-processing the generated machine config.
           interfaces = [
-              {
+              # Use MAC-based deviceSelector when mac_address is provided (required for
+              # Talos v1.13+ which uses predictable interface names like ens18 instead of
+              # eth0). Without deviceSelector the gateway route binds to eth0 which doesn't
+              # exist, so the default route is never installed → flannel fails to start.
+              each.value.mac_address != null ? {
+                deviceSelector = { hardwareAddr = each.value.mac_address }
+                addresses      = ["${each.value.ip}/${var.subnet_prefix}"]
+                dhcp           = false
+                routes = [
+                  {
+                    network = "0.0.0.0/0"
+                    gateway = var.gateway
+                  }
+                ]
+              } : {
                 interface = "eth0"
                 addresses = ["${each.value.ip}/${var.subnet_prefix}"]
                 routes = [
