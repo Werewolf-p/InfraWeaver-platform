@@ -317,6 +317,6 @@ spec:
       services:
         - name: n8n
           namespace: n8n-prod
-          port: 3000
+          port: 8080
   tls:
     secretName: platform-int-wildcard-tls
