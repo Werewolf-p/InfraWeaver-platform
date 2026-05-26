@@ -1,6 +1,6 @@
 cluster_name: "infraweaver-prod"
 environment: "productie"
-talos_version: "v1.12.7"
+talos_version: "v1.13.0"
 kubernetes_version: "v1.35.4"
 proxmox_host: "10.25.0.3"
 
