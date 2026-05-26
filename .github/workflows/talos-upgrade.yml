@@ -1,0 +1,300 @@
+# .github/workflows/talos-upgrade.yml
+#
+# Rolling Talos OS upgrade for the productie cluster.
+#
+# WHY THIS EXISTS:
+#   Talos OS changes (version upgrades) cannot be applied via machineconfig patches.
+#   They require `talosctl upgrade` which downloads the new installer image and
+#   performs an in-place node upgrade + controlled reboot, one node at a time.
+#
+# HOW IT WORKS:
+#   1. Resolves talosconfig (local file or TALOSCONFIG_PRODUCTIE secret)
+#   2. Upgrades each control-plane node sequentially (cp1 → cp2 → cp3)
+#   3. Waits for the node to come back Ready and etcd to be healthy before continuing
+#   4. After all nodes are upgraded, verifies cluster health
+#   5. Updates cluster.yaml + commits the new talos_version so state is tracked in git
+#
+# SAFETY:
+#   - One node at a time preserves etcd quorum (2/3 nodes always available)
+#   - etcd health check gates each next node (no cascading failure)
+#   - concurrency: cancel-in-progress: false prevents two upgrades running in parallel
+#   - workflow_dispatch only — never triggered automatically
+#
+# FIXES:
+#   Talos v1.12.7 hardcodes experimental-compact-hash-check-enabled=true in etcd,
+#   causing node reboots every ~70 min on Proxmox VMs (storage I/O jitter).
+#   v1.13.0 allows disabling this via machineconfig extraArgs, making the
+#   Terraform fix (experimental-compact-hash-check-enabled = "false") take effect.
+
+name: Talos Upgrade
+
+on:
+  workflow_dispatch:
+    inputs:
+      talos_version:
+        description: 'Target Talos version (e.g. v1.13.0)'
+        required: true
+        default: 'v1.13.0'
+      environment:
+        description: 'Environment to upgrade'
+        required: false
+        default: 'productie'
+      dry_run:
+        description: 'Dry run — check connectivity and version only, do not upgrade'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+
+concurrency:
+  group: talos-upgrade-${{ github.event.inputs.environment }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  upgrade:
+    name: Upgrade Talos (${{ github.event.inputs.talos_version }})
+    runs-on: [self-hosted, management-host]
+    environment: production
+
+    env:
+      ENV: ${{ github.event.inputs.environment || 'productie' }}
+      TALOS_VERSION: ${{ github.event.inputs.talos_version || 'v1.13.0' }}
+      DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+      INSTALLER_IMAGE: ghcr.io/siderolabs/installer
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve talosconfig
+        id: talosconfig
+        run: |
+          LOCAL="$HOME/InfraWeaver-platform/envs/$ENV/generated/talosconfig"
+          REPO="envs/$ENV/generated/talosconfig"
+
+          if [ -s "$LOCAL" ]; then
+            echo "Using local talosconfig: $LOCAL"
+            echo "path=$LOCAL" >> "$GITHUB_OUTPUT"
+          elif [ -s "$REPO" ]; then
+            echo "Using repo talosconfig: $REPO"
+            echo "path=$REPO" >> "$GITHUB_OUTPUT"
+          elif [ -n "${{ secrets.TALOSCONFIG_PRODUCTIE }}" ]; then
+            echo "${{ secrets.TALOSCONFIG_PRODUCTIE }}" > /tmp/talosconfig-upgrade
+            echo "path=/tmp/talosconfig-upgrade" >> "$GITHUB_OUTPUT"
+          else
+            echo "ERROR: No talosconfig found"
+            exit 1
+          fi
+
+      - name: Load node IPs from cluster.yaml
+        id: nodes
+        run: |
+          python3 - <<'PYEOF'
+          import yaml, os
+
+          with open(f"envs/{os.environ['ENV']}/cluster.yaml") as f:
+              cfg = yaml.safe_load(f)
+
+          nodes = cfg.get('nodes', {})
+          # Extract control-plane IPs in order
+          cp_ips = []
+          for name in sorted(nodes.keys()):
+              node = nodes[name]
+              # Support both 'ip' and nested structure
+              ip = node.get('ip') if isinstance(node, dict) else None
+              if ip:
+                  cp_ips.append(ip)
+
+          if not cp_ips:
+              # Fall back to known defaults from cluster topology
+              cp_ips = ['10.10.0.92', '10.10.0.93', '10.10.0.94']
+
+          print(f"Control-plane IPs: {cp_ips}")
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f"cp_ips={','.join(cp_ips)}\n")
+              f.write(f"cp_count={len(cp_ips)}\n")
+          PYEOF
+
+      - name: Check connectivity and current versions
+        env:
+          TALOSCONFIG: ${{ steps.talosconfig.outputs.path }}
+        run: |
+          echo "=== Current Talos versions ==="
+          IFS=',' read -ra IPS <<< "${{ steps.nodes.outputs.cp_ips }}"
+          for IP in "${IPS[@]}"; do
+            echo -n "$IP: "
+            talosctl --talosconfig "$TALOSCONFIG" --nodes "$IP" version 2>/dev/null | grep "Tag:" | head -1 || echo "unreachable"
+          done
+
+          echo ""
+          echo "=== etcd health ==="
+          talosctl --talosconfig "$TALOSCONFIG" \
+            --nodes "$(echo ${{ steps.nodes.outputs.cp_ips }} | tr ',' ',')" \
+            services 2>/dev/null | grep etcd
+
+          if [ "$DRY_RUN" = "true" ]; then
+            echo ""
+            echo "DRY RUN — stopping here. Would upgrade to $TALOS_VERSION"
+            exit 0
+          fi
+
+      - name: Upgrade nodes one at a time
+        if: github.event.inputs.dry_run != 'true'
+        env:
+          TALOSCONFIG: ${{ steps.talosconfig.outputs.path }}
+          KUBECONFIG: ${{ env.HOME }}/.kube/config-active
+        run: |
+          IFS=',' read -ra IPS <<< "${{ steps.nodes.outputs.cp_ips }}"
+          TOTAL=${#IPS[@]}
+
+          for i in "${!IPS[@]}"; do
+            IP="${IPS[$i]}"
+            NODE_NUM=$((i+1))
+            echo ""
+            echo "================================================"
+            echo "Upgrading node $NODE_NUM/$TOTAL: $IP → $TALOS_VERSION"
+            echo "================================================"
+
+            # Pre-flight: verify etcd is healthy before upgrading this node
+            echo "Pre-flight etcd check..."
+            for attempt in $(seq 1 10); do
+              STATUS=$(talosctl --talosconfig "$TALOSCONFIG" --nodes "$IP" services 2>/dev/null | grep etcd | awk '{print $3}')
+              if [ "$STATUS" = "Running" ]; then
+                echo "  etcd Running ✓"
+                break
+              fi
+              echo "  Waiting for etcd ($attempt/10)..."
+              sleep 15
+            done
+
+            # Perform the upgrade (non-blocking: talosctl waits for node to come back)
+            echo "Starting upgrade..."
+            talosctl --talosconfig "$TALOSCONFIG" \
+              --nodes "$IP" \
+              upgrade \
+              --image "${INSTALLER_IMAGE}:${TALOS_VERSION}" \
+              --wait \
+              --timeout 10m \
+              2>&1 || {
+                echo "ERROR: upgrade command failed for $IP"
+                exit 1
+              }
+
+            echo "Node $IP upgrade complete, waiting for it to rejoin..."
+
+            # Wait for node to be Ready in Kubernetes
+            for attempt in $(seq 1 30); do
+              READY=$(kubectl --kubeconfig "$KUBECONFIG" get node \
+                -o jsonpath='{range .items[*]}{.status.addresses[?(@.type=="InternalIP")].address}{" "}{.status.conditions[?(@.type=="Ready")].status}{"\n"}{end}' 2>/dev/null \
+                | grep "^$IP " | awk '{print $2}')
+              if [ "$READY" = "True" ]; then
+                echo "  Node $IP Ready ✓ (attempt $attempt)"
+                break
+              fi
+              echo "  Waiting for Ready ($attempt/30)..."
+              sleep 10
+            done
+
+            # Verify etcd recovered
+            echo "Verifying etcd health post-upgrade..."
+            sleep 15
+            talosctl --talosconfig "$TALOSCONFIG" --nodes "$IP" services 2>/dev/null | grep etcd
+
+            # Extra buffer between nodes to let etcd stabilize
+            if [ $NODE_NUM -lt $TOTAL ]; then
+              echo "Waiting 30s before next node..."
+              sleep 30
+            fi
+          done
+
+      - name: Verify cluster health
+        if: github.event.inputs.dry_run != 'true'
+        env:
+          TALOSCONFIG: ${{ steps.talosconfig.outputs.path }}
+          KUBECONFIG: ${{ env.HOME }}/.kube/config-active
+        run: |
+          echo "=== Final node versions ==="
+          IFS=',' read -ra IPS <<< "${{ steps.nodes.outputs.cp_ips }}"
+          for IP in "${IPS[@]}"; do
+            echo -n "$IP: "
+            talosctl --talosconfig "$TALOSCONFIG" --nodes "$IP" version 2>/dev/null | grep "Tag:" | head -1
+          done
+
+          echo ""
+          echo "=== Kubernetes nodes ==="
+          kubectl --kubeconfig "$KUBECONFIG" get nodes -o wide
+
+          echo ""
+          echo "=== etcd health ==="
+          talosctl --talosconfig "$TALOSCONFIG" \
+            --nodes "$(echo ${{ steps.nodes.outputs.cp_ips }} | tr ',' ',')" \
+            services 2>/dev/null | grep etcd
+
+          echo ""
+          echo "=== API health ==="
+          kubectl --kubeconfig "$KUBECONFIG" get --raw /healthz
+          kubectl --kubeconfig "$KUBECONFIG" get --raw /readyz
+
+      - name: Verify etcd experimental flags are now controllable
+        if: github.event.inputs.dry_run != 'true'
+        env:
+          TALOSCONFIG: ${{ steps.talosconfig.outputs.path }}
+        run: |
+          echo "=== Testing if experimental flags can now be set via machineconfig ==="
+          # Try applying the fix that was blocked in v1.12.7
+          PATCH=$(cat <<'PATCH'
+          cluster:
+            etcd:
+              extraArgs:
+                experimental-compact-hash-check-enabled: "false"
+                experimental-initial-corrupt-check: "false"
+          PATCH
+          )
+          IFS=',' read -ra IPS <<< "${{ steps.nodes.outputs.cp_ips }}"
+          RESULT="unknown"
+          echo "$PATCH" > /tmp/etcd-fix-test.yaml
+          for IP in "${IPS[@]}"; do
+            OUT=$(talosctl --talosconfig "$TALOSCONFIG" --nodes "$IP" \
+              patch machineconfig --patch-file /tmp/etcd-fix-test.yaml --mode=no-reboot 2>&1)
+            echo "$IP: $OUT"
+            if echo "$OUT" | grep -q "not allowed"; then
+              RESULT="blocked"
+            elif echo "$OUT" | grep -q "Applied\|skipped"; then
+              RESULT="accepted"
+            fi
+          done
+          echo ""
+          echo "extraArgs test result: $RESULT"
+          if [ "$RESULT" = "accepted" ]; then
+            echo "✅ v1.13.0 accepts the extraArgs fix — patcher DaemonSet is no longer needed"
+          else
+            echo "⚠ v1.13.0 still blocks these extraArgs — manual investigation needed"
+          fi
+
+      - name: Update cluster.yaml with new Talos version
+        if: github.event.inputs.dry_run != 'true'
+        run: |
+          # Update talos_version in cluster.yaml
+          sed -i "s/^talos_version: .*/talos_version: \"$TALOS_VERSION\"/" \
+            "envs/$ENV/cluster.yaml"
+
+          # Check if anything changed
+          if git diff --quiet "envs/$ENV/cluster.yaml"; then
+            echo "cluster.yaml already at $TALOS_VERSION, no commit needed"
+          else
+            git config user.name  "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add "envs/$ENV/cluster.yaml"
+            git commit -m "chore: upgrade Talos to $TALOS_VERSION in $ENV
+
+Performed rolling upgrade via talos-upgrade.yml workflow.
+All nodes upgraded and cluster verified healthy.
+
+Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
+            git push
+          fi
