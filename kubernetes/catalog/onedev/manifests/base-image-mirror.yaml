@@ -1,0 +1,50 @@
+---
+# Mirrors external base images into the OneDev internal registry weekly.
+# Keeps all builds fully self-contained — no Docker Hub or ECR dependency at build time.
+# Source: public.ecr.aws/docker/library (no rate limits, official Docker images)
+# Dest:   onedev.rlservers.com/infraweaver-platform/base-*
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: base-image-mirror
+  namespace: onedev
+  labels:
+    app: base-image-mirror
+spec:
+  schedule: "0 3 * * 0"   # Weekly, Sunday 03:00 UTC
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 3600
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+          - name: mirror
+            image: gcr.io/go-containerregistry/crane:debug
+            env:
+            - name: ONEDEV_PASS
+              value: "ExkI2kJ2RRf7xoaEsuVErkXR"
+            command: ["/busybox/sh", "-c"]
+            args:
+            - |
+              set -e
+              REGISTRY="onedev.rlservers.com/infraweaver-platform"
+
+              # Authenticate to OneDev registry
+              /ko-app/crane auth login onedev.rlservers.com \
+                --insecure -u admin -p "${ONEDEV_PASS}"
+
+              mirror() {
+                SRC="$1" DEST="$2"
+                echo "Mirroring ${SRC} -> ${DEST}..."
+                /ko-app/crane copy --insecure "${SRC}" "${DEST}"
+                echo "  Done: ${DEST}"
+              }
+
+              mirror public.ecr.aws/docker/library/node:22-alpine  "${REGISTRY}/base-node-22-alpine:latest"
+              mirror public.ecr.aws/docker/library/node:20-slim    "${REGISTRY}/base-node-20-slim:latest"
+
+              echo "All base images mirrored successfully."

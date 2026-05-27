@@ -1,4 +1,4 @@
-FROM public.ecr.aws/docker/library/node:22-alpine AS builder
+FROM onedev.rlservers.com/infraweaver-platform/base-node-22-alpine:latest AS builder
 WORKDIR /app
 ARG APP_VERSION=dev
 ENV APP_VERSION=$APP_VERSION
@@ -9,7 +9,7 @@ COPY src/ ./src/
 # Bundle all deps except @kubernetes/client-node into a single ESM file.
 RUN npm run bundle
 
-FROM public.ecr.aws/docker/library/node:22-alpine
+FROM onedev.rlservers.com/infraweaver-platform/base-node-22-alpine:latest
 WORKDIR /app
 ENV NODE_ENV=production
 ARG APP_VERSION=dev
