@@ -3,7 +3,7 @@ WORKDIR /app
 ARG APP_VERSION=dev
 ENV APP_VERSION=$APP_VERSION
 COPY package*.json ./
-RUN ls -la /app/ && cat package.json | head -3 && ls package-lock.json && npm ci || (echo "=== NPM CI FAILED ===" && cat /root/.npm/_logs/*.log 2>/dev/null && exit 1)
+RUN rm -rf node_modules && npm ci
 COPY tsconfig.json ./
 COPY src/ ./src/
 RUN npm run build

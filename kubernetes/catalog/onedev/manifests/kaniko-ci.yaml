@@ -135,6 +135,8 @@ spec:
               echo "=== Building images for ${BUILD_TAG} ==="
               for APP in api console node; do
                 echo "--- Building infraweaver-${APP} ---"
+                # Clean up any filesystem artifacts from previous kaniko build
+                rm -rf /app /workspace/kaniko-build 2>/dev/null || true
                 /kaniko/executor \
                   --context "dir://${REPO}/apps/infraweaver-${APP}" \
                   --destination "${REGISTRY}/infraweaver-${APP}:${BUILD_TAG}" \
