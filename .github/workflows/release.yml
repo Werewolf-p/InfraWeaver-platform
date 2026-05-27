@@ -33,6 +33,7 @@ permissions:
 env:
   REGISTRY: ghcr.io
   ORG: werewolf-p
+  ONEDEV_REGISTRY: onedev.rlservers.com/infraweaver-platform
 
 jobs:
   build:
@@ -69,6 +70,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Log in to OneDev registry
+        uses: docker/login-action@v3
+        with:
+          registry: onedev.rlservers.com
+          username: ${{ secrets.ONEDEV_REGISTRY_USER }}
+          password: ${{ secrets.ONEDEV_REGISTRY_PASS }}
+
       # ── infraweaver-api ───────────────────────────────────────────────────
       - name: Build & push infraweaver-api
         uses: docker/build-push-action@v5
@@ -78,6 +86,7 @@ jobs:
           tags: |
             ${{ env.REGISTRY }}/${{ env.ORG }}/infraweaver-api:${{ steps.meta.outputs.version }}
             ${{ env.REGISTRY }}/${{ env.ORG }}/infraweaver-api:latest
+            ${{ env.ONEDEV_REGISTRY }}/infraweaver-api:${{ steps.meta.outputs.version }}
           build-args: |
             APP_VERSION=${{ steps.meta.outputs.version }}
           cache-from: type=gha,scope=infraweaver-api
@@ -92,6 +101,7 @@ jobs:
           tags: |
             ${{ env.REGISTRY }}/${{ env.ORG }}/infraweaver-console:${{ steps.meta.outputs.version }}
             ${{ env.REGISTRY }}/${{ env.ORG }}/infraweaver-console:latest
+            ${{ env.ONEDEV_REGISTRY }}/infraweaver-console:${{ steps.meta.outputs.version }}
           build-args: |
             APP_VERSION=${{ steps.meta.outputs.version }}
             CACHEBUST=${{ github.run_id }}
@@ -107,6 +117,7 @@ jobs:
           tags: |
             ${{ env.REGISTRY }}/${{ env.ORG }}/infraweaver-node:${{ steps.meta.outputs.version }}
             ${{ env.REGISTRY }}/${{ env.ORG }}/infraweaver-node:latest
+            ${{ env.ONEDEV_REGISTRY }}/infraweaver-node:${{ steps.meta.outputs.version }}
           build-args: |
             APP_VERSION=${{ steps.meta.outputs.version }}
           cache-from: type=gha,scope=infraweaver-node
@@ -116,14 +127,14 @@ jobs:
       - name: Update deployment manifests
         run: |
           VERSION="${{ steps.meta.outputs.version }}"
-          REGISTRY="${{ env.REGISTRY }}/${{ env.ORG }}"
+          ONEDEV_REGISTRY="${{ env.ONEDEV_REGISTRY }}"
 
-          for APP in infraweaver-api infraweaver-console infraweaver-node; do
-            MANIFEST="kubernetes/catalog/${APP}/manifests/deployment.yaml"
+          for APP in api console node; do
+            MANIFEST="kubernetes/catalog/infraweaver-${APP}/manifests/deployment.yaml"
             if [ -f "$MANIFEST" ]; then
               # Replace any existing image tag for this app (any registry)
               sed -i -E \
-                "s|image: [^ ]*/infraweaver-${APP}:[^ ]+|image: ${REGISTRY}/infraweaver-${APP}:${VERSION}|g" \
+                "s|image: [^ ]*/infraweaver-${APP}:[^ ]+|image: ${ONEDEV_REGISTRY}/infraweaver-${APP}:${VERSION}|g" \
                 "$MANIFEST"
               # Update APP_VERSION env var value if it exists in the manifest
               perl -0777 -i -pe 's/(name:\s+APP_VERSION\s*\n\s+value:\s+)\S+/$1"'"${VERSION}"'"/g' "$MANIFEST" 2>/dev/null || true
@@ -131,7 +142,7 @@ jobs:
             fi
           done
 
-      - name: Commit manifest updates
+      - name: Commit and push manifest updates
         run: |
           VERSION="${{ steps.meta.outputs.version }}"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -143,10 +154,17 @@ jobs:
             echo "No manifest changes to commit."
           else
             git commit -m "ci: update image tags to ${VERSION} [skip ci]"
-            # Retry push with rebase to handle concurrent pushes from other workflows
+            # Push to GitHub (primary)
             for attempt in 1 2 3; do
               git pull --rebase origin main && git push origin HEAD:main && break
-              echo "Push attempt $attempt failed, retrying..."
+              echo "GitHub push attempt $attempt failed, retrying..."
+              sleep $((attempt * 5))
+            done
+            # Also push to OneDev so ArgoCD picks up the change
+            for attempt in 1 2 3; do
+              git pull --rebase "${{ secrets.ONEDEV_GIT_URL }}" main && \
+                git push "${{ secrets.ONEDEV_GIT_URL }}" HEAD:main && break
+              echo "OneDev push attempt $attempt failed, retrying..."
               sleep $((attempt * 5))
             done
             echo "Pushed manifest updates for ${VERSION}"
