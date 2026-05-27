@@ -143,7 +143,12 @@ jobs:
             echo "No manifest changes to commit."
           else
             git commit -m "ci: update image tags to ${VERSION} [skip ci]"
-            git push origin HEAD:main
+            # Retry push with rebase to handle concurrent pushes from other workflows
+            for attempt in 1 2 3; do
+              git pull --rebase origin main && git push origin HEAD:main && break
+              echo "Push attempt $attempt failed, retrying..."
+              sleep $((attempt * 5))
+            done
             echo "Pushed manifest updates for ${VERSION}"
           fi
 
