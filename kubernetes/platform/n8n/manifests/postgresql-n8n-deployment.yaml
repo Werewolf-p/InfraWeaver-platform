@@ -121,23 +121,3 @@ spec:
         name: tmp
       - emptyDir: {}
         name: run
-status:
-  availableReplicas: 1
-  conditions:
-  - lastTransitionTime: '2026-05-26T16:24:49Z'
-    lastUpdateTime: '2026-05-26T16:24:49Z'
-    message: Deployment has minimum availability.
-    reason: MinimumReplicasAvailable
-    status: 'True'
-    type: Available
-  - lastTransitionTime: '2026-05-26T16:24:42Z'
-    lastUpdateTime: '2026-05-26T16:24:49Z'
-    message: ReplicaSet "postgresql-n8n-5d5cc9f9cc" has successfully progressed.
-    reason: NewReplicaSetAvailable
-    status: 'True'
-    type: Progressing
-  observedGeneration: 1
-  readyReplicas: 1
-  replicas: 1
-  terminatingReplicas: 0
-  updatedReplicas: 1

@@ -131,23 +131,3 @@ spec:
           claimName: n8n-data
       - emptyDir: {}
         name: tmp
-status:
-  availableReplicas: 1
-  conditions:
-  - lastTransitionTime: '2026-05-26T16:25:34Z'
-    lastUpdateTime: '2026-05-26T16:25:34Z'
-    message: Deployment has minimum availability.
-    reason: MinimumReplicasAvailable
-    status: 'True'
-    type: Available
-  - lastTransitionTime: '2026-05-26T16:24:42Z'
-    lastUpdateTime: '2026-05-26T20:21:01Z'
-    message: ReplicaSet "n8n-66989559cc" has successfully progressed.
-    reason: NewReplicaSetAvailable
-    status: 'True'
-    type: Progressing
-  observedGeneration: 3
-  readyReplicas: 1
-  replicas: 1
-  terminatingReplicas: 0
-  updatedReplicas: 1

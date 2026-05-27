@@ -64,7 +64,7 @@ spec:
         runAsGroup: 0
       containers:
         - name: valheim
-          image: lloesche/valheim-server:latest
+          image: lloesche/valheim-server:sha-732221f4d5b5
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 2456

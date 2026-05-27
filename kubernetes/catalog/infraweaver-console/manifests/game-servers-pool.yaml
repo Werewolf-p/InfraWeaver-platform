@@ -1,5 +1,5 @@
 # The game-servers IPs (${METALLB_VIP_206}-210) are already part of vlan3-pool
 # (10.10.0.200-210). No separate IPAddressPool is needed.
-# Services should use metallb.universe.tf/address-pool: vlan3-pool
-# with metallb.universe.tf/loadBalancerIPs set to the desired IP.
+# Services should use metallb.io/address-pool: vlan3-pool
+# with metallb.io/loadBalancerIPs set to the desired IP.
 # This file is intentionally a no-op to document the pool allocation.

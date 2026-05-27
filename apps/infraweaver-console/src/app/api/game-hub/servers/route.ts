@@ -74,6 +74,65 @@ function buildGameServerResources(memory: string | number | null | undefined, cp
   };
 }
 
+/**
+ * Converts a Pelican stop command to a Kubernetes preStop lifecycle hook.
+ *
+ * Most Pelican eggs use either:
+ *   - "^C"  = send SIGINT to PID 1 (graceful stop for most game servers)
+ *   - text  = a console command like "stop" — not sendable via exec; fall back to SIGINT
+ *
+ * A short sleep after the signal gives the process time to flush state before
+ * SIGKILL fires at terminationGracePeriodSeconds.
+ */
+function buildStopLifecycle(stopCommand: string | undefined) {
+  if (!stopCommand) return undefined;
+  const signalMap: Record<string, number> = { "^C": 2, "^Z": 19, "^\\": 3 };
+  const sig = signalMap[stopCommand] ?? 2; // default SIGINT
+  return {
+    preStop: {
+      exec: { command: ["/bin/sh", "-c", `kill -${sig} 1 2>/dev/null || true; sleep 5`] },
+    },
+  };
+}
+
+/**
+ * Builds an init container that runs the Pelican installation script once.
+ *
+ * A marker file is written on completion so subsequent pod restarts skip the
+ * install step — avoids re-downloading the game on every restart.
+ */
+function buildInstallInitContainer(
+  mountPath: string,
+  installScript: { script: string; container: string; entrypoint: string },
+  env: Record<string, string>,
+  isRoot: boolean,
+) {
+  const wrappedScript = [
+    "#!/bin/sh",
+    `if [ -f "${mountPath}/.installed" ]; then`,
+    '  echo "[install] Already installed — skipping"',
+    "  exit 0",
+    "fi",
+    installScript.script,
+    `touch "${mountPath}/.installed"`,
+    'echo "[install] Installation complete"',
+  ].join("\n");
+
+  return {
+    name: "installer",
+    image: installScript.container,
+    command: [installScript.entrypoint, "-c", wrappedScript],
+    env: Object.entries(env).map(([key, value]) => ({ name: key, value })),
+    securityContext: isRoot ? { runAsUser: 0, runAsGroup: 0 } : { runAsUser: 1000, runAsGroup: 1000 },
+    volumeMounts: [{ name: "data", mountPath }],
+    // Installation can be slow (SteamCMD downloads, large assets) — be generous.
+    resources: {
+      requests: { cpu: "200m", memory: "512Mi" },
+      limits: { cpu: "2000m", memory: "2Gi" },
+    },
+  };
+}
+
 async function createServer(body: {
   egg?: string;
   game?: string;
@@ -130,6 +189,23 @@ async function createServer(body: {
 
   const resources = buildGameServerResources(memory, cpu);
   const { appsApi, coreApi } = makeGameHubClients();
+  const isRoot = egg.features?.includes("run_as_root") ?? false;
+
+  // Pelican yolk images read a STARTUP env var and run it via their entrypoint.
+  // Always set STARTUP so yolk-compatible images apply the correct launch command.
+  const allEnv: Record<string, string> = {
+    ...env,
+    ...(egg.startupCommand ? { STARTUP: egg.startupCommand } : {}),
+  };
+
+  // Build init container if the egg ships an installation script.
+  const installInitContainer = egg.installScript
+    ? buildInstallInitContainer(egg.mountPath, egg.installScript, allEnv, isRoot)
+    : null;
+
+  // Heavy games (installs take >10 min) get extra startup time.
+  const isHeavy = (egg.defaultStorage ?? "10Gi") >= "20Gi" || (egg.defaultMemory ?? "2Gi") >= "4Gi";
+  const startupMinutes = isHeavy ? 20 : 10;
 
   await coreApi.createNamespacedPersistentVolumeClaim({
     namespace: GAME_HUB_NAMESPACE,
@@ -152,24 +228,25 @@ async function createServer(body: {
           spec: {
             priorityClassName: "game-server",
             terminationGracePeriodSeconds: 60,
-            // Spread game servers across nodes to prevent resource concentration
             topologySpreadConstraints: [{
               maxSkew: 1,
               topologyKey: "kubernetes.io/hostname",
               whenUnsatisfiable: "ScheduleAnyway",
               labelSelector: { matchLabels: { "infraweaver/game": "true" } },
             }],
-            securityContext: egg.features?.includes("run_as_root") ? { runAsUser: 0, runAsGroup: 0 } : { runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000 },
+            securityContext: isRoot ? { runAsUser: 0, runAsGroup: 0 } : { runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000 },
+            ...(installInitContainer ? { initContainers: [installInitContainer] } : {}),
             containers: [{
               name: slug,
               image: egg.dockerImage,
               imagePullPolicy: "IfNotPresent",
-              stdin: true,  // required: lets /proc/1/fd/0 work for in-pod console commands
+              stdin: true,
               ports: getEggPorts(egg).map((port) => ({ containerPort: port.port, protocol: port.protocol })),
-              env: Object.entries(env).map(([key, value]) => ({ name: key, value })),
+              env: Object.entries(allEnv).map(([key, value]) => ({ name: key, value })),
               resources,
               volumeMounts: [{ name: "data", mountPath: egg.mountPath }],
-              ...buildUniversalGameServerProbes(),
+              lifecycle: buildStopLifecycle(egg.stopCommand),
+              ...buildUniversalGameServerProbes(startupMinutes),
             }],
             volumes: [{ name: "data", persistentVolumeClaim: { claimName: pvcName } }],
           },
