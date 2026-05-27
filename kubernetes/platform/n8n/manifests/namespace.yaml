@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  labels:
+    kubernetes.io/metadata.name: n8n-prod
+  name: n8n-prod
+spec:
+  finalizers:
+  - kubernetes
+status:
+  phase: Active
