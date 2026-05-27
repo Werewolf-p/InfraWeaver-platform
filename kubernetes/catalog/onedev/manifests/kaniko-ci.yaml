@@ -141,8 +141,7 @@ spec:
                   --build-arg "APP_VERSION=${BUILD_TAG}" \
                   --build-arg "CACHEBUST=$(date +%s)" \
                   --skip-tls-verify \
-                  --cache=false \
-                  --single-snapshot
+                  --cache=false
               done
 
               echo "=== Updating manifests ==="
