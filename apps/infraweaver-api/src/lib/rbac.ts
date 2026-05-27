@@ -18,10 +18,14 @@ export type Permission =
 
 const ROLE_PERMISSIONS: Record<string, Permission[]> = {
   'platform-owner': ['*'],
+  // Canonical role names
   'platform-admin': ['apps:read', 'apps:write', 'apps:sync', 'apps:delete', 'config:read', 'config:write', 'catalog:write', 'catalog:delete', 'users:read', 'users:write', 'cluster:read', 'cluster:drain', 'cluster:scale', 'cluster:admin', 'infra:read', 'rbac:admin', 'platform:update'],
   'platform-operator': ['apps:read', 'apps:write', 'apps:sync', 'config:read', 'cluster:read', 'infra:read', 'game-hub:read', 'game-hub:write'],
   'platform-viewer': ['apps:read', 'config:read', 'cluster:read', 'infra:read'],
   viewer: ['apps:read', 'config:read', 'cluster:read'],
+  // Authentik group name aliases (pluralised form as created in Authentik)
+  'platform-admins': ['apps:read', 'apps:write', 'apps:sync', 'apps:delete', 'config:read', 'config:write', 'catalog:write', 'catalog:delete', 'users:read', 'users:write', 'cluster:read', 'cluster:drain', 'cluster:scale', 'cluster:admin', 'infra:read', 'rbac:admin', 'platform:update'],
+  'platform-users': ['apps:read', 'apps:write', 'apps:sync', 'config:read', 'cluster:read', 'infra:read', 'game-hub:read', 'game-hub:write'],
 };
 
 export function hasPermission(user: UserContext, permission: Permission): boolean {
