@@ -1,0 +1,84 @@
+---
+# OneDev CI agent — runs inside the cluster, connects to OneDev server,
+# builds images via the host Docker socket and pushes to onedev.rlservers.com.
+# Privileged + hostPath are required for image builds; the onedev namespace
+# is set to pod-security enforce=privileged to allow this.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: onedev-agent
+  namespace: onedev
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: onedev-agent
+rules:
+- apiGroups: [""]
+  resources: ["pods", "pods/log", "pods/exec", "services", "configmaps"]
+  verbs: ["get", "list", "watch", "create", "delete"]
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: onedev-agent
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: onedev-agent
+subjects:
+- kind: ServiceAccount
+  name: onedev-agent
+  namespace: onedev
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: onedev-agent
+  namespace: onedev
+  labels:
+    app: onedev-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: onedev-agent
+  template:
+    metadata:
+      labels:
+        app: onedev-agent
+    spec:
+      serviceAccountName: onedev-agent
+      containers:
+      - name: agent
+        image: 1dev/agent:15.0.8
+        env:
+        - name: agent_serverUrl
+          value: "http://onedev.onedev.svc.cluster.local"
+        - name: agent_token
+          value: "c709ce97f63857ac2f00fad6a73a44638e31436889ac25b3cf16ab9c9181c38e"
+        resources:
+          requests:
+            cpu: 200m
+            memory: 512Mi
+          limits:
+            cpu: "2"
+            memory: 4Gi
+        volumeMounts:
+        - name: docker-sock
+          mountPath: /var/run/docker.sock
+        - name: build-cache
+          mountPath: /var/lib/containers
+        securityContext:
+          privileged: true
+          runAsUser: 0
+      volumes:
+      - name: docker-sock
+        hostPath:
+          path: /var/run/docker.sock
+          type: Socket
+      - name: build-cache
+        emptyDir: {}

@@ -161,14 +161,14 @@ metadata:
     pod-security.kubernetes.io/audit: privileged
     pod-security.kubernetes.io/warn: privileged
 ---
-# ── Source control: baseline ─────────────────────────────────────────────────
+# ── Source control: privileged (CI agent needs Docker socket for image builds) ─
 apiVersion: v1
 kind: Namespace
 metadata:
   name: onedev
   labels:
-    pod-security.kubernetes.io/enforce: baseline
-    pod-security.kubernetes.io/audit: restricted
-    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged
     app.kubernetes.io/name: onedev
     infraweaver.io/type: catalog-app
