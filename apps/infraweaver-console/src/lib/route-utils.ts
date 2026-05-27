@@ -74,8 +74,9 @@ export function routeErrorResponse(error: unknown, fallback = "Internal error", 
   return apiError(message || fallback, { status });
 }
 
-// Next.js 15+ passes params as a Promise; use unknown for compatibility across versions.
-type RouteContext = { params?: unknown };
+// Next.js 15+ passes params as Promise<any>; must extend { params: Promise<any> } to satisfy route type checks.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type RouteContext = { params: Promise<any> };
 type RouteHandler = (
   req: NextRequest,
   session: Session,
@@ -101,7 +102,7 @@ export function withRoute(
   permission: Permission | Permission[] | null,
   handler: RouteHandler,
 ): (req: NextRequest, ctx: RouteContext) => Promise<NextResponse | Response> {
-  return async (req: NextRequest, ctx: RouteContext = {}) => {
+  return async (req: NextRequest, ctx: RouteContext = {} as RouteContext) => {
     const session = await auth();
     if (!session) return apiError("Unauthorized", { status: 401 });
 

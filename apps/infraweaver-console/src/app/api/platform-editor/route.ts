@@ -280,7 +280,7 @@ async function commitFileToGitProvider(filePath: string, content: string, sha: s
   await gitWriteFile(filePath, content, message, sha);
 }
 
-export function getNestedPath(obj: Record<string, unknown>, path: string): unknown {
+function getNestedPath(obj: Record<string, unknown>, path: string): unknown {
   let current: unknown = obj;
 
   for (const segment of path.split(".")) {
@@ -293,7 +293,7 @@ export function getNestedPath(obj: Record<string, unknown>, path: string): unkno
   return current;
 }
 
-export function setNestedPath(obj: Record<string, unknown>, path: string, value: unknown): void {
+function setNestedPath(obj: Record<string, unknown>, path: string, value: unknown): void {
   const segments = path.split(".");
   let current: Record<string, unknown> = obj;
 
