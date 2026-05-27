@@ -22,11 +22,16 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ name
     const active = (pods.items ?? []).filter((p) => !p.metadata?.deletionTimestamp);
     const pod = active.find((p) => p.status?.phase === "Running") ?? active[0];
     if (!pod?.metadata?.name) return NextResponse.json({ error: "No pod found" }, { status: 404 });
+    const activeInitContainer = (pod.status?.initContainerStatuses ?? []).find(
+      (cs) => cs.state?.running != null && !cs.ready,
+    );
     return NextResponse.json({
       podName: pod.metadata.name,
       namespace: GAME_HUB_NAMESPACE,
       containerName: pod.spec?.containers?.[0]?.name ?? name,
       logsUrl: `/api/logs/${GAME_HUB_NAMESPACE}/${pod.metadata.name}/${pod.spec?.containers?.[0]?.name ?? name}`,
+      initContainerRunning: activeInitContainer != null,
+      activeInitContainerName: activeInitContainer?.name ?? null,
     });
   } catch (error) {
     return NextResponse.json({ error: safeError(error) }, { status: 500 });

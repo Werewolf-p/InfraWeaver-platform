@@ -56,6 +56,30 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ nam
       };
     }));
 
+    // Auto-pause tracking: keep "players-empty-since" annotation in sync so the status poller
+    // can scale to 0 when the server has been empty for the configured duration.
+    const autoPauseEnabled = deployment.metadata?.annotations?.["infraweaver/autopause-enabled"] === "true";
+    if (autoPauseEnabled) {
+      const emptySince = deployment.metadata?.annotations?.["infraweaver/players-empty-since"];
+      if (players.length > 0 && emptySince) {
+        // Players are back — clear the empty-since marker.
+        void clients.appsApi.patchNamespacedDeployment({
+          name,
+          namespace: "game-hub",
+          body: { metadata: { annotations: { "infraweaver/players-empty-since": "" } } },
+          fieldManager: "infraweaver",
+        });
+      } else if (players.length === 0 && !emptySince) {
+        // Server just became empty — record the timestamp.
+        void clients.appsApi.patchNamespacedDeployment({
+          name,
+          namespace: "game-hub",
+          body: { metadata: { annotations: { "infraweaver/players-empty-since": new Date().toISOString() } } },
+          fieldManager: "infraweaver",
+        });
+      }
+    }
+
     return NextResponse.json({ players, count: players.length, history, gameType });
   } catch (error) {
     console.error("players route failed", error);

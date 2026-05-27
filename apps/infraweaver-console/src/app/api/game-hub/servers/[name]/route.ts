@@ -40,7 +40,7 @@ export const maxDuration = 60;
 
 const VALID_ACTIONS = [
   "start", "stop", "force-stop", "restart", "scale", "set-hpa", "remove-hpa", "update-env",
-  "set-restart-policy", "set-notes", "update-notes", "update-resources", "set-maintenance",
+  "set-restart-policy", "set-autopause", "set-notes", "update-notes", "update-resources", "set-maintenance",
   "set-schedule", "set-backup-schedule", "set-backup-target", "set-alert-thresholds",
   "expand-pvc", "update-image", "pin-image-version", "unpin-image-version",
   "update-pull-policy", "update-strategy", "update-identity", "update-tags",
@@ -179,6 +179,12 @@ async function buildResponse(name: string, limitedToken = false, access?: Awaite
   const schedule = await currentRestartSchedule(batchApi, name);
   const restartCount = (pod?.status?.containerStatuses ?? []).reduce((sum, status) => sum + (status.restartCount ?? 0), 0);
 
+  // Detect active init container (installer running during first boot / reinstall).
+  const activeInitContainer = (pod?.status?.initContainerStatuses ?? []).find(
+    (cs) => cs.state?.running != null && !cs.ready,
+  );
+  const hasInstallingInitContainer = activeInitContainer != null;
+
   // Crash detection: inspect container wait/termination reasons from the pod status.
   const primaryContainerStatus = pod?.status?.containerStatuses?.[0];
   const waitingReason = primaryContainerStatus?.state?.waiting?.reason;
@@ -260,9 +266,11 @@ async function buildResponse(name: string, limitedToken = false, access?: Awaite
           ? "crash-loop"
           : isCrashedOnce
             ? "crashed"
-            : (deployment.status?.replicas ?? 0) > 0
-              ? "starting"
-              : "stopped";
+            : hasInstallingInitContainer
+              ? "installing"
+              : (deployment.status?.replicas ?? 0) > 0
+                ? "starting"
+                : "stopped";
 
   // When restart-on-crash is disabled and the server is crash-looping, auto-stop it.
   // Runs as a side-effect of status polling so the UI catches it within one poll interval.
@@ -280,6 +288,62 @@ async function buildResponse(name: string, limitedToken = false, access?: Awaite
         },
         fieldManager: "infraweaver",
       });
+    }
+  }
+
+  // When restart-on-crash is enabled, still send a Discord notification so operators are aware.
+  // Debounced via "last-crash-notified-count" annotation to avoid flooding on repeated polls.
+  if (restartOnCrash && restartCount > 0 && (status === "crash-loop" || status === "crashed")) {
+    const lastNotified = parseInt(
+      deployment.metadata?.annotations?.["infraweaver/last-crash-notified-count"] ?? "0",
+      10,
+    );
+    if (restartCount > lastNotified) {
+      const webhookConfig = parseDiscordWebhookConfig(deployment.metadata?.annotations?.["infraweaver/discord-webhook"]);
+      void sendDiscordWebhook(
+        webhookConfig,
+        "crash",
+        `⚠️ **${name}** crashed (restart #${restartCount}) — server is auto-restarting`,
+      );
+      void appsApi.patchNamespacedDeployment({
+        name,
+        namespace: GAME_HUB_NAMESPACE,
+        body: { metadata: { annotations: { "infraweaver/last-crash-notified-count": String(restartCount) } } },
+        fieldManager: "infraweaver",
+      });
+    }
+  }
+
+  // Auto-pause: when the server has been empty (0 players) for longer than configured threshold,
+  // scale to 0. The players route updates "players-empty-since" — this block acts on it.
+  const autoPauseEnabled = deployment.metadata?.annotations?.["infraweaver/autopause-enabled"] === "true";
+  if (autoPauseEnabled && status === "running") {
+    const autoPauseMinutes = parseInt(
+      deployment.metadata?.annotations?.["infraweaver/autopause-minutes"] ?? "30",
+      10,
+    );
+    const playersEmptySince = deployment.metadata?.annotations?.["infraweaver/players-empty-since"];
+    const pauseStoppedAt = deployment.metadata?.annotations?.["infraweaver/autopause-stopped-at"];
+    if (playersEmptySince && !pauseStoppedAt) {
+      const emptyMs = Date.now() - new Date(playersEmptySince).getTime();
+      const emptyMinutes = emptyMs / 60_000;
+      if (emptyMinutes >= autoPauseMinutes) {
+        const webhookConfig = parseDiscordWebhookConfig(deployment.metadata?.annotations?.["infraweaver/discord-webhook"]);
+        void sendDiscordWebhook(
+          webhookConfig,
+          "info",
+          `💤 **${name}** auto-paused — no players for ${Math.floor(emptyMinutes)} minutes`,
+        );
+        void appsApi.patchNamespacedDeployment({
+          name,
+          namespace: GAME_HUB_NAMESPACE,
+          body: {
+            metadata: { annotations: { "infraweaver/autopause-stopped-at": new Date().toISOString() } },
+            spec: { replicas: 0 },
+          },
+          fieldManager: "infraweaver",
+        });
+      }
     }
   }
 
@@ -329,6 +393,10 @@ async function buildResponse(name: string, limitedToken = false, access?: Awaite
     hpa,
     restartOnCrash,
     restartPolicy: deployment.spec?.template?.spec?.restartPolicy ?? "Always",
+    installerContainer: hasInstallingInitContainer ? (activeInitContainer?.name ?? null) : null,
+    autoPauseEnabled: deployment.metadata?.annotations?.["infraweaver/autopause-enabled"] === "true",
+    autoPauseMinutes: parseInt(deployment.metadata?.annotations?.["infraweaver/autopause-minutes"] ?? "30", 10),
+    playersEmptySince: deployment.metadata?.annotations?.["infraweaver/players-empty-since"] ?? null,
     memory: deployment.spec?.template?.spec?.containers?.[0]?.resources?.limits?.memory ?? egg.defaultMemory ?? "",
     cpu: deployment.spec?.template?.spec?.containers?.[0]?.resources?.limits?.cpu ?? egg.defaultCpu ?? "",
     notes: deployment.metadata?.annotations?.["infraweaver/notes"] ?? "",
@@ -524,7 +592,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
     return NextResponse.json({ error: "Validation failed", details: actionParsed.error.flatten() }, { status: 400 });
   }
   const body = rawBody as {
-    action: "start" | "stop" | "force-stop" | "restart" | "scale" | "set-hpa" | "remove-hpa" | "update-env" | "set-restart-policy" | "set-notes" | "update-notes" | "update-resources" | "set-maintenance" | "set-schedule" | "set-backup-schedule" | "set-backup-target" | "set-alert-thresholds" | "expand-pvc" | "update-image" | "pin-image-version" | "unpin-image-version" | "update-pull-policy" | "update-strategy" | "update-identity" | "update-tags" | "update-service-ports" | "set-scheduled-action" | "save-command" | "delete-saved-command" | "sync-to-git";
+    action: "start" | "stop" | "force-stop" | "restart" | "scale" | "set-hpa" | "remove-hpa" | "update-env" | "set-restart-policy" | "set-autopause" | "set-notes" | "update-notes" | "update-resources" | "set-maintenance" | "set-schedule" | "set-backup-schedule" | "set-backup-target" | "set-alert-thresholds" | "expand-pvc" | "update-image" | "pin-image-version" | "unpin-image-version" | "update-pull-policy" | "update-strategy" | "update-identity" | "update-tags" | "update-service-ports" | "set-scheduled-action" | "save-command" | "delete-saved-command" | "sync-to-git";
     replicas?: number;
     hpaMin?: number;
     hpaMax?: number;
@@ -560,6 +628,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
     commandId?: string;
     commandLabel?: string;
     commandCmd?: string;
+    autoPauseEnabled?: boolean;
+    autoPauseMinutes?: number;
   };
 
   const access = await getGameHubAccessContext(session, 60);
@@ -578,7 +648,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
         name,
         namespace: GAME_HUB_NAMESPACE,
         // Clear crash-stopped-at so auto-stop can fire again on the next crash.
-        body: { spec: { replicas: 1 }, metadata: { annotations: { "infraweaver.io/last-started": new Date().toISOString(), "infraweaver/crash-stopped-at": "" } } },
+        body: { spec: { replicas: 1 }, metadata: { annotations: { "infraweaver.io/last-started": new Date().toISOString(), "infraweaver/crash-stopped-at": "", "infraweaver/autopause-stopped-at": "", "infraweaver/players-empty-since": "" } } },
 
         fieldManager: "infraweaver",
       });
@@ -648,6 +718,26 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
               "infraweaver/restart-on-crash": enabled ? "true" : "false",
               // Clear the crash-stopped marker when re-enabling so auto-stop can fire again next crash.
               ...(enabled ? {} : { "infraweaver/crash-stopped-at": "" }),
+            },
+          },
+        },
+        fieldManager: "infraweaver",
+      });
+    } else if (body.action === "set-autopause") {
+      // Configure auto-pause: scale to 0 when no players are detected for N minutes.
+      // The players GET route tracks "players-empty-since"; this poller acts on it.
+      const enabled = body.autoPauseEnabled !== false;
+      const minutes = Math.max(5, Math.min(720, body.autoPauseMinutes ?? 30));
+      await clients.appsApi.patchNamespacedDeployment({
+        name,
+        namespace: GAME_HUB_NAMESPACE,
+        body: {
+          metadata: {
+            annotations: {
+              "infraweaver/autopause-enabled": enabled ? "true" : "false",
+              "infraweaver/autopause-minutes": String(minutes),
+              // Clear any stale pause marker so the next empty period is tracked fresh.
+              "infraweaver/autopause-stopped-at": "",
             },
           },
         },

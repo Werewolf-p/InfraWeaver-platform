@@ -16,16 +16,19 @@ function emitEvent(controller: ReadableStreamDefaultController<Uint8Array>, enco
 }
 
 function emitLogLine(controller: ReadableStreamDefaultController<Uint8Array>, encoder: TextEncoder, raw: string) {
-  if (!raw.trim()) return null;
-  const tsMatch = raw.match(ISO_TIMESTAMP_PREFIX);
+  // Strip carriage returns — TTY-enabled containers emit \r\n line endings and may embed \r for
+  // in-place overwriting (progress indicators). Strip all \r so the UI sees clean output.
+  const cleaned = raw.replace(/\r/g, "");
+  if (!cleaned.trim()) return null;
+  const tsMatch = cleaned.match(ISO_TIMESTAMP_PREFIX);
   const timestamp = tsMatch ? tsMatch[1] : undefined;
-  const line = tsMatch ? (tsMatch[2] ?? "") : raw;
+  const line = tsMatch ? (tsMatch[2] ?? "") : cleaned;
   emitEvent(controller, encoder, {
     type: "log",
     line,
     ...(timestamp ? { timestamp } : {}),
   });
-  return raw;
+  return cleaned;
 }
 
 function emitLogChunk(controller: ReadableStreamDefaultController<Uint8Array>, encoder: TextEncoder, chunk: string) {
@@ -78,7 +81,16 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ name
 
     const encoder = new TextEncoder();
     const logStream = new PassThrough();
-    const containerName = pod.spec?.containers?.[0]?.name ?? name;
+    // Allow targeting a specific container (e.g. "installer" init container during install phase).
+    // Validate against the pod's known container names to prevent arbitrary access.
+    const requestedContainer = req.nextUrl.searchParams.get("container");
+    const knownContainers = [
+      ...(pod.spec?.containers?.map((c) => c.name) ?? []),
+      ...(pod.spec?.initContainers?.map((c) => c.name) ?? []),
+    ];
+    const containerName = (requestedContainer && knownContainers.includes(requestedContainer))
+      ? requestedContainer
+      : (pod.spec?.containers?.[0]?.name ?? name);
     let cancelled = false;
     let followAbortController: AbortController | null = null;
 
