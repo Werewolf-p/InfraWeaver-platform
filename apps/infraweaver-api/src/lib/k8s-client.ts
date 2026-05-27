@@ -1,5 +1,5 @@
 import * as k8s from '@kubernetes/client-node';
-import { getClusterKubeconfig } from './cluster-registry.js';
+import { getCluster, getClusterKubeconfig } from './cluster-registry.js';
 
 const _clients = new Map<string, k8s.KubeConfig>();
 
@@ -9,7 +9,10 @@ export async function getKcForCluster(clusterId: string): Promise<k8s.KubeConfig
   }
 
   const kc = new k8s.KubeConfig();
-  if (clusterId === 'local') {
+
+  // Treat 'local' and any cluster marked isLocal as the in-cluster config.
+  const clusterMeta = clusterId !== 'local' ? await getCluster(clusterId).catch(() => null) : null;
+  if (clusterId === 'local' || clusterMeta?.isLocal) {
     try {
       kc.loadFromCluster();
     } catch {

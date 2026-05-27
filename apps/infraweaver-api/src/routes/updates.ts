@@ -367,14 +367,16 @@ async function collectApplicationManifests(): Promise<ApplicationManifest[]> {
 }
 
 async function getArgoConfig(clusterId: string): Promise<{ server: string; token: string }> {
-  if (clusterId === 'local') {
+  const cluster = await getCluster(clusterId).catch(() => null);
+
+  // Use env vars for the local cluster (either clusterId === 'local' or isLocal flag).
+  if (!clusterId || clusterId === 'local' || cluster?.isLocal) {
     return {
-      server: process.env.ARGOCD_SERVER ?? 'http://argocd-server.argocd.svc.cluster.local:80',
-      token: process.env.ARGOCD_TOKEN ?? '',
+      server: cluster?.argocdServer ?? process.env.ARGOCD_SERVER ?? 'http://argocd-server.argocd.svc.cluster.local:80',
+      token: cluster?.argocdToken ?? process.env.ARGOCD_TOKEN ?? '',
     };
   }
 
-  const cluster = await getCluster(clusterId);
   return {
     server: cluster?.argocdServer ?? '',
     token: cluster?.argocdToken ?? '',
