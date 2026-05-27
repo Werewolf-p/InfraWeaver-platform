@@ -178,6 +178,19 @@ async function buildResponse(name: string, limitedToken = false, access?: Awaite
 
   const schedule = await currentRestartSchedule(batchApi, name);
   const restartCount = (pod?.status?.containerStatuses ?? []).reduce((sum, status) => sum + (status.restartCount ?? 0), 0);
+
+  // Crash detection: inspect container wait/termination reasons from the pod status.
+  const primaryContainerStatus = pod?.status?.containerStatuses?.[0];
+  const waitingReason = primaryContainerStatus?.state?.waiting?.reason;
+  const lastExitCode = primaryContainerStatus?.lastState?.terminated?.exitCode;
+  const isCrashLoop = waitingReason === "CrashLoopBackOff" || waitingReason === "Error";
+  const isCrashedOnce = !isCrashLoop
+    && typeof lastExitCode === "number" && lastExitCode !== 0
+    && (deployment.status?.readyReplicas ?? 0) === 0
+    && (deployment.spec?.replicas ?? 0) > 0;
+  // Whether the server should auto-restart after a crash (default: true).
+  const restartOnCrash = deployment.metadata?.annotations?.["infraweaver/restart-on-crash"] !== "false";
+
   const allPorts = (service?.spec?.ports ?? []).map((port) => {
     const tp = port.targetPort;
     const targetPort = typeof tp === "number"
@@ -243,9 +256,32 @@ async function buildResponse(name: string, limitedToken = false, access?: Awaite
       ? "stopped"
       : (deployment.status?.readyReplicas ?? 0) > 0
         ? "running"
-        : (deployment.status?.replicas ?? 0) > 0
-          ? "starting"
-          : "stopped";
+        : isCrashLoop
+          ? "crash-loop"
+          : isCrashedOnce
+            ? "crashed"
+            : (deployment.status?.replicas ?? 0) > 0
+              ? "starting"
+              : "stopped";
+
+  // When restart-on-crash is disabled and the server is crash-looping, auto-stop it.
+  // Runs as a side-effect of status polling so the UI catches it within one poll interval.
+  if (!restartOnCrash && (status === "crash-loop" || status === "crashed")) {
+    const crashAnnotation = deployment.metadata?.annotations?.["infraweaver/crash-stopped-at"];
+    if (!crashAnnotation) {
+      const webhookConfig = parseDiscordWebhookConfig(deployment.metadata?.annotations?.["infraweaver/discord-webhook"]);
+      void sendDiscordWebhook(webhookConfig, "crash", `💥 **${name}** crashed — auto-stopping (restart-on-crash disabled)`);
+      void appsApi.patchNamespacedDeployment({
+        name,
+        namespace: GAME_HUB_NAMESPACE,
+        body: {
+          metadata: { annotations: { "infraweaver/crash-stopped-at": new Date().toISOString() } },
+          spec: { replicas: 0 },
+        },
+        fieldManager: "infraweaver",
+      });
+    }
+  }
 
   if (limitedToken) {
     return {
@@ -291,6 +327,7 @@ async function buildResponse(name: string, limitedToken = false, access?: Awaite
     allPorts,
     portReachable,
     hpa,
+    restartOnCrash,
     restartPolicy: deployment.spec?.template?.spec?.restartPolicy ?? "Always",
     memory: deployment.spec?.template?.spec?.containers?.[0]?.resources?.limits?.memory ?? egg.defaultMemory ?? "",
     cpu: deployment.spec?.template?.spec?.containers?.[0]?.resources?.limits?.cpu ?? egg.defaultCpu ?? "",
@@ -540,7 +577,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
       await clients.appsApi.patchNamespacedDeployment({
         name,
         namespace: GAME_HUB_NAMESPACE,
-        body: { spec: { replicas: 1 }, metadata: { annotations: { "infraweaver.io/last-started": new Date().toISOString() } } },
+        // Clear crash-stopped-at so auto-stop can fire again on the next crash.
+        body: { spec: { replicas: 1 }, metadata: { annotations: { "infraweaver.io/last-started": new Date().toISOString(), "infraweaver/crash-stopped-at": "" } } },
 
         fieldManager: "infraweaver",
       });
@@ -597,12 +635,24 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
       });
       await upsertEggConfigMap(clients.coreApi, name, egg, nextEnv);
     } else if (body.action === "set-restart-policy") {
-      if (body.restartPolicy !== true) {
-        return NextResponse.json(
-          { error: "Game Hub deployments always restart crashed pods. Use schedules or stop actions to keep a server offline." },
-          { status: 400 },
-        );
-      }
+      // Store the restart-on-crash preference as an annotation.
+      // When false: the status poller auto-scales to 0 on crash detection.
+      // When true (default): Kubernetes naturally restarts crashed containers.
+      const enabled = body.restartPolicy !== false;
+      await clients.appsApi.patchNamespacedDeployment({
+        name,
+        namespace: GAME_HUB_NAMESPACE,
+        body: {
+          metadata: {
+            annotations: {
+              "infraweaver/restart-on-crash": enabled ? "true" : "false",
+              // Clear the crash-stopped marker when re-enabling so auto-stop can fire again next crash.
+              ...(enabled ? {} : { "infraweaver/crash-stopped-at": "" }),
+            },
+          },
+        },
+        fieldManager: "infraweaver",
+      });
     } else if (body.action === "set-notes" || body.action === "update-notes") {
       await clients.appsApi.patchNamespacedDeployment({ name, namespace: GAME_HUB_NAMESPACE, body: { metadata: { annotations: { "infraweaver/notes": body.notes ?? "" } } }, fieldManager: "infraweaver" });
     } else if (body.action === "update-resources") {
