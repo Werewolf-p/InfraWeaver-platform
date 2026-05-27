@@ -213,8 +213,13 @@ alertmanager:
         - matchers: ['alertname = "InfoInhibitor"']
           receiver: "null"
           continue: false
-        # Talos binds kube-controller-manager, kube-proxy, kube-scheduler to localhost — scraping is not possible
+        # Talos binds kube-controller-manager, kube-proxy, kube-scheduler to localhost — scraping is not possible.
+        # Both the component-down alerts AND the companion TargetDown alerts must be silenced here,
+        # otherwise TargetDown (job=kube-proxy|kube-controller-manager|kube-scheduler) leaks to Discord.
         - matchers: ['alertname =~ "KubeControllerManagerDown|KubeProxyDown|KubeSchedulerDown"']
+          receiver: "null"
+          continue: false
+        - matchers: ['alertname = "TargetDown"', 'job =~ "kube-proxy|kube-controller-manager|kube-scheduler"']
           receiver: "null"
           continue: false
         - matchers: ['severity = "critical"']
