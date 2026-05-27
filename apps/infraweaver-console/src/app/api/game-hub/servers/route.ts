@@ -74,24 +74,108 @@ function buildGameServerResources(memory: string | number | null | undefined, cp
   };
 }
 
+const SIGNAL_MAP: Record<string, number> = { "^C": 2, "^Z": 19, "^\\": 3 };
+
 /**
- * Converts a Pelican stop command to a Kubernetes preStop lifecycle hook.
+ * 3-tier graceful shutdown spec for game server pods.
  *
- * Most Pelican eggs use either:
- *   - "^C"  = send SIGINT to PID 1 (graceful stop for most game servers)
- *   - text  = a console command like "stop" — not sendable via exec; fall back to SIGINT
+ * Tier 1 — RCON: when RCON_PORT is present in the egg env, uses the Source RCON
+ *           protocol implemented in pure Python3 (no extra images needed) to send
+ *           the stop command over TCP. ACK-confirmed — the server processes the
+ *           command before the pod exits.
  *
- * A short sleep after the signal gives the process time to flush state before
- * SIGKILL fires at terminationGracePeriodSeconds.
+ * Tier 2 — stdin write: for text stop commands (e.g. "stop", "exit", "quit"),
+ *           uses shareProcessNamespace + TTY to write the command directly to the
+ *           game process stdin. Equivalent to typing in the server console.
+ *
+ * Tier 3 — signal: SIGINT (or mapped control-char signal) sent to the game process
+ *           located via /proc scan. Universal last resort; most game servers handle
+ *           SIGINT gracefully.
+ *
+ * Returns the lifecycle hook and extra env vars (prefixed _IW_) to inject into the
+ * game container so the preStop script can read them.
  */
-function buildStopLifecycle(stopCommand: string | undefined) {
-  if (!stopCommand) return undefined;
-  const signalMap: Record<string, number> = { "^C": 2, "^Z": 19, "^\\": 3 };
-  const sig = signalMap[stopCommand] ?? 2; // default SIGINT
+function buildStopSpec(
+  stopCommand: string | undefined,
+  env: Record<string, string>,
+): {
+  lifecycleHook: { preStop: { exec: { command: string[] } } };
+  extraEnv: Record<string, string>;
+} {
+  const sig = stopCommand ? (SIGNAL_MAP[stopCommand] ?? 2) : 2;
+  const isText = stopCommand ? !(stopCommand in SIGNAL_MAP) : false;
+  const hasRcon = Boolean(env["RCON_PORT"]);
+
+  const extraEnv: Record<string, string> = {
+    _IW_STOP_SIGNAL: String(sig),
+    _IW_STOP_CMD: isText ? stopCommand! : "stop",
+    ...(isText ? { _IW_STOP_STDIN: "1" } : {}),
+  };
+
+  // Source RCON protocol in ~10 lines of Python3. All strings use double quotes
+  // so the code can be safely wrapped in shell single-quotes without escaping.
+  // bytes(2) produces b'\x00\x00' (the RCON packet terminator).
+  const pythonRcon = [
+    "import socket,struct,os,sys",
+    "try:",
+    " s=socket.socket();s.settimeout(5)",
+    " s.connect((\"127.0.0.1\",int(os.environ.get(\"RCON_PORT\",\"25575\"))))",
+    " pw=(os.environ.get(\"RCON_PASSWORD\") or os.environ.get(\"RCON_PASS\") or \"\").encode()",
+    " cmd=os.environ.get(\"_IW_STOP_CMD\",\"stop\").encode()",
+    " def p(i,t,b):d=struct.pack(\"<ii\",i,t)+b+bytes(2);return struct.pack(\"<i\",len(d))+d",
+    " s.sendall(p(1,3,pw));r=s.recv(4096)",
+    " if len(r)>=12 and struct.unpack(\"<i\",r[4:8])[0]==-1:sys.exit(1)",
+    " s.sendall(p(2,2,cmd));s.recv(4096);s.close();sys.exit(0)",
+    "except:sys.exit(1)",
+  ].join("\n");
+
+  // Locate the game process PID via /proc scan (visible via shareProcessNamespace).
+  // Skips infrastructure processes that are never the game server.
+  const findPid = [
+    "GPID=\"\"",
+    "for _P in $(ls /proc 2>/dev/null | grep '^[0-9]'); do",
+    "  _C=$(cat /proc/$_P/comm 2>/dev/null)",
+    "  case \"$_C\" in pause|sh|bash|sleep|init|tini|python3|\"\") continue;; esac",
+    "  GPID=$_P; break",
+    "done",
+  ].join("\n");
+
+  const tiers: string[] = [
+    "# Locate game process once — used by all fallback tiers",
+    findPid,
+  ];
+
+  if (hasRcon) {
+    tiers.push(
+      "# Tier 1: RCON — ACK-confirmed stop via Source RCON protocol (Python3)",
+      "if [ -n \"${RCON_PORT}\" ] && command -v python3 >/dev/null 2>&1; then",
+      "  python3 -c '" + pythonRcon + "' 2>/dev/null && sleep 10 && exit 0",
+      "fi",
+    );
+  }
+
+  if (isText) {
+    tiers.push(
+      "# Tier 2: stdin write via shared PID namespace + TTY",
+      "if [ \"${_IW_STOP_STDIN:-0}\" = \"1\" ] && [ -n \"$GPID\" ]; then",
+      "  printf '%s\\n' \"${_IW_STOP_CMD}\" >/proc/$GPID/fd/0 2>/dev/null && sleep 15 && exit 0",
+      "fi",
+    );
+  }
+
+  tiers.push(
+    "# Tier 3: signal fallback",
+    "kill -${_IW_STOP_SIGNAL:-2} ${GPID:-1} 2>/dev/null || true",
+    "sleep 5",
+  );
+
   return {
-    preStop: {
-      exec: { command: ["/bin/sh", "-c", `kill -${sig} 1 2>/dev/null || true; sleep 5`] },
+    lifecycleHook: {
+      preStop: {
+        exec: { command: ["/bin/sh", "-c", tiers.join("\n")] },
+      },
     },
+    extraEnv,
   };
 }
 
@@ -193,10 +277,15 @@ async function createServer(body: {
 
   // Pelican yolk images read a STARTUP env var and run it via their entrypoint.
   // Always set STARTUP so yolk-compatible images apply the correct launch command.
-  const allEnv: Record<string, string> = {
+  const gameEnv: Record<string, string> = {
     ...env,
     ...(egg.startupCommand ? { STARTUP: egg.startupCommand } : {}),
   };
+
+  // Build 3-tier stop spec (RCON → stdin → signal). Extra env vars it needs are
+  // merged into the container env so the preStop script can read them at runtime.
+  const stopSpec = buildStopSpec(egg.stopCommand, gameEnv);
+  const allEnv: Record<string, string> = { ...gameEnv, ...stopSpec.extraEnv };
 
   // Build init container if the egg ships an installation script.
   const installInitContainer = egg.installScript
@@ -227,7 +316,8 @@ async function createServer(body: {
           metadata: { labels: { app: slug, "infraweaver/game": "true", "infraweaver.io/game": "true", "infraweaver/game-type": eggLabel, "infraweaver.io/game-type": eggLabel, "infraweaver/egg": eggLabel, "infraweaver.io/egg": eggLabel }, annotations },
           spec: {
             priorityClassName: "game-server",
-            terminationGracePeriodSeconds: 60,
+            terminationGracePeriodSeconds: 120,
+            shareProcessNamespace: true,
             topologySpreadConstraints: [{
               maxSkew: 1,
               topologyKey: "kubernetes.io/hostname",
@@ -241,11 +331,12 @@ async function createServer(body: {
               image: egg.dockerImage,
               imagePullPolicy: "IfNotPresent",
               stdin: true,
+              tty: true,
               ports: getEggPorts(egg).map((port) => ({ containerPort: port.port, protocol: port.protocol })),
               env: Object.entries(allEnv).map(([key, value]) => ({ name: key, value })),
               resources,
               volumeMounts: [{ name: "data", mountPath: egg.mountPath }],
-              lifecycle: buildStopLifecycle(egg.stopCommand),
+              lifecycle: stopSpec.lifecycleHook,
               ...buildUniversalGameServerProbes(startupMinutes),
             }],
             volumes: [{ name: "data", persistentVolumeClaim: { claimName: pvcName } }],
