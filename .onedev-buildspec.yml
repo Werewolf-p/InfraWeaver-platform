@@ -1,98 +1,17 @@
 # .onedev-buildspec.yml — InfraWeaver Platform CI Pipeline
-# Triggered on push to main; builds and pushes all app images,
-# then commits updated image tags back so ArgoCD can deploy them.
-#
-# Prerequisites:
-#   - An agent with Docker/Buildah must be registered in Onedev
-#     (or configure a Kubernetes executor on the Onedev server)
-#   - The registry at onedev.rlservers.com/infraweaver-platform/ must be accessible
-#   - The agent must have git configured to push back to this repo
+# Triggered on push to main.
+# Image builds are handled by the in-cluster CI CronJob (kaniko-based).
+# This pipeline only handles the lightweight manifest tag update step.
 
 version: 36
 
 jobs:
-- name: Build & Release
+- name: Update Manifests
   steps:
   - !CheckoutStep
     name: checkout
     cloneCredential: !DefaultCredential {}
     withLfs: false
-    condition: ALL_PREVIOUS_STEPS_WERE_SUCCESSFUL
-
-  - !CommandStep
-    name: build-and-push-api
-    runInContainer: true
-    image: quay.io/buildah/stable:latest
-    interpreter: !DefaultInterpreter
-      commands: |
-        #!/usr/bin/env bash
-        set -euo pipefail
-        SHORT_SHA=$(git rev-parse --short HEAD)
-        IMAGE="onedev.rlservers.com/infraweaver-platform/infraweaver-api:main-${SHORT_SHA}"
-        echo "Building $IMAGE"
-        buildah build \
-          --tag "$IMAGE" \
-          --build-arg CACHEBUST="$SHORT_SHA" \
-          --build-arg APP_VERSION="$SHORT_SHA" \
-          --tls-verify=false \
-          apps/infraweaver-api/
-        buildah push --tls-verify=false "$IMAGE"
-        echo "PUSHED: $IMAGE"
-        echo "main-${SHORT_SHA}" > /tmp/api-tag
-    envVars:
-    - name: STORAGE_DRIVER
-      value: vfs
-    privileged: true
-    condition: ALL_PREVIOUS_STEPS_WERE_SUCCESSFUL
-
-  - !CommandStep
-    name: build-and-push-console
-    runInContainer: true
-    image: quay.io/buildah/stable:latest
-    interpreter: !DefaultInterpreter
-      commands: |
-        #!/usr/bin/env bash
-        set -euo pipefail
-        SHORT_SHA=$(git rev-parse --short HEAD)
-        IMAGE="onedev.rlservers.com/infraweaver-platform/infraweaver-console:main-${SHORT_SHA}"
-        echo "Building $IMAGE"
-        buildah build \
-          --tag "$IMAGE" \
-          --build-arg CACHEBUST="$SHORT_SHA" \
-          --build-arg APP_VERSION="$SHORT_SHA" \
-          --tls-verify=false \
-          apps/infraweaver-console/
-        buildah push --tls-verify=false "$IMAGE"
-        echo "PUSHED: $IMAGE"
-    envVars:
-    - name: STORAGE_DRIVER
-      value: vfs
-    privileged: true
-    condition: ALL_PREVIOUS_STEPS_WERE_SUCCESSFUL
-
-  - !CommandStep
-    name: build-and-push-node
-    runInContainer: true
-    image: quay.io/buildah/stable:latest
-    interpreter: !DefaultInterpreter
-      commands: |
-        #!/usr/bin/env bash
-        set -euo pipefail
-        SHORT_SHA=$(git rev-parse --short HEAD)
-        IMAGE="onedev.rlservers.com/infraweaver-platform/infraweaver-node:main-${SHORT_SHA}"
-        echo "Building $IMAGE"
-        buildah build \
-          --tag "$IMAGE" \
-          --build-arg CACHEBUST="$SHORT_SHA" \
-          --build-arg APP_VERSION="$SHORT_SHA" \
-          --tls-verify=false \
-          apps/infraweaver-node/
-        buildah push --tls-verify=false "$IMAGE"
-        echo "PUSHED: $IMAGE"
-    envVars:
-    - name: STORAGE_DRIVER
-      value: vfs
-    privileged: true
     condition: ALL_PREVIOUS_STEPS_WERE_SUCCESSFUL
 
   - !CommandStep
@@ -103,19 +22,18 @@ jobs:
         #!/usr/bin/env bash
         set -euo pipefail
         SHORT_SHA=$(git rev-parse --short HEAD)
+        REGISTRY="onedev.rlservers.com/infraweaver-platform"
 
         echo "Updating deployment manifests to tag main-${SHORT_SHA}..."
 
-        REGISTRY="onedev.rlservers.com/infraweaver-platform"
-
-        sed -i "s|${REGISTRY}/infraweaver-api:[^ ]*|${REGISTRY}/infraweaver-api:main-${SHORT_SHA}|g" \
-          kubernetes/catalog/infraweaver-api/manifests/deployment.yaml
-
-        sed -i "s|${REGISTRY}/infraweaver-console:[^ ]*|${REGISTRY}/infraweaver-console:main-${SHORT_SHA}|g" \
-          kubernetes/catalog/infraweaver-console/manifests/deployment.yaml
-
-        sed -i "s|${REGISTRY}/infraweaver-node:[^ ]*|${REGISTRY}/infraweaver-node:main-${SHORT_SHA}|g" \
-          kubernetes/catalog/infraweaver-node/manifests/deployment.yaml
+        for APP in api console node; do
+          MANIFEST="kubernetes/catalog/infraweaver-${APP}/manifests/deployment.yaml"
+          if [ -f "$MANIFEST" ]; then
+            sed -i "s|${REGISTRY}/infraweaver-${APP}:[^ ]*|${REGISTRY}/infraweaver-${APP}:main-${SHORT_SHA}|g" \
+              "$MANIFEST"
+            echo "Updated $MANIFEST"
+          fi
+        done
 
         git config user.email "ci@infraweaver.internal"
         git config user.name "InfraWeaver CI"
