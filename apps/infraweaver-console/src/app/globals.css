@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "@xterm/xterm/css/xterm.css";
 
 /* Tell Tailwind v4 to use the .dark class strategy instead of prefers-color-scheme.
    The app adds/removes the "dark" class on <html> via use-theme.ts. */
