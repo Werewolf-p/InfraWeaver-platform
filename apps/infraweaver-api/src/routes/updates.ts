@@ -241,12 +241,17 @@ async function fetchHelmVersions(source: Extract<VersionSource, { type: 'helm' }
 async function fetchDockerVersions(source: Extract<VersionSource, { type: 'docker' }>): Promise<VersionLookupResponse> {
   const { owner, repository } = parseDockerImage(source.image);
   const response = await fetchJson<{ results?: Array<{ name?: string }> }>(
-    `https://hub.docker.com/v2/repositories/${owner}/${repository}/tags?page_size=25&ordering=last_updated`,
+    `https://hub.docker.com/v2/repositories/${owner}/${repository}/tags?page_size=50&ordering=last_updated`,
   );
+
+  // Filter to stable semver tags only (X.Y.Z) — exclude nightly, rc, platform-specific tags
+  const stableSemver = (response.results ?? [])
+    .map((tag) => tag.name ?? '')
+    .filter((name) => /^\d+\.\d+\.\d+$/.test(name));
 
   return {
     source: 'docker',
-    versions: uniqueSortedVersions((response.results ?? []).map((tag) => tag.name ?? '')).slice(0, 15),
+    versions: uniqueSortedVersions(stableSemver).slice(0, 15),
   };
 }
 
