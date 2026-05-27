@@ -2,7 +2,7 @@ FROM node:22-alpine AS builder
 WORKDIR /app
 ARG APP_VERSION=dev
 ENV APP_VERSION=$APP_VERSION
-COPY package*.json package-lock.json ./
+COPY package*.json ./
 RUN npm ci
 COPY tsconfig.json ./
 COPY src/ ./src/
@@ -13,8 +13,8 @@ WORKDIR /app
 ENV NODE_ENV=production
 ARG APP_VERSION=dev
 ENV APP_VERSION=$APP_VERSION
-COPY package*.json package-lock.json ./
-RUN npm ci --omit=dev
+COPY package*.json ./
+RUN npm install --omit=dev
 COPY --from=builder /app/dist ./dist
 USER node
 CMD ["node", "dist/index.js"]
