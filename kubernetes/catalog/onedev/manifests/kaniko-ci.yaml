@@ -2,7 +2,8 @@
 # InfraWeaver CI — kaniko image builder
 # Runs every 5 minutes. Checks for new commits on OneDev; if the manifest image tag
 # differs from the current HEAD, builds all 3 app images with kaniko and updates manifests.
-# No Docker daemon required — kaniko builds directly from Dockerfile layers.
+# Each kaniko build runs in its own init container to guarantee a clean filesystem —
+# kaniko modifies the root fs during builds, so sharing a container causes corruption.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -111,47 +112,101 @@ spec:
             volumeMounts:
             - name: workspace
               mountPath: /workspace
-          containers:
-          # Step 2: Run build script (skips if /workspace/skip exists)
-          - name: build-and-update
+
+          # Step 2a: Build infraweaver-api (isolated container — fresh filesystem)
+          - name: build-api
             image: gcr.io/kaniko-project/executor:debug
             command: ["/busybox/sh", "-c"]
             args:
             - |
-              set -e
+              [ -f /workspace/skip ] && echo "Skipping." && exit 0
+              BUILD_TAG=$(cat /workspace/build-tag)
+              REGISTRY="onedev.rlservers.com/infraweaver-platform"
+              mkdir -p /kaniko/.docker
+              cp /kaniko-auth/.dockerconfigjson /kaniko/.docker/config.json
+              echo "--- Building infraweaver-api (${BUILD_TAG}) ---"
+              /kaniko/executor \
+                --context "dir:///workspace/repo/apps/infraweaver-api" \
+                --destination "${REGISTRY}/infraweaver-api:${BUILD_TAG}" \
+                --build-arg "APP_VERSION=${BUILD_TAG}" \
+                --skip-tls-verify \
+                --cache=false
+            volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+            - name: registry-auth
+              mountPath: /kaniko-auth
+              readOnly: true
+
+          # Step 2b: Build infraweaver-node (isolated container — fresh filesystem)
+          - name: build-node
+            image: gcr.io/kaniko-project/executor:debug
+            command: ["/busybox/sh", "-c"]
+            args:
+            - |
+              [ -f /workspace/skip ] && echo "Skipping." && exit 0
+              BUILD_TAG=$(cat /workspace/build-tag)
+              REGISTRY="onedev.rlservers.com/infraweaver-platform"
+              mkdir -p /kaniko/.docker
+              cp /kaniko-auth/.dockerconfigjson /kaniko/.docker/config.json
+              echo "--- Building infraweaver-node (${BUILD_TAG}) ---"
+              /kaniko/executor \
+                --context "dir:///workspace/repo/apps/infraweaver-node" \
+                --destination "${REGISTRY}/infraweaver-node:${BUILD_TAG}" \
+                --build-arg "APP_VERSION=${BUILD_TAG}" \
+                --skip-tls-verify \
+                --cache=false
+            volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+            - name: registry-auth
+              mountPath: /kaniko-auth
+              readOnly: true
+
+          # Step 2c: Build infraweaver-console (isolated container — fresh filesystem)
+          - name: build-console
+            image: gcr.io/kaniko-project/executor:debug
+            command: ["/busybox/sh", "-c"]
+            args:
+            - |
+              [ -f /workspace/skip ] && echo "Skipping." && exit 0
+              BUILD_TAG=$(cat /workspace/build-tag)
+              REGISTRY="onedev.rlservers.com/infraweaver-platform"
+              mkdir -p /kaniko/.docker
+              cp /kaniko-auth/.dockerconfigjson /kaniko/.docker/config.json
+              echo "--- Building infraweaver-console (${BUILD_TAG}) ---"
+              /kaniko/executor \
+                --context "dir:///workspace/repo/apps/infraweaver-console" \
+                --destination "${REGISTRY}/infraweaver-console:${BUILD_TAG}" \
+                --build-arg "APP_VERSION=${BUILD_TAG}" \
+                --build-arg "CACHEBUST=$(date +%s)" \
+                --skip-tls-verify \
+                --cache=false
+            volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+            - name: registry-auth
+              mountPath: /kaniko-auth
+              readOnly: true
+
+          containers:
+          # Step 3: Update manifests and push to OneDev (triggers ArgoCD deploy)
+          - name: update-manifests
+            image: alpine/git:latest
+            command: ["/bin/sh", "-c"]
+            args:
+            - |
               if [ -f /workspace/skip ]; then
-                echo "Nothing to build."
+                echo "Nothing to build — manifests up to date."
                 exit 0
               fi
-
-              # Install git before kaniko modifies the root filesystem
-              apk add --no-cache git 2>/dev/null || true
 
               BUILD_TAG=$(cat /workspace/build-tag)
               REGISTRY="onedev.rlservers.com/infraweaver-platform"
               REPO="/workspace/repo"
 
-              # Copy docker config for registry auth
-              mkdir -p /kaniko/.docker
-              cp /kaniko-auth/.dockerconfigjson /kaniko/.docker/config.json
-
-              echo "=== Building images for ${BUILD_TAG} ==="
-              for APP in api node console; do
-                echo "--- Building infraweaver-${APP} ---"
-                # Clean up any filesystem artifacts from previous kaniko build
-                rm -rf /app /workspace/kaniko-build 2>/dev/null || true
-                /kaniko/executor \
-                  --context "dir://${REPO}/apps/infraweaver-${APP}" \
-                  --destination "${REGISTRY}/infraweaver-${APP}:${BUILD_TAG}" \
-                  --build-arg "APP_VERSION=${BUILD_TAG}" \
-                  --build-arg "CACHEBUST=$(date +%s)" \
-                  --skip-tls-verify \
-                  --cache=false
-              done
-
-              echo "=== Updating manifests ==="
+              echo "=== Updating manifests to ${BUILD_TAG} ==="
               cd "$REPO"
-              SHORT_SHA=${BUILD_TAG#main-}
               for APP in api console node; do
                 MANIFEST="kubernetes/catalog/infraweaver-${APP}/manifests/deployment.yaml"
                 sed -i "s|${REGISTRY}/infraweaver-${APP}:[^ ]*|${REGISTRY}/infraweaver-${APP}:${BUILD_TAG}|g" \
@@ -169,11 +224,8 @@ spec:
               else
                 git commit -m "ci: update image tags to ${BUILD_TAG} [skip ci]"
                 git push http://admin:ExkI2kJ2RRf7xoaEsuVErkXR@onedev.onedev.svc.cluster.local/InfraWeaver-platform/ HEAD:main
-                echo "Pushed manifest updates."
+                echo "Pushed manifest updates — ArgoCD will deploy shortly."
               fi
             volumeMounts:
             - name: workspace
               mountPath: /workspace
-            - name: registry-auth
-              mountPath: /kaniko-auth
-              readOnly: true
