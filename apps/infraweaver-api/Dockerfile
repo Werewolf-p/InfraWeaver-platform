@@ -1,4 +1,4 @@
-FROM node:22-alpine AS builder
+FROM public.ecr.aws/docker/library/node:22-alpine AS builder
 WORKDIR /app
 ARG APP_VERSION=dev
 ENV APP_VERSION=$APP_VERSION
@@ -9,7 +9,7 @@ COPY src/ ./src/
 # Bundle all deps except @kubernetes/client-node into a single ESM file.
 RUN npm run bundle
 
-FROM node:22-alpine
+FROM public.ecr.aws/docker/library/node:22-alpine
 WORKDIR /app
 ENV NODE_ENV=production
 ARG APP_VERSION=dev
