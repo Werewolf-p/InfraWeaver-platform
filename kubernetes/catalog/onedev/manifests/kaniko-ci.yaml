@@ -78,7 +78,7 @@ spec:
             emptyDir: {}
           - name: registry-auth
             secret:
-              secretName: kaniko-docker-config
+              secretName: onedev-registry-auth
           initContainers:
           # Step 1: Clone repo and check if build is needed
           - name: check-and-clone

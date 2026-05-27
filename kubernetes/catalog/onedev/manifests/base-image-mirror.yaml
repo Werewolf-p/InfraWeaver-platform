@@ -1,8 +1,7 @@
 ---
-# Mirrors external base images into the OneDev internal registry weekly.
-# Keeps all builds fully self-contained — no Docker Hub or ECR dependency at build time.
-# Source: public.ecr.aws/docker/library (no rate limits, official Docker images)
-# Dest:   onedev.rlservers.com/infraweaver-platform/base-*
+# Syncs base images from Docker Hub into the OneDev internal registry weekly.
+# All Dockerfiles use onedev.rlservers.com base images — zero external deps at build time.
+# Credentials come from cluster Secrets (not committed to git).
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -24,27 +23,46 @@ spec:
           containers:
           - name: mirror
             image: gcr.io/go-containerregistry/crane:debug
-            env:
-            - name: ONEDEV_PASS
-              value: "ExkI2kJ2RRf7xoaEsuVErkXR"
             command: ["/busybox/sh", "-c"]
             args:
             - |
               set -e
               REGISTRY="onedev.rlservers.com/infraweaver-platform"
 
-              # Authenticate to OneDev registry
-              /ko-app/crane auth login onedev.rlservers.com \
-                --insecure -u admin -p "${ONEDEV_PASS}"
+              # Authenticate to both registries
+              /ko-app/crane auth login index.docker.io \
+                -u "${DOCKERHUB_USER}" -p "${DOCKERHUB_PASS}"
+              /ko-app/crane auth login onedev.rlservers.com --insecure \
+                -u "${ONEDEV_USER}" -p "${ONEDEV_PASS}"
 
               mirror() {
-                SRC="$1" DEST="$2"
-                echo "Mirroring ${SRC} -> ${DEST}..."
-                /ko-app/crane copy --insecure "${SRC}" "${DEST}"
-                echo "  Done: ${DEST}"
+                echo "Mirroring $1 -> $2..."
+                /ko-app/crane copy --insecure --platform linux/amd64 "$1" "$2"
+                echo "  OK: $2"
               }
 
-              mirror public.ecr.aws/docker/library/node:22-alpine  "${REGISTRY}/base-node-22-alpine:latest"
-              mirror public.ecr.aws/docker/library/node:20-slim    "${REGISTRY}/base-node-20-slim:latest"
+              mirror node:22-alpine "${REGISTRY}/base-node-22-alpine:latest"
+              mirror node:20-slim   "${REGISTRY}/base-node-20-slim:latest"
 
-              echo "All base images mirrored successfully."
+              echo "All base images updated in OneDev."
+            env:
+            - name: DOCKERHUB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: dockerhub-auth
+                  key: username
+            - name: DOCKERHUB_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: dockerhub-auth
+                  key: password
+            - name: ONEDEV_USER
+              valueFrom:
+                secretKeyRef:
+                  name: onedev-admin-auth
+                  key: username
+            - name: ONEDEV_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: onedev-admin-auth
+                  key: password
