@@ -4,6 +4,14 @@ talos_version: "v1.13.0"
 kubernetes_version: "v1.35.4"
 proxmox_host: "10.25.0.3"
 
+# Talos factory.dev schematic ID — bakes system extensions into the installer image.
+# Required for Longhorn 1.7+ (siderolabs/iscsi-tools must exist in host mount namespace).
+# Regenerate via: curl -sX POST https://factory.talos.dev/schematics \
+#   -H 'Content-Type: application/yaml' \
+#   -d $'customization:\n  systemExtensions:\n    officialExtensions:\n      - siderolabs/iscsi-tools'
+# When upgrading Talos versions, create a new schematic for the new version and update here + upgrade nodes.
+talos_schematic_id: "c9078f9419961640c712a8bf2bb9174933dfcf1da383fd8ea2b7dc21493f8bac"
+
 # Base domain — used to derive internal service hostnames (e.g. onedev.${base_domain})
 # Must match BASE_DOMAIN in your .env file.
 base_domain: "rlservers.com"

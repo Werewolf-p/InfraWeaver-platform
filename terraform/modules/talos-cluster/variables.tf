@@ -225,3 +225,25 @@ variable "onedev_registry_hostname" {
   type        = string
   default     = ""
 }
+
+variable "talos_schematic_id" {
+  description = <<-EOT
+    Talos factory.talos.dev schematic ID for system extensions (e.g. siderolabs/iscsi-tools).
+    When set, generated machine configs embed machine.install.image pointing to
+    factory.talos.dev/installer/<id>:<talos_version>, ensuring extensions survive future
+    talosctl apply-config and talosctl upgrade calls.
+
+    Required for Longhorn 1.7+: Longhorn checks for iscsiadm via nsenter into the host
+    mount namespace. The binary is only present when siderolabs/iscsi-tools is baked in.
+
+    Generate / refresh a schematic:
+      curl -sX POST https://factory.talos.dev/schematics \
+        -H 'Content-Type: application/yaml' \
+        -d $'customization:\n  systemExtensions:\n    officialExtensions:\n      - siderolabs/iscsi-tools'
+
+    Current productie schematic (v1.13.0 + iscsi-tools):
+      c9078f9419961640c712a8bf2bb9174933dfcf1da383fd8ea2b7dc21493f8bac
+  EOT
+  type        = string
+  default     = ""
+}

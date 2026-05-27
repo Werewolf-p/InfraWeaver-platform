@@ -99,6 +99,11 @@ module "talos_cluster" {
   # Using HTTP + insecureSkipVerify avoids TLS chain issues with the self-signed CA.
   onedev_registry_hostname = try("onedev.${local.cluster_config.base_domain}", "")
 
+  # Talos factory.dev schematic ID for system extensions.
+  # Required for Longhorn 1.7+ (siderolabs/iscsi-tools must be in the host mount namespace).
+  # Update cluster.yaml talos_schematic_id whenever extensions change or Talos is upgraded.
+  talos_schematic_id = try(local.cluster_config.talos_schematic_id, "")
+
   environment = var.environment
 }
 

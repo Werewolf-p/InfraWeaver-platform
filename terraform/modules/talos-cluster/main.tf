@@ -255,7 +255,7 @@ data "talos_machine_configuration" "this" {
   kubernetes_version = var.kubernetes_version
   talos_version      = var.talos_version
 
-  config_patches = [
+  config_patches = compact([
     yamlencode({
       machine = {
         network = {
@@ -401,7 +401,19 @@ data "talos_machine_configuration" "this" {
         }
       }
     }),
-  ]
+    # When a custom schematic is specified (e.g. iscsi-tools for Longhorn 1.7+), pin
+    # machine.install.image to the factory schematic installer.  This ensures the extension
+    # survives any future talosctl apply-config or talosctl upgrade (without --image) call.
+    # Without this, the stored config defaults to ghcr.io/siderolabs/installer:<version>
+    # (vanilla), so the next upgrade would drop iscsi-tools → Longhorn CrashLoopBackOff.
+    var.talos_schematic_id != "" ? yamlencode({
+      machine = {
+        install = {
+          image = "factory.talos.dev/installer/${var.talos_schematic_id}:${var.talos_version}"
+        }
+      }
+    }) : "",
+  ])
 }
 
 data "talos_client_configuration" "this" {
