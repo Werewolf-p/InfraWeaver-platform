@@ -425,8 +425,7 @@ spec:
   selector:
     matchLabels:
       app.kubernetes.io/name: onedev
----
-# PodDisruptionBudget — protects OneDev Postgres during voluntary node drains.
+      app.kubernetes.io/component: server during voluntary node drains.
 # Local-path PVC is bound to cp1 — if cp1 is drained, Postgres cannot move.
 # maxUnavailable: 0 blocks the drain until the operator resolves this manually.
 apiVersion: policy/v1
