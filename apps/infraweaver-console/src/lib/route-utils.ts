@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import type { Session } from "next-auth";
 import { auth } from "@/lib/auth";
 import type { Permission } from "@/lib/rbac";
-import type { SessionRBACContext } from "@/lib/session-rbac";
 import { getSessionRBACContext, hasAnySessionPermission, hasSessionPermission } from "@/lib/session-rbac";
+import type { SessionRBACContext } from "@/lib/session-rbac";
 import { safeError } from "@/lib/utils";
 
 export interface ApiResponseOptions {
@@ -58,7 +58,7 @@ export async function requireRoutePermissions(options: RoutePermissionOptions = 
 
   const access = await getSessionRBACContext(session, options.ttlSeconds ?? 60);
 
-  if (options.any?.length && !hasAnySessionPermission(access, [...options.any])) {
+  if (options.any?.length && !hasAnySessionPermission(access, options.any as Permission[])) {
     return apiError("Forbidden", { status: 403 });
   }
 

@@ -146,21 +146,11 @@ async function argocdHardRefresh(appName: string): Promise<boolean> {
 // ── Manifest image-tag rewriting ──────────────────────────────────────────────
 
 function rewriteImageTag(yaml: string, appName: string, newTag: string): string | null {
-  // Matches: "image: <any-registry>/<any-path>/infraweaver-{app}:<old-tag>"
-  const re = new RegExp(
-    `(\\bimage:\\s*)[^\\s]*/${appName}:[^\\s]+`,
-    "gm",
-  );
-  if (!re.test(yaml)) return null;
-  const updated = yaml.replace(
-    new RegExp(`(\\bimage:\\s*)[^\\s]*/${appName}:[^\\s]+`, "gm"),
-    `$1ghcr.io/${GHCR_ORG}/infraweaver-${appName}:${newTag}`,
-  );
-  // Also update APP_VERSION env var if present
-  return updated.replace(
-    /(name:\s*APP_VERSION\s*\n\s*value:\s*")[^"]+(")/m,
-    `$1${newTag}$2`,
-  );
+  const imagePattern = new RegExp(`(\\bimage:\\s*)[^\\s]*/${appName}:[^\\s]+`, "gm");
+  if (!imagePattern.test(yaml)) return null;
+  return yaml
+    .replace(imagePattern, `$1ghcr.io/${GHCR_ORG}/infraweaver-${appName}:${newTag}`)
+    .replace(/(name:\s*APP_VERSION\s*\n\s*value:\s*")[^"]+(")/m, `$1${newTag}$2`);
 }
 
 

@@ -27,42 +27,22 @@ export async function getKcForCluster(clusterId: string): Promise<k8s.KubeConfig
   return kc;
 }
 
-export async function getCoreApiForCluster(clusterId: string) {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function makeApiClient<T>(clusterId: string, ApiClass: new (...args: any[]) => T): Promise<T> {
   const kc = await getKcForCluster(clusterId);
-  return kc.makeApiClient(k8s.CoreV1Api);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return kc.makeApiClient(ApiClass as any) as unknown as T;
 }
 
-export async function getAppsApiForCluster(clusterId: string) {
-  const kc = await getKcForCluster(clusterId);
-  return kc.makeApiClient(k8s.AppsV1Api);
-}
-
-export async function getCustomApiForCluster(clusterId: string) {
-  const kc = await getKcForCluster(clusterId);
-  return kc.makeApiClient(k8s.CustomObjectsApi);
-}
+export const getCoreApiForCluster       = (id: string) => makeApiClient(id, k8s.CoreV1Api);
+export const getAppsApiForCluster       = (id: string) => makeApiClient(id, k8s.AppsV1Api);
+export const getCustomApiForCluster     = (id: string) => makeApiClient(id, k8s.CustomObjectsApi);
+export const getBatchApiForCluster      = (id: string) => makeApiClient(id, k8s.BatchV1Api);
+export const getNetworkApiForCluster    = (id: string) => makeApiClient(id, k8s.NetworkingV1Api);
+export const getAutoscalingApiForCluster = (id: string) => makeApiClient(id, k8s.AutoscalingV2Api);
+export const getPolicyApiForCluster     = (id: string) => makeApiClient(id, k8s.PolicyV1Api);
 
 export async function getMetricsApiForCluster(clusterId: string) {
   const kc = await getKcForCluster(clusterId);
   return new k8s.Metrics(kc);
-}
-
-export async function getBatchApiForCluster(clusterId: string) {
-  const kc = await getKcForCluster(clusterId);
-  return kc.makeApiClient(k8s.BatchV1Api);
-}
-
-export async function getNetworkApiForCluster(clusterId: string) {
-  const kc = await getKcForCluster(clusterId);
-  return kc.makeApiClient(k8s.NetworkingV1Api);
-}
-
-export async function getAutoscalingApiForCluster(clusterId: string) {
-  const kc = await getKcForCluster(clusterId);
-  return kc.makeApiClient(k8s.AutoscalingV2Api);
-}
-
-export async function getPolicyApiForCluster(clusterId: string) {
-  const kc = await getKcForCluster(clusterId);
-  return kc.makeApiClient(k8s.PolicyV1Api);
 }

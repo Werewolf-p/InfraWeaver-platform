@@ -66,18 +66,11 @@ export function PageScaffold({
   bodyClassName,
   children,
 }: PageScaffoldProps) {
-  const renderedEmptyState = !emptyState
+  const renderedEmptyState = emptyState == null
     ? null
-    : typeof emptyState === "object" && emptyState !== null && "title" in emptyState
+    : (typeof emptyState === "object" && "title" in (emptyState as object))
       ? <EmptyState {...(emptyState as PageScaffoldEmptyState)} />
-      : emptyState;
-
-  const body = () => {
-    if (loading) return loadingFallback ?? <DefaultLoadingState />;
-    if (isError) return <DataError message={errorMessage} detail={errorDetail} onRetry={onRetry} />;
-    if (isEmpty && renderedEmptyState) return renderedEmptyState;
-    return <div className={bodyClassName}>{children}</div>;
-  };
+      : emptyState as React.ReactNode;
 
   return (
     <section className={cn("space-y-6", className)}>
@@ -90,7 +83,14 @@ export function PageScaffold({
         badge={badge}
         breadcrumb={breadcrumb}
       />
-      {body()}
+      {loading
+        ? (loadingFallback ?? <DefaultLoadingState />)
+        : isError
+          ? <DataError message={errorMessage} detail={errorDetail} onRetry={onRetry} />
+          : isEmpty && renderedEmptyState
+            ? renderedEmptyState
+            : <div className={bodyClassName}>{children}</div>
+      }
     </section>
   );
 }

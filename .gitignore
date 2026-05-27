@@ -109,3 +109,13 @@ yarn-error.log*
 # Compiled TypeScript output - not committed; built locally or via CI
 apps/infraweaver-api/dist/
 apps/infraweaver-node/dist/
+
+# ---------------------------------------------------------------------------
+# Temporary deployment backup directories (created by redeploy-local.sh)
+# ---------------------------------------------------------------------------
+.redeploy-backup-*/
+
+# ---------------------------------------------------------------------------
+# Setup wizard Next.js build output (generated — never commit)
+# ---------------------------------------------------------------------------
+scripts/init/out/

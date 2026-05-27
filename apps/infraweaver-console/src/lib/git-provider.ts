@@ -78,8 +78,8 @@ function acquireConsoleBaseClone(): Promise<string> {
     return Promise.resolve(CONSOLE_BASE_CLONE_DIR);
   }
   _baseClonePromise = initOrRefreshConsoleBaseClone()
-    .then((dir) => { _baseLastRefresh = Date.now(); _baseClonePromise = null; return dir; })
-    .catch((err) => { _baseClonePromise = null; throw err; });
+    .then((dir) => { _baseLastRefresh = Date.now(); return dir; })
+    .finally(() => { _baseClonePromise = null; });
   return _baseClonePromise;
 }
 

@@ -2,46 +2,13 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { getAppsApiForCluster, getAutoscalingApiForCluster, getBatchApiForCluster, getCoreApiForCluster, getCustomApiForCluster, getPolicyApiForCluster } from '../lib/k8s-client.js';
 import { hasPermission } from '../lib/rbac.js';
+import { cpuToMillicores, kiToMi, parseCpuCores, parseMemBytes, parseMemGi } from '../lib/k8s-utils.js';
 import type { AppBindings } from '../types/index.js';
 
 const SKIP_NAMESPACES = ['kube-system', 'kube-public', 'kube-node-lease'];
 const CPU_RATE = 0.048;
 const MEM_RATE = 0.006;
 const HOURS_PER_MONTH = 730;
-
-function parseCpuCores(s: string): number {
-  if (!s) return 0;
-  if (s.endsWith('m')) return Number.parseInt(s, 10) / 1000;
-  return Number.parseFloat(s) || 0;
-}
-
-function parseMemGi(s: string): number {
-  if (!s) return 0;
-  if (s.endsWith('Ki')) return Number.parseInt(s, 10) / (1024 * 1024);
-  if (s.endsWith('Mi')) return Number.parseInt(s, 10) / 1024;
-  if (s.endsWith('Gi')) return Number.parseFloat(s);
-  return Number.parseFloat(s) / (1024 * 1024 * 1024);
-}
-
-function parseMemBytes(s: string | null): number {
-  if (!s) return 0;
-  if (s.endsWith('Ki')) return Number.parseInt(s, 10) * 1024;
-  if (s.endsWith('Mi')) return Number.parseInt(s, 10) * 1024 * 1024;
-  if (s.endsWith('Gi')) return Number.parseFloat(s) * 1024 * 1024 * 1024;
-  if (s.endsWith('Ti')) return Number.parseFloat(s) * 1024 * 1024 * 1024 * 1024;
-  return Number.parseInt(s, 10) || 0;
-}
-
-function kiToMi(kiStr: string): number {
-  const ki = Number.parseInt(kiStr.replace('Ki', '').replace('m', ''), 10) || 0;
-  return Math.round(ki / 1024);
-}
-
-function cpuToMillicores(cpuStr: string): number {
-  if (!cpuStr) return 0;
-  if (cpuStr.endsWith('m')) return Number.parseInt(cpuStr, 10) || 0;
-  return Math.round((Number.parseFloat(cpuStr) || 0) * 1000);
-}
 
 const namespaceCleanupSchema = z.object({
   namespace: z.string().min(1).max(63),
