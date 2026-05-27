@@ -3,7 +3,7 @@ WORKDIR /app
 ARG APP_VERSION=dev
 ENV APP_VERSION=$APP_VERSION
 COPY package*.json ./
-RUN npm ci
+RUN ls -la && head -3 package-lock.json && npm ci || (echo "=== NPM ERROR LOG ===" && cat /root/.npm/_logs/*.log 2>/dev/null && exit 1)
 COPY tsconfig.json ./
 COPY src/ ./src/
 RUN npm run build
