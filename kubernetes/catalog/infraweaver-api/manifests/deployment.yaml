@@ -93,7 +93,7 @@ spec:
                   name: infraweaver-console-secret
                   key: onedev-token
             - name: ONEDEV_PROJECT_ID
-              value: "2"
+              value: "1"
             - name: ONEDEV_PROJECT_PATH
               value: "InfraWeaver-platform"
             - name: ONEDEV_BRANCH
