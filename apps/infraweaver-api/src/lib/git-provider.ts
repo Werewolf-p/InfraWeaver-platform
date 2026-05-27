@@ -94,6 +94,61 @@ function isPushRejection(err: unknown): boolean {
   return /non-fast-forward|fetch first|push rejected|failed to push/i.test(msg);
 }
 
+// ─── Persistent base clone for read operations ───────────────────────────────
+// Instead of a fresh `git clone` on every read, we keep one persistent shallow
+// clone and refresh it with `git fetch + reset` when it's stale (>30 s).
+// All concurrent callers share the same refresh Promise to avoid redundant clones.
+
+const BASE_CLONE_DIR = path.join(GIT_WORKTREE_ROOT, 'base');
+const BASE_REFRESH_INTERVAL_MS = 30_000;
+let _baseClonePromise: Promise<string> | null = null;
+let _baseLastRefresh = 0;
+
+async function initOrRefreshBaseClone(): Promise<string> {
+  const { simpleGit } = await import('simple-git');
+  const gitDir = path.join(BASE_CLONE_DIR, '.git');
+
+  const tryFetchReset = async () => {
+    await fs.access(gitDir);
+    const git = simpleGit(BASE_CLONE_DIR);
+    await git.remote(['set-url', 'origin', onedevRepoUrlWithAuth()]);
+    await git.fetch(['origin', ONEDEV_BRANCH, '--depth=1', '--update-shallow']);
+    await git.reset(['--hard', `origin/${ONEDEV_BRANCH}`]);
+  };
+
+  const doFreshClone = async () => {
+    await fs.rm(BASE_CLONE_DIR, { recursive: true, force: true });
+    await fs.mkdir(BASE_CLONE_DIR, { recursive: true });
+    await simpleGit().clone(onedevRepoUrlWithAuth(), BASE_CLONE_DIR, ['--depth', '1', '--branch', ONEDEV_BRANCH]);
+  };
+
+  try {
+    await tryFetchReset();
+  } catch {
+    await doFreshClone();
+  }
+  return BASE_CLONE_DIR;
+}
+
+function acquireBaseClone(): Promise<string> {
+  const now = Date.now();
+  if (_baseClonePromise !== null) return _baseClonePromise;
+  if (_baseLastRefresh > 0 && now - _baseLastRefresh < BASE_REFRESH_INTERVAL_MS) {
+    return Promise.resolve(BASE_CLONE_DIR);
+  }
+  _baseClonePromise = initOrRefreshBaseClone()
+    .then((dir) => { _baseLastRefresh = Date.now(); _baseClonePromise = null; return dir; })
+    .catch((err) => { _baseClonePromise = null; throw err; });
+  return _baseClonePromise;
+}
+
+/** Invalidate the base clone so the next read triggers a fresh fetch. */
+function invalidateBaseClone(): void {
+  _baseLastRefresh = 0;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 async function withWorktree<T>(worker: (dir: string) => Promise<T>): Promise<T> {
   if (!ONEDEV_TOKEN) throw new Error('ONEDEV_TOKEN is not set');
   const { simpleGit } = await import('simple-git');
@@ -123,29 +178,27 @@ async function walkDir(fsDir: string, relDir: string, filter: (p: string) => boo
 }
 
 export async function onedevGetTreeAndFiles(): Promise<Array<{ path: string; content: string; sha: string }>> {
-  return withWorktree(async (dir) => {
-    const { simpleGit } = await import('simple-git');
-    const sha = (await simpleGit(dir).revparse(['HEAD'])).trim();
-    const appFiles = await walkDir(dir, 'kubernetes', (p) => p.endsWith('/application.yaml'));
-    return Promise.all(appFiles.map(async (relPath) => {
-      const content = await fs.readFile(path.join(dir, relPath), 'utf-8');
-      return { path: relPath, content, sha };
-    }));
-  });
+  const dir = await acquireBaseClone();
+  const { simpleGit } = await import('simple-git');
+  const sha = (await simpleGit(dir).revparse(['HEAD'])).trim();
+  const appFiles = await walkDir(dir, 'kubernetes', (p) => p.endsWith('/application.yaml'));
+  return Promise.all(appFiles.map(async (relPath) => {
+    const content = await fs.readFile(path.join(dir, relPath), 'utf-8');
+    return { path: relPath, content, sha };
+  }));
 }
 
 export async function onedevGetFile(filePath: string): Promise<GitFile | null> {
-  return withWorktree(async (dir) => {
-    try {
-      const { simpleGit } = await import('simple-git');
-      const content = await fs.readFile(path.join(dir, filePath), 'utf-8');
-      const sha = (await simpleGit(dir).revparse(['HEAD'])).trim();
-      return { content, sha };
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
-      throw err;
-    }
-  });
+  const dir = await acquireBaseClone();
+  try {
+    const { simpleGit } = await import('simple-git');
+    const content = await fs.readFile(path.join(dir, filePath), 'utf-8');
+    const sha = (await simpleGit(dir).revparse(['HEAD'])).trim();
+    return { content, sha };
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw err;
+  }
 }
 
 export async function onedevPutFile(filePath: string, content: string, message: string): Promise<string> {
@@ -161,6 +214,7 @@ export async function onedevPutFile(filePath: string, content: string, message: 
         await git.add(['.']);
         await git.commit(message);
         await git.push('origin', ONEDEV_BRANCH);
+        invalidateBaseClone();
         return (await git.revparse(['HEAD'])).trim();
       });
     } catch (err) {

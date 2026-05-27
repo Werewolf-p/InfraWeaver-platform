@@ -7,6 +7,15 @@ import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac"
 import { safeError } from "@/lib/utils";
 import { z } from "zod";
 
+// 60-second in-memory cache for the platform editor GET response.
+// Avoids redundant git reads when multiple users open the settings page within the same minute.
+interface PlatformEditorCache {
+  fetchedAt: number;
+  data: { schema: SettingDefinition[]; values: Record<string, unknown>; files: Record<string, string> };
+}
+const PLATFORM_EDITOR_CACHE_MS = 60_000;
+let _platformEditorCache: PlatformEditorCache | null = null;
+
 const PlatformEditorChangeSchema = z.object({
   key: z.string().min(1).max(256),
   value: z.union([z.string().max(256), z.number()]),
@@ -319,6 +328,11 @@ export async function GET() {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
+  const now = Date.now();
+  if (_platformEditorCache && now - _platformEditorCache.fetchedAt < PLATFORM_EDITOR_CACHE_MS) {
+    return NextResponse.json(_platformEditorCache.data);
+  }
+
   try {
     const uniqueFiles = Array.from(new Set(SETTING_DEFS.map((definition) => definition.file)));
     const fileEntries = await Promise.all(
@@ -335,11 +349,9 @@ export async function GET() {
     );
     const files = Object.fromEntries(uniqueFiles.map((filePath) => [filePath, filesByPath[filePath].sha]));
 
-    return NextResponse.json({
-      schema: SETTING_DEFS,
-      values,
-      files,
-    });
+    const data = { schema: SETTING_DEFS, values, files };
+    _platformEditorCache = { fetchedAt: Date.now(), data };
+    return NextResponse.json(data);
   } catch (error) {
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
@@ -405,6 +417,7 @@ export async function PUT(req: NextRequest) {
       }),
     );
 
+    _platformEditorCache = null; // invalidate so next GET fetches fresh values
     return NextResponse.json({
       ok: true,
       affectedApps: Array.from(new Set(normalizedChanges.map((change) => change.definition.argoApp))),

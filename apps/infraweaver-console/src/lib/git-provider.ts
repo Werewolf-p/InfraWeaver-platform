@@ -10,6 +10,83 @@ const DEFAULT_ONEDEV_BRANCH = "main";
 const DEFAULT_GIT_WORKTREE_ROOT = "/git-cache";
 const COMMIT_AUTHOR = { name: "InfraWeaver Console", email: "console@infraweaver.internal" };
 
+// Persistent base clone: kept at /git-cache/console-base, refreshed every 30 s.
+// All read operations use this clone; write operations still use an ephemeral worktree.
+const CONSOLE_BASE_CLONE_DIR = path.join(
+  process.env.GIT_WORKTREE_ROOT ?? DEFAULT_GIT_WORKTREE_ROOT,
+  "console-base",
+);
+const BASE_REFRESH_INTERVAL_MS = 30_000;
+let _baseClonePromise: Promise<string> | null = null;
+let _baseLastRefresh = 0;
+
+async function initOrRefreshConsoleBaseClone(): Promise<string> {
+  const { branch, token, username } = getOneDevConfig();
+  const repoUrl = await getGitRepoUrl();
+  const { git, http } = await loadIsomorphicGit();
+  const dotGit = path.join(CONSOLE_BASE_CLONE_DIR, ".git");
+
+  const tryFetchCheckout = async () => {
+    await fsPromises.access(dotGit);
+    await git.fetch({
+      fs,
+      http,
+      dir: CONSOLE_BASE_CLONE_DIR,
+      remote: "origin",
+      ref: branch,
+      depth: 1,
+      singleBranch: true,
+      tags: false,
+      onAuth: () => ({ username, password: token }),
+    });
+    const remoteRef = await git.resolveRef({
+      fs,
+      dir: CONSOLE_BASE_CLONE_DIR,
+      ref: `refs/remotes/origin/${branch}`,
+    });
+    await git.writeRef({ fs, dir: CONSOLE_BASE_CLONE_DIR, ref: `refs/heads/${branch}`, value: remoteRef, force: true });
+    await git.checkout({ fs, dir: CONSOLE_BASE_CLONE_DIR, ref: branch, force: true });
+  };
+
+  const doFreshClone = async () => {
+    await fsPromises.rm(CONSOLE_BASE_CLONE_DIR, { recursive: true, force: true });
+    await fsPromises.mkdir(CONSOLE_BASE_CLONE_DIR, { recursive: true });
+    await git.clone({
+      fs,
+      http,
+      dir: CONSOLE_BASE_CLONE_DIR,
+      url: repoUrl,
+      singleBranch: true,
+      depth: 1,
+      ref: branch,
+      onAuth: () => ({ username, password: token }),
+    });
+  };
+
+  try {
+    await tryFetchCheckout();
+  } catch {
+    await doFreshClone();
+  }
+  return CONSOLE_BASE_CLONE_DIR;
+}
+
+function acquireConsoleBaseClone(): Promise<string> {
+  const now = Date.now();
+  if (_baseClonePromise !== null) return _baseClonePromise;
+  if (_baseLastRefresh > 0 && now - _baseLastRefresh < BASE_REFRESH_INTERVAL_MS) {
+    return Promise.resolve(CONSOLE_BASE_CLONE_DIR);
+  }
+  _baseClonePromise = initOrRefreshConsoleBaseClone()
+    .then((dir) => { _baseLastRefresh = Date.now(); _baseClonePromise = null; return dir; })
+    .catch((err) => { _baseClonePromise = null; throw err; });
+  return _baseClonePromise;
+}
+
+function invalidateConsoleBaseClone(): void {
+  _baseLastRefresh = 0;
+}
+
 export type GitProviderName = "github" | "onedev";
 
 export interface GitFileResult {
@@ -250,34 +327,33 @@ async function withOneDevWorktree<T>(worker: (dir: string, gitClient: Awaited<Re
 
 async function onedevReadFile(filePath: string): Promise<GitFileResult | null> {
   const normalizedPath = normalizePath(filePath);
-  return withOneDevWorktree(async (dir, gitClient) => {
-    const fullPath = path.join(dir, normalizedPath);
-    try {
-      const content = await fsPromises.readFile(fullPath, "utf8");
-      const sha = await gitClient.resolveRef({ fs, dir, ref: "HEAD" });
-      return { content, sha };
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
-      throw error;
-    }
-  });
+  const dir = await acquireConsoleBaseClone();
+  const { git } = await loadIsomorphicGit();
+  const fullPath = path.join(dir, normalizedPath);
+  try {
+    const content = await fsPromises.readFile(fullPath, "utf8");
+    const sha = await git.resolveRef({ fs, dir, ref: "HEAD" });
+    return { content, sha };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
 }
 
 async function onedevListDir(dirPath: string): Promise<GitTreeEntry[]> {
   const normalizedPath = normalizePath(dirPath);
-  return withOneDevWorktree(async (dir) => {
-    const fullPath = path.join(dir, normalizedPath);
-    try {
-      const entries = await fsPromises.readdir(fullPath, { withFileTypes: true });
-      return entries.map((entry) => ({
-        path: path.posix.join(normalizedPath, entry.name),
-        type: entry.isDirectory() ? "dir" : "file",
-      }));
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
-      throw error;
-    }
-  });
+  const dir = await acquireConsoleBaseClone();
+  const fullPath = path.join(dir, normalizedPath);
+  try {
+    const entries = await fsPromises.readdir(fullPath, { withFileTypes: true });
+    return entries.map((entry) => ({
+      path: path.posix.join(normalizedPath, entry.name),
+      type: entry.isDirectory() ? "dir" : "file",
+    }));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
 }
 
 async function onedevCommitFiles({ message, addOrUpdateFiles = [], deleteFiles = [] }: GitCommitOptions): Promise<void> {
@@ -325,6 +401,7 @@ async function onedevCommitFiles({ message, addOrUpdateFiles = [], deleteFiles =
           ref: branch,
           onAuth: () => ({ username, password: token }),
         });
+        invalidateConsoleBaseClone();
       });
       return;
     } catch (error) {
@@ -408,6 +485,7 @@ export async function gitDeleteDir(dirPath: string, message: string): Promise<{ 
 
           await gitClient.commit({ fs, dir, message, author: COMMIT_AUTHOR });
           await gitClient.push({ fs, http, dir, remote: "origin", ref: branch, onAuth: () => ({ username, password: token }) });
+          invalidateConsoleBaseClone();
           deleted = filePaths;
         });
         break;
