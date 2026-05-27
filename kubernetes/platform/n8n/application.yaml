@@ -2,7 +2,7 @@
 # Chart: https://artifacthub.io/packages/helm/n8n-io/n8n
 # Deploys: N8N server + PostgreSQL
 repoURL: https://charts.n8n.io/
-targetRevision: "1.61.*"
+targetRevision: "1.123.*"
 chart: n8n
 releaseName: n8n
 namespace: n8n-prod
