@@ -213,7 +213,7 @@ spec:
         # Upgrade command handler can find it. The driver lives in /app/site/lib/
         # (plugin classloader path) but Upgrade runs with the boot classloader only.
         - name: patch-boot-classpath
-          image: 1dev/server:latest
+          image: 1dev/server:15.0.8
           imagePullPolicy: Always
           securityContext:
             runAsNonRoot: false
@@ -276,7 +276,7 @@ spec:
                   key: password
       containers:
         - name: onedev
-          image: 1dev/server:latest
+          image: 1dev/server:15.0.8
           imagePullPolicy: Always
           ports:
             - name: http

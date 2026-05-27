@@ -89,6 +89,7 @@ spec:
           name: tmp
         - mountPath: /var/run
           name: run
+      automountServiceAccountToken: false
       dnsPolicy: ClusterFirst
       restartPolicy: Always
       schedulerName: default-scheduler
@@ -99,9 +100,19 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       terminationGracePeriodSeconds: 30
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: In
+                values: [talos-prod-cp1, talos-prod-cp2]
       volumes:
-      - emptyDir: {}
-        name: postgresql-data
+      - name: postgresql-data
+        persistentVolumeClaim:
+          claimName: postgresql-n8n-data
       - emptyDir: {}
         name: tmp
       - emptyDir: {}

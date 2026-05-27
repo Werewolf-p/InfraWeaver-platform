@@ -64,7 +64,7 @@ export default function PvBrowserPage() {
   const [activeTab, setActiveTab] = useState<"pv" | "pvc">("pv");
   const [sizeDrafts, setSizeDrafts] = useState<Record<string, string>>({});
 
-  const { data, isLoading, isFetching, refetch } = useQuery<StorageResponse>({
+  const { data, isLoading, isFetching, refetch, isError, error } = useQuery<StorageResponse>({
     queryKey: ["storage", "pvs", "browser"],
     queryFn: async () => {
       const response = await fetch("/api/storage/pvs", { cache: "no-store" });
@@ -137,7 +137,9 @@ export default function PvBrowserPage() {
         </button>
       }
       loading={isLoading}
-      isEmpty={!isLoading && pvs.length === 0 && pvcs.length === 0}
+      isEmpty={!isLoading && !isError && pvs.length === 0 && pvcs.length === 0}
+      isError={isError}
+      errorDetail={(error as Error)?.message}
       emptyState={{
         icon: HardDrive,
         title: "No storage resources found",

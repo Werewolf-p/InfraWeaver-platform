@@ -22,7 +22,7 @@ export default function VpnPage() {
   const canViewVpn = canAny(["infra:read", "cluster:admin"]);
   const [search, setSearch] = useState("");
 
-  const { data: peers = [], dataUpdatedAt, isLoading, isFetching, refetch } = useQuery<NetBirdPeer[]>({
+  const { data: peers = [], dataUpdatedAt, isLoading, isFetching, refetch, isError, error } = useQuery<NetBirdPeer[]>({
     queryKey: ["netbird", "vpn-page"],
     queryFn: async () => {
       const response = await fetch("/api/netbird/peers", { cache: "no-store" });
@@ -77,7 +77,9 @@ export default function VpnPage() {
         </button>
       }
       loading={isLoading}
-      isEmpty={!isLoading && filteredPeers.length === 0}
+      isEmpty={!isLoading && !isError && filteredPeers.length === 0}
+      isError={isError}
+      errorDetail={(error as Error)?.message}
       emptyState={{
         icon: Network,
         title: peers.length === 0 ? "No NetBird peers found" : "No VPN peers matched",

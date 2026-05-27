@@ -48,7 +48,7 @@ export default function ConfigMapsPage() {
   const [deleteTarget, setDeleteTarget] = useState<ConfigMapItem | null>(null);
   const [removedConfigMaps, setRemovedConfigMaps] = useState<Set<string>>(new Set());
 
-  const { data, isLoading, isFetching, refetch } = useQuery<ConfigMapsResponse>({
+  const { data, isLoading, isFetching, refetch, isError, error } = useQuery<ConfigMapsResponse>({
     queryKey: ["config-maps"],
     queryFn: async () => {
       const response = await fetch("/api/config-maps", { cache: "no-store" });
@@ -174,7 +174,9 @@ export default function ConfigMapsPage() {
           </button>
         }
         loading={isLoading}
-        isEmpty={!isLoading && filteredConfigMaps.length === 0}
+        isEmpty={!isLoading && !isError && filteredConfigMaps.length === 0}
+        isError={isError}
+        errorDetail={(error as Error)?.message}
         emptyState={{
           icon: FileText,
           title: visibleConfigMaps.length === 0 ? "No ConfigMaps found" : "No ConfigMaps matched",

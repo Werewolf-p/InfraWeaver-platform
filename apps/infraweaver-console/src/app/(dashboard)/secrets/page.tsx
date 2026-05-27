@@ -38,7 +38,7 @@ export default function SecretsPage() {
   const [deleteTarget, setDeleteTarget] = useState<SecretItem | null>(null);
   const [removedSecrets, setRemovedSecrets] = useState<Set<string>>(new Set());
 
-  const { data, isLoading, isFetching, refetch } = useQuery<SecretsResponse>({
+  const { data, isLoading, isFetching, refetch, isError, error } = useQuery<SecretsResponse>({
     queryKey: ["secrets-browser"],
     queryFn: async () => {
       const response = await fetch("/api/secrets", { cache: "no-store" });
@@ -139,7 +139,9 @@ export default function SecretsPage() {
           </button>
         }
         loading={isLoading}
-        isEmpty={!isLoading && filteredSecrets.length === 0}
+        isEmpty={!isLoading && !isError && filteredSecrets.length === 0}
+        isError={isError}
+        errorDetail={(error as Error)?.message}
         emptyState={{
           icon: KeyRound,
           title: visibleSecrets.length === 0 ? "No secrets found" : "No secrets matched",

@@ -25,7 +25,7 @@ const columns: Column<NamespaceCost>[] = [
 ];
 
 export default function CostPage() {
-  const { data, isLoading } = useApiQuery<ClusterCostResponse>({
+  const { data, isLoading, isError } = useApiQuery<ClusterCostResponse>({
     queryKey: queryKeys.cluster.cost(),
     path: page.apiBase ?? "/api/cluster/cost",
     staleTime: queryStaleTimes.short,
@@ -44,7 +44,8 @@ export default function CostPage() {
       title={page.pageTitle ?? page.label}
       description={page.pageDescription ?? page.description}
       loading={isLoading}
-      isEmpty={!isLoading && namespaces.length === 0}
+      isEmpty={!isLoading && !isError && namespaces.length === 0}
+      isError={isError}
       emptyState={{
         icon: page.icon,
         title: "No namespace costs available",

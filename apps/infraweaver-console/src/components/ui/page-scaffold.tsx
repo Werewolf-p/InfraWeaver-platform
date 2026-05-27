@@ -1,5 +1,6 @@
 import type { ElementType, ReactNode } from "react";
 import { EmptyState } from "@/components/ui/empty-state";
+import { DataError } from "@/components/ui/data-error";
 import { PageHeader } from "@/components/ui/page-header";
 import { cn } from "@/lib/utils";
 
@@ -22,6 +23,10 @@ interface PageScaffoldProps {
   loadingFallback?: ReactNode;
   isEmpty?: boolean;
   emptyState?: PageScaffoldEmptyState | ReactNode;
+  isError?: boolean;
+  errorMessage?: string;
+  errorDetail?: string;
+  onRetry?: () => void;
   className?: string;
   bodyClassName?: string;
   children?: ReactNode;
@@ -53,6 +58,10 @@ export function PageScaffold({
   loadingFallback,
   isEmpty = false,
   emptyState,
+  isError = false,
+  errorMessage,
+  errorDetail,
+  onRetry,
   className,
   bodyClassName,
   children,
@@ -60,8 +69,15 @@ export function PageScaffold({
   const renderedEmptyState = !emptyState
     ? null
     : typeof emptyState === "object" && emptyState !== null && "title" in emptyState
-      ? <EmptyState {...emptyState} />
+      ? <EmptyState {...(emptyState as PageScaffoldEmptyState)} />
       : emptyState;
+
+  const body = () => {
+    if (loading) return loadingFallback ?? <DefaultLoadingState />;
+    if (isError) return <DataError message={errorMessage} detail={errorDetail} onRetry={onRetry} />;
+    if (isEmpty && renderedEmptyState) return renderedEmptyState;
+    return <div className={bodyClassName}>{children}</div>;
+  };
 
   return (
     <section className={cn("space-y-6", className)}>
@@ -74,11 +90,7 @@ export function PageScaffold({
         badge={badge}
         breadcrumb={breadcrumb}
       />
-      {loading
-        ? (loadingFallback ?? <DefaultLoadingState />)
-        : isEmpty && renderedEmptyState
-          ? renderedEmptyState
-          : <div className={bodyClassName}>{children}</div>}
+      {body()}
     </section>
   );
 }

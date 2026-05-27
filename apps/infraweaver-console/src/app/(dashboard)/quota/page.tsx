@@ -58,7 +58,7 @@ function QuotaCard({ quota }: { quota: NamespaceQuota }) {
 }
 
 export default function QuotaPage() {
-  const { data, isLoading } = useApiQuery<ClusterQuotaResponse>({
+  const { data, isLoading, isError } = useApiQuery<ClusterQuotaResponse>({
     queryKey: queryKeys.cluster.quota(),
     path: page.apiBase ?? "/api/cluster/quota",
     staleTime: queryStaleTimes.short,
@@ -71,7 +71,8 @@ export default function QuotaPage() {
       title={page.pageTitle ?? page.label}
       description={page.pageDescription ?? page.description}
       loading={isLoading}
-      isEmpty={!isLoading && quotas.length === 0}
+      isEmpty={!isLoading && !isError && quotas.length === 0}
+      isError={isError}
       emptyState={{
         icon: page.icon,
         title: "No resource quotas found",

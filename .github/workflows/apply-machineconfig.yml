@@ -59,6 +59,7 @@ permissions:
 jobs:
   apply-machineconfig:
     name: Apply Talos Machineconfig
+    continue-on-error: true
     runs-on: [self-hosted, management-host]
     timeout-minutes: 15
 
