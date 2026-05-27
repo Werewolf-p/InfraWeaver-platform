@@ -251,7 +251,6 @@ spec:
       - name: nextjs-cache
         emptyDir: {}
       - name: git-cache
-        persistentVolumeClaim:
-          claimName: infraweaver-console-git-cache
+        emptyDir: {}
       - name: tmp
         emptyDir: {}

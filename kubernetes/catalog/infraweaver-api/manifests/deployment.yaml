@@ -155,5 +155,4 @@ spec:
               mountPath: /git-cache
       volumes:
         - name: git-cache
-          persistentVolumeClaim:
-            claimName: infraweaver-api-git-cache
+          emptyDir: {}
