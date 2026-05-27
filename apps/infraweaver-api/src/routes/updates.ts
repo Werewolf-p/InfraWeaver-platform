@@ -519,7 +519,8 @@ updatesRoute.get('/:appName/versions', async (c) => {
 
   const manifests = await collectApplicationManifests();
   const manifest = manifests.find((item) => item.appName === parsed.data.appName || item.id === parsed.data.appName);
-  const versionSource = VERSION_SOURCES[parsed.data.appName] ?? getFallbackSource(manifest);
+  // Look up by short appName first (e.g. 'n8n'), then by full id (e.g. 'platform-n8n'), then fall back to manifest
+  const versionSource = VERSION_SOURCES[manifest?.appName ?? ''] ?? VERSION_SOURCES[parsed.data.appName] ?? getFallbackSource(manifest);
 
   return c.json(await getAvailableVersions(versionSource));
 });
