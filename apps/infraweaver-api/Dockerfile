@@ -16,8 +16,9 @@ ARG APP_VERSION=dev
 ENV APP_VERSION=$APP_VERSION
 # Install only @kubernetes/client-node and its transitive deps (~60 MB).
 # Everything else (hono, zod, ws, simple-git, …) is inlined in dist/index.mjs.
+# git is required by simple-git for OneDev git operations (cloning/pushing).
 COPY package.production.json ./package.json
-RUN npm install --omit=dev
+RUN npm install --omit=dev && apk add --no-cache git
 COPY --from=builder /app/dist/index.cjs ./dist/
 USER node
 EXPOSE 3001
