@@ -124,6 +124,9 @@ spec:
                 exit 0
               fi
 
+              # Install git before kaniko modifies the root filesystem
+              apk add --no-cache git 2>/dev/null || true
+
               BUILD_TAG=$(cat /workspace/build-tag)
               REGISTRY="onedev.rlservers.com/infraweaver-platform"
               REPO="/workspace/repo"
