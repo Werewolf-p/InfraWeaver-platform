@@ -14,6 +14,7 @@ const PUBLIC_EXACT_PATHS = new Set([
   "/api/health",
   "/api/game-hub/public-status",
 ]);
+const PUBLIC_PATTERNS = [/^\/api\/game-hub\/servers\/[^/]+\/badge$/];
 const PUBLIC_PREFIXES = ["/api/auth", "/_next", "/public"];
 const RATE_LIMIT_EXEMPT_PATHS = new Set([
   "/favicon.ico",
@@ -25,7 +26,7 @@ const PUBLIC_FILE_RE = /\.[a-z0-9]+$/i;
 const AUTHENTICATED_MUTATION_RATE_LIMIT = { max: 30, windowMs: 60_000 };
 
 function isPublicPath(pathname: string) {
-  return PUBLIC_EXACT_PATHS.has(pathname) || PUBLIC_PREFIXES.some((entry) => pathname.startsWith(entry)) || PUBLIC_FILE_RE.test(pathname);
+  return PUBLIC_EXACT_PATHS.has(pathname) || PUBLIC_PREFIXES.some((entry) => pathname.startsWith(entry)) || PUBLIC_FILE_RE.test(pathname) || PUBLIC_PATTERNS.some((re) => re.test(pathname));
 }
 
 function buildLoginUrl(req: Pick<NextRequest, "nextUrl">) {
