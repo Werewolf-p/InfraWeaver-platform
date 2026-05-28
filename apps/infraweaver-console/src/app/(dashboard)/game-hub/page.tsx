@@ -13,6 +13,7 @@ import Link from "next/link";
 import { RefreshCountdown } from "@/components/ui/refresh-countdown";
 import { HorizontalScrollHint } from "@/components/ui/horizontal-scroll-hint";
 import { ResponsiveSheet } from "@/components/ui/responsive-sheet";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 interface GameServer {
   name: string;
@@ -621,6 +622,7 @@ export default function GameHubPage() {
   });
   const [now, setNow] = useState(0);
   const [activeActionServerName, setActiveActionServerName] = useState<string | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ open: boolean; name: string }>({ open: false, name: "" });
   const longPressTimerRef = useRef<number | null>(null);
   const longPressTriggeredRef = useRef(false);
 
@@ -1215,7 +1217,7 @@ export default function GameHubPage() {
                     <Terminal className="h-4 w-4" /> {server.permissions?.canConsole ? "Console" : "View"}
                   </Link>
                   {server.permissions?.canAdmin ? (
-                    <button onClick={() => { if (confirm(`Delete ${server.name}? This will remove the server and its data.`)) void doAction(server.name, "delete"); }} disabled={!!actionLoading[server.name]} className="ml-auto flex min-h-[44px] items-center gap-2 rounded-xl bg-red-500/10 px-4 text-sm font-medium text-red-400 transition-colors hover:bg-red-500/20 disabled:opacity-50">
+                    <button onClick={() => setDeleteConfirm({ open: true, name: server.name })} disabled={!!actionLoading[server.name]} className="ml-auto flex min-h-[44px] items-center gap-2 rounded-xl bg-red-500/10 px-4 text-sm font-medium text-red-400 transition-colors hover:bg-red-500/20 disabled:opacity-50">
                       {actionLoading[server.name] === "delete" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />} Delete
                     </button>
                   ) : null}
@@ -1329,5 +1331,19 @@ export default function GameHubPage() {
         )}
       </div>
     </div>
+
+    <ConfirmDialog
+      open={deleteConfirm.open}
+      title={`Delete "${deleteConfirm.name}"?`}
+      description="Permanently removes the deployment, storage, git manifest, and all server data. This cannot be undone."
+      confirmText="Delete server"
+      danger
+      requireTyping={deleteConfirm.name}
+      onConfirm={() => {
+        setDeleteConfirm(d => ({ ...d, open: false }));
+        void doAction(deleteConfirm.name, "delete");
+      }}
+      onCancel={() => setDeleteConfirm(d => ({ ...d, open: false }))}
+    />
   );
 }

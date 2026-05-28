@@ -79,6 +79,7 @@ import type {
   ServerDetail,
 } from "@/components/game-hub/server-detail/types";
 import { fetchJson } from "@/components/game-hub/server-detail/utils";
+import { DeleteServerModal } from "@/components/game-hub/server-detail/delete-server-modal";
 
 // Note: previously used Monaco editor; replaced with styled <textarea> + <pre>
 // for instant load + no CDN dependency on Monaco worker scripts.
@@ -3665,34 +3666,27 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
           <div>
             <p className="text-sm text-gray-900 dark:text-[#f2f2f2]">Delete this server</p>
             <p className="text-xs text-gray-400 dark:text-[#666] mt-0.5">
-              Permanently removes the deployment and all data. This cannot be
+              Permanently removes the deployment, storage, and all data. This cannot be
               undone.
             </p>
           </div>
           <button
-            onClick={async () => {
-              if (
-                !confirm(
-                  `Permanently delete ${name} and all its data? This cannot be undone.`,
-                )
-              )
-                return;
-              try {
-                await fetchJson(`/api/game-hub/servers/${name}`, {
-                  method: "DELETE",
-                });
-                toast.success(`${name} deleted`);
-                window.location.href = "/game-hub";
-              } catch (error) {
-                toast.error(String(error));
-              }
-            }}
+            onClick={() => setDeleteModalOpen(true)}
             className="flex-shrink-0 flex items-center gap-1.5 px-4 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/30 rounded-lg text-sm font-medium transition-colors"
           >
             <Trash2 className="w-3.5 h-3.5" /> Delete
           </button>
         </div>
       </div>
+
+      <DeleteServerModal
+        open={deleteModalOpen}
+        serverName={name}
+        hasPvc={Boolean(server.pvc)}
+        hasCronJobs={Boolean(server.scheduledRestart ?? server.scheduleStart ?? server.backupSchedule)}
+        onClose={() => setDeleteModalOpen(false)}
+        onDeleted={() => { window.location.href = "/game-hub"; }}
+      />
 
       <ServerRbacPanel
         serverName={name}
@@ -3773,6 +3767,7 @@ export default function ServerDetailPage() {
   });
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [mobileActionSheetOpen, setMobileActionSheetOpen] = useState(false);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const queryClient = useQueryClient();
 
   const {

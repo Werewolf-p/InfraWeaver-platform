@@ -402,6 +402,7 @@ function AllInstalledTab() {
     confirmText?: string;
     onConfirm: () => void;
     danger?: boolean;
+    requireTyping?: string;
   }>({ open: false, title: "", confirmText: "Yes, proceed", onConfirm: () => {} });
 
   useEffect(() => {
@@ -867,8 +868,8 @@ function AllInstalledTab() {
 
     const isCatalogOrPlatform = name.startsWith("catalog-") || name.startsWith("platform-");
     const description = isCatalogOrPlatform
-      ? "This removes the app's git files and ArgoCD application. Deployed resources will be cleaned up by ArgoCD. This cannot be undone."
-      : "This permanently removes the ArgoCD application and cannot be undone. Deployed resources will be cleaned up automatically.";
+      ? "Removes the app's bootstrap file and catalog directory from git. ArgoCD will cascade-delete all deployed resources. This cannot be undone."
+      : "Permanently removes the ArgoCD application and all deployed resources. This cannot be undone.";
 
     setConfirmDialog({
       open: true,
@@ -876,6 +877,7 @@ function AllInstalledTab() {
       description,
       confirmText: "Delete app",
       danger: true,
+      requireTyping: isCatalogOrPlatform ? name : undefined,
       onConfirm: () => {
         setConfirmDialog(d => ({ ...d, open: false }));
         setDeletingApp(name);
@@ -905,9 +907,10 @@ function AllInstalledTab() {
     setConfirmDialog({
       open: true,
       title: `Uninstall "${slug}"?`,
-      description: "This removes the app from git. ArgoCD will clean up deployed resources within a few minutes.",
+      description: "Removes the bootstrap file and catalog directory from git. ArgoCD will cascade-delete all deployed resources within a few minutes.",
       confirmText: "Uninstall app",
       danger: true,
+      requireTyping: slug,
       onConfirm: () => {
         setConfirmDialog(d => ({ ...d, open: false }));
         setUninstallingApp(slug);
@@ -1341,6 +1344,7 @@ function AllInstalledTab() {
         description={confirmDialog.description}
         danger={confirmDialog.danger}
         confirmText={confirmDialog.confirmText ?? "Yes, proceed"}
+        requireTyping={confirmDialog.requireTyping}
         onConfirm={confirmDialog.onConfirm}
         onCancel={() => setConfirmDialog(prev => ({ ...prev, open: false }))}
       />
