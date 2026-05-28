@@ -51,7 +51,7 @@ spec:
             - name: NODE_ENV
               value: production
             - name: HUB_URL
-              value: ws://infraweaver-api.infraweaver-system.svc.cluster.local:3001
+              value: ws://infraweaver-api.infraweaver-console.svc.cluster.local:3001
             - name: REGISTRATION_TOKEN
               valueFrom:
                 secretKeyRef:
