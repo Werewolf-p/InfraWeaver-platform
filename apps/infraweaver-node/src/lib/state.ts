@@ -31,19 +31,31 @@ function decodeSecretValue(data: Record<string, string> | undefined, key: string
 
 function isNotFoundError(error: unknown): boolean {
   const candidate = error as {
+    code?: number          // v1.x ResponseError direct property
     statusCode?: number
     status?: number
-    body?: { code?: number }
+    body?: { code?: number } | string
     response?: { statusCode?: number; status?: number }
+    message?: string
   }
 
-  return [
-    candidate?.statusCode,
-    candidate?.status,
-    candidate?.body?.code,
-    candidate?.response?.statusCode,
-    candidate?.response?.status,
-  ].includes(404)
+  // Check for 404 in all known error formats (v0.x and v1.x)
+  if ([candidate?.code, candidate?.statusCode, candidate?.status,
+       candidate?.response?.statusCode, candidate?.response?.status].includes(404)) {
+    return true
+  }
+
+  // v1.x body may be a JSON string with code field
+  if (typeof candidate?.body === 'string') {
+    try {
+      const parsed = JSON.parse(candidate.body)
+      if (parsed?.code === 404) return true
+    } catch { /* not JSON */ }
+  } else if (typeof candidate?.body === 'object' && candidate.body !== null) {
+    if ((candidate.body as { code?: number }).code === 404) return true
+  }
+
+  return false
 }
 
 async function getNamespace(): Promise<string> {
