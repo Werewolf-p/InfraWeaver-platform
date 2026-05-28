@@ -134,6 +134,7 @@ export interface ServerDetail {
   memory: string;
   cpu: string;
   notes: string;
+  annotations?: Record<string, string>;
   env: Array<{ name: string; value?: string; valueFrom?: unknown }>;
   createdAt: string | null;
   playerHistory?: Array<{ t: number; n: number }>;
@@ -179,6 +180,8 @@ export interface ServerDetail {
   imagePinned?: boolean;
   imagePullPolicy?: string;
   deploymentStrategy?: string;
+  restartReason?: string | null;
+  restartReasonTime?: string | null;
   savedCommands?: SavedCommand[];
   volumeMounts?: VolumeMount[];
   volumes?: Volume[];

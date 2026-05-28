@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import { sanitizeConsoleCommand } from "@/lib/api-helpers";
 import { auditLog, auditUnauthorizedAccess } from "@/lib/audit-log";
 import { getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
-import { isServerStartingError, makeGameHubClients, runServerCommand } from "@/lib/game-hub-server";
+import { appendServerAudit, isServerStartingError, makeGameHubClients, runServerCommand } from "@/lib/game-hub-server";
 import { safeError } from "@/lib/utils";
 import { z } from "zod";
 
@@ -51,8 +51,36 @@ export async function POST(
 
   try {
     const clients = makeGameHubClients();
+    const deployment = await clients.appsApi.readNamespacedDeployment({ name, namespace: "game-hub" });
+    const rawBlocklist = deployment.metadata?.annotations?.["game-hub/command-blocklist"];
+    const parsedBlocklist = (() => {
+      if (!rawBlocklist) return [] as string[];
+      try {
+        const parsed = JSON.parse(rawBlocklist) as unknown;
+        return Array.isArray(parsed)
+          ? parsed.filter((entry): entry is string => typeof entry === "string")
+          : [];
+      } catch {
+        return [] as string[];
+      }
+    })();
+    const normalizedCommand = input.trim().toLowerCase();
+    const blocked = parsedBlocklist.some((entry) => {
+      const normalizedEntry = entry.trim().toLowerCase();
+      return normalizedEntry.length > 0 && normalizedCommand.startsWith(normalizedEntry);
+    });
+    if (blocked) {
+      return NextResponse.json({ error: "Command blocked by server policy" }, { status: 403 });
+    }
+
     const commandResult = await runServerCommand(clients, name, input);
     await auditLog("game-hub:rcon", session.user?.email ?? "unknown", `${name} — ${input}`);
+    void appendServerAudit(clients.coreApi, name, {
+      timestamp: new Date().toISOString(),
+      user: session.user?.email ?? "unknown",
+      action: "rcon:command",
+      details: input,
+    }).catch(console.error);
 
     return NextResponse.json({
       output: commandResult.stdout.trim() || commandResult.stderr.trim(),

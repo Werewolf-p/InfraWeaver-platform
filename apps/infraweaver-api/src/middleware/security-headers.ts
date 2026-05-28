@@ -33,6 +33,10 @@ export const securityHeaders = createMiddleware<AppBindings>(async (c, next) => 
   // Remove framework fingerprinting
   c.res.headers.delete('X-Powered-By');
 
+  // Reduce metadata leakage from browser clients
+  c.header('Referrer-Policy', 'strict-origin-when-cross-origin');
+  c.header('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+
   // Enforce no-cache on sensitive management endpoints
   if (isSensitivePath(c.req.path)) {
     c.header('Cache-Control', 'no-store');

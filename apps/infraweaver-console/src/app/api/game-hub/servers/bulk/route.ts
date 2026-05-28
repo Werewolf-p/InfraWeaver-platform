@@ -9,8 +9,8 @@ import { isValidK8sName } from "@/lib/validate";
 import { safeError } from "@/lib/utils";
 
 const bulkBodySchema = z.object({
-  action: z.enum(["start", "stop", "restart"]),
-  names: z.array(z.string().min(1)).min(1),
+  action: z.enum(["start", "stop", "restart", "stop-all"]),
+  names: z.array(z.string().min(1)).min(1).optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -27,14 +27,52 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ error: "Validation failed", details: parsed.error.flatten() }, { status: 400 });
   }
-  const { action, names } = parsed.data;
-  const invalidName = names.find((n) => !isValidK8sName(n));
-  if (invalidName) {
-    return NextResponse.json({ error: `Invalid server name: ${invalidName}` }, { status: 400 });
+  const { action } = parsed.data;
+  const names = parsed.data.names ?? [];
+  if (action !== "stop-all") {
+    if (names.length === 0) {
+      return NextResponse.json({ error: "names is required" }, { status: 400 });
+    }
+    const invalidName = names.find((n) => !isValidK8sName(n));
+    if (invalidName) {
+      return NextResponse.json({ error: `Invalid server name: ${invalidName}` }, { status: 400 });
+    }
   }
 
   try {
-    const { appsApi, coreApi } = makeGameHubClients();
+    const clients = makeGameHubClients();
+    const { appsApi, coreApi } = clients;
+
+    if (action === "stop-all") {
+      const deployments = await appsApi.listNamespacedDeployment({ namespace: GAME_HUB_NS });
+      const allowedDeployments = (deployments.items ?? []).filter((deployment) => {
+        const deploymentName = deployment.metadata?.name ?? "";
+        return deploymentName
+          && hasGameHubPermission(access.groups, access.username, access.roleAssignments, "game-hub:stop", deploymentName);
+      });
+      const stopped = (await Promise.all(allowedDeployments.map(async (deployment) => {
+        const deploymentName = deployment.metadata?.name ?? "";
+        if (!deploymentName || (deployment.spec?.replicas ?? 0) <= 0) {
+          return null;
+        }
+        try {
+          await appsApi.patchNamespacedDeployment({
+            name: deploymentName,
+            namespace: GAME_HUB_NS,
+            body: { spec: { replicas: 0 } },
+            fieldManager: "infraweaver",
+          });
+          await auditLog("game-hub:stop-all", session.user?.email ?? "unknown", `stop-all ${deploymentName}`);
+          return deploymentName;
+        } catch (error) {
+          console.error(`bulk stop-all failed for ${deploymentName}`, error);
+          return null;
+        }
+      }))).filter((deploymentName): deploymentName is string => deploymentName !== null);
+
+      return NextResponse.json({ stopped, total: allowedDeployments.length });
+    }
+
     const results = await Promise.all(names.map(async (name) => {
       const permission = action === "start" ? "game-hub:start" : "game-hub:stop";
       if (!hasGameHubPermission(access.groups, access.username, access.roleAssignments, permission, name)) {
@@ -48,7 +86,7 @@ export async function POST(req: NextRequest) {
         } else if (action === "stop") {
           const deployment = await appsApi.readNamespacedDeployment({ name, namespace: GAME_HUB_NS });
           const egg = await readServerEgg(coreApi, name, deployment);
-          await gracefulStopServer({ ...makeGameHubClients(), appsApi, coreApi }, name, egg.stopCommand, 30_000);
+          await gracefulStopServer(clients, name, egg.stopCommand, 30_000);
         } else {
           await appsApi.patchNamespacedDeployment({
             name,

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Download, Loader2, Plus, Save, Trash2, Upload } from "lucide-react";
+import { Download, Eye, EyeOff, Loader2, Plus, Save, Trash2, Upload } from "lucide-react";
 import { toast } from "@/lib/notify";
 import { fetchJson } from "./utils";
 import { useRBAC } from "@/hooks/use-rbac";
@@ -42,6 +42,13 @@ function parseEnvText(content: string) {
     });
 }
 
+
+const SENSITIVE_ENV_PATTERN = /password|secret|key|token|api_key|auth|credential|private/i;
+
+function isSensitiveEnvName(name: string) {
+  return SENSITIVE_ENV_PATTERN.test(name);
+}
+
 function sameEnvRows(rows: EnvRow[], env: EnvEntry[]) {
   return rows.length === env.length
     && rows.every(
@@ -56,6 +63,7 @@ export function EnvTableEditor({ serverName, env, onSave }: EnvTableEditorProps)
   const [saving, setSaving] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState("");
+  const [visibleValues, setVisibleValues] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     setRows((current) => (
@@ -83,6 +91,16 @@ export function EnvTableEditor({ serverName, env, onSave }: EnvTableEditorProps)
 
   function addRow() {
     setRows((current) => [...current, createRow()]);
+  }
+
+  function toggleValueVisibility(name: string, id: string) {
+    const key = name.trim().toLowerCase() || id;
+    setVisibleValues((current) => ({ ...current, [key]: !current[key] }));
+  }
+
+  function isValueVisible(name: string, id: string) {
+    const key = name.trim().toLowerCase() || id;
+    return Boolean(visibleValues[key]);
   }
 
   function deleteRow(id: string) {
@@ -218,38 +236,55 @@ export function EnvTableEditor({ serverName, env, onSave }: EnvTableEditorProps)
                 </td>
               </tr>
             ) : (
-              rows.map((row) => (
-                <tr key={row.id}>
-                  <td className="px-3 py-2 align-top">
-                    <input
-                      value={row.name}
-                      onChange={(event) => updateRow(row.id, "name", event.target.value)}
-                      disabled={!canWrite}
-                      placeholder="KEY"
-                      className="w-full rounded-md border border-transparent bg-transparent px-2 py-1 text-gray-900 dark:text-[#f2f2f2] focus:border-[#2a2a2a] focus:bg-[#111] focus:outline-none"
-                    />
-                  </td>
-                  <td className="px-3 py-2 align-top">
-                    <input
-                      value={row.value}
-                      onChange={(event) => updateRow(row.id, "value", event.target.value)}
-                      disabled={!canWrite}
-                      placeholder="VALUE"
-                      className="w-full rounded-md border border-transparent bg-transparent px-2 py-1 text-gray-900 dark:text-[#f2f2f2] focus:border-[#2a2a2a] focus:bg-[#111] focus:outline-none"
-                    />
-                  </td>
-                  <td className="px-3 py-2 align-top">
-                    <button
-                      type="button"
-                      onClick={() => deleteRow(row.id)}
-                      disabled={!canWrite}
-                      className="rounded-lg p-2 text-gray-500 dark:text-[#888] transition hover:bg-red-500/10 hover:text-red-300"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </td>
-                </tr>
-              ))
+              rows.map((row) => {
+                const sensitive = isSensitiveEnvName(row.name);
+                const visible = isValueVisible(row.name, row.id);
+                return (
+                  <tr key={row.id}>
+                    <td className="px-3 py-2 align-top">
+                      <input
+                        value={row.name}
+                        onChange={(event) => updateRow(row.id, "name", event.target.value)}
+                        disabled={!canWrite}
+                        placeholder="KEY"
+                        className="w-full rounded-md border border-transparent bg-transparent px-2 py-1 text-gray-900 dark:text-[#f2f2f2] focus:border-[#2a2a2a] focus:bg-[#111] focus:outline-none"
+                      />
+                    </td>
+                    <td className="px-3 py-2 align-top">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type={sensitive && !visible ? "password" : "text"}
+                          value={row.value}
+                          onChange={(event) => updateRow(row.id, "value", event.target.value)}
+                          disabled={!canWrite}
+                          placeholder={sensitive && !visible ? "●●●●●" : "VALUE"}
+                          className="w-full rounded-md border border-transparent bg-transparent px-2 py-1 text-gray-900 dark:text-[#f2f2f2] focus:border-[#2a2a2a] focus:bg-[#111] focus:outline-none"
+                        />
+                        {sensitive ? (
+                          <button
+                            type="button"
+                            onClick={() => toggleValueVisibility(row.name, row.id)}
+                            className="rounded-lg p-2 text-gray-500 dark:text-[#888] transition hover:bg-gray-100 dark:hover:bg-[#1a1a1a] hover:text-gray-900 dark:hover:text-white"
+                            title={visible ? "Hide value" : "Show value"}
+                          >
+                            {visible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          </button>
+                        ) : null}
+                      </div>
+                    </td>
+                    <td className="px-3 py-2 align-top">
+                      <button
+                        type="button"
+                        onClick={() => deleteRow(row.id)}
+                        disabled={!canWrite}
+                        className="rounded-lg p-2 text-gray-500 dark:text-[#888] transition hover:bg-red-500/10 hover:text-red-300"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>

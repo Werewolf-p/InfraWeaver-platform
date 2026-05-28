@@ -57,7 +57,7 @@ execRoute.post('/', async (c) => {
 
   const body = await c.req.json().catch(() => ({}));
   const parsed = execBodySchema.safeParse(body);
-  if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+  if (!parsed.success) return c.json({ error: 'Validation failed' }, 400);
   const { namespace, pod, container, command } = parsed.data;
 
   if (!ALLOWED_COMMANDS.has(command)) return c.json({ error: 'Command not allowed' }, 403);
@@ -66,7 +66,7 @@ execRoute.post('/', async (c) => {
     const kc = await getKcForCluster(user.clusterId);
     const result = await execInPod(kc, namespace, pod, container, command.split(/\s+/));
     return c.json(result);
-  } catch (err) {
-    return c.json({ output: '', error: err instanceof Error ? err.message : 'exec failed' }, 500);
+  } catch {
+    return c.json({ output: '', error: 'Execution failed' }, 500);
   }
 });

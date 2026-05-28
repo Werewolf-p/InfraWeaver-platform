@@ -12,7 +12,11 @@ const auditPostBodySchema = z.object({
   details: z.string().optional(),
 });
 
-export async function GET(_req: NextRequest, { params }: { params: Promise<{ name: string }> }) {
+function csvCell(value: string) {
+  return `"${value.replace(/"/g, '""')}"`;
+}
+
+export async function GET(req: NextRequest, { params }: { params: Promise<{ name: string }> }) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { name } = await params;
@@ -25,7 +29,20 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ nam
 
   try {
     const { coreApi } = makeGameHubClients();
-    return NextResponse.json({ entries: await readServerAudit(coreApi, name) });
+    const entries = await readServerAudit(coreApi, name);
+    if (req.nextUrl.searchParams.get("format") === "csv") {
+      const csv = [
+        "timestamp,user,action,details",
+        ...entries.map((entry) => [entry.timestamp, entry.user, entry.action, entry.details].map(csvCell).join(",")),
+      ].join("\n");
+      return new Response(csv, {
+        headers: {
+          "Content-Disposition": `attachment; filename="audit-${name}.csv"`,
+          "Content-Type": "text/csv",
+        },
+      });
+    }
+    return NextResponse.json({ entries });
   } catch (error) {
     console.error("audit route failed", error);
     return NextResponse.json({ error: safeError(error) }, { status: 500 });

@@ -33,6 +33,7 @@ export interface ServerTokenRecord {
   token: string;
   prefix: string;
   createdAt: string;
+  expiresAt?: string;
 }
 
 export interface PlayerHistoryPoint {
@@ -736,7 +737,12 @@ export async function writeServerTokens(coreApi: k8s.CoreV1Api, name: string, to
 
 export async function validateServerToken(coreApi: k8s.CoreV1Api, name: string, token: string) {
   const tokens = await readServerTokens(coreApi, name);
-  return tokens.find((entry) => entry.token === token) ?? null;
+  const now = Date.now();
+  return tokens.find((entry) => {
+    if (entry.token !== token) return false;
+    if (!entry.expiresAt) return true;
+    return new Date(entry.expiresAt).getTime() >= now;
+  }) ?? null;
 }
 
 export async function readSavedCommands(coreApi: k8s.CoreV1Api, name: string): Promise<SavedCommand[]> {

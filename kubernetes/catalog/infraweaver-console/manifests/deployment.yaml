@@ -28,6 +28,9 @@ spec:
       priorityClassName: platform-high
       terminationGracePeriodSeconds: 60
       serviceAccountName: infraweaver-console
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
       # MUST remain true — console uses in-cluster k8s API (game-hub, apps, cluster
       # info, etc.) via /var/run/secrets/kubernetes.io/serviceaccount/. Setting false
       # breaks ALL k8s features and makes everything show "unknown" in the UI.
@@ -57,6 +60,10 @@ spec:
         image: onedev.rlservers.com/infraweaver-platform/infraweaver-console:main-43172ae
         imagePullPolicy: IfNotPresent
         command: ["sh", "-c", "HOSTNAME=0.0.0.0 node server.js"]
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
         ports:
         - containerPort: 3000
           name: http

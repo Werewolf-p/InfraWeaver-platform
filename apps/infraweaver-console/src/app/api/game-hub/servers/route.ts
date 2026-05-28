@@ -6,7 +6,7 @@ import { buildEggConfigMap, getEggEnvironmentDefaults, getEggForGameType, getEgg
 import { GAME_HUB_NAMESPACE, getGameHubAccessContext, getScopedGameServerNames, hasGameHubPermission } from "@/lib/game-hub";
 import { readServerManifestSha, writeServerManifest } from "@/lib/game-hub-manifest";
 import { buildUniversalGameServerProbes } from "@/lib/game-hub-probes";
-import { getServerDeployment, makeGameHubClients, normalizeServerName, parseImageVersion, parsePlayerHistory, readServerEgg } from "@/lib/game-hub-server";
+import { getNodeIp, getServerDeployment, makeGameHubClients, normalizeServerName, parseImageVersion, parsePlayerHistory, readServerEgg } from "@/lib/game-hub-server";
 import { getPelicanGameEgg } from "@/lib/pelican-eggs";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { getEffectivePermissions, hasPermission } from "@/lib/rbac";
@@ -564,6 +564,7 @@ export async function GET() {
       let restartCount = 0;
       let podStartTime: string | null = null;
       let podPhase: string | null = null;
+      let nodeIp: string | null = null;
       try {
         const pods = await coreApi.listNamespacedPod({ namespace: GAME_HUB_NAMESPACE, labelSelector: `app=${name}` });
         const pod = pods.items?.find((p) => p.status?.phase === "Running") ?? pods.items?.[0];
@@ -571,6 +572,7 @@ export async function GET() {
         podPhase = pod?.status?.phase ?? null;
         podStartTime = pod?.status?.startTime ? new Date(pod.status.startTime as string | Date).toISOString() : null;
         restartCount = (pod?.status?.containerStatuses ?? []).reduce((sum, cs) => sum + (cs.restartCount ?? 0), 0);
+        nodeIp = await getNodeIp(coreApi, pod);
       } catch {
         podName = "";
       }
@@ -620,6 +622,7 @@ export async function GET() {
       const playerCount = playerHistory[playerHistory.length - 1]?.n ?? 0;
       const image = deployment.spec?.template?.spec?.containers?.[0]?.image ?? egg.dockerImage;
       const parsedVersion = parseImageVersion(image);
+      const notes = deployment.metadata?.annotations?.["infraweaver/notes"] ?? "";
 
       const manifestSha = await manifestShaPromise;
       const perms = getEffectivePermissions(access.groups, access.username, access.roleAssignments, `/game-hub/servers/${name}`);
@@ -637,6 +640,7 @@ export async function GET() {
         restartCount,
         port,
         nodePort,
+        nodeIp,
         memory: deployment.spec?.template?.spec?.containers?.[0]?.resources?.limits?.memory ?? egg.defaultMemory ?? "",
         cpu: deployment.spec?.template?.spec?.containers?.[0]?.resources?.limits?.cpu ?? egg.defaultCpu ?? "",
         createdAt: deployment.metadata?.creationTimestamp ?? null,
@@ -645,6 +649,8 @@ export async function GET() {
         icon,
         tags,
         groups,
+        notes,
+        playerHistory,
         playerCount,
         image,
         imageVersion: deployment.metadata?.annotations?.["infraweaver.io/image-version"] ?? parsedVersion.version,

@@ -45,6 +45,7 @@ const VALID_ACTIONS = [
   "expand-pvc", "update-image", "pin-image-version", "unpin-image-version",
   "update-pull-policy", "update-strategy", "update-identity", "update-tags",
   "update-service-ports", "set-scheduled-action", "save-command", "delete-saved-command",
+  "set-join-password", "set-command-blocklist", "add-announcement", "set-restart-reason",
   "sync-to-git",
 ] as const;
 
@@ -122,6 +123,42 @@ function replaceImageTag(image: string, nextTag: string) {
     return `${base.slice(0, lastColon)}:${nextTag}`;
   }
   return `${base}:${nextTag}`;
+}
+
+type ServerAnnouncement = {
+  id: string;
+  schedule: string;
+  message: string;
+};
+
+function parseStringArrayAnnotation(raw: string | undefined) {
+  if (!raw) return [] as string[];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed)
+      ? parsed.filter((entry): entry is string => typeof entry === "string")
+      : [];
+  } catch {
+    return [] as string[];
+  }
+}
+
+function parseAnnouncementsAnnotation(raw: string | undefined) {
+  if (!raw) return [] as ServerAnnouncement[];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [] as ServerAnnouncement[];
+    return parsed.flatMap((entry) => {
+      if (!entry || typeof entry !== "object") return [] as ServerAnnouncement[];
+      const id = typeof entry.id === "string" ? entry.id : "";
+      const schedule = typeof entry.schedule === "string" ? entry.schedule : "";
+      const message = typeof entry.message === "string" ? entry.message : "";
+      if (!id || !schedule || !message) return [] as ServerAnnouncement[];
+      return [{ id, schedule, message }];
+    });
+  } catch {
+    return [] as ServerAnnouncement[];
+  }
 }
 
 async function buildResponse(name: string, limitedToken = false, access?: Awaited<ReturnType<typeof getGameHubAccessContext>>, includeYaml = false) {
@@ -251,6 +288,11 @@ async function buildResponse(name: string, limitedToken = false, access?: Awaite
   const imageVersion = parseImageVersion(image);
   const imagePullPolicy = container?.imagePullPolicy ?? "IfNotPresent";
   const deploymentStrategy = deployment.spec?.strategy?.type ?? "RollingUpdate";
+  const joinPasswordSet = !!container?.env?.find((entry) => entry.name === "SERVER_PASSWORD")?.value;
+  const commandBlocklist = parseStringArrayAnnotation(deployment.metadata?.annotations?.["game-hub/command-blocklist"]);
+  const announcements = parseAnnouncementsAnnotation(deployment.metadata?.annotations?.["game-hub/announcements"]);
+  const restartReason = deployment.metadata?.annotations?.["game-hub/restart-reason"] ?? null;
+  const restartReasonTime = deployment.metadata?.annotations?.["game-hub/restart-time"] ?? null;
   let deploymentYaml: string | undefined;
   if (includeYaml) {
     const yaml = await import("js-yaml");
@@ -400,7 +442,13 @@ async function buildResponse(name: string, limitedToken = false, access?: Awaite
     memory: deployment.spec?.template?.spec?.containers?.[0]?.resources?.limits?.memory ?? egg.defaultMemory ?? "",
     cpu: deployment.spec?.template?.spec?.containers?.[0]?.resources?.limits?.cpu ?? egg.defaultCpu ?? "",
     notes: deployment.metadata?.annotations?.["infraweaver/notes"] ?? "",
+    annotations: deployment.metadata?.annotations ?? {},
     env: (deployment.spec?.template?.spec?.containers?.[0]?.env ?? []).map((entry) => ({ name: entry.name, value: entry.value ?? undefined })),
+    joinPasswordSet,
+    commandBlocklist,
+    announcements,
+    restartReason,
+    restartReasonTime,
     createdAt: deployment.metadata?.creationTimestamp ? new Date(deployment.metadata.creationTimestamp as string | Date).toISOString() : null,
     maintenanceMode,
     description,
@@ -592,7 +640,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
     return NextResponse.json({ error: "Validation failed", details: actionParsed.error.flatten() }, { status: 400 });
   }
   const body = rawBody as {
-    action: "start" | "stop" | "force-stop" | "restart" | "scale" | "set-hpa" | "remove-hpa" | "update-env" | "set-restart-policy" | "set-autopause" | "set-notes" | "update-notes" | "update-resources" | "set-maintenance" | "set-schedule" | "set-backup-schedule" | "set-backup-target" | "set-alert-thresholds" | "expand-pvc" | "update-image" | "pin-image-version" | "unpin-image-version" | "update-pull-policy" | "update-strategy" | "update-identity" | "update-tags" | "update-service-ports" | "set-scheduled-action" | "save-command" | "delete-saved-command" | "sync-to-git";
+    action: "start" | "stop" | "force-stop" | "restart" | "scale" | "set-hpa" | "remove-hpa" | "update-env" | "set-restart-policy" | "set-autopause" | "set-notes" | "update-notes" | "update-resources" | "set-maintenance" | "set-schedule" | "set-backup-schedule" | "set-backup-target" | "set-alert-thresholds" | "expand-pvc" | "update-image" | "pin-image-version" | "unpin-image-version" | "update-pull-policy" | "update-strategy" | "update-identity" | "update-tags" | "update-service-ports" | "set-scheduled-action" | "set-join-password" | "set-command-blocklist" | "add-announcement" | "set-restart-reason" | "save-command" | "delete-saved-command" | "sync-to-git";
     replicas?: number;
     hpaMin?: number;
     hpaMax?: number;
@@ -621,6 +669,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
     icon?: string;
     tags?: string[];
     groups?: string[];
+    annotations?: Record<string, string>;
+    reason?: string;
+    password?: string | null;
+    blocklist?: string[];
+    schedule?: string;
+    message?: string;
     ports?: Array<{ name: string; port: number; targetPort?: number; protocol?: "TCP" | "UDP"; nodePort?: number }>;
     scheduledAction?: string | null;
     scheduledTime?: string | null;
@@ -642,6 +696,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
     const deployment = await getServerDeployment(clients.appsApi, name);
     const egg = await readServerEgg(clients.coreApi, name, deployment);
     const webhookConfig = parseDiscordWebhookConfig(deployment.metadata?.annotations?.["infraweaver/discord-webhook"]);
+    let actionResult: Record<string, unknown> = {};
 
     if (body.action === "start") {
       await clients.appsApi.patchNamespacedDeployment({
@@ -922,6 +977,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
       if (body.icon !== undefined) annotations["infraweaver.io/icon"] = body.icon;
       if (body.tags !== undefined) annotations["infraweaver.io/tags"] = (body.tags ?? []).join(",");
       if (body.groups !== undefined) annotations["infraweaver.io/groups"] = (body.groups ?? []).join(",");
+      Object.assign(annotations, body.annotations ?? {});
       await clients.appsApi.patchNamespacedDeployment({
         name,
         namespace: GAME_HUB_NAMESPACE,
@@ -957,9 +1013,61 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
         name,
         namespace: GAME_HUB_NAMESPACE,
         body: { metadata: { annotations } },
-
+ 
         fieldManager: "infraweaver",
       });
+    } else if (body.action === "set-join-password") {
+      const password = typeof body.password === "string" ? body.password : null;
+      const deploy = await clients.appsApi.readNamespacedDeployment({ name, namespace: GAME_HUB_NS });
+      const containers = deploy.spec?.template?.spec?.containers ?? [];
+      const primaryContainer = containers[0];
+      if (!primaryContainer) {
+        return NextResponse.json({ error: "Server container not found" }, { status: 404 });
+      }
+      const envVars = primaryContainer.env ?? [];
+      const filtered = envVars.filter((entry) => entry.name !== "SERVER_PASSWORD");
+      if (password) filtered.push({ name: "SERVER_PASSWORD", value: password });
+      await clients.appsApi.patchNamespacedDeployment({
+        name,
+        namespace: GAME_HUB_NS,
+        body: { spec: { template: { spec: { containers: [{ ...primaryContainer, env: filtered }] } } } },
+      });
+      actionResult = { ok: true, passwordSet: !!password };
+    } else if (body.action === "set-command-blocklist") {
+      const blocklist = Array.isArray(body.blocklist)
+        ? body.blocklist.filter((entry): entry is string => typeof entry === "string")
+        : [];
+      await clients.appsApi.patchNamespacedDeployment({
+        name,
+        namespace: GAME_HUB_NS,
+        body: { metadata: { annotations: { "game-hub/command-blocklist": JSON.stringify(blocklist) } } },
+      });
+      actionResult = { ok: true, blocklist };
+    } else if (body.action === "add-announcement") {
+      const schedule = typeof body.schedule === "string" ? body.schedule : null;
+      const message = typeof body.message === "string" ? body.message.slice(0, 200) : null;
+      if (!schedule || !message) {
+        return NextResponse.json({ error: "schedule and message required" }, { status: 400 });
+      }
+      const deploy = await clients.appsApi.readNamespacedDeployment({ name, namespace: GAME_HUB_NS });
+      const existing = parseAnnouncementsAnnotation(deploy.metadata?.annotations?.["game-hub/announcements"]);
+      const announcements = [...existing, { id: Date.now().toString(), schedule, message }].slice(-10);
+      await clients.appsApi.patchNamespacedDeployment({
+        name,
+        namespace: GAME_HUB_NS,
+        body: { metadata: { annotations: { "game-hub/announcements": JSON.stringify(announcements) } } },
+      });
+      actionResult = { ok: true, announcements };
+    } else if (body.action === "set-restart-reason") {
+      const reason = typeof body.reason === "string" ? body.reason.slice(0, 100) : "manual";
+      const validReasons = ["manual", "crash", "oom", "maintenance", "scheduled", "update"];
+      const safeReason = validReasons.includes(reason) ? reason : "manual";
+      await clients.appsApi.patchNamespacedDeployment({
+        name,
+        namespace: GAME_HUB_NS,
+        body: { metadata: { annotations: { "game-hub/restart-reason": safeReason, "game-hub/restart-time": new Date().toISOString() } } },
+      });
+      actionResult = { ok: true, reason: safeReason };
     } else if (body.action === "save-command") {
       if (!body.command?.label || !body.command?.cmd) return NextResponse.json({ error: "command.label and command.cmd are required" }, { status: 400 });
       const existing = await readSavedCommands(clients.coreApi, name);
@@ -1002,7 +1110,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
       }
     }
 
-    return NextResponse.json({ action: body.action, name });
+    return NextResponse.json({ action: body.action, name, ...actionResult });
   } catch (error) {
     console.error("server patch failed", error);
     if (isKubernetesNotFoundError(error)) {

@@ -7,6 +7,9 @@ import {
   useRef,
   useCallback,
   useMemo,
+  type ChangeEvent,
+  type ElementType,
+  type ReactNode,
 } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -66,6 +69,7 @@ import { DashboardTab as DashboardTabFeature } from "@/components/game-hub/serve
 import { EnvTableEditor } from "@/components/game-hub/server-detail/env-table-editor";
 import { MiniOverviewDrawer } from "@/components/game-hub/server-detail/mini-overview-drawer";
 import { NotesTagsEditor } from "@/components/game-hub/server-detail/notes-tags-editor";
+import { KeyboardShortcutsDialog } from "@/components/game-hub/server-detail/keyboard-shortcuts";
 import { OpsManager } from "@/components/game-hub/server-detail/ops-manager";
 import { PlayersTab as PlayersTabFeature } from "@/components/game-hub/server-detail/players-tab";
 import { RconPanel } from "@/components/game-hub/server-detail/rcon-panel";
@@ -127,6 +131,8 @@ type SnapshotListResponse = {
 
 const EMPTY_SNAPSHOT_RESPONSE: SnapshotListResponse = { snapshots: [] };
 const EMPTY_STRING_ARRAY: string[] = [];
+const ACCENT_ANNOTATION_KEY = "game-hub/accent-color";
+const ACCENT_COLOR_OPTIONS = ["#0078D4", "#34d399", "#f59e0b", "#f472b6", "#a78bfa", "#f87171"];
 
 function buildFallbackConnectivity(message: string): ConnectivityDetails {
   return {
@@ -401,7 +407,12 @@ function ThresholdPreview({
 }
 
 function isSensitiveEnvName(name: string) {
-  return /pass|secret|token|key|pwd|credential/i.test(name);
+  return /password|secret|key|token|api_key|auth|credential|private/i.test(name);
+}
+
+function normalizeAccentColor(value: string | null | undefined) {
+  const trimmed = (value ?? "").trim();
+  return /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(trimmed) ? trimmed : ACCENT_COLOR_OPTIONS[0]!;
 }
 
 type BackupSchedulePreset = "disabled" | "hourly" | "every-6h" | "daily" | "weekly" | "custom";
@@ -481,7 +492,7 @@ function highlightLogMatch(text: string, query: string) {
   if (!query.trim()) return text;
   const lowerText = text.toLowerCase();
   const lowerQuery = query.toLowerCase();
-  const parts: React.ReactNode[] = [];
+  const parts: ReactNode[] = [];
   let start = 0;
   let index = lowerText.indexOf(lowerQuery);
   while (index >= 0) {
@@ -1896,7 +1907,8 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
   const [envStr, setEnvStr] = useState(stringifyEnv(server.env));
   const [savingEnv, setSavingEnv] = useState(false);
   const [description, setDescription] = useState(server.description ?? "");
-  const [icon, setIcon] = useState(server.icon ?? "��");
+  const [icon, setIcon] = useState(server.icon ?? "🎮");
+  const [accentColor, setAccentColor] = useState(normalizeAccentColor(server.annotations?.[ACCENT_ANNOTATION_KEY]));
   const [tags, setTags] = useState<string[]>(server.tags ?? []);
   const [tagInput, setTagInput] = useState("");
   const [savingTags, setSavingTags] = useState(false);
@@ -2244,7 +2256,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
     );
   }
 
-  async function importEnvFile(event: React.ChangeEvent<HTMLInputElement>) {
+  async function importEnvFile(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
     try {
@@ -2269,6 +2281,10 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
             .split(",")
             .map((group) => group.trim())
             .filter(Boolean),
+          annotations: {
+            ...(server.annotations ?? {}),
+            [ACCENT_ANNOTATION_KEY]: accentColor,
+          },
         },
         "Server identity updated",
       );
@@ -3184,6 +3200,27 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
             </div>
           </div>
           <div>
+            <label className="mb-2 block text-[10px] text-gray-400 dark:text-[#666]">Accent color</label>
+            <div className="flex flex-wrap gap-2">
+              {ACCENT_COLOR_OPTIONS.map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => setAccentColor(option)}
+                  className={cn(
+                    "flex h-10 min-w-[44px] items-center justify-center rounded-lg border px-3 transition-colors",
+                    accentColor === option
+                      ? "border-[#0078D4] bg-[#0078D4]/10"
+                      : "border-gray-200 bg-white hover:border-[#3a3a3a] dark:border-[#2a2a2a] dark:bg-[#0a0a0a]",
+                  )}
+                  title={option}
+                >
+                  <Circle className="h-4 w-4 fill-current" style={{ color: option }} />
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
             <label className="block text-[10px] text-gray-400 dark:text-[#666] mb-1">Groups</label>
             <input
               value={groupsStr}
@@ -3768,6 +3805,7 @@ export default function ServerDetailPage() {
   });
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [mobileActionSheetOpen, setMobileActionSheetOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const queryClient = useQueryClient();
 
   const {
@@ -3845,12 +3883,33 @@ export default function ServerDetailPage() {
         : server?.port
           ? `Port ${server.port}`
           : "";
+  const accentColor = normalizeAccentColor(server?.annotations?.[ACCENT_ANNOTATION_KEY]);
+  const clusterDnsHost = server ? `${server.dnsHostname ?? `${name}.game-hub.svc.cluster.local`}:${server.port}` : "";
   const primaryTag = server?.tags?.[0] ?? server?.groups?.[0] ?? null;
 
   function copyConnectionInfo() {
     if (!connectionInfo) return;
     navigator.clipboard.writeText(connectionInfo);
     toast.success("Connection info copied");
+  }
+
+  async function restartWithReason() {
+    if (!server?.permissions?.canAdmin) return;
+    const reason = prompt("Restart reason", server.restartReason ?? "Applying changes");
+    if (reason === null) return;
+    const trimmedReason = reason.trim();
+    try {
+      if (trimmedReason) {
+        await fetchJson(`/api/game-hub/servers/${name}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "set-restart-reason", reason: trimmedReason }),
+        });
+      }
+      await doAction("restart", trimmedReason ? `Restarting — ${trimmedReason}` : "Restarting server");
+    } catch (error) {
+      toast.error(String(error));
+    }
   }
 
   async function toggleMaintenanceMode() {
@@ -3912,8 +3971,8 @@ export default function ServerDetailPage() {
     };
   }, [name, status]);
 
-  const tabs = useMemo<Array<{ id: TabId; label: string; icon: React.ElementType }>>(() => {
-    const next: Array<{ id: TabId; label: string; icon: React.ElementType }> = [
+  const tabs = useMemo<Array<{ id: TabId; label: string; icon: ElementType }>>(() => {
+    const next: Array<{ id: TabId; label: string; icon: ElementType }> = [
       { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
     ];
 
@@ -3953,6 +4012,46 @@ export default function ServerDetailPage() {
     window.localStorage.setItem(`${GAME_HUB_TAB_STORAGE_PREFIX}:${name}`, resolvedActiveTab);
   }, [name, resolvedActiveTab]);
 
+  useEffect(() => {
+    function handleShortcut(event: KeyboardEvent) {
+      const target = event.target as HTMLElement | null;
+      const tagName = target?.tagName?.toLowerCase();
+      const isTyping = Boolean(target?.isContentEditable || tagName === "input" || tagName === "textarea" || tagName === "select");
+      if (isTyping) return;
+      if (event.key === "?" || (event.key === "/" && event.shiftKey)) {
+        event.preventDefault();
+        setShortcutsOpen(true);
+        return;
+      }
+      if (event.key >= "1" && event.key <= "5") {
+        const tab = tabs[Number(event.key) - 1];
+        if (tab) {
+          event.preventDefault();
+          setActiveTab(tab.id);
+        }
+        return;
+      }
+      const lowerKey = event.key.toLowerCase();
+      if (lowerKey === "r") {
+        event.preventDefault();
+        void refetch();
+        return;
+      }
+      if (lowerKey === "s" && status === "stopped" && server?.permissions?.canStart) {
+        event.preventDefault();
+        void doAction("start");
+        return;
+      }
+      if (lowerKey === "x" && status !== "stopped" && server?.permissions?.canStop) {
+        event.preventDefault();
+        void doAction("stop", "Server stopping gracefully…");
+      }
+    }
+
+    window.addEventListener("keydown", handleShortcut);
+    return () => window.removeEventListener("keydown", handleShortcut);
+  }, [doAction, refetch, server?.permissions?.canStart, server?.permissions?.canStop, status, tabs]);
+
   if (consoleOnly) {
     if (isLoading || !server) {
       return (
@@ -3981,7 +4080,10 @@ export default function ServerDetailPage() {
 
   return (
     <div className="space-y-0 overflow-x-hidden pb-2">
-      <div className="sticky top-[env(safe-area-inset-top,0px)] z-10 -mx-4 border-b border-gray-200 dark:border-[#1e1e1e] bg-[#0e0e0e]/95 px-4 pb-0 pt-0 backdrop-blur-sm sm:-mx-4 sm:px-4 md:-mx-6 md:px-6">
+      <div
+        className="sticky top-[env(safe-area-inset-top,0px)] z-10 -mx-4 border-b border-gray-200 dark:border-[#1e1e1e] bg-[#0e0e0e]/95 px-4 pb-0 pt-0 backdrop-blur-sm sm:-mx-4 sm:px-4 md:-mx-6 md:px-6"
+        style={server ? { backgroundImage: `linear-gradient(135deg, ${accentColor}22 0%, rgba(14,14,14,0.96) 58%)`, borderBottomColor: `${accentColor}44` } : undefined}
+      >
         <div className="hidden sm:flex items-center gap-1 px-1 pt-2 text-[10px] text-gray-400 dark:text-[#666] overflow-x-auto scrollbar-none whitespace-nowrap">
           <Link href="/game-hub" className="hover:text-gray-900 dark:hover:text-white">
             Game Hub
@@ -4008,8 +4110,8 @@ export default function ServerDetailPage() {
                 </span>
               )}
               {server?.podStartTime && (
-                <span className="shrink-0 text-xs text-gray-400 dark:text-[#666]">
-                  ↺ {timeAgo(server.podStartTime)}
+                <span className="shrink-0 rounded-full border border-gray-200 dark:border-[#2a2a2a] bg-white/70 px-2 py-0.5 text-xs text-gray-500 backdrop-blur dark:bg-[#111]/80 dark:text-[#9e9e9e]">
+                  Uptime {timeAgo(server.podStartTime)}
                 </span>
               )}
               <div className="flex shrink-0 items-center gap-1.5">
@@ -4092,11 +4194,18 @@ export default function ServerDetailPage() {
                   </span>
                 ))}
             </div>
-            {server?.dnsHostname && (
-              <p className="mt-1 break-all text-[10px] font-mono text-emerald-300 sm:break-normal">
-                DNS {server.dnsHostname}:{server.port}
-              </p>
-            )}
+            {clusterDnsHost ? (
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => { navigator.clipboard.writeText(clusterDnsHost); toast.success("DNS copied"); }}
+                  className="inline-flex min-h-[36px] items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-[10px] font-mono text-emerald-200 transition-colors hover:bg-emerald-500/15"
+                >
+                  <span className="truncate max-w-[260px]">DNS {clusterDnsHost}</span>
+                  <Copy className="h-3 w-3" />
+                </button>
+              </div>
+            ) : null}
             {connectivity && (
               <div className="mt-1 flex flex-wrap gap-2 text-[10px]">
                 <span
@@ -4152,6 +4261,14 @@ export default function ServerDetailPage() {
                   <span className="truncate">{connectionInfo}</span>
                 </button>
               )}
+              <button
+                type="button"
+                onClick={() => setShortcutsOpen(true)}
+                className="hidden min-h-[44px] items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs text-gray-500 transition-colors hover:bg-gray-100 dark:border-[#2a2a2a] dark:bg-[#1a1a1a] dark:text-[#888] dark:hover:bg-[#222] sm:inline-flex"
+                title="Keyboard shortcuts"
+              >
+                ?
+              </button>
               <div className="flex items-center gap-2">
                 {server.permissions?.canAdmin ? (
                   <button
@@ -4199,7 +4316,7 @@ export default function ServerDetailPage() {
                   <>
                     {server.permissions?.canAdmin ? (
                       <button
-                        onClick={() => void doAction("restart")}
+                        onClick={() => void restartWithReason()}
                         disabled={!!actionLoading}
                         title="Quick restart"
                         className="flex min-h-[44px] items-center gap-1.5 rounded-xl bg-white dark:bg-[#1a1a1a] px-2.5 py-2 text-xs text-gray-500 dark:text-[#888] transition-colors disabled:opacity-50 touch-manipulation hover:bg-gray-100 dark:hover:bg-[#222] hover:text-gray-700 dark:hover:text-[#bbb]"
@@ -4303,6 +4420,7 @@ export default function ServerDetailPage() {
         </div>
       </div>
 
+      <KeyboardShortcutsDialog open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
       <div className="pt-3 sm:pt-4">
         {isLoading && (
           <div className="flex flex-col items-center justify-center h-48 gap-3">
@@ -4471,7 +4589,7 @@ export default function ServerDetailPage() {
                       <button
                         onClick={() => {
                           setMobileActionSheetOpen(false);
-                          void doAction("restart");
+                          void restartWithReason();
                         }}
                         className="flex min-h-[52px] items-center justify-between rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] px-4 text-sm text-gray-700 dark:text-[#d4d4d4]"
                       >

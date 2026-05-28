@@ -293,6 +293,33 @@ function formatDateTime(value: string | null | undefined) {
   return Number.isNaN(parsed.getTime()) ? "—" : parsed.toLocaleString();
 }
 
+function formatRelativeTime(value: string | null | undefined) {
+  if (!value) return "—";
+  const diffSeconds = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 1000));
+  if (diffSeconds < 60) return `${diffSeconds}s ago`;
+  if (diffSeconds < 3600) return `${Math.floor(diffSeconds / 60)}m ago`;
+  if (diffSeconds < 86400) return `${Math.floor(diffSeconds / 3600)}h ago`;
+  return `${Math.floor(diffSeconds / 86400)}d ago`;
+}
+
+function getBackupAgeBadge(createdAt: string) {
+  const ageMs = Date.now() - new Date(createdAt).getTime();
+  const ageDays = Math.floor(ageMs / 86_400_000);
+  if (ageDays >= 30) {
+    return {
+      label: `${ageDays}d old`,
+      className: "border-red-500/30 bg-red-500/10 text-red-200",
+    };
+  }
+  if (ageDays >= 7) {
+    return {
+      label: `${ageDays}d old`,
+      className: "border-yellow-500/30 bg-yellow-500/10 text-yellow-200",
+    };
+  }
+  return null;
+}
+
 function normalizeNetworkStats(payload: NetworkStatsResponse) {
   if (Array.isArray(payload)) return payload;
   return payload.stats ?? payload.entries ?? payload.interfaces ?? [];
@@ -359,6 +386,7 @@ export function DashboardTab({
   const [testingConnectivity, setTestingConnectivity] = useState(false);
   const [dnsDialogOpen, setDnsDialogOpen] = useState(false);
   const [showMobileDetails, setShowMobileDetails] = useState(false);
+  const [verifyingBackups, setVerifyingBackups] = useState(false);
   const { data: metricsHistoryResponse } = useQuery({
     queryKey: ["game-hub", "metrics-history", "game-hub", server.podName],
     queryFn: () =>
@@ -665,7 +693,8 @@ export function DashboardTab({
             badge: "Unhealthy",
           };
 
-  const playerHistory = (players?.history ?? server.playerHistory ?? [])
+  const rawPlayerHistory = (players?.history ?? server.playerHistory ?? []).slice(-168);
+  const playerHistory = rawPlayerHistory
     .slice(-100)
     .map((point) => ({
       t: new Date(point.t).toLocaleTimeString([], {
@@ -674,7 +703,24 @@ export function DashboardTab({
       }),
       n: point.n,
     }));
-  const currentPlayerCount = players?.count ?? playerHistory[playerHistory.length - 1]?.n ?? 0;
+  const activityHeatmap = useMemo(() => {
+    const grid = Array.from({ length: 7 }, (_, day) => ({
+      day,
+      label: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][day] ?? "Day",
+      hours: Array.from({ length: 24 }, () => 0),
+    }));
+    for (const point of rawPlayerHistory) {
+      const parsed = new Date(point.t);
+      if (Number.isNaN(parsed.getTime())) continue;
+      grid[parsed.getDay()]!.hours[parsed.getHours()] = Math.max(
+        grid[parsed.getDay()]!.hours[parsed.getHours()] ?? 0,
+        point.n,
+      );
+    }
+    const max = Math.max(1, ...grid.flatMap((entry) => entry.hours));
+    return { rows: grid, max };
+  }, [rawPlayerHistory]);
+  const currentPlayerCount = players?.count ?? rawPlayerHistory[rawPlayerHistory.length - 1]?.n ?? 0;
   const cpuChartData = metricsHistory.map((point) => ({
     t: point.t,
     value: point.cpu,
@@ -782,6 +828,7 @@ export function DashboardTab({
     : "Unknown";
   const connectionHost = server.dnsHostname || server.nodeIp || host;
   const connectionString = `${connectionHost}:${connectionRows[0]?.nodePort ?? server.nodePort ?? connectionRows[0]?.servicePort ?? server.port ?? "?"}`;
+  const clusterDnsHost = `${name}.game-hub.svc.cluster.local`;
   const connectHint =
     server.egg?.connectionHint ??
     "Use the address below with your game client.";
@@ -806,6 +853,14 @@ export function DashboardTab({
     t: point.t,
     pct: point.total > 0 ? Number(((point.used / point.total) * 100).toFixed(1)) : 0,
   }));
+  const diskUsedBytes = parseHumanStorageValue(disk?.filesystem.used);
+  const diskTotalBytes = parseHumanStorageValue(disk?.filesystem.total);
+  const diskUsagePercent = typeof disk?.filesystem.percent === "number"
+    ? disk.filesystem.percent
+    : diskTotalBytes > 0
+      ? Number(((diskUsedBytes / diskTotalBytes) * 100).toFixed(1))
+      : 0;
+  const diskUsageTone = diskUsagePercent >= 90 ? "red" : diskUsagePercent >= 80 ? "amber" : "green";
   const metricsMessage =
     server.replicas === 0
       ? "No data while the server is stopped."
@@ -889,6 +944,24 @@ export function DashboardTab({
       refetchBackups();
     } catch (error) {
       toast.error(String(error));
+    }
+  }
+
+  async function verifyBackups() {
+    setVerifyingBackups(true);
+    try {
+      const result = await refetchBackups();
+      const entries = result.data?.backups ?? backups?.backups ?? [];
+      const warnings = entries.filter((backup) => backup.status === "warning");
+      if (warnings.length === 0) {
+        toast.success("All checksums verified");
+      } else {
+        toast.error(`Warning: ${warnings[0]?.filename ?? "backup"} may be corrupted`);
+      }
+    } catch (error) {
+      toast.error(String(error));
+    } finally {
+      setVerifyingBackups(false);
     }
   }
 
@@ -1035,7 +1108,7 @@ export function DashboardTab({
         ))}
       </div>
 
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-7">
         <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4">
           <p className="text-[10px] uppercase text-gray-400 dark:text-[#666]">Status</p>
           <p className="text-sm text-gray-900 dark:text-[#f2f2f2] mt-1 capitalize">
@@ -1046,6 +1119,15 @@ export function DashboardTab({
           <p className="text-[10px] uppercase text-gray-400 dark:text-[#666]">Uptime</p>
           <p className="text-sm text-gray-900 dark:text-[#f2f2f2] mt-1">
             <Uptime startTime={server.podStartTime} />
+          </p>
+        </div>
+        <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4">
+          <p className="text-[10px] uppercase text-gray-400 dark:text-[#666]">Restart reason</p>
+          <p className="mt-1 text-sm text-gray-900 dark:text-[#f2f2f2] line-clamp-2">
+            {server.restartReason?.trim() || "Not recorded"}
+          </p>
+          <p className="mt-2 text-[11px] text-gray-400 dark:text-[#666]">
+            {server.restartReasonTime ? formatRelativeTime(server.restartReasonTime) : "Add a reason before planned restarts."}
           </p>
         </div>
         <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4">
@@ -1397,6 +1479,26 @@ export function DashboardTab({
             <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-gray-500 dark:text-[#888]">
               <HardDrive className="w-4 h-4 text-[#34d399]" /> Storage
             </div>
+            {disk?.filesystem.used ? (
+              <div
+                className={cn(
+                  "rounded-lg border px-3 py-2 text-xs",
+                  diskUsagePercent >= 90
+                    ? "border-red-500/30 bg-red-500/10 text-red-200"
+                    : diskUsagePercent >= 80
+                      ? "border-yellow-500/30 bg-yellow-500/10 text-yellow-200"
+                      : "border-emerald-500/20 bg-emerald-500/10 text-emerald-200",
+                )}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <span>{diskUsagePercent >= 90 ? "Critical disk usage" : diskUsagePercent >= 80 ? "Disk usage warning" : "Disk usage healthy"}</span>
+                  <span className="font-medium">{diskUsagePercent.toFixed(1)}%</span>
+                </div>
+                <p className="mt-1 text-[11px] opacity-80">
+                  {disk?.filesystem.used} used of {disk?.filesystem.total ?? server.pvc?.size ?? "unknown"}.
+                </p>
+              </div>
+            ) : null}
             <div className="text-xs text-gray-500 dark:text-[#777] space-y-1">
               <div className="flex justify-between">
                 <span>PVC</span>
@@ -1419,19 +1521,19 @@ export function DashboardTab({
               <div
                 className={cn(
                   "h-full",
-                  (disk?.filesystem.percent ?? 0) > 85
+                  diskUsageTone === "red"
                     ? "bg-red-500"
-                    : (disk?.filesystem.percent ?? 0) > 70
+                    : diskUsageTone === "amber"
                       ? "bg-yellow-500"
                       : "bg-[#34d399]",
                 )}
-                style={{ width: `${disk?.filesystem.percent ?? 0}%` }}
+                style={{ width: `${diskUsagePercent}%` }}
               />
             </div>
             <div className="rounded-lg border border-gray-200 dark:border-[#1e1e1e] bg-white dark:bg-[#0d0d0d] p-2">
               <div className="mb-1 flex items-center justify-between text-[10px] text-gray-400 dark:text-[#666]">
                 <span>Usage trend</span>
-                <span>{disk?.filesystem.percent ?? 0}%</span>
+                <span>{diskUsagePercent.toFixed(1)}%</span>
               </div>
               <div className="h-[60px]">
                 {storageChartData.length > 1 ? (
@@ -1588,6 +1690,28 @@ export function DashboardTab({
                 </button>
               </div>
             </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="rounded-lg border border-[#1e3a5f] bg-[#0d1b2a] p-4">
+                <p className="text-[10px] uppercase text-[#4a6fa5]">Cluster DNS</p>
+                <div className="mt-2 flex flex-wrap items-center gap-3">
+                  <code className="min-w-0 flex-1 break-all rounded-lg border border-[#1e3a5f] bg-[#10233a] px-3 py-2 text-sm text-gray-700 dark:text-[#e0e0e0]">
+                    {clusterDnsHost}
+                  </code>
+                  <button
+                    onClick={() => copyValue(clusterDnsHost, "Cluster DNS copied")}
+                    className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-[#1e3a5f] bg-[#10233a] px-3 py-2 text-sm text-[#9ccfff] hover:bg-[#12304b]"
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                    Copy
+                  </button>
+                </div>
+              </div>
+              <div className="rounded-lg border border-[#1e3a5f] bg-[#0d1b2a] p-4 text-xs text-[#9ccfff]">
+                <p className="text-[10px] uppercase text-[#4a6fa5]">Public host</p>
+                <p className="mt-2 break-all text-sm text-gray-700 dark:text-[#e0e0e0]">{connectionHost || "Unavailable"}</p>
+                <p className="mt-2 text-[11px] text-[#78a4cf]">Use DNS when testing inside the cluster, or the public host for players.</p>
+              </div>
+            </div>
             <div className="space-y-3">
               <div className="space-y-2 sm:hidden">
                 {connectionRows.map((port) => {
@@ -1677,7 +1801,7 @@ export function DashboardTab({
             <p className="text-[11px] text-[#4a6fa5] leading-relaxed">{connectHint}</p>
             {server.egg?.startupReadySignal && server.status === "starting" && (
               <p className="text-[11px] text-[#3a5a80] leading-relaxed mt-1">
-                Waiting for server-ready signal: <span className="font-mono text-[#4a88b0]">"{server.egg.startupReadySignal}"</span>
+                Waiting for server-ready signal: <span className="font-mono text-[#4a88b0]">&quot;{server.egg.startupReadySignal}&quot;</span>
               </p>
             )}
           </div>
@@ -2033,38 +2157,52 @@ export function DashboardTab({
 
       <div className="grid lg:grid-cols-2 gap-4">
         <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4 space-y-3">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-gray-500 dark:text-[#888]">
               <Download className="w-4 h-4 text-[#60a5fa]" /> Backup Browser
             </div>
-            <button
-              onClick={createBackup}
-              className="min-h-[36px] rounded-lg bg-[#0078D4] px-3 py-1.5 text-xs text-white"
-            >
-              Create Backup
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => void verifyBackups()}
+                disabled={verifyingBackups}
+                className="min-h-[36px] rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] px-3 py-1.5 text-xs text-gray-700 dark:text-[#d4d4d4] disabled:opacity-50"
+              >
+                {verifyingBackups ? "Verifying…" : "Verify integrity"}
+              </button>
+              <button
+                onClick={createBackup}
+                className="min-h-[36px] rounded-lg bg-[#0078D4] px-3 py-1.5 text-xs text-white"
+              >
+                Create Backup
+              </button>
+            </div>
           </div>
           {(backups?.backups ?? []).length === 0 ? (
             <p className="text-xs text-gray-400 dark:text-[#666]">No backups found</p>
           ) : (
             <div className="space-y-2">
               <div className="space-y-2 sm:hidden">
-                {(backups?.backups ?? []).map((backup) => (
+                {(backups?.backups ?? []).map((backup) => {
+                  const ageBadge = getBackupAgeBadge(backup.createdAt);
+                  return (
                   <div key={backup.filename} className="rounded-xl border border-gray-200 dark:border-[#1a1a1a] bg-white dark:bg-[#0d0d0d] p-3 text-xs text-gray-500 dark:text-[#9e9e9e]">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="break-all font-mono text-gray-700 dark:text-[#d4d4d4]">{backup.filename}</p>
                         <p className="mt-1 text-[11px] text-gray-400 dark:text-[#666]">{formatDateTime(backup.createdAt)}</p>
                       </div>
-                      {backup.status === "warning" ? (
-                        <span className="rounded-full border border-yellow-500/30 bg-yellow-500/10 px-2 py-0.5 text-yellow-200">
-                          Small / check
-                        </span>
-                      ) : (
-                        <span className="rounded-full border border-green-500/30 bg-green-500/10 px-2 py-0.5 text-green-200">
-                          Verified
-                        </span>
-                      )}
+                      <div className="flex flex-col items-end gap-1">
+                        {backup.status === "warning" ? (
+                          <span className="rounded-full border border-yellow-500/30 bg-yellow-500/10 px-2 py-0.5 text-yellow-200">
+                            Small / check
+                          </span>
+                        ) : (
+                          <span className="rounded-full border border-green-500/30 bg-green-500/10 px-2 py-0.5 text-green-200">
+                            Verified
+                          </span>
+                        )}
+                        {ageBadge ? <span className={cn("rounded-full border px-2 py-0.5", ageBadge.className)}>{ageBadge.label}</span> : null}
+                      </div>
                     </div>
                     <dl className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
                       <div>
@@ -2097,7 +2235,8 @@ export function DashboardTab({
                       </button>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
               <div className="hidden max-h-64 overflow-x-auto overflow-y-auto touch-pan-x rounded-lg border border-gray-200 dark:border-[#1a1a1a] sm:block">
                 <table className="w-full min-w-[720px] text-[11px]">
@@ -2112,7 +2251,9 @@ export function DashboardTab({
                     </tr>
                   </thead>
                   <tbody>
-                    {(backups?.backups ?? []).map((backup) => (
+                    {(backups?.backups ?? []).map((backup) => {
+                      const ageBadge = getBackupAgeBadge(backup.createdAt);
+                      return (
                       <tr
                         key={backup.filename}
                         className="border-t border-gray-200 dark:border-[#1a1a1a] text-gray-500 dark:text-[#9e9e9e]"
@@ -2122,7 +2263,10 @@ export function DashboardTab({
                         </td>
                         <td className="px-3 py-2">{backup.size}</td>
                         <td className="px-3 py-2">
-                          {formatDateTime(backup.createdAt)}
+                          <div className="space-y-1">
+                            <div>{formatDateTime(backup.createdAt)}</div>
+                            {ageBadge ? <span className={cn("inline-flex rounded-full border px-2 py-0.5 text-[10px]", ageBadge.className)}>{ageBadge.label}</span> : null}
+                          </div>
                         </td>
                         <td className="px-3 py-2">
                           {backup.status === "warning" ? (
@@ -2161,7 +2305,8 @@ export function DashboardTab({
                           </div>
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -2259,6 +2404,46 @@ export function DashboardTab({
               Current players:{" "}
               <span className="text-gray-900 dark:text-[#f2f2f2]">{players?.count ?? 0}</span>
             </p>
+          </div>
+          <div className="rounded-lg border border-gray-200 dark:border-[#1e1e1e] bg-white dark:bg-[#0d0d0d] p-3">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <p className="text-xs uppercase tracking-wide text-gray-500 dark:text-[#888]">Activity heatmap</p>
+              <p className="text-[11px] text-gray-400 dark:text-[#666]">Hourly over the last 7 days</p>
+            </div>
+            {rawPlayerHistory.length === 0 ? (
+              <div className="flex h-24 items-center justify-center text-sm text-gray-400 dark:text-[#666]">
+                No activity samples yet
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {activityHeatmap.rows.map((row) => (
+                  <div key={row.label} className="grid grid-cols-[40px_1fr] items-center gap-2">
+                    <span className="text-[10px] uppercase text-gray-400 dark:text-[#555]">{row.label}</span>
+                    <div className="grid grid-cols-12 gap-1 md:grid-cols-24">
+                      {row.hours.map((value, hour) => {
+                        const intensity = value === 0 ? 0 : value / activityHeatmap.max;
+                        return (
+                          <div
+                            key={`${row.label}-${hour}`}
+                            title={`${row.label} ${hour}:00 · ${value} players`}
+                            className={cn(
+                              "h-3 rounded-sm border border-transparent",
+                              intensity === 0
+                                ? "bg-gray-100 dark:bg-[#161616]"
+                                : intensity < 0.34
+                                  ? "bg-emerald-500/25"
+                                  : intensity < 0.67
+                                    ? "bg-emerald-400/45"
+                                    : "bg-emerald-300/70",
+                            )}
+                          />
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
           <div className="grid gap-3 text-xs md:grid-cols-2">
             <div>

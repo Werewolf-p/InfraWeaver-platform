@@ -9,6 +9,7 @@ import { safeError } from "@/lib/utils";
 
 const tokenCreateSchema = z.object({
   label: z.string().min(1),
+  expiresInDays: z.number().int().min(1).max(365).optional(),
 });
 
 const tokenDeleteSchema = z.object({
@@ -29,7 +30,14 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ nam
   try {
     const { coreApi } = makeGameHubClients();
     const tokens = await readServerTokens(coreApi, name);
-    return NextResponse.json({ tokens: tokens.map(({ token, ...entry }) => entry) });
+    const now = Date.now();
+    return NextResponse.json({
+      tokens: tokens.map(({ token, expiresAt, ...entry }) => ({
+        ...entry,
+        expiresAt: expiresAt ?? null,
+        isExpired: expiresAt ? new Date(expiresAt).getTime() < now : false,
+      })),
+    });
   } catch (error) {
     console.error("tokens route failed", error);
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
@@ -60,9 +68,22 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ nam
   try {
     const { coreApi } = makeGameHubClients();
     const tokens = await readServerTokens(coreApi, name);
-    const record = createServerToken(parsedCreate.data.label.trim());
+    const baseRecord = createServerToken(parsedCreate.data.label.trim());
+    const expiresAt = parsedCreate.data.expiresInDays
+      ? new Date(Date.now() + parsedCreate.data.expiresInDays * 86_400_000).toISOString()
+      : undefined;
+    const record = expiresAt ? { ...baseRecord, expiresAt } : baseRecord;
     await writeServerTokens(coreApi, name, [...tokens, record]);
-    return NextResponse.json({ token: record.token, record: { id: record.id, label: record.label, prefix: record.prefix, createdAt: record.createdAt } }, { status: 201 });
+    return NextResponse.json({
+      token: record.token,
+      record: {
+        id: record.id,
+        label: record.label,
+        prefix: record.prefix,
+        createdAt: record.createdAt,
+        expiresAt: record.expiresAt ?? null,
+      },
+    }, { status: 201 });
   } catch (error) {
     console.error("create token failed", error);
     return NextResponse.json({ error: safeError(error) }, { status: 500 });

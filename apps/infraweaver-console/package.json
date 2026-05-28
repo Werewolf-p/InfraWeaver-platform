@@ -75,5 +75,16 @@
     "ts-jest": "^29.4.9",
     "ts-node": "^10.9.2",
     "typescript": "^5"
+  },
+  "overrides": {
+    "next": {
+      "postcss": "^8.5.15"
+    },
+    "@kubernetes/client-node": {
+      "ws": "^8.21.0"
+    },
+    "isomorphic-ws": {
+      "ws": "^8.21.0"
+    }
   }
 }

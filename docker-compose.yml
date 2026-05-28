@@ -20,13 +20,14 @@ services:
     environment:
       PORT: "3001"
       CONSOLE_URL: http://localhost:3000
-      CONSOLE_API_SECRET: dev-console-secret
+      # Provide via shell env or an untracked compose env file before starting.
+      CONSOLE_API_SECRET: ${CONSOLE_API_SECRET:?set CONSOLE_API_SECRET}
       MODE_NAMESPACE: infraweaver-dev
       SECRET_NAMESPACE: infraweaver-dev
       HUB_URL: ws://mock
       NODE_AGENT_IMAGE: infraweaver-node:dev
       ARGOCD_SERVER: http://mock
-      ARGOCD_TOKEN: dev-argocd-token
+      ARGOCD_TOKEN: ${ARGOCD_TOKEN:?set ARGOCD_TOKEN}
       CHOKIDAR_USEPOLLING: "true"
     volumes:
       - ./apps/infraweaver-api:/workspace
@@ -52,9 +53,9 @@ services:
       NEXTAUTH_URL: http://localhost:3000
       AUTHENTIK_ISSUER: https://auth.dev.local/application/o/infraweaver/
       AUTHENTIK_CLIENT_ID: infraweaver-dev
-      AUTHENTIK_CLIENT_SECRET: infraweaver-dev-secret
+      AUTHENTIK_CLIENT_SECRET: ${AUTHENTIK_CLIENT_SECRET:?set AUTHENTIK_CLIENT_SECRET}
       AUTHENTIK_URL: http://mock
-      AUTHENTIK_TOKEN: dev-auth-token
+      AUTHENTIK_TOKEN: ${AUTHENTIK_TOKEN:?set AUTHENTIK_TOKEN}
       GATUS_URL: http://mock
       INFRAWEAVER_API_URL: http://api:3001
       NEXT_PUBLIC_APP_VERSION: dev-local

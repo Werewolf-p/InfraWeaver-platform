@@ -1,11 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
 import { getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
-import { appendServerAudit, execShell, getPrimaryContainerName, getServerPod, makeGameHubClients, shellQuote } from "@/lib/game-hub-server";
+import { appendServerAudit, execShell, getPrimaryContainerName, getServerPod, makeGameHubClients, readServerEgg, shellQuote } from "@/lib/game-hub-server";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
-import { validateContainerPath } from "@/lib/validate";
+import { validateContainerPath, validateContainerPathWithinRoot } from "@/lib/validate";
 import { safeError } from "@/lib/utils";
+
+const mkdirBodySchema = z.object({
+  action: z.literal("mkdir"),
+  path: z.string().min(1),
+}).strict();
+
+const patchBodySchema = z.discriminatedUnion("action", [
+  z.object({
+    action: z.literal("rename"),
+    from: z.string().min(1),
+    to: z.string().min(1),
+  }).strict(),
+  z.object({
+    action: z.literal("extract"),
+    path: z.string().min(1),
+  }).strict(),
+]);
 
 interface FileEntry {
   name: string;
@@ -96,27 +114,29 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ name
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const path = req.nextUrl.searchParams.get("path") ?? "/";
-  if (path !== "/" && !validateContainerPath(path)) {
-    return NextResponse.json({ error: "Invalid path" }, { status: 400 });
-  }
   try {
     const clients = makeGameHubClients();
+    const rootPath = (await readServerEgg(clients.coreApi, name)).mountPath;
+    const targetPath = req.nextUrl.searchParams.get("path") ?? rootPath;
+    if (!validateContainerPath(targetPath) || !validateContainerPathWithinRoot(targetPath, rootPath)) {
+      return NextResponse.json({ error: "Path must stay within the server data directory" }, { status: 400 });
+    }
+
     const pod = await getServerPod(clients.coreApi, name, true);
     if (!pod?.metadata?.name) return NextResponse.json({ error: "No pod found" }, { status: 404 });
     const result = await execShell(
       clients.kc,
       pod.metadata.name,
       getPrimaryContainerName(pod, name),
-      `cd ${shellQuote(path)} 2>/dev/null && for file in .[!.]* ..?* *; do [ -e "$file" ] || continue; stat -c '%n|%s|%Y|%A|%F' "$file" 2>/dev/null || ls -ld --color=never "$file"; done || echo ERROR:NO_SUCH_PATH`,
+      `cd ${shellQuote(targetPath)} 2>/dev/null && for file in .[!.]* ..?* *; do [ -e "$file" ] || continue; stat -c '%n|%s|%Y|%A|%F' "$file" 2>/dev/null || ls -ld --color=never "$file"; done || echo ERROR:NO_SUCH_PATH`,
     );
     if (result.stdout.includes("ERROR:NO_SUCH_PATH") || result.stdout.includes("No such file") || result.stderr.includes("No such file")) {
       return NextResponse.json({ error: "Path not found", files: [] }, { status: 404 });
     }
     const files = result.stdout.includes("|")
-      ? parseStatOutput(result.stdout, path)
-      : parseLsOutput(result.stdout, path);
-    return NextResponse.json({ path, files, readOnly: !hasGameHubPermission(access.groups, access.username, access.roleAssignments, "game-hub:files", name) });
+      ? parseStatOutput(result.stdout, targetPath)
+      : parseLsOutput(result.stdout, targetPath);
+    return NextResponse.json({ path: targetPath, files, readOnly: !hasGameHubPermission(access.groups, access.username, access.roleAssignments, "game-hub:files", name) });
   } catch (error) {
     console.error("file listing failed", error);
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
@@ -130,12 +150,19 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ nam
   const { name } = await params;
   const authz = await writableAccess(req, name);
   if (authz.error) return authz.error;
-  const body = await req.json() as { action?: "mkdir"; path?: string };
-  if (body.action !== "mkdir" || !body.path) return NextResponse.json({ error: "mkdir path required" }, { status: 400 });
-  if (!validateContainerPath(body.path)) return NextResponse.json({ error: "Invalid path" }, { status: 400 });
+  const rawBody = await req.json().catch(() => null);
+  const parsed = mkdirBodySchema.safeParse(rawBody);
+  if (!parsed.success) {
+    return NextResponse.json({ error: "Validation failed", details: parsed.error.flatten() }, { status: 400 });
+  }
+  const body = parsed.data;
 
   try {
     const clients = makeGameHubClients();
+    const rootPath = (await readServerEgg(clients.coreApi, name)).mountPath;
+    if (!validateContainerPath(body.path) || !validateContainerPathWithinRoot(body.path, rootPath)) {
+      return NextResponse.json({ error: "Path must stay within the server data directory" }, { status: 400 });
+    }
     const pod = await getServerPod(clients.coreApi, name, true);
     if (!pod?.metadata?.name) return NextResponse.json({ error: "No pod found" }, { status: 404 });
     await execShell(clients.kc, pod.metadata.name, getPrimaryContainerName(pod, name), `mkdir -p ${shellQuote(body.path)}`);
@@ -155,17 +182,25 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
   const { name } = await params;
   const authz = await writableAccess(req, name);
   if (authz.error) return authz.error;
-  const body = await req.json() as { action?: "rename" | "extract"; from?: string; to?: string; path?: string };
+  const rawBody = await req.json().catch(() => null);
+  const parsed = patchBodySchema.safeParse(rawBody);
+  if (!parsed.success) {
+    return NextResponse.json({ error: "Validation failed", details: parsed.error.flatten() }, { status: 400 });
+  }
+  const body = parsed.data;
 
   try {
     const clients = makeGameHubClients();
+    const rootPath = (await readServerEgg(clients.coreApi, name)).mountPath;
     const pod = await getServerPod(clients.coreApi, name, true);
     if (!pod?.metadata?.name) return NextResponse.json({ error: "No pod found" }, { status: 404 });
 
     if (body.action === "rename") {
       if (!body.from || !body.to) return NextResponse.json({ error: "rename from/to required" }, { status: 400 });
-      if (!validateContainerPath(body.from) || !validateContainerPath(body.to)) {
-        return NextResponse.json({ error: "Invalid path" }, { status: 400 });
+      if (!validateContainerPath(body.from) || !validateContainerPath(body.to)
+        || !validateContainerPathWithinRoot(body.from, rootPath)
+        || !validateContainerPathWithinRoot(body.to, rootPath)) {
+        return NextResponse.json({ error: "Path must stay within the server data directory" }, { status: 400 });
       }
       await execShell(clients.kc, pod.metadata.name, getPrimaryContainerName(pod, name), `mv ${shellQuote(body.from)} ${shellQuote(body.to)}`);
       await auditLog("game-hub:rename", authz.session?.user?.email ?? "unknown", `${name} ${body.from} -> ${body.to}`);
@@ -175,7 +210,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
 
     if (body.action === "extract") {
       if (!body.path) return NextResponse.json({ error: "path required" }, { status: 400 });
-      if (!validateContainerPath(body.path)) return NextResponse.json({ error: "Invalid path" }, { status: 400 });
+      if (!validateContainerPath(body.path) || !validateContainerPathWithinRoot(body.path, rootPath)) {
+        return NextResponse.json({ error: "Path must stay within the server data directory" }, { status: 400 });
+      }
       const destDir = body.path.replace(/\/[^/]+$/, "") || "/";
       const MAX_ARCHIVE_BYTES = 512 * 1024 * 1024;
       const extractCmd = body.path.endsWith(".tar.gz") || body.path.endsWith(".tgz")
@@ -211,17 +248,17 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ n
 
   const path = req.nextUrl.searchParams.get("path");
   if (!path) return NextResponse.json({ error: "path required" }, { status: 400 });
-  if (!validateContainerPath(path)) return NextResponse.json({ error: "Invalid path" }, { status: 400 });
-  if (["/", "/data", "/config", "/etc", "/usr", "/bin", "/lib", "/proc", "/sys"].includes(path.replace(/\/$/, ""))) {
-    return NextResponse.json({ error: "Cannot delete this path" }, { status: 403 });
-  }
 
   try {
     const clients = makeGameHubClients();
+    const rootPath = (await readServerEgg(clients.coreApi, name)).mountPath;
+    if (!validateContainerPath(path) || !validateContainerPathWithinRoot(path, rootPath) || path.replace(/\/$/, "") === rootPath.replace(/\/$/, "")) {
+      return NextResponse.json({ error: "Cannot delete this path" }, { status: 403 });
+    }
     const pod = await getServerPod(clients.coreApi, name, true);
     if (!pod?.metadata?.name) return NextResponse.json({ error: "No pod found" }, { status: 404 });
     const result = await execShell(clients.kc, pod.metadata.name, getPrimaryContainerName(pod, name), `rm -rf ${shellQuote(path)}`);
-    if (result.stderr) return NextResponse.json({ error: result.stderr }, { status: 500 });
+    if (result.stderr) return NextResponse.json({ error: safeError(result.stderr) }, { status: 500 });
     await auditLog("game-hub:delete-file", authz.session?.user?.email ?? "unknown", `${name} ${path}`);
     await appendServerAudit(clients.coreApi, name, { timestamp: new Date().toISOString(), user: authz.session?.user?.email ?? "unknown", action: "file:delete", details: path });
     return NextResponse.json({ deleted: true, path });

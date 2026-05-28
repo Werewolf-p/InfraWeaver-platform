@@ -20,9 +20,10 @@ import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { safeError } from "@/lib/utils";
 
 const backupPostBodySchema = z.object({
-  action: z.enum(["create", "restore"]).optional(),
+  action: z.enum(["create", "restore", "prune"]).optional(),
   filename: z.string().optional(),
   backupName: z.string().optional(),
+  keepCount: z.number().optional(),
 });
 
 const backupDeleteBodySchema = z.object({
@@ -207,7 +208,7 @@ export async function POST(
     return NextResponse.json({ error: "Validation failed", details: parsedBody.error.flatten() }, { status: 400 });
   }
   const body = parsedBody.data;
-  if (!["create", "restore"].includes(body.action ?? "create")) {
+  if (!["create", "restore", "prune"].includes(body.action ?? "create")) {
     return NextResponse.json({ error: "Unsupported action" }, { status: 400 });
   }
 
@@ -317,6 +318,50 @@ export async function POST(
         details: backupName,
       });
       return NextResponse.json({ restored: true, backupName });
+    }
+
+    if ((body.action ?? "create") === "prune") {
+      const keepCount = typeof body.keepCount === "number"
+        ? Math.max(1, Math.min(20, Math.trunc(body.keepCount)))
+        : 5;
+      const backups = await listBackups(name);
+      const toDelete = backups.slice(keepCount);
+      if (toDelete.length === 0) {
+        return NextResponse.json({ backups, deleted: [], keepCount });
+      }
+
+      const pod = await getServerPod(clients.coreApi, name, true);
+      if (!pod?.metadata?.name) {
+        return NextResponse.json(
+          { error: "No running pod found" },
+          { status: 404 },
+        );
+      }
+
+      const backupDir = backupDirForMountPath(egg.mountPath);
+      await execShell(
+        clients.kc,
+        pod.metadata.name,
+        getPrimaryContainerName(pod, name),
+        toDelete.map((backup) => `rm -f ${shellQuote(`${backupDir}/${backup.filename}`)}`).join(" && "),
+        10_000,
+      );
+      await auditLog(
+        "game-hub:backup-prune",
+        session.user?.email ?? "unknown",
+        `pruned backups for ${name} to keep ${keepCount}`,
+      );
+      await appendServerAudit(clients.coreApi, name, {
+        timestamp: new Date().toISOString(),
+        user: session.user?.email ?? "unknown",
+        action: "backup:prune",
+        details: `Kept ${keepCount}, deleted ${toDelete.length}`,
+      });
+      return NextResponse.json({
+        backups: await listBackups(name),
+        deleted: toDelete.map((backup) => backup.filename),
+        keepCount,
+      });
     }
 
     const pod = await getServerPod(clients.coreApi, name, true);

@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, Lock, Gamepad2, Play, Square, RotateCcw, Trash2, Terminal, Loader2, AlertTriangle, HardDrive, CheckSquare, Square as SquareIcon, Search, ChevronDown, ChevronUp, BarChart2, BookOpen, Star, LayoutGrid, Rows3, MoreVertical } from "lucide-react";
+import { Plus, Lock, Gamepad2, Play, Square, RotateCcw, Trash2, Terminal, Loader2, AlertTriangle, HardDrive, CheckSquare, Square as SquareIcon, Search, ChevronDown, ChevronUp, BarChart2, BookOpen, Star, LayoutGrid, Rows3, MoreVertical, Copy, Folder, FolderOpen } from "lucide-react";
 import { cn, timeAgo } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
 import { useRBAC } from "@/hooks/use-rbac";
@@ -24,6 +24,7 @@ interface GameServer {
   podName: string | null;
   port: number;
   nodePort: number;
+  nodeIp?: string | null;
   memory: string;
   cpu: string;
   createdAt: string | null;
@@ -31,6 +32,8 @@ interface GameServer {
   icon?: string;
   tags?: string[];
   groups?: string[];
+  notes?: string;
+  playerHistory?: Array<{ t: number; n: number }>;
   playerCount?: number;
   imageVersion?: string;
   imagePinned?: boolean;
@@ -421,6 +424,33 @@ function formatUptime(startTime: string | null | undefined, now: number) {
   return `${Math.floor(diff / 86400)}d ${Math.floor((diff % 86400) / 3600)}h`;
 }
 
+function getConnectionString(server: GameServer) {
+  if (!server.nodePort) return "";
+  return server.nodeIp ? `${server.nodeIp}:${server.nodePort}` : String(server.nodePort);
+}
+
+function getPlayerTrend(server: GameServer) {
+  const history = server.playerHistory ?? [];
+  if (history.length < 2) return null;
+  const previous = history[history.length - 2]?.n ?? 0;
+  const latest = history[history.length - 1]?.n ?? 0;
+  if (latest > previous) return { icon: "↑", className: "text-green-400" };
+  if (latest < previous) return { icon: "↓", className: "text-red-400" };
+  return null;
+}
+
+function getUsagePercent(usage: number | null | undefined, limit: number | null | undefined) {
+  if (!usage || !limit) return null;
+  return Math.max(0, Math.min(100, Math.round((usage / limit) * 100)));
+}
+
+function getUsageTone(percent: number | null) {
+  if (percent === null) return "bg-gray-200 dark:bg-[#2a2a2a]";
+  if (percent > 90) return "bg-red-500";
+  if (percent >= 70) return "bg-yellow-500";
+  return "bg-emerald-500";
+}
+
 function ServerActionSheet({
   server,
   open,
@@ -623,6 +653,11 @@ export default function GameHubPage() {
   const [now, setNow] = useState(0);
   const [activeActionServerName, setActiveActionServerName] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ open: boolean; name: string }>({ open: false, name: "" });
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+  const [hoveredTagServer, setHoveredTagServer] = useState<string | null>(null);
+  const [editingTagServer, setEditingTagServer] = useState<string | null>(null);
+  const [tagDraft, setTagDraft] = useState("");
+  const [tagSavingServer, setTagSavingServer] = useState<string | null>(null);
   const longPressTimerRef = useRef<number | null>(null);
   const longPressTriggeredRef = useRef(false);
 
@@ -695,12 +730,27 @@ export default function GameHubPage() {
     refetchInterval: 15000,
   });
 
+  const { data: iacStatusData } = useQuery({
+    queryKey: ["game-hub", "servers", "iac-status"],
+    queryFn: async () => {
+      const res = await fetch("/api/game-hub/servers/iac-status");
+      if (!res.ok) throw new Error("Failed to fetch IaC status");
+      return res.json() as Promise<{ servers: Record<string, boolean> }>;
+    },
+    staleTime: 15000,
+    refetchInterval: 30000,
+  });
+
   const servers = data?.servers ?? [];
   const setupRequired = data?.setupRequired ?? false;
   const setupReason = data?.reason ?? "";
   const uniqueGameTypes = [...new Set(servers.map((server) => server.gameType))].sort();
   const allTags = [...new Set(servers.flatMap((server) => server.tags ?? []))].sort((a, b) => a.localeCompare(b));
   const allGroups = [...new Set(servers.flatMap((server) => server.groups ?? []))].sort((a, b) => a.localeCompare(b));
+  const gameTypeCounts = uniqueGameTypes.map((type) => ({
+    type,
+    count: servers.filter((server) => server.gameType === type).length,
+  }));
   const filteredServers = [...servers.filter((server) => {
     const haystack = [server.name, server.description ?? "", ...(server.tags ?? []), ...(server.groups ?? [])].join(" ").toLowerCase();
     if (debouncedSearch && !haystack.includes(debouncedSearch.toLowerCase())) return false;
@@ -724,6 +774,31 @@ export default function GameHubPage() {
   const canBulkStart = selectedServers.some((server) => server.permissions?.canStart);
   const canBulkStop = selectedServers.some((server) => server.permissions?.canStop);
   const canBulkRestart = selectedServers.some((server) => server.permissions?.canAdmin);
+  const hasGroupedServers = allGroups.length > 0;
+  const groupedSections = hasGroupedServers
+    ? [
+        ...allGroups.map((group) => ({
+          name: group,
+          servers: filteredServers.filter((server) => (server.groups ?? [])[0] === group),
+        })),
+        {
+          name: "Ungrouped",
+          servers: filteredServers.filter((server) => (server.groups ?? []).length === 0),
+        },
+      ].filter((section) => section.servers.length > 0)
+    : [];
+
+
+  useEffect(() => {
+    if (!hasGroupedServers) return;
+    setExpandedGroups((current) => {
+      const next = { ...current };
+      for (const group of [...allGroups, "Ungrouped"]) {
+        if (next[group] === undefined) next[group] = true;
+      }
+      return next;
+    });
+  }, [allGroups, hasGroupedServers]);
 
   async function doAction(name: string, action: string) {
     setActionLoading((prev) => ({ ...prev, [name]: action }));
@@ -787,6 +862,43 @@ export default function GameHubPage() {
     }
   }
 
+  async function copyConnection(event: MouseEvent, server: GameServer) {
+    event.stopPropagation();
+    const connectionString = getConnectionString(server);
+    if (!connectionString) return;
+    try {
+      await navigator.clipboard.writeText(connectionString);
+      toast.success("Copied!");
+    } catch (error) {
+      toast.error(String(error));
+    }
+  }
+
+  async function saveInlineTag(server: GameServer) {
+    const nextTag = tagDraft.trim();
+    if (!nextTag) return;
+    setTagSavingServer(server.name);
+    try {
+      const res = await fetch(`/api/game-hub/servers/${server.name}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "update-tags",
+          tags: [...new Set([...(server.tags ?? []), nextTag])],
+        }),
+      });
+      if (!res.ok) throw new Error("Failed to update tags");
+      setEditingTagServer(null);
+      setTagDraft("");
+      await queryClient.invalidateQueries({ queryKey: ["game-hub", "servers"] });
+      toast.success("Tag added");
+    } catch (error) {
+      toast.error(String(error));
+    } finally {
+      setTagSavingServer(null);
+    }
+  }
+
   function toggleSelected(name: string) {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -847,6 +959,221 @@ export default function GameHubPage() {
     if (!activeActionServer) return;
     await doAction(activeActionServer.name, action);
     setActiveActionServerName(null);
+  }
+
+  const cardGridClass = cn(
+    "grid gap-3 sm:gap-4",
+    viewMode === "compact" ? "grid-cols-1" : "grid-cols-1 sm:grid-cols-2 xl:grid-cols-3",
+  );
+
+  function renderServerCard(server: GameServer, index: number) {
+    const health = healthBadge(server);
+    const cardIcon = server.icon ?? server.gameType[0]?.toUpperCase() ?? "🎮";
+    const stoppedStyle = server.status === "stopped" ? "border-amber-500/30 bg-amber-500/10 text-amber-300" : (STATUS_COLORS[server.status] ?? STATUS_COLORS.stopped);
+    const iacSynced = iacStatusData?.servers?.[server.name] ?? server.inGit;
+    const playerTrend = getPlayerTrend(server);
+    const connectionString = getConnectionString(server);
+    const cpuPercent = getUsagePercent(server.cpuUsage, server.cpuLimit);
+    const memoryPercent = getUsagePercent(server.memoryUsage, server.memoryLimit);
+    const showTagControls = hoveredTagServer === server.name || editingTagServer === server.name;
+    const notePreview = server.notes?.trim();
+
+    return (
+      <motion.div
+        key={server.name}
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.95 }}
+        transition={{ delay: index * 0.05 }}
+        className={cn("flex flex-col rounded-2xl border bg-white dark:bg-[#1a1a1a] transition-colors", viewMode === "compact" ? "gap-3 p-3 sm:p-4" : "gap-3 p-3 sm:gap-4 sm:p-5", compareMode ? "cursor-pointer" : "cursor-pointer hover:border-[#3a3a3a]", compareSet.has(server.name) ? "border-[#0078D4] ring-1 ring-[#0078D4]/40" : "border-gray-200 dark:border-[#2a2a2a]")}
+        onPointerDown={() => startLongPress(server.name)}
+        onPointerUp={clearLongPress}
+        onPointerLeave={clearLongPress}
+        onPointerCancel={clearLongPress}
+        onClick={() => {
+          if (longPressTriggeredRef.current) {
+            longPressTriggeredRef.current = false;
+            return;
+          }
+          if (compareMode) toggleCompare(server.name);
+          else router.push(`/game-hub/${server.name}`);
+        }}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 items-start gap-3">
+            <div className="flex flex-col items-center gap-2 pt-1">
+              <button onClick={(event) => { event.stopPropagation(); toggleFavorite(server.name); }} className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-400 dark:text-[#666] transition-colors hover:border-[#3a3a3a] hover:text-yellow-300" title={favorites.has(server.name) ? "Remove favorite" : "Favorite server"}>
+                <Star className={cn("h-4 w-4", favorites.has(server.name) && "fill-yellow-300 text-yellow-300")} />
+              </button>
+              <button onClick={(event) => { event.stopPropagation(); toggleSelected(server.name); }} className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-400 dark:text-[#666] transition-colors hover:border-[#3a3a3a] hover:text-gray-900 dark:hover:text-white">
+                {selected.has(server.name) ? <CheckSquare className="h-4 w-4 text-[#0078D4]" /> : <SquareIcon className="h-4 w-4 text-gray-400 dark:text-[#666]" />}
+              </button>
+            </div>
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gray-50 dark:bg-[#252525] text-2xl flex-shrink-0">{cardIcon}</div>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="truncate text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">{server.name}</p>
+                <span className={cn("rounded-full border px-3 py-1 text-sm font-medium capitalize", stoppedStyle)}>{server.status}</span>
+                <span className={cn("rounded-full border px-3 py-1 text-sm font-medium", health.className)}>{server.status === "stopped" ? "Stopped" : `Health ${health.label}`}</span>
+                <span className={cn("rounded-full border px-3 py-1 text-sm font-medium", iacSynced ? "border-green-500/30 bg-green-500/10 text-green-300" : "border-yellow-500/30 bg-yellow-500/10 text-yellow-200")}>{iacSynced ? "synced" : "unsynced"}</span>
+              </div>
+              <p className="mt-1 text-sm capitalize text-gray-500 dark:text-[#888]">{server.gameType.replace(/-/g, " ")}</p>
+              {connectionString ? (
+                <button onClick={(event) => void copyConnection(event, server)} className="mt-2 inline-flex max-w-full items-center gap-2 rounded-full border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-3 py-1 text-xs text-gray-600 dark:text-[#b3b3b3] transition-colors hover:border-[#0078D4]/30 hover:text-[#4db3ff]">
+                  <span className="truncate font-mono">{connectionString}</span>
+                  <Copy className="h-3.5 w-3.5 flex-shrink-0" />
+                </button>
+              ) : null}
+              {server.description ? <p className="mt-2 text-sm text-gray-600 dark:text-[#b3b3b3] line-clamp-2">{server.description}</p> : null}
+              {notePreview && viewMode === "detailed" ? <p title={notePreview} className="mt-2 text-xs text-gray-500 dark:text-[#8d8d8d] line-clamp-1">Note: {notePreview.slice(0, 60)}{notePreview.length > 60 ? "…" : ""}</p> : null}
+              {((server.tags ?? []).length > 0 || (server.groups ?? []).length > 0 || server.imageVersion || server.permissions?.canAdmin) && (
+                <div className="mt-3 space-y-2" onClick={(event) => event.stopPropagation()} onMouseEnter={() => setHoveredTagServer(server.name)} onMouseLeave={() => { setHoveredTagServer((current) => current === server.name ? null : current); if (editingTagServer === server.name) { setEditingTagServer(null); setTagDraft(""); } }}>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {(server.tags ?? []).map((tag) => <span key={tag} className="rounded-full border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-3 py-1 text-sm text-gray-500 dark:text-[#9e9e9e] sm:text-xs">#{tag}</span>)}
+                    {(server.groups ?? []).map((group) => <span key={group} className="rounded-full border border-green-500/20 bg-green-500/10 px-3 py-1 text-sm text-green-300 sm:text-xs">@{group}</span>)}
+                    {server.imageVersion && <span className={cn("rounded-full border px-3 py-1 text-sm sm:text-xs", server.imagePinned ? "bg-white dark:bg-[#111] border-gray-200 dark:border-[#2a2a2a] text-gray-500 dark:text-[#9e9e9e]" : "bg-yellow-500/10 border-yellow-500/20 text-yellow-200")}>{server.imagePinned ? `v${server.imageVersion}` : `latest (${server.imageVersion})`}</span>}
+                    {server.permissions?.canAdmin ? (
+                      <button
+                        type="button"
+                        onClick={() => { setEditingTagServer(server.name); setTagDraft(""); }}
+                        className={cn(
+                          "rounded-full border border-dashed px-3 py-1 text-xs transition-opacity",
+                          showTagControls
+                            ? "opacity-100 border-[#0078D4]/30 bg-[#0078D4]/10 text-[#4db3ff]"
+                            : "pointer-events-none border-transparent opacity-0",
+                        )}
+                      >
+                        + add tag
+                      </button>
+                    ) : null}
+                  </div>
+                  {editingTagServer === server.name ? (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <input
+                        value={tagDraft}
+                        onChange={(event) => setTagDraft(event.target.value)}
+                        onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void saveInlineTag(server); } }}
+                        placeholder="new-tag"
+                        className="rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-3 py-1.5 text-xs text-gray-900 dark:text-[#f2f2f2] focus:border-[#0078D4]/40 focus:outline-none"
+                      />
+                      <button type="button" onClick={() => void saveInlineTag(server)} disabled={!tagDraft.trim() || tagSavingServer === server.name} className="inline-flex items-center gap-1 rounded-lg bg-[#0078D4] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50">
+                        {tagSavingServer === server.name ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                        Add
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="hidden flex-shrink-0 items-center gap-1 sm:flex" onClick={(e) => e.stopPropagation()}>
+            {server.status === "stopped" ? (
+              server.permissions?.canStart ? (
+                <button onClick={() => void doAction(server.name, "start")} disabled={!!actionLoading[server.name]} title="Start server" className="flex min-h-[44px] items-center gap-2 rounded-xl border border-green-500/30 bg-green-500/15 px-3 text-sm font-medium text-green-300 transition-colors hover:bg-green-500/25 disabled:opacity-50">
+                  {actionLoading[server.name] === "start" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+                  <span>Start</span>
+                </button>
+              ) : null
+            ) : (
+              <>
+                {server.permissions?.canAdmin ? (
+                  <button onClick={() => void doAction(server.name, "restart")} disabled={!!actionLoading[server.name]} title="Restart" className="flex min-h-[44px] items-center gap-2 rounded-xl bg-[#222] px-3 text-sm text-gray-500 dark:text-[#888] transition-colors hover:bg-gray-100 dark:hover:bg-[#2a2a2a] hover:text-gray-700 dark:hover:text-[#bbb] disabled:opacity-50">
+                    {actionLoading[server.name] === "restart" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+                    <span>Restart</span>
+                  </button>
+                ) : null}
+                {server.permissions?.canStop ? (
+                  <button onClick={() => void doAction(server.name, "stop")} disabled={!!actionLoading[server.name]} title="Stop" className="flex min-h-[44px] items-center gap-2 rounded-xl bg-[#222] px-3 text-sm text-gray-500 dark:text-[#888] transition-colors hover:bg-red-500/15 hover:text-red-300 disabled:opacity-50">
+                    {actionLoading[server.name] === "stop" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Square className="h-4 w-4" />}
+                    <span>Stop</span>
+                  </button>
+                ) : null}
+              </>
+            )}
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-3 sm:hidden">
+          {[
+            { label: "Players", value: <span className="inline-flex items-center gap-1">{server.playerCount ?? 0}{playerTrend ? <span className={playerTrend.className}>{playerTrend.icon}</span> : null}</span> },
+            { label: "CPU", value: formatUsage(server.cpuUsage, server.cpuLimit, "cpu") },
+            { label: "Memory", value: formatUsage(server.memoryUsage, server.memoryLimit, "memory") },
+            { label: "Replicas", value: replicaSummary(server) },
+          ].map((metric) => (
+            <div key={metric.label} className="rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-3">
+              <p className="text-sm text-gray-500 dark:text-[#777]">{metric.label}</p>
+              <p className="mt-1 text-base font-semibold text-gray-900 dark:text-white">{metric.value}</p>
+            </div>
+          ))}
+        </div>
+        <div className={cn("hidden gap-2 text-sm text-gray-500 dark:text-[#888] sm:grid", viewMode === "compact" ? "sm:grid-cols-2 lg:grid-cols-5" : "sm:grid-cols-2")}>
+          <div className="flex items-center gap-2">Port: <span className="text-gray-700 dark:text-[#d4d4d4]">{connectionString || server.port || "—"}</span>{server.nodePort ? <button onClick={(event) => void copyConnection(event, server)} className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-gray-200 dark:border-[#2a2a2a] text-gray-500 transition-colors hover:text-[#4db3ff]"><Copy className="h-3.5 w-3.5" /></button> : null}</div>
+          <div>Memory: <span className="text-gray-700 dark:text-[#d4d4d4]">{server.memory || "—"}</span></div>
+          <div>CPU: <span className="text-gray-700 dark:text-[#d4d4d4]">{server.cpu || "—"}</span></div>
+          <div>Players: <span className="inline-flex items-center gap-1 text-gray-700 dark:text-[#d4d4d4]">{server.playerCount ?? 0}{playerTrend ? <span className={playerTrend.className}>{playerTrend.icon}</span> : null}</span></div>
+          <div>Last restart: <span className="text-gray-700 dark:text-[#d4d4d4]">{server.podStartTime ? timeAgo(server.podStartTime) : "—"}</span></div>
+          <div>Replicas: <span className="text-gray-700 dark:text-[#d4d4d4]">{replicaSummary(server)}</span></div>
+        </div>
+        {viewMode === "compact" && (cpuPercent !== null || memoryPercent !== null) ? (
+          <div className="space-y-2 rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-3">
+            {[
+              { label: "CPU", percent: cpuPercent },
+              { label: "RAM", percent: memoryPercent },
+            ].map((metric) => metric.percent !== null ? (
+              <div key={metric.label}>
+                <div className="mb-1 flex items-center justify-between text-[11px] text-gray-500 dark:text-[#888]">
+                  <span>{metric.label}</span>
+                  <span>{metric.percent}%</span>
+                </div>
+                <div className="h-1.5 overflow-hidden rounded-full bg-gray-100 dark:bg-[#222]">
+                  <div className={cn("h-full rounded-full", getUsageTone(metric.percent))} style={{ width: `${metric.percent}%` }} />
+                </div>
+              </div>
+            ) : null)}
+          </div>
+        ) : null}
+        <div className="grid grid-cols-2 gap-2 sm:hidden" onClick={(event) => event.stopPropagation()}>
+          <Link href={`/game-hub/${server.name}`} className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-2xl bg-[rgba(0,120,212,0.15)] px-4 text-sm font-semibold text-[#4db3ff] transition-colors hover:bg-[rgba(0,120,212,0.25)]">
+            <Terminal className="h-4 w-4" /> {server.permissions?.canConsole ? "Console" : "Details"}
+          </Link>
+          <button onClick={() => openServerActions(server.name)} className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-4 text-sm font-medium text-gray-700 dark:text-[#d4d4d4] transition-colors hover:border-[#3a3a3a] hover:text-gray-900 dark:hover:text-white">
+            <MoreVertical className="h-4 w-4" /> Actions
+          </button>
+        </div>
+        <div className="hidden items-center gap-2 flex-wrap sm:flex" onClick={(event) => event.stopPropagation()}>
+          {server.status === "stopped" ? (
+            server.permissions?.canStart ? (
+              <button onClick={() => void doAction(server.name, "start")} disabled={!!actionLoading[server.name]} className="flex min-h-[44px] items-center gap-2 rounded-xl bg-green-500/20 px-4 text-sm font-medium text-green-300 transition-colors hover:bg-green-500/30 disabled:opacity-50">
+                {actionLoading[server.name] === "start" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />} Start
+              </button>
+            ) : null
+          ) : (
+            <>
+              {server.permissions?.canStop ? (
+                <button onClick={() => void doAction(server.name, "stop")} disabled={!!actionLoading[server.name]} className="flex min-h-[44px] items-center gap-2 rounded-xl bg-gray-50 dark:bg-[#252525] px-4 text-sm font-medium text-gray-500 dark:text-[#9e9e9e] transition-colors hover:bg-gray-100 dark:hover:bg-[#2a2a2a] disabled:opacity-50">
+                  {actionLoading[server.name] === "stop" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Square className="h-4 w-4" />} Stop
+                </button>
+              ) : null}
+              {server.permissions?.canAdmin ? (
+                <button onClick={() => void doAction(server.name, "restart")} disabled={!!actionLoading[server.name]} className="flex min-h-[44px] items-center gap-2 rounded-xl bg-gray-50 dark:bg-[#252525] px-4 text-sm font-medium text-gray-500 dark:text-[#9e9e9e] transition-colors hover:bg-gray-100 dark:hover:bg-[#2a2a2a] disabled:opacity-50">
+                  {actionLoading[server.name] === "restart" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />} Restart
+                </button>
+              ) : null}
+            </>
+          )}
+          {server.permissions?.canAdmin ? (
+            <button onClick={() => void cloneServer(server.name)} className="flex min-h-[44px] items-center gap-2 rounded-xl bg-gray-50 dark:bg-[#252525] px-4 text-sm font-medium text-gray-500 dark:text-[#9e9e9e] transition-colors hover:bg-gray-100 dark:hover:bg-[#2a2a2a]">Clone</button>
+          ) : null}
+          <Link href={`/game-hub/${server.name}`} className="flex min-h-[44px] items-center gap-2 rounded-xl bg-[rgba(0,120,212,0.15)] px-4 text-sm font-medium text-[#0078D4] transition-colors hover:bg-[rgba(0,120,212,0.25)]">
+            <Terminal className="h-4 w-4" /> {server.permissions?.canConsole ? "Console" : "View"}
+          </Link>
+          {server.permissions?.canAdmin ? (
+            <button onClick={() => setDeleteConfirm({ open: true, name: server.name })} disabled={!!actionLoading[server.name]} className="ml-auto flex min-h-[44px] items-center gap-2 rounded-xl bg-red-500/10 px-4 text-sm font-medium text-red-400 transition-colors hover:bg-red-500/20 disabled:opacity-50">
+              {actionLoading[server.name] === "delete" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />} Delete
+            </button>
+          ) : null}
+        </div>
+      </motion.div>
+    );
   }
 
   return (
@@ -986,6 +1313,20 @@ export default function GameHubPage() {
         </div>
       </div>
 
+      {uniqueGameTypes.length > 0 && (
+        <HorizontalScrollHint className={cn(mobileFiltersOpen ? "block" : "hidden sm:block")} hint="Swipe game filters">
+          <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-none">
+            <button onClick={() => setFilterType("")} className={cn("inline-flex min-h-[44px] items-center gap-2 rounded-full border px-4 py-2 text-sm transition-colors whitespace-nowrap", !filterType ? "border-[#0078D4]/30 bg-[#0078D4]/15 text-[#4db3ff]" : "border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-500 dark:text-[#777] hover:text-gray-700 dark:hover:text-[#ccc]")}>All <span className="rounded-full bg-black/10 px-2 py-0.5 text-[11px] dark:bg-white/10">{servers.length}</span></button>
+            {gameTypeCounts.map(({ type, count }) => (
+              <button key={type} onClick={() => setFilterType((current) => current === type ? "" : type)} className={cn("inline-flex min-h-[44px] items-center gap-2 rounded-full border px-4 py-2 text-sm transition-colors whitespace-nowrap", filterType === type ? "border-[#0078D4]/30 bg-[#0078D4]/15 text-[#4db3ff]" : "border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-500 dark:text-[#777] hover:text-gray-700 dark:hover:text-[#ccc]")}>
+                <span className="capitalize">{type.replace(/-/g, " ")}</span>
+                <span className="rounded-full bg-black/10 px-2 py-0.5 text-[11px] dark:bg-white/10">{count}</span>
+              </button>
+            ))}
+          </div>
+        </HorizontalScrollHint>
+      )}
+
       {allTags.length > 0 && (
         <HorizontalScrollHint className={cn(mobileFiltersOpen ? "block" : "hidden sm:block")} hint="Swipe tags and groups">
           <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-none">
@@ -1079,155 +1420,38 @@ export default function GameHubPage() {
         </div>
       )}
 
-      <div className={cn("grid gap-3 sm:gap-4", viewMode === "compact" ? "grid-cols-1" : "grid-cols-1 sm:grid-cols-2 xl:grid-cols-3")}>
-        <AnimatePresence>
-          {filteredServers.map((server, index) => {
-            const health = healthBadge(server);
-            const cardIcon = server.icon ?? server.gameType[0]?.toUpperCase() ?? "🎮";
-            const stoppedStyle = server.status === "stopped" ? "border-amber-500/30 bg-amber-500/10 text-amber-300" : (STATUS_COLORS[server.status] ?? STATUS_COLORS.stopped);
+      {hasGroupedServers ? (
+        <div className="space-y-4">
+          {groupedSections.map((section) => {
+            const expanded = expandedGroups[section.name] ?? true;
             return (
-              <motion.div
-                key={server.name}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                transition={{ delay: index * 0.05 }}
-                className={cn("flex flex-col rounded-2xl border bg-white dark:bg-[#1a1a1a] transition-colors", viewMode === "compact" ? "gap-3 p-3 sm:p-4" : "gap-3 p-3 sm:gap-4 sm:p-5", compareMode ? "cursor-pointer" : "cursor-pointer hover:border-[#3a3a3a]", compareSet.has(server.name) ? "border-[#0078D4] ring-1 ring-[#0078D4]/40" : "border-gray-200 dark:border-[#2a2a2a]")}
-                onPointerDown={() => startLongPress(server.name)}
-                onPointerUp={clearLongPress}
-                onPointerLeave={clearLongPress}
-                onPointerCancel={clearLongPress}
-                onClick={() => {
-                  if (longPressTriggeredRef.current) {
-                    longPressTriggeredRef.current = false;
-                    return;
-                  }
-                  if (compareMode) toggleCompare(server.name);
-                  else router.push(`/game-hub/${server.name}`);
-                }}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex min-w-0 items-start gap-3">
-                    <div className="flex flex-col items-center gap-2 pt-1">
-                      <button onClick={(event) => { event.stopPropagation(); toggleFavorite(server.name); }} className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-400 dark:text-[#666] transition-colors hover:border-[#3a3a3a] hover:text-yellow-300" title={favorites.has(server.name) ? "Remove favorite" : "Favorite server"}>
-                        <Star className={cn("h-4 w-4", favorites.has(server.name) && "fill-yellow-300 text-yellow-300")} />
-                      </button>
-                      <button onClick={(event) => { event.stopPropagation(); toggleSelected(server.name); }} className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-400 dark:text-[#666] transition-colors hover:border-[#3a3a3a] hover:text-gray-900 dark:hover:text-white">
-                        {selected.has(server.name) ? <CheckSquare className="h-4 w-4 text-[#0078D4]" /> : <SquareIcon className="h-4 w-4 text-gray-400 dark:text-[#666]" />}
-                      </button>
-                    </div>
-                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gray-50 dark:bg-[#252525] text-2xl flex-shrink-0">{cardIcon}</div>
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="truncate text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">{server.name}</p>
-                        <span className={cn("rounded-full border px-3 py-1 text-sm font-medium capitalize", stoppedStyle)}>{server.status}</span>
-                        <span className={cn("rounded-full border px-3 py-1 text-sm font-medium", health.className)}>{server.status === "stopped" ? "Stopped" : `Health ${health.label}`}</span>
-                        <span className={cn("rounded-full border px-3 py-1 text-sm font-medium", server.inGit ? "border-green-500/30 bg-green-500/10 text-green-300" : "border-gray-200 dark:border-[#444] bg-gray-50 dark:bg-[#252525] text-gray-600 dark:text-[#b3b3b3]")}>{server.inGit ? "IaC tracked" : "Cluster-only"}</span>
-                      </div>
-                      <p className="mt-1 text-sm capitalize text-gray-500 dark:text-[#888]">{server.gameType.replace(/-/g, " ")}</p>
-                      {server.description ? <p className="mt-2 text-sm text-gray-600 dark:text-[#b3b3b3] line-clamp-2">{server.description}</p> : null}
-                      {((server.tags ?? []).length > 0 || (server.groups ?? []).length > 0 || server.imageVersion) && (
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          {(server.tags ?? []).map((tag) => <span key={tag} className="rounded-full border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-3 py-1 text-sm text-gray-500 dark:text-[#9e9e9e] sm:text-xs">#{tag}</span>)}
-                          {(server.groups ?? []).map((group) => <span key={group} className="rounded-full border border-green-500/20 bg-green-500/10 px-3 py-1 text-sm text-green-300 sm:text-xs">@{group}</span>)}
-                          {server.imageVersion && <span className={cn("rounded-full border px-3 py-1 text-sm sm:text-xs", server.imagePinned ? "bg-white dark:bg-[#111] border-gray-200 dark:border-[#2a2a2a] text-gray-500 dark:text-[#9e9e9e]" : "bg-yellow-500/10 border-yellow-500/20 text-yellow-200")}>{server.imagePinned ? `v${server.imageVersion}` : `latest (${server.imageVersion})`}</span>}
-                        </div>
-                      )}
-                    </div>
+              <div key={section.name} className="space-y-3">
+                <button onClick={() => setExpandedGroups((current) => ({ ...current, [section.name]: !expanded }))} className="flex w-full items-center justify-between rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-4 py-3 text-left">
+                  <div className="flex items-center gap-2">
+                    {expanded ? <FolderOpen className="h-4 w-4 text-[#4db3ff]" /> : <Folder className="h-4 w-4 text-[#4db3ff]" />}
+                    <span className="text-sm font-medium text-gray-900 dark:text-[#f2f2f2]">{section.name}</span>
+                    <span className="rounded-full border border-gray-200 dark:border-[#2a2a2a] px-2 py-0.5 text-[11px] text-gray-500 dark:text-[#888]">{section.servers.length}</span>
                   </div>
-                  <div className="hidden flex-shrink-0 items-center gap-1 sm:flex" onClick={(e) => e.stopPropagation()}>
-                    {server.status === "stopped" ? (
-                      server.permissions?.canStart ? (
-                        <button onClick={() => void doAction(server.name, "start")} disabled={!!actionLoading[server.name]} title="Start server" className="flex min-h-[44px] items-center gap-2 rounded-xl border border-green-500/30 bg-green-500/15 px-3 text-sm font-medium text-green-300 transition-colors hover:bg-green-500/25 disabled:opacity-50">
-                          {actionLoading[server.name] === "start" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-                          <span>Start</span>
-                        </button>
-                      ) : null
-                    ) : (
-                      <>
-                        {server.permissions?.canAdmin ? (
-                          <button onClick={() => void doAction(server.name, "restart")} disabled={!!actionLoading[server.name]} title="Restart" className="flex min-h-[44px] items-center gap-2 rounded-xl bg-[#222] px-3 text-sm text-gray-500 dark:text-[#888] transition-colors hover:bg-gray-100 dark:hover:bg-[#2a2a2a] hover:text-gray-700 dark:hover:text-[#bbb] disabled:opacity-50">
-                            {actionLoading[server.name] === "restart" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
-                            <span>Restart</span>
-                          </button>
-                        ) : null}
-                        {server.permissions?.canStop ? (
-                          <button onClick={() => void doAction(server.name, "stop")} disabled={!!actionLoading[server.name]} title="Stop" className="flex min-h-[44px] items-center gap-2 rounded-xl bg-[#222] px-3 text-sm text-gray-500 dark:text-[#888] transition-colors hover:bg-red-500/15 hover:text-red-300 disabled:opacity-50">
-                            {actionLoading[server.name] === "stop" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Square className="h-4 w-4" />}
-                            <span>Stop</span>
-                          </button>
-                        ) : null}
-                      </>
-                    )}
+                  {expanded ? <ChevronUp className="h-4 w-4 text-gray-400" /> : <ChevronDown className="h-4 w-4 text-gray-400" />}
+                </button>
+                {expanded ? (
+                  <div className={cardGridClass}>
+                    <AnimatePresence>
+                      {section.servers.map((server, index) => renderServerCard(server, index))}
+                    </AnimatePresence>
                   </div>
-                </div>
-                <div className="grid grid-cols-2 gap-3 sm:hidden">
-                  {[
-                    { label: "Players", value: String(server.playerCount ?? 0) },
-                    { label: "CPU", value: formatUsage(server.cpuUsage, server.cpuLimit, "cpu") },
-                    { label: "Memory", value: formatUsage(server.memoryUsage, server.memoryLimit, "memory") },
-                    { label: "Replicas", value: replicaSummary(server) },
-                  ].map((metric) => (
-                    <div key={metric.label} className="rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-3">
-                      <p className="text-sm text-gray-500 dark:text-[#777]">{metric.label}</p>
-                      <p className="mt-1 text-base font-semibold text-gray-900 dark:text-white">{metric.value}</p>
-                    </div>
-                  ))}
-                </div>
-                <div className={cn("hidden gap-2 text-sm text-gray-500 dark:text-[#888] sm:grid", viewMode === "compact" ? "sm:grid-cols-2 lg:grid-cols-5" : "sm:grid-cols-2")}>
-                  <div>Port: <span className="text-gray-700 dark:text-[#d4d4d4]">{server.nodePort || server.port || "—"}</span></div>
-                  <div>Memory: <span className="text-gray-700 dark:text-[#d4d4d4]">{server.memory || "—"}</span></div>
-                  <div>CPU: <span className="text-gray-700 dark:text-[#d4d4d4]">{server.cpu || "—"}</span></div>
-                  <div>Players: <span className="text-gray-700 dark:text-[#d4d4d4]">{server.playerCount ?? 0}</span></div>
-                  <div>Last restart: <span className="text-gray-700 dark:text-[#d4d4d4]">{server.podStartTime ? timeAgo(server.podStartTime) : "—"}</span></div>
-                  <div>Replicas: <span className="text-gray-700 dark:text-[#d4d4d4]">{replicaSummary(server)}</span></div>
-                </div>
-                <div className="grid grid-cols-2 gap-2 sm:hidden" onClick={(event) => event.stopPropagation()}>
-                  <Link href={`/game-hub/${server.name}`} className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-2xl bg-[rgba(0,120,212,0.15)] px-4 text-sm font-semibold text-[#4db3ff] transition-colors hover:bg-[rgba(0,120,212,0.25)]">
-                    <Terminal className="h-4 w-4" /> {server.permissions?.canConsole ? "Console" : "Details"}
-                  </Link>
-                  <button onClick={() => openServerActions(server.name)} className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-4 text-sm font-medium text-gray-700 dark:text-[#d4d4d4] transition-colors hover:border-[#3a3a3a] hover:text-gray-900 dark:hover:text-white">
-                    <MoreVertical className="h-4 w-4" /> Actions
-                  </button>
-                </div>
-                <div className="hidden items-center gap-2 flex-wrap sm:flex" onClick={(event) => event.stopPropagation()}>
-                  {server.status === "stopped" ? (
-                    server.permissions?.canStart ? (
-                      <button onClick={() => void doAction(server.name, "start")} disabled={!!actionLoading[server.name]} className="flex min-h-[44px] items-center gap-2 rounded-xl bg-green-500/20 px-4 text-sm font-medium text-green-300 transition-colors hover:bg-green-500/30 disabled:opacity-50">
-                        {actionLoading[server.name] === "start" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />} Start
-                      </button>
-                    ) : null
-                  ) : (
-                    <>
-                      {server.permissions?.canStop ? (
-                        <button onClick={() => void doAction(server.name, "stop")} disabled={!!actionLoading[server.name]} className="flex min-h-[44px] items-center gap-2 rounded-xl bg-gray-50 dark:bg-[#252525] px-4 text-sm font-medium text-gray-500 dark:text-[#9e9e9e] transition-colors hover:bg-gray-100 dark:hover:bg-[#2a2a2a] disabled:opacity-50">
-                          {actionLoading[server.name] === "stop" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Square className="h-4 w-4" />} Stop
-                        </button>
-                      ) : null}
-                      {server.permissions?.canAdmin ? (
-                        <button onClick={() => void doAction(server.name, "restart")} disabled={!!actionLoading[server.name]} className="flex min-h-[44px] items-center gap-2 rounded-xl bg-gray-50 dark:bg-[#252525] px-4 text-sm font-medium text-gray-500 dark:text-[#9e9e9e] transition-colors hover:bg-gray-100 dark:hover:bg-[#2a2a2a] disabled:opacity-50">
-                          {actionLoading[server.name] === "restart" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />} Restart
-                        </button>
-                      ) : null}
-                    </>
-                  )}
-                  {server.permissions?.canAdmin ? (
-                    <button onClick={() => void cloneServer(server.name)} className="flex min-h-[44px] items-center gap-2 rounded-xl bg-gray-50 dark:bg-[#252525] px-4 text-sm font-medium text-gray-500 dark:text-[#9e9e9e] transition-colors hover:bg-gray-100 dark:hover:bg-[#2a2a2a]">Clone</button>
-                  ) : null}
-                  <Link href={`/game-hub/${server.name}`} className="flex min-h-[44px] items-center gap-2 rounded-xl bg-[rgba(0,120,212,0.15)] px-4 text-sm font-medium text-[#0078D4] transition-colors hover:bg-[rgba(0,120,212,0.25)]">
-                    <Terminal className="h-4 w-4" /> {server.permissions?.canConsole ? "Console" : "View"}
-                  </Link>
-                  {server.permissions?.canAdmin ? (
-                    <button onClick={() => setDeleteConfirm({ open: true, name: server.name })} disabled={!!actionLoading[server.name]} className="ml-auto flex min-h-[44px] items-center gap-2 rounded-xl bg-red-500/10 px-4 text-sm font-medium text-red-400 transition-colors hover:bg-red-500/20 disabled:opacity-50">
-                      {actionLoading[server.name] === "delete" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />} Delete
-                    </button>
-                  ) : null}
-                </div>
-              </motion.div>
+                ) : null}
+              </div>
             );
           })}
-        </AnimatePresence>
-      </div>
+        </div>
+      ) : (
+        <div className={cardGridClass}>
+          <AnimatePresence>
+            {filteredServers.map((server, index) => renderServerCard(server, index))}
+          </AnimatePresence>
+        </div>
+      )}
 
       {compareMode && comparedServers.length >= 2 && (
         <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] overflow-hidden">

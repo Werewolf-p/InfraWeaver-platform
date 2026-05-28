@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { GAME_HUB_NS, getServerPod, makeGameHubClients } from "@/lib/game-hub-server";
-import { safeError } from "@/lib/utils";
 
 function serverStatus(deployment: { spec?: { replicas?: number }; status?: { readyReplicas?: number; replicas?: number } }) {
   if ((deployment.spec?.replicas ?? 0) === 0) return "stopped" as const;
@@ -51,6 +50,6 @@ export async function GET() {
     });
   } catch (error) {
     console.error("public status route failed", error);
-    return NextResponse.json({ error: safeError(error) }, { status: 500 });
+    return NextResponse.json({ error: "Status unavailable" }, { status: 503 });
   }
 }

@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@/lib/auth";
 import { getClusterConfig, getRequestClusterId } from "@/lib/cluster-context";
 
-// NOTE: This endpoint is intentionally public — used as the k8s liveness/readiness probe.
-// Sensitive health data (timeline, cluster status) is protected on separate authenticated routes.
+// NOTE: This endpoint remains probe-friendly for anonymous callers, but only
+// returns detailed Gatus endpoint data to authenticated sessions.
 export async function GET(request: NextRequest) {
   const clusterId = getRequestClusterId(request);
   const clusterConfig = getClusterConfig(clusterId);
@@ -13,7 +14,7 @@ export async function GET(request: NextRequest) {
       cache: "no-store",
       signal: AbortSignal.timeout(5000),
     });
-    if (!res.ok) return NextResponse.json({ endpoints: [], available: false, error: `Gatus returned ${res.status}` }, { status: 503 });
+    if (!res.ok) return NextResponse.json({ available: false, status: "degraded" }, { status: 503 });
 
     const raw = await res.json() as unknown;
 
@@ -40,8 +41,23 @@ export async function GET(request: NextRequest) {
       return { name: ep.name ?? "Unknown", group: ep.group ?? "", results };
     });
 
-    return NextResponse.json({ endpoints, available: true });
+    const degraded = endpoints.filter((endpoint) => endpoint.results.some((result) => !result.success)).length;
+    const status = degraded > 0 ? "degraded" : "ok";
+    const session = await auth();
+    if (!session) {
+      return NextResponse.json({ available: true, status });
+    }
+
+    return NextResponse.json({
+      available: true,
+      status,
+      summary: {
+        total: endpoints.length,
+        degraded,
+      },
+      endpoints,
+    });
   } catch {
-    return NextResponse.json({ endpoints: [], available: false, error: "Gatus unreachable" }, { status: 503 });
+    return NextResponse.json({ available: false, status: "degraded" }, { status: 503 });
   }
 }

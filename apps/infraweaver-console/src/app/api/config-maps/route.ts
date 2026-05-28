@@ -1,8 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { getRequestClusterId } from "@/lib/cluster-context";
 import { iwApiFetch } from "@/lib/iw-api";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
+
+const namespaceSchema = z.string().min(1).max(63).regex(/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/);
+const resourceNameSchema = z.string().min(1).max(253).regex(/^[a-z0-9]([-.a-z0-9]*[a-z0-9])?$/);
+const configMapPatchSchema = z.object({
+  namespace: namespaceSchema,
+  name: resourceNameSchema,
+  data: z.record(z.string(), z.string()),
+}).strict();
+const configMapDeleteSchema = z.object({
+  namespace: namespaceSchema,
+  name: resourceNameSchema,
+}).strict();
 
 export async function GET(request: NextRequest) {
   const session = await auth();
@@ -26,9 +39,12 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   const clusterId = getRequestClusterId(request);
-  const body = await request.json();
-  const { namespace, name, data } = body;
-  if (!namespace || !name) return NextResponse.json({ error: "namespace and name are required" }, { status: 400 });
+  const rawBody = await request.json().catch(() => null);
+  const parsed = configMapPatchSchema.safeParse(rawBody);
+  if (!parsed.success) {
+    return NextResponse.json({ error: "Validation failed", details: parsed.error.flatten() }, { status: 400 });
+  }
+  const { namespace, name, data } = parsed.data;
   const res = await iwApiFetch(`/config-maps/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`, session, clusterId, { method: "PATCH", body: JSON.stringify({ data }) });
   return NextResponse.json(await res.json(), { status: res.status });
 }
@@ -41,8 +57,12 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   const clusterId = getRequestClusterId(request);
-  const { namespace, name } = await request.json().catch(() => ({ namespace: "", name: "" }));
-  if (!namespace || !name) return NextResponse.json({ error: "namespace and name are required" }, { status: 400 });
+  const rawBody = await request.json().catch(() => null);
+  const parsed = configMapDeleteSchema.safeParse(rawBody);
+  if (!parsed.success) {
+    return NextResponse.json({ error: "Validation failed", details: parsed.error.flatten() }, { status: 400 });
+  }
+  const { namespace, name } = parsed.data;
   const res = await iwApiFetch(`/config-maps/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`, session, clusterId, { method: "DELETE" });
   return NextResponse.json(await res.json(), { status: res.status });
 }
