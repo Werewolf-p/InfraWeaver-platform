@@ -96,27 +96,24 @@ spec:
                 --config credential.helper='!f() { echo "username=admin"; echo "password=ExkI2kJ2RRf7xoaEsuVErkXR"; }; f'
 
               cd /workspace/repo
-              HEAD_SHA=$(git rev-parse --short HEAD)
-              COMMIT_MSG=$(git log -1 --format="%s")
 
-              # Prevent infinite loop: skip if last commit was a CI manifest update
-              if echo "$COMMIT_MSG" | grep -q "\[skip ci\]"; then
-                echo "Last commit is a CI manifest update. Skipping to prevent loop."
-                touch /workspace/skip
-                exit 0
+              # Find last CODE commit SHA (exclude [skip ci] manifest updates)
+              CODE_SHA=$(git log --format="%h %s" | grep -v "\[skip ci\]" | head -1 | awk '{print $1}')
+              if [ -z "$CODE_SHA" ]; then
+                CODE_SHA=$(git rev-parse --short HEAD)
               fi
 
               MANIFEST_TAG=$(grep -o "${REGISTRY}/infraweaver-console:[^ ]*" \
                 kubernetes/catalog/infraweaver-console/manifests/deployment.yaml | cut -d: -f2)
 
-              echo "HEAD: main-${HEAD_SHA} | Manifest: ${MANIFEST_TAG}"
+              echo "Last code commit: main-${CODE_SHA} | Manifest: ${MANIFEST_TAG}"
 
-              if [ "${MANIFEST_TAG}" = "main-${HEAD_SHA}" ]; then
+              if [ "${MANIFEST_TAG}" = "main-${CODE_SHA}" ]; then
                 echo "Already up to date. Skipping build."
                 touch /workspace/skip
               else
-                echo "main-${HEAD_SHA}" > /workspace/build-tag
-                echo "Build needed: ${MANIFEST_TAG} -> main-${HEAD_SHA}"
+                echo "main-${CODE_SHA}" > /workspace/build-tag
+                echo "Build needed: ${MANIFEST_TAG} -> main-${CODE_SHA}"
               fi
             volumeMounts:
             - name: workspace
@@ -232,6 +229,8 @@ spec:
                 echo "Manifests already up to date."
               else
                 git commit -m "ci: update image tags to ${BUILD_TAG} [skip ci]"
+                # Rebase in case new commits were pushed during our build
+                git pull --rebase http://admin:ExkI2kJ2RRf7xoaEsuVErkXR@onedev.onedev.svc.cluster.local/InfraWeaver-platform/ main
                 git push http://admin:ExkI2kJ2RRf7xoaEsuVErkXR@onedev.onedev.svc.cluster.local/InfraWeaver-platform/ HEAD:main
                 echo "Pushed manifest updates — ArgoCD will deploy shortly."
               fi
