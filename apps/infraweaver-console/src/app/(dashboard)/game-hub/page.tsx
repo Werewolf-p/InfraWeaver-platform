@@ -850,6 +850,7 @@ export default function GameHubPage() {
   }
 
   return (
+    <>
     <div className="space-y-6">
       <AnimatePresence>
         {showPVCCleanup && <PVCCleanupModal onClose={() => setShowPVCCleanup(false)} />}
@@ -1345,5 +1346,6 @@ export default function GameHubPage() {
       }}
       onCancel={() => setDeleteConfirm(d => ({ ...d, open: false }))}
     />
+    </>
   );
 }
