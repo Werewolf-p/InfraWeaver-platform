@@ -2,7 +2,7 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect, useMemo, useRef } from "react";
-import { Server, Plus, Lock, RefreshCw, Zap, Link2, Loader2, Copy, Check, ChevronDown, Activity, Layers, BarChart2, GitBranch, Pencil, Save, X, Download, Settings2, ArrowRightLeft, MemoryStick, AlertTriangle, Bell, Globe } from "lucide-react";
+import { Server, Plus, Lock, RefreshCw, Zap, Link2, Loader2, Copy, Check, ChevronDown, Activity, Layers, BarChart2, GitBranch, Pencil, Save, X, Download, Settings2, ArrowRightLeft, MemoryStick, AlertTriangle, Bell, Globe, Radio, ShieldCheck, ShieldX } from "lucide-react";
 import { useRBAC } from "@/hooks/use-rbac";
 import { cn, timeAgo } from "@/lib/utils";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -843,9 +843,135 @@ export default function ClusterPage() {
     window.location.href = "/api/cluster/export";
   };
 
+  // ── Agent approval ────────────────────────────────────────────────────────
+  const [approvingAgent, setApprovingAgent] = useState<string | null>(null);
+  const [rejectingAgent, setRejectingAgent] = useState<string | null>(null);
+
+  const { data: agentData, refetch: refetchAgents } = useQuery<{
+    agents: Array<{ clusterId: string; connectedAt: string; lastHeartbeat: string; status: { nodeCount: number; podCount: number; ready: boolean } }>;
+    pending: Array<{ agentId: string; clusterName: string; clusterCaFingerprint: string; receivedAt: string }>;
+  }>({
+    queryKey: ["agents"],
+    queryFn: () => fetch("/api/agents").then(r => r.json()),
+    refetchInterval: 8_000,
+  });
+
+  async function approveAgent(agentId: string) {
+    setApprovingAgent(agentId);
+    try {
+      const res = await fetch(`/api/agents/${encodeURIComponent(agentId)}/approve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clusterId: "prod-cluster", clusterName: "Production Cluster", environment: "production" }),
+      });
+      const data = await res.json() as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Approval failed");
+      toast.success("Agent approved — waiting for node to connect");
+      await refetchAgents();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setApprovingAgent(null);
+    }
+  }
+
+  async function rejectAgent(agentId: string) {
+    setRejectingAgent(agentId);
+    try {
+      const res = await fetch(`/api/agents/${encodeURIComponent(agentId)}/reject`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: "Rejected by admin" }),
+      });
+      const data = await res.json() as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Reject failed");
+      toast.success("Agent rejected");
+      await refetchAgents();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setRejectingAgent(null);
+    }
+  }
+  // ── end agent approval ────────────────────────────────────────────────────
+
   return (
     <div>
       <PageHeader icon={Server} title="Cluster Nodes" subtitle="Node management and cluster overview" />
+
+      {/* ── Agent status (connected + pending approval) ───────────────────── */}
+      {agentData && (agentData.agents.length > 0 || agentData.pending.length > 0) && (
+        <div className="mb-4 space-y-3 sm:mb-6">
+          {agentData.pending.length > 0 && (
+            <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
+              <div className="mb-3 flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-amber-400" />
+                <span className="text-sm font-semibold text-amber-300">
+                  {agentData.pending.length} agent{agentData.pending.length !== 1 ? "s" : ""} awaiting approval
+                </span>
+              </div>
+              <div className="space-y-2">
+                {agentData.pending.map((agent) => (
+                  <div key={agent.agentId} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-500/20 bg-black/20 px-4 py-3">
+                    <div>
+                      <p className="text-sm font-medium text-gray-900 dark:text-white">{agent.clusterName}</p>
+                      <p className="mt-0.5 font-mono text-[11px] text-gray-400 dark:text-[#666]">{agent.agentId}</p>
+                      <p className="text-[11px] text-gray-500 dark:text-[#777]">
+                        Connected {new Date(agent.receivedAt).toLocaleTimeString()} · CA {agent.clusterCaFingerprint.slice(0, 16)}…
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => approveAgent(agent.agentId)}
+                        disabled={approvingAgent === agent.agentId}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-green-500 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {approvingAgent === agent.agentId ? <Loader2 className="h-3 w-3 animate-spin" /> : <ShieldCheck className="h-3 w-3" />}
+                        Approve
+                      </button>
+                      <button
+                        onClick={() => rejectAgent(agent.agentId)}
+                        disabled={rejectingAgent === agent.agentId}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-400 transition-colors hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {rejectingAgent === agent.agentId ? <Loader2 className="h-3 w-3 animate-spin" /> : <ShieldX className="h-3 w-3" />}
+                        Reject
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {agentData.agents.length > 0 && (
+            <div className="rounded-xl border border-green-500/20 bg-green-500/5 p-4">
+              <div className="mb-3 flex items-center gap-2">
+                <Radio className="h-4 w-4 text-green-400" />
+                <span className="text-sm font-semibold text-green-300">
+                  {agentData.agents.length} agent{agentData.agents.length !== 1 ? "s" : ""} connected
+                </span>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {agentData.agents.map((agent) => (
+                  <div key={agent.clusterId} className="rounded-lg border border-green-500/15 bg-black/20 px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <span className="h-2 w-2 rounded-full bg-green-400" />
+                      <span className="text-sm font-medium text-gray-900 dark:text-white">{agent.clusterId}</span>
+                    </div>
+                    <p className="mt-1 text-[11px] text-gray-500 dark:text-[#777]">
+                      {agent.status.nodeCount} nodes · {agent.status.podCount} pods ·
+                      heartbeat {timeAgo(new Date(agent.lastHeartbeat))}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Main cluster content ──────────────────────────────────────────── */}
       <div className="relative mb-4 overflow-hidden rounded-xl sm:mb-6">
         <div className="relative flex flex-wrap items-start justify-between gap-3 p-4 sm:gap-4 sm:p-5">
           <div>
