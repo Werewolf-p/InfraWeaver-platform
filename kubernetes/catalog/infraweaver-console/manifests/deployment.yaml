@@ -6,7 +6,7 @@ metadata:
   labels:
     app: infraweaver-console
 spec:
-  replicas: 2
+  replicas: 1
   revisionHistoryLimit: 3
   progressDeadlineSeconds: 600
   # minReadySeconds ensures a new pod must be stable for 30s before old pod terminates.
