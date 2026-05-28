@@ -1836,6 +1836,7 @@ function SettingsAccordion({
 function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
   const queryClient = useQueryClient();
   const envImportRef = useRef<HTMLInputElement>(null);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const defaultEgg = getEggForGameType(server.gameType);
   const defaultEnv = Object.fromEntries(
     (defaultEgg.environment ?? []).map((entry) => [
@@ -3767,7 +3768,6 @@ export default function ServerDetailPage() {
   });
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [mobileActionSheetOpen, setMobileActionSheetOpen] = useState(false);
-  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const queryClient = useQueryClient();
 
   const {
