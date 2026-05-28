@@ -27,19 +27,29 @@ function buildClusterWebSocketUrl(hubUrl: string, clusterId: string): string {
   return url.toString()
 }
 
-async function withRetry<T>(fn: () => Promise<T>, label: string, maxAttempts = 12, baseDelayMs = 5000): Promise<T> {
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  label: string,
+  maxAttempts = 12,
+  baseDelayMs = 5000,
+  isRetryable?: (error: Error) => boolean,
+): Promise<T> {
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       return await fn()
     } catch (error) {
-      const isTransient = (error as NodeJS.ErrnoException).code === 'EAI_AGAIN' ||
-        (error as NodeJS.ErrnoException).code === 'ECONNREFUSED' ||
-        (error as NodeJS.ErrnoException).code === 'ENOTFOUND' ||
-        (error as Error).message?.includes('getaddrinfo') ||
-        (error as Error).message?.includes('ECONNREFUSED')
-      if (attempt < maxAttempts && isTransient) {
+      const msg = (error as Error).message ?? ''
+      const code = (error as NodeJS.ErrnoException).code
+      const defaultRetryable =
+        code === 'EAI_AGAIN' ||
+        code === 'ECONNREFUSED' ||
+        code === 'ENOTFOUND' ||
+        msg.includes('getaddrinfo') ||
+        msg.includes('ECONNREFUSED')
+      const shouldRetry = isRetryable ? isRetryable(error as Error) : defaultRetryable
+      if (attempt < maxAttempts && shouldRetry) {
         const delay = Math.min(baseDelayMs * attempt, 60000)
-        console.log(`[infraweaver-node] ${label} failed (attempt ${attempt}/${maxAttempts}), retrying in ${delay}ms: ${(error as Error).message}`)
+        console.log(`[infraweaver-node] ${label} failed (attempt ${attempt}/${maxAttempts}), retrying in ${delay}ms: ${msg}`)
         await new Promise((resolve) => setTimeout(resolve, delay))
       } else {
         throw error
@@ -49,8 +59,55 @@ async function withRetry<T>(fn: () => Promise<T>, label: string, maxAttempts = 1
   throw new Error(`${label} failed after ${maxAttempts} attempts`)
 }
 
+// Discovery errors that should trigger a retry (timeout, connectivity) vs hard stop (rejected by admin)
+function isDiscoveryRetryable(error: Error): boolean {
+  const msg = error.message ?? ''
+  const code = (error as NodeJS.ErrnoException).code
+  if (msg.includes('rejected by admin')) return false
+  return (
+    code === 'EAI_AGAIN' ||
+    code === 'ECONNREFUSED' ||
+    code === 'ENOTFOUND' ||
+    msg.includes('timed out') ||
+    msg.includes('closed') ||
+    msg.includes('websocket') ||
+    msg.includes('getaddrinfo') ||
+    msg.includes('ECONNREFUSED')
+  )
+}
+
 async function main() {
   console.log('[infraweaver-node] Starting...')
+
+  // Start health server immediately so the liveness probe never kills us while
+  // waiting for admin approval in discovery mode (which can take minutes).
+  const appState = { connected: false, shuttingDown: false }
+
+  const healthServer = createServer((req, res) => {
+    const path = req.url?.split('?')[0] ?? '/'
+
+    if (path === '/health') {
+      // Always 200 — the process is alive even before approval
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ status: 'ok', connected: appState.connected }))
+      return
+    }
+
+    if (path === '/ready') {
+      const ready = appState.connected && !appState.shuttingDown
+      res.writeHead(ready ? 200 : 503, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ status: ready ? 'ready' : 'not-ready', connected: appState.connected }))
+      return
+    }
+
+    res.writeHead(404, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ error: 'not-found' }))
+  })
+
+  await new Promise<void>((resolve) => {
+    healthServer.listen(HEALTH_PORT, resolve)
+  })
+  console.log(`[infraweaver-node] Health server listening on :${HEALTH_PORT}`)
 
   let state = await loadState()
 
@@ -61,7 +118,14 @@ async function main() {
       console.log(`[infraweaver-node] Registered as cluster: ${state.clusterId}`)
     } else {
       console.log('[infraweaver-node] No token set — entering discovery mode. Waiting for admin approval...')
-      state = await withRetry(() => discover({ hubUrl: HUB_URL }), 'discovery')
+      // Retry indefinitely on timeout/connectivity errors; stop only if explicitly rejected
+      state = await withRetry(
+        () => discover({ hubUrl: HUB_URL }),
+        'discovery',
+        Number.MAX_SAFE_INTEGER,
+        5000,
+        isDiscoveryRetryable,
+      )
       console.log(`[infraweaver-node] Approved as cluster: ${state.clusterId}`)
     }
   }
@@ -81,40 +145,19 @@ async function main() {
     client.send(response)
   })
 
-  client.on('connected', () => console.log('[infraweaver-node] Connected to Hub'))
-  client.on('disconnected', () => console.log('[infraweaver-node] Disconnected from Hub, reconnecting...'))
-
-  let shuttingDown = false
-  const healthServer = createServer((req, res) => {
-    const path = req.url?.split('?')[0] ?? '/'
-    const connected = client.isConnected()
-
-    if (path === '/health') {
-      res.writeHead(200, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ status: 'ok', connected }))
-      return
-    }
-
-    if (path === '/ready') {
-      const ready = connected && !shuttingDown
-      res.writeHead(ready ? 200 : 503, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ status: ready ? 'ready' : 'not-ready', connected }))
-      return
-    }
-
-    res.writeHead(404, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify({ error: 'not-found' }))
+  client.on('connected', () => {
+    appState.connected = true
+    console.log('[infraweaver-node] Connected to Hub')
   })
-
-  await new Promise<void>((resolve) => {
-    healthServer.listen(HEALTH_PORT, resolve)
+  client.on('disconnected', () => {
+    appState.connected = false
+    console.log('[infraweaver-node] Disconnected from Hub, reconnecting...')
   })
-  console.log(`[infraweaver-node] Health server listening on :${HEALTH_PORT}`)
 
   client.connect()
 
   const shutdown = () => {
-    shuttingDown = true
+    appState.shuttingDown = true
     client.disconnect()
     healthServer.close(() => process.exit(0))
     setTimeout(() => process.exit(0), 5_000).unref()
