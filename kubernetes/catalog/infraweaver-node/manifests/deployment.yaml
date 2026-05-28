@@ -38,7 +38,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: infraweaver-node
-          image: onedev.rlservers.com/infraweaver-platform/infraweaver-node:main-d97da89
+          image: onedev.rlservers.com/infraweaver-platform/infraweaver-node:main-4e58845
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 3001
