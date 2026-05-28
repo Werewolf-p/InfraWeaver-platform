@@ -57,7 +57,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: api
-          image: onedev.rlservers.com/infraweaver-platform/infraweaver-api:main-4e58845
+          image: onedev.rlservers.com/infraweaver-platform/infraweaver-api:main-b9bb7e1
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 3001
