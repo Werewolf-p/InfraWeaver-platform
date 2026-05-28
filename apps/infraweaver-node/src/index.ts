@@ -27,6 +27,28 @@ function buildClusterWebSocketUrl(hubUrl: string, clusterId: string): string {
   return url.toString()
 }
 
+async function withRetry<T>(fn: () => Promise<T>, label: string, maxAttempts = 12, baseDelayMs = 5000): Promise<T> {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn()
+    } catch (error) {
+      const isTransient = (error as NodeJS.ErrnoException).code === 'EAI_AGAIN' ||
+        (error as NodeJS.ErrnoException).code === 'ECONNREFUSED' ||
+        (error as NodeJS.ErrnoException).code === 'ENOTFOUND' ||
+        (error as Error).message?.includes('getaddrinfo') ||
+        (error as Error).message?.includes('ECONNREFUSED')
+      if (attempt < maxAttempts && isTransient) {
+        const delay = Math.min(baseDelayMs * attempt, 60000)
+        console.log(`[infraweaver-node] ${label} failed (attempt ${attempt}/${maxAttempts}), retrying in ${delay}ms: ${(error as Error).message}`)
+        await new Promise((resolve) => setTimeout(resolve, delay))
+      } else {
+        throw error
+      }
+    }
+  }
+  throw new Error(`${label} failed after ${maxAttempts} attempts`)
+}
+
 async function main() {
   console.log('[infraweaver-node] Starting...')
 
@@ -35,11 +57,11 @@ async function main() {
   if (!state) {
     if (REGISTRATION_TOKEN) {
       console.log('[infraweaver-node] No state found. Starting token registration...')
-      state = await register({ hubUrl: HUB_URL, token: REGISTRATION_TOKEN })
+      state = await withRetry(() => register({ hubUrl: HUB_URL, token: REGISTRATION_TOKEN! }), 'registration')
       console.log(`[infraweaver-node] Registered as cluster: ${state.clusterId}`)
     } else {
       console.log('[infraweaver-node] No token set — entering discovery mode. Waiting for admin approval...')
-      state = await discover({ hubUrl: HUB_URL })
+      state = await withRetry(() => discover({ hubUrl: HUB_URL }), 'discovery')
       console.log(`[infraweaver-node] Approved as cluster: ${state.clusterId}`)
     }
   }
