@@ -97,6 +97,15 @@ spec:
 
               cd /workspace/repo
               HEAD_SHA=$(git rev-parse --short HEAD)
+              COMMIT_MSG=$(git log -1 --format="%s")
+
+              # Prevent infinite loop: skip if last commit was a CI manifest update
+              if echo "$COMMIT_MSG" | grep -q "\[skip ci\]"; then
+                echo "Last commit is a CI manifest update. Skipping to prevent loop."
+                touch /workspace/skip
+                exit 0
+              fi
+
               MANIFEST_TAG=$(grep -o "${REGISTRY}/infraweaver-console:[^ ]*" \
                 kubernetes/catalog/infraweaver-console/manifests/deployment.yaml | cut -d: -f2)
 
