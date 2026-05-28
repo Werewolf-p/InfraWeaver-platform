@@ -60,7 +60,7 @@ async function getNamespace(): Promise<string> {
 
 async function readStateSecret(namespace: string): Promise<any | null> {
   try {
-    const response = await coreApi.readNamespacedSecret(STATE_SECRET_NAME, namespace)
+    const response = await coreApi.readNamespacedSecret({ name: STATE_SECRET_NAME, namespace })
     return response?.body ?? response
   } catch (error) {
     if (isNotFoundError(error)) {
@@ -120,9 +120,9 @@ export async function saveState(state: NodeState): Promise<void> {
   }
 
   if (existingSecret) {
-    await coreApi.replaceNamespacedSecret(STATE_SECRET_NAME, namespace, secretBody)
+    await coreApi.replaceNamespacedSecret({ name: STATE_SECRET_NAME, namespace, body: secretBody })
     return
   }
 
-  await coreApi.createNamespacedSecret(namespace, secretBody)
+  await coreApi.createNamespacedSecret({ namespace, body: secretBody })
 }
