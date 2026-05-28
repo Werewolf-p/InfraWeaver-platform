@@ -171,32 +171,65 @@ export const GAME_EGGS: Record<string, GameEgg> = {
   "minecraft-java": minecraftJava,
   terraria: {
     id: "terraria",
-    name: "Terraria",
-    description: "Terraria dedicated server using the terrariad image",
-    dockerImage: "ryshe/terrariad:latest",
-    startupCommand: "TerrariaServer -world /world/{{WORLD_NAME}}.wld -autocreate {{WORLD_SIZE}} -worldname {{WORLD_NAME}} -port 7777 -maxplayers {{MAX_PLAYERS}}",
+    name: "Terraria (TShock)",
+    description: "Terraria server powered by TShock — uses the Pelican .NET 9 yolk image (no Mono, no SIGSEGV). Install script downloads the latest TShock release on first launch.",
+    dockerImage: "ghcr.io/parkervcp/yolks:dotnet_9",
+    dockerImages: { "dotnet 9 (Recommended)": "ghcr.io/parkervcp/yolks:dotnet_9", "dotnet 6": "ghcr.io/parkervcp/yolks:dotnet_6" },
+    startupCommand: "./TShock.Server -ip 0.0.0.0 -port {{SERVER_PORT}} -maxplayers {{MAX_PLAYERS}} -world {{WORLD_NAME}}.wld -autocreate {{WORLD_SIZE}}",
     stopCommand: "exit",
+    startupReadySignal: "Type 'help' for a list of commands",
     gamePort: 7777,
-    mountPath: "/world",
+    mountPath: "/home/container",
     protocol: "TCP",
     ports: [{ name: "game", port: 7777, protocol: "TCP" }],
-    defaultMemory: "1Gi",
-    defaultCpu: "500m",
+    defaultMemory: "2Gi",
+    defaultCpu: "1",
     defaultStorage: "5Gi",
     connectionHint: "Connect from Terraria using the listed host and port.",
     environment: [
-      { name: "WORLD_SIZE", description: "World size (1=Small, 2=Medium, 3=Large)", defaultValue: "2", required: false },
-      { name: "WORLD_NAME", description: "World name", defaultValue: "World", required: false },
-      { name: "WORLD_FILENAME", description: "World file name", defaultValue: "World.wld", required: false },
-      { name: "MAX_PLAYERS", description: "Maximum players", defaultValue: "16", required: false },
-      { name: "SERVER_PASSWORD", description: "Optional join password", defaultValue: "", required: false },
-      { name: "RCON_PASSWORD", description: "Optional TShock RCON password", defaultValue: "", required: false },
-      { name: "TZ", description: "Container timezone", defaultValue: "UTC", required: false },
+      { name: "SERVER_PORT", description: "Game port", defaultValue: "7777", required: true, fieldType: "integer" as const },
+      { name: "MAX_PLAYERS", description: "Maximum players allowed", defaultValue: "8", required: true, fieldType: "integer" as const, rules: "required|numeric|digits_between:1,3" },
+      { name: "WORLD_SIZE", description: "World size: 1=Small, 2=Medium, 3=Large", defaultValue: "1", required: true, fieldType: "integer" as const, rules: "required|numeric|digits_between:1,3" },
+      { name: "WORLD_NAME", description: "World file name (no extension)", defaultValue: "world", required: true, rules: "required|string|max:20" },
+      { name: "TSHOCK_VERSION", description: "TShock version to install ('latest' for newest release)", defaultValue: "latest", required: true, rules: "required|string|max:20" },
     ],
     quickCommands: [
       ...standardQuickCommands({ status: "playing", list: "playing", help: "help" }),
       { label: "Save World", cmd: "save", description: "Save the current world" },
     ],
+    installScript: {
+      script: `#!/bin/bash
+# TShock Installation Script (Pelican egg)
+# Server Files: /mnt/server
+apt update
+apt install -y curl wget jq file unzip
+
+LATEST_JSON=$(curl --silent "https://api.github.com/repos/Pryaxis/TShock/releases/latest")
+RELEASES=$(curl --silent "https://api.github.com/repos/Pryaxis/TShock/releases")
+MATCH=$([[ "$(uname -m)" == "x86_64" ]] && echo "linux-x64" || echo "linux-arm64")
+
+if [ -z "$TSHOCK_VERSION" ] || [ "$TSHOCK_VERSION" == "latest" ]; then
+    DOWNLOAD_LINK=$(echo $LATEST_JSON | jq .assets | jq -r .[].browser_download_url | grep -i \${MATCH} | head -1)
+else
+    VERSION_CHECK=$(echo $RELEASES | jq -r --arg VERSION "$TSHOCK_VERSION" '.[] | select(.tag_name==$VERSION) | .tag_name')
+    if [ "$TSHOCK_VERSION" == "$VERSION_CHECK" ]; then
+        DOWNLOAD_LINK=$(echo $RELEASES | jq -r --arg VERSION "$TSHOCK_VERSION" '.[] | select(.tag_name==$VERSION) | .assets[].browser_download_url' | grep -i \${MATCH} | head -1)
+    else
+        DOWNLOAD_LINK=$(echo $LATEST_JSON | jq .assets | jq -r .[].browser_download_url | grep -i \${MATCH} | head -1)
+    fi
+fi
+
+mkdir -p /mnt/server
+cd /mnt/server
+wget $DOWNLOAD_LINK -O TShock.zip
+unzip -o TShock.zip
+tar xvf TShock-*.tar
+rm -f TShock.zip TShock-*.tar
+chmod +x TShock.Server
+echo "TShock install complete"`,
+      container: "ghcr.io/parkervcp/installers:debian",
+      entrypoint: "/bin/bash",
+    },
   },
   valheim: {
     id: "valheim",

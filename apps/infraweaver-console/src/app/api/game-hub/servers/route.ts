@@ -182,23 +182,32 @@ function buildStopSpec(
 /**
  * Builds an init container that runs the Pelican installation script once.
  *
- * A marker file is written on completion so subsequent pod restarts skip the
- * install step — avoids re-downloading the game on every restart.
+ * ALL Pelican/Pterodactyl install scripts write game files to /mnt/server —
+ * that path is hardcoded by convention in every egg from the pelican-eggs repo.
+ * The main game container then mounts the same PVC at its own mountPath
+ * (e.g. /home/container for yolks images).  Both containers share the same
+ * underlying storage via the "data" volume, just mounted at different paths.
+ *
+ * A marker file (.installed) is written to /mnt/server on first completion so
+ * subsequent pod restarts skip the re-download step.
  */
 function buildInstallInitContainer(
-  mountPath: string,
+  _runtimeMountPath: string,
   installScript: { script: string; container: string; entrypoint: string },
   env: Record<string, string>,
   isRoot: boolean,
 ) {
+  // Pelican install scripts always write to /mnt/server — mount the PVC there.
+  const INSTALL_MOUNT = "/mnt/server";
+
   const wrappedScript = [
     "#!/bin/sh",
-    `if [ -f "${mountPath}/.installed" ]; then`,
+    `if [ -f "${INSTALL_MOUNT}/.installed" ]; then`,
     '  echo "[install] Already installed — skipping"',
     "  exit 0",
     "fi",
     installScript.script,
-    `touch "${mountPath}/.installed"`,
+    `touch "${INSTALL_MOUNT}/.installed"`,
     'echo "[install] Installation complete"',
   ].join("\n");
 
@@ -208,7 +217,8 @@ function buildInstallInitContainer(
     command: [installScript.entrypoint, "-c", wrappedScript],
     env: Object.entries(env).map(([key, value]) => ({ name: key, value })),
     securityContext: isRoot ? { runAsUser: 0, runAsGroup: 0 } : { runAsUser: 1000, runAsGroup: 1000 },
-    volumeMounts: [{ name: "data", mountPath }],
+    // Mount at /mnt/server so the Pelican install script can find its target dir.
+    volumeMounts: [{ name: "data", mountPath: INSTALL_MOUNT }],
     // Installation can be slow (SteamCMD downloads, large assets) — be generous.
     resources: {
       requests: { cpu: "200m", memory: "512Mi" },

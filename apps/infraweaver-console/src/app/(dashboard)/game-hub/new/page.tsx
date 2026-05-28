@@ -131,7 +131,7 @@ function formatBytesGi(bytes: number | null | undefined) {
 export default function NewGameServerPage() {
   const router = useRouter();
   const [step, setStep] = useState(1);
-  const [sourceTab, setSourceTab] = useState<"built-in" | "pelican">("built-in");
+  const [sourceTab, setSourceTab] = useState<"built-in" | "pelican">("pelican");
   const [search, setSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [selectedBuiltInId, setSelectedBuiltInId] = useState<string | null>(null);
@@ -144,7 +144,7 @@ export default function NewGameServerPage() {
   const [memoryMi, setMemoryMi] = useState(2048);
   const [cpuCores, setCpuCores] = useState(1);
   const [storageGi, setStorageGi] = useState(10);
-  const [storageClass, setStorageClass] = useState("longhorn-game");
+  const [storageClass, setStorageClass] = useState("");
   const [deploying, setDeploying] = useState(false);
   const [deployedServerName, setDeployedServerName] = useState<string | null>(null);
   const [selectedDockerImage, setSelectedDockerImage] = useState<string | null>(null);
@@ -202,6 +202,15 @@ export default function NewGameServerPage() {
   });
 
   const storageClasses = setupData?.storageClasses ?? [{ name: "longhorn", provisioner: "driver.longhorn.io", isDefault: true }];
+
+  // Sync storageClass default once setup data loads (avoids hardcoded "longhorn-game" which may not exist)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!storageClass && storageClasses.length > 0) {
+      const preferred = storageClasses.find((sc) => sc.isDefault) ?? storageClasses[0];
+      setStorageClass(preferred.name);
+    }
+  }, [storageClasses.map((sc) => sc.name).join(",")]); // dep on names string to avoid object ref changes
   const activeEgg = sourceTab === "built-in"
     ? BUILT_IN_EGGS.find((egg) => egg.id === selectedBuiltInId) ?? null
     : remoteEggData?.egg ?? null;
@@ -222,8 +231,12 @@ export default function NewGameServerPage() {
     setMemoryMi(parseMemoryToMi(activeEgg.defaultMemory));
     setCpuCores(parseCpuToCores(activeEgg.defaultCpu));
     setStorageGi(parseStorageToGi(activeEgg.defaultStorage));
-    // Reset image selection and EULA when egg changes
-    setSelectedDockerImage(null);
+    // Auto-select the recommended (first) docker image when egg has multiple options
+    if (activeEgg.dockerImages && Object.keys(activeEgg.dockerImages).length > 0) {
+      setSelectedDockerImage(Object.values(activeEgg.dockerImages)[0]);
+    } else {
+      setSelectedDockerImage(null);
+    }
     setEulaAccepted(false);
     setEnvErrors({});
   }, [activeEggKey]); // intentionally omitting activeEgg — key change implies egg change
@@ -272,6 +285,10 @@ export default function NewGameServerPage() {
     setSourceTab("built-in");
     setSelectedBuiltInId(egg.id);
     setSelectedRemoteEntry(null);
+    // Auto-suggest a name only if the user hasn't typed one yet
+    if (!serverName.trim()) {
+      setServerName(egg.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, ""));
+    }
     setStep(2);
   }
 
@@ -279,6 +296,10 @@ export default function NewGameServerPage() {
     setSourceTab("pelican");
     setSelectedRemoteEntry(entry);
     setSelectedBuiltInId(null);
+    // Auto-suggest a name only if the user hasn't typed one yet
+    if (!serverName.trim()) {
+      setServerName(entry.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, ""));
+    }
     setStep(2);
   }
 
@@ -290,7 +311,8 @@ export default function NewGameServerPage() {
         name: normalizeServerName(serverName),
         egg: sourceTab === "pelican" && selectedRemoteEntry ? `pelican:${selectedRemoteEntry.id}` : activeEgg.id,
         image: selectedDockerImage ?? activeEgg.dockerImage,
-        env: envValues,
+        // Inject EULA=TRUE when the user accepts the license agreement (required for Minecraft etc.)
+        env: needsEula && eulaAccepted ? { ...envValues, EULA: "TRUE" } : envValues,
         memory: formatMemory(memoryMi),
         cpu: formatCpu(cpuCores),
         storage: `${storageGi}Gi`,
@@ -402,13 +424,13 @@ export default function NewGameServerPage() {
               <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                 <div>
                   <h2 className="text-lg font-semibold text-gray-900 dark:text-[#f2f2f2]">Choose an egg</h2>
-                  <p className="text-sm text-gray-500 dark:text-[#777]">Pick from the built-in library or the full Pelican catalog.</p>
+                  <p className="text-sm text-gray-500 dark:text-[#777]">Browse the live Pelican catalog or pick a quick-start built-in egg.</p>
                 </div>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
                   <div className="flex rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-1">
                     {([
-                      { id: "built-in", label: "Built-in" },
-                      { id: "pelican", label: `Pelican (${catalogData?.total ?? 0})` },
+                      { id: "pelican", label: `🎮 Pelican${catalogData ? ` (${catalogData.total})` : ""}` },
+                      { id: "built-in", label: "⚡ Quick Start" },
                     ] as const).map((tab) => (
                       <button
                         key={tab.id}
@@ -427,7 +449,7 @@ export default function NewGameServerPage() {
                     <input
                       value={search}
                       onChange={(event) => setSearch(event.target.value)}
-                      placeholder={sourceTab === "built-in" ? "Search built-in eggs..." : "Search Pelican eggs..."}
+                      placeholder={sourceTab === "built-in" ? "Search quick-start eggs..." : "Search Pelican catalog..."}
                       className="w-full bg-transparent text-sm text-gray-900 dark:text-[#f2f2f2] outline-none placeholder:text-gray-400 dark:placeholder:text-[#555]"
                     />
                   </div>
