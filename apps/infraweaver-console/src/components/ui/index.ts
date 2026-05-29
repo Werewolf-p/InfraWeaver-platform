@@ -37,6 +37,7 @@ export * from "./page-scaffold";
 export * from "./progress-ring";
 export * from "./pull-to-refresh";
 export * from "./refresh-countdown";
+export * from "./refreshing-indicator";
 export * from "./resource-bar";
 export * from "./resource-table";
 export * from "./responsive-sheet";

@@ -1,7 +1,7 @@
 import { cn } from "@/lib/utils";
 
 function Pulse({ className }: { className?: string }) {
-  return <div className={cn("rounded bg-gray-50 dark:bg-[#1e1e1e] shimmer-bg", className)} />;
+  return <div aria-hidden="true" className={cn("rounded bg-gray-50 dark:bg-[#1e1e1e] shimmer-bg", className)} />;
 }
 
 export function SkeletonRow({ columns = 4 }: { columns?: number }) {

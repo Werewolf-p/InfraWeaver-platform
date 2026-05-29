@@ -11,6 +11,7 @@ interface SkeletonTableProps {
 export function SkeletonTable({ rows = 5, columns = 4, className }: SkeletonTableProps) {
   return (
     <div
+      aria-hidden="true"
       className={cn(
         "overflow-hidden rounded-2xl border border-[rgb(var(--color-border))] bg-[rgb(var(--color-surface-base))] shadow-sm",
         className,

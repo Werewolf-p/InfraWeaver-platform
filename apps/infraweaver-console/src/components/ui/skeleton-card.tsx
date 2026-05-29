@@ -1,7 +1,7 @@
 import { cn } from "@/lib/utils";
 
 function Pulse({ className }: { className?: string }) {
-  return <div className={cn("rounded bg-white dark:bg-[#1a1a1a] shimmer-bg", className)} />;
+  return <div aria-hidden="true" className={cn("rounded bg-white dark:bg-[#1a1a1a] shimmer-bg", className)} />;
 }
 
 export function AppCardSkeleton() {

@@ -2,6 +2,7 @@ import type { ElementType, ReactNode } from "react";
 import { EmptyState } from "@/components/ui/empty-state";
 import { DataError } from "@/components/ui/data-error";
 import { PageHeader } from "@/components/ui/page-header";
+import { RefreshingIndicator } from "@/components/ui/refreshing-indicator";
 import { cn } from "@/lib/utils";
 
 interface PageScaffoldEmptyState {
@@ -21,6 +22,12 @@ interface PageScaffoldProps {
   breadcrumb?: Array<{ label: string; href?: string }>;
   loading?: boolean;
   loadingFallback?: ReactNode;
+  /**
+   * True while a background refetch is in flight (react-query isFetching) but
+   * previous data is still on screen. Surfaces a subtle "Refreshing" pill in
+   * the header instead of dropping back to a skeleton.
+   */
+  isFetching?: boolean;
   isEmpty?: boolean;
   emptyState?: PageScaffoldEmptyState | ReactNode;
   isError?: boolean;
@@ -56,6 +63,7 @@ export function PageScaffold({
   breadcrumb,
   loading = false,
   loadingFallback,
+  isFetching = false,
   isEmpty = false,
   emptyState,
   isError = false,
@@ -72,6 +80,16 @@ export function PageScaffold({
       ? <EmptyState {...(emptyState as PageScaffoldEmptyState)} />
       : emptyState as React.ReactNode;
 
+  // Show the refreshing pill only when previous data is still on screen (i.e. not
+  // the very first load and not an error/empty placeholder).
+  const showRefreshing = isFetching && !loading && !isError;
+  const headerActions = (actions || showRefreshing) ? (
+    <>
+      {actions}
+      <RefreshingIndicator active={showRefreshing} />
+    </>
+  ) : undefined;
+
   return (
     <section className={cn("space-y-6", className)}>
       <PageHeader
@@ -79,12 +97,16 @@ export function PageScaffold({
         title={title}
         subtitle={subtitle}
         description={description}
-        actions={actions}
+        actions={headerActions}
         badge={badge}
         breadcrumb={breadcrumb}
       />
       {loading
-        ? (loadingFallback ?? <DefaultLoadingState />)
+        ? (
+          <div aria-busy="true" aria-live="polite">
+            {loadingFallback ?? <DefaultLoadingState />}
+          </div>
+        )
         : isError
           ? <DataError message={errorMessage} detail={errorDetail} onRetry={onRetry} />
           : isEmpty && renderedEmptyState

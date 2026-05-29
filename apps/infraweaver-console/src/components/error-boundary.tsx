@@ -1,6 +1,6 @@
 "use client";
 import React from "react";
-import { AlertTriangle, RefreshCw } from "lucide-react";
+import { AlertTriangle, RefreshCw, RotateCcw } from "lucide-react";
 
 interface ErrorBoundaryState {
   hasError: boolean;
@@ -69,22 +69,34 @@ interface FallbackUIProps {
 
 export function FallbackUI({ error, requestId, onReset }: FallbackUIProps) {
   return (
-    <div className="flex min-h-[400px] flex-col items-center justify-center gap-4 rounded-2xl border border-red-500/20 bg-red-500/5 p-8 text-center">
-      <AlertTriangle className="h-12 w-12 text-red-400" />
+    <div role="alert" className="flex min-h-[400px] flex-col items-center justify-center gap-4 rounded-2xl border border-red-500/20 bg-red-500/5 p-8 text-center">
+      <AlertTriangle className="h-12 w-12 text-red-400" aria-hidden="true" />
       <div>
         <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Something went wrong</h2>
         <p className="mt-1 text-sm text-gray-500 dark:text-white/60">
-          {error?.message ?? "An unexpected error occurred"}
+          This part of the console hit an unexpected error. Your data is safe — try again or reload the page.
         </p>
-        <p className="mt-1 font-mono text-xs text-gray-400 dark:text-white/40">Request ID: {requestId}</p>
+        {error?.message ? (
+          <p className="mt-2 rounded-lg bg-black/20 px-3 py-2 font-mono text-xs text-gray-500 dark:text-white/50">{error.message}</p>
+        ) : null}
+        <p className="mt-2 font-mono text-xs text-gray-400 dark:text-white/40">Reference: {requestId}</p>
       </div>
-      <button
-        onClick={onReset}
-        className="inline-flex items-center gap-2 rounded-lg bg-red-500/20 px-4 py-2 text-sm text-red-300 transition-colors hover:bg-red-500/30"
-      >
-        <RefreshCw className="h-4 w-4" />
-        Try again
-      </button>
+      <div className="flex flex-wrap items-center justify-center gap-2">
+        <button
+          onClick={onReset}
+          className="inline-flex min-h-[44px] items-center gap-2 rounded-lg bg-red-500/20 px-4 py-2 text-sm text-red-300 transition-colors hover:bg-red-500/30 touch-manipulation"
+        >
+          <RefreshCw className="h-4 w-4" aria-hidden="true" />
+          Try again
+        </button>
+        <button
+          onClick={() => { if (typeof window !== "undefined") window.location.reload(); }}
+          className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:border-white/10 dark:text-white/60 dark:hover:bg-white/10 dark:hover:text-white touch-manipulation"
+        >
+          <RotateCcw className="h-4 w-4" aria-hidden="true" />
+          Reload page
+        </button>
+      </div>
     </div>
   );
 }
