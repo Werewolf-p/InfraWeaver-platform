@@ -1,0 +1,5 @@
+repoURL: https://helm.traefik.io/traefik
+targetRevision: "34.*"
+chart: traefik
+releaseName: traefik
+namespace: traefik

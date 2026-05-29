@@ -1,0 +1,168 @@
+---
+# Headless service for StatefulSet DNS discovery
+apiVersion: v1
+kind: Service
+metadata:
+  name: wazuh-indexer
+  namespace: wazuh
+  labels:
+    app: wazuh-indexer
+spec:
+  clusterIP: None
+  selector:
+    app: wazuh-indexer
+  ports:
+    - name: https
+      port: 9200
+      protocol: TCP
+      targetPort: 9200
+    - name: transport
+      port: 9300
+      protocol: TCP
+      targetPort: 9300
+---
+# ClusterIP service for indexer API access
+apiVersion: v1
+kind: Service
+metadata:
+  name: wazuh-indexer-svc
+  namespace: wazuh
+  labels:
+    app: wazuh-indexer
+spec:
+  selector:
+    app: wazuh-indexer
+  ports:
+    - name: https
+      port: 9200
+      protocol: TCP
+      targetPort: 9200
+---
+# StatefulSet: wazuh-indexer (OpenSearch)
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: wazuh-indexer
+  namespace: wazuh
+  labels:
+    app: wazuh-indexer
+spec:
+  serviceName: wazuh-indexer
+  replicas: 1
+  podManagementPolicy: OrderedReady
+  revisionHistoryLimit: 10
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      partition: 0
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
+  selector:
+    matchLabels:
+      app: wazuh-indexer
+  template:
+    metadata:
+      labels:
+        app: wazuh-indexer
+    spec:
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values: ["talos-prod-cp3"]
+            - weight: 50
+              preference:
+                matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values: ["talos-prod-cp1"]
+      initContainers:
+        # Fix vm.max_map_count required by OpenSearch
+        - name: sysctl
+          image: busybox:1.36
+          imagePullPolicy: IfNotPresent
+          command: ["sysctl", "-w", "vm.max_map_count=262144"]
+          securityContext:
+            privileged: true
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 50m
+              memory: 32Mi
+      containers:
+        - name: wazuh-indexer
+          image: wazuh/wazuh-indexer:4.10.3
+          ports:
+            - containerPort: 9200
+              name: https
+            - containerPort: 9300
+              name: transport
+          env:
+            - name: OPENSEARCH_JAVA_OPTS
+              value: "-Xms512m -Xmx512m -XX:MaxDirectMemorySize=536870912"
+            - name: INDEXER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: wazuh-credentials
+                  key: indexer_password
+            - name: bootstrap.memory_lock
+              value: "false"
+          volumeMounts:
+            - name: opensearch-conf
+              mountPath: /usr/share/wazuh-indexer/opensearch.yml
+              subPath: opensearch.yml
+            - name: opensearch-conf
+              mountPath: /usr/share/wazuh-indexer/opensearch-security/internal_users.yml
+              subPath: internal_users.yml
+            - name: indexer-certs
+              mountPath: /usr/share/wazuh-indexer/certs
+              readOnly: true
+            - name: wazuh-indexer-data
+              mountPath: /var/lib/wazuh-indexer
+          resources:
+            requests:
+              memory: 512Mi
+              cpu: 250m
+            limits:
+              memory: 1500Mi
+              cpu: 500m
+          readinessProbe:
+            tcpSocket:
+              port: 9200
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            failureThreshold: 10
+          livenessProbe:
+            tcpSocket:
+              port: 9200
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            failureThreshold: 5
+      volumes:
+        - name: opensearch-conf
+          configMap:
+            name: wazuh-indexer-conf
+        - name: indexer-certs
+          secret:
+            secretName: wazuh-indexer-certs
+  volumeClaimTemplates:
+    - apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: wazuh-indexer-data
+        annotations:
+          recurring-job-group.longhorn.io/truenas-backup: "enabled"
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: longhorn-retain
+        volumeMode: Filesystem
+        resources:
+          requests:
+            storage: 20Gi

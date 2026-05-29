@@ -1,0 +1,217 @@
+---
+# IngressRoutes for internal bare-metal services (homelab LAN + VPN only)
+# All use internal-only middleware + secure-headers for browser security hardening.
+
+# ── AdGuard ───────────────────────────────────────────────────────────────────
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: adguard
+  namespace: traefik
+  labels:
+    infraweaver.io/access-tier: internal
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`adguard.int.rlservers.com`)
+      kind: Rule
+      middlewares:
+        - name: secure-headers
+          namespace: traefik
+        - name: internal-only
+          namespace: traefik
+      services:
+        - name: bm-adguard
+          port: 80
+  tls:
+    secretName: platform-wildcard-int-tls
+---
+# ── Ansible / Semaphore ───────────────────────────────────────────────────────
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: ansible
+  namespace: traefik
+  labels:
+    infraweaver.io/access-tier: internal
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`ansible.int.rlservers.com`)
+      kind: Rule
+      middlewares:
+        - name: secure-headers
+          namespace: traefik
+        - name: internal-only
+          namespace: traefik
+      services:
+        - name: bm-ansible
+          port: 3000
+  tls:
+    secretName: platform-wildcard-int-tls
+---
+# ── Traefik Dashboard ─────────────────────────────────────────────────────────
+# Security: forward-auth added — the Traefik dashboard has no built-in
+# authentication. Without forward-auth, any user on the LAN/VPN can view all
+# routing rules, middleware config, and backend IPs. Authentik login is required.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: traefik-dashboard
+  namespace: traefik
+  labels:
+    infraweaver.io/access-tier: internal
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`traefik.int.rlservers.com`)
+      kind: Rule
+      middlewares:
+        - name: secure-headers
+          namespace: traefik
+        - name: internal-only
+          namespace: traefik
+        - name: forward-auth
+          namespace: traefik
+      services:
+        - name: traefik-dashboard
+          port: 8080
+  tls:
+    secretName: platform-wildcard-int-tls
+---
+# ── Proxmox VE ───────────────────────────────────────────────────────────────
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: proxmox
+  namespace: traefik
+  labels:
+    infraweaver.io/access-tier: internal
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`proxmox.int.rlservers.com`)
+      kind: Rule
+      middlewares:
+        - name: secure-headers
+          namespace: traefik
+        - name: internal-only
+          namespace: traefik
+      services:
+        - name: bm-proxmox
+          port: 8006
+          scheme: https
+          serversTransport: insecure-skip-verify
+  tls:
+    secretName: platform-wildcard-int-tls
+---
+# ── Portainer (primary) ───────────────────────────────────────────────────────
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: portainer
+  namespace: traefik
+  labels:
+    infraweaver.io/access-tier: internal
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`portainer.int.rlservers.com`)
+      kind: Rule
+      middlewares:
+        - name: secure-headers
+          namespace: traefik
+        - name: internal-only
+          namespace: traefik
+      services:
+        - name: bm-portainer
+          port: 9443
+          scheme: https
+          serversTransport: insecure-skip-verify
+  tls:
+    secretName: platform-wildcard-int-tls
+---
+# ── Portainer2 ────────────────────────────────────────────────────────────────
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: portainer2
+  namespace: traefik
+  labels:
+    infraweaver.io/access-tier: internal
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`portainer2.int.rlservers.com`)
+      kind: Rule
+      middlewares:
+        - name: secure-headers
+          namespace: traefik
+        - name: internal-only
+          namespace: traefik
+      services:
+        - name: bm-portainer2
+          port: 9443
+          scheme: https
+          serversTransport: insecure-skip-verify
+  tls:
+    secretName: platform-wildcard-int-tls
+---
+# ── TrueNAS ───────────────────────────────────────────────────────────────────
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: truenas
+  namespace: traefik
+  labels:
+    infraweaver.io/access-tier: internal
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`truenas.rlservers.com`)
+      kind: Rule
+      middlewares:
+        - name: secure-headers
+          namespace: traefik
+        - name: internal-only
+          namespace: traefik
+      services:
+        - name: bm-truenas
+          port: 443
+          scheme: https
+          serversTransport: insecure-skip-verify
+  tls:
+    secretName: platform-wildcard-int-tls
+---
+# ── Vault1 (bare-metal OpenBao/Vault) ────────────────────────────────────────
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: vault1
+  namespace: traefik
+  labels:
+    infraweaver.io/access-tier: internal
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`vault1.int.rlservers.com`)
+      kind: Rule
+      middlewares:
+        - name: secure-headers
+          namespace: traefik
+        - name: internal-only
+          namespace: traefik
+      services:
+        - name: bm-vault1
+          port: 8200
+          serversTransport: insecure-skip-verify
+  tls:
+    secretName: platform-wildcard-int-tls

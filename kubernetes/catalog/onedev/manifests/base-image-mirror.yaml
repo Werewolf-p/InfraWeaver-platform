@@ -1,0 +1,68 @@
+---
+# Syncs base images from Docker Hub into the OneDev internal registry weekly.
+# All Dockerfiles use onedev.rlservers.com base images — zero external deps at build time.
+# Credentials come from cluster Secrets (not committed to git).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: base-image-mirror
+  namespace: onedev
+  labels:
+    app: base-image-mirror
+spec:
+  schedule: "0 3 * * 0"   # Weekly, Sunday 03:00 UTC
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 3600
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+          - name: mirror
+            image: gcr.io/go-containerregistry/crane:debug
+            command: ["/busybox/sh", "-c"]
+            args:
+            - |
+              set -e
+              REGISTRY="onedev.rlservers.com/infraweaver-platform"
+
+              # Authenticate to both registries
+              /ko-app/crane auth login index.docker.io \
+                -u "${DOCKERHUB_USER}" -p "${DOCKERHUB_PASS}"
+              /ko-app/crane auth login onedev.rlservers.com --insecure \
+                -u "${ONEDEV_USER}" -p "${ONEDEV_PASS}"
+
+              mirror() {
+                echo "Mirroring $1 -> $2..."
+                /ko-app/crane copy --insecure --platform linux/amd64 "$1" "$2"
+                echo "  OK: $2"
+              }
+
+              mirror node:22-alpine "${REGISTRY}/base-node-22-alpine:latest"
+              mirror node:20-slim   "${REGISTRY}/base-node-20-slim:latest"
+
+              echo "All base images updated in OneDev."
+            env:
+            - name: DOCKERHUB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: dockerhub-auth
+                  key: username
+            - name: DOCKERHUB_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: dockerhub-auth
+                  key: password
+            - name: ONEDEV_USER
+              valueFrom:
+                secretKeyRef:
+                  name: onedev-admin-auth
+                  key: username
+            - name: ONEDEV_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: onedev-admin-auth
+                  key: password

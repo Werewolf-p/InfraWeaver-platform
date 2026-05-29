@@ -1,0 +1,13 @@
+---
+# Wazuh SIEM namespace
+# pod-security: privileged — wazuh-indexer needs sysctl vm.max_map_count (OpenSearch requirement)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: wazuh
+  labels:
+    app.kubernetes.io/name: wazuh
+    infraweaver.io/type: platform-app
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/warn: privileged
+    pod-security.kubernetes.io/audit: privileged

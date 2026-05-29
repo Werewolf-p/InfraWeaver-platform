@@ -1,0 +1,107 @@
+---
+# NetBird API IngressRoute — management gRPC, signal gRPC, relay, REST API
+# at api-netbird.rlservers.com (public, used by NetBird clients/peers)
+# Dashboard → netbird.rlservers.com (see 09-routes-netbird.yaml)
+#
+# Priority order (highest first):
+#   1. Management gRPC (PathPrefix /management.ManagementService) → h2c:33073
+#   2. Signal gRPC (PathPrefix /signalexchange.SignalExchange or /grpc.reflection) → h2c:10000
+#   3. Relay (PathPrefix /relay) → relay service:443
+#   4. Management REST API + WS proxy (PathPrefix /api, /ws-proxy) → management:80
+
+# ── Management gRPC ───────────────────────────────────────────────────────────
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: netbird-api-management-grpc
+  namespace: traefik
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`api-netbird.rlservers.com`) && PathPrefix(`/management.ManagementService`)
+      kind: Rule
+      priority: 50
+      services:
+        - name: netbird-management
+          port: 33073
+          scheme: h2c
+          serversTransport: grpc-h2c-keepalive
+  tls:
+    secretName: platform-wildcard-tls
+---
+# ── Signal gRPC ───────────────────────────────────────────────────────────────
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: netbird-api-signal-grpc
+  namespace: traefik
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`api-netbird.rlservers.com`) && (PathPrefix(`/signalexchange.SignalExchange`) || PathPrefix(`/grpc.reflection`))
+      kind: Rule
+      priority: 50
+      services:
+        - name: netbird-signal
+          port: 10000
+          scheme: h2c
+          serversTransport: grpc-h2c-keepalive
+  tls:
+    secretName: platform-wildcard-tls
+---
+# ── Relay ─────────────────────────────────────────────────────────────────────
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: netbird-api-relay
+  namespace: traefik
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`api-netbird.rlservers.com`) && PathPrefix(`/relay`)
+      kind: Rule
+      priority: 40
+      services:
+        - name: netbird-relay
+          port: 443
+          scheme: http
+  tls:
+    secretName: platform-wildcard-tls
+---
+# ── Management REST API + WS proxy ───────────────────────────────────────────
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: netbird-api-management-rest
+  namespace: traefik
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`api-netbird.rlservers.com`) && (PathPrefix(`/api`) || PathPrefix(`/ws-proxy`))
+      kind: Rule
+      priority: 30
+      services:
+        - name: netbird-management
+          port: 80
+  tls:
+    secretName: platform-wildcard-tls
+
+---
+# ServersTransport for NetBird gRPC h2c backends
+# Keeps long-lived gRPC streams alive through mobile NATs
+apiVersion: traefik.io/v1alpha1
+kind: ServersTransport
+metadata:
+  name: grpc-h2c-keepalive
+  namespace: traefik
+  annotations:
+    argocd.argoproj.io/tracking-id: external-routes:traefik.io/ServersTransport:traefik/grpc-h2c-keepalive
+spec:
+  forwardingTimeouts:
+    dialTimeout: 30s
+    responseHeaderTimeout: 0s
+    idleConnTimeout: 1800s

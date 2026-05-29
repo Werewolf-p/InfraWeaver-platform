@@ -1,0 +1,177 @@
+---
+# Headless service for StatefulSet DNS
+apiVersion: v1
+kind: Service
+metadata:
+  name: wazuh-manager-master
+  namespace: wazuh
+  labels:
+    app: wazuh-manager
+spec:
+  clusterIP: None
+  selector:
+    app: wazuh-manager
+  ports:
+    - name: agents-tcp
+      port: 1514
+      protocol: TCP
+      targetPort: 1514
+    - name: enrollment
+      port: 1515
+      protocol: TCP
+      targetPort: 1515
+    - name: api
+      port: 55000
+      protocol: TCP
+      targetPort: 55000
+    - name: cluster
+      port: 1516
+      protocol: TCP
+      targetPort: 1516
+---
+# ClusterIP service — Wazuh agent enrollment and syslog
+apiVersion: v1
+kind: Service
+metadata:
+  name: wazuh-manager-svc
+  namespace: wazuh
+  labels:
+    app: wazuh-manager
+spec:
+  type: ClusterIP
+  selector:
+    app: wazuh-manager
+  ports:
+    - name: agents-tcp
+      port: 1514
+      protocol: TCP
+      targetPort: 1514
+    - name: enrollment
+      port: 1515
+      protocol: TCP
+      targetPort: 1515
+    - name: syslog-udp
+      port: 514
+      protocol: UDP
+      targetPort: 514
+    - name: api
+      port: 55000
+      protocol: TCP
+      targetPort: 55000
+---
+# StatefulSet: wazuh-manager
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: wazuh-manager
+  namespace: wazuh
+  labels:
+    app: wazuh-manager
+spec:
+  serviceName: wazuh-manager-master
+  replicas: 1
+  podManagementPolicy: OrderedReady
+  revisionHistoryLimit: 10
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      partition: 0
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
+  selector:
+    matchLabels:
+      app: wazuh-manager
+  template:
+    metadata:
+      labels:
+        app: wazuh-manager
+    spec:
+      containers:
+        - name: wazuh-manager
+          image: wazuh/wazuh-manager:4.10.3
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 1514
+              name: agents-tcp
+            - containerPort: 1515
+              name: enrollment
+            - containerPort: 514
+              name: syslog-udp
+              protocol: UDP
+            - containerPort: 55000
+              name: api
+            - containerPort: 1516
+              name: cluster
+          env:
+            - name: INDEXER_URL
+              value: "https://wazuh-indexer:9200"
+            - name: INDEXER_USERNAME
+              value: "admin"
+            - name: INDEXER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: wazuh-credentials
+                  key: indexer_password
+            - name: FILEBEAT_SSL_VERIFICATION_MODE
+              value: "full"
+            - name: SSL_CERTIFICATE_AUTHORITIES
+              value: "/etc/ssl/wazuh/ca.crt"
+            - name: SSL_CERTIFICATE
+              value: "/etc/ssl/wazuh/tls.crt"
+            - name: SSL_KEY
+              value: "/etc/ssl/wazuh/tls.key"
+            - name: WAZUH_CLUSTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: wazuh-credentials
+                  key: cluster_key
+          volumeMounts:
+            - name: manager-conf
+              mountPath: /wazuh-config-mount/etc/ossec.conf
+              subPath: ossec.conf
+            - name: manager-certs
+              mountPath: /etc/ssl/wazuh
+              readOnly: true
+            - name: wazuh-manager-data
+              mountPath: /var/ossec/data
+          resources:
+            requests:
+              memory: 512Mi
+              cpu: 250m
+            limits:
+              memory: 1Gi
+              cpu: 500m
+          readinessProbe:
+            tcpSocket:
+              port: 55000
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            failureThreshold: 10
+          livenessProbe:
+            tcpSocket:
+              port: 55000
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            failureThreshold: 5
+      volumes:
+        - name: manager-conf
+          configMap:
+            name: wazuh-manager-conf
+        - name: manager-certs
+          secret:
+            secretName: wazuh-manager-certs
+  volumeClaimTemplates:
+    - apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: wazuh-manager-data
+        annotations:
+          recurring-job-group.longhorn.io/truenas-backup: "enabled"
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: longhorn-retain
+        volumeMode: Filesystem
+        resources:
+          requests:
+            storage: 10Gi

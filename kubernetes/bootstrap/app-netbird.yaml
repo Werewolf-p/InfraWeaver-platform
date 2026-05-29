@@ -1,0 +1,51 @@
+---
+# Standalone ArgoCD Application for NetBird VPN raw manifests
+# Split into separate files: management, signal, relay, client
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: apps-netbird
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  source:
+    repoURL: http://onedev.onedev.svc.cluster.local/InfraWeaver-platform
+    targetRevision: HEAD
+    path: kubernetes/platform/netbird/manifests
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: netbird
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+    syncOptions:
+      - CreateNamespace=true
+      - RespectIgnoreDifferences=true
+  # Ignore ESO-managed Secret fields, ExternalSecret status, and completed bootstrap Job
+  ignoreDifferences:
+    - kind: Secret
+      name: netbird-secrets
+      jsonPointers:
+        - /metadata/annotations
+        - /metadata/labels
+        - /data
+    - group: external-secrets.io
+      kind: ExternalSecret
+      name: netbird-secrets
+      jsonPointers:
+        - /status
+    - group: batch
+      kind: Job
+      name: netbird-db-bootstrap
+      jsonPointers:
+        - /spec/selector
+        - /spec/template/metadata/labels
