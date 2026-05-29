@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { HelpTooltip } from "@/components/ui/help-tooltip";
+import { InfoPopover } from "@/components/game-hub/info-popover";
 import { BUILT_IN_EGGS, type GameEgg, validateEggVariable, describeEggVariableRules } from "@/lib/game-eggs";
 import type { CatalogCategory, CatalogEntry } from "@/lib/pelican-eggs";
 import { cn } from "@/lib/utils";
@@ -1155,7 +1156,13 @@ export default function NewGameServerPage() {
                     {sourceTab === "built-in" && activeEgg ? builtInIcon(activeEgg) : categoryIcon(selectedRemoteEntry?.categoryPath ?? "misc")}
                   </div>
                   <div>
-                    <p className="text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">{activeEgg?.name ?? selectedRemoteEntry?.name ?? "Loading egg..."}</p>
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">{activeEgg?.name ?? selectedRemoteEntry?.name ?? "Loading egg..."}</p>
+                      <InfoPopover title="What is an egg?" align="start">
+                        <p>An <strong>egg</strong> is a ready-made recipe for a game server. It bundles the right Docker image, startup command, and the configuration variables a game needs — so you don&apos;t have to wire any of that up by hand.</p>
+                        <p>Pick an egg and the wizard pre-fills sensible defaults; you just adjust a few options below.</p>
+                      </InfoPopover>
+                    </div>
                     <p className="mt-1 text-sm text-gray-500 dark:text-[#777]">{activeEgg?.description ?? selectedRemoteEntry?.description ?? "Fetching egg details from Pelican..."}</p>
                     <p className="mt-2 font-mono text-xs text-gray-500 dark:text-[#999]">{activeEgg?.dockerImage ?? selectedRemoteEntry?.dockerImage ?? "—"}</p>
                   </div>
@@ -1321,6 +1328,15 @@ export default function NewGameServerPage() {
                         This egg does not define any editable environment variables.
                       </div>
                     ) : (
+                      <>
+                      <div className="flex items-center gap-1.5">
+                        <h3 className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-400 dark:text-[#666]">Server Variables</h3>
+                        <InfoPopover title="Variables, defaults & Override">
+                          <p>These come from the egg. Most are safe to edit, but some show a <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-500 dark:bg-[#1a1a1a] dark:text-[#777]">default</span> badge and are locked.</p>
+                          <p>Locked variables are read-only because the egg author set them to a tested value (or the game requires it) — changing them can stop the server from starting.</p>
+                          <p>Need to change one anyway? Click <span className="text-[#7cc4ff]">Override</span> to unlock the field, or <span className="text-gray-400 dark:text-[#666]">Reset</span> to restore the default.</p>
+                        </InfoPopover>
+                      </div>
                       <div className="grid gap-4 md:grid-cols-2">
                         {activeEgg.environment.filter((v) => v.userViewable !== false).map((variable) => {
                           const fieldType = variable.fieldType ?? "text";
@@ -1426,6 +1442,7 @@ export default function NewGameServerPage() {
                           );
                         })}
                       </div>
+                      </>
                     )}
                   </div>
                 </>
@@ -1592,9 +1609,10 @@ export default function NewGameServerPage() {
                   <div className="flex items-center gap-1.5">
                     <HardDrive className="h-4 w-4 text-[#0078D4]" />
                     <h3 className="text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">Storage</h3>
-                    <HelpTooltip>
-                      Persistent disk space for your server's world files, configs, and save data. You can usually resize this later (Longhorn classes support expansion; local-path cannot be resized).
-                    </HelpTooltip>
+                    <InfoPopover title="What is persistent storage?">
+                      <p>Your server runs in a container that is wiped every time it restarts. A <strong>persistent volume (PVC)</strong> is a separate disk that <em>survives</em> restarts, updates, and crashes — it&apos;s where your worlds, configs, and save data live.</p>
+                      <p><strong>Size</strong> is how much disk to reserve. Start modest (worlds are small) — Longhorn classes can be expanded later, but local-path cannot be resized.</p>
+                    </InfoPopover>
                   </div>
                   <p className="mt-1 text-sm text-gray-500 dark:text-[#777]">5 Gi to 500 Gi</p>
                   <div className="mt-5 space-y-5">
@@ -1612,9 +1630,18 @@ export default function NewGameServerPage() {
                     <div>
                       <div className="mb-3 flex items-center gap-1.5">
                         <label className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-400 dark:text-[#666]">Storage Class</label>
-                        <HelpTooltip>
-                          Controls where and how data is stored. Longhorn-game is fastest for game servers and keeps your world files when the server is deleted.
-                        </HelpTooltip>
+                        <InfoPopover title="Which storage class?">
+                          <p>The storage class decides <em>where</em> your data lives and what happens to it when the server is deleted. Expand any card below for full details.</p>
+                          <ul className="space-y-1">
+                            <li><strong>local-path</strong> (default) — node-local disk. Fast, but tied to one node and lost if that node dies.</li>
+                            <li><strong>local-path-retain</strong> — same node-local disk, but the volume/data is kept after you delete the server.</li>
+                            <li><strong>longhorn</strong> — replicated distributed storage. Survives node failure and supports migration &amp; backups.</li>
+                            <li><strong>longhorn-game</strong> — recommended tuned default for game servers.</li>
+                            <li><strong>longhorn-retain</strong> — replicated storage whose volume is kept after deletion.</li>
+                            <li><strong>longhorn-static</strong> — pre-provisioned volumes for infrastructure use, not new game servers.</li>
+                          </ul>
+                          <p>Rule of thumb: pick <strong>longhorn-game</strong>. Use a <strong>-retain</strong> class if you want the data to outlive the server.</p>
+                        </InfoPopover>
                       </div>
                       {/* Storage class card picker */}
                       <div className="space-y-2">

@@ -383,6 +383,7 @@ const XtermConsole = dynamic<XtermConsoleProps>(
         const terminal = new Terminal({
           cursorBlink: false,
           disableStdin: true,
+          scrollback: 5000,
           fontSize,
           lineHeight: lineHeight === "compact" ? 1.2 : 1.5,
           theme: {
@@ -1237,14 +1238,22 @@ export function ConsoleTab({
     // When new log lines arrive, scroll only if the ref says yes.
     // Using the ref (not state) avoids the race where setAutoScroll(false) hasn't
     // committed yet when this effect fires — which was scrolling users back down.
-    if (autoScrollRef.current && !xtermMode) logEndRef.current?.scrollIntoView();
+    // Scroll the console container directly (not scrollIntoView) so we never move
+    // the surrounding page, and so scrolling up to read history is never interrupted.
+    if (autoScrollRef.current && !xtermMode) {
+      const element = consoleScrollRef.current;
+      if (element) element.scrollTop = element.scrollHeight;
+    }
   }, [logLines, xtermMode]);
 
   // Keep the ref in sync when the user toggles auto-scroll via the button, and
   // immediately jump to the bottom when re-enabling.
   useEffect(() => {
     autoScrollRef.current = autoScroll;
-    if (autoScroll && !xtermMode) logEndRef.current?.scrollIntoView();
+    if (autoScroll && !xtermMode) {
+      const element = consoleScrollRef.current;
+      if (element) element.scrollTop = element.scrollHeight;
+    }
   }, [autoScroll, xtermMode]);
 
   const addLine = useCallback(
@@ -2233,7 +2242,7 @@ export function ConsoleTab({
       {reconnectBanner && status !== "stopped" ? <div className="border-b border-gray-200 bg-[#111827] px-4 py-1.5 text-[11px] text-[#93c5fd] dark:border-[#1e1e1e]">{reconnectBanner}</div> : null}
       {logLines.length >= maxLines ? <div className="border-b border-[#3a2a00] bg-yellow-500/10 px-4 py-1.5 text-[11px] text-yellow-200">⚠ Display capped at {maxLines} lines</div> : null}
 
-      <div className="relative flex-1">
+      <div className="relative min-h-0 flex-1">
         <div ref={consoleScrollRef} onScroll={handleConsoleScroll} className="h-full overflow-y-auto overflow-x-auto px-3 py-3 font-mono text-xs overscroll-contain select-text sm:p-4" style={{ fontSize: `${fontSize}px`, backgroundColor: currentTheme.bg, color: currentTheme.fg }}>
           {status === "stopped" ? (
             <div className="flex h-full items-center justify-center p-6">
