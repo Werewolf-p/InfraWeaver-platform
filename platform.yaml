@@ -99,7 +99,7 @@ groups:
         replicas: 1
       grafana:
         description: "Standalone Grafana for custom dashboards"
-        enabled: false    # optional: enable core-monitoring for full Prometheus+Grafana stack instead
+        enabled: false
         replicas: 2       # Stateless — 2 replicas for HA
       falco:
         description: "Runtime security and threat detection"
