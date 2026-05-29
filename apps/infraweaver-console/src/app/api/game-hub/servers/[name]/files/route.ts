@@ -3,10 +3,11 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
 import { getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
-import { appendServerAudit, execShell, getPrimaryContainerName, getServerPod, makeGameHubClients, readServerEgg, shellQuote } from "@/lib/game-hub-server";
+import { appendServerAudit, execShell, getPrimaryContainerName, getServerPod, makeGameHubClients, shellQuote } from "@/lib/game-hub-server";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { validateContainerPath, validateContainerPathWithinRoot } from "@/lib/validate";
 import { safeError } from "@/lib/utils";
+import { resolveServerDataRoot } from "./data-root";
 
 const mkdirBodySchema = z.object({
   action: z.literal("mkdir"),
@@ -116,14 +117,14 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ name
 
   try {
     const clients = makeGameHubClients();
-    const rootPath = (await readServerEgg(clients.coreApi, name)).mountPath;
+    const pod = await getServerPod(clients.coreApi, name, true);
+    if (!pod?.metadata?.name) return NextResponse.json({ error: "No pod found" }, { status: 404 });
+    const rootPath = await resolveServerDataRoot(clients, name, pod);
     const targetPath = req.nextUrl.searchParams.get("path") ?? rootPath;
     if (!validateContainerPath(targetPath) || !validateContainerPathWithinRoot(targetPath, rootPath)) {
       return NextResponse.json({ error: "Path must stay within the server data directory" }, { status: 400 });
     }
 
-    const pod = await getServerPod(clients.coreApi, name, true);
-    if (!pod?.metadata?.name) return NextResponse.json({ error: "No pod found" }, { status: 404 });
     const result = await execShell(
       clients.kc,
       pod.metadata.name,
@@ -159,12 +160,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ nam
 
   try {
     const clients = makeGameHubClients();
-    const rootPath = (await readServerEgg(clients.coreApi, name)).mountPath;
+    const pod = await getServerPod(clients.coreApi, name, true);
+    if (!pod?.metadata?.name) return NextResponse.json({ error: "No pod found" }, { status: 404 });
+    const rootPath = await resolveServerDataRoot(clients, name, pod);
     if (!validateContainerPath(body.path) || !validateContainerPathWithinRoot(body.path, rootPath)) {
       return NextResponse.json({ error: "Path must stay within the server data directory" }, { status: 400 });
     }
-    const pod = await getServerPod(clients.coreApi, name, true);
-    if (!pod?.metadata?.name) return NextResponse.json({ error: "No pod found" }, { status: 404 });
     await execShell(clients.kc, pod.metadata.name, getPrimaryContainerName(pod, name), `mkdir -p ${shellQuote(body.path)}`);
     await auditLog("game-hub:mkdir", authz.session?.user?.email ?? "unknown", `${name} ${body.path}`);
     await appendServerAudit(clients.coreApi, name, { timestamp: new Date().toISOString(), user: authz.session?.user?.email ?? "unknown", action: "file:mkdir", details: body.path });
@@ -191,9 +192,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
 
   try {
     const clients = makeGameHubClients();
-    const rootPath = (await readServerEgg(clients.coreApi, name)).mountPath;
     const pod = await getServerPod(clients.coreApi, name, true);
     if (!pod?.metadata?.name) return NextResponse.json({ error: "No pod found" }, { status: 404 });
+    const rootPath = await resolveServerDataRoot(clients, name, pod);
 
     if (body.action === "rename") {
       if (!body.from || !body.to) return NextResponse.json({ error: "rename from/to required" }, { status: 400 });
@@ -251,12 +252,12 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ n
 
   try {
     const clients = makeGameHubClients();
-    const rootPath = (await readServerEgg(clients.coreApi, name)).mountPath;
+    const pod = await getServerPod(clients.coreApi, name, true);
+    if (!pod?.metadata?.name) return NextResponse.json({ error: "No pod found" }, { status: 404 });
+    const rootPath = await resolveServerDataRoot(clients, name, pod);
     if (!validateContainerPath(path) || !validateContainerPathWithinRoot(path, rootPath) || path.replace(/\/$/, "") === rootPath.replace(/\/$/, "")) {
       return NextResponse.json({ error: "Cannot delete this path" }, { status: 403 });
     }
-    const pod = await getServerPod(clients.coreApi, name, true);
-    if (!pod?.metadata?.name) return NextResponse.json({ error: "No pod found" }, { status: 404 });
     const result = await execShell(clients.kc, pod.metadata.name, getPrimaryContainerName(pod, name), `rm -rf ${shellQuote(path)}`);
     if (result.stderr) return NextResponse.json({ error: safeError(result.stderr) }, { status: 500 });
     await auditLog("game-hub:delete-file", authz.session?.user?.email ?? "unknown", `${name} ${path}`);
