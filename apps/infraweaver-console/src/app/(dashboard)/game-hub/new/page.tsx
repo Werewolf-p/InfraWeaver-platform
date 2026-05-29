@@ -462,7 +462,7 @@ export default function NewGameServerPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!storageClass && storageClasses.length > 0) {
-      const preferred = storageClasses.find((sc) => sc.isDefault) ?? storageClasses[0];
+      const preferred = storageClasses.find((sc) => sc.name === "longhorn-game") ?? storageClasses.find((sc) => sc.isDefault) ?? storageClasses[0];
       setStorageClass(preferred.name);
     }
   }, [storageClasses.map((sc) => sc.name).join(",")]); // dep on names string to avoid object ref changes

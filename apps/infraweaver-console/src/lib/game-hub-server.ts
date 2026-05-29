@@ -359,7 +359,7 @@ function buildCommandExecutionError(gameType: string, transportError: unknown, s
   const suffix = detail ? ` (${detail})` : "";
   const label = gameType || "server";
   return new UserError(
-    `Command delivery failed for "${label}". RCON unreachable and no writable stdin found — ensure the server is running and RCON credentials are configured.${suffix}`.trim(),
+    `This game server does not support remote console commands. Some servers (like vanilla Valheim) have no built-in command interface — try connecting to the game directly to manage it. [${label}]${suffix}`.trim(),
   );
 }
 
