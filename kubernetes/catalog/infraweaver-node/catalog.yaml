@@ -1,4 +1,0 @@
-name: infraweaver-node
-description: "InfraWeaver Node — per-cluster agent for outbound Hub control plane connectivity"
-namespace: infraweaver-system
-replicas: "1"

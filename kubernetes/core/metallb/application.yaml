@@ -1,5 +1,0 @@
-repoURL: https://metallb.github.io/metallb
-targetRevision: "0.15.*"
-chart: metallb
-releaseName: metallb
-namespace: metallb-system

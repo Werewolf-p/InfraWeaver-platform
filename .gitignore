@@ -119,3 +119,11 @@ apps/infraweaver-node/dist/
 # Setup wizard Next.js build output (generated — never commit)
 # ---------------------------------------------------------------------------
 scripts/init/out/
+
+
+# ---------------------------------------------------------------------------
+# Cluster-specific configs (managed in OneDev only)
+# ---------------------------------------------------------------------------
+kubernetes/
+scripts/deploy/
+scripts/init/
