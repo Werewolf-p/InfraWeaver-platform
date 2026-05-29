@@ -155,7 +155,29 @@ export default function HomePage() {
   const events = useMemo(() => eventsQuery.data?.events ?? [], [eventsQuery.data?.events]);
 
   const readyNodes = nodes.filter((node) => node.status === "Ready").length;
+
+  // Completed Job/CronJob pods (Succeeded/Completed) are *not* failures — they
+  // ran to completion and exited on purpose. Counting them against "running"
+  // makes a 100%-healthy cluster look degraded, so they're excluded from the
+  // "should be running" denominator. Transient phases are also not failures.
+  const COMPLETED_POD_STATUSES = new Set(["Completed", "Succeeded"]);
+  const TRANSIENT_POD_STATUSES = new Set([
+    "Pending",
+    "Terminating",
+    "ContainerCreating",
+    "PodInitializing",
+    "Init",
+  ]);
+
   const runningPods = pods.filter((pod) => pod.status === "Running").length;
+  const completedPods = pods.filter((pod) => COMPLETED_POD_STATUSES.has(pod.status)).length;
+  // Pods that are expected to be running right now (exclude finished job pods).
+  const activePods = pods.filter((pod) => !COMPLETED_POD_STATUSES.has(pod.status));
+  // Pods genuinely in a bad state. Transient phases (Pending/ContainerCreating/
+  // Terminating/…) are still settling and should not raise an alarm on their own.
+  const attentionPods = activePods.filter(
+    (pod) => pod.status !== "Running" && !TRANSIENT_POD_STATUSES.has(pod.status),
+  ).length;
   const restartingPods = pods.filter((pod) => pod.restartCount > 0).length;
   const healthyApps = apps.filter((app) => app.status.health.status === "Healthy").length;
   const degradedApps = apps.filter((app) => app.status.health.status === "Degraded").length;
@@ -163,7 +185,7 @@ export default function HomePage() {
   const outOfSyncApps = apps.filter((app) => app.status.sync.status === "OutOfSync").length;
 
   const nodeHealthPercent = nodes.length ? Math.round((readyNodes / nodes.length) * 100) : 0;
-  const podHealthPercent = pods.length ? Math.round((runningPods / pods.length) * 100) : 0;
+  const podHealthPercent = activePods.length ? Math.round((runningPods / activePods.length) * 100) : 100;
   const appHealthPercent = apps.length ? Math.round((healthyApps / apps.length) * 100) : 0;
   const syncPercent = apps.length ? Math.round((syncedApps / apps.length) * 100) : 0;
 
@@ -191,10 +213,10 @@ export default function HomePage() {
     {
       title: "Running pods",
       value: runningPods,
-      unit: `/ ${pods.length || 0}`,
+      unit: `/ ${activePods.length || 0}`,
       href: "/pods",
-      variant: podHealthPercent === 100 ? "success" : restartingPods > 0 ? "warning" : "default",
-      trend: { direction: getMetricDirection(podHealthPercent === 100, podHealthPercent < 100 && pods.length > 0), percent: podHealthPercent },
+      variant: attentionPods > 0 ? "warning" : "success",
+      trend: { direction: getMetricDirection(attentionPods === 0, attentionPods > 0), percent: podHealthPercent },
       sparklineData: pods.slice(0, 12).map((pod) => ({ value: pod.status === "Running" ? 100 : Math.max(20, 100 - pod.restartCount * 8) })),
       loading: podsQuery.isLoading,
     },
@@ -450,8 +472,19 @@ export default function HomePage() {
                 </div>
                 <div className="rounded-2xl border border-[rgb(var(--color-border))] bg-[rgb(var(--color-surface-base))] p-4">
                   <p className="text-xs uppercase tracking-[0.18em] text-[rgb(var(--color-text-tertiary))]">Workloads</p>
-                  <p className="mt-2 text-2xl font-semibold text-[rgb(var(--color-text-primary))]">{runningPods}/{pods.length || 0}</p>
-                  <p className="mt-1 text-sm text-[rgb(var(--color-text-secondary))]">running pods currently available</p>
+                  <p className="mt-2 text-2xl font-semibold text-[rgb(var(--color-text-primary))]">{runningPods}/{activePods.length || 0}</p>
+                  <p className="mt-1 text-sm text-[rgb(var(--color-text-secondary))]">running of {activePods.length || 0} active pods</p>
+                  <p
+                    className="mt-2 text-xs text-[rgb(var(--color-text-tertiary))]"
+                    title="Completed Job/CronJob pods (Succeeded) exited on purpose and are not failures, so they're excluded from the active count. Only pods stuck in Failed/CrashLoopBackOff and similar states need attention."
+                  >
+                    {completedPods > 0 ? `${completedPods} completed job pod${completedPods === 1 ? "" : "s"} excluded` : "No completed job pods"}
+                    {attentionPods > 0
+                      ? ` • ${attentionPods} need attention`
+                      : restartingPods > 0
+                        ? ` • ${restartingPods} restarted but stable`
+                        : " • none need attention"}
+                  </p>
                 </div>
               </div>
 

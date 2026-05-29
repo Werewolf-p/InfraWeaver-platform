@@ -300,7 +300,7 @@ export default function DashboardPage() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const activityScrollRef = useRef<HTMLDivElement>(null);
 
-  const { data: healthData } = useQuery({
+  const { data: healthData, refetch: refetchHealth } = useQuery({
     queryKey: ["health"],
     queryFn: async () => {
       const res = await fetch("/api/health");
@@ -577,10 +577,64 @@ export default function DashboardPage() {
           action={healthData?.available === false ? (
             <span className="flex items-center gap-1 text-xs text-amber-500 dark:text-amber-400/70">
               <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
-              monitoring unavailable
+              {platformApps.gatus ? "monitoring unreachable" : "monitoring not installed"}
             </span>
           ) : null}
         />
+
+        {healthData?.available === false ? (
+          <div className="mb-3 flex flex-col gap-3 rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-400" />
+              <div>
+                <p className="text-sm font-semibold text-amber-300">
+                  {platformApps.gatus ? "Monitoring is unreachable" : "Monitoring is not installed"}
+                </p>
+                <p className="mt-0.5 text-xs text-amber-400/70">
+                  {platformApps.gatus
+                    ? "Gatus endpoint monitoring is enabled but isn't responding right now. Service status below may be stale. The pod may be restarting or temporarily unreachable."
+                    : "Gatus endpoint monitoring isn't enabled for this cluster, so live up/down status for platform services can't be shown. Enable it to get health checks and uptime tracking."}
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {platformApps.gatus ? (
+                <>
+                  <button
+                    onClick={() => void refetchHealth()}
+                    className="flex min-h-[40px] items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs font-medium text-amber-300 touch-manipulation transition-transform active:scale-95"
+                  >
+                    <RefreshCw className="h-3.5 w-3.5" />
+                    Retry
+                  </button>
+                  <Link
+                    href="/health"
+                    className="flex min-h-[40px] items-center gap-2 rounded-xl border border-gray-200 dark:border-[#333] bg-white dark:bg-[#1a1a1a] px-4 py-2 text-xs font-medium text-gray-500 dark:text-[#9e9e9e] touch-manipulation transition-transform hover:text-gray-900 dark:hover:text-white active:scale-95"
+                  >
+                    Open monitoring
+                  </Link>
+                </>
+              ) : (
+                <>
+                  <Link
+                    href="/settings/platform"
+                    className="flex min-h-[40px] items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs font-medium text-amber-300 touch-manipulation transition-transform active:scale-95"
+                  >
+                    Enable monitoring
+                  </Link>
+                  <a
+                    href="https://gatus.io/docs"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex min-h-[40px] items-center gap-2 rounded-xl border border-gray-200 dark:border-[#333] bg-white dark:bg-[#1a1a1a] px-4 py-2 text-xs font-medium text-gray-500 dark:text-[#9e9e9e] touch-manipulation transition-transform hover:text-gray-900 dark:hover:text-white active:scale-95"
+                  >
+                    Learn more <ExternalLink className="h-3 w-3" />
+                  </a>
+                </>
+              )}
+            </div>
+          </div>
+        ) : null}
 
         <motion.div
           variants={dashboardContainer}
