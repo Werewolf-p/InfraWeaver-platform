@@ -2,6 +2,7 @@ import { createPublicKey, createSign, generateKeyPairSync, randomBytes, type Key
 import type { IncomingMessage, Server } from 'node:http';
 import { WebSocket, WebSocketServer } from 'ws';
 import type { ApiMode } from './mode.js';
+import * as logger from './logger.js';
 
 export interface AgentConnection {
   clusterId: string;
@@ -108,7 +109,7 @@ export function approveDiscovery(agentId: string, clusterId: string, clusterName
 
   setTimeout(() => req.ws.close(1000, 'approved'), 500);
   _pendingDiscovery.delete(agentId);
-  console.log(`[agent-registry] Approved discovery request: ${agentId} -> ${clusterId} (${clusterName})`);
+  logger.info(`[agent-registry] Approved discovery request: ${agentId} -> ${clusterId} (${clusterName})`);
   return true;
 }
 
@@ -121,7 +122,7 @@ export function rejectDiscovery(agentId: string, reason: string): boolean {
   req.ws.send(JSON.stringify({ type: 'rejected', reason, ts: Date.now() }));
   setTimeout(() => req.ws.close(1000, 'rejected'), 500);
   _pendingDiscovery.delete(agentId);
-  console.log(`[agent-registry] Rejected discovery request: ${agentId}`);
+  logger.info(`[agent-registry] Rejected discovery request: ${agentId}`);
   return true;
 }
 
@@ -215,9 +216,9 @@ function handleRegister(ws: WebSocket) {
       }));
       ws.close();
 
-      console.log(`[agent-registry] Registered new cluster: ${pending.clusterId} (${pending.clusterName})`);
+      logger.info(`[agent-registry] Registered new cluster: ${pending.clusterId} (${pending.clusterName})`);
     } catch (error) {
-      console.error('[agent-registry] Registration error:', error);
+      logger.error('[agent-registry] Registration error:', error);
       ws.close(4000, 'Registration failed');
     }
   });
@@ -255,15 +256,15 @@ function handleDiscover(ws: WebSocket, _req: IncomingMessage) {
       };
 
       _pendingDiscovery.set(agentId, request);
-      console.log(`[agent-registry] New discovery request from: ${clusterName} (${agentId})`);
+      logger.info(`[agent-registry] New discovery request from: ${clusterName} (${agentId})`);
       ws.send(JSON.stringify({ type: 'ack', status: 'pending_approval', ts: Date.now() }));
 
       ws.on('close', () => {
         _pendingDiscovery.delete(agentId);
-        console.log(`[agent-registry] Discovery disconnected: ${agentId}`);
+        logger.info(`[agent-registry] Discovery disconnected: ${agentId}`);
       });
     } catch (error) {
-      console.error('[agent-registry] Discovery error:', error);
+      logger.error('[agent-registry] Discovery error:', error);
       ws.close(4000, 'Discovery failed');
     }
   });
@@ -279,7 +280,7 @@ function handleCluster(ws: WebSocket, clusterId: string) {
     status: { nodeCount: 0, podCount: 0, ready: false },
   };
   _agents.set(clusterId, conn);
-  console.log(`[agent-registry] Agent connected: ${clusterId}`);
+  logger.info(`[agent-registry] Agent connected: ${clusterId}`);
 
   ws.on('message', (raw) => {
     try {
@@ -302,6 +303,6 @@ function handleCluster(ws: WebSocket, clusterId: string) {
 
   ws.on('close', () => {
     _agents.delete(clusterId);
-    console.log(`[agent-registry] Agent disconnected: ${clusterId}`);
+    logger.info(`[agent-registry] Agent disconnected: ${clusterId}`);
   });
 }
