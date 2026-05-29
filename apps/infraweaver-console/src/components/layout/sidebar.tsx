@@ -87,6 +87,7 @@ function NavItemRow({ item, isActive, collapsed }: { item: NavItem; isActive: bo
             fav ? "opacity-100 text-yellow-400" : "text-gray-400 dark:text-[#555] hover:text-yellow-400"
           )}
           title={fav ? "Unpin" : "Pin to favorites"}
+          aria-label={fav ? "Unpin from favorites" : "Pin to favorites"}
         >
           <Star className={cn("w-3 h-3", fav && "fill-yellow-400")} />
         </button>
@@ -203,6 +204,7 @@ export function Sidebar() {
         <button
           onClick={() => setCollapsed(c => !c)}
           className={cn("p-1 rounded text-gray-400 dark:text-[#666] hover:text-gray-900 dark:hover:text-[#f2f2f2] hover:bg-gray-100 dark:hover:bg-[#2a2a2a] transition-colors flex-shrink-0", collapsed && "mx-auto mt-2")}
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
           {collapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
         </button>
@@ -220,7 +222,7 @@ export function Sidebar() {
               className="w-full bg-white dark:bg-[#0f0f0f] border border-gray-200 dark:border-[#333] rounded pl-8 pr-3 py-1.5 text-xs text-gray-900 dark:text-[#f2f2f2] placeholder:text-gray-400 dark:placeholder:text-[#555] focus:outline-none focus:border-[#0078D4]/50"
             />
             {search && (
-              <button onClick={() => setSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2">
+              <button onClick={() => setSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2" aria-label="Clear search">
                 <X className="w-3 h-3 text-gray-400 dark:text-[#555] hover:text-gray-900 dark:hover:text-[#f2f2f2]" />
               </button>
             )}
@@ -411,6 +413,7 @@ export function Sidebar() {
             onClick={() => signOut()}
             className="p-1 rounded text-gray-400 dark:text-[#555] hover:text-gray-900 dark:hover:text-[#f2f2f2] hover:bg-gray-100 dark:hover:bg-[#2a2a2a] transition-colors flex-shrink-0"
             title="Sign out"
+            aria-label="Sign out"
           >
             <LogOut className="w-3.5 h-3.5" />
           </button>
