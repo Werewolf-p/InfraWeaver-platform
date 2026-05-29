@@ -106,12 +106,17 @@ export function Sidebar() {
   });
   const [search, setSearch] = useState("");
   const [openSections, setOpenSections] = useState<Record<string, boolean>>(() => {
-    if (typeof window === "undefined") return { overview: true, apps: true, compute: false, infrastructure: false, operations: false, monitoring: false, documentation: false, services: false, tools: false };
+    const defaults: Record<string, boolean> = {
+      overview: true, apps: true, compute: false, networking: false, storage: false,
+      security: true, operations: false, monitoring: false, gaming: false, registry: false,
+      documentation: false, tools: false, admin: false,
+    };
+    if (typeof window === "undefined") return defaults;
     try {
       const stored = localStorage.getItem("infraweaver_nav_sections");
-      if (stored) return JSON.parse(stored) as Record<string, boolean>;
+      if (stored) return { ...defaults, ...(JSON.parse(stored) as Record<string, boolean>) };
     } catch { /* ignore */ }
-    return { overview: true, apps: true, compute: false, infrastructure: false, operations: false, monitoring: false, documentation: false, services: false, tools: false };
+    return defaults;
   });
   const pathname = usePathname();
   const { role, permissions, assignments } = useRBAC();
@@ -158,7 +163,9 @@ export function Sidebar() {
     if (!search.trim()) return null;
     const q = search.toLowerCase();
     return visibleNavItems.filter((item) =>
-      item.label.toLowerCase().includes(q) || item.description?.toLowerCase().includes(q)
+      item.label.toLowerCase().includes(q) ||
+      item.description?.toLowerCase().includes(q) ||
+      item.keywords?.some((kw) => kw.toLowerCase().includes(q))
     );
   }, [search, visibleNavItems]);
 

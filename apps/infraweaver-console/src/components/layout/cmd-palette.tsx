@@ -8,10 +8,12 @@ import {
   Box,
   FileText,
   Gamepad2,
+  KeyRound,
   LayoutDashboard,
   Search,
   Server,
   Sparkles,
+  Users,
   X,
 } from "lucide-react";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
@@ -57,6 +59,16 @@ const navigationItems: PaletteItem[] = [
   { id: "nav-pods", title: "Pods", subtitle: "Cluster pods", href: "/pods", category: "Navigation", icon: Server },
   { id: "nav-logs", title: "Pod Logs", subtitle: "Live log streaming", href: "/logs", category: "Navigation", icon: FileText },
   { id: "nav-health", title: "Health", subtitle: "Platform health", href: "/health", category: "Navigation", icon: Activity },
+  {
+    id: "nav-pim",
+    title: "Privileged Identity Management (PIM)",
+    subtitle: "Just-in-time role elevation & access",
+    href: "/access",
+    category: "Navigation",
+    icon: KeyRound,
+    keywords: ["pim", "privileged", "identity", "elevation", "elevate", "just-in-time", "jit", "roles", "access", "activation", "eligible", "assignments", "groups"],
+  },
+  { id: "nav-users", title: "User Management", subtitle: "Users, groups, and SSO", href: "/users", category: "Navigation", icon: Users, keywords: ["users", "accounts", "groups", "sso", "members"] },
   { id: "nav-gameservers", title: "Game Servers", subtitle: "Dedicated servers", href: "/gameservers", category: "Navigation", icon: Gamepad2 },
   { id: "nav-whats-new", title: "What’s New", subtitle: "Release notes", href: "/changelog", category: "Navigation", icon: Sparkles },
 ];
