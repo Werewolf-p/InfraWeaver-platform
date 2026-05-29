@@ -2,7 +2,7 @@
 import { Sidebar } from "@/components/layout/sidebar";
 import { TopBar } from "@/components/layout/topbar";
 import { FloatingActionButton } from "@/components/floating-action-button";
-import { ReportButton } from "@/components/feedback/report-button";
+// Feedback now integrated into FloatingActionButton
 import { ErrorBoundary } from "@/components/error-boundary";
 import { Breadcrumb, titleForPathname } from "@/components/ui/breadcrumb";
 import { useSession, signOut } from "next-auth/react";
@@ -12,7 +12,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import Link from "next/link";
 import {
   X, AlertTriangle, MoreHorizontal, Search, Clock,
-  ChevronDown, ChevronRight, ChevronUp, Settings, LogOut, Server,
+  ChevronDown, ChevronRight, Settings, LogOut, Server,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
@@ -163,7 +163,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [sessionWarning, setSessionWarning] = useState(false);
   const [countdown, setCountdown] = useState(300);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [showBackToTop, setShowBackToTop] = useState(false);
   const mainRef = useRef<HTMLElement | null>(null);
   const handlePullToRefresh = async () => {
     router.refresh();
@@ -354,10 +353,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   useEffect(() => {
     const main = mainRef.current;
     if (!main) return;
-    const handleScroll = () => setShowBackToTop(main.scrollTop > 320);
-    handleScroll();
-    main.addEventListener("scroll", handleScroll, { passive: true });
-    return () => main.removeEventListener("scroll", handleScroll);
+    // Scroll listener kept for potential future use (pull-to-refresh, etc.)
   }, [pathname]);
 
   if (status === "loading") {
@@ -748,22 +744,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </main>
       </div>
 
-      <AnimatePresence>
-        {showBackToTop && (
-          <motion.button
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 16 }}
-            onClick={() => mainRef.current?.scrollTo({ top: 0, behavior: "smooth" })}
-            className="fixed bottom-24 right-4 z-40 inline-flex h-11 w-11 items-center justify-center rounded-full border border-gray-200 dark:border-white/10 bg-[#141414]/95 text-gray-900 dark:text-white shadow-lg backdrop-blur transition-colors hover:bg-[#1c1c1c] sm:bottom-6"
-            aria-label="Back to top"
-          >
-            <ChevronUp className="h-4 w-4" />
-          </motion.button>
-        )}
-      </AnimatePresence>
-
-      {/* Floating Action Button (mobile) */}
+      {/* Unified Floating Action Button (includes feedback + back-to-top) */}
       <FloatingActionButton />
 
       {/* Bottom mobile nav — Home | Game Hub | Apps | Cluster | More */}
@@ -1053,7 +1034,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </AnimatePresence>
 
       <KeyboardShortcutsProvider />
-      <ReportButton />
     </div>
     </SimpleModeProvider>
   );

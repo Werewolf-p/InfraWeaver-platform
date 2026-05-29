@@ -281,6 +281,14 @@ export default function UpdateManagerPage() {
     void updateMutation.mutateAsync({ appName: app.name, version });
   };
 
+  const outdatedApps = useMemo(() => {
+    return apps.filter((app) => {
+      if (app.manifestManaged === false) return false;
+      const sel = selectedVersions[app.name];
+      return sel && sel !== app.deployedVersion;
+    });
+  }, [apps, selectedVersions]);
+
   return (
     <PageScaffold
       icon={ArrowUpCircle}
@@ -312,7 +320,7 @@ export default function UpdateManagerPage() {
           onRetry={() => void updatesQuery.refetch()}
         />
       ) : (
-        <div className="space-y-8">
+        <div className="space-y-8 pb-20 sm:pb-0">
           <div className="grid gap-4 sm:grid-cols-3">
             {[
               { label: "Managed apps", value: summary.total },
@@ -374,6 +382,23 @@ export default function UpdateManagerPage() {
               </div>
             </section>
           ))}
+        </div>
+      )}
+
+      {/* Sticky mobile apply bar */}
+      {canUpdate && outdatedApps.length > 0 && (
+        <div className="fixed bottom-16 inset-x-0 z-30 border-t border-slate-200 bg-white/95 px-4 py-3 backdrop-blur sm:hidden dark:border-[#2a2a2a] dark:bg-[#111]/95">
+          <button
+            type="button"
+            onClick={() => {
+              for (const app of outdatedApps) handleUpdate(app);
+            }}
+            disabled={updateMutation.isPending}
+            className="flex w-full min-h-[48px] items-center justify-center gap-2 rounded-xl bg-indigo-500 px-4 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-indigo-600 disabled:opacity-50"
+          >
+            <ArrowUpCircle className="h-5 w-5" />
+            Apply {outdatedApps.length} Update{outdatedApps.length > 1 ? "s" : ""}
+          </button>
         </div>
       )}
     </PageScaffold>
