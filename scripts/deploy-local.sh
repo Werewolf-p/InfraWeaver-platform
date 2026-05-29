@@ -242,7 +242,7 @@ fi
 # ── Ensure infra repo (terraform/, kubernetes/) is available ──────────────────
 # These directories were split into InfraWeaver-infra. If they don't exist locally,
 # clone the infra repo and symlink them so the deploy pipeline works seamlessly.
-INFRA_REPO_URL="${INFRA_REPO_URL:-https://github.com/Werewolf-p/InfraWeaver-infra.git}"
+INFRA_REPO_URL="${INFRA_REPO_URL:-http://10.10.0.92:30610/InfraWeaver-infra}"
 if [[ ! -d "$REPO_DIR/terraform" ]]; then
   log "Cloning InfraWeaver-infra (terraform + kubernetes manifests)..."
   INFRA_DIR="$REPO_DIR/.infra-repo"
