@@ -1,10 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, ChevronLeft, ChevronRight, Gamepad2, Loader2, Search, ServerCrash, CheckCircle2, ChevronDown } from "lucide-react";
+import {
+  ArrowLeft, ChevronLeft, ChevronRight, Gamepad2, Loader2, Search, ServerCrash, CheckCircle2,
+  ChevronDown, Download, Upload, Dices, Zap, Flame, Leaf, Crown, Terminal, Rocket, Save,
+  XCircle, AlertCircle, Users, Bookmark, Clock, CheckCheck,
+} from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { HelpTooltip } from "@/components/ui/help-tooltip";
@@ -255,6 +259,63 @@ function getResourceHint(egg: GameEgg | null): ResourceHint | null {
   return GAME_RESOURCE_HINTS[egg.id] ?? null;
 }
 
+// ─── Fun server name generator ───────────────────────────────────────────────
+const NAME_ADJECTIVES = [
+  "emerald", "cosmic", "thunder", "jade", "iron", "silver", "blazing", "mystic",
+  "nether", "golden", "crystal", "shadow", "storm", "frozen", "lunar", "ancient",
+  "blazing", "cobalt", "volcanic", "obsidian", "radiant", "twilight",
+];
+const NAME_NOUNS = [
+  "dragon", "fortress", "realm", "citadel", "haven", "bastion", "forge", "valley",
+  "keep", "nexus", "peak", "grove", "hollow", "anvil", "vault", "sanctum", "hollow",
+];
+
+function generateFunName(): string {
+  const adj = NAME_ADJECTIVES[Math.floor(Math.random() * NAME_ADJECTIVES.length)];
+  const noun = NAME_NOUNS[Math.floor(Math.random() * NAME_NOUNS.length)];
+  const num = Math.floor(Math.random() * 99) + 1;
+  return `${adj}-${noun}-${num}`;
+}
+
+// ─── Resource presets ────────────────────────────────────────────────────────
+type ResourcePreset = { id: string; label: string; emoji: string; memory: number; cpu: number; storage: number; description: string };
+const RESOURCE_PRESETS: ResourcePreset[] = [
+  { id: "lite",     label: "Lite",     emoji: "🌱", memory: 1024, cpu: 0.5, storage: 5,  description: "1–4 players, low-spec or testing" },
+  { id: "standard", label: "Standard", emoji: "⚡", memory: 2048, cpu: 1,   storage: 10, description: "5–10 players, everyday use" },
+  { id: "power",    label: "Power",    emoji: "🔥", memory: 4096, cpu: 2,   storage: 20, description: "10–20 players or modded" },
+  { id: "beast",    label: "Beast",    emoji: "👑", memory: 8192, cpu: 4,   storage: 40, description: "20+ players or heavy modpacks" },
+];
+
+// ─── Export/import config schema version ────────────────────────────────────
+const CONFIG_VERSION = 1;
+
+type WizardConfig = {
+  version: typeof CONFIG_VERSION;
+  exportedAt: string;
+  eggSource: "built-in" | "pelican";
+  eggId: string | null;
+  eggName: string | null;
+  eggPath: string | null;
+  serverName: string;
+  dnsType: "internal" | "public" | "custom";
+  dnsHostname: string;
+  envValues: Record<string, string>;
+  memoryMi: number;
+  cpuCores: number;
+  storageGi: number;
+  storageClass: string;
+  dockerImage: string | null;
+  eulaAccepted: boolean;
+};
+
+type SavedPreset = WizardConfig & { presetName: string };
+const PRESETS_STORAGE_KEY = "infraweaver-game-server-presets";
+const DRAFT_STORAGE_KEY  = "infraweaver-game-server-draft";
+
+// ─── Installation log entry ──────────────────────────────────────────────────
+type InstallLogEntry = { ts: string; kind: "event" | "info" | "error"; message: string };
+type InstallPhase = "idle" | "deploying" | "running" | "error";
+
 export default function NewGameServerPage() {
   const router = useRouter();
   const [step, setStep] = useState(1);
@@ -280,6 +341,17 @@ export default function NewGameServerPage() {
   const [overriddenVars, setOverriddenVars] = useState<Set<string>>(new Set());
   // Which storage class card has its description expanded (null = use selected class)
   const [expandedStorageInfo, setExpandedStorageInfo] = useState<string | null>(null);
+  // Installation console
+  const [installPhase, setInstallPhase] = useState<InstallPhase>("idle");
+  const [installLog, setInstallLog] = useState<InstallLogEntry[]>([]);
+  const installLogRef = useRef<HTMLDivElement>(null);
+  // Import file input ref
+  const importRef = useRef<HTMLInputElement>(null);
+  // Server name availability (null = unchecked, true = taken)
+  const [serverNameTaken, setServerNameTaken] = useState<boolean | null>(null);
+  // Saved presets loaded from localStorage
+  const [savedPresets, setSavedPresets] = useState<SavedPreset[]>([]);
+  const [draftRestored, setDraftRestored] = useState(false);
 
   const { data: catalogData, isLoading: catalogLoading, error: catalogError } = useQuery({
     queryKey: ["game-hub", "pelican-catalog"],
@@ -314,6 +386,59 @@ export default function NewGameServerPage() {
       return response.json() as Promise<GameHubCapacity>;
     },
   });
+
+  // Server list for clone feature + name availability check
+  const { data: serverListData } = useQuery({
+    queryKey: ["game-hub", "servers-list"],
+    queryFn: async () => {
+      const response = await fetch("/api/game-hub/servers");
+      if (!response.ok) return { servers: [] };
+      return response.json() as Promise<{ servers: Array<{ name: string; gameType: string; status: string }> }>;
+    },
+    staleTime: 60_000,
+  });
+
+  // Install-console polling — only active while deploying
+  const [installPollData, setInstallPollData] = useState<{ status: string; podPhase: string | null } | null>(null);
+  useEffect(() => {
+    if (installPhase !== "deploying" || !deployedServerName) return;
+    let alive = true;
+    const pollStatus = async () => {
+      try {
+        const r = await fetch(`/api/game-hub/servers/${deployedServerName}`);
+        if (!r.ok) return;
+        const d = await r.json() as { status: string; podPhase: string | null };
+        if (alive) setInstallPollData(d);
+        if (d.status === "running") { if (alive) setInstallPhase("running"); }
+        else if (d.podPhase === "Failed") { if (alive) setInstallPhase("error"); }
+      } catch {}
+    };
+    const pollEvents = async () => {
+      try {
+        const r = await fetch(`/api/game-hub/servers/${deployedServerName}/events`);
+        if (!r.ok) return;
+        const d = await r.json() as { events: Array<{ type: string; reason: string; message: string; timestamp: string | null }> };
+        if (!alive) return;
+        setInstallLog((prev) => {
+          const existingMsgs = new Set(prev.map((e) => e.message));
+          const newEntries: InstallLogEntry[] = (d.events ?? [])
+            .filter((ev) => !existingMsgs.has(ev.message))
+            .map((ev) => ({
+              ts: ev.timestamp ?? new Date().toISOString(),
+              kind: ev.type === "Warning" ? "error" : "event",
+              message: `[${ev.reason}] ${ev.message}`,
+            }));
+          return newEntries.length ? [...prev, ...newEntries].slice(-60) : prev;
+        });
+      } catch {}
+    };
+    // Auto-scroll install log
+    if (installLogRef.current) installLogRef.current.scrollTop = installLogRef.current.scrollHeight;
+    const id1 = setInterval(() => { void pollStatus(); void pollEvents(); }, 3000);
+    void pollStatus();
+    void pollEvents();
+    return () => { alive = false; clearInterval(id1); };
+  }, [installPhase, deployedServerName]);
 
   const remoteEggPath = selectedRemoteEntry?.path ?? null;
   const { data: remoteEggData, isLoading: remoteEggLoading, error: remoteEggError } = useQuery({
@@ -381,6 +506,53 @@ export default function NewGameServerPage() {
       setDnsHostname(normalized ? `${normalized}.games.rlservers.com` : "");
     }
   }, [dnsType, serverName]);
+
+  // ─── Load saved presets from localStorage on mount ────────────────────────
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(PRESETS_STORAGE_KEY);
+      if (raw) setSavedPresets(JSON.parse(raw) as SavedPreset[]);
+    } catch {}
+    // Also restore draft if nothing has been configured yet
+    try {
+      const draft = localStorage.getItem(DRAFT_STORAGE_KEY);
+      if (draft && !draftRestored) {
+        const d = JSON.parse(draft) as Partial<WizardConfig>;
+        if (d.serverName) setServerName(d.serverName);
+        if (d.dnsType) setDnsType(d.dnsType);
+        if (d.dnsHostname) setDnsHostname(d.dnsHostname);
+        if (d.envValues) setEnvValues(d.envValues);
+        if (d.memoryMi) setMemoryMi(d.memoryMi);
+        if (d.cpuCores) setCpuCores(d.cpuCores);
+        if (d.storageGi) setStorageGi(d.storageGi);
+        if (d.storageClass) setStorageClass(d.storageClass);
+        if (d.dockerImage) setSelectedDockerImage(d.dockerImage);
+        setDraftRestored(true);
+      }
+    } catch {}
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ─── Auto-save wizard draft to localStorage ──────────────────────────────
+  useEffect(() => {
+    if (!serverName && !activeEgg) return;
+    const draft: Partial<WizardConfig> = {
+      serverName, dnsType, dnsHostname, envValues, memoryMi, cpuCores, storageGi,
+      storageClass, dockerImage: selectedDockerImage, eulaAccepted,
+    };
+    try { localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft)); } catch {}
+  }, [serverName, dnsType, dnsHostname, envValues, memoryMi, cpuCores, storageGi, storageClass, selectedDockerImage, eulaAccepted, activeEgg]);
+
+  // ─── Debounced server name availability check ────────────────────────────
+  const normalizedName = normalizeServerName(serverName);
+  useEffect(() => {
+    if (!normalizedName || !serverListData?.servers) { setServerNameTaken(null); return; }
+    const id = setTimeout(() => {
+      const taken = serverListData.servers.some((s) => s.name === normalizedName);
+      setServerNameTaken(taken);
+    }, 500);
+    return () => clearTimeout(id);
+  }, [normalizedName, serverListData]);
 
   const remoteCategories = catalogData?.categories ?? [];
   const remoteEggs = useMemo(() => remoteCategories.flatMap((category) =>
@@ -489,14 +661,121 @@ export default function NewGameServerPage() {
 
       const result = await response.json() as { name: string };
       setDeployedServerName(result.name);
-      toast.success(`${result.name} deployment started`);
-      router.push(`/game-hub/${result.name}`);
+      // Transition to install console instead of redirecting immediately
+      setInstallPhase("deploying");
+      setInstallLog([{ ts: new Date().toISOString(), kind: "info", message: "Kubernetes resources submitted — waiting for pod to start..." }]);
+      // Clear the auto-saved draft now that we've deployed
+      try { localStorage.removeItem(DRAFT_STORAGE_KEY); } catch {}
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error));
     } finally {
       setDeploying(false);
     }
   }
+
+  // ─── Export current config as .iwconfig.json ───────────────────────────────
+  const exportConfig = useCallback(() => {
+    if (!activeEgg) return;
+    const config: WizardConfig = {
+      version: CONFIG_VERSION,
+      exportedAt: new Date().toISOString(),
+      eggSource: sourceTab,
+      eggId: selectedBuiltInId ?? selectedRemoteEntry?.id ?? null,
+      eggName: activeEgg.name,
+      eggPath: selectedRemoteEntry?.path ?? null,
+      serverName, dnsType, dnsHostname, envValues, memoryMi, cpuCores,
+      storageGi, storageClass, dockerImage: selectedDockerImage, eulaAccepted,
+    };
+    const blob = new Blob([JSON.stringify(config, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${normalizeServerName(serverName) || "server"}-config.iwconfig.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [activeEgg, sourceTab, selectedBuiltInId, selectedRemoteEntry, serverName, dnsType, dnsHostname, envValues, memoryMi, cpuCores, storageGi, storageClass, selectedDockerImage, eulaAccepted]);
+
+  // ─── Import config from .iwconfig.json ────────────────────────────────────
+  const handleImportConfig = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const cfg = JSON.parse(ev.target?.result as string) as WizardConfig;
+        if (cfg.version !== CONFIG_VERSION) throw new Error("Unrecognised config version");
+        if (cfg.serverName) setServerName(cfg.serverName);
+        if (cfg.dnsType) setDnsType(cfg.dnsType);
+        if (cfg.dnsHostname) setDnsHostname(cfg.dnsHostname);
+        if (cfg.envValues) setEnvValues(cfg.envValues);
+        if (cfg.memoryMi) setMemoryMi(cfg.memoryMi);
+        if (cfg.cpuCores) setCpuCores(cfg.cpuCores);
+        if (cfg.storageGi) setStorageGi(cfg.storageGi);
+        if (cfg.storageClass) setStorageClass(cfg.storageClass);
+        if (cfg.dockerImage) setSelectedDockerImage(cfg.dockerImage);
+        if (cfg.eulaAccepted) setEulaAccepted(cfg.eulaAccepted);
+        if (cfg.eggSource === "built-in" && cfg.eggId) {
+          const egg = BUILT_IN_EGGS.find((eg) => eg.id === cfg.eggId);
+          if (egg) { setSourceTab("built-in"); setSelectedBuiltInId(egg.id); setSelectedRemoteEntry(null); }
+        }
+        toast.success("Config imported — check the settings below");
+        setStep(2);
+      } catch (err) {
+        toast.error("Failed to import config: " + (err instanceof Error ? err.message : "Invalid file"));
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  }, []);
+
+  // ─── Save current config as a named preset ────────────────────────────────
+  const savePreset = useCallback((presetName: string) => {
+    if (!activeEgg || !presetName.trim()) return;
+    const preset: SavedPreset = {
+      version: CONFIG_VERSION,
+      exportedAt: new Date().toISOString(),
+      presetName: presetName.trim(),
+      eggSource: sourceTab,
+      eggId: selectedBuiltInId ?? selectedRemoteEntry?.id ?? null,
+      eggName: activeEgg.name,
+      eggPath: selectedRemoteEntry?.path ?? null,
+      serverName, dnsType, dnsHostname, envValues, memoryMi, cpuCores,
+      storageGi, storageClass, dockerImage: selectedDockerImage, eulaAccepted,
+    };
+    setSavedPresets((prev) => {
+      const updated = [preset, ...prev.filter((p) => p.presetName !== presetName.trim())].slice(0, 10);
+      try { localStorage.setItem(PRESETS_STORAGE_KEY, JSON.stringify(updated)); } catch {}
+      return updated;
+    });
+    toast.success(`Preset "${presetName.trim()}" saved`);
+  }, [activeEgg, sourceTab, selectedBuiltInId, selectedRemoteEntry, serverName, dnsType, dnsHostname, envValues, memoryMi, cpuCores, storageGi, storageClass, selectedDockerImage, eulaAccepted]);
+
+  const deletePreset = useCallback((presetName: string) => {
+    setSavedPresets((prev) => {
+      const updated = prev.filter((p) => p.presetName !== presetName);
+      try { localStorage.setItem(PRESETS_STORAGE_KEY, JSON.stringify(updated)); } catch {}
+      return updated;
+    });
+  }, []);
+
+  const loadPreset = useCallback((preset: SavedPreset) => {
+    if (preset.serverName) setServerName(preset.serverName);
+    if (preset.dnsType) setDnsType(preset.dnsType);
+    if (preset.dnsHostname) setDnsHostname(preset.dnsHostname);
+    if (preset.envValues) setEnvValues(preset.envValues);
+    if (preset.memoryMi) setMemoryMi(preset.memoryMi);
+    if (preset.cpuCores) setCpuCores(preset.cpuCores);
+    if (preset.storageGi) setStorageGi(preset.storageGi);
+    if (preset.storageClass) setStorageClass(preset.storageClass);
+    if (preset.dockerImage) setSelectedDockerImage(preset.dockerImage);
+    if (preset.eulaAccepted) setEulaAccepted(preset.eulaAccepted);
+    if (preset.eggSource === "built-in" && preset.eggId) {
+      const egg = BUILT_IN_EGGS.find((eg) => eg.id === preset.eggId);
+      if (egg) { setSourceTab("built-in"); setSelectedBuiltInId(egg.id); setSelectedRemoteEntry(null); }
+    }
+    toast.success(`Preset "${preset.presetName}" loaded`);
+    setStep(2);
+  }, []);
 
   const summaryRows = [
     { label: "Egg Source", value: sourceTab === "built-in" ? "Built-in library" : "Pelican catalog" },
@@ -520,12 +799,32 @@ export default function NewGameServerPage() {
         subtitle="Browse built-in and Pelican eggs, then deploy with a guided wizard"
         icon={Gamepad2}
         actions={
-          <button
-            onClick={() => router.push("/game-hub")}
-            className="inline-flex items-center gap-2 rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-3 py-2 text-sm text-gray-600 dark:text-[#b3b3b3] transition-colors hover:border-[#3a3a3a] hover:text-gray-900 dark:hover:text-white"
-          >
-            <ArrowLeft className="h-4 w-4" /> Back to Game Hub
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Hidden file input for config import */}
+            <input ref={importRef} type="file" accept=".json,.iwconfig.json" className="hidden" onChange={handleImportConfig} />
+            <button
+              onClick={() => importRef.current?.click()}
+              title="Import config (.iwconfig.json)"
+              className="inline-flex items-center gap-2 rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-3 py-2 text-sm text-gray-600 dark:text-[#b3b3b3] transition-colors hover:border-[#3a3a3a] hover:text-gray-900 dark:hover:text-white"
+            >
+              <Upload className="h-4 w-4" /> Import
+            </button>
+            {activeEgg && (
+              <button
+                onClick={exportConfig}
+                title="Export current config as .iwconfig.json"
+                className="inline-flex items-center gap-2 rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-3 py-2 text-sm text-gray-600 dark:text-[#b3b3b3] transition-colors hover:border-[#3a3a3a] hover:text-gray-900 dark:hover:text-white"
+              >
+                <Download className="h-4 w-4" /> Export
+              </button>
+            )}
+            <button
+              onClick={() => router.push("/game-hub")}
+              className="inline-flex items-center gap-2 rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-3 py-2 text-sm text-gray-600 dark:text-[#b3b3b3] transition-colors hover:border-[#3a3a3a] hover:text-gray-900 dark:hover:text-white"
+            >
+              <ArrowLeft className="h-4 w-4" /> Back to Game Hub
+            </button>
+          </div>
         }
       />
 
@@ -573,6 +872,54 @@ export default function NewGameServerPage() {
         >
           {step === 1 && (
             <div className="space-y-6">
+              {/* ─── Saved presets quick-launch ─── */}
+              {savedPresets.length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Bookmark className="h-4 w-4 text-[#0078D4]" />
+                    <h3 className="text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">Saved presets</h3>
+                    <span className="rounded-full bg-[#0078D4]/15 px-2 py-0.5 text-xs text-[#7cc4ff]">{savedPresets.length}</span>
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    {savedPresets.map((preset) => (
+                      <div key={preset.presetName} className="group flex items-center justify-between gap-2 rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-3 py-2.5">
+                        <button onClick={() => loadPreset(preset)} className="flex items-center gap-2 text-left flex-1 min-w-0">
+                          <Rocket className="h-4 w-4 shrink-0 text-[#0078D4]" />
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium text-gray-900 dark:text-[#f2f2f2]">{preset.presetName}</p>
+                            <p className="truncate text-xs text-gray-400 dark:text-[#666]">{preset.eggName} · {formatMemory(preset.memoryMi)} · {preset.cpuCores}c</p>
+                          </div>
+                        </button>
+                        <button onClick={() => deletePreset(preset.presetName)} className="shrink-0 opacity-0 group-hover:opacity-100 rounded p-1 transition-opacity hover:text-red-400">
+                          <XCircle className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {/* ─── Clone from existing server ─── */}
+              {(serverListData?.servers?.length ?? 0) > 0 && (
+                <div className="flex items-center gap-2 rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-4 py-2.5">
+                  <Users className="h-4 w-4 shrink-0 text-[#666]" />
+                  <span className="text-sm text-gray-500 dark:text-[#777] whitespace-nowrap">Clone from:</span>
+                  <select
+                    onChange={(e) => {
+                      const name = e.target.value;
+                      if (!name) return;
+                      e.target.value = "";
+                      toast.success(`Open the server "${name}" page and use Export to get its config`);
+                    }}
+                    defaultValue=""
+                    className="flex-1 bg-transparent text-sm text-gray-900 dark:text-[#f2f2f2] outline-none cursor-pointer"
+                  >
+                    <option value="" disabled>choose a server to copy its settings…</option>
+                    {serverListData?.servers.map((s) => (
+                      <option key={s.name} value={s.name}>{s.name} ({s.gameType})</option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                 <div>
                   <div className="flex items-center gap-2">
@@ -767,13 +1114,30 @@ export default function NewGameServerPage() {
                           Becomes the Kubernetes resource name — lowercase letters, numbers, and hyphens only. Must be unique across all game servers. Spaces and special characters are converted automatically.
                         </HelpTooltip>
                       </div>
-                      <input
-                        value={serverName}
-                        onChange={(event) => setServerName(event.target.value)}
-                        placeholder="my-server"
-                        className="w-full rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-4 py-3 text-sm text-gray-900 dark:text-[#f2f2f2] outline-none transition-colors focus:border-[#0078D4]/50"
-                      />
-                      <p className="text-xs text-gray-400 dark:text-[#666]">The deployed Kubernetes resource will use {normalizeServerName(serverName) || "your-server-name"}.</p>
+                      <div className="flex gap-2">
+                        <input
+                          value={serverName}
+                          onChange={(event) => { setServerName(event.target.value); setServerNameTaken(null); }}
+                          placeholder="my-server"
+                          className={cn(
+                            "flex-1 rounded-xl border bg-white dark:bg-[#111] px-4 py-3 text-sm text-gray-900 dark:text-[#f2f2f2] outline-none transition-colors focus:border-[#0078D4]/50",
+                            serverNameTaken ? "border-red-500/60" : "border-gray-200 dark:border-[#2a2a2a]"
+                          )}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => { setServerName(generateFunName()); setServerNameTaken(null); }}
+                          title="Generate a random server name"
+                          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-400 transition-colors hover:text-[#0078D4] hover:border-[#0078D4]/40"
+                        >
+                          <Dices className="h-4 w-4" />
+                        </button>
+                      </div>
+                      {serverNameTaken ? (
+                        <p className="flex items-center gap-1.5 text-xs text-red-400"><AlertCircle className="h-3 w-3" /> Name already in use — choose a different one.</p>
+                      ) : (
+                        <p className="text-xs text-gray-400 dark:text-[#666]">The deployed Kubernetes resource will use <span className="font-mono text-[#7cc4ff]">{normalizeServerName(serverName) || "your-server-name"}</span>. Hit <Dices className="inline h-3 w-3 mx-0.5" /> for a random name.</p>
+                      )}
                     </div>
                     <div className="space-y-2 md:col-span-2">
                       <div className="flex items-center gap-1.5">
@@ -1032,6 +1396,31 @@ export default function NewGameServerPage() {
                 <p className="text-sm text-gray-500 dark:text-[#777]">Tune the default memory, CPU, and storage before deployment.</p>
               </div>
 
+              {/* ─── Resource presets (quick buttons) ──────────────────────── */}
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-400 dark:text-[#666]">Quick presets</p>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {RESOURCE_PRESETS.map((preset) => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => { setMemoryMi(preset.memory); setCpuCores(preset.cpu); setStorageGi(preset.storage); }}
+                      className={cn(
+                        "rounded-xl border p-3 text-left transition-colors",
+                        memoryMi === preset.memory && cpuCores === preset.cpu
+                          ? "border-[#0078D4]/50 bg-[#0078D4]/10"
+                          : "border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] hover:border-[#0078D4]/30"
+                      )}
+                    >
+                      <div className="text-lg">{preset.emoji}</div>
+                      <p className="mt-1 text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">{preset.label}</p>
+                      <p className="text-xs text-gray-400 dark:text-[#666]">{preset.description}</p>
+                      <p className="mt-1 text-xs font-mono text-[#7cc4ff]">{formatMemory(preset.memory)} · {preset.cpu}c · {preset.storage}Gi</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               {/* Game-specific resource hint */}
               {getResourceHint(activeEgg) && (
                 <div className="rounded-xl border border-[#0078D4]/20 bg-[#0078D4]/5 px-4 py-3 text-xs text-gray-500 dark:text-[#999] space-y-1">
@@ -1269,11 +1658,19 @@ export default function NewGameServerPage() {
             </div>
           )}
 
-          {step === 4 && activeEgg && (
+          {step === 4 && activeEgg && installPhase === "idle" && (
             <div className="space-y-6">
-              <div>
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-[#f2f2f2]">Review and deploy</h2>
-                <p className="text-sm text-gray-500 dark:text-[#777]">Double-check the server settings before creating Kubernetes resources.</p>
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-900 dark:text-[#f2f2f2]">Review and deploy</h2>
+                  <p className="text-sm text-gray-500 dark:text-[#777]">Double-check the server settings before creating Kubernetes resources.</p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button onClick={exportConfig} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-3 py-1.5 text-xs text-gray-500 dark:text-[#888] transition-colors hover:text-gray-900 dark:hover:text-white">
+                    <Download className="h-3.5 w-3.5" /> Export
+                  </button>
+                  <SavePresetButton onSave={savePreset} />
+                </div>
               </div>
 
               {capacityData && !capacityData.canSafelyDeploy ? (
@@ -1319,12 +1716,6 @@ export default function NewGameServerPage() {
                 </div>
               </div>
 
-              {deployedServerName ? (
-                <div className="flex items-center gap-3 rounded-xl border border-green-500/30 bg-green-500/10 p-4 text-green-200">
-                  <CheckCircle2 className="h-5 w-5" /> Deployment started for {deployedServerName}
-                </div>
-              ) : null}
-
               <div className="flex items-center justify-between gap-3">
                 <button
                   onClick={() => setStep(3)}
@@ -1334,13 +1725,13 @@ export default function NewGameServerPage() {
                 </button>
                 <button
                   onClick={() => void deployServer()}
-                  disabled={deploying}
+                  disabled={deploying || serverNameTaken === true}
                   className={cn(
                     "inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-gray-900 dark:text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50",
                     capacityData && !capacityData.canSafelyDeploy ? "bg-amber-600 hover:bg-amber-500" : "bg-green-600 hover:bg-green-500"
                   )}
                 >
-                  {deploying ? <Loader2 className="h-4 w-4 animate-spin" /> : <ServerCrash className="h-4 w-4" />}
+                  {deploying ? <Loader2 className="h-4 w-4 animate-spin" /> : <Rocket className="h-4 w-4" />}
                   {capacityData && !capacityData.canSafelyDeploy ? "Deploy Anyway" : "Deploy Server"}
                 </button>
               </div>
@@ -1349,8 +1740,136 @@ export default function NewGameServerPage() {
               ) : null}
             </div>
           )}
+
+          {/* ─── Installation Console (replaces step 4 once deploy is submitted) ─── */}
+          {installPhase !== "idle" && deployedServerName && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className={cn(
+                    "flex h-10 w-10 items-center justify-center rounded-xl",
+                    installPhase === "running" ? "bg-green-500/20" : installPhase === "error" ? "bg-red-500/20" : "bg-[#0078D4]/15"
+                  )}>
+                    {installPhase === "running" ? <CheckCheck className="h-5 w-5 text-green-400" /> :
+                     installPhase === "error"   ? <XCircle className="h-5 w-5 text-red-400" /> :
+                                                  <Loader2 className="h-5 w-5 animate-spin text-[#0078D4]" />}
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-semibold text-gray-900 dark:text-[#f2f2f2]">
+                      {installPhase === "running" ? "Server is online 🎉" :
+                       installPhase === "error"   ? "Deployment error" :
+                                                    "Deploying…"}
+                    </h2>
+                    <p className="text-sm text-gray-500 dark:text-[#777]">{deployedServerName}</p>
+                  </div>
+                </div>
+                {installPhase === "running" && (
+                  <button
+                    onClick={() => router.push(`/game-hub/${deployedServerName}`)}
+                    className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-500 transition-colors"
+                  >
+                    <Rocket className="h-4 w-4" /> Open Server
+                  </button>
+                )}
+              </div>
+
+              {/* Deployment phase timeline */}
+              <div className="grid gap-2 sm:grid-cols-4">
+                {[
+                  { key: "submitted",  label: "Resources submitted",   done: true },
+                  { key: "scheduled",  label: "Pod scheduled",         done: installLog.some((l) => l.message.includes("Scheduled")) || installPhase === "running" },
+                  { key: "pulling",    label: "Image pulled",          done: installLog.some((l) => l.message.includes("Pulled") || l.message.includes("AlreadyPulled")) || installPhase === "running" },
+                  { key: "running",    label: "Server running",        done: installPhase === "running" },
+                ].map((phase, idx) => (
+                  <div key={phase.key} className={cn(
+                    "flex items-center gap-2 rounded-xl border px-3 py-2.5 text-sm",
+                    phase.done ? "border-green-500/30 bg-green-500/10 text-green-300" : "border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-400 dark:text-[#555]"
+                  )}>
+                    <div className={cn("flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold", phase.done ? "bg-green-500 text-white" : "border border-current")}>
+                      {phase.done ? "✓" : idx + 1}
+                    </div>
+                    <span className="text-xs">{phase.label}</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Live event log */}
+              <div className="rounded-2xl border border-gray-200 dark:border-[#1e1e1e] bg-[#080808] overflow-hidden">
+                <div className="flex items-center gap-2 border-b border-[#1a1a1a] px-4 py-2.5">
+                  <Terminal className="h-4 w-4 text-[#555]" />
+                  <span className="text-xs font-medium text-[#555] uppercase tracking-widest">Kubernetes Events</span>
+                  {installPhase === "deploying" && <Loader2 className="h-3 w-3 animate-spin text-[#0078D4] ml-auto" />}
+                </div>
+                <div ref={installLogRef} className="h-64 overflow-y-auto p-4 font-mono text-xs space-y-1">
+                  {installLog.length === 0 ? (
+                    <p className="text-[#444]">Waiting for events…</p>
+                  ) : installLog.map((entry, i) => (
+                    <p key={i} className={cn(
+                      "leading-5",
+                      entry.kind === "error" ? "text-red-400" : entry.kind === "info" ? "text-[#7cc4ff]" : "text-[#aaa]"
+                    )}>
+                      <span className="text-[#444] mr-2">{new Date(entry.ts).toLocaleTimeString()}</span>
+                      {entry.message}
+                    </p>
+                  ))}
+                </div>
+              </div>
+
+              {installPhase === "error" && (
+                <div className="flex items-center gap-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  <div>
+                    <p className="font-medium">Pod failed to start.</p>
+                    <p className="text-xs text-red-400 mt-0.5">Check the event log above for details. You can still <button onClick={() => router.push(`/game-hub/${deployedServerName}`)} className="underline hover:no-underline">view the server page</button> to troubleshoot.</p>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex items-center justify-between gap-3">
+                <button
+                  onClick={() => router.push("/game-hub")}
+                  className="inline-flex items-center gap-2 rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-4 py-2 text-sm text-gray-600 dark:text-[#b3b3b3] transition-colors hover:text-gray-900 dark:hover:text-white"
+                >
+                  <ArrowLeft className="h-4 w-4" /> Back to Game Hub
+                </button>
+                <button
+                  onClick={() => router.push(`/game-hub/${deployedServerName}`)}
+                  className="inline-flex items-center gap-2 rounded-lg border border-[#0078D4]/40 bg-[#0078D4]/10 px-4 py-2 text-sm font-medium text-[#7cc4ff] transition-colors hover:bg-[#0078D4]/20"
+                >
+                  View Server <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          )}
         </motion.div>
       </AnimatePresence>
+    </div>
+  );
+}
+
+// ─── SavePresetButton (inline component to avoid hooks-in-callback issue) ───
+function SavePresetButton({ onSave }: { onSave: (name: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-3 py-1.5 text-xs text-gray-500 dark:text-[#888] transition-colors hover:text-gray-900 dark:hover:text-white">
+        <Save className="h-3.5 w-3.5" /> Save preset
+      </button>
+    );
+  }
+  return (
+    <div className="flex items-center gap-1">
+      <input
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter" && name.trim()) { onSave(name); setOpen(false); setName(""); } if (e.key === "Escape") { setOpen(false); setName(""); } }}
+        placeholder="Preset name…"
+        autoFocus
+        className="rounded-lg border border-[#0078D4]/40 bg-white dark:bg-[#111] px-2 py-1.5 text-xs text-gray-900 dark:text-[#f2f2f2] outline-none w-36"
+      />
+      <button onClick={() => { if (name.trim()) { onSave(name); } setOpen(false); setName(""); }} className="rounded-lg bg-[#0078D4] px-2 py-1.5 text-xs text-white hover:bg-[#006cbe]">Save</button>
+      <button onClick={() => { setOpen(false); setName(""); }} className="rounded-lg border border-gray-200 dark:border-[#2a2a2a] px-2 py-1.5 text-xs text-gray-400 hover:text-gray-900 dark:hover:text-white">✕</button>
     </div>
   );
 }
