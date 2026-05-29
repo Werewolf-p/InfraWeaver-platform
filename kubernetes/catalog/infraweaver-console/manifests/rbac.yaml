@@ -51,6 +51,41 @@ subjects:
     name: infraweaver-console
     namespace: infraweaver-console
 ---
+# Role: full game-hub resource management (deploy/delete game servers)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: infraweaver-console-game-hub
+  namespace: game-hub
+  labels:
+    app: infraweaver-console
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/exec", "pods/log", "services", "configmaps", "secrets", "persistentvolumeclaims", "endpoints"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: infraweaver-console-game-hub
+  namespace: game-hub
+  labels:
+    app: infraweaver-console
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: infraweaver-console-game-hub
+subjects:
+  - kind: ServiceAccount
+    name: infraweaver-console
+    namespace: infraweaver-console
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
