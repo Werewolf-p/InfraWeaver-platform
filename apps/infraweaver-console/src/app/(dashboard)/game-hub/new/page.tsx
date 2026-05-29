@@ -4,9 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, ChevronLeft, ChevronRight, Gamepad2, Loader2, Search, ServerCrash, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, ChevronLeft, ChevronRight, Gamepad2, Loader2, Search, ServerCrash, CheckCircle2, ChevronDown } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
+import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { BUILT_IN_EGGS, type GameEgg, validateEggVariable, describeEggVariableRules } from "@/lib/game-eggs";
 import type { CatalogCategory, CatalogEntry } from "@/lib/pelican-eggs";
 import { cn } from "@/lib/utils";
@@ -128,6 +129,132 @@ function formatBytesGi(bytes: number | null | undefined) {
   return `${(bytes / 1024 ** 3).toFixed(1)} Gi`;
 }
 
+// ─── Storage class metadata ─────────────────────────────────────────────────
+// Maps storage class names to human-readable explanations shown in the wizard.
+type StorageClassMeta = {
+  icon: string;
+  tagline: string;
+  badges: string[];
+  description: string;
+  recommended?: boolean;
+};
+const STORAGE_CLASS_META: Record<string, StorageClassMeta> = {
+  "local-path": {
+    icon: "💾",
+    tagline: "Fastest — data lives on one node's disk",
+    badges: ["⚡ Fastest I/O", "1 copy", "🗑️ Deleted on removal"],
+    description:
+      "Stored directly on the node hosting your server — zero network overhead means the best possible disk speed. If the node goes down or you delete the server, the data is gone. Best for testing or throwaway worlds.",
+  },
+  "local-path-retain": {
+    icon: "💾",
+    tagline: "Fast local disk, data survives deletion",
+    badges: ["⚡ Fastest I/O", "1 copy", "🔒 Kept on removal"],
+    description:
+      "Same speed as local-path but the volume is NOT deleted when you remove the server. Your world files stay until you manually clean them up — great safety net for local storage.",
+  },
+  longhorn: {
+    icon: "📦",
+    tagline: "Network storage replicated to 2 nodes",
+    badges: ["🔄 Network I/O", "2 copies", "🗑️ Deleted on removal"],
+    description:
+      "Longhorn copies data across 2 nodes over the network. If one node goes offline your data survives. Volume is deleted when you remove the server. Good all-rounder for apps you care about but don't need to keep forever.",
+  },
+  "longhorn-game": {
+    icon: "🎮",
+    tagline: "Game-optimised: fast I/O + worlds survive deletion",
+    badges: ["⚡ Local speed", "1 copy", "🔒 Kept on removal"],
+    description:
+      "Longhorn with strict-local placement — the replica lives on the same node as your server pod, giving you local-disk read/write speed while still using Longhorn snapshots and backups. Volume survives server deletion so your world is always safe. The best choice for most game servers.",
+    recommended: true,
+  },
+  "longhorn-retain": {
+    icon: "🛡️",
+    tagline: "Max safety: redundant across nodes + persists",
+    badges: ["🔄 Network I/O", "2 copies", "🔒 Kept on removal"],
+    description:
+      "Two network copies on different nodes AND the volume is kept after server deletion. Slowest option because of replication overhead. Use this for important application data where you need both redundancy and long-term persistence.",
+  },
+  "longhorn-static": {
+    icon: "🔧",
+    tagline: "Pre-provisioned volumes — infrastructure use",
+    badges: ["🔄 Network I/O", "2 copies", "🗑️ Deleted on removal"],
+    description:
+      "Used for statically pre-provisioned volumes managed by ArgoCD or other infrastructure tooling. Not intended for game servers — only choose this if you already have a manually created PersistentVolume waiting.",
+  },
+};
+
+function getStorageClassMeta(name: string): StorageClassMeta {
+  return (
+    STORAGE_CLASS_META[name] ?? {
+      icon: "🗂️",
+      tagline: name,
+      badges: [],
+      description: "No description available for this storage class.",
+    }
+  );
+}
+
+// ─── Game resource hints ────────────────────────────────────────────────────
+type ResourceHint = { memory: string; cpu: string; storage: string };
+const GAME_RESOURCE_HINTS: Record<string, ResourceHint> = {
+  "minecraft-java": {
+    memory: "2–4 Gi for vanilla, 4–8 Gi for modpacks or 20+ players",
+    cpu: "2 cores for small servers, 4 for modded",
+    storage: "10 Gi to start — worlds can grow to 20 Gi+ over time",
+  },
+  terraria: {
+    memory: "1–2 Gi — large worlds or mods may need more",
+    cpu: "1 core is usually enough",
+    storage: "5–10 Gi — world files are small",
+  },
+  tshock: {
+    memory: "1–2 Gi — large worlds or mods may need more",
+    cpu: "1 core is usually enough",
+    storage: "5–10 Gi — world files are small",
+  },
+  valheim: {
+    memory: "4 Gi minimum, 6 Gi+ for many players",
+    cpu: "2–4 cores recommended",
+    storage: "10–20 Gi for world files and backups",
+  },
+  satisfactory: {
+    memory: "6–12 Gi — scales with map size",
+    cpu: "4 cores recommended",
+    storage: "10–20 Gi",
+  },
+  palworld: {
+    memory: "8–16 Gi — hungry game engine",
+    cpu: "4 cores minimum",
+    storage: "20–50 Gi for save files",
+  },
+  rust: {
+    memory: "6–12 Gi depending on map size",
+    cpu: "4+ cores for stable tick rate",
+    storage: "20 Gi — maps are large",
+  },
+  ark: {
+    memory: "8–16 Gi for a smooth experience",
+    cpu: "4+ cores",
+    storage: "30–50 Gi — save files are very large",
+  },
+  cs2: {
+    memory: "2–4 Gi",
+    cpu: "2–4 cores",
+    storage: "15 Gi",
+  },
+  factorio: {
+    memory: "2–4 Gi — scales with factory complexity",
+    cpu: "2 cores recommended",
+    storage: "5–10 Gi",
+  },
+};
+
+function getResourceHint(egg: GameEgg | null): ResourceHint | null {
+  if (!egg) return null;
+  return GAME_RESOURCE_HINTS[egg.id] ?? null;
+}
+
 export default function NewGameServerPage() {
   const router = useRouter();
   const [step, setStep] = useState(1);
@@ -151,6 +278,8 @@ export default function NewGameServerPage() {
   const [eulaAccepted, setEulaAccepted] = useState(false);
   const [envErrors, setEnvErrors] = useState<Record<string, string>>({});
   const [overriddenVars, setOverriddenVars] = useState<Set<string>>(new Set());
+  // Which storage class card has its description expanded (null = use selected class)
+  const [expandedStorageInfo, setExpandedStorageInfo] = useState<string | null>(null);
 
   const { data: catalogData, isLoading: catalogLoading, error: catalogError } = useQuery({
     queryKey: ["game-hub", "pelican-catalog"],
@@ -446,7 +575,12 @@ export default function NewGameServerPage() {
             <div className="space-y-6">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                 <div>
-                  <h2 className="text-lg font-semibold text-gray-900 dark:text-[#f2f2f2]">Choose an egg</h2>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-lg font-semibold text-gray-900 dark:text-[#f2f2f2]">Choose an egg</h2>
+                    <HelpTooltip>
+                      An <strong>egg</strong> is a pre-built server template from the Pelican / Pterodactyl ecosystem. It bundles the Docker image, startup script, and environment variables needed to run a specific game or service. Pick one and the wizard fills in the rest automatically.
+                    </HelpTooltip>
+                  </div>
                   <p className="text-sm text-gray-500 dark:text-[#777]">Browse the live Pelican catalog or pick a quick-start built-in egg.</p>
                 </div>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -627,7 +761,12 @@ export default function NewGameServerPage() {
                 <>
                   <div className="grid gap-4 md:grid-cols-2">
                     <div className="space-y-2 md:col-span-2">
-                      <label className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-400 dark:text-[#666]">Server Name</label>
+                      <div className="flex items-center gap-1.5">
+                        <label className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-400 dark:text-[#666]">Server Name</label>
+                        <HelpTooltip>
+                          Becomes the Kubernetes resource name — lowercase letters, numbers, and hyphens only. Must be unique across all game servers. Spaces and special characters are converted automatically.
+                        </HelpTooltip>
+                      </div>
                       <input
                         value={serverName}
                         onChange={(event) => setServerName(event.target.value)}
@@ -637,23 +776,42 @@ export default function NewGameServerPage() {
                       <p className="text-xs text-gray-400 dark:text-[#666]">The deployed Kubernetes resource will use {normalizeServerName(serverName) || "your-server-name"}.</p>
                     </div>
                     <div className="space-y-2 md:col-span-2">
-                      <label className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-400 dark:text-[#666]">DNS Hostname</label>
-                      {/* DNS type toggle */}
-                      <div className="flex gap-1 rounded-lg bg-white dark:bg-[#0d0d0d] p-1 w-fit">
-                        {(["internal", "public", "custom"] as const).map((t) => (
-                          <button
-                            key={t}
-                            type="button"
-                            onClick={() => setDnsType(t)}
-                            className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                              dnsType === t
-                                ? "bg-[#0078D4] text-white"
-                                : "text-gray-500 dark:text-[#888] hover:text-gray-900 dark:hover:text-[#f2f2f2]"
-                            }`}
-                          >
-                            {t === "internal" ? "🔒 Internal" : t === "public" ? "🌐 Public" : "✏️ Custom"}
-                          </button>
-                        ))}
+                      <div className="flex items-center gap-1.5">
+                        <label className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-400 dark:text-[#666]">DNS Hostname</label>
+                        <HelpTooltip>
+                          Controls how players connect to the server. Choose Internal for private use (VPN only), Public for internet access, or Custom to use your own domain.
+                        </HelpTooltip>
+                      </div>
+                      {/* DNS type toggle — each option has an inline hint */}
+                      <div className="space-y-2">
+                        <div className="flex gap-1 rounded-lg bg-white dark:bg-[#0d0d0d] p-1 w-fit">
+                          {(["internal", "public", "custom"] as const).map((t) => (
+                            <button
+                              key={t}
+                              type="button"
+                              onClick={() => setDnsType(t)}
+                              className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                                dnsType === t
+                                  ? "bg-[#0078D4] text-white"
+                                  : "text-gray-500 dark:text-[#888] hover:text-gray-900 dark:hover:text-[#f2f2f2]"
+                              }`}
+                            >
+                              {t === "internal" ? "🔒 Internal" : t === "public" ? "🌐 Public" : "✏️ Custom"}
+                            </button>
+                          ))}
+                        </div>
+                        {/* Contextual hint per DNS type */}
+                        <div className="rounded-xl border border-gray-100 dark:border-[#1e1e1e] bg-gray-50 dark:bg-[#0d0d0d] px-3 py-2 text-xs text-gray-500 dark:text-[#777]">
+                          {dnsType === "internal" && (
+                            <span>🔒 <strong>Private (VPN only)</strong> — only people connected to NetBird VPN can reach this server. Good for personal or friends-only play.</span>
+                          )}
+                          {dnsType === "public" && (
+                            <span>🌐 <strong>Public internet</strong> — creates a DNS entry at <code className="font-mono text-[#7cc4ff]">.games.rlservers.com</code>. Anyone who knows the address can connect. Make sure your game has a password if needed.</span>
+                          )}
+                          {dnsType === "custom" && (
+                            <span>✏️ <strong>Custom domain</strong> — you control the DNS record. Point your domain at the cluster IP yourself. Useful if you have an existing domain.</span>
+                          )}
+                        </div>
                       </div>
                       {dnsType === "custom" ? (
                         <input
@@ -667,13 +825,6 @@ export default function NewGameServerPage() {
                           {dnsHostname || <span className="italic">Enter a server name above</span>}
                         </p>
                       )}
-                      <p className="text-xs text-gray-400 dark:text-[#555]">
-                        {dnsType === "internal"
-                          ? "Only accessible via NetBird VPN (int.rlservers.com)"
-                          : dnsType === "public"
-                          ? "Publicly reachable on the internet"
-                          : "Custom hostname — you manage the DNS record"}
-                      </p>
                     </div>
                   </div>
 
@@ -881,12 +1032,24 @@ export default function NewGameServerPage() {
                 <p className="text-sm text-gray-500 dark:text-[#777]">Tune the default memory, CPU, and storage before deployment.</p>
               </div>
 
+              {/* Game-specific resource hint */}
+              {getResourceHint(activeEgg) && (
+                <div className="rounded-xl border border-[#0078D4]/20 bg-[#0078D4]/5 px-4 py-3 text-xs text-gray-500 dark:text-[#999] space-y-1">
+                  <p className="font-semibold text-[#7cc4ff]">💡 Recommended for {activeEgg.name}</p>
+                  <p>🧠 Memory: {getResourceHint(activeEgg)!.memory}</p>
+                  <p>⚡ CPU: {getResourceHint(activeEgg)!.cpu}</p>
+                  <p>💾 Storage: {getResourceHint(activeEgg)!.storage}</p>
+                </div>
+              )}
+
               <div className="grid gap-6 lg:grid-cols-3">
                 <div className="rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-5 lg:col-span-2">
                   <div className="flex items-center justify-between gap-3">
-                    <div>
+                    <div className="flex items-center gap-1.5">
                       <p className="text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">Memory</p>
-                      <p className="text-sm text-gray-500 dark:text-[#777]">512Mi to 16Gi</p>
+                      <HelpTooltip>
+                        The RAM guaranteed to your server. Setting this too low causes lag or crashes — game servers load entire worlds into memory. Setting it higher than needed wastes cluster resources.
+                      </HelpTooltip>
                     </div>
                     <span className="rounded-full border border-[#0078D4]/30 bg-[#0078D4]/10 px-3 py-1 text-sm font-medium text-[#7cc4ff]">{formatMemory(memoryMi)}</span>
                   </div>
@@ -902,12 +1065,18 @@ export default function NewGameServerPage() {
                   />
                 </div>
 
+                {/* Storage panel — spans 2 rows on large screens */}
                 <div className="rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-5 lg:row-span-2">
-                  <h3 className="text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">Storage</h3>
-                  <p className="mt-1 text-sm text-gray-500 dark:text-[#777]">5Gi to 500Gi</p>
-                  <div className="mt-5 space-y-4">
+                  <div className="flex items-center gap-1.5">
+                    <h3 className="text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">Storage</h3>
+                    <HelpTooltip>
+                      Persistent disk space for your server's world files, configs, and save data. You can usually resize this later (Longhorn classes support expansion; local-path cannot be resized).
+                    </HelpTooltip>
+                  </div>
+                  <p className="mt-1 text-sm text-gray-500 dark:text-[#777]">5 Gi to 500 Gi</p>
+                  <div className="mt-5 space-y-5">
                     <div>
-                      <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-gray-400 dark:text-[#666]">Size</label>
+                      <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-gray-400 dark:text-[#666]">Size (Gi)</label>
                       <input
                         type="number"
                         min={5}
@@ -918,25 +1087,89 @@ export default function NewGameServerPage() {
                       />
                     </div>
                     <div>
-                      <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-gray-400 dark:text-[#666]">Storage Class</label>
-                      <select
-                        value={storageClass}
-                        onChange={(event) => setStorageClass(event.target.value)}
-                        className="w-full rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] outline-none transition-colors focus:border-[#0078D4]/50"
-                      >
-                        {storageClasses.map((entry) => (
-                          <option key={entry.name} value={entry.name}>{entry.name}{entry.isDefault ? " (default)" : ""}</option>
-                        ))}
-                      </select>
+                      <div className="mb-3 flex items-center gap-1.5">
+                        <label className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-400 dark:text-[#666]">Storage Class</label>
+                        <HelpTooltip>
+                          Controls where and how data is stored. Longhorn-game is fastest for game servers and keeps your world files when the server is deleted.
+                        </HelpTooltip>
+                      </div>
+                      {/* Storage class card picker */}
+                      <div className="space-y-2">
+                        {storageClasses.map((entry) => {
+                          const meta = getStorageClassMeta(entry.name);
+                          const isSelected = storageClass === entry.name;
+                          const isExpanded = expandedStorageInfo === entry.name;
+                          return (
+                            <div
+                              key={entry.name}
+                              className={cn(
+                                "rounded-xl border transition-colors cursor-pointer",
+                                isSelected
+                                  ? "border-[#0078D4]/50 bg-[#0078D4]/8"
+                                  : "border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] hover:border-[#0078D4]/30"
+                              )}
+                            >
+                              {/* Card header row — click to select */}
+                              <button
+                                type="button"
+                                onClick={() => setStorageClass(entry.name)}
+                                className="w-full px-3 py-2.5 text-left"
+                              >
+                                <div className="flex items-start gap-2">
+                                  <span className="mt-0.5 text-base leading-none">{meta.icon}</span>
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <span className="text-xs font-semibold text-gray-900 dark:text-[#f2f2f2]">
+                                        {entry.name}
+                                      </span>
+                                      {entry.isDefault && (
+                                        <span className="rounded-full bg-gray-100 dark:bg-[#222] px-1.5 py-0.5 text-[9px] text-gray-500 dark:text-[#666]">default</span>
+                                      )}
+                                      {meta.recommended && (
+                                        <span className="rounded-full bg-green-500/15 px-1.5 py-0.5 text-[9px] text-green-400">recommended</span>
+                                      )}
+                                    </div>
+                                    <p className="mt-0.5 text-[11px] text-gray-500 dark:text-[#777] leading-snug">{meta.tagline}</p>
+                                    {/* Mini badges */}
+                                    <div className="mt-1.5 flex flex-wrap gap-1">
+                                      {meta.badges.map((badge) => (
+                                        <span key={badge} className="rounded-full border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-1.5 py-0.5 text-[9px] text-gray-500 dark:text-[#777]">{badge}</span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                  {isSelected && <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#0078D4]" />}
+                                </div>
+                              </button>
+                              {/* Info expand toggle */}
+                              <button
+                                type="button"
+                                onClick={() => setExpandedStorageInfo(isExpanded ? null : entry.name)}
+                                className="flex w-full items-center gap-1 border-t border-gray-100 dark:border-[#1a1a1a] px-3 py-1.5 text-[10px] text-gray-400 dark:text-[#555] hover:text-gray-600 dark:hover:text-[#888] transition-colors"
+                              >
+                                <ChevronDown className={cn("h-3 w-3 transition-transform", isExpanded && "rotate-180")} />
+                                {isExpanded ? "Hide details" : "What does this mean?"}
+                              </button>
+                              {/* Expanded description */}
+                              {isExpanded && (
+                                <div className="px-3 pb-3 text-[11px] text-gray-500 dark:text-[#888] leading-relaxed border-t border-gray-100 dark:border-[#1a1a1a]">
+                                  {meta.description}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
                 </div>
 
                 <div className="rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-5 lg:col-span-2">
                   <div className="flex items-center justify-between gap-3">
-                    <div>
+                    <div className="flex items-center gap-1.5">
                       <p className="text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">CPU</p>
-                      <p className="text-sm text-gray-500 dark:text-[#777]">0.5 to 8 cores</p>
+                      <HelpTooltip>
+                        CPU cores available to your server. 1 core handles most small-medium servers. Add more if you see lag spikes or console warnings about high tick time. Kubernetes can share CPU across servers — a 1-core limit doesn't prevent brief bursts above that.
+                      </HelpTooltip>
                     </div>
                     <span className="rounded-full border border-[#0078D4]/30 bg-[#0078D4]/10 px-3 py-1 text-sm font-medium text-[#7cc4ff]">{formatCpu(cpuCores)} cores</span>
                   </div>
@@ -959,9 +1192,11 @@ export default function NewGameServerPage() {
                   capacityData.canSafelyDeploy ? "border-green-500/30 bg-green-500/5" : "border-amber-500/40 bg-amber-500/10"
                 )}>
                   <div className="flex items-start justify-between gap-3">
-                    <div>
+                    <div className="flex items-center gap-1.5">
                       <h3 className="text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">Cluster capacity</h3>
-                      <p className="mt-1 text-sm text-gray-500 dark:text-[#777]">Live safety check before this server is deployed.</p>
+                      <HelpTooltip>
+                        Live check of whether the cluster can safely host this server. Green means the cluster has comfortable headroom. Amber means it's getting full — deployment will still work but performance may suffer.
+                      </HelpTooltip>
                     </div>
                     <span className={cn(
                       "rounded-full px-2 py-1 text-[11px] font-medium",
@@ -972,22 +1207,34 @@ export default function NewGameServerPage() {
                   </div>
                   <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4 text-xs">
                     <div className="rounded-xl bg-black/20 p-3">
-                      <p className="text-gray-500 dark:text-[#777]">Highest node requests</p>
+                      <div className="flex items-center gap-1">
+                        <p className="text-gray-500 dark:text-[#777]">Highest node requests</p>
+                        <HelpTooltip>Memory <em>requests</em> are what Kubernetes guarantees to each pod. This shows the most-loaded node's guaranteed allocations as a % of its total RAM.</HelpTooltip>
+                      </div>
                       <p className="mt-1 text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">{capacityData.summary.maxRequestMemoryPct.toFixed(1)}%</p>
                       <p className="text-gray-400 dark:text-[#666]">{highestPressureNode?.name ?? "No ready nodes"}</p>
                     </div>
                     <div className="rounded-xl bg-black/20 p-3">
-                      <p className="text-gray-500 dark:text-[#777]">Highest node limits</p>
+                      <div className="flex items-center gap-1">
+                        <p className="text-gray-500 dark:text-[#777]">Highest node limits</p>
+                        <HelpTooltip>Memory <em>limits</em> are the maximum a pod can ever use. Limits can exceed the node's RAM (overcommit). High overcommit is fine until multiple servers actually spike simultaneously.</HelpTooltip>
+                      </div>
                       <p className="mt-1 text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">{capacityData.summary.maxLimitMemoryPct.toFixed(1)}%</p>
                       <p className="text-gray-400 dark:text-[#666]">Current overcommit</p>
                     </div>
                     <div className="rounded-xl bg-black/20 p-3">
-                      <p className="text-gray-500 dark:text-[#777]">Projected worst-case requests</p>
+                      <div className="flex items-center gap-1">
+                        <p className="text-gray-500 dark:text-[#777]">Projected worst-case</p>
+                        <HelpTooltip>If this new server is scheduled on the most-loaded node, what would its request % become? Above 85% is considered a warning threshold.</HelpTooltip>
+                      </div>
                       <p className="mt-1 text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">{capacityData.summary.projectedWorstNodeRequestMemoryPct.toFixed(1)}%</p>
                       <p className="text-gray-400 dark:text-[#666]">After this deploy</p>
                     </div>
                     <div className="rounded-xl bg-black/20 p-3">
-                      <p className="text-gray-500 dark:text-[#777]">Game Hub request budget</p>
+                      <div className="flex items-center gap-1">
+                        <p className="text-gray-500 dark:text-[#777]">Game Hub budget</p>
+                        <HelpTooltip>Total memory requested by all Game Hub servers combined vs the namespace quota. Prevents game servers from starving other cluster workloads.</HelpTooltip>
+                      </div>
                       <p className="mt-1 text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">{formatBytesGi(capacityData.gameHubUsage.requestedMemoryBytes)}</p>
                       <p className="text-gray-400 dark:text-[#666]">of {formatBytesGi(capacityData.gameHubUsage.quota.requestsMemoryBytes)}</p>
                     </div>
