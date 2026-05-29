@@ -7,7 +7,7 @@ export const secretsRoute = new Hono<AppBindings>();
 
 secretsRoute.get('/', async (c) => {
   const user = c.get('user');
-  if (!hasPermission(user, 'cluster:admin')) return c.json({ error: 'Forbidden' }, 403);
+  if (!hasPermission(user, 'security:read') && !hasPermission(user, 'cluster:admin')) return c.json({ error: 'Forbidden' }, 403);
   const namespace = c.req.query('namespace');
   try {
     const [coreApi, customApi] = await Promise.all([
@@ -19,7 +19,7 @@ secretsRoute.get('/', async (c) => {
       namespace && namespace !== 'all'
         ? coreApi.listNamespacedSecret({ namespace })
         : coreApi.listSecretForAllNamespaces(),
-      customApi.listClusterCustomObject({ group: 'external-secrets.io', version: 'v1beta1', plural: 'externalsecrets' }).catch(() => ({ items: [] })),
+      customApi.listClusterCustomObject({ group: 'external-secrets.io', version: 'v1', plural: 'externalsecrets' }).catch(() => ({ items: [] })),
     ]);
 
     const externalSecrets = (((externalSecretsResponse as { items?: unknown[] }).items ?? [])).map((item) => {

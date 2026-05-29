@@ -22,6 +22,7 @@ const ADMIN_PERMISSIONS: Permission[] = [
   'catalog:write', 'catalog:delete',
   'users:read', 'users:write',
   'cluster:read', 'cluster:drain', 'cluster:scale', 'cluster:admin',
+  'security:read', 'security:write',
   'infra:read', 'rbac:admin', 'platform:update',
 ];
 

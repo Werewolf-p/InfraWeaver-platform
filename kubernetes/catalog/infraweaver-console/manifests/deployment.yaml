@@ -70,6 +70,11 @@ spec:
         env:
         - name: NEXTAUTH_URL
           value: https://infraweaver.int.rlservers.com
+        - name: CONSOLE_API_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: infraweaver-api-console-secret
+              key: CONSOLE_API_SECRET
         - name: NEXTAUTH_SECRET
           valueFrom:
             secretKeyRef:
