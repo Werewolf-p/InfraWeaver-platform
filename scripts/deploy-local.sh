@@ -173,6 +173,90 @@ if [[ -z "${BASE_DOMAIN:-}" ]]; then
   exit 1
 fi
 
+# ── Generate envs/$ENV_NAME/cluster.yaml from .env node vars if missing ───────
+mkdir -p "envs/$ENV_NAME/generated"
+if [[ ! -f "envs/$ENV_NAME/cluster.yaml" ]]; then
+  log "Generating envs/$ENV_NAME/cluster.yaml from .env variables..."
+  python3 - "$ENV_NAME" << 'GENYAML'
+import os, sys
+env_name = sys.argv[1]
+base_domain = os.environ.get("BASE_DOMAIN", "example.com")
+proxmox_host = os.environ.get("PROXMOX_HOST", "")
+cluster_name = os.environ.get("CLUSTER_NAME", f"infraweaver-{env_name}")
+talos_version = os.environ.get("TALOS_VERSION", "v1.13.0")
+k8s_version = os.environ.get("KUBERNETES_VERSION", "v1.35.4")
+schematic = os.environ.get("TALOS_SCHEMATIC_ID", "c9078f9419961640c712a8bf2bb9174933dfcf1da383fd8ea2b7dc21493f8bac")
+
+lines = [
+    f'cluster_name: "{cluster_name}"',
+    f'environment: "{env_name}"',
+    f'talos_version: "{talos_version}"',
+    f'kubernetes_version: "{k8s_version}"',
+    f'proxmox_host: "{proxmox_host}"',
+    f'talos_schematic_id: "{schematic}"',
+    f'base_domain: "{base_domain}"',
+    "",
+    "nodes:",
+]
+
+# Collect nodes from NODE_<n>_* env vars
+i = 1
+while True:
+    ip = os.environ.get(f"NODE_{i}_IP", "")
+    if not ip:
+        break
+    name = os.environ.get(f"NODE_{i}_NAME", f"talos-{env_name}-cp{i}")
+    pve_node = os.environ.get(f"NODE_{i}_PVE_NODE", "proxmox")
+    vmid = os.environ.get(f"NODE_{i}_VMID", str(9299 + i))
+    cpu = os.environ.get(f"NODE_{i}_CPU", "10")
+    mem = os.environ.get(f"NODE_{i}_MEMORY", "22528")
+    disk = os.environ.get(f"NODE_{i}_DISK", "300")
+    ds = os.environ.get(f"NODE_{i}_DATASTORE", "lvm-proxmox")
+    role = os.environ.get(f"NODE_{i}_ROLE", "control-plane")
+    mac = os.environ.get(f"NODE_{i}_MAC", "")
+    lines.append(f"  {name}:")
+    lines.append(f'    proxmox_node: "{pve_node}"')
+    lines.append(f'    ip: "{ip}"')
+    if mac:
+        lines.append(f'    mac_address: "{mac}"')
+    lines.append(f"    vm_id: {vmid}")
+    lines.append(f"    controlplane: {'true' if role == 'control-plane' else 'false'}")
+    lines.append(f"    cpu: {cpu}")
+    lines.append(f"    memory_mb: {mem}")
+    lines.append(f"    disk_gb: {disk}")
+    lines.append(f'    datastore: "{ds}"')
+    i += 1
+
+if i == 1:
+    # No nodes defined — write minimal file with placeholder
+    lines.append("  # No nodes defined in .env (NODE_1_IP etc.)")
+
+outpath = f"envs/{env_name}/cluster.yaml"
+os.makedirs(os.path.dirname(outpath), exist_ok=True)
+with open(outpath, "w") as f:
+    f.write("\n".join(lines) + "\n")
+print(f"  Generated {outpath} with {i-1} node(s)")
+GENYAML
+fi
+
+# ── Ensure infra repo (terraform/, kubernetes/) is available ──────────────────
+# These directories were split into InfraWeaver-infra. If they don't exist locally,
+# clone the infra repo and symlink them so the deploy pipeline works seamlessly.
+INFRA_REPO_URL="${INFRA_REPO_URL:-https://github.com/Werewolf-p/InfraWeaver-infra.git}"
+if [[ ! -d "$REPO_DIR/terraform" ]]; then
+  log "Cloning InfraWeaver-infra (terraform + kubernetes manifests)..."
+  INFRA_DIR="$REPO_DIR/.infra-repo"
+  if [[ -d "$INFRA_DIR" ]]; then
+    git -C "$INFRA_DIR" pull --ff-only 2>/dev/null || true
+  else
+    git clone --depth=1 "$INFRA_REPO_URL" "$INFRA_DIR" 2>&1 | tail -3
+  fi
+  ln -sfn "$INFRA_DIR/terraform" "$REPO_DIR/terraform"
+  ln -sfn "$INFRA_DIR/kubernetes" "$REPO_DIR/kubernetes"
+  [[ -d "$INFRA_DIR/envs" ]] && ln -sfn "$INFRA_DIR/envs" "$REPO_DIR/envs" 2>/dev/null || true
+  ok "Infra repo linked (terraform/ kubernetes/)"
+fi
+
 echo ""
 echo "╔══════════════════════════════════════════════════════════════╗"
 echo "║     InfraWeaver — Local Platform Deployment                  ║"
@@ -884,7 +968,7 @@ for _idx in $(seq 1 "${NODE_COUNT:-3}"); do
     _cp_ips="${_cp_ips:+$_cp_ips,}$_ip"
   fi
 done
-_cp_ips="${_cp_ips:-${NODE_1_IP:-$(grep 'ip:' envs/"$ENV_NAME"/cluster.yaml 2>/dev/null | head -1 | awk '{print $2}' | tr -d '"')}}"
+_cp_ips="${_cp_ips:-${NODE_1_IP:-$(grep 'ip:' envs/"$ENV_NAME"/cluster.yaml 2>/dev/null | head -1 | awk '{print $2}' | tr -d '"' || true)}}"
 CONTROLPLANE_IPS="$_cp_ips"
 
 # Try all control-plane endpoints so a crashed cp1 doesn't block the email
