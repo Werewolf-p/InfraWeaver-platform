@@ -1,4 +1,4 @@
-import { QueryClient } from "@tanstack/react-query";
+import { QueryClient, keepPreviousData } from "@tanstack/react-query";
 
 export function createQueryClient() {
   return new QueryClient({
@@ -15,6 +15,11 @@ export function createQueryClient() {
         retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30_000),
         staleTime: 30_000,
         gcTime: 5 * 60_000,
+        // Keep the previous successful data on screen while a refetch is in
+        // flight (refresh, refetchInterval, query-key changes) instead of
+        // dropping back to loading/empty. Makes refreshes far less distracting —
+        // existing data stays put and only updates once new data arrives.
+        placeholderData: keepPreviousData,
       },
       mutations: {
         retry: 1,
