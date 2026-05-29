@@ -351,6 +351,147 @@ export function getGameRconArgs(
   return autoDetectRconFromEnv(runtimeEnv, command);
 }
 
+export interface RconConnection {
+  port: number;
+  password: string;
+  /** Wire protocol: "source" = Valve Source RCON (Minecraft/Valheim-RCON/ARK/Source). */
+  protocol: "source";
+}
+
+/**
+ * Resolve a native (binary-free) Source RCON connection for a game server.
+ * Returns the RCON port + password to dial directly over TCP from the console,
+ * so we never depend on an rcon client binary being present inside the game
+ * container. Works for any game/egg that exposes Source-protocol RCON, including
+ * unknown eggs via universal env-pattern detection. Returns null when the game
+ * has no Source RCON (e.g. Rust uses WebSocket RCON, vanilla Valheim has none).
+ */
+export function getRconConnection(
+  gameType: string,
+  egg: GameEgg | null | undefined,
+  runtimeEnv: Record<string, string>,
+): RconConnection | null {
+  const env = (name: string) => runtimeEnv[name]?.trim() || getEggEnvValue(egg, name);
+  const num = (v: string, fallback: number) => {
+    const n = Number.parseInt(v, 10);
+    return Number.isFinite(n) && n > 0 ? n : fallback;
+  };
+
+  // Rust uses a WebSocket-based RCON, not Source — leave to CLI/autodetect path.
+  if (gameType === "rust") return null;
+
+  if (isMinecraftGame(gameType)) {
+    const password = env("RCON_PASSWORD");
+    if (password) return { port: num(env("RCON_PORT"), 25575), password, protocol: "source" };
+  } else if (isSrcdsGame(gameType)) {
+    const password = env("SRCDS_RCONPW");
+    if (password) return { port: num(env("SRCDS_PORT"), 27015), password, protocol: "source" };
+  } else if (gameType.includes("ark")) {
+    const password = env("ARK_RCON_PASSWORD") || env("RCON_PASSWORD");
+    if (password) return { port: num(env("ARK_RCON_PORT") || env("RCON_PORT"), 32330), password, protocol: "source" };
+  } else if (gameType === "valheim") {
+    const password = env("SERVER_RCON_PASSWORD") || env("RCON_PASSWORD");
+    if (password) return { port: num(env("SERVER_RCON_PORT") || env("RCON_PORT"), 2458), password, protocol: "source" };
+  }
+
+  // Universal fallback: any egg that declares an RCON password + port via env.
+  const passKey = Object.keys(runtimeEnv).find((k) => RCON_PASS_RE.test(k));
+  const portKey = Object.keys(runtimeEnv).find((k) => RCON_PORT_RE.test(k));
+  if (passKey && portKey) {
+    const enableKey = Object.keys(runtimeEnv).find((k) => RCON_ENABLE_RE.test(k));
+    const enabled = !enableKey || ["true", "1", "yes"].includes(runtimeEnv[enableKey].toLowerCase());
+    const password = runtimeEnv[passKey];
+    const port = num(runtimeEnv[portKey], 0);
+    if (enabled && password && port) return { port, password, protocol: "source" };
+  }
+
+  return null;
+}
+
+const SOURCE_RCON_AUTH = 3;
+const SOURCE_RCON_EXEC = 2;
+
+function encodeSourceRconPacket(id: number, type: number, body: string): Buffer {
+  const bodyBuf = Buffer.from(body, "utf8");
+  const size = 4 + 4 + bodyBuf.length + 2;
+  const buf = Buffer.alloc(4 + size);
+  let off = 0;
+  buf.writeInt32LE(size, off); off += 4;
+  buf.writeInt32LE(id, off); off += 4;
+  buf.writeInt32LE(type, off); off += 4;
+  bodyBuf.copy(buf, off); off += bodyBuf.length;
+  buf.writeInt16LE(0, off);
+  return buf;
+}
+
+/**
+ * Native Source RCON over TCP. No in-container binary required — the console
+ * dials the game pod directly. Authenticates, sends one command, and collects
+ * the response. Universal across all Source-protocol games.
+ */
+export function sourceRconCommand(
+  host: string,
+  port: number,
+  password: string,
+  command: string,
+  timeoutMs = 8000,
+): Promise<{ stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const socket = net.connect({ host, port });
+    let buffer = Buffer.alloc(0);
+    let authed = false;
+    let output = "";
+    let settled = false;
+    const AUTH_ID = 1;
+    const EXEC_ID = 2;
+    const END_ID = 3; // sentinel empty command to detect end of multi-packet reply
+
+    const finish = (err: Error | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      socket.destroy();
+      if (err) reject(err);
+      else resolve({ stdout: output, stderr: "" });
+    };
+
+    const timer = setTimeout(() => {
+      // If authenticated, return whatever we collected rather than failing.
+      if (authed) finish(null);
+      else finish(new Error(`RCON timeout connecting to ${host}:${port}`));
+    }, timeoutMs);
+
+    socket.on("connect", () => {
+      socket.write(encodeSourceRconPacket(AUTH_ID, SOURCE_RCON_AUTH, password));
+    });
+
+    socket.on("data", (chunk) => {
+      buffer = Buffer.concat([buffer, chunk]);
+      while (buffer.length >= 4) {
+        const size = buffer.readInt32LE(0);
+        if (buffer.length < 4 + size) break;
+        const id = buffer.readInt32LE(4);
+        const body = buffer.slice(12, 4 + size - 2).toString("utf8");
+        buffer = buffer.slice(4 + size);
+
+        if (!authed) {
+          if (id === -1) { finish(new Error("RCON authentication failed (wrong password)")); return; }
+          authed = true;
+          socket.write(encodeSourceRconPacket(EXEC_ID, SOURCE_RCON_EXEC, command));
+          // Empty sentinel: its echoed response marks the end of the real reply.
+          socket.write(encodeSourceRconPacket(END_ID, SOURCE_RCON_EXEC, ""));
+          continue;
+        }
+        if (id === END_ID) { finish(null); return; }
+        if (id === EXEC_ID) output += body;
+      }
+    });
+
+    socket.on("error", (err) => finish(err));
+    socket.on("close", () => { if (authed) finish(null); else finish(new Error("RCON connection closed before auth")); });
+  });
+}
+
 function buildCommandExecutionError(gameType: string, transportError: unknown, stdinError?: unknown) {
   const detail = [transportError, stdinError]
     .filter((value) => value !== undefined && value !== null)
@@ -560,7 +701,9 @@ export async function runServerCommand(
   const egg = await readServerEgg(clients.coreApi, name, deployment);
   const gameType = (egg.id || getDeploymentGameType(deployment)).toLowerCase();
   const runtimeEnv = getDeploymentEnvMap(deployment);
-  const rconCandidates = STDIN_ONLY_GAMES.has(gameType) ? [] : getGameRconArgs(gameType, egg, runtimeEnv, command);
+  const isStdinOnly = STDIN_ONLY_GAMES.has(gameType);
+  const rconConnection = isStdinOnly ? null : getRconConnection(gameType, egg, runtimeEnv);
+  const rconCandidates = isStdinOnly ? [] : getGameRconArgs(gameType, egg, runtimeEnv, command);
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const pod = await getServerPod(clients.coreApi, name, true);
@@ -575,6 +718,19 @@ export async function runServerCommand(
     const containerName = getPrimaryContainerName(pod, name);
     let transportError: unknown = null;
 
+    // Tier 1: native Source RCON over TCP straight to the pod — no in-container
+    // client binary needed. Universal across all Source-protocol games.
+    const podIp = pod.status?.podIP;
+    if (rconConnection && podIp) {
+      try {
+        const result = await sourceRconCommand(podIp, rconConnection.port, rconConnection.password, command, timeoutMs);
+        return { ...result, gameType, pod, method: "rcon" as const };
+      } catch (error) {
+        transportError = error;
+      }
+    }
+
+    // Tier 2: in-container rcon client binary (mcrcon/rcon-cli) if present.
     if (rconCandidates.length > 0) {
       try {
         const result = await runRconCommand(clients.kc, pod.metadata.name, containerName, rconCandidates, timeoutMs);
