@@ -116,7 +116,7 @@ export function Breadcrumb({ className }: { className?: string }) {
   if (crumbs.length === 0) return null;
 
   return (
-    <div className={cn("flex items-center gap-2 border-b border-gray-200 dark:border-[#2a2a2a] bg-[#111]/95 px-4 py-2 text-xs text-gray-500 dark:text-[#888]", className)}>
+    <div className={cn("flex items-center gap-2 border-b border-gray-200 dark:border-[#2a2a2a] bg-white/90 dark:bg-[#111]/95 backdrop-blur-sm px-4 py-2 text-xs text-gray-600 dark:text-[#888]", className)}>
       {crumbs.length > 1 ? (
         <button
           onClick={() => router.back()}

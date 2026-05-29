@@ -206,6 +206,20 @@ body {
 @utility density-comfortable { --spacing-base: 0.75rem; }
 @utility density-spacious { --spacing-base: 1.25rem; }
 
+/* ── Display density ───────────────────────────────────────────
+   The SettingsProvider sets data-density (and optional data-compact)
+   on <html>. Because Tailwind spacing/font sizes are rem-based,
+   scaling the root font-size rescales padding, margins, gaps and
+   text across the whole app, making the density choice clearly
+   visible without touching individual components. */
+html[data-density="compact"] { font-size: 14px; }
+html[data-density="comfortable"] { font-size: 16px; }
+html[data-density="spacious"] { font-size: 18px; }
+
+/* Compact Mode toggle tightens things further on top of density. */
+html[data-compact="true"] { font-size: 13px; }
+html[data-compact="true"][data-density="spacious"] { font-size: 15px; }
+
 /* ── Mobile / Touch utilities ───────────────────────────────── */
 
 /* Safe-area inset padding for iPhone notch / home bar */
@@ -235,6 +249,24 @@ html.light {
   --foreground-rgb: 15, 23, 42;
   --background-start-rgb: 248, 250, 252;
   --background-end-rgb: 241, 245, 249;
+
+  /* Legacy surface/text tokens default to dark values in :root.
+     Override them for light mode so cards and text adapt correctly. */
+  --az-bg: #f8fafc;
+  --az-surface: #ffffff;
+  --az-card: #ffffff;
+  --az-border: #e5e7eb;
+  --az-border-subtle: #eef2f7;
+  --az-text: #111827;
+  --az-text-secondary: #4b5563;
+  --az-text-muted: #6b7280;
+
+  --surface-1: #ffffff;
+  --surface-2: #f3f4f6;
+  --surface-3: #e5e7eb;
+  --text-primary: #111827;
+  --text-secondary: #4b5563;
+  --text-muted: #6b7280;
 }
 html.light body {
   color: rgb(var(--foreground-rgb));

@@ -273,6 +273,22 @@ function ArgoCDUnavailableBanner({ onRetry }: { onRetry: () => void }) {
   );
 }
 
+function SectionHeading({ title, icon: Icon, action }: {
+  title: string;
+  icon?: React.ElementType;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div className="mb-3 flex items-center justify-between gap-3">
+      <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-gray-500 dark:text-[#777]">
+        {Icon ? <Icon className="h-3.5 w-3.5 text-gray-400 dark:text-[#9e9e9e]" /> : null}
+        {title}
+      </h2>
+      {action}
+    </div>
+  );
+}
+
 export default function DashboardPage() {
   const { activeId, clusters } = useCluster();
   const isAllView = activeId === "all";
@@ -386,7 +402,7 @@ export default function DashboardPage() {
   }
 
   return (
-    <div>
+    <div className="mx-auto max-w-7xl space-y-6">
       <PageHeader
         icon={LayoutDashboard}
         title="Dashboard"
@@ -411,7 +427,7 @@ export default function DashboardPage() {
         variants={dashboardContainer}
         initial="hidden"
         animate="show"
-        className="mb-5 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3"
+        className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3"
       >
         <KpiCard
           title="Healthy Apps"
@@ -439,8 +455,8 @@ export default function DashboardPage() {
         </div>
       </motion.div>
 
-      <div className="mb-5">
-        <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-gray-400 dark:text-[#555]">Quick Actions</h2>
+      <div>
+        <SectionHeading title="Quick Actions" icon={Zap} />
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           {isAdmin ? (
             <QuickAction
@@ -459,11 +475,12 @@ export default function DashboardPage() {
       </div>
 
       {(appHealthChips.length > 0 || isLoading) ? (
-        <div className="mb-5">
-          <div className="mb-2 flex items-center justify-between">
-            <h2 className="text-xs font-semibold uppercase tracking-widest text-gray-400 dark:text-[#555]">App Health</h2>
-            <Link href="/apps" className="text-xs text-[#0078D4] transition-colors hover:text-[#1a86d9]">View all</Link>
-          </div>
+        <div>
+          <SectionHeading
+            title="App Health"
+            icon={CheckCircle2}
+            action={<Link href="/apps" className="text-xs font-medium text-[#0078D4] transition-colors hover:text-[#1a86d9]">View all</Link>}
+          />
           {isLoading ? (
             <div className="flex gap-2 overflow-x-hidden">
               {[...Array(6)].map((_, i) => (
@@ -488,7 +505,7 @@ export default function DashboardPage() {
         </div>
       ) : null}
 
-      <div className="mb-5 grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-3">
         <div className="rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-[var(--surface-1,#1a1a1a)] p-4 sm:p-5 lg:col-span-2">
           <div className="mb-3 flex items-center justify-between">
             <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">
@@ -553,19 +570,17 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <div className="mb-6">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">
-            <Activity className="h-4 w-4 text-gray-500 dark:text-[#9e9e9e]" />
-            Platform Services
-          </h2>
-          {healthData?.available === false ? (
-            <span className="flex items-center gap-1 text-xs text-amber-400/70">
+      <div>
+        <SectionHeading
+          title="Platform Services"
+          icon={Activity}
+          action={healthData?.available === false ? (
+            <span className="flex items-center gap-1 text-xs text-amber-500 dark:text-amber-400/70">
               <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
               monitoring unavailable
             </span>
           ) : null}
-        </div>
+        />
 
         <motion.div
           variants={dashboardContainer}

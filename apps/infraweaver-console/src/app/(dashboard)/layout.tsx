@@ -94,18 +94,18 @@ function StatusBar() {
   const issueCount = Math.max(0, totalPods - runningPods) + (isHealthy ? 0 : 1);
 
   return (
-    <div className="hidden flex-wrap items-center justify-between gap-3 border-b border-gray-200 dark:border-white/5 bg-[#0f172a]/70 px-4 py-2 text-xs text-slate-500 dark:text-slate-400 backdrop-blur-sm sm:flex">
+    <div className="hidden flex-wrap items-center justify-between gap-3 border-b border-gray-200 dark:border-white/5 bg-white/80 dark:bg-[#0f172a]/70 px-4 py-2 text-xs text-slate-600 dark:text-slate-400 backdrop-blur-sm sm:flex">
       <div className="flex items-center gap-3">
         <div className={cn(
           "h-2 w-2 rounded-full",
-          issueCount === 0 ? "bg-emerald-400 live-dot" : "bg-amber-400"
+          issueCount === 0 ? "bg-emerald-500 dark:bg-emerald-400 live-dot" : "bg-amber-500 dark:bg-amber-400"
         )} />
-        <span className={cn("font-medium", issueCount === 0 ? "text-emerald-300" : "text-amber-200")}>
+        <span className={cn("font-medium", issueCount === 0 ? "text-emerald-600 dark:text-emerald-300" : "text-amber-600 dark:text-amber-200")}>
           {issueCount === 0 ? "All systems operational" : `⚠ ${issueCount} issue${issueCount === 1 ? "" : "s"} detected`}
         </span>
-        {totalPods > 0 ? <span className="text-slate-500">{runningPods}/{totalPods} pods running</span> : null}
+        {totalPods > 0 ? <span className="text-slate-600 dark:text-slate-500">{runningPods}/{totalPods} pods running</span> : null}
       </div>
-      <div className="flex items-center gap-4 text-slate-500">
+      <div className="flex items-center gap-4 text-slate-600 dark:text-slate-500">
         <span>Cluster {isHealthy ? "healthy" : "degraded"}</span>
         <span>{utcTime} UTC</span>
       </div>

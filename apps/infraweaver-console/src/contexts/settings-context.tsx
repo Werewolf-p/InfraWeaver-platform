@@ -1,5 +1,5 @@
 "use client";
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, useContext, useEffect, type ReactNode } from "react";
 import { useSettings, type AppSettings, type RefreshInterval, type Density } from "@/hooks/use-settings";
 
 interface SettingsContextValue {
@@ -16,6 +16,19 @@ const SettingsContext = createContext<SettingsContextValue>({
 
 export function SettingsProvider({ children }: { children: ReactNode }) {
   const settingsState = useSettings();
+  const { settings, mounted } = settingsState;
+
+  useEffect(() => {
+    if (!mounted || typeof document === "undefined") return;
+    const root = document.documentElement;
+    root.dataset.density = settings.density;
+    if (settings.compactMode) {
+      root.dataset.compact = "true";
+    } else {
+      delete root.dataset.compact;
+    }
+  }, [mounted, settings.density, settings.compactMode]);
+
   return (
     <SettingsContext.Provider value={settingsState}>
       {children}

@@ -90,7 +90,7 @@ export function TopBar({ onMenuClick, onSearchClick }: { title?: string; onMenuC
   }, [pathname]);
 
   return (
-    <header className="relative z-10 flex min-h-16 flex-shrink-0 items-center justify-between gap-3 border-b border-gray-200 dark:border-white/5 bg-black/60 backdrop-blur-xl px-3 pt-[env(safe-area-inset-top,0px)] sm:min-h-14 sm:px-4">
+    <header className="relative z-10 flex min-h-16 flex-shrink-0 items-center justify-between gap-3 border-b border-gray-200 dark:border-white/5 bg-white/80 dark:bg-black/60 backdrop-blur-xl px-3 pt-[env(safe-area-inset-top,0px)] sm:min-h-14 sm:px-4">
       <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
         <motion.button
           type="button"
@@ -139,7 +139,7 @@ export function TopBar({ onMenuClick, onSearchClick }: { title?: string; onMenuC
         >
           <Search className="h-3.5 w-3.5" />
           <span>Search resources, pages, and commands…</span>
-          <span className="ml-auto inline-flex items-center gap-1 rounded-md border border-gray-200 dark:border-[#2a2a2a] bg-[#151515] px-2 py-1 text-[10px] font-mono text-gray-500 dark:text-[#888]">
+          <span className="ml-auto inline-flex items-center gap-1 rounded-md border border-gray-200 dark:border-[#2a2a2a] bg-gray-100 dark:bg-[#151515] px-2 py-1 text-[10px] font-mono text-gray-500 dark:text-[#888]">
             <Command className="h-3 w-3" />K
           </span>
         </button>
