@@ -1,17 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { hasPermission } from "@/lib/rbac";
-
-const REGISTRY_HOST = process.env.REGISTRY_HOST ?? "registry.int.rlservers.com";
-const REGISTRY_USERNAME = process.env.REGISTRY_USERNAME ?? "";
-const REGISTRY_PASSWORD = process.env.REGISTRY_PASSWORD ?? "";
-
-function getAuthHeader(): Record<string, string> {
-  if (!REGISTRY_USERNAME || !REGISTRY_PASSWORD) return {};
-  return {
-    Authorization: `Basic ${Buffer.from(`${REGISTRY_USERNAME}:${REGISTRY_PASSWORD}`).toString("base64")}`,
-  };
-}
+import { getRegistryConfig, listRepositories } from "@/lib/registry";
 
 export async function GET() {
   const session = await auth();
@@ -20,15 +10,22 @@ export async function GET() {
   if (!hasPermission(groups, "config:read")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+
+  const cfg = getRegistryConfig();
+  if (!cfg.configured) {
+    return NextResponse.json(
+      { repositories: [], registryHost: cfg.registryHost, error: "Registry not configured" },
+      { status: 200 },
+    );
+  }
+
   try {
-    const res = await fetch(`https://${REGISTRY_HOST}/v2/_catalog`, {
-      headers: { ...getAuthHeader(), Accept: "application/json" },
-      signal: AbortSignal.timeout(3500),
-    });
-    if (!res.ok) throw new Error(`Registry error: ${res.status}`);
-    const data = await res.json() as { repositories: string[] };
-    return NextResponse.json({ repositories: data.repositories ?? [] });
+    const repositories = await listRepositories(cfg);
+    return NextResponse.json({ repositories, registryHost: cfg.registryHost, projectPath: cfg.projectPath });
   } catch {
-    return NextResponse.json({ error: "Registry unavailable", repositories: [] }, { status: 503 });
+    return NextResponse.json(
+      { repositories: [], registryHost: cfg.registryHost, error: "Registry unavailable" },
+      { status: 503 },
+    );
   }
 }

@@ -8,21 +8,20 @@ import { useRBAC } from "@/hooks/use-rbac";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { CopyButton } from "@/components/ui/copy-button";
-import { cn, formatBytes } from "@/lib/utils";
-import { PageHeader } from "@/components/ui/page-header";
+import { formatBytes } from "@/lib/utils";
 
-const REGISTRY_HOST = "registry.int.rlservers.com";
+const DEFAULT_REGISTRY_HOST = "onedev.rlservers.com";
+const DEFAULT_PROJECT_PATH = "infraweaver-platform";
 
-function TagRow({ repo, tag, onDelete, isAdmin }: {
-  repo: string;
+function TagRow({ registryPath, tag, onDelete, isAdmin }: {
+  registryPath: string;
   tag: { tag: string; digest: string; size: number; pushedAt: string | null };
   onDelete: () => void;
   isAdmin: boolean;
 }) {
-  const pullCmd = `docker pull ${REGISTRY_HOST}/${repo}:${tag.tag}`;
+  const pullCmd = `docker pull ${registryPath}:${tag.tag}`;
   return (
     <div className="flex items-center gap-4 px-4 py-2.5 bg-white/3 border-b border-gray-200 dark:border-white/5 last:border-0 text-sm overflow-x-auto">
-      <PageHeader icon={Package} title="Container Registry" />
       <span className="text-slate-700 dark:text-slate-300 font-mono text-xs w-32 truncate">{tag.tag}</span>
       <span className="text-slate-500 font-mono text-xs w-36 truncate">{tag.digest || "—"}</span>
       <span className="text-slate-500 dark:text-slate-400 text-xs w-20">{tag.size ? formatBytes(tag.size) : "—"}</span>
@@ -42,12 +41,13 @@ function TagRow({ repo, tag, onDelete, isAdmin }: {
   );
 }
 
-function RepoRow({ name }: { name: string }) {
+function RepoRow({ name, registryHost, projectPath }: { name: string; registryHost: string; projectPath: string }) {
   const [expanded, setExpanded] = useState(false);
   const { data: tagsData, isLoading: tagsLoading } = useRegistryTags(expanded ? name : "");
   const deleteMutation = useDeleteTag();
   const { isAdmin } = useRBAC();
   const [deleteTarget, setDeleteTarget] = useState<{ repo: string; tag: string } | null>(null);
+  const registryPath = `${registryHost}/${projectPath}/${name}`;
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
@@ -93,7 +93,7 @@ function RepoRow({ name }: { name: string }) {
                   {(tagsData?.tags ?? []).map(tag => (
                     <TagRow
                       key={tag.tag}
-                      repo={name}
+                      registryPath={registryPath}
                       tag={tag}
                       isAdmin={isAdmin}
                       onDelete={() => setDeleteTarget({ repo: name, tag: tag.tag })}
@@ -126,8 +126,13 @@ export default function RegistryPage() {
   const [search, setSearch] = useState("");
   const [showLoginModal, setShowLoginModal] = useState(false);
 
+  const meta = data as { registryHost?: string; projectPath?: string; error?: string } | undefined;
+  const registryHost = meta?.registryHost ?? DEFAULT_REGISTRY_HOST;
+  const projectPath = (meta?.projectPath ?? DEFAULT_PROJECT_PATH).toLowerCase();
+  const error = meta?.error;
+
   const repos = (data?.repositories ?? []).filter(r => r.toLowerCase().includes(search.toLowerCase()));
-  const loginCmd = `docker login ${REGISTRY_HOST}`;
+  const loginCmd = `docker login ${registryHost}`;
 
   return (
     <div>
@@ -137,7 +142,7 @@ export default function RegistryPage() {
             <Package className="w-5 h-5 text-indigo-400" />
             Container Registry
           </h2>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">{REGISTRY_HOST}</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">{registryHost}/{projectPath}</p>
         </div>
         <button
           onClick={() => setShowLoginModal(true)}
@@ -158,10 +163,12 @@ export default function RegistryPage() {
         />
       </div>
 
-      {data?.mock && (
+      {error && (
         <div className="mb-4 flex items-center gap-2 px-4 py-3 bg-red-500/10 border border-red-500/20 rounded-xl text-sm text-red-400">
           <Info className="w-4 h-4 flex-shrink-0" />
-          Registry unreachable — check REGISTRY_HOST, REGISTRY_USERNAME and REGISTRY_PASSWORD configuration
+          {error === "Registry not configured"
+            ? "Registry not configured — set ONEDEV_URL, ONEDEV_TOKEN and ONEDEV_USERNAME for the console."
+            : "OneDev registry unreachable — check ONEDEV_URL connectivity and the onedev-token secret."}
         </div>
       )}
 
@@ -176,9 +183,11 @@ export default function RegistryPage() {
             <span>Repository</span>
             <span>Tags</span>
           </div>
-          {repos.map(name => <RepoRow key={name} name={name} />)}
-          {repos.length === 0 && (
-            <div className="py-12 text-center text-slate-500 text-sm">No repositories found</div>
+          {repos.map(name => <RepoRow key={name} name={name} registryHost={registryHost} projectPath={projectPath} />)}
+          {repos.length === 0 && !error && (
+            <div className="py-12 text-center text-slate-500 text-sm">
+              {search ? "No repositories match your search" : "No container images published to OneDev yet"}
+            </div>
           )}
         </div>
       )}
@@ -202,7 +211,7 @@ export default function RegistryPage() {
                 {loginCmd}
               </div>
               <CopyButton text={loginCmd} label="Copy command" className="w-full justify-center" />
-              <p className="text-xs text-slate-500 mt-4">Then push images with: <span className="font-mono text-slate-700 dark:text-slate-300">docker push {REGISTRY_HOST}/your-image:tag</span></p>
+              <p className="text-xs text-slate-500 mt-4">Then push images with: <span className="font-mono text-slate-700 dark:text-slate-300">docker push {registryHost}/{projectPath}/your-image:tag</span></p>
             </motion.div>
           </div>
         )}
