@@ -20,7 +20,10 @@
       "name": "Monitor Trigger",
       "type": "n8n-nodes-base.trigger",
       "typeVersion": 1,
-      "position": [250, 300],
+      "position": [
+        250,
+        300
+      ],
       "webhookId": null
     },
     {
@@ -33,7 +36,10 @@
       "name": "Check Node Status",
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
-      "position": [450, 300],
+      "position": [
+        450,
+        300
+      ],
       "credentials": {
         "kubeconfig": "kubeconfig_credential"
       }
@@ -45,7 +51,10 @@
       "name": "Parse Nodes",
       "type": "n8n-nodes-base.code",
       "typeVersion": 1,
-      "position": [650, 300]
+      "position": [
+        650,
+        300
+      ]
     },
     {
       "parameters": {
@@ -56,7 +65,10 @@
       "name": "Check Pod Status",
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
-      "position": [450, 450],
+      "position": [
+        450,
+        450
+      ],
       "credentials": {
         "kubeconfig": "kubeconfig_credential"
       }
@@ -68,7 +80,10 @@
       "name": "Parse Pod Issues",
       "type": "n8n-nodes-base.code",
       "typeVersion": 1,
-      "position": [650, 450]
+      "position": [
+        650,
+        450
+      ]
     },
     {
       "parameters": {
@@ -77,14 +92,17 @@
       "name": "Calculate Stability",
       "type": "n8n-nodes-base.code",
       "typeVersion": 1,
-      "position": [850, 375]
+      "position": [
+        850,
+        375
+      ]
     },
     {
       "parameters": {
         "httpMethod": "POST",
         "url": "{{ $credentials.slack_webhook }}",
         "bodyParametersUi": "json",
-        "bodyJson": "{\n  \"text\": \"🟢 Cluster Health Report\",\n  \"blocks\": [\n    {\n      \"type\": \"section\",\n      \"text\": {\n        \"type\": \"mrkdwn\",\n        \"text\": \"*Cluster Status:* {{ $node.Calculate_Stability.json.healthy ? '✅ Healthy' : '⚠️ Degraded' }}\\\\n*Nodes:* {{ $node.Parse_Nodes.json.ready_nodes }}/{{ $node.Parse_Nodes.json.total_nodes }} Ready\\\\n*Failing Pods:* {{ $node.Parse_Pod_Issues.json.total_issues }}\\\\n*Stability Score:* {{ $node.Calculate_Stability.json.stability_score }}%\"\n      }\n    }\n  ]\n}",
+        "bodyJson": "{\n  \"text\": \"\ud83d\udfe2 Cluster Health Report\",\n  \"blocks\": [\n    {\n      \"type\": \"section\",\n      \"text\": {\n        \"type\": \"mrkdwn\",\n        \"text\": \"*Cluster Status:* {{ $node.Calculate_Stability.json.healthy ? '\u2705 Healthy' : '\u26a0\ufe0f Degraded' }}\\\\n*Nodes:* {{ $node.Parse_Nodes.json.ready_nodes }}/{{ $node.Parse_Nodes.json.total_nodes }} Ready\\\\n*Failing Pods:* {{ $node.Parse_Pod_Issues.json.total_issues }}\\\\n*Stability Score:* {{ $node.Calculate_Stability.json.stability_score }}%\"\n      }\n    }\n  ]\n}",
         "sendQuery": false,
         "sendHeaders": true,
         "headerParametersUi": "json",
@@ -93,7 +111,10 @@
       "name": "Send Slack Notification",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1050, 300],
+      "position": [
+        1050,
+        300
+      ],
       "credentials": {
         "httpBasicAuth": "slack_webhook"
       }
@@ -107,7 +128,10 @@
       "name": "Log to History",
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
-      "position": [1050, 450],
+      "position": [
+        1050,
+        450
+      ],
       "credentials": {
         "ssh": "ssh_credential"
       }
@@ -127,7 +151,10 @@
       "name": "Is Unhealthy",
       "type": "n8n-nodes-base.if",
       "typeVersion": 1,
-      "position": [850, 200]
+      "position": [
+        850,
+        200
+      ]
     },
     {
       "parameters": {
@@ -138,7 +165,10 @@
       "name": "Collect Debug Info",
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
-      "position": [1050, 150],
+      "position": [
+        1050,
+        150
+      ],
       "credentials": {
         "kubeconfig": "kubeconfig_credential"
       }
@@ -250,5 +280,6 @@
         ]
       ]
     }
-  }
+  },
+  "active": false
 }
