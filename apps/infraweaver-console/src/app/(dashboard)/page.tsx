@@ -276,7 +276,7 @@ function ArgoCDUnavailableBanner({ onRetry }: { onRetry: () => void }) {
 export default function DashboardPage() {
   const { activeId, clusters } = useCluster();
   const isAllView = activeId === "all";
-  const { data: apps, isLoading, isError, error, refetch } = useArgoApps();
+  const { data: apps, isLoading, isFetching, isError, error, refetch } = useArgoApps();
   const { isAdmin } = useRBAC();
   const qc = useQueryClient();
   const [syncAllLoading, setSyncAllLoading] = useState(false);
@@ -299,7 +299,10 @@ export default function DashboardPage() {
     queryFn: async () => {
       const res = await fetch("/api/pods");
       if (!res.ok) throw new Error("fail");
-      return res.json() as Promise<Array<{ status: string }>>;
+      // /api/pods proxies the backend which returns { pods, clusterId }.
+      // Accept both the wrapped object and a bare array.
+      const data = await res.json() as Array<{ status: string }> | { pods?: Array<{ status: string }> };
+      return Array.isArray(data) ? data : data.pods ?? [];
     },
     refetchInterval: 60000,
     staleTime: 30000,
@@ -384,7 +387,17 @@ export default function DashboardPage() {
 
   return (
     <div>
-      <PageHeader icon={LayoutDashboard} title="Dashboard" subtitle="Cluster command center — live metrics" />
+      <PageHeader
+        icon={LayoutDashboard}
+        title="Dashboard"
+        subtitle="Cluster command center — live metrics"
+        actions={isFetching && !isLoading ? (
+          <span className="inline-flex items-center gap-1.5 text-xs text-gray-400 dark:text-[#9e9e9e]">
+            <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+            Refreshing…
+          </span>
+        ) : null}
+      />
 
       {isError ? <ArgoCDUnavailableBanner onRetry={() => void refetch()} /> : null}
       {isError && !apps?.length ? (

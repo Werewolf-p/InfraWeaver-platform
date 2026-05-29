@@ -126,7 +126,13 @@ export default function HomePage() {
   });
   const podsQuery = useQuery<PodItem[]>({
     queryKey: ["home", "pods"],
-    queryFn: () => fetchJson<PodItem[]>("/api/pods"),
+    queryFn: async () => {
+      // /api/pods proxies the backend which returns { pods, clusterId }.
+      // Tolerate both the wrapped object and a bare array so the card never
+      // silently breaks on a `.filter` of a non-array.
+      const data = await fetchJson<PodItem[] | { pods?: PodItem[] }>("/api/pods");
+      return Array.isArray(data) ? data : data.pods ?? [];
+    },
     staleTime: 30_000,
     refetchInterval: 60_000,
   });
