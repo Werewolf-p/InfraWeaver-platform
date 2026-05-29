@@ -2,6 +2,26 @@ import { X509Certificate } from "crypto";
 import { makeBatchApi, makeCoreApi, makeCustomApi } from "@/lib/kube-client";
 import { nextCronRun } from "@/lib/cron-utils";
 import { detectAccessTier, type AccessTier } from "@/lib/access-tier";
+import { apiCache } from "@/lib/api-cache";
+import { requestDedup } from "@/lib/request-dedup";
+
+// Each of these loaders performs a cluster-wide list (events / secrets / cronjobs+jobs /
+// ingressroutes) and is hit by several routes (e.g. events feeds both /api/cluster/events
+// and /api/notifications; cronjobs feed both /api/cluster/cronjobs and
+// /api/automation/overview). A short-lived in-process cache + request de-dup coalesces
+// concurrent requests and avoids re-listing the whole cluster on every poll. TTLs are well
+// under the UI refetch intervals so results stay effectively live. Failures are never
+// cached so they retry immediately.
+const OPS_CACHE_KEYS = {
+  events: "ops:events:list",
+  certs: "ops:certs:list",
+  cronjobs: "ops:cronjobs:list",
+  ingressRoutes: "ops:ingress-routes:list",
+} as const;
+const EVENTS_CACHE_TTL_MS = 8_000;
+const CERTS_CACHE_TTL_MS = 30_000;
+const CRONJOBS_CACHE_TTL_MS = 15_000;
+const INGRESS_CACHE_TTL_MS = 30_000;
 
 export interface ClusterEventItem {
   id: string;
@@ -231,47 +251,59 @@ function buildIngressSummary(routes: IngressRouteItem[]) {
 
 
 
+async function fetchAllClusterEvents(): Promise<ClusterEventItem[]> {
+  const coreApi = makeCoreApi();
+  const response = await coreApi.listEventForAllNamespaces();
+  return ((response as { items?: unknown[] }).items ?? [])
+    .map((item) => {
+      const event = item as {
+        metadata?: { uid?: string; name?: string; namespace?: string; creationTimestamp?: string | Date };
+        reason?: string;
+        message?: string;
+        type?: string;
+        count?: number;
+        firstTimestamp?: string | Date;
+        lastTimestamp?: string | Date;
+        eventTime?: string | Date;
+        source?: { component?: string };
+        involvedObject?: { kind?: string; name?: string };
+        reportingController?: string;
+      };
+      const lastSeen = pickTimestamp(event.lastTimestamp, event.eventTime, event.metadata?.creationTimestamp);
+      return {
+        id: event.metadata?.uid ?? `${event.metadata?.namespace ?? "default"}/${event.metadata?.name ?? event.reason ?? "event"}/${lastSeen ?? "now"}`,
+        name: event.metadata?.name ?? event.reason ?? "event",
+        namespace: event.metadata?.namespace ?? "default",
+        reason: event.reason ?? "Unknown",
+        message: event.message ?? "",
+        type: event.type ?? "Normal",
+        level: levelForEvent(event.type, event.reason, event.message),
+        count: event.count ?? 1,
+        firstSeen: pickTimestamp(event.firstTimestamp, event.metadata?.creationTimestamp),
+        lastSeen,
+        involvedObject: {
+          kind: event.involvedObject?.kind ?? "Object",
+          name: event.involvedObject?.name ?? "unknown",
+        },
+        sourceComponent: event.source?.component ?? event.reportingController ?? null,
+      } satisfies ClusterEventItem;
+    })
+    .sort((left, right) => compareTimestampDesc(left.lastSeen, right.lastSeen));
+}
+
+async function getClusterEventsCached(): Promise<ClusterEventItem[]> {
+  const cached = apiCache.get<ClusterEventItem[]>(OPS_CACHE_KEYS.events);
+  if (cached) return cached;
+  return requestDedup.dedupe(OPS_CACHE_KEYS.events, async () => {
+    const all = await fetchAllClusterEvents();
+    apiCache.set(OPS_CACHE_KEYS.events, all, EVENTS_CACHE_TTL_MS);
+    return all;
+  }, EVENTS_CACHE_TTL_MS);
+}
+
 export async function loadClusterEvents(limit = 250): Promise<ClusterEventPayload> {
   try {
-    const coreApi = makeCoreApi();
-    const response = await coreApi.listEventForAllNamespaces();
-    const items = ((response as { items?: unknown[] }).items ?? [])
-      .map((item) => {
-        const event = item as {
-          metadata?: { uid?: string; name?: string; namespace?: string; creationTimestamp?: string | Date };
-          reason?: string;
-          message?: string;
-          type?: string;
-          count?: number;
-          firstTimestamp?: string | Date;
-          lastTimestamp?: string | Date;
-          eventTime?: string | Date;
-          source?: { component?: string };
-          involvedObject?: { kind?: string; name?: string };
-          reportingController?: string;
-        };
-        const lastSeen = pickTimestamp(event.lastTimestamp, event.eventTime, event.metadata?.creationTimestamp);
-        return {
-          id: event.metadata?.uid ?? `${event.metadata?.namespace ?? "default"}/${event.metadata?.name ?? event.reason ?? "event"}/${lastSeen ?? "now"}`,
-          name: event.metadata?.name ?? event.reason ?? "event",
-          namespace: event.metadata?.namespace ?? "default",
-          reason: event.reason ?? "Unknown",
-          message: event.message ?? "",
-          type: event.type ?? "Normal",
-          level: levelForEvent(event.type, event.reason, event.message),
-          count: event.count ?? 1,
-          firstSeen: pickTimestamp(event.firstTimestamp, event.metadata?.creationTimestamp),
-          lastSeen,
-          involvedObject: {
-            kind: event.involvedObject?.kind ?? "Object",
-            name: event.involvedObject?.name ?? "unknown",
-          },
-          sourceComponent: event.source?.component ?? event.reportingController ?? null,
-        } satisfies ClusterEventItem;
-      })
-      .sort((left, right) => compareTimestampDesc(left.lastSeen, right.lastSeen))
-      .slice(0, limit);
-
+    const items = (await getClusterEventsCached()).slice(0, limit);
     return { events: items, live: true, summary: buildEventSummary(items) };
   } catch {
     return { events: [], live: false, summary: buildEventSummary([]) };
@@ -280,7 +312,10 @@ export async function loadClusterEvents(limit = 250): Promise<ClusterEventPayloa
 
 async function loadSecretBackedCertificates(): Promise<CertificateItem[]> {
   const coreApi = makeCoreApi();
-  const response = await coreApi.listSecretForAllNamespaces();
+  // Filter server-side to TLS secrets only. Listing every secret in the cluster and
+  // filtering client-side transfers and deserializes large amounts of unrelated secret
+  // data on each call; the field selector pushes the filter down to the API server.
+  const response = await coreApi.listSecretForAllNamespaces({ fieldSelector: "type=kubernetes.io/tls" });
   const items = ((response as { items?: unknown[] }).items ?? [])
     .filter((item) => (item as { type?: string }).type === "kubernetes.io/tls")
     .map((item) => {
@@ -364,7 +399,7 @@ async function loadSecretBackedCertificates(): Promise<CertificateItem[]> {
   return items.sort((left, right) => (left.daysLeft ?? 9_999) - (right.daysLeft ?? 9_999));
 }
 
-export async function loadCertificates(): Promise<CertificatePayload> {
+async function loadCertificatesUncached(): Promise<CertificatePayload> {
   try {
     const customApi = makeCustomApi();
     const response = await customApi.listClusterCustomObject({
@@ -449,7 +484,7 @@ function statusForJob(job: {
   return "unknown" as const;
 }
 
-export async function loadCronJobs(): Promise<CronJobPayload> {
+async function loadCronJobsUncached(): Promise<CronJobPayload> {
   try {
     const batchApi = makeBatchApi();
     const [cronResponse, jobResponse] = await Promise.all([
@@ -546,7 +581,7 @@ export async function loadCronJobs(): Promise<CronJobPayload> {
   }
 }
 
-export async function loadIngressRoutes(): Promise<IngressRoutePayload> {
+async function loadIngressRoutesUncached(): Promise<IngressRoutePayload> {
   try {
     const customApi = makeCustomApi();
     const response = await customApi.listClusterCustomObject({
@@ -601,4 +636,34 @@ export async function loadIngressRoutes(): Promise<IngressRoutePayload> {
   } catch {
     return { ingressRoutes: [], live: false, summary: buildIngressSummary([]) };
   }
+}
+
+export async function loadCertificates(): Promise<CertificatePayload> {
+  const cached = apiCache.get<CertificatePayload>(OPS_CACHE_KEYS.certs);
+  if (cached) return cached;
+  return requestDedup.dedupe(OPS_CACHE_KEYS.certs, async () => {
+    const payload = await loadCertificatesUncached();
+    if (payload.live) apiCache.set(OPS_CACHE_KEYS.certs, payload, CERTS_CACHE_TTL_MS);
+    return payload;
+  }, CERTS_CACHE_TTL_MS);
+}
+
+export async function loadCronJobs(): Promise<CronJobPayload> {
+  const cached = apiCache.get<CronJobPayload>(OPS_CACHE_KEYS.cronjobs);
+  if (cached) return cached;
+  return requestDedup.dedupe(OPS_CACHE_KEYS.cronjobs, async () => {
+    const payload = await loadCronJobsUncached();
+    if (payload.live) apiCache.set(OPS_CACHE_KEYS.cronjobs, payload, CRONJOBS_CACHE_TTL_MS);
+    return payload;
+  }, CRONJOBS_CACHE_TTL_MS);
+}
+
+export async function loadIngressRoutes(): Promise<IngressRoutePayload> {
+  const cached = apiCache.get<IngressRoutePayload>(OPS_CACHE_KEYS.ingressRoutes);
+  if (cached) return cached;
+  return requestDedup.dedupe(OPS_CACHE_KEYS.ingressRoutes, async () => {
+    const payload = await loadIngressRoutesUncached();
+    if (payload.live) apiCache.set(OPS_CACHE_KEYS.ingressRoutes, payload, INGRESS_CACHE_TTL_MS);
+    return payload;
+  }, INGRESS_CACHE_TTL_MS);
 }
