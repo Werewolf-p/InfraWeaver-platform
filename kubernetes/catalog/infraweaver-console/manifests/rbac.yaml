@@ -9,7 +9,7 @@ metadata:
     app: infraweaver-console
 rules:
   - apiGroups: [""]
-    resources: ["pods", "pods/log", "namespaces", "nodes", "events", "services", "configmaps", "persistentvolumes", "persistentvolumeclaims", "secrets"]
+    resources: ["pods", "pods/log", "namespaces", "nodes", "events", "services", "endpoints", "configmaps", "persistentvolumes", "persistentvolumeclaims", "secrets"]
     verbs: ["get", "list", "watch"]
   - apiGroups: ["apps"]
     resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
