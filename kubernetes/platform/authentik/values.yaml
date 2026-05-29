@@ -62,6 +62,11 @@ global:
         secretKeyRef:
           name: authentik-smtp-secret
           key: smtp-password
+    # 4 Gunicorn workers — reduces the chance of a request hitting a worker that
+    # is being recycled (max_requests reached). With 4 workers, 3 remain available
+    # while one restarts, eliminating the intermittent "flow infinite load" on first click.
+    - name: AUTHENTIK_WEB__WORKERS
+      value: "4"
 
 authentik:
   # secret_key must be non-empty for chart templating; actual value from env var above

@@ -150,6 +150,7 @@ export default function NewGameServerPage() {
   const [selectedDockerImage, setSelectedDockerImage] = useState<string | null>(null);
   const [eulaAccepted, setEulaAccepted] = useState(false);
   const [envErrors, setEnvErrors] = useState<Record<string, string>>({});
+  const [overriddenVars, setOverriddenVars] = useState<Set<string>>(new Set());
 
   const { data: catalogData, isLoading: catalogLoading, error: catalogError } = useQuery({
     queryKey: ["game-hub", "pelican-catalog"],
@@ -239,6 +240,7 @@ export default function NewGameServerPage() {
     }
     setEulaAccepted(false);
     setEnvErrors({});
+    setOverriddenVars(new Set());
   }, [activeEggKey]); // intentionally omitting activeEgg — key change implies egg change
 
   useEffect(() => {
@@ -274,9 +276,30 @@ export default function NewGameServerPage() {
   }, [remoteEggs, search, selectedCategory]);
 
   const needsEula = Boolean(activeEgg?.features?.includes("eula"));
+  // A required field is "missing" when it has no value AND no default to fall back on.
+  // Read-only fields that have a default are never considered missing — they will deploy
+  // with their default (or overridden) value even if the user didn't touch them.
   const requiredEnvMissing = activeEgg?.environment
     .filter((entry) => entry.userViewable !== false)
-    .some((entry) => entry.required && !(envValues[entry.name] ?? "").trim());
+    .some((entry) => {
+      if (!entry.required) return false;
+      const currentValue = (envValues[entry.name] ?? entry.defaultValue ?? "").trim();
+      if (currentValue) return false; // has a value — fine
+      // Field has no value. Read-only fields with a non-empty default are already
+      // initialised above; only user-editable (or overridden) empty fields block.
+      const isLocked = entry.userEditable === false && !overriddenVars.has(entry.name);
+      if (isLocked) return false; // locked + no default → deploy empty (egg handles it)
+      return true; // editable + empty + required → must fill in
+    });
+  // Build a list of empty required editable fields so we can show a helpful hint
+  const emptyRequiredFields = activeEgg?.environment
+    .filter((entry) => entry.userViewable !== false && entry.required)
+    .filter((entry) => {
+      const val = (envValues[entry.name] ?? entry.defaultValue ?? "").trim();
+      if (val) return false;
+      const isLocked = entry.userEditable === false && !overriddenVars.has(entry.name);
+      return !isLocked;
+    }) ?? [];
   const canContinueFromConfigure = Boolean(
     activeEgg && serverName.trim() && !requiredEnvMissing && (!needsEula || eulaAccepted)
   );
@@ -721,20 +744,56 @@ export default function NewGameServerPage() {
                           const rulesHint = describeEggVariableRules(variable.rules);
                           const error = envErrors[variable.name];
                           const isReadOnly = variable.userEditable === false;
+                          const isOverriding = overriddenVars.has(variable.name);
+                          const effectivelyEditable = !isReadOnly || isOverriding;
+                          // Highlight empty required editable fields so users know what to fill in
+                          const needsInput = variable.required && effectivelyEditable && !(value ?? "").trim();
 
                           return (
-                            <div key={variable.name} className={cn("rounded-2xl border bg-white dark:bg-[#111] p-4", error ? "border-red-500/40" : "border-gray-200 dark:border-[#2a2a2a]")}>
+                            <div key={variable.name} className={cn(
+                              "rounded-2xl border bg-white dark:bg-[#111] p-4",
+                              error ? "border-red-500/40" :
+                              needsInput ? "border-amber-500/40 bg-amber-50/30 dark:bg-amber-500/5" :
+                              "border-gray-200 dark:border-[#2a2a2a]"
+                            )}>
                               <div className="mb-3 flex items-start justify-between gap-3">
-                                <div>
-                                  <label className="text-sm font-medium text-gray-900 dark:text-[#f2f2f2]">
-                                    {label}
-                                    {variable.required ? <span className="ml-1 text-red-400">*</span> : null}
-                                    {isReadOnly ? <span className="ml-1 text-[10px] text-gray-400 dark:text-[#666] font-normal">(read-only)</span> : null}
-                                  </label>
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    <label className="text-sm font-medium text-gray-900 dark:text-[#f2f2f2]">
+                                      {label}
+                                      {variable.required ? <span className="ml-1 text-red-400">*</span> : null}
+                                    </label>
+                                    {isReadOnly && !isOverriding && (
+                                      <span className="rounded-full bg-gray-100 dark:bg-[#1a1a1a] px-2 py-0.5 text-[10px] text-gray-400 dark:text-[#666]">default</span>
+                                    )}
+                                    {isOverriding && (
+                                      <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] text-amber-500">overriding</span>
+                                    )}
+                                  </div>
                                   <p className="mt-1 text-xs text-gray-500 dark:text-[#777]">{helperText}</p>
                                   {rulesHint && <p className="mt-0.5 text-[10px] text-gray-400 dark:text-[#555]">{rulesHint}</p>}
                                 </div>
-                                <span className="rounded-full border border-gray-200 dark:border-[#2a2a2a] px-2 py-1 text-[10px] uppercase tracking-[0.2em] text-gray-500 dark:text-[#999] flex-shrink-0">{fieldType}</span>
+                                <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                                  <span className="rounded-full border border-gray-200 dark:border-[#2a2a2a] px-2 py-1 text-[10px] uppercase tracking-[0.2em] text-gray-500 dark:text-[#999]">{fieldType}</span>
+                                  {isReadOnly && !isOverriding && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setOverriddenVars((prev) => { const s = new Set(prev); s.add(variable.name); return s; })}
+                                      className="text-[10px] text-[#7cc4ff] hover:text-[#0078D4] transition-colors"
+                                    >Override</button>
+                                  )}
+                                  {isOverriding && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setOverriddenVars((prev) => { const s = new Set(prev); s.delete(variable.name); return s; });
+                                        setEnvValues((prev) => ({ ...prev, [variable.name]: variable.defaultValue }));
+                                        setEnvErrors((prev) => { const copy = { ...prev }; delete copy[variable.name]; return copy; });
+                                      }}
+                                      className="text-[10px] text-gray-400 dark:text-[#666] hover:text-red-400 transition-colors"
+                                    >Reset</button>
+                                  )}
+                                </div>
                               </div>
 
                               {fieldType === "boolean" ? (
@@ -743,17 +802,16 @@ export default function NewGameServerPage() {
                                   onChange={(checked) => setEnvValues((current) => ({ ...current, [variable.name]: checked ? "true" : "false" }))}
                                   label={variable.name}
                                   description="Toggle the boolean value"
-                                  disabled={isReadOnly}
+                                  disabled={!effectivelyEditable}
                                 />
                               ) : (
                                 <input
                                   type={fieldType === "integer" ? "number" : /password|token|secret/i.test(variable.name) ? "password" : "text"}
                                   value={value}
-                                  readOnly={isReadOnly}
+                                  readOnly={!effectivelyEditable}
                                   onChange={(event) => {
                                     const next = event.target.value;
                                     setEnvValues((current) => ({ ...current, [variable.name]: next }));
-                                    // clear error while typing
                                     if (envErrors[variable.name]) {
                                       setEnvErrors((prev) => { const copy = { ...prev }; delete copy[variable.name]; return copy; });
                                     }
@@ -762,13 +820,20 @@ export default function NewGameServerPage() {
                                     const err = validateEggVariable(variable, value);
                                     if (err) setEnvErrors((prev) => ({ ...prev, [variable.name]: err }));
                                   }}
-                                  placeholder={variable.defaultValue}
+                                  placeholder={variable.defaultValue || `Enter ${label.toLowerCase()}`}
                                   className={cn(
-                                    "w-full rounded-xl border px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] outline-none transition-colors",
-                                    isReadOnly ? "bg-white dark:bg-[#0d0d0d] text-gray-400 dark:text-[#666] cursor-not-allowed" : "bg-white dark:bg-[#0d0d0d] focus:border-[#0078D4]/50",
-                                    error ? "border-red-500/40" : "border-gray-200 dark:border-[#2a2a2a]"
+                                    "w-full rounded-xl border px-3 py-2 text-sm outline-none transition-colors",
+                                    !effectivelyEditable
+                                      ? "bg-white dark:bg-[#0d0d0d] text-gray-400 dark:text-[#555] cursor-default select-none"
+                                      : needsInput
+                                        ? "bg-white dark:bg-[#0d0d0d] text-gray-900 dark:text-[#f2f2f2] focus:border-amber-500/50"
+                                        : "bg-white dark:bg-[#0d0d0d] text-gray-900 dark:text-[#f2f2f2] focus:border-[#0078D4]/50",
+                                    error ? "border-red-500/40" : needsInput ? "border-amber-500/30" : "border-gray-200 dark:border-[#2a2a2a]"
                                   )}
                                 />
+                              )}
+                              {needsInput && !error && (
+                                <p className="mt-1.5 text-[11px] text-amber-500">Required — please fill this in</p>
                               )}
                               {error && <p className="mt-1.5 text-[11px] text-red-400">{error}</p>}
                             </div>
@@ -780,20 +845,31 @@ export default function NewGameServerPage() {
                 </>
               )}
 
-              <div className="flex items-center justify-between gap-3 pt-4">
-                <button
-                  onClick={() => setStep(1)}
-                  className="inline-flex items-center gap-2 rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-4 py-2 text-sm text-gray-600 dark:text-[#b3b3b3] transition-colors hover:text-gray-900 dark:hover:text-white"
-                >
-                  <ChevronLeft className="h-4 w-4" /> Back
-                </button>
-                <button
-                  onClick={() => setStep(3)}
-                  disabled={!canContinueFromConfigure || remoteEggLoading}
-                  className="inline-flex items-center gap-2 rounded-lg bg-[#0078D4] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#006cbe] disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  Continue <ChevronRight className="h-4 w-4" />
-                </button>
+              <div className="space-y-3 pt-4">
+                {/* Show exactly which required fields still need input */}
+                {emptyRequiredFields.length > 0 && (
+                  <p className="text-center text-xs text-amber-500">
+                    Fill in: {emptyRequiredFields.map((e) => e.description.split(":")[0] || e.name).join(", ")}
+                  </p>
+                )}
+                {activeEgg && !serverName.trim() && (
+                  <p className="text-center text-xs text-amber-500">Enter a server name to continue</p>
+                )}
+                <div className="flex items-center justify-between gap-3">
+                  <button
+                    onClick={() => setStep(1)}
+                    className="inline-flex items-center gap-2 rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-4 py-2 text-sm text-gray-600 dark:text-[#b3b3b3] transition-colors hover:text-gray-900 dark:hover:text-white"
+                  >
+                    <ChevronLeft className="h-4 w-4" /> Back
+                  </button>
+                  <button
+                    onClick={() => setStep(3)}
+                    disabled={!canContinueFromConfigure || remoteEggLoading}
+                    className="inline-flex items-center gap-2 rounded-lg bg-[#0078D4] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#006cbe] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Continue <ChevronRight className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
             </div>
           )}
