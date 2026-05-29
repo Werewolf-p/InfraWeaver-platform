@@ -125,6 +125,7 @@ export default function DnsManagementPage() {
     data: traefikData,
     isLoading: isLoadingTraefikRoutes,
     isFetching: isFetchingTraefikRoutes,
+    error: traefikError,
     refetch: refetchTraefikRoutes,
   } = useQuery({
     queryKey: ["dns", "traefik-routes"],
@@ -490,12 +491,12 @@ export default function DnsManagementPage() {
                                   <button
                                     type="button"
                                     onClick={() => {
-                                      if (!wildcardRoutes.length) return;
+                                      if (!wildcardRoutes.length && !isLoadingTraefikRoutes && !traefikError) return;
                                       setExpandedWildcards((current) => ({ ...current, [record.id]: !current[record.id] }));
                                     }}
-                                    disabled={!wildcardRoutes.length}
+                                    disabled={!wildcardRoutes.length && !isLoadingTraefikRoutes && !traefikError}
                                     className="mt-0.5 inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md text-slate-500 transition hover:bg-gray-200/80 hover:text-gray-900 dark:text-slate-400 dark:hover:bg-[#1a1a1a] dark:hover:text-[#f2f2f2] disabled:cursor-default disabled:opacity-40"
-                                    title={wildcardRoutes.length ? `${isExpanded ? "Hide" : "Show"} Traefik routes` : (isLoadingTraefikRoutes ? "Loading Traefik routes" : "No Traefik routes found")}
+                                    title={wildcardRoutes.length ? `${isExpanded ? "Hide" : "Show"} Traefik routes` : (traefikError ? "Traefik routes failed to load" : isLoadingTraefikRoutes ? "Loading Traefik routes" : "No Traefik routes found")}
                                   >
                                     {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                                   </button>
@@ -589,14 +590,18 @@ export default function DnsManagementPage() {
                                   <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-200 px-4 py-3 dark:border-[#2a2a2a]">
                                     <div className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">
                                       <Route className="h-4 w-4 text-cyan-600 dark:text-cyan-300" />
-                                      Traefik Routes (resolved via this wildcard)
+                                      Traefik routes (not DNS records)
                                     </div>
                                     <span className="inline-flex rounded-full border border-cyan-500/20 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-cyan-700 dark:text-cyan-200">
                                       Route
                                     </span>
                                   </div>
                                   <div className="divide-y divide-gray-200 dark:divide-[#2a2a2a]">
-                                    {isLoadingTraefikRoutes && wildcardRoutes.length === 0 ? (
+                                    {traefikError ? (
+                                      <div className="px-4 py-3 text-sm text-red-600 dark:text-red-300">
+                                        Failed to load Traefik routes: {traefikError instanceof Error ? traefikError.message : "unknown error"}
+                                      </div>
+                                    ) : isLoadingTraefikRoutes && wildcardRoutes.length === 0 ? (
                                       <div className="px-4 py-3 text-sm text-slate-500 dark:text-slate-400">Loading Traefik routes…</div>
                                     ) : wildcardRoutes.length > 0 ? wildcardRoutes.map((route) => (
                                       <div key={`${route.namespace}:${route.name}:${route.hostname}:${route.service}:${route.pathPrefix ?? ""}`} className="flex flex-col gap-3 px-4 py-3 md:flex-row md:items-center md:justify-between">

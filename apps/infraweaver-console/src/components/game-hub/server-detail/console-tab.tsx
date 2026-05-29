@@ -1528,7 +1528,7 @@ export function ConsoleTab({
           if (result.error) addLine("error", result.error, new Date().toISOString());
         } else {
           setTransportLabel("stdin");
-          const result = await fetchJson<{ stdout?: string; stderr?: string; error?: string }>(`/api/game-hub/servers/${name}/command`, {
+          const result = await fetchJson<{ stdout?: string; stderr?: string; error?: string; method?: string; note?: string }>(`/api/game-hub/servers/${name}/command`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ command: trimmed }),
@@ -1545,6 +1545,11 @@ export function ConsoleTab({
               .split("\n")
               .filter(Boolean)
               .forEach((line) => addLine("error", line, new Date().toISOString()));
+          }
+          if (result.method === "stdin-noninteractive" || result.note) {
+            const note = result.note
+              ?? "This game has no console/RCON command interpreter — your input was delivered via stdin but the game ignores it.";
+            addLine("system", note, new Date().toISOString(), { trackStats: false });
           }
         }
         return true;
@@ -2050,7 +2055,7 @@ export function ConsoleTab({
       style={{ ...themeStyle, backgroundColor: "var(--console-bg)", color: "var(--console-fg)" }}
       className="relative flex h-[calc(100dvh-170px)] min-h-[65vh] flex-col overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-[#2a2a2a] sm:h-[calc(100dvh-280px)] sm:min-h-[360px]"
     >
-      <div className="flex flex-wrap items-center gap-2 border-b border-gray-200 px-3 py-2 dark:border-[#1e1e1e]" style={{ backgroundColor: currentTheme.bg }}>
+      <div className="flex flex-shrink-0 flex-wrap items-center gap-2 border-b border-gray-200 px-3 py-2 dark:border-[#1e1e1e]" style={{ backgroundColor: currentTheme.bg }}>
         <Circle className={cn("h-2 w-2 flex-shrink-0", isConnected ? "fill-green-400 text-green-400" : "fill-[#444] text-gray-400")} />
         <span className={cn("min-w-0 flex-1 truncate text-xs", isConnected ? "text-green-400" : "text-gray-400 dark:text-[#555]")}>
           {isConnected ? podLabel : status === "stopped" ? "Server stopped" : "Connecting…"}

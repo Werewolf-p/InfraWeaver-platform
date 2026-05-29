@@ -113,7 +113,7 @@ export default function RoutesPage() {
     refetchInterval: 60_000,
   });
 
-  const routes = useMemo(() => data?.routes ?? [], [data?.routes]);
+  const routes = useMemo(() => (Array.isArray(data?.routes) ? data.routes : []), [data]);
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
     return routes.filter((route) => {
@@ -122,11 +122,11 @@ export default function RoutesPage() {
       if (!query) return true;
       return [
         route.name,
-        route.hosts.join(" "),
+        (route.hosts ?? []).join(" "),
         route.targetService,
         route.targetNamespace,
         route.targetIP ?? "",
-        route.middlewares.join(" "),
+        (route.middlewares ?? []).join(" "),
       ].join(" ").toLowerCase().includes(query);
     });
   }, [accessTierFilter, routes, search]);
@@ -342,7 +342,7 @@ export default function RoutesPage() {
                       </td>
                       <td className="px-4 py-3 align-top">
                         <div className="flex flex-wrap gap-2">
-                          {route.hosts.map((host) => (
+                          {(route.hosts ?? []).map((host) => (
                             <span key={host} className="rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-xs text-slate-700 dark:border-white/10 dark:bg-white/5 dark:text-slate-300">{host}</span>
                           ))}
                         </div>

@@ -76,6 +76,10 @@ type RouteBlockLocation = {
   block: ParsedBlock;
 };
 
+function asArray<T>(value: T[] | null | undefined): T[] {
+  return Array.isArray(value) ? value : [];
+}
+
 function resourceKey(kind: string | null | undefined, namespace: string | null | undefined, name: string | null | undefined) {
   if (!kind || !name) return null;
   return `${kind}:${namespace ?? TRAEFIK_NAMESPACE}/${name}`;
@@ -192,7 +196,7 @@ function endpointsKey(namespace: string, name: string) {
 
 function routeServiceRefs(route: ManifestResource) {
   const defaultNamespace = route.metadata?.namespace ?? TRAEFIK_NAMESPACE;
-  return (route.spec?.routes ?? []).flatMap((entry) => (entry.services ?? []).map((service) => ({
+  return asArray(route.spec?.routes).flatMap((entry) => asArray(entry.services).map((service) => ({
     name: service.name ?? "service",
     namespace: service.namespace ?? defaultNamespace,
     port: parsePort(service.port),
@@ -202,7 +206,7 @@ function routeServiceRefs(route: ManifestResource) {
 }
 
 function countRoutesUsingBackend(routeManifests: ManifestFile[], backendServiceName: string, excludingRouteName?: string) {
-  return routeManifests.flatMap((manifest) => manifest.blocks)
+  return asArray(routeManifests).flatMap((manifest) => asArray(manifest.blocks))
     .filter((block) => block.kind === "IngressRoute" && block.data)
     .filter((block) => block.name !== excludingRouteName)
     .some((block) => routeServiceRefs(block.data!).some((service) => service.name === backendServiceName && service.namespace === TRAEFIK_NAMESPACE));
@@ -345,12 +349,12 @@ async function isNetbirdEnabled(repoDir: string) {
 function parseRouteItem(routeBlock: ParsedBlock, index: BackendIndex): ExternalRouteItem | null {
   if (!routeBlock.data || routeBlock.kind !== "IngressRoute" || !routeBlock.name || !routeBlock.namespace) return null;
   const route = routeBlock.data;
-  const middlewares = uniqueStrings((route.spec?.routes ?? []).flatMap((entry) =>
-    (entry.middlewares ?? []).map((middleware) => `${middleware.namespace ?? route.metadata?.namespace ?? TRAEFIK_NAMESPACE}/${middleware.name ?? "middleware"}`),
+  const middlewares = uniqueStrings(asArray(route.spec?.routes).flatMap((entry) =>
+    asArray(entry.middlewares).map((middleware) => `${middleware.namespace ?? route.metadata?.namespace ?? TRAEFIK_NAMESPACE}/${middleware.name ?? "middleware"}`),
   ));
   const serviceRefs = routeServiceRefs(route);
   const firstService = serviceRefs[0];
-  const hosts = uniqueStrings((route.spec?.routes ?? []).flatMap((entry) => routeHosts(entry.match)));
+  const hosts = uniqueStrings(asArray(route.spec?.routes).flatMap((entry) => routeHosts(entry.match)));
   const accessTier = detectAccessTier(route.metadata?.labels?.["infraweaver.io/access-tier"], middlewares);
   const normalizedMiddlewares = middlewares.map((middleware) => normalizeMiddlewareName(middleware));
   const securityMiddleware = normalizedMiddlewares.find((middleware) => middleware === ACCESS_TIER_MIDDLEWARES.vpn || middleware === ACCESS_TIER_MIDDLEWARES.internal) ?? null;
@@ -381,11 +385,11 @@ function parseRouteItem(routeBlock: ParsedBlock, index: BackendIndex): ExternalR
     hosts,
     middlewares,
     accessTier,
-    services: uniqueStrings(serviceRefs.map((service) => `${service.namespace}/${service.name}:${service.port}`)),
+    services: uniqueStrings(asArray(serviceRefs).map((service) => `${service.namespace}/${service.name}:${service.port}`)),
     tlsSecretName: route.spec?.tls?.secretName ?? null,
     certResolver: route.spec?.tls?.certResolver ?? null,
     hasTls: Boolean(route.spec?.tls?.secretName || route.spec?.tls?.certResolver),
-    entryPoints: route.spec?.entryPoints ?? [],
+    entryPoints: asArray(route.spec?.entryPoints),
     enableAuth: normalizedMiddlewares.includes("forward-auth") || normalizedMiddlewares.includes("forward-auth-admin"),
     file: routeBlock.file,
     targetType,
@@ -433,8 +437,8 @@ async function persistAndCommit(repoDir: string, manifests: ManifestFile[], mess
 
 export async function loadExternalRoutes(repoDir = process.env.REPO_DIR || process.env.IW_REPO_DIR || "/opt/infraweaver"): Promise<ExternalRoutesResponse> {
   const state = await loadState(repoDir);
-  const routes = state.routeManifests
-    .flatMap((manifest) => manifest.blocks)
+  const routes = asArray(state.routeManifests)
+    .flatMap((manifest) => asArray(manifest.blocks))
     .map((block) => parseRouteItem(block, state.backendIndex))
     .filter((route): route is ExternalRouteItem => Boolean(route))
     .sort((left, right) => left.name.localeCompare(right.name));

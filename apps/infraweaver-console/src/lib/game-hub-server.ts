@@ -230,6 +230,22 @@ export function getPrimaryContainerName(pod: k8s.V1Pod | null | undefined, fallb
 const STDIN_ONLY_GAMES = new Set(["terraria"]);
 const SRCDS_GAMES = new Set(["cs2", "csgo", "tf2"]);
 
+// Games whose server process has NO console/command interpreter. stdin is still
+// delivered successfully to the process, but the game silently ignores it (no
+// RCON, no in-game command parser). Used to give the operator a clear message
+// instead of letting them believe the command did something.
+const NO_STDIN_INTERPRETER_GAMES = new Set(["valheim"]);
+
+/**
+ * Friendly message shown in the console when a command is delivered via stdin to
+ * a game that has no command interpreter (e.g. vanilla Valheim). The stdin write
+ * succeeds but the game does nothing with it.
+ */
+export function noInterpreterConsoleNote(gameType: string) {
+  const label = gameType || "this game";
+  return `Note: ${label} has no built-in console or RCON command interpreter. Your input was delivered to the server process via stdin, but the game ignores it — nothing will happen. Use in-game admin tools, config files, or a community RCON mod to manage this server.`;
+}
+
 // Env var name patterns for auto-detection across ANY game engine/egg
 const RCON_PASS_RE = /(?:^|_)RCON_?(?:PASS(?:WORD)?|PW)$|^SRCDS_RCONPW$/i;
 const RCON_PORT_RE = /(?:^|_)RCON_?PORT$|^SRCDS_PORT$/i;
@@ -747,7 +763,14 @@ export async function runServerCommand(
 
     try {
       const result = await sendConsoleInputViaExec(clients.kc, pod.metadata.name, containerName, command, timeoutMs);
-      return { ...result, gameType, pod, method: "stdin" as const };
+      const noInterpreter = NO_STDIN_INTERPRETER_GAMES.has(gameType);
+      return {
+        ...result,
+        gameType,
+        pod,
+        method: (noInterpreter ? "stdin-noninteractive" : "stdin") as "stdin" | "stdin-noninteractive",
+        ...(noInterpreter ? { note: noInterpreterConsoleNote(gameType) } : {}),
+      };
     } catch (error) {
       const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
       if ((message.includes("container not found") || message.includes("container not running")) && attempt < 2) {

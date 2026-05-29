@@ -30,6 +30,10 @@ function normalizeHostname(value: string) {
   return value.trim().toLowerCase().replace(/\.+$/, "");
 }
 
+function asArray<T>(value: T[] | null | undefined): T[] {
+  return Array.isArray(value) ? value : [];
+}
+
 function extractMatchValues(expression: string | undefined, matcher: "Host" | "PathPrefix") {
   if (!expression) return [] as string[];
 
@@ -57,18 +61,18 @@ function extractMatchValues(expression: string | undefined, matcher: "Host" | "P
 function mapTraefikIngressRoutes(items: TraefikIngressRoute[]): RouteSummary[] {
   const routes: RouteSummary[] = [];
 
-  for (const item of items) {
+  for (const item of asArray<TraefikIngressRoute>(items)) {
     const name = item.metadata?.name ?? "unknown";
     const namespace = item.metadata?.namespace ?? "default";
     const tls = Boolean(item.spec?.tls)
-      || (item.spec?.entryPoints ?? []).some((entryPoint) => entryPoint.toLowerCase().includes("websecure"));
+      || asArray<string>(item.spec?.entryPoints).some((entryPoint) => entryPoint.toLowerCase().includes("websecure"));
 
-    for (const route of item.spec?.routes ?? []) {
+    for (const route of asArray(item.spec?.routes)) {
       const hostnames = extractMatchValues(route.match, "Host").map(normalizeHostname).filter(Boolean);
       if (hostnames.length === 0) continue;
 
       const serviceNames = [...new Set(
-        (route.services ?? [])
+        asArray(route.services)
           .map((service) => service.name?.trim())
           .filter((value): value is string => Boolean(value)),
       )];
@@ -92,7 +96,7 @@ function mapTraefikIngressRoutes(items: TraefikIngressRoute[]): RouteSummary[] {
 }
 
 function ingressUsesTls(spec: k8s.V1IngressSpec | undefined, hostname: string) {
-  return (spec?.tls ?? []).some((entry) => {
+  return asArray(spec?.tls).some((entry) => {
     if (!entry.hosts || entry.hosts.length === 0) return true;
     return entry.hosts.some((host) => normalizeHostname(host) === hostname);
   });
@@ -101,16 +105,16 @@ function ingressUsesTls(spec: k8s.V1IngressSpec | undefined, hostname: string) {
 function mapStandardIngressRoutes(items: k8s.V1Ingress[]): RouteSummary[] {
   const routes: RouteSummary[] = [];
 
-  for (const item of items) {
+  for (const item of asArray<k8s.V1Ingress>(items)) {
     const name = item.metadata?.name ?? "unknown";
     const namespace = item.metadata?.namespace ?? "default";
 
-    for (const rule of item.spec?.rules ?? []) {
+    for (const rule of asArray(item.spec?.rules)) {
       const hostname = normalizeHostname(rule.host ?? "");
       if (!hostname) continue;
 
       const tls = ingressUsesTls(item.spec, hostname);
-      const paths = rule.http?.paths ?? [];
+      const paths = asArray(rule.http?.paths);
       if (paths.length === 0) {
         routes.push({
           name,
@@ -172,22 +176,43 @@ export async function GET() {
     const customApi = kc.makeApiClient(k8s.CustomObjectsApi);
     const networkingApi = kc.makeApiClient(k8s.NetworkingV1Api);
 
-    const [traefikIngressRoutes, standardIngresses] = await Promise.all([
-      customApi.listClusterCustomObject({
+    // Traefik IngressRoutes are the primary source for this view. Surface real
+    // failures (RBAC, API errors) instead of silently returning an empty list —
+    // a hidden error here is what made the DNS tab show "0 Routes".
+    let traefikItems: TraefikIngressRoute[];
+    try {
+      const traefikIngressRoutes = await customApi.listClusterCustomObject({
         group: "traefik.io",
         version: "v1alpha1",
         plural: "ingressroutes",
-      }).catch(() => ({ items: [] } as { items?: TraefikIngressRoute[] })),
-      networkingApi.listIngressForAllNamespaces().catch(() => ({ items: [] } as k8s.V1IngressList)),
-    ]);
+      });
+      traefikItems = (traefikIngressRoutes as { items?: TraefikIngressRoute[] }).items ?? [];
+    } catch (error) {
+      console.error("Failed to list Traefik IngressRoutes (traefik.io/v1alpha1)", error);
+      return NextResponse.json(
+        { error: `Failed to list Traefik IngressRoutes: ${safeError(error)}` },
+        { status: 502 },
+      );
+    }
+
+    // Standard Ingresses are supplementary — log but don't fail the whole request
+    // if they can't be listed.
+    let standardItems: k8s.V1Ingress[] = [];
+    try {
+      const standardIngresses = await networkingApi.listIngressForAllNamespaces();
+      standardItems = standardIngresses.items ?? [];
+    } catch (error) {
+      console.error("Failed to list standard Ingresses (networking.k8s.io)", error);
+    }
 
     const routes = dedupeRoutes([
-      ...mapTraefikIngressRoutes((traefikIngressRoutes as { items?: TraefikIngressRoute[] }).items ?? []),
-      ...mapStandardIngressRoutes(standardIngresses.items ?? []),
+      ...mapTraefikIngressRoutes(traefikItems),
+      ...mapStandardIngressRoutes(standardItems),
     ]);
 
     return NextResponse.json({ routes });
   } catch (error) {
+    console.error("Failed to load Traefik/Ingress routes", error);
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
 }
