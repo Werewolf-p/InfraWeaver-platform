@@ -232,19 +232,16 @@ spec:
               echo "Patched boot dir contents (jdbc drivers):"
               ls /patched-boot/postgresql*.jar 2>/dev/null || echo "WARNING: no postgresql jar found"
 
-              # Self-heal: if lib/ or boot/ in the data volume are empty/missing (can
-              # happen after a corrupt-then-delete recovery from a node reboot), restore
-              # them from the fresh container image so OneDev can start without manual
-              # intervention. Uses the same JARs already in the image overlay layer.
-              LIB_COUNT=$(find /opt/onedev/lib -name "*.jar" 2>/dev/null | wc -l)
-              if [ "$LIB_COUNT" -lt 10 ]; then
-                echo "WARNING: /opt/onedev/lib/ has only $LIB_COUNT JARs — restoring from image"
-                mkdir -p /opt/onedev/lib /opt/onedev/boot
-                cp -a /app/lib/. /opt/onedev/lib/
-                cp -a /app/boot/. /opt/onedev/boot/
-                echo "Restored $(find /opt/onedev/lib -name '*.jar' | wc -l) lib JARs and $(find /opt/onedev/boot -name '*.jar' | wc -l) boot JARs"
+              # Self-heal: on fresh PVC or wiped data, copy entire /app/ tree into
+              # the data volume so OneDev has all required directories (lib, boot,
+              # conf, site, bin, agent, incompatibilities, etc.)
+              if [ ! -f /opt/onedev/conf/server.properties ] || [ ! -d /opt/onedev/site ]; then
+                echo "WARNING: /opt/onedev/ is incomplete — restoring full app tree from image"
+                cp -a /app/. /opt/onedev/
+                echo "Restored full app tree to /opt/onedev/"
+                ls /opt/onedev/
               else
-                echo "lib/ OK: $LIB_COUNT JARs present"
+                echo "/opt/onedev/ OK: conf and site directories present"
               fi
               echo "Done."
           volumeMounts:
