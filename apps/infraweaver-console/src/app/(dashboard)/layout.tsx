@@ -2,6 +2,7 @@
 import { Sidebar } from "@/components/layout/sidebar";
 import { TopBar } from "@/components/layout/topbar";
 import { FloatingActionButton } from "@/components/floating-action-button";
+import { ReportButton } from "@/components/feedback/report-button";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { Breadcrumb, titleForPathname } from "@/components/ui/breadcrumb";
 import { useSession, signOut } from "next-auth/react";
@@ -1052,6 +1053,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </AnimatePresence>
 
       <KeyboardShortcutsProvider />
+      <ReportButton />
     </div>
     </SimpleModeProvider>
   );
