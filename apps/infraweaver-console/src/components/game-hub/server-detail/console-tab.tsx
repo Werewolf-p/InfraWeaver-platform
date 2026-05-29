@@ -1094,6 +1094,10 @@ export function ConsoleTab({
   const searchRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const consoleScrollRef = useRef<HTMLDivElement>(null);
+  // Ref mirrors autoScroll state but updates synchronously in the scroll handler,
+  // preventing a React state-commit race that would scroll users back to the bottom
+  // mid-scroll (especially noticeable on mobile with smooth-scroll momentum).
+  const autoScrollRef = useRef(autoScroll);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lineRefs = useRef<Record<number, HTMLDivElement | null>>({});
@@ -1230,8 +1234,18 @@ export function ConsoleTab({
   }, []);
 
   useEffect(() => {
-    if (autoScroll && !xtermMode) logEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [autoScroll, logLines, xtermMode]);
+    // When new log lines arrive, scroll only if the ref says yes.
+    // Using the ref (not state) avoids the race where setAutoScroll(false) hasn't
+    // committed yet when this effect fires — which was scrolling users back down.
+    if (autoScrollRef.current && !xtermMode) logEndRef.current?.scrollIntoView();
+  }, [logLines, xtermMode]);
+
+  // Keep the ref in sync when the user toggles auto-scroll via the button, and
+  // immediately jump to the bottom when re-enabling.
+  useEffect(() => {
+    autoScrollRef.current = autoScroll;
+    if (autoScroll && !xtermMode) logEndRef.current?.scrollIntoView();
+  }, [autoScroll, xtermMode]);
 
   const addLine = useCallback(
     (
@@ -1728,6 +1742,7 @@ export function ConsoleTab({
     const element = consoleScrollRef.current;
     if (!element) return;
     const nearBottom = element.scrollHeight - element.scrollTop - element.clientHeight < 32;
+    autoScrollRef.current = nearBottom; // synchronous — stops the scroll-back race
     setAutoScroll(nearBottom);
   };
 

@@ -230,6 +230,11 @@ export function getPrimaryContainerName(pod: k8s.V1Pod | null | undefined, fallb
 const STDIN_ONLY_GAMES = new Set(["terraria"]);
 const SRCDS_GAMES = new Set(["cs2", "csgo", "tf2"]);
 
+// Env var name patterns for auto-detection across ANY game engine/egg
+const RCON_PASS_RE = /(?:^|_)RCON_?(?:PASS(?:WORD)?|PW)$|^SRCDS_RCONPW$/i;
+const RCON_PORT_RE = /(?:^|_)RCON_?PORT$|^SRCDS_PORT$/i;
+const RCON_ENABLE_RE = /^ENABLE_?RCON$|^RCON_?ENABLED$/i;
+
 export interface RconCommandCandidate {
   method: "mcrcon" | "rcon";
   commands: string[][];
@@ -237,6 +242,17 @@ export interface RconCommandCandidate {
 
 function getEggEnvValue(egg: GameEgg | null | undefined, name: string) {
   return egg?.environment.find((entry) => entry.name === name)?.defaultValue?.trim() ?? "";
+}
+
+/** Extract all env vars from a live deployment as a flat map (runtime values). */
+export function getDeploymentEnvMap(deployment: k8s.V1Deployment | null | undefined): Record<string, string> {
+  const map: Record<string, string> = {};
+  for (const container of deployment?.spec?.template?.spec?.containers ?? []) {
+    for (const env of container.env ?? []) {
+      if (env.name && env.value != null) map[env.name] = env.value;
+    }
+  }
+  return map;
 }
 
 function isMinecraftGame(gameType: string) {
@@ -255,54 +271,84 @@ function expandBinaryCandidates(binary: string, args: string[]) {
   ];
 }
 
-export function getGameRconArgs(gameType: string, egg: GameEgg, command: string): RconCommandCandidate[] {
+/**
+ * Universal RCON auto-detection: scans the live deployment env for any
+ * RCON-pattern variables (password + port). Works for unknown/new game eggs
+ * without any per-game configuration.
+ */
+function autoDetectRconFromEnv(env: Record<string, string>, command: string): RconCommandCandidate[] {
+  const passKey = Object.keys(env).find((k) => RCON_PASS_RE.test(k));
+  const portKey = Object.keys(env).find((k) => RCON_PORT_RE.test(k));
+  const password = passKey ? env[passKey] : "";
+  const port = portKey ? env[portKey] : "";
+  if (!password || !port) return [];
+
+  // If there's an explicit enable flag, respect it
+  const enableKey = Object.keys(env).find((k) => RCON_ENABLE_RE.test(k));
+  if (enableKey) {
+    const v = env[enableKey].toLowerCase();
+    if (v !== "true" && v !== "1" && v !== "yes") return [];
+  }
+
+  return [{ method: "rcon", commands: expandBinaryCandidates("rcon-cli", ["--host", "localhost", "--port", port, "--password", password, command]) }];
+}
+
+/**
+ * Build RCON command candidates for a game server.
+ * Runtime env (from the actual deployment) takes priority over egg defaults so
+ * auto-generated passwords are always used. Falls back to universal pattern
+ * detection for any game not explicitly handled.
+ */
+export function getGameRconArgs(
+  gameType: string,
+  egg: GameEgg | null | undefined,
+  runtimeEnv: Record<string, string>,
+  command: string,
+): RconCommandCandidate[] {
+  // Runtime value first, then egg default value
+  const env = (name: string) => runtimeEnv[name]?.trim() || getEggEnvValue(egg, name);
+
   if (isMinecraftGame(gameType)) {
-    const password = getEggEnvValue(egg, "RCON_PASSWORD");
-    const port = getEggEnvValue(egg, "RCON_PORT") || "25575";
-    if (!password) return [];
+    const password = env("RCON_PASSWORD");
+    const port = env("RCON_PORT") || "25575";
+    if (!password) return autoDetectRconFromEnv(runtimeEnv, command);
     return [
-      {
-        method: "mcrcon",
-        commands: expandBinaryCandidates("mcrcon", ["-H", "localhost", "-P", port, "-p", password, command]),
-      },
-      {
-        method: "rcon",
-        commands: expandBinaryCandidates("rcon-cli", ["--host", "localhost", "--port", port, "--password", password, command]),
-      },
+      { method: "mcrcon", commands: expandBinaryCandidates("mcrcon", ["-H", "localhost", "-P", port, "-p", password, command]) },
+      { method: "rcon", commands: expandBinaryCandidates("rcon-cli", ["--host", "localhost", "--port", port, "--password", password, command]) },
     ];
   }
 
   if (gameType === "valheim") {
-    const password = getEggEnvValue(egg, "SERVER_RCON_PASSWORD") || getEggEnvValue(egg, "RCON_PASSWORD");
-    const port = getEggEnvValue(egg, "RCON_PORT") || getEggEnvValue(egg, "SERVER_RCON_PORT") || "2458";
-    if (!password) return [];
-    return [{
-      method: "rcon",
-      commands: expandBinaryCandidates("rcon-cli", ["--host", "localhost", "--port", port, "--password", password, command]),
-    }];
+    const password = env("SERVER_RCON_PASSWORD") || env("RCON_PASSWORD");
+    const port = env("SERVER_RCON_PORT") || env("RCON_PORT") || "2458";
+    if (!password) return autoDetectRconFromEnv(runtimeEnv, command);
+    return [{ method: "rcon", commands: expandBinaryCandidates("rcon-cli", ["--host", "localhost", "--port", port, "--password", password, command]) }];
   }
 
   if (gameType === "rust") {
-    const password = getEggEnvValue(egg, "RCON_PASSWORD");
-    const port = getEggEnvValue(egg, "RCON_PORT") || "28016";
-    if (!password) return [];
-    return [{
-      method: "rcon",
-      commands: expandBinaryCandidates("rcon-cli", ["--host", "localhost", "--port", port, "--password", password, command]),
-    }];
+    const password = env("RCON_PASSWORD");
+    const port = env("RCON_PORT") || "28016";
+    if (!password) return autoDetectRconFromEnv(runtimeEnv, command);
+    return [{ method: "rcon", commands: expandBinaryCandidates("rcon-cli", ["--host", "localhost", "--port", port, "--password", password, command]) }];
   }
 
   if (isSrcdsGame(gameType)) {
-    const password = getEggEnvValue(egg, "SRCDS_RCONPW");
-    const port = getEggEnvValue(egg, "SRCDS_PORT") || "27015";
-    if (!password) return [];
-    return [{
-      method: "rcon",
-      commands: expandBinaryCandidates("rcon-cli", ["--host", "localhost", "--port", port, "--password", password, command]),
-    }];
+    const password = env("SRCDS_RCONPW");
+    const port = env("SRCDS_PORT") || "27015";
+    if (!password) return autoDetectRconFromEnv(runtimeEnv, command);
+    return [{ method: "rcon", commands: expandBinaryCandidates("rcon-cli", ["--host", "localhost", "--port", port, "--password", password, command]) }];
   }
 
-  return [];
+  // ARK: Survival Evolved / Ascended
+  if (gameType.includes("ark")) {
+    const password = env("ARK_RCON_PASSWORD") || env("RCON_PASSWORD");
+    const port = env("ARK_RCON_PORT") || env("RCON_PORT") || "32330";
+    if (!password) return autoDetectRconFromEnv(runtimeEnv, command);
+    return [{ method: "rcon", commands: expandBinaryCandidates("rcon-cli", ["--host", "localhost", "--port", port, "--password", password, command]) }];
+  }
+
+  // Any other game: try universal env-pattern detection
+  return autoDetectRconFromEnv(runtimeEnv, command);
 }
 
 function buildCommandExecutionError(gameType: string, transportError: unknown, stdinError?: unknown) {
@@ -310,24 +356,11 @@ function buildCommandExecutionError(gameType: string, transportError: unknown, s
     .filter((value) => value !== undefined && value !== null)
     .map((value) => (value instanceof Error ? value.message : String(value)).trim())
     .find(Boolean);
-  const suffix = detail ? ` ${detail}` : "";
-
-  if (gameType === "terraria") {
-    return new UserError(`Terraria commands use stdin. Make sure the server is running and /proc/1/fd/0 is writable.${suffix}`.trim());
-  }
-  if (gameType === "valheim") {
-    return new UserError(`Valheim command delivery failed. Check ENABLE_RCON=1, SERVER_RCON_PASSWORD, and RCON_PORT=2458, or make sure stdin is available.${suffix}`.trim());
-  }
-  if (isMinecraftGame(gameType)) {
-    return new UserError(`Minecraft command delivery failed. Check ENABLE_RCON, RCON_PASSWORD, and RCON_PORT, or make sure the console pipe is available.${suffix}`.trim());
-  }
-  if (gameType === "rust") {
-    return new UserError(`Rust command delivery failed. Check RCON_PASSWORD, RCON_PORT=28016, or make sure stdin is available.${suffix}`.trim());
-  }
-  if (isSrcdsGame(gameType)) {
-    return new UserError(`Source server command delivery failed. Check SRCDS_RCONPW, SRCDS_PORT, or make sure stdin is available.${suffix}`.trim());
-  }
-  return new UserError(`Command delivery failed for ${gameType || "this server"}. Make sure the server is running and accepts stdin input.${suffix}`.trim());
+  const suffix = detail ? ` (${detail})` : "";
+  const label = gameType || "server";
+  return new UserError(
+    `Command delivery failed for "${label}". RCON unreachable and no writable stdin found — ensure the server is running and RCON credentials are configured.${suffix}`.trim(),
+  );
 }
 
 function missingExecutable(error: unknown) {
@@ -429,14 +462,35 @@ export function buildConsoleInputScript(command: string) {
   if (!trimmed) throw new Error("command is required");
   if (trimmed === "^C") return "kill -INT 1";
   const quoted = shellQuote(trimmed);
+  // Processes that are never the game server — skip their stdins
+  const skipComms = "pause|sh|bash|dash|ash|sleep|init|tini|runit|s6|python3|python|supervisord|supervisor|crond|cron|syslogd|logfilter|updater|busybox|grep|cat|ls";
   return [
+    // Method 1: Minecraft named-pipe helper (Minecraft-specific)
     "if command -v mc-send-to-console >/dev/null 2>&1 && [ -p /tmp/minecraft-console-in ]; then",
     `  mc-send-to-console ${quoted}`,
-    'elif [ -w /proc/1/fd/0 ] && [ "$(readlink /proc/1/fd/0 2>/dev/null || true)" != "/dev/null" ]; then',
-    `  printf '%s\\n' ${quoted} > /proc/1/fd/0`,
     "else",
-    '  echo "No supported stdin console input method found" >&2',
-    "  exit 1",
+    // Method 2: scan all process stdins; find first non-/dev/null writable one
+    // that belongs to the game binary (skip common system/infra processes)
+    "  SENT=0",
+    `  for _P in $(ls /proc 2>/dev/null | grep -E '^[0-9]+$' | sort -rn); do`,
+    "    [ \"$_P\" = \"1\" ] && continue",
+    "    _FD=\"/proc/$_P/fd/0\"",
+    "    _TGT=$(readlink \"$_FD\" 2>/dev/null) || continue",
+    "    [ \"$_TGT\" = \"/dev/null\" ] && continue",
+    "    _COM=$(cat \"/proc/$_P/comm\" 2>/dev/null)",
+    `    case \"$_COM\" in ${skipComms}) continue ;; esac`,
+    "    [ -w \"$_FD\" ] || continue",
+    "    printf '%s\\n' " + quoted + " > \"$_FD\" 2>/dev/null && SENT=1 && break",
+    "  done",
+    // Method 3: PID 1 fallback (works when tini/init has a real stdin)
+    "  if [ \"$SENT\" = \"0\" ]; then",
+    "    if [ -w /proc/1/fd/0 ] && [ \"$(readlink /proc/1/fd/0 2>/dev/null || true)\" != \"/dev/null\" ]; then",
+    `      printf '%s\\n' ${quoted} > /proc/1/fd/0`,
+    "    else",
+    "      echo \"No supported stdin console input method found\" >&2",
+    "      exit 1",
+    "    fi",
+    "  fi",
     "fi",
   ].join("\n");
 }
@@ -505,7 +559,8 @@ export async function runServerCommand(
   const deployment = await getServerDeployment(clients.appsApi, name);
   const egg = await readServerEgg(clients.coreApi, name, deployment);
   const gameType = (egg.id || getDeploymentGameType(deployment)).toLowerCase();
-  const rconCandidates = STDIN_ONLY_GAMES.has(gameType) ? [] : getGameRconArgs(gameType, egg, command);
+  const runtimeEnv = getDeploymentEnvMap(deployment);
+  const rconCandidates = STDIN_ONLY_GAMES.has(gameType) ? [] : getGameRconArgs(gameType, egg, runtimeEnv, command);
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const pod = await getServerPod(clients.coreApi, name, true);

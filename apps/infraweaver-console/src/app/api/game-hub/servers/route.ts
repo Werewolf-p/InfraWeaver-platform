@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { randomBytes } from "crypto";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
@@ -227,6 +228,45 @@ function buildInstallInitContainer(
   };
 }
 
+/**
+ * Auto-inject RCON credentials for any egg that defines RCON-related env vars.
+ *
+ * Scans the egg's environment schema for password/port/enable patterns and:
+ *   - Generates a secure random password for any empty RCON password var
+ *   - Sets the matching enable flag to "true" if present
+ *
+ * This makes RCON work automatically for ALL eggs (current and future) without
+ * any manual per-game configuration — the egg schema is the source of truth.
+ */
+function autoInjectRconForEgg(
+  egg: { environment?: Array<{ name: string; defaultValue?: string }> },
+  env: Record<string, string>,
+): Record<string, string> {
+  const PASS_RE = /(?:^|_)RCON_?(?:PASS(?:WORD)?|PW)$|^SRCDS_RCONPW$/i;
+  const ENABLE_RE = /^ENABLE_?RCON$|^RCON_?ENABLED$/i;
+  const result = { ...env };
+  let injectedPassword = false;
+
+  for (const envVar of egg.environment ?? []) {
+    // Auto-generate password for any empty RCON password var
+    if (PASS_RE.test(envVar.name) && !result[envVar.name]) {
+      result[envVar.name] = randomBytes(16).toString("hex");
+      injectedPassword = true;
+    }
+  }
+
+  // If we set a password, also flip enable flags that are still unset
+  if (injectedPassword) {
+    for (const envVar of egg.environment ?? []) {
+      if (ENABLE_RE.test(envVar.name) && !result[envVar.name]) {
+        result[envVar.name] = "true";
+      }
+    }
+  }
+
+  return result;
+}
+
 async function createServer(body: {
   egg?: string;
   game?: string;
@@ -262,7 +302,7 @@ async function createServer(body: {
     mountPath: body.mountPath ?? baseEgg.mountPath,
     ports: customPorts ?? getEggPorts({ ...baseEgg, gamePort: body.port ?? baseEgg.gamePort }),
   };
-  const env = { ...getEggEnvironmentDefaults(egg), ...(body.env ?? {}) };
+  const env = autoInjectRconForEgg(egg, { ...getEggEnvironmentDefaults(egg), ...(body.env ?? {}) });
   const memory = body.memory ?? egg.defaultMemory ?? "2Gi";
   const cpu = body.cpu ?? egg.defaultCpu ?? "1";
   const storage = body.storage ?? egg.defaultStorage ?? "10Gi";
