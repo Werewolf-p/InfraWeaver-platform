@@ -354,7 +354,7 @@ data:
         attrs:
           name: n8n Provider
           mode: forward_single
-          external_host: "https://n8n.int.rlservers.com"
+          external_host: "https://n8n.rlservers.com"
           authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
           invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
 

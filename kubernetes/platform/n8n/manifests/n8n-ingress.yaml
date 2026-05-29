@@ -3,6 +3,11 @@ kind: Ingress
 metadata:
   name: n8n-ingress
   namespace: n8n-prod
+  annotations:
+    # Couple n8n with Authentik SSO at the proxy layer (n8n community edition
+    # has no native OIDC). Users must authenticate via Authentik before reaching
+    # the n8n editor/owner-setup. Middleware defined in middleware-forward-auth.yaml.
+    traefik.ingress.kubernetes.io/router.middlewares: n8n-prod-n8n-forward-auth@kubernetescrd
 spec:
   ingressClassName: traefik
   rules:
