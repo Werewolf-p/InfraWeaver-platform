@@ -3,6 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { getRequestClusterId } from "@/lib/cluster-context";
+import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { iwApiFetch } from "@/lib/iw-api";
 
 const updateRequestSchema = z.object({
@@ -15,6 +16,11 @@ export async function POST(
 ) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const access = await getSessionRBACContext(session, 60);
+  if (!hasSessionPermission(access, "platform:update")) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   if (!checkRateLimit(rateLimitKey("updates-apply", req), 5, 60_000)) {
     return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });

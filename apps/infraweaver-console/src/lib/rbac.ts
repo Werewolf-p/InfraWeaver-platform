@@ -246,6 +246,27 @@ export function roleHasPermission(role: RoleDefinition | null, permission: Permi
   return Boolean(role && (role.permissions.includes("*") || role.permissions.includes(permission)));
 }
 
+/**
+ * Returns true if a grant on `grantScope` covers `requestedScope`, i.e. the
+ * requested scope is the granted scope itself or a descendant within its
+ * subtree. Matching is boundary-aware on the "/" separator so that a grant on
+ * "/game-hub/servers/foo" does NOT leak access to "/game-hub/servers/foobar".
+ */
+export function scopeCovers(grantScope: string, requestedScope: string): boolean {
+  if (grantScope === requestedScope) return true;
+  const base = grantScope.endsWith("/") ? grantScope : `${grantScope}/`;
+  return requestedScope.startsWith(base);
+}
+
+/**
+ * Returns true if two scopes overlap in the hierarchy, i.e. one covers the
+ * other. Used for "does the user have permission anywhere within this subtree"
+ * style checks (e.g. navigation visibility).
+ */
+export function scopesOverlap(a: string, b: string): boolean {
+  return scopeCovers(a, b) || scopeCovers(b, a);
+}
+
 export function hasAssignedPermissionForScope(
   roleAssignments: RoleAssignment[],
   permission: Permission,
@@ -254,7 +275,7 @@ export function hasAssignedPermissionForScope(
   const now = new Date();
   return roleAssignments.some((assignment) => {
     if (assignment.expiresAt && new Date(assignment.expiresAt) < now) return false;
-    if (!scope.startsWith(assignment.scope)) return false;
+    if (!scopeCovers(assignment.scope, scope)) return false;
     return roleHasPermission(resolveRoleDefinition(assignment.roleId), permission);
   });
 }
@@ -267,7 +288,7 @@ export function hasAssignedPermissionInScopeTree(
   const now = new Date();
   return roleAssignments.some((assignment) => {
     if (assignment.expiresAt && new Date(assignment.expiresAt) < now) return false;
-    if (!(assignment.scope.startsWith(scopePrefix) || scopePrefix.startsWith(assignment.scope))) return false;
+    if (!scopesOverlap(assignment.scope, scopePrefix)) return false;
     return roleHasPermission(resolveRoleDefinition(assignment.roleId), permission);
   });
 }
@@ -299,7 +320,7 @@ export function getEffectivePermissions(
   const now = new Date();
   for (const assignment of roleAssignments) {
     if (assignment.expiresAt && new Date(assignment.expiresAt) < now) continue;
-    if (!scope.startsWith(assignment.scope)) continue;
+    if (!scopeCovers(assignment.scope, scope)) continue;
     if (assignment.principalType === "group" && assignment.principalId && !groups.includes(assignment.principalId)) continue;
     if (assignment.principalType === "user" && assignment.principalId && username && assignment.principalId !== username) continue;
 
