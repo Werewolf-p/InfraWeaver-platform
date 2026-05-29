@@ -1,15 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  ArrowLeft, ChevronLeft, ChevronRight, Gamepad2, Loader2, Search, ServerCrash, CheckCircle2,
+  ChevronLeft, ChevronRight, Gamepad2, Loader2, Search, ServerCrash, CheckCircle2,
   ChevronDown, Download, Upload, Dices, Zap, Flame, Leaf, Crown, Terminal, Rocket, Save,
-  XCircle, AlertCircle, Users, Bookmark, Clock, CheckCheck,
+  XCircle, AlertCircle, Users, Bookmark, Clock, CheckCheck, Server, Cpu, MemoryStick, HardDrive,
 } from "lucide-react";
-import { PageHeader } from "@/components/ui/page-header";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { BUILT_IN_EGGS, type GameEgg, validateEggVariable, describeEggVariableRules } from "@/lib/game-eggs";
@@ -71,6 +71,17 @@ function parseMemoryToMi(value: string | undefined) {
   return Math.max(512, Math.round(numeric));
 }
 
+function parseNodeMemoryToMi(value: string | undefined | null) {
+  const trimmed = (value ?? "").trim().toLowerCase();
+  if (!trimmed) return 0;
+  const numeric = Number.parseFloat(trimmed.replace(/[^\d.]/g, ""));
+  if (!Number.isFinite(numeric)) return 0;
+  if (trimmed.endsWith("ti") || trimmed.endsWith("t")) return Math.round(numeric * 1024 * 1024);
+  if (trimmed.endsWith("gi") || trimmed.endsWith("g")) return Math.round(numeric * 1024);
+  if (trimmed.endsWith("ki") || trimmed.endsWith("k")) return Math.round(numeric / 1024);
+  return Math.round(numeric);
+}
+
 function formatMemory(mi: number) {
   return mi % 1024 === 0 ? `${mi / 1024}Gi` : `${mi}Mi`;
 }
@@ -81,6 +92,13 @@ function parseCpuToCores(value: string | undefined) {
     return Math.max(0.5, Number.parseInt(trimmed.slice(0, -1), 10) / 1000);
   }
   return Math.max(0.5, Number.parseFloat(trimmed) || 1);
+}
+
+function parseNodeCpuToCores(value: string | undefined | null) {
+  const trimmed = (value ?? "").trim().toLowerCase();
+  if (!trimmed) return 0;
+  if (trimmed.endsWith("m")) return (Number.parseInt(trimmed.slice(0, -1), 10) || 0) / 1000;
+  return Number.parseFloat(trimmed) || 0;
 }
 
 function formatCpu(cores: number) {
@@ -105,8 +123,19 @@ function sliderTrackStyle(value: number, min: number, max: number) {
 type GameHubCapacityNode = {
   name: string;
   ready: boolean;
+  allocatableCpu: number;
+  allocatableMemoryBytes: number;
+  requestedCpu: number;
+  requestedMemoryBytes: number;
+  limitsCpu: number;
+  limitsMemoryBytes: number;
+  usageCpu: number | null;
+  usageMemoryBytes: number | null;
+  requestCpuPct: number;
   requestMemoryPct: number;
+  limitCpuPct: number;
   limitMemoryPct: number;
+  usageCpuPct: number | null;
   usageMemoryPct: number | null;
 };
 
@@ -126,6 +155,14 @@ type GameHubCapacity = {
   };
   canSafelyDeploy: boolean;
   warnings: string[];
+};
+
+type ClusterNode = {
+  name: string;
+  status: string;
+  roles: string[];
+  cpu?: string;
+  memory?: string;
 };
 
 function formatBytesGi(bytes: number | null | undefined) {
@@ -306,6 +343,7 @@ type WizardConfig = {
   storageClass: string;
   dockerImage: string | null;
   eulaAccepted: boolean;
+  targetNode: string | null;
 };
 
 type SavedPreset = WizardConfig & { presetName: string };
@@ -333,6 +371,7 @@ export default function NewGameServerPage() {
   const [cpuCores, setCpuCores] = useState(1);
   const [storageGi, setStorageGi] = useState(10);
   const [storageClass, setStorageClass] = useState("");
+  const [targetNode, setTargetNode] = useState("");
   const [deploying, setDeploying] = useState(false);
   const [deployedServerName, setDeployedServerName] = useState<string | null>(null);
   const [selectedDockerImage, setSelectedDockerImage] = useState<string | null>(null);
@@ -384,6 +423,18 @@ export default function NewGameServerPage() {
       const response = await fetch(`/api/game-hub/capacity?${params.toString()}`);
       if (!response.ok) throw new Error("Failed to load cluster capacity");
       return response.json() as Promise<GameHubCapacity>;
+    },
+  });
+
+  const { data: clusterNodesData } = useQuery({
+    queryKey: ["cluster", "nodes"],
+    enabled: step >= 3,
+    staleTime: 60_000,
+    refetchInterval: 60_000,
+    queryFn: async () => {
+      const response = await fetch("/api/cluster/nodes");
+      if (!response.ok) throw new Error("Failed to load cluster nodes");
+      return response.json() as Promise<{ nodes: ClusterNode[] }>;
     },
   });
 
@@ -470,11 +521,22 @@ export default function NewGameServerPage() {
     ? BUILT_IN_EGGS.find((egg) => egg.id === selectedBuiltInId) ?? null
     : remoteEggData?.egg ?? null;
   const activeEggKey = sourceTab === "built-in" ? selectedBuiltInId : selectedRemoteEntry?.id ?? null;
+  const clusterNodes = clusterNodesData?.nodes ?? [];
   const highestPressureNode = capacityData?.nodes.reduce<GameHubCapacityNode | null>((worst, node) => {
     if (!node.ready) return worst;
     if (!worst || node.requestMemoryPct > worst.requestMemoryPct) return node;
     return worst;
   }, null) ?? null;
+  const selectedClusterNode = targetNode ? clusterNodes.find((node) => node.name === targetNode) ?? null : null;
+  const selectedCapacityNode = targetNode ? capacityData?.nodes.find((node) => node.name === targetNode) ?? null : null;
+  const selectedNodeMemoryMi = parseNodeMemoryToMi(selectedClusterNode?.memory);
+  const selectedNodeCpuCores = parseNodeCpuToCores(selectedClusterNode?.cpu);
+  const selectedNodeProjectedMemoryPct = selectedCapacityNode?.allocatableMemoryBytes
+    ? ((selectedCapacityNode.requestedMemoryBytes + (memoryMi * 1024 * 1024)) / selectedCapacityNode.allocatableMemoryBytes) * 100
+    : null;
+  const selectedNodeProjectedCpuPct = selectedCapacityNode?.allocatableCpu
+    ? ((selectedCapacityNode.requestedCpu + cpuCores) / selectedCapacityNode.allocatableCpu) * 100
+    : null;
 
   // Use activeEggKey (string ID) as the sole trigger — the activeEgg object itself
   // can be a new reference on re-renders (React Query or find() returning same data),
@@ -507,6 +569,13 @@ export default function NewGameServerPage() {
     }
   }, [dnsType, serverName]);
 
+  useEffect(() => {
+    if (!targetNode || clusterNodes.length === 0) return;
+    if (!clusterNodes.some((node) => node.name === targetNode)) {
+      setTargetNode("");
+    }
+  }, [clusterNodes, targetNode]);
+
   // ─── Load saved presets from localStorage on mount ────────────────────────
   useEffect(() => {
     try {
@@ -526,6 +595,7 @@ export default function NewGameServerPage() {
         if (d.cpuCores) setCpuCores(d.cpuCores);
         if (d.storageGi) setStorageGi(d.storageGi);
         if (d.storageClass) setStorageClass(d.storageClass);
+        setTargetNode(d.targetNode ?? "");
         if (d.dockerImage) setSelectedDockerImage(d.dockerImage);
         setDraftRestored(true);
       }
@@ -538,10 +608,10 @@ export default function NewGameServerPage() {
     if (!serverName && !activeEgg) return;
     const draft: Partial<WizardConfig> = {
       serverName, dnsType, dnsHostname, envValues, memoryMi, cpuCores, storageGi,
-      storageClass, dockerImage: selectedDockerImage, eulaAccepted,
+      storageClass, dockerImage: selectedDockerImage, eulaAccepted, targetNode: targetNode || null,
     };
     try { localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft)); } catch {}
-  }, [serverName, dnsType, dnsHostname, envValues, memoryMi, cpuCores, storageGi, storageClass, selectedDockerImage, eulaAccepted, activeEgg]);
+  }, [serverName, dnsType, dnsHostname, envValues, memoryMi, cpuCores, storageGi, storageClass, selectedDockerImage, eulaAccepted, targetNode, activeEgg]);
 
   // ─── Debounced server name availability check ────────────────────────────
   const normalizedName = normalizeServerName(serverName);
@@ -642,6 +712,7 @@ export default function NewGameServerPage() {
         storage: `${storageGi}Gi`,
         storageClass,
         dnsHostname: dnsHostname.trim() || undefined,
+        nodeSelector: targetNode ? { "kubernetes.io/hostname": targetNode } : undefined,
       };
 
       if (capacityData && !capacityData.canSafelyDeploy) {
@@ -684,7 +755,7 @@ export default function NewGameServerPage() {
       eggName: activeEgg.name,
       eggPath: selectedRemoteEntry?.path ?? null,
       serverName, dnsType, dnsHostname, envValues, memoryMi, cpuCores,
-      storageGi, storageClass, dockerImage: selectedDockerImage, eulaAccepted,
+      storageGi, storageClass, dockerImage: selectedDockerImage, eulaAccepted, targetNode: targetNode || null,
     };
     const blob = new Blob([JSON.stringify(config, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -693,7 +764,7 @@ export default function NewGameServerPage() {
     a.download = `${normalizeServerName(serverName) || "server"}-config.iwconfig.json`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [activeEgg, sourceTab, selectedBuiltInId, selectedRemoteEntry, serverName, dnsType, dnsHostname, envValues, memoryMi, cpuCores, storageGi, storageClass, selectedDockerImage, eulaAccepted]);
+  }, [activeEgg, sourceTab, selectedBuiltInId, selectedRemoteEntry, serverName, dnsType, dnsHostname, envValues, memoryMi, cpuCores, storageGi, storageClass, selectedDockerImage, eulaAccepted, targetNode]);
 
   // ─── Import config from .iwconfig.json ────────────────────────────────────
   const handleImportConfig = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -712,6 +783,7 @@ export default function NewGameServerPage() {
         if (cfg.cpuCores) setCpuCores(cfg.cpuCores);
         if (cfg.storageGi) setStorageGi(cfg.storageGi);
         if (cfg.storageClass) setStorageClass(cfg.storageClass);
+        setTargetNode(cfg.targetNode ?? "");
         if (cfg.dockerImage) setSelectedDockerImage(cfg.dockerImage);
         if (cfg.eulaAccepted) setEulaAccepted(cfg.eulaAccepted);
         if (cfg.eggSource === "built-in" && cfg.eggId) {
@@ -740,7 +812,7 @@ export default function NewGameServerPage() {
       eggName: activeEgg.name,
       eggPath: selectedRemoteEntry?.path ?? null,
       serverName, dnsType, dnsHostname, envValues, memoryMi, cpuCores,
-      storageGi, storageClass, dockerImage: selectedDockerImage, eulaAccepted,
+      storageGi, storageClass, dockerImage: selectedDockerImage, eulaAccepted, targetNode: targetNode || null,
     };
     setSavedPresets((prev) => {
       const updated = [preset, ...prev.filter((p) => p.presetName !== presetName.trim())].slice(0, 10);
@@ -748,7 +820,7 @@ export default function NewGameServerPage() {
       return updated;
     });
     toast.success(`Preset "${presetName.trim()}" saved`);
-  }, [activeEgg, sourceTab, selectedBuiltInId, selectedRemoteEntry, serverName, dnsType, dnsHostname, envValues, memoryMi, cpuCores, storageGi, storageClass, selectedDockerImage, eulaAccepted]);
+  }, [activeEgg, sourceTab, selectedBuiltInId, selectedRemoteEntry, serverName, dnsType, dnsHostname, envValues, memoryMi, cpuCores, storageGi, storageClass, selectedDockerImage, eulaAccepted, targetNode]);
 
   const deletePreset = useCallback((presetName: string) => {
     setSavedPresets((prev) => {
@@ -767,6 +839,7 @@ export default function NewGameServerPage() {
     if (preset.cpuCores) setCpuCores(preset.cpuCores);
     if (preset.storageGi) setStorageGi(preset.storageGi);
     if (preset.storageClass) setStorageClass(preset.storageClass);
+    setTargetNode(preset.targetNode ?? "");
     if (preset.dockerImage) setSelectedDockerImage(preset.dockerImage);
     if (preset.eulaAccepted) setEulaAccepted(preset.eulaAccepted);
     if (preset.eggSource === "built-in" && preset.eggId) {
@@ -786,6 +859,7 @@ export default function NewGameServerPage() {
     { label: "Memory", value: formatMemory(memoryMi) },
     { label: "CPU", value: `${formatCpu(cpuCores)} cores` },
     { label: "Storage", value: `${storageGi}Gi (${storageClass})` },
+    { label: "Target Node", value: targetNode ? `${targetNode} (nodeSelector kubernetes.io/hostname)` : "Any node / scheduler decides" },
     { label: "Pod resources", value: `${formatMemory(memoryMi)} request/limit • ${formatCpu(cpuCores)} CPU request/limit` },
     { label: "Priority Class", value: "game-server" },
     { label: "Rollout Strategy", value: "Recreate" },
@@ -794,39 +868,36 @@ export default function NewGameServerPage() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-      <PageHeader
-        title="New Game Server"
-        subtitle="Browse built-in and Pelican eggs, then deploy with a guided wizard"
-        icon={Gamepad2}
-        actions={
-          <div className="flex items-center gap-2">
-            {/* Hidden file input for config import */}
-            <input ref={importRef} type="file" accept=".json,.iwconfig.json" className="hidden" onChange={handleImportConfig} />
-            <button
-              onClick={() => importRef.current?.click()}
-              title="Import config (.iwconfig.json)"
-              className="inline-flex items-center gap-2 rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-3 py-2 text-sm text-gray-600 dark:text-[#b3b3b3] transition-colors hover:border-[#3a3a3a] hover:text-gray-900 dark:hover:text-white"
-            >
-              <Upload className="h-4 w-4" /> Import
-            </button>
-            {activeEgg && (
-              <button
-                onClick={exportConfig}
-                title="Export current config as .iwconfig.json"
-                className="inline-flex items-center gap-2 rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-3 py-2 text-sm text-gray-600 dark:text-[#b3b3b3] transition-colors hover:border-[#3a3a3a] hover:text-gray-900 dark:hover:text-white"
-              >
-                <Download className="h-4 w-4" /> Export
-              </button>
-            )}
-            <button
-              onClick={() => router.push("/game-hub")}
-              className="inline-flex items-center gap-2 rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-3 py-2 text-sm text-gray-600 dark:text-[#b3b3b3] transition-colors hover:border-[#3a3a3a] hover:text-gray-900 dark:hover:text-white"
-            >
-              <ArrowLeft className="h-4 w-4" /> Back to Game Hub
-            </button>
+      <input ref={importRef} type="file" accept=".json,.iwconfig.json" className="hidden" onChange={handleImportConfig} />
+
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-center gap-3">
+          <Link href="/game-hub" className="inline-flex min-h-[44px] items-center text-sm font-medium text-[#4db3ff] transition-colors hover:text-[#7cc4ff]">← Back</Link>
+          <div className="hidden h-6 w-px bg-gray-200 dark:bg-[#2a2a2a] sm:block" />
+          <div className="flex min-w-0 items-center gap-2">
+            <Gamepad2 className="h-5 w-5 shrink-0 text-[#0078D4] dark:text-[#4db3ff]" />
+            <h1 className="truncate text-2xl font-semibold text-gray-900 dark:text-[#f2f2f2]">New Game Server</h1>
           </div>
-        }
-      />
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => importRef.current?.click()}
+            title="Import config (.iwconfig.json)"
+            className="inline-flex min-h-[44px] items-center gap-2 rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-3 py-2 text-sm text-gray-600 dark:text-[#b3b3b3] transition-colors hover:border-[#3a3a3a] hover:text-gray-900 dark:hover:text-white"
+          >
+            <Upload className="h-4 w-4" /> Import
+          </button>
+          {activeEgg && (
+            <button
+              onClick={exportConfig}
+              title="Export current config as .iwconfig.json"
+              className="inline-flex min-h-[44px] items-center gap-2 rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-3 py-2 text-sm text-gray-600 dark:text-[#b3b3b3] transition-colors hover:border-[#3a3a3a] hover:text-gray-900 dark:hover:text-white"
+            >
+              <Download className="h-4 w-4" /> Export
+            </button>
+          )}
+        </div>
+      </div>
 
       <div className="grid gap-3 sm:grid-cols-4">
         {STEPS.map((entry) => (
@@ -904,6 +975,7 @@ export default function NewGameServerPage() {
                   <Users className="h-4 w-4 shrink-0 text-[#666]" />
                   <span className="text-sm text-gray-500 dark:text-[#777] whitespace-nowrap">Clone from:</span>
                   <select
+                    className="relative z-[100] min-h-[48px] flex-1 cursor-pointer rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] outline-none transition-colors focus:border-[#0078D4]/50"
                     onChange={(e) => {
                       const name = e.target.value;
                       if (!name) return;
@@ -911,7 +983,6 @@ export default function NewGameServerPage() {
                       toast.success(`Open the server "${name}" page and use Export to get its config`);
                     }}
                     defaultValue=""
-                    className="flex-1 bg-transparent text-sm text-gray-900 dark:text-[#f2f2f2] outline-none cursor-pointer"
                   >
                     <option value="" disabled>choose a server to copy its settings…</option>
                     {serverListData?.servers.map((s) => (
@@ -1431,16 +1502,78 @@ export default function NewGameServerPage() {
                 </div>
               )}
 
+              <div className="rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-5">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <Server className="h-4 w-4 text-[#0078D4]" />
+                      <h3 className="text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">Target Node</h3>
+                    </div>
+                    <p className="mt-1 text-sm text-gray-500 dark:text-[#777]">Optional. Leave this on Any node and Kubernetes will schedule the server where it fits best.</p>
+                  </div>
+                  <span className={cn(
+                    "inline-flex w-fit rounded-full px-3 py-1 text-xs font-medium",
+                    targetNode ? "bg-[#0078D4]/15 text-[#7cc4ff]" : "bg-gray-100 text-gray-500 dark:bg-[#1a1a1a] dark:text-[#888]"
+                  )}>
+                    {targetNode ? "Pinned" : "Auto"}
+                  </span>
+                </div>
+                <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)]">
+                  <select
+                    value={targetNode}
+                    onChange={(event) => setTargetNode(event.target.value)}
+                    className="relative z-[100] min-h-[48px] w-full rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] outline-none transition-colors focus:border-[#0078D4]/50"
+                  >
+                    <option value="">Any node / cluster decides</option>
+                    {clusterNodes.map((node) => (
+                      <option key={node.name} value={node.name}>
+                        {node.name} · {node.status}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="rounded-xl border border-dashed border-gray-200 dark:border-[#2a2a2a] bg-gray-50/60 px-4 py-3 text-xs text-gray-500 dark:bg-[#0d0d0d] dark:text-[#888]">
+                    {targetNode
+                      ? <>Scheduling hint: <span className="font-mono text-[#7cc4ff]">nodeSelector kubernetes.io/hostname={targetNode}</span></>
+                      : <>No node pinning — the Kubernetes scheduler will pick the best node automatically.</>}
+                  </div>
+                </div>
+                {selectedClusterNode ? (
+                  <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                    <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-4 py-3">
+                      <p className="text-xs uppercase tracking-[0.2em] text-gray-400 dark:text-[#666]">Status</p>
+                      <p className="mt-1 text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">{selectedClusterNode.status}</p>
+                    </div>
+                    <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-4 py-3">
+                      <p className="text-xs uppercase tracking-[0.2em] text-gray-400 dark:text-[#666]">Roles</p>
+                      <p className="mt-1 text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">{selectedClusterNode.roles.join(", ") || "worker"}</p>
+                    </div>
+                    <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-4 py-3">
+                      <p className="text-xs uppercase tracking-[0.2em] text-gray-400 dark:text-[#666]">Total capacity</p>
+                      <p className="mt-1 text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">{selectedClusterNode.cpu ?? "—"} CPU • {selectedClusterNode.memory ?? "—"}</p>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+
               <div className="grid gap-6 lg:grid-cols-3">
                 <div className="rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-5 lg:col-span-2">
-                  <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-start justify-between gap-3">
                     <div className="flex items-center gap-1.5">
                       <p className="text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">Memory</p>
                       <HelpTooltip>
                         The RAM guaranteed to your server. Setting this too low causes lag or crashes — game servers load entire worlds into memory. Setting it higher than needed wastes cluster resources.
                       </HelpTooltip>
                     </div>
-                    <span className="rounded-full border border-[#0078D4]/30 bg-[#0078D4]/10 px-3 py-1 text-sm font-medium text-[#7cc4ff]">{formatMemory(memoryMi)}</span>
+                    <div className="text-right">
+                      {selectedClusterNode ? (
+                        <p className="flex items-center justify-end gap-1 text-xs text-gray-500 dark:text-[#777]">
+                          <MemoryStick className="h-3.5 w-3.5" />
+                          Node total {selectedClusterNode.memory ?? "—"}
+                          {selectedNodeMemoryMi > 0 ? ` • ${((memoryMi / selectedNodeMemoryMi) * 100).toFixed(1)}% request` : ""}
+                        </p>
+                      ) : null}
+                      <span className="mt-1 inline-flex rounded-full border border-[#0078D4]/30 bg-[#0078D4]/10 px-3 py-1 text-sm font-medium text-[#7cc4ff]">{formatMemory(memoryMi)}</span>
+                    </div>
                   </div>
                   <input
                     type="range"
@@ -1457,6 +1590,7 @@ export default function NewGameServerPage() {
                 {/* Storage panel — spans 2 rows on large screens */}
                 <div className="rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-5 lg:row-span-2">
                   <div className="flex items-center gap-1.5">
+                    <HardDrive className="h-4 w-4 text-[#0078D4]" />
                     <h3 className="text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">Storage</h3>
                     <HelpTooltip>
                       Persistent disk space for your server's world files, configs, and save data. You can usually resize this later (Longhorn classes support expansion; local-path cannot be resized).
@@ -1553,14 +1687,23 @@ export default function NewGameServerPage() {
                 </div>
 
                 <div className="rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-5 lg:col-span-2">
-                  <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-start justify-between gap-3">
                     <div className="flex items-center gap-1.5">
                       <p className="text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">CPU</p>
                       <HelpTooltip>
                         CPU cores available to your server. 1 core handles most small-medium servers. Add more if you see lag spikes or console warnings about high tick time. Kubernetes can share CPU across servers — a 1-core limit doesn't prevent brief bursts above that.
                       </HelpTooltip>
                     </div>
-                    <span className="rounded-full border border-[#0078D4]/30 bg-[#0078D4]/10 px-3 py-1 text-sm font-medium text-[#7cc4ff]">{formatCpu(cpuCores)} cores</span>
+                    <div className="text-right">
+                      {selectedClusterNode ? (
+                        <p className="flex items-center justify-end gap-1 text-xs text-gray-500 dark:text-[#777]">
+                          <Cpu className="h-3.5 w-3.5" />
+                          Node total {selectedClusterNode.cpu ?? "—"} cores
+                          {selectedNodeCpuCores > 0 ? ` • ${((cpuCores / selectedNodeCpuCores) * 100).toFixed(1)}% request` : ""}
+                        </p>
+                      ) : null}
+                      <span className="mt-1 inline-flex rounded-full border border-[#0078D4]/30 bg-[#0078D4]/10 px-3 py-1 text-sm font-medium text-[#7cc4ff]">{formatCpu(cpuCores)} cores</span>
+                    </div>
                   </div>
                   <input
                     type="range"
@@ -1582,62 +1725,98 @@ export default function NewGameServerPage() {
                 )}>
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-center gap-1.5">
-                      <h3 className="text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">Cluster capacity</h3>
+                      <h3 className="text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">{targetNode ? "Node capacity" : "Cluster capacity"}</h3>
                       <HelpTooltip>
-                        Live check of whether the cluster can safely host this server. Green means the cluster has comfortable headroom. Amber means it's getting full — deployment will still work but performance may suffer.
+                        Live scheduling context for this deployment. Choose a node to see that node's real CPU and memory headroom, or leave scheduling automatic to view the overall cluster picture.
                       </HelpTooltip>
                     </div>
                     <span className={cn(
                       "rounded-full px-2 py-1 text-[11px] font-medium",
                       capacityData.canSafelyDeploy ? "bg-green-500/15 text-green-300" : "bg-amber-500/15 text-amber-300"
                     )}>
-                      {capacityData.canSafelyDeploy ? "Safe" : "Warning"}
+                      {capacityData.canSafelyDeploy ? "Healthy" : "Tight"}
                     </span>
                   </div>
-                  <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4 text-xs">
-                    <div className="rounded-xl bg-black/20 p-3">
-                      <div className="flex items-center gap-1">
-                        <p className="text-gray-500 dark:text-[#777]">Highest node requests</p>
-                        <HelpTooltip>Memory <em>requests</em> are what Kubernetes guarantees to each pod. This shows the most-loaded node's guaranteed allocations as a % of its total RAM.</HelpTooltip>
+                  {targetNode && selectedCapacityNode ? (
+                    <>
+                      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4 text-xs">
+                        <div className="rounded-xl bg-black/20 p-3">
+                          <div className="flex items-center gap-1">
+                            <p className="text-gray-500 dark:text-[#777]">Current memory requests</p>
+                            <HelpTooltip>This is the real requested memory already allocated on the selected node.</HelpTooltip>
+                          </div>
+                          <p className="mt-1 text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">{selectedCapacityNode.requestMemoryPct.toFixed(1)}%</p>
+                          <p className="text-gray-400 dark:text-[#666]">{targetNode}</p>
+                        </div>
+                        <div className="rounded-xl bg-black/20 p-3">
+                          <div className="flex items-center gap-1">
+                            <p className="text-gray-500 dark:text-[#777]">Current memory limits</p>
+                            <HelpTooltip>Shows current overcommit on the selected node before adding this server.</HelpTooltip>
+                          </div>
+                          <p className="mt-1 text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">{selectedCapacityNode.limitMemoryPct.toFixed(1)}%</p>
+                          <p className="text-gray-400 dark:text-[#666]">Limit pressure</p>
+                        </div>
+                        <div className="rounded-xl bg-black/20 p-3">
+                          <div className="flex items-center gap-1">
+                            <p className="text-gray-500 dark:text-[#777]">Observed memory usage</p>
+                            <HelpTooltip>Live usage from the Kubernetes metrics API for the selected node.</HelpTooltip>
+                          </div>
+                          <p className="mt-1 text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">{selectedCapacityNode.usageMemoryPct != null ? `${selectedCapacityNode.usageMemoryPct.toFixed(1)}%` : "—"}</p>
+                          <p className="text-gray-400 dark:text-[#666]">{selectedClusterNode?.status ?? "Unknown"}</p>
+                        </div>
+                        <div className="rounded-xl bg-black/20 p-3">
+                          <div className="flex items-center gap-1">
+                            <p className="text-gray-500 dark:text-[#777]">Game Hub budget</p>
+                            <HelpTooltip>Total memory requested by all Game Hub servers combined vs the namespace quota.</HelpTooltip>
+                          </div>
+                          <p className="mt-1 text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">{formatBytesGi(capacityData.gameHubUsage.requestedMemoryBytes)}</p>
+                          <p className="text-gray-400 dark:text-[#666]">of {formatBytesGi(capacityData.gameHubUsage.quota.requestsMemoryBytes)}</p>
+                        </div>
                       </div>
-                      <p className="mt-1 text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">{capacityData.summary.maxRequestMemoryPct.toFixed(1)}%</p>
-                      <p className="text-gray-400 dark:text-[#666]">{highestPressureNode?.name ?? "No ready nodes"}</p>
-                    </div>
-                    <div className="rounded-xl bg-black/20 p-3">
-                      <div className="flex items-center gap-1">
-                        <p className="text-gray-500 dark:text-[#777]">Highest node limits</p>
-                        <HelpTooltip>Memory <em>limits</em> are the maximum a pod can ever use. Limits can exceed the node's RAM (overcommit). High overcommit is fine until multiple servers actually spike simultaneously.</HelpTooltip>
+                      <p className="mt-3 text-xs text-gray-500 dark:text-[#777]">
+                        After this deploy, {targetNode} would request {selectedNodeProjectedMemoryPct != null ? `${selectedNodeProjectedMemoryPct.toFixed(1)}%` : "—"} memory
+                        {selectedNodeProjectedCpuPct != null ? ` and ${selectedNodeProjectedCpuPct.toFixed(1)}% CPU` : ""} of allocatable capacity.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4 text-xs">
+                        <div className="rounded-xl bg-black/20 p-3">
+                          <div className="flex items-center gap-1">
+                            <p className="text-gray-500 dark:text-[#777]">Ready nodes</p>
+                            <HelpTooltip>How many nodes are currently available for the scheduler.</HelpTooltip>
+                          </div>
+                          <p className="mt-1 text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">{clusterNodes.length > 0 ? clusterNodes.filter((node) => node.status === "Ready").length : capacityData.nodes.filter((node) => node.ready).length}</p>
+                          <p className="text-gray-400 dark:text-[#666]">of {clusterNodes.length || capacityData.nodes.length}</p>
+                        </div>
+                        <div className="rounded-xl bg-black/20 p-3">
+                          <div className="flex items-center gap-1">
+                            <p className="text-gray-500 dark:text-[#777]">Highest node requests</p>
+                            <HelpTooltip>The most-loaded ready node right now, based on actual memory requests.</HelpTooltip>
+                          </div>
+                          <p className="mt-1 text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">{capacityData.summary.maxRequestMemoryPct.toFixed(1)}%</p>
+                          <p className="text-gray-400 dark:text-[#666]">{highestPressureNode?.name ?? "No ready nodes"}</p>
+                        </div>
+                        <div className="rounded-xl bg-black/20 p-3">
+                          <div className="flex items-center gap-1">
+                            <p className="text-gray-500 dark:text-[#777]">Observed peak usage</p>
+                            <HelpTooltip>Highest live memory usage currently observed on any ready node.</HelpTooltip>
+                          </div>
+                          <p className="mt-1 text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">{capacityData.summary.maxUsageMemoryPct != null ? `${capacityData.summary.maxUsageMemoryPct.toFixed(1)}%` : "—"}</p>
+                          <p className="text-gray-400 dark:text-[#666]">Across ready nodes</p>
+                        </div>
+                        <div className="rounded-xl bg-black/20 p-3">
+                          <div className="flex items-center gap-1">
+                            <p className="text-gray-500 dark:text-[#777]">Game Hub budget</p>
+                            <HelpTooltip>Total memory requested by all Game Hub servers combined vs the namespace quota.</HelpTooltip>
+                          </div>
+                          <p className="mt-1 text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">{formatBytesGi(capacityData.gameHubUsage.requestedMemoryBytes)}</p>
+                          <p className="text-gray-400 dark:text-[#666]">of {formatBytesGi(capacityData.gameHubUsage.quota.requestsMemoryBytes)}</p>
+                        </div>
                       </div>
-                      <p className="mt-1 text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">{capacityData.summary.maxLimitMemoryPct.toFixed(1)}%</p>
-                      <p className="text-gray-400 dark:text-[#666]">Current overcommit</p>
-                    </div>
-                    <div className="rounded-xl bg-black/20 p-3">
-                      <div className="flex items-center gap-1">
-                        <p className="text-gray-500 dark:text-[#777]">Projected worst-case</p>
-                        <HelpTooltip>If this new server is scheduled on the most-loaded node, what would its request % become? Above 85% is considered a warning threshold.</HelpTooltip>
-                      </div>
-                      <p className="mt-1 text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">{capacityData.summary.projectedWorstNodeRequestMemoryPct.toFixed(1)}%</p>
-                      <p className="text-gray-400 dark:text-[#666]">After this deploy</p>
-                    </div>
-                    <div className="rounded-xl bg-black/20 p-3">
-                      <div className="flex items-center gap-1">
-                        <p className="text-gray-500 dark:text-[#777]">Game Hub budget</p>
-                        <HelpTooltip>Total memory requested by all Game Hub servers combined vs the namespace quota. Prevents game servers from starving other cluster workloads.</HelpTooltip>
-                      </div>
-                      <p className="mt-1 text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">{formatBytesGi(capacityData.gameHubUsage.requestedMemoryBytes)}</p>
-                      <p className="text-gray-400 dark:text-[#666]">of {formatBytesGi(capacityData.gameHubUsage.quota.requestsMemoryBytes)}</p>
-                    </div>
-                  </div>
-                  {capacityData.summary.maxUsageMemoryPct != null ? (
-                    <p className="mt-3 text-xs text-gray-500 dark:text-[#777]">Observed node memory usage is {capacityData.summary.maxUsageMemoryPct.toFixed(1)}%.</p>
-                  ) : null}
-                  {capacityData.warnings.length > 0 ? (
-                    <ul className="mt-3 list-disc space-y-1 pl-4 text-xs text-amber-200">
-                      {capacityData.warnings.map((warning) => (
-                        <li key={warning}>{warning}</li>
-                      ))}
-                    </ul>
-                  ) : null}
+                      <p className="mt-3 text-xs text-gray-500 dark:text-[#777]">No node selected — Kubernetes will place the server on the best available node.</p>
+                    </>
+                  )}
                 </div>
               ) : null}
 
@@ -1676,7 +1855,7 @@ export default function NewGameServerPage() {
               {capacityData && !capacityData.canSafelyDeploy ? (
                 <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-100">
                   <p className="font-medium">⚠ Cluster memory pressure is already high.</p>
-                  <p className="mt-1 text-xs text-amber-200">Projected worst-case node requests: {capacityData.summary.projectedWorstNodeRequestMemoryPct.toFixed(1)}% • current node limits: {capacityData.summary.maxLimitMemoryPct.toFixed(1)}%</p>
+                  <p className="mt-1 text-xs text-amber-200">{targetNode && selectedNodeProjectedMemoryPct != null ? `${targetNode} would reach ${selectedNodeProjectedMemoryPct.toFixed(1)}% requested memory after this deploy.` : "One or more nodes are already under heavy memory pressure. Deployment can continue, but headroom is limited."}</p>
                 </div>
               ) : null}
 
@@ -1736,7 +1915,7 @@ export default function NewGameServerPage() {
                 </button>
               </div>
               {capacityData && !capacityData.canSafelyDeploy ? (
-                <p className="text-xs text-amber-200">This does not block deployment, but it signals elevated outage risk unless node pressure is reduced first.</p>
+                <p className="text-xs text-amber-200">This does not block deployment, but it signals tight capacity until some cluster memory pressure is reduced.</p>
               ) : null}
             </div>
           )}
@@ -1830,7 +2009,7 @@ export default function NewGameServerPage() {
                   onClick={() => router.push("/game-hub")}
                   className="inline-flex items-center gap-2 rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-4 py-2 text-sm text-gray-600 dark:text-[#b3b3b3] transition-colors hover:text-gray-900 dark:hover:text-white"
                 >
-                  <ArrowLeft className="h-4 w-4" /> Back to Game Hub
+                  ← Back to Game Hub
                 </button>
                 <button
                   onClick={() => router.push(`/game-hub/${deployedServerName}`)}

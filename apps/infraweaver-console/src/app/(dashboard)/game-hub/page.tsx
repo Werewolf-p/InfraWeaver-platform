@@ -1,12 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState, type MouseEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type MouseEvent } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, Lock, Gamepad2, Play, Square, RotateCcw, Trash2, Terminal, Loader2, AlertTriangle, HardDrive, CheckSquare, Square as SquareIcon, Search, ChevronDown, ChevronUp, BarChart2, BookOpen, Star, LayoutGrid, Rows3, MoreVertical, Copy, Folder, FolderOpen } from "lucide-react";
+import { Plus, Lock, Gamepad2, Play, Square, RotateCcw, Trash2, Terminal, Loader2, AlertTriangle, HardDrive, CheckSquare, Square as SquareIcon, Search, ChevronDown, ChevronUp, BarChart2, BookOpen, Star, LayoutGrid, Rows3, MoreVertical, Copy, Folder, FolderOpen, Upload } from "lucide-react";
 import { cn, timeAgo } from "@/lib/utils";
-import { PageHeader } from "@/components/ui/page-header";
 import { useRBAC } from "@/hooks/use-rbac";
 import { toast } from "@/lib/notify";
 import Link from "next/link";
@@ -381,6 +380,27 @@ type ServerViewMode = "detailed" | "compact";
 const SERVER_SORT_KEY = "infraweaver:game-hub-sort";
 const SERVER_FAVORITES_KEY = "infraweaver:game-hub-favorites";
 const SERVER_VIEW_KEY = "infraweaver:game-hub-view";
+const CONFIG_VERSION = 1;
+const IMPORT_DRAFT_STORAGE_KEY = "infraweaver-game-server-draft";
+
+type ImportedWizardConfig = {
+  version: number;
+  eggSource?: "built-in" | "pelican";
+  eggId?: string | null;
+  eggName?: string | null;
+  eggPath?: string | null;
+  serverName?: string;
+  dnsType?: "internal" | "public" | "custom";
+  dnsHostname?: string;
+  envValues?: Record<string, string>;
+  memoryMi?: number;
+  cpuCores?: number;
+  storageGi?: number;
+  storageClass?: string;
+  dockerImage?: string | null;
+  eulaAccepted?: boolean;
+  targetNode?: string | null;
+};
 
 function computeHealthScore(server: GameServer) {
   const readyScore = server.readyReplicas > 0 ? 40 : 0;
@@ -658,8 +678,11 @@ export default function GameHubPage() {
   const [editingTagServer, setEditingTagServer] = useState<string | null>(null);
   const [tagDraft, setTagDraft] = useState("");
   const [tagSavingServer, setTagSavingServer] = useState<string | null>(null);
+  const [fabMenuOpen, setFabMenuOpen] = useState(false);
   const longPressTimerRef = useRef<number | null>(null);
   const longPressTriggeredRef = useRef(false);
+  const fabRef = useRef<HTMLDivElement>(null);
+  const importRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const tick = () => setNow(Date.now());
@@ -719,6 +742,17 @@ export default function GameHubPage() {
   }, [viewMode]);
 
   useEffect(() => () => clearLongPress(), []);
+
+  useEffect(() => {
+    if (!fabMenuOpen) return;
+    const handlePointerDown = (event: globalThis.MouseEvent) => {
+      if (fabRef.current && !fabRef.current.contains(event.target as Node)) {
+        setFabMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [fabMenuOpen]);
 
   const { data, isLoading, error, dataUpdatedAt } = useQuery({
     queryKey: ["game-hub", "servers"],
@@ -843,6 +877,37 @@ export default function GameHubPage() {
     } catch (error) {
       toast.error(String(error));
     }
+  }
+
+  function triggerImportConfig() {
+    setFabMenuOpen(false);
+    importRef.current?.click();
+  }
+
+  function handleImportConfig(event: ChangeEvent<HTMLInputElement>) {
+    const input = event.target;
+    const file = input.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (loadEvent) => {
+      try {
+        const config = JSON.parse(String(loadEvent.target?.result ?? "")) as ImportedWizardConfig;
+        if (config.version !== CONFIG_VERSION) throw new Error("Unrecognised config version");
+        localStorage.setItem(IMPORT_DRAFT_STORAGE_KEY, JSON.stringify(config));
+        toast.success("Config imported — continuing in the wizard");
+        router.push("/game-hub/new");
+      } catch (error) {
+        toast.error(error instanceof Error ? `Failed to import config: ${error.message}` : "Failed to import config");
+      } finally {
+        input.value = "";
+      }
+    };
+    reader.onerror = () => {
+      toast.error("Failed to read config file");
+      input.value = "";
+    };
+    reader.readAsText(file);
   }
 
   async function doBulkAction(action: "start" | "stop" | "restart") {
@@ -1202,48 +1267,63 @@ export default function GameHubPage() {
         now={now}
       />
 
-      <PageHeader
-        title="Game Hub"
-        subtitle="Deploy and manage game servers on Kubernetes"
-        icon={Gamepad2}
-        actions={
-          <div className="flex items-center gap-2">
-            <RefreshCountdown intervalSeconds={15} resetKey={dataUpdatedAt} className="hidden sm:inline-flex" />
-            {canManageGameHub ? (
-              <button onClick={() => setShowPVCCleanup(true)} className="flex min-h-[44px] items-center gap-2 rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#252525] px-3 py-2 text-sm font-medium text-gray-500 dark:text-[#9e9e9e] transition-colors hover:bg-gray-100 dark:hover:bg-[#2a2a2a] hover:text-gray-900 dark:hover:text-[#f2f2f2]">
-                <HardDrive className="w-4 h-4" />
-                <span className="hidden sm:inline">Cleanup PVCs</span>
+      <input ref={importRef} type="file" accept=".json,.iwconfig.json" className="hidden" onChange={handleImportConfig} />
+
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-center gap-3">
+          <Gamepad2 className="h-6 w-6 shrink-0 text-[#0078D4] dark:text-[#4db3ff]" />
+          <div className="min-w-0">
+            <div className="flex items-center gap-3">
+              <h1 className="truncate text-2xl font-semibold text-gray-900 dark:text-[#f2f2f2]">Game Hub</h1>
+              <RefreshCountdown intervalSeconds={15} resetKey={dataUpdatedAt} className="hidden lg:inline-flex" />
+            </div>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => {
+              setCompareMode((prev) => {
+                if (prev) setCompareSet(new Set());
+                return !prev;
+              });
+            }}
+            className={cn("inline-flex min-h-[44px] items-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium transition-colors", compareMode ? "border-[#0078D4]/30 bg-[#0078D4]/15 text-[#4db3ff]" : "border-gray-200 bg-gray-50 text-gray-500 hover:bg-gray-100 hover:text-gray-900 dark:border-[#2a2a2a] dark:bg-[#111] dark:text-[#9e9e9e] dark:hover:bg-[#1a1a1a] dark:hover:text-[#f2f2f2]")}
+          >
+            <BarChart2 className="h-4 w-4" />
+            <span className="hidden sm:inline">{compareMode ? "Comparing" : "Compare"}</span>
+          </button>
+          {canManageGameHub ? (
+            <>
+              <button
+                onClick={triggerImportConfig}
+                className="hidden min-h-[44px] items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-medium text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:border-[#2a2a2a] dark:bg-[#111] dark:text-[#9e9e9e] dark:hover:bg-[#1a1a1a] dark:hover:text-[#f2f2f2] md:inline-flex"
+              >
+                <Upload className="h-4 w-4" />
+                <span className="hidden xl:inline">Import Config</span>
               </button>
-            ) : null}
-            <button
-              onClick={() => {
-                setCompareMode((prev) => {
-                  if (prev) setCompareSet(new Set());
-                  return !prev;
-                });
-              }}
-              className={cn("flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors border", compareMode ? "bg-[#0078D4]/15 border-[#0078D4]/30 text-[#4db3ff]" : "bg-gray-50 dark:bg-[#252525] hover:bg-gray-100 dark:hover:bg-[#2a2a2a] border-gray-200 dark:border-[#2a2a2a] text-gray-500 dark:text-[#9e9e9e] hover:text-gray-900 dark:hover:text-[#f2f2f2]")}
-            >
-              <BarChart2 className="w-4 h-4" />
-              <span className="hidden sm:inline">{compareMode ? "Comparing" : "Compare"}</span>
-            </button>
-            {canManageGameHub ? (
-              <Link href="/game-hub/new" className="hidden min-h-[44px] items-center gap-2 rounded-lg bg-[#0078D4] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#006cbe] sm:flex">
-                <Plus className="w-4 h-4" />
+              <button
+                onClick={() => setShowPVCCleanup(true)}
+                className="hidden min-h-[44px] items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-medium text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:border-[#2a2a2a] dark:bg-[#111] dark:text-[#9e9e9e] dark:hover:bg-[#1a1a1a] dark:hover:text-[#f2f2f2] md:inline-flex"
+              >
+                <HardDrive className="h-4 w-4" />
+                <span className="hidden xl:inline">Cleanup PVCs</span>
+              </button>
+              <Link href="/game-hub/new" className="hidden min-h-[44px] items-center gap-2 rounded-xl bg-[#0078D4] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#006cbe] md:inline-flex">
+                <Plus className="h-4 w-4" />
                 New Server
               </Link>
-            ) : (
-              <span
-                title="Requires game-hub:admin permission"
-                className="hidden cursor-not-allowed select-none items-center gap-2 rounded-lg bg-gray-100 dark:bg-[#252525] px-4 py-2 text-sm font-medium text-gray-400 dark:text-[#555] opacity-60 sm:flex min-h-[44px]"
-              >
-                <Lock className="w-4 h-4" />
-                New Server
-              </span>
-            )}
-          </div>
-        }
-      />
+            </>
+          ) : (
+            <span
+              title="Requires game-hub:admin permission"
+              className="hidden min-h-[44px] cursor-not-allowed select-none items-center gap-2 rounded-xl bg-gray-100 px-4 py-2 text-sm font-medium text-gray-400 opacity-60 dark:bg-[#111] dark:text-[#555] md:inline-flex"
+            >
+              <Lock className="h-4 w-4" />
+              New Server
+            </span>
+          )}
+        </div>
+      </div>
 
       <div className="space-y-3 rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-3 sm:border-0 sm:bg-transparent sm:p-0">
         <div className="flex items-center gap-2 sm:hidden">
@@ -1282,18 +1362,18 @@ export default function GameHubPage() {
             </HorizontalScrollHint>
             <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-wrap sm:items-center">
               {uniqueGameTypes.length > 1 && (
-                <select value={filterType} onChange={(event) => setFilterType(event.target.value)} className="min-h-[48px] rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] px-4 text-base text-gray-700 dark:text-[#d4d4d4] focus:border-[#0078D4]/50 focus:outline-none sm:text-sm">
+                <select value={filterType} onChange={(event) => setFilterType(event.target.value)} className="relative z-50 min-h-[48px] rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] px-4 text-base text-gray-700 dark:text-[#d4d4d4] focus:border-[#0078D4]/50 focus:outline-none sm:text-sm">
                   <option value="">All game types</option>
                   {uniqueGameTypes.map((type) => <option key={type} value={type}>{type}</option>)}
                 </select>
               )}
               {allGroups.length > 0 && (
-                <select value={filterGroup} onChange={(event) => setFilterGroup(event.target.value)} className="min-h-[48px] rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] px-4 text-base text-gray-700 dark:text-[#d4d4d4] focus:border-[#0078D4]/50 focus:outline-none sm:text-sm">
+                <select value={filterGroup} onChange={(event) => setFilterGroup(event.target.value)} className="relative z-50 min-h-[48px] rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] px-4 text-base text-gray-700 dark:text-[#d4d4d4] focus:border-[#0078D4]/50 focus:outline-none sm:text-sm">
                   <option value="">All groups</option>
                   {allGroups.map((group) => <option key={group} value={group}>{group}</option>)}
                 </select>
               )}
-              <select value={sortKey} onChange={(event) => setSort(event.target.value as ServerSortKey)} className="min-h-[48px] rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] px-4 text-base text-gray-700 dark:text-[#d4d4d4] focus:border-[#0078D4]/50 focus:outline-none sm:text-sm">
+              <select value={sortKey} onChange={(event) => setSort(event.target.value as ServerSortKey)} className="relative z-50 min-h-[48px] rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] px-4 text-base text-gray-700 dark:text-[#d4d4d4] focus:border-[#0078D4]/50 focus:outline-none sm:text-sm">
                 <option value="health">Sort by health</option>
                 <option value="name">Sort by name</option>
                 <option value="status">Sort by status</option>
@@ -1513,7 +1593,62 @@ export default function GameHubPage() {
         </div>
       )}
 
-      {/* Mobile FAB handled by context-aware FloatingActionButton in layout */}
+      {canManageGameHub ? (
+        <div ref={fabRef} className="fixed bottom-6 right-6 z-50 flex items-end">
+          <div className="flex flex-col items-end gap-3">
+            <AnimatePresence>
+              {fabMenuOpen ? (
+                <motion.div
+                  initial={{ opacity: 0, y: 10, scale: 0.96 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 10, scale: 0.96 }}
+                  transition={{ duration: 0.16 }}
+                  className="z-[100] w-64 rounded-2xl border border-gray-200 bg-white/95 p-2 shadow-2xl backdrop-blur dark:border-[#2a2a2a] dark:bg-[#111]/95"
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFabMenuOpen(false);
+                      router.push("/game-hub/new");
+                    }}
+                    className="flex min-h-[44px] w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 dark:text-[#f2f2f2] dark:hover:bg-[#1a1a1a]"
+                  >
+                    <Plus className="h-4 w-4 text-[#0078D4]" />
+                    New Server
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFabMenuOpen(false);
+                      setShowPVCCleanup(true);
+                    }}
+                    className="flex min-h-[44px] w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 dark:text-[#f2f2f2] dark:hover:bg-[#1a1a1a]"
+                  >
+                    <HardDrive className="h-4 w-4 text-[#0078D4]" />
+                    Cleanup PVCs
+                  </button>
+                  <button
+                    type="button"
+                    onClick={triggerImportConfig}
+                    className="flex min-h-[44px] w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 dark:text-[#f2f2f2] dark:hover:bg-[#1a1a1a]"
+                  >
+                    <Upload className="h-4 w-4 text-[#0078D4]" />
+                    Import Config
+                  </button>
+                </motion.div>
+              ) : null}
+            </AnimatePresence>
+            <button
+              type="button"
+              onClick={() => setFabMenuOpen((open) => !open)}
+              aria-label="Open quick actions"
+              className="flex h-14 w-14 min-h-[44px] min-w-[44px] items-center justify-center rounded-full bg-[#0078D4] text-white shadow-lg transition-transform duration-200 hover:scale-105 hover:bg-[#006cbe]"
+            >
+              <Plus className={cn("h-6 w-6 transition-transform duration-200", fabMenuOpen && "rotate-45")} />
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] overflow-hidden">
         <button onClick={() => setShowRoadmap((prev) => !prev)} className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left border-b border-gray-200 dark:border-[#1e1e1e]">
