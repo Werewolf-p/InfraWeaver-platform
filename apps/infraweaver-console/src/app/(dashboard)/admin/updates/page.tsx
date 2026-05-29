@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowUpCircle, CheckCircle2, GitBranch, Loader2, RefreshCw, Search } from "lucide-react";
+import { ArrowUpCircle, Boxes, CheckCircle2, GitBranch, Loader2, RefreshCw, Search } from "lucide-react";
 import { DataError } from "@/components/ui/data-error";
 import { PageScaffold } from "@/components/ui/page-scaffold";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -22,6 +22,7 @@ interface UpdateItem {
   repoUrl: string | null;
   syncStatus: string;
   lastSync: string | null;
+  manifestManaged?: boolean;
 }
 
 interface AvailableVersionsResponse {
@@ -72,9 +73,13 @@ function UpdateCard({ app, canUpdate, isUpdating, selectedVersion, onSelectVersi
     latestUpstream != null &&
     (latestUpstream === app.targetVersion || latestUpstream === app.deployedVersion);
 
+  // Image/ArgoCD-managed apps have no GitOps manifest, so a targetRevision bump cannot
+  // be applied — the running image owns the version. The update action is hidden for these.
+  const isImageManaged = app.manifestManaged === false;
+
   // Disable Update only when the selected version is already the deployed/git target (a true no-op).
   const disableUpdate =
-    !canUpdate || isUpdating || !selectedVersion ||
+    !canUpdate || isUpdating || isImageManaged || !selectedVersion ||
     (selectedVersion === app.targetVersion && selectedVersion === app.deployedVersion);
 
   const lastSyncLabel = app.lastSync ? timeAgo(app.lastSync) : "Unavailable";
@@ -94,6 +99,15 @@ function UpdateCard({ app, canUpdate, isUpdating, selectedVersion, onSelectVersi
                 Up to date
               </span>
             )}
+            {isImageManaged && (
+              <span
+                title="Version is managed by the running container image (raw ArgoCD manifest). GitOps targetRevision bumps do not apply here."
+                className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-600 dark:text-amber-400"
+              >
+                <Boxes className="h-3 w-3" />
+                Image-managed
+              </span>
+            )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <StatusBadge status={app.syncStatus} label={app.syncStatus} size="sm" />
@@ -104,7 +118,7 @@ function UpdateCard({ app, canUpdate, isUpdating, selectedVersion, onSelectVersi
             ) : null}
           </div>
         </div>
-        {canUpdate && (
+        {canUpdate && !isImageManaged && (
           <button
             type="button"
             onClick={() => onUpdate(app)}
@@ -130,7 +144,11 @@ function UpdateCard({ app, canUpdate, isUpdating, selectedVersion, onSelectVersi
           </p>
           <div className="mt-3 flex items-center gap-2 text-xs text-slate-500 dark:text-[#888]">
             <GitBranch className="h-3.5 w-3.5 shrink-0" />
-            <span className="truncate">Git constraint: {app.targetVersion ?? app.currentVersion ?? "unavailable"}</span>
+            <span className="truncate">
+              {isImageManaged
+                ? "Managed by running image"
+                : `Git constraint: ${app.targetVersion ?? app.currentVersion ?? "unavailable"}`}
+            </span>
           </div>
         </div>
 

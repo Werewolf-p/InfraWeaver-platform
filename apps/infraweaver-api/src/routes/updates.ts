@@ -22,6 +22,20 @@ interface ApplicationManifest {
   targetRevision: string | null;
 }
 
+interface ApplicationEntry {
+  id: string;
+  name: string;
+  namespace: string;
+  section: string;
+  currentVersion: string;
+  targetVersion: string | null;
+  chart: string | null;
+  repoUrl: string | null;
+  syncStatus: string;
+  lastSync: string | null;
+  manifestManaged: boolean;
+}
+
 interface ArgoApplication {
   metadata?: { name?: string; namespace?: string };
   spec?: { destination?: { namespace?: string } };
@@ -142,6 +156,33 @@ function getLastSync(liveApp: ArgoApplication | undefined) {
 function matchLiveApp(manifest: ApplicationManifest, apps: ArgoApplication[]) {
   return apps.find((app) => app.metadata?.name === manifest.appName)
     ?? apps.find((app) => (app.metadata?.name ?? '').includes(manifest.appName));
+}
+
+// Version reported by the running image for apps that have no GitOps manifest
+// (ArgoCD-managed via raw manifests). Prefer the deployed image tag, then sync revision.
+function getLiveCurrentVersion(liveApp: ArgoApplication) {
+  return liveApp.status?.summary?.images?.map(extractImageTag).find(Boolean)
+    ?? liveApp.status?.operationState?.syncResult?.revision
+    ?? liveApp.status?.sync?.revision
+    ?? 'unknown';
+}
+
+// Split an ArgoCD application name like `platform-n8n` into { section: 'platform', name: 'n8n' }.
+// When the prefix is not a recognised section the whole name is kept and the section falls back to 'apps'.
+function deriveSectionAndName(appName: string, knownSections: Set<string>) {
+  const dashIndex = appName.indexOf('-');
+  if (dashIndex !== -1) {
+    const prefix = appName.slice(0, dashIndex);
+    if (knownSections.has(prefix)) {
+      return { section: prefix, name: appName.slice(dashIndex + 1) || appName };
+    }
+  }
+
+  if (knownSections.has(appName)) {
+    return { section: appName, name: appName };
+  }
+
+  return { section: 'apps', name: appName };
 }
 
 function getFallbackSource(manifest: ApplicationManifest | undefined): VersionSource | null {
@@ -486,8 +527,16 @@ updatesRoute.get('/', async (c) => {
     fetchArgoApplications(user.clusterId),
   ]);
 
-  const payload = manifests.map((manifest) => {
+  // Track which live ArgoCD apps are already represented by a GitOps manifest so we
+  // don't list them twice. matchLiveApp resolves a manifest -> live app; we record the
+  // live app names it claims here to perform the reverse exclusion below.
+  const representedLiveNames = new Set<string>();
+
+  const payload: ApplicationEntry[] = manifests.map((manifest) => {
     const liveApp = matchLiveApp(manifest, liveApps);
+    if (liveApp?.metadata?.name) {
+      representedLiveNames.add(liveApp.metadata.name);
+    }
 
     return {
       id: manifest.id,
@@ -500,8 +549,45 @@ updatesRoute.get('/', async (c) => {
       repoUrl: manifest.repoUrl,
       syncStatus: getSyncStatus(liveApp),
       lastSync: getLastSync(liveApp),
+      manifestManaged: true,
     };
   });
+
+  const knownSections = new Set<string>([
+    'core',
+    'monitoring',
+    'platform',
+    'catalog',
+    'apps',
+    ...manifests.map((manifest) => manifest.section),
+  ]);
+
+  // Merge in live ArgoCD applications that have no GitOps manifest (raw-manifest /
+  // image-managed apps such as n8n, monitoring, netbird). Their version is owned by the
+  // running image, so updates via targetRevision bumps do not apply (manifestManaged: false).
+  for (const liveApp of liveApps) {
+    const liveName = liveApp.metadata?.name;
+    if (!liveName || representedLiveNames.has(liveName)) {
+      continue;
+    }
+    representedLiveNames.add(liveName);
+
+    const { section, name } = deriveSectionAndName(liveName, knownSections);
+
+    payload.push({
+      id: `argocd-${liveName}`,
+      name,
+      namespace: liveApp.spec?.destination?.namespace ?? liveApp.metadata?.namespace ?? 'default',
+      section,
+      currentVersion: getLiveCurrentVersion(liveApp),
+      targetVersion: null,
+      chart: null,
+      repoUrl: null,
+      syncStatus: getSyncStatus(liveApp),
+      lastSync: getLastSync(liveApp),
+      manifestManaged: false,
+    });
+  }
 
   return c.json(payload);
 });
