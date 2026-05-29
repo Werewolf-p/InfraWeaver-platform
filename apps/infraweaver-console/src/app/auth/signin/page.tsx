@@ -1,5 +1,6 @@
 "use client";
-import { signIn } from "next-auth/react";
+import { getCsrfToken } from "next-auth/react";
+import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { Terminal, ShieldCheck, Activity, GitBranch, Network, LogIn } from "lucide-react";
 
@@ -41,6 +42,37 @@ function getCallbackUrl() {
 }
 
 export default function SignInPage() {
+  // The sign-in is performed via a native top-level form POST to the NextAuth
+  // provider endpoint instead of the client-side signIn() helper.
+  //
+  // signIn() does a two-step dance (fetch CSRF + POST to obtain the authorize
+  // URL, THEN a separate window.location navigation). The PKCE/state/nonce
+  // Set-Cookie headers from that fetch can race the navigation, and a rapid
+  // double-click fires multiple POSTs — each minting fresh PKCE cookies — so the
+  // final redirect to Authentik can carry params that no longer match the stored
+  // cookies. Authentik then can't correlate the flow and the page hangs; a manual
+  // refresh re-issues consistent cookies, which is exactly the observed symptom.
+  //
+  // A normal form submit performs ONE atomic top-level navigation: the 302 to
+  // Authentik and its Set-Cookie headers are committed together, and the submit
+  // guard below prevents double-fire.
+  const [csrfToken, setCsrfToken] = useState("");
+  const [callbackUrl, setCallbackUrl] = useState("/");
+  const submittingRef = useRef(false);
+
+  useEffect(() => {
+    getCsrfToken().then((token) => setCsrfToken(token ?? ""));
+    setCallbackUrl(getCallbackUrl());
+  }, []);
+
+  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    if (submittingRef.current || !csrfToken) {
+      e.preventDefault();
+      return;
+    }
+    submittingRef.current = true;
+  };
+
   return (
     <div className="min-h-screen bg-slate-100 dark:bg-slate-950 flex items-center justify-center p-4 relative overflow-hidden">
       {/* Aurora background */}
@@ -129,18 +161,26 @@ export default function SignInPage() {
                 Sign in with your Authentik account to access the platform console.
               </p>
 
-              {/* Sign in button */}
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.97 }}
-                onClick={() => signIn("authentik", { callbackUrl: getCallbackUrl() })}
-                className="relative w-full group overflow-hidden flex items-center justify-center gap-3 py-3.5 px-6 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-sm transition-colors shadow-lg shadow-indigo-500/25"
+              {/* Sign in button (native top-level form POST — see comment above) */}
+              <form
+                method="post"
+                action="/api/auth/signin/authentik"
+                onSubmit={handleSubmit}
               >
-                {/* Shimmer effect */}
-                <span className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity bg-gradient-to-r from-transparent via-white/10 to-transparent -skew-x-12 translate-x-[-100%] group-hover:translate-x-[200%] duration-700" />
-                <LogIn className="w-4 h-4 relative" />
-                <span className="relative">Sign in with Authentik</span>
-              </motion.button>
+                <input type="hidden" name="csrfToken" value={csrfToken} />
+                <input type="hidden" name="callbackUrl" value={callbackUrl} />
+                <motion.button
+                  type="submit"
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.97 }}
+                  className="relative w-full group overflow-hidden flex items-center justify-center gap-3 py-3.5 px-6 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-sm transition-colors shadow-lg shadow-indigo-500/25"
+                >
+                  {/* Shimmer effect */}
+                  <span className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity bg-gradient-to-r from-transparent via-white/10 to-transparent -skew-x-12 translate-x-[-100%] group-hover:translate-x-[200%] duration-700" />
+                  <LogIn className="w-4 h-4 relative" />
+                  <span className="relative">Sign in with Authentik</span>
+                </motion.button>
+              </form>
 
               {/* Divider */}
               <div className="flex items-center gap-3 my-6">
@@ -150,17 +190,25 @@ export default function SignInPage() {
               </div>
 
               {/* Secondary GitHub button (UI only - Authentik handles OAuth) */}
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.97 }}
-                onClick={() => signIn("authentik", { callbackUrl: getCallbackUrl() })}
-                className="w-full flex items-center justify-center gap-3 py-3 px-6 rounded-xl bg-gray-100 dark:bg-white/5 hover:bg-gray-100 dark:hover:bg-white/10 border border-gray-200 dark:border-white/10 text-slate-700 dark:text-slate-300 font-medium text-sm transition-colors"
+              <form
+                method="post"
+                action="/api/auth/signin/authentik"
+                onSubmit={handleSubmit}
               >
-                <svg viewBox="0 0 24 24" className="w-4 h-4 fill-current">
-                  <path d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.44 9.8 8.2 11.38.6.1.82-.26.82-.57v-2c-3.34.72-4.04-1.6-4.04-1.6-.54-1.38-1.33-1.74-1.33-1.74-1.09-.74.08-.73.08-.73 1.2.09 1.84 1.24 1.84 1.24 1.07 1.83 2.8 1.3 3.49 1 .1-.78.42-1.3.76-1.6-2.67-.3-5.47-1.33-5.47-5.93 0-1.31.47-2.38 1.24-3.22-.13-.3-.54-1.52.12-3.18 0 0 1.01-.32 3.3 1.23a11.5 11.5 0 0 1 3-.4c1.02 0 2.04.13 3 .4 2.3-1.55 3.3-1.23 3.3-1.23.66 1.66.25 2.88.12 3.18.77.84 1.24 1.91 1.24 3.22 0 4.61-2.81 5.63-5.48 5.92.43.37.81 1.1.81 2.22v3.29c0 .32.22.68.82.57C20.56 21.8 24 17.3 24 12c0-6.63-5.37-12-12-12z" />
-                </svg>
-                Continue via GitHub (SSO)
-              </motion.button>
+                <input type="hidden" name="csrfToken" value={csrfToken} />
+                <input type="hidden" name="callbackUrl" value={callbackUrl} />
+                <motion.button
+                  type="submit"
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.97 }}
+                  className="w-full flex items-center justify-center gap-3 py-3 px-6 rounded-xl bg-gray-100 dark:bg-white/5 hover:bg-gray-100 dark:hover:bg-white/10 border border-gray-200 dark:border-white/10 text-slate-700 dark:text-slate-300 font-medium text-sm transition-colors"
+                >
+                  <svg viewBox="0 0 24 24" className="w-4 h-4 fill-current">
+                    <path d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.44 9.8 8.2 11.38.6.1.82-.26.82-.57v-2c-3.34.72-4.04-1.6-4.04-1.6-.54-1.38-1.33-1.74-1.33-1.74-1.09-.74.08-.73.08-.73 1.2.09 1.84 1.24 1.84 1.24 1.07 1.83 2.8 1.3 3.49 1 .1-.78.42-1.3.76-1.6-2.67-.3-5.47-1.33-5.47-5.93 0-1.31.47-2.38 1.24-3.22-.13-.3-.54-1.52.12-3.18 0 0 1.01-.32 3.3 1.23a11.5 11.5 0 0 1 3-.4c1.02 0 2.04.13 3 .4 2.3-1.55 3.3-1.23 3.3-1.23.66 1.66.25 2.88.12 3.18.77.84 1.24 1.91 1.24 3.22 0 4.61-2.81 5.63-5.48 5.92.43.37.81 1.1.81 2.22v3.29c0 .32.22.68.82.57C20.56 21.8 24 17.3 24 12c0-6.63-5.37-12-12-12z" />
+                  </svg>
+                  Continue via GitHub (SSO)
+                </motion.button>
+              </form>
 
               {/* Footer */}
               <p className="text-xs text-slate-600 text-center mt-6">

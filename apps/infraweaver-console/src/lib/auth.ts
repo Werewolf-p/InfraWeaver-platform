@@ -20,9 +20,13 @@ const secureCookieOptions = {
   path: "/",
   secure: useSecureCookies,
 };
+// Session cookie uses sameSite "lax" (not "strict"): the browser returns from
+// the Authentik OIDC callback via a top-level cross-site navigation, and a
+// "strict" cookie would not be sent on that first request — causing the app to
+// treat the user as unauthenticated and bounce back into the OIDC flow.
 const sessionCookieOptions = {
   ...secureCookieOptions,
-  sameSite: "strict" as const,
+  sameSite: "lax" as const,
 };
 
 export const authConfig: NextAuthConfig = {
@@ -34,6 +38,16 @@ export const authConfig: NextAuthConfig = {
       issuer: process.env.AUTHENTIK_ISSUER,
       clientId: process.env.AUTHENTIK_CLIENT_ID,
       clientSecret: process.env.AUTHENTIK_CLIENT_SECRET,
+      // Pin the authorization request params so every sign-in produces a stable,
+      // self-consistent request. PKCE + state + nonce are correlated via the
+      // checks cookies set below; keeping these explicit avoids ambiguity that
+      // can leave the Authentik flow executor unable to resolve the request.
+      authorization: {
+        params: {
+          scope: "openid profile email",
+        },
+      },
+      checks: ["pkce", "state", "nonce"],
     },
   ],
   session: {
@@ -44,6 +58,11 @@ export const authConfig: NextAuthConfig = {
   jwt: {
     maxAge: SESSION_MAX_AGE,
   },
+  // Trust the X-Forwarded-* headers from Traefik so NextAuth derives the correct
+  // public origin (https://infraweaver.int.rlservers.com) for the callback URL.
+  // Without this, the OIDC redirect_uri/callback can be computed wrong behind the
+  // reverse proxy, breaking the first-attempt flow correlation.
+  trustHost: true,
   useSecureCookies,
   cookies: {
     sessionToken: {
