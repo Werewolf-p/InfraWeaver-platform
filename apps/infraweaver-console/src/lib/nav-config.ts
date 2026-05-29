@@ -5,7 +5,7 @@ import {
   Sparkles, Home, Trash2, GitBranch, ArrowUpCircle,
   Globe, BellOff, Shield, AlertTriangle, HeartPulse,
   Calendar, TrendingUp, Gamepad2, Search, LayoutGrid, TestTube2, Puzzle, BookOpen, MemoryStick,
-  KeyRound, Lock, Database, Boxes,
+  KeyRound, Lock, Database, Boxes, MessageSquarePlus,
 } from "lucide-react";
 import { mergeRegisteredPages, navItemFromPage } from "@/lib/page-registry";
 
@@ -136,6 +136,7 @@ export const NAV_GROUPS: NavGroup[] = mergeRegisteredPages([
       { href: "/gitops-diff", icon: GitBranch, label: "GitOps Diff", description: "ArgoCD app manifest diffs" },
       { href: "/pipelines", icon: GitBranch, label: "Pipelines", description: "CI/CD pipeline overview" },
       { href: "/automations", icon: Sparkles, label: "Automation Hub", description: "Track self-healing jobs and workflow automations" },
+      { href: "/feedback", icon: MessageSquarePlus, label: "Feedback & Fix Flow", description: "Review reported issues and dispatch the n8n auto-fix workflow", keywords: ["feedback", "report", "bug", "feature request", "note", "n8n", "fix", "review"] },
       { href: "/scheduled-tasks", icon: Calendar, label: "Scheduled Tasks", description: "View and manage scheduled operations" },
     ],
   },
