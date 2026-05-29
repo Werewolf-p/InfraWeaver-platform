@@ -29,6 +29,7 @@ import { rbacSyncRoute } from './routes/rbac-sync.js';
 import { secretsRoute } from './routes/secrets.js';
 import { updatesRoute } from './routes/updates.js';
 import { platformRoute } from './routes/platform.js';
+import { pimRoute } from './routes/pim.js';
 import { dnsRoute } from './routes/dns.js';
 import type { AppBindings } from './types/index.js';
 
@@ -78,6 +79,7 @@ api.route('/config-maps', configMapsRoute);
 api.route('/secrets', secretsRoute);
 api.route('/exec', execRoute);
 api.route('/community-apps', communityAppsRoute);
+api.route('/pim', pimRoute);
 
 app.route('/api/v1', api);
 

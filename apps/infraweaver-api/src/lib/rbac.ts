@@ -1,4 +1,5 @@
 import type { UserContext } from '../types/index.js';
+import { getCoreApiForCluster } from './k8s-client.js';
 
 export type Permission =
   | '*'
@@ -51,6 +52,127 @@ export function hasPermission(user: UserContext, permission: Permission): boolea
       return true;
     }
   }
+  const elevated = elevatedPermissions.get(user);
+  if (elevated && (elevated.has('*') || elevated.has(permission))) {
+    return true;
+  }
   return false;
+}
+
+// ── PIM / custom-group elevation enforcement ──────────────────────────────────
+//
+// Authorization MUST honor (a) currently-active, non-expired PIM elevations and
+// (b) custom-group memberships, both persisted by the console in a ConfigMap in
+// the console namespace. The console signs the request with the user's Authentik
+// groups; the backend then *independently* re-reads the ConfigMap and merges any
+// extra permissions into the decision so a compromised/forged client cannot grant
+// itself elevated access. This is fail-secure: any parse/read failure or expired
+// elevation contributes zero permissions.
+
+const CONSOLE_NAMESPACE = process.env.CONSOLE_NAMESPACE ?? process.env.POD_NAMESPACE ?? 'infraweaver-console';
+const ACCESS_CONFIGMAP = process.env.ACCESS_CONFIGMAP_NAME ?? 'infraweaver-access-control';
+
+/** PIM role → permissions. Kept in sync with the console's PIM_ROLES catalog. */
+const PIM_ROLE_PERMISSIONS: Record<string, Permission[]> = {
+  'security-reader': ['security:read'],
+  'security-admin': ['security:read', 'security:write'],
+  'cluster-admin': ['cluster:read', 'cluster:drain', 'cluster:scale', 'cluster:admin'],
+  'rbac-admin': ['rbac:admin'],
+  'platform-updater': ['platform:update'],
+};
+
+interface RawActivation {
+  user?: string;
+  role?: string;
+  expiresAt?: string;
+  deactivatedAt?: string;
+}
+
+interface RawGroup {
+  id?: string;
+  name?: string;
+  permissions?: string[];
+  members?: string[];
+}
+
+const elevatedPermissions = new WeakMap<UserContext, Set<string>>();
+
+export function setElevatedPermissions(user: UserContext, permissions: Iterable<string>): void {
+  elevatedPermissions.set(user, new Set(permissions));
+}
+
+function normalizeId(value: string | null | undefined): string {
+  return (value ?? '').trim().toLowerCase();
+}
+
+function safeParseArray<T>(value: string | undefined): T[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? (parsed as T[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function isActivationActive(activation: RawActivation, now: number): boolean {
+  if (activation.deactivatedAt) return false;
+  if (!activation.expiresAt) return false;
+  const expires = Date.parse(activation.expiresAt);
+  if (Number.isNaN(expires)) return false;
+  return expires > now;
+}
+
+/**
+ * Reads the access-control ConfigMap and computes the extra permissions the
+ * given identity currently holds via active PIM elevations and custom-group
+ * membership. Returns an empty set on any failure (fail-secure).
+ */
+export async function computeElevatedPermissions(
+  userId: string,
+  groups: string[],
+): Promise<Set<string>> {
+  const perms = new Set<string>();
+  const identity = normalizeId(userId);
+  if (!identity) return perms;
+  const groupIds = new Set(groups.map((g) => normalizeId(g)));
+
+  try {
+    const coreApi = await getCoreApiForCluster('local');
+    const configMap = await coreApi.readNamespacedConfigMap({ name: ACCESS_CONFIGMAP, namespace: CONSOLE_NAMESPACE });
+    const data = (configMap as { data?: Record<string, string | undefined> }).data ?? {};
+    const now = Date.now();
+
+    // (a) Active, non-expired PIM elevations for this user.
+    for (const activation of safeParseArray<RawActivation>(data.activations)) {
+      if (!isActivationActive(activation, now)) continue;
+      if (normalizeId(activation.user) !== identity) continue;
+      for (const perm of PIM_ROLE_PERMISSIONS[activation.role ?? ''] ?? []) perms.add(perm);
+    }
+
+    // (b) Custom-group membership (member email/username, or matching Authentik group).
+    for (const group of safeParseArray<RawGroup>(data.groups)) {
+      const members = (group.members ?? []).map((m) => normalizeId(m));
+      const isMember =
+        members.includes(identity) ||
+        groupIds.has(normalizeId(group.id)) ||
+        groupIds.has(normalizeId(group.name));
+      if (!isMember) continue;
+      for (const perm of group.permissions ?? []) perms.add(perm);
+    }
+  } catch {
+    return new Set<string>();
+  }
+
+  return perms;
+}
+
+/**
+ * Convenience used by the auth middleware: load and attach the user's elevated
+ * permissions to the request-scoped user context.
+ */
+export async function applyElevatedPermissions(user: UserContext): Promise<void> {
+  const perms = await computeElevatedPermissions(user.id, user.roles);
+  setElevatedPermissions(user, perms);
 }
 

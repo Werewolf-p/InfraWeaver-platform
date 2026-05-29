@@ -1,10 +1,11 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Users, Plus, Pencil, Trash2, Save, ChevronDown,
   Shield, Eye, User, CheckCircle2, XCircle, AlertTriangle, ChevronRight,
-  Info, Lock, HardDrive, Mail, Zap,
+  Info, Lock, HardDrive, Mail, Zap, ShieldCheck,
 } from "lucide-react";
 import { UserActionsDropdown } from "@/components/users/user-actions-dropdown";
 import { InviteModal } from "@/components/users/invite-modal";
@@ -748,6 +749,13 @@ export default function UsersPage() {
             <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
               {users.length} user{users.length !== 1 ? "s" : ""} · RBAC-managed platform access
             </p>
+            <Link
+              href="/access"
+              className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-1.5 text-xs font-medium text-blue-600 dark:text-blue-300 hover:bg-blue-500/20"
+            >
+              <ShieldCheck className="w-3.5 h-3.5" />
+              Groups &amp; PIM elevation
+            </Link>
           </div>
           {isAdmin && activeTab === "users" && (
             <div className="flex items-center gap-2">

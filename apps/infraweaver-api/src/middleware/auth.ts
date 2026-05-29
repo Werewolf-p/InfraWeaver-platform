@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { createMiddleware } from 'hono/factory';
 import { signHmac, verifyHmac } from '../lib/hmac.js';
+import { applyElevatedPermissions } from '../lib/rbac.js';
 import type { AppBindings } from '../types/index.js';
 
 // Grace window for previous secret during rotation (5 minutes)
@@ -58,7 +59,12 @@ export const authMiddleware = createMiddleware<AppBindings>(async (c, next) => {
   }
 
   const roles = rolesHeader ? rolesHeader.split(',').filter(Boolean) : [];
-  c.set('user', { id: userId, roles, clusterId: c.req.header('x-cluster-id') ?? 'local' });
+  const user = { id: userId, roles, clusterId: c.req.header('x-cluster-id') ?? 'local' };
+  c.set('user', user);
+
+  // Independently honor active PIM elevations + custom-group permissions read
+  // from the console's ConfigMap. Fail-secure: errors grant no extra access.
+  await applyElevatedPermissions(user).catch(() => {});
 
   const requestId = c.req.header('x-request-id') ?? randomUUID();
   c.set('requestId', requestId);
