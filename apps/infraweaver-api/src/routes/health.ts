@@ -4,6 +4,8 @@ import https from 'node:https';
 import { computeP95, getSampleCount } from '../lib/response-time.js';
 import type { AppBindings } from '../types/index.js';
 
+const SERVER_STARTED_AT = new Date().toISOString();
+
 async function checkUrl(url: string, timeoutMs = 3000): Promise<{ ok: boolean; durationMs: number }> {
   const start = Date.now();
   try {
@@ -76,6 +78,7 @@ healthRoute.get('/', async (c) => {
     status: 'ok',
     version: process.env.npm_package_version ?? '1.0.0',
     timestamp: new Date().toISOString(),
+    startedAt: SERVER_STARTED_AT,
     checks: {
       k8sApi: k8sResult.status === 'fulfilled' ? k8sResult.value : { ok: false },
       argocd: argocdResult.status === 'fulfilled' ? argocdResult.value : { ok: false, durationMs: -1 },
