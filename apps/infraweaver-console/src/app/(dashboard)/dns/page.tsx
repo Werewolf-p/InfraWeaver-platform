@@ -1,15 +1,19 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import {
+  ChevronDown,
+  ChevronRight,
+  Cloud,
   ExternalLink,
   Gamepad2,
   Globe,
   Pencil,
   Plus,
   RefreshCw,
+  Route,
   Server,
   Shield,
   Trash2,
@@ -38,6 +42,19 @@ interface DnsResponse {
   records: ManagedDnsRecord[];
 }
 
+interface TraefikRouteSummary {
+  name: string;
+  hostname: string;
+  service: string;
+  namespace: string;
+  tls: boolean;
+  pathPrefix?: string;
+}
+
+interface TraefikRoutesResponse {
+  routes: TraefikRouteSummary[];
+}
+
 interface GameHubServersResponse {
   servers: Array<{
     name: string;
@@ -49,8 +66,18 @@ interface GameHubServersResponse {
 
 const TAB_STORAGE_KEY = "infraweaver:dns-tab";
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
+const PROXY_ENABLED_RECORD_TYPES = new Set(["A", "CNAME"]);
 
 type DnsTab = "internal" | "public";
+
+function matchesWildcardHostname(wildcardHostname: string, hostname: string) {
+  const normalizedWildcard = wildcardHostname.trim().toLowerCase().replace(/\.+$/, "");
+  const normalizedHostname = hostname.trim().toLowerCase().replace(/\.+$/, "");
+  if (!normalizedWildcard.startsWith("*.")) return false;
+
+  const suffix = normalizedWildcard.slice(1);
+  return normalizedHostname.endsWith(suffix) && normalizedHostname.length > suffix.length;
+}
 
 export default function DnsManagementPage() {
   const { can } = useRBAC();
@@ -68,6 +95,8 @@ export default function DnsManagementPage() {
   const [dialogDefaults, setDialogDefaults] = useState<DnsRecordDefaults>({});
   const [editingRecord, setEditingRecord] = useState<ManagedDnsRecord | null>(null);
   const [recordToDelete, setRecordToDelete] = useState<ManagedDnsRecord | null>(null);
+  const [expandedWildcards, setExpandedWildcards] = useState<Record<string, boolean>>({});
+  const [proxyUpdatingIds, setProxyUpdatingIds] = useState<string[]>([]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -77,7 +106,7 @@ export default function DnsManagementPage() {
   const {
     data,
     isLoading,
-    isFetching,
+    isFetching: isFetchingRecords,
     dataUpdatedAt,
     refetch,
   } = useQuery({
@@ -86,6 +115,23 @@ export default function DnsManagementPage() {
       const res = await fetch("/api/dns", { cache: "no-store" });
       const payload = await res.json() as DnsResponse & { error?: string };
       if (!res.ok) throw new Error(payload.error ?? "Failed to load DNS records");
+      return payload;
+    },
+    refetchInterval: refreshInterval || false,
+    staleTime: refreshInterval ? Math.max(refreshInterval - 5000, 0) : 0,
+  });
+
+  const {
+    data: traefikData,
+    isLoading: isLoadingTraefikRoutes,
+    isFetching: isFetchingTraefikRoutes,
+    refetch: refetchTraefikRoutes,
+  } = useQuery({
+    queryKey: ["dns", "traefik-routes"],
+    queryFn: async () => {
+      const res = await fetch("/api/dns/traefik-routes", { cache: "no-store" });
+      const payload = await res.json().catch(() => ({ routes: [] })) as TraefikRoutesResponse & { error?: string };
+      if (!res.ok) throw new Error(payload.error ?? "Failed to load Traefik routes");
       return payload;
     },
     refetchInterval: refreshInterval || false,
@@ -103,6 +149,7 @@ export default function DnsManagementPage() {
   });
 
   const records = data?.records ?? [];
+  const traefikRoutes = traefikData?.routes ?? [];
   const filteredRecords = useMemo(() => {
     const scoped = records.filter((record) => (tab === "internal" ? record.internal : !record.internal));
     const query = search.trim().toLowerCase();
@@ -112,11 +159,33 @@ export default function DnsManagementPage() {
     );
   }, [records, search, tab]);
 
+  const wildcardRouteMap = useMemo(() => {
+    const entries = new Map<string, TraefikRouteSummary[]>();
+
+    for (const record of records) {
+      if (!record.shortName.startsWith("*")) continue;
+
+      const matches = traefikRoutes
+        .filter((route) => matchesWildcardHostname(record.name, route.hostname))
+        .sort((left, right) => (
+          left.hostname.localeCompare(right.hostname)
+          || left.namespace.localeCompare(right.namespace)
+          || left.service.localeCompare(right.service)
+          || (left.pathPrefix ?? "").localeCompare(right.pathPrefix ?? "")
+        ));
+
+      entries.set(record.id, matches);
+    }
+
+    return entries;
+  }, [records, traefikRoutes]);
+
   const totalPages = Math.max(1, Math.ceil(filteredRecords.length / pageSize));
   const currentPage = Math.min(page, totalPages);
   const pagedRecords = filteredRecords.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   const lastUpdated = dataUpdatedAt ? timeAgo(new Date(dataUpdatedAt)) : null;
+  const isRefreshing = isFetchingRecords || isFetchingTraefikRoutes;
   const machineTargets = useMemo(() => {
     const seen = new Set<string>();
     return (gameHubData?.servers ?? [])
@@ -150,10 +219,36 @@ export default function DnsManagementPage() {
 
   async function refreshRecords() {
     try {
-      await refetch();
+      await Promise.all([refetch(), refetchTraefikRoutes()]);
       toast.success("DNS records refreshed");
     } catch {
       toast.error("Unable to refresh DNS records");
+    }
+  }
+
+  async function toggleProxy(record: ManagedDnsRecord) {
+    if (!canWriteDns) {
+      toast.error("You do not have permission to update DNS records");
+      return;
+    }
+
+    if (!PROXY_ENABLED_RECORD_TYPES.has(record.type)) return;
+
+    setProxyUpdatingIds((current) => [...current, record.id]);
+    try {
+      const res = await fetch(`/api/dns/${record.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ proxied: !record.proxied }),
+      });
+      const payload = await res.json() as { error?: string };
+      if (!res.ok) throw new Error(payload.error ?? "Failed to update proxy status");
+      toast.success(`${record.name} is now ${record.proxied ? "DNS-only" : "proxied"}`);
+      await refetch();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to update proxy status");
+    } finally {
+      setProxyUpdatingIds((current) => current.filter((id) => id !== record.id));
     }
   }
 
@@ -244,7 +339,7 @@ export default function DnsManagementPage() {
             </div>
             <div className="text-right text-xs text-slate-500">
               <div className="flex items-center justify-end gap-2">
-                <RefreshCw className={cn("h-3.5 w-3.5", isFetching && "animate-spin")} />
+                <RefreshCw className={cn("h-3.5 w-3.5", isRefreshing && "animate-spin")} />
                 {lastUpdated ? `Updated ${lastUpdated}` : "Waiting for first sync"}
               </div>
               <Link href="/game-hub" className="mt-1 inline-flex items-center gap-1.5 text-cyan-700 dark:text-cyan-200 hover:text-gray-900 dark:hover:text-white">
@@ -379,68 +474,176 @@ export default function DnsManagementPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {pagedRecords.map((record) => (
-                      <tr key={record.id} className="border-b border-gray-200 dark:border-white/5 hover:bg-gray-100 dark:hover:bg-white/[0.02]">
-                        <td className="px-3 py-3 align-top">
-                          <div className="flex items-start gap-2">
-                            <div className="min-w-0">
-                              <div className="truncate font-medium text-gray-900 dark:text-white" title={record.name}>{record.name}</div>
-                              <div className="mt-1 text-xs text-slate-500">Subdomain: {record.shortName}</div>
-                            </div>
-                            <CopyButton text={record.name} className="px-2 py-1" />
-                          </div>
-                        </td>
-                        <td className="px-3 py-3 align-top">
-                          <StatusBadge
-                            status={record.internal ? "healthy" : "online"}
-                            label={record.internal ? "Internal" : "Public"}
-                            size="sm"
-                          />
-                        </td>
-                        <td className="px-3 py-3 align-top">
-                          <span className="inline-flex rounded-full border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950 px-2 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300">
-                            {record.type}
-                          </span>
-                        </td>
-                        <td className="px-3 py-3 align-top">
-                          <div className="flex items-start gap-2">
-                            <div className="max-w-[280px] truncate font-mono text-sm text-slate-800 dark:text-slate-200" title={record.value}>
-                              {record.value}
-                            </div>
-                            <CopyButton text={record.value} className="px-2 py-1" />
-                          </div>
-                        </td>
-                        <td className="px-3 py-3 align-top text-slate-700 dark:text-slate-300">{record.ttl}s</td>
-                        <td className="px-3 py-3 align-top text-slate-500 dark:text-slate-400">
-                          {record.updatedAt ? <span title={record.updatedAt}>{timeAgo(record.updatedAt)}</span> : "—"}
-                        </td>
-                        <td className="px-3 py-3 align-top">
-                          <div className="flex justify-end gap-2">
-                            <button
-                              onClick={() => {
-                                if (!canWriteDns) return;
-                                setEditingRecord(record);
-                                setDialogDefaults({});
-                                setDialogOpen(true);
-                              }}
-                              disabled={!canWriteDns}
-                              className="rounded-lg border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950 p-2 text-slate-700 dark:text-slate-300 transition hover:text-gray-900 dark:hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-                              title={`Edit ${record.name}`}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </button>
-                            <button
-                              onClick={() => canWriteDns && setRecordToDelete(record)}
-                              disabled={!canWriteDns}
-                              className="rounded-lg border border-red-500/20 bg-red-500/10 p-2 text-red-600 dark:text-red-300 transition hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50"
-                              title={`Delete ${record.name}`}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                    {pagedRecords.map((record) => {
+                      const wildcardRoutes = wildcardRouteMap.get(record.id) ?? [];
+                      const isWildcard = record.shortName.startsWith("*");
+                      const isExpanded = expandedWildcards[record.id] ?? false;
+                      const supportsProxy = PROXY_ENABLED_RECORD_TYPES.has(record.type);
+                      const isUpdatingProxy = proxyUpdatingIds.includes(record.id);
+
+                      return (
+                        <Fragment key={record.id}>
+                          <tr className="border-b border-gray-200 dark:border-white/5 hover:bg-gray-100 dark:hover:bg-white/[0.02]">
+                            <td className="px-3 py-3 align-top">
+                              <div className="flex items-start gap-2">
+                                {isWildcard ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (!wildcardRoutes.length) return;
+                                      setExpandedWildcards((current) => ({ ...current, [record.id]: !current[record.id] }));
+                                    }}
+                                    disabled={!wildcardRoutes.length}
+                                    className="mt-0.5 inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md text-slate-500 transition hover:bg-gray-200/80 hover:text-gray-900 dark:text-slate-400 dark:hover:bg-[#1a1a1a] dark:hover:text-[#f2f2f2] disabled:cursor-default disabled:opacity-40"
+                                    title={wildcardRoutes.length ? `${isExpanded ? "Hide" : "Show"} Traefik routes` : (isLoadingTraefikRoutes ? "Loading Traefik routes" : "No Traefik routes found")}
+                                  >
+                                    {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                                  </button>
+                                ) : null}
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <div className="truncate font-medium text-gray-900 dark:text-white" title={record.name}>{record.name}</div>
+                                    {isWildcard ? (
+                                      <span className="inline-flex rounded-full border border-cyan-500/20 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-cyan-700 dark:text-cyan-200">
+                                        {wildcardRoutes.length} Route{wildcardRoutes.length === 1 ? "" : "s"}
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                  <div className="mt-1 text-xs text-slate-500">Subdomain: {record.shortName}</div>
+                                </div>
+                                <CopyButton text={record.name} className="px-2 py-1" />
+                              </div>
+                            </td>
+                            <td className="px-3 py-3 align-top">
+                              <StatusBadge
+                                status={record.internal ? "healthy" : "online"}
+                                label={record.internal ? "Internal" : "Public"}
+                                size="sm"
+                              />
+                            </td>
+                            <td className="px-3 py-3 align-top">
+                              <span className="inline-flex rounded-full border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950 px-2 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300">
+                                {record.type}
+                              </span>
+                            </td>
+                            <td className="px-3 py-3 align-top">
+                              <div className="flex items-start gap-2">
+                                <div className="max-w-[280px] truncate font-mono text-sm text-slate-800 dark:text-slate-200" title={record.value}>
+                                  {record.value}
+                                </div>
+                                <CopyButton text={record.value} className="px-2 py-1" />
+                              </div>
+                            </td>
+                            <td className="px-3 py-3 align-top text-slate-700 dark:text-slate-300">{record.ttl}s</td>
+                            <td className="px-3 py-3 align-top text-slate-500 dark:text-slate-400">
+                              {record.updatedAt ? <span title={record.updatedAt}>{timeAgo(record.updatedAt)}</span> : "—"}
+                            </td>
+                            <td className="px-3 py-3 align-top">
+                              <div className="flex justify-end gap-2">
+                                {supportsProxy ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => void toggleProxy(record)}
+                                    disabled={!canWriteDns || isUpdatingProxy}
+                                    className={cn(
+                                      "rounded-lg border p-2 transition disabled:cursor-not-allowed disabled:opacity-50",
+                                      record.proxied
+                                        ? "border-[#f38020]/40 bg-[#f38020]/10 text-[#f38020] hover:bg-[#f38020]/20 dark:text-[#ff9a3d]"
+                                        : "border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950 text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-[#f2f2f2]",
+                                      isUpdatingProxy && "animate-pulse",
+                                    )}
+                                    title={record.proxied ? `Disable Cloudflare proxy for ${record.name}` : `Enable Cloudflare proxy for ${record.name}`}
+                                    aria-label={record.proxied ? `Disable Cloudflare proxy for ${record.name}` : `Enable Cloudflare proxy for ${record.name}`}
+                                  >
+                                    <Cloud className={cn("h-4 w-4", record.proxied && "fill-current")} />
+                                  </button>
+                                ) : null}
+                                <button
+                                  onClick={() => {
+                                    if (!canWriteDns) return;
+                                    setEditingRecord(record);
+                                    setDialogDefaults({});
+                                    setDialogOpen(true);
+                                  }}
+                                  disabled={!canWriteDns}
+                                  className="rounded-lg border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950 p-2 text-slate-700 dark:text-slate-300 transition hover:text-gray-900 dark:hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                                  title={`Edit ${record.name}`}
+                                >
+                                  <Pencil className="h-4 w-4" />
+                                </button>
+                                <button
+                                  onClick={() => canWriteDns && setRecordToDelete(record)}
+                                  disabled={!canWriteDns}
+                                  className="rounded-lg border border-red-500/20 bg-red-500/10 p-2 text-red-600 dark:text-red-300 transition hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                                  title={`Delete ${record.name}`}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                          {isWildcard && isExpanded ? (
+                            <tr className="border-b border-gray-200 dark:border-white/5 bg-slate-50/70 dark:bg-[#111]">
+                              <td colSpan={7} className="px-3 pb-4 pt-0">
+                                <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white/80 dark:border-[#2a2a2a] dark:bg-[#111]">
+                                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-200 px-4 py-3 dark:border-[#2a2a2a]">
+                                    <div className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">
+                                      <Route className="h-4 w-4 text-cyan-600 dark:text-cyan-300" />
+                                      Traefik Routes (resolved via this wildcard)
+                                    </div>
+                                    <span className="inline-flex rounded-full border border-cyan-500/20 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-cyan-700 dark:text-cyan-200">
+                                      Route
+                                    </span>
+                                  </div>
+                                  <div className="divide-y divide-gray-200 dark:divide-[#2a2a2a]">
+                                    {isLoadingTraefikRoutes && wildcardRoutes.length === 0 ? (
+                                      <div className="px-4 py-3 text-sm text-slate-500 dark:text-slate-400">Loading Traefik routes…</div>
+                                    ) : wildcardRoutes.length > 0 ? wildcardRoutes.map((route) => (
+                                      <div key={`${route.namespace}:${route.name}:${route.hostname}:${route.service}:${route.pathPrefix ?? ""}`} className="flex flex-col gap-3 px-4 py-3 md:flex-row md:items-center md:justify-between">
+                                        <div className="min-w-0">
+                                          <div className="flex flex-wrap items-center gap-2">
+                                            <Route className="h-4 w-4 text-cyan-600 dark:text-cyan-300" />
+                                            <span className="font-medium text-gray-900 dark:text-[#f2f2f2]">{route.hostname}</span>
+                                            <span className="inline-flex rounded-full border border-cyan-500/20 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-cyan-700 dark:text-cyan-200">
+                                              Route
+                                            </span>
+                                            {route.tls ? (
+                                              <span className="inline-flex rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-700 dark:text-emerald-200">
+                                                TLS
+                                              </span>
+                                            ) : null}
+                                            {route.pathPrefix ? (
+                                              <span className="inline-flex rounded-full border border-violet-500/20 bg-violet-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-violet-700 dark:text-violet-200">
+                                                Path {route.pathPrefix}
+                                              </span>
+                                            ) : null}
+                                          </div>
+                                          <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                            Resource <span className="font-mono text-slate-700 dark:text-slate-300">{route.namespace}/{route.name}</span>
+                                          </div>
+                                        </div>
+                                        <div className="flex flex-wrap items-center gap-2 text-xs">
+                                          <span className="inline-flex rounded-full border border-gray-200 bg-slate-100 px-2 py-1 text-slate-700 dark:border-[#2a2a2a] dark:bg-[#161616] dark:text-slate-300">
+                                            Service {route.service}
+                                          </span>
+                                          <span className="inline-flex rounded-full border border-gray-200 bg-slate-100 px-2 py-1 text-slate-700 dark:border-[#2a2a2a] dark:bg-[#161616] dark:text-slate-300">
+                                            Namespace {route.namespace}
+                                          </span>
+                                        </div>
+                                      </div>
+                                    )) : (
+                                      <div className="px-4 py-3 text-sm text-slate-500 dark:text-slate-400">
+                                        No Traefik routes currently resolve via this wildcard.
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          ) : null}
+                        </Fragment>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -523,7 +726,7 @@ export default function DnsManagementPage() {
           currentMachineTargets={machineTargets}
           gameServerTargets={gameServerTargets}
           onSubmitted={async () => {
-            await refetch();
+            await Promise.all([refetch(), refetchTraefikRoutes()]);
           }}
           canWrite={canWriteDns}
         />

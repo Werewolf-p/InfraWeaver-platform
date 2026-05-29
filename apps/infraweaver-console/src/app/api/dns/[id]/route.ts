@@ -6,8 +6,15 @@ import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac"
 import { safeError } from "@/lib/utils";
 
 const patchBodySchema = z.object({
-  value: z.string().min(1),
+  value: z.string().optional(),
   ttl: z.number().optional(),
+  proxied: z.boolean().optional(),
+}).refine((body) => (
+  typeof body.value === "string"
+  || typeof body.ttl === "number"
+  || typeof body.proxied === "boolean"
+), {
+  message: "At least one field is required",
 });
 
 async function requireAccess() {
@@ -54,15 +61,27 @@ export async function PATCH(
     if (!parsed.success) {
       return NextResponse.json({ error: "Validation failed", details: parsed.error.flatten() }, { status: 400 });
     }
-    const value = parsed.data.value.trim();
-    const ttl = typeof parsed.data.ttl === "number" ? Math.max(1, Math.min(86400, Math.round(parsed.data.ttl))) : undefined;
+    const value = typeof parsed.data.value === "string" ? parsed.data.value.trim() : undefined;
+    if (typeof parsed.data.value === "string" && !value) {
+      return NextResponse.json({
+        error: "Validation failed",
+        details: {
+          formErrors: [],
+          fieldErrors: { value: ["Value cannot be empty"] },
+        },
+      }, { status: 400 });
+    }
 
-    const record = await updateDnsRecord(id, { content: value, ttl });
+    const ttl = typeof parsed.data.ttl === "number" ? Math.max(1, Math.min(86400, Math.round(parsed.data.ttl))) : undefined;
+    const proxied = typeof parsed.data.proxied === "boolean" ? parsed.data.proxied : undefined;
+
+    const record = await updateDnsRecord(id, { content: value, ttl, proxied });
     return NextResponse.json({
       record: {
         id: record.id,
         value: record.content,
         ttl: record.ttl,
+        proxied: record.proxied === true,
         updatedAt: record.modified_on ?? record.created_on,
       },
     });
