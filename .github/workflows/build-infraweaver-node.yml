@@ -9,7 +9,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository_owner }}/infraweaver-node
+  IMAGE_NAME: werewolf-p/infraweaver-node
 
 jobs:
   build:
@@ -34,5 +34,5 @@ jobs:
           file: apps/infraweaver-node/Dockerfile
           push: true
           tags: |
-            ghcr.io/${{ env.IMAGE_NAME }}:latest
-            ghcr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ghcr.io/werewolf-p/infraweaver-node:latest
+            ghcr.io/werewolf-p/infraweaver-node:${{ github.sha }}
