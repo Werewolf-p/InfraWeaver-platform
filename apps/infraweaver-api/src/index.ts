@@ -1,5 +1,5 @@
 import { serve } from '@hono/node-server';
-import { createRequire } from 'node:module';
+// version from env (set at build time in Dockerfile)
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { broadcastModeChange, setupWebSocketServer } from './lib/agent-registry.js';
@@ -52,8 +52,7 @@ app.use('*', cors({
 app.route('/health', healthRoute);
 app.route('/metrics', prometheusRoute);
 
-const require = createRequire(import.meta.url);
-const pkg = require('../package.json') as { version: string };
+const pkg = { version: process.env.APP_VERSION ?? 'dev' };
 
 app.get('/api/version', (c) => {
   return c.json({
