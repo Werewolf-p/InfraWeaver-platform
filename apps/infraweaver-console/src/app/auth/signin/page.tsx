@@ -2,7 +2,6 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Terminal, ShieldCheck, Activity, GitBranch, Network, LogIn } from "lucide-react";
-import { signInWithAuthentik } from "@/lib/auth-actions";
 
 const features = [
   { icon: Activity,    text: "Real-time cluster monitoring" },
@@ -36,11 +35,12 @@ function GridDots() {
 }
 
 export default function SignInPage() {
-  const [callbackUrl, setCallbackUrl] = useState("/");
+  const [signInHref, setSignInHref] = useState("/api/auth/start");
 
   useEffect(() => {
-    const value = new URLSearchParams(window.location.search).get("callbackUrl");
-    if (value?.startsWith("/")) setCallbackUrl(value);
+    const callbackUrl = new URLSearchParams(window.location.search).get("callbackUrl");
+    const safe = callbackUrl?.startsWith("/") ? callbackUrl : "/";
+    setSignInHref(`/api/auth/start?callbackUrl=${encodeURIComponent(safe)}`);
   }, []);
 
   return (
@@ -128,24 +128,22 @@ export default function SignInPage() {
               </p>
 
               {/*
-               * Server action form — no CSRF token needed.
-               * Next.js handles CSRF for server actions internally.
-               * signIn("authentik") runs on the server, sets PKCE/state/nonce
-               * cookies, and redirects to Authentik in one atomic operation.
+               * Plain anchor link — no JS in the auth path.
+               * Clicking navigates to /api/auth/start which calls signIn() server-side:
+               *   1. Generates PKCE / state / nonce, sets auth cookies
+               *   2. 302 → Authentik authorization URL
+               * No CSRF dance, no server action redirect issues, no async user-gesture loss.
                */}
-              <form action={signInWithAuthentik}>
-                <input type="hidden" name="callbackUrl" value={callbackUrl} />
-                <motion.button
-                  type="submit"
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.97 }}
-                  className="relative w-full group overflow-hidden flex items-center justify-center gap-3 py-3.5 px-6 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-sm transition-colors shadow-lg shadow-indigo-500/25"
-                >
-                  <span className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity bg-gradient-to-r from-transparent via-white/10 to-transparent -skew-x-12 translate-x-[-100%] group-hover:translate-x-[200%] duration-700" />
-                  <LogIn className="w-4 h-4 relative" />
-                  <span className="relative">Sign in with Authentik</span>
-                </motion.button>
-              </form>
+              <motion.a
+                href={signInHref}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.97 }}
+                className="relative w-full group overflow-hidden flex items-center justify-center gap-3 py-3.5 px-6 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-sm transition-colors shadow-lg shadow-indigo-500/25"
+              >
+                <span className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity bg-gradient-to-r from-transparent via-white/10 to-transparent -skew-x-12 translate-x-[-100%] group-hover:translate-x-[200%] duration-700" />
+                <LogIn className="w-4 h-4 relative" />
+                <span className="relative">Sign in with Authentik</span>
+              </motion.a>
 
               <p className="text-xs text-slate-600 text-center mt-6">
                 Protected by{" "}
