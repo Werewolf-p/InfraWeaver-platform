@@ -65,12 +65,17 @@ export default function SignInPage() {
     setCallbackUrl(getCallbackUrl());
   }, []);
 
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
-    if (submittingRef.current || !csrfToken) {
-      e.preventDefault();
-      return;
-    }
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (submittingRef.current) return;
     submittingRef.current = true;
+
+    // Fetch CSRF token on demand — getCsrfToken() in useEffect can return undefined
+    // in Auth.js v5 if the CSRF cookie hasn't been set yet on first load.
+    const form = e.currentTarget;
+    const token = csrfToken || (await getCsrfToken()) || "";
+    (form.querySelector('input[name="csrfToken"]') as HTMLInputElement).value = token;
+    form.submit();
   };
 
   return (
