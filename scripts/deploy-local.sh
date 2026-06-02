@@ -182,10 +182,13 @@ import os, sys
 env_name = sys.argv[1]
 base_domain = os.environ.get("BASE_DOMAIN", "example.com")
 proxmox_host = os.environ.get("PROXMOX_HOST", "")
-cluster_name = os.environ.get("CLUSTER_NAME", f"infraweaver-{env_name}")
+cluster_name = os.environ.get("K8S_CLUSTER_NAME", os.environ.get("CLUSTER_NAME", f"infraweaver-{env_name}"))
 talos_version = os.environ.get("TALOS_VERSION", "v1.13.0")
 k8s_version = os.environ.get("KUBERNETES_VERSION", "v1.35.4")
 schematic = os.environ.get("TALOS_SCHEMATIC_ID", "c9078f9419961640c712a8bf2bb9174933dfcf1da383fd8ea2b7dc21493f8bac")
+
+# Derive short name for node prefix from cluster name (e.g. infraweaver-prod -> prod)
+node_prefix = cluster_name.replace("infraweaver-", "") if cluster_name.startswith("infraweaver-") else env_name
 
 lines = [
     f'cluster_name: "{cluster_name}"',
@@ -205,7 +208,7 @@ while True:
     ip = os.environ.get(f"NODE_{i}_IP", "")
     if not ip:
         break
-    name = os.environ.get(f"NODE_{i}_NAME", f"talos-{env_name}-cp{i}")
+    name = os.environ.get(f"NODE_{i}_NAME", f"talos-{node_prefix}-cp{i}")
     pve_node = os.environ.get(f"NODE_{i}_PVE_NODE", "proxmox")
     vmid = os.environ.get(f"NODE_{i}_VMID", str(9299 + i))
     cpu = os.environ.get(f"NODE_{i}_CPU", "10")
@@ -231,6 +234,29 @@ if i == 1:
     # No nodes defined — write minimal file with placeholder
     lines.append("  # No nodes defined in .env (NODE_1_IP etc.)")
 
+# Add network config required by the TF module
+gateway = os.environ.get("NODE_GATEWAY", "10.10.0.1")
+nameservers = os.environ.get("NODE_NAMESERVERS", "1.1.1.1,8.8.8.8")
+subnet_prefix = os.environ.get("NODE_SUBNET_PREFIX", "24")
+talos_ds = os.environ.get("TALOS_DATASTORE", "lvm-proxmox")
+lines.append("")
+lines.append(f'gateway: "{gateway}"')
+lines.append(f"nameservers:")
+for ns in nameservers.split(","):
+    lines.append(f'  - "{ns.strip()}"')
+lines.append(f'subnet_prefix: "{subnet_prefix}"')
+lines.append(f'talos_image_datastore: "{talos_ds}"')
+
+# Add pve_nodes map from PVE_NODES env var
+pve_nodes_str = os.environ.get("PVE_NODES", "")
+if pve_nodes_str:
+    lines.append("")
+    lines.append("pve_nodes:")
+    for entry in pve_nodes_str.split(","):
+        parts = entry.strip().split(":")
+        if len(parts) == 2:
+            lines.append(f'  {parts[0].strip()}: "{parts[1].strip()}"')
+
 outpath = f"envs/{env_name}/cluster.yaml"
 os.makedirs(os.path.dirname(outpath), exist_ok=True)
 with open(outpath, "w") as f:
@@ -242,8 +268,15 @@ fi
 # ── Ensure infra repo (terraform/, kubernetes/) is available ──────────────────
 # These directories were split into InfraWeaver-infra. If they don't exist locally,
 # clone the infra repo and symlink them so the deploy pipeline works seamlessly.
-INFRA_REPO_URL="${INFRA_REPO_URL:-http://10.10.0.92:30610/InfraWeaver-infra}"
 if [[ ! -d "$REPO_DIR/terraform" ]]; then
+  # Determine infra repo URL: try OneDev first (in-cluster), fallback to GitHub
+  if [[ -n "${INFRA_REPO_URL:-}" ]]; then
+    true  # user override
+  elif git ls-remote --exit-code http://10.10.0.92:30610/InfraWeaver-infra HEAD &>/dev/null 2>&1; then
+    INFRA_REPO_URL="http://10.10.0.92:30610/InfraWeaver-infra"
+  else
+    INFRA_REPO_URL="https://github.com/Werewolf-p/InfraWeaver-infra.git"
+  fi
   log "Cloning InfraWeaver-infra (terraform + kubernetes manifests)..."
   INFRA_DIR="$REPO_DIR/.infra-repo"
   if [[ -d "$INFRA_DIR" ]]; then

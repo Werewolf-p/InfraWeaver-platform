@@ -1,0 +1,64 @@
+name: Build infraweaver-console image
+
+# Builds the Next.js console and publishes it to GHCR.
+# Runs on GitHub-hosted runners (Dockerfile.prebuilt uses a public base image),
+# using the workflow's built-in GITHUB_TOKEN (packages: write) to push to GHCR.
+#
+# Trigger manually (gh workflow run build-console.yml) or on changes to the
+# console app source. The image is tagged with the commit SHA so the infra repo
+# deployment manifest can pin it.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "apps/infraweaver-console/**"
+      - ".github/workflows/build-console.yml"
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/werewolf-p/infraweaver-console
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/infraweaver-console
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Build Next.js standalone output
+        env:
+          NEXT_PUBLIC_APP_VERSION: ${{ github.sha }}
+        run: npm run build
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: apps/infraweaver-console
+          file: apps/infraweaver-console/Dockerfile.prebuilt
+          push: true
+          build-args: |
+            APP_VERSION=${{ github.sha }}
+          tags: |
+            ${{ env.IMAGE }}:${{ github.sha }}
+            ${{ env.IMAGE }}:main-latest

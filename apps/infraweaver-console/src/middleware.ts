@@ -201,5 +201,8 @@ export default auth(async (req) => {
 });
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  // Exclude /api/auth/* from middleware so Auth.js route handler ([...nextauth]/route.ts)
+  // handles auth endpoints directly. The auth(handler) middleware wrapper intercepts
+  // /api/auth/* itself and its internal signin handler throws UnknownAction in v5 beta.
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|api/auth/).*)"],
 };
