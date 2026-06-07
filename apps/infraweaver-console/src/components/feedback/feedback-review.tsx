@@ -75,14 +75,41 @@ export function FeedbackReview() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [confirmState, setConfirmState] = useState<ConfirmState>(null);
-  // Local optimistic latch for heavy pipeline ops (approve / retry / publish)
-  // between the click and the next refetch, complementing the server-derived
-  // "approved" signal below. Together they serialize the pipeline in the UI.
+  // Local optimistic latch for heavy pipeline ops (retry / publish) between the
+  // click and the next refetch, complementing the server-derived "approved"
+  // signal below. Together they serialize the pipeline in the UI.
   const [pipelinePending, setPipelinePending] = useState(false);
+  // The id of an approve we just fired but whose `approved` state we haven't yet
+  // observed in refetched data. WITHOUT this, the pipeline looks idle in the gap
+  // between the (fast) approve call returning and the next 10s poll, so a second
+  // approve would dispatch immediately instead of queuing — exactly the "queue
+  // doesn't work / things still lock" report (8dc5d87f). Holding busy until the
+  // run is confirmed running closes that gap.
+  const [dispatchingId, setDispatchingId] = useState<string | null>(null);
   // Ids the reviewer approved while a run was in flight. Rather than locking the
   // Approve button, we queue these and auto-dispatch one as soon as the pipeline
   // is free (the backend serializes runs; this just mirrors "start when possible").
-  const [queuedApprovals, setQueuedApprovals] = useState<string[]>([]);
+  // Persisted to sessionStorage so a refresh/navigation does not silently drop a
+  // queued approval.
+  const QUEUE_STORAGE_KEY = "infraweaver:feedback-queue";
+  const [queuedApprovals, setQueuedApprovals] = useState<string[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const raw = sessionStorage.getItem(QUEUE_STORAGE_KEY);
+      const parsed = raw ? (JSON.parse(raw) as unknown) : [];
+      return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string") : [];
+    } catch {
+      return [];
+    }
+  });
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      sessionStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(queuedApprovals));
+    } catch {
+      /* sessionStorage unavailable — queue stays in-memory only */
+    }
+  }, [queuedApprovals]);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["feedback", "list"],
@@ -104,16 +131,30 @@ export function FeedbackReview() {
     [entries],
   );
 
-  // A pipeline op is in flight if we just started one, or any entry is mid-run
-  // ("approved" = Claude working). The backend serializes these, so we mirror
-  // that here and block starting a second approve/retry/publish.
-  const pipelineBusy = pipelinePending || entries.some((e) => e.status === "approved");
+  // A pipeline op is in flight if we just started one (heavy retry/publish latch
+  // OR an approve we fired but haven't yet seen go `approved`), or any entry is
+  // mid-run ("approved" = Claude working). The backend serializes these, so we
+  // mirror that here and queue any further approvals until it frees up.
+  const pipelineBusy =
+    pipelinePending || dispatchingId !== null || entries.some((e) => e.status === "approved");
+
+  // Clear the approve latch once its run is observed in refetched data — either it
+  // reached `approved` (now covered by the entries check) or already moved past it.
+  // Prevents the latch from sticking forever if a poll is missed.
+  useEffect(() => {
+    if (!dispatchingId) return;
+    const entry = entries.find((e) => e.id === dispatchingId);
+    if (!entry || entry.status !== "new") setDispatchingId(null);
+  }, [dispatchingId, entries]);
 
   const updateStatus = useCallback(
     async (id: string, status: FeedbackStatus) => {
       const heavy = status === "approved";
       setBusyId(id);
-      if (heavy) setPipelinePending(true);
+      // For approve, latch on dispatchingId (held until the run is confirmed
+      // running) rather than the transient pipelinePending, so the busy state
+      // survives the gap until the next poll and the queue genuinely serializes.
+      if (heavy) setDispatchingId(id);
       try {
         const result = await apiClient.patch<{
           entry: FeedbackEntry;
@@ -129,10 +170,11 @@ export function FeedbackReview() {
         }
         await queryClient.invalidateQueries({ queryKey: ["feedback", "list"] });
       } catch (err) {
+        // The approve never landed — release the latch so the queue can retry it.
+        if (heavy) setDispatchingId(null);
         toast.error(toApiErrorMessage(err, "Failed to update feedback"));
       } finally {
         setBusyId(null);
-        if (heavy) setPipelinePending(false);
       }
     },
     [queryClient],

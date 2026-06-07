@@ -98,6 +98,34 @@ export function startPublish(actor: string): void {
   }, "publish");
 }
 
+/**
+ * Self-heal entries stranded mid-pipeline. The approve/redo write-back runs as a
+ * detached promise inside the (single-replica) console process; if that process
+ * is restarted or crashes (the exit-139 bursts) mid-run, an entry can stay stuck
+ * in `approved` forever even though the dispatch run finished on the runner. The
+ * dispatch run history is the authoritative source that survives restarts, so on
+ * every list read we reconcile any `approved` entry whose run has since settled.
+ * Best-effort and fail-safe: never throws, never blocks the list response.
+ */
+export async function reconcileStaleEntries(entries: FeedbackEntry[]): Promise<void> {
+  const stuck = entries.filter((e) => e.status === "approved");
+  if (stuck.length === 0) return;
+  await Promise.all(
+    stuck.map(async (entry) => {
+      try {
+        const runs = await listFeedbackRuns(entry.id);
+        if (runs.length === 0) return; // never dispatched / dispatch unreachable
+        // Only advance once the latest run for this entry has actually settled —
+        // a still-running approve must stay `approved`.
+        if (runs.some((r) => r.status === "running")) return;
+        await reconcileFromRuns(entry);
+      } catch (error) {
+        logError(`reconcile ${entry.id}`, error);
+      }
+    }),
+  );
+}
+
 /** Quick accepted-verdict path: mark accepted + tell dispatch to keep the commit. */
 export async function acceptVerdict(entry: FeedbackEntry, actor: string, note?: string): Promise<void> {
   await updateFeedbackStatus(entry.id, "accepted", actor, note);

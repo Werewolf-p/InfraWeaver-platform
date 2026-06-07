@@ -9,6 +9,8 @@ import {
   type FeedbackSeverity,
   type FeedbackType,
 } from "@/lib/feedback-store";
+import { isDispatchConfigured } from "@/lib/feedback-dispatch";
+import { reconcileStaleEntries } from "@/lib/feedback-pipeline";
 
 // Any authenticated user may submit/list feedback context.
 const SUBMIT: Permission[] = ["apps:read", "cluster:read"];
@@ -18,7 +20,13 @@ export async function GET() {
   const session = await requireRoutePermissions({ any: SUBMIT });
   if (session instanceof Response) return session;
   try {
-    const entries = await listFeedback();
+    let entries = await listFeedback();
+    // Self-heal entries stranded in `approved` by a console restart mid-run, so
+    // the dashboard reflects finished dispatch runs without manual intervention.
+    if (isDispatchConfigured() && entries.some((e) => e.status === "approved")) {
+      await reconcileStaleEntries(entries);
+      entries = await listFeedback();
+    }
     return apiSuccess({ entries });
   } catch (error) {
     return routeErrorResponse(error);
