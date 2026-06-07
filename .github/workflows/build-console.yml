@@ -10,6 +10,11 @@ name: Build infraweaver-console image
 
 on:
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Extra image tag (e.g. preview-<id>). When set, the build pushes :<sha> + :<tag> and does NOT touch :main-latest. Used by the feedback preview pipeline."
+        required: false
+        default: ""
   push:
     branches: [main]
     paths:
@@ -59,6 +64,8 @@ jobs:
           push: true
           build-args: |
             APP_VERSION=${{ github.sha }}
+          # Always pin by SHA. With a `tag` input (preview pipeline) add :<tag>
+          # and leave :main-latest alone; otherwise (main push) move :main-latest.
           tags: |
             ${{ env.IMAGE }}:${{ github.sha }}
-            ${{ env.IMAGE }}:main-latest
+            ${{ inputs.tag != '' && format('{0}:{1}', env.IMAGE, inputs.tag) || format('{0}:main-latest', env.IMAGE) }}

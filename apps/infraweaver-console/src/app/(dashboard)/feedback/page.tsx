@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bug, CheckCircle2, Lightbulb, Rocket, StickyNote, XCircle } from "lucide-react";
+import { Bug, CheckCircle2, ExternalLink, Lightbulb, Rocket, StickyNote, ThumbsDown, XCircle } from "lucide-react";
 import { PageScaffold } from "@/components/ui/page-scaffold";
 import { apiClient, toApiErrorMessage } from "@/lib/api-client";
 import { toast } from "@/lib/notify";
@@ -24,6 +24,7 @@ interface FeedbackEntry {
   reviewedBy?: string;
   reviewedAt?: string;
   reviewNote?: string;
+  previewUrl?: string;
 }
 
 const TYPE_ICON: Record<FeedbackType, typeof Bug> = {
@@ -46,10 +47,15 @@ export default function FeedbackReviewPage() {
   // Admin gate mirrors the API: only rbac:admin / cluster:admin may approve.
   const canManage = can("cluster:admin") || can("rbac:admin");
   const [busyId, setBusyId] = useState<string | null>(null);
+  // Per-entry "why it's not fixed" notes, keyed by feedback id.
+  const [notes, setNotes] = useState<Record<string, string>>({});
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["feedback", "list"],
     queryFn: () => apiClient.get<{ entries: FeedbackEntry[] }>("/api/feedback"),
+    // Auto-refresh so progress (approved → dispatched → done, written back by
+    // the n8n workflow) shows live without a manual reload.
+    refetchInterval: 10_000,
   });
 
   const entries = useMemo(() => data?.entries ?? [], [data]);
@@ -58,8 +64,18 @@ export default function FeedbackReviewPage() {
     async (id: string, status: FeedbackStatus) => {
       setBusyId(id);
       try {
-        await apiClient.patch(`/api/feedback/${id}`, { json: { status } });
-        toast.success(`Marked as ${status}`);
+        const result = await apiClient.patch<{
+          entry: FeedbackEntry;
+          dispatch?: { ok: boolean; skipped?: boolean; error?: string };
+        }>(`/api/feedback/${id}`, { json: { status } });
+        if (status === "approved") {
+          const d = result.dispatch;
+          if (d?.ok) toast.success("Approved — handed to Claude via n8n");
+          else if (d?.skipped) toast.success("Approved (n8n webhook not configured — dispatch skipped)");
+          else toast.error(`Approved, but dispatch failed: ${d?.error ?? "unknown error"}`);
+        } else {
+          toast.success(`Marked as ${status}`);
+        }
         await queryClient.invalidateQueries({ queryKey: ["feedback", "list"] });
       } catch (err) {
         toast.error(toApiErrorMessage(err, "Failed to update feedback"));
@@ -68,6 +84,38 @@ export default function FeedbackReviewPage() {
       }
     },
     [queryClient],
+  );
+
+  // Reviewer verdict on a dispatched entry after testing the cluster preview.
+  // `validated` → n8n opens a draft PR; `not_fixed` → n8n discards the preview
+  // and re-dispatches Claude with the note explaining what's still wrong.
+  const validate = useCallback(
+    async (id: string, action: "validated" | "not_fixed") => {
+      const note = (notes[id] ?? "").trim();
+      if (action === "not_fixed" && !note) {
+        toast.error("Add a note describing what's still broken so Claude can retry.");
+        return;
+      }
+      setBusyId(id);
+      try {
+        await apiClient.patch<{ entry: FeedbackEntry; validate?: { ok: boolean; skipped?: boolean; error?: string } }>(
+          `/api/feedback/${id}`,
+          { json: { action, reviewNote: note } },
+        );
+        toast.success(
+          action === "validated"
+            ? "Validated — opening a draft PR via n8n"
+            : "Marked not fixed — re-dispatching Claude with your note",
+        );
+        setNotes((prev) => ({ ...prev, [id]: "" }));
+        await queryClient.invalidateQueries({ queryKey: ["feedback", "list"] });
+      } catch (err) {
+        toast.error(toApiErrorMessage(err, "Failed to submit verdict"));
+      } finally {
+        setBusyId(null);
+      }
+    },
+    [notes, queryClient],
   );
 
   return (
@@ -117,8 +165,8 @@ export default function FeedbackReviewPage() {
                 {entry.reviewedBy && <span>· reviewed by {entry.reviewedBy}</span>}
               </div>
 
-              {canManage && (
-                <div className="mt-3 flex flex-wrap gap-2">
+              {canManage ? (
+                <div className="mt-3 flex flex-wrap items-center gap-2">
                   {entry.status === "new" && (
                     <>
                       <button
@@ -127,7 +175,7 @@ export default function FeedbackReviewPage() {
                         onClick={() => updateStatus(entry.id, "approved")}
                         className="inline-flex items-center gap-1 rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-600 disabled:opacity-60"
                       >
-                        <CheckCircle2 className="h-3.5 w-3.5" /> Approve
+                        <Rocket className="h-3.5 w-3.5" /> Approve → Claude
                       </button>
                       <button
                         type="button"
@@ -135,36 +183,67 @@ export default function FeedbackReviewPage() {
                         onClick={() => updateStatus(entry.id, "rejected")}
                         className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-gray-500 hover:bg-gray-50 dark:border-[#262626] dark:text-[#888] dark:hover:bg-[#1d1d1d] disabled:opacity-60"
                       >
-                        <XCircle className="h-3.5 w-3.5" /> Reject
+                        <XCircle className="h-3.5 w-3.5" /> Deny
                       </button>
                     </>
                   )}
                   {entry.status === "approved" && (
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => updateStatus(entry.id, "dispatched")}
-                      className="inline-flex items-center gap-1 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-600 disabled:opacity-60"
-                    >
-                      <Rocket className="h-3.5 w-3.5" /> Mark dispatched
-                    </button>
+                    <span className="inline-flex items-center gap-1.5 text-[11px] text-amber-600 dark:text-amber-300">
+                      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" />
+                      Handed to Claude — building preview…
+                    </span>
                   )}
                   {entry.status === "dispatched" && (
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => updateStatus(entry.id, "done")}
-                      className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-gray-500 hover:bg-gray-50 dark:border-[#262626] dark:text-[#888] dark:hover:bg-[#1d1d1d] disabled:opacity-60"
-                    >
-                      <CheckCircle2 className="h-3.5 w-3.5" /> Mark done
-                    </button>
+                    <div className="w-full space-y-2">
+                      {entry.previewUrl ? (
+                        <a
+                          href={entry.previewUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
+                        >
+                          <ExternalLink className="h-3.5 w-3.5" /> Open cluster preview
+                        </a>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5 text-[11px] text-amber-600 dark:text-amber-300">
+                          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" />
+                          Building preview deployment…
+                        </span>
+                      )}
+                      <textarea
+                        value={notes[entry.id] ?? ""}
+                        onChange={(e) => setNotes((prev) => ({ ...prev, [entry.id]: e.target.value }))}
+                        placeholder="If not fixed: describe what's still broken (sent to Claude on retry)…"
+                        rows={2}
+                        className="w-full rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs text-gray-700 placeholder:text-gray-400 focus:border-gray-300 focus:outline-none dark:border-[#262626] dark:bg-[#111] dark:text-[#ccc] dark:placeholder:text-[#555]"
+                      />
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => validate(entry.id, "validated")}
+                          className="inline-flex items-center gap-1 rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-600 disabled:opacity-60"
+                        >
+                          <CheckCircle2 className="h-3.5 w-3.5" /> Validated → draft PR
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => validate(entry.id, "not_fixed")}
+                          className="inline-flex items-center gap-1 rounded-lg border border-rose-200 px-3 py-1.5 text-xs text-rose-600 hover:bg-rose-50 dark:border-rose-500/30 dark:text-rose-300 dark:hover:bg-rose-500/10 disabled:opacity-60"
+                        >
+                          <ThumbsDown className="h-3.5 w-3.5" /> Not fixed → retry
+                        </button>
+                      </div>
+                    </div>
                   )}
                 </div>
-              )}
-              {!canManage && entry.status === "new" && (
-                <p className="mt-3 text-[11px] italic text-gray-400 dark:text-[#555]">
-                  Awaiting admin review (cluster:admin required to approve).
-                </p>
+              ) : (
+                entry.status === "new" && (
+                  <p className="mt-3 text-[11px] italic text-gray-400 dark:text-[#555]">
+                    Awaiting admin review (cluster:admin required to approve).
+                  </p>
+                )
               )}
             </div>
           );

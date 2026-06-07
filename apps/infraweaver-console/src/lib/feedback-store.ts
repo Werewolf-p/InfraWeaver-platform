@@ -37,6 +37,12 @@ export interface FeedbackEntry {
   reviewedAt?: string;
   /** Optional note left by the reviewer. */
   reviewNote?: string;
+  /**
+   * URL of the ephemeral preview deployment, written back by the n8n fix-flow
+   * once a fix is dispatched and built. Lets the reviewer test the change on
+   * the cluster before validating it into a PR.
+   */
+  previewUrl?: string;
 }
 
 export const FEEDBACK_TYPES: FeedbackType[] = ["bug", "feature-request", "note"];
@@ -176,6 +182,7 @@ export async function updateFeedbackStatus(
   status: FeedbackStatus,
   actor: string,
   reviewNote?: string,
+  opts?: { previewUrl?: string },
 ): Promise<FeedbackEntry | null> {
   return mutate((state) => {
     const entry = state.entries.find((e) => e.id === id);
@@ -184,6 +191,7 @@ export async function updateFeedbackStatus(
     entry.reviewedBy = actor;
     entry.reviewedAt = new Date().toISOString();
     if (reviewNote !== undefined) entry.reviewNote = reviewNote.trim().slice(0, 1000);
+    if (opts?.previewUrl !== undefined) entry.previewUrl = opts.previewUrl.trim().slice(0, 512);
     return entry;
   });
 }

@@ -1,0 +1,14 @@
+# Keep the BuildKit context small (full context is ~1.9G otherwise). The
+# multi-stage Dockerfile runs `npm ci` + `npm run build` itself, so the build
+# artifacts and dependencies must NOT be shipped in the context.
+node_modules
+.next
+.git
+.env*
+npm-debug.log*
+Dockerfile*
+.dockerignore
+**/*.log
+coverage
+.vscode
+.idea
