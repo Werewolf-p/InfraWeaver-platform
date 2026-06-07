@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Plus, RefreshCw, Bell, X, UserPlus, Globe, Layers,
   Server, FileText, Shield, MessageSquarePlus, ChevronUp,
+  HardDrive, Upload,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/lib/notify";
@@ -60,6 +61,10 @@ export function FloatingActionButton() {
     // Page-specific actions
     if (pathname === "/game-hub" && can("game-hub:write")) {
       items.push({ icon: Plus, label: "New Server", color: "bg-[#0078D4]/20 border-[#0078D4]/30 text-[#4db3ff]", onClick: () => { setOpen(false); router.push("/game-hub/new"); } });
+    }
+    if (pathname === "/game-hub" && can("game-hub:admin", "/game-hub/")) {
+      items.push({ icon: HardDrive, label: "Cleanup PVCs", color: "bg-[#0078D4]/20 border-[#0078D4]/30 text-[#4db3ff]", onClick: () => { setOpen(false); window.dispatchEvent(new CustomEvent("fab:game-hub:cleanup-pvcs")); } });
+      items.push({ icon: Upload, label: "Import Config", color: "bg-[#0078D4]/20 border-[#0078D4]/30 text-[#4db3ff]", onClick: () => { setOpen(false); window.dispatchEvent(new CustomEvent("fab:game-hub:import-config")); } });
     }
     if (pathname === "/dns" && can("config:write")) {
       items.push({ icon: Globe, label: "Add DNS Record", color: "bg-teal-500/20 border-teal-500/30 text-teal-300", onClick: () => { setOpen(false); window.dispatchEvent(new CustomEvent("fab:dns:add")); } });

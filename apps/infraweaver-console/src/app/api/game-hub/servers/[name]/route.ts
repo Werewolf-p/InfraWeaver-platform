@@ -69,6 +69,14 @@ async function upsertEggConfigMap(
 }
 
 const MANIFEST_SYNC_ACTIONS = new Set([
+  // Power state MUST be written to git: ArgoCD runs with selfHeal:true, so a
+  // cluster-only `replicas: 0` (stop) is treated as drift and reverted back to
+  // the git desired state — the server "starts again even after shutdown".
+  // Persisting the replica count to git makes ArgoCD respect start/stop/scale.
+  "start",
+  "stop",
+  "force-stop",
+  "scale",
   "sync-to-git",
   "set-hpa",
   "remove-hpa",
@@ -1099,9 +1107,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
     await auditLog(`game-hub:${body.action}`, session.user?.email ?? "unknown", `${body.action} ${name}`);
     await appendServerAudit(clients.coreApi, name, { timestamp: new Date().toISOString(), user: session.user?.email ?? "unknown", action: body.action, details: JSON.stringify(body) });
 
-    // ── IaC write-back for config-changing actions ────────────────────────────
-    // Runtime-only actions (start/stop/restart/scale/set-maintenance/set-notes)
-    // are intentionally excluded so git only tracks rebuildable server config.
+    // ── IaC write-back ────────────────────────────────────────────────────────
+    // Power actions (start/stop/force-stop/scale) and config actions are synced
+    // to git so ArgoCD's selfHeal does not revert them. Purely transient actions
+    // (restart/set-maintenance/set-notes) are excluded — they don't change the
+    // git-tracked desired state.
     if (MANIFEST_SYNC_ACTIONS.has(body.action)) {
       try {
         await writeServerManifest(name, clients);

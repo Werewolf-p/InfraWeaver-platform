@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
 import { getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
 import { GAME_HUB_NS, gracefulStopServer, makeGameHubClients, readServerEgg } from "@/lib/game-hub-server";
+import { writeServerManifest } from "@/lib/game-hub-manifest";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { isValidK8sName } from "@/lib/validate";
 import { safeError } from "@/lib/utils";
@@ -62,6 +63,10 @@ export async function POST(req: NextRequest) {
             body: { spec: { replicas: 0 } },
             fieldManager: "infraweaver",
           });
+          // Persist stopped state to git so ArgoCD selfHeal keeps it stopped.
+          await writeServerManifest(deploymentName, clients).catch((gitErr) => {
+            console.error(`writeServerManifest failed for stop-all on ${deploymentName}:`, gitErr);
+          });
           await auditLog("game-hub:stop-all", session.user?.email ?? "unknown", `stop-all ${deploymentName}`);
           return deploymentName;
         } catch (error) {
@@ -87,6 +92,10 @@ export async function POST(req: NextRequest) {
           const deployment = await appsApi.readNamespacedDeployment({ name, namespace: GAME_HUB_NS });
           const egg = await readServerEgg(coreApi, name, deployment);
           await gracefulStopServer(clients, name, egg.stopCommand, 30_000);
+          // Persist stopped state to git so ArgoCD selfHeal keeps it stopped.
+          await writeServerManifest(name, clients).catch((gitErr) => {
+            console.error(`writeServerManifest failed for bulk stop on ${name}:`, gitErr);
+          });
         } else {
           await appsApi.patchNamespacedDeployment({
             name,
@@ -94,6 +103,10 @@ export async function POST(req: NextRequest) {
             body: { spec: { replicas: 1 }, metadata: { annotations: { "infraweaver.io/last-started": new Date().toISOString() } } },
             fieldManager: "infraweaver",
 
+          });
+          // Persist running state to git so ArgoCD selfHeal does not stop it again.
+          await writeServerManifest(name, clients).catch((gitErr) => {
+            console.error(`writeServerManifest failed for bulk start on ${name}:`, gitErr);
           });
         }
         await auditLog(`game-hub:${action}`, session.user?.email ?? "unknown", `${action} ${name}`);

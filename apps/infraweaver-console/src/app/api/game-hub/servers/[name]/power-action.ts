@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
 import { validateK8sName } from "@/lib/api-security";
 import { getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
+import { writeServerManifest } from "@/lib/game-hub-manifest";
 import {
   appendServerAudit,
   forceStopServer,
@@ -45,6 +46,14 @@ export async function handlePowerAction(req: NextRequest, name: string, action: 
     } else {
       await forceStopServer(clients, name);
       await sendDiscordWebhook(webhookConfig, "stop", `🛑 ${name} force-stopped`);
+    }
+
+    // Persist the stopped state to git so ArgoCD selfHeal does not restart the
+    // server back to the git desired state. Failures are logged, not fatal.
+    try {
+      await writeServerManifest(name, clients);
+    } catch (gitErr) {
+      console.error(`writeServerManifest failed for ${action} on ${name}:`, gitErr);
     }
 
     await auditLog(`game-hub:${action}`, session.user?.email ?? "unknown", `${action} ${name}`);
