@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, ExternalLink, Loader2, MessageSquarePlus, Rocket, ThumbsDown, XCircle } from "lucide-react";
+import { CheckCircle2, Clock, ExternalLink, Loader2, MessageSquarePlus, Rocket, ThumbsDown, XCircle } from "lucide-react";
 import { PageScaffold } from "@/components/ui/page-scaffold";
 import { ConfirmDialog } from "@/components/ui";
 import { apiClient, toApiErrorMessage } from "@/lib/api-client";
@@ -79,6 +79,10 @@ export function FeedbackReview() {
   // between the click and the next refetch, complementing the server-derived
   // "approved" signal below. Together they serialize the pipeline in the UI.
   const [pipelinePending, setPipelinePending] = useState(false);
+  // Ids the reviewer approved while a run was in flight. Rather than locking the
+  // Approve button, we queue these and auto-dispatch one as soon as the pipeline
+  // is free (the backend serializes runs; this just mirrors "start when possible").
+  const [queuedApprovals, setQueuedApprovals] = useState<string[]>([]);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["feedback", "list"],
@@ -168,6 +172,43 @@ export function FeedbackReview() {
     [notes, queryClient],
   );
 
+  // Approve now: dispatch immediately if the pipeline is idle, otherwise drop the
+  // entry into the local queue (shown with a clock icon) so it starts on its own
+  // once the current run finishes — no more hard-locked Approve button.
+  const approveOrQueue = useCallback(
+    (entry: FeedbackEntry) => {
+      if (pipelineBusy) {
+        setQueuedApprovals((prev) => (prev.includes(entry.id) ? prev : [...prev, entry.id]));
+        toast.success("Queued — starts automatically when the current run finishes");
+        return;
+      }
+      void updateStatus(entry.id, "approved");
+    },
+    [pipelineBusy, updateStatus],
+  );
+
+  const cancelQueued = useCallback(
+    (id: string) => setQueuedApprovals((prev) => prev.filter((q) => q !== id)),
+    [],
+  );
+
+  // Drain the queue one entry at a time. When nothing is running, dispatch the
+  // first queued id that is still awaiting review; dispatching re-arms
+  // `pipelineBusy` synchronously, so this effect bails until the run completes.
+  useEffect(() => {
+    if (pipelineBusy || queuedApprovals.length === 0) return;
+    const stillQueued = queuedApprovals.filter((id) =>
+      entries.some((e) => e.id === id && e.status === "new"),
+    );
+    const [nextId, ...rest] = stillQueued;
+    if (nextId) {
+      setQueuedApprovals(rest);
+      void updateStatus(nextId, "approved");
+    } else if (stillQueued.length !== queuedApprovals.length) {
+      setQueuedApprovals(stillQueued); // prune entries that are no longer "new"
+    }
+  }, [pipelineBusy, queuedApprovals, entries, updateStatus]);
+
   // Confirm gates for the destructive / heavy actions.
   const requestDeny = useCallback((entry: FeedbackEntry) => setConfirmState({ kind: "deny", entry }), []);
   const requestRetry = useCallback(
@@ -215,7 +256,7 @@ export function FeedbackReview() {
         {canManage && pipelineBusy && (
           <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/5 dark:text-amber-300">
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            A pipeline action is already running — finishing it before another approve, retry, or publish can start.
+            A pipeline action is already running — new approvals queue and start automatically; retry and publish wait until it finishes.
           </div>
         )}
 
@@ -266,16 +307,35 @@ export function FeedbackReview() {
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   {entry.status === "new" && (
                     <>
-                      <button
-                        type="button"
-                        disabled={busy || pipelineBusy}
-                        title={pipelineBusy ? "A pipeline action is already running" : undefined}
-                        onClick={() => updateStatus(entry.id, "approved")}
-                        className="inline-flex items-center gap-1 rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Rocket className="h-3.5 w-3.5" />}
-                        Approve → Claude
-                      </button>
+                      {queuedApprovals.includes(entry.id) ? (
+                        <span className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/5 dark:text-amber-300">
+                          <Clock className="h-3.5 w-3.5" /> Queued — starts when the current run finishes
+                          <button
+                            type="button"
+                            onClick={() => cancelQueued(entry.id)}
+                            className="ml-1 text-amber-600/80 hover:text-amber-700 hover:underline dark:text-amber-300/80 dark:hover:text-amber-200"
+                          >
+                            Cancel
+                          </button>
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={busy}
+                          title={pipelineBusy ? "A run is in progress — this will be queued and start automatically" : undefined}
+                          onClick={() => approveOrQueue(entry)}
+                          className="inline-flex items-center gap-1 rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {busy ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : pipelineBusy ? (
+                            <Clock className="h-3.5 w-3.5" />
+                          ) : (
+                            <Rocket className="h-3.5 w-3.5" />
+                          )}
+                          {pipelineBusy ? "Queue for Claude" : "Approve → Claude"}
+                        </button>
+                      )}
                       <button
                         type="button"
                         disabled={busy}
