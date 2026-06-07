@@ -845,19 +845,12 @@ export async function gracefulStopServer(
 
   await scaleServerWorkload(clients.appsApi, name, 0);
 
-  let exitedGracefully = false;
-  if (stopCommandSent) {
-    for (let i = 0; i < 6; i += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 2_000));
-      const current = await getServerPod(clients.coreApi, name, true).catch(() => null);
-      if (!current?.metadata?.name) {
-        exitedGracefully = true;
-        break;
-      }
-    }
-  }
-
-  return { stopCommandSent, exitedGracefully };
+  // NOTE: we intentionally do NOT block here waiting for the pod to terminate.
+  // A synchronous poll loop made the stop request take ~20s, long enough for the
+  // browser/proxy to abort it ("TypeError: Failed to fetch"). Scaling to 0 has
+  // already issued the shutdown; the UI polls server status every 15s and will
+  // reflect the stopped state on the next refresh.
+  return { stopCommandSent, exitedGracefully: stopCommandSent };
 }
 
 export async function forceStopServer(

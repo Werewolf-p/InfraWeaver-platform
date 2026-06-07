@@ -678,10 +678,8 @@ export default function GameHubPage() {
   const [editingTagServer, setEditingTagServer] = useState<string | null>(null);
   const [tagDraft, setTagDraft] = useState("");
   const [tagSavingServer, setTagSavingServer] = useState<string | null>(null);
-  const [fabMenuOpen, setFabMenuOpen] = useState(false);
   const longPressTimerRef = useRef<number | null>(null);
   const longPressTriggeredRef = useRef(false);
-  const fabRef = useRef<HTMLDivElement>(null);
   const importRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -743,16 +741,18 @@ export default function GameHubPage() {
 
   useEffect(() => () => clearLongPress(), []);
 
+  // Quick actions are surfaced by the global FloatingActionButton (layout) so the
+  // page no longer renders its own FAB. Bridge those actions via custom events.
   useEffect(() => {
-    if (!fabMenuOpen) return;
-    const handlePointerDown = (event: globalThis.MouseEvent) => {
-      if (fabRef.current && !fabRef.current.contains(event.target as Node)) {
-        setFabMenuOpen(false);
-      }
+    const handleCleanup = () => setShowPVCCleanup(true);
+    const handleImport = () => triggerImportConfig();
+    window.addEventListener("fab:game-hub:cleanup-pvcs", handleCleanup);
+    window.addEventListener("fab:game-hub:import-config", handleImport);
+    return () => {
+      window.removeEventListener("fab:game-hub:cleanup-pvcs", handleCleanup);
+      window.removeEventListener("fab:game-hub:import-config", handleImport);
     };
-    document.addEventListener("mousedown", handlePointerDown);
-    return () => document.removeEventListener("mousedown", handlePointerDown);
-  }, [fabMenuOpen]);
+  }, []);
 
   const { data, isLoading, error, dataUpdatedAt } = useQuery({
     queryKey: ["game-hub", "servers"],
@@ -880,7 +880,6 @@ export default function GameHubPage() {
   }
 
   function triggerImportConfig() {
-    setFabMenuOpen(false);
     importRef.current?.click();
   }
 
@@ -1592,63 +1591,6 @@ export default function GameHubPage() {
           </div>
         </div>
       )}
-
-      {canManageGameHub ? (
-        <div ref={fabRef} className="fixed bottom-6 right-6 z-50 flex items-end">
-          <div className="flex flex-col items-end gap-3">
-            <AnimatePresence>
-              {fabMenuOpen ? (
-                <motion.div
-                  initial={{ opacity: 0, y: 10, scale: 0.96 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: 10, scale: 0.96 }}
-                  transition={{ duration: 0.16 }}
-                  className="z-[100] w-64 rounded-2xl border border-gray-200 bg-white/95 p-2 shadow-2xl backdrop-blur dark:border-[#2a2a2a] dark:bg-[#111]/95"
-                >
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setFabMenuOpen(false);
-                      router.push("/game-hub/new");
-                    }}
-                    className="flex min-h-[44px] w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 dark:text-[#f2f2f2] dark:hover:bg-[#1a1a1a]"
-                  >
-                    <Plus className="h-4 w-4 text-[#0078D4]" />
-                    New Server
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setFabMenuOpen(false);
-                      setShowPVCCleanup(true);
-                    }}
-                    className="flex min-h-[44px] w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 dark:text-[#f2f2f2] dark:hover:bg-[#1a1a1a]"
-                  >
-                    <HardDrive className="h-4 w-4 text-[#0078D4]" />
-                    Cleanup PVCs
-                  </button>
-                  <button
-                    type="button"
-                    onClick={triggerImportConfig}
-                    className="flex min-h-[44px] w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 dark:text-[#f2f2f2] dark:hover:bg-[#1a1a1a]"
-                  >
-                    <Upload className="h-4 w-4 text-[#0078D4]" />
-                    Import Config
-                  </button>
-                </motion.div>
-              ) : null}
-            </AnimatePresence>
-            <button
-              type="button"
-              onClick={() => setFabMenuOpen((open) => !open)}
-              aria-label="Open quick actions"
-              className="flex h-14 w-14 min-h-[44px] min-w-[44px] items-center justify-center rounded-full bg-[#0078D4] text-white shadow-lg transition-transform duration-200 hover:scale-105 hover:bg-[#006cbe]"
-            >
-              <Plus className={cn("h-6 w-6 transition-transform duration-200", fabMenuOpen && "rotate-45")} />
-            </button>
-          </div>
-        </div>
-      ) : null}
 
       <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] overflow-hidden">
         <button onClick={() => setShowRoadmap((prev) => !prev)} className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left border-b border-gray-200 dark:border-[#1e1e1e]">
