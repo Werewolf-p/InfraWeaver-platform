@@ -1,8 +1,13 @@
-# Keep the BuildKit context small (full context is ~1.9G otherwise). The
-# multi-stage Dockerfile runs `npm ci` + `npm run build` itself, so the build
-# artifacts and dependencies must NOT be shipped in the context.
+# Keep the build context small (full context is ~1.9G otherwise) without
+# breaking either build path:
+#   - CI / Dockerfile.prebuilt COPYs the prebuilt .next/standalone + .next/static,
+#     so those must stay IN the context — only the heavy .next/cache is dropped.
+#   - In-cluster / Dockerfile runs `npm ci` + `npm run build` itself and ignores
+#     any shipped .next entirely.
+# node_modules is excluded for both (standalone bundles its own; the in-cluster
+# Dockerfile reinstalls).
 node_modules
-.next
+.next/cache
 .git
 .env*
 npm-debug.log*
