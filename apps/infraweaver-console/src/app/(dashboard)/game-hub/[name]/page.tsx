@@ -3855,13 +3855,21 @@ export default function ServerDetailPage() {
     }
   }
 
+  // Trust the API's authoritative status (it derives "stopped" from the desired
+  // replica count, spec.replicas === 0) instead of re-deriving from live pod
+  // counts. readyReplicas/replicas reflect the running pod, which lingers while a
+  // just-stopped pod terminates — that lag made a stopped server flash back to
+  // "running"/"starting", looking like an auto-restart (feedback df5a9e3b). The
+  // list page already consumes server.status directly; this realigns the detail
+  // page. Transitional API states (installing/crash-loop/crashed) collapse to
+  // "starting" to stay within the four states the UI renders.
   const status = server?.maintenanceMode
     ? "maintenance"
-    : server?.readyReplicas && server.readyReplicas > 0
+    : server?.status === "running"
       ? "running"
-      : (server?.replicas ?? 0) > 0
-        ? "starting"
-        : "stopped";
+      : !server?.status || server.status === "stopped"
+        ? "stopped"
+        : "starting";
   const mountPath = server?.egg?.mountPath ?? "/data";
   const statusDot = {
     running: "bg-green-400",
