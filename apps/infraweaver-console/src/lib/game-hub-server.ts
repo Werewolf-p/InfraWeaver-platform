@@ -823,6 +823,22 @@ export async function checkPortReachable(host: string | null, port: number | nul
   });
 }
 
+// A HorizontalPodAutoscaler reconciles the Deployment back up to its minReplicas
+// the instant we scale to 0, which makes a stopped server auto-restart
+// (stopped → starting → running). Remove it first so the stop sticks — this
+// mirrors how the "scale" action drops the HPA before changing replicas.
+// A missing HPA (404) or absent client is a harmless no-op.
+export async function removeServerAutoscaler(
+  clients: ReturnType<typeof makeGameHubClients>,
+  name: string,
+) {
+  try {
+    await clients.autoscalingApi?.deleteNamespacedHorizontalPodAutoscaler({ name, namespace: GAME_HUB_NS });
+  } catch {
+    // No autoscaler attached (or already removed) — nothing to clean up.
+  }
+}
+
 export async function gracefulStopServer(
   clients: ReturnType<typeof makeGameHubClients>,
   name: string,
@@ -843,6 +859,7 @@ export async function gracefulStopServer(
     }
   }
 
+  await removeServerAutoscaler(clients, name);
   await scaleServerWorkload(clients.appsApi, name, 0);
 
   // NOTE: we intentionally do NOT block here waiting for the pod to terminate.
@@ -858,6 +875,7 @@ export async function forceStopServer(
   name: string,
 ) {
   const pods = await clients.coreApi.listNamespacedPod({ namespace: GAME_HUB_NS, labelSelector: `app=${name}` });
+  await removeServerAutoscaler(clients, name);
   await scaleServerWorkload(clients.appsApi, name, 0);
   await Promise.all((pods.items ?? []).map((pod) => {
     const podName = pod.metadata?.name;
