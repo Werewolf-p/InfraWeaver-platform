@@ -170,8 +170,8 @@ export function AgentStudioModal({ open, onClose }: AgentStudioModalProps) {
     <ResponsiveSheet
       open={open}
       onClose={onClose}
-      title="Configure Claude"
-      description="Configure the steps, prompts, specialism and plugins Claude uses to fix feedback. Placeholders: {{description}} the reported issue text, {{pagePath}} page the report came from, {{previousOutput}} output of the previous step."
+      title="Agent Studio — auto-fix pipeline"
+      description="Control the steps Claude runs to fix approved feedback: prompts, agent, specialism, tools and plugins. Saved changes apply to the next approved fix."
       size="lg"
       footer={configured ? footer : undefined}
     >
