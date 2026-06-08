@@ -15,7 +15,8 @@
 const fs = require('fs');
 const path = require('path');
 
-const SPECIALISTS_FILE = path.join(__dirname, 'specialists.json');
+// Overridable via env so tests can point at a throwaway cache file.
+const SPECIALISTS_FILE = process.env.SPECIALISTS_FILE || path.join(__dirname, 'specialists.json');
 const SPECIALISTS_REPO = process.env.SPECIALISTS_REPO || 'wshobson/agents';
 
 const SEED_SPECIALISTS = [
@@ -113,27 +114,56 @@ async function fetchText(url) {
   return res.text();
 }
 
+const MAX_AGENT_FILES = 400;
+
 /**
- * Refresh the library from a public GitHub repo of agent markdown files. Fail-safe:
- * on any error the existing cache is kept and the error is returned, never thrown,
- * so the picker is never left empty.
+ * List candidate agent-markdown files anywhere in a repo. The repo's whole tree is
+ * read in a single recursive call (cheaper and more rate-limit-friendly than walking
+ * `/contents/` directory by directory). `wshobson/agents` now nests its agents under
+ * `plugins/<plugin>/agents/*.md`, so we prefer files inside an `agents/` directory and
+ * skip sibling `skills/`, `commands/`, and `templates/` markdown. If a repo has no
+ * `agents/` directory (e.g. a flat repo of prompts) we fall back to every non-README
+ * `.md`, preserving the original behaviour for simpler layouts.
+ *
+ * Returns `[{ name, path, download_url }]` shaped like the old `/contents/` entries
+ * so the parsing loop is unchanged.
+ */
+async function listAgentFiles(repo) {
+  const meta = await fetchJson(`https://api.github.com/repos/${repo}`);
+  const branch = meta.default_branch || 'main';
+  const tree = await fetchJson(`https://api.github.com/repos/${repo}/git/trees/${branch}?recursive=1`);
+  const blobs = (tree && Array.isArray(tree.tree) ? tree.tree : []).filter(
+    (n) => n.type === 'blob' && /\.md$/i.test(n.path) && !/(^|\/)readme[^/]*$/i.test(n.path),
+  );
+  const inAgentsDir = blobs.filter((n) => /(^|\/)agents\//i.test(n.path));
+  const chosen = inAgentsDir.length > 0 ? inAgentsDir : blobs;
+  return chosen.slice(0, MAX_AGENT_FILES).map((n) => ({
+    name: n.path.split('/').pop(),
+    path: n.path,
+    download_url: `https://raw.githubusercontent.com/${repo}/${branch}/${n.path}`,
+  }));
+}
+
+/**
+ * Refresh the library from a public GitHub repo of agent markdown files, walking
+ * subdirectories (see {@link listAgentFiles}). Fail-safe: on any error the existing
+ * cache is kept and the error is returned, never thrown, so the picker is never left
+ * empty. Entries are deduped by id; the first markdown to claim an id wins, and the
+ * curated seed entries are merged in afterwards for any id the repo did not supply.
  */
 async function refreshSpecialists(repo = SPECIALISTS_REPO) {
   try {
-    const listing = await fetchJson(`https://api.github.com/repos/${repo}/contents/`);
-    const mdFiles = (Array.isArray(listing) ? listing : [])
-      .filter((f) => f.type === 'file' && /\.md$/i.test(f.name) && !/^readme/i.test(f.name))
-      .slice(0, 200);
+    const files = await listAgentFiles(repo);
 
     const items = [];
     const seen = new Set();
-    for (const f of mdFiles) {
+    for (const f of files) {
       try {
         const parsed = parseAgentMarkdown(f.name, await fetchText(f.download_url));
         if (parsed && !seen.has(parsed.id)) { seen.add(parsed.id); items.push(parsed); }
       } catch { /* skip a single bad file */ }
     }
-    if (items.length === 0) throw new Error('no agent markdown found in repo root');
+    if (items.length === 0) throw new Error(`no agent markdown found in ${repo}`);
 
     // Keep the curated seed entries (deduped) so trusted defaults always exist.
     for (const s of SEED_SPECIALISTS) if (!seen.has(s.id)) items.unshift(s);
@@ -151,5 +181,6 @@ module.exports = {
   saveSpecialists,
   getSpecialistPrompt,
   parseAgentMarkdown,
+  listAgentFiles,
   refreshSpecialists,
 };
