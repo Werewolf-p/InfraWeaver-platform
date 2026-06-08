@@ -99,6 +99,12 @@ function sanitizePersistentVolumeClaim(pvc: k8s.V1PersistentVolumeClaim) {
 
 function sanitizeDeployment(deployment: k8s.V1Deployment) {
   const spec = cloneJson(deployment.spec ?? {}) as k8s.V1DeploymentSpec;
+  // Intentionally omit replicas from the git manifest. The console owns start/stop
+  // by scaling the live Deployment; if replicas is pinned in git, ArgoCD selfHeal
+  // re-applies it on every sync and a stopped server (replicas 0) is restarted
+  // within ~1s. Leaving replicas out of git keeps stop holding under selfHeal
+  // (k8s defaults the field to 1 when the workload is first applied).
+  delete spec.replicas;
   if (spec.template) {
     spec.template.metadata = sanitizeMetadata(spec.template.metadata as MetadataLike | undefined, false);
   }

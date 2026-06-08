@@ -1302,7 +1302,9 @@ metadata:
     infraweaver.io/source: community-apps
     infraweaver.io/tier: ${tier}
 spec:
-  replicas: 1
+  # replicas intentionally omitted: the console owns start/stop by scaling the
+  # live Deployment. Pinning replicas in git makes ArgoCD selfHeal restart a
+  # stopped workload on every sync. k8s defaults the field to 1 on first apply.
   strategy:
     type: Recreate
   selector:
