@@ -39,3 +39,24 @@ host copy from here. Secrets (`.registry-pass`) and runtime state (`runs/`,
 `DISPATCH_PORT`, `WORKSPACE_DIR`, `FEEDBACK_BRANCH`, `REGISTRY`, `GIT_REMOTE`,
 `PREVIEW_HOST`, `BUILDKIT_NODEPORT`, `INFRA_DIR`. The console reaches it via
 `DISPATCH_URL`.
+
+Specialist library (`specialists.js`):
+
+| Var | Default | Purpose |
+|---|---|---|
+| `SPECIALISTS_REPO` | `wshobson/agents` | Public GitHub repo refreshed by `POST /specialists/refresh`. The whole tree is walked recursively; `.md` files under an `agents/` directory are preferred (siblings like `skills/`, `commands/`, `templates/` are ignored), falling back to every non-README `.md` for flat repos. |
+| `SPECIALISTS_FILE` | `<dir>/specialists.json` | Override the on-disk cache path. Mainly for tests, which point it at a throwaway file so the live cache is never touched. |
+
+## Tests
+
+Zero-dependency suite using Node's built-in runner (no `npm install`):
+
+```sh
+cd services/infraweaver-dispatch
+node --test
+```
+
+`specialists.test.js` covers the library refresh: nested-subdirectory discovery,
+non-agent filtering, dedupe-by-id, seed fallback, and network-failure fallback.
+CI runs it via `.github/workflows/test-dispatch.yml` on any change under
+`services/infraweaver-dispatch/`.
