@@ -1,0 +1,25 @@
+name: Test Dispatch
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'services/infraweaver-dispatch/**'
+  pull_request:
+    paths:
+      - 'services/infraweaver-dispatch/**'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      # Zero-dependency suite — Node's built-in test runner, no install step.
+      - name: Run specialist library tests
+        working-directory: services/infraweaver-dispatch
+        run: node --test

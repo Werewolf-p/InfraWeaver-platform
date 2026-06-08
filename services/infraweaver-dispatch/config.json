@@ -1,0 +1,8 @@
+{
+  "agents": {
+    "copilot": true,
+    "claude": true
+  },
+  "defaultAgent": "claude",
+  "notes": "Claude is the default coding agent. It authenticates with the runner account's subscription token at ~/.claude/.credentials.json (remonhulst@gmail.com); the systemd unit runs as User=runner with HOME=/home/runner, so no token copying is needed. Copilot remains available as a fallback (set defaultAgent or pass agent:'copilot')."
+}
