@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Clock, ExternalLink, Loader2, MessageSquarePlus, Rocket, ThumbsDown, XCircle } from "lucide-react";
+import { CheckCircle2, Clock, ExternalLink, Loader2, MessageSquarePlus, Rocket, Settings2, ThumbsDown, XCircle } from "lucide-react";
 import { PageScaffold } from "@/components/ui/page-scaffold";
 import { ConfirmDialog } from "@/components/ui";
 import { apiClient, toApiErrorMessage } from "@/lib/api-client";
@@ -13,6 +13,7 @@ import { PublishButton } from "@/components/feedback/publish-button";
 import { StagingBanner } from "@/components/feedback/staging-banner";
 import { StatusLegend } from "@/components/feedback/status-legend";
 import { StatusPill } from "@/components/feedback/status-pill";
+import { AgentStudioModal } from "@/components/feedback/automation/agent-studio-modal";
 import {
   STAGING_ENV_URL,
   STATUS_COPY,
@@ -79,6 +80,8 @@ export function FeedbackReview() {
   // click and the next refetch, complementing the server-derived "approved"
   // signal below. Together they serialize the pipeline in the UI.
   const [pipelinePending, setPipelinePending] = useState(false);
+  // Agent Studio (the editable auto-fix pipeline) modal visibility.
+  const [studioOpen, setStudioOpen] = useState(false);
   // The id of an approve we just fired but whose `approved` state we haven't yet
   // observed in refetched data. WITHOUT this, the pipeline looks idle in the gap
   // between the (fast) approve call returning and the next 10s poll, so a second
@@ -282,12 +285,23 @@ export function FeedbackReview() {
       errorMessage={error ? toApiErrorMessage(error) : undefined}
       actions={
         canManage ? (
-          <PublishButton
-            acceptedCount={acceptedCount}
-            acceptedTitles={acceptedTitles}
-            pipelineBusy={pipelineBusy}
-            onBusyChange={setPipelinePending}
-          />
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted"
+              onClick={() => setStudioOpen(true)}
+              title="Configure the steps, prompts, specialism and plugins Claude uses to fix feedback"
+            >
+              <Settings2 className="h-4 w-4" />
+              Configure Claude
+            </button>
+            <PublishButton
+              acceptedCount={acceptedCount}
+              acceptedTitles={acceptedTitles}
+              pipelineBusy={pipelineBusy}
+              onBusyChange={setPipelinePending}
+            />
+          </div>
         ) : undefined
       }
     >
@@ -504,6 +518,7 @@ export function FeedbackReview() {
         confirmText="Revert & retry"
         danger
       />
+      {canManage && <AgentStudioModal open={studioOpen} onClose={() => setStudioOpen(false)} />}
     </PageScaffold>
   );
 }
