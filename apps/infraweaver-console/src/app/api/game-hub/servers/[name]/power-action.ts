@@ -3,7 +3,6 @@ import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
 import { validateK8sName } from "@/lib/api-security";
 import { getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
-import { writeServerManifest } from "@/lib/game-hub-manifest";
 import {
   appendServerAudit,
   forceStopServer,
@@ -48,14 +47,12 @@ export async function handlePowerAction(req: NextRequest, name: string, action: 
       await sendDiscordWebhook(webhookConfig, "stop", `🛑 ${name} force-stopped`);
     }
 
-    // Persist the stopped state to git so ArgoCD selfHeal does not restart the
-    // server back to the git desired state. Failures are logged, not fatal.
-    try {
-      await writeServerManifest(name, clients);
-    } catch (gitErr) {
-      console.error(`writeServerManifest failed for ${action} on ${name}:`, gitErr);
-    }
-
+    // Power state is intentionally NOT written to git. ArgoCD's
+    // `catalog-game-hub-servers` Application ignores `/spec/replicas` drift, so the
+    // cluster-only scale-to-0 sticks; committing a manifest here instead triggered
+    // an auto-sync that re-applied `replicas` from git (restarting the server) and
+    // the slow git round-trip surfaced as "TypeError: Load failed". See the
+    // MANIFEST_SYNC_ACTIONS note in route.ts.
     await auditLog(`game-hub:${action}`, session.user?.email ?? "unknown", `${action} ${name}`);
     await appendServerAudit(clients.coreApi, name, {
       timestamp: new Date().toISOString(),
