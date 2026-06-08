@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
 import { validateK8sName } from "@/lib/api-security";
-import { getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
+import { GAME_HUB_NAMESPACE, getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
 import {
   appendServerAudit,
   forceStopServer,
@@ -38,6 +38,12 @@ export async function handlePowerAction(req: NextRequest, name: string, action: 
     const deployment = await getServerDeployment(clients.appsApi, name);
     const egg = await readServerEgg(clients.coreApi, name, deployment);
     const webhookConfig = parseDiscordWebhookConfig(deployment.metadata?.annotations?.["infraweaver/discord-webhook"]);
+
+    // Delete any HPA first: an HPA with minReplicas >= 1 immediately scales the
+    // deployment back up after we scale to 0, causing the reported
+    // stopped -> starting -> running auto-restart. Namespace is hard-scoped and
+    // `name` is validated above, so this only ever targets this server's HPA.
+    await clients.autoscalingApi.deleteNamespacedHorizontalPodAutoscaler({ name, namespace: GAME_HUB_NAMESPACE }).catch(() => undefined);
 
     if (action === "stop") {
       const result = await gracefulStopServer(clients, name, egg.stopCommand, 30_000);

@@ -718,9 +718,15 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
       });
       await sendDiscordWebhook(webhookConfig, "start", `🟢 ${name} started`);
     } else if (body.action === "stop") {
+      // Delete any HPA first: an HPA with minReplicas >= 1 immediately scales the
+      // deployment back up after we scale to 0, causing the reported
+      // stopped -> starting -> running auto-restart. Matches the scale action.
+      await clients.autoscalingApi.deleteNamespacedHorizontalPodAutoscaler({ name, namespace: GAME_HUB_NAMESPACE }).catch(() => undefined);
       const result = await gracefulStopServer(clients, name, egg.stopCommand, 30_000);
       await sendDiscordWebhook(webhookConfig, "stop", `⏹️ ${name} stopped${result.exitedGracefully ? " gracefully" : ""}`);
     } else if (body.action === "force-stop") {
+      // See stop: remove the HPA so it cannot re-scale the pod back from 0.
+      await clients.autoscalingApi.deleteNamespacedHorizontalPodAutoscaler({ name, namespace: GAME_HUB_NAMESPACE }).catch(() => undefined);
       await forceStopServer(clients, name);
       await sendDiscordWebhook(webhookConfig, "stop", `🛑 ${name} force-stopped`);
     } else if (body.action === "restart") {
