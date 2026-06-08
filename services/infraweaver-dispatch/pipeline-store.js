@@ -4,9 +4,11 @@
  * The pipeline is the ordered list of agent "steps" the dispatch service runs on
  * /approve, in place of the old single hardcoded Claude call. It is fully editable
  * from the console's Agent Studio modal (n8n-style) and persisted here as
- * `pipeline.json`. When that file is absent we fall back to DEFAULT_PIPELINE, whose
- * content reproduces the legacy plan→validate→implement guidance split into three
- * cards — so out of the box behaviour is equivalent, just granularised.
+ * `pipeline.json`. When that file is absent we fall back to DEFAULT_PIPELINE: a
+ * cost-routed plan → validate → security → implement → verify flow — read-only
+ * triage/review on Haiku, the implementing step on Opus, then a self-correcting
+ * Verify gate — so out of the box the flow is cheap to triage and strong where it
+ * actually edits code.
  *
  * Pure data + validation + prompt composition only: no process spawning lives here
  * (the executor in server.js owns that), which keeps this module trivially testable.
@@ -35,9 +37,24 @@ const MCP_PRESETS = {
 };
 const MCP_CATALOG = Object.keys(MCP_PRESETS);
 
-// The default pipeline: legacy plan→validate→implement, one agent run per phase.
-// Plan/validate are read-only (cheap); implement does the work and emits the
-// CHANGE_CLASS marker server.js classifies on.
+// The default pipeline: plan → validate → security → implement → verify.
+//
+// Model routing (cost/quality): the three read-only thinking steps run on Haiku
+// (≈cheapest, plenty for triage/review); the implementing step runs on Opus (the
+// only step that writes code, where quality pays for itself); Verify runs on Sonnet
+// (mechanical typecheck/test + small self-correction — strong but cheaper than Opus).
+// Net effect vs an all-default run: most tokens are spent on Haiku, Opus is paid for
+// once, and a fix is typechecked before the expensive in-cluster image build.
+//
+// Specialisms steer each step's expertise; tool allowlists keep the read-only steps
+// truly read-only (Read/Grep/Glob) and give only the two editing steps write/Bash.
+// MCP is enabled only where it earns its startup cost: context7 on plan+implement
+// (the console's AGENTS.md warns this Next.js has breaking changes vs training data,
+// so current docs matter) and sequential-thinking on plan (harder triage). The
+// implement step keeps the CHANGE_CLASS marker server.js classifies on; Verify must
+// not emit one. Playwright is deliberately omitted from Verify: the build+deploy
+// happen AFTER the pipeline (in doApprove), so there is no new page to exercise yet
+// and a per-step dev server would be slow and flaky.
 const DEFAULT_PIPELINE = {
   version: 1,
   steps: [
@@ -46,20 +63,25 @@ const DEFAULT_PIPELINE = {
       name: 'Plan',
       enabled: true,
       agent: 'claude',
-      model: '',
+      model: 'claude-haiku-4-5-20251001',
       specialism: 'architect',
       promptTemplate: [
-        'You are triaging approved in-console developer feedback for the InfraWeaver',
-        'console (a Next.js app). Do NOT change any files in this step.',
+        'You are triaging an approved in-console developer-feedback item for the',
+        'InfraWeaver console (a Next.js + TypeScript + React app). This is a READ-ONLY',
+        'planning step: do NOT create, edit, or delete any files.',
         '',
-        'Restate the issue in your own words, then outline the SMALLEST correct change',
-        'and the EXACT files you would touch. Keep it tight and concrete.',
+        'Read only what you need to locate the cause, then produce a tight plan:',
+        '1. Restate the issue in one or two sentences.',
+        '2. Name the SMALLEST correct change and the EXACT file paths to touch.',
+        '3. Flag any repo rules that apply — the console ships AGENTS.md / CLAUDE.md and',
+        '   this Next.js version has breaking changes vs your training data, so note where',
+        '   up-to-date Next.js docs must be checked. No code yet.',
         '',
         'Reported issue (type: {{type}}, page: {{pagePath}}):',
         '{{description}}{{note}}',
       ].join('\n'),
       allowedTools: ['Read', 'Grep', 'Glob'],
-      mcpServers: [],
+      mcpServers: ['context7', 'sequential-thinking'],
       continueOnError: false,
     },
     {
@@ -67,12 +89,15 @@ const DEFAULT_PIPELINE = {
       name: 'Validate plan',
       enabled: true,
       agent: 'claude',
-      model: '',
+      model: 'claude-haiku-4-5-20251001',
       specialism: 'code-reviewer',
       promptTemplate: [
-        'Sanity-check the plan below against the reported issue. Confirm it actually',
-        "addresses the report and won't break adjacent behaviour. If it's wrong or risky,",
-        'rewrite it into a corrected, final plan. Do NOT change any files in this step.',
+        'Sanity-check the plan below against the reported issue. READ-ONLY: do NOT change',
+        'any files.',
+        '',
+        "Confirm the plan actually fixes the report and won't break adjacent behaviour. If",
+        "it's wrong, incomplete, or risky, rewrite it into a corrected FINAL plan;",
+        'otherwise restate it as the final plan. Keep the exact file list explicit.',
         '',
         'Reported issue (type: {{type}}, page: {{pagePath}}):',
         '{{description}}{{note}}',
@@ -85,28 +110,94 @@ const DEFAULT_PIPELINE = {
       continueOnError: true,
     },
     {
-      id: 'implement',
-      name: 'Implement',
+      id: 'security',
+      name: 'Security gate',
       enabled: true,
       agent: 'claude',
-      model: '',
-      specialism: '',
+      model: 'claude-haiku-4-5-20251001',
+      specialism: 'security-reviewer',
       promptTemplate: [
-        'Implement the validated plan below for the InfraWeaver console. Apply the change,',
-        'keep it minimal and immutable-style, and self-verify (typecheck/build where cheap).',
-        'Match the existing code style and repo rules (see AGENTS.md / CLAUDE.md).',
+        'You are screening the planned change below for security impact. READ-ONLY: do',
+        'NOT change any files.',
+        '',
+        'Decide whether the change touches a security-sensitive surface: authentication,',
+        'authorization/RBAC, sessions/cookies, user-input handling or validation, API route',
+        'handlers, secrets/credentials, or data access.',
+        '- If it does NOT, reply with exactly: NO_SECURITY_CONCERNS',
+        '- If it DOES, list the specific, must-follow constraints for the implementer',
+        '  (fail closed, never weaken an existing gate, validate all input, no secrets in',
+        '  code). Be concrete and brief.',
         '',
         'Reported issue (type: {{type}}, page: {{pagePath}}):',
         '{{description}}{{note}}',
         '',
-        'Validated plan to implement:',
+        'Planned change:',
         '{{previousOutput}}',
+      ].join('\n'),
+      allowedTools: ['Read', 'Grep', 'Glob'],
+      mcpServers: [],
+      continueOnError: true,
+    },
+    {
+      id: 'implement',
+      name: 'Implement',
+      enabled: true,
+      agent: 'claude',
+      model: 'claude-opus-4-8',
+      specialism: 'react-reviewer',
+      promptTemplate: [
+        'Implement the validated plan for the InfraWeaver console (Next.js + TypeScript +',
+        'React). Apply the change now.',
+        '',
+        'Constraints:',
+        '- Make the SMALLEST correct change; match the surrounding code style; prefer',
+        '  immutable updates (never mutate in place).',
+        '- Obey apps/infraweaver-console/AGENTS.md / CLAUDE.md. This Next.js version has',
+        '  breaking changes vs your training data — consult current Next.js docs (context7,',
+        '  or node_modules/next/dist/docs) before writing Next-specific code.',
+        '- Honour every security constraint in the review below; if it says',
+        '  NO_SECURITY_CONCERNS, proceed.',
+        '- Add or adjust tests where practical, and self-check (typecheck where cheap).',
+        '',
+        'Reported issue (type: {{type}}, page: {{pagePath}}):',
+        '{{description}}{{note}}',
+        '',
+        'Full context (plan → validation → security review):',
+        '{{allOutput}}',
         '',
         'On the FINAL line print exactly: CHANGE_CLASS: <core|functionality|config|cluster-state>',
       ].join('\n'),
       allowedTools: ['Read', 'Edit', 'Write', 'Grep', 'Glob', 'Bash'],
-      mcpServers: [],
+      mcpServers: ['context7'],
       continueOnError: false,
+    },
+    {
+      id: 'verify',
+      name: 'Verify',
+      enabled: true,
+      agent: 'claude',
+      model: 'claude-sonnet-4-6',
+      specialism: '',
+      promptTemplate: [
+        'Verify the change just made to the InfraWeaver console and self-correct small',
+        'breakages it introduced. Work inside apps/infraweaver-console.',
+        '',
+        '1. Run the cheapest meaningful checks: `cd apps/infraweaver-console && npx tsc',
+        '   --noEmit`, plus the lint/tests touching the diff (e.g. `npm test -- <related>`).',
+        '   Do NOT run a full `next build` — the in-cluster build runs after this pipeline.',
+        '2. If a check fails because of THIS change, make the minimal fix and re-run. Do not',
+        '   refactor unrelated code and do not revert the intended fix.',
+        '3. If something is genuinely red and you cannot fix it cheaply, stop and report',
+        '   exactly what failed.',
+        '',
+        'Do NOT print a CHANGE_CLASS line — the implement step already set it.',
+        '',
+        'Implementation report:',
+        '{{previousOutput}}',
+      ].join('\n'),
+      allowedTools: ['Read', 'Edit', 'Write', 'Grep', 'Glob', 'Bash'],
+      mcpServers: [],
+      continueOnError: true,
     },
   ],
 };
