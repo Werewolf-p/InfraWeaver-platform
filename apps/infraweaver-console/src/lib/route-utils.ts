@@ -5,6 +5,7 @@ import type { Permission } from "@/lib/rbac";
 import { getSessionRBACContext, hasAnySessionPermission, hasSessionPermission } from "@/lib/session-rbac";
 import type { SessionRBACContext } from "@/lib/session-rbac";
 import { safeError } from "@/lib/utils";
+import { isRetryableInfraError } from "@/lib/retryable-error";
 
 export interface ApiResponseOptions {
   status?: number;
@@ -71,7 +72,10 @@ export async function requireRoutePermissions(options: RoutePermissionOptions = 
 
 export function routeErrorResponse(error: unknown, fallback = "Internal error", status = 500) {
   const message = safeError(error);
-  return apiError(message || fallback, { status });
+  // Promote transient infra blips to a retryable 503 so the client can absorb
+  // them; never override an explicit non-default status the caller passed.
+  const resolvedStatus = status === 500 && isRetryableInfraError(error) ? 503 : status;
+  return apiError(message || fallback, { status: resolvedStatus });
 }
 
 // Next.js 15+ passes params as Promise<any>; must extend { params: Promise<any> } to satisfy route type checks.
