@@ -69,14 +69,15 @@ async function upsertEggConfigMap(
 }
 
 const MANIFEST_SYNC_ACTIONS = new Set([
-  // Power state MUST be written to git: ArgoCD runs with selfHeal:true, so a
-  // cluster-only `replicas: 0` (stop) is treated as drift and reverted back to
-  // the git desired state — the server "starts again even after shutdown".
-  // Persisting the replica count to git makes ArgoCD respect start/stop/scale.
-  "start",
-  "stop",
-  "force-stop",
-  "scale",
+  // Power state (start/stop/force-stop/scale) is deliberately NOT synced to git.
+  // The ArgoCD Application `catalog-game-hub-servers` lists `/spec/replicas` under
+  // `ignoreDifferences`, so a cluster-only `replicas: 0` is NOT treated as drift
+  // and selfHeal leaves it alone. Committing a manifest on every stop was actively
+  // harmful: the new git revision triggered an auto-sync that re-applied
+  // `spec.replicas` from git (ServerSideApply, no RespectIgnoreDifferences),
+  // restarting the server right after Stop — and the slow git round-trip inside
+  // the request surfaced as "TypeError: Load failed". Replica state lives only in
+  // the cluster. Only fields ArgoCD does diff (env, resources, image, ...) sync.
   "sync-to-git",
   "set-hpa",
   "remove-hpa",
