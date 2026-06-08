@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse, after } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
 import { validateK8sName } from "@/lib/api-security";
@@ -49,19 +49,12 @@ export async function handlePowerAction(req: NextRequest, name: string, action: 
     }
 
     // Persist the stopped state to git so ArgoCD selfHeal does not restart the
-    // server back to the git desired state. This runs in `after()` (not inline):
-    // the GitHub round-trips are slow enough that awaiting them inline dropped the
-    // browser connection ("TypeError: Load failed"), and a torn-down request left
-    // the git write unfinished — so git kept `replicas: 1` and ArgoCD scaled the
-    // server back up right after Stop (feedback df5a9e3b). `after()` runs once the
-    // response is sent, independent of the client, so the write reliably lands.
-    after(async () => {
-      try {
-        await writeServerManifest(name, clients);
-      } catch (gitErr) {
-        console.error(`writeServerManifest failed for ${action} on ${name}:`, gitErr);
-      }
-    });
+    // server back to the git desired state. Failures are logged, not fatal.
+    try {
+      await writeServerManifest(name, clients);
+    } catch (gitErr) {
+      console.error(`writeServerManifest failed for ${action} on ${name}:`, gitErr);
+    }
 
     await auditLog(`game-hub:${action}`, session.user?.email ?? "unknown", `${action} ${name}`);
     await appendServerAudit(clients.coreApi, name, {

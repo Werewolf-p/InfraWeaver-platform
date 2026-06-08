@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse, after } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
@@ -1112,27 +1112,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
     // to git so ArgoCD's selfHeal does not revert them. Purely transient actions
     // (restart/set-maintenance/set-notes) are excluded — they don't change the
     // git-tracked desired state.
-    //
-    // The git write happens in `after()` — NOT inline — for two reasons that were
-    // the actual bug behind "stop doesn't stick" (feedback df5a9e3b):
-    //   1. writeServerManifest does multiple GitHub round-trips (read SHA + commit).
-    //      Awaiting it inline made the request slow enough that the browser/proxy
-    //      dropped the connection → bare `TypeError: Load failed` on Stop.
-    //   2. When that request was torn down, the in-flight git write never finished,
-    //      so git still said `replicas: 1` and ArgoCD selfHeal scaled the server
-    //      back up → it "auto-started" right after Stop.
-    // `after()` runs once the response has been sent, independent of the client
-    // connection, so the in-cluster change (already applied synchronously above)
-    // reliably gets persisted to git and ArgoCD respects the stopped state.
     if (MANIFEST_SYNC_ACTIONS.has(body.action)) {
-      const syncAction = body.action;
-      after(async () => {
-        try {
-          await writeServerManifest(name, clients);
-        } catch (gitErr) {
-          console.error(`writeServerManifest failed for action ${syncAction} on ${name}:`, gitErr);
-        }
-      });
+      try {
+        await writeServerManifest(name, clients);
+      } catch (gitErr) {
+        console.error(`writeServerManifest failed for action ${body.action} on ${name}:`, gitErr);
+      }
     }
 
     return NextResponse.json({ action: body.action, name, ...actionResult });
