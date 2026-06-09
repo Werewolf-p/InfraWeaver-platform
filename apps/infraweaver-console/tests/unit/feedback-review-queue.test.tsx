@@ -82,6 +82,7 @@ jest.mock("@/components/feedback/automation/agent-studio-modal", () => ({
 import { FeedbackReview } from "@/components/feedback/feedback-review";
 
 const QUEUE_STORAGE_KEY = "infraweaver:feedback-queue";
+const VALIDATION_QUEUE_STORAGE_KEY = "infraweaver:feedback-validation-queue";
 
 function makeEntry(id: string, overrides: Partial<FeedbackEntry> = {}): FeedbackEntry {
   return {
@@ -225,5 +226,96 @@ describe("FeedbackReview queue reordering", () => {
     await waitFor(() => {
       expect(JSON.parse(sessionStorage.getItem(QUEUE_STORAGE_KEY) ?? "[]")).toEqual(["entry-2"]);
     });
+  });
+});
+
+describe('FeedbackReview "Not fixed → retry" queue', () => {
+  beforeEach(() => {
+    sessionStorage.clear();
+    patch.mockClear();
+    invalidateQueries.mockClear();
+    queryResult = { data: undefined, isLoading: true, error: null };
+  });
+
+  // A dispatched entry awaiting a verdict, behind a running entry that keeps the
+  // pipeline busy so the retry queues instead of dispatching immediately.
+  function renderBusyDispatched() {
+    queryResult = {
+      data: {
+        entries: [
+          makeEntry("running", { status: "approved" }),
+          makeEntry("dispatched-1", { status: "dispatched", description: "Still broken" }),
+        ],
+      },
+      isLoading: false,
+      error: null,
+    };
+    return render(<FeedbackReview />);
+  }
+
+  it("queues the retry instead of locking the button while a run is in flight", async () => {
+    const { rerender } = renderBusyDispatched();
+
+    // Arrange: a note is required before a retry can be queued.
+    fireEvent.change(screen.getByPlaceholderText(/If not fixed/), {
+      target: { value: "Button still does nothing" },
+    });
+
+    // Act: request the retry and confirm the dialog.
+    fireEvent.click(screen.getByRole("button", { name: /Not fixed/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Revert & retry" }));
+
+    // Assert: the verdict is queued (persisted), not dispatched, and the queued
+    // badge replaces the button.
+    await waitFor(() => {
+      expect(JSON.parse(sessionStorage.getItem(VALIDATION_QUEUE_STORAGE_KEY) ?? "[]")).toEqual([
+        "dispatched-1",
+      ]);
+    });
+    expect(patch).not.toHaveBeenCalled();
+    expect(screen.getByText(/Retry queued/)).toBeInTheDocument();
+
+    // Act: the running entry finishes — pipeline is now idle.
+    queryResult = {
+      data: {
+        entries: [
+          makeEntry("running", { status: "done", released: true }),
+          makeEntry("dispatched-1", { status: "dispatched", description: "Still broken" }),
+        ],
+      },
+      isLoading: false,
+      error: null,
+    };
+    rerender(<FeedbackReview />);
+
+    // Assert: the drain dispatches the queued retry with the live note.
+    await waitFor(() => {
+      expect(patch).toHaveBeenCalledWith("/api/feedback/dispatched-1", {
+        json: { action: "not_fixed", reviewNote: "Button still does nothing" },
+      });
+    });
+    await waitFor(() => {
+      expect(JSON.parse(sessionStorage.getItem(VALIDATION_QUEUE_STORAGE_KEY) ?? "[]")).toEqual([]);
+    });
+  });
+
+  it("prunes a queued retry whose entry is no longer dispatched", async () => {
+    // Arrange: a persisted retry for an entry that has since been accepted.
+    sessionStorage.setItem(VALIDATION_QUEUE_STORAGE_KEY, JSON.stringify(["dispatched-1"]));
+    const { rerender } = render(<FeedbackReview />);
+
+    // Act: entries load with the target already moved past "dispatched", idle pipeline.
+    queryResult = {
+      data: { entries: [makeEntry("dispatched-1", { status: "accepted" })] },
+      isLoading: false,
+      error: null,
+    };
+    rerender(<FeedbackReview />);
+
+    // Assert: the stale retry is pruned without dispatching anything.
+    await waitFor(() => {
+      expect(JSON.parse(sessionStorage.getItem(VALIDATION_QUEUE_STORAGE_KEY) ?? "[]")).toEqual([]);
+    });
+    expect(patch).not.toHaveBeenCalled();
   });
 });

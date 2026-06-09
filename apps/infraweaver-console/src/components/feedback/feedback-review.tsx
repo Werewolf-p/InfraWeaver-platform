@@ -117,6 +117,31 @@ export function FeedbackReview() {
     }
   }, [queuedApprovals]);
 
+  // Ids whose "Not fixed → retry" verdict the reviewer fired while a run was in
+  // flight. Like approvals, we queue these instead of locking the button and
+  // auto-dispatch one once the pipeline frees up. Persisted to sessionStorage so
+  // a refresh does not silently drop a queued retry. Stored as ids only; the note
+  // is read live from `notes[id]` at drain time, mirroring the approval pattern.
+  const VALIDATION_QUEUE_STORAGE_KEY = "infraweaver:feedback-validation-queue";
+  const [queuedValidations, setQueuedValidations] = useState<string[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const raw = sessionStorage.getItem(VALIDATION_QUEUE_STORAGE_KEY);
+      const parsed = raw ? (JSON.parse(raw) as unknown) : [];
+      return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string") : [];
+    } catch {
+      return [];
+    }
+  });
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      sessionStorage.setItem(VALIDATION_QUEUE_STORAGE_KEY, JSON.stringify(queuedValidations));
+    } catch {
+      /* sessionStorage unavailable — queue stays in-memory only */
+    }
+  }, [queuedValidations]);
+
   const { data, isLoading, error } = useQuery({
     queryKey: ["feedback", "list"],
     queryFn: () => apiClient.get<{ entries: FeedbackEntry[] }>("/api/feedback"),
@@ -240,6 +265,28 @@ export function FeedbackReview() {
     [],
   );
 
+  // Retry now: re-dispatch immediately if the pipeline is idle, otherwise queue
+  // the verdict so it starts on its own once the current run finishes — mirrors
+  // approveOrQueue so the "Not fixed → retry" button is no longer hard-locked
+  // while a run is in flight. The note is re-read live (and re-validated) by
+  // `validate` at drain time.
+  const validateOrQueue = useCallback(
+    (id: string) => {
+      if (pipelineBusy) {
+        setQueuedValidations((prev) => (prev.includes(id) ? prev : [...prev, id]));
+        toast.success("Queued — retry starts automatically when the current run finishes");
+        return;
+      }
+      void validate(id, "not_fixed");
+    },
+    [pipelineBusy, validate],
+  );
+
+  const cancelQueuedValidation = useCallback(
+    (id: string) => setQueuedValidations((prev) => prev.filter((q) => q !== id)),
+    [],
+  );
+
   // Reorder a queued approval by swapping it with its neighbour (immutable).
   // `delta` is -1 (earlier) or +1 (later). Fails closed: if the id isn't in the
   // queue or the swap would fall off either end, the order is left untouched.
@@ -290,6 +337,25 @@ export function FeedbackReview() {
     }
   }, [pipelineBusy, queuedApprovals, entries, updateStatus, isLoading]);
 
+  // Drain the validation (retry) queue one entry at a time when nothing is
+  // running. A retry is only valid while the entry is still "dispatched" (awaiting
+  // a verdict); entries that moved on (accepted/reverted/etc.) are pruned so a
+  // stale queued retry is never applied. `validate` re-checks the live note and
+  // bails if it's empty.
+  useEffect(() => {
+    if (pipelineBusy || queuedValidations.length === 0 || isLoading) return;
+    const stillQueued = queuedValidations.filter((id) =>
+      entries.some((e) => e.id === id && e.status === "dispatched"),
+    );
+    const [nextId, ...rest] = stillQueued;
+    if (nextId) {
+      setQueuedValidations(rest);
+      void validate(nextId, "not_fixed");
+    } else if (stillQueued.length !== queuedValidations.length) {
+      setQueuedValidations(stillQueued); // prune entries no longer "dispatched"
+    }
+  }, [pipelineBusy, queuedValidations, entries, validate, isLoading]);
+
   // Confirm gates for the destructive / heavy actions.
   const requestDeny = useCallback((entry: FeedbackEntry) => setConfirmState({ kind: "deny", entry }), []);
   const requestRetry = useCallback(
@@ -308,8 +374,8 @@ export function FeedbackReview() {
     const { kind, entry } = confirmState;
     setConfirmState(null);
     if (kind === "deny") void updateStatus(entry.id, "rejected");
-    else void validate(entry.id, "not_fixed");
-  }, [confirmState, updateStatus, validate]);
+    else validateOrQueue(entry.id);
+  }, [confirmState, updateStatus, validateOrQueue]);
 
   return (
     <PageScaffold
@@ -495,15 +561,28 @@ export function FeedbackReview() {
                           {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
                           Accept (stage for publish)
                         </button>
-                        <button
-                          type="button"
-                          disabled={busy || pipelineBusy}
-                          title={pipelineBusy ? "A pipeline action is already running" : undefined}
-                          onClick={() => requestRetry(entry)}
-                          className="inline-flex items-center gap-1 rounded-lg border border-rose-200 px-3 py-1.5 text-xs text-rose-600 hover:bg-rose-50 dark:border-rose-500/30 dark:text-rose-300 dark:hover:bg-rose-500/10 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          <ThumbsDown className="h-3.5 w-3.5" /> Not fixed → retry
-                        </button>
+                        {queuedValidations.includes(entry.id) ? (
+                          <span className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/5 dark:text-amber-300">
+                            <Clock className="h-3.5 w-3.5" /> Retry queued — starts when the current run finishes
+                            <button
+                              type="button"
+                              onClick={() => cancelQueuedValidation(entry.id)}
+                              className="ml-1 text-amber-600/80 hover:text-amber-700 hover:underline dark:text-amber-300/80 dark:hover:text-amber-200"
+                            >
+                              Cancel
+                            </button>
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={busy}
+                            title={pipelineBusy ? "A run is in progress — this retry will be queued and start automatically" : undefined}
+                            onClick={() => requestRetry(entry)}
+                            className="inline-flex items-center gap-1 rounded-lg border border-rose-200 px-3 py-1.5 text-xs text-rose-600 hover:bg-rose-50 dark:border-rose-500/30 dark:text-rose-300 dark:hover:bg-rose-500/10 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {pipelineBusy ? <Clock className="h-3.5 w-3.5" /> : <ThumbsDown className="h-3.5 w-3.5" />} Not fixed → retry
+                          </button>
+                        )}
                       </div>
                     </div>
                   )}
