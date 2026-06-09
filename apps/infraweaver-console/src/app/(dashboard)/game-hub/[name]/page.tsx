@@ -618,6 +618,7 @@ function FilesTab({
   const {
     data: listing,
     isLoading,
+    isError,
     refetch,
   } = useQuery({
     queryKey: ["game-hub", "files", name, currentPath],
@@ -625,7 +626,6 @@ function FilesTab({
       fetchJson<{ files: FileEntry[] }>(
         `/api/game-hub/servers/${name}/files?path=${encodeURIComponent(currentPath)}`,
       ),
-    enabled: status !== "stopped",
     retry: 1,
   });
 
@@ -888,15 +888,6 @@ function FilesTab({
     )
     .slice(0, 5);
 
-  if (status === "stopped") {
-    return (
-      <div className="flex flex-col items-center justify-center h-40 gap-3 text-gray-400 dark:text-[#555]">
-        <FolderOpen className="w-8 h-8" />
-        <p className="text-sm">Start the server to browse files</p>
-      </div>
-    );
-  }
-
   const fileTree = (
     <div className="flex flex-col gap-2">
       <div className="rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-2">
@@ -996,6 +987,21 @@ function FilesTab({
         {isLoading ? (
           <div className="flex items-center justify-center h-20">
             <Loader2 className="w-4 h-4 animate-spin text-gray-400 dark:text-[#555]" />
+          </div>
+        ) : isError ? (
+          <div className="flex flex-col items-center justify-center gap-3 py-8 px-4 text-center text-gray-400 dark:text-[#555]">
+            <FolderOpen className="w-7 h-7" />
+            <p className="text-xs">
+              {status === "stopped"
+                ? "Files are unavailable while the server is offline."
+                : "Unable to load files right now."}
+            </p>
+            <button
+              onClick={() => void refetch()}
+              className="rounded-lg border border-gray-200 dark:border-[#2a2a2a] px-3 py-1.5 text-[11px] text-gray-500 dark:text-[#9e9e9e] hover:text-gray-900 dark:hover:text-white transition-colors"
+            >
+              Retry
+            </button>
           </div>
         ) : sortedFiles.length === 0 ? (
           <p className="text-xs text-gray-400 dark:text-[#555] text-center py-6">

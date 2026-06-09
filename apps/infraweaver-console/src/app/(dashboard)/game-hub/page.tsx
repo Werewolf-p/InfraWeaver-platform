@@ -1076,11 +1076,11 @@ export default function GameHubPage() {
             </div>
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gray-50 dark:bg-[#252525] text-2xl flex-shrink-0">{cardIcon}</div>
             <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
                 <p className="truncate text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">{server.name}</p>
-                <span className={cn("rounded-full border px-3 py-1 text-sm font-medium capitalize", stoppedStyle)}>{server.status}</span>
-                <span className={cn("rounded-full border px-3 py-1 text-sm font-medium", health.className)}>{server.status === "stopped" ? "Stopped" : `Health ${health.label}`}</span>
-                <span className={cn("rounded-full border px-3 py-1 text-sm font-medium", iacSynced ? "border-green-500/30 bg-green-500/10 text-green-300" : "border-yellow-500/30 bg-yellow-500/10 text-yellow-200")}>{iacSynced ? "synced" : "unsynced"}</span>
+                <span className={cn("rounded-full border px-2.5 py-0.5 text-xs font-medium capitalize sm:px-3 sm:py-1", stoppedStyle)}>{server.status}</span>
+                <span className={cn("rounded-full border px-2.5 py-0.5 text-xs font-medium sm:px-3 sm:py-1", health.className)}>{server.status === "stopped" ? "Stopped" : `Health ${health.label}`}</span>
+                <span className={cn("rounded-full border px-2.5 py-0.5 text-xs font-medium sm:px-3 sm:py-1", iacSynced ? "border-green-500/30 bg-green-500/10 text-green-300" : "border-yellow-500/30 bg-yellow-500/10 text-yellow-200")}>{iacSynced ? "synced" : "unsynced"}</span>
               </div>
               <p className="mt-1 text-sm capitalize text-gray-500 dark:text-[#888]">{server.gameType.replace(/-/g, " ")}</p>
               {connectionString ? (
