@@ -381,6 +381,7 @@ type ServerViewMode = "detailed" | "compact";
 const SERVER_SORT_KEY = "infraweaver:game-hub-sort";
 const SERVER_FAVORITES_KEY = "infraweaver:game-hub-favorites";
 const SERVER_VIEW_KEY = "infraweaver:game-hub-view";
+const SERVER_COLLAPSED_KEY = "infraweaver:game-hub-collapsed";
 const CONFIG_VERSION = 1;
 const IMPORT_DRAFT_STORAGE_KEY = "infraweaver-game-server-draft";
 
@@ -655,6 +656,14 @@ export default function GameHubPage() {
       return "detailed";
     }
   });
+  const [collapsedServers, setCollapsedServers] = useState<Set<string>>(() => {
+    if (typeof window === "undefined") return new Set();
+    try {
+      return new Set(JSON.parse(localStorage.getItem(SERVER_COLLAPSED_KEY) ?? "[]") as string[]);
+    } catch {
+      return new Set();
+    }
+  });
   const [sortKey, setSortKey] = useState<ServerSortKey>(() => {
     if (typeof window === "undefined") return "health";
     try {
@@ -739,6 +748,14 @@ export default function GameHubPage() {
       // ignore
     }
   }, [viewMode]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SERVER_COLLAPSED_KEY, JSON.stringify([...collapsedServers]));
+    } catch {
+      // ignore
+    }
+  }, [collapsedServers]);
 
   useEffect(() => () => clearLongPress(), []);
 
@@ -995,6 +1012,14 @@ export default function GameHubPage() {
     });
   }
 
+  function toggleExpanded(name: string) {
+    setCollapsedServers((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name); else next.add(name);
+      return next;
+    });
+  }
+
   function openServerActions(name: string) {
     clearLongPress();
     setActiveActionServerName(name);
@@ -1030,6 +1055,7 @@ export default function GameHubPage() {
     const memoryPercent = getUsagePercent(server.memoryUsage, server.memoryLimit);
     const showTagControls = hoveredTagServer === server.name || editingTagServer === server.name;
     const notePreview = server.notes?.trim();
+    const isExpanded = !collapsedServers.has(server.name);
 
     return (
       <motion.div
@@ -1061,6 +1087,9 @@ export default function GameHubPage() {
               <button onClick={(event) => { event.stopPropagation(); toggleSelected(server.name); }} className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-400 dark:text-[#666] transition-colors hover:border-[#3a3a3a] hover:text-gray-900 dark:hover:text-white">
                 {selected.has(server.name) ? <CheckSquare className="h-4 w-4 text-[#0078D4]" /> : <SquareIcon className="h-4 w-4 text-gray-400 dark:text-[#666]" />}
               </button>
+              <button onClick={(event) => { event.stopPropagation(); toggleExpanded(server.name); }} aria-expanded={isExpanded} aria-label={isExpanded ? `Collapse ${server.name} details` : `Expand ${server.name} details`} className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-400 dark:text-[#666] transition-colors hover:border-[#3a3a3a] hover:text-gray-900 dark:hover:text-white" title={isExpanded ? "Collapse details" : "Expand details"}>
+                {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+              </button>
             </div>
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gray-50 dark:bg-[#252525] text-2xl flex-shrink-0">{cardIcon}</div>
             <div className="min-w-0">
@@ -1076,9 +1105,9 @@ export default function GameHubPage() {
                   <Copy className="h-3.5 w-3.5 flex-shrink-0" />
                 </button>
               ) : null}
-              {server.description ? <p className="mt-2 text-sm text-gray-600 dark:text-[#b3b3b3] line-clamp-2">{server.description}</p> : null}
-              {notePreview && viewMode === "detailed" ? <p title={notePreview} className="mt-2 text-xs text-gray-500 dark:text-[#8d8d8d] line-clamp-1">Note: {notePreview.slice(0, 60)}{notePreview.length > 60 ? "…" : ""}</p> : null}
-              {((server.tags ?? []).length > 0 || (server.groups ?? []).length > 0 || server.imageVersion || server.permissions?.canAdmin) && (
+              {isExpanded && server.description ? <p className="mt-2 text-sm text-gray-600 dark:text-[#b3b3b3] line-clamp-2">{server.description}</p> : null}
+              {isExpanded && notePreview && viewMode === "detailed" ? <p title={notePreview} className="mt-2 text-xs text-gray-500 dark:text-[#8d8d8d] line-clamp-1">Note: {notePreview.slice(0, 60)}{notePreview.length > 60 ? "…" : ""}</p> : null}
+              {isExpanded && ((server.tags ?? []).length > 0 || (server.groups ?? []).length > 0 || server.imageVersion || server.permissions?.canAdmin) && (
                 <div className="mt-3 space-y-2" onClick={(event) => event.stopPropagation()} onMouseEnter={() => setHoveredTagServer(server.name)} onMouseLeave={() => { setHoveredTagServer((current) => current === server.name ? null : current); if (editingTagServer === server.name) { setEditingTagServer(null); setTagDraft(""); } }}>
                   <div className="flex flex-wrap items-center gap-2">
                     {(server.tags ?? []).map((tag) => <span key={tag} className="rounded-full border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-3 py-1 text-sm text-gray-500 dark:text-[#9e9e9e] sm:text-xs">#{tag}</span>)}
@@ -1144,6 +1173,8 @@ export default function GameHubPage() {
             )}
           </div>
         </div>
+        {isExpanded ? (
+        <>
         <div className="grid grid-cols-2 gap-3 sm:hidden">
           {[
             { label: "Players", value: <span className="inline-flex items-center gap-1">{server.playerCount ?? 0}{playerTrend ? <span className={playerTrend.className}>{playerTrend.icon}</span> : null}</span> },
@@ -1182,6 +1213,8 @@ export default function GameHubPage() {
               </div>
             ) : null)}
           </div>
+        ) : null}
+        </>
         ) : null}
         <div className="grid grid-cols-2 gap-2 sm:hidden" onClick={(event) => event.stopPropagation()}>
           <Link href={`/game-hub/${server.name}`} className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-2xl bg-[rgba(0,120,212,0.15)] px-4 text-sm font-semibold text-[#4db3ff] transition-colors hover:bg-[rgba(0,120,212,0.25)]">
