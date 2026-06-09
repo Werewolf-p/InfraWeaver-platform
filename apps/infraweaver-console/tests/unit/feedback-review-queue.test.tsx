@@ -261,9 +261,11 @@ describe('FeedbackReview "Not fixed → retry" queue', () => {
       target: { value: "Button still does nothing" },
     });
 
-    // Act: request the retry and confirm the dialog.
+    // Act: request the retry. While a run is in flight the retry can only ever be
+    // queued, so the button skips the confirmation dialog and queues immediately —
+    // mirroring Approve, so it never feels dead.
     fireEvent.click(screen.getByRole("button", { name: /Not fixed/ }));
-    fireEvent.click(await screen.findByRole("button", { name: "Revert & retry" }));
+    expect(screen.queryByRole("button", { name: "Revert & retry" })).not.toBeInTheDocument();
 
     // Assert: the verdict is queued (persisted), not dispatched, and the queued
     // badge replaces the button.
@@ -297,6 +299,50 @@ describe('FeedbackReview "Not fixed → retry" queue', () => {
     await waitFor(() => {
       expect(JSON.parse(sessionStorage.getItem(VALIDATION_QUEUE_STORAGE_KEY) ?? "[]")).toEqual([]);
     });
+  });
+
+  it("keeps the revert/retry confirmation dialog when the pipeline is idle", async () => {
+    // Arrange: a dispatched entry with no run in flight (idle pipeline).
+    queryResult = {
+      data: { entries: [makeEntry("dispatched-1", { status: "dispatched", description: "Still broken" })] },
+      isLoading: false,
+      error: null,
+    };
+    render(<FeedbackReview />);
+    fireEvent.change(screen.getByPlaceholderText(/If not fixed/), {
+      target: { value: "Button still does nothing" },
+    });
+
+    // Act: request the retry — idle means it would run straight away, so the
+    // destructive-action confirmation is shown rather than skipped.
+    fireEvent.click(screen.getByRole("button", { name: /Not fixed/ }));
+
+    // Assert: the dialog appears and nothing has dispatched yet.
+    expect(await screen.findByRole("button", { name: "Revert & retry" })).toBeInTheDocument();
+    expect(patch).not.toHaveBeenCalled();
+
+    // Act: confirm — now the retry dispatches with the live note.
+    fireEvent.click(screen.getByRole("button", { name: "Revert & retry" }));
+    await waitFor(() => {
+      expect(patch).toHaveBeenCalledWith("/api/feedback/dispatched-1", {
+        json: { action: "not_fixed", reviewNote: "Button still does nothing" },
+      });
+    });
+  });
+
+  it("refuses to queue a retry when no note has been entered", async () => {
+    renderBusyDispatched();
+
+    // Act: click "Not fixed" with an empty note while a run is in flight.
+    fireEvent.click(screen.getByRole("button", { name: /Not fixed/ }));
+
+    // Assert: nothing is queued or dispatched — the missing note is rejected up
+    // front rather than failing silently at drain time.
+    await waitFor(() => {
+      expect(JSON.parse(sessionStorage.getItem(VALIDATION_QUEUE_STORAGE_KEY) ?? "[]")).toEqual([]);
+    });
+    expect(patch).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Retry queued/)).not.toBeInTheDocument();
   });
 
   it("prunes a queued retry whose entry is no longer dispatched", async () => {

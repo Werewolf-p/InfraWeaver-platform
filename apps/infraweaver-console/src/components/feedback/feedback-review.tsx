@@ -272,6 +272,13 @@ export function FeedbackReview() {
   // `validate` at drain time.
   const validateOrQueue = useCallback(
     (id: string) => {
+      // Defense in depth: never queue (or run) a retry without a note — it would
+      // otherwise be dropped silently when `validate` re-checks it at drain time.
+      // Mirrors the guard in `validate` and `requestRetry`.
+      if (!(notes[id] ?? "").trim()) {
+        toast.error("Add a note describing what's still broken so Claude can retry.");
+        return;
+      }
       if (pipelineBusy) {
         setQueuedValidations((prev) => (prev.includes(id) ? prev : [...prev, id]));
         toast.success("Queued — retry starts automatically when the current run finishes");
@@ -279,7 +286,7 @@ export function FeedbackReview() {
       }
       void validate(id, "not_fixed");
     },
-    [pipelineBusy, validate],
+    [notes, pipelineBusy, validate],
   );
 
   const cancelQueuedValidation = useCallback(
@@ -364,9 +371,17 @@ export function FeedbackReview() {
         toast.error("Add a note describing what's still broken so Claude can retry.");
         return;
       }
+      // Mirror Approve: when a run is already in flight the retry can only ever be
+      // queued, so skip the confirmation dialog (whose copy promises an immediate
+      // revert + ~15-min run) and queue it straight away. The destructive-action
+      // warning is kept for the idle case, where confirming runs it now.
+      if (pipelineBusy) {
+        validateOrQueue(entry.id);
+        return;
+      }
       setConfirmState({ kind: "retry", entry });
     },
-    [notes],
+    [notes, pipelineBusy, validateOrQueue],
   );
 
   const runConfirm = useCallback(() => {
