@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, Clock, ExternalLink, ListOrdered, Loader2, MessageSquarePlus, Rocket, Settings2, ThumbsDown, XCircle } from "lucide-react";
 import { PageScaffold } from "@/components/ui/page-scaffold";
 import { ConfirmDialog } from "@/components/ui";
+import { SectionTabs } from "@/components/ui/section-tabs";
 import { apiClient, toApiErrorMessage } from "@/lib/api-client";
 import { toast } from "@/lib/notify";
 import { useRBAC } from "@/hooks/use-rbac";
@@ -62,6 +63,31 @@ function summarize(text: string): string {
   const firstLine = text.split("\n")[0]?.trim() ?? "";
   return firstLine.length > 80 ? `${firstLine.slice(0, 79)}…` : firstLine || "(no description)";
 }
+
+/**
+ * Stage tabs, in pipeline order, so the board reads as a workflow. Each status
+ * is its own tab — terminal stages (`done` = published, `rejected` = denied) are
+ * tucked away on the right and never shown by default, keeping the reviewer's
+ * eyes on the entries that still need them.
+ */
+const TAB_ORDER: readonly FeedbackStatus[] = [
+  "new",
+  "approved",
+  "dispatched",
+  "accepted",
+  "done",
+  "rejected",
+];
+
+/** Per-stage tab icon, reusing the board's existing lucide vocabulary. */
+const TAB_ICON: Record<FeedbackStatus, typeof Rocket> = {
+  new: MessageSquarePlus,
+  approved: Loader2,
+  dispatched: ExternalLink,
+  accepted: CheckCircle2,
+  done: Rocket,
+  rejected: XCircle,
+};
 
 /**
  * Feedback review dashboard (client). Rendered only on the canonical console
@@ -151,6 +177,34 @@ export function FeedbackReview() {
   });
 
   const entries = useMemo(() => data?.entries ?? [], [data]);
+
+  // Which stage tab is open. Defaults to "new" (the reviewer's inbox); published
+  // ("done") and denied ("rejected") entries stay hidden until their tab is opened.
+  const [activeTab, setActiveTab] = useState<FeedbackStatus>("new");
+
+  // Entries bucketed by stage. Built fresh each pass (fresh object + fresh arrays),
+  // so no existing state is mutated.
+  const grouped = useMemo(() => {
+    const groups = Object.fromEntries(
+      TAB_ORDER.map((status) => [status, [] as FeedbackEntry[]]),
+    ) as Record<FeedbackStatus, FeedbackEntry[]>;
+    for (const entry of entries) groups[entry.status].push(entry);
+    return groups;
+  }, [entries]);
+
+  const tabs = useMemo(
+    () =>
+      TAB_ORDER.map((status) => ({
+        label: STATUS_COPY[status].label,
+        value: status,
+        icon: TAB_ICON[status],
+        badge: grouped[status].length,
+      })),
+    [grouped],
+  );
+
+  const visibleEntries = grouped[activeTab];
+
   const acceptedEntries = useMemo(() => entries.filter((e) => e.status === "accepted"), [entries]);
   const acceptedCount = acceptedEntries.length;
   const acceptedTitles = useMemo(() => acceptedEntries.map((e) => summarize(e.description)), [acceptedEntries]);
@@ -447,7 +501,7 @@ export function FeedbackReview() {
           </div>
         )}
 
-        {entries.length === 0 && (
+        {entries.length === 0 ? (
           <div className="flex flex-col items-center gap-2 py-12 text-center">
             <MessageSquarePlus className="h-6 w-6 text-gray-300 dark:text-[#444]" />
             <p className="text-sm text-gray-500 dark:text-[#888]">No feedback yet.</p>
@@ -455,9 +509,21 @@ export function FeedbackReview() {
               Reports submitted from the in-console “Report” button show up here for review.
             </p>
           </div>
-        )}
+        ) : (
+          <>
+            <SectionTabs
+              tabs={tabs}
+              activeTab={activeTab}
+              onTabChange={(value) => setActiveTab(value as FeedbackStatus)}
+            />
 
-        {entries.map((entry) => {
+            {visibleEntries.length === 0 && (
+              <p className="py-12 text-center text-sm text-gray-400 dark:text-[#555]">
+                No entries in “{STATUS_COPY[activeTab].label}”.
+              </p>
+            )}
+
+            {visibleEntries.map((entry) => {
           const Icon = TYPE_ICON[entry.type];
           const busy = busyId === entry.id;
           const testLink = buildTestLink(entry);
@@ -641,7 +707,9 @@ export function FeedbackReview() {
               )}
             </div>
           );
-        })}
+            })}
+          </>
+        )}
       </div>
 
       <ConfirmDialog

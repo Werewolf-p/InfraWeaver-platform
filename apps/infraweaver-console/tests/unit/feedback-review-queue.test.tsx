@@ -229,6 +229,39 @@ describe("FeedbackReview queue reordering", () => {
   });
 });
 
+describe("FeedbackReview stage tabs", () => {
+  beforeEach(() => {
+    sessionStorage.clear();
+    patch.mockClear();
+    invalidateQueries.mockClear();
+    queryResult = { data: undefined, isLoading: true, error: null };
+  });
+
+  it("hides published entries by default and reveals them when the tab is opened", () => {
+    queryResult = {
+      data: {
+        entries: [
+          makeEntry("new-1", { description: "Brand new report" }),
+          makeEntry("done-1", { status: "done", released: true, description: "Already published" }),
+        ],
+      },
+      isLoading: false,
+      error: null,
+    };
+    render(<FeedbackReview />);
+
+    // Default "new" tab: the new entry shows, the published one is hidden.
+    expect(screen.getByText("Brand new report")).toBeInTheDocument();
+    expect(screen.queryByText("Already published")).not.toBeInTheDocument();
+
+    // Open the "Live" (published) tab — now the published entry is revealed and
+    // the new one is hidden.
+    fireEvent.click(screen.getByRole("button", { name: /Live/ }));
+    expect(screen.getByText("Already published")).toBeInTheDocument();
+    expect(screen.queryByText("Brand new report")).not.toBeInTheDocument();
+  });
+});
+
 describe('FeedbackReview "Not fixed → retry" queue', () => {
   beforeEach(() => {
     sessionStorage.clear();
@@ -250,7 +283,10 @@ describe('FeedbackReview "Not fixed → retry" queue', () => {
       isLoading: false,
       error: null,
     };
-    return render(<FeedbackReview />);
+    const result = render(<FeedbackReview />);
+    // Stage tabs default to "new"; open "Ready to test" to reveal the dispatched entry.
+    fireEvent.click(screen.getByRole("button", { name: /Ready to test/ }));
+    return result;
   }
 
   it("queues the retry instead of locking the button while a run is in flight", async () => {
@@ -309,6 +345,8 @@ describe('FeedbackReview "Not fixed → retry" queue', () => {
       error: null,
     };
     render(<FeedbackReview />);
+    // Stage tabs default to "new"; open "Ready to test" to reveal the dispatched entry.
+    fireEvent.click(screen.getByRole("button", { name: /Ready to test/ }));
     fireEvent.change(screen.getByPlaceholderText(/If not fixed/), {
       target: { value: "Button still does nothing" },
     });
