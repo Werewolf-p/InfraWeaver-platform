@@ -3,7 +3,7 @@ import { STATUS_COPY, STATUS_STYLE, type FeedbackStatus } from "@/components/fee
 
 interface StatusPillProps {
   status: FeedbackStatus;
-  /** Live preview URL, present once the staging build for a `dispatched` entry is up. */
+  /** @deprecated No longer used — a `dispatched` entry is already built + deployed. */
   previewUrl?: string;
   className?: string;
 }
@@ -12,14 +12,14 @@ interface StatusPillProps {
  * Small status chip using plain-language wording (`STATUS_COPY`) instead of the
  * raw backend status, so a non-expert reviewer can read the board at a glance.
  *
- * A `dispatched` entry only becomes testable once its staging build lands and a
- * `previewUrl` exists; until then the pill says "Building on staging…" so it
- * never contradicts the "Updating staging deployment…" detail line below.
+ * A `dispatched` entry has already been built AND deployed to the live console
+ * (the dispatch pipeline only advances to `dispatched` after the live rollout),
+ * so it reads as "Ready to test" — never a perpetual "Building…" state. Live
+ * build/deploy progress is shown separately by the run console while the entry
+ * is still `approved`.
  */
-export function StatusPill({ status, previewUrl, className }: StatusPillProps) {
-  const isBuilding = status === "dispatched" && !previewUrl;
-  const label = isBuilding ? "Building on staging…" : STATUS_COPY[status].label;
-  const hint = isBuilding ? "Staging build in progress — testable once it lands." : STATUS_COPY[status].hint;
+export function StatusPill({ status, className }: StatusPillProps) {
+  const { label, hint } = STATUS_COPY[status];
 
   return (
     <span
