@@ -83,13 +83,6 @@ const WORKFLOW_AUTOMATIONS = [
     description: "Audits dependencies, Dockerfiles, secrets, TypeScript health, and SBOMs for all InfraWeaver apps.",
   },
   {
-    id: "build-console",
-    title: "Console deploy auto-rollback",
-    schedule: "On main pushes affecting apps/infraweaver-console",
-    file: ".github/workflows/build-console.yml",
-    description: "Builds, deploys, smoke-tests, and automatically rolls back when rollout verification fails.",
-  },
-  {
     id: "build-api",
     title: "API deploy auto-rollback",
     schedule: "On main pushes affecting apps/infraweaver-api",
