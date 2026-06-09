@@ -241,7 +241,10 @@ export function FeedbackReview() {
   // first queued id that is still awaiting review; dispatching re-arms
   // `pipelineBusy` synchronously, so this effect bails until the run completes.
   useEffect(() => {
-    if (pipelineBusy || queuedApprovals.length === 0) return;
+    // Bail while the initial fetch is in flight: `entries` is still `[]`, so the
+    // filter below would match nothing and wrongly prune every queued id. On
+    // refresh this would silently drop a restored queue before it can dispatch.
+    if (pipelineBusy || queuedApprovals.length === 0 || isLoading) return;
     const stillQueued = queuedApprovals.filter((id) =>
       entries.some((e) => e.id === id && e.status === "new"),
     );
@@ -252,7 +255,7 @@ export function FeedbackReview() {
     } else if (stillQueued.length !== queuedApprovals.length) {
       setQueuedApprovals(stillQueued); // prune entries that are no longer "new"
     }
-  }, [pipelineBusy, queuedApprovals, entries, updateStatus]);
+  }, [pipelineBusy, queuedApprovals, entries, updateStatus, isLoading]);
 
   // Confirm gates for the destructive / heavy actions.
   const requestDeny = useCallback((entry: FeedbackEntry) => setConfirmState({ kind: "deny", entry }), []);
