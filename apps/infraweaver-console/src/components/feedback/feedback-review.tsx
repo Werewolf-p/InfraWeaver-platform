@@ -389,7 +389,7 @@ export function FeedbackReview() {
                           ) : (
                             <Rocket className="h-3.5 w-3.5" />
                           )}
-                          {pipelineBusy ? "Queue for Claude" : "Approve → Claude"}
+                          Approve → Claude
                         </button>
                       )}
                       <button
