@@ -350,7 +350,7 @@ export function FeedbackReview() {
                     </span>
                   )}
                 </div>
-                <StatusPill status={entry.status} />
+                <StatusPill status={entry.status} previewUrl={entry.previewUrl} />
               </div>
 
               <p className="mb-2 whitespace-pre-wrap text-sm text-gray-700 dark:text-[#ccc]">{entry.description}</p>
