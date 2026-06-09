@@ -765,17 +765,6 @@ export default function GameHubPage() {
     refetchInterval: 15000,
   });
 
-  const { data: iacStatusData } = useQuery({
-    queryKey: ["game-hub", "servers", "iac-status"],
-    queryFn: async () => {
-      const res = await fetch("/api/game-hub/servers/iac-status");
-      if (!res.ok) throw new Error("Failed to fetch IaC status");
-      return res.json() as Promise<{ servers: Record<string, boolean> }>;
-    },
-    staleTime: 15000,
-    refetchInterval: 30000,
-  });
-
   const servers = data?.servers ?? [];
   const setupRequired = data?.setupRequired ?? false;
   const setupReason = data?.reason ?? "";
@@ -1035,7 +1024,6 @@ export default function GameHubPage() {
     const health = healthBadge(server);
     const cardIcon = server.icon ?? server.gameType[0]?.toUpperCase() ?? "🎮";
     const stoppedStyle = server.status === "stopped" ? "border-amber-500/30 bg-amber-500/10 text-amber-300" : (STATUS_COLORS[server.status] ?? STATUS_COLORS.stopped);
-    const iacSynced = iacStatusData?.servers?.[server.name] ?? server.inGit;
     const playerTrend = getPlayerTrend(server);
     const connectionString = getConnectionString(server);
     const cpuPercent = getUsagePercent(server.cpuUsage, server.cpuLimit);
@@ -1080,7 +1068,6 @@ export default function GameHubPage() {
                 <p className="truncate text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">{server.name}</p>
                 <span className={cn("rounded-full border px-2.5 py-0.5 text-xs font-medium capitalize sm:px-3 sm:py-1", stoppedStyle)}>{server.status}</span>
                 <span className={cn("rounded-full border px-2.5 py-0.5 text-xs font-medium sm:px-3 sm:py-1", health.className)}>{server.status === "stopped" ? "Stopped" : `Health ${health.label}`}</span>
-                <span className={cn("rounded-full border px-2.5 py-0.5 text-xs font-medium sm:px-3 sm:py-1", iacSynced ? "border-green-500/30 bg-green-500/10 text-green-300" : "border-yellow-500/30 bg-yellow-500/10 text-yellow-200")}>{iacSynced ? "synced" : "unsynced"}</span>
               </div>
               <p className="mt-1 text-sm capitalize text-gray-500 dark:text-[#888]">{server.gameType.replace(/-/g, " ")}</p>
               {connectionString ? (
