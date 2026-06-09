@@ -7,6 +7,16 @@ import { getGitProviderName, gitDeleteFile, gitReadFile, gitWriteFile } from "@/
 const DEFAULT_GITHUB_API_URL = "https://api.github.com";
 const DEFAULT_GITHUB_REPO = "your-org/your-repo";
 const GIT_SERVERS_PATH = "kubernetes/catalog/game-hub/servers";
+
+// Game servers are now managed imperatively by the console, which is the sole
+// owner of their lifecycle — they were intentionally dropped from GitOps (see
+// game-hub-dropped-from-gitops). Mirroring manifests to the git provider only
+// produced orphaned files under `kubernetes/catalog/game-hub/servers/` in
+// OneDev that no Argo app reconciled, and the per-server SHA reads spammed the
+// git API on every list. The mirror is disabled by default; set
+// GAME_HUB_GIT_MIRROR=true to re-enable the legacy behavior if it is ever
+// reattached to GitOps.
+const GIT_MIRROR_ENABLED = process.env.GAME_HUB_GIT_MIRROR === "true";
 const TRANSIENT_ANNOTATION_KEYS = new Set([
   "deployment.kubernetes.io/revision",
   "infraweaver.io/last-started",
@@ -203,12 +213,14 @@ export async function generateServerManifestYaml(name: string, clients: GameHubC
 }
 
 export async function readServerManifestSha(name: string): Promise<string | null> {
+  if (!GIT_MIRROR_ENABLED) return null;
   const path = manifestPath(name);
   const file = await gitReadFile(path);
   return file?.sha ?? null;
 }
 
 export async function writeServerManifest(name: string, clients: GameHubClients): Promise<void> {
+  if (!GIT_MIRROR_ENABLED) return;
   const { token } = getGitHubConfig();
   if (!token.trim()) {
     console.warn(`writeServerManifest skipped for ${name}: git credentials are not set`);
@@ -224,6 +236,7 @@ export async function writeServerManifest(name: string, clients: GameHubClients)
 }
 
 export async function deleteServerManifest(name: string): Promise<void> {
+  if (!GIT_MIRROR_ENABLED) return;
   const { token } = getGitHubConfig();
   if (!token.trim()) return;
 
