@@ -163,6 +163,36 @@ export function isKubernetesNotFoundError(error: unknown) {
   return getKubernetesErrorStatus(error) === 404 || /404|not\s*found/i.test(kubernetesErrorText(error));
 }
 
+export type ServerPowerStatus = "maintenance" | "running" | "stopping" | "stopped";
+
+/**
+ * Power-state portion of a game server's status, derived purely from the
+ * deployment's desired (spec) and observed (status) replica counts.
+ *
+ * "stopping" covers the graceful-shutdown window after a Stop: the desired
+ * count is 0 (so the in-game stop command has been sent and the workload
+ * scaled down) but pods are still terminating (status.replicas > 0). It is
+ * fully cluster-derived — there is no user-settable flag — and settles to
+ * "stopped" once the last pod exits.
+ *
+ * Returns null while the deployment wants pods but none are ready yet, so
+ * callers can layer their own transitional states (starting/installing/
+ * crash-loop) on top.
+ */
+export function derivePowerStatus(opts: {
+  maintenanceMode: boolean;
+  specReplicas: number | null | undefined;
+  statusReplicas: number;
+  readyReplicas: number;
+}): ServerPowerStatus | null {
+  if (opts.maintenanceMode) return "maintenance";
+  if ((opts.specReplicas ?? 0) === 0) {
+    return opts.statusReplicas > 0 ? "stopping" : "stopped";
+  }
+  if (opts.readyReplicas > 0) return "running";
+  return null;
+}
+
 export async function getServerDeployment(appsApi: k8s.AppsV1Api, name: string) {
   return appsApi.readNamespacedDeployment({ name, namespace: GAME_HUB_NS });
 }

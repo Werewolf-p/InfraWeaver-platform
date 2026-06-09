@@ -7,7 +7,7 @@ import { buildEggConfigMap, getEggEnvironmentDefaults, getEggForGameType, getEgg
 import { GAME_HUB_NAMESPACE, getGameHubAccessContext, getScopedGameServerNames, hasGameHubPermission } from "@/lib/game-hub";
 import { readServerManifestSha, writeServerManifest } from "@/lib/game-hub-manifest";
 import { buildUniversalGameServerProbes } from "@/lib/game-hub-probes";
-import { getNodeIp, getServerDeployment, makeGameHubClients, normalizeServerName, parseImageVersion, parsePlayerHistory, readServerEgg } from "@/lib/game-hub-server";
+import { derivePowerStatus, getNodeIp, getServerDeployment, makeGameHubClients, normalizeServerName, parseImageVersion, parsePlayerHistory, readServerEgg } from "@/lib/game-hub-server";
 import { getPelicanGameEgg } from "@/lib/pelican-eggs";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { getEffectivePermissions, hasPermission } from "@/lib/rbac";
@@ -598,7 +598,9 @@ export async function GET() {
       const replicas = deployment.status?.replicas ?? 0;
       const readyReplicas = deployment.status?.readyReplicas ?? 0;
       const maintenanceMode = deployment.metadata?.annotations?.["infraweaver/maintenance"] === "true";
-      const status = maintenanceMode ? "maintenance" : deployment.spec?.replicas === 0 ? "stopped" : readyReplicas > 0 ? "running" : replicas > 0 ? "starting" : "stopped";
+      const status =
+        derivePowerStatus({ maintenanceMode, specReplicas: deployment.spec?.replicas, statusReplicas: replicas, readyReplicas }) ??
+        (replicas > 0 ? "starting" : "stopped");
 
       let podName = "";
       let restartCount = 0;

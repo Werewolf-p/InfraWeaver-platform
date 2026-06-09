@@ -3861,25 +3861,30 @@ export default function ServerDetailPage() {
   // just-stopped pod terminates — that lag made a stopped server flash back to
   // "running"/"starting", looking like an auto-restart (feedback df5a9e3b). The
   // list page already consumes server.status directly; this realigns the detail
-  // page. Transitional API states (installing/crash-loop/crashed) collapse to
-  // "starting" to stay within the four states the UI renders.
+  // page. "stopping" is the graceful-shutdown window (in-game stop command sent,
+  // pod still terminating) and gets its own state. Other transitional API states
+  // (installing/crash-loop/crashed) collapse to "starting".
   const status = server?.maintenanceMode
     ? "maintenance"
     : server?.status === "running"
       ? "running"
-      : !server?.status || server.status === "stopped"
-        ? "stopped"
-        : "starting";
+      : server?.status === "stopping"
+        ? "stopping"
+        : !server?.status || server.status === "stopped"
+          ? "stopped"
+          : "starting";
   const mountPath = server?.egg?.mountPath ?? "/data";
   const statusDot = {
     running: "bg-green-400",
     starting: "bg-yellow-400 animate-pulse",
+    stopping: "bg-amber-500 animate-pulse",
     maintenance: "bg-yellow-400",
     stopped: "bg-[#444]",
   }[status];
   const statusText = {
     running: "text-green-400",
     starting: "text-yellow-400",
+    stopping: "text-amber-500",
     maintenance: "text-yellow-400",
     stopped: "text-gray-400 dark:text-[#666]",
   }[status];

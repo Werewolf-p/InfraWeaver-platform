@@ -9,6 +9,7 @@ import {
   appendServerAudit,
   buildPowerScheduleCron,
   checkPortReachable,
+  derivePowerStatus,
   createCronJob,
   deleteCronJob,
   GAME_HUB_NS,
@@ -307,21 +308,22 @@ async function buildResponse(name: string, limitedToken = false, access?: Awaite
     const yaml = await import("js-yaml");
     deploymentYaml = yaml.dump(deployment, { skipInvalid: true });
   }
-  const status = maintenanceMode
-    ? "maintenance"
-    : deployment.spec?.replicas === 0
-      ? "stopped"
-      : (deployment.status?.readyReplicas ?? 0) > 0
-        ? "running"
-        : isCrashLoop
-          ? "crash-loop"
-          : isCrashedOnce
-            ? "crashed"
-            : hasInstallingInitContainer
-              ? "installing"
-              : (deployment.status?.replicas ?? 0) > 0
-                ? "starting"
-                : "stopped";
+  const status =
+    derivePowerStatus({
+      maintenanceMode,
+      specReplicas: deployment.spec?.replicas,
+      statusReplicas: deployment.status?.replicas ?? 0,
+      readyReplicas: deployment.status?.readyReplicas ?? 0,
+    }) ??
+    (isCrashLoop
+      ? "crash-loop"
+      : isCrashedOnce
+        ? "crashed"
+        : hasInstallingInitContainer
+          ? "installing"
+          : (deployment.status?.replicas ?? 0) > 0
+            ? "starting"
+            : "stopped");
 
   // When restart-on-crash is disabled and the server is crash-looping, auto-stop it.
   // Runs as a side-effect of status polling so the UI catches it within one poll interval.

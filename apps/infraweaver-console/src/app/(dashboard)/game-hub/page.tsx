@@ -67,6 +67,7 @@ interface UnusedPVC {
 const STATUS_COLORS: Record<string, string> = {
   running: "bg-green-500/20 text-green-300 border-green-500/30",
   starting: "bg-yellow-500/20 text-yellow-300 border-yellow-500/30",
+  stopping: "bg-amber-500/20 text-amber-300 border-amber-500/30",
   stopped: "bg-[#333] text-gray-500 dark:text-[#999] border-gray-200 dark:border-[#444]",
   crashed: "bg-red-500/20 text-red-300 border-red-500/30",
 };

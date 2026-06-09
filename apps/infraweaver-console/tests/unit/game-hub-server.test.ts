@@ -28,7 +28,40 @@ jest.mock("@kubernetes/client-node", () => {
   };
 });
 
-import { buildConsoleInputScript, forceStopServer, isKubernetesNotFoundError, scaleServerWorkload } from "@/lib/game-hub-server";
+import { buildConsoleInputScript, derivePowerStatus, forceStopServer, isKubernetesNotFoundError, scaleServerWorkload } from "@/lib/game-hub-server";
+
+describe("derivePowerStatus", () => {
+  it("reports maintenance regardless of replica counts", () => {
+    expect(
+      derivePowerStatus({ maintenanceMode: true, specReplicas: 1, statusReplicas: 1, readyReplicas: 1 }),
+    ).toBe("maintenance");
+  });
+
+  it("reports stopping while pods are still terminating after a stop", () => {
+    // Stop scales spec.replicas to 0, but the pod lingers during graceful shutdown.
+    expect(
+      derivePowerStatus({ maintenanceMode: false, specReplicas: 0, statusReplicas: 1, readyReplicas: 0 }),
+    ).toBe("stopping");
+  });
+
+  it("reports stopped once the last pod has exited", () => {
+    expect(
+      derivePowerStatus({ maintenanceMode: false, specReplicas: 0, statusReplicas: 0, readyReplicas: 0 }),
+    ).toBe("stopped");
+  });
+
+  it("reports running when at least one pod is ready", () => {
+    expect(
+      derivePowerStatus({ maintenanceMode: false, specReplicas: 1, statusReplicas: 1, readyReplicas: 1 }),
+    ).toBe("running");
+  });
+
+  it("returns null while scaling up so callers can layer transitional states", () => {
+    expect(
+      derivePowerStatus({ maintenanceMode: false, specReplicas: 1, statusReplicas: 1, readyReplicas: 0 }),
+    ).toBeNull();
+  });
+});
 
 describe("game hub server helpers", () => {
   it("builds a safe exec script for console input", () => {
