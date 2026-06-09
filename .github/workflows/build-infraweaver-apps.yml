@@ -28,25 +28,11 @@ jobs:
             ghcr.io/werewolf-p/infraweaver-api:latest
             ghcr.io/werewolf-p/infraweaver-api:${{ github.sha }}
 
-  build-console:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: actions/checkout@v4
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@v6
-        with:
-          context: apps/infraweaver-console
-          push: true
-          tags: |
-            ghcr.io/werewolf-p/infraweaver-console:latest
-            ghcr.io/werewolf-p/infraweaver-console:${{ github.sha }}
+  # NOTE: the console is built in-cluster (BuildKit -> Zot) by the feedback
+  # dispatch pipeline, and the live console deployment is pinned to that Zot
+  # image. Building it here too produced a duplicate, orphaned GHCR image (and
+  # collided with the now-removed build-console.yml). Console builds are
+  # intentionally NOT part of this workflow.
 
   build-node:
     runs-on: ubuntu-latest
